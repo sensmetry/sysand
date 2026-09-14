@@ -10,7 +10,7 @@ use fluent_uri::Iri;
 use reqwest_middleware::ClientWithMiddleware;
 use sysand_core::{
     auth::HTTPAuthentication,
-    commands::lock::DEFAULT_LOCKFILE_NAME,
+    commands::{lock::DEFAULT_LOCKFILE_NAME, sync::SyncOutcome},
     config::{
         Config,
         local_fs::{CONFIG_FILE, remove_project_source_from_config},
@@ -219,6 +219,7 @@ fn lock_sync<Policy: HTTPAuthentication>(
                         auth_policy,
                         ctx.current_workspace.as_ref(),
                         no_prune,
+                        &mut SyncOutcome::default(),
                     )?;
                 }
             }

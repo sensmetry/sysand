@@ -1,19 +1,21 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use std::convert::Infallible;
+use std::{collections::HashMap, convert::Infallible, num::NonZeroU64};
 
 use indexmap::IndexMap;
 use semver::Version;
+use typed_path::Utf8UnixPathBuf;
 
 use crate::{
     env::{
         ProjectChecksumResult, ReadEnvironment as _, WriteEnvironment as _,
         memory::MemoryStorageEnvironment, utils::clone_project,
     },
+    lock::{Lock, Project, Source},
     model::{InterchangeProjectInfo, InterchangeProjectMetadata},
     project::{ProjectChecksum, ProjectMut as _, ProjectRead as _, memory::InMemoryProject},
-    sync::{SyncError, try_install},
+    sync::{SyncError, SyncOutcome, SyncedProject, do_sync, try_install},
 };
 
 fn new_env() -> MemoryStorageEnvironment<InMemoryProject> {
@@ -194,4 +196,136 @@ fn has_version_verified_version_not_found_for_known_uri() {
         env.has_version_verified(uri, "9.9.9", &checksum).unwrap(),
         ProjectChecksumResult::VersionNotFound
     );
+}
+
+// --- do_sync outcome ------------------------------------------------------
+
+type NoRemoteSrc = fn(String, String) -> Result<InMemoryProject, Infallible>;
+type NoKparPath =
+    fn(Utf8UnixPathBuf, NonZeroU64, String, Option<String>, String) -> InMemoryProject;
+type NoRemoteKpar = fn(String, NonZeroU64, String) -> Result<InMemoryProject, Infallible>;
+type NoGit = fn(String) -> Result<InMemoryProject, Infallible>;
+
+const URI: &str = "urn:kpar:install_test";
+
+fn example_checksum() -> String {
+    match storage_example().checksum_canonical_variant().unwrap() {
+        ProjectChecksum::Project(c) | ProjectChecksum::Kpar(c) => c,
+    }
+}
+
+fn local_src_entry() -> Project {
+    Project {
+        publisher: None,
+        name: "install_test".into(),
+        version: "1.2.3".into(),
+        exports: vec![],
+        identifiers: vec![URI.into()],
+        usages: vec![],
+        sources: vec![Source::LocalSrc {
+            src_path: "install_test".into(),
+            checksum: example_checksum(),
+        }],
+    }
+}
+
+fn lock_of(projects: Vec<Project>) -> Lock {
+    Lock {
+        lock_version: String::new(),
+        projects,
+    }
+}
+
+fn run_sync(
+    lock: &Lock,
+    env: &mut MemoryStorageEnvironment<InMemoryProject>,
+    no_prune: bool,
+) -> (
+    Result<(), SyncError<Infallible, Infallible, MemoryStorageEnvironment<InMemoryProject>>>,
+    SyncOutcome,
+) {
+    let mut outcome = SyncOutcome::default();
+    let result = do_sync(
+        lock,
+        env,
+        Some(
+            |_src_path: Utf8UnixPathBuf,
+             _publisher: Option<String>,
+             _name: String,
+             _checksum: String| storage_example(),
+        ),
+        None::<NoRemoteSrc>,
+        None::<NoKparPath>,
+        None::<NoRemoteKpar>,
+        None::<NoRemoteKpar>,
+        None::<NoGit>,
+        &HashMap::default(),
+        no_prune,
+        &mut outcome,
+    );
+    (result, outcome)
+}
+
+fn install_extra(env: &mut MemoryStorageEnvironment<InMemoryProject>) {
+    let storage = storage_example();
+    let checksum = storage.checksum_canonical_variant().unwrap();
+    env.put_project("urn:kpar:extra", "0.1.0", Some(checksum), |p| {
+        clone_project(&storage, p, true).map(|_| ())
+    })
+    .unwrap();
+}
+
+fn synced(iri: &str, version: &str) -> SyncedProject {
+    SyncedProject {
+        iri: iri.into(),
+        version: version.into(),
+    }
+}
+
+fn env_uris(env: &MemoryStorageEnvironment<InMemoryProject>) -> Vec<String> {
+    let mut uris: Vec<String> = env
+        .uris()
+        .unwrap()
+        .into_iter()
+        .map(Result::unwrap)
+        .collect();
+    uris.sort();
+    uris.dedup();
+    uris
+}
+
+#[test]
+fn sync_outcome_reports_install_then_keep() {
+    let lock = lock_of(vec![local_src_entry()]);
+    let mut env = new_env();
+
+    let (result, outcome) = run_sync(&lock, &mut env, false);
+    result.unwrap();
+    assert_eq!(outcome.installed, vec![synced(URI, "1.2.3")]);
+    assert!(outcome.kept.is_empty() && outcome.pruned.is_empty());
+    assert!(outcome.wrote());
+
+    let (result, outcome) = run_sync(&lock, &mut env, false);
+    result.unwrap();
+    assert_eq!(outcome.kept, vec![synced(URI, "1.2.3")]);
+    assert!(outcome.installed.is_empty() && outcome.pruned.is_empty());
+    assert!(!outcome.wrote());
+}
+
+#[test]
+fn sync_outcome_reports_pruned_unless_no_prune() {
+    let mut env = new_env();
+    install_extra(&mut env);
+    let lock = lock_of(vec![local_src_entry()]);
+
+    let (result, outcome) = run_sync(&lock, &mut env, true);
+    result.unwrap();
+    assert!(outcome.pruned.is_empty());
+    assert_eq!(env_uris(&env), vec!["urn:kpar:extra", URI]);
+
+    let (result, outcome) = run_sync(&lock, &mut env, false);
+    result.unwrap();
+    assert_eq!(outcome.pruned, vec![synced("urn:kpar:extra", "0.1.0")]);
+    assert_eq!(outcome.kept, vec![synced(URI, "1.2.3")]);
+    assert_eq!(env_uris(&env), vec![URI]);
 }

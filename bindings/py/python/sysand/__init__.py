@@ -21,6 +21,8 @@ from ._model import (
     LockedProject,
     LockResult,
     ProvidedProject,
+    SyncedProject,
+    SyncOutcome,
 )
 
 from ._errors import (
@@ -45,6 +47,8 @@ from ._info import info_path, info
 from ._versions import versions
 
 from ._lock import lock
+
+from ._sync import sync
 
 from . import env
 
@@ -108,6 +112,8 @@ __all__ = [
     "LockedProject",
     "LockResult",
     "ProvidedProject",
+    "SyncedProject",
+    "SyncOutcome",
     ## Errors
     "SysandError",
     "ProjectError",
@@ -136,6 +142,8 @@ __all__ = [
     "versions",
     ## lock
     "lock",
+    ## sync
+    "sync",
     ## Init
     "init",
     ## Build

@@ -25,7 +25,7 @@ use sysand_core::{
         HTTPAuthentication, StandardHTTPAuthentication, StandardHTTPAuthenticationBuilder,
         StandardLazyHTTPAuthentication,
     },
-    commands::lock::DEFAULT_LOCKFILE_NAME,
+    commands::{lock::DEFAULT_LOCKFILE_NAME, sync::SyncOutcome},
     config::{
         Config,
         local_fs::{get_config, load_configs},
@@ -477,7 +477,9 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 auth_policy,
                 ctx.current_workspace.as_ref(),
                 no_prune,
-            )
+                &mut SyncOutcome::default(),
+            )?;
+            Ok(())
         }
         Command::Auth { .. } => {
             unreachable!("`auth` is dispatched before the auth policy is built")

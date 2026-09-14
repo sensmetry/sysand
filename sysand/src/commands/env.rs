@@ -10,7 +10,7 @@ use fluent_uri::Iri;
 
 use sysand_core::{
     auth::HTTPAuthentication,
-    commands::{env::do_env_local_dir, lock::LockOutcome},
+    commands::{env::do_env_local_dir, lock::LockOutcome, sync::SyncOutcome},
     config::Config,
     context::ProjectContext,
     env::local_directory::LocalDirectoryEnvironment,
@@ -185,6 +185,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
             ctx.current_workspace.as_ref(),
             // Since this explicitly installs into env, it would not make sense to prune
             true,
+            &mut SyncOutcome::default(),
         )?;
     }
 
@@ -334,6 +335,7 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
             ctx.current_workspace.as_ref(),
             // Since this explicitly installs into env, it would not make sense to prune
             true,
+            &mut SyncOutcome::default(),
         )?;
     }
 

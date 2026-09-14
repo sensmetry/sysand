@@ -10,7 +10,10 @@ use fluent_uri::Iri;
 use sysand_core::{
     add::do_add,
     auth::HTTPAuthentication,
-    commands::lock::{DEFAULT_LOCKFILE_NAME, LockOutcome, do_lock_local_editable},
+    commands::{
+        lock::{DEFAULT_LOCKFILE_NAME, LockOutcome, do_lock_local_editable},
+        sync::SyncOutcome,
+    },
     config::{
         Config, ConfigProject, OverrideSource,
         local_fs::{CONFIG_FILE, add_project_source_to_config},
@@ -418,6 +421,7 @@ pub fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
             auth_policy,
             ctx.current_workspace.as_ref(),
             no_prune,
+            &mut SyncOutcome::default(),
         )?;
     }
     Ok(())

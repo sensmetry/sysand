@@ -3,13 +3,14 @@
 
 use std::{num::NonZeroU64, sync::Arc};
 
-use anyhow::Result;
 use camino::Utf8Path;
+use thiserror::Error;
 use typed_path::Utf8UnixPathBuf;
 use url::ParseError;
 
 use sysand_core::{
     auth::HTTPAuthentication,
+    commands::sync::{SyncError, SyncOutcome},
     env::local_directory::LocalDirectoryEnvironment,
     lock::Lock,
     project::{
@@ -21,11 +22,29 @@ use sysand_core::{
             ReqwestIndexKparDownloadedProject, ReqwestRemoteKparDownloadedProject,
         },
         reqwest_src::ReqwestSrcProjectAsync,
+        utils::FsIoError,
     },
     utils::ProvidedProjects,
     workspace::Workspace,
 };
 
+/// The `SyncError` instantiation `command_sync` fails with when the sync
+/// itself fails.
+pub type CliSyncError = SyncError<ParseError, GixDownloadedError, LocalDirectoryEnvironment>;
+
+/// Why `command_sync` failed.
+#[derive(Debug, Error)]
+pub enum CommandSyncError {
+    /// The sync itself, see `SyncError`.
+    #[error(transparent)]
+    Sync(#[from] CliSyncError),
+    /// Writing the environment metadata after a completed sync.
+    #[error(transparent)]
+    WriteMetadata(#[from] Box<FsIoError>),
+}
+
+/// Install the lockfile into `env`. `outcome` is filled in progressively,
+/// so on `Err` it holds what was installed and pruned before the failure.
 pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     lock: &Lock,
     project_root: P,
@@ -36,7 +55,8 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     auth_policy: Arc<Policy>,
     ws: Option<&Workspace>,
     no_prune: bool,
-) -> Result<()> {
+    outcome: &mut SyncOutcome,
+) -> Result<(), CommandSyncError> {
     #[expect(clippy::or_fun_call, reason = "cheap")]
     let relative_root = ws.map_or(project_root.as_ref(), Workspace::root_path);
     sysand_core::commands::sync::do_sync(
@@ -138,6 +158,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         ),
         provided_usages,
         no_prune,
+        outcome,
     )?;
 
     env.merge_lock(lock, ws);

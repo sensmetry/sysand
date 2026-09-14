@@ -10,7 +10,10 @@ use std::{collections::HashMap, fs, io::ErrorKind, sync::Arc};
 
 use sysand_core::{
     auth::HTTPAuthentication,
-    commands::lock::{DEFAULT_LOCKFILE_NAME, LockOutcome},
+    commands::{
+        lock::{DEFAULT_LOCKFILE_NAME, LockOutcome},
+        sync::SyncOutcome,
+    },
     config::Config,
     context::ProjectContext,
     env::{local_directory::utils::clean_dir, utils::clone_project},
@@ -173,6 +176,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
             auth_policy,
             ctx.current_workspace.as_ref(),
             false,
+            &mut SyncOutcome::default(),
         )?;
     }
 

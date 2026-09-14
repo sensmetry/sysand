@@ -290,12 +290,17 @@ impl ReadEnvironment for LocalDirectoryEnvironment {
     type UriIter = Vec<Result<String, LocalReadError>>;
 
     fn uris(&self) -> Result<Self::UriIter, Self::ReadError> {
-        Ok(self
-            .metadata
-            .projects
-            .iter()
-            .filter_map(|p| p.identifiers.first().map(|p| Ok(p.clone())))
-            .collect())
+        // `projects` has one entry per installed version, in the order they
+        // were installed; list each project's first identifier once.
+        let mut uris: Vec<&str> = Vec::new();
+        for project in &self.metadata.projects {
+            if let Some(uri) = project.identifiers.first()
+                && !uris.contains(&uri.as_str())
+            {
+                uris.push(uri);
+            }
+        }
+        Ok(uris.into_iter().map(|uri| Ok(uri.to_owned())).collect())
     }
 
     type VersionIter = Vec<Result<String, LocalReadError>>;
@@ -593,3 +598,7 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "./mod_tests.rs"]
+mod tests;

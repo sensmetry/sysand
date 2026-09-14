@@ -364,6 +364,7 @@ fn install_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
 
 /// `--allow-multiple` lets a different version of an already-installed project
 /// be installed alongside it; the same version still triggers an error.
+/// `env list` then names each installed version once.
 #[test]
 fn env_install_allow_multiple() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, _) = run_sysand(["env"], None)?;
@@ -455,6 +456,12 @@ fn env_install_allow_multiple() -> Result<(), Box<dyn std::error::Error>> {
     .stderr(predicate::str::contains(
         "project with IRI `urn:kpar:allow-multiple-lib` already has version `1.0.0` installed",
     ));
+
+    // The project is listed once per installed version
+    run_sysand_in(&cwd, ["env", "list"], None)?
+        .assert()
+        .success()
+        .stdout("`urn:kpar:allow-multiple-lib` 1.0.0\n`urn:kpar:allow-multiple-lib` 2.0.0\n");
 
     Ok(())
 }
