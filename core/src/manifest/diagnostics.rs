@@ -274,6 +274,12 @@ impl<T> Validated<T> {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct UnknownKeys(Vec<String>);
 
+impl FromIterator<String> for UnknownKeys {
+    fn from_iter<I: IntoIterator<Item = String>>(iter: I) -> Self {
+        Self(iter.into_iter().collect())
+    }
+}
+
 impl UnknownKeys {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
