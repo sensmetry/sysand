@@ -39,24 +39,7 @@ use super::{
     utils::{FsIoError, ProjectDeserializationError, ProjectSerializationError, validate_manifest},
 };
 
-/// Which manifest a directory holds, and so which kind of project it is.
-///
-/// model-toml.md "Mixed manifests": a directory with only json config or
-/// only toml config is supported without warnings, and one with both is
-/// an error -- "it's unclear if the project is meant to be a non-zipped
-/// KPAR, or dev project".
-///
-/// The json side is *either* of the two json manifests, not both, which
-/// is how the rest of this code base already treats the pair: a
-/// directory holding only a `.meta.json` is a broken json project rather
-/// than a directory without one.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ProjectFormat {
-    Json,
-    Toml,
-    Both,
-    Neither,
-}
+pub use crate::project::ProjectFormat;
 
 /// Which manifests `dir` holds.
 ///
@@ -561,6 +544,10 @@ impl ProjectRead for LocalSrcProject {
 
     fn project_root(&self) -> Option<&Utf8Path> {
         Some(&self.project_path)
+    }
+
+    fn format(&self) -> Result<ProjectFormat, Self::Error> {
+        Ok(detect_format(&self.project_path)?)
     }
 
     fn get_project(

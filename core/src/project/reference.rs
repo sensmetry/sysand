@@ -7,7 +7,7 @@ use crate::{
     context::ProjectContext,
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::ProjectRead,
+    project::{ProjectFormat, ProjectRead},
 };
 
 // Arc wrapper around project to make cloning possible
@@ -34,6 +34,12 @@ impl<Project: ProjectRead> Clone for ProjectReference<Project> {
 }
 
 impl<Project: ProjectRead> ProjectRead for ProjectReference<Project> {
+    /// Forwarded, not defaulted: this type wraps another project, and
+    /// the default would claim json for a `model.toml` project it holds.
+    fn format(&self) -> Result<ProjectFormat, Self::Error> {
+        self.project.format()
+    }
+
     type Error = Project::Error;
 
     fn get_project(

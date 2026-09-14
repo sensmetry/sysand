@@ -484,3 +484,41 @@ fn including_a_file_does_not_turn_a_toml_project_into_both() {
         ProjectFormat::Toml
     );
 }
+
+// ----- which format a project says it is -----
+
+#[test]
+fn a_json_project_reports_the_json_format() {
+    let dir = tempdir().expect("a temporary directory");
+    write_project_json(dir.path(), "{}");
+    assert_eq!(
+        toml_project(dir.path()).format().expect("readable"),
+        ProjectFormat::Json
+    );
+}
+
+#[test]
+fn a_model_toml_project_reports_the_toml_format() {
+    let dir = tempdir().expect("a temporary directory");
+    write_model_toml(dir.path(), TOML_REQUIRED);
+    assert_eq!(
+        toml_project(dir.path()).format().expect("readable"),
+        ProjectFormat::Toml
+    );
+}
+
+/// The case the default answer would get wrong: an editable project
+/// wraps the project a `dir` usage resolves to, so taking the default
+/// would report json for a `model.toml` target.
+#[test]
+fn an_editable_project_reports_the_format_of_what_it_wraps() {
+    use crate::project::editable::EditableProject;
+
+    let dir = tempdir().expect("a temporary directory");
+    write_model_toml(dir.path(), TOML_REQUIRED);
+    let wrapped = EditableProject::new(
+        typed_path::Utf8UnixPathBuf::from("lib"),
+        toml_project(dir.path()),
+    );
+    assert_eq!(wrapped.format().expect("readable"), ProjectFormat::Toml);
+}
