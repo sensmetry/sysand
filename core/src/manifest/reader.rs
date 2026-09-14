@@ -25,6 +25,7 @@
 
 use toml::Value;
 
+use crate::manifest::common::Maintainer;
 use crate::manifest::diagnostics::{Diagnostic, KeyLocation, Position, ReadWarning, Report};
 use crate::manifest::spans::Positions;
 
@@ -308,6 +309,69 @@ fn dotted(location: &KeyLocation, key: &str) -> String {
 
 fn nested(location: &KeyLocation, key: &str) -> KeyLocation {
     KeyLocation::Table(dotted(location, key))
+}
+
+/// A value whose own error already says everything (an identifier, a
+/// maintainer): the message is the error's, positioned at the key.
+pub fn parsed<T, E: std::fmt::Display>(
+    result: Result<T, E>,
+    reader: &TableReader<'_>,
+    key: &str,
+    report: &mut Report,
+) -> Option<T> {
+    match result {
+        Ok(value) => Some(value),
+        Err(error) => {
+            report.push(Diagnostic::error(error.to_string()).at_opt(reader.at(key)));
+            None
+        }
+    }
+}
+
+/// A value whose error does not name the key or the value it came from,
+/// so the message says both and then does not hide the underlying error.
+pub fn checked<T, E: std::fmt::Display>(
+    result: Result<T, E>,
+    reader: &TableReader<'_>,
+    key: &str,
+    raw: &str,
+    expected: &str,
+    report: &mut Report,
+) -> Option<T> {
+    match result {
+        Ok(value) => Some(value),
+        Err(error) => {
+            report.push(
+                Diagnostic::error(format!(
+                    "{} sets `{key} = \"{raw}\"`, which is not {expected}: {error}",
+                    reader.location()
+                ))
+                .at_opt(reader.at(key)),
+            );
+            None
+        }
+    }
+}
+
+/// model-toml.md `maintainers`: "array of strings, each of the form
+/// `name <email>`". Every entry that is not is reported at itself.
+pub fn maintainers(reader: &TableReader<'_>, report: &mut Report) -> Option<Vec<Maintainer>> {
+    let raw = reader.strings("maintainers", report)?;
+    let mut maintainers = Vec::with_capacity(raw.len());
+    let mut complete = true;
+    for (index, entry) in raw.iter().enumerate() {
+        match Maintainer::parse(entry) {
+            Ok(maintainer) => maintainers.push(maintainer),
+            Err(error) => {
+                report.push(
+                    Diagnostic::error(error.to_string())
+                        .at_opt(reader.at_element("maintainers", index)),
+                );
+                complete = false;
+            }
+        }
+    }
+    complete.then_some(maintainers)
 }
 
 #[cfg(test)]

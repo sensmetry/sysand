@@ -23,7 +23,7 @@ use typed_path::Utf8UnixPathBuf;
 
 use crate::manifest::common::{InheritFrom, Maintainer, ResolvedUrls, is_valid_group_name};
 use crate::manifest::diagnostics::{Diagnostic, KeyLocation, ReadWarning, Report, Validated};
-use crate::manifest::reader::TableReader;
+use crate::manifest::reader::{TableReader, checked, maintainers, parsed};
 use crate::manifest::spans::Positions;
 use crate::manifest::usage::{Usage, UsageRaw, UsageSite, check_duplicates};
 use crate::model::{IndexPublisher, Metamodel};
@@ -262,69 +262,6 @@ fn read_group(
         urls,
         inline_usages,
     }
-}
-
-/// A value whose own error already says everything (an identifier, a
-/// maintainer): the message is the error's, positioned at the key.
-fn parsed<T, E: std::fmt::Display>(
-    result: Result<T, E>,
-    reader: &TableReader<'_>,
-    key: &str,
-    report: &mut Report,
-) -> Option<T> {
-    match result {
-        Ok(value) => Some(value),
-        Err(error) => {
-            report.push(Diagnostic::error(error.to_string()).at_opt(reader.at(key)));
-            None
-        }
-    }
-}
-
-/// A value whose error does not name the key or the value it came from,
-/// so the message says both and then does not hide the underlying error.
-fn checked<T, E: std::fmt::Display>(
-    result: Result<T, E>,
-    reader: &TableReader<'_>,
-    key: &str,
-    raw: &str,
-    expected: &str,
-    report: &mut Report,
-) -> Option<T> {
-    match result {
-        Ok(value) => Some(value),
-        Err(error) => {
-            report.push(
-                Diagnostic::error(format!(
-                    "{} sets `{key} = \"{raw}\"`, which is not {expected}: {error}",
-                    reader.location()
-                ))
-                .at_opt(reader.at(key)),
-            );
-            None
-        }
-    }
-}
-
-/// model-toml.md `maintainers`: "array of strings, each of the form
-/// `name <email>`". Every entry that is not is reported at itself.
-fn maintainers(reader: &TableReader<'_>, report: &mut Report) -> Option<Vec<Maintainer>> {
-    let raw = reader.strings("maintainers", report)?;
-    let mut maintainers = Vec::with_capacity(raw.len());
-    let mut complete = true;
-    for (index, entry) in raw.iter().enumerate() {
-        match Maintainer::parse(entry) {
-            Ok(maintainer) => maintainers.push(maintainer),
-            Err(error) => {
-                report.push(
-                    Diagnostic::error(error.to_string())
-                        .at_opt(reader.at_element("maintainers", index)),
-                );
-                complete = false;
-            }
-        }
-    }
-    complete.then_some(maintainers)
 }
 
 fn urls(reader: &TableReader<'_>, report: &mut Report) -> Option<ResolvedUrls> {
