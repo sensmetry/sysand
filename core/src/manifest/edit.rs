@@ -29,15 +29,17 @@ use thiserror::Error;
 use toml_edit::{Array, ArrayOfTables, Decor, DocumentMut, Item, Table, Value, value};
 use typed_path::Utf8UnixPathBuf;
 
-use crate::manifest::common::{InheritFrom, NormalizedIdentity, Sources, SourcesError};
+use crate::manifest::common::{
+    InheritFrom, NormalizedIdentity, Sources, SourcesError, normalized_identity,
+};
 use crate::manifest::diagnostics::Diagnostic;
 use crate::manifest::inherit::{Inherited, MetaProperty};
 use crate::manifest::project::{PROJECT_KEYS, ProjectTable, URL_KEYS, Urls};
 use crate::manifest::spans::Source;
-use crate::manifest::usage::UsageRaw;
+use crate::manifest::usage::{MemberUsage, UsageRaw};
 use crate::manifest::workspace_table::{GROUP_KEYS, GroupProperties, WorkspaceTable};
 use crate::manifest::{ModelToml, SUPPORTED_MANIFEST_VERSION};
-use crate::model::IndexPublisher;
+use crate::model::{IndexName, IndexPublisher};
 
 /// Render a manifest as a freshly generated file.
 ///
@@ -429,6 +431,10 @@ pub enum EditError {
     UsageNotFound(NormalizedIdentity),
     #[error("`{0}` is not an index usage and has no version")]
     NotAnIndexUsage(NormalizedIdentity),
+    #[error("`{0}` is already a member")]
+    DuplicateMember(Utf8UnixPathBuf),
+    #[error(transparent)]
+    MemberPath(#[from] crate::utils::NormalizeRelativeError),
 }
 
 /// Parse a `model.toml` for editing.
@@ -443,7 +449,7 @@ pub fn open(file: &str, text: &str) -> Result<DocumentMut, Diagnostic> {
     Source::new(file, text).parse_mut()
 }
 
-fn project_mut<'a>(doc: &'a mut DocumentMut) -> Result<&'a mut Table, EditError> {
+fn project_mut(doc: &mut DocumentMut) -> Result<&mut Table, EditError> {
     doc.get_mut("project")
         .and_then(Item::as_table_mut)
         .ok_or(EditError::NotAProject)
@@ -736,7 +742,7 @@ pub fn exclude_source(doc: &mut DocumentMut, path: &str) -> Result<Utf8UnixPathB
     Ok(wanted)
 }
 
-fn sources_mut<'a>(doc: &'a mut DocumentMut) -> Result<&'a mut Array, EditError> {
+fn sources_mut(doc: &mut DocumentMut) -> Result<&mut Array, EditError> {
     project_mut(doc)?
         .get_mut("sources")
         .and_then(Item::as_array_mut)
@@ -881,6 +887,131 @@ fn set_prefix(array: &mut Array, at: usize, prefix: &str) {
     if let Some(item) = array.get_mut(at) {
         item.decor_mut().set_prefix(prefix);
     }
+}
+
+/// Append one `[[inline-usages]]` entry.
+///
+/// model-toml.md "Normalization" makes duplicates "the one comparison
+/// that normalizes before resolution", so an entry naming the same
+/// project under a different spelling is refused.
+///
+/// The entry lands after the last one and before whatever trails the
+/// file: a comment at the end of a document belongs to no table, and
+/// `toml_edit` keeps it where it is.
+pub fn push_usage(doc: &mut DocumentMut, usage: &MemberUsage) -> Result<(), EditError> {
+    let wanted = usage.identity();
+    if find_usage(doc, &wanted).is_some() {
+        return Err(EditError::DuplicateUsage(wanted));
+    }
+    let entry = usage_table(UsageRaw::from(usage.clone()));
+    if let Some(usages) = doc.get_mut(USAGES).and_then(Item::as_array_of_tables_mut) {
+        usages.push(entry);
+    } else {
+        let mut usages = ArrayOfTables::new();
+        usages.push(entry);
+        doc[USAGES] = Item::ArrayOfTables(usages);
+    }
+    Ok(())
+}
+
+/// Remove the entry that declares a project.
+///
+/// The comment introducing an entry is that table's own prefix and goes
+/// with it -- which is right, since it describes the dependency being
+/// removed. It is the one comment this module deletes on purpose.
+pub fn remove_usage(doc: &mut DocumentMut, wanted: &NormalizedIdentity) -> Result<(), EditError> {
+    let at = find_usage(doc, wanted).ok_or_else(|| EditError::UsageNotFound(wanted.clone()))?;
+    doc.get_mut(USAGES)
+        .and_then(Item::as_array_of_tables_mut)
+        .expect("the entry was just found")
+        .remove(at);
+    Ok(())
+}
+
+/// Set the version constraint of an index usage.
+///
+/// Only an index usage has one: a `dir`, `kpar-path` or `url` entry
+/// names its target directly, and an entry that opts into a workspace
+/// group takes that group's entry whole. Both are refused, and the
+/// command that owns the verb decides how to say which it met.
+pub fn set_usage_version(
+    doc: &mut DocumentMut,
+    wanted: &NormalizedIdentity,
+    constraint: &semver::VersionReq,
+) -> Result<(), EditError> {
+    let at = find_usage(doc, wanted).ok_or_else(|| EditError::UsageNotFound(wanted.clone()))?;
+    let entry = doc
+        .get_mut(USAGES)
+        .and_then(Item::as_array_of_tables_mut)
+        .and_then(|usages| usages.get_mut(at))
+        .expect("the entry was just found");
+
+    if ["dir", "kpar-path", "url", "git", MARKER]
+        .iter()
+        .any(|key| entry.contains_key(key))
+    {
+        return Err(EditError::NotAnIndexUsage(wanted.clone()));
+    }
+
+    let comments = KeyComments::read(entry, "version");
+    comments.onto_value(entry, "version", Value::from(constraint.to_string()));
+    Ok(())
+}
+
+/// Add a directory to a workspace's `members`.
+///
+/// A `members` entry is admitted only in its normalized form
+/// (workspaces.md "Included projects"), so the path is written as
+/// [`crate::utils::normalize_relative`] converts it: `./app/` is written
+/// `app`, and is then the spelling `--member <path>` matches "literally"
+/// (workspaces.md "Command scopes").
+pub fn push_member(doc: &mut DocumentMut, path: &str) -> Result<(), EditError> {
+    let workspace = doc
+        .get_mut("workspace")
+        .and_then(Item::as_table_mut)
+        .ok_or(EditError::NotAWorkspace)?;
+
+    let normalized = crate::utils::normalize_relative(path)?;
+    if !workspace.get("members").is_some_and(Item::is_array) {
+        workspace["members"] = value(Array::new());
+    }
+    let members = workspace["members"]
+        .as_array_mut()
+        .expect("written as an array just above");
+    if members
+        .iter()
+        .filter_map(|item| item.as_str())
+        .any(|listed| listed == normalized.as_str())
+    {
+        return Err(EditError::DuplicateMember(normalized));
+    }
+    push_entry(members, normalized.as_str());
+    Ok(())
+}
+
+/// The top-level array a project's usages are written in.
+const USAGES: &str = "inline-usages";
+
+/// Where the entry declaring `wanted` is, if it is there.
+///
+/// The identity is read off the document rather than through
+/// `UsageRaw`, which reads a `toml::Table` and would mean serializing
+/// each entry and parsing it back. An entry whose `publisher` or `name`
+/// is absent, of the wrong type, or not a valid identifier yields
+/// nothing: it is too broken to say which project it declares, so it is
+/// neither matched nor in the way of the entry that is.
+fn find_usage(doc: &DocumentMut, wanted: &NormalizedIdentity) -> Option<usize> {
+    doc.get(USAGES)
+        .and_then(Item::as_array_of_tables)?
+        .iter()
+        .position(|entry| entry_identity(entry).as_ref() == Some(wanted))
+}
+
+fn entry_identity(entry: &Table) -> Option<NormalizedIdentity> {
+    let field = |key| entry.get(key).and_then(Item::as_str);
+    let publisher = IndexPublisher::parse(field("publisher")?).ok()?;
+    let name = IndexName::parse(field("name")?).ok()?;
+    Some(normalized_identity(&publisher, &name))
 }
 
 #[cfg(test)]
