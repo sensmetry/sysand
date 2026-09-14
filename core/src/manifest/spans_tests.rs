@@ -130,6 +130,51 @@ fn near_falls_back_to_the_nearest_indexed_ancestor() {
     assert!(empty.near(&["project", "name"]).is_none());
 }
 
+/// `members`, `exclude`, `topics` and `maintainers` are arrays of
+/// strings, and a diagnostic about one entry points at the entry, not at
+/// the key that holds the array.
+#[test]
+fn array_elements_are_indexed_by_position() {
+    const TEXT: &str = "\
+[workspace]
+members = [\"a\", \"b\"]
+";
+    let positions = positions(TEXT);
+    let first = positions
+        .at(&["workspace", "members", "0"])
+        .expect("indexed");
+    assert_eq!((first.line, first.column), (2, 12));
+    let second = positions
+        .at(&["workspace", "members", "1"])
+        .expect("indexed");
+    assert_eq!((second.line, second.column), (2, 17));
+    assert!(positions.at(&["workspace", "members", "2"]).is_none());
+}
+
+/// The same array written inline rather than as `[[...]]` headers is the
+/// same array, so its entries are addressed the same way.
+#[test]
+fn an_inline_array_of_tables_is_indexed_like_an_array_of_tables() {
+    const TEXT: &str = "inline-usages = [{ name = \"x\" }]\n";
+    let positions = positions(TEXT);
+    let entry = positions.at(&["inline-usages", "0"]).expect("indexed");
+    assert_eq!((entry.line, entry.column), (1, 18));
+    let name = positions
+        .at(&["inline-usages", "0", "name"])
+        .expect("indexed");
+    assert_eq!((name.line, name.column), (1, 20));
+}
+
+/// Nothing stops an array holding arrays; each level contributes its own
+/// index segment.
+#[test]
+fn a_nested_array_is_indexed_by_both_indices() {
+    const TEXT: &str = "a = [[\"x\"]]\n";
+    let positions = positions(TEXT);
+    let inner = positions.at(&["a", "0", "0"]).expect("indexed");
+    assert_eq!((inner.line, inner.column), (1, 7));
+}
+
 #[test]
 fn a_position_resolves_line_and_column_from_a_span() {
     let text = "manifest-version = \"1.0.0\"\n\n[project]\nname = \"ä-project\"\nversion = 1\n";
