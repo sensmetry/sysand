@@ -4,7 +4,7 @@
 use anyhow::{Result, bail};
 use sysand_core::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::local_src::LocalSrcProject,
+    project::{ProjectFormat, ProjectRead, local_src::LocalSrcProject},
 };
 
 use crate::{
@@ -28,6 +28,7 @@ pub fn command_edit(mut project: LocalSrcProject, edits: EditArgs) -> Result<()>
         set_info_or_bail(&mut project, &info)?;
     }
     if edits_meta {
+        refuse_computed_fields(&project, &edits)?;
         let mut meta = get_meta_or_bail(&project)?;
         edit_meta(&edits, &mut meta);
         set_meta_or_bail(&mut project, &meta)?;
@@ -181,6 +182,47 @@ fn edit_list(
         }
     }
     list.extend(add.iter().cloned());
+    Ok(())
+}
+
+/// model-toml.md "Editing the manifest": "the `sysand info` verbs on the
+/// fields a build computes -- `index`, `checksum`, `created`,
+/// `includesDerived`, `includesImplied` -- error on a toml project".
+///
+/// The first three cannot reach here: `sysand edit` has no flag for them.
+/// These two can, and unlike every other key of a `model.toml` the answer
+/// is not "not yet": the manifest has no room for them and will not grow
+/// one. The check sits per flag rather than at the front of the command,
+/// so that the permanent refusal cannot swallow the temporary one that
+/// every other metadata write on a toml project meets.
+fn refuse_computed_fields(project: &LocalSrcProject, edits: &EditArgs) -> Result<()> {
+    if edits.includes_derived.is_some() {
+        refuse_computed_field(project, "includes-derived", "set")?;
+    }
+    if edits.clear_includes_derived {
+        refuse_computed_field(project, "includes-derived", "cleared")?;
+    }
+    if edits.includes_implied.is_some() {
+        refuse_computed_field(project, "includes-implied", "set")?;
+    }
+    if edits.clear_includes_implied {
+        refuse_computed_field(project, "includes-implied", "cleared")?;
+    }
+    Ok(())
+}
+
+fn refuse_computed_field<Project: ProjectRead>(
+    project: &Project,
+    field: &str,
+    verb: &str,
+) -> Result<()> {
+    if project.format()? == ProjectFormat::Toml {
+        bail!(
+            "`{field}` is computed when the KPAR is built\n\
+            {SP:>8} and cannot be {verb} on a `model.toml` project",
+            SP = ' '
+        );
+    }
     Ok(())
 }
 
