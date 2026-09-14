@@ -309,8 +309,8 @@ fn directory_usage_env_transitive() -> Result<(), Box<dyn std::error::Error>> {
         "1.0.0",
         vec![InterchangeProjectUsageRaw::Directory {
             dir: "../widget".to_owned(),
-            publisher: crate::model::ProjectPublisher::parse("acme".to_owned()).unwrap(),
-            name: crate::model::ProjectName::parse("widget".to_owned()).unwrap(),
+            publisher: "acme".to_owned(),
+            name: "widget".to_owned(),
         }],
     );
     let widget_v1 = trivial_memory_project("widget", "1.0.0", vec![]);

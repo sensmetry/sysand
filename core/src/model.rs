@@ -372,7 +372,12 @@ pub enum InterchangeProjectUsageG<Iri, VersionReq, Path, Publisher, Name, IdxPub
         version_constraint: Option<VersionReq>,
     },
     /// The project in the directory `dir`, relative to the root
-    /// of the project declaring the usage.
+    /// of the project declaring the usage. `publisher` and `name` are
+    /// *written* as the values found at `dir` are written, without any
+    /// normalization -- that is what a KPAR carries. Resolving the usage
+    /// is a different matter: model-toml.md "Normalization" makes
+    /// resolution the one place that normalizes, so the identity check
+    /// at the target compares the normalized pair.
     /// No version constraint, as the directory contains a single version
     // TODO: should absolute paths also be supported (like Cargo)?
     #[cfg_attr(feature = "python", pyo3(from_item_all))]
