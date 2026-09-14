@@ -9,7 +9,7 @@ use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 use crate::{
     model::KerMlChecksumAlg,
     project::{ProjectMut, ProjectOrIOError, ProjectRead, utils::FsIoError},
-    symbols::{ExtractError, Language},
+    symbols::{ExtractError, Language, SymbolsError},
     utils::sha256_lowercase_hex,
 };
 
@@ -30,6 +30,15 @@ pub enum IncludeError<ProjectError> {
 impl<ProjectError> From<FsIoError> for IncludeError<ProjectError> {
     fn from(v: FsIoError) -> Self {
         Self::Io(Box::new(v))
+    }
+}
+
+impl<ProjectError> From<SymbolsError> for IncludeError<ProjectError> {
+    fn from(value: SymbolsError) -> Self {
+        match value {
+            SymbolsError::Extract(path, error) => Self::Extract(path, error),
+            SymbolsError::UnknownFormat(path) => Self::UnknownFormat(path),
+        }
     }
 }
 
@@ -92,19 +101,18 @@ pub fn do_include<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
 }
 
 /// Extract top level symbols from `source`, using `path` for diagnostics
-/// only
+/// only.
+///
+/// A thin wrapper over [`crate::symbols::top_level_symbols`], which is
+/// what a caller that is not a command should use: the two failures are
+/// the same, and this one only widens them into the error `do_include`
+/// returns.
 pub fn extract_symbols<P: AsRef<Utf8UnixPath>, S: AsRef<str>, T>(
     path: &P,
     source: S,
     force_format: Option<Language>,
 ) -> Result<Vec<String>, IncludeError<T>> {
-    match force_format.or_else(|| Language::guess_from_path(path)) {
-        Some(Language::SysML) => crate::symbols::top_level_sysml(&source)
-            .map_err(|e| IncludeError::Extract(path.as_ref().as_str().into(), e)),
-        Some(Language::KerML) => crate::symbols::top_level_kerml(&source)
-            .map_err(|e| IncludeError::Extract(path.as_ref().as_str().into(), e)),
-        _ => Err(IncludeError::UnknownFormat(path.as_ref().as_str().into())),
-    }
+    crate::symbols::top_level_symbols(path, source, force_format).map_err(IncludeError::from)
 }
 
 pub fn read_project_file_to_string<Pr: ProjectRead, P: AsRef<Utf8UnixPath>>(

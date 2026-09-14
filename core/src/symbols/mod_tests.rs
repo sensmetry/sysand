@@ -81,3 +81,61 @@ fn lex_line_comment() {
         unclosed_comment_doesnt_parse(s);
     }
 }
+
+/// `top_level_symbols` picks the language from the extension. A SysML
+/// keyword the KerML grammar does not have proves which one ran.
+#[test]
+fn a_sysml_file_is_extracted_as_sysml() {
+    assert_eq!(
+        top_level_symbols(&Utf8UnixPath::new("a.sysml"), "part def Foo;", None).unwrap(),
+        ["Foo"]
+    );
+}
+
+/// The other half of the choice. KerML's keyword set is a strict subset
+/// of SysML's, so a snippet both accept would pass even if the language
+/// were never consulted; the difference has to be a snippet only one of
+/// them parses.
+#[test]
+fn a_kerml_file_is_not_extracted_as_sysml() {
+    assert_matches!(
+        top_level_symbols(&Utf8UnixPath::new("a.kerml"), "part def Foo;", None),
+        Err(SymbolsError::Extract(..))
+    );
+}
+
+#[test]
+fn a_forced_language_beats_the_extension() {
+    assert_eq!(
+        top_level_symbols(
+            &Utf8UnixPath::new("a.kerml"),
+            "part def Foo;",
+            Some(Language::SysML)
+        )
+        .unwrap(),
+        ["Foo"]
+    );
+}
+
+#[test]
+fn a_file_with_no_model_extension_names_itself() {
+    let error = top_level_symbols(&Utf8UnixPath::new("docs/notes.md"), "part def Foo;", None)
+        .expect_err("not a model file");
+    assert_eq!(
+        error.to_string(),
+        "unknown file format of `docs/notes.md`, only SysML v2 (.sysml) and KerML (.kerml) \
+         files are supported"
+    );
+}
+
+#[test]
+fn a_source_that_does_not_parse_names_the_file() {
+    let error = top_level_symbols(&Utf8UnixPath::new("a.sysml"), "package Foo { /*", None)
+        .expect_err("an unterminated comment");
+    assert!(
+        error
+            .to_string()
+            .starts_with("failed to extract symbol names from `a.sysml`: "),
+        "unexpected message: {error}"
+    );
+}
