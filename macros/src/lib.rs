@@ -93,6 +93,7 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
         sources_match_part: TokenStream2,
         project_root_match_part: TokenStream2,
         source_may_offer_multiple_versions_match_part: TokenStream2,
+        format_match_part: TokenStream2,
         get_info_match_part: TokenStream2,
         get_meta_match_part: TokenStream2,
         version_match_part: TokenStream2,
@@ -185,6 +186,11 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
                 source_may_offer_multiple_versions_match_part: quote! {
                     #enum_ident::#variant_ident(project) => project.source_may_offer_multiple_versions()
                 },
+                format_match_part: quote! {
+                    #enum_ident::#variant_ident(project) => project
+                        .format()
+                        .map_err(#error_ident::#variant_ident)
+                },
                 get_info_match_part: quote! {
                     #enum_ident::#variant_ident(project) => project
                         .get_info()
@@ -239,6 +245,7 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
     let mut get_project_match = vec![];
     let mut read_source_match = vec![];
     let mut sources_match = vec![];
+    let mut format_match = vec![];
     let mut get_info_match = vec![];
     let mut get_meta_match = vec![];
     let mut version_match = vec![];
@@ -259,6 +266,7 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
         sources_match_part,
         project_root_match_part,
         source_may_offer_multiple_versions_match_part,
+        format_match_part,
         get_info_match_part,
         get_meta_match_part,
         version_match_part,
@@ -280,6 +288,7 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
         get_project_match.push(get_project_match_part);
         read_source_match.push(read_source_match_part);
         sources_match.push(sources_match_part);
+        format_match.push(format_match_part);
         get_info_match.push(get_info_match_part);
         get_meta_match.push(get_meta_match_part);
         version_match.push(version_match_part);
@@ -365,6 +374,14 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
             fn source_may_offer_multiple_versions(&self) -> bool {
                 match self {
                     #( #source_may_offer_multiple_versions_match ),*
+                }
+            }
+
+            fn format(
+                &self,
+            ) -> ::std::result::Result<::sysand_core::project::ProjectFormat, Self::Error> {
+                match self {
+                    #( #format_match ),*
                 }
             }
 
