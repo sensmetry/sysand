@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 use std::{
+    cell::OnceCell,
     collections::HashSet,
     fs::File,
     io::{Read, Write as _},
@@ -17,7 +18,11 @@ use crate::{
     context::ProjectContext,
     env::utils::{CloneError, clone_project},
     lock::Source,
-    manifest::MODEL_TOML_FILE,
+    manifest::{
+        MODEL_TOML_FILE, ModelToml,
+        diagnostics::Report,
+        kpar_view::{self, ViewError},
+    },
     model::{
         InterchangeProjectInfoPartial, InterchangeProjectInfoRaw,
         InterchangeProjectMetadataPartial, InterchangeProjectMetadataRaw, META_JSON_FILE,
@@ -98,7 +103,23 @@ pub struct LocalSrcProject {
     // TODO: enforce that the project matches the checksum if provided
     // before reading; see LocalKparProject for example
     expected_checksum: Option<String>,
+    /// The pair a `model.toml` project answers with, computed once.
+    ///
+    /// Building it parses the manifest and then reads, hashes and
+    /// extracts symbols from every source, while `checksum_canonical_hex`
+    /// alone asks for the project twice (`get_info` and `get_meta`). It
+    /// is filled on the toml path only: on the json path the writers of
+    /// [`ProjectMut`] and [`LocalSrcProject::set_index`] change the files
+    /// underneath it, and a cached pair would then contradict them.
+    view: OnceCell<ViewPair>,
 }
+
+/// The `.project.json`/`.meta.json` pair, as [`ProjectRead::get_project`]
+/// answers with it.
+type ViewPair = (
+    Option<InterchangeProjectInfoRaw>,
+    Option<InterchangeProjectMetadataRaw>,
+);
 
 impl LocalSrcProject {
     /// Access the project. No invariants will be checked. If `nominal_path` is provided,
@@ -108,6 +129,7 @@ impl LocalSrcProject {
             nominal_path,
             project_path: path.into(),
             expected_checksum: None,
+            view: OnceCell::new(),
         }
     }
 
@@ -305,6 +327,63 @@ impl LocalSrcProject {
     }
 }
 
+impl LocalSrcProject {
+    /// The pair a `model.toml` project answers with, read once.
+    ///
+    /// A failure is not cached: `OnceCell::get_or_try_init` is unstable,
+    /// and these errors are not `Clone` -- the same reason
+    /// `LocalKParProject::ensure_initialized` gives.
+    fn toml_view(&self) -> Result<&ViewPair, LocalSrcError> {
+        if let Some(view) = self.view.get() {
+            return Ok(view);
+        }
+        let view = self.read_model_toml()?;
+        Ok(self.view.get_or_init(|| view))
+    }
+
+    /// Read `model.toml` and synthesize the KPAR view of it.
+    ///
+    /// model-toml.md "TOML to KPAR" specifies the pair a *build* writes;
+    /// `kpar_view` follows it except where the archive needs something a
+    /// manifest alone cannot supply. `created` is one of those: a build
+    /// records the time it ran, and a view must not, because
+    /// `checksum_canonical_hex` hashes the whole `.meta.json` and that
+    /// checksum goes into the lockfile and is recomputed and compared by
+    /// `sysand sync`. A view whose `created` moved would fail every
+    /// `sync`. It is a function of the manifest and the sources; the
+    /// clock is not one of its inputs.
+    ///
+    /// The project is resolved *standalone*. Nothing here knows whether
+    /// the directory is a workspace member, so a manifest that inherits
+    /// reports that it is not read inside a workspace.
+    fn read_model_toml(&self) -> Result<ViewPair, LocalSrcError> {
+        let path = self.project_path.join(MODEL_TOML_FILE);
+        let text = wrapfs::read_to_string(&path)?;
+
+        let manifest =
+            validate_manifest(MODEL_TOML_FILE, ModelToml::parse(MODEL_TOML_FILE, &text))?
+                .into_project(MODEL_TOML_FILE)
+                .map_err(|problem| {
+                    ProjectDeserializationError::invalid(
+                        MODEL_TOML_FILE,
+                        Report::from_iter([problem]),
+                    )
+                })?;
+        let resolved = validate_manifest(MODEL_TOML_FILE, manifest.resolve(None))?;
+
+        let (info, meta) = kpar_view::view(&resolved, &jiff::Timestamp::UNIX_EPOCH, |source| {
+            let source_path = self.get_source_path(source)?;
+            Ok(wrapfs::read_to_string(&source_path)?)
+        })
+        .map_err(|error| match error {
+            ViewError::Read(error) => error,
+            ViewError::Symbols(error) => LocalSrcError::Symbols(error),
+        })?;
+
+        Ok((Some(info), Some(meta)))
+    }
+}
+
 impl ProjectMut for LocalSrcProject {
     fn put_info(
         &mut self,
@@ -401,6 +480,9 @@ pub enum LocalSrcError {
         dir: Utf8PathBuf,
         json: &'static str,
     },
+    /// A source file listed in `sources` could not be indexed.
+    #[error(transparent)]
+    Symbols(#[from] crate::symbols::SymbolsError),
     #[error(transparent)]
     Deserialize(#[from] ProjectDeserializationError),
     #[error(transparent)]
@@ -455,13 +537,17 @@ impl ProjectRead for LocalSrcProject {
         ),
         LocalSrcError,
     > {
-        // model-toml.md "Mixed manifests": a directory holding both
-        // kinds of manifest is refused before either is read.
-        if detect_format(&self.project_path)? == ProjectFormat::Both {
-            return Err(LocalSrcError::AmbiguousFormat {
-                dir: self.project_path.clone(),
-                json: json_manifest(&self.project_path)?.unwrap_or(PROJECT_JSON_FILE),
-            });
+        match detect_format(&self.project_path)? {
+            // model-toml.md "Mixed manifests": a directory holding both
+            // kinds of manifest is refused before either is read.
+            ProjectFormat::Both => {
+                return Err(LocalSrcError::AmbiguousFormat {
+                    dir: self.project_path.clone(),
+                    json: json_manifest(&self.project_path)?.unwrap_or(PROJECT_JSON_FILE),
+                });
+            }
+            ProjectFormat::Toml => return self.toml_view().cloned(),
+            ProjectFormat::Json | ProjectFormat::Neither => {}
         }
 
         let info_json_path = self.info_path();

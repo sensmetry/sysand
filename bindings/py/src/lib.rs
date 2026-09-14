@@ -173,7 +173,8 @@ fn do_init_py_local_file(
                 LocalSrcError::Serialize(_)
                 | LocalSrcError::ImpossibleRelativePath(_)
                 | LocalSrcError::Deserialize(_)
-                | LocalSrcError::AmbiguousFormat { .. } => PyValueError::new_err(e),
+                | LocalSrcError::AmbiguousFormat { .. }
+                | LocalSrcError::Symbols(_) => PyValueError::new_err(e),
                 LocalSrcError::MissingMeta | LocalSrcError::MissingInfoMeta => {
                     PyFileNotFoundError::new_err(e)
                 }
