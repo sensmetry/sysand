@@ -399,3 +399,142 @@ fn peek_on_a_file_with_neither_table_is_none() {
         None
     );
 }
+
+// ----------------------------------------------------------------------
+// The examples the specification gives
+//
+// Every example manifest in `model-toml.md` and `workspaces.md` parses.
+// The documents live outside this repository, so the blocks are copied
+// here with the section each came from named in a comment.
+//
+// Most are fragments rather than whole files. A fragment is completed
+// with the smallest frame that makes it one, and there are two frames:
+// a project fragment gets `manifest-version` and the three required
+// `[project]` keys, a workspace fragment gets `manifest-version` alone --
+// adding a `[project]` to the latter would make a file with both tables,
+// which is itself an error.
+
+/// The frame a project fragment is completed with.
+fn as_project_file(fragment: &str) -> String {
+    format!(
+        "manifest-version = 1\n\n\
+         [project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\n\
+         sources = []\n\n{fragment}"
+    )
+}
+
+/// The frame a workspace fragment is completed with.
+fn as_workspace_file(fragment: &str) -> String {
+    format!("manifest-version = 1\n\n{fragment}")
+}
+
+/// model-toml.md, "Manifest version" and "Standard library".
+#[test]
+fn every_example_in_model_toml_parses() {
+    // "Manifest version". A `[project]` with only a comment in it, so
+    // the required keys complete it rather than frame it.
+    accepted(
+        "manifest-version = 1\n\n\
+         [project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\n",
+    );
+
+    // "Standard library": a standard-library usage is an index usage
+    // like any other.
+    accepted(&as_project_file(
+        "[[inline-usages]]\n\
+         publisher = \"OMG\"\n\
+         name = \"Kernel Semantic Library\"\n\
+         version = \"^1.0.0\"\n",
+    ));
+
+    // "Developing the standard library": the `[project]` of one of the
+    // ten projects, which inherits its metamodel from a group.
+    accepted(
+        "manifest-version = 1\n\n\
+         [project]\n\
+         publisher = \"OMG\"\n\
+         name = \"Kernel Semantic Library\"\n\
+         version = \"1.0.0\"\n\
+         stdlib = \"Semantic-Library\"\n\
+         metamodel.workspace = \"kerml\"\n\
+         sources = [\"Base.kerml\", \"Links.kerml\", \"Occurrences.kerml\", \"Objects.kerml\"]\n",
+    );
+}
+
+/// workspaces.md, "Config" and "Common usages".
+#[test]
+fn every_example_in_workspaces_md_parses() {
+    // "Config": the one example in either document that is a whole file.
+    let read = accepted(
+        "manifest-version = 1\n\n\
+         [workspace]\n\
+         members = [\"folder1\", \"folder2/subfolder1\"]\n\
+         exclude = [\"vendor\"]\n",
+    )
+    .into_parts()
+    .0;
+    let workspace = read.as_workspace().expect("a workspace");
+    assert_eq!(workspace.members.len(), 2);
+    assert_eq!(workspace.exclude.len(), 1);
+
+    // "Common usages": a member opting in to two group entries and
+    // declaring one of its own.
+    accepted(&as_project_file(
+        "[[inline-usages]]\npublisher = \"acme\"\nname = \"foo\"\nworkspace = true\n\n\
+         [[inline-usages]]\npublisher = \"acme\"\nname = \"bar\"\nworkspace = \"legacy\"\n\n\
+         [[inline-usages]]\npublisher = \"acme\"\nname = \"own\"\ndir = \"../own\"\n",
+    ));
+
+    // "Common usages": one group per language, each carrying the
+    // `metamodel` of that language's release.
+    let read = accepted(&as_workspace_file(
+        "[workspace.group.kerml]\n\
+         metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n\n\
+         [[workspace.group.kerml.inline-usages]]\n\
+         publisher = \"OMG\"\nname = \"Kernel Semantic Library\"\nversion = \"^1.0.0\"\n\n\
+         [workspace.group.sysml]\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
+         [[workspace.group.sysml.inline-usages]]\n\
+         publisher = \"OMG\"\nname = \"SysML Systems Library\"\nversion = \"^2.0.0\"\n",
+    ))
+    .into_parts()
+    .0;
+    let workspace = read.as_workspace().expect("a workspace");
+    assert_eq!(workspace.groups.len(), 2);
+    assert_eq!(workspace.groups["kerml"].inline_usages.len(), 1);
+}
+
+/// workspaces.md "Explicit inheritance" gives one block that is *not* a
+/// manifest: every line but the first is marked `# invalid`, illustrating
+/// that "inheritance cannot overlap".
+///
+/// It makes two different points, so it is checked as two. The first two
+/// lines are valid TOML and are exactly the overlap Sysand refuses. The
+/// block as a whole is not valid TOML at all -- `urls.website.workspace`
+/// is assigned twice -- so a reader never reaches Sysand's rule; the
+/// document is showing what not to write, not a file to parse.
+#[test]
+fn the_overlap_counter_example_is_refused() {
+    let report = rejected(&as_project_file(
+        "urls.workspace = true\nurls.website.workspace = true # invalid\n",
+    ));
+    assert_eq!(
+        texts(&report),
+        [
+            "inheritance cannot overlap: `urls` in `[project]` carries a `workspace` marker \
+             and also sets `website`;\n\
+             a key is either inherited or written out in full"
+        ]
+    );
+
+    let report = rejected(&as_project_file(
+        "urls.workspace = true\n\
+         urls.website.workspace = true # invalid\n\
+         urls.website.workspace = \"some-group\" # invalid\n\
+         urls.website = \"https://example.com\" # invalid\n",
+    ));
+    assert!(
+        texts(&report)[0].starts_with("`model.toml` is not valid TOML"),
+        "unexpected report: {report}"
+    );
+}
