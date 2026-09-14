@@ -14,6 +14,7 @@
 pub mod common;
 pub mod diagnostics;
 pub mod inherit;
+pub mod kpar_view;
 pub mod project;
 pub mod reader;
 pub mod spans;
