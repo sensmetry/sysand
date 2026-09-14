@@ -31,7 +31,9 @@ use crate::manifest::common::{InheritFrom, Sources};
 use crate::manifest::inherit::{Inherited, MetaProperty};
 use crate::manifest::project::{PROJECT_KEYS, ProjectTable, URL_KEYS, Urls};
 use crate::manifest::usage::UsageRaw;
+use crate::manifest::workspace_table::{GROUP_KEYS, GroupProperties, WorkspaceTable};
 use crate::manifest::{ModelToml, SUPPORTED_MANIFEST_VERSION};
+use crate::model::IndexPublisher;
 
 /// Render a manifest as a freshly generated file.
 ///
@@ -60,12 +62,8 @@ pub fn render_new(model: &ModelToml) -> DocumentMut {
                 doc["inline-usages"] = Item::ArrayOfTables(usages);
             }
         }
-        // The `[workspace]` body lands with its tests in the next
-        // commit; the arm is here because `render_new` is total over
-        // `ModelToml` and a `todo!()` on a public function's own
-        // argument type is a trap for whoever calls it first.
-        ModelToml::Workspace(_) => {
-            doc["workspace"] = Item::Table(Table::new());
+        ModelToml::Workspace(table) => {
+            doc["workspace"] = Item::Table(workspace_table(table));
         }
     }
     doc
@@ -240,6 +238,130 @@ fn usage_table(raw: UsageRaw) -> Table {
         .expect("a usage entry serializes")
         .as_table()
         .clone()
+}
+
+/// The `[workspace]` table.
+///
+/// model-toml.md fixes the project layout in detail and says of this one
+/// only that a workspace file "has `manifest-version` and then
+/// `[workspace]`". The order below is therefore Sysand's own:
+/// `members`, `exclude`, the default group's keys in `GROUP_KEYS` order,
+/// the default group's `[[workspace.inline-usages]]`, then each named
+/// group.
+fn workspace_table(workspace: &WorkspaceTable) -> Table {
+    let mut table = Table::new();
+    if !workspace.members.is_empty() {
+        // workspaces.md "Command scopes": `--member <path>` matches an
+        // entry "literally", so both spellings are kept and the one that
+        // was written is the one that is written back.
+        table["members"] = value(
+            workspace
+                .members
+                .iter()
+                .map(|member| member.raw.as_str())
+                .collect::<Array>(),
+        );
+    }
+    if !workspace.exclude.is_empty() {
+        table["exclude"] = value(
+            workspace
+                .exclude
+                .iter()
+                .map(|member| member.raw.as_str())
+                .collect::<Array>(),
+        );
+    }
+    group(&mut table, &workspace.default_group);
+
+    if !workspace.groups.is_empty() {
+        let mut groups = Table::new();
+        // `[workspace.group]` itself holds nothing: only its children
+        // get headers.
+        groups.set_implicit(true);
+        for (name, properties) in &workspace.groups {
+            let mut written = Table::new();
+            group(&mut written, properties);
+            groups.insert(name, Item::Table(written));
+        }
+        table.insert("group", Item::Table(groups));
+    }
+    table
+}
+
+/// The keys one group gives, in `GROUP_KEYS` order.
+///
+/// A group's values are plain: workspaces.md has nothing above a
+/// workspace for them to be inherited from, so there are no markers
+/// here.
+fn group(table: &mut Table, properties: &GroupProperties) {
+    for key in GROUP_KEYS {
+        match *key {
+            "publisher" => {
+                if let Some(publisher) = &properties.publisher {
+                    table[key] = value(IndexPublisher::as_str(publisher));
+                }
+            }
+            "version" => {
+                if let Some(version) = &properties.version {
+                    table[key] = value(version.to_string());
+                }
+            }
+            "license" => {
+                if let Some(license) = &properties.license {
+                    table[key] = value(license.to_string());
+                }
+            }
+            "topics" => {
+                if let Some(topics) = &properties.topics {
+                    table[key] = value(topics.iter().map(String::as_str).collect::<Array>());
+                }
+            }
+            "metamodel" => {
+                if let Some(metamodel) = &properties.metamodel {
+                    table[key] = value(metamodel.as_str());
+                }
+            }
+            "maintainers" => {
+                if let Some(maintainers) = &properties.maintainers {
+                    table[key] = value(
+                        maintainers
+                            .iter()
+                            .map(ToString::to_string)
+                            .collect::<Array>(),
+                    );
+                }
+            }
+            // workspaces.md: a group may not carry `sources`. The key is
+            // in `GROUP_KEYS` so that the reader can refuse it by name,
+            // and there is nothing here to write.
+            "sources" => {}
+            "urls" => {
+                if let Some(urls) = &properties.urls {
+                    let mut written = Table::new();
+                    for url_key in URL_KEYS {
+                        let iri = match *url_key {
+                            "website" => urls.website.as_ref(),
+                            "documentation" => urls.documentation.as_ref(),
+                            "repository" => urls.repository.as_ref(),
+                            _ => None,
+                        };
+                        if let Some(iri) = iri {
+                            written[url_key] = value(iri.as_str());
+                        }
+                    }
+                    table.insert("urls", Item::Table(written));
+                }
+            }
+            "inline-usages" if !properties.inline_usages.is_empty() => {
+                let mut usages = ArrayOfTables::new();
+                for usage in &properties.inline_usages {
+                    usages.push(usage_table(UsageRaw::from(usage.clone())));
+                }
+                table.insert(key, Item::ArrayOfTables(usages));
+            }
+            _ => {}
+        }
+    }
 }
 
 #[cfg(test)]
