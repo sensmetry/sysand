@@ -10,7 +10,8 @@ use typed_path::Utf8UnixPathBuf;
 
 use crate::{
     model::{InterchangeProjectUsage, InterchangeProjectUsageRaw},
-    project::utils::{Identifier, relativize_path},
+    project::utils::{ExpectedIdentity, Identifier, IdentityMismatch, relativize_path},
+    resolve::UsageOrigin,
 };
 
 #[test]
@@ -313,4 +314,107 @@ fn identifier_from_project_decides_by_the_spelling_as_given() {
         &ProjectName::parse("Foo".to_owned()).unwrap(),
     );
     assert_eq!(project, index);
+}
+
+/// model-toml.md "Normalization": "All projects are resolved by their
+/// *normalized* identity, regardless of how the usage is declared."
+/// Both directions, because neither side of the comparison is the
+/// canonical one.
+#[test]
+fn an_identity_matches_after_normalization() {
+    ExpectedIdentity::resolving(Some("Acme Corp".to_owned()), "widgets".to_owned())
+        .check(Some("acme-corp"), "widgets")
+        .expect("`Acme Corp` and `acme-corp` are one publisher");
+    ExpectedIdentity::resolving(Some("acme-corp".to_owned()), "widgets".to_owned())
+        .check(Some("Acme Corp"), "widgets")
+        .expect("and the other way round");
+}
+
+/// "Two identities are equal when their publishers *and names* are equal
+/// after normalization." Normalizing one and not the other would refuse
+/// `My Lib` at a target named `my-lib` while accepting `Acme Corp` at
+/// `acme-corp`.
+#[test]
+fn a_name_is_normalized_too() {
+    ExpectedIdentity::resolving(Some("acme".to_owned()), "My Lib".to_owned())
+        .check(Some("acme"), "my-lib")
+        .expect("`My Lib` and `my-lib` are one name");
+}
+
+/// Normalization is not laxity: a different identity is still a
+/// mismatch, and says which half of the pair differed.
+#[test]
+fn a_different_identity_is_still_a_mismatch() {
+    assert_matches!(
+        ExpectedIdentity::resolving(Some("acme".to_owned()), "widgets".to_owned())
+            .check(Some("globex"), "widgets")
+            .expect_err("another publisher"),
+        IdentityMismatch::Publisher { expected, actual }
+            if expected.as_deref() == Some("acme") && actual.as_deref() == Some("globex")
+    );
+    assert_matches!(
+        ExpectedIdentity::resolving(Some("acme".to_owned()), "widgets".to_owned())
+            .check(Some("acme"), "gadgets")
+            .expect_err("another name"),
+        IdentityMismatch::Name { expected, actual }
+            if expected == "widgets" && actual == "gadgets"
+    );
+}
+
+/// "Resolution is the only place that normalizes ... Every other
+/// comparison is literal string equality." `sysand sync` checks an
+/// installed project against the pair the lockfile recorded, where
+/// normalizing would hide the drift the check exists to catch.
+#[test]
+fn a_recorded_identity_is_compared_literally() {
+    assert_matches!(
+        ExpectedIdentity::recorded(Some("Acme Corp".to_owned()), "widgets".to_owned())
+            .check(Some("acme-corp"), "widgets")
+            .expect_err("the lockfile recorded the other spelling"),
+        IdentityMismatch::Publisher { .. }
+    );
+}
+
+/// The manifest the usage was written in decides only what a
+/// publisher-less target is told, and never turns a mismatch into a
+/// match.
+#[test]
+fn only_a_toml_usage_gets_the_message_that_names_the_fix() {
+    let expected = ExpectedIdentity::resolving(Some("acme".to_owned()), "widgets".to_owned());
+    assert_matches!(
+        expected
+            .clone()
+            .declared_in(UsageOrigin::Toml)
+            .check(None, "widgets")
+            .expect_err("the target declares no publisher"),
+        IdentityMismatch::NoPublisher { name } if name == "widgets"
+    );
+    assert_matches!(
+        expected
+            .declared_in(UsageOrigin::Json)
+            .check(None, "widgets")
+            .expect_err("the same target, under a json usage"),
+        IdentityMismatch::Publisher { expected, actual }
+            if expected.as_deref() == Some("acme") && actual.is_none()
+    );
+}
+
+/// A usage that expects a target with no publisher is not the same
+/// thing as a target that is missing one: `expects_no_publisher_but_
+/// project_has_one` pins the direction that stays a mismatch, and this
+/// pins the direction that is a match.
+#[test]
+fn a_usage_may_expect_a_target_with_no_publisher() {
+    ExpectedIdentity::resolving(None, "widgets".to_owned())
+        .declared_in(UsageOrigin::Toml)
+        .check(None, "widgets")
+        .expect("neither side has a publisher");
+    assert_matches!(
+        ExpectedIdentity::resolving(None, "widgets".to_owned())
+            .declared_in(UsageOrigin::Toml)
+            .check(Some("surprise"), "widgets")
+            .expect_err("the target has one after all"),
+        IdentityMismatch::Publisher { expected, actual }
+            if expected.is_none() && actual.as_deref() == Some("surprise")
+    );
 }

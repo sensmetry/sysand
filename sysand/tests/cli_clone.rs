@@ -343,8 +343,9 @@ fn clone_iri_no_purl_shorthand() -> Result<(), Box<dyn std::error::Error>> {
 fn clone_identifier_from_index_ignores_prereleases() -> Result<(), Box<dyn std::error::Error>> {
     let mut server = Server::new();
 
-    let (kpar_bytes, info, meta) = build_index_kpar_bytes("widget", "2.0.0");
-    let (_, prerelease_info, prerelease_meta) = build_index_kpar_bytes("widget", "3.0.0-beta.1");
+    let (kpar_bytes, info, meta) = build_index_kpar_bytes("acme", "widget", "2.0.0");
+    let (_, prerelease_info, prerelease_meta) =
+        build_index_kpar_bytes("acme", "widget", "3.0.0-beta.1");
 
     let config_mock = server
         .mock("GET", "/sysand-index-config.json")

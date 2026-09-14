@@ -678,3 +678,105 @@ fn a_json_project_missing_one_file_is_unchanged() {
         "project is missing `.project.json` and/or `.meta.json` files"
     );
 }
+
+// --- storing a manifest -----------------------------------------------
+
+const MANIFEST: &str = "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n";
+
+fn document(text: &str) -> crate::manifest::edit::DocumentMut {
+    text.parse().expect("a valid manifest document")
+}
+
+#[test]
+fn a_local_project_writes_a_model_toml() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    let mut project = LocalSrcProject::new_access(dir.path(), None);
+
+    project.put_manifest_document(&document(MANIFEST), false)?;
+
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("model.toml"))?,
+        MANIFEST
+    );
+    Ok(())
+}
+
+#[test]
+fn writing_a_manifest_that_is_there_is_refused_without_overwrite()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    write_model_toml(dir.path(), MANIFEST);
+    let mut project = LocalSrcProject::new_access(dir.path(), None);
+
+    let error = project
+        .put_manifest_document(&document(MANIFEST), false)
+        .expect_err("the manifest is already there");
+
+    assert!(error.to_string().contains("`model.toml` already exists"));
+    Ok(())
+}
+
+#[test]
+fn writing_a_manifest_with_overwrite_replaces_it() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    write_model_toml(dir.path(), MANIFEST);
+    let mut project = LocalSrcProject::new_access(dir.path(), None);
+    let replacement = MANIFEST.replace("1.0.0", "2.0.0");
+
+    project.put_manifest_document(&document(&replacement), true)?;
+
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("model.toml"))?,
+        replacement
+    );
+    Ok(())
+}
+
+#[test]
+fn a_json_project_refuses_a_manifest_write() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    write_project_json(dir.path(), r#"{"name":"widgets","version":"1.0.0"}"#);
+    let mut project = LocalSrcProject::new_access(dir.path(), None);
+
+    let error = project
+        .put_manifest_document(&document(MANIFEST), false)
+        .expect_err("a json project cannot take a manifest");
+
+    // The mirror of the message a json write into a toml project gets.
+    assert!(error.to_string().contains("is a `.project.json` project"));
+    assert!(error.to_string().contains("sysand migrate"));
+    Ok(())
+}
+
+#[test]
+fn a_manifest_written_to_a_local_project_is_read_back_as_toml()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    let mut project = LocalSrcProject::new_access(dir.path(), None);
+    project.put_manifest_document(&document(MANIFEST), false)?;
+
+    assert_eq!(project.format()?, ProjectFormat::Toml);
+    assert_eq!(
+        project.manifest().expect("a manifest").name.as_str(),
+        "widgets"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_manifest_overwritten_after_a_read_is_read_again() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    write_model_toml(dir.path(), MANIFEST);
+    let mut project = LocalSrcProject::new_access(dir.path(), None);
+
+    // Fills the cached view *before* the write, which is the only order
+    // in which a stale cache can be observed.
+    let (info, _) = project.get_project()?;
+    assert_eq!(info.expect("info").version, "1.0.0");
+
+    project.put_manifest_document(&document(&MANIFEST.replace("1.0.0", "2.0.0")), true)?;
+
+    let (info, _) = project.get_project()?;
+    assert_eq!(info.expect("info").version, "2.0.0");
+    Ok(())
+}

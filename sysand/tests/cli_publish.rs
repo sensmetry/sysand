@@ -567,7 +567,8 @@ fn publish_rejects_invalid_semver_version() -> TestResult {
     // one directly to exercise `publish`'s own validation.
     let (_temp_dir, cwd) = init_project("invalid-version")?;
 
-    let (kpar_bytes, _info, _meta) = build_index_kpar_bytes("invalid-version", "not-semver");
+    let (kpar_bytes, _info, _meta) =
+        build_index_kpar_bytes("acme", "invalid-version", "not-semver");
     std::fs::write(cwd.join("artifact.kpar"), kpar_bytes)?;
 
     let env = bearer_env_for_url("http://localhost:1");

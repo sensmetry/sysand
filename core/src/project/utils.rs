@@ -23,9 +23,10 @@ use crate::{
     manifest::diagnostics::{Report, Validated},
     model::{
         IndexName, IndexPublisher, InterchangeProjectUsage, InterchangeProjectUsageRaw,
-        ProjectName, ProjectPublisher,
+        ProjectName, ProjectPublisher, normalize_typed_name, normalize_typed_publisher,
     },
     purl::PKG_SYSAND_PREFIX,
+    resolve::UsageOrigin,
     utils::SP,
 };
 
@@ -831,6 +832,139 @@ impl From<Iri<String>> for Identifier {
 impl Display for Identifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)
+    }
+}
+
+/// How an expected identity is compared with the one the target
+/// declares.
+///
+/// model-toml.md "Normalization": "All projects are resolved by their
+/// *normalized* identity, regardless of how the usage is declared. This
+/// is to ensure consistent resolution for existing PURL usages in json
+/// projects. Resolution is the only place that normalizes ... Every
+/// other comparison is literal string equality."
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IdentityMatch {
+    /// A usage being resolved, which is the only place that normalizes.
+    Normalized,
+    /// Every other comparison, `sysand sync` against the pair the
+    /// lockfile recorded above all: there the point is to catch drift,
+    /// which normalizing would hide.
+    Literal,
+}
+
+/// The identity a usage expects to find at its target.
+///
+/// model-toml.md "Usages": "Every usage carries `publisher` and `name`:
+/// that pair is the identity a usage is resolved by ... The target must
+/// declare the same publisher (compared after normalization)."
+#[derive(Clone, Debug)]
+pub struct ExpectedIdentity {
+    publisher: Option<String>,
+    name: String,
+    matching: IdentityMatch,
+    origin: UsageOrigin,
+}
+
+/// How the identity a target declares differs from the expected one.
+#[derive(Clone, Debug)]
+pub enum IdentityMismatch {
+    /// The target declares no publisher at all, and the usage was
+    /// written in a `model.toml`, where one is required. The same target
+    /// under a json usage is an ordinary
+    /// [`Self::Publisher`] mismatch against `<none>`.
+    NoPublisher {
+        name: String,
+    },
+    Publisher {
+        expected: Option<String>,
+        actual: Option<String>,
+    },
+    Name {
+        expected: String,
+        actual: String,
+    },
+}
+
+impl ExpectedIdentity {
+    /// A usage being resolved. `publisher` is `None` when the usage
+    /// expects a target that declares none.
+    pub fn resolving(publisher: Option<String>, name: String) -> Self {
+        Self {
+            publisher,
+            name,
+            matching: IdentityMatch::Normalized,
+            origin: UsageOrigin::Json,
+        }
+    }
+
+    /// A pair the lockfile recorded, which is compared literally.
+    pub fn recorded(publisher: Option<String>, name: String) -> Self {
+        Self {
+            publisher,
+            name,
+            matching: IdentityMatch::Literal,
+            origin: UsageOrigin::Json,
+        }
+    }
+
+    /// The manifest the usage was written in, which decides only
+    /// whether a publisher-less target is an
+    /// [`IdentityMismatch::NoPublisher`] or an
+    /// [`IdentityMismatch::Publisher`].
+    #[must_use]
+    pub fn declared_in(self, origin: UsageOrigin) -> Self {
+        Self { origin, ..self }
+    }
+
+    pub fn publisher(&self) -> Option<&str> {
+        self.publisher.as_deref()
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Compare what the target declares with what the usage expected.
+    pub fn check(
+        &self,
+        actual_publisher: Option<&str>,
+        actual_name: &str,
+    ) -> Result<(), IdentityMismatch> {
+        let same = |expected: &str, actual: &str, normalize: fn(&str) -> String| match self.matching
+        {
+            IdentityMatch::Normalized => normalize(expected) == normalize(actual),
+            IdentityMatch::Literal => expected == actual,
+        };
+
+        match (&self.publisher, actual_publisher) {
+            (Some(expected), Some(actual)) if same(expected, actual, normalize_typed_publisher) => {
+            }
+            // A target with no publisher at all, under a usage that was
+            // written where one is required, gets the message that names
+            // the fix rather than a comparison against `<none>`
+            (Some(_), None) if self.origin == UsageOrigin::Toml => {
+                return Err(IdentityMismatch::NoPublisher {
+                    name: self.name.clone(),
+                });
+            }
+            (None, None) => {}
+            (expected, actual) => {
+                return Err(IdentityMismatch::Publisher {
+                    expected: expected.clone(),
+                    actual: actual.map(ToOwned::to_owned),
+                });
+            }
+        }
+
+        if same(&self.name, actual_name, normalize_typed_name) {
+            Ok(())
+        } else {
+            Err(IdentityMismatch::Name {
+                expected: self.name.clone(),
+                actual: actual_name.to_owned(),
+            })
+        }
     }
 }
 

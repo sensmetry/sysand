@@ -7,6 +7,7 @@ use std::{
 };
 
 use sysand_core::{
+    manifest::edit::DocumentMut,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
         CanonicalizationError, ProjectChecksum, ProjectMut, ProjectRead, memory::InMemoryProject,
@@ -78,6 +79,7 @@ fn macro_get_project() {
         info: Some(info.clone()),
         meta: Some(meta.clone()),
         files: HashMap::new(),
+        model_toml: None,
         nominal_sources: vec![],
         source_may_offer_multiple_versions: false,
     });
@@ -95,6 +97,7 @@ fn macro_read_source() {
         info: None,
         meta: None,
         files,
+        model_toml: None,
         nominal_sources: vec![],
         source_may_offer_multiple_versions: false,
     });
@@ -167,6 +170,7 @@ fn macro_write_source() {
         info: None,
         meta: None,
         files: HashMap::new(),
+        model_toml: None,
         nominal_sources: vec![],
         source_may_offer_multiple_versions: false,
     });
@@ -286,4 +290,24 @@ enum GenericProjectMut<SomeProject: ProjectRead + ProjectMut> {
 #[test]
 fn macro_generic_mut() {
     let _project = GenericProjectMut::<InMemoryProject>::Variant(InMemoryProject::new());
+}
+
+#[test]
+fn a_derived_project_forwards_a_manifest_write() {
+    // A generated `ProjectMut` enum, so that the write forwarding is
+    // exercised.
+    let mut project = OneVariantProjectMut::Variant(InMemoryProject::new());
+    let document: DocumentMut =
+        "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n"
+            .parse()
+            .expect("a valid manifest document");
+
+    project
+        .put_manifest_document(&document, false)
+        .expect("the variant stores a manifest");
+
+    assert_eq!(
+        project.format().expect("a format"),
+        sysand_core::project::ProjectFormat::Toml
+    );
 }

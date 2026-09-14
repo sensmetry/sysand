@@ -85,6 +85,7 @@ fn memory_project(
             checksum: Some(IndexMap::default()),
         }),
         files: HashMap::default(),
+        model_toml: None,
         nominal_sources: vec![],
         // These fixtures stand in for an index listing several versions of a
         // project, which is what makes a default version constraint apply.

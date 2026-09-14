@@ -454,7 +454,8 @@ impl From<LocalSrcError> for LocalWriteError {
             error @ LocalSrcError::MissingInfoMeta { .. } => Self::Format(error),
             error @ (LocalSrcError::AmbiguousFormat { .. }
             | LocalSrcError::Symbols(_)
-            | LocalSrcError::JsonWriteToTomlProject { .. }) => Self::Format(error),
+            | LocalSrcError::JsonWriteToTomlProject { .. }
+            | LocalSrcError::TomlWriteToJsonProject { .. }) => Self::Format(error),
         }
     }
 }

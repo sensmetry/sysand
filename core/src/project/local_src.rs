@@ -447,6 +447,42 @@ impl ProjectMut for LocalSrcProject {
         Ok(())
     }
 
+    fn put_manifest_document(
+        &mut self,
+        document: &crate::manifest::edit::DocumentMut,
+        overwrite: bool,
+    ) -> Result<(), crate::project::ManifestWriteError<LocalSrcError>> {
+        use crate::project::ManifestWriteError;
+
+        let format = detect_format(&self.project_path)
+            .map_err(|e| ManifestWriteError::Project(LocalSrcError::from(e)))?;
+        // The mirror of `refuse_json_write`, and as narrow: that one
+        // fires on `Toml` alone, so this one fires on `Json` alone.
+        // Writing into a directory that already holds both changes
+        // nothing about why it is unreadable.
+        if format == ProjectFormat::Json {
+            return Err(ManifestWriteError::Project(
+                LocalSrcError::TomlWriteToJsonProject {
+                    dir: self.project_path.clone(),
+                },
+            ));
+        }
+
+        let path = self.project_path.join(MODEL_TOML_FILE);
+        if !overwrite && path.exists() {
+            return Err(ManifestWriteError::Project(LocalSrcError::AlreadyExists(
+                format!("`{MODEL_TOML_FILE}` already exists"),
+            )));
+        }
+
+        wrapfs::write(&path, document.to_string())
+            .map_err(|e| ManifestWriteError::Project(LocalSrcError::from(e)))?;
+
+        // The cached view is of the manifest that was there.
+        self.view.take();
+        Ok(())
+    }
+
     fn write_source<P: AsRef<Utf8UnixPath>, R: Read>(
         &mut self,
         path: P,
@@ -509,6 +545,15 @@ pub enum LocalSrcError {
         dir: Utf8PathBuf,
         file: &'static str,
     },
+    /// The mirror: a command that writes a `model.toml` was pointed at a
+    /// json project. The directory would then hold both manifests, which
+    /// nothing can read.
+    #[error(
+        "`{dir}` is a `.project.json` project;\n\
+        {SP:>8} `{MODEL_TOML_FILE}` cannot be written into one (see `sysand migrate`)",
+        SP = ' '
+    )]
+    TomlWriteToJsonProject { dir: Utf8PathBuf },
     #[error(transparent)]
     Deserialize(#[from] ProjectDeserializationError),
     #[error(transparent)]
