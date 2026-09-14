@@ -41,7 +41,7 @@ SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
     <maven.compiler.source>1.8</maven.compiler.source>
     <maven.compiler.target>1.8</maven.compiler.target>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <maven.plugin.tools.version>3.15.2</maven.plugin.tools.version>
+    <maven.plugin.tools.version>3.16.0</maven.plugin.tools.version>
     <maven.api.version>3.9.16</maven.api.version>
   </properties>
   <profiles>
