@@ -25,7 +25,7 @@ use crate::{
         CanonicalizationError, ProjectRead,
         utils::{FsIoError, Identifier},
     },
-    resolve::ResolveRead,
+    resolve::{ResolveRead, UsageOrigin},
     solve::pubgrub::{SolverError, solve},
     utils::ProvidedProjects,
 };
@@ -246,6 +246,12 @@ fn lock_projects<
             None => "<unknown input project>".to_owned(),
         };
 
+        let origin = UsageOrigin::of_format(
+            project
+                .format()
+                .map_err(LockProjectError::InputProjectError)?,
+        );
+
         let info = project
             .get_info()
             .map_err(LockProjectError::InputProjectError)?
@@ -286,12 +292,13 @@ fn lock_projects<
             usages: validated_info.usage.iter().map(Usage::from).collect(),
         });
 
-        all_deps.extend(
-            validated_info
-                .usage
-                .into_iter()
-                .map(|usage| (usage, DeclaredBy::Input(named_project_label.clone()))),
-        );
+        all_deps.extend(validated_info.usage.into_iter().map(|usage| {
+            (
+                usage,
+                DeclaredBy::Input(named_project_label.clone()),
+                origin,
+            )
+        }));
     }
 
     let lock_outcome = lock_extend(lock, all_deps, resolver, provided_usages, ctx, respelled)?;
@@ -301,7 +308,8 @@ fn lock_projects<
 
 /// Solves for compatible set of dependencies based on usages and adds the solution
 /// to existing lockfile. Each usage comes with the project that declares it,
-/// for error messages.
+/// for error messages, and with the manifest it was declared in; a caller
+/// that did not read one passes [`UsageOrigin::Json`].
 /// Note: The content of the lockfile is taken into account only to avoid
 ///       including duplicate projects (same project, same version) in lock.
 ///       This can cause incorrect version selection, as possible
@@ -312,7 +320,7 @@ fn lock_projects<
 //         already in lockfile
 pub fn do_lock_extend<
     PD: ProjectRead + Debug,
-    I: IntoIterator<Item = (InterchangeProjectUsage, DeclaredBy)>,
+    I: IntoIterator<Item = (InterchangeProjectUsage, DeclaredBy, UsageOrigin)>,
     R: ResolveRead<ProjectStorage = PD> + Debug,
 >(
     lock: Lock,
@@ -328,7 +336,7 @@ pub fn do_lock_extend<
 /// among the inputs not checked (see [`check_typed_usages`])
 fn lock_extend<
     PD: ProjectRead + Debug,
-    I: IntoIterator<Item = (InterchangeProjectUsage, DeclaredBy)>,
+    I: IntoIterator<Item = (InterchangeProjectUsage, DeclaredBy, UsageOrigin)>,
     R: ResolveRead<ProjectStorage = PD> + Debug,
 >(
     mut lock: Lock,
@@ -338,12 +346,15 @@ fn lock_extend<
     ctx: &ProjectContext,
     respelled: Option<&Identifier>,
 ) -> Result<LockOutcome<PD>, LockError<PD, R>> {
-    let (inputs, declared_by): (Vec<_>, Vec<_>) = usages.into_iter().unzip();
+    let (inputs, declared_by): (Vec<_>, Vec<_>) = usages
+        .into_iter()
+        .map(|(usage, declared_by, origin)| ((usage, origin), declared_by))
+        .unzip();
     // Typed usages, to check against the projects they resolve to
     let mut typed_usages: Vec<(TypedSpelling, DeclaredBy)> = inputs
         .iter()
         .zip(declared_by)
-        .filter_map(|(usage, declared_by)| Some((TypedSpelling::of(usage)?, declared_by)))
+        .filter_map(|((usage, _), declared_by)| Some((TypedSpelling::of(usage)?, declared_by)))
         .collect();
     // Publisher, name and version of each solved project
     let mut solved = HashMap::new();

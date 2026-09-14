@@ -20,7 +20,7 @@ use thiserror::Error;
 use crate::{
     model::{InterchangeProjectUsage, InterchangeProjectValidationError},
     project::{ProjectRead, utils::Identifier},
-    resolve::{CoalescingUsage, ResolutionInfo, ResolutionOutcome, ResolveRead},
+    resolve::{CoalescingUsage, ResolutionInfo, ResolutionOutcome, ResolveRead, UsageOrigin},
     utils::format_err,
 };
 
@@ -383,6 +383,12 @@ pub enum CandidateError<R: ResolveRead> {
         #[source]
         source: StorageError<R>,
     },
+    #[error("its manifest format cannot be read")]
+    FormatObtain {
+        version: Version,
+        #[source]
+        source: StorageError<R>,
+    },
 }
 
 impl<R: ResolveRead> CandidateError<R> {
@@ -391,7 +397,8 @@ impl<R: ResolveRead> CandidateError<R> {
         match self {
             Self::InvalidProject { version, source: _ }
             | Self::MissingUsage { version }
-            | Self::UsageObtain { version, source: _ } => Some(version),
+            | Self::UsageObtain { version, source: _ }
+            | Self::FormatObtain { version, source: _ } => Some(version),
             Self::Resolved(_)
             | Self::InvalidVersion {
                 version: _,
@@ -436,6 +443,9 @@ impl<R: ResolveRead> CandidateError<R> {
             Self::UsageObtain { source, version: _ } => {
                 InternalSolverError::UsageObtain { usage, source }
             }
+            Self::FormatObtain { source, version: _ } => {
+                InternalSolverError::FormatObtain { usage, source }
+            }
         }
     }
 }
@@ -466,10 +476,15 @@ fn read_candidate<R: ResolveRead>(
         Ok(None) => return Err(CandidateError::MissingUsage { version }),
         Err(source) => return Err(CandidateError::UsageObtain { version, source }),
     };
+    // The usages a candidate declares were written in its manifest
+    let origin = match project.format() {
+        Ok(format) => UsageOrigin::of_format(format),
+        Err(source) => return Err(CandidateError::FormatObtain { version, source }),
+    };
     let relative_root = project.project_root().map(camino::Utf8Path::to_path_buf);
     let usage = usage
         .into_iter()
-        .map(|u| CoalescingUsage::new_usage(u, relative_root.clone()))
+        .map(|u| CoalescingUsage::new_usage(u, relative_root.clone(), origin))
         .collect();
 
     Ok(Candidate {
@@ -840,9 +855,10 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
                 }
                 | InternalSolverError::MissingVersion { usage }
                 | InternalSolverError::MissingUsage { usage }
-                | InternalSolverError::InvalidResolvedVersion { usage, source: _ }
-                | InternalSolverError::VersionObtain { usage, source: _ }
-                | InternalSolverError::UsageObtain { usage, source: _ } => {
+                | InternalSolverError::InvalidResolvedVersion { usage, .. }
+                | InternalSolverError::VersionObtain { usage, .. }
+                | InternalSolverError::UsageObtain { usage, .. }
+                | InternalSolverError::FormatObtain { usage, .. } => {
                     conflicts.push(SolveConflict::NotFound {
                         iri: usage.id().to_string(),
                         reason: format_err(source),
@@ -1291,6 +1307,11 @@ pub enum InternalSolverError<R: ResolveRead> {
         usage: ResolutionInfo,
         source: StorageError<R>,
     },
+    #[error("failed to obtain manifest format of resolved usage {usage}")]
+    FormatObtain {
+        usage: ResolutionInfo,
+        source: StorageError<R>,
+    },
 }
 
 impl<R: ResolveRead> ProjectSolver<R> {
@@ -1419,8 +1440,10 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
 
 type Solution<ProjectStorage> = HashMap<Identifier, ProjectStorage>;
 
+/// `requested` pairs each usage with the manifest it was declared in;
+/// a caller that did not read one passes [`UsageOrigin::Json`].
 pub fn solve<R: ResolveRead + fmt::Debug + 'static>(
-    requested: Vec<InterchangeProjectUsage>,
+    requested: Vec<(InterchangeProjectUsage, UsageOrigin)>,
     base_path: Option<Utf8PathBuf>,
     resolver: R,
 ) -> Result<Solution<R::ProjectStorage>, SolverError<R>> {
@@ -1428,7 +1451,7 @@ pub fn solve<R: ResolveRead + fmt::Debug + 'static>(
 
     let requested = requested
         .into_iter()
-        .map(|u| CoalescingUsage::new_usage(u, base_path.clone()))
+        .map(|(u, origin)| CoalescingUsage::new_usage(u, base_path.clone(), origin))
         .collect();
     let package = DependencyIdentifier::Requested(requested);
 
