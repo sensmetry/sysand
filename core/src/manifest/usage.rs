@@ -18,7 +18,9 @@ use typed_path::Utf8UnixPathBuf;
 
 use crate::manifest::common::InheritMarker;
 use crate::manifest::common::{InheritFrom, NormalizedIdentity, normalized_identity};
-use crate::manifest::diagnostics::{Diagnostic, KeyLocation, Report, UnknownKeys, missing_key};
+use crate::manifest::diagnostics::{
+    Diagnostic, KeyLocation, Position, Report, UnknownKeys, missing_key,
+};
 use crate::manifest::reader::describe;
 use crate::manifest::spans::Positions;
 use crate::model::{IndexName, IndexPublisher};
@@ -191,6 +193,14 @@ pub enum MemberUsage {
         publisher: IndexPublisher,
         name: IndexName,
         from: InheritFrom,
+        /// Where the `workspace` key that made this an opt-in is.
+        ///
+        /// Kept for the same reason
+        /// [`crate::manifest::inherit::Inherited`] keeps one: the
+        /// diagnostics an opt-in can produce are raised once the
+        /// workspace is known, by which time the positions of this
+        /// file are no longer at hand.
+        at: Option<Position>,
     },
 }
 
@@ -516,6 +526,7 @@ impl UsageRaw {
                         publisher,
                         name,
                         from,
+                        at: site.key("workspace", positions),
                     })
             })
         } else if git_keys.is_empty() {
@@ -862,6 +873,7 @@ impl From<MemberUsage> for UsageRaw {
                 publisher,
                 name,
                 from,
+                at: _,
             } => Self {
                 publisher: Some(publisher.to_string()),
                 name: Some(name.to_string()),

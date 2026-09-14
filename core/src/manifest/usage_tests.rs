@@ -531,22 +531,43 @@ fn a_member_entry_without_a_marker_is_declared() {
 /// "group-name"` a named one".
 #[test]
 fn a_workspace_marker_makes_an_entry_an_opt_in() {
-    assert_eq!(
+    // `at` is asserted on its own by
+    // `an_opt_in_records_where_its_marker_is`, so the identity and the
+    // group are what these two compare.
+    assert!(matches!(
         member("publisher = \"acme\"\nname = \"lib\"\nworkspace = true\n"),
         MemberUsage::Inherited {
-            publisher: publisher("acme"),
-            name: name("lib"),
+            publisher: p,
+            name: n,
             from: InheritFrom::DefaultGroup,
-        }
-    );
-    assert_eq!(
+            ..
+        } if p == publisher("acme") && n == name("lib")
+    ));
+    assert!(matches!(
         member("publisher = \"acme\"\nname = \"lib\"\nworkspace = \"legacy\"\n"),
         MemberUsage::Inherited {
-            publisher: publisher("acme"),
-            name: name("lib"),
-            from: InheritFrom::Group("legacy".to_owned()),
-        }
-    );
+            publisher: p,
+            name: n,
+            from: InheritFrom::Group(group),
+            ..
+        } if p == publisher("acme") && n == name("lib") && group == "legacy"
+    ));
+}
+
+/// The opt-in's marker carries its own position, so that "the group has
+/// no entry with that publisher and name" can point at the `workspace`
+/// key long after the file's text is gone.
+#[test]
+fn an_opt_in_records_where_its_marker_is() {
+    let MemberUsage::Inherited { at, .. } =
+        member("publisher = \"acme\"\nname = \"lib\"\nworkspace = true\n")
+    else {
+        panic!("an opt-in");
+    };
+    let position = at.expect("positioned");
+    assert_eq!(position.file, "model.toml");
+    // Line 1 is `[[inline-usages]]`, so the marker is the fourth line.
+    assert_eq!((position.line, position.column), (4, 1));
 }
 
 /// workspaces.md: "The group entry is used as-is; the member cannot
