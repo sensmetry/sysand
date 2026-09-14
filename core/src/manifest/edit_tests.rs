@@ -5,12 +5,13 @@ use fluent_uri::Iri;
 use semver::{Version, VersionReq};
 use spdx::Expression;
 
-use crate::manifest::common::{InheritFrom, Maintainer, Sources, StdlibStem};
+use crate::manifest::common::{InheritFrom, Maintainer, ResolvedUrls, Sources, StdlibStem};
 use crate::manifest::diagnostics::Position;
 use crate::manifest::edit::render_new;
 use crate::manifest::inherit::{Inherited, MetaProperty};
 use crate::manifest::project::{PROJECT_KEYS, ProjectManifest, ProjectTable, Urls};
 use crate::manifest::usage::{MemberUsage, Usage};
+use crate::manifest::workspace_table::{GroupProperties, MemberPath, WorkspaceTable};
 use crate::manifest::{ModelToml, SUPPORTED_MANIFEST_VERSION};
 use crate::model::{IndexName, IndexPublisher};
 
@@ -392,4 +393,147 @@ fn a_generated_project_file_parses_back_into_itself() {
 
     // The fixed point: nothing shifts on a second pass.
     assert_eq!(render(&ModelToml::Project(Box::new(read))), text);
+}
+
+const KERML: &str = "https://www.omg.org/spec/KerML/20250201";
+
+fn member(raw: &str) -> MemberPath {
+    MemberPath {
+        raw: raw.to_owned(),
+        path: crate::utils::normalize_relative(raw).expect("a valid member path"),
+    }
+}
+
+fn index_usage(project: &str, constraint: &str) -> Usage {
+    Usage::Index {
+        publisher: publisher("acme"),
+        name: name(project),
+        version_constraint: VersionReq::parse(constraint).expect("a valid constraint"),
+    }
+}
+
+/// A workspace with membership lists, a default group and a named one.
+fn workspace() -> ModelToml {
+    let default_group = GroupProperties {
+        publisher: Some(publisher("acme")),
+        version: Some(Version::new(1, 0, 0)),
+        license: Some(Expression::parse("MIT").expect("a valid SPDX expression")),
+        topics: Some(vec!["widgets".to_owned()]),
+        metamodel: Some(METAMODEL.to_owned()),
+        maintainers: Some(vec![
+            Maintainer::parse("Ada Lovelace <ada@example.com>").expect("a valid maintainer"),
+        ]),
+        urls: Some(ResolvedUrls {
+            website: Some(iri("https://example.com")),
+            ..ResolvedUrls::default()
+        }),
+        inline_usages: vec![index_usage("dep", "^1.2")],
+    };
+    let kerml = GroupProperties {
+        metamodel: Some(KERML.to_owned()),
+        inline_usages: vec![index_usage("other", "^2")],
+        ..GroupProperties::default()
+    };
+
+    ModelToml::Workspace(Box::new(WorkspaceTable {
+        members: vec![member("app"), member("lib")],
+        exclude: vec![member("scratch")],
+        default_group,
+        groups: std::collections::BTreeMap::from([("kerml".to_owned(), kerml)]),
+    }))
+}
+
+const WORKSPACE: &str = r#"manifest-version = 1
+
+[workspace]
+members = ["app", "lib"]
+exclude = ["scratch"]
+publisher = "acme"
+version = "1.0.0"
+license = "MIT"
+topics = ["widgets"]
+metamodel = "https://www.omg.org/spec/SysML/20250201"
+maintainers = ["Ada Lovelace <ada@example.com>"]
+
+[workspace.urls]
+website = "https://example.com"
+
+[[workspace.inline-usages]]
+publisher = "acme"
+name = "dep"
+version = "^1.2"
+
+[workspace.group.kerml]
+metamodel = "https://www.omg.org/spec/KerML/20250201"
+
+[[workspace.group.kerml.inline-usages]]
+publisher = "acme"
+name = "other"
+version = "^2"
+"#;
+
+#[test]
+fn a_generated_workspace_file_has_the_documented_layout() {
+    // model-toml.md fixes the project layout in detail and says of this
+    // one only that a workspace file "has `manifest-version` and then
+    // `[workspace]`". The order below is Sysand's own: the membership
+    // lists, then the default group's keys in the order the reader
+    // recognizes them.
+    assert_eq!(render(&workspace()), WORKSPACE);
+}
+
+#[test]
+fn a_named_group_is_written_under_its_own_header() {
+    let text = render(&workspace());
+
+    assert!(text.contains(
+        "\n[workspace.group.kerml]\nmetamodel = \"https://www.omg.org/spec/KerML/20250201\"\n"
+    ));
+    assert!(text.contains("\n[[workspace.group.kerml.inline-usages]]\n"));
+    // `[workspace.group]` holds nothing of its own and gets no header.
+    assert!(!text.contains("\n[workspace.group]\n"));
+}
+
+#[test]
+fn a_generated_workspace_file_parses_back_into_itself() {
+    let text = render(&workspace());
+    let table = ModelToml::parse("model.toml", &text)
+        .expect("a generated workspace file is a valid manifest")
+        .into_parts()
+        .0
+        .into_workspace("model.toml")
+        .expect("a workspace");
+
+    assert_eq!(
+        table
+            .members
+            .iter()
+            .map(|m| m.raw.as_str())
+            .collect::<Vec<_>>(),
+        vec!["app", "lib"]
+    );
+    assert_eq!(
+        table
+            .exclude
+            .iter()
+            .map(|m| m.raw.as_str())
+            .collect::<Vec<_>>(),
+        vec!["scratch"]
+    );
+    assert_eq!(
+        table
+            .default_group
+            .publisher
+            .as_ref()
+            .map(IndexPublisher::as_str),
+        Some("acme")
+    );
+    assert_eq!(table.default_group.version, Some(Version::new(1, 0, 0)));
+    assert_eq!(table.default_group.inline_usages.len(), 1);
+    assert!(table.default_group.urls.is_some());
+    assert_eq!(table.groups.len(), 1);
+    assert_eq!(table.groups["kerml"].inline_usages.len(), 1);
+
+    // The fixed point: nothing shifts on a second pass.
+    assert_eq!(render(&ModelToml::Workspace(Box::new(table))), text);
 }
