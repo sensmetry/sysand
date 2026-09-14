@@ -43,6 +43,7 @@ fn project(version: &str) -> InMemoryProject {
             includes_implied: None,
             checksum: None,
         }),
+        model_toml: None,
         files: HashMap::new(),
         nominal_sources: vec![],
         // These fixtures stand in for an index listing several versions of a

@@ -177,9 +177,8 @@ fn do_init_py_local_file(
                 | LocalSrcError::Deserialize(_)
                 | LocalSrcError::AmbiguousFormat { dir: _, json: _ }
                 | LocalSrcError::Symbols(_)
-                | LocalSrcError::JsonWriteToTomlProject { dir: _, file: _ } => {
-                    PyValueError::new_err(e)
-                }
+                | LocalSrcError::JsonWriteToTomlProject { dir: _, file: _ }
+                | LocalSrcError::TomlWriteToJsonProject { dir: _ } => PyValueError::new_err(e),
                 LocalSrcError::MissingMeta | LocalSrcError::MissingInfoMeta { missing: _ } => {
                     PyFileNotFoundError::new_err(e)
                 }

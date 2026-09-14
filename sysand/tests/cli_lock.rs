@@ -1090,9 +1090,8 @@ fn lock_fail_unsatisfiable() -> Result<(), Box<dyn std::error::Error>> {
 fn lock_fails_on_a_broken_index_version() -> Result<(), Box<dyn std::error::Error>> {
     let mut server = Server::new();
 
-    let (kpar_bytes, mut info, meta) = build_index_kpar_bytes("dep", "0.1.0");
     // Spelled as the index usage below spells it
-    info.publisher = Some("mock".to_owned());
+    let (kpar_bytes, info, meta) = build_index_kpar_bytes("mock", "dep", "0.1.0");
     let kpar_sha256_hex = sha256_lowercase_hex(&kpar_bytes);
     let kpar_size = kpar_bytes.len();
 

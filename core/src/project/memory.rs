@@ -13,8 +13,17 @@ use crate::{
     context::ProjectContext,
     env::utils::{CloneError, clone_project},
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{CanonicalizationError, ProjectMut, ProjectRead},
+    manifest::{
+        MODEL_TOML_FILE,
+        edit::DocumentMut,
+        kpar_view::{self, ViewError},
+        project::ResolvedProject,
+    },
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, PROJECT_JSON_FILE},
+    project::{
+        CanonicalizationError, ManifestError, ManifestWriteError, ProjectFormat, ProjectMut,
+        ProjectRead,
+    },
 };
 
 use super::ProjectChecksum;
@@ -24,6 +33,17 @@ use super::ProjectChecksum;
 pub struct InMemoryProject {
     pub info: Option<InterchangeProjectInfoRaw>,
     pub meta: Option<InterchangeProjectMetadataRaw>,
+    /// The project's `model.toml`, if it has one. Text rather than a
+    /// parse, because that is what a file holds and what
+    /// [`ProjectRead::format`] answers from; parsing it is
+    /// [`ProjectRead::manifest`]'s job and goes through the same
+    /// `kpar_view` path a project on disk uses, so the two cannot
+    /// diverge.
+    ///
+    /// A project holding this *and* `info`/`meta` is the ambiguity
+    /// model-toml.md refuses. It is constructible -- every field here is
+    /// public -- so it is answered rather than declared impossible.
+    pub model_toml: Option<String>,
     pub files: HashMap<Utf8UnixPathBuf, String>,
     pub nominal_sources: Vec<Source>,
     /// What [`ProjectRead::source_may_offer_multiple_versions`] answers. An
@@ -44,6 +64,7 @@ impl InMemoryProject {
         Self {
             info: Some(info),
             meta: Some(meta),
+            model_toml: None,
             files: HashMap::default(),
             nominal_sources: vec![],
             source_may_offer_multiple_versions: false,
@@ -56,6 +77,7 @@ impl InMemoryProject {
         let mut to = Self {
             info: None,
             meta: None,
+            model_toml: None,
             files: std::collections::HashMap::new(),
             nominal_sources: vec![],
             source_may_offer_multiple_versions: false,
@@ -67,12 +89,51 @@ impl InMemoryProject {
     }
 }
 
+impl InMemoryProject {
+    /// The KPAR view of this project's `model.toml`.
+    ///
+    /// Rebuilt per call rather than cached: a cached pair would have to
+    /// sit in a field, and this type derives `PartialEq`, `Eq` and
+    /// `Clone` -- two projects holding the same manifest would then
+    /// compare unequal on nothing more than whether either had been
+    /// read. `LocalSrcProject` can afford the cache because it derives
+    /// none of the three.
+    fn view(
+        &self,
+    ) -> Result<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw), InMemoryError> {
+        let text = self
+            .model_toml
+            .as_ref()
+            .ok_or(InMemoryError::MissingInfoMeta)?;
+        kpar_view::of_model_toml(text, |source| {
+            self.files
+                .get(source)
+                .cloned()
+                .ok_or_else(|| InMemoryError::FileNotFound(source.to_path_buf()))
+        })
+        .map_err(|error| match error {
+            ViewError::Manifest(error) => InMemoryError::Manifest(error),
+            ViewError::Read(error) => error,
+            ViewError::Symbols(error) => InMemoryError::Symbols(error),
+        })
+    }
+
+    /// The mirror of `LocalSrcProject::refuse_json_write`.
+    fn refuse_json_write(&self, file: &'static str) -> Result<(), InMemoryError> {
+        if self.format()? == ProjectFormat::Toml {
+            return Err(InMemoryError::JsonWriteToTomlProject(file));
+        }
+        Ok(())
+    }
+}
+
 impl ProjectMut for InMemoryProject {
     fn put_info(
         &mut self,
         info: &InterchangeProjectInfoRaw,
         overwrite: bool,
     ) -> Result<(), InMemoryError> {
+        self.refuse_json_write(PROJECT_JSON_FILE)?;
         if !overwrite && self.info.is_some() {
             return Err(InMemoryError::AlreadyExists(
                 "project already has an information file".to_owned(),
@@ -89,6 +150,7 @@ impl ProjectMut for InMemoryProject {
         meta: &InterchangeProjectMetadataRaw,
         overwrite: bool,
     ) -> Result<(), InMemoryError> {
+        self.refuse_json_write(crate::model::META_JSON_FILE)?;
         if !overwrite && self.meta.is_some() {
             return Err(InMemoryError::AlreadyExists(
                 "project already has a meta manifest".to_owned(),
@@ -97,6 +159,25 @@ impl ProjectMut for InMemoryProject {
 
         self.meta = Some(meta.clone());
 
+        Ok(())
+    }
+
+    fn put_manifest_document(
+        &mut self,
+        document: &DocumentMut,
+        overwrite: bool,
+    ) -> Result<(), ManifestWriteError<InMemoryError>> {
+        if self.format().map_err(ManifestWriteError::Project)? == ProjectFormat::Json {
+            return Err(ManifestWriteError::Project(
+                InMemoryError::TomlWriteToJsonProject,
+            ));
+        }
+        if !overwrite && self.model_toml.is_some() {
+            return Err(ManifestWriteError::Project(InMemoryError::AlreadyExists(
+                format!("project already has a `{MODEL_TOML_FILE}`"),
+            )));
+        }
+        self.model_toml = Some(document.to_string());
         Ok(())
     }
 
@@ -133,6 +214,20 @@ pub enum InMemoryError {
     IoRead(#[from] std::io::Error),
     #[error("project is missing `.project.json` and/or `.meta.json` files")]
     MissingInfoMeta,
+    /// The project holds a `model.toml` *and* json documents.
+    #[error("project has both a `model.toml` and json manifests")]
+    AmbiguousFormat,
+    #[error("project is a `model.toml` project; `{0}` cannot be written into one")]
+    JsonWriteToTomlProject(&'static str),
+    #[error(
+        "project is a `.project.json` project; `model.toml` cannot be written into one \
+         (see `sysand migrate`)"
+    )]
+    TomlWriteToJsonProject,
+    #[error(transparent)]
+    Manifest(#[from] crate::project::utils::ProjectDeserializationError),
+    #[error(transparent)]
+    Symbols(#[from] crate::symbols::SymbolsError),
 }
 
 impl ProjectRead for InMemoryProject {
@@ -147,7 +242,37 @@ impl ProjectRead for InMemoryProject {
         ),
         InMemoryError,
     > {
-        Ok((self.info.clone(), self.meta.clone()))
+        match self.format()? {
+            // model-toml.md "Mixed manifests": a project holding both
+            // kinds is refused before either is read, as it is on disk.
+            ProjectFormat::Both => Err(InMemoryError::AmbiguousFormat),
+            ProjectFormat::Toml => {
+                let (info, meta) = self.view()?;
+                Ok((Some(info), Some(meta)))
+            }
+            ProjectFormat::Json | ProjectFormat::Neither => {
+                Ok((self.info.clone(), self.meta.clone()))
+            }
+        }
+    }
+
+    fn format(&self) -> Result<ProjectFormat, InMemoryError> {
+        let json = self.info.is_some() || self.meta.is_some();
+        Ok(match (self.model_toml.is_some(), json) {
+            (true, true) => ProjectFormat::Both,
+            (true, false) => ProjectFormat::Toml,
+            (false, true) => ProjectFormat::Json,
+            (false, false) => ProjectFormat::Neither,
+        })
+    }
+
+    fn manifest(&self) -> Result<ResolvedProject, ManifestError<InMemoryError>> {
+        let text = match &self.model_toml {
+            Some(text) => text,
+            None => return Err(ManifestError::NoTomlManifest),
+        };
+        kpar_view::resolved_of_text(MODEL_TOML_FILE, text)
+            .map_err(|error| ManifestError::Project(InMemoryError::Manifest(error)))
     }
 
     type SourceReader<'a> = &'a [u8];
@@ -189,3 +314,7 @@ impl ProjectRead for InMemoryProject {
         None
     }
 }
+
+#[cfg(test)]
+#[path = "./memory_tests.rs"]
+mod tests;

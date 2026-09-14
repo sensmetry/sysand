@@ -197,7 +197,7 @@ impl From<LocalKParError> for FileResolverProjectError {
     fn from(value: LocalKParError) -> Self {
         match value {
             LocalKParError::NotFound(err) => Self::NotFound(err),
-            error @ (LocalKParError::TomlInKpar { .. }) => Self::Other(error.to_string()),
+            error @ LocalKParError::TomlInKpar { .. } => Self::Other(error.to_string()),
             LocalKParError::Deserialize(error) => Self::Deserialize(error),
             LocalKParError::Io(error) => Self::Io(error),
             LocalKParError::Zip(err) => Self::Zip(err),
@@ -381,7 +381,6 @@ impl ResolveRead for FileResolver {
                 // TODO: should absolute paths be supported here? Cargo does.
                 if let Some(base) = resolve.base_path() {
                     let res = self.resolve_relative_path(base, dir.as_str())?;
-                    let origin = resolve.origin();
                     Ok(res.map(|path| {
                         vec![Ok(FileResolverProject::LocalSrcProject(
                             // The lock checks that the project is
@@ -411,7 +410,6 @@ impl ResolveRead for FileResolver {
             } => {
                 if let Some(base) = resolve.base_path() {
                     let res = self.resolve_relative_path(base, kpar_path.as_str())?;
-                    let origin = resolve.origin();
                     Ok(res.map(|path| {
                         vec![Ok(FileResolverProject::LocalKParProject(
                             // The lock checks that the project is

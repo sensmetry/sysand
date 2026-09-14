@@ -9,12 +9,13 @@ use typed_path::Utf8UnixPath;
 use crate::{
     context::ProjectContext,
     lock::Source,
+    manifest::edit::DocumentMut,
     model::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
         KerMlChecksumAlg,
     },
     project::{
-        ProjectChecksum, ProjectFormat, ProjectRead, hash_reader,
+        ManifestWriteError, ProjectChecksum, ProjectFormat, ProjectMut, ProjectRead, hash_reader,
         memory::{InMemoryError, InMemoryProject},
         reference::ProjectReference,
     },
@@ -66,6 +67,7 @@ fn canonicalization_no_checksums() -> Result<(), Box<dyn std::error::Error>> {
             Utf8UnixPath::new("MyFile.txt").to_path_buf(),
             "FooBarBaz".to_owned(),
         )]),
+        model_toml: None,
         nominal_sources: vec![],
         source_may_offer_multiple_versions: false,
     };
@@ -90,14 +92,61 @@ fn canonicalization_no_checksums() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Every project that has only ever had the two json documents answers
-/// json without saying anything.
+/// A project that keeps the default `format` answers json without
+/// saying anything.
+///
+/// The vehicle has to be a project that says nothing. `InMemoryProject`
+/// is not one: it can hold a `model.toml`, so it answers from what it
+/// holds -- and an empty one holds neither manifest.
 #[test]
 fn a_project_that_does_not_say_is_json() {
-    assert_eq!(
-        InMemoryProject::new().format().expect("infallible"),
-        ProjectFormat::Json
-    );
+    assert_eq!(Silent.format().expect("infallible"), ProjectFormat::Json);
+}
+
+/// A project that says nothing about its format: it keeps the default
+/// `format`.
+#[derive(Debug)]
+struct Silent;
+
+impl ProjectRead for Silent {
+    type Error = InMemoryError;
+
+    fn source_may_offer_multiple_versions(&self) -> bool {
+        false
+    }
+
+    fn get_project(
+        &self,
+    ) -> Result<
+        (
+            Option<InterchangeProjectInfoRaw>,
+            Option<InterchangeProjectMetadataRaw>,
+        ),
+        Self::Error,
+    > {
+        Ok((None, None))
+    }
+
+    type SourceReader<'a> = &'a [u8];
+
+    fn read_source<P: AsRef<Utf8UnixPath>>(
+        &self,
+        _path: P,
+    ) -> Result<Self::SourceReader<'_>, Self::Error> {
+        Ok(&[])
+    }
+
+    fn sources(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
+        Ok(vec![])
+    }
+
+    fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
+        Err(InMemoryError::MissingInfoMeta)
+    }
+
+    fn project_root(&self) -> Option<&camino::Utf8Path> {
+        None
+    }
 }
 
 /// A wrapper must forward rather than take the default, or it claims
@@ -164,7 +213,7 @@ impl ProjectRead for Toml {
 /// wrapper.
 #[derive(crate::project::ProjectRead)]
 enum Either {
-    Json(ProjectReference<InMemoryProject>),
+    Json(ProjectReference<Silent>),
     Toml(Toml),
 }
 
@@ -172,7 +221,7 @@ enum Either {
 #[test]
 fn a_derived_enum_reports_the_format_of_its_variant() {
     assert_eq!(
-        Either::Json(ProjectReference::new(InMemoryProject::new()))
+        Either::Json(ProjectReference::new(Silent))
             .format()
             .expect("infallible"),
         ProjectFormat::Json
@@ -181,4 +230,32 @@ fn a_derived_enum_reports_the_format_of_its_variant() {
         Either::Toml(Toml).format().expect("infallible"),
         ProjectFormat::Toml
     );
+}
+
+fn a_manifest() -> DocumentMut {
+    "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n"
+        .parse()
+        .expect("a valid manifest document")
+}
+
+/// Stores a manifest through the trait, so that `P = &mut T` picks the
+/// blanket implementation rather than resolving to the inner type by
+/// auto-deref.
+fn store<P: ProjectMut>(
+    mut project: P,
+    document: &DocumentMut,
+) -> Result<(), ManifestWriteError<P::Error>> {
+    project.put_manifest_document(document, false)
+}
+
+#[test]
+fn a_mutable_reference_forwards_a_manifest_write() {
+    // Silent without the blanket impl's override: the call falls
+    // through to the trait default and answers `Unsupported` for a
+    // project that can store one.
+    let mut project = InMemoryProject::default();
+
+    store(&mut project, &a_manifest()).expect("an in-memory project stores a manifest");
+
+    assert_eq!(project.format().expect("a format"), ProjectFormat::Toml);
 }
