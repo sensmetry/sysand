@@ -198,6 +198,7 @@ impl From<LocalKParError> for FileResolverProjectError {
     fn from(value: LocalKParError) -> Self {
         match value {
             LocalKParError::NotFound(err) => Self::NotFound(err),
+            error @ LocalKParError::TomlInKpar { .. } => Self::Other(error.to_string()),
             LocalKParError::Deserialize(error) => Self::Deserialize(error),
             LocalKParError::Io(error) => Self::Io(error),
             LocalKParError::Zip(err) => Self::Zip(err),

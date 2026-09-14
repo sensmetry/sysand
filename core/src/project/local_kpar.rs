@@ -18,6 +18,7 @@ use zip::{ZipArchive, read::ZipFile, result::ZipError};
 use crate::{
     context::ProjectContext,
     lock::Source,
+    manifest::MODEL_TOML_FILE,
     model::{
         InterchangeProjectInfoPartial, InterchangeProjectInfoRaw,
         InterchangeProjectMetadataPartial, InterchangeProjectMetadataRaw, META_JSON_FILE,
@@ -98,6 +99,15 @@ pub enum LocalKParError {
     Zip(#[from] project::utils::ZipArchiveError),
     #[error("path `{0}` not found")]
     NotFound(Box<Utf8Path>),
+    /// model-toml.md "Mixed manifests": "if toml config present in a
+    /// KPAR, error out"; "KPARs will continue to exclusively use
+    /// `.project.json`/`.meta.json`".
+    #[error(
+        "`{archive}` contains `model.toml`;\n\
+        {SP:>8} a KPAR carries `.project.json` and `.meta.json`, never a `model.toml`",
+        SP = ' '
+    )]
+    TomlInKpar { archive: Box<Utf8Path> },
     #[error(transparent)]
     Deserialize(#[from] ProjectDeserializationError),
     #[error(transparent)]
@@ -349,7 +359,7 @@ impl LocalKParProjectRaw {
                     .map_err(|e| FsIoError::Seek(path.to_owned(), 0, e))?;
                 let mut zip = zip::ZipArchive::new(archive)
                     .map_err(|e| ZipArchiveError::ReadArchive(path.into(), e))?;
-                Some(guess_root(&mut zip)?)
+                Some(guess_root(&mut zip, path)?)
             }
         };
 
@@ -375,7 +385,7 @@ impl LocalKParProjectRaw {
 
         let mut zip = zip::ZipArchive::new(archive)
             .map_err(|e| ZipArchiveError::ReadArchive(path.into(), e))?;
-        let root = Some(guess_root(&mut zip)?);
+        let root = Some(guess_root(&mut zip, path)?);
 
         Ok(Self {
             tmp_dir: tempdir().map_err(FsIoError::MkTempDir)?,
@@ -407,7 +417,7 @@ impl LocalKParProjectRaw {
 
                 let mut zip = zip::ZipArchive::new(archive)
                     .map_err(|e| ZipArchiveError::ReadArchive(path.into(), e))?;
-                Some(guess_root(&mut zip)?)
+                Some(guess_root(&mut zip, path)?)
             }
         };
         Ok(Self {
@@ -476,6 +486,25 @@ impl LocalKParProjectRaw {
         }
     }
 
+    /// model-toml.md "Mixed manifests": a KPAR never carries a
+    /// `model.toml`, so one beside the archive's project root is an
+    /// error rather than a file to ignore.
+    ///
+    /// Checked next to the project root, not anywhere in the archive: a
+    /// `model.toml` deeper in is one of the project's own files.
+    fn ensure_no_model_toml(&self, zip: &mut ZipArchive<File>) -> Result<(), LocalKParError> {
+        match self.get_relative(zip, MODEL_TOML_FILE) {
+            Ok(_) => Err(LocalKParError::TomlInKpar {
+                archive: self.archive_path.as_path().into(),
+            }),
+            Err((_, ZipError::FileNotFound)) => Ok(()),
+            Err((path, err)) => Err(LocalKParError::Zip(ZipArchiveError::NamedFileMeta(
+                path.into_string().into(),
+                err,
+            ))),
+        }
+    }
+
     fn get_meta_from(
         &self,
         zip: &mut ZipArchive<File>,
@@ -525,6 +554,7 @@ impl ProjectRead for LocalKParProjectRaw {
         Self::Error,
     > {
         let mut archive = self.open_archive()?;
+        self.ensure_no_model_toml(&mut archive)?;
         // The metadata carries the metamodel, so it is read first.
         let meta = self.get_meta_from(&mut archive)?;
         let info = self.get_parsed::<InterchangeProjectInfoPartial, _>(
@@ -537,6 +567,7 @@ impl ProjectRead for LocalKParProjectRaw {
 
     fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
         let mut archive = self.open_archive()?;
+        self.ensure_no_model_toml(&mut archive)?;
         // Reading the metadata as well costs one more entry of an
         // archive that is already open, and buys the same message the
         // caller of `get_project` gets.
@@ -552,6 +583,7 @@ impl ProjectRead for LocalKParProjectRaw {
 
     fn get_meta(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
         let mut archive = self.open_archive()?;
+        self.ensure_no_model_toml(&mut archive)?;
         self.get_meta_from(&mut archive)
     }
 
@@ -614,8 +646,20 @@ impl ProjectRead for LocalKParProjectRaw {
 /// Guess the directory of the project within the zip archive. Project
 /// directory here means any directory that contains `.project.json`.
 /// Returned path will be empty if the directory is archive root
-fn guess_root(archive: &mut ZipArchive<fs::File>) -> Result<Utf8UnixPathBuf, LocalKParError> {
+/// Find the project root inside `archive`, whose file is at `path`.
+///
+/// A `model.toml` seen on the way is remembered but does not stop the
+/// scan, and is reported only if no `.project.json` is found at all --
+/// otherwise a `model.toml` that is one of the project's own files could
+/// win on entry order. Without it the answer for an archive carrying a
+/// toml manifest would be "`.project.json` not found", which says
+/// nothing about what is wrong.
+fn guess_root(
+    archive: &mut ZipArchive<fs::File>,
+    path: &Utf8Path,
+) -> Result<Utf8UnixPathBuf, LocalKParError> {
     let mut maybe_root = None;
+    let mut model_toml = false;
     for i in 0..archive.len() {
         let file = archive.by_index(i).map_err(ZipArchiveError::FileMeta)?;
 
@@ -630,13 +674,16 @@ fn guess_root(archive: &mut ZipArchive<fs::File>) -> Result<Utf8UnixPathBuf, Loc
                 maybe_root = Some(root);
                 break;
             }
+            model_toml |= p.file_name() == Some(MODEL_TOML_FILE);
         }
     }
 
-    if let Some(root) = maybe_root {
-        Ok(root)
-    } else {
-        Err(LocalKParError::NotFound(".project.json".into()))
+    match (maybe_root, model_toml) {
+        (Some(root), _) => Ok(root),
+        (None, true) => Err(LocalKParError::TomlInKpar {
+            archive: path.into(),
+        }),
+        (None, false) => Err(LocalKParError::NotFound(".project.json".into())),
     }
 }
 
