@@ -48,11 +48,22 @@ pub fn describe(value: &Value) -> &'static str {
 
 /// workspaces.md "Explicit inheritance": a marker is the table
 /// `{ workspace = <bool-or-string> }` sitting where a plain value would
-/// otherwise go. Recognized so that a marker written where nothing can be
+/// otherwise go; this is the value it carries, when it is one.
+///
+/// Recognized here so that a marker written where nothing can be
 /// inherited says so, rather than coming back as a type error or, for a
-/// table-valued key, as an unknown key inside it.
+/// table-valued key, as an unknown key inside it. Public because
+/// [`crate::manifest::inherit`] recognizes the same shape where a marker
+/// *is* allowed, and the two must agree on what one is.
+pub fn marker_value(value: &Value) -> Option<&Value> {
+    match value {
+        Value::Table(table) if table.len() == 1 => table.get("workspace"),
+        _ => None,
+    }
+}
+
 fn is_marker(value: &Value) -> bool {
-    matches!(value, Value::Table(table) if table.len() == 1 && table.contains_key("workspace"))
+    marker_value(value).is_some()
 }
 
 /// One table of a `model.toml` being read.
