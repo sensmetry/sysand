@@ -356,6 +356,25 @@ impl LocalSrcProject {
         )?)
     }
 
+    /// Which manifest this project would have to have.
+    ///
+    /// A directory with none of the three is missing all of them; one
+    /// that has a json manifest is missing the other json one, and
+    /// saying `model.toml` there would send the reader to write the
+    /// wrong file. A toml project cannot get here at all, since its view
+    /// always has both documents.
+    fn missing_manifest(&self) -> LocalSrcError {
+        const JSON: &str = "`.project.json` and/or `.meta.json` files";
+        let missing = match detect_format(&self.project_path) {
+            Ok(ProjectFormat::Neither) => "`model.toml`, or `.project.json` and/or `.meta.json`",
+            Ok(_) => JSON,
+            // The format could not be read, so the honest answer is the
+            // one that names everything a manifest could be.
+            Err(_) => "`model.toml`, or `.project.json` and/or `.meta.json`",
+        };
+        LocalSrcError::MissingInfoMeta { missing }
+    }
+
     /// Refuse to write a json manifest into a `model.toml` project.
     ///
     /// A json manifest reaches the filesystem through `put_info` or
@@ -459,10 +478,13 @@ pub enum LocalSrcError {
     AlreadyExists(String),
     #[error("project is missing metadata file `.meta.json`")]
     MissingMeta,
-    #[error("project is missing `.project.json` and/or `.meta.json` files")]
-    MissingInfoMeta,
-    /// model-toml.md "Mixed manifests". The CLI appends the hint that
-    /// `sysand migrate` reads both and leaves the `model.toml`.
+    /// The project has no manifest to read. `missing` names the files
+    /// that would be one, which depends on the format: naming
+    /// `model.toml` at a json project that is merely missing one of its
+    /// two documents would point at the wrong fix.
+    #[error("project is missing {missing}")]
+    MissingInfoMeta { missing: &'static str },
+    /// model-toml.md "Mixed manifests".
     #[error(
         "`{dir}` has both `model.toml` and `{json}`;\n\
         {SP:>8} it is unclear whether it is a non-zipped KPAR or a development project",
@@ -632,7 +654,7 @@ impl ProjectRead for LocalSrcProject {
                         FsIoError::ReadFile(String::from(path).into(), error).into(),
                     ),
                 })?
-                .ok_or(LocalSrcError::MissingInfoMeta)?,
+                .ok_or_else(|| self.missing_manifest())?,
         };
         let src_path = if let Some(np) = self.nominal_path.as_ref() {
             np.as_str().into()
@@ -661,7 +683,7 @@ impl ProjectRead for LocalSrcProject {
         match self.checksum_canonical_hex() {
             Ok(c) => match c {
                 Some(c) => Ok(ProjectChecksum::Project(c)),
-                None => Err(LocalSrcError::MissingInfoMeta),
+                None => Err(self.missing_manifest()),
             },
             Err(e) => match e {
                 CanonicalizationError::ProjectRead(e) => Err(e),

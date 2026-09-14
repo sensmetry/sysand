@@ -78,7 +78,7 @@ impl From<LocalSrcError> for GixDownloadedError {
             LocalSrcError::Serialize(error) => Self::Serialize(error),
             LocalSrcError::ImpossibleRelativePath(err) => Self::ImpossibleRelativePath(err),
             LocalSrcError::MissingMeta => Self::MissingMeta,
-            LocalSrcError::MissingInfoMeta => Self::MissingInfoMeta,
+            error @ LocalSrcError::MissingInfoMeta { .. } => Self::Other(error.to_string()),
             error @ (LocalSrcError::AmbiguousFormat { .. }
             | LocalSrcError::Symbols(_)
             | LocalSrcError::JsonWriteToTomlProject { .. }) => Self::Other(error.to_string()),

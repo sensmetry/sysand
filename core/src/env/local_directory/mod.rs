@@ -448,7 +448,10 @@ impl From<LocalSrcError> for LocalWriteError {
             LocalSrcError::Serialize(error) => Self::Serialize(error),
             LocalSrcError::ImpossibleRelativePath(err) => Self::ImpossibleRelativePath(err),
             LocalSrcError::MissingMeta => Self::MissingMeta,
-            LocalSrcError::MissingInfoMeta => Self::MissingInfoMeta,
+            // Flattened rather than re-spelled: the message names
+            // which manifests are missing, which an env writer cannot
+            // improve on.
+            error @ LocalSrcError::MissingInfoMeta { .. } => Self::Format(error),
             error @ (LocalSrcError::AmbiguousFormat { .. }
             | LocalSrcError::Symbols(_)
             | LocalSrcError::JsonWriteToTomlProject { .. }) => Self::Format(error),

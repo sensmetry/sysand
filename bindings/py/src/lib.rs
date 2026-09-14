@@ -176,7 +176,7 @@ fn do_init_py_local_file(
                 | LocalSrcError::AmbiguousFormat { .. }
                 | LocalSrcError::Symbols(_)
                 | LocalSrcError::JsonWriteToTomlProject { .. } => PyValueError::new_err(e),
-                LocalSrcError::MissingMeta | LocalSrcError::MissingInfoMeta => {
+                LocalSrcError::MissingMeta | LocalSrcError::MissingInfoMeta { .. } => {
                     PyFileNotFoundError::new_err(e)
                 }
             },
