@@ -255,6 +255,36 @@ fn a_malformed_release_of_a_recognized_metamodel_is_an_error() {
     );
 }
 
+/// The other half of the rule above: a value that is not a URL at all
+/// is an error, as it is in `[project]` and in a `.meta.json`.
+#[test]
+fn a_metamodel_that_is_not_a_url_is_refused() {
+    let report = rejected("metamodel = \"not a url at all\"\n");
+    assert!(
+        texts(&report)[0].starts_with(
+            "`[workspace]` sets `metamodel = \"not a url at all\"`, which is not a metamodel: \
+             `not a url at all` is not a URL"
+        ),
+        "unexpected message: {:?}",
+        texts(&report)
+    );
+}
+
+/// A group reads its `metamodel` through the same code, and names
+/// itself.
+#[test]
+fn a_group_metamodel_that_is_not_a_url_is_refused() {
+    let report = rejected("[workspace.group.kerml]\nmetamodel = \"not a url at all\"\n");
+    assert!(
+        texts(&report)[0].starts_with(
+            "`[workspace.group.kerml]` sets `metamodel = \"not a url at all\"`, \
+             which is not a metamodel: `not a url at all` is not a URL"
+        ),
+        "unexpected message: {:?}",
+        texts(&report)
+    );
+}
+
 #[test]
 fn a_maintainer_that_is_not_name_email_is_positioned_at_its_entry() {
     let report = rejected("maintainers = [\"Fine Person <fine@example.com>\", \"nobody\"]\n");
