@@ -504,7 +504,7 @@ fn lock_and_sync_against_mock_index() -> Result<(), Box<dyn std::error::Error>> 
 
     let mut server = Server::new();
 
-    let (kpar_bytes, info, meta) = build_index_kpar_bytes("dep", "0.1.0");
+    let (kpar_bytes, info, meta) = build_index_kpar_bytes("mock", "dep", "0.1.0");
     let kpar_sha256_hex = sha256_lowercase_hex(&kpar_bytes);
     // No `meta.checksum` entries → canonical digest == raw digest for this
     // fixture; see the docstring on `build_index_kpar_bytes`.
@@ -635,7 +635,7 @@ fn sync_hard_fails_on_kpar_digest_drift_from_lockfile() -> Result<(), Box<dyn st
 
     // Build the lock-time view: the digests below are what end up in the
     // lockfile.
-    let (kpar_bytes, info, meta) = build_index_kpar_bytes("dep", "0.1.0");
+    let (kpar_bytes, info, meta) = build_index_kpar_bytes("mock", "dep", "0.1.0");
     let kpar_digest_hex = sha256_lowercase_hex(&kpar_bytes);
     let kpar_size = kpar_bytes.len();
 
@@ -723,7 +723,7 @@ fn sync_hard_fails_on_kpar_digest_drift_from_lockfile() -> Result<(), Box<dyn st
     // should now fail on the recorded archive digest before installation.
     server.reset();
     let (mut drifted_kpar_bytes, _drifted_info, _drifted_meta) =
-        build_index_kpar_bytes("dep", "0.1.0");
+        build_index_kpar_bytes("mock", "dep", "0.1.0");
     let first_byte = drifted_kpar_bytes
         .first_mut()
         .expect("test kpar builder should produce non-empty archive bytes");
