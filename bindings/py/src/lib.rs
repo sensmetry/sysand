@@ -17,7 +17,7 @@ use sysand::{
     cli::ResolutionOptions,
     commands::{
         lock::{CliLockError, resolve_lock},
-        sync::{CliSyncError, command_sync},
+        sync::{CliSyncError, CommandSyncError, command_sync},
     },
     get_env, get_or_create_env, standard_auth_policy,
 };
@@ -29,7 +29,7 @@ use sysand_core::{
         env::{EnvError, do_env_local_dir},
         init::do_init_local_file,
         lock::{DEFAULT_LOCKFILE_NAME, LockError, LockProjectError},
-        sync::{SyncOutcome, SyncedProject},
+        sync::SyncOutcome,
     },
     config::{Config, local_fs::load_configs},
     context::ProjectContext,
@@ -697,8 +697,8 @@ impl Failure {
                 partial,
             } => {
                 let kwargs = PyDict::new(py);
-                let result = outcome_dict(py, &partial)
-                    .and_then(|partial| kwargs.set_item("partial", partial))
+                let result = kwargs
+                    .set_item("partial", partial)
                     .and_then(|()| kwargs.set_item("wrote", wrote));
                 match result {
                     Ok(()) => raise_with_kwargs(&PySyncError::type_object(py), message, &kwargs),
@@ -789,72 +789,26 @@ fn do_lock_py(
     outcome.map_err(|failure| failure.into_pyerr(py))
 }
 
-/// `(iri, version, install path)` per synced project; the path is
-/// environment-relative and `None` once pruned.
-type SyncedTuple = (String, String, Option<String>);
-
-fn synced_tuples(
-    entries: &[SyncedProject],
-    env: Option<&LocalDirectoryEnvironment>,
-) -> Vec<SyncedTuple> {
-    entries
-        .iter()
-        .map(|entry| {
-            let path = env.and_then(|env| {
-                env.projects()
-                    .iter()
-                    .find(|p| p.version == entry.version && p.identifiers.contains(&entry.iri))
-                    .map(|p| p.path.as_str().to_owned())
-            });
-            (entry.iri.clone(), entry.version.clone(), path)
-        })
-        .collect()
-}
-
-/// A `SyncOutcome` as the `SyncOutcome` typed dict, for `SyncError.partial`.
-/// Install paths are not resolved here: the environment metadata is not
-/// rewritten after a failed sync.
-fn outcome_dict<'py>(py: Python<'py>, outcome: &SyncOutcome) -> PyResult<Bound<'py, PyDict>> {
-    let entries = |entries: &[SyncedProject]| -> PyResult<Vec<Bound<'py, PyDict>>> {
-        entries
-            .iter()
-            .map(|entry| {
-                let dict = PyDict::new(py);
-                dict.set_item("iri", &entry.iri)?;
-                dict.set_item("version", &entry.version)?;
-                dict.set_item("path", py.None())?;
-                Ok(dict)
-            })
-            .collect()
-    };
-    let dict = PyDict::new(py);
-    dict.set_item("installed", entries(&outcome.installed)?)?;
-    dict.set_item("pruned", entries(&outcome.pruned)?)?;
-    dict.set_item("kept", entries(&outcome.kept)?)?;
-    Ok(dict)
-}
-
-/// Typed failure for `command_sync`'s `anyhow::Error`, with what had been
-/// done before it.
-fn sync_error_to_failure(err: anyhow::Error, outcome: SyncOutcome) -> Failure {
-    let message = format!("{err:#}");
+/// `command_sync`'s failure as the exception to raise, with what had been
+/// done before it. Environment failures, including writing its metadata
+/// after the sync loop, are `EnvError`s; anything else is a `SyncError`.
+fn sync_failure(err: CommandSyncError, outcome: SyncOutcome) -> Failure {
+    let message = format_err(&err);
     let wrote = outcome.wrote();
-    match err.downcast_ref::<CliSyncError>() {
-        Some(CliSyncError::EnvRead(_) | CliSyncError::EnvWrite(_)) => {
-            Failure::Env { message, wrote }
-        }
-        Some(_) => Failure::Sync {
+    match err {
+        CommandSyncError::Sync(CliSyncError::EnvRead(_) | CliSyncError::EnvWrite(_))
+        | CommandSyncError::WriteMetadata(_) => Failure::Env { message, wrote },
+        CommandSyncError::Sync(_) => Failure::Sync {
             message,
             wrote,
             partial: outcome,
         },
-        // `merge_lock` + `write()` of the environment metadata, or anything
-        // else outside the sync loop.
-        None => Failure::Env { message, wrote },
     }
 }
 
-/// `(installed, pruned, kept)` as `(iri, version, path)` tuples.
+/// The outcome as a `SyncOutcome` dict, and the environment's entries once
+/// it is written, from which the Python side takes each synced project's
+/// install path.
 #[pyfunction(name = "do_sync_py")]
 #[pyo3(
     signature = (path, lock_text, resolution, auth, provided, no_prune),
@@ -867,7 +821,7 @@ fn do_sync_py(
     auth: Option<AuthSpec>,
     provided: Vec<ProvidedSpec>,
     no_prune: bool,
-) -> PyResult<(Vec<SyncedTuple>, Vec<SyncedTuple>, Vec<SyncedTuple>)> {
+) -> PyResult<(SyncOutcome, Vec<EnvProject>)> {
     common_init();
 
     let extra_provided = provided_projects(provided)?;
@@ -918,7 +872,7 @@ fn do_sync_py(
         let auth_policy = build_auth_policy(&auth)?;
 
         let mut outcome = SyncOutcome::default();
-        command_sync(
+        if let Err(err) = command_sync(
             &lock,
             &project_root,
             &mut env,
@@ -929,14 +883,10 @@ fn do_sync_py(
             ctx.current_workspace.as_ref(),
             no_prune,
             &mut outcome,
-        )
-        .map_err(|e| sync_error_to_failure(e, outcome.clone()))?;
-
-        Ok((
-            synced_tuples(&outcome.installed, Some(&env)),
-            synced_tuples(&outcome.pruned, None),
-            synced_tuples(&outcome.kept, Some(&env)),
-        ))
+        ) {
+            return Err(sync_failure(err, outcome));
+        }
+        Ok((outcome, env.projects().to_vec()))
     });
     outcome.map_err(|failure| failure.into_pyerr(py))
 }

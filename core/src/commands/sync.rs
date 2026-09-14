@@ -6,6 +6,8 @@ use std::{
     num::NonZeroU64,
 };
 
+#[cfg(feature = "python")]
+use pyo3::IntoPyObject;
 use thiserror::Error;
 use typed_path::Utf8UnixPathBuf;
 
@@ -97,7 +99,10 @@ pub enum SyncError<
 }
 
 /// One project `do_sync` installed, pruned or kept, by its first identifier.
+///
+/// With the `python` feature it converts into a dict with these field names.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct SyncedProject {
     pub iri: String,
     pub version: String,
@@ -108,7 +113,11 @@ pub struct SyncedProject {
 /// Filled in progressively, so a caller that passes `&mut outcome` and gets
 /// an `Err` back holds exactly what was installed and pruned before the
 /// failure.
+///
+/// With the `python` feature it converts into a dict with these field names,
+/// each a list of `SyncedProject` dicts.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct SyncOutcome {
     pub installed: Vec<SyncedProject>,
     pub pruned: Vec<SyncedProject>,
@@ -417,16 +426,8 @@ where
                 }
             }
         }
-        // `uris()` may yield one entry per installed version; visit each
-        // project once.
-        let mut env_uris = Vec::new();
         for p_id in env.uris().map_err(SyncError::EnvRead)? {
             let p_id = p_id.map_err(SyncError::EnvRead)?;
-            if !env_uris.contains(&p_id) {
-                env_uris.push(p_id);
-            }
-        }
-        for p_id in env_uris {
             // TODO: more efficient interface to get uri+version+checksum
             if let Some(versions) = lock_projects.get(&p_id.as_str()) {
                 // TODO: make sure checksums match; current env trait does not expose them

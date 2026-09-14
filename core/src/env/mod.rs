@@ -47,8 +47,9 @@ pub trait ReadEnvironment {
     type ReadError: ErrorBound;
 
     type UriIter: IntoIterator<Item = Result<String, Self::ReadError>>;
-    /// Get URIs of all projects stored in the environment. If a project
-    /// has multiple URIs, only the first one is returned
+    /// Get URIs of all projects stored in the environment, each project
+    /// once however many of its versions are installed. If a project has
+    /// multiple URIs, only the first one is returned
     fn uris(&self) -> Result<Self::UriIter, Self::ReadError>;
 
     type VersionIter: IntoIterator<Item = Result<String, Self::ReadError>>;

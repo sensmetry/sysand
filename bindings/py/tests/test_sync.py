@@ -129,7 +129,9 @@ def test_sync_half_synced(tmp_path: Path, mock_index: MockIndex) -> None:
     error = excinfo.value
     assert error.wrote is True
     assert error.partial is not None
-    assert changed(error.partial["installed"]) == {(DEP, "1.0.0")}
+    # No paths in `partial`: the environment metadata is not rewritten
+    # after a failed sync.
+    assert error.partial["installed"] == [{"iri": DEP, "version": "1.0.0"}]
     assert error.partial["pruned"] == []
     assert "500" in str(error)
 

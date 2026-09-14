@@ -478,7 +478,8 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 ctx.current_workspace.as_ref(),
                 no_prune,
                 &mut SyncOutcome::default(),
-            )
+            )?;
+            Ok(())
         }
         Command::Auth { .. } => {
             unreachable!("`auth` is dispatched before the auth policy is built")

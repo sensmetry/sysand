@@ -117,7 +117,7 @@ class SyncedProject(typing.TypedDict):
 class SyncOutcome(typing.TypedDict):
     """Result of :func:`sysand.sync`: every change it made, and what it left
     alone. Also carried by :class:`SyncError` as ``partial`` when a sync
-    failed part-way."""
+    failed part-way, then without ``path``."""
 
     installed: typing.List[SyncedProject]
     pruned: typing.List[SyncedProject]

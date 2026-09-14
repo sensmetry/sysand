@@ -9,15 +9,20 @@ from pathlib import Path
 import sysand._sysand_core as sysand_rs  # type: ignore
 
 from ._auth import AuthPolicy, Resolution
-from ._model import LockResult, ProvidedProject, SyncedProject, SyncOutcome
+from ._model import EnvProject, LockResult, ProvidedProject, SyncedProject, SyncOutcome
 
 
-def _synced(
-    entries: typing.Iterable[tuple[str, str, str | None]],
+def _with_paths(
+    entries: typing.Iterable[dict[str, str]],
+    paths: typing.Mapping[tuple[str, str], str],
 ) -> list[SyncedProject]:
     return [
-        SyncedProject(iri=iri, version=version, path=path)
-        for iri, version, path in entries
+        SyncedProject(
+            iri=entry["iri"],
+            version=entry["version"],
+            path=paths.get((entry["iri"], entry["version"])),
+        )
+        for entry in entries
     ]
 
 
@@ -38,7 +43,7 @@ def sync(
     expected to have seen the resolution first. ``lock`` may be the
     :class:`LockResult` of a previous :func:`lock` call (its ``text`` is
     used) or lockfile text; by default ``sysand-lock.toml`` is read from the
-    project root.
+    project or workspace root.
 
     Projects no longer in the lockfile are removed from the environment
     unless ``no_prune`` is set.
@@ -59,7 +64,7 @@ def sync(
         lock_text = lock
     else:
         lock_text = lock["text"]
-    installed, pruned, kept = sysand_rs.do_sync_py(
+    outcome, projects = sysand_rs.do_sync_py(
         str(path),
         lock_text,
         resolution._spec(),
@@ -67,8 +72,18 @@ def sync(
         list(provided or ()),
         no_prune,
     )
+    # The environment's entries after the sync, under every identifier; a
+    # pruned entry is gone from them, so its path is ``None``.
+    env_projects: list[EnvProject] = projects
+    paths = {
+        (iri, project["version"]): project["path"]
+        for project in env_projects
+        for iri in project["identifiers"]
+    }
     return SyncOutcome(
-        installed=_synced(installed), pruned=_synced(pruned), kept=_synced(kept)
+        installed=_with_paths(outcome["installed"], paths),
+        pruned=_with_paths(outcome["pruned"], paths),
+        kept=_with_paths(outcome["kept"], paths),
     )
 
 
