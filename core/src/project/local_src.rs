@@ -111,7 +111,11 @@ pub struct LocalSrcProject {
     /// is filled on the toml path only: on the json path the writers of
     /// [`ProjectMut`] and [`LocalSrcProject::set_index`] change the files
     /// underneath it, and a cached pair would then contradict them.
-    view: OnceCell<ViewPair>,
+    ///
+    /// Boxed because a `LocalSrcProject` is a variant of
+    /// `FileResolverProject`, and the pair inline makes that enum several
+    /// hundred bytes larger than its other variant.
+    view: OnceCell<Box<ViewPair>>,
 }
 
 /// The `.project.json`/`.meta.json` pair, as [`ProjectRead::get_project`]
@@ -337,7 +341,7 @@ impl LocalSrcProject {
         if let Some(view) = self.view.get() {
             return Ok(view);
         }
-        let view = self.read_model_toml()?;
+        let view = Box::new(self.read_model_toml()?);
         Ok(self.view.get_or_init(|| view))
     }
 
