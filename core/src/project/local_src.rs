@@ -382,6 +382,23 @@ impl LocalSrcProject {
 
         Ok((Some(info), Some(meta)))
     }
+
+    /// Refuse to write a json manifest into a `model.toml` project.
+    ///
+    /// A json manifest reaches the filesystem through `put_info` or
+    /// `put_meta`, so the guard sits there. Without it the write would
+    /// succeed and leave a directory holding both manifests, which is
+    /// the ambiguity `get_project` then refuses: the project would be
+    /// unreadable and nothing would say why.
+    fn refuse_json_write(&self, file: &'static str) -> Result<(), LocalSrcError> {
+        if detect_format(&self.project_path)? == ProjectFormat::Toml {
+            return Err(LocalSrcError::JsonWriteToTomlProject {
+                dir: self.project_path.clone(),
+                file,
+            });
+        }
+        Ok(())
+    }
 }
 
 impl ProjectMut for LocalSrcProject {
@@ -390,6 +407,7 @@ impl ProjectMut for LocalSrcProject {
         info: &InterchangeProjectInfoRaw,
         overwrite: bool,
     ) -> Result<(), LocalSrcError> {
+        self.refuse_json_write(PROJECT_JSON_FILE)?;
         let project_json_path = self.info_path();
 
         if !overwrite && project_json_path.exists() {
@@ -416,6 +434,7 @@ impl ProjectMut for LocalSrcProject {
         meta: &InterchangeProjectMetadataRaw,
         overwrite: bool,
     ) -> Result<(), LocalSrcError> {
+        self.refuse_json_write(META_JSON_FILE)?;
         let meta_json_path = self.meta_path();
         if !overwrite && meta_json_path.exists() {
             return Err(LocalSrcError::AlreadyExists(
@@ -483,6 +502,18 @@ pub enum LocalSrcError {
     /// A source file listed in `sources` could not be indexed.
     #[error(transparent)]
     Symbols(#[from] crate::symbols::SymbolsError),
+    /// A command that writes a json manifest was pointed at a
+    /// `model.toml` project. Writing one would leave the directory
+    /// holding both manifests, which nothing can read.
+    #[error(
+        "`{dir}` is a `model.toml` project;\n\
+        {SP:>8} `{file}` cannot be written into one",
+        SP = ' '
+    )]
+    JsonWriteToTomlProject {
+        dir: Utf8PathBuf,
+        file: &'static str,
+    },
     #[error(transparent)]
     Deserialize(#[from] ProjectDeserializationError),
     #[error(transparent)]
