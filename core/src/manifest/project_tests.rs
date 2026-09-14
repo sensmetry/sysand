@@ -5,7 +5,6 @@ use crate::manifest::common::{InheritFrom, Sources};
 use crate::manifest::diagnostics::{Diagnostic, Report, Severity, Validated};
 use crate::manifest::inherit::MetaProperty;
 use crate::manifest::project::{ProjectManifest, ProjectTable, ResolvedProject};
-use crate::manifest::spans::Positions;
 use crate::manifest::spans::Source;
 use crate::manifest::usage::{MemberUsage, Usage, UsageBase};
 use crate::manifest::workspace_table::WorkspaceTable;
