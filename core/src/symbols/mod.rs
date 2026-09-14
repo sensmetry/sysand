@@ -589,6 +589,40 @@ pub fn top_level_kerml<S: AsRef<str>>(source: S) -> Result<Vec<String>, ExtractE
     collect_symbols(source, all, &keywords)
 }
 
+/// Why [`top_level_symbols`] could not index a file.
+///
+/// Narrower than the error of any one command, so that a caller which
+/// only extracts symbols -- the KPAR view of a `model.toml` project, for
+/// one -- does not have to name a project-read or IO failure it cannot
+/// produce. `commands::include::IncludeError` carries the same two texts
+/// and converts from this.
+#[derive(Debug, Error)]
+pub enum SymbolsError {
+    #[error("failed to extract symbol names from `{0}`: {1}")]
+    Extract(Box<str>, ExtractError),
+    #[error(
+        "unknown file format of `{0}`, only SysML v2 (.sysml) and KerML (.kerml) files are supported"
+    )]
+    UnknownFormat(Box<str>),
+}
+
+/// Extract the top level symbols of `source`, choosing the language from
+/// `path`'s extension unless `force_format` names one. `path` is used for
+/// diagnostics only; nothing is read from it.
+pub fn top_level_symbols<P: AsRef<Utf8UnixPath>, S: AsRef<str>>(
+    path: &P,
+    source: S,
+    force_format: Option<Language>,
+) -> Result<Vec<String>, SymbolsError> {
+    let path = path.as_ref();
+    let extracted = match force_format.or_else(|| Language::guess_from_path(path)) {
+        Some(Language::SysML) => top_level_sysml(&source),
+        Some(Language::KerML) => top_level_kerml(&source),
+        None => return Err(SymbolsError::UnknownFormat(path.as_str().into())),
+    };
+    extracted.map_err(|e| SymbolsError::Extract(path.as_str().into(), e))
+}
+
 // Returns: (line, byte), both 1-indexed
 #[expect(clippy::cast_possible_truncation, clippy::naive_bytecount)]
 fn line_byte(source: &str, span: logos::Span) -> (u32, u32) {
