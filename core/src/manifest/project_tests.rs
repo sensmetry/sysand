@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use crate::manifest::common::InheritFrom;
+use crate::manifest::common::{InheritFrom, Sources};
 use crate::manifest::diagnostics::{Diagnostic, Report, Severity, Validated};
 use crate::manifest::inherit::MetaProperty;
-use crate::manifest::project::{ProjectManifest, ResolvedProject};
+use crate::manifest::project::{ProjectManifest, ProjectTable, ResolvedProject};
+use crate::manifest::spans::Positions;
 use crate::manifest::spans::Source;
 use crate::manifest::usage::{MemberUsage, Usage, UsageBase};
 use crate::manifest::workspace_table::WorkspaceTable;
+use crate::model::{IndexName, IndexPublisher};
 use fluent_uri::Iri;
 
 /// The project side of a document, read the way `ModelToml::parse` will
@@ -1184,4 +1186,86 @@ fn a_project_that_is_not_a_table_is_one_diagnostic() {
         texts(&report),
         ["`project` in the top level must be a table, but it is an integer"]
     );
+}
+
+/// A table built from values, as a command that writes a manifest
+/// builds one.
+fn built() -> ProjectTable {
+    ProjectTable::new(
+        IndexPublisher::parse("acme").expect("a valid publisher"),
+        IndexName::parse("widgets").expect("a valid name"),
+        semver::Version::new(1, 0, 0),
+    )
+}
+
+#[test]
+fn a_project_table_can_be_built_from_values() {
+    let table = built();
+
+    assert_eq!(table.name.as_str(), "widgets");
+    assert_eq!(
+        table.publisher.provided().map(IndexPublisher::as_str),
+        Some("acme")
+    );
+    assert_eq!(
+        table.version.provided(),
+        Some(&semver::Version::new(1, 0, 0))
+    );
+    // Everything a generated file only writes when it has been given
+    // one. `sources` among them: see `a_built_manifest_without_sources`.
+    assert!(table.sources.is_none());
+    assert!(table.license.is_none());
+    assert!(table.description.is_none());
+    assert!(table.topics.is_none());
+    assert!(table.metamodel.is_none());
+    assert!(table.maintainers.is_none());
+    assert!(table.stdlib.is_none());
+    assert!(table.urls.is_none());
+    assert!(!table.root);
+}
+
+#[test]
+fn a_built_manifest_resolves_like_one_that_was_read() {
+    let mut project = built();
+    project.sources =
+        Some(Sources::new(vec!["Widgets.sysml".into()]).expect("a valid sources list"));
+
+    let manifest = ProjectManifest {
+        project,
+        inline_usages: vec![],
+    };
+    let (resolved, warnings) = manifest
+        .resolve(None)
+        .expect("a built manifest resolves")
+        .into_parts();
+
+    assert_eq!(resolved.publisher.as_str(), "acme");
+    assert_eq!(resolved.name.as_str(), "widgets");
+    assert_eq!(resolved.version, semver::Version::new(1, 0, 0));
+    assert_eq!(
+        resolved.sources.as_slice(),
+        &[typed_path::Utf8UnixPathBuf::from("Widgets.sysml")]
+    );
+    assert!(resolved.metamodel.is_none());
+    assert!(resolved.usages.is_empty());
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn a_built_manifest_without_sources_reports_it_without_a_position() {
+    let manifest = ProjectManifest {
+        project: built(),
+        inline_usages: vec![],
+    };
+
+    let report = manifest
+        .resolve(None)
+        .expect_err("a project with no `sources` does not resolve");
+
+    // The diagnostic is the same one a file gets; what a built manifest
+    // cannot have is the position, since the two fields that carry one
+    // are private and only `validate` fills them.
+    assert_eq!(texts(&report).len(), 1);
+    assert!(texts(&report)[0].starts_with("missing key `sources` in `[project]`"));
+    assert!(report.diagnostics()[0].position.is_none());
 }
