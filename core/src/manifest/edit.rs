@@ -688,6 +688,201 @@ pub fn set_inherit_marker(
     Ok(())
 }
 
+/// model-toml.md "Editing the manifest": "`sysand include <paths>`
+/// appends each path to `sources`, normalized as on read, rejecting a
+/// duplicate".
+///
+/// The whole array is re-validated, not just the new entry: `sources`
+/// has rules that span entries -- a duplicate is one of them -- and
+/// there is one implementation of them. An array that was already
+/// invalid therefore fails naming an entry the caller did not touch,
+/// which is one honest message rather than two readings of the rule.
+pub fn include_source(doc: &mut DocumentMut, path: &str) -> Result<Utf8UnixPathBuf, EditError> {
+    let array = sources_mut(doc)?;
+    let mut candidate = entries(array);
+    candidate.push(Utf8UnixPathBuf::from(path));
+    let normalized = Sources::new(candidate)?;
+    let added = normalized
+        .as_slice()
+        .last()
+        .expect("a path was just pushed")
+        .clone();
+
+    push_entry(array, added.as_str());
+    Ok(added)
+}
+
+/// "`sysand exclude <paths>` removes it." Matching is by normalized
+/// path, so `./a.sysml` removes an entry written as `a.sysml`.
+pub fn exclude_source(doc: &mut DocumentMut, path: &str) -> Result<Utf8UnixPathBuf, EditError> {
+    let wanted = Sources::new(vec![Utf8UnixPathBuf::from(path)])?
+        .as_slice()
+        .first()
+        .expect("one path in, one path out")
+        .clone();
+
+    let array = sources_mut(doc)?;
+    let at = entries(array)
+        .iter()
+        .position(|entry| {
+            crate::utils::normalize_relative(entry.as_str())
+                .ok()
+                .as_ref()
+                == Some(&wanted)
+        })
+        .ok_or_else(|| EditError::SourceNotListed(wanted.clone()))?;
+
+    remove_entry(array, at);
+    Ok(wanted)
+}
+
+fn sources_mut<'a>(doc: &'a mut DocumentMut) -> Result<&'a mut Array, EditError> {
+    project_mut(doc)?
+        .get_mut("sources")
+        .and_then(Item::as_array_mut)
+        .ok_or(EditError::NoSources)
+}
+
+fn entries(array: &Array) -> Vec<Utf8UnixPathBuf> {
+    array
+        .iter()
+        .filter_map(|item| item.as_str())
+        .map(Utf8UnixPathBuf::from)
+        .collect()
+}
+
+/// Append one entry, keeping the array's shape.
+///
+/// `Array::push` gives the new entry no decor at all, so on a
+/// multi-line array it lands on the previous entry's line. Three shapes
+/// have to be told apart, and one of them repaired first.
+fn push_entry(array: &mut Array, text: &str) {
+    let multi_line = array
+        .iter()
+        .filter_map(|item| item.decor().prefix().and_then(|prefix| prefix.as_str()))
+        .any(|prefix| prefix.contains('\n'))
+        || trailing(array).contains('\n')
+        || array
+            .iter()
+            .filter_map(|item| item.decor().suffix().and_then(|suffix| suffix.as_str()))
+            .any(|suffix| suffix.contains('\n'));
+
+    if array.is_empty() {
+        array.push(text);
+        set_prefix(array, 0, "");
+        return;
+    }
+    if !multi_line {
+        array.push(text);
+        set_prefix(array, array.len() - 1, " ");
+        return;
+    }
+
+    // An array written without a trailing comma keeps the newline
+    // before `]` in the last entry's *suffix*, where a push would put
+    // the comma after it -- `"A.kerml"\n,`. Move it where the rest of
+    // this function expects to find it.
+    let last = array.len() - 1;
+    let suffix = array
+        .get(last)
+        .and_then(|item| item.decor().suffix().and_then(|suffix| suffix.as_str()))
+        .unwrap_or_default()
+        .to_owned();
+    if suffix.contains('\n') {
+        let moved = format!("{suffix}{}", trailing(array));
+        if let Some(item) = array.get_mut(last) {
+            item.decor_mut().set_suffix("");
+        }
+        array.set_trailing(moved);
+        array.set_trailing_comma(true);
+    }
+
+    // What sits in `trailing` up to its first newline is on the last
+    // entry's line and stays there; the rest is the closing
+    // indentation.
+    let trailing = trailing(array);
+    let (head, tail) = match trailing.split_once('\n') {
+        Some((head, tail)) => (head.to_owned(), tail.to_owned()),
+        None => (trailing, String::new()),
+    };
+    let indent = indent_of(array);
+
+    array.push(text);
+    set_prefix(array, array.len() - 1, &format!("{head}\n{indent}"));
+    array.set_trailing(format!("\n{tail}"));
+    array.set_trailing_comma(true);
+}
+
+/// Remove one entry, leaving the comments that describe the others.
+///
+/// A TOML comment binds forward: a comment written at the end of one
+/// entry's line is stored at the *front* of the next entry's prefix. So
+/// the successor inherits the removed entry's prefix head -- everything
+/// through its first newline, which is what was on the line above --
+/// and keeps its own prefix tail. Exactly one thing goes: what was
+/// physically on the removed entry's line.
+///
+/// The last entry has no successor and the array's trailing plays the
+/// part, for the same reason: leaving it alone does not preserve a
+/// comment, it re-binds it to the entry before.
+fn remove_entry(array: &mut Array, at: usize) {
+    let removed = prefix_of(array, at);
+    let head = match removed.split_once('\n') {
+        Some((head, _)) => format!("{head}\n"),
+        // Nothing above: whatever is here was on the previous entry's
+        // line, and is worth keeping only if it says something.
+        None if removed.contains('#') => removed,
+        None => String::new(),
+    };
+
+    if at + 1 < array.len() {
+        let successor = prefix_of(array, at + 1);
+        let tail = successor
+            .split_once('\n')
+            .map_or(String::new(), |(_, tail)| tail.to_owned());
+        array.remove(at);
+        set_prefix(array, at, &format!("{head}{tail}"));
+    } else {
+        let tail = trailing(array)
+            .split_once('\n')
+            .map_or(String::new(), |(_, tail)| format!("\n{tail}"));
+        array.remove(at);
+        array.set_trailing(format!("{head}{tail}").replace("\n\n", "\n"));
+    }
+}
+
+fn prefix_of(array: &Array, at: usize) -> String {
+    array
+        .get(at)
+        .and_then(|item| item.decor().prefix().and_then(|prefix| prefix.as_str()))
+        .unwrap_or_default()
+        .to_owned()
+}
+
+fn trailing(array: &Array) -> String {
+    array.trailing().as_str().unwrap_or_default().to_owned()
+}
+
+/// The indentation the array's entries are written at.
+fn indent_of(array: &Array) -> String {
+    array
+        .iter()
+        .filter_map(|item| item.decor().prefix().and_then(|prefix| prefix.as_str()))
+        .filter_map(|prefix| {
+            prefix
+                .rsplit_once('\n')
+                .map(|(_, indent)| indent.to_owned())
+        })
+        .last()
+        .unwrap_or_else(|| "    ".to_owned())
+}
+
+fn set_prefix(array: &mut Array, at: usize, prefix: &str) {
+    if let Some(item) = array.get_mut(at) {
+        item.decor_mut().set_prefix(prefix);
+    }
+}
+
 #[cfg(test)]
 #[path = "./edit_tests.rs"]
 mod tests;

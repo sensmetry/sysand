@@ -5,12 +5,15 @@ use fluent_uri::Iri;
 use semver::{Version, VersionReq};
 use spdx::Expression;
 use toml_edit::{DocumentMut, Value};
+use typed_path::Utf8UnixPathBuf;
 
-use crate::manifest::common::{InheritFrom, Maintainer, ResolvedUrls, Sources, StdlibStem};
+use crate::manifest::common::{
+    InheritFrom, Maintainer, ResolvedUrls, Sources, SourcesError, StdlibStem,
+};
 use crate::manifest::diagnostics::Position;
 use crate::manifest::edit::{
-    EditError, INHERITABLE_KEYS, ProjectKey, clear_project_key, clear_url_key, open, render_new,
-    set_inherit_marker, set_project_key, set_url_key,
+    EditError, INHERITABLE_KEYS, ProjectKey, clear_project_key, clear_url_key, exclude_source,
+    include_source, open, render_new, set_inherit_marker, set_project_key, set_url_key,
 };
 use crate::manifest::inherit::{Inherited, MetaProperty};
 use crate::manifest::project::{PROJECT_KEYS, ProjectManifest, ProjectTable, Urls};
@@ -825,5 +828,264 @@ fn editing_a_workspace_file_as_a_project_is_refused() {
     assert_eq!(
         set_project_key(&mut doc, ProjectKey::Name, Value::from("w")),
         Err(EditError::NotAProject)
+    );
+}
+
+// --- `include` and `exclude` ------------------------------------------
+
+/// The `sources` array of an edited document, as text. The fixtures
+/// have no other `]`, so the first one closes it.
+fn sources_of(doc: &DocumentMut) -> String {
+    let text = doc.to_string();
+    let start = text.find("sources = ").expect("a sources array");
+    let end = start + text[start..].find(']').expect("a closing bracket") + 1;
+    text[start..end].to_owned()
+}
+
+/// A manifest that is complete apart from the `sources` array under
+/// test, so that an edited one can be read back.
+fn with_sources(array: &str) -> String {
+    format!(
+        "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = {array}\n"
+    )
+}
+
+#[test]
+fn including_a_path_appends_it_to_sources() {
+    let mut doc = opened(&with_sources("[\n    \"Base.kerml\",\n]"));
+    let added = include_source(&mut doc, "Parts.sysml").expect("a new source");
+
+    assert_eq!(added, Utf8UnixPathBuf::from("Parts.sysml"));
+    assert_eq!(
+        sources_of(&doc),
+        "sources = [\n    \"Base.kerml\",\n    \"Parts.sysml\",\n]"
+    );
+}
+
+#[test]
+fn including_normalizes_the_path_as_reading_does() {
+    let mut doc = opened(&with_sources("[]"));
+    let added = include_source(&mut doc, "./src/../Parts.sysml").expect("a new source");
+
+    assert_eq!(added, Utf8UnixPathBuf::from("Parts.sysml"));
+    assert!(sources_of(&doc).contains("\"Parts.sysml\""));
+}
+
+#[test]
+fn including_a_path_that_is_already_listed_is_refused() {
+    let mut doc = opened(&with_sources("[\n    \"Base.kerml\",\n]"));
+
+    // Normalized, so `./Base.kerml` is the same entry.
+    let error = include_source(&mut doc, "./Base.kerml").expect_err("a duplicate");
+    assert!(matches!(
+        error,
+        EditError::Sources(SourcesError::Duplicate { .. })
+    ));
+}
+
+#[test]
+fn including_keeps_a_multi_line_array_multi_line() {
+    let mut doc = opened(&with_sources("[\n    # the base\n    \"Base.kerml\",\n]"));
+    include_source(&mut doc, "Parts.sysml").expect("a new source");
+
+    assert_eq!(
+        sources_of(&doc),
+        "sources = [\n    # the base\n    \"Base.kerml\",\n    \"Parts.sysml\",\n]"
+    );
+}
+
+#[test]
+fn including_moves_the_arrays_trailing_comment_onto_the_new_entry() {
+    // A comment after the last entry is held in the array's trailing,
+    // so a naive push would move it below the entry it describes.
+    let mut doc = opened(&with_sources("[\n    \"Base.kerml\",  # the base\n]"));
+    include_source(&mut doc, "Parts.sysml").expect("a new source");
+
+    assert_eq!(
+        sources_of(&doc),
+        "sources = [\n    \"Base.kerml\",  # the base\n    \"Parts.sysml\",\n]"
+    );
+}
+
+#[test]
+fn including_into_an_array_with_no_trailing_comma_stays_valid() {
+    let mut doc = opened(&with_sources("[\n    \"Base.kerml\"\n]"));
+    include_source(&mut doc, "Parts.sysml").expect("a new source");
+
+    let text = doc.to_string();
+    assert_eq!(
+        sources_of(&doc),
+        "sources = [\n    \"Base.kerml\",\n    \"Parts.sysml\",\n]"
+    );
+    ModelToml::parse("model.toml", &text).expect("the edited file is still a manifest");
+}
+
+#[test]
+fn including_into_an_empty_array_writes_one_entry() {
+    // A generated file then edited: `render_new` writes `sources = []`.
+    let mut doc = opened(&with_sources("[]"));
+    include_source(&mut doc, "Base.kerml").expect("a new source");
+
+    assert_eq!(sources_of(&doc), "sources = [\"Base.kerml\"]");
+}
+
+#[test]
+fn including_into_a_single_line_array_stays_on_one_line() {
+    let mut doc = opened(&with_sources("[\"Base.kerml\"]"));
+    include_source(&mut doc, "Parts.sysml").expect("a new source");
+
+    assert_eq!(
+        sources_of(&doc),
+        "sources = [\"Base.kerml\", \"Parts.sysml\"]"
+    );
+}
+
+#[test]
+fn including_keeps_an_indented_closing_bracket_indented() {
+    let mut doc = opened(&with_sources("[\n        \"Base.kerml\",\n  ]"));
+    include_source(&mut doc, "Parts.sysml").expect("a new source");
+
+    assert_eq!(
+        sources_of(&doc),
+        "sources = [\n        \"Base.kerml\",\n        \"Parts.sysml\",\n  ]"
+    );
+}
+
+#[test]
+fn including_twice_appends_two_entries() {
+    let mut doc = opened(&with_sources("[\n    \"Base.kerml\",\n]"));
+    include_source(&mut doc, "Parts.sysml").expect("a new source");
+    include_source(&mut doc, "Links.kerml").expect("a new source");
+
+    assert_eq!(
+        sources_of(&doc),
+        "sources = [\n    \"Base.kerml\",\n    \"Parts.sysml\",\n    \"Links.kerml\",\n]"
+    );
+}
+
+#[test]
+fn excluding_removes_the_entry_and_the_comment_on_its_line() {
+    let mut doc = opened(&with_sources(
+        "[\n    \"Base.kerml\",  # first\n    \"Parts.sysml\",  # second\n    \"Links.kerml\",\n]",
+    ));
+    let removed = exclude_source(&mut doc, "Parts.sysml").expect("a listed source");
+
+    assert_eq!(removed, Utf8UnixPathBuf::from("Parts.sysml"));
+    assert_eq!(
+        sources_of(&doc),
+        "sources = [\n    \"Base.kerml\",  # first\n    \"Links.kerml\",\n]"
+    );
+}
+
+#[test]
+fn excluding_keeps_the_comment_that_belongs_to_the_previous_entry() {
+    // A TOML comment binds forward: `# first` is written on Base's line
+    // but stored at the front of Parts's prefix. Removing Parts must
+    // not take it -- it describes a file that is still listed.
+    let mut doc = opened(&with_sources(
+        "[\n    \"Base.kerml\",  # first\n    \"Parts.sysml\",\n]",
+    ));
+    exclude_source(&mut doc, "Parts.sysml").expect("a listed source");
+
+    assert_eq!(
+        sources_of(&doc),
+        "sources = [\n    \"Base.kerml\",  # first\n]"
+    );
+}
+
+#[test]
+fn excluding_the_first_entry_keeps_the_comment_on_the_bracket_line() {
+    let mut doc = opened(&with_sources(
+        "[  # the list\n    \"Base.kerml\",\n    \"Parts.sysml\",\n]",
+    ));
+    exclude_source(&mut doc, "Base.kerml").expect("a listed source");
+
+    assert_eq!(
+        sources_of(&doc),
+        "sources = [  # the list\n    \"Parts.sysml\",\n]"
+    );
+}
+
+#[test]
+fn excluding_keeps_a_comment_block_above_the_next_entry() {
+    let mut doc = opened(&with_sources(
+        "[\n    \"Base.kerml\",\n    # everything about parts\n    # on two lines\n    \"Parts.sysml\",\n]",
+    ));
+    exclude_source(&mut doc, "Base.kerml").expect("a listed source");
+
+    assert_eq!(
+        sources_of(&doc),
+        "sources = [\n    # everything about parts\n    # on two lines\n    \"Parts.sysml\",\n]"
+    );
+}
+
+#[test]
+fn excluding_the_last_entry_takes_its_comment_with_it() {
+    // The last entry's own comment lives in the array's trailing.
+    // Leaving it there would re-bind it to the entry before.
+    let mut doc = opened(&with_sources(
+        "[\n    \"Base.kerml\",  # first\n    \"Parts.sysml\",  # last one\n]",
+    ));
+    exclude_source(&mut doc, "Parts.sysml").expect("a listed source");
+
+    assert_eq!(
+        sources_of(&doc),
+        "sources = [\n    \"Base.kerml\",  # first\n]"
+    );
+}
+
+#[test]
+fn excluding_the_only_entry_leaves_an_empty_array() {
+    let mut doc = opened(&with_sources("[\n    \"Base.kerml\",  # only\n]"));
+    exclude_source(&mut doc, "Base.kerml").expect("a listed source");
+
+    assert_eq!(sources_of(&doc), "sources = [\n]");
+}
+
+#[test]
+fn excluding_from_a_single_line_array_leaves_no_gap() {
+    let mut doc = opened(&with_sources("[\"Base.kerml\", \"Parts.sysml\"]"));
+    exclude_source(&mut doc, "Parts.sysml").expect("a listed source");
+
+    assert_eq!(sources_of(&doc), "sources = [\"Base.kerml\"]");
+}
+
+#[test]
+fn excluding_a_path_that_is_not_listed_is_refused() {
+    let mut doc = opened(&with_sources("[\"Base.kerml\"]"));
+
+    assert_eq!(
+        exclude_source(&mut doc, "Parts.sysml"),
+        Err(EditError::SourceNotListed(Utf8UnixPathBuf::from(
+            "Parts.sysml"
+        )))
+    );
+}
+
+#[test]
+fn including_and_excluding_a_manifest_with_no_sources_is_refused() {
+    let bare = "manifest-version = 1\n\n[project]\nname = \"widgets\"\n";
+
+    assert_eq!(
+        include_source(&mut opened(bare), "Base.kerml"),
+        Err(EditError::NoSources)
+    );
+    assert_eq!(
+        exclude_source(&mut opened(bare), "Base.kerml"),
+        Err(EditError::NoSources)
+    );
+}
+
+#[test]
+fn including_into_a_sources_that_is_already_invalid_says_which_entry() {
+    // `Sources::new` judges the whole array, so an entry the user did
+    // not touch is what the message names. One reading of the rule,
+    // not two.
+    let mut doc = opened(&with_sources("[\"README.md\"]"));
+
+    let error = include_source(&mut doc, "Base.kerml").expect_err("the array is invalid");
+    assert_eq!(
+        error,
+        EditError::Sources(SourcesError::NotModelFile("README.md".to_owned()))
     );
 }
