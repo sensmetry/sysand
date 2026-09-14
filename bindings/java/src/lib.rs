@@ -138,7 +138,7 @@ fn init<'local>(
                     LocalSrcError::ImpossibleRelativePath(_) => {
                         env.throw_exception(ExceptionKind::PathError, e)
                     }
-                    LocalSrcError::MissingMeta | LocalSrcError::MissingInfoMeta => {
+                    LocalSrcError::MissingMeta | LocalSrcError::MissingInfoMeta { .. } => {
                         env.throw_exception(ExceptionKind::SysandException, e)
                     }
                 },

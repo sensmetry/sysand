@@ -644,3 +644,37 @@ fn an_editable_project_forwards_the_manifest() {
         "widgets"
     );
 }
+
+// ----- which manifest a project without one is missing -----
+
+#[test]
+fn a_directory_with_no_manifest_at_all_names_all_three() {
+    let dir = tempdir().expect("a temporary directory");
+    let error = toml_project(dir.path())
+        .checksum_canonical_variant()
+        .expect_err("no manifest");
+    assert_eq!(
+        error.to_string(),
+        "project is missing `model.toml`, or `.project.json` and/or `.meta.json`"
+    );
+}
+
+/// The reason the message is not simply reworded for everyone: a json
+/// project that has one of its two documents is not missing a
+/// `model.toml`, and saying so would send the reader to write the wrong
+/// file.
+#[test]
+fn a_json_project_missing_one_file_is_unchanged() {
+    let dir = tempdir().expect("a temporary directory");
+    write_meta_json(
+        dir.path(),
+        r#"{"index":{},"created":"1970-01-01T00:00:00Z"}"#,
+    );
+    let error = toml_project(dir.path())
+        .checksum_canonical_variant()
+        .expect_err("no `.project.json`");
+    assert_eq!(
+        error.to_string(),
+        "project is missing `.project.json` and/or `.meta.json` files"
+    );
+}
