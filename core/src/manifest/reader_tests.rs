@@ -126,6 +126,36 @@ fn a_wrong_typed_key_is_one_positioned_diagnostic() {
     assert_eq!(places(&report), [(1, 1)]);
 }
 
+/// `manifest-version` is the one integer a `model.toml` carries.
+#[test]
+fn an_integer_key_comes_back_as_written() {
+    const TEXT: &str = "manifest-version = 1\n";
+    let (table, positions) = parse(TEXT);
+    let mut report = Report::new();
+    assert_eq!(
+        top(&table, &positions).integer("manifest-version", &mut report),
+        Some(1)
+    );
+    assert!(report.is_empty());
+}
+
+#[test]
+fn a_key_that_is_not_an_integer_is_one_diagnostic() {
+    const TEXT: &str = "manifest-version = \"1\"\n";
+    let (table, positions) = parse(TEXT);
+    let mut report = Report::new();
+    assert!(
+        top(&table, &positions)
+            .integer("manifest-version", &mut report)
+            .is_none()
+    );
+    assert_eq!(
+        texts(&report),
+        ["`manifest-version` in the top level must be an integer, but it is a string"]
+    );
+    assert_eq!(places(&report), [(1, 1)]);
+}
+
 /// One bad element does not cost the reader the rest of the array, and
 /// each is reported where it is.
 #[test]
