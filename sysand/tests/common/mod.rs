@@ -280,6 +280,64 @@ pub fn install_in_env_with_usage(
     Ok(())
 }
 
+/// Writes a legacy `.project.json`/`.meta.json` pair by hand.
+///
+/// Not through the CLI, and that is the point: `sysand init` writes a
+/// `model.toml`, so a test that exercises the json form cannot get one
+/// from the command. This is the compatibility fixture for those tests.
+///
+/// It is deliberately *not* a drop-in for [`cli_init_project`], which
+/// returns the `Output` of the process it ran; nothing runs here.
+///
+/// The bytes have to match what a real legacy project looks like, not
+/// just the field list: `serde_json::to_writer_pretty` plus a trailing
+/// newline, camelCase keys, the optional scalars and the empty vectors
+/// omitted, and `created` as a whole-second timestamp. The bytes are
+/// pinned by `the_legacy_fixture_writes_these_exact_bytes` in
+/// `cli_info.rs`.
+pub fn cli_init_json_project(
+    path: Option<&str>,
+    publisher: &str,
+    name: &str,
+    version: &str,
+) -> Result<(Utf8TempDir, Utf8PathBuf), Box<dyn Error>> {
+    let (temp_dir, cwd) = new_temp_cwd()?;
+    let project_dir = match path {
+        Some(path) => {
+            let dir = cwd.join(path);
+            std::fs::create_dir_all(&dir)?;
+            dir
+        }
+        None => cwd.clone(),
+    };
+    write_legacy_project(&project_dir, publisher, name, version)?;
+    Ok((temp_dir, cwd))
+}
+
+/// The pair itself, for a directory that already exists.
+pub fn write_legacy_project(
+    dir: &Utf8Path,
+    publisher: &str,
+    name: &str,
+    version: &str,
+) -> Result<(), Box<dyn Error>> {
+    let info = serde_json::json!({
+        "name": name,
+        "publisher": publisher,
+        "version": version,
+    });
+    let meta = serde_json::json!({
+        "index": {},
+        "created": format!("{:.0}", jiff::Timestamp::now()),
+    });
+    for (file, value) in [(".project.json", &info), (".meta.json", &meta)] {
+        let mut text = serde_json::to_string_pretty(value)?;
+        text.push('\n');
+        std::fs::write(dir.join(file), text)?;
+    }
+    Ok(())
+}
+
 /// Creates a temporary directory and returns the tuple of the temporary
 /// directory handle and the canonicalised path to it. We need to canonicalise
 /// the path because tests check the output of CLI to see whether it operated on

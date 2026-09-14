@@ -2139,3 +2139,22 @@ fn edit_metamodel_on_a_toml_project_is_not_yet_supported() -> Result<(), Box<dyn
 
     Ok(())
 }
+
+/// The compatibility fixture: a legacy pair written by hand, which is
+/// how a test exercises the json form, since `sysand init` writes a
+/// `model.toml`. Read through the CLI, so the fixture is proved to be a
+/// project Sysand actually accepts rather than merely plausible json.
+#[test]
+fn a_hand_written_legacy_project_is_read() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "widgets", "1.2.3")?;
+
+    let out = run_sysand_in(&cwd, ["info"], None)?;
+
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains("widgets"))
+        .stdout(predicate::str::contains("acme"))
+        .stdout(predicate::str::contains("1.2.3"));
+
+    Ok(())
+}
