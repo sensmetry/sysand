@@ -10,3 +10,4 @@ pub mod reader;
 pub mod serde_support;
 pub mod spans;
 pub mod usage;
+pub mod workspace_table;

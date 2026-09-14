@@ -8,6 +8,7 @@
 use std::collections::BTreeSet;
 use std::fmt::Display;
 
+use fluent_uri::Iri;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
 use typed_path::Utf8UnixPathBuf;
@@ -166,6 +167,14 @@ impl<'de> Deserialize<'de> for Maintainer {
         let s = String::deserialize(deserializer)?;
         Self::parse(&s).map_err(serde::de::Error::custom)
     }
+}
+
+/// The three URLs as concrete values, with no marker left to follow.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ResolvedUrls {
+    pub website: Option<Iri<String>>,
+    pub documentation: Option<Iri<String>>,
+    pub repository: Option<Iri<String>>,
 }
 
 /// workspaces.md "Explicit inheritance": which group a `<key>.workspace`
