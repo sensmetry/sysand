@@ -574,6 +574,12 @@ pub fn project_mut_derive(input: TokenStream) -> TokenStream {
                         .write_source(path, source, overwrite)
                         .map_err(#error_ident::#variant_ident)
                 },
+                // put_manifest_document_match
+                quote! {
+                    #enum_ident::#variant_ident(project) => project
+                        .put_manifest_document(document, overwrite)
+                        .map_err(|e| e.map_project_write(#error_ident::#variant_ident))
+                },
             ))
         })
         .collect();
@@ -585,8 +591,12 @@ pub fn project_mut_derive(input: TokenStream) -> TokenStream {
         }
     };
 
-    let (put_info_match, put_meta_match, write_source_match): (Vec<_>, Vec<_>, Vec<_>) =
-        variant_parts.iter().cloned().multiunzip();
+    let (put_info_match, put_meta_match, write_source_match, put_manifest_document_match): (
+        Vec<_>,
+        Vec<_>,
+        Vec<_>,
+        Vec<_>,
+    ) = variant_parts.iter().cloned().multiunzip();
 
     let expanded = quote! {
         impl #impl_generics ProjectMut for #enum_ident #type_generics #where_clause {
@@ -618,6 +628,19 @@ pub fn project_mut_derive(input: TokenStream) -> TokenStream {
             ) -> ::std::result::Result<(), Self::Error> {
                 match self {
                     #( #write_source_match ),*
+                }
+            }
+
+            fn put_manifest_document(
+                &mut self,
+                document: &::sysand_core::manifest::edit::DocumentMut,
+                overwrite: bool,
+            ) -> ::std::result::Result<
+                (),
+                ::sysand_core::project::ManifestWriteError<Self::Error>,
+            > {
+                match self {
+                    #( #put_manifest_document_match ),*
                 }
             }
         }
