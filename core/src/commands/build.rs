@@ -16,7 +16,7 @@ use crate::{
         InterchangeProjectValidationError, KerMlChecksumAlg,
     },
     project::{
-        ProjectRead,
+        ProjectFormat, ProjectRead,
         local_kpar::LocalKParProjectRaw,
         local_src::{LocalSrcError, LocalSrcProject},
         utils::{FsIoError, ZipArchiveError, wrapfs},
@@ -145,6 +145,18 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
         "unknown file format of `{0}`, only SysML v2 (.sysml) and KerML (.kerml) files are supported"
     )]
     UnknownFormat(Box<str>),
+    /// A view of a `model.toml` project is not what a build needs:
+    /// `created` is a placeholder and the local usages are not
+    /// rewritten into the PURLs an archive carries.
+    ///
+    /// The check lives in [`do_build_kpar`] rather than in a frontend: a
+    /// refusal one frontend makes is not a refusal.
+    #[error(
+        "building a `model.toml` project is not supported yet;\n\
+        {SP:>8} this version of Sysand builds KPARs from `.project.json` projects only",
+        SP = ' '
+    )]
+    TomlProject,
     #[error("missing project info file `.project.json` and metadata file `.meta.json`")]
     MissingInfoMeta,
     #[error("missing project info file `.project.json`")]
@@ -231,6 +243,9 @@ pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     update_index: bool,
     allow_path_usage: bool,
 ) -> Result<LocalKParProjectRaw, KParBuildError<Pr::Error>> {
+    if project.format().map_err(KParBuildError::ProjectRead)? == ProjectFormat::Toml {
+        return Err(KParBuildError::TomlProject);
+    }
     let path = path.as_ref();
     match do_build_kpar_inner(
         project,
