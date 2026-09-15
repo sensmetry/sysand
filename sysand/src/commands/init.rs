@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 use crate::{CliError, cli::Metamodel, commands::info::log_license_files_note};
-use anyhow::Result;
+use anyhow::{Result, bail};
 use camino::{Utf8Path, Utf8PathBuf};
 use semver::Version;
 use sysand_core::{

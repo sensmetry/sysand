@@ -74,7 +74,6 @@ pub fn resolve_lock<P: AsRef<Utf8UnixPath>, Policy: HTTPAuthentication, R: AsRef
     let wrapped_resolver = create_resolver(
         resolution_opts,
         config,
-        &project_root,
         ctx,
         // TODO: avoid expensive clone here
         provided_iris.clone(),
@@ -136,10 +135,10 @@ pub fn command_lock<P: AsRef<Utf8UnixPath>, Policy: HTTPAuthentication, R: AsRef
     Ok(lockfile.into_lock())
 }
 
-pub fn create_resolver<R: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
+/// A relative override path resolves against `ctx.config_root`.
+pub fn create_resolver<Policy: HTTPAuthentication>(
     resolution_opts: ResolutionOptions,
     config: &Config,
-    project_root: R,
     ctx: &ProjectContext,
     provided_usages: ProvidedProjects,
     client: reqwest_middleware::ClientWithMiddleware,
@@ -175,7 +174,7 @@ pub fn create_resolver<R: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
 
     let overrides = get_overrides(
         config,
-        &project_root,
+        &ctx.config_root,
         &client,
         runtime.clone(),
         auth_policy.clone(),

@@ -115,6 +115,9 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         current_workspace: None,
         current_project: Some(local_project.clone()),
         current_directory: ctx.current_directory,
+        // A clone creates a project outside any scope, so its config is
+        // its own; workspaces.md calls `clone` scope-free.
+        config_root: local_project.root_path().to_owned(),
         env: None,
     };
 

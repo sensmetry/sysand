@@ -46,7 +46,7 @@ use sysand_core::{
         net_utils::{HttpOptions, create_reqwest_client_with},
     },
     stdlib::known_std_libs,
-    workspace::Workspace,
+    workspace::{Workspace, model_toml::discover_table},
 };
 use url::Url;
 
@@ -476,22 +476,20 @@ fn run_cli_with(
         (Some(w), _) => get_env(w.root_path()),
     }
     .map_err(CliError::InvalidEnvironment)?;
+    let project_root = current_project.as_ref().map(|p| p.root_path().to_owned());
+    let config_root = config_root(&cwd, project_root.as_deref());
     let ctx = ProjectContext {
         env,
         current_workspace,
         current_project,
         current_directory: cwd,
+        config_root,
     };
-    let project_root = ctx
-        .current_project
-        .as_ref()
-        .map(|p| p.root_path().to_owned());
 
     let auto_config = if global_opts.no_config {
         Config::default()
     } else {
-        #[expect(clippy::or_fun_call, reason = "cheap")]
-        load_configs(project_root.as_deref().unwrap_or(Utf8Path::new(".")))?
+        load_configs(&ctx.config_root)?
     };
 
     let mut config = match &global_opts.config_file {
@@ -767,10 +765,11 @@ fn run_cli_with(
                 known_std_libs().into_keys().collect()
             };
 
-            let project_root = project_root.as_ref().unwrap_or(&ctx.current_directory);
+            // A relative override path is relative to the file it is
+            // written in, which in a workspace is the root's.
             let overrides = get_overrides(
                 &config,
-                project_root,
+                &ctx.config_root,
                 &client,
                 runtime.clone(),
                 auth_policy.clone(),
@@ -1071,6 +1070,29 @@ fn get_log_level(verbose: bool, quiet: bool) -> log::LevelFilter {
 }
 
 pub type Overrides<Policy> = Vec<(Identifier, Vec<OverrideProject<Policy>>)>;
+
+/// Where `sysand.toml` is read and written for a command run in `cwd`.
+///
+/// The workspace root when there is one, the project root otherwise, and
+/// the current directory when there is no project either.
+///
+/// [`discover_table`] and not [`sysand_core::workspace::model_toml::Workspace::discover`]:
+/// configuration is not about the members, and a broken member must not
+/// change where `sysand.toml` is read from.
+///
+/// A discovery *error* -- a nested workspace, an ancestor `model.toml`
+/// that does not parse -- is not fatal here either. The command that
+/// actually needs the workspace reports it; failing config loading would
+/// take down every command including the ones that never look at a
+/// workspace.
+fn config_root(cwd: &Utf8Path, project_root: Option<&Utf8Path>) -> Utf8PathBuf {
+    match discover_table(cwd) {
+        Ok(Some((root, _))) => return root,
+        Ok(None) => {}
+        Err(error) => log::debug!("not reading configuration from a workspace root: {error}"),
+    }
+    project_root.unwrap_or(cwd).to_owned()
+}
 
 pub fn get_overrides<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     config: &Config,
