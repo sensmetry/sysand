@@ -390,6 +390,25 @@ fn toml_target(dir: &camino_tempfile::Utf8TempDir, at: &str, version: &str, body
     std::fs::write(path.join("b.sysml"), b"package B;\n").expect("a target source");
 }
 
+/// A `model.toml` standard-library project at `at`: publisher `omg`, a
+/// `stdlib` stem and an inline OMG metamodel.
+///
+/// Inline and not `metamodel.workspace`, which is what model-toml.md's
+/// own example uses: the target is read standalone, with no workspace
+/// to inherit a metamodel from.
+fn stdlib_target(dir: &camino_tempfile::Utf8TempDir, at: &str) {
+    let path = dir.path().join(at);
+    std::fs::create_dir_all(&path).expect("the target directory");
+    std::fs::write(
+        path.join("model.toml"),
+        "manifest-version = 1\n\n[project]\npublisher = \"omg\"\nname = \"dep\"\n\
+         version = \"1.0.0\"\nsources = [\"b.kerml\"]\nstdlib = \"Semantic-Library\"\n\
+         metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n",
+    )
+    .expect("a target manifest");
+    std::fs::write(path.join("b.kerml"), b"package B;\n").expect("a target source");
+}
+
 const DIR_USAGE: &str =
     "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"dep\"\n";
 
@@ -485,28 +504,38 @@ fn a_target_that_does_not_read_is_its_own_error() -> Result<(), Box<dyn std::err
     Ok(())
 }
 
-/// model-toml.md "Standard library": such a target wants
-/// `<metamodel>/<stdlib>.kpar`, which is WP-6b-ii. Refused rather than
-/// silently given the PURL.
+/// model-toml.md "Standard library": "a usage whose target carries
+/// `stdlib` is written as `resource = "<target's metamodel>/<target's
+/// stdlib>.kpar"` -- the metamodel supplies the prefix and release date
+/// -- with its version constraint, instead of as a PURL".
 #[test]
-fn a_local_stdlib_target_is_refused_for_now() -> Result<(), Box<dyn std::error::Error>> {
+fn a_local_stdlib_target_becomes_an_omg_iri() -> Result<(), Box<dyn std::error::Error>> {
     let dir =
         toml_project("\n[[inline-usages]]\npublisher = \"omg\"\nname = \"dep\"\ndir = \"dep\"\n")?;
-    let path = dir.path().join("dep");
-    std::fs::create_dir_all(&path)?;
-    std::fs::write(
-        path.join("model.toml"),
-        "manifest-version = 1\n\n[project]\npublisher = \"omg\"\nname = \"dep\"\n\
-         version = \"1.0.0\"\nsources = [\"b.kerml\"]\nstdlib = \"Semantic-Library\"\n\
-         metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n",
-    )?;
-    std::fs::write(path.join("b.kerml"), b"package B;\n")?;
+    stdlib_target(&dir, "dep");
 
-    let error = built(&dir, false).expect_err("a stdlib target needs its IRI");
-    assert!(matches!(error, KParBuildError::TomlStdlibTarget { .. }));
+    let (info, _) = built(&dir, false)?;
+    assert_eq!(
+        resource(&info.usage[0]),
+        (
+            "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar".to_owned(),
+            // Only the resource changes: "instead of the PURL" names one
+            // substitution, so the constraint is still rule 2's.
+            Some("^1.0.0".to_owned())
+        )
+    );
+    Ok(())
+}
 
-    // "under `--allow-path-usage` a local usage stays a typed path
-    // usage, stdlib target or not"
+/// "Under `--allow-path-usage` a local usage stays a typed path usage,
+/// stdlib target or not".
+#[test]
+fn a_local_stdlib_target_still_stays_typed_under_the_flag() -> Result<(), Box<dyn std::error::Error>>
+{
+    let dir =
+        toml_project("\n[[inline-usages]]\npublisher = \"omg\"\nname = \"dep\"\ndir = \"dep\"\n")?;
+    stdlib_target(&dir, "dep");
+
     let (info, _) = built(&dir, true)?;
     assert!(format!("{:?}", info.usage[0]).contains("Directory"));
     Ok(())
@@ -540,6 +569,11 @@ fn the_typed_and_raw_usage_lists_correspond() -> Result<(), Box<dyn std::error::
 
 /// A `kpar-path` target is a *file*, and its version comes from the
 /// archive's own `.project.json`.
+///
+/// The target here is built from a **stdlib** project, so this also
+/// pins that rule 3 cannot reach an archive: a KPAR carries no
+/// `model.toml` (one at its root is `TomlInKpar`), so a publisher-less
+/// standard-library archive still gets rule 2's PURL.
 #[test]
 fn a_kpar_path_usage_becomes_a_caret_purl() -> Result<(), Box<dyn std::error::Error>> {
     let dir = toml_project(
@@ -547,8 +581,13 @@ fn a_kpar_path_usage_becomes_a_caret_purl() -> Result<(), Box<dyn std::error::Er
     )?;
     // Build the target archive first.
     let target_dir = tempdir()?;
-    json_target(&target_dir, ".", "7.8.9");
-    std::fs::write(target_dir.path().join("a.sysml"), b"package A;\n")?;
+    std::fs::write(
+        target_dir.path().join("model.toml"),
+        "manifest-version = 1\n\n[project]\npublisher = \"omg\"\nname = \"dep\"\n\
+         version = \"7.8.9\"\nsources = [\"a.kerml\"]\nstdlib = \"Semantic-Library\"\n\
+         metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n",
+    )?;
+    std::fs::write(target_dir.path().join("a.kerml"), b"package A;\n")?;
     let target = LocalSrcProject::new_access(target_dir.path(), None);
     do_build_kpar(
         &target,
