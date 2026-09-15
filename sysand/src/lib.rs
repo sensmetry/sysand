@@ -395,18 +395,16 @@ fn run_cli_with(
 
     let current_project = discover_project(&cwd)?;
     let current_workspace = discover_workspace(&cwd)?;
-    let env = match (&current_workspace, &current_project) {
-        // TODO: does it make sense to support env unassociated with a project
-        // when index and env are different?
-        (None, None) => get_env(&cwd)?,
-        (None, Some(pr)) => get_env(pr.root_path())?,
-        (Some(w), _) => get_env(w.root_path())?,
-    };
     let project_root = current_project.as_ref().map(|p| p.root_path().to_owned());
 
     // One upward walk for both questions below: configuration is read
     // at the workspace root, and a command with a scope has to know
     // which workspace it is in before it runs.
+    //
+    // Ahead of the environment, which is rooted at the workspace: a
+    // single `.sysand` per workspace cannot be chosen before the
+    // workspace is known. `config_root` stays below, since it needs
+    // `project_root`.
     let discovered = discover_table(&cwd);
     let workspace_root = match &discovered {
         Ok(Some((root, _))) => Some(root.clone()),
@@ -417,7 +415,6 @@ fn run_cli_with(
             None
         }
     };
-    let config_root = config_root(&cwd, project_root.as_deref(), workspace_root.as_deref());
 
     // Nesting and unlisted projects, for the commands that have a scope.
     // The workspace root and where under it the command started: both
@@ -434,6 +431,15 @@ fn run_cli_with(
     } else {
         None
     };
+
+    let env = match (&current_workspace, &current_project) {
+        // TODO: does it make sense to support env unassociated with a project
+        // when index and env are different?
+        (None, None) => get_env(&cwd)?,
+        (None, Some(pr)) => get_env(pr.root_path())?,
+        (Some(w), _) => get_env(w.root_path())?,
+    };
+    let config_root = config_root(&cwd, project_root.as_deref(), workspace_root.as_deref());
     let ctx = ProjectContext {
         env,
         // Set when the workspace lockfile moves to the root (WP-5e):
