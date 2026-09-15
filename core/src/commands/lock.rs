@@ -55,6 +55,22 @@ pub enum LockProjectError<PI: ProjectRead, PD: ProjectRead, R: ResolveRead + Deb
     InputProjectCanonicalizationError(CanonicalizationError<PI::Error>),
     #[error(transparent)]
     LockError(#[from] LockError<PD, R>),
+    /// A member inherits a group usage that names a local path.
+    ///
+    /// `kpar_view::info` drops each usage's base, so such a usage would
+    /// reach the solver as a bare relative path and be joined onto the
+    /// member's directory -- while a group entry's paths are relative to
+    /// the workspace root. Refused rather than silently misresolved.
+    #[error(
+        "member `{member}` inherits the usage `{usage}`, whose path `{path}` is relative to the \n\
+        {SP:>8} workspace root; a workspace lock cannot express that yet",
+        SP = ' '
+    )]
+    InheritedLocalUsage {
+        member: String,
+        usage: String,
+        path: String,
+    },
 }
 
 #[derive(Error, Debug)]
@@ -689,6 +705,84 @@ pub fn do_lock_local_editable_respelling<
 }
 
 /// Treats a project at `path` as an editable project and solves for its dependencies.
+#[cfg(feature = "filesystem")]
+/// Lock a whole workspace: every member, in one solve, into one lockfile.
+///
+/// `workspaces.md` "Locking": "Always a single lockfile ... for the whole
+/// workspace in the workspace root. It records every project of the
+/// solved graph by the identifier `pkg:sysand/<publisher>/<name>`,
+/// members included."
+///
+/// `workspace` must have been loaded with
+/// [`crate::workspace::model_toml::MemberChecks::SkipStrayState`]; see
+/// that type's documentation.
+///
+/// **`ctx.sources_root()` must be the workspace root.** Every solved
+/// local dependency's `src_path` is relativized against it, and one
+/// lockfile whose paths meant "relative to whichever member ran `lock`"
+/// would say different things in different lines. It is a `debug_assert`
+/// rather than an error because it is a precondition on the caller.
+#[cfg(feature = "filesystem")]
+pub fn do_lock_workspace<PD: ProjectRead + Debug, R: ResolveRead<ProjectStorage = PD> + Debug>(
+    workspace: &crate::workspace::model_toml::Workspace,
+    resolver: R,
+    provided_usages: &ProvidedProjects,
+    ctx: &ProjectContext,
+) -> Result<LockOutcome<PD>, LockProjectError<EditableLocalSrcProject, PD, R>> {
+    debug_assert_eq!(
+        ctx.sources_root().as_deref(),
+        Some(workspace.root()),
+        "a workspace lockfile's source paths are relative to its root"
+    );
+
+    // The base survives on `Member::project`, and is lost by the time
+    // `do_lock_projects_with_bases` reads a project's usages through
+    // `get_info` -- so the check belongs here, before anything is built.
+    for member in workspace.members() {
+        for located in &member.project.usages {
+            if located.base == crate::manifest::usage::UsageBase::WorkspaceRoot
+                && let Some(path) = located.usage.local_path()
+            {
+                return Err(LockProjectError::InheritedLocalUsage {
+                    member: member.path.path.to_string(),
+                    usage: located.usage.to_string(),
+                    path: path.to_string(),
+                });
+            }
+        }
+    }
+
+    let table = std::sync::Arc::new(workspace.table().clone());
+    let members: Vec<EditableLocalSrcProject> = workspace
+        .members()
+        .iter()
+        .map(|member| {
+            EditableProject::new(
+                member.path.path.clone(),
+                LocalSrcProject::new_member(member.dir.clone(), None, table.clone()),
+            )
+        })
+        .collect();
+
+    do_lock_projects_with_bases(
+        members
+            .iter()
+            .zip(workspace.members())
+            .map(|(project, member)| {
+                let purl = member
+                    .project
+                    .identity()
+                    .lock_identifier()
+                    .parse()
+                    .expect("a validated publisher and name are a valid PURL");
+                (Some(vec![purl]), project, Some(member.dir.clone()))
+            }),
+        resolver,
+        provided_usages,
+        ctx,
+    )
+}
+
 #[cfg(feature = "filesystem")]
 pub fn do_lock_local_editable<
     P: AsRef<Utf8UnixPath>,

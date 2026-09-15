@@ -16,6 +16,8 @@ use crate::{
 };
 
 #[cfg(feature = "filesystem")]
+use crate::commands::lock::LockProjectError;
+#[cfg(feature = "filesystem")]
 use crate::resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead, UsageOrigin};
 
 #[test]
@@ -717,5 +719,270 @@ fn do_lock_extend_still_derives_one_base() -> Result<(), Box<dyn std::error::Err
         "{:?}",
         outcome.lock.projects
     );
+    Ok(())
+}
+
+// ------------------------- locking a workspace
+
+/// A `model.toml` workspace on disk. `Fixture` in `model_toml_tests.rs`
+/// is a private test module, so this is its minimum here.
+#[cfg(feature = "filesystem")]
+fn workspace_tree(members: &[(&str, &str)], root_extra: &str) -> camino_tempfile::Utf8TempDir {
+    let dir = camino_tempfile::tempdir().expect("a temporary directory");
+    let entries: Vec<String> = members.iter().map(|(at, _)| format!("\"{at}\"")).collect();
+    std::fs::write(
+        dir.path().join("model.toml"),
+        format!(
+            "manifest-version = 1\n\n[workspace]\nmembers = [{}]\n{root_extra}",
+            entries.join(", ")
+        ),
+    )
+    .expect("a root manifest");
+    for (at, body) in members {
+        let path = dir
+            .path()
+            .join(at.trim_start_matches("./").trim_end_matches('/'));
+        std::fs::create_dir_all(&path).expect("a member directory");
+        std::fs::write(path.join("model.toml"), *body).expect("a member manifest");
+    }
+    dir
+}
+
+#[cfg(feature = "filesystem")]
+fn member_toml(name: &str, usages: &str) -> String {
+    format!(
+        "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"{name}\"\n\
+         version = \"1.0.0\"\nsources = []\n{usages}"
+    )
+}
+
+/// The context `do_lock_workspace` requires: its sources root is the
+/// workspace root, canonicalized as `load_with` reports it.
+#[cfg(feature = "filesystem")]
+fn workspace_ctx(root: &camino::Utf8Path) -> ProjectContext {
+    ProjectContext {
+        model_workspace_root: Some(root.to_owned()),
+        ..Default::default()
+    }
+}
+
+#[cfg(feature = "filesystem")]
+fn lock_workspace(
+    dir: &camino_tempfile::Utf8TempDir,
+) -> Result<
+    crate::lock::Lock,
+    LockProjectError<
+        crate::project::editable::EditableProject<crate::project::local_src::LocalSrcProject>,
+        crate::resolve::file::FileResolverProject,
+        crate::resolve::file::FileResolver,
+    >,
+> {
+    use crate::workspace::model_toml::{MemberChecks, Workspace};
+    let workspace = Workspace::load_with(dir.path(), MemberChecks::SkipStrayState)
+        .expect("the workspace loads");
+    let ctx = workspace_ctx(workspace.root());
+    super::do_lock_workspace(
+        &workspace,
+        crate::resolve::file::FileResolver {
+            sandbox_roots: None,
+        },
+        &HashMap::default(),
+        &ctx,
+    )
+    .map(|outcome| outcome.lock)
+}
+
+#[cfg(feature = "filesystem")]
+fn editables(lock: &crate::lock::Lock) -> Vec<&str> {
+    let mut paths: Vec<&str> = lock
+        .projects
+        .iter()
+        .flat_map(|p| &p.sources)
+        .filter_map(|s| match s {
+            Source::Editable { editable } => Some(editable.as_str()),
+            _ => None,
+        })
+        .collect();
+    paths.sort_unstable();
+    paths
+}
+
+/// Every member is in the lockfile, recorded as editable at its own
+/// path.
+#[cfg(feature = "filesystem")]
+#[test]
+fn a_workspace_locks_every_member() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace_tree(
+        &[
+            ("app", &member_toml("alpha", "")),
+            ("libs/gamma", &member_toml("gamma", "")),
+        ],
+        "",
+    );
+    let lock = lock_workspace(&dir).map_err(|e| e.to_string())?;
+    assert_eq!(editables(&lock), vec!["app", "libs/gamma"]);
+    Ok(())
+}
+
+#[cfg(feature = "filesystem")]
+#[test]
+fn a_member_usage_of_another_member_resolves() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace_tree(
+        &[
+            ("app", &member_toml("alpha", "")),
+            (
+                "beta",
+                &member_toml(
+                    "beta",
+                    "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"alpha\"\ndir = \"../app\"\n",
+                ),
+            ),
+        ],
+        "",
+    );
+    let lock = lock_workspace(&dir).map_err(|e| e.to_string())?;
+    assert_eq!(
+        lock.projects.iter().filter(|p| p.name == "alpha").count(),
+        1,
+        "`alpha` is one project, not one per way of naming it: {:?}",
+        lock.projects
+    );
+    Ok(())
+}
+
+/// The base a member's `dir` resolves against is that member's own
+/// directory. With every member at depth 1 this proves nothing, so
+/// `libs/gamma` reaches back two levels.
+#[cfg(feature = "filesystem")]
+#[test]
+fn members_at_different_depths_resolve_their_own_bases() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace_tree(
+        &[
+            ("app", &member_toml("alpha", "")),
+            (
+                "libs/gamma",
+                &member_toml(
+                    "gamma",
+                    "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"alpha\"\ndir = \"../../app\"\n",
+                ),
+            ),
+        ],
+        "",
+    );
+    let lock = lock_workspace(&dir).map_err(|e| e.to_string())?;
+    assert_eq!(editables(&lock), vec!["app", "libs/gamma"]);
+    Ok(())
+}
+
+/// A group entry's paths are relative to the workspace root, and the
+/// view drops that distinction -- so it is refused rather than joined
+/// onto the member.
+#[cfg(feature = "filesystem")]
+#[test]
+fn an_inherited_local_usage_is_refused() {
+    let dir = workspace_tree(
+        &[(
+            "app",
+            &member_toml(
+                "alpha",
+                "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"shared\"\nworkspace = \"legacy\"\n",
+            ),
+        )],
+        "\n[workspace.group.legacy]\n\n[[workspace.group.legacy.inline-usages]]\n\
+         publisher = \"acme\"\nname = \"shared\"\ndir = \"vendor/shared\"\n",
+    );
+    let error = lock_workspace(&dir).expect_err("an inherited local usage");
+    assert!(
+        matches!(error, LockProjectError::InheritedLocalUsage { .. }),
+        "{error}"
+    );
+    let text = error.to_string();
+    assert!(text.contains("app"), "{text}");
+    assert!(text.contains("vendor/shared"), "{text}");
+}
+
+/// And only a *local* one: an inherited index usage is legitimate.
+#[cfg(feature = "filesystem")]
+#[test]
+fn an_inherited_index_usage_is_not_refused() {
+    let dir = workspace_tree(
+        &[(
+            "app",
+            &member_toml(
+                "alpha",
+                "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"shared\"\nworkspace = \"legacy\"\n",
+            ),
+        )],
+        "\n[workspace.group.legacy]\n\n[[workspace.group.legacy.inline-usages]]\n\
+         publisher = \"acme\"\nname = \"shared\"\nversion = \"^1\"\n",
+    );
+    let error = lock_workspace(&dir).expect_err("`acme/shared` resolves nowhere here");
+    assert!(
+        !matches!(error, LockProjectError::InheritedLocalUsage { .. }),
+        "an index usage must not be refused as a local one: {error}"
+    );
+}
+
+#[cfg(feature = "filesystem")]
+#[test]
+fn members_are_identified_by_their_purls() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace_tree(&[("app", &member_toml("alpha", ""))], "");
+    let lock = lock_workspace(&dir).map_err(|e| e.to_string())?;
+    assert_eq!(
+        lock.projects[0].identifiers,
+        vec!["pkg:sysand/acme/alpha".to_owned()]
+    );
+    Ok(())
+}
+
+/// A solved local dependency's `src_path` is recorded against the *workspace* root,
+/// not against the member whose usage reached it. From `app`, the
+/// target is `../vendor/dep`; in the lockfile it is `vendor/dep`.
+#[cfg(feature = "filesystem")]
+#[test]
+fn a_dependency_src_path_is_relative_to_the_workspace_root()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace_tree(
+        &[(
+            "app",
+            &member_toml(
+                "alpha",
+                "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"../vendor/dep\"\n",
+            ),
+        )],
+        "",
+    );
+    project_dir(&dir.path().join("vendor/dep"), "dep");
+
+    let lock = lock_workspace(&dir).map_err(|e| e.to_string())?;
+    let src_paths: Vec<&str> = lock
+        .projects
+        .iter()
+        .flat_map(|p| &p.sources)
+        .filter_map(|s| match s {
+            Source::LocalSrc { src_path, .. } => Some(src_path.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(src_paths, vec!["vendor/dep"]);
+    Ok(())
+}
+
+/// A member that inherits and is actually locked. The refusal tests
+/// above return before any project is built, so without this nothing
+/// proves the table reaches `new_member`.
+#[cfg(feature = "filesystem")]
+#[test]
+fn an_inheriting_member_locks_with_the_tables_value() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace_tree(
+        &[(
+            "app",
+            "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"alpha\"\n\
+             version.workspace = true\nsources = []\n",
+        )],
+        "version = \"9.9.9\"\n",
+    );
+    let lock = lock_workspace(&dir).map_err(|e| e.to_string())?;
+    assert_eq!(lock.projects[0].version, "9.9.9");
     Ok(())
 }
