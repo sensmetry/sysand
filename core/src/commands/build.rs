@@ -14,7 +14,7 @@ use crate::{
     manifest::common::normalized_identity,
     manifest::usage::{Usage, UsageBase},
     model::{
-        InterchangeProjectChecksumRaw, InterchangeProjectUsageRaw,
+        IndexName, InterchangeProjectChecksumRaw, InterchangeProjectUsageRaw,
         InterchangeProjectValidationError, KerMlChecksumAlg, format_created,
     },
     project::{
@@ -23,7 +23,11 @@ use crate::{
         local_src::{LocalSrcError, LocalSrcProject},
         utils::{FsIoError, ZipArchiveError, wrapfs},
     },
-    utils::{format_err, license_file_stems, sha256_lowercase_hex, to_pretty_json_string},
+    stdlib::known_std_libs,
+    utils::{
+        ProvidedProjects, format_err, license_file_stems, sha256_lowercase_hex,
+        to_pretty_json_string,
+    },
     workspace::{Workspace, WorkspaceReadError},
 };
 
@@ -184,23 +188,26 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
         path: String,
         reason: String,
     },
-    /// model-toml.md "TOML to KPAR": "an index, source path or kpar path
-    /// usage whose target carries `stdlib`: the OMG IRI instead of the
-    /// PURL". For an index usage the target is not on disk at all -- the
-    /// IRI comes from the embedded metadata of `known_std_libs()` -- so
-    /// this one is WP-6b-ii.
+    /// model-toml.md "Standard library": the standard library is
+    /// "provided by the tooling", and "Sysand embeds the metadata of the
+    /// current release". So the IRI a standard-library usage is written
+    /// as comes from `known_std_libs()` and from nowhere else -- "build
+    /// never resolves usages, so building needs neither network nor
+    /// index".
     ///
-    /// `--allow-path-usage` does not excuse it: the flag is about path
-    /// usages, and "under `--allow-path-usage` a local usage stays a
-    /// typed path usage, stdlib target or not" says nothing about an
-    /// index usage.
+    /// Two ways to get here: the name matches embedded releases but no
+    /// version satisfies the constraint, and the name matches nothing at
+    /// all. `embedded` carries whichever the reader needs.
     #[error(
-        "building a `model.toml` project with the standard-library usage `{usage}` is not \n\
-        {SP:>8} supported yet; this version of Sysand cannot rewrite it into the OMG IRI\n\
-        {SP:>8} an archive carries",
+        "standard-library usage `{usage} {constraint}` matches no release this Sysand \n\
+        {SP:>8} embeds ({embedded}), so its IRI cannot be written",
         SP = ' '
     )]
-    TomlStdlibUsage { usage: String },
+    TomlStdlibUnmatched {
+        usage: String,
+        constraint: String,
+        embedded: String,
+    },
     #[error("missing project info file `.project.json` and metadata file `.meta.json`")]
     MissingInfoMeta,
     #[error("missing project info file `.project.json`")]
@@ -376,6 +383,10 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         // unfiltered, so the two are the same usages in the same order
         // -- and a zip cannot go out of step where a counter can.
         let root = project.project_root();
+        // `known_std_libs` parses twenty embedded documents, so it is
+        // built on the first standard-library usage and reused: a
+        // project with none pays nothing.
+        let mut std_libs = None;
         for (located, raw) in manifest.usages.iter().zip(info.usage.iter_mut()) {
             // An inherited usage's paths are relative to the workspace
             // root, not the project's, and the arms below resolve
@@ -386,10 +397,13 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
                 "a workspace-based usage needs `resolve_local_path`"
             );
             match &located.usage {
-                Usage::Index { publisher, .. } if publisher.is_stdlib_publisher() => {
-                    return Err(KParBuildError::TomlStdlibUsage {
-                        usage: located.usage.to_string(),
-                    });
+                Usage::Index {
+                    name,
+                    version_constraint,
+                    publisher,
+                } if publisher.is_stdlib_publisher() => {
+                    let embedded = std_libs.get_or_insert_with(known_std_libs);
+                    *raw = stdlib_index_usage(embedded, &located.usage, name, version_constraint)?;
                 }
                 Usage::SourcePath { dir, .. } if !allow_path_usage => {
                     *raw = local_target_usage(root, &located.usage, dir.as_str(), false)?;
@@ -736,7 +750,57 @@ fn local_target_usage<E: ErrorBound>(
     })
 }
 
-/// `^<version>`, or appendix A row 40.
+/// model-toml.md "Standard library": the IRI an `omg` index usage is
+/// written as.
+///
+/// Matched by *name*, and the resource is the map key of whatever
+/// matched. The stem is not derivable from the usage: `SysML Quantities
+/// and Units Library` is published at
+/// `.../Quantities-and-Units-Domain-Library.kpar`, and "Domain" appears
+/// in one and not the other.
+fn stdlib_index_usage<E: ErrorBound>(
+    embedded: &ProvidedProjects,
+    usage: &Usage,
+    name: &IndexName,
+    constraint: &semver::VersionReq,
+) -> Result<InterchangeProjectUsageRaw, KParBuildError<E>> {
+    let wanted = name.normalized();
+    let mut versions = Vec::new();
+    for (iri, projects) in embedded {
+        for project in projects {
+            let Some(info) = &project.info else { continue };
+            if crate::model::normalize_typed_name(&info.name) != wanted {
+                continue;
+            }
+            let Ok(version) = semver::Version::parse(&info.version) else {
+                continue;
+            };
+            if constraint.matches(&version) {
+                return Ok(InterchangeProjectUsageRaw::Resource {
+                    resource: iri.as_str().to_owned(),
+                    // "with its version constraint" -- as declared.
+                    version_constraint: Some(constraint.to_string()),
+                });
+            }
+            versions.push(info.version.clone());
+        }
+    }
+
+    // Sorted: `known_std_libs` is a `HashMap`, and a message whose order
+    // varies between runs is a message nobody can quote.
+    versions.sort();
+    Err(KParBuildError::TomlStdlibUnmatched {
+        usage: usage.to_string(),
+        constraint: constraint.to_string(),
+        embedded: if versions.is_empty() {
+            "no release of that name".to_owned()
+        } else {
+            format!("embedded: {}", versions.join(", "))
+        },
+    })
+}
+
+/// `^<version>`, or [`KParBuildError::TomlTargetVersion`].
 fn caret<E: ErrorBound>(
     version: &str,
     usage: &Usage,

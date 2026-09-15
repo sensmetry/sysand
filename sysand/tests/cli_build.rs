@@ -1317,3 +1317,29 @@ fn build_toml_project_with_a_missing_target() -> Result<(), Box<dyn std::error::
         .success();
     Ok(())
 }
+
+/// A standard-library usage becomes the IRI Sysand embeds.
+#[test]
+fn build_toml_project_with_a_stdlib_usage() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    std::fs::write(
+        cwd.join("model.toml"),
+        "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
+         version = \"1.0.0\"\nsources = [\"a.sysml\"]\n\n\
+         [[inline-usages]]\npublisher = \"OMG\"\nname = \"Kernel Semantic Library\"\n\
+         version = \"^1.0.0\"\n",
+    )?;
+    std::fs::write(cwd.join("a.sysml"), b"package A;\n")?;
+
+    run_sysand_in(&cwd, ["build"], None)?.assert().success();
+
+    let archive = std::fs::File::open(cwd.join("output/widgets-1.0.0.kpar"))?;
+    let mut zip = zip::ZipArchive::new(archive)?;
+    let mut info = String::new();
+    std::io::Read::read_to_string(&mut zip.by_name(".project.json")?, &mut info)?;
+    assert!(
+        info.contains("https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar"),
+        "{info}"
+    );
+    Ok(())
+}
