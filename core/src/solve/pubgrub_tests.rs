@@ -2381,3 +2381,122 @@ fn a_candidate_whose_format_cannot_be_read_is_skipped_unless_typed() {
         "got: {typed} / {msg}"
     );
 }
+
+// ---------------------------- one base path per usage
+
+/// A `.project.json` at `<dir>`, published as `acme/<name>`.
+#[cfg(feature = "filesystem")]
+fn project_dir(at: &camino::Utf8Path, name: &str) {
+    std::fs::create_dir_all(at).expect("the project directory");
+    let mut info = memory_project(name, "1.0.0", vec![]).info.unwrap();
+    info.publisher = Some("acme".to_owned());
+    std::fs::write(
+        at.join(".project.json"),
+        serde_json::to_string(&info).expect("serializable"),
+    )
+    .expect("a manifest");
+}
+
+#[cfg(feature = "filesystem")]
+fn dir_usage(dir: &str, name: &str) -> InterchangeProjectUsage {
+    InterchangeProjectUsage::Directory {
+        dir: dir.into(),
+        publisher: "acme".to_owned(),
+        name: name.to_owned(),
+    }
+}
+
+/// `workspaces.md` "Intra-workspace usages": a member's `dir` is
+/// "relative to the member", so a solve over several members has
+/// several bases.
+///
+/// The two usages name the same relative path and *different* projects.
+/// Naming the same project would prove nothing: the solver coalesces
+/// usages by publisher and name, so one base would answer both.
+#[cfg(feature = "filesystem")]
+#[test]
+fn two_usages_resolve_against_their_own_bases() -> Result<(), Box<dyn std::error::Error>> {
+    use crate::resolve::file::FileResolver;
+
+    let tmp = camino_tempfile::tempdir()?;
+    project_dir(&tmp.path().join("alpha/dep"), "one");
+    project_dir(&tmp.path().join("beta/dep"), "two");
+
+    let solution = super::solve_with_bases(
+        vec![
+            (
+                dir_usage("dep", "one"),
+                Some(tmp.path().join("alpha")),
+                UsageOrigin::Json,
+            ),
+            (
+                dir_usage("dep", "two"),
+                Some(tmp.path().join("beta")),
+                UsageOrigin::Json,
+            ),
+        ],
+        FileResolver {
+            sandbox_roots: None,
+        },
+    )?;
+
+    assert_eq!(solution.len(), 2, "both usages resolve: {solution:?}");
+    Ok(())
+}
+
+/// A usage with no base does not borrow its neighbour's.
+#[cfg(feature = "filesystem")]
+#[test]
+fn a_usage_with_no_base_is_unresolvable_beside_one_that_has_it()
+-> Result<(), Box<dyn std::error::Error>> {
+    use crate::resolve::file::FileResolver;
+
+    let tmp = camino_tempfile::tempdir()?;
+    project_dir(&tmp.path().join("alpha/dep"), "one");
+    project_dir(&tmp.path().join("alpha/other"), "two");
+
+    let error = super::solve_with_bases(
+        vec![
+            (
+                dir_usage("dep", "one"),
+                Some(tmp.path().join("alpha")),
+                UsageOrigin::Json,
+            ),
+            (dir_usage("other", "two"), None, UsageOrigin::Json),
+        ],
+        FileResolver {
+            sandbox_roots: None,
+        },
+    )
+    .expect_err("the second usage has no base");
+
+    // The reason matters: borrowing the neighbour's base would resolve
+    // it, and a bare `is_err` would not tell the two apart.
+    assert!(
+        format!("{error:?}").contains("without a base path"),
+        "{error:?}"
+    );
+    Ok(())
+}
+
+/// The wrapper still applies its one base to every usage.
+#[cfg(feature = "filesystem")]
+#[test]
+fn solve_still_applies_one_base_to_every_usage() -> Result<(), Box<dyn std::error::Error>> {
+    use crate::resolve::file::FileResolver;
+
+    let tmp = camino_tempfile::tempdir()?;
+    project_dir(&tmp.path().join("alpha/dep"), "one");
+    project_dir(&tmp.path().join("alpha/other"), "two");
+
+    let solution = solve(
+        vec![dir_usage("dep", "one"), dir_usage("other", "two")],
+        Some(tmp.path().join("alpha")),
+        FileResolver {
+            sandbox_roots: None,
+        },
+    )?;
+
+    assert_eq!(solution.len(), 2, "{solution:?}");
+    Ok(())
+}

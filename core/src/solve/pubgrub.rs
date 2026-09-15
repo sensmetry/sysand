@@ -1441,17 +1441,44 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
 type Solution<ProjectStorage> = HashMap<Identifier, ProjectStorage>;
 
 /// `requested` pairs each usage with the manifest it was declared in;
-/// a caller that did not read one passes [`UsageOrigin::Json`].
+/// a caller that did not read one (`sysand env install <iri>`, say)
+/// passes [`UsageOrigin::Json`]. Every usage resolves its relative paths
+/// against the same `base_path`; see [`solve_with_bases`] for the caller
+/// that cannot.
 pub fn solve<R: ResolveRead + fmt::Debug + 'static>(
     requested: Vec<(InterchangeProjectUsage, UsageOrigin)>,
     base_path: Option<Utf8PathBuf>,
+    resolver: R,
+) -> Result<Solution<R::ProjectStorage>, SolverError<R>> {
+    solve_with_bases(
+        requested
+            .into_iter()
+            .map(|(usage, origin)| (usage, base_path.clone(), origin))
+            .collect(),
+        resolver,
+    )
+}
+
+/// Each usage with the directory its relative paths resolve against.
+///
+/// A workspace is solved as one unit, and its members do not share a
+/// base: `workspaces.md` "Intra-workspace usages" gives a usage's paths
+/// as "`dir`, relative to the member, or a group entry relative to the
+/// root", which is two bases in one solve. [`solve`] is this function
+/// with one base for everything.
+///
+/// One single-base assumption survives below here: `resolve_candidates`
+/// caches by identity, so two usages naming the same publisher and name
+/// from different bases collapse onto whichever resolved first.
+pub fn solve_with_bases<R: ResolveRead + fmt::Debug + 'static>(
+    requested: Vec<(InterchangeProjectUsage, Option<Utf8PathBuf>, UsageOrigin)>,
     resolver: R,
 ) -> Result<Solution<R::ProjectStorage>, SolverError<R>> {
     let solver = ProjectSolver::new(resolver);
 
     let requested = requested
         .into_iter()
-        .map(|(u, origin)| CoalescingUsage::new_usage(u, base_path.clone(), origin))
+        .map(|(u, base_path, origin)| CoalescingUsage::new_usage(u, base_path, origin))
         .collect();
     let package = DependencyIdentifier::Requested(requested);
 
