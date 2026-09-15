@@ -365,10 +365,10 @@ fn env_install_from_local_dir_allow_overwrite() -> Result<(), Box<dyn std::error
 */
 
 #[test]
+/// Legacy json fixture: the setup uses `sysand add`/`include`.
 fn install_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "install-nonexistent", "1.2.3")?;
-
-    out.assert().success();
+    let (_temp_dir, cwd) =
+        cli_init_json_project(None, "acme", "install-nonexistent", "1.2.3", None)?;
 
     let out = run_sysand_in(
         &cwd,
@@ -391,20 +391,21 @@ fn install_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
 /// be installed alongside it; the same version still triggers an error.
 /// `env list` then names each installed version once.
 #[test]
+/// Legacy json fixture: the setup uses `sysand add`/`include`.
 fn env_install_allow_multiple() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, _) = run_sysand(["env"], None)?;
 
     // Build v1 with a .meta.json so checksum_canonical_variant succeeds.
-    let (_temp_v1, cwd_v1, out) = cli_init_project_basic("acme", "allow-multiple-lib", "1.0.0")?;
-    out.assert().success();
+    let (_temp_v1, cwd_v1) =
+        cli_init_json_project(None, "acme", "allow-multiple-lib", "1.0.0", None)?;
     std::fs::write(cwd_v1.join("TestLib.sysml"), "package TestLib;")?;
     run_sysand_in(&cwd_v1, ["include", "TestLib.sysml"], None)?
         .assert()
         .success();
 
     // Build v2 with the same IRI but a different version.
-    let (_temp_v2, cwd_v2, out) = cli_init_project_basic("acme", "allow-multiple-lib", "2.0.0")?;
-    out.assert().success();
+    let (_temp_v2, cwd_v2) =
+        cli_init_json_project(None, "acme", "allow-multiple-lib", "2.0.0", None)?;
     std::fs::write(cwd_v2.join("TestLib.sysml"), "package TestLib;")?;
     run_sysand_in(&cwd_v2, ["include", "TestLib.sysml"], None)?
         .assert()
@@ -507,19 +508,18 @@ fn env_install_allow_multiple() -> Result<(), Box<dyn std::error::Error>> {
 /// entries in `env.toml` and physically installs each project into the env
 /// directory. All installed projects are non-editable and carry a `src_cksum`.
 #[test]
+/// Legacy json fixture: the setup uses `sysand add`/`include`.
 fn env_install_multiple_projects_env_toml() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, _) = run_sysand(["env"], None)?;
 
     // Build two projects with valid .meta.json so checksum_canonical_variant succeeds.
-    let (_tmp_a, cwd_a, out) = cli_init_project_basic("acme", "env-multi-proj-a", "1.0.0")?;
-    out.assert().success();
+    let (_tmp_a, cwd_a) = cli_init_json_project(None, "acme", "env-multi-proj-a", "1.0.0", None)?;
     std::fs::write(cwd_a.join("A.sysml"), "package A;")?;
     run_sysand_in(&cwd_a, ["include", "A.sysml"], None)?
         .assert()
         .success();
 
-    let (_tmp_b, cwd_b, out) = cli_init_project_basic("acme", "env-multi-proj-b", "2.0.0")?;
-    out.assert().success();
+    let (_tmp_b, cwd_b) = cli_init_json_project(None, "acme", "env-multi-proj-b", "2.0.0", None)?;
     std::fs::write(cwd_b.join("B.sysml"), "package B;")?;
     run_sysand_in(&cwd_b, ["include", "B.sysml"], None)?
         .assert()
@@ -929,15 +929,13 @@ fn env_install_no_deps_purl_named_prerelease_is_installed() -> Result<(), Box<dy
 /// and an IRI only via `--iri`
 #[test]
 fn env_sources_by_identifier_or_iri() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project(Some("main"), "acme", None, None, None)?;
-    out.assert().success();
+    let (_temp_dir, cwd) = cli_init_json_project(Some("main"), "acme", "main", "0.0.1", None)?;
     let main = cwd.join("main");
     // `Foo & Bar` normalizes to `foo-&-bar`, which is not valid in a
     // `pkg:sysand` PURL, so the env records it under a `urn:sysand` identifier
     for (dir, publisher, file) in [("dep", "Acme Labs", "A"), ("dep2", "Foo & Bar", "B")] {
-        cli_init_project_in(&cwd, Some(dir), publisher, Some("My Dep"), None, None)?
-            .assert()
-            .success();
+        std::fs::create_dir_all(cwd.join(dir))?;
+        write_legacy_project(&cwd.join(dir), publisher, "My Dep", "0.0.1", None)?;
         std::fs::write(
             cwd.join(dir).join(format!("{file}.sysml")),
             format!("package {file};"),

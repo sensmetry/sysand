@@ -38,12 +38,18 @@ fn runs_the_command_it_is_given() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("p");
 
-    let init = command(&["init", path.as_str(), "--name", "p", "--publisher", "acme"]);
+    let init = command(&[
+        "init",
+        path.as_str(),
+        "--name",
+        "proj",
+        "--publisher",
+        "acme",
+    ]);
     let code = run_parsed(global_opts(), init, ProcessOwnership::Embedded);
 
     assert_eq!(code, 0);
-    assert!(path.join(".project.json").is_file());
-    assert!(path.join(".meta.json").is_file());
+    assert!(path.join("model.toml").is_file());
 }
 
 #[test]

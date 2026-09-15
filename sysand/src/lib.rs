@@ -544,7 +544,6 @@ fn run_cli_with(
             path,
             ctx,
         ),
-        Command::New { args: _ } => bail!("use `init` instead of `new`"),
         Command::Env { command } => match command {
             None => {
                 let env_dir = {

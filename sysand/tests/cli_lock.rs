@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+//! `sysand lock` and `sysand sync` both work on a `model.toml` project.
+//! The fixtures here add usages with `sysand add` and rewrite
+//! `.project.json` by hand, so the projects are written as legacy json
+//! pairs and these tests exercise the json form.
+
 use std::path::Path;
 
 use assert_cmd::prelude::*;
@@ -26,9 +31,7 @@ use serde_json::json;
 /// and .meta.json files in the current working directory. (Non-interactive use)
 #[test]
 fn lock_trivial() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "lock-trivial", "1.2.3")?;
-
-    out.assert().success().stdout(predicate::str::is_empty());
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "lock-trivial", "1.2.3", None)?;
 
     let out = run_sysand_in(&cwd, ["lock"], None)?;
 
@@ -54,13 +57,10 @@ fn lock_trivial() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn lock_local_source() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "lock-local-source", "1.2.3")?;
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "lock-local-source", "1.2.3", None)?;
 
-    out.assert().success().stdout(predicate::str::is_empty());
-
-    let out = cli_init_project_in(&cwd, Some("local-dep"), "acme", None, Some("1.0.0"), None)?;
-
-    out.assert().success().stdout(predicate::str::is_empty());
+    std::fs::create_dir_all(cwd.join("local-dep"))?;
+    write_legacy_project(&cwd.join("local-dep"), "acme", "local-dep", "1.0.0", None)?;
 
     let out = run_sysand_in(
         &cwd,
@@ -98,18 +98,16 @@ fn lock_local_source() -> Result<(), Box<dyn std::error::Error>> {
 /// A local project is depended on by location, so no default constraint should apply
 #[test]
 fn lock_local_source_with_a_prerelease_version() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "app", "1.2.3")?;
-    out.assert().success().stdout(predicate::str::is_empty());
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "app", "1.2.3", None)?;
 
-    let out = cli_init_project_in(
-        &cwd,
-        Some("local-dep"),
+    std::fs::create_dir_all(cwd.join("local-dep"))?;
+    write_legacy_project(
+        &cwd.join("local-dep"),
         "acme",
-        None,
-        Some("1.0.0-alpha.1"),
+        "local-dep",
+        "1.0.0-alpha.1",
         None,
     )?;
-    out.assert().success().stdout(predicate::str::is_empty());
 
     // No version constraint: the usage says which project, the override says
     // where it lives.
@@ -153,20 +151,16 @@ fn lock_local_source_with_a_prerelease_version() -> Result<(), Box<dyn std::erro
 #[test]
 fn lock_purl_local_source_override_with_a_prerelease_version()
 -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "app", "1.2.3")?;
-    out.assert().success().stdout(predicate::str::is_empty());
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "app", "1.2.3", None)?;
 
-    cli_init_project_in(
-        &cwd,
-        Some("local-dep"),
+    std::fs::create_dir_all(cwd.join("local-dep"))?;
+    write_legacy_project(
+        &cwd.join("local-dep"),
         "acme",
-        Some("widget"),
-        Some("1.0.0-alpha.1"),
+        "widget",
+        "1.0.0-alpha.1",
         None,
-    )?
-    .assert()
-    .success()
-    .stdout(predicate::str::is_empty());
+    )?;
 
     // No version constraint: the usage says which project, the override says
     // where it lives.
@@ -217,21 +211,11 @@ fn lock_purl_local_source_override_with_a_prerelease_version()
 /// carries a version constraint at all.
 #[test]
 fn lock_directory_usage_with_a_prerelease_version() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "app", "1.2.3")?;
-    out.assert().success().stdout(predicate::str::is_empty());
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "app", "1.2.3", None)?;
 
     let widget_dir = cwd.join("deps").join("widget");
     std::fs::create_dir_all(&widget_dir)?;
-    cli_init_project_in(
-        &widget_dir,
-        None,
-        "bravo",
-        Some("widget"),
-        Some("2.0.0-beta.3"),
-        None,
-    )?
-    .assert()
-    .success();
+    write_legacy_project(&widget_dir, "bravo", "widget", "2.0.0-beta.3", None)?;
 
     run_sysand_in(&cwd, ["add", "--no-lock", "--dir", "deps/widget"], None)?
         .assert()
@@ -254,9 +238,7 @@ fn lock_directory_usage_with_a_prerelease_version() -> Result<(), Box<dyn std::e
 
 #[test]
 fn lock_std_lib() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "lock-std-lib", "1.2.3")?;
-
-    out.assert().success().stdout(predicate::str::is_empty());
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "lock-std-lib", "1.2.3", None)?;
 
     let out = run_sysand_in(
         &cwd,
@@ -445,9 +427,8 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
         [&c_url],
     );
 
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "lock-basic-http-deps", "1.2.3")?;
-
-    out.assert().success().stdout(predicate::str::is_empty());
+    let (_temp_dir, cwd) =
+        cli_init_json_project(None, "acme", "lock-basic-http-deps", "1.2.3", None)?;
 
     inject_usages(cwd.join(".project.json"), [a_url.clone(), b_url.clone()])?;
 
@@ -567,9 +548,13 @@ fn lock_and_sync_against_mock_index() -> Result<(), Box<dyn std::error::Error>> 
         .expect(1)
         .create();
 
-    let (_temp_dir, cwd, out) =
-        cli_init_project_basic("acme", "lock-and-sync-against-mock-index", "1.2.3")?;
-    out.assert().success().stdout(predicate::str::is_empty());
+    let (_temp_dir, cwd) = cli_init_json_project(
+        None,
+        "acme",
+        "lock-and-sync-against-mock-index",
+        "1.2.3",
+        None,
+    )?;
 
     inject_usages(
         cwd.join(".project.json"),
@@ -681,8 +666,7 @@ fn sync_hard_fails_on_kpar_digest_drift_from_lockfile() -> Result<(), Box<dyn st
         .expect(0)
         .create();
 
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "sync-tripwire", "1.2.3")?;
-    out.assert().success().stdout(predicate::str::is_empty());
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "sync-tripwire", "1.2.3", None)?;
 
     inject_usages(
         cwd.join(".project.json"),
@@ -757,9 +741,13 @@ fn lock_rejects_non_normalized_sysand_purl() -> Result<(), Box<dyn std::error::E
     // offending IRI and shows the suggested normalized form, rather than
     // being silently rerouted to `_iri/<sha256>/` and surfacing only as
     // an opaque "not found" downstream.
-    let (_temp_dir, cwd, out) =
-        cli_init_project_basic("acme", "lock-rejects-non-normalized-sysand-purl", "1.2.3")?;
-    out.assert().success().stdout(predicate::str::is_empty());
+    let (_temp_dir, cwd) = cli_init_json_project(
+        None,
+        "acme",
+        "lock-rejects-non-normalized-sysand-purl",
+        "1.2.3",
+        None,
+    )?;
 
     inject_usages(
         cwd.join(".project.json"),
@@ -783,34 +771,15 @@ fn lock_rejects_non_normalized_sysand_purl() -> Result<(), Box<dyn std::error::E
 /// outside the temporary directory and resolution would fail
 #[test]
 fn lock_directory_usage_transitive() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "app", "1.2.3")?;
-    out.assert().success().stdout(predicate::str::is_empty());
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "app", "1.2.3", None)?;
 
     let widget_dir = cwd.join("deps").join("widget");
     std::fs::create_dir_all(&widget_dir)?;
-    cli_init_project_in(
-        &widget_dir,
-        None,
-        "bravo",
-        Some("widget"),
-        Some("1.0.0"),
-        None,
-    )?
-    .assert()
-    .success();
+    write_legacy_project(&widget_dir, "bravo", "widget", "1.0.0", None)?;
 
     let gadget_dir = cwd.join("deps").join("gadget");
     std::fs::create_dir_all(&gadget_dir)?;
-    cli_init_project_in(
-        &gadget_dir,
-        None,
-        "charlie",
-        Some("gadget"),
-        Some("2.0.0"),
-        None,
-    )?
-    .assert()
-    .success();
+    write_legacy_project(&gadget_dir, "charlie", "gadget", "2.0.0", None)?;
 
     run_sysand_in(&cwd, ["add", "--no-lock", "--dir", "deps/widget"], None)?
         .assert()
@@ -871,27 +840,15 @@ fn lock_directory_usage_transitive() -> Result<(), Box<dyn std::error::Error>> {
 /// of failing the whole lock on the file resolver's `NotFound`
 #[test]
 fn lock_directory_usage_env_installed_dependency() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "consumer", "1.0.0")?;
-    out.assert().success();
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "consumer", "1.0.0", None)?;
 
     // Source tree: `app` uses `widget` via the directory usage `../widget`
     let app_dir = cwd.join("src").join("app");
     let widget_dir = cwd.join("src").join("widget");
     std::fs::create_dir_all(&app_dir)?;
     std::fs::create_dir_all(&widget_dir)?;
-    cli_init_project_in(
-        &widget_dir,
-        None,
-        "acme",
-        Some("widget"),
-        Some("1.0.0"),
-        None,
-    )?
-    .assert()
-    .success();
-    cli_init_project_in(&app_dir, None, "acme", Some("app"), Some("1.0.0"), None)?
-        .assert()
-        .success();
+    write_legacy_project(&widget_dir, "acme", "widget", "1.0.0", None)?;
+    write_legacy_project(&app_dir, "acme", "app", "1.0.0", None)?;
     run_sysand_in(&app_dir, ["add", "--no-lock", "--dir", "../widget"], None)?
         .assert()
         .success();
@@ -949,14 +906,11 @@ fn lock_directory_usage_env_installed_dependency() -> Result<(), Box<dyn std::er
 /// to the copy that is still installed in the env.
 #[test]
 fn lock_local_src_override_deleted() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "consumer", "1.0.0")?;
-    out.assert().success();
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "consumer", "1.0.0", None)?;
 
     let app_dir = cwd.join("src").join("app");
     std::fs::create_dir_all(&app_dir)?;
-    cli_init_project_in(&app_dir, None, "acme", Some("app"), Some("1.0.0"), None)?
-        .assert()
-        .success();
+    write_legacy_project(&app_dir, "acme", "app", "1.0.0", None)?;
 
     let config_path = cwd.join("sysand.toml");
     run_sysand_in(
@@ -998,12 +952,13 @@ fn lock_local_src_override_deleted() -> Result<(), Box<dyn std::error::Error>> {
 /// must not echo the password, whether it came from a flag or an env var.
 #[test]
 fn lock_invalid_index_url_error_redacts_password() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic(
+    let (_temp_dir, cwd) = cli_init_json_project(
+        None,
         "acme",
         "lock-invalid-index-url-error-redacts-password",
         "1.2.3",
+        None,
     )?;
-    out.assert().success();
 
     run_sysand_in(
         &cwd,
@@ -1036,12 +991,13 @@ fn lock_invalid_index_url_error_redacts_password() -> Result<(), Box<dyn std::er
 
 #[test]
 fn lock_empty_index_url_hints_at_a_stray_comma() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic(
+    let (_temp_dir, cwd) = cli_init_json_project(
+        None,
         "acme",
         "lock-empty-index-url-hints-at-a-stray-comma",
         "1.2.3",
+        None,
     )?;
-    out.assert().success();
 
     run_sysand_in(&cwd, ["lock", "--index", "https://example.org,"], None)?
         .assert()
@@ -1082,9 +1038,8 @@ fn lock_fail_unsatisfiable() -> Result<(), Box<dyn std::error::Error>> {
         NO_DEP,
     );
 
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "lock-basic-http-deps", "1.2.3")?;
-
-    out.assert().success().stdout(predicate::str::is_empty());
+    let (_temp_dir, cwd) =
+        cli_init_json_project(None, "acme", "lock-basic-http-deps", "1.2.3", None)?;
 
     inject_usages_versions(cwd.join(".project.json"), [(a_url, Some(">1.0.0"))])?;
 
@@ -1142,9 +1097,13 @@ fn lock_fails_on_a_broken_index_version() -> Result<(), Box<dyn std::error::Erro
         .with_body(serde_json::to_string(&meta)?)
         .create();
 
-    let (_temp_dir, cwd, out) =
-        cli_init_project_basic("acme", "lock-fails-on-a-broken-index-version", "1.2.3")?;
-    out.assert().success();
+    let (_temp_dir, cwd) = cli_init_json_project(
+        None,
+        "acme",
+        "lock-fails-on-a-broken-index-version",
+        "1.2.3",
+        None,
+    )?;
     let mut project: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(cwd.join(".project.json"))?)?;
     project["usage"] = json!([{ "publisher": "mock", "name": "dep", "versionConstraint": "*" }]);
@@ -1183,18 +1142,9 @@ fn lock_fails_on_a_broken_index_version() -> Result<(), Box<dyn std::error::Erro
 /// name as the usage does fails the lock
 #[test]
 fn lock_fails_on_a_misspelled_directory_usage() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "misspelled-dir", "1.2.3")?;
-    out.assert().success();
-    cli_init_project_in(
-        &cwd,
-        Some("dep"),
-        "Acme Labs",
-        Some("My Lib"),
-        Some("1.0.0"),
-        None,
-    )?
-    .assert()
-    .success();
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "misspelled-dir", "1.2.3", None)?;
+    std::fs::create_dir_all(cwd.join("dep"))?;
+    write_legacy_project(&cwd.join("dep"), "Acme Labs", "My Lib", "1.0.0", None)?;
     run_sysand_in(
         &cwd,
         ["add", "--no-index", "--no-sync", "--dir", "dep"],
@@ -1221,18 +1171,9 @@ fn lock_fails_on_a_misspelled_directory_usage() -> Result<(), Box<dyn std::error
 /// the usage does fails the lock
 #[test]
 fn lock_fails_on_a_misspelled_kpar_usage() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "misspelled-kpar", "1.2.3")?;
-    out.assert().success();
-    cli_init_project_in(
-        &cwd,
-        Some("dep"),
-        "Acme Labs",
-        Some("My Lib"),
-        Some("1.0.0"),
-        None,
-    )?
-    .assert()
-    .success();
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "misspelled-kpar", "1.2.3", None)?;
+    std::fs::create_dir_all(cwd.join("dep"))?;
+    write_legacy_project(&cwd.join("dep"), "Acme Labs", "My Lib", "1.0.0", None)?;
     let dep = cwd.join("dep");
     run_sysand_in(&dep, ["build", "../lib.kpar"], None)?
         .assert()
@@ -1266,21 +1207,11 @@ fn lock_fails_on_a_misspelled_kpar_usage() -> Result<(), Box<dyn std::error::Err
 /// version of resolved usage", but which publisher was found.
 #[test]
 fn lock_reports_why_a_dir_usage_failed() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "app", "1.2.3")?;
-    out.assert().success();
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "app", "1.2.3", None)?;
 
     let widget_dir = cwd.join("deps").join("widget");
     std::fs::create_dir_all(&widget_dir)?;
-    cli_init_project_in(
-        &widget_dir,
-        None,
-        "bravo",
-        Some("widget"),
-        Some("1.0.0"),
-        None,
-    )?
-    .assert()
-    .success();
+    write_legacy_project(&widget_dir, "bravo", "widget", "1.0.0", None)?;
 
     run_sysand_in(
         &cwd,

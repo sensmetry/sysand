@@ -22,12 +22,11 @@ mod common;
 pub use common::*;
 
 #[test]
+/// Legacy json fixture: the setup adds usages with `sysand add`. `sync` itself works on a `model.toml` project.
 fn sync_to_current() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("delta", "sync-to-current", "1.2.3")?;
+    let (_temp_dir, cwd) = cli_init_json_project(None, "delta", "sync-to-current", "1.2.3", None)?;
 
     fs::write(cwd.join("test.sysml"), b"package P;\n")?;
-
-    out.assert().success();
 
     let out = run_sysand_in(&cwd, ["include", "test.sysml"], None)?;
 
@@ -74,13 +73,12 @@ editable = true
 }
 
 #[test]
+/// Legacy json fixture: the setup adds usages with `sysand add`. `sync` itself works on a `model.toml` project.
 fn repeated_sync_keeps_lockfile_and_env_toml_stable() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "lock-sync-stable", "1.2.3")?;
-    out.assert().success().stdout(predicate::str::is_empty());
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "lock-sync-stable", "1.2.3", None)?;
 
-    let (_dep_temp_dir, dep_cwd, out) =
-        cli_init_project_basic("acme", "lock-sync-stable-dep", "2.0.0")?;
-    out.assert().success().stdout(predicate::str::is_empty());
+    let (_dep_temp_dir, dep_cwd) =
+        cli_init_json_project(None, "acme", "lock-sync-stable-dep", "2.0.0", None)?;
 
     let config_path = cwd.join("sysand.toml");
     let cfg = Some(config_path.as_str());
@@ -499,27 +497,25 @@ sources = [
 /// dep in env.toml without copying it, and also register the current project as
 /// editable. Re-running sync is idempotent.
 #[test]
+/// Legacy json fixture: the setup adds usages with `sysand add`. `sync` itself works on a `model.toml` project.
 fn sync_env_toml_with_editable_and_non_editable() -> Result<(), Box<dyn std::error::Error>> {
     // Set up main project with .meta.json (required for sync to lock itself).
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "sync-mixed", "1.0.0")?;
-    out.assert().success();
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "sync-mixed", "1.0.0", None)?;
     fs::write(cwd.join("P.sysml"), "package P;")?;
     run_sysand_in(&cwd, ["include", "P.sysml"], None)?
         .assert()
         .success();
 
     // Non-editable dep: needs .meta.json so sync can compute its checksum.
-    let (_tmp_src, cwd_src, out) = cli_init_project_basic("acme", "sync-mixed-src", "2.0.0")?;
-    out.assert().success();
+    let (_tmp_src, cwd_src) = cli_init_json_project(None, "acme", "sync-mixed-src", "2.0.0", None)?;
     fs::write(cwd_src.join("Q.sysml"), "package Q;")?;
     run_sysand_in(&cwd_src, ["include", "Q.sysml"], None)?
         .assert()
         .success();
 
     // Editable dep: only .project.json is needed (no install, just reference).
-    let (_tmp_editable, cwd_editable, out) =
-        cli_init_project_basic("acme", "sync-mixed-editable", "3.0.0")?;
-    out.assert().success();
+    let (_tmp_editable, cwd_editable) =
+        cli_init_json_project(None, "acme", "sync-mixed-editable", "3.0.0", None)?;
 
     let config_path = cwd.join("sysand.toml");
 
@@ -618,9 +614,9 @@ fn sync_env_toml_with_editable_and_non_editable() -> Result<(), Box<dyn std::err
 /// the project that declares it, not relative to the top-level project being
 /// synced
 #[test]
+/// Legacy json fixture: the setup adds usages with `sysand add`. `sync` itself works on a `model.toml` project.
 fn sync_kpar_path_usage_transitive() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "app", "1.2.3")?;
-    out.assert().success().stdout(predicate::str::is_empty());
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "app", "1.2.3", None)?;
 
     let deps_dir = cwd.join("deps");
     std::fs::create_dir_all(&deps_dir)?;
@@ -628,16 +624,7 @@ fn sync_kpar_path_usage_transitive() -> Result<(), Box<dyn std::error::Error>> {
     // `gadget`: a leaf KPAR, built elsewhere and placed at `deps/gadget.kpar`.
     let gadget_src = cwd.join("gadget_src");
     std::fs::create_dir_all(&gadget_src)?;
-    cli_init_project_in(
-        &gadget_src,
-        None,
-        "charlie",
-        Some("gadget"),
-        Some("2.0.0"),
-        None,
-    )?
-    .assert()
-    .success();
+    write_legacy_project(&gadget_src, "charlie", "gadget", "2.0.0", None)?;
     run_sysand_in(&gadget_src, ["build", "../deps/gadget.kpar"], None)?
         .assert()
         .success();
@@ -646,16 +633,7 @@ fn sync_kpar_path_usage_transitive() -> Result<(), Box<dyn std::error::Error>> {
     // stored) relative to `widget`'s own directory.
     let widget_dir = deps_dir.join("widget");
     std::fs::create_dir_all(&widget_dir)?;
-    cli_init_project_in(
-        &widget_dir,
-        None,
-        "bravo",
-        Some("widget"),
-        Some("1.0.0"),
-        None,
-    )?
-    .assert()
-    .success();
+    write_legacy_project(&widget_dir, "bravo", "widget", "1.0.0", None)?;
     run_sysand_in(
         &widget_dir,
         ["add", "--no-lock", "--kpar-path", "../gadget.kpar"],
@@ -737,23 +715,23 @@ fn sync_kpar_path_usage_transitive() -> Result<(), Box<dyn std::error::Error>> {
 /// `sync` must remove a project from `.sysand` once it is no longer present
 /// in the lockfile, while leaving dependencies that are still needed alone.
 #[test]
+/// Legacy json fixture: the setup adds usages with `sysand add`. `sync` itself works on a `model.toml` project.
 fn sync_prunes_unneeded_dependency_by_default() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "prune-app", "1.0.0")?;
-    out.assert().success();
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "prune-app", "1.0.0", None)?;
     fs::write(cwd.join("App.sysml"), "package App;")?;
     run_sysand_in(&cwd, ["include", "App.sysml"], None)?
         .assert()
         .success();
 
-    let (_tmp_keep, cwd_keep, out) = cli_init_project_basic("acme", "prune-dep-keep", "1.0.0")?;
-    out.assert().success();
+    let (_tmp_keep, cwd_keep) =
+        cli_init_json_project(None, "acme", "prune-dep-keep", "1.0.0", None)?;
     fs::write(cwd_keep.join("Keep.sysml"), "package Keep;")?;
     run_sysand_in(&cwd_keep, ["include", "Keep.sysml"], None)?
         .assert()
         .success();
 
-    let (_tmp_drop, cwd_drop, out) = cli_init_project_basic("acme", "prune-dep-drop", "1.0.0")?;
-    out.assert().success();
+    let (_tmp_drop, cwd_drop) =
+        cli_init_json_project(None, "acme", "prune-dep-drop", "1.0.0", None)?;
     fs::write(cwd_drop.join("Drop.sysml"), "package Drop;")?;
     run_sysand_in(&cwd_drop, ["include", "Drop.sysml"], None)?
         .assert()
@@ -845,23 +823,23 @@ fn sync_prunes_unneeded_dependency_by_default() -> Result<(), Box<dyn std::error
 /// `sync --no-prune` must leave a dependency that is no longer present in
 /// the lockfile installed in `.sysand`.
 #[test]
+/// Legacy json fixture: the setup adds usages with `sysand add`. `sync` itself works on a `model.toml` project.
 fn sync_no_prune_keeps_unneeded_dependency() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "no-prune-app", "1.0.0")?;
-    out.assert().success();
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "no-prune-app", "1.0.0", None)?;
     fs::write(cwd.join("App.sysml"), "package App;")?;
     run_sysand_in(&cwd, ["include", "App.sysml"], None)?
         .assert()
         .success();
 
-    let (_tmp_keep, cwd_keep, out) = cli_init_project_basic("acme", "no-prune-dep-keep", "1.0.0")?;
-    out.assert().success();
+    let (_tmp_keep, cwd_keep) =
+        cli_init_json_project(None, "acme", "no-prune-dep-keep", "1.0.0", None)?;
     fs::write(cwd_keep.join("Keep.sysml"), "package Keep;")?;
     run_sysand_in(&cwd_keep, ["include", "Keep.sysml"], None)?
         .assert()
         .success();
 
-    let (_tmp_drop, cwd_drop, out) = cli_init_project_basic("acme", "no-prune-dep-drop", "1.0.0")?;
-    out.assert().success();
+    let (_tmp_drop, cwd_drop) =
+        cli_init_json_project(None, "acme", "no-prune-dep-drop", "1.0.0", None)?;
     fs::write(cwd_drop.join("Drop.sysml"), "package Drop;")?;
     run_sysand_in(&cwd_drop, ["include", "Drop.sysml"], None)?
         .assert()
@@ -944,18 +922,9 @@ fn sync_no_prune_keeps_unneeded_dependency() -> Result<(), Box<dyn std::error::E
 /// records fails the sync, naming what differs
 #[test]
 fn sync_fails_on_a_renamed_directory_dependency() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "renamed-dir", "1.2.3")?;
-    out.assert().success();
-    cli_init_project_in(
-        &cwd,
-        Some("dep"),
-        "Acme Labs",
-        Some("My Lib"),
-        Some("1.0.0"),
-        None,
-    )?
-    .assert()
-    .success();
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "renamed-dir", "1.2.3", None)?;
+    std::fs::create_dir_all(cwd.join("dep"))?;
+    write_legacy_project(&cwd.join("dep"), "Acme Labs", "My Lib", "1.0.0", None)?;
     run_sysand_in(
         &cwd,
         ["add", "--no-index", "--no-sync", "--dir", "dep"],
@@ -981,18 +950,9 @@ fn sync_fails_on_a_renamed_directory_dependency() -> Result<(), Box<dyn std::err
 /// checked before anything in it is read
 #[test]
 fn sync_fails_on_a_rebuilt_kpar_dependency() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "renamed-kpar", "1.2.3")?;
-    out.assert().success();
-    cli_init_project_in(
-        &cwd,
-        Some("dep"),
-        "Acme Labs",
-        Some("My Lib"),
-        Some("1.0.0"),
-        None,
-    )?
-    .assert()
-    .success();
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "renamed-kpar", "1.2.3", None)?;
+    std::fs::create_dir_all(cwd.join("dep"))?;
+    write_legacy_project(&cwd.join("dep"), "Acme Labs", "My Lib", "1.0.0", None)?;
     let dep = cwd.join("dep");
     run_sysand_in(&dep, ["build", "../lib.kpar"], None)?
         .assert()
@@ -1021,18 +981,9 @@ fn sync_fails_on_a_rebuilt_kpar_dependency() -> Result<(), Box<dyn std::error::E
 /// A lockfile whose recorded version is not the project's fails the sync
 #[test]
 fn sync_fails_on_a_lockfile_with_another_version() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "edited-lock", "1.2.3")?;
-    out.assert().success();
-    cli_init_project_in(
-        &cwd,
-        Some("dep"),
-        "Acme Labs",
-        Some("My Lib"),
-        Some("1.0.0"),
-        None,
-    )?
-    .assert()
-    .success();
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "edited-lock", "1.2.3", None)?;
+    std::fs::create_dir_all(cwd.join("dep"))?;
+    write_legacy_project(&cwd.join("dep"), "Acme Labs", "My Lib", "1.0.0", None)?;
     run_sysand_in(
         &cwd,
         ["add", "--no-index", "--no-sync", "--dir", "dep"],
