@@ -172,6 +172,68 @@ impl Workspace {
         })))
     }
 
+    /// Find the workspace a command run in `from` belongs to.
+    ///
+    /// The three steps are ordered, and the order matters: find the
+    /// candidate, **load it**, then confirm it is not nested.
+    ///
+    /// [`ModelToml::peek`] answers `Workspace` for a file carrying both
+    /// tables, so a member whose manifest defines both becomes a
+    /// candidate. Asking the nesting question first would tell its
+    /// author that "nested workspaces are not supported", about a file
+    /// whose fault is that it defines both tables. The specification's
+    /// "A member cannot be such a root in any case, since the two tables
+    /// never share a file" is an invariant about valid files, and the
+    /// walk reads invalid ones.
+    pub fn discover(from: impl AsRef<Utf8Path>) -> Result<Option<Self>, DiscoverError> {
+        let Some(candidate) = candidate_root(from)? else {
+            return Ok(None);
+        };
+        let workspace = Self::load(&candidate).map_err(|e| DiscoverError::Load(Box::new(e)))?;
+        confirm_root(&candidate)?;
+        Ok(Some(workspace))
+    }
+
+    /// Appendix A row 25: what the command started in.
+    ///
+    /// The project `from` sits in is the one [`crate::discover::discover_project`]
+    /// would find, so it is found with the same predicate rather than a
+    /// second spelling of the question. The search is bounded at the
+    /// root: a project above the root is a different project, which this
+    /// workspace has no opinion about.
+    pub fn start(&self, from: impl AsRef<Utf8Path>) -> Result<Selection<'_>, DiscoverError> {
+        let from = wrapfs::canonicalize(from.as_ref())?;
+        let mut current: &Utf8Path = &from;
+        loop {
+            if current == self.root {
+                return Ok(Selection::Workspace);
+            }
+            if crate::discover::is_project_file(current)? {
+                return match self.classify(current)? {
+                    Classification::Member(member) => Ok(Selection::Member(member)),
+                    Classification::Excluded(_) => Ok(Selection::Standalone(current.to_owned())),
+                    Classification::Unlisted => Err(DiscoverError::Unlisted {
+                        project: current.to_owned(),
+                        root: self.root.clone(),
+                    }),
+                    Classification::Outside => Err(DiscoverError::NotUnderRoot {
+                        dir: current.to_owned(),
+                        root: self.root.clone(),
+                    }),
+                };
+            }
+            match current.parent() {
+                Some(parent) => current = parent,
+                None => {
+                    return Err(DiscoverError::NotUnderRoot {
+                        dir: from,
+                        root: self.root.clone(),
+                    });
+                }
+            }
+        }
+    }
+
     pub fn root(&self) -> &Utf8Path {
         &self.root
     }
@@ -278,6 +340,24 @@ impl From<ClassifyError> for DiscoverError {
             ClassifyError::Relativize(error) => Self::Relativize(error),
         }
     }
+}
+
+/// What the command started in, once the root is known.
+///
+/// workspaces.md: "the walk classifies the project the command started
+/// in, if any: it is a member (listed in `members`), it is standalone
+/// (under an `exclude`d directory), or it is neither, which is a hard
+/// error".
+#[derive(Debug)]
+pub enum Selection<'a> {
+    /// No project between the starting directory and the root, so the
+    /// command targets the workspace as a whole. This is what a command
+    /// run at the root gets: "the workspace root is never a member".
+    Workspace,
+    Member(&'a Member),
+    /// A project under an `exclude`d directory: "This is the only kind
+    /// of non-member project that may sit under a workspace root."
+    Standalone(Utf8PathBuf),
 }
 
 /// Whether `dir` holds a `model.toml` that defines a `[workspace]`.
