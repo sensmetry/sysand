@@ -324,5 +324,7 @@ fn a_derived_project_forwards_the_manifest_document() {
         .expect("stores a manifest");
 
     let project = OneVariantProjectMut::Variant(inner);
-    assert!(project.manifest_document().is_ok());
+    project
+        .manifest_document()
+        .expect("the variant hands back its manifest");
 }

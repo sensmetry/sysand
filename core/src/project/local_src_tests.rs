@@ -799,6 +799,8 @@ fn a_json_project_hands_back_no_manifest_document() -> Result<(), Box<dyn std::e
     write_project_json(dir.path(), r#"{"name":"widgets","version":"1.0.0"}"#);
     let project = LocalSrcProject::new_access(dir.path(), None);
 
-    assert!(project.manifest_document().is_err());
+    project
+        .manifest_document()
+        .expect_err("a json project has no manifest document");
     Ok(())
 }

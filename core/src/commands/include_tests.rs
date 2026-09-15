@@ -5,7 +5,7 @@ use typed_path::Utf8UnixPathBuf;
 
 use super::{IncludeError, do_include};
 use crate::commands::exclude::{ExcludeError, do_exclude};
-use crate::project::{ProjectMut as _, ProjectRead as _, memory::InMemoryProject};
+use crate::project::{ProjectMut as _, memory::InMemoryProject};
 
 const MANIFEST: &str = "manifest-version = 1\n\n\
                         [project]\n\
@@ -232,8 +232,9 @@ fn a_both_project_is_refused_by_either_command() {
         website: None,
     });
 
-    assert!(include(&mut project, "Parts.sysml").is_err());
-    assert!(do_exclude(&mut project, ["Base.kerml"].into_iter()).is_err());
+    include(&mut project, "Parts.sysml").expect_err("a project holding both is refused");
+    do_exclude(&mut project, ["Base.kerml"].into_iter())
+        .expect_err("a project holding both is refused");
 }
 
 #[test]
