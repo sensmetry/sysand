@@ -311,5 +311,5 @@ fn a_mutable_reference_forwards_the_manifest_document() {
         .put_manifest_document(&a_manifest(), false)
         .expect("stores a manifest");
 
-    assert!(document(&project).is_ok());
+    document(&project).expect("a reference forwards the manifest document");
 }

@@ -6,7 +6,7 @@ use typed_path::Utf8UnixPath;
 
 use crate::{
     model::InterchangeProjectChecksumRaw,
-    project::{ProjectFormat, ProjectMut, ProjectOrIOError, ProjectRead as _, utils::FsIoError},
+    project::{ProjectFormat, ProjectMut, ProjectOrIOError, utils::FsIoError},
 };
 
 #[derive(Error, Debug)]
@@ -92,7 +92,9 @@ fn exclude_toml<Pr: ProjectMut, P: AsRef<Utf8UnixPath>, I: Iterator<Item = P>>(
 ) -> Result<Vec<SourceExclusionOutcome>, ExcludeError<Pr::Error>> {
     let mut document = project.manifest_document().map_err(|e| match e {
         crate::project::ManifestError::Project(e) => ExcludeError::Project(e),
-        other => ExcludeError::Manifest(other.to_string().into()),
+        crate::project::ManifestError::NoTomlManifest => {
+            ExcludeError::Manifest("this project has no `model.toml` manifest".into())
+        }
     })?;
 
     let mut outcomes = Vec::new();
@@ -121,7 +123,9 @@ fn exclude_toml<Pr: ProjectMut, P: AsRef<Utf8UnixPath>, I: Iterator<Item = P>>(
         .put_manifest_document(&document, true)
         .map_err(|e| match e {
             crate::project::ManifestWriteError::Project(e) => ExcludeError::Project(e),
-            other => ExcludeError::Manifest(other.to_string().into()),
+            crate::project::ManifestWriteError::Unsupported => {
+                ExcludeError::Manifest("this project cannot store a `model.toml`".into())
+            }
         })?;
     Ok(outcomes)
 }

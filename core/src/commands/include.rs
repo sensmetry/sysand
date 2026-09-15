@@ -162,7 +162,7 @@ fn include_toml<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
         return Err(IncludeError::ForceFormat);
     }
 
-    let mut document = project.manifest_document().map_err(|e| manifest_error(e))?;
+    let mut document = project.manifest_document().map_err(manifest_error)?;
 
     for path in paths {
         let including = "Including";
@@ -177,17 +177,25 @@ fn include_toml<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
         .put_manifest_document(&document, true)
         .map_err(|e| match e {
             crate::project::ManifestWriteError::Project(e) => IncludeError::Project(e),
-            other => IncludeError::Manifest(other.to_string().into()),
+            crate::project::ManifestWriteError::Unsupported => {
+                IncludeError::Manifest("this project cannot store a `model.toml`".into())
+            }
         })
 }
 
 /// Flatten a manifest read failure into this command's error.
+///
+/// `NoTomlManifest` is unreachable -- the format was just checked --
+/// but the match is exhaustive and saying so is better than a wildcard
+/// that would swallow a variant added later.
 fn manifest_error<E: crate::env::utils::ErrorBound>(
     error: crate::project::ManifestError<E>,
 ) -> IncludeError<E> {
     match error {
         crate::project::ManifestError::Project(e) => IncludeError::Project(e),
-        other => IncludeError::Manifest(other.to_string().into()),
+        crate::project::ManifestError::NoTomlManifest => {
+            IncludeError::Manifest("this project has no `model.toml` manifest".into())
+        }
     }
 }
 
