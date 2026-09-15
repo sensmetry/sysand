@@ -3492,3 +3492,134 @@ fn add_without_lock_of_a_declared_index_usage_needs_nothing_installed()
 
     Ok(())
 }
+
+// --- `model.toml` projects --------------------------------------------
+
+/// `sysand init --publisher acme --name <name> --version 1.0.0` in `dir`
+fn init_toml_project(dir: &camino::Utf8Path, name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    run_sysand_in(
+        dir,
+        [
+            "init",
+            "--publisher",
+            "acme",
+            "--name",
+            name,
+            "--version",
+            "1.0.0",
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+    Ok(())
+}
+
+/// `add --dir` produces a typed usage, one of the two shapes a manifest
+/// can hold without resolving anything.
+#[test]
+fn add_dir_on_a_toml_project() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    init_toml_project(&cwd, "app")?;
+    let dep = cwd.join("dep");
+    std::fs::create_dir_all(&dep)?;
+    init_toml_project(&dep, "lib")?;
+
+    // With the default lock follow-up, so the rollback backup is taken
+    // of the `model.toml`.
+    run_sysand_in(&cwd, ["add", "--no-index", "--dir", "dep"], None)?
+        .assert()
+        .success();
+
+    let manifest = std::fs::read_to_string(cwd.join("model.toml"))?;
+    assert!(
+        manifest.contains("[[inline-usages]]"),
+        "manifest: {manifest}"
+    );
+    assert!(manifest.contains("dir = \"dep\""), "manifest: {manifest}");
+    assert!(!cwd.join(".project.json").exists());
+
+    // And it comes back out by identity.
+    run_sysand_in(&cwd, ["remove", "--no-index", "acme/lib"], None)?
+        .assert()
+        .success();
+    assert!(!std::fs::read_to_string(cwd.join("model.toml"))?.contains("dir ="));
+
+    Ok(())
+}
+
+/// A shape a manifest cannot express is refused, and nothing is left
+/// behind -- neither a half-edited manifest nor a `sysand.toml` override
+/// for a usage that was never added.
+#[test]
+fn a_refused_add_leaves_nothing_behind() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    init_toml_project(&cwd, "app")?;
+    let before = std::fs::read_to_string(cwd.join("model.toml"))?;
+
+    run_sysand_in(
+        &cwd,
+        [
+            "add",
+            "--no-lock",
+            "--iri",
+            "urn:kpar:something",
+            "--as-local-src",
+            "dep",
+        ],
+        None,
+    )?
+    .assert()
+    .failure();
+
+    assert_eq!(before, std::fs::read_to_string(cwd.join("model.toml"))?);
+    assert!(
+        !cwd.join("sysand.toml").exists(),
+        "an override was left behind"
+    );
+    Ok(())
+}
+
+/// An index usage needs a constraint the shorthand does not carry.
+#[test]
+fn adding_an_index_usage_without_a_constraint_says_so() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    init_toml_project(&cwd, "app")?;
+
+    run_sysand_in(&cwd, ["add", "--no-lock", "acme/lib"], None)?
+        .assert()
+        .failure()
+        .stderr(contains("needs a version constraint"));
+    Ok(())
+}
+
+/// With one, it works. Without locking, the spelling is checked against
+/// what is installed, so the project is installed first.
+#[test]
+fn adding_an_index_usage_with_a_constraint_writes_it() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    init_toml_project(&cwd, "app")?;
+    install_in_env(&cwd, "acme", "lib", "1.2.0")?;
+
+    run_sysand_in(
+        &cwd,
+        [
+            "add",
+            "--no-lock",
+            "acme/lib",
+            "--version-constraint",
+            "^1.2",
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+
+    let manifest = std::fs::read_to_string(cwd.join("model.toml"))?;
+    assert!(manifest.contains("name = \"lib\""), "manifest: {manifest}");
+    assert!(
+        manifest.contains("version = \"^1.2\""),
+        "manifest: {manifest}"
+    );
+    Ok(())
+}
