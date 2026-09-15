@@ -806,11 +806,6 @@ pub enum PublishError {
         name: Box<str>,
         std_version: Box<str>,
     },
-    #[error(
-        "standard library usage `{name}`\n\
-        has a version constraint `{vc}`, but it is meaningless for direct URL usages"
-    )]
-    StdWithVersionConstraint { name: Box<str>, vc: Box<str> },
     #[error("invalid Sysand project identifier `{name}`")]
     InvalidPurl {
         name: Box<str>,
@@ -1550,20 +1545,19 @@ fn check_std_libs(
     prefix: &str,
 ) -> Result<bool, PublishError> {
     match usage {
-        InterchangeProjectUsageRaw::Resource {
-            resource,
-            version_constraint,
-        } => {
+        InterchangeProjectUsageRaw::Resource { resource, .. } => {
             if let Some(stripped) = resource.strip_prefix(prefix) {
                 for s in lib_names {
                     if let Some(metamodel_version) = stripped.strip_suffix(s) {
                         if MetamodelRelease::parse(metamodel_version).is_some() {
-                            if let Some(vc) = version_constraint.as_deref() {
-                                return Err(PublishError::StdWithVersionConstraint {
-                                    name: resource.as_str().into(),
-                                    vc: vc.into(),
-                                });
-                            }
+                            // model-toml.md "Standard library": "a version
+                            // constraint on a standard-library usage is
+                            // therefore allowed, in manifests and at
+                            // publish time alike". A constraint is
+                            // meaningless for a URL in general, but not for
+                            // this one: the release date in the IRI and the
+                            // version in the manifest are different things,
+                            // and "TOML to KPAR" keeps both.
                             return Ok(true);
                         } else {
                             return Err(PublishError::InvalidStdLibVersion {

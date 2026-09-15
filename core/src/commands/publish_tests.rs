@@ -756,17 +756,51 @@ fn check_usage_rejects_invalid_purl() {
     assert_matches!(err, PublishError::InvalidPurl { name: _, source: _ });
 }
 
+/// model-toml.md "Standard library": "a version constraint on a
+/// standard-library usage is therefore allowed, in manifests and at
+/// publish time alike".
+///
+/// The embedded OMG manifests carry exactly this shape --
+/// `stdlib_assets/20250201/semantic-library.project.json` constrains
+/// `Data-Type-Library.kpar` to `1.0.0` -- so refusing the constraint
+/// would refuse to publish the standard library itself.
 #[test]
-fn check_usage_rejects_std_lib_with_version_constraint() {
-    let err = check_usage(&usage_with_vc(
+fn check_usage_accepts_std_lib_with_version_constraint() {
+    check_usage(&usage_with_vc(
         "https://www.omg.org/spec/SysML/20250201/Systems-Library.kpar",
         ">=1.0.0",
     ))
+    .expect("a standard-library usage may carry a constraint");
+}
+
+// The three below carry a constraint deliberately, so that they catch
+// an implementation that accepts a constrained resource before checking
+// what it is.
+
+#[test]
+fn check_usage_rejects_an_unknown_std_lib_with_a_constraint() {
+    let err = check_usage(&usage_with_vc(
+        "https://www.omg.org/spec/SysML/20250201/Not-A-Library.kpar",
+        "^1.0.0",
+    ))
     .unwrap_err();
-    assert_matches!(
-        err,
-        PublishError::StdWithVersionConstraint { name: _, vc: _ }
-    );
+    assert_matches!(err, PublishError::UnknownStdLib { .. });
+}
+
+#[test]
+fn check_usage_rejects_an_invalid_std_lib_version_with_a_constraint() {
+    let err = check_usage(&usage_with_vc(
+        "https://www.omg.org/spec/SysML/nonsense/Systems-Library.kpar",
+        "^1.0.0",
+    ))
+    .unwrap_err();
+    assert_matches!(err, PublishError::InvalidStdLibVersion { .. });
+}
+
+#[test]
+fn check_usage_rejects_a_plain_url_with_a_constraint() {
+    let err = check_usage(&usage_with_vc("https://example.com/dep.kpar", "^1.0.0")).unwrap_err();
+    assert_matches!(err, PublishError::DisallowedUsage { .. });
 }
 
 #[test]
