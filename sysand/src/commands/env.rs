@@ -65,6 +65,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
     let project_root = project_root.unwrap_or_else(|| ctx.current_directory.clone());
     let env = crate::get_or_create_env(
         ctx.env,
+        ctx.model_workspace_root.as_deref(),
         ctx.current_workspace.as_ref(),
         ctx.current_project.as_ref(),
         &ctx.current_directory,
@@ -219,6 +220,7 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
     let project_root = project_root.unwrap_or_else(|| ctx.current_directory.clone());
     let env = crate::get_or_create_env(
         ctx.env,
+        ctx.model_workspace_root.as_deref(),
         ctx.current_workspace.as_ref(),
         ctx.current_project.as_ref(),
         &ctx.current_directory,
