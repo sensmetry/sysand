@@ -16,9 +16,14 @@
 //!
 //! All three need something this module does not have -- the project's
 //! targets -- so all three belong to the build. What is left is a
-//! function of one manifest, which is what a read-only consumer of a
+//! function of one manifest, which is what every read-only consumer of a
 //! project needs, and it is free of Cargo features so that the bindings
 //! without a filesystem can produce it too.
+//!
+//! Rules 1 and 2 have since landed there, in
+//! [`crate::commands::build::do_build_kpar`]; rule 3 is WP-6b-ii, and
+//! until it lands a usage whose target carries `stdlib` is refused by
+//! the build rather than given rule 2's PURL.
 
 use indexmap::IndexMap;
 use thiserror::Error;

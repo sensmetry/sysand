@@ -1270,13 +1270,31 @@ fn build_toml_project() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// The refusal names the usage and both ways forward.
+/// The usage becomes a PURL constrained to the target's version.
 ///
-/// The manifest is written by hand: `sysand add --as-local-src` records
-/// a *source override* in `sysand.toml` rather than a `dir` usage, and
-/// what is under test here is the build, not the write surface.
+/// The manifest is written by hand: what is under test here is the
+/// build, not the write surface.
 #[test]
-fn build_toml_project_with_a_dir_usage_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+fn build_toml_project_with_a_dir_usage() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    std::fs::write(
+        cwd.join("model.toml"),
+        "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
+         version = \"1.0.0\"\nsources = [\"a.sysml\"]\n\n\
+         [[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"dep\"\n",
+    )?;
+    std::fs::write(cwd.join("a.sysml"), b"package A;\n")?;
+    std::fs::create_dir_all(cwd.join("dep"))?;
+    write_legacy_project(&cwd.join("dep"), "acme", "dep", "1.2.3", None)?;
+
+    run_sysand_in(&cwd, ["build"], None)?.assert().success();
+    assert!(cwd.join("output/widgets-1.0.0.kpar").exists());
+    Ok(())
+}
+
+/// A usage whose target defines no project, through the CLI.
+#[test]
+fn build_toml_project_with_a_missing_target() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
     std::fs::write(
         cwd.join("model.toml"),
@@ -1289,10 +1307,11 @@ fn build_toml_project_with_a_dir_usage_is_refused() -> Result<(), Box<dyn std::e
     run_sysand_in(&cwd, ["build"], None)?
         .assert()
         .failure()
-        .stderr(predicate::str::contains("is not supported yet"))
-        .stderr(predicate::str::contains("--allow-path-usage"));
+        .stderr(predicate::str::contains(
+            "usage `acme/dep` targets `dep`, which defines no project",
+        ));
 
-    // And the flag is the way through.
+    // The flag keeps it a path usage, so no target is read at all.
     run_sysand_in(&cwd, ["build", "--allow-path-usage"], None)?
         .assert()
         .success();
