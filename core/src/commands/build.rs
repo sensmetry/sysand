@@ -11,14 +11,15 @@ use std::{collections::HashSet, io::Write as _};
 use crate::{
     env::utils::ErrorBound,
     include::{IncludeError, extract_symbols, read_project_file_to_string},
-    manifest::usage::Usage,
+    manifest::common::normalized_identity,
+    manifest::usage::{Usage, UsageBase},
     model::{
         InterchangeProjectChecksumRaw, InterchangeProjectUsageRaw,
         InterchangeProjectValidationError, KerMlChecksumAlg, format_created,
     },
     project::{
         ManifestError, ProjectFormat, ProjectRead,
-        local_kpar::LocalKParProjectRaw,
+        local_kpar::{KparInnerPath, LocalKParProject, LocalKParProjectRaw},
         local_src::{LocalSrcError, LocalSrcProject},
         utils::{FsIoError, ZipArchiveError, wrapfs},
     },
@@ -149,24 +150,55 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
     /// model-toml.md "TOML to KPAR": a `dir` or `kpar-path` usage
     /// "turn[s] into a PURL constrained to `^<version>`, where
     /// `<version>` is the target project's version at build time".
-    /// Reading the target's manifest is WP-6b.
     ///
-    /// The message names both ways forward, because there are two. The
-    /// specification's own opt-out is `--allow-path-usage`, "the
-    /// existing flag whose meaning is 'I accept a KPAR that only
-    /// resolves on this machine'": with it the usage stays a typed path
-    /// usage and no target is read.
-    ///
-    /// The check lives in [`do_build_kpar`] rather than in a frontend: a
-    /// refusal one frontend makes is not a refusal.
+    /// The path names nothing that defines a project. This also covers
+    /// a project with no root at all -- an in-memory project in the
+    /// bindings -- whose targets cannot be read, since from the user's
+    /// side those are the same sentence.
+    #[error("usage `{usage}` targets `{path}`, which defines no project")]
+    TomlTargetMissing { usage: String, path: String },
+    /// Reachable only for a json target: a `model.toml` constrains its
+    /// own `version` to semver, so a toml target has one by
+    /// construction.
     #[error(
-        "building a `model.toml` project with the local usage `{usage}` is not supported yet;\n\
-        {SP:>8} this version of Sysand cannot rewrite it into the PURL an archive carries.\n\
-        {SP:>8} Pass `--allow-path-usage` to keep it as a path usage, accepting that the\n\
-        {SP:>8} archive will only resolve on this machine",
+        "usage `{usage}` targets `{path}`, whose version `{version}` is not semver,\n\
+        {SP:>8} so no `^{version}` constraint can be written;\n\
+        {SP:>8} pass `--allow-path-usage` to keep the usage as a path usage instead",
         SP = ' '
     )]
-    TomlLocalUsage { usage: String },
+    TomlTargetVersion {
+        usage: String,
+        path: String,
+        version: String,
+    },
+    /// The target is there and does not read: it holds both manifests,
+    /// its `model.toml` does not parse, its `.project.json` has no
+    /// `version`, its archive is not a zip.
+    ///
+    /// Its own variant because [`KParBuildError::ProjectRead`] carries
+    /// `Pr::Error` -- the error type of the project being *built* --
+    /// and a target is read with a different reader.
+    #[error("usage `{usage}` targets `{path}`, which could not be read: {reason}")]
+    TomlTargetRead {
+        usage: String,
+        path: String,
+        reason: String,
+    },
+    /// model-toml.md "Standard library": "a usage whose target carries
+    /// `stdlib` is written as `resource = \"<target's metamodel>/<target's
+    /// stdlib>.kpar\"`". Writing that IRI is WP-6b-ii; until then such a
+    /// target is refused rather than silently given the PURL every
+    /// other local target gets.
+    ///
+    /// Only without `--allow-path-usage`: "under `--allow-path-usage` a
+    /// local usage stays a typed path usage, stdlib target or not".
+    #[error(
+        "usage `{usage}` targets `{path}`, which carries `stdlib`, and building that is not\n\
+        {SP:>8} supported yet; this version of Sysand cannot write the OMG IRI it needs.\n\
+        {SP:>8} Pass `--allow-path-usage` to keep it as a path usage instead",
+        SP = ' '
+    )]
+    TomlStdlibTarget { usage: String, path: String },
     /// model-toml.md "TOML to KPAR": "an index, source path or kpar path
     /// usage whose target carries `stdlib`: the OMG IRI instead of the
     /// PURL". For an index usage the target is not on disk at all -- the
@@ -353,17 +385,32 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         // index usage and a remote-kpar usage are both `Resource`, and a
         // remote-kpar `url` that happens to be a `pkg:sysand` IRI would
         // be misread as the first.
-        for located in &manifest.usages {
+        //
+        // `zip` and not an index range: `kpar_view::info` builds the raw
+        // list as `project.usages.iter().map(usage).collect()`, 1:1 and
+        // unfiltered, so the two are the same usages in the same order
+        // -- and a zip cannot go out of step where a counter can.
+        let root = project.project_root();
+        for (located, raw) in manifest.usages.iter().zip(info.usage.iter_mut()) {
+            // An inherited usage's paths are relative to the workspace
+            // root, not the project's, and the arms below resolve
+            // against the project root: a workspace-based usage reaching
+            // them would silently resolve against the wrong base.
+            debug_assert!(
+                matches!(located.base, UsageBase::Project),
+                "a workspace-based usage needs `resolve_local_path`"
+            );
             match &located.usage {
-                Usage::SourcePath { .. } | Usage::KparPath { .. } if !allow_path_usage => {
-                    return Err(KParBuildError::TomlLocalUsage {
-                        usage: located.usage.to_string(),
-                    });
-                }
                 Usage::Index { publisher, .. } if publisher.is_stdlib_publisher() => {
                     return Err(KParBuildError::TomlStdlibUsage {
                         usage: located.usage.to_string(),
                     });
+                }
+                Usage::SourcePath { dir, .. } if !allow_path_usage => {
+                    *raw = local_target_usage(root, &located.usage, dir.as_str(), false)?;
+                }
+                Usage::KparPath { kpar_path, .. } if !allow_path_usage => {
+                    *raw = local_target_usage(root, &located.usage, kpar_path.as_str(), true)?;
                 }
                 _ => {}
             }
@@ -593,6 +640,102 @@ fn read_optional_project_file(
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(FsIoError::ReadFile(file_path, e)),
     }
+}
+
+/// model-toml.md "TOML to KPAR": a local usage "turn[s] into a PURL
+/// constrained to `^<version>`, where `<version>` is the target
+/// project's version at build time".
+///
+/// "`build` never resolves usages, so building needs neither network nor
+/// index; the target versions it needs come from the targets' manifests
+/// (members and local paths), never from built artifacts."
+fn local_target_usage<E: ErrorBound>(
+    root: Option<&Utf8Path>,
+    usage: &Usage,
+    relative: &str,
+    is_kpar: bool,
+) -> Result<InterchangeProjectUsageRaw, KParBuildError<E>> {
+    let missing = || KParBuildError::TomlTargetMissing {
+        usage: usage.to_string(),
+        path: relative.to_owned(),
+    };
+    let unreadable = |error: &dyn std::fmt::Display| KParBuildError::TomlTargetRead {
+        usage: usage.to_string(),
+        path: relative.to_owned(),
+        reason: error.to_string(),
+    };
+
+    let Some(root) = root else {
+        // Nothing to join onto, so the path names nothing this build
+        // can see.
+        return Err(missing());
+    };
+    let target = root.join(relative);
+
+    // `std::fs::metadata` before anything that joins onto `target`: for
+    // a path that is itself a file -- every kpar target, and a `dir`
+    // entry naming a file -- joining and stat-ing gives `ENOTDIR`, which
+    // is an IO error where `TomlTargetMissing` belongs.
+    match std::fs::metadata(&target) {
+        Ok(metadata) if metadata.is_dir() != is_kpar => {}
+        Ok(_) | Err(_) => return Err(missing()),
+    }
+
+    let version = if is_kpar {
+        // `Root` is what the resolver uses for a `kpar-path` usage.
+        let kpar = LocalKParProject::new_access(target, KparInnerPath::Root, None);
+        match kpar.version() {
+            Ok(Some(version)) => version,
+            // An archive with no `.project.json` defines no project.
+            Ok(None) => return Err(missing()),
+            Err(error) => return Err(unreadable(&error)),
+        }
+    } else {
+        let source = LocalSrcProject::new_access(target, None);
+        // `manifest()` and not `version()`: the latter goes through
+        // `get_info`, which for a toml target builds the whole KPAR
+        // view -- reading, hashing and symbol-extracting every file the
+        // target's `sources` lists. A target with one missing source
+        // would fail *this* project's build.
+        match source.manifest() {
+            Ok(manifest) => {
+                if manifest.stdlib.is_some() {
+                    return Err(KParBuildError::TomlStdlibTarget {
+                        usage: usage.to_string(),
+                        path: relative.to_owned(),
+                    });
+                }
+                // A `model.toml` constrains its own version to semver,
+                // so `TomlTargetVersion` cannot arise here.
+                manifest.version.to_string()
+            }
+            // A json target, the one `TomlTargetVersion` is for:
+            // "possible for a json target, since `model.toml` constrains
+            // only its own version".
+            Err(ManifestError::NoTomlManifest) => match source.version() {
+                Ok(Some(version)) => version,
+                Ok(None) => return Err(missing()),
+                Err(error) => return Err(unreadable(&error)),
+            },
+            Err(ManifestError::Project(error)) => return Err(unreadable(&error)),
+        }
+    };
+
+    // The parse error is discarded deliberately: row 40's message is
+    // about there being no `^<v>` to write, and semver's own complaint
+    // about the string would say less than the version does.
+    let constraint = semver::VersionReq::parse(&format!("^{version}")).map_err(|_parse_error| {
+        KParBuildError::TomlTargetVersion {
+            usage: usage.to_string(),
+            path: relative.to_owned(),
+            version: version.clone(),
+        }
+    })?;
+
+    Ok(InterchangeProjectUsageRaw::Resource {
+        resource: normalized_identity(usage.publisher(), usage.name()).lock_identifier(),
+        version_constraint: Some(constraint.to_string()),
+    })
 }
 
 pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
