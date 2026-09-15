@@ -787,3 +787,39 @@ fn the_forward_map_normalizes_and_this_one_does_not() {
     assert_eq!(back.publisher().as_str(), "acme");
     assert_eq!(back.name().as_str(), "lib");
 }
+
+// ------------------- resolving against a workspace table
+
+const INHERITS_VERSION: &str = "manifest-version = 1\n\n\
+     [project]\n\
+     publisher = \"acme\"\n\
+     name = \"widgets\"\n\
+     version.workspace = true\n\
+     sources = []\n";
+
+#[test]
+fn resolved_of_text_in_follows_the_table() {
+    let table = crate::manifest::workspace_table::WorkspaceTable {
+        default_group: crate::manifest::workspace_table::GroupProperties {
+            version: Some("9.9.9".parse().expect("a version")),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let project = super::resolved_of_text_in(MODEL_TOML_FILE, INHERITS_VERSION, Some(&table))
+        .expect("the marker follows the table");
+    assert_eq!(project.version.to_string(), "9.9.9");
+}
+
+/// The wrapper without a table refuses, and the *message* says why: a
+/// default table would not refuse, it would say the group does not give
+/// the key, so `is_err` alone would not tell the two apart.
+#[test]
+fn resolved_of_text_still_refuses_without_a_table() {
+    let error = super::resolved_of_text(MODEL_TOML_FILE, INHERITS_VERSION)
+        .expect_err("no table, no inheritance");
+    assert!(
+        error.to_string().contains("not a member of any workspace"),
+        "{error}"
+    );
+}
