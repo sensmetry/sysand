@@ -1027,7 +1027,8 @@ fn do_build_py(
                 | KParBuildError::MissingInfo
                 | KParBuildError::MissingMeta
                 | KParBuildError::MissingInfoMeta
-                | KParBuildError::TomlProject
+                | KParBuildError::TomlLocalUsage { .. }
+                | KParBuildError::TomlStdlibUsage { .. }
                 | KParBuildError::Serialize(..)
                 | KParBuildError::WorkspaceMetamodelConflict {
                     workspace_metamodel: _,
