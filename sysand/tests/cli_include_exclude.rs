@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-//! `sysand include` and `sysand exclude` does not support `model.toml` projects yet -- that is
-//! WP-3d's work. So every project in this file is written as a legacy
-//! `.project.json` pair by hand rather than created through `sysand
-//! init`, which writes a `model.toml`.
+//! `sysand include` and `sysand exclude`, in both manifest formats.
 //!
-//! When WP-3d lands, these should go back to `cli_init_project*` and
-//! follow whatever `init` produces. Until then this file does not
-//! exercise the toml path at all.
+//! The tests that write a legacy `.project.json` pair by hand are the
+//! coverage of the json format, and most of them assert on
+//! `.meta.json` -- the checksum and symbol maps a `model.toml` project
+//! does not have, because both are computed when the KPAR is built.
+//!
+//! The toml tests are at the end of the file. Between them they cover
+//! what `include` and `exclude` do to a manifest, and which flags they
+//! refuse on one.
 
 use std::{fs, io::Write as _};
 
@@ -451,5 +453,142 @@ fn exclude_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
     assert!(meta.index.is_empty());
     assert!(meta.checksum.is_none_or(|x| x.is_empty()));
 
+    Ok(())
+}
+
+// --- `model.toml` projects ---------------------------------------------
+
+/// `sysand init --publisher acme --name widgets`, in a fresh directory.
+fn toml_project()
+-> Result<(camino_tempfile::Utf8TempDir, camino::Utf8PathBuf), Box<dyn std::error::Error>> {
+    let (temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--publisher",
+            "acme",
+            "--name",
+            "widgets",
+            "--version",
+            "1.2.3",
+        ],
+        None,
+    )?;
+    out.assert().success();
+    Ok((temp_dir, cwd))
+}
+
+fn manifest(cwd: &camino::Utf8Path) -> Result<String, Box<dyn std::error::Error>> {
+    Ok(fs::read_to_string(cwd.join("model.toml"))?)
+}
+
+#[test]
+fn include_appends_to_sources() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = toml_project()?;
+    fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+
+    run_sysand_in(&cwd, ["include", "test.sysml"], None)?
+        .assert()
+        .success();
+
+    // `init` writes `sources = []`, and an entry appended to an empty
+    // array stays on the line: the shape the file had is the shape it
+    // keeps.
+    assert!(manifest(&cwd)?.contains("sources = [\"test.sysml\"]\n"));
+    // "Neither extracts symbols or hashes files, as both maps are
+    // computed at build."
+    assert!(!cwd.join(".meta.json").exists());
+    Ok(())
+}
+
+#[test]
+fn include_then_exclude_leaves_the_manifest_as_it_was() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = toml_project()?;
+    let before = manifest(&cwd)?;
+    fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+
+    run_sysand_in(&cwd, ["include", "test.sysml"], None)?
+        .assert()
+        .success();
+    run_sysand_in(&cwd, ["exclude", "test.sysml"], None)?
+        .assert()
+        .success();
+
+    assert_eq!(before, manifest(&cwd)?);
+    Ok(())
+}
+
+#[test]
+fn include_keeps_the_comments_in_the_manifest() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = toml_project()?;
+    let commented = manifest(&cwd)?.replace(
+        "sources = []",
+        "# the files this project is made of\nsources = []",
+    );
+    fs::write(cwd.join("model.toml"), &commented)?;
+    fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+
+    run_sysand_in(&cwd, ["include", "test.sysml"], None)?
+        .assert()
+        .success();
+
+    assert!(manifest(&cwd)?.contains("# the files this project is made of"));
+    Ok(())
+}
+
+#[test]
+fn include_refuses_a_second_time() -> Result<(), Box<dyn std::error::Error>> {
+    // The one place the two formats differ in kind: a json project
+    // re-includes to refresh its metadata, a toml one has none to
+    // refresh and the second call is a duplicate.
+    let (_temp_dir, cwd) = toml_project()?;
+    fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+
+    run_sysand_in(&cwd, ["include", "test.sysml"], None)?
+        .assert()
+        .success();
+    run_sysand_in(&cwd, ["include", "test.sysml"], None)?
+        .assert()
+        .failure();
+    Ok(())
+}
+
+#[test]
+fn include_refuses_compute_checksum() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = toml_project()?;
+    fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+
+    run_sysand_in(&cwd, ["include", "test.sysml", "--compute-checksum"], None)?
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "`checksum` is computed when the KPAR is built",
+        ));
+    Ok(())
+}
+
+#[test]
+fn include_refuses_no_index_symbols() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = toml_project()?;
+    fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+
+    run_sysand_in(&cwd, ["include", "test.sysml", "--no-index-symbols"], None)?
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "`index` is computed when the KPAR is built",
+        ));
+    Ok(())
+}
+
+#[test]
+fn exclude_refuses_a_path_that_is_not_listed() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = toml_project()?;
+
+    run_sysand_in(&cwd, ["exclude", "test.sysml"], None)?
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "could not find file `test.sysml`",
+        ));
     Ok(())
 }
