@@ -4,7 +4,7 @@
 use camino::Utf8PathBuf;
 use camino_tempfile::Utf8TempDir;
 
-use super::{LoadError, LoadFailure, Workspace};
+use super::{Classification, LoadError, LoadFailure, Workspace};
 use crate::manifest::diagnostics::Diagnostic;
 use crate::project::utils::ProjectDeserializationError;
 
@@ -425,4 +425,202 @@ fn a_member_whose_markers_do_not_resolve_is_named_by_its_own_file() {
     assert_eq!(failure.members.len(), 1);
     let text = failure.members[0].to_string();
     assert!(text.contains("app/model.toml"), "{text}");
+}
+
+fn classified() -> (Utf8TempDir, Workspace) {
+    let fixture = Fixture::new(
+        "manifest-version = 1\n\n[workspace]\n\
+         members = [\"app\", \"vendor/kept\"]\n\
+         exclude = [\"vendor\", \"app\"]\n",
+    );
+    fixture.project("app");
+    fixture.project("vendor/kept");
+    let workspace = fixture.loaded();
+    (fixture.dir, workspace)
+}
+
+fn at(workspace: &Workspace, path: &str) -> Utf8PathBuf {
+    if path.is_empty() {
+        workspace.root().to_owned()
+    } else {
+        workspace.root().join(path)
+    }
+}
+
+#[test]
+fn a_listed_directory_is_a_member() {
+    let (_dir, workspace) = classified();
+    match workspace
+        .classify(&at(&workspace, "app"))
+        .expect("classifies")
+    {
+        Classification::Member(member) => assert_eq!(member.path.raw, "app"),
+        other => panic!("expected a member, got `{other:?}`"),
+    }
+}
+
+#[test]
+fn an_excluded_directory_is_excluded() {
+    let (_dir, workspace) = classified();
+    match workspace
+        .classify(&at(&workspace, "vendor"))
+        .expect("classifies")
+    {
+        Classification::Excluded(path) => assert_eq!(path.raw, "vendor"),
+        other => panic!("expected excluded, got `{other:?}`"),
+    }
+}
+
+/// workspaces.md: "Anything under one of them is outside the workspace."
+#[test]
+fn a_directory_under_an_excluded_one_is_excluded() {
+    let (_dir, workspace) = classified();
+    assert!(matches!(
+        workspace
+            .classify(&at(&workspace, "vendor/other/deep"))
+            .expect("classifies"),
+        Classification::Excluded(_)
+    ));
+}
+
+/// A tie goes to `members`: nothing refuses a path written in both
+/// lists, so the precedence has to be decided here.
+#[test]
+fn a_directory_in_both_lists_is_a_member() {
+    let (_dir, workspace) = classified();
+    assert!(matches!(
+        workspace
+            .classify(&at(&workspace, "app"))
+            .expect("classifies"),
+        Classification::Member(_)
+    ));
+}
+
+/// The longest match wins, so a member listed *inside* an excluded
+/// directory is still a member -- and so is everything under it.
+#[test]
+fn a_member_under_an_excluded_directory_wins() {
+    let (_dir, workspace) = classified();
+    match workspace
+        .classify(&at(&workspace, "vendor/kept/src"))
+        .expect("classifies")
+    {
+        Classification::Member(member) => assert_eq!(member.path.raw, "vendor/kept"),
+        other => panic!("expected a member, got `{other:?}`"),
+    }
+}
+
+/// workspaces.md: under an excluded directory "a workspace root there is
+/// a legitimate, separate workspace". The nesting check rests on this.
+#[test]
+fn a_workspace_root_under_an_excluded_directory_is_excluded() {
+    let fixture = Fixture::new(
+        "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\nexclude = [\"vendor\"]\n",
+    );
+    fixture.project("app");
+    fixture.write(
+        "vendor/inner/model.toml",
+        "manifest-version = 1\n\n[workspace]\n",
+    );
+    let workspace = fixture.loaded();
+    assert!(matches!(
+        workspace
+            .classify(&at(&workspace, "vendor/inner"))
+            .expect("classifies"),
+        Classification::Excluded(_)
+    ));
+}
+
+/// `exclude` entries may nest -- the cross-entry checks are off for
+/// that list -- so the most specific one is the one that answers.
+#[test]
+fn the_most_specific_excluded_entry_answers() {
+    let fixture = Fixture::new(
+        "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\n\
+         exclude = [\"vendor\", \"vendor/deep\"]\n",
+    );
+    fixture.project("app");
+    let workspace = fixture.loaded();
+    match workspace
+        .classify(&at(&workspace, "vendor/deep/inner"))
+        .expect("classifies")
+    {
+        Classification::Excluded(path) => assert_eq!(path.raw, "vendor/deep"),
+        other => panic!("expected excluded, got `{other:?}`"),
+    }
+}
+
+/// The specificity rule runs both ways: an `exclude` entry *inside* a
+/// member carves that subtree back out. Nothing refuses the pair, so
+/// something has to decide it.
+#[test]
+fn an_excluded_directory_inside_a_member_is_excluded() {
+    let fixture = Fixture::new(
+        "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\nexclude = [\"app/gen\"]\n",
+    );
+    fixture.project("app");
+    let workspace = fixture.loaded();
+    assert!(matches!(
+        workspace
+            .classify(&at(&workspace, "app/src"))
+            .expect("classifies"),
+        Classification::Member(_)
+    ));
+    match workspace
+        .classify(&at(&workspace, "app/gen/out"))
+        .expect("classifies")
+    {
+        Classification::Excluded(path) => assert_eq!(path.raw, "app/gen"),
+        other => panic!("expected excluded, got `{other:?}`"),
+    }
+}
+
+#[test]
+fn anything_else_is_unlisted() {
+    let (_dir, workspace) = classified();
+    assert!(matches!(
+        workspace
+            .classify(&at(&workspace, "elsewhere"))
+            .expect("classifies"),
+        Classification::Unlisted
+    ));
+    assert!(matches!(
+        workspace.classify(&at(&workspace, "")).expect("classifies"),
+        Classification::Unlisted
+    ));
+}
+
+#[test]
+fn a_directory_outside_the_root_is_outside() {
+    let (_dir, workspace) = classified();
+    let outside = workspace
+        .root()
+        .parent()
+        .expect("the root has a parent")
+        .to_owned();
+    assert!(matches!(
+        workspace.classify(&outside).expect("classifies"),
+        Classification::Outside
+    ));
+}
+
+/// `app2` starts with `app`, but is not under it.
+#[test]
+fn classification_is_by_whole_components() {
+    let fixture = Fixture::new(&workspace_with("\"app\""));
+    fixture.project("app");
+    let workspace = fixture.loaded();
+
+    assert!(matches!(
+        workspace
+            .classify(&at(&workspace, "app"))
+            .expect("classifies"),
+        Classification::Member(_)
+    ));
+    assert!(matches!(
+        workspace
+            .classify(&at(&workspace, "app2"))
+            .expect("classifies"),
+        Classification::Unlisted
+    ));
 }

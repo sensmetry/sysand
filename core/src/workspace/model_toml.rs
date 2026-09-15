@@ -16,6 +16,7 @@
 
 use camino::{Utf8Path, Utf8PathBuf};
 use thiserror::Error;
+use typed_path::{Utf8Component as _, Utf8UnixPathBuf};
 
 use crate::commands::build::DEFAULT_OUTPUT_NAME;
 use crate::commands::lock::DEFAULT_LOCKFILE_NAME;
@@ -26,7 +27,10 @@ use crate::manifest::workspace_table::{MemberPath, WorkspaceTable};
 use crate::manifest::{MODEL_TOML_FILE, ModelToml};
 use crate::project::ProjectFormat;
 use crate::project::local_src::{detect_format, json_manifest};
-use crate::project::utils::{FsIoError, ProjectDeserializationError, validate_manifest, wrapfs};
+use crate::project::utils::{
+    FsIoError, ProjectDeserializationError, RelativizePathError, relativize_path,
+    validate_manifest, wrapfs,
+};
 
 /// Why a load failed, split by the file each half is about.
 ///
@@ -89,6 +93,30 @@ pub struct Member {
     pub dir: Utf8PathBuf,
     /// Its manifest, resolved against the workspace table.
     pub project: ResolvedProject,
+}
+
+/// Where a directory sits with respect to a workspace.
+#[derive(Debug, Clone, Copy)]
+pub enum Classification<'a> {
+    /// Inside the member's directory, which is the member itself or a
+    /// directory under it.
+    Member(&'a Member),
+    /// Under an `exclude`d directory: "a standalone project with its own
+    /// lockfile, `.sysand` and `output`, and a workspace root there is a
+    /// legitimate, separate workspace".
+    Excluded(&'a MemberPath),
+    /// Under the root, but in neither list. A project here is the hard
+    /// error of workspaces.md "Included projects", raised on the upward
+    /// walk; a directory that holds no project is simply nothing.
+    Unlisted,
+    /// Not under the root at all.
+    Outside,
+}
+
+#[derive(Debug, Error)]
+pub enum ClassifyError {
+    #[error(transparent)]
+    Relativize(#[from] RelativizePathError),
 }
 
 #[derive(Debug)]
@@ -155,6 +183,60 @@ impl Workspace {
     pub fn members(&self) -> &[Member] {
         &self.members
     }
+
+    /// Which of the workspace's three regions `dir` falls in.
+    ///
+    /// `dir` must be absolute and free of `.`/`..` components, which is
+    /// what [`relativize_path`] asserts.
+    ///
+    /// The **most specific** entry wins -- the one whose path is the
+    /// longest prefix of `dir` -- and an exact tie between the two lists
+    /// goes to `members`: a directory the author listed as a member is
+    /// one, and `exclude` is about what is not otherwise accounted for.
+    /// So `exclude = ["vendor"]` with `members = ["vendor/a"]` puts
+    /// `vendor/a/sub` inside the member and leaves `vendor/b` excluded,
+    /// which is what the two lists plainly say.
+    ///
+    /// Nothing refuses a path written in both lists, or one list's entry
+    /// nested in the other's: `member_paths` checks entries only against
+    /// the others in the same list, and for `exclude` not even that. So
+    /// every combination has to be decided here.
+    pub fn classify(&self, dir: &Utf8Path) -> Result<Classification<'_>, ClassifyError> {
+        let relative = relativize_path(dir, &self.root)?;
+        if relative.components().any(|c| c.as_str() == "..") {
+            return Ok(Classification::Outside);
+        }
+
+        // At most one member can match: nested members *are* refused, so
+        // no `members` entry is a prefix of another.
+        let member = self
+            .members
+            .iter()
+            .find_map(|member| prefix_depth(&relative, &member.path.path).map(|at| (at, member)));
+        let excluded = self
+            .table
+            .exclude
+            .iter()
+            .filter_map(|excluded| prefix_depth(&relative, &excluded.path).map(|at| (at, excluded)))
+            .max_by_key(|(at, _)| *at);
+
+        Ok(match (member, excluded) {
+            (Some((member_at, member)), Some((excluded_at, _))) if member_at >= excluded_at => {
+                Classification::Member(member)
+            }
+            (_, Some((_, excluded))) => Classification::Excluded(excluded),
+            (Some((_, member)), None) => Classification::Member(member),
+            (None, None) => Classification::Unlisted,
+        })
+    }
+}
+
+/// How many segments of `entry` `path` is under, or `None` if it is not.
+///
+/// The workspace root itself is never an entry (`member_paths` refuses
+/// it), so a depth of zero cannot arise and `None` is unambiguous.
+fn prefix_depth(path: &Utf8UnixPathBuf, entry: &Utf8UnixPathBuf) -> Option<usize> {
+    path.starts_with(entry).then(|| entry.components().count())
 }
 
 /// Whether `path` is there, and if so whether it is a directory.
