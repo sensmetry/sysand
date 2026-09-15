@@ -19,7 +19,7 @@ use std::collections::BTreeMap;
 use fluent_uri::Iri;
 use semver::Version;
 use spdx::Expression;
-use typed_path::Utf8UnixPathBuf;
+use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
 use crate::manifest::common::{InheritFrom, Maintainer, ResolvedUrls, is_valid_group_name};
 use crate::manifest::diagnostics::{
@@ -130,6 +130,23 @@ pub struct WorkspaceTable {
 }
 
 impl WorkspaceTable {
+    /// The `exclude` entry that covers `relative`, and how many of its
+    /// segments matched.
+    ///
+    /// workspaces.md "Included projects": "Anything under one of them is
+    /// outside the workspace." Entries may nest -- the cross-entry
+    /// checks are off for this list -- so the most specific one answers.
+    ///
+    /// The depth comes back with the entry so that it can be weighed
+    /// against a member's, as [`WorkspaceTable::region`] does, without
+    /// asking the same question twice.
+    pub fn excluding(&self, relative: &Utf8UnixPath) -> Option<(usize, &MemberPath)> {
+        self.exclude
+            .iter()
+            .filter_map(|excluded| prefix_depth(relative, &excluded.path).map(|at| (at, excluded)))
+            .max_by_key(|(at, _)| *at)
+    }
+
     /// Read and check the contents of a `[workspace]` table.
     ///
     /// Finding the table in the document, and refusing a file that also
@@ -407,6 +424,15 @@ fn member_paths(
         });
     }
     paths
+}
+
+/// How many segments of `entry` `path` is under, or `None` if it is not.
+///
+/// The workspace root itself is never an entry -- [`member_paths`]
+/// refuses it -- so a depth of zero cannot arise and `None` is
+/// unambiguous.
+pub(crate) fn prefix_depth(path: &Utf8UnixPath, entry: &Utf8UnixPath) -> Option<usize> {
+    path.starts_with(entry).then(|| entry.components().count())
 }
 
 /// The three conditions that are about how a path is

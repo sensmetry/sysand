@@ -16,15 +16,15 @@
 
 use camino::{Utf8Path, Utf8PathBuf};
 use thiserror::Error;
-use typed_path::{Utf8Component as _, Utf8UnixPathBuf};
+use typed_path::Utf8Component as _;
 
 use crate::commands::build::DEFAULT_OUTPUT_NAME;
 use crate::commands::lock::DEFAULT_LOCKFILE_NAME;
 use crate::env::DEFAULT_ENV_NAME;
 use crate::manifest::diagnostics::{Diagnostic, Report};
 use crate::manifest::project::ResolvedProject;
-use crate::manifest::workspace_table::{MemberPath, WorkspaceTable};
-use crate::manifest::{MODEL_TOML_FILE, ModelToml};
+use crate::manifest::workspace_table::{MemberPath, WorkspaceTable, prefix_depth};
+use crate::manifest::{MODEL_TOML_FILE, ModelToml, ModelTomlKind};
 use crate::project::ProjectFormat;
 use crate::project::local_src::{detect_format, json_manifest};
 use crate::project::utils::{
@@ -213,12 +213,7 @@ impl Workspace {
             .members
             .iter()
             .find_map(|member| prefix_depth(&relative, &member.path.path).map(|at| (at, member)));
-        let excluded = self
-            .table
-            .exclude
-            .iter()
-            .filter_map(|excluded| prefix_depth(&relative, &excluded.path).map(|at| (at, excluded)))
-            .max_by_key(|(at, _)| *at);
+        let excluded = self.table.excluding(&relative);
 
         Ok(match (member, excluded) {
             (Some((member_at, member)), Some((excluded_at, _))) if member_at >= excluded_at => {
@@ -231,12 +226,176 @@ impl Workspace {
     }
 }
 
-/// How many segments of `entry` `path` is under, or `None` if it is not.
+/// Why discovery failed.
 ///
-/// The workspace root itself is never an entry (`member_paths` refuses
-/// it), so a depth of zero cannot arise and `None` is unambiguous.
-fn prefix_depth(path: &Utf8UnixPathBuf, entry: &Utf8UnixPathBuf) -> Option<usize> {
-    path.starts_with(entry).then(|| entry.components().count())
+/// A nesting error and an unlisted project are not diagnostics about a
+/// manifest: nothing in a manifest is wrong and there is no span to
+/// point at. Three of the variants *are* about a file, and arrive in two
+/// shapes -- [`ModelToml::peek`] fails with a bare [`Diagnostic`] and
+/// [`ModelToml::parse`] with a [`Report`] -- so both are carried as a
+/// report over the file they came from.
+#[derive(Debug, Error)]
+pub enum DiscoverError {
+    #[error(transparent)]
+    Io(#[from] Box<FsIoError>),
+    /// A `model.toml` on the walk that could not be read.
+    #[error(transparent)]
+    Manifest(ProjectDeserializationError),
+    /// The candidate root is not a workspace that loads.
+    #[error(transparent)]
+    Load(Box<LoadError>),
+    /// A workspace inside another that does not `exclude` it
+    /// (workspaces.md "Config").
+    #[error(
+        "the workspace at `{inner}` lies inside the workspace at `{outer}`, which does not \
+         `exclude` it; nested workspaces are not supported"
+    )]
+    Nested {
+        inner: Utf8PathBuf,
+        outer: Utf8PathBuf,
+    },
+    /// A project under the root that is in neither list (workspaces.md
+    /// "Included projects").
+    #[error(
+        "the project at `{project}` lies under the workspace at `{root}` but is neither listed \
+         in `workspace.members` nor under `workspace.exclude`; add it to one of the two"
+    )]
+    Unlisted {
+        project: Utf8PathBuf,
+        root: Utf8PathBuf,
+    },
+    /// [`Workspace::start`] was given a directory the workspace does not
+    /// contain.
+    #[error("`{dir}` is not under the workspace at `{root}`")]
+    NotUnderRoot { dir: Utf8PathBuf, root: Utf8PathBuf },
+    #[error(transparent)]
+    Relativize(#[from] RelativizePathError),
+}
+
+impl From<ClassifyError> for DiscoverError {
+    fn from(error: ClassifyError) -> Self {
+        match error {
+            ClassifyError::Relativize(error) => Self::Relativize(error),
+        }
+    }
+}
+
+/// Whether `dir` holds a `model.toml` that defines a `[workspace]`.
+///
+/// [`ModelToml::peek`] and nothing more, which is what it was written
+/// for: reading each ancestor through [`ModelToml::parse`] would
+/// validate files the walk does not care about.
+///
+/// A file that does not parse **ends the walk**. Treating it as "not a
+/// workspace" would answer *no workspace* for a directory whose manifest
+/// may well be one, and every member under it would then be read as a
+/// standalone project; a wrong answer about membership is worse than an
+/// error. A file with neither table is walked past -- it is not a
+/// workspace root, whatever else is wrong with it.
+fn is_workspace_file(dir: &Utf8Path) -> Result<bool, DiscoverError> {
+    let file = dir.join(MODEL_TOML_FILE);
+    if !wrapfs::is_file(&file)? {
+        return Ok(false);
+    }
+    let text = wrapfs::read_to_string(&file)?;
+    match ModelToml::peek(file.as_str(), &text) {
+        Ok(Some(ModelTomlKind::Workspace)) => Ok(true),
+        Ok(_) => Ok(false),
+        Err(diagnostic) => Err(DiscoverError::Manifest(
+            ProjectDeserializationError::invalid(&file, Report::from_iter([diagnostic])),
+        )),
+    }
+}
+
+/// The `[workspace]` table `dir` defines.
+///
+/// Parsed, not loaded. [`Workspace::load`] also checks that each member
+/// directory exists, holds a `model.toml` project, is free of stray
+/// state and has a manifest that reads -- none of which bears on whether
+/// this workspace excludes some directory, and a command inside a
+/// separate workspace must not fail because a neighbour's member is
+/// missing.
+///
+/// Parsing is not free of the outer's own mistakes: `parse` runs
+/// [`WorkspaceTable::validate`], whose report is all-or-nothing, so an
+/// outer whose `members` or `exclude` holds a path that does not
+/// normalize does not parse. That is accepted: a table whose `exclude`
+/// does not parse cannot answer the question being asked of it.
+fn workspace_table_at(dir: &Utf8Path) -> Result<WorkspaceTable, DiscoverError> {
+    let file = dir.join(MODEL_TOML_FILE);
+    let text = wrapfs::read_to_string(&file)?;
+    let manifest = validate_manifest(&file, ModelToml::parse(file.as_str(), &text))
+        .map_err(DiscoverError::Manifest)?;
+    manifest.into_workspace(file.as_str()).map_err(|problem| {
+        DiscoverError::Manifest(ProjectDeserializationError::invalid(
+            &file,
+            Report::from_iter([problem]),
+        ))
+    })
+}
+
+/// Pass 1: the first ancestor of `from` whose `model.toml` defines a
+/// `[workspace]`.
+///
+/// workspaces.md: "The workspace is discovered by walking up from cwd
+/// until a `model.toml` with a `[workspace]` table is encountered; that
+/// folder is the candidate workspace root."
+///
+/// A *candidate*, because the walk is not finished: see [`confirm_root`].
+/// And because a file carrying both tables peeks as a workspace, a
+/// candidate is not yet known to be a readable one either --
+/// [`Workspace::discover`] reads it before ruling on nesting.
+///
+/// `from` is canonicalized once. [`relativize_path`] asserts absolute
+/// and dot-free paths with a plain `assert!`, and every ancestor of a
+/// canonical path is canonical.
+pub fn candidate_root(from: impl AsRef<Utf8Path>) -> Result<Option<Utf8PathBuf>, DiscoverError> {
+    let from = wrapfs::canonicalize(from.as_ref())?;
+    let mut current: &Utf8Path = &from;
+    loop {
+        if is_workspace_file(current)? {
+            return Ok(Some(current.to_owned()));
+        }
+        match current.parent() {
+            Some(parent) => current = parent,
+            None => return Ok(None),
+        }
+    }
+}
+
+/// Pass 2: appendix A row 24.
+///
+/// workspaces.md: "The walk does not stop there: it continues to the
+/// filesystem root (there is no `.git` bound), and a second
+/// `[workspace]` table found above the first means the candidate is
+/// itself inside another workspace. That is allowed in exactly one case:
+/// the outer workspace lists the candidate's directory, or a directory
+/// above it, in `exclude`."
+///
+/// "Then the candidate is confirmed as the root and the walk stops;
+/// whether the outer workspace is itself nested is checked when a
+/// command runs inside it." So the first outer settles the question
+/// either way, and a third workspace above it is not this command's
+/// problem.
+pub fn confirm_root(candidate: impl AsRef<Utf8Path>) -> Result<(), DiscoverError> {
+    let candidate = wrapfs::canonicalize(candidate.as_ref())?;
+    let mut current = candidate.parent().map(Utf8Path::to_owned);
+    while let Some(dir) = current {
+        if is_workspace_file(&dir)? {
+            let table = workspace_table_at(&dir)?;
+            let relative = relativize_path(&candidate, &dir)?;
+            return if table.excluding(&relative).is_some() {
+                Ok(())
+            } else {
+                Err(DiscoverError::Nested {
+                    inner: candidate,
+                    outer: dir,
+                })
+            };
+        }
+        current = dir.parent().map(Utf8Path::to_owned);
+    }
+    Ok(())
 }
 
 /// Whether `path` is there, and if so whether it is a directory.
