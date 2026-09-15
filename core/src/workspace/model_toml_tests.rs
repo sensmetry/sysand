@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensember.com>
 
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 use camino_tempfile::Utf8TempDir;
 
-use super::{Classification, LoadError, LoadFailure, Workspace};
+use super::{
+    Classification, DiscoverError, LoadError, LoadFailure, Workspace, candidate_root, confirm_root,
+};
 use crate::manifest::diagnostics::Diagnostic;
 use crate::project::utils::ProjectDeserializationError;
 
@@ -22,29 +24,66 @@ sources = []
 /// directories, which every test here needs together.
 struct Fixture {
     dir: Utf8TempDir,
+    /// Where the workspace root sits inside the temporary directory.
+    /// Empty puts it at the top; a subdirectory leaves room for a
+    /// project, or another workspace, *above* the root.
+    at: &'static str,
 }
 
 impl Fixture {
     /// `root` is the body of the root `model.toml`.
     fn new(root: &str) -> Self {
+        Self::at("", root)
+    }
+
+    fn at(sub: &'static str, root: &str) -> Self {
         let fixture = Self {
             dir: camino_tempfile::tempdir().expect("a temporary directory"),
+            at: sub,
         };
+        if !sub.is_empty() {
+            std::fs::create_dir_all(fixture.dir.path().join(sub))
+                .expect("create the workspace directory");
+        }
         fixture.write("model.toml", root);
         fixture
     }
 
-    /// The root, canonicalized, which is what [`Workspace::load`]
-    /// reports and what [`Workspace::classify`] relativizes against.
-    fn root(&self) -> Utf8PathBuf {
+    /// The temporary directory, canonicalized: everything above the
+    /// workspace root.
+    fn base(&self) -> Utf8PathBuf {
         self.dir
             .path()
             .canonicalize_utf8()
             .expect("the temporary directory resolves")
     }
 
+    /// The root, canonicalized, which is what [`Workspace::load`]
+    /// reports and what [`Workspace::classify`] relativizes against.
+    fn root(&self) -> Utf8PathBuf {
+        let base = self.base();
+        if self.at.is_empty() {
+            base
+        } else {
+            base.join(self.at)
+        }
+    }
+
+    /// A path under the workspace root.
+    fn under(&self, path: &str) -> Utf8PathBuf {
+        self.root().join(path)
+    }
+
     fn write(&self, path: &str, content: &str) {
-        let path = self.dir.path().join(path);
+        Self::write_at(&self.dir.path().join(self.at).join(path), content);
+    }
+
+    /// Write above the workspace root, where the temporary directory is.
+    fn above(&self, path: &str, content: &str) {
+        Self::write_at(&self.dir.path().join(path), content);
+    }
+
+    fn write_at(path: &Utf8Path, content: &str) {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).expect("create the parent directories");
         }
@@ -52,7 +91,8 @@ impl Fixture {
     }
 
     fn mkdir(&self, path: &str) {
-        std::fs::create_dir_all(self.dir.path().join(path)).expect("create a directory");
+        std::fs::create_dir_all(self.dir.path().join(self.at).join(path))
+            .expect("create a directory");
     }
 
     /// A member directory holding a valid `model.toml` project.
@@ -61,7 +101,7 @@ impl Fixture {
     }
 
     fn load(&self) -> Result<Workspace, LoadError> {
-        Workspace::load(self.dir.path())
+        Workspace::load(self.dir.path().join(self.at))
     }
 
     fn loaded(&self) -> Workspace {
@@ -427,7 +467,7 @@ fn a_member_whose_markers_do_not_resolve_is_named_by_its_own_file() {
     assert!(text.contains("app/model.toml"), "{text}");
 }
 
-fn classified() -> (Utf8TempDir, Workspace) {
+fn classified() -> (Fixture, Workspace) {
     let fixture = Fixture::new(
         "manifest-version = 1\n\n[workspace]\n\
          members = [\"app\", \"vendor/kept\"]\n\
@@ -436,7 +476,7 @@ fn classified() -> (Utf8TempDir, Workspace) {
     fixture.project("app");
     fixture.project("vendor/kept");
     let workspace = fixture.loaded();
-    (fixture.dir, workspace)
+    (fixture, workspace)
 }
 
 fn at(workspace: &Workspace, path: &str) -> Utf8PathBuf {
@@ -449,7 +489,7 @@ fn at(workspace: &Workspace, path: &str) -> Utf8PathBuf {
 
 #[test]
 fn a_listed_directory_is_a_member() {
-    let (_dir, workspace) = classified();
+    let (_fixture, workspace) = classified();
     match workspace
         .classify(&at(&workspace, "app"))
         .expect("classifies")
@@ -461,7 +501,7 @@ fn a_listed_directory_is_a_member() {
 
 #[test]
 fn an_excluded_directory_is_excluded() {
-    let (_dir, workspace) = classified();
+    let (_fixture, workspace) = classified();
     match workspace
         .classify(&at(&workspace, "vendor"))
         .expect("classifies")
@@ -474,7 +514,7 @@ fn an_excluded_directory_is_excluded() {
 /// workspaces.md: "Anything under one of them is outside the workspace."
 #[test]
 fn a_directory_under_an_excluded_one_is_excluded() {
-    let (_dir, workspace) = classified();
+    let (_fixture, workspace) = classified();
     assert!(matches!(
         workspace
             .classify(&at(&workspace, "vendor/other/deep"))
@@ -487,7 +527,7 @@ fn a_directory_under_an_excluded_one_is_excluded() {
 /// lists, so the precedence has to be decided here.
 #[test]
 fn a_directory_in_both_lists_is_a_member() {
-    let (_dir, workspace) = classified();
+    let (_fixture, workspace) = classified();
     assert!(matches!(
         workspace
             .classify(&at(&workspace, "app"))
@@ -500,7 +540,7 @@ fn a_directory_in_both_lists_is_a_member() {
 /// directory is still a member -- and so is everything under it.
 #[test]
 fn a_member_under_an_excluded_directory_wins() {
-    let (_dir, workspace) = classified();
+    let (_fixture, workspace) = classified();
     match workspace
         .classify(&at(&workspace, "vendor/kept/src"))
         .expect("classifies")
@@ -577,7 +617,7 @@ fn an_excluded_directory_inside_a_member_is_excluded() {
 
 #[test]
 fn anything_else_is_unlisted() {
-    let (_dir, workspace) = classified();
+    let (_fixture, workspace) = classified();
     assert!(matches!(
         workspace
             .classify(&at(&workspace, "elsewhere"))
@@ -592,7 +632,7 @@ fn anything_else_is_unlisted() {
 
 #[test]
 fn a_directory_outside_the_root_is_outside() {
-    let (_dir, workspace) = classified();
+    let (_fixture, workspace) = classified();
     let outside = workspace
         .root()
         .parent()
@@ -623,4 +663,190 @@ fn classification_is_by_whole_components() {
             .expect("classifies"),
         Classification::Unlisted
     ));
+}
+
+// --------------------------------------------------- the upward walk
+
+const EMPTY_WORKSPACE: &str = "manifest-version = 1\n\n[workspace]\n";
+
+#[test]
+fn a_workspace_is_found_in_the_starting_directory() {
+    let fixture = Fixture::new(EMPTY_WORKSPACE);
+    assert_eq!(
+        candidate_root(fixture.root()).expect("readable"),
+        Some(fixture.root())
+    );
+}
+
+#[test]
+fn a_workspace_is_found_in_an_ancestor() {
+    let fixture = Fixture::new(&workspace_with("\"app\""));
+    fixture.mkdir("app/src/deep");
+    assert_eq!(
+        candidate_root(fixture.under("app/src/deep")).expect("readable"),
+        Some(fixture.root())
+    );
+}
+
+/// Not hermetic, and cannot be: the walk runs to the filesystem root.
+/// A `model.toml` in an ancestor of the temporary directory would fail
+/// this.
+#[test]
+fn no_workspace_above_the_starting_directory_is_none() {
+    let dir = camino_tempfile::tempdir().expect("a temporary directory");
+    assert_eq!(candidate_root(dir.path()).expect("readable"), None);
+}
+
+/// A member's directory holds a `[project]`, which is not a root.
+#[test]
+fn the_walk_goes_past_a_project() {
+    let fixture = Fixture::new(&workspace_with("\"app\""));
+    fixture.project("app");
+    assert_eq!(
+        candidate_root(fixture.under("app")).expect("readable"),
+        Some(fixture.root())
+    );
+}
+
+/// `peek` answers `None`. `is_project_file` calls the same directory a
+/// project, which is right for its question and not for this one.
+#[test]
+fn the_walk_goes_past_a_manifest_with_neither_table() {
+    let fixture = Fixture::new(EMPTY_WORKSPACE);
+    fixture.write("odd/model.toml", "manifest-version = 1\n");
+    assert_eq!(
+        candidate_root(fixture.under("odd")).expect("readable"),
+        Some(fixture.root())
+    );
+}
+
+/// Walking past would answer *no workspace* for a directory whose
+/// manifest may well be one.
+#[test]
+fn a_manifest_the_walk_cannot_peek_is_reported() {
+    let fixture = Fixture::new(EMPTY_WORKSPACE);
+    fixture.write("broken/model.toml", "this is not toml\n");
+    match candidate_root(fixture.under("broken")) {
+        Err(DiscoverError::Manifest(error)) => {
+            let text = error.to_string();
+            assert!(text.contains("broken/model.toml"), "{text}");
+        }
+        other => panic!("expected a manifest error, got `{other:?}`"),
+    }
+}
+
+/// The walk climbs with `Utf8Path::parent`, which is textual. Without
+/// canonicalizing first, a path that detours through another directory
+/// finds the right workspace by the wrong name, and hands back a root
+/// spelled with a `..` in it.
+#[test]
+fn the_root_comes_back_canonical() {
+    let fixture = Fixture::at("ws", &workspace_with("\"app\""));
+    fixture.project("app");
+    fixture.above("detour/.keep", "");
+    let roundabout = fixture
+        .base()
+        .join("detour")
+        .join("..")
+        .join("ws")
+        .join("app");
+
+    assert_eq!(
+        candidate_root(roundabout).expect("readable"),
+        Some(fixture.root())
+    );
+}
+
+#[test]
+fn a_nested_workspace_is_refused() {
+    let fixture = Fixture::at("inner", EMPTY_WORKSPACE);
+    fixture.above("model.toml", EMPTY_WORKSPACE);
+
+    match confirm_root(fixture.root()) {
+        Err(error @ DiscoverError::Nested { .. }) => assert_eq!(
+            error.to_string(),
+            format!(
+                "the workspace at `{}` lies inside the workspace at `{}`, which does not \
+                 `exclude` it; nested workspaces are not supported",
+                fixture.root(),
+                fixture.base()
+            )
+        ),
+        other => panic!("expected nesting, got `{other:?}`"),
+    }
+}
+
+#[test]
+fn a_nested_workspace_the_outer_excludes_is_confirmed() {
+    let fixture = Fixture::at("inner", EMPTY_WORKSPACE);
+    fixture.above(
+        "model.toml",
+        "manifest-version = 1\n\n[workspace]\nexclude = [\"inner\"]\n",
+    );
+    confirm_root(fixture.root()).expect("the outer excludes it");
+}
+
+/// "the outer workspace lists the candidate's directory, **or a
+/// directory above it**, in `exclude`".
+#[test]
+fn a_nested_workspace_excluded_by_a_directory_above_it_is_confirmed() {
+    let fixture = Fixture::at("vendor/inner", EMPTY_WORKSPACE);
+    fixture.above(
+        "model.toml",
+        "manifest-version = 1\n\n[workspace]\nexclude = [\"vendor\"]\n",
+    );
+    confirm_root(fixture.root()).expect("an excluded directory above it");
+}
+
+/// "whether the outer workspace is itself nested is checked when a
+/// command runs inside it". The first outer settles the question either
+/// way; a third workspace above it is not this command's problem.
+#[test]
+fn the_outer_workspace_is_not_itself_checked_for_nesting() {
+    let fixture = Fixture::at("b/c", EMPTY_WORKSPACE);
+    fixture.above(
+        "b/model.toml",
+        "manifest-version = 1\n\n[workspace]\nexclude = [\"c\"]\n",
+    );
+    fixture.above("model.toml", EMPTY_WORKSPACE);
+    confirm_root(fixture.root()).expect("`b` excludes `c`; `a` is `b`'s problem");
+}
+
+#[test]
+fn an_outer_workspace_far_above_is_still_found() {
+    let fixture = Fixture::at("a/b/c/inner", EMPTY_WORKSPACE);
+    fixture.above("model.toml", EMPTY_WORKSPACE);
+    assert!(matches!(
+        confirm_root(fixture.root()),
+        Err(DiscoverError::Nested { .. })
+    ));
+}
+
+/// `parse` runs the table's own validation, and its report is
+/// all-or-nothing: a table whose `exclude` does not parse cannot answer
+/// the question being asked of it.
+#[test]
+fn an_outer_whose_member_paths_do_not_parse_is_reported() {
+    let fixture = Fixture::at("inner", EMPTY_WORKSPACE);
+    fixture.above(
+        "model.toml",
+        "manifest-version = 1\n\n[workspace]\nmembers = [\"/absolute\"]\n",
+    );
+    assert!(matches!(
+        confirm_root(fixture.root()),
+        Err(DiscoverError::Manifest(_))
+    ));
+}
+
+/// Parsing is enough to answer the exclusion question; loading is not.
+/// A command inside a separate workspace must not fail because a
+/// neighbour's member directory is missing.
+#[test]
+fn an_outer_whose_member_is_broken_still_confirms_the_candidate() {
+    let fixture = Fixture::at("inner", EMPTY_WORKSPACE);
+    fixture.above(
+        "model.toml",
+        "manifest-version = 1\n\n[workspace]\nmembers = [\"gone\"]\nexclude = [\"inner\"]\n",
+    );
+    confirm_root(fixture.root()).expect("the outer's own members are not this command's problem");
 }
