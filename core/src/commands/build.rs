@@ -818,40 +818,143 @@ fn caret<E: ErrorBound>(
         })
 }
 
+/// Every member, read once: a `LocalSrcProject` caches its own view, and
+/// two instances of the same member would read it twice.
+fn read_members(workspace: &Workspace) -> Vec<Member> {
+    let root = workspace.root_path();
+    workspace
+        .projects()
+        .iter()
+        .map(|project_root| {
+            let dir = canonical_or(root.join(&project_root.path));
+            let project = LocalSrcProject::new_access(dir.clone(), None);
+            Member { dir, project }
+        })
+        .collect()
+}
+
+/// Build every member, in `members` order, and return the archives.
+///
+/// workspaces.md "Build output": a build reads a target's `version` from
+/// its manifest and never from a built artifact, so no member's build
+/// needs another's, and a member that fails does not stop the others.
+/// The error is every member that failed, together with the archives the
+/// others produced.
 pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
     workspace: &Workspace,
     path: P,
     compression: KparCompressionMethod,
     update_index: bool,
     allow_path_usage: bool,
-) -> Result<Vec<LocalKParProjectRaw>, KParBuildError<LocalSrcError>> {
+) -> Result<Vec<LocalKParProjectRaw>, WorkspaceBuildFailure> {
     let ws_metamodel = workspace.metamodel().map(ToString::to_string);
-
-    let mut result = Vec::new();
-    for project_root in workspace.projects() {
-        let project =
-            LocalSrcProject::new_access(workspace.root_path().join(&project_root.path), None);
-        let file_name = default_kpar_file_name(&project)?;
-        let output_path = path.as_ref().join(file_name);
-        let kpar_project = match do_build_kpar_inner(
-            &project,
-            &output_path,
+    let root = workspace.root_path();
+    let mut built = Vec::new();
+    let mut failed = Vec::new();
+    for member in read_members(workspace) {
+        match build_member(
+            &member,
+            path.as_ref(),
             compression,
             update_index,
             allow_path_usage,
             ws_metamodel.as_deref(),
         ) {
-            Ok(p) => p,
-            Err(e) => {
-                if let Err(e) = wrapfs::remove_file(&output_path) {
-                    log::debug!("cleanup: failed to remove archive file `{output_path}`: {e}");
-                }
-                return Err(e);
-            }
-        };
-        result.push(kpar_project);
+            Ok(kpar) => built.push(kpar),
+            Err(error) => failed.push(MemberFailure::at(&shorten(&member.dir, root), error)),
+        }
     }
-    Ok(result)
+    if failed.is_empty() {
+        Ok(built)
+    } else {
+        Err(WorkspaceBuildFailure { failed, built })
+    }
+}
+
+/// A workspace build in which at least one member failed.
+#[derive(Debug, Error)]
+#[error(
+    "{} of {} workspace members failed to build",
+    failed.len(),
+    failed.len() + built.len()
+)]
+pub struct WorkspaceBuildFailure {
+    /// Every member that failed, in `members` order.
+    pub failed: Vec<MemberFailure>,
+    /// The archives of the members that built, in `members` order.
+    pub built: Vec<LocalKParProjectRaw>,
+}
+
+/// A member, named relative to the workspace root, and what went wrong
+/// with it.
+///
+/// A named type rather than a tuple because it is an error, and boxed
+/// because `KParBuildError` is large enough that returning it by value
+/// in a `Result` is its own lint.
+#[derive(Debug, Error)]
+#[error("`{member}`: {error}")]
+pub struct MemberFailure {
+    pub member: Utf8PathBuf,
+    pub error: Box<KParBuildError<LocalSrcError>>,
+}
+
+impl MemberFailure {
+    fn at(member: &Utf8Path, error: KParBuildError<LocalSrcError>) -> Self {
+        Self {
+            member: member.to_owned(),
+            error: Box::new(error),
+        }
+    }
+}
+
+/// One member's build, with its archive removed if it failed.
+///
+/// `default_kpar_file_name` is inside this rather than outside it: for a
+/// member with no manifest that call *is* the failure, and propagating
+/// it would let the first unreadable member stop the workspace.
+fn build_member(
+    member: &Member,
+    output: &Utf8Path,
+    compression: KparCompressionMethod,
+    update_index: bool,
+    allow_path_usage: bool,
+    ws_metamodel: Option<&str>,
+) -> Result<LocalKParProjectRaw, KParBuildError<LocalSrcError>> {
+    let output_path = output.join(default_kpar_file_name(&member.project)?);
+    do_build_kpar_inner(
+        &member.project,
+        &output_path,
+        compression,
+        update_index,
+        allow_path_usage,
+        ws_metamodel,
+    )
+    .inspect_err(|_| {
+        if let Err(error) = wrapfs::remove_file(&output_path) {
+            log::debug!("cleanup: failed to remove archive file `{output_path}`: {error}");
+        }
+    })
+}
+
+/// A workspace member, read once.
+struct Member {
+    /// The node this member is in the dependency graph: its directory,
+    /// canonical where the filesystem allows it.
+    dir: Utf8PathBuf,
+    project: LocalSrcProject,
+}
+
+/// `path`, canonicalized, or `path` itself where it cannot be.
+///
+/// A member whose directory does not exist is still a member: it gets a
+/// node, it gets built, and it fails with its own message.
+fn canonical_or(path: Utf8PathBuf) -> Utf8PathBuf {
+    wrapfs::canonicalize(&path).unwrap_or(path)
+}
+
+/// A member directory as the workspace names it.
+fn shorten(dir: &Utf8Path, root: &Utf8Path) -> Utf8PathBuf {
+    dir.strip_prefix(root).unwrap_or(dir).to_path_buf()
 }
 
 #[cfg(test)]

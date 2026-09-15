@@ -508,7 +508,7 @@ fn build_workspace<'local>(
         ret!()
     }
 
-    let command_result = sysand_core::commands::build::do_build_workspace_kpars(
+    let result = sysand_core::commands::build::do_build_workspace_kpars(
         &workspace,
         &output_path,
         compression,
@@ -518,8 +518,13 @@ fn build_workspace<'local>(
         false,
         true,
     );
-    if let Err(e) = command_result {
-        handle_build_error(env, &e);
+    // A member's failure, the first one: this binding has no channel for
+    // a partial result. The other members' archives have been written by
+    // then.
+    if let Err(failure) = result
+        && let Some(first) = failure.failed.first()
+    {
+        handle_build_error(env, &first.error);
     }
     Ok(())
 }
