@@ -3,7 +3,10 @@
 
 use camino_tempfile::tempdir;
 
-use super::{license_file_stems, read_optional_project_file};
+use super::{
+    KParBuildError, KparCompressionMethod, do_build_kpar, license_file_stems,
+    read_optional_project_file,
+};
 use crate::project::utils::FsIoError;
 
 #[test]
@@ -98,4 +101,34 @@ fn license_stems_or_later_strips_plus() {
 #[test]
 fn license_stems_deduplicates() {
     assert_eq!(stems("MIT AND MIT"), vec!["MIT".to_owned()]);
+}
+
+/// A `model.toml` project cannot be built, and the refusal belongs to
+/// `do_build_kpar` rather than to a frontend: a check only one frontend
+/// makes is not a check.
+#[test]
+fn a_model_toml_project_cannot_be_built() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    std::fs::write(
+        dir.path().join("model.toml"),
+        "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n",
+    )?;
+    let project = crate::project::local_src::LocalSrcProject::new_access(dir.path(), None);
+
+    let error = do_build_kpar(
+        &project,
+        dir.path().join("widgets.kpar"),
+        KparCompressionMethod::default(),
+        false,
+        false,
+    )
+    .expect_err("a `model.toml` project cannot be built");
+
+    assert!(matches!(error, KParBuildError::TomlProject));
+    assert!(
+        error
+            .to_string()
+            .contains("building a `model.toml` project is not supported yet")
+    );
+    Ok(())
 }
