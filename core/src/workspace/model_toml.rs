@@ -23,7 +23,7 @@ use crate::commands::lock::DEFAULT_LOCKFILE_NAME;
 use crate::env::DEFAULT_ENV_NAME;
 use crate::manifest::diagnostics::{Diagnostic, Report};
 use crate::manifest::project::ResolvedProject;
-use crate::manifest::workspace_table::{MemberPath, WorkspaceTable, prefix_depth};
+use crate::manifest::workspace_table::{MemberPath, Region, WorkspaceTable};
 use crate::manifest::{MODEL_TOML_FILE, ModelToml, ModelTomlKind};
 use crate::project::ProjectFormat;
 use crate::project::local_src::{detect_format, json_manifest};
@@ -357,21 +357,13 @@ impl Workspace {
             return Ok(Classification::Outside);
         }
 
-        // At most one member can match: nested members *are* refused, so
-        // no `members` entry is a prefix of another.
-        let member = self
-            .members
-            .iter()
-            .find_map(|member| prefix_depth(&relative, &member.path.path).map(|at| (at, member)));
-        let excluded = self.table.excluding(&relative);
-
-        Ok(match (member, excluded) {
-            (Some((member_at, member)), Some((excluded_at, _))) if member_at >= excluded_at => {
-                Classification::Member(member)
-            }
-            (_, Some((_, excluded))) => Classification::Excluded(excluded),
-            (Some((_, member)), None) => Classification::Member(member),
-            (None, None) => Classification::Unlisted,
+        Ok(match self.table.region(&relative) {
+            // `load` pushes a diagnostic on every path where a member is
+            // not produced, so a workspace that loaded has one member
+            // per entry, in order.
+            Region::Member(index, _) => Classification::Member(&self.members[index]),
+            Region::Excluded(excluded) => Classification::Excluded(excluded),
+            Region::Unlisted => Classification::Unlisted,
         })
     }
 }
@@ -583,7 +575,31 @@ pub fn candidate_root(from: impl AsRef<Utf8Path>) -> Result<Option<Utf8PathBuf>,
     }
 }
 
-/// Pass 2: appendix A row 24.
+/// The workspace `from` belongs to, as its `[workspace]` table.
+///
+/// [`Workspace::discover`] loads: it parses and resolves every member,
+/// and refuses the workspace if any is broken. This does not: creating
+/// a new project, for one, cannot be blocked by an unrelated member's
+/// mistake, or the one command that could finish a half-built workspace
+/// is the one that refuses to run in it.
+///
+/// The three steps are [`candidate_root`], the parse, and
+/// [`confirm_root`], in that order, so that a file carrying both tables
+/// fails as *that* rather than as nesting (see [`Workspace::discover`]). A bad
+/// candidate therefore arrives as [`DiscoverError::Manifest`], where
+/// [`Workspace::discover`] would report [`DiscoverError::Load`].
+pub fn discover_table(
+    from: impl AsRef<Utf8Path>,
+) -> Result<Option<(Utf8PathBuf, WorkspaceTable)>, DiscoverError> {
+    let Some(candidate) = candidate_root(from)? else {
+        return Ok(None);
+    };
+    let table = workspace_table_at(&candidate)?;
+    confirm_root(&candidate)?;
+    Ok(Some((candidate, table)))
+}
+
+/// Pass 2: refuse a candidate nested in another workspace.
 ///
 /// workspaces.md: "The walk does not stop there: it continues to the
 /// filesystem root (there is no `.git` bound), and a second

@@ -1353,3 +1353,169 @@ fn select_member_in_an_excluded_project_is_standalone() {
         Selection::Standalone(_)
     ));
 }
+
+// ------------------------------------------------------ table regions
+
+use crate::manifest::workspace_table::{Region, WorkspaceTable};
+use typed_path::Utf8UnixPath;
+
+/// A table with all four shapes: a plain member, a plain exclusion, a
+/// member inside an exclusion, an exclusion inside a member, and a path
+/// written in both lists.
+const SHAPES: &str = "\
+manifest-version = 1
+
+[workspace]
+members = [\"app\", \"vendor/kept\", \"both\"]
+exclude = [\"vendor\", \"app/gen\", \"both\", \"deep/a/b\"]
+";
+
+fn shapes() -> WorkspaceTable {
+    let fixture = Fixture::new(SHAPES);
+    fixture.project_named("app", "alpha");
+    fixture.project_named("vendor/kept", "beta");
+    fixture.project_named("both", "gamma");
+    let (_root, table) = super::discover_table(fixture.root())
+        .expect("readable")
+        .expect("a workspace");
+    table
+}
+
+fn region_of<'a>(table: &'a WorkspaceTable, path: &str) -> Region<'a> {
+    table.region(Utf8UnixPath::new(path))
+}
+
+#[test]
+fn a_listed_path_is_a_member_region() {
+    let table = shapes();
+    match region_of(&table, "app") {
+        Region::Member(index, entry) => {
+            assert_eq!(index, 0);
+            assert_eq!(entry.raw, "app");
+        }
+        other => panic!("expected a member, got `{other:?}`"),
+    }
+}
+
+#[test]
+fn an_excluded_path_is_an_excluded_region() {
+    let table = shapes();
+    match region_of(&table, "vendor/other") {
+        Region::Excluded(entry) => assert_eq!(entry.raw, "vendor"),
+        other => panic!("expected excluded, got `{other:?}`"),
+    }
+}
+
+#[test]
+fn an_unknown_path_is_unlisted() {
+    let table = shapes();
+    assert!(matches!(region_of(&table, "notes"), Region::Unlisted));
+    assert!(matches!(region_of(&table, "deep/a"), Region::Unlisted));
+}
+
+/// The three combinations nothing refuses: a path in both lists, an
+/// `exclude` inside a member, and a member inside an `exclude`.
+#[test]
+fn a_region_is_decided_by_the_most_specific_entry() {
+    let table = shapes();
+
+    // An exact tie goes to `members`.
+    assert!(matches!(region_of(&table, "both"), Region::Member(2, _)));
+    // An `exclude` inside a member carves that subtree back out.
+    match region_of(&table, "app/gen/out") {
+        Region::Excluded(entry) => assert_eq!(entry.raw, "app/gen"),
+        other => panic!("expected excluded, got `{other:?}`"),
+    }
+    // A member inside an `exclude` is still a member.
+    match region_of(&table, "vendor/kept/src") {
+        Region::Member(index, entry) => {
+            assert_eq!(index, 1);
+            assert_eq!(entry.raw, "vendor/kept");
+        }
+        other => panic!("expected a member, got `{other:?}`"),
+    }
+}
+
+/// Not a proof that `classify` delegates -- a faithful duplicate of the
+/// rule would pass -- but what fails if a second rule ever diverges.
+#[test]
+fn classify_agrees_with_region_everywhere() {
+    let fixture = Fixture::new(SHAPES);
+    fixture.project_named("app", "alpha");
+    fixture.project_named("vendor/kept", "beta");
+    fixture.project_named("both", "gamma");
+    let workspace = fixture.loaded();
+
+    for path in [
+        "app",
+        "app/src",
+        "app/gen",
+        "app/gen/out",
+        "vendor",
+        "vendor/other",
+        "vendor/kept",
+        "vendor/kept/src",
+        "both",
+        "both/inner",
+        "deep",
+        "deep/a",
+        "deep/a/b",
+        "deep/a/b/c",
+        "notes",
+    ] {
+        let region = workspace.table().region(Utf8UnixPath::new(path));
+        let classification = workspace
+            .classify(&fixture.under(path))
+            .expect("classifies");
+        let agrees = match (region, classification) {
+            (Region::Member(_, entry), Classification::Member(member)) => {
+                entry.raw == member.path.raw
+            }
+            (Region::Excluded(a), Classification::Excluded(b)) => a.raw == b.raw,
+            (Region::Unlisted, Classification::Unlisted) => true,
+            _ => false,
+        };
+        assert!(agrees, "`{path}`: {region:?} vs the loaded classification");
+    }
+}
+
+/// Creating a new project cannot be blocked by an unrelated member's
+/// mistake.
+#[test]
+fn a_table_is_discovered_without_loading_its_members() {
+    let fixture = Fixture::new(&workspace_with("\"app\", \"gone\""));
+    fixture.project_named("app", "alpha");
+
+    let (root, table) = super::discover_table(fixture.root())
+        .expect("the table reads")
+        .expect("a workspace");
+    assert_eq!(root, fixture.root());
+    assert_eq!(table.members.len(), 2);
+
+    assert!(
+        Workspace::discover(fixture.root()).is_err(),
+        "loading the same workspace must still refuse it"
+    );
+}
+
+#[test]
+fn a_discovered_table_is_still_checked_for_nesting() {
+    let fixture = Fixture::at("inner", EMPTY_WORKSPACE);
+    fixture.above("model.toml", EMPTY_WORKSPACE);
+    assert!(matches!(
+        super::discover_table(fixture.root()),
+        Err(DiscoverError::Nested { .. })
+    ));
+}
+
+/// The candidate is parsed before the nesting verdict, so a file
+/// carrying both tables fails as that.
+#[test]
+fn a_candidate_defining_both_tables_still_fails_as_that() {
+    let fixture = Fixture::at("inner", &format!("{EMPTY_WORKSPACE}\n{PROJECT}"));
+    fixture.above("model.toml", EMPTY_WORKSPACE);
+    match super::discover_table(fixture.root()) {
+        Err(DiscoverError::Manifest(_)) => {}
+        other => panic!("expected the candidate's own manifest error, got `{other:?}`"),
+    }
+}
