@@ -12,7 +12,7 @@
 //! discovery on: where `sysand.toml` is *found* is the question.
 
 use assert_cmd::prelude::*;
-use camino::Utf8Path;
+use camino::{Utf8Path, Utf8PathBuf};
 use predicates::prelude::*;
 use sysand_core::{
     commands::lock::DEFAULT_LOCKFILE_NAME,
@@ -440,8 +440,21 @@ fn no_config_silences_the_warning() -> Result<(), Box<dyn std::error::Error>> {
 const NESTED_TEXT: &str = "nested workspaces are not supported";
 const UNLISTED_TEXT: &str = "is neither listed in `workspace.members`";
 
-/// An outer workspace that does not `exclude` the inner one: appendix A
-/// row 24. Returns the inner member directory.
+/// A workspace root, canonicalized, with one member `app`.
+///
+/// `camino_tempfile::tempdir()` is `/var/folders/...` on macOS and a
+/// short name on Windows, while everything the CLI prints comes back
+/// canonical.
+fn canonical_workspace(
+    root_text: &str,
+) -> Result<(camino_tempfile::Utf8TempDir, Utf8PathBuf), Box<dyn std::error::Error>> {
+    let dir = workspace(root_text)?;
+    let root = sysand_core::project::utils::wrapfs::canonicalize(dir.path())?;
+    Ok((dir, root))
+}
+
+/// An outer workspace that does not `exclude` the inner one, which
+/// workspaces.md "Config" rejects. Returns the inner member directory.
 fn nested()
 -> Result<(camino_tempfile::Utf8TempDir, camino::Utf8PathBuf), Box<dyn std::error::Error>> {
     let outer = camino_tempfile::tempdir()?;
@@ -574,5 +587,70 @@ fn a_members_own_lockfile_does_not_stop_a_later_command() -> Result<(), Box<dyn 
     run_sysand_discovering(&member, ["lock"])?
         .assert()
         .success();
+    Ok(())
+}
+
+// ------------------------------------------------------- `print-root`
+
+/// `workspaces.md` "Command scopes": the workspace root, from a member
+/// as from the root.
+#[test]
+fn print_root_from_a_member_prints_the_workspace_root() -> Result<(), Box<dyn std::error::Error>> {
+    let (dir, root) = canonical_workspace(ROOT)?;
+    run_sysand_discovering(&dir.path().join("app"), ["print-root"])?
+        .assert()
+        .success()
+        .stdout(format!("{root}\n"));
+    Ok(())
+}
+
+/// The root defines no project, so a walk for a project goes past it.
+#[test]
+fn print_root_at_the_workspace_root_prints_it() -> Result<(), Box<dyn std::error::Error>> {
+    let (dir, root) = canonical_workspace(ROOT)?;
+    run_sysand_discovering(dir.path(), ["print-root"])?
+        .assert()
+        .success()
+        .stdout(format!("{root}\n"));
+    Ok(())
+}
+
+/// An excluded project is not in the workspace, so what it is inside of
+/// is itself.
+#[test]
+fn print_root_in_an_excluded_project_prints_that_project() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (dir, root) = canonical_workspace(
+        "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\nexclude = [\"vendor\"]\n",
+    )?;
+    dependency(dir.path(), "vendor/other")?;
+    run_sysand_discovering(&dir.path().join("vendor/other"), ["print-root"])?
+        .assert()
+        .success()
+        .stdout(format!("{}\n", root.join("vendor/other")));
+    Ok(())
+}
+
+/// `print-root` has a scope, so an unlisted project is an error for it
+/// too.
+#[test]
+fn print_root_in_an_unlisted_project_is_an_error() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace(ROOT)?;
+    dependency(dir.path(), "stray")?;
+    run_sysand_discovering(&dir.path().join("stray"), ["print-root"])?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(UNLISTED_TEXT));
+    Ok(())
+}
+
+#[test]
+fn print_root_outside_a_workspace_prints_the_project_root() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "standalone", "1.2.3", None)?;
+    run_sysand_discovering(&cwd, ["print-root"])?
+        .assert()
+        .success()
+        .stdout(format!("{cwd}\n"));
     Ok(())
 }
