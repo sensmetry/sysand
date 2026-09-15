@@ -45,7 +45,7 @@ use sysand_core::{
     stdlib::known_std_libs,
     workspace::{
         Workspace,
-        model_toml::{discover_table, start_region},
+        model_toml::{StartRegion, discover_table, start_region},
     },
 };
 use url::Url;
@@ -419,16 +419,21 @@ fn run_cli_with(
     };
     let config_root = config_root(&cwd, project_root.as_deref(), workspace_root.as_deref());
 
-    // Appendix A rows 24 and 25, for the commands that have a scope.
-    if consults_the_workspace(&command) {
+    // Nesting and unlisted projects, for the commands that have a scope.
+    // The workspace root and where under it the command started: both
+    // halves are needed, since `StartRegion` carries no root.
+    let scope: Option<(Utf8PathBuf, StartRegion)> = if consults_the_workspace(&command) {
         match discovered {
             Ok(Some((root, table))) => {
-                start_region(&root, &table, &cwd)?;
+                let start = start_region(&root, &table, &cwd)?;
+                Some((root, start))
             }
-            Ok(None) => {}
+            Ok(None) => None,
             Err(error) => return Err(error.into()),
         }
-    }
+    } else {
+        None
+    };
     let ctx = ProjectContext {
         env,
         current_workspace,
@@ -690,7 +695,10 @@ fn run_cli_with(
         Command::Auth { command: _ } => {
             unreachable!("`auth` is dispatched before the auth policy is built")
         }
-        Command::PrintRoot => command_print_root(ctx.current_directory),
+        Command::PrintRoot => command_print_root(
+            &ctx.current_directory,
+            scope.as_ref().map(|(root, start)| (root.as_path(), start)),
+        ),
         Command::Info {
             locator,
             get,
