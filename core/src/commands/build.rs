@@ -11,12 +11,13 @@ use std::{collections::HashSet, io::Write as _};
 use crate::{
     env::utils::ErrorBound,
     include::{IncludeError, extract_symbols, read_project_file_to_string},
+    manifest::usage::Usage,
     model::{
         InterchangeProjectChecksumRaw, InterchangeProjectUsageRaw,
-        InterchangeProjectValidationError, KerMlChecksumAlg,
+        InterchangeProjectValidationError, KerMlChecksumAlg, format_created,
     },
     project::{
-        ProjectFormat, ProjectRead,
+        ManifestError, ProjectFormat, ProjectRead,
         local_kpar::LocalKParProjectRaw,
         local_src::{LocalSrcError, LocalSrcProject},
         utils::{FsIoError, ZipArchiveError, wrapfs},
@@ -145,18 +146,44 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
         "unknown file format of `{0}`, only SysML v2 (.sysml) and KerML (.kerml) files are supported"
     )]
     UnknownFormat(Box<str>),
-    /// A view of a `model.toml` project is not what a build needs:
-    /// `created` is a placeholder and the local usages are not
-    /// rewritten into the PURLs an archive carries.
+    /// model-toml.md "TOML to KPAR": a `dir` or `kpar-path` usage
+    /// "turn[s] into a PURL constrained to `^<version>`, where
+    /// `<version>` is the target project's version at build time".
+    /// Reading the target's manifest is WP-6b.
+    ///
+    /// The message names both ways forward, because there are two. The
+    /// specification's own opt-out is `--allow-path-usage`, "the
+    /// existing flag whose meaning is 'I accept a KPAR that only
+    /// resolves on this machine'": with it the usage stays a typed path
+    /// usage and no target is read.
     ///
     /// The check lives in [`do_build_kpar`] rather than in a frontend: a
     /// refusal one frontend makes is not a refusal.
     #[error(
-        "building a `model.toml` project is not supported yet;\n\
-        {SP:>8} this version of Sysand builds KPARs from `.project.json` projects only",
+        "building a `model.toml` project with the local usage `{usage}` is not supported yet;\n\
+        {SP:>8} this version of Sysand cannot rewrite it into the PURL an archive carries.\n\
+        {SP:>8} Pass `--allow-path-usage` to keep it as a path usage, accepting that the\n\
+        {SP:>8} archive will only resolve on this machine",
         SP = ' '
     )]
-    TomlProject,
+    TomlLocalUsage { usage: String },
+    /// model-toml.md "TOML to KPAR": "an index, source path or kpar path
+    /// usage whose target carries `stdlib`: the OMG IRI instead of the
+    /// PURL". For an index usage the target is not on disk at all -- the
+    /// IRI comes from the embedded metadata of `known_std_libs()` -- so
+    /// this one is WP-6b too.
+    ///
+    /// `--allow-path-usage` does not excuse it: the flag is about path
+    /// usages, and "under `--allow-path-usage` a local usage stays a
+    /// typed path usage, stdlib target or not" says nothing about an
+    /// index usage.
+    #[error(
+        "building a `model.toml` project with the standard-library usage `{usage}` is not \n\
+        {SP:>8} supported yet; this version of Sysand cannot rewrite it into the OMG IRI\n\
+        {SP:>8} an archive carries",
+        SP = ' '
+    )]
+    TomlStdlibUsage { usage: String },
     #[error("missing project info file `.project.json` and metadata file `.meta.json`")]
     MissingInfoMeta,
     #[error("missing project info file `.project.json`")]
@@ -256,9 +283,6 @@ pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     update_index: bool,
     allow_path_usage: bool,
 ) -> Result<LocalKParProjectRaw, KParBuildError<Pr::Error>> {
-    if project.format().map_err(KParBuildError::ProjectRead)? == ProjectFormat::Toml {
-        return Err(KParBuildError::TomlProject);
-    }
     let path = path.as_ref();
     match do_build_kpar_inner(
         project,
@@ -291,7 +315,7 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     let header = crate::style::get_style_config().header;
     log::info!("{header}{building:>12}{header:#} kpar `{}`", path.as_ref());
 
-    let (info, mut meta) = match project.get_project() {
+    let (mut info, mut meta) = match project.get_project() {
         Ok(im) => match im {
             (Some(i), Some(m)) => (i, m),
             (None, Some(_)) => return Err(KParBuildError::MissingInfo),
@@ -308,6 +332,56 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         name: "meta",
         source: e,
     })?;
+
+    // model-toml.md "TOML to KPAR", the three rules that are the
+    // archive's and not the view's (see `kpar_view`'s module doc), and
+    // the `created` the view deliberately does not record.
+    //
+    // Gated on the format: a json `.project.json` may legally carry a
+    // `pkg:sysand/omg/...` resource, and a json project with a typed
+    // path usage builds under `--allow-path-usage`. Neither is
+    // this branch's business.
+    if project.format().map_err(KParBuildError::ProjectRead)? == ProjectFormat::Toml {
+        let manifest = project.manifest().map_err(|error| match error {
+            ManifestError::Project(error) => KParBuildError::ProjectRead(error),
+            // `get_project` above produced a view, which only a
+            // `model.toml` project can do.
+            ManifestError::NoTomlManifest => unreachable!("a toml project has a manifest"),
+        })?;
+
+        // Over the *typed* usages, not `info.usage`: at the raw level an
+        // index usage and a remote-kpar usage are both `Resource`, and a
+        // remote-kpar `url` that happens to be a `pkg:sysand` IRI would
+        // be misread as the first.
+        for located in &manifest.usages {
+            match &located.usage {
+                Usage::SourcePath { .. } | Usage::KparPath { .. } if !allow_path_usage => {
+                    return Err(KParBuildError::TomlLocalUsage {
+                        usage: located.usage.to_string(),
+                    });
+                }
+                Usage::Index { publisher, .. } if publisher.is_stdlib_publisher() => {
+                    return Err(KParBuildError::TomlStdlibUsage {
+                        usage: located.usage.to_string(),
+                    });
+                }
+                _ => {}
+            }
+        }
+
+        // "`created` is the time of the build (so two builds of
+        // identical sources are not byte-identical)". The view records
+        // the epoch, because a view is a function of the manifest and
+        // the source files and the clock is not one of its inputs.
+        meta.created = format_created(&jiff::Timestamp::now());
+
+        // "`publisher` goes into `project.publisher`, unless the project
+        // carries `stdlib`", so that a locally built standard-library
+        // KPAR matches the published one.
+        if manifest.stdlib.is_some() {
+            info.publisher = None;
+        }
+    }
 
     if let Some(path_usage) = info.usage.iter().find_map(|x| {
         match x {
