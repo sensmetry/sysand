@@ -15,6 +15,7 @@ use assert_cmd::prelude::*;
 use camino::Utf8Path;
 use predicates::prelude::*;
 use sysand_core::{
+    commands::lock::DEFAULT_LOCKFILE_NAME,
     config::{self, ConfigProject, OverrideSource},
     lock::Lockfile,
 };
@@ -300,46 +301,6 @@ fn a_broken_member_does_not_change_where_config_is_read() -> Result<(), Box<dyn 
     Ok(())
 }
 
-/// A nested workspace is an error for the command that needs the
-/// workspace, not for configuration loading.
-#[test]
-fn a_nested_workspace_does_not_break_config_loading() -> Result<(), Box<dyn std::error::Error>> {
-    let outer = camino_tempfile::tempdir()?;
-    std::fs::write(outer.path().join("model.toml"), ROOT)?;
-    let inner = outer.path().join("inner");
-    std::fs::create_dir_all(&inner)?;
-    std::fs::write(inner.join("model.toml"), ROOT)?;
-    std::fs::create_dir_all(inner.join("app"))?;
-    std::fs::write(inner.join("app/model.toml"), MEMBER)?;
-
-    let member = inner.join("app");
-    dependency(&inner, "local-dep")?;
-    run_sysand_in(
-        &member,
-        [
-            "add",
-            "--iri",
-            USAGE,
-            "--version-constraint",
-            CONSTRAINT,
-            "--no-lock",
-        ],
-        None,
-    )?
-    .assert()
-    .success();
-    write_config(&inner, "local-dep")?;
-
-    // The fallback is the project root -- the member -- so the override
-    // is not found, but the command runs rather than dying on the
-    // nesting.
-    let out = run_sysand_discovering(&member, ["lock"])?;
-    out.assert()
-        .failure()
-        .stderr(predicate::str::contains("nested workspaces").not());
-    Ok(())
-}
-
 // ------------------------------------------------- stray configuration
 
 const ROW_26: &str = "is not at the workspace root, so it is ignored as a whole";
@@ -400,9 +361,20 @@ fn the_root_config_is_not_reported_as_a_stray() -> Result<(), Box<dyn std::error
     let dir = workspace(ROOT)?;
     let member = dir.path().join("app");
     dependency(dir.path(), "local-dep")?;
-    run_sysand_in(&member, ["add", USAGE, CONSTRAINT, "--no-lock"], None)?
-        .assert()
-        .success();
+    run_sysand_in(
+        &member,
+        [
+            "add",
+            "--iri",
+            USAGE,
+            "--version-constraint",
+            CONSTRAINT,
+            "--no-lock",
+        ],
+        None,
+    )?
+    .assert()
+    .success();
     write_config(dir.path(), "local-dep")?;
 
     run_sysand_discovering(&member, ["lock"])?
@@ -426,10 +398,10 @@ fn a_command_that_reads_no_config_does_not_warn() -> Result<(), Box<dyn std::err
     Ok(())
 }
 
-/// `info` resolves under `--iri` and under `--auto-location`, which
-/// parses its argument as an IRI and reaches the same resolver.
+/// `info` resolves under `--iri`, and under a `<publisher>/<name>`
+/// identifier, which is looked up in the indexes.
 #[test]
-fn info_warns_with_an_iri_and_with_an_auto_location() -> Result<(), Box<dyn std::error::Error>> {
+fn info_warns_with_an_iri_and_with_an_identifier() -> Result<(), Box<dyn std::error::Error>> {
     let dir = workspace(ROOT)?;
     let member = dir.path().join("app");
     write_config(&member, "local-dep")?;
@@ -437,7 +409,7 @@ fn info_warns_with_an_iri_and_with_an_auto_location() -> Result<(), Box<dyn std:
     run_sysand_discovering(&member, ["info", "--iri", USAGE])?
         .assert()
         .stderr(predicate::str::contains(ROW_26));
-    run_sysand_discovering(&member, ["info", "-a", USAGE])?
+    run_sysand_discovering(&member, ["info", "acme/local-dep"])?
         .assert()
         .stderr(predicate::str::contains(ROW_26));
     // Plain `info` reads the project in front of it and resolves
@@ -457,5 +429,150 @@ fn no_config_silences_the_warning() -> Result<(), Box<dyn std::error::Error>> {
     run_sysand_in(&member, ["lock"], None)?
         .assert()
         .stderr(predicate::str::contains(ROW_26).not());
+    Ok(())
+}
+
+// ------------------------------- which commands consult the workspace
+
+// `workspaces.md` "Command scopes": `clone`, `index` and `auth` are
+// scope-free, so a workspace they would refuse does not stop them.
+
+const NESTED_TEXT: &str = "nested workspaces are not supported";
+const UNLISTED_TEXT: &str = "is neither listed in `workspace.members`";
+
+/// An outer workspace that does not `exclude` the inner one: appendix A
+/// row 24. Returns the inner member directory.
+fn nested()
+-> Result<(camino_tempfile::Utf8TempDir, camino::Utf8PathBuf), Box<dyn std::error::Error>> {
+    let outer = camino_tempfile::tempdir()?;
+    std::fs::write(outer.path().join("model.toml"), ROOT)?;
+    let inner = outer.path().join("inner");
+    std::fs::create_dir_all(&inner)?;
+    std::fs::write(inner.join("model.toml"), ROOT)?;
+    std::fs::create_dir_all(inner.join("app"))?;
+    std::fs::write(inner.join("app/model.toml"), MEMBER)?;
+    let member = inner.join("app");
+    Ok((outer, member))
+}
+
+/// `index init` is the scope-free probe: the only one of the three that
+/// is offline and needs neither a project nor a keyring. `--index-root`
+/// is required -- without it the index lands in the current directory,
+/// inside the fixture.
+fn index_init(cwd: &Utf8Path) -> Result<std::process::Output, Box<dyn std::error::Error>> {
+    run_sysand_discovering(cwd, ["index", "init", "--index-root", "idx"])
+}
+
+#[test]
+fn index_init_runs_in_a_nested_workspace() -> Result<(), Box<dyn std::error::Error>> {
+    let (_outer, member) = nested()?;
+    index_init(&member)?.assert().success();
+    Ok(())
+}
+
+/// A nested workspace is an error for a command that has a scope.
+#[test]
+fn a_nested_workspace_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let (_outer, member) = nested()?;
+    run_sysand_discovering(&member, ["lock"])?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(NESTED_TEXT));
+    Ok(())
+}
+
+/// The check runs before configuration is loaded: a command about to
+/// refuse the workspace should not first warn about where it would have
+/// read `sysand.toml`.
+///
+/// The stray file sits one directory *below* the member, because in a
+/// nested workspace `config_root` falls back to the project root -- the
+/// member itself -- so a `sysand.toml` in the member is "the root's own
+/// file" and is never reported whatever the ordering.
+#[test]
+fn a_nested_workspace_is_refused_before_the_config_warning()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_outer, member) = nested()?;
+    let deep = member.join("src");
+    std::fs::create_dir_all(&deep)?;
+    write_config(&deep, "local-dep")?;
+
+    run_sysand_discovering(&deep, ["lock"])?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(NESTED_TEXT))
+        .stderr(predicate::str::contains(ROW_26).not());
+    Ok(())
+}
+
+/// workspaces.md "Included projects": a project under the root in
+/// neither list is a hard error.
+#[test]
+fn an_unlisted_project_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace(ROOT)?;
+    dependency(dir.path(), "stray")?;
+    run_sysand_discovering(&dir.path().join("stray"), ["lock"])?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(UNLISTED_TEXT));
+    Ok(())
+}
+
+#[test]
+fn index_init_runs_in_an_unlisted_project() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace(ROOT)?;
+    dependency(dir.path(), "stray")?;
+    index_init(&dir.path().join("stray"))?.assert().success();
+    Ok(())
+}
+
+/// `clone` is scope-free *and* reads configuration, so it can still
+/// show where `sysand.toml` is read from in a workspace no scoped
+/// command would accept.
+#[test]
+fn clone_runs_in_an_unlisted_project() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace(ROOT)?;
+    dependency(dir.path(), "stray")?;
+    dependency(dir.path(), "src-proj")?;
+    run_sysand_discovering(
+        &dir.path().join("stray"),
+        ["clone", "--dir", "../src-proj", "--target", "out"],
+    )?
+    .assert()
+    .success();
+    Ok(())
+}
+
+/// "This is the only kind of non-member project that may sit under a
+/// workspace root."
+#[test]
+fn an_excluded_project_is_not_unlisted() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace(
+        "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\nexclude = [\"vendor\"]\n",
+    )?;
+    dependency(dir.path(), "vendor/other")?;
+    run_sysand_discovering(&dir.path().join("vendor/other"), ["lock"])?
+        .assert()
+        .success();
+    Ok(())
+}
+
+/// The reason the scope check reads the table and not the members:
+/// `lock` writes a lockfile into the member it locks, and
+/// `workspaces.md` "Stray per-member state" makes that an error for a
+/// member. A command that loaded the members would refuse the workspace
+/// its own previous run created.
+#[test]
+fn a_members_own_lockfile_does_not_stop_a_later_command() -> Result<(), Box<dyn std::error::Error>>
+{
+    let dir = workspace(ROOT)?;
+    let member = dir.path().join("app");
+    run_sysand_discovering(&member, ["lock"])?
+        .assert()
+        .success();
+    assert!(member.join(DEFAULT_LOCKFILE_NAME).exists());
+    run_sysand_discovering(&member, ["lock"])?
+        .assert()
+        .success();
     Ok(())
 }

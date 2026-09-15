@@ -43,7 +43,10 @@ use sysand_core::{
     },
     resolve::{ResolutionInfo, net_utils::create_reqwest_client},
     stdlib::known_std_libs,
-    workspace::{Workspace, model_toml::discover_table},
+    workspace::{
+        Workspace,
+        model_toml::{discover_table, start_region},
+    },
 };
 use url::Url;
 
@@ -400,7 +403,32 @@ fn run_cli_with(
         (Some(w), _) => get_env(w.root_path())?,
     };
     let project_root = current_project.as_ref().map(|p| p.root_path().to_owned());
-    let config_root = config_root(&cwd, project_root.as_deref());
+
+    // One upward walk for both questions below: configuration is read
+    // at the workspace root, and a command with a scope has to know
+    // which workspace it is in before it runs.
+    let discovered = discover_table(&cwd);
+    let workspace_root = match &discovered {
+        Ok(Some((root, _))) => Some(root.clone()),
+        Ok(None) => None,
+        // Not fatal *here*: see `config_root`.
+        Err(error) => {
+            log::debug!("not reading configuration from a workspace root: {error}");
+            None
+        }
+    };
+    let config_root = config_root(&cwd, project_root.as_deref(), workspace_root.as_deref());
+
+    // Appendix A rows 24 and 25, for the commands that have a scope.
+    if consults_the_workspace(&command) {
+        match discovered {
+            Ok(Some((root, table))) => {
+                start_region(&root, &table, &cwd)?;
+            }
+            Ok(None) => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
     let ctx = ProjectContext {
         env,
         current_workspace,
@@ -1025,6 +1053,55 @@ fn reads_configuration(command: &cli::Command) -> bool {
     }
 }
 
+/// Whether a command consults the `[workspace]` table before it runs.
+///
+/// `workspaces.md` "Command scopes" gives every command a target --
+/// the whole workspace, or the member the command was run in -- except
+/// the last row:
+///
+/// > `clone`, `index`, `auth` | scope-free: `clone` creates a project
+/// > outside any scope, `index`/`auth` are configuration
+///
+/// So a workspace that is nested, or that the command was started
+/// outside of, stops the others and not those three. `init` joins them
+/// for a different reason: it reads the root table itself, and creating
+/// a project must not be blocked by an unrelated member's mistake
+/// (`init_in_a_workspace_with_a_broken_member_still_works`).
+///
+/// This is *consulting*, not loading. `Workspace::load` also enforces
+/// the member requirements and "Stray per-member state", so a command
+/// that writes a lockfile, a `.sysand` directory or `output` into the
+/// member it acts on would, through the loader, refuse the workspace its
+/// own previous run created. See `StartRegion`.
+///
+/// The same paragraph says a project under the root that is neither a
+/// member nor excluded is an error "whatever the command". That cannot
+/// be read literally, since the paragraph also calls `auth` scope-free:
+/// it contrasts the scoped commands with each other, rather than
+/// extending the check to commands that have no scope.
+fn consults_the_workspace(command: &cli::Command) -> bool {
+    match command {
+        cli::Command::Build { .. }
+        | cli::Command::Sources { .. }
+        | cli::Command::Info { .. }
+        | cli::Command::Edit { .. }
+        | cli::Command::Publish { .. }
+        | cli::Command::Add { .. }
+        | cli::Command::Remove { .. }
+        | cli::Command::Include { .. }
+        | cli::Command::Exclude { .. }
+        | cli::Command::Experimental { .. }
+        | cli::Command::Lock { .. }
+        | cli::Command::Sync { .. }
+        | cli::Command::Env { .. }
+        | cli::Command::PrintRoot => true,
+        cli::Command::Init { .. }
+        | cli::Command::Clone { .. }
+        | cli::Command::Index { .. }
+        | cli::Command::Auth { .. } => false,
+    }
+}
+
 /// Every `sysand.toml` between `cwd` and the workspace root, which is
 /// none when `root` is not a workspace root above `cwd`.
 ///
@@ -1055,22 +1132,22 @@ fn stray_configs(cwd: &Utf8Path, root: &Utf8Path) -> Result<Vec<Utf8PathBuf>> {
 /// The workspace root when there is one, the project root otherwise, and
 /// the current directory when there is no project either.
 ///
-/// [`discover_table`] and not [`sysand_core::workspace::model_toml::Workspace::discover`]:
+/// `workspace_root` comes from [`discover_table`] and not from
+/// [`sysand_core::workspace::model_toml::Workspace::discover`]:
 /// configuration is not about the members, and a broken member must not
 /// change where `sysand.toml` is read from.
 ///
 /// A discovery *error* -- a nested workspace, an ancestor `model.toml`
-/// that does not parse -- is not fatal here either. The command that
-/// actually needs the workspace reports it; failing config loading would
-/// take down every command including the ones that never look at a
-/// workspace.
-fn config_root(cwd: &Utf8Path, project_root: Option<&Utf8Path>) -> Utf8PathBuf {
-    match discover_table(cwd) {
-        Ok(Some((root, _))) => return root,
-        Ok(None) => {}
-        Err(error) => log::debug!("not reading configuration from a workspace root: {error}"),
-    }
-    project_root.unwrap_or(cwd).to_owned()
+/// that does not parse -- arrives here as `None` rather than as a
+/// failure. The command that actually needs the workspace reports it;
+/// failing configuration loading would take down every command,
+/// including the ones that never look at a workspace.
+fn config_root(
+    cwd: &Utf8Path,
+    project_root: Option<&Utf8Path>,
+    workspace_root: Option<&Utf8Path>,
+) -> Utf8PathBuf {
+    workspace_root.or(project_root).unwrap_or(cwd).to_owned()
 }
 
 pub fn get_overrides<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
