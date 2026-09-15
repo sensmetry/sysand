@@ -201,6 +201,14 @@ impl<ProjectReadError: ErrorBound> From<IncludeError<ProjectReadError>>
             IncludeError::Io(error) => error.into(),
             IncludeError::Extract(..) => Self::Extract(format_err(value)),
             IncludeError::UnknownFormat(error) => Self::UnknownFormat(error),
+            // These belong to `do_include`'s `model.toml` arm, and a
+            // build refuses such a project before it gets here. The arms
+            // exist because the match is exhaustive, not because they
+            // are reachable.
+            IncludeError::ComputedField(_)
+            | IncludeError::ForceFormat
+            | IncludeError::Edit(_)
+            | IncludeError::Manifest(_) => Self::Extract(format_err(value)),
         }
     }
 }
