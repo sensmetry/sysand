@@ -494,3 +494,228 @@ fn a_requested_usage_takes_the_origin_of_the_project_that_declared_it() {
     .expect("write .meta.json");
     assert_eq!(origins_of(json.path()), [UsageOrigin::Json]);
 }
+
+// ------------------------ a base per input project
+
+/// A `.project.json` *and* a `.meta.json` at `at`, published as
+/// `acme/<name>`. The solver needs only the first; `do_lock_extend`
+/// returns `IncompleteProject { field: Meta }` without the second.
+#[cfg(feature = "filesystem")]
+fn project_dir(at: &camino::Utf8Path, name: &str) {
+    std::fs::create_dir_all(at).expect("the project directory");
+    std::fs::write(
+        at.join(".project.json"),
+        format!(r#"{{"name": "{name}", "publisher": "acme", "version": "1.0.0", "usage": []}}"#),
+    )
+    .expect("a manifest");
+    std::fs::write(
+        at.join(".meta.json"),
+        br#"{"created": "2001-02-03T04:05:06Z", "index": {}, "checksum": {}}"#,
+    )
+    .expect("a metadata file");
+}
+
+#[cfg(feature = "filesystem")]
+fn dir_usage(dir: &str, name: &str) -> crate::model::InterchangeProjectUsage {
+    crate::model::InterchangeProjectUsage::Directory {
+        dir: dir.into(),
+        publisher: crate::model::ProjectPublisher::parse("acme".to_owned()).unwrap(),
+        name: crate::model::ProjectName::parse(name.to_owned()).unwrap(),
+    }
+}
+
+/// A context whose project root is `at`.
+///
+/// Every test here needs one. The base a usage resolves against and the
+/// root a solved dependency's sources are relativized against are
+/// different things, and without a root, `LocalSrcProject::sources`
+/// panics.
+#[cfg(feature = "filesystem")]
+fn ctx_rooted_at(at: &camino::Utf8Path) -> ProjectContext {
+    ProjectContext {
+        current_project: Some(crate::project::local_src::LocalSrcProject::new_access(
+            at.to_owned(),
+            None,
+        )),
+        ..Default::default()
+    }
+}
+
+/// `workspaces.md` "Intra-workspace usages": a member's `dir` is
+/// relative to that member, so two input projects do not share a base.
+///
+/// The two targets are *different* projects: the solver coalesces
+/// usages by publisher and name, so naming one would let either base
+/// answer both.
+#[cfg(feature = "filesystem")]
+#[test]
+fn two_input_projects_resolve_against_their_own_bases() -> Result<(), Box<dyn std::error::Error>> {
+    use crate::{
+        commands::lock::do_lock_projects_with_bases, project::memory::InMemoryProject,
+        resolve::file::FileResolver,
+    };
+
+    let tmp = camino_tempfile::tempdir()?;
+    project_dir(&tmp.path().join("alpha/dep"), "one");
+    project_dir(&tmp.path().join("beta/dep"), "two");
+
+    let alpha = InMemoryProject::from_info_meta(
+        serde_json::from_str(
+            r#"{"name": "alpha", "publisher": "acme", "version": "1.0.0",
+                "usage": [{"dir": "dep", "publisher": "acme", "name": "one"}]}"#,
+        )?,
+        serde_json::from_str(r#"{"created": "2001-02-03T04:05:06Z", "index": {}}"#)?,
+    );
+    let beta = InMemoryProject::from_info_meta(
+        serde_json::from_str(
+            r#"{"name": "beta", "publisher": "acme", "version": "1.0.0",
+                "usage": [{"dir": "dep", "publisher": "acme", "name": "two"}]}"#,
+        )?,
+        serde_json::from_str(r#"{"created": "2001-02-03T04:05:06Z", "index": {}}"#)?,
+    );
+
+    // Wrapped editable, as a workspace's members are: an editable
+    // project reports its own path as its source and never asks the
+    // inner project for one.
+    let alpha = crate::project::editable::EditableProject::new("alpha".into(), alpha);
+    let beta = crate::project::editable::EditableProject::new("beta".into(), beta);
+
+    let outcome = do_lock_projects_with_bases(
+        vec![
+            (None, &alpha, Some(tmp.path().join("alpha"))),
+            (None, &beta, Some(tmp.path().join("beta"))),
+        ],
+        FileResolver {
+            sandbox_roots: None,
+        },
+        &HashMap::default(),
+        &ctx_rooted_at(tmp.path()),
+    )
+    .map_err(|e| e.to_string())?;
+
+    // Two inputs plus the two distinct targets they each resolve.
+    assert_eq!(
+        outcome.lock.projects.len(),
+        4,
+        "{:?}",
+        outcome.lock.projects
+    );
+    Ok(())
+}
+
+/// An input project records the editable path it was given, not `"."`.
+#[cfg(feature = "filesystem")]
+#[test]
+fn an_input_project_records_its_own_editable_path() -> Result<(), Box<dyn std::error::Error>> {
+    use crate::{
+        commands::lock::do_lock_projects_with_bases, project::editable::EditableProject,
+        resolve::null::NullResolver,
+    };
+
+    let member = |name: &str| -> Result<_, Box<dyn std::error::Error>> {
+        Ok(InMemoryProject::from_info_meta(
+            serde_json::from_str(&format!(
+                r#"{{"name": "{name}", "publisher": "acme", "version": "1.0.0", "usage": []}}"#
+            ))?,
+            serde_json::from_str(r#"{"created": "2001-02-03T04:05:06Z", "index": {}}"#)?,
+        ))
+    };
+    let app = EditableProject::new("app".into(), member("app")?);
+    let gamma = EditableProject::new("libs/gamma".into(), member("gamma")?);
+
+    let outcome = do_lock_projects_with_bases(
+        vec![(None, &app, None), (None, &gamma, None)],
+        NullResolver {},
+        &HashMap::default(),
+        &ProjectContext::default(),
+    )
+    .map_err(|e| e.to_string())?;
+
+    let editables: Vec<&str> = outcome
+        .lock
+        .projects
+        .iter()
+        .flat_map(|p| &p.sources)
+        .filter_map(|s| match s {
+            Source::Editable { editable } => Some(editable.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(editables, vec!["app", "libs/gamma"]);
+    Ok(())
+}
+
+/// The wrapper still derives one base from the context, for every
+/// usage. A `Resource` usage would not show it: only a relative `dir`
+/// consults the base at all.
+#[cfg(feature = "filesystem")]
+#[test]
+fn do_lock_projects_still_derives_one_base() -> Result<(), Box<dyn std::error::Error>> {
+    use crate::{project::memory::InMemoryProject, resolve::file::FileResolver};
+
+    let tmp = camino_tempfile::tempdir()?;
+    project_dir(&tmp.path().join("dep"), "one");
+    project_dir(&tmp.path().join("other"), "two");
+
+    let app = InMemoryProject::from_info_meta(
+        serde_json::from_str(
+            r#"{"name": "app", "publisher": "acme", "version": "1.0.0",
+                "usage": [{"dir": "dep", "publisher": "acme", "name": "one"},
+                          {"dir": "other", "publisher": "acme", "name": "two"}]}"#,
+        )?,
+        serde_json::from_str(r#"{"created": "2001-02-03T04:05:06Z", "index": {}}"#)?,
+    );
+
+    let app = crate::project::editable::EditableProject::new("app".into(), app);
+
+    let outcome = do_lock_projects(
+        vec![(None, &app)],
+        FileResolver {
+            sandbox_roots: None,
+        },
+        &HashMap::default(),
+        &ctx_rooted_at(tmp.path()),
+    )
+    .map_err(|e| e.to_string())?;
+    assert_eq!(
+        outcome.lock.projects.len(),
+        3,
+        "{:?}",
+        outcome.lock.projects
+    );
+    Ok(())
+}
+
+/// The same for the other wrapper. Asserting the reason: with no base
+/// the resolver says so, and `is_err` alone would not tell that apart
+/// from any other resolution failure.
+#[cfg(feature = "filesystem")]
+#[test]
+fn do_lock_extend_still_derives_one_base() -> Result<(), Box<dyn std::error::Error>> {
+    use crate::resolve::file::FileResolver;
+
+    let tmp = camino_tempfile::tempdir()?;
+    project_dir(&tmp.path().join("dep"), "one");
+
+    let outcome = do_lock_extend(
+        Lock::default(),
+        vec![(
+            dir_usage("dep", "one"),
+            crate::commands::lock::DeclaredBy::Input("the test".to_owned()),
+            UsageOrigin::Json,
+        )],
+        FileResolver {
+            sandbox_roots: None,
+        },
+        &HashMap::default(),
+        &ctx_rooted_at(tmp.path()),
+    )
+    .map_err(|e| e.to_string())?;
+    assert_eq!(
+        outcome.lock.projects.len(),
+        1,
+        "{:?}",
+        outcome.lock.projects
+    );
+    Ok(())
+}
