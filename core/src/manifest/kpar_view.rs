@@ -186,6 +186,27 @@ pub fn usage_of_raw(raw: &InterchangeProjectUsageRaw, file: &str) -> Result<Usag
                 kpar_path: kpar_path.as_str().into(),
             })
         }
+        // A typed index usage already carries everything a manifest
+        // entry needs
+        InterchangeProjectUsageRaw::Index {
+            publisher,
+            name,
+            version_constraint,
+        } => {
+            let (publisher, name) = identity(publisher, name)?;
+            let version_constraint =
+                semver::VersionReq::parse(version_constraint).map_err(|e| {
+                    NoManifestForm::Identifier {
+                        file: file.to_owned(),
+                        problem: format!("version constraint `{version_constraint}`: {e}"),
+                    }
+                })?;
+            Ok(Usage::Index {
+                publisher,
+                name,
+                version_constraint,
+            })
+        }
     }
 }
 

@@ -21,12 +21,13 @@ use sysand_core::{
     },
     context::ProjectContext,
     lock::{Lock, Lockfile},
+    manifest::MODEL_TOML_FILE,
     model::{
         IndexName, IndexPublisher, InterchangeProjectUsage, InterchangeProjectUsageRaw,
         ProjectName, ProjectPublisher,
     },
     project::{
-        ProjectMut as _, ProjectRead as _,
+        ProjectFormat, ProjectMut as _, ProjectRead as _,
         local_kpar::{KparInnerPath, LocalKParProject},
         local_src::LocalSrcProject,
         utils::{Identifier, relativize_path, wrapfs},
@@ -73,6 +74,9 @@ pub fn command_add<Policy: HTTPAuthentication>(
         .clone()
         .ok_or(CliError::MissingProjectCurrentDir)?;
 
+    // The source override of a resource usage, recorded only once the
+    // usage is in the manifest (see `record_override`)
+    let mut pending_override = None;
     let usage = match locator {
         AddProjectLocatorArgs {
             identifier: Some((publisher, name)),
@@ -227,19 +231,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
             iri_path,
         } => {
             let iri = iri_or_path_to_iri(iri, iri_path)?;
-            process_overrides(
-                &resolution_opts,
-                source_overrides,
-                &mut config,
-                config_file,
-                no_config,
-                &ctx,
-                &client,
-                &runtime,
-                &auth_policy,
-                &current_project,
-                &iri,
-            )?;
+            pending_override = Some((source_overrides, iri.clone()));
             let usage = InterchangeProjectUsage::Resource {
                 resource: iri,
                 version_constraint,
@@ -250,17 +242,29 @@ pub fn command_add<Policy: HTTPAuthentication>(
     };
 
     if no_lock {
-        return match usage {
-            UsageToAdd::Ready(usage) => Ok(do_add(&mut current_project, &usage)?),
-            UsageToAdd::AlreadyPresent => Ok(false),
+        let added = match usage {
+            UsageToAdd::Ready(usage) => do_add(&mut current_project, &usage)?,
+            UsageToAdd::AlreadyPresent => false,
             UsageToAdd::PendingIndex(_) => {
                 unreachable!("without locking, an index usage is settled from the environment")
             }
         };
+        record_override(
+            pending_override,
+            &resolution_opts,
+            &mut config,
+            config_file,
+            no_config,
+            &ctx,
+            &client,
+            &runtime,
+            &auth_policy,
+            &current_project,
+        )?;
+        return Ok(added);
     }
 
-    let info_path = current_project.info_path();
-    let info_backup = wrapfs::read_to_string(&info_path)?;
+    let (backup_path, backup) = manifest_backup(&current_project)?;
 
     let provided_iris = if resolution_opts.include_std {
         HashMap::default()
@@ -283,16 +287,6 @@ pub fn command_add<Policy: HTTPAuthentication>(
         sysml_std
     };
 
-    let resolver = create_resolver(
-        resolution_opts,
-        &config,
-        current_project.root_path(),
-        &ctx,
-        provided_iris.clone(),
-        client.clone(),
-        runtime.clone(),
-        auth_policy.clone(),
-    )?;
     // Even when nothing is added, lock and sync, since the environment may
     // be missing or stale
     let (added, pending) = match usage {
@@ -307,6 +301,32 @@ pub fn command_add<Policy: HTTPAuthentication>(
             )
         }
     };
+    // Recorded once the usage is in the manifest, and before the
+    // resolver is built, which reads the configuration it goes into
+    let resolver = record_override(
+        pending_override,
+        &resolution_opts,
+        &mut config,
+        config_file,
+        no_config,
+        &ctx,
+        &client,
+        &runtime,
+        &auth_policy,
+        &current_project,
+    )
+    .and_then(|()| {
+        create_resolver(
+            resolution_opts,
+            &config,
+            current_project.root_path(),
+            &ctx,
+            provided_iris.clone(),
+            client.clone(),
+            runtime.clone(),
+            auth_policy.clone(),
+        )
+    });
 
     let alias_iris = if let Some(w) = &ctx.current_workspace {
         w.projects()
@@ -318,7 +338,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
     };
 
     let project_root = current_project.root_path().to_owned();
-    let locked = (|| {
+    let locked = resolver.and_then(|resolver| {
         let respelled = pending
             .as_ref()
             .and_then(|(_, pending)| pending.respelled());
@@ -334,7 +354,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
             settle_from_lock(&mut current_project, &lock, &placeholder, pending)?;
         }
         Ok::<_, anyhow::Error>(lock)
-    })();
+    });
     let result = locked.and_then(|lock| {
         write_lock_and_sync(
             lock,
@@ -351,8 +371,8 @@ pub fn command_add<Policy: HTTPAuthentication>(
     match result {
         Ok(()) => Ok(added),
         Err(e) => {
-            // Restore old info
-            wrapfs::write(&info_path, info_backup)?;
+            // Restore the manifest the project actually has.
+            wrapfs::write(&backup_path, backup)?;
             Err(e)
         }
     }
@@ -364,6 +384,60 @@ enum UsageToAdd {
     Ready(InterchangeProjectUsageRaw),
     PendingIndex(PendingIndexUsage),
     AlreadyPresent,
+}
+
+/// The manifest a rollback has to put back.
+///
+/// `add` edits the project and then relocks and resyncs; if that fails
+/// the edit is undone. The file is the one the project's format names:
+/// on a `model.toml` project, reading `.project.json` fails before the
+/// edit, and restoring one would write it beside the manifest -- a
+/// project holding both, which cannot be read.
+fn manifest_backup(project: &LocalSrcProject) -> Result<(Utf8PathBuf, String)> {
+    let path = match project.format()? {
+        ProjectFormat::Toml => project.root_path().join(MODEL_TOML_FILE),
+        _ => project.info_path(),
+    };
+    let text = wrapfs::read_to_string(&path)?;
+    Ok((path, text))
+}
+
+/// Record the source override `pending` carries, if any, in the
+/// configuration file.
+///
+/// Called once the usage is in the manifest, so that a refused `add`
+/// leaves no `[[project]]` entry pointing at a source nothing uses --
+/// on a `model.toml` project, a refusal is reachable for every shape a
+/// manifest cannot express.
+#[expect(clippy::too_many_arguments)]
+fn record_override<Policy: HTTPAuthentication>(
+    pending: Option<(Box<ProjectSourceOptions>, Iri<String>)>,
+    resolution_opts: &ResolutionOptions,
+    config: &mut Config,
+    config_file: Option<Utf8PathBuf>,
+    no_config: bool,
+    ctx: &ProjectContext,
+    client: &reqwest_middleware::ClientWithMiddleware,
+    runtime: &Arc<tokio::runtime::Runtime>,
+    auth_policy: &Arc<Policy>,
+    current_project: &LocalSrcProject,
+) -> Result<()> {
+    let Some((source_overrides, iri)) = pending else {
+        return Ok(());
+    };
+    process_overrides(
+        resolution_opts,
+        source_overrides,
+        config,
+        config_file,
+        no_config,
+        ctx,
+        client,
+        runtime,
+        auth_policy,
+        current_project,
+        &iri,
+    )
 }
 
 fn process_overrides<Policy: HTTPAuthentication>(

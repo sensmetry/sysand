@@ -282,9 +282,9 @@ fn add_and_remove_as_editable() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     out.assert().success().stderr(contains(format!(
-        "Creating configuration file at `{config_path}`
-      Adding source for `urn:kpar:test` to configuration file at `{config_path}`
-      Adding usage: IRI `urn:kpar:test`"
+        "  Adding usage: IRI `urn:kpar:test`
+    Creating configuration file at `{config_path}`
+      Adding source for `urn:kpar:test` to configuration file at `{config_path}`"
     )));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
@@ -371,9 +371,9 @@ fn add_and_remove_as_local_src() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     out.assert().success().stderr(contains(format!(
-        "Creating configuration file at `{config_path}`
-      Adding source for `urn:kpar:test` to configuration file at `{config_path}`
-      Adding usage: IRI `urn:kpar:test`"
+        "  Adding usage: IRI `urn:kpar:test`
+    Creating configuration file at `{config_path}`
+      Adding source for `urn:kpar:test` to configuration file at `{config_path}`"
     )));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
@@ -460,9 +460,9 @@ fn add_and_remove_as_local_kpar() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     out.assert().success().stderr(contains(format!(
-        "Creating configuration file at `{config_path}`
-      Adding source for `urn:kpar:test` to configuration file at `{config_path}`
-      Adding usage: IRI `urn:kpar:test`"
+        "  Adding usage: IRI `urn:kpar:test`
+    Creating configuration file at `{config_path}`
+      Adding source for `urn:kpar:test` to configuration file at `{config_path}`"
     )));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
@@ -549,9 +549,9 @@ fn add_and_remove_as_remote_src() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     out.assert().success().stderr(contains(format!(
-        "Creating configuration file at `{config_path}`
-      Adding source for `urn:kpar:test` to configuration file at `{config_path}`
-      Adding usage: IRI `urn:kpar:test`"
+        "  Adding usage: IRI `urn:kpar:test`
+    Creating configuration file at `{config_path}`
+      Adding source for `urn:kpar:test` to configuration file at `{config_path}`"
     )));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
@@ -639,9 +639,9 @@ fn add_and_remove_as_remote_kpar() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     out.assert().success().stderr(contains(format!(
-        "Creating configuration file at `{config_path}`
-      Adding source for `urn:kpar:test` to configuration file at `{config_path}`
-      Adding usage: IRI `urn:kpar:test`"
+        "  Adding usage: IRI `urn:kpar:test`
+    Creating configuration file at `{config_path}`
+      Adding source for `urn:kpar:test` to configuration file at `{config_path}`"
     )));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
@@ -729,9 +729,9 @@ fn add_and_remove_as_remote_git() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     out.assert().success().stderr(contains(format!(
-        "Creating configuration file at `{config_path}`
-      Adding source for `urn:kpar:test` to configuration file at `{config_path}`
-      Adding usage: IRI `urn:kpar:test`"
+        "  Adding usage: IRI `urn:kpar:test`
+    Creating configuration file at `{config_path}`
+      Adding source for `urn:kpar:test` to configuration file at `{config_path}`"
     )));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
@@ -820,9 +820,9 @@ fn add_and_remove_from_path() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     out.assert().success().stderr(contains(format!(
-        "Creating configuration file at `{config_path}`
-      Adding source for `urn:kpar:test-src` to configuration file at `{config_path}`
-      Adding usage: IRI `urn:kpar:test-src`"
+        "  Adding usage: IRI `urn:kpar:test-src`
+    Creating configuration file at `{config_path}`
+      Adding source for `urn:kpar:test-src` to configuration file at `{config_path}`"
     )));
 
     std::fs::File::create_new(cwd.join("local/test.kpar"))?;
@@ -841,8 +841,8 @@ fn add_and_remove_from_path() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     out.assert().success().stderr(contains(format!(
-        "Adding source for `urn:kpar:test-kpar` to configuration file at `{config_path}`
-      Adding usage: IRI `urn:kpar:test-kpar`"
+        "Adding usage: IRI `urn:kpar:test-kpar`
+      Adding source for `urn:kpar:test-kpar` to configuration file at `{config_path}`"
     )));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
@@ -957,9 +957,9 @@ fn add_and_remove_from_url() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     out.assert().success().stderr(contains(format!(
-        "Creating configuration file at `{config_path}`
-      Adding source for `urn:kpar:add-from-url-dep` to configuration file at `{config_path}`
-      Adding usage: IRI `urn:kpar:add-from-url-dep`"
+        "  Adding usage: IRI `urn:kpar:add-from-url-dep`
+    Creating configuration file at `{config_path}`
+      Adding source for `urn:kpar:add-from-url-dep` to configuration file at `{config_path}`"
     )));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;

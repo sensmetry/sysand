@@ -958,6 +958,22 @@ pub fn remove_usage(doc: &mut DocumentMut, wanted: &NormalizedIdentity) -> Resul
     Ok(())
 }
 
+/// The constraint of the entry declaring `wanted`, if it is there.
+///
+/// `Some(None)` is an entry with no `version` key -- a `dir`,
+/// `kpar-path`, `url` or opt-in usage. `None` is no entry at all. A
+/// caller that means to add a usage has to tell the two apart.
+pub fn usage_constraint(doc: &DocumentMut, wanted: &NormalizedIdentity) -> Option<Option<String>> {
+    let at = find_usage(doc, wanted)?;
+    let entry = doc.get(USAGES)?.as_array_of_tables()?.get(at)?;
+    Some(
+        entry
+            .get("version")
+            .and_then(Item::as_str)
+            .map(str::to_owned),
+    )
+}
+
 /// Set the version constraint of an index usage.
 ///
 /// Only an index usage has one: a `dir`, `kpar-path` or `url` entry
