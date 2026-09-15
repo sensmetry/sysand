@@ -5,8 +5,8 @@ use camino::{Utf8Path, Utf8PathBuf};
 use camino_tempfile::Utf8TempDir;
 
 use super::{
-    Classification, DiscoverError, LoadError, LoadFailure, Selection, Workspace, candidate_root,
-    confirm_root,
+    Classification, DiscoverError, LoadError, LoadFailure, SelectError, Selection, Workspace,
+    candidate_root, confirm_root,
 };
 use crate::manifest::diagnostics::Diagnostic;
 use crate::project::utils::ProjectDeserializationError;
@@ -99,6 +99,16 @@ impl Fixture {
     /// A member directory holding a valid `model.toml` project.
     fn project(&self, at: &str) {
         self.write(&format!("{at}/model.toml"), PROJECT);
+    }
+
+    /// The same, with a chosen project name. Every member written by
+    /// [`Fixture::project`] is named `widgets`, which would make half of
+    /// the selection tests pass or fail by accident.
+    fn project_named(&self, at: &str, name: &str) {
+        self.write(
+            &format!("{at}/model.toml"),
+            &PROJECT.replace("name = \"widgets\"", &format!("name = \"{name}\"")),
+        );
     }
 
     fn load(&self) -> Result<Workspace, LoadError> {
@@ -1030,4 +1040,98 @@ fn a_starting_path_with_a_parent_component_is_accepted() {
         workspace.start(&roundabout).expect("classifies"),
         Selection::Member(_)
     ));
+}
+
+// ----------------------------------------------------------- selection
+
+fn two_members() -> Fixture {
+    let fixture = Fixture::new(&workspace_with("\"app\", \"lib\""));
+    fixture.project_named("app", "alpha");
+    fixture.project_named("lib", "beta");
+    fixture
+}
+
+#[test]
+fn a_member_is_selected_by_its_path() {
+    let workspace = two_members().loaded();
+    assert_eq!(workspace.member("lib").expect("a member").path.raw, "lib");
+}
+
+/// "Literally" is read as the spelling the author wrote, which is what
+/// `MemberPath::raw` is kept for: another spelling of the same directory
+/// selects nothing.
+#[test]
+fn a_member_path_is_matched_as_written() {
+    let fixture = Fixture::new(&workspace_with("\"app\""));
+    fixture.project_named("app", "alpha");
+    let workspace = fixture.loaded();
+
+    assert_eq!(workspace.member("app").expect("a member").path.raw, "app");
+    assert!(matches!(
+        workspace.member("app"),
+        Err(SelectError::NoSuchMember { .. })
+    ));
+}
+
+#[test]
+fn a_member_is_selected_by_its_project_name() {
+    let workspace = two_members().loaded();
+    assert_eq!(workspace.member("beta").expect("a member").path.raw, "lib");
+}
+
+/// The case that makes the rule a union rather than an order: guessing
+/// would silently act on the wrong project.
+#[test]
+fn a_value_that_is_one_members_path_and_anothers_name_is_ambiguous() {
+    let fixture = Fixture::new(&workspace_with("\"app\", \"lib\""));
+    fixture.project_named("app", "alpha");
+    fixture.project_named("lib", "app");
+    let workspace = fixture.loaded();
+
+    match workspace.member("app") {
+        Err(error @ SelectError::AmbiguousMember { .. }) => assert_eq!(
+            error.to_string(),
+            "`app` is ambiguous: it matches the path `app` and the name of the member at `lib`"
+        ),
+        other => panic!("expected ambiguity, got `{other:?}`"),
+    }
+}
+
+#[test]
+fn two_members_with_the_same_name_are_ambiguous() {
+    let fixture = Fixture::new(&workspace_with("\"app\", \"lib\""));
+    fixture.project_named("app", "alpha");
+    fixture.project_named("lib", "alpha");
+    let workspace = fixture.loaded();
+
+    assert!(matches!(
+        workspace.member("alpha"),
+        Err(SelectError::AmbiguousMember { .. })
+    ));
+}
+
+/// A member the selector names twice is still one member.
+#[test]
+fn a_member_named_by_both_its_path_and_its_name_is_not_ambiguous() {
+    let fixture = Fixture::new(&workspace_with("\"app\", \"lib\""));
+    fixture.project_named("app", "app");
+    fixture.project_named("lib", "beta");
+    let workspace = fixture.loaded();
+
+    assert_eq!(workspace.member("app").expect("one member").path.raw, "app");
+}
+
+#[test]
+fn an_unknown_member_lists_the_ones_that_exist() {
+    let workspace = two_members().loaded();
+    match workspace.member("nope") {
+        Err(error @ SelectError::NoSuchMember { .. }) => {
+            let text = error.to_string();
+            assert!(
+                text.ends_with("has no member `nope`; it has `app`, `lib`"),
+                "{text}"
+            );
+        }
+        other => panic!("expected no such member, got `{other:?}`"),
+    }
 }
