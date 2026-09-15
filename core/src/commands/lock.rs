@@ -26,7 +26,7 @@ use crate::{
         utils::{FsIoError, Identifier},
     },
     resolve::{ResolveRead, UsageOrigin},
-    solve::pubgrub::{SolverError, solve},
+    solve::pubgrub::{SolverError, solve_with_bases},
     utils::ProvidedProjects,
 };
 
@@ -218,16 +218,62 @@ pub fn do_lock_projects<
     provided_usages: &ProvidedProjects,
     ctx: &ProjectContext,
 ) -> Result<LockOutcome<PD>, LockProjectError<PI, PD, R>> {
+    #[cfg(feature = "filesystem")]
+    let base_path = ctx.workspace_or_project_root();
+    #[cfg(not(feature = "filesystem"))]
+    let base_path = None;
+    lock_projects(
+        projects
+            .into_iter()
+            .map(|(identifiers, project)| (identifiers, project, base_path.clone())),
+        resolver,
+        provided_usages,
+        ctx,
+        None,
+    )
+}
+
+/// [`do_lock_projects`], with each input project's own base path.
+///
+/// A workspace's members are its input projects, and a member's `dir`
+/// usages are relative to that member -- so one base for all of them is
+/// wrong as soon as two members sit at different depths. See
+/// [`do_lock_extend_with_bases`] for what `ctx` is still for.
+pub fn do_lock_projects_with_bases<
+    'a,
+    PI: ProjectRead + Debug + 'a,
+    PD: ProjectRead + Debug,
+    I: IntoIterator<
+        Item = (
+            Option<Vec<Iri<String>>>,
+            &'a PI,
+            Option<camino::Utf8PathBuf>,
+        ),
+    >,
+    R: ResolveRead<ProjectStorage = PD> + Debug,
+>(
+    projects: I,
+    resolver: R,
+    provided_usages: &ProvidedProjects,
+    ctx: &ProjectContext,
+) -> Result<LockOutcome<PD>, LockProjectError<PI, PD, R>> {
     lock_projects(projects, resolver, provided_usages, ctx, None)
 }
 
-/// [`do_lock_projects`], with the spelling of the typed usage of `respelled`
-/// that the projects declare not checked (see [`check_typed_usages`])
+/// [`do_lock_projects_with_bases`], with the spelling of the typed usage
+/// of `respelled` that the projects declare not checked (see
+/// [`check_typed_usages`])
 fn lock_projects<
     'a,
     PI: ProjectRead + Debug + 'a,
     PD: ProjectRead + Debug,
-    I: IntoIterator<Item = (Option<Vec<Iri<String>>>, &'a PI)>,
+    I: IntoIterator<
+        Item = (
+            Option<Vec<Iri<String>>>,
+            &'a PI,
+            Option<camino::Utf8PathBuf>,
+        ),
+    >,
     R: ResolveRead<ProjectStorage = PD> + Debug,
 >(
     projects: I,
@@ -240,7 +286,7 @@ fn lock_projects<
 
     let mut all_deps = vec![];
 
-    for (identifiers, project) in projects {
+    for (identifiers, project, base_path) in projects {
         let input_project_label = || match identifiers.as_ref().and_then(|ids| ids.first()) {
             Some(iri) => format!("`{iri}`"),
             None => "<unknown input project>".to_owned(),
@@ -296,6 +342,7 @@ fn lock_projects<
             (
                 usage,
                 DeclaredBy::Input(named_project_label.clone()),
+                base_path.clone(),
                 origin,
             )
         }));
@@ -329,14 +376,67 @@ pub fn do_lock_extend<
     provided_usages: &ProvidedProjects,
     ctx: &ProjectContext,
 ) -> Result<LockOutcome<PD>, LockError<PD, R>> {
+    #[cfg(feature = "filesystem")]
+    let base_path = ctx.workspace_or_project_root();
+    #[cfg(not(feature = "filesystem"))]
+    let base_path = None;
+    lock_extend(
+        lock,
+        usages
+            .into_iter()
+            .map(|(usage, declared_by, origin)| (usage, declared_by, base_path.clone(), origin)),
+        resolver,
+        provided_usages,
+        ctx,
+        None,
+    )
+}
+
+/// [`do_lock_extend`], with each usage's own base path.
+///
+/// A workspace is solved as one unit and its members do not share a
+/// base: `workspaces.md` "Intra-workspace usages" gives a usage's paths
+/// as "`dir`, relative to the member, or a group entry relative to the
+/// root".
+///
+/// `ctx` still supplies the root a solved dependency's sources are
+/// relativized against, which is a *different* thing from the base its
+/// usages resolve against. A `ctx` with neither a project nor a workspace
+/// makes `LocalSrcProject::sources` panic, so a caller passing bases
+/// must still give one.
+pub fn do_lock_extend_with_bases<
+    PD: ProjectRead + Debug,
+    I: IntoIterator<
+        Item = (
+            InterchangeProjectUsage,
+            DeclaredBy,
+            Option<camino::Utf8PathBuf>,
+            UsageOrigin,
+        ),
+    >,
+    R: ResolveRead<ProjectStorage = PD> + Debug,
+>(
+    lock: Lock,
+    usages: I,
+    resolver: R,
+    provided_usages: &ProvidedProjects,
+    ctx: &ProjectContext,
+) -> Result<LockOutcome<PD>, LockError<PD, R>> {
     lock_extend(lock, usages, resolver, provided_usages, ctx, None)
 }
 
-/// [`do_lock_extend`], with the spelling of the typed usage of `respelled`
-/// among the inputs not checked (see [`check_typed_usages`])
+/// [`do_lock_extend_with_bases`], with the spelling of the typed usage of
+/// `respelled` among the inputs not checked (see [`check_typed_usages`])
 fn lock_extend<
     PD: ProjectRead + Debug,
-    I: IntoIterator<Item = (InterchangeProjectUsage, DeclaredBy, UsageOrigin)>,
+    I: IntoIterator<
+        Item = (
+            InterchangeProjectUsage,
+            DeclaredBy,
+            Option<camino::Utf8PathBuf>,
+            UsageOrigin,
+        ),
+    >,
     R: ResolveRead<ProjectStorage = PD> + Debug,
 >(
     mut lock: Lock,
@@ -348,22 +448,18 @@ fn lock_extend<
 ) -> Result<LockOutcome<PD>, LockError<PD, R>> {
     let (inputs, declared_by): (Vec<_>, Vec<_>) = usages
         .into_iter()
-        .map(|(usage, declared_by, origin)| ((usage, origin), declared_by))
+        .map(|(usage, declared_by, base_path, origin)| ((usage, base_path, origin), declared_by))
         .unzip();
     // Typed usages, to check against the projects they resolve to
     let mut typed_usages: Vec<(TypedSpelling, DeclaredBy)> = inputs
         .iter()
         .zip(declared_by)
-        .filter_map(|((usage, _), declared_by)| Some((TypedSpelling::of(usage)?, declared_by)))
+        .filter_map(|((usage, _, _), declared_by)| Some((TypedSpelling::of(usage)?, declared_by)))
         .collect();
     // Publisher, name and version of each solved project
     let mut solved = HashMap::new();
     let mut dependencies = vec![];
-    #[cfg(feature = "filesystem")]
-    let base_path = ctx.workspace_or_project_root();
-    #[cfg(not(feature = "filesystem"))]
-    let base_path = None;
-    let solution = solve(inputs, base_path, resolver).map_err(LockError::Solver)?;
+    let solution = solve_with_bases(inputs, resolver).map_err(LockError::Solver)?;
     let mut lock_projects = HashSet::new();
     let mut lock_symbols = HashMap::new();
     for (i, p) in lock.projects.iter().enumerate() {
@@ -582,8 +678,9 @@ pub fn do_lock_local_editable_respelling<
         ),
     );
 
+    let base_path = ctx.workspace_or_project_root();
     lock_projects(
-        [(identifiers, &project)],
+        [(identifiers, &project, base_path)],
         resolver,
         provided_usages,
         ctx,

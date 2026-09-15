@@ -2401,8 +2401,8 @@ fn project_dir(at: &camino::Utf8Path, name: &str) {
 fn dir_usage(dir: &str, name: &str) -> InterchangeProjectUsage {
     InterchangeProjectUsage::Directory {
         dir: dir.into(),
-        publisher: "acme".to_owned(),
-        name: name.to_owned(),
+        publisher: crate::model::ProjectPublisher::parse("acme".to_owned()).unwrap(),
+        name: crate::model::ProjectName::parse(name.to_owned()).unwrap(),
     }
 }
 
