@@ -33,7 +33,7 @@ use sysand_core::{
 use crate::{
     CliError,
     cli::{CloneProjectLocatorArgs, ResolutionOptions},
-    commands::{init::warn_parent_project_workspace, sync::command_sync},
+    commands::{init::warn_parent_project, sync::command_sync},
     default_index_location, get_or_create_env,
     style::{GOOD, USAGE},
 };
@@ -86,7 +86,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         }
         canonical
     };
-    warn_parent_project_workspace(target, &ctx)?;
+    warn_parent_project(target, &ctx)?;
 
     let (include_std, locator, local_project, std_resolver) = match obtain_project(
         locator,
