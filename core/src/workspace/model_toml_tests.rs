@@ -5,8 +5,8 @@ use camino::{Utf8Path, Utf8PathBuf};
 use camino_tempfile::Utf8TempDir;
 
 use super::{
-    Classification, DiscoverError, LoadError, LoadFailure, SelectError, Selection, Selector,
-    Workspace, candidate_root, confirm_root,
+    Classification, DiscoverError, LoadError, LoadFailure, MemberChecks, SelectError, Selection,
+    Selector, Workspace, candidate_root, confirm_root,
 };
 use crate::manifest::diagnostics::Diagnostic;
 use crate::project::utils::ProjectDeserializationError;
@@ -113,6 +113,10 @@ impl Fixture {
 
     fn load(&self) -> Result<Workspace, LoadError> {
         Workspace::load(self.dir.path().join(self.at))
+    }
+
+    fn load_with(&self, checks: MemberChecks) -> Result<Workspace, LoadError> {
+        Workspace::load_with(self.dir.path().join(self.at), checks)
     }
 
     fn loaded(&self) -> Workspace {
@@ -1585,4 +1589,82 @@ fn start_region_ignores_a_member_that_does_not_exist() {
         super::start_region(&root, &table, fixture.under("app")).expect("classifies"),
         super::StartRegion::Member(0)
     );
+}
+
+// ------------------- reading a member without the stray-state check
+
+/// The check that a member holds no lockfile, `.sysand` or `output` of
+/// its own can be skipped, and a caller can ask for everything else.
+#[test]
+fn a_member_with_a_lockfile_loads_when_stray_state_is_skipped() {
+    let fixture = Fixture::new(&workspace_with("\"app\""));
+    fixture.project("app");
+    fixture.write("app/sysand-lock.toml", "");
+
+    let workspace = fixture
+        .load_with(MemberChecks::SkipStrayState)
+        .expect("the member reads");
+    assert_eq!(workspace.members().len(), 1);
+}
+
+/// The requirement that a member is a `model.toml` project is not what
+/// was skipped.
+#[test]
+fn skipping_stray_state_still_refuses_a_json_member() {
+    let fixture = Fixture::new(&workspace_with("\"app\""));
+    fixture.write("app/.project.json", "{}");
+
+    let error = fixture
+        .load_with(MemberChecks::SkipStrayState)
+        .expect_err("a json member is still refused");
+    assert!(
+        error.to_string().contains("must use the `model.toml`"),
+        "{error}"
+    );
+}
+
+/// Nor is the member's existence -- and a `members` entry naming
+/// nothing still aborts the whole load.
+#[test]
+fn skipping_stray_state_still_refuses_a_missing_member() {
+    let fixture = Fixture::new(&workspace_with("\"app\", \"gone\""));
+    fixture.project("app");
+
+    let error = fixture
+        .load_with(MemberChecks::SkipStrayState)
+        .expect_err("`gone` is not there");
+    assert!(error.to_string().contains("does not exist"), "{error}");
+}
+
+/// A member that inherits from the table *and* holds a lockfile of its
+/// own.
+///
+/// Inheritance alone is `a_member_inherits_from_the_table`; the two
+/// together are what a plain `LocalSrcProject` cannot read, since it
+/// resolves with `None`.
+#[test]
+fn an_inherited_member_resolves_when_stray_state_is_skipped() {
+    let fixture = Fixture::new(
+        "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\nversion = \"9.9.9\"\n",
+    );
+    fixture.write("app/model.toml", INHERITING);
+    fixture.write("app/sysand-lock.toml", "");
+
+    let workspace = fixture
+        .load_with(MemberChecks::SkipStrayState)
+        .expect("the member reads");
+    assert_eq!(workspace.members()[0].project.version.to_string(), "9.9.9");
+}
+
+/// Through the upward walk, not only through `load`.
+#[test]
+fn discover_with_skips_stray_state_too() {
+    let fixture = Fixture::new(&workspace_with("\"app\""));
+    fixture.project("app");
+    fixture.write("app/sysand-lock.toml", "");
+
+    let workspace = Workspace::discover_with(fixture.under("app"), MemberChecks::SkipStrayState)
+        .expect("discovery succeeds")
+        .expect("a workspace");
+    assert_eq!(workspace.members().len(), 1);
 }

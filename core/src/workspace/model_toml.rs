@@ -126,6 +126,23 @@ pub struct Workspace {
     members: Vec<Member>,
 }
 
+/// What a load checks beyond reading the members.
+///
+/// `workspaces.md` "Member requirements" states four. The fourth --
+/// "Must have no lockfile, `.sysand` or `output` of its own" -- is the
+/// one a caller can skip: a member may hold such state from an earlier
+/// run of a command that wrote it there, and a caller that must not
+/// refuse that workspace says so, at the call site, in one greppable
+/// word: [`MemberChecks::SkipStrayState`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MemberChecks {
+    /// Every requirement the specification states.
+    All,
+    /// All but the requirement of no per-member lockfile, `.sysand` or
+    /// `output`.
+    SkipStrayState,
+}
+
 impl Workspace {
     /// Read the `model.toml` at `root` as a workspace, check every
     /// member and resolve each member's manifest against the table.
@@ -139,6 +156,11 @@ impl Workspace {
     /// `file:line:column` and three members sharing the bare constant
     /// would be indistinguishable.
     pub fn load(root: impl AsRef<Utf8Path>) -> Result<Self, LoadError> {
+        Self::load_with(root, MemberChecks::All)
+    }
+
+    /// [`Workspace::load`], checking only what `checks` asks for.
+    pub fn load_with(root: impl AsRef<Utf8Path>, checks: MemberChecks) -> Result<Self, LoadError> {
         let root = wrapfs::canonicalize(root.as_ref())?;
         let text = wrapfs::read_to_string(root.join(MODEL_TOML_FILE))?;
         let manifest = validate_manifest(MODEL_TOML_FILE, ModelToml::parse(MODEL_TOML_FILE, &text))
@@ -152,7 +174,9 @@ impl Workspace {
         let mut broken = Vec::new();
         let mut members = Vec::with_capacity(table.members.len());
         for path in &table.members {
-            if let Some(member) = load_member(&root, path, &table, &mut report, &mut broken)? {
+            if let Some(member) =
+                load_member(&root, path, &table, checks, &mut report, &mut broken)?
+            {
                 members.push(member);
             }
         }
@@ -186,10 +210,19 @@ impl Workspace {
     /// never share a file" is an invariant about valid files, and the
     /// walk reads invalid ones.
     pub fn discover(from: impl AsRef<Utf8Path>) -> Result<Option<Self>, DiscoverError> {
+        Self::discover_with(from, MemberChecks::All)
+    }
+
+    /// [`Workspace::discover`], checking only what `checks` asks for.
+    pub fn discover_with(
+        from: impl AsRef<Utf8Path>,
+        checks: MemberChecks,
+    ) -> Result<Option<Self>, DiscoverError> {
         let Some(candidate) = candidate_root(from)? else {
             return Ok(None);
         };
-        let workspace = Self::load(&candidate).map_err(|e| DiscoverError::Load(Box::new(e)))?;
+        let workspace =
+            Self::load_with(&candidate, checks).map_err(|e| DiscoverError::Load(Box::new(e)))?;
         confirm_root(&candidate)?;
         Ok(Some(workspace))
     }
@@ -711,6 +744,7 @@ fn load_member(
     root: &Utf8Path,
     path: &MemberPath,
     table: &WorkspaceTable,
+    checks: MemberChecks,
     report: &mut Report,
     broken: &mut Vec<ProjectDeserializationError>,
 ) -> Result<Option<Member>, Box<FsIoError>> {
@@ -738,7 +772,9 @@ fn load_member(
     // Run whatever the directory being present makes answerable, so that
     // a member with both a stray lockfile and the wrong manifest format
     // reports both.
-    stray_state(root, path, &dir, report)?;
+    if checks == MemberChecks::All {
+        stray_state(root, path, &dir, report)?;
+    }
 
     match detect_format(&dir)? {
         ProjectFormat::Json => {
