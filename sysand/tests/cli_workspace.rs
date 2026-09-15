@@ -549,10 +549,36 @@ fn an_excluded_project_is_not_unlisted() -> Result<(), Box<dyn std::error::Error
     let dir = workspace(
         "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\nexclude = [\"vendor\"]\n",
     )?;
+    let excluded = dir.path().join("vendor/other");
     dependency(dir.path(), "vendor/other")?;
-    run_sysand_discovering(&dir.path().join("vendor/other"), ["lock"])?
+    // A dependency of its own, so the lockfile has a path to get wrong.
+    dependency(dir.path(), "vendor/dep")?;
+    // Written by hand: `add --as-local-src` records an override in
+    // `sysand.toml` at the *config* root, which for an excluded project
+    // is still the workspace root, so it cannot express this.
+    std::fs::write(
+        excluded.join(".project.json"),
+        r#"{"name": "other", "publisher": "acme", "version": "1.0.0",
+            "usage": [{"dir": "../dep", "publisher": "acme", "name": "local-dep"}]}"#,
+    )?;
+
+    run_sysand_discovering(&excluded, ["lock"])?
         .assert()
         .success();
+
+    // Its own file, in its own directory.
+    assert!(excluded.join(DEFAULT_LOCKFILE_NAME).exists());
+    assert!(!dir.path().join(DEFAULT_LOCKFILE_NAME).exists());
+
+    // And its contents are relative to *it*, not to the workspace. This
+    // is what a `model_workspace_root` taken from the discovered table
+    // rather than from `StartRegion` would get wrong: the table is
+    // found here too, and an excluded project keeps its own state.
+    let text = std::fs::read_to_string(excluded.join(DEFAULT_LOCKFILE_NAME))?;
+    assert!(
+        text.contains("../dep") && !text.contains("vendor/dep"),
+        "source paths must be relative to the excluded project:\n{text}"
+    );
     Ok(())
 }
 
