@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-//! `sysand build` refuses a `model.toml` project outright. So every
-//! project in this file is written as a legacy `.project.json` pair by
-//! hand rather than created through `sysand init`, which writes a
-//! `model.toml`.
+//! Every project in this file is written as a legacy `.project.json`
+//! pair by hand rather than created through `sysand init`, which
+//! writes a `model.toml`: what these fixtures pin is the json path --
+//! which "TOML to KPAR" leaves unchanged.
+//!
+//! The toml path has its own tests at the end of this file, and its
+//! usage rules are pinned in `core/src/commands/build_tests.rs`.
 
 use assert_cmd::prelude::*;
 use camino::Utf8PathBuf;
@@ -371,7 +374,8 @@ impl WProject {
 }
 
 #[test]
-/// Legacy json fixture: `build` refuses a `model.toml` project.
+/// Legacy json fixture, like the rest of this file: it pins the
+/// `.workspace.json` workspace build.
 fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
     let project_group_cwd = cwd.join("subgroup");
@@ -1226,5 +1230,71 @@ fn compression_method(compression: Option<&str>) -> Result<(), Box<dyn std::erro
         .read_to_string(&mut src)?;
 
     assert_eq!(src, "package P;\n");
+    Ok(())
+}
+
+// ------------------------------------- building a `model.toml` project
+
+/// `sysand build` on a project `sysand init` produces.
+#[test]
+fn build_toml_project() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    run_sysand_in(
+        &cwd,
+        [
+            "init",
+            "--publisher",
+            "acme",
+            "--name",
+            "widgets",
+            "--version",
+            "1.0.0",
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+    std::fs::write(cwd.join("a.sysml"), b"package A;\n")?;
+    run_sysand_in(&cwd, ["include", "a.sysml"], None)?
+        .assert()
+        .success();
+
+    run_sysand_in(&cwd, ["build"], None)?.assert().success();
+    assert!(
+        cwd.join("output/widgets-1.0.0.kpar").exists(),
+        "the archive is named `<name>-<version>.kpar`: {:?}",
+        std::fs::read_dir(cwd.join("output"))?
+            .map(|e| e.map(|e| e.file_name()))
+            .collect::<Result<Vec<_>, _>>()?
+    );
+    Ok(())
+}
+
+/// The refusal names the usage and both ways forward.
+///
+/// The manifest is written by hand: `sysand add --as-local-src` records
+/// a *source override* in `sysand.toml` rather than a `dir` usage, and
+/// what is under test here is the build, not the write surface.
+#[test]
+fn build_toml_project_with_a_dir_usage_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    std::fs::write(
+        cwd.join("model.toml"),
+        "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
+         version = \"1.0.0\"\nsources = [\"a.sysml\"]\n\n\
+         [[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"dep\"\n",
+    )?;
+    std::fs::write(cwd.join("a.sysml"), b"package A;\n")?;
+
+    run_sysand_in(&cwd, ["build"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("is not supported yet"))
+        .stderr(predicate::str::contains("--allow-path-usage"));
+
+    // And the flag is the way through.
+    run_sysand_in(&cwd, ["build", "--allow-path-usage"], None)?
+        .assert()
+        .success();
     Ok(())
 }
