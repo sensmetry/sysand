@@ -9,10 +9,29 @@ import com.sensmetry.sysand.model.CompressionMethod;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import java.util.regex.Pattern;
 import java.nio.file.Files;
 
 public class BasicTest {
+    /**
+     * A legacy json project, written by hand.
+     *
+     * <p>{@code Sysand.init} writes a {@code model.toml}; the tests that
+     * call this exercise {@code setIndex}, {@code setProjectMetadata} and
+     * {@code buildProject} on the json form.
+     */
+    private static void writeLegacyProject(java.nio.file.Path dir, String publisher, String name,
+            String version, String license) throws java.io.IOException {
+        String licenseKey = license == null ? "" : ",\n  \"license\": \"" + license + "\"";
+        Files.write(dir.resolve(".project.json"),
+                ("{\n  \"name\": \"" + name + "\",\n  \"publisher\": \"" + publisher
+                        + "\",\n  \"version\": \"" + version + "\"" + licenseKey + "\n}\n").getBytes());
+        // The epoch, so that a legacy fixture and a `model.toml` view
+        // agree: a view's `created` is fixed, and the assertions here
+        // are shared between the two.
+        Files.write(dir.resolve(".meta.json"),
+                "{\n  \"index\": {},\n  \"created\": \"1970-01-01T00:00:00Z\"\n}\n".getBytes());
+    }
+
 
     @Test
     public void testBasicInit() {
@@ -20,20 +39,22 @@ public class BasicTest {
             java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-init");
             com.sensmetry.sysand.Sysand.init("test", "acme", "1.0.0", null, tempDir);
 
-            assertTrue(Files.exists(tempDir.resolve(".project.json")), "Project file should exist");
-            assertTrue(Files.exists(tempDir.resolve(".meta.json")), "Metadata file should exist");
+            // `init` writes a `model.toml`; the two json documents are
+            // what a build produces and what a legacy project has.
+            assertTrue(Files.exists(tempDir.resolve("model.toml")), "Manifest should exist");
+            assertFalse(Files.exists(tempDir.resolve(".project.json")), "No json manifest");
 
             // java.nio.file.Files.readString is available in Java 11+
-            // String projectJson = java.nio.file.Files.readString(tempDir.resolve(".project.json"));
-            String projectJson = new String(Files.readAllBytes(tempDir.resolve(".project.json")));
-            assertEquals("{\n  \"name\": \"test\",\n  \"publisher\": \"a\",\n  \"version\": \"1.0.0\"\n}\n", projectJson);
-
-            // String metaJson = Files.readString(tempDir.resolve(".meta.json"));
-            String metaJson = new String(Files.readAllBytes(tempDir.resolve(".meta.json")));
-            Pattern regex = Pattern.compile(
-                    "\\{\\s*\"index\":\\s*\\{\\},\\s*\"created\":\\s*\"\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z\"\\s*\\}\n",
-                    Pattern.DOTALL);
-            assertTrue(regex.matcher(metaJson).matches(), "Metadata file content should match expected pattern");
+            String manifest = new String(Files.readAllBytes(tempDir.resolve("model.toml")));
+            assertEquals(
+                    "manifest-version = 1\n"
+                            + "\n"
+                            + "[project]\n"
+                            + "publisher = \"acme\"\n"
+                            + "name = \"test\"\n"
+                            + "version = \"1.0.0\"\n"
+                            + "sources = []\n",
+                    manifest);
         } catch (java.io.IOException e) {
             fail("Failed during temporary directory operations or Sysand.init: " + e.getMessage());
         } catch (com.sensmetry.sysand.exceptions.SysandException e) {
@@ -88,8 +109,9 @@ public class BasicTest {
         assertEquals(project.info.getUsage().length, 0);
 
         assertEquals(project.metadata.getIndex(), new java.util.HashMap<String, String>());
-        assertNotNull(project.metadata.getCreated());
-        assertTrue(project.metadata.getCreated().matches("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z"));
+        // A view of a source project is not a function of the clock:
+        // `created` is computed at build, so until then it is the epoch.
+        assertEquals("1970-01-01T00:00:00Z", project.metadata.getCreated());
         assertEquals(project.metadata.getMetamodel(), null);
         assertEquals(project.metadata.getIncludesDerived(), null);
         assertEquals(project.metadata.getIncludesImplied(), null);
@@ -119,7 +141,7 @@ public class BasicTest {
     public void testProjectBuild() {
         try {
             java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-build");
-            com.sensmetry.sysand.Sysand.init("test-basic-info", "acme", "1.2.3", "MIT", tempDir);
+            writeLegacyProject(tempDir, "acme", "test-basic-info", "1.2.3", "MIT");
 
             com.sensmetry.sysand.model.InterchangeProject project = com.sensmetry.sysand.Sysand.infoPath(tempDir);
             assertExpectedProject(project);
@@ -145,7 +167,7 @@ public class BasicTest {
     public void testSetProjectIndex() {
         try {
             java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-update-index");
-            com.sensmetry.sysand.Sysand.init("test-index", "acme", "1.0.0", null, tempDir);
+            writeLegacyProject(tempDir, "acme", "test-index", "1.0.0", null);
 
             java.util.LinkedHashMap<String, String> index = new java.util.LinkedHashMap<>();
             index.put("Foo", "src/Foo.sysml");
@@ -199,8 +221,8 @@ public class BasicTest {
             java.nio.file.Path projB = tempDir.resolve("projB");
             Files.createDirectories(projA);
             Files.createDirectories(projB);
-            com.sensmetry.sysand.Sysand.init("projA", "acme", "1.0.0", null, projA);
-            com.sensmetry.sysand.Sysand.init("projB", "acme", "1.0.0", null, projB);
+            writeLegacyProject(projA, "acme", "projA", "1.0.0", null);
+            writeLegacyProject(projB, "acme", "projB", "1.0.0", null);
 
             // Write .workspace.json
             writeWorkspaceJson(tempDir, "projA", "projB");
@@ -232,8 +254,8 @@ public class BasicTest {
             java.nio.file.Path projB = tempDir.resolve("projB");
             Files.createDirectories(projA);
             Files.createDirectories(projB);
-            com.sensmetry.sysand.Sysand.init("projA", "acme", "1.0.0", null, projA);
-            com.sensmetry.sysand.Sysand.init("projB", "acme", "1.0.0", null, projB);
+            writeLegacyProject(projA, "acme", "projA", "1.0.0", null);
+            writeLegacyProject(projB, "acme", "projB", "1.0.0", null);
 
             // Write .workspace.json
             writeWorkspaceJson(tempDir, "projA", "projB");
