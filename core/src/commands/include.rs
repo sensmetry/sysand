@@ -8,7 +8,7 @@ use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
 use crate::{
     model::KerMlChecksumAlg,
-    project::{ProjectMut, ProjectOrIOError, ProjectRead, utils::FsIoError},
+    project::{ProjectFormat, ProjectMut, ProjectOrIOError, ProjectRead, utils::FsIoError},
     symbols::{ExtractError, Language, SymbolsError},
     utils::sha256_lowercase_hex,
 };
@@ -25,6 +25,26 @@ pub enum IncludeError<ProjectError> {
         "unknown file format of `{0}`, only SysML v2 (.sysml) and KerML (.kerml) files are supported"
     )]
     UnknownFormat(Box<str>),
+    /// The two maps a `model.toml` project has no room for are computed
+    /// when the KPAR is built, so the flags that control them have
+    /// nothing to control.
+    ///
+    /// Refused here rather than in the CLI because the parameters are
+    /// this function's: a binding can call it directly, and a refusal
+    /// one frontend makes is not a refusal.
+    #[error("`{0}` is computed when the KPAR is built and cannot be set on a `model.toml` project")]
+    ComputedField(&'static str),
+    /// `--force-format` selects a parser for symbol extraction, and a
+    /// `model.toml` project extracts none.
+    #[error(
+        "`force_format` has no effect on a `model.toml` project, whose symbols are computed when the KPAR is built"
+    )]
+    ForceFormat,
+    /// The manifest could not be read, or the edit was refused.
+    #[error(transparent)]
+    Edit(crate::manifest::edit::EditError),
+    #[error("failed to read the project's `model.toml`: {0}")]
+    Manifest(Box<str>),
 }
 
 impl<ProjectError> From<FsIoError> for IncludeError<ProjectError> {
@@ -60,6 +80,25 @@ pub fn do_include<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
     index_symbols: bool,
     force_format: Option<Language>,
 ) -> Result<(), IncludeError<Pr::Error>> {
+    // model-toml.md "Editing the manifest": on a `model.toml` project
+    // `include` appends to `sources` and nothing else -- "Neither
+    // extracts symbols or hashes files, as both maps are computed at
+    // build".
+    //
+    // `Both` deliberately falls through to the json arm, where
+    // `get_meta` refuses it as the ambiguity it is. Asking `manifest()`
+    // instead would have been wrong: it maps `Both` onto "no toml
+    // manifest".
+    if project.format().map_err(IncludeError::Project)? == ProjectFormat::Toml {
+        return include_toml(
+            project,
+            paths,
+            compute_checksum,
+            index_symbols,
+            force_format,
+        );
+    }
+
     // TODO: is `unwrap_or_default()` appropriate here?
     let mut meta = project
         .get_meta()
@@ -100,6 +139,58 @@ pub fn do_include<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
     Ok(())
 }
 
+/// `include` on a `model.toml` project: append each path to `sources`.
+///
+/// Nothing is read. The file's contents would be hashed and indexed on
+/// a json project; here both maps are computed when the KPAR is built,
+/// so the only question is whether the path belongs in `sources` --
+/// which `Sources::new` answers, as it does on read.
+fn include_toml<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
+    project: &mut Pr,
+    paths: I,
+    compute_checksum: bool,
+    index_symbols: bool,
+    force_format: Option<Language>,
+) -> Result<(), IncludeError<Pr::Error>> {
+    if compute_checksum {
+        return Err(IncludeError::ComputedField("checksum"));
+    }
+    if !index_symbols {
+        return Err(IncludeError::ComputedField("index"));
+    }
+    if force_format.is_some() {
+        return Err(IncludeError::ForceFormat);
+    }
+
+    let mut document = project.manifest_document().map_err(|e| manifest_error(e))?;
+
+    for path in paths {
+        let including = "Including";
+        let header = crate::style::get_style_config().header;
+        log::info!("{header}{including:>12}{header:#} file `{path}`");
+
+        crate::manifest::edit::include_source(&mut document, path.as_str())
+            .map_err(IncludeError::Edit)?;
+    }
+
+    project
+        .put_manifest_document(&document, true)
+        .map_err(|e| match e {
+            crate::project::ManifestWriteError::Project(e) => IncludeError::Project(e),
+            other => IncludeError::Manifest(other.to_string().into()),
+        })
+}
+
+/// Flatten a manifest read failure into this command's error.
+fn manifest_error<E: crate::env::utils::ErrorBound>(
+    error: crate::project::ManifestError<E>,
+) -> IncludeError<E> {
+    match error {
+        crate::project::ManifestError::Project(e) => IncludeError::Project(e),
+        other => IncludeError::Manifest(other.to_string().into()),
+    }
+}
+
 /// Extract top level symbols from `source`, using `path` for diagnostics
 /// only.
 ///
@@ -126,3 +217,7 @@ pub fn read_project_file_to_string<Pr: ProjectRead, P: AsRef<Utf8UnixPath>>(
     })?;
     Ok(source)
 }
+
+#[cfg(test)]
+#[path = "./include_tests.rs"]
+mod tests;

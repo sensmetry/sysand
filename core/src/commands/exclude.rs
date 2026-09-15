@@ -6,7 +6,7 @@ use typed_path::Utf8UnixPath;
 
 use crate::{
     model::InterchangeProjectChecksumRaw,
-    project::{ProjectMut, ProjectOrIOError, utils::FsIoError},
+    project::{ProjectFormat, ProjectMut, ProjectOrIOError, ProjectRead as _, utils::FsIoError},
 };
 
 #[derive(Error, Debug)]
@@ -19,6 +19,17 @@ pub enum ExcludeError<ProjectError> {
     SourceNotFound(Box<str>),
     #[error("project is missing metadata file `.meta.json`")]
     MissingMeta,
+    /// The manifest could not be read, or the edit was refused.
+    ///
+    /// `exclude_source` can fail four ways and only one of them is "not
+    /// listed". The rest keep their own words: `sysand exclude
+    /// README.md` says the entry is not a model file, which is a strange
+    /// answer to "remove this" and the true one -- `sources` could never
+    /// have held it.
+    #[error(transparent)]
+    Edit(crate::manifest::edit::EditError),
+    #[error("failed to read the project's `model.toml`: {0}")]
+    Manifest(Box<str>),
 }
 
 impl<ProjectError> From<ProjectOrIOError<ProjectError>> for ExcludeError<ProjectError> {
@@ -34,6 +45,13 @@ pub fn do_exclude<Pr: ProjectMut, P: AsRef<Utf8UnixPath>, I: Iterator<Item = P>>
     project: &mut Pr,
     paths: I,
 ) -> Result<Vec<SourceExclusionOutcome>, ExcludeError<Pr::Error>> {
+    // model-toml.md "Editing the manifest": "`sysand exclude <paths>`
+    // removes it." `Both` falls through to the json arm, where
+    // `get_meta` refuses it as the ambiguity it is.
+    if project.format().map_err(ProjectOrIOError::Project)? == ProjectFormat::Toml {
+        return exclude_toml(project, paths);
+    }
+
     let Some(mut meta) = project.get_meta().map_err(ProjectOrIOError::Project)? else {
         return Err(ExcludeError::MissingMeta);
     };
@@ -60,6 +78,51 @@ pub fn do_exclude<Pr: ProjectMut, P: AsRef<Utf8UnixPath>, I: Iterator<Item = P>>
     project
         .put_meta(&meta, true)
         .map_err(ProjectOrIOError::Project)?;
+    Ok(outcomes)
+}
+
+/// `exclude` on a `model.toml` project: remove each path from `sources`.
+///
+/// The outcome has no toml meaning -- there is no checksum or symbol
+/// map to remove from -- so an empty one is returned per path, although
+/// the json arm reads an empty outcome as "not found".
+fn exclude_toml<Pr: ProjectMut, P: AsRef<Utf8UnixPath>, I: Iterator<Item = P>>(
+    project: &mut Pr,
+    paths: I,
+) -> Result<Vec<SourceExclusionOutcome>, ExcludeError<Pr::Error>> {
+    let mut document = project.manifest_document().map_err(|e| match e {
+        crate::project::ManifestError::Project(e) => ExcludeError::Project(e),
+        other => ExcludeError::Manifest(other.to_string().into()),
+    })?;
+
+    let mut outcomes = Vec::new();
+    for path in paths {
+        let path = path.as_ref();
+        let excluding = "Excluding";
+        let header = crate::style::get_style_config().header;
+        log::info!("{header}{excluding:>12}{header:#} file: `{path}`");
+
+        crate::manifest::edit::exclude_source(&mut document, path.as_str()).map_err(|e| {
+            match e {
+                // The one failure whose text the json arm already has.
+                crate::manifest::edit::EditError::SourceNotListed(_) => {
+                    ExcludeError::SourceNotFound(path.as_str().into())
+                }
+                other => ExcludeError::Edit(other),
+            }
+        })?;
+        outcomes.push(SourceExclusionOutcome {
+            removed_checksum: None,
+            removed_symbols: Vec::new(),
+        });
+    }
+
+    project
+        .put_manifest_document(&document, true)
+        .map_err(|e| match e {
+            crate::project::ManifestWriteError::Project(e) => ExcludeError::Project(e),
+            other => ExcludeError::Manifest(other.to_string().into()),
+        })?;
     Ok(outcomes)
 }
 
