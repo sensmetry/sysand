@@ -37,6 +37,23 @@ pub struct ProjectContext {
     /// override that the next command ignores and warns about.
     #[cfg(feature = "filesystem")]
     pub config_root: Utf8PathBuf,
+    /// The root of the `model.toml` workspace the command is running
+    /// in, if it is running in one.
+    ///
+    /// Beside `current_workspace`, which is the `.workspace.json` type,
+    /// until WP-4d deletes that one. Distinct from `config_root`, which
+    /// answers the same question for configuration and falls back to
+    /// the project root: this is `None` outside a workspace, because
+    /// "relative to the workspace root" has no fallback meaning.
+    ///
+    /// What reads it is `LocalSrcProject::sources`: a solved local
+    /// dependency has no nominal path, so its `src_path` is relativized
+    /// against a root, and a lockfile at the workspace root needs that
+    /// root -- `workspaces.md` "Locking" records "every project of the
+    /// solved graph ... members included" in one file, so every path in
+    /// it means the same thing.
+    #[cfg(feature = "filesystem")]
+    pub model_workspace_root: Option<Utf8PathBuf>,
     /// Metadata of the current workspace/project `.sysand`. `Some` if
     /// either `current_workspace` or `current_project` is `Some` and
     /// the environment metadata file exists.
@@ -63,4 +80,21 @@ impl ProjectContext {
     pub fn workspace_or_project_root(&self) -> Option<Utf8PathBuf> {
         self.workspace_root().or_else(|| self.project_root())
     }
+
+    /// The root a `src_path` in this command's lockfile is relative to.
+    ///
+    /// The `model.toml` workspace root first: its lockfile lives there,
+    /// and a path in it that meant "relative to whichever member
+    /// happened to run `lock`" would mean different things in one file.
+    #[cfg(feature = "filesystem")]
+    pub fn sources_root(&self) -> Option<Utf8PathBuf> {
+        self.model_workspace_root
+            .clone()
+            .or_else(|| self.workspace_root())
+            .or_else(|| self.project_root())
+    }
 }
+
+#[cfg(test)]
+#[path = "./context_tests.rs"]
+mod tests;
