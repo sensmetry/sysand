@@ -1,6 +1,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+//! `sysand include` and `sysand exclude` does not support `model.toml` projects yet -- that is
+//! WP-3d's work. So every project in this file is written as a legacy
+//! `.project.json` pair by hand rather than created through `sysand
+//! init`, which writes a `model.toml`.
+//!
+//! When WP-3d lands, these should go back to `cli_init_project*` and
+//! follow whatever `init` produces. Until then this file does not
+//! exercise the toml path at all.
+
 use std::{fs, io::Write as _};
 
 use assert_cmd::prelude::*;
@@ -16,11 +25,10 @@ pub use common::*;
 
 #[test]
 fn include_and_exclude_simple() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "include-and-exclude", "1.2.3")?;
+    let (_temp_dir, cwd) =
+        cli_init_json_project(None, "acme", "include-and-exclude", "1.2.3", None)?;
 
     fs::write(cwd.join("test.sysml"), b"package P;\n")?;
-
-    out.assert().success();
 
     let out = run_sysand_in(&cwd, ["include", "test.sysml", "--compute-checksum"], None)?;
 
@@ -63,11 +71,10 @@ fn include_and_exclude_simple() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn include_no_checksum() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "include-no-checksum", "1.2.3")?;
+    let (_temp_dir, cwd) =
+        cli_init_json_project(None, "acme", "include-no-checksum", "1.2.3", None)?;
 
     fs::write(cwd.join("test.sysml"), b"package P;\n")?;
-
-    out.assert().success();
 
     let out = run_sysand_in(&cwd, ["include", "test.sysml"], None)?;
 
@@ -97,11 +104,10 @@ fn include_no_checksum() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn include_no_index() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "include-and-exclude", "1.2.3")?;
+    let (_temp_dir, cwd) =
+        cli_init_json_project(None, "acme", "include-and-exclude", "1.2.3", None)?;
 
     fs::write(cwd.join("test.sysml"), b"package P;\n")?;
-
-    out.assert().success();
 
     let out = run_sysand_in(
         &cwd,
@@ -138,12 +144,11 @@ fn include_no_index() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn include_empty_and_update() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "include-and-exclude", "1.2.3")?;
+    let (_temp_dir, cwd) =
+        cli_init_json_project(None, "acme", "include-and-exclude", "1.2.3", None)?;
 
     let mut sysml_file = fs::File::create(cwd.join("test.sysml"))?;
     sysml_file.sync_all()?;
-
-    out.assert().success();
 
     let out = run_sysand_in(&cwd, ["include", "test.sysml", "--compute-checksum"], None)?;
 
@@ -198,12 +203,15 @@ fn include_empty_and_update() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn include_same_file_replaces_old_symbols() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) =
-        cli_init_project_basic("acme", "include-same-file-replaces-old-symbols", "1.2.3")?;
+    let (_temp_dir, cwd) = cli_init_json_project(
+        None,
+        "acme",
+        "include-same-file-replaces-old-symbols",
+        "1.2.3",
+        None,
+    )?;
 
     fs::write(cwd.join("test.sysml"), b"package A;\npackage B;\n")?;
-
-    out.assert().success();
 
     let out = run_sysand_in(&cwd, ["include", "test.sysml"], None)?;
 
@@ -239,13 +247,12 @@ fn include_same_file_replaces_old_symbols() -> Result<(), Box<dyn std::error::Er
 
 #[test]
 fn include_and_exclude_both_nested() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "include-and-exclude", "1.2.3")?;
+    let (_temp_dir, cwd) =
+        cli_init_json_project(None, "acme", "include-and-exclude", "1.2.3", None)?;
 
     fs::write(cwd.join("test.sysml"), b"package P;\n")?;
     fs::create_dir(cwd.join("extra"))?;
     fs::write(cwd.join("extra").join("test.sysml"), b"package Extra;\n")?;
-
-    out.assert().success();
 
     let out = run_sysand_in(
         &cwd,
@@ -312,16 +319,19 @@ fn include_and_exclude_both_nested() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn include_and_exclude_single_nested() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) =
-        cli_init_project_basic("acme", "include-and-exclude-single-nested", "1.2.3")?;
+    let (_temp_dir, cwd) = cli_init_json_project(
+        None,
+        "acme",
+        "include-and-exclude-single-nested",
+        "1.2.3",
+        None,
+    )?;
 
     fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
     fs::create_dir(cwd.join("extra"))?;
 
     fs::write(cwd.join("extra").join("test.sysml"), b"package Extra;\n")?;
-
-    out.assert().success();
 
     let out = run_sysand_in(
         &cwd,
@@ -402,9 +412,8 @@ fn include_and_exclude_single_nested() -> Result<(), Box<dyn std::error::Error>>
 
 #[test]
 fn include_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "include-nonexistent", "1.2.3")?;
-
-    out.assert().success();
+    let (_temp_dir, cwd) =
+        cli_init_json_project(None, "acme", "include-nonexistent", "1.2.3", None)?;
 
     let out = run_sysand_in(&cwd, ["include", "test.sysml"], None)?;
 
@@ -425,9 +434,8 @@ fn include_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn exclude_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "exclude-nonexistent", "1.2.3")?;
-
-    out.assert().success();
+    let (_temp_dir, cwd) =
+        cli_init_json_project(None, "acme", "exclude-nonexistent", "1.2.3", None)?;
 
     let out = run_sysand_in(&cwd, ["exclude", "test.sysml"], None)?;
 

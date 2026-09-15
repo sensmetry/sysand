@@ -75,6 +75,18 @@ pub enum Error {
         SP = ' '
     )]
     AmbiguousFormat(Utf8UnixPathBuf),
+    /// A command that writes a json manifest was pointed at a
+    /// `model.toml` project; writing one would leave the store holding
+    /// both, which nothing can read.
+    #[error("this is a `model.toml` project; `{0}` cannot be written into one")]
+    JsonWriteToTomlProject(&'static str),
+    /// The mirror: `sysand migrate` is the way across, and it replaces
+    /// both files rather than adding one.
+    #[error(
+        "this is a `.project.json` project; `model.toml` cannot be written into one \
+         (see `sysand migrate`)"
+    )]
+    TomlWriteToJsonProject,
     /// A source file listed in `sources` could not be indexed.
     #[error(transparent)]
     Symbols(#[from] sysand_core::symbols::SymbolsError),
@@ -254,12 +266,24 @@ impl ProjectRead for ProjectLocalBrowserStorage {
     }
 }
 
+impl ProjectLocalBrowserStorage {
+    /// The same rule the other two stores keep: a json document cannot
+    /// be written into a `model.toml` project.
+    fn refuse_json_write(&self, file: &'static str) -> Result<(), Error> {
+        if self.format()? == ProjectFormat::Toml {
+            return Err(Error::JsonWriteToTomlProject(file));
+        }
+        Ok(())
+    }
+}
+
 impl ProjectMut for ProjectLocalBrowserStorage {
     fn put_info(
         &mut self,
         info: &InterchangeProjectInfoRaw,
         overwrite: bool,
     ) -> Result<(), Self::Error> {
+        self.refuse_json_write(".project.json")?;
         let info_path = self.root_path.join(".project.json");
         if !overwrite && self.vfs.exists(&info_path)? {
             return Err(Error::AlreadyExists(".project.json".into()));
@@ -275,6 +299,7 @@ impl ProjectMut for ProjectLocalBrowserStorage {
         meta: &InterchangeProjectMetadataRaw,
         overwrite: bool,
     ) -> Result<(), Self::Error> {
+        self.refuse_json_write(".meta.json")?;
         let meta_path = self.root_path.join(".meta.json");
         if !overwrite && self.vfs.exists(&meta_path)? {
             return Err(Error::AlreadyExists(".meta.json".into()));
@@ -285,6 +310,38 @@ impl ProjectMut for ProjectLocalBrowserStorage {
             Into::<InterchangeProjectMetadataRaw>::into(meta.to_owned()),
         )?;
 
+        Ok(())
+    }
+
+    fn put_manifest_document(
+        &mut self,
+        document: &sysand_core::manifest::edit::DocumentMut,
+        overwrite: bool,
+    ) -> Result<(), sysand_core::project::ManifestWriteError<Self::Error>> {
+        use sysand_core::project::ManifestWriteError;
+
+        let format = self.format().map_err(ManifestWriteError::Project)?;
+        // The mirror of `refuse_json_write`, and as narrow: writing into
+        // a store that already holds both changes nothing about why it
+        // is unreadable.
+        if format == ProjectFormat::Json {
+            return Err(ManifestWriteError::Project(Error::TomlWriteToJsonProject));
+        }
+
+        let manifest_path = self.root_path.join(MODEL_TOML_FILE);
+        let exists = self
+            .vfs
+            .exists(&manifest_path)
+            .map_err(|e| ManifestWriteError::Project(Error::from(e)))?;
+        if !overwrite && exists {
+            return Err(ManifestWriteError::Project(Error::AlreadyExists(
+                MODEL_TOML_FILE.into(),
+            )));
+        }
+
+        self.vfs
+            .write_string(&manifest_path, &document.to_string())
+            .map_err(|e| ManifestWriteError::Project(Error::from(e)))?;
         Ok(())
     }
 

@@ -8,11 +8,15 @@ use predicates::prelude::*;
 mod common;
 pub use common::*;
 
-/// `sysand init` should create valid, minimal, .project.json
-/// and .meta.json files in the specified directory, falling back
-/// on directory name as name.
+/// What `sysand init` writes, byte for byte.
+///
+/// model-toml.md "Manifest version": "`sysand init`, `sysand new` and
+/// `sysand migrate` write the current value" -- so a new project is a
+/// `model.toml`, in the layout "Editing the manifest" fixes. The two
+/// json documents are what a build produces and what a legacy project
+/// has.
 #[test]
-fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
+fn sysand_init_writes_a_model_toml() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
         [
             "init",
@@ -20,133 +24,29 @@ fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
             "1.2.3",
             "--publisher",
             "acme",
-            "init_basic",
-        ],
-        None,
-    )?;
-
-    let proj_dir_path = cwd.join("init_basic");
-
-    out.assert().success().stdout(predicate::str::is_empty());
-
-    let info = std::fs::read_to_string(proj_dir_path.join(".project.json"))?;
-    let meta = std::fs::read_to_string(proj_dir_path.join(".meta.json"))?;
-
-    let meta_match = predicate::str::is_match(
-        r#"\{\n  "index": \{\},\n  "created": "\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"\n}\n"#,
-    )?;
-
-    assert_eq!(
-        info,
-        r#"{
-  "name": "init_basic",
-  "publisher": "acme",
-  "version": "1.2.3"
-}
-"#
-    );
-    // Isn't there some nicer way to use this?
-    assert!(meta_match.eval(&meta));
-
-    Ok(())
-}
-
-/// `sysand init`, when not given a version, should default to `0.0.1`.
-#[test]
-fn init_default_version() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) =
-        cli_init_project(Some("init-default-version"), "acme", None, None, None)?;
-
-    let proj_dir_path = cwd.join("init-default-version");
-
-    out.assert().success().stdout(predicate::str::is_empty());
-
-    let info = std::fs::read_to_string(proj_dir_path.join(".project.json"))?;
-
-    assert_eq!(
-        info,
-        r#"{
-  "name": "init-default-version",
-  "publisher": "acme",
-  "version": "0.0.1"
-}
-"#
-    );
-
-    Ok(())
-}
-
-/// `sysand init`, when not given a directory, should create a
-/// project in cwd.
-#[test]
-fn init_basic_cwd() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("bravo", "init-basic-cwd", "1.2.3")?;
-
-    out.assert().success().stdout(predicate::str::is_empty());
-
-    let info = std::fs::read_to_string(cwd.join(".project.json"))?;
-    let meta = std::fs::read_to_string(cwd.join(".meta.json"))?;
-
-    let meta_match = predicate::str::is_match(
-        r#"\{\n  "index": \{\},\n  "created": "\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"\n}\n"#,
-    )?;
-
-    assert_eq!(
-        info,
-        r#"{
-  "name": "init-basic-cwd",
-  "publisher": "bravo",
-  "version": "1.2.3"
-}
-"#
-    );
-    // Isn't there some nicer way to use this?
-    assert!(meta_match.eval(&meta));
-
-    Ok(())
-}
-
-/// `sysand init` should create valid, minimal, .project.json
-/// and .meta.json files in the specified directory, using explicitly
-/// specified name as project name.
-#[test]
-fn init_explicit_name() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "charlie",
             "--name",
-            "other_than_init_explicit_name",
-            "init_explicit_name",
+            "widgets",
+            "--license",
+            "MIT",
+            "project",
         ],
         None,
     )?;
-
-    let proj_dir_path = cwd.join("init_explicit_name");
-
     out.assert().success().stdout(predicate::str::is_empty());
 
-    let info = std::fs::read_to_string(proj_dir_path.join(".project.json"))?;
-    let meta = std::fs::read_to_string(proj_dir_path.join(".meta.json"))?;
-
-    let meta_match = predicate::str::is_match(
-        r#"\{\n  "index": \{\},\n  "created": "\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"\n}\n"#,
-    )?;
-
+    let project = cwd.join("project");
     assert_eq!(
-        info,
-        r#"{
-  "name": "other_than_init_explicit_name",
-  "publisher": "charlie",
-  "version": "1.2.3"
-}
-"#
+        std::fs::read_to_string(project.join("model.toml"))?,
+        "manifest-version = 1\n\n\
+         [project]\n\
+         publisher = \"acme\"\n\
+         name = \"widgets\"\n\
+         version = \"1.2.3\"\n\
+         sources = []\n\
+         license = \"MIT\"\n"
     );
-    // Isn't there some nicer way to use this?
-    assert!(meta_match.eval(&meta));
+    assert!(!project.join(".project.json").exists());
+    assert!(!project.join(".meta.json").exists());
 
     Ok(())
 }
@@ -157,16 +57,28 @@ fn init_explicit_name() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn invalid_license_error_is_consistent() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--publisher", "a", "--license", "MIT ANDD foo"],
+        [
+            "init",
+            "--publisher",
+            "acme",
+            "--name",
+            "proj",
+            "--license",
+            "MIT ANDD foo",
+        ],
         None,
     )?;
     let expected = "not a valid SPDX license expression:\nMIT ANDD foo\n    ^^^^ unknown term\n";
     out.assert()
         .failure()
         .stderr(predicate::str::contains(expected));
-    assert!(!cwd.join(".project.json").exists());
+    assert!(!cwd.join("model.toml").exists());
 
-    let out = run_sysand_in(&cwd, ["init", "--publisher", "a"], None)?;
+    let out = run_sysand_in(
+        &cwd,
+        ["init", "--publisher", "acme", "--name", "proj"],
+        None,
+    )?;
     out.assert().success();
     let out = run_sysand_in(&cwd, ["edit", "--license", "MIT ANDD foo"], None)?;
     out.assert()
@@ -176,103 +88,159 @@ fn invalid_license_error_is_consistent() -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
-/// `sysand init` should fail (loudly) in case there is already
-/// a project present (in the specified directory). Such an existing
-/// project should remain unaffected by the second `sysand init` execution.
+/// The license goes in verbatim.
+///
+/// `render_new` writes an SPDX expression through its `Display`, and
+/// `spdx::Expression`'s `Display` is the text it parsed -- whitespace
+/// included. So this is an echo, and pinning it is what would catch the
+/// day it stops being one.
 #[test]
-fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
-    // Run 1
+fn sysand_init_writes_the_license_expression_as_given() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = init_ok(&["--license", "Apache-2.0 OR    MIT"])?;
+
+    assert!(
+        std::fs::read_to_string(cwd.join("project").join("model.toml"))?
+            .contains("license = \"Apache-2.0 OR    MIT\"\n")
+    );
+    Ok(())
+}
+
+/// Without a version, `0.0.1`.
+#[test]
+fn sysand_init_defaults_the_version() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
         [
             "init",
             "--publisher",
             "acme",
-            "--version",
-            "1.2.3",
-            "init_fail_on_double_init",
+            "--name",
+            "widgets",
+            "project",
         ],
         None,
     )?;
-    out.assert().success().stdout(predicate::str::is_empty());
+    out.assert().success();
 
-    let proj_dir_path = cwd.join("init_fail_on_double_init");
-
-    assert!(proj_dir_path.exists());
-
-    let original_info = std::fs::read_to_string(proj_dir_path.join(".project.json"))?;
-    let original_meta = std::fs::read_to_string(proj_dir_path.join(".meta.json"))?;
-
-    // Run 2
-    let out_again = run_sysand_in(
-        &cwd,
-        [
-            "init",
-            "--publisher",
-            "acme",
-            "--version",
-            "1.2.3",
-            "init_fail_on_double_init",
-        ],
-        None,
-    )?;
-    out_again
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("`.project.json` already exists"));
-
-    assert_eq!(
-        original_info,
-        std::fs::read_to_string(proj_dir_path.join(".project.json"))?
+    assert!(
+        std::fs::read_to_string(cwd.join("project").join("model.toml"))?
+            .contains("version = \"0.0.1\"\n")
     );
-    assert_eq!(
-        original_meta,
-        std::fs::read_to_string(proj_dir_path.join(".meta.json"))?
-    );
-
     Ok(())
 }
 
-/// `sysand init` should fail (loudly) in case there is already
-/// a project present (in the current working directory). The current
-/// project should remain unaffected by the second `sysand init` execution.
+/// A name the manifest rule refuses, taken from the directory. The
+/// message has to say where the fix is: not at the name, which the user
+/// never typed.
 #[test]
-fn init_fail_on_double_init_cwd() -> Result<(), Box<dyn std::error::Error>> {
-    // Run 1
-    let (_temp_dir, cwd, out) =
-        cli_init_project_basic("acme", "init-fail-on-double-init-cwd", "1.2.3")?;
-    out.assert().success().stdout(predicate::str::is_empty());
+fn a_name_from_the_directory_names_the_name_flag() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, _cwd, out) = run_sysand(["init", "--publisher", "acme", "my_project"], None)?;
 
-    let original_info = std::fs::read_to_string(cwd.join(".project.json"))?;
-    let original_meta = std::fs::read_to_string(cwd.join(".meta.json"))?;
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "name must be 3-50 ASCII alphanumeric chars",
+        ))
+        .stderr(predicate::str::contains(
+            "the name came from the directory; pass `--name` to choose another",
+        ));
+    Ok(())
+}
 
-    // Run 2
-    let out_again = run_sysand_in(
-        &cwd,
+/// The same name, typed. There is nothing left to suggest.
+#[test]
+fn a_name_from_the_name_flag_is_refused_without_the_hint() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_temp_dir, _cwd, out) = run_sysand(
         [
             "init",
             "--publisher",
             "acme",
             "--name",
-            "init_fail_on_double_init_cwd_again",
-            "--version",
-            "3.2.1",
+            "my_project",
+            "project",
         ],
         None,
     )?;
-    out_again
+
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "name must be 3-50 ASCII alphanumeric chars",
+        ))
+        .stderr(predicate::str::contains("the name came from the directory").not());
+    Ok(())
+}
+
+/// A publisher never comes from a directory, so it never gets the hint.
+#[test]
+fn a_publisher_the_rule_refuses_is_an_error() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, _cwd, out) = run_sysand(
+        ["init", "--publisher", "ab", "--name", "widgets", "project"],
+        None,
+    )?;
+
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "publisher must be 3-50 ASCII alphanumeric chars",
+        ))
+        .stderr(predicate::str::contains("--name").not());
+    Ok(())
+}
+
+/// `sysand new` is `sysand init`, as an alias: model-toml.md names both.
+#[test]
+fn sysand_new_is_sysand_init() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        ["new", "--publisher", "acme", "--name", "widgets", "project"],
+        None,
+    )?;
+    out.assert().success();
+
+    assert!(cwd.join("project").join("model.toml").exists());
+    Ok(())
+}
+
+/// A generated project is one Sysand reads back.
+#[test]
+fn a_generated_project_is_read_back_by_info() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = init_ok(&[])?;
+
+    run_sysand_in(&cwd.join("project"), ["info"], None)?
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("widgets"))
+        .stdout(predicate::str::contains("acme"));
+    Ok(())
+}
+
+/// `created` is the Unix epoch for a generated project, and that is
+/// deliberate: it is computed at build, and a view of a source project
+/// must not be a function of the clock or two reads of one project
+/// would not agree on its checksum.
+///
+/// The value appears only through `info`, which is what this test
+/// reads.
+#[test]
+fn created_is_the_epoch_for_a_generated_project() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = init_ok(&[])?;
+
+    run_sysand_in(&cwd.join("project"), ["info", "--get", "created"], None)?
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("1970-01-01T00:00:00Z"));
+    Ok(())
+}
+
+/// A second `init` in the same directory.
+#[test]
+fn initing_twice_says_the_manifest_is_there() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = init_ok(&[])?;
+
+    run_sysand_in(&cwd.join("project"), ["init", "--publisher", "acme"], None)?
         .assert()
         .failure()
-        .stderr(predicate::str::contains("`.project.json` already exists"));
-
-    assert_eq!(
-        original_info,
-        std::fs::read_to_string(cwd.join(".project.json"))?
-    );
-    assert_eq!(
-        original_meta,
-        std::fs::read_to_string(cwd.join(".meta.json"))?
-    );
-
+        .stderr(predicate::str::contains("`model.toml` already exists"));
     Ok(())
 }
 
@@ -312,7 +280,7 @@ fn init_rejects_invalid_name() -> Result<(), Box<dyn std::error::Error>> {
         ("a\nb", "name cannot contain `\\n`"),
     ] {
         let (_temp_dir, cwd, out) =
-            run_sysand(["init", "--publisher", "a", "--name", name, "p"], None)?;
+            run_sysand(["init", "--publisher", "acme", "--name", name, "p"], None)?;
 
         out.assert().failure().stderr(
             predicate::str::contains(format!("invalid value '{name}' for '--name <NAME>'"))
@@ -340,15 +308,15 @@ fn init_accepts_spaces_in_publisher_and_name() -> Result<(), Box<dyn std::error:
     )?;
 
     out.assert().success();
-    let info = std::fs::read_to_string(cwd.join("p").join(".project.json"))?;
+    let manifest = std::fs::read_to_string(cwd.join("p").join("model.toml"))?;
     assert_eq!(
-        info,
-        r#"{
-  "name": "My Project",
-  "publisher": "Acme Labs",
-  "version": "0.0.1"
-}
-"#
+        manifest,
+        "manifest-version = 1\n\n\
+         [project]\n\
+         publisher = \"Acme Labs\"\n\
+         name = \"My Project\"\n\
+         version = \"0.0.1\"\n\
+         sources = []\n"
     );
 
     Ok(())
@@ -360,27 +328,27 @@ fn init_accepts_spaces_in_publisher_and_name() -> Result<(), Box<dyn std::error:
 #[cfg(unix)]
 #[test]
 fn init_rejects_invalid_directory_name() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(["init", "--publisher", "a", "bad:dir"], None)?;
+    let (_temp_dir, cwd, out) = run_sysand(["init", "--publisher", "acme", "bad:dir"], None)?;
 
     out.assert().failure().stderr(predicate::str::contains(
         "cannot use the directory name `bad:dir` as the project name: \
          name cannot contain `:`; use `--name` to set it",
     ));
-    assert!(!cwd.join("bad:dir").join(".project.json").exists());
+    assert!(!cwd.join("bad:dir").join("model.toml").exists());
 
     let out = run_sysand_in(
         &cwd,
-        ["init", "--publisher", "a", "--name", "good", "bad:dir"],
+        ["init", "--publisher", "acme", "--name", "good", "bad:dir"],
         None,
     )?;
     out.assert().success();
-    assert!(cwd.join("bad:dir").join(".project.json").exists());
+    assert!(cwd.join("bad:dir").join("model.toml").exists());
 
     Ok(())
 }
 
 /// `sysand init --metamodel` should write the metamodel of the current
-/// release to `.meta.json`, and `--metamodel-release` should choose it
+/// release to `model.toml`, and `--metamodel-release` should choose it
 #[test]
 fn init_metamodel() -> Result<(), Box<dyn std::error::Error>> {
     for (args, metamodel) in [
@@ -394,16 +362,18 @@ fn init_metamodel() -> Result<(), Box<dyn std::error::Error>> {
         ),
     ] {
         let (_temp_dir, cwd, out) = run_sysand(
-            ["init", "--publisher", "a", "p"]
+            ["init", "--publisher", "acme", "proj"]
                 .into_iter()
                 .chain(args.iter().copied()),
             None,
         )?;
 
         out.assert().success();
-        let meta: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(cwd.join("p/.meta.json"))?)?;
-        assert_eq!(meta["metamodel"], metamodel, "args: {args:?}");
+        let manifest = std::fs::read_to_string(cwd.join("proj/model.toml"))?;
+        assert!(
+            manifest.contains(&format!("metamodel = \"{metamodel}\"\n")),
+            "args: {args:?}, manifest: {manifest}"
+        );
     }
 
     Ok(())
@@ -417,7 +387,7 @@ fn init_metamodel_release_requires_metamodel() -> Result<(), Box<dyn std::error:
         [
             "init",
             "--publisher",
-            "a",
+            "acme",
             "--metamodel-release",
             "20250201",
             "p",
@@ -431,6 +401,37 @@ fn init_metamodel_release_requires_metamodel() -> Result<(), Box<dyn std::error:
     assert!(!cwd.join("p").exists());
 
     Ok(())
+}
+
+/// `init` in a directory that is already a *legacy* project. A
+/// different refusal: adding a `model.toml` beside the json pair makes
+/// a project nothing can read.
+#[test]
+fn initing_over_a_json_project_says_to_migrate() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "widgets", "1.2.3", None)?;
+
+    run_sysand_in(
+        &cwd,
+        ["init", "--publisher", "acme", "--name", "widgets"],
+        None,
+    )?
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains("is a `.project.json` project"))
+    .stderr(predicate::str::contains("sysand migrate"));
+    Ok(())
+}
+
+/// `sysand init --publisher acme --name widgets project`, plus `extra`.
+fn init_ok(
+    extra: &[&str],
+) -> Result<(camino_tempfile::Utf8TempDir, camino::Utf8PathBuf), Box<dyn std::error::Error>> {
+    let mut args = vec!["init", "--publisher", "acme", "--name", "widgets"];
+    args.extend_from_slice(extra);
+    args.push("project");
+    let (temp_dir, cwd, out) = run_sysand(args, None)?;
+    out.assert().success();
+    Ok((temp_dir, cwd))
 }
 
 /// Every identifier the suite creates a project with has to be one the
@@ -470,15 +471,24 @@ fn every_identifier_the_suite_inits_with_is_valid() -> Result<(), Box<dyn std::e
                     .skip_while(|a| a.starts_with('&'))
                     .collect()
             };
-            let (publisher, name) = if call == "cli_init_project_basic" {
-                (arg(args.first()), arg(args.get(1)))
-            } else {
-                // With no `--name`, the name comes from the directory.
-                (
-                    arg(args.get(1)),
-                    arg(args.get(2)).or_else(|| arg(args.first())),
-                )
-            };
+            let (publisher, name) =
+                if call == "cli_init_project_basic" || call == "write_legacy_project" {
+                    // `write_legacy_project(dir, publisher, name, …)` — the
+                    // directory is an expression, and `skip_while` above
+                    // drops it only when it is a reference.
+                    let args: Vec<&str> = args
+                        .iter()
+                        .copied()
+                        .skip(usize::from(call == "write_legacy_project"))
+                        .collect();
+                    (arg(args.first()), arg(args.get(1)))
+                } else {
+                    // With no `--name`, the name comes from the directory.
+                    (
+                        arg(args.get(1)),
+                        arg(args.get(2)).or_else(|| arg(args.first())),
+                    )
+                };
             let Some(publisher) = publisher else { continue };
 
             assert!(
@@ -506,6 +516,8 @@ fn call_sites(text: &str) -> Vec<(&'static str, usize)> {
         "cli_init_project_basic",
         "cli_init_project_in",
         "cli_init_project",
+        "cli_init_json_project",
+        "write_legacy_project",
     ] {
         let mut from = 0;
         while let Some(at) = text[from..].find(&format!("{call}(")) {

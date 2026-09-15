@@ -8,11 +8,15 @@ use spdx;
 
 use crate::{
     env::utils::ErrorBound,
-    model::{
-        InterchangeProjectInfoRaw, InterchangeProjectMetadata, Metamodel, MetamodelParseError,
-        ProjectFieldError, ProjectName, ProjectPublisher,
+    manifest::{
+        ModelToml,
+        common::Sources,
+        edit::render_new,
+        inherit::MetaProperty,
+        project::{ProjectManifest, ProjectTable},
     },
-    project::{ProjectMut, memory::InMemoryProject},
+    model::{IdentifierError, IndexName, IndexPublisher, Metamodel, MetamodelParseError},
+    project::{ManifestWriteError, ProjectMut, memory::InMemoryProject},
 };
 
 #[cfg(feature = "filesystem")]
@@ -22,10 +26,6 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum InitError<ProjectError: ErrorBound> {
-    #[error("invalid project name `{0}`: {1}")]
-    NameParse(String, ProjectFieldError),
-    #[error("invalid project publisher `{0}`: {1}")]
-    PublisherParse(String, ProjectFieldError),
     #[error("failed to parse `{0}` as a Semantic Version: {1}")]
     SemVerParse(Box<str>, semver::Error),
     #[error(transparent)]
@@ -34,52 +34,32 @@ pub enum InitError<ProjectError: ErrorBound> {
     SPDXLicenseParse(Box<str>, spdx::error::ParseError),
     #[error("invalid metamodel: {0}")]
     MalformedMetamodel(MetamodelParseError),
+    /// The publisher or name is not one a `model.toml` can hold.
+    ///
+    /// Not a check `init` chose to make: a manifest holds the validated
+    /// types, so a project that cannot be named cannot be created. The
+    /// frontend adds where to put the fix -- the name usually comes from
+    /// the directory rather than from an argument.
+    #[error("`{value}`: {error}", value = .0.value, error = .0)]
+    Identifier(IdentifierError),
+    #[error(transparent)]
+    Write(ManifestWriteError<ProjectError>),
 }
 
+/// Create a project.
+///
+/// model-toml.md: "`sysand init`, `sysand new` and `sysand migrate`
+/// write the current value" of `manifest-version` -- so what a new
+/// project is, is a `model.toml`. The two json documents are what a
+/// build produces and what a legacy project has.
+///
+/// The three identifiers are parsed rather than checked: a
+/// [`ProjectTable`] holds the validated types, so parsing them is the
+/// only way to build one. A publisher or name the rule refuses is
+/// [`InitError::Identifier`].
+/// The metamodel, when given, must be an IRI, with a well-formed release
+/// if it is a recognized one, and is written as given.
 pub fn do_init<P: ProjectMut>(
-    name: ProjectName,
-    publisher: ProjectPublisher,
-    version: Version,
-    license: Option<spdx::Expression>,
-    metamodel: Option<Metamodel>,
-    storage: &mut P,
-) -> Result<(), InitError<P::Error>> {
-    let creating = "Creating";
-    let header = crate::style::get_style_config().header;
-    log::info!(
-        "{header}{creating:>12}{header:#} interchange project `{}`",
-        name.as_str()
-    );
-
-    storage.put_project(
-        &InterchangeProjectInfoRaw {
-            name: name.into_string(),
-            publisher: Some(publisher.into_string()),
-            description: None,
-            version: version.to_string(),
-            license: license.map(|l| l.to_string()),
-            maintainer: vec![],
-            topic: vec![],
-            usage: vec![],
-            website: None,
-        },
-        &InterchangeProjectMetadata {
-            index: indexmap::IndexMap::new(),
-            created: jiff::Timestamp::now(),
-            metamodel,
-            includes_derived: None,
-            includes_implied: None,
-            checksum: None,
-        }
-        .into(),
-        false,
-    )?;
-
-    Ok(())
-}
-
-/// Same as `do_init`, but takes unparsed values
-pub fn do_init_parse<P: ProjectMut>(
     name: String,
     publisher: String,
     version: String,
@@ -87,24 +67,41 @@ pub fn do_init_parse<P: ProjectMut>(
     metamodel: Option<String>,
     storage: &mut P,
 ) -> Result<(), InitError<P::Error>> {
-    let name = ProjectName::parse(name).map_err(|(name, e)| InitError::NameParse(name, e))?;
-    let publisher = ProjectPublisher::parse(publisher)
-        .map_err(|(publisher, e)| InitError::PublisherParse(publisher, e))?;
     let version =
         Version::parse(&version).map_err(|e| InitError::SemVerParse(version.as_str().into(), e))?;
-    let license = if let Some(l) = license {
-        let l = spdx::Expression::parse(&l)
-            .map_err(|e| InitError::SPDXLicenseParse(l.as_str().into(), e))?;
-        Some(l)
-    } else {
-        None
-    };
+    let publisher = IndexPublisher::parse(publisher).map_err(InitError::Identifier)?;
+    let name = IndexName::parse(name).map_err(InitError::Identifier)?;
+    let license = license
+        .map(|raw| {
+            spdx::Expression::parse(&raw)
+                .map_err(|e| InitError::SPDXLicenseParse(raw.as_str().into(), e))
+        })
+        .transpose()?;
     let metamodel = metamodel
         .as_deref()
         .map(Metamodel::parse)
         .transpose()
         .map_err(InitError::MalformedMetamodel)?;
-    do_init(name, publisher, version, license, metamodel, storage)
+
+    let creating = "Creating";
+    let header = crate::style::get_style_config().header;
+    log::info!("{header}{creating:>12}{header:#} interchange project `{name}`");
+
+    let mut project = ProjectTable::new(publisher, name, version);
+    // model-toml.md: "a project that has none is written as `sources =
+    // []`" -- an absent key is a manifest that does not resolve.
+    project.sources = Some(Sources::default());
+    project.license = license.map(MetaProperty::Provided);
+    project.metamodel = metamodel.map(|m| MetaProperty::Provided(String::from(m)));
+
+    let manifest = ModelToml::Project(Box::new(ProjectManifest {
+        project,
+        inline_usages: vec![],
+    }));
+
+    storage
+        .put_manifest_document(&render_new(&manifest), false)
+        .map_err(InitError::Write)
 }
 
 pub fn do_init_memory<N: AsRef<str>, P: AsRef<str>, V: AsRef<str>>(
@@ -115,7 +112,7 @@ pub fn do_init_memory<N: AsRef<str>, P: AsRef<str>, V: AsRef<str>>(
 ) -> Result<InMemoryProject, InitError<crate::project::memory::InMemoryError>> {
     let mut storage = InMemoryProject::default();
 
-    do_init_parse(
+    do_init(
         name.as_ref().to_owned(),
         publisher.as_ref().to_owned(),
         version.as_ref().to_owned(),
@@ -137,7 +134,7 @@ pub fn do_init_local_file(
     path: Utf8PathBuf,
 ) -> Result<LocalSrcProject, InitError<LocalSrcError>> {
     let mut storage = LocalSrcProject::new_access(path, None);
-    do_init_parse(name, publisher, version, license, metamodel, &mut storage)?;
+    do_init(name, publisher, version, license, metamodel, &mut storage)?;
 
     Ok(storage)
 }

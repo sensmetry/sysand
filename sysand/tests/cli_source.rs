@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+//! These tests populate a project with `sysand include`, and every
+//! project in this file is written as a legacy `.project.json` pair by
+//! hand rather than created through `sysand init`, which writes a
+//! `model.toml`. They exercise the json form.
+
 use assert_cmd::prelude::*;
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
@@ -10,9 +15,13 @@ use sysand_core::project::utils::wrapfs;
 
 #[test]
 fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir1, cwd_dep, out) =
-        cli_init_project(Some("list-sources-dep"), "acme", None, Some("1.2.3"), None)?;
-    out.assert().success();
+    let (_temp_dir1, cwd_dep) = cli_init_json_project(
+        Some("list-sources-dep"),
+        "acme",
+        "list-sources-dep",
+        "1.2.3",
+        None,
+    )?;
 
     let dep_path = cwd_dep.join("list-sources-dep");
 
@@ -21,9 +30,8 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
     let out = run_sysand_in(&dep_path, ["include", "dep_src.sysml"], None)?;
     out.assert().success();
 
-    let (_temp_dir2, cwd, out) =
-        cli_init_project(Some("list-sources"), "acme", None, Some("1.2.3"), None)?;
-    out.assert().success();
+    let (_temp_dir2, cwd) =
+        cli_init_json_project(Some("list-sources"), "acme", "list-sources", "1.2.3", None)?;
 
     let path = cwd.join("list-sources");
 
@@ -119,14 +127,13 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn sources_without_std() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir1, cwd_dep, out) = cli_init_project(
+    let (_temp_dir1, cwd_dep) = cli_init_json_project(
         Some("sources-without-std-dep"),
         "acme",
-        None,
-        Some("1.2.3"),
+        "sources-without-std-dep",
+        "1.2.3",
         None,
     )?;
-    out.assert().success();
 
     let path_dep = cwd_dep.join("sources-without-std-dep");
 
@@ -183,14 +190,13 @@ fn sources_without_std() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     out.assert().success();
 
-    let (_temp_dir2, cwd, out) = cli_init_project(
+    let (_temp_dir2, cwd) = cli_init_json_project(
         Some("sources-without-std"),
         "acme",
-        None,
-        Some("1.2.3"),
+        "sources-without-std",
+        "1.2.3",
         None,
     )?;
-    out.assert().success();
 
     let path = cwd.join("sources-without-std");
 

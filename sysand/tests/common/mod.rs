@@ -239,7 +239,6 @@ pub fn install_in_env_with_usage(
     version: &str,
     usage: &[&str],
 ) -> Result<(), Box<dyn Error>> {
-    use assert_cmd::prelude::OutputAssertExt as _;
     use sysand_core::{
         commands::env::{do_env_install_project, do_env_local_dir},
         env::{DEFAULT_ENV_NAME, local_directory::LocalDirectoryEnvironment},
@@ -247,9 +246,9 @@ pub fn install_in_env_with_usage(
     };
 
     let (_source_dir, source) = new_temp_cwd()?;
-    cli_init_project_in(&source, None, publisher, Some(name), Some(version), None)?
-        .assert()
-        .success();
+    // A legacy pair, written by hand: the usage is spliced into the
+    // `.project.json` below, and `init` writes a `model.toml`
+    write_legacy_project(&source, publisher, name, version, None)?;
     if !usage.is_empty() {
         let info_path = source.join(".project.json");
         let info = std::fs::read_to_string(&info_path)?;

@@ -31,11 +31,7 @@ fn mock_index_config_absent(server: &mut mockito::Server, expected_count: usize)
 
 #[test]
 fn info_basic_in_cwd() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, out_init) = cli_init_project_basic("acme", "info-basic", "1.2.3")?;
-    out_init
-        .assert()
-        .success()
-        .stdout(predicate::str::is_empty());
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "info-basic", "1.2.3", None)?;
 
     let out = run_sysand_in(&cwd, ["info"], None)?;
 
@@ -48,10 +44,10 @@ fn info_basic_in_cwd() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
+/// Legacy json fixture: the setup uses `sysand add` or an `info` write verb.
 fn info_prints_all_usage_types() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, out_init) =
-        cli_init_project_basic("pub1", "info-all-usage-types", "1.2.3")?;
-    out_init.assert().success();
+    let (_temp_dir, cwd) =
+        cli_init_json_project(None, "pub1", "info-all-usage-types", "1.2.3", None)?;
 
     // One usage of each shape: legacy `resource` (with and without a version
     // constraint), `dir`, and `kpar_path`.
@@ -103,12 +99,8 @@ fn info_prints_all_usage_types() -> Result<(), Box<dyn Error>> {
 }
 
 fn info_basic(use_iri: bool) -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, out_init) =
-        cli_init_project(Some("info-basic"), "acme", None, Some("1.2.3"), None)?;
-    out_init
-        .assert()
-        .success()
-        .stdout(predicate::str::is_empty());
+    let (_temp_dir, cwd) =
+        cli_init_json_project(Some("info-basic"), "acme", "info-basic", "1.2.3", None)?;
 
     if !use_iri {
         // FIXME: Relative file IRIs are currently not supported because
@@ -176,7 +168,13 @@ fn info_basic_iri_explicit() -> Result<(), Box<dyn Error>> {
 /// IRI or a path
 #[test]
 fn info_positional_is_identifier() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, _) = cli_init_project(Some("info-positional"), "acme", None, None, None)?;
+    let (_temp_dir, cwd) = cli_init_json_project(
+        Some("info-positional"),
+        "acme",
+        "info-positional",
+        "0.0.1",
+        None,
+    )?;
 
     run_sysand_in(&cwd, ["info", "acme/some-project", "--no-index"], None)?
         .assert()
@@ -216,7 +214,8 @@ fn info_positional_is_identifier() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn info_dir_and_kpar_path_are_not_interchangeable() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, _) = cli_init_project(Some("info-kinds"), "acme", None, None, None)?;
+    let (_temp_dir, cwd) =
+        cli_init_json_project(Some("info-kinds"), "acme", "info-kinds", "0.0.1", None)?;
     let project = cwd.join("info-kinds");
     let file = project.join(".project.json");
 
@@ -1093,18 +1092,9 @@ fn info_index_identifier_takes_the_highest_version_including_a_prerelease()
 /// environment, without any index
 #[test]
 fn info_identifier_from_local_env() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project(Some("main"), "acme", None, None, None)?;
-    out.assert().success();
-    cli_init_project_in(
-        &cwd,
-        Some("dep"),
-        "Acme Labs",
-        Some("My Dep"),
-        Some("1.2.0"),
-        None,
-    )?
-    .assert()
-    .success();
+    let (_temp_dir, cwd) = cli_init_json_project(Some("main"), "acme", "main", "0.0.1", None)?;
+    std::fs::create_dir_all(cwd.join("dep"))?;
+    write_legacy_project(&cwd.join("dep"), "Acme Labs", "My Dep", "1.2.0", None)?;
     let main = cwd.join("main");
     run_sysand_in(&main, ["add", "--dir", "../dep", "--no-index"], None)?
         .assert()
@@ -1652,9 +1642,8 @@ fn info_multi_index_url_config() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn info_get_and_edit_fields() -> Result<(), Box<dyn Error>> {
-    let (_tmp, cwd, out) =
-        cli_init_project(Some("info-fields"), "acme", None, Some("1.2.3"), None)?;
-    out.assert().success();
+    let (_tmp, cwd) =
+        cli_init_json_project(Some("info-fields"), "acme", "info-fields", "1.2.3", None)?;
     let project_path = &cwd.join("info-fields");
 
     let get = |field: &str| -> Result<String, Box<dyn Error>> {
@@ -1789,8 +1778,8 @@ fn info_get_and_edit_fields() -> Result<(), Box<dyn Error>> {
 /// `sysand edit --dir` edits the project in the given directory
 #[test]
 fn edit_dir() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project(Some("edit-dir"), "acme", None, None, None)?;
-    out.assert().success();
+    let (_temp_dir, cwd) =
+        cli_init_json_project(Some("edit-dir"), "acme", "edit-dir", "0.0.1", None)?;
 
     run_sysand_in(
         &cwd,
@@ -1828,14 +1817,13 @@ fn edit_dir() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn edit_metamodel() -> Result<(), Box<dyn Error>> {
-    let (_tmp, cwd, out) = cli_init_project(
+    let (_tmp, cwd) = cli_init_json_project(
         Some("info-custom-metamodel"),
         "acme",
-        None,
-        Some("1.2.3"),
+        "info-custom-metamodel",
+        "1.2.3",
         None,
     )?;
-    out.assert().success();
 
     let project_path = &cwd.join("info-custom-metamodel");
 
@@ -1971,8 +1959,7 @@ fn edit_metamodel() -> Result<(), Box<dyn Error>> {
 /// leave `.project.json` unchanged
 #[test]
 fn edit_rejects_invalid_name_and_publisher() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "info-set-invalid", "1.2.3")?;
-    out.assert().success();
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "info-set-invalid", "1.2.3", None)?;
     let original = std::fs::read_to_string(cwd.join(".project.json"))?;
 
     for (field, value_name, value, msg) in [
@@ -2022,8 +2009,7 @@ fn edit_rejects_invalid_name_and_publisher() -> Result<(), Box<dyn Error>> {
 /// spaces
 #[test]
 fn edit_accepts_spaces_in_name_and_publisher() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "info-set-spaces", "1.2.3")?;
-    out.assert().success();
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "info-set-spaces", "1.2.3", None)?;
 
     run_sysand_in(
         &cwd,

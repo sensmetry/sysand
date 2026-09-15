@@ -3,51 +3,42 @@
 
 use std::assert_matches;
 use sysand_core::{
-    commands::init::do_init_parse, init::do_init_memory, model::InterchangeProjectInfoRaw,
+    commands::init::do_init,
+    init::do_init_memory,
+    project::{ManifestWriteError, ProjectFormat, ProjectRead as _},
 };
 
-/// `sysand init` should create valid, minimal, .project.json
-/// and .meta.json files in the current working directory. (Non-interactive use)
+/// `sysand init` creates a `model.toml`, not the two json documents;
+/// those are what a build produces and what a legacy project has.
 #[test]
 fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
     let memory_storage =
-        do_init_memory("init_basic", "echo", "1.2.3", Some("Apache-2.0".to_owned()))?;
+        do_init_memory("init-basic", "echo", "1.2.3", Some("Apache-2.0".to_owned()))?;
 
+    assert_eq!(memory_storage.format()?, ProjectFormat::Toml);
     assert_eq!(
-        memory_storage.info.unwrap(),
-        InterchangeProjectInfoRaw {
-            name: "init_basic".to_owned(),
-            publisher: Some("echo".to_owned()),
-            description: None,
-            version: "1.2.3".to_owned(),
-            license: Some("Apache-2.0".to_owned()),
-            maintainer: vec![],
-            website: None,
-            topic: vec![],
-            usage: vec![],
-        }
+        memory_storage.model_toml.as_deref(),
+        Some(
+            "manifest-version = 1\n\n\
+             [project]\n\
+             publisher = \"echo\"\n\
+             name = \"init-basic\"\n\
+             version = \"1.2.3\"\n\
+             sources = []\n\
+             license = \"Apache-2.0\"\n"
+        )
     );
+    assert!(memory_storage.info.is_none());
+    assert!(memory_storage.meta.is_none());
 
-    assert!(memory_storage.meta.as_ref().unwrap().index.is_empty());
-    assert!(memory_storage.meta.as_ref().unwrap().metamodel.is_none());
-
-    assert!(
-        memory_storage
-            .meta
-            .as_ref()
-            .unwrap()
-            .includes_derived
-            .is_none()
+    // What a json-shaped caller sees is synthesized from the manifest.
+    let manifest = memory_storage.manifest().expect("a manifest");
+    assert_eq!(manifest.name.as_str(), "init-basic");
+    assert_eq!(manifest.publisher.as_str(), "echo");
+    assert_eq!(
+        manifest.sources.as_slice(),
+        [] as [typed_path::Utf8UnixPathBuf; 0]
     );
-    assert!(
-        memory_storage
-            .meta
-            .as_ref()
-            .unwrap()
-            .includes_implied
-            .is_none()
-    );
-    assert!(memory_storage.meta.as_ref().unwrap().checksum.is_none());
 
     Ok(())
 }
@@ -58,17 +49,16 @@ fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
     let mut memory_storage = do_init_memory(
-        "init_fail_on_double_init",
+        "init-fail-on-double-init",
         "acme",
         "1.2.3",
         Some("Apache-2.0 OR MIT".to_owned()),
     )?;
 
-    let original_info = memory_storage.info.clone();
-    let original_meta = memory_storage.meta.clone();
+    let original = memory_storage.model_toml.clone();
 
-    let second_result = do_init_parse(
-        "init_fail_on_double_init".to_owned(),
+    let second_result = do_init(
+        "init-fail-on-double-init".to_owned(),
         "acme".into(),
         "1.2.3".to_owned(),
         Some("Apache-2.0 OR MIT".to_owned()),
@@ -76,47 +66,44 @@ fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
         &mut memory_storage,
     );
 
-    assert_matches!(
+    // The refusal comes back through the manifest writer, which is
+    // what `init` stores through.
+    assert!(matches!(
         second_result,
-        Err(sysand_core::commands::init::InitError::Project(
-            sysand_core::project::memory::InMemoryError::AlreadyExists(_)
+        Err(sysand_core::commands::init::InitError::Write(
+            ManifestWriteError::Project(
+                sysand_core::project::memory::InMemoryError::AlreadyExists(_)
+            )
         ))
-    );
+    ));
 
-    assert_eq!(memory_storage.info, original_info);
-    assert_eq!(memory_storage.meta, original_meta);
+    assert_eq!(memory_storage.model_toml, original);
 
     Ok(())
 }
 
-/// `do_init_parse` (and so `do_init_memory`) should reject an invalid
-/// project name, reporting the offending input
+/// `do_init` (and so `do_init_memory`) should reject an invalid project
+/// name, reporting the offending input
 #[test]
 fn init_rejects_invalid_name() {
-    let result = do_init_memory("a/b", "e", "1.2.3", None);
+    let result = do_init_memory("a/b", "echo", "1.2.3", None);
 
-    let Err(err @ sysand_core::commands::init::InitError::NameParse(..)) = result else {
-        panic!("expected `NameParse`, got {result:?}");
+    let Err(err @ sysand_core::commands::init::InitError::Identifier(..)) = result else {
+        panic!("expected `Identifier`, got {result:?}");
     };
-    assert_eq!(
-        err.to_string(),
-        "invalid project name `a/b`: name cannot contain `/`"
-    );
+    assert!(err.to_string().contains("`a/b`"), "{err}");
 }
 
-/// `do_init_parse` (and so `do_init_memory`) should reject an invalid
-/// project publisher, reporting the offending input
+/// `do_init` (and so `do_init_memory`) should reject an invalid project
+/// publisher, reporting the offending input
 #[test]
 fn init_rejects_invalid_publisher() {
-    let result = do_init_memory("n", "acme:labs", "1.2.3", None);
+    let result = do_init_memory("name", "acme:labs", "1.2.3", None);
 
-    let Err(err @ sysand_core::commands::init::InitError::PublisherParse(..)) = result else {
-        panic!("expected `PublisherParse`, got {result:?}");
+    let Err(err @ sysand_core::commands::init::InitError::Identifier(..)) = result else {
+        panic!("expected `Identifier`, got {result:?}");
     };
-    assert_eq!(
-        err.to_string(),
-        "invalid project publisher `acme:labs`: publisher cannot contain `:`"
-    );
+    assert!(err.to_string().contains("`acme:labs`"), "{err}");
 }
 
 /// An invalid name or publisher should leave the storage untouched
@@ -124,9 +111,9 @@ fn init_rejects_invalid_publisher() {
 fn init_invalid_name_leaves_storage_empty() {
     let mut storage = sysand_core::project::memory::InMemoryProject::default();
 
-    let result = do_init_parse(
+    let result = do_init(
         String::new(),
-        "e".to_owned(),
+        "echo".to_owned(),
         "1.2.3".to_owned(),
         None,
         None,
@@ -135,42 +122,44 @@ fn init_invalid_name_leaves_storage_empty() {
 
     assert_matches!(
         result,
-        Err(sysand_core::commands::init::InitError::NameParse(..))
+        Err(sysand_core::commands::init::InitError::Identifier(..))
     );
+    assert!(storage.model_toml.is_none());
     assert!(storage.info.is_none());
     assert!(storage.meta.is_none());
 }
 
-/// `do_init_parse` should write the metamodel given to `.meta.json`
+/// `do_init` should write the metamodel given to `model.toml`
 #[test]
 fn init_metamodel() -> Result<(), Box<dyn std::error::Error>> {
     let mut storage = sysand_core::project::memory::InMemoryProject::default();
 
-    do_init_parse(
-        "n".to_owned(),
-        "e".to_owned(),
+    do_init(
+        "name".to_owned(),
+        "echo".to_owned(),
         "1.2.3".to_owned(),
         None,
         Some("https://www.omg.org/spec/SysML/20250201".to_owned()),
         &mut storage,
     )?;
 
-    assert_eq!(
-        storage.meta.unwrap().metamodel.as_deref(),
-        Some("https://www.omg.org/spec/SysML/20250201")
+    let manifest = storage.model_toml.expect("a model.toml");
+    assert!(
+        manifest.contains("metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n"),
+        "{manifest}"
     );
     Ok(())
 }
 
-/// `do_init_parse` should reject a metamodel that is not an IRI, reporting
+/// `do_init` should reject a metamodel that is not an IRI, reporting
 /// it, and leave the storage untouched
 #[test]
 fn init_rejects_invalid_metamodel() {
     let mut storage = sysand_core::project::memory::InMemoryProject::default();
 
-    let result = do_init_parse(
-        "n".to_owned(),
-        "e".to_owned(),
+    let result = do_init(
+        "name".to_owned(),
+        "echo".to_owned(),
         "1.2.3".to_owned(),
         None,
         Some("not an iri".to_owned()),
@@ -184,6 +173,7 @@ fn init_rejects_invalid_metamodel() {
         err.to_string()
             .starts_with("invalid metamodel: `not an iri` is not a URL")
     );
+    assert!(storage.model_toml.is_none());
     assert!(storage.info.is_none());
     assert!(storage.meta.is_none());
 }

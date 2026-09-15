@@ -63,6 +63,7 @@ pub struct Args {
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum Command {
     /// Create a new project
+    #[command(visible_alias = "new")]
     Init {
         /// The path to use for the project. Defaults to current directory
         path: Option<Utf8PathBuf>,
@@ -103,12 +104,6 @@ pub enum Command {
             default_value = MetamodelVersion::RELEASE
         )]
         metamodel_release: MetamodelVersion,
-    },
-    // Only for better error messages
-    #[command(hide = true)]
-    New {
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<String>,
     },
     /// Add usage to project information
     Add {

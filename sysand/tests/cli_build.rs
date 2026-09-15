@@ -371,6 +371,7 @@ impl WProject {
 }
 
 #[test]
+/// Legacy json fixture: `build` refuses a `model.toml` project.
 fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
     let project_group_cwd = cwd.join("subgroup");

@@ -109,13 +109,14 @@ fn init<'local>(
         Err(error) => {
             let e = format_err(&error);
             match error {
-                InitError::NameParse(..)
-                | InitError::PublisherParse(..)
-                | InitError::MalformedMetamodel(..) => {
+                InitError::MalformedMetamodel(..) => {
                     env.throw_exception(ExceptionKind::InvalidValue, e)
                 }
                 InitError::SemVerParse(..) => {
                     env.throw_exception(ExceptionKind::InvalidSemanticVersion, e)
+                }
+                InitError::Identifier(..) | InitError::Write(..) => {
+                    env.throw_exception(ExceptionKind::SysandException, error.to_string());
                 }
                 InitError::SPDXLicenseParse(..) => {
                     env.throw_exception(ExceptionKind::InvalidSPDXLicense, e)

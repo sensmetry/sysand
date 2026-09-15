@@ -8,7 +8,8 @@ use semver::Version;
 use sysand_core::{
     context::ProjectContext,
     discover::{discover_project, discover_workspace},
-    model::{ProjectName, ProjectPublisher},
+    init::InitError,
+    model::{IdentifierKind, ProjectName, ProjectPublisher},
     project::{local_src::LocalSrcProject, utils::wrapfs},
     utils::{RelativePathKind, parse_relative_unix_path},
     workspace::Workspace,
@@ -35,21 +36,35 @@ pub fn command_init(
     warn_parent_project_workspace(&target, &ctx)?;
 
     let version = version.unwrap_or_else(|| Version::parse(DEFAULT_VERSION).unwrap());
+    // Whether the name was chosen or inherited decides whether there is
+    // anything to suggest when it turns out to be unusable.
+    let named = name.is_some();
     let name = match name {
         Some(n) => n,
         None => default_name_from_path(&target)?,
     };
 
-    let metamodel = metamodel.map(sysand_core::model::Metamodel::from);
     let has_license = license.is_some();
     sysand_core::init::do_init(
-        name,
-        publisher,
-        version,
-        license,
-        metamodel,
+        name.into_string(),
+        publisher.into_string(),
+        version.to_string(),
+        license.map(|l| l.to_string()),
+        metamodel.map(String::from),
         &mut LocalSrcProject::new_access(target, None),
-    )?;
+    )
+    .map_err(|error| match &error {
+        // The name came from the directory, so the fix is not where the
+        // message points. A publisher never comes from a directory.
+        InitError::Identifier(identifier) if !named && identifier.kind == IdentifierKind::Name => {
+            anyhow::anyhow!(
+                "{error}\n\
+                {SP:>8} the name came from the directory; pass `--name` to choose another",
+                SP = ' '
+            )
+        }
+        _ => anyhow::Error::new(error),
+    })?;
     if has_license {
         log_license_files_note();
     }
