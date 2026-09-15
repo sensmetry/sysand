@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 import sysand
+from conftest import write_legacy_project
 from mockindex import DEPENDENT, LIBRARY, MockIndex, usage
 
 DEP = "pkg:sysand/mock/dep"
@@ -21,9 +22,14 @@ def resolution(index: MockIndex) -> sysand.Resolution:
 
 
 def project_with(tmp_path: Path, usages: list[dict]) -> Path:
+    """A legacy json project with the given usages.
+
+    Written by hand: `sysand.init` writes a `model.toml`. `lock` itself
+    works on either format; these tests exercise the json one.
+    """
     root = tmp_path / "proj"
     root.mkdir()
-    sysand.init(project_dir=root, name="proj", publisher="acme", version="1.0.0")
+    write_legacy_project(root, "acme", "proj", "1.0.0")
     manifest = json.loads((root / ".project.json").read_text())
     manifest["usage"] = usages
     (root / ".project.json").write_text(json.dumps(manifest, indent=2) + "\n")

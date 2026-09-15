@@ -22,6 +22,28 @@ from mockindex import (
 )
 
 
+def write_legacy_meta(root: Path) -> None:
+    """Write the `.meta.json` half of a legacy project.
+
+    `sysand init` writes a `model.toml`, so a test that needs a json
+    project writes one by hand. The timestamp is fixed: nothing here
+    reads it, and a real clock would make the fixture non-reproducible.
+    """
+    (root / ".meta.json").write_text(
+        '{\n  "index": {},\n  "created": "2026-01-01T00:00:00Z"\n}\n'
+    )
+
+
+def write_legacy_project(root: Path, publisher: str, name: str, version: str) -> None:
+    """A whole legacy json project, for tests whose subject is the json
+    form."""
+    (root / ".project.json").write_text(
+        json.dumps({"name": name, "publisher": publisher, "version": version}, indent=2)
+        + "\n"
+    )
+    write_legacy_meta(root)
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _claim_logger(tmp_path_factory: pytest.TempPathFactory) -> None:
     # Whoever installs the global `log` logger first owns it for the process:
@@ -150,9 +172,6 @@ def make_baseline(tmp_path: Path, mock_index: MockIndex) -> MakeBaseline:
 
         root = tmp_path / "migrating"
         root.mkdir()
-        sysand.init(
-            project_dir=root, name="migrating", publisher="acme", version="1.0.0"
-        )
 
         usages: list[dict] = []
         if include_library:
@@ -167,10 +186,17 @@ def make_baseline(tmp_path: Path, mock_index: MockIndex) -> MakeBaseline:
             "x-consumer-extension": {"migrated": False},
             "usage": usages,
         }
+        # A legacy json project, written by hand rather than through
+        # `sysand.init`, which writes a `model.toml`: these scenarios are
+        # about migrating an existing json project, so json is the point.
+        # Initialising and then overwriting would leave the directory
+        # holding both manifests, which nothing can read.
+        #
         # sysand's own pretty format (2-space indent, trailing newline):
         # `set_usage_constraint` only guarantees a one-line diff for manifests
         # last written by sysand.
         (root / ".project.json").write_text(json.dumps(manifest, indent=2) + "\n")
+        write_legacy_meta(root)
 
         baseline = Baseline(root=root, index=mock_index)
         assert baseline.cli("lock"), "baseline `sysand lock` failed"

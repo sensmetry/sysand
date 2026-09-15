@@ -21,9 +21,20 @@ import java.util.LinkedHashMap;
 
 public class SetProjectInfoTest {
 
+    /**
+     * A legacy json project, written by hand.
+     *
+     * <p>{@code Sysand.init} writes a {@code model.toml}, and
+     * {@code setProjectInfo}/{@code setProjectMetadata} write the json
+     * documents, so these tests keep a json project.
+     */
     private Path initProject() throws Exception {
         Path tempDir = Files.createTempDirectory("sysand-test-set-info");
-        Sysand.init("original", "publisher-co", "1.0.0", null, tempDir);
+        Files.write(tempDir.resolve(".project.json"),
+                ("{\n  \"name\": \"original\",\n  \"publisher\": \"publisher-co\",\n"
+                        + "  \"version\": \"1.0.0\"\n}\n").getBytes());
+        Files.write(tempDir.resolve(".meta.json"),
+                "{\n  \"index\": {},\n  \"created\": \"2026-01-01T00:00:00Z\"\n}\n".getBytes());
         return tempDir;
     }
 

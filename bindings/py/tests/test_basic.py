@@ -14,6 +14,7 @@ import pytest
 from pytest_httpserver import HTTPServer
 
 import sysand
+from conftest import write_legacy_project
 from mockindex import MockIndex, run_cli_in
 
 # `info` defaults to the CLI's resolution, which reaches the public index.
@@ -30,7 +31,8 @@ def _install_in_env(
     if not env_path.is_dir():
         sysand.env.env(path=env_path)
     with tempfile.TemporaryDirectory() as source:
-        sysand.init(project_dir=source, name=name, publisher=publisher, version=version)
+        # A legacy pair, written by hand: `init` writes a `model.toml`
+        write_legacy_project(Path(source), publisher, name, version)
         normalized = [part.lower().replace(" ", "-") for part in (publisher, name)]
         sysand.env.install_path(
             env_path=env_path,
@@ -59,16 +61,20 @@ def test_basic_init(caplog: pytest.LogCaptureFixture) -> None:
                 "    Creating interchange project `test-basic-init`",
             )
         ]
-        with open(Path(tmpdirname) / ".project.json", "r") as f:
-            assert (
-                f.read()
-                == '{\n  "name": "test-basic-init",\n  "publisher": "acme",\n  "version": "1.2.3"\n}\n'
+        # `init` writes a `model.toml`, through the binding as through
+        # the CLI. The two json documents are what a build produces and
+        # what a legacy project has.
+        with open(Path(tmpdirname) / "model.toml", "r") as f:
+            assert f.read() == (
+                "manifest-version = 1\n"
+                "\n"
+                "[project]\n"
+                'publisher = "acme"\n'
+                'name = "test-basic-init"\n'
+                'version = "1.2.3"\n'
+                "sources = []\n"
             )
-        with open(Path(tmpdirname) / ".meta.json", "r") as f:
-            assert re.match(
-                r'\{\n  "index": \{\},\n  "created": "\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"\n}\n',
-                f.read(),
-            )
+        assert not (Path(tmpdirname) / ".project.json").exists()
 
 
 def test_init_license(tmp_path: Path) -> None:
@@ -137,11 +143,8 @@ def test_basic_env() -> None:
 
 def test_add_by_publisher_and_name() -> None:
     with tempfile.TemporaryDirectory() as tmpdirname:
-        sysand.init(
-            project_dir=tmpdirname,
-            name="test_add_by_publisher_and_name",
-            publisher="acme",
-            version="1.2.3",
+        write_legacy_project(
+            Path(tmpdirname), "acme", "test_add_by_publisher_and_name", "1.2.3"
         )
 
         _install_in_env(tmpdirname, "Acme Labs", "My.Project")
@@ -173,11 +176,8 @@ def test_add_by_publisher_and_name() -> None:
 
 def test_remove_by_publisher_and_name() -> None:
     with tempfile.TemporaryDirectory() as tmpdirname:
-        sysand.init(
-            project_dir=tmpdirname,
-            name="test_remove_by_publisher_and_name",
-            publisher="acme",
-            version="1.2.3",
+        write_legacy_project(
+            Path(tmpdirname), "acme", "test_remove_by_publisher_and_name", "1.2.3"
         )
         _install_in_env(tmpdirname, "acme-labs", "my.project")
 
@@ -448,9 +448,7 @@ def test_set_usage_constraint_normalizes_hand_formatted_whitespace(
 
 
 def test_add_returns_whether_a_usage_was_added(tmp_path: Path) -> None:
-    sysand.init(
-        project_dir=tmp_path, name="test-add-returns", publisher="acme", version="1.2.3"
-    )
+    write_legacy_project(Path(tmp_path), "acme", "test-add-returns", "1.2.3")
     _install_in_env(tmp_path, "acme-labs", "my.project")
 
     def add_mine() -> bool:
@@ -868,7 +866,7 @@ def _project_with_dir_usage(tmp_path: Path) -> tuple[Path, Path]:
     kpar_dep = tmp_path / "kpar-dep"
     for name, path in [("proj", root), ("dir-dep", dep), ("kpar-dep", kpar_dep)]:
         path.mkdir()
-        sysand.init(project_dir=path, name=name, publisher="acme", version="1.0.0")
+        write_legacy_project(Path(path), "acme", name, "1.0.0")
         (path / f"{name}.sysml").write_text(f"package P_{name.replace('-', '_')};")
         sysand.include(project_dir=path, src_path=f"{name}.sysml")
     manifest = json.loads((root / ".project.json").read_text())
@@ -1044,12 +1042,16 @@ def test_basic_info(caplog: pytest.LogCaptureFixture) -> None:
         }
 
         assert meta["index"] == {}
-        assert isinstance(meta["created"], str)
+        # A view of a source project is not a function of the clock:
+        # `created` is computed at build, so until then it is the epoch.
+        assert meta["created"] == "1970-01-01T00:00:00Z"
         assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", meta["created"])
         assert meta["metamodel"] is None
         assert meta["includes_derived"] is None
         assert meta["includes_implied"] is None
-        assert meta["checksum"] is None
+        # The view computes the map; a project with no sources has an
+        # empty one rather than none at all.
+        assert meta["checksum"] == {}
 
         file_uri = Path(tmpdirname).resolve().as_uri()
 
@@ -1257,23 +1259,14 @@ def test_end_to_end_install_sources() -> None:
         tmp_main = Path(tmp_main).resolve()
         tmp_dep = Path(tmp_dep).resolve()
         tmp_std = Path(tmp_std).resolve()
-        sysand.init(
-            project_dir=tmp_main,
-            name="test-end-to-end-install-sources",
-            publisher="acme",
-            version="1.2.3",
+        write_legacy_project(
+            Path(tmp_main), "acme", "test-end-to-end-install-sources", "1.2.3"
         )
-        sysand.init(
-            project_dir=tmp_dep,
-            name="test-end-to-end-install-sources-dep",
-            publisher="acme",
-            version="1.2.3",
+        write_legacy_project(
+            Path(tmp_dep), "acme", "test-end-to-end-install-sources-dep", "1.2.3"
         )
-        sysand.init(
-            project_dir=tmp_std,
-            name="Kernel Function Library",
-            publisher="acme",
-            version=std_version,
+        write_legacy_project(
+            Path(tmp_std), "acme", "Kernel Function Library", std_version
         )
 
         with open(Path(tmp_main) / "src.sysml", "w") as f:
@@ -1446,9 +1439,7 @@ def test_root_not_in_project() -> None:
 def test_build(compression: Union[sysand.CompressionMethod, None]) -> None:
     with tempfile.TemporaryDirectory() as tmp_main:
         tmp_main = Path(tmp_main).resolve()
-        sysand.init(
-            project_dir=tmp_main, name="test-build", publisher="acme", version="1.2.3"
-        )
+        write_legacy_project(Path(tmp_main), "acme", "test-build", "1.2.3")
 
         with open(tmp_main / "src.sysml", "w") as f:
             f.write("package Src;")

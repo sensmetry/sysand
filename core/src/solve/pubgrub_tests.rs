@@ -2372,9 +2372,12 @@ fn a_candidate_whose_format_cannot_be_read_is_skipped_unless_typed() {
         OneCandidate,
     )
     .expect_err("a typed usage has nowhere else to look");
-    let msg = format!("{typed}");
+    // The reason is the error's cause, reached through `Error::source`
+    let msg = std::error::Error::source(&typed)
+        .map(ToString::to_string)
+        .unwrap_or_default();
     assert!(
         msg.contains("failed to obtain manifest format of resolved usage"),
-        "got: {msg}"
+        "got: {typed} / {msg}"
     );
 }

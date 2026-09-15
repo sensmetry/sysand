@@ -28,17 +28,21 @@ fn run_cli_expands_glob_pattern() -> Result<(), Box<dyn std::error::Error>> {
     // `_run_cli` glob-expands relative to CWD.
     std::env::set_current_dir(proj_dir_path)?;
 
+    // A legacy json project written by hand: `init` writes a
+    // `model.toml`, and this test exercises `include` on the json form.
+    std::fs::write(
+        proj_dir_path.join(".project.json"),
+        "{\n  \"name\": \"windows-glob\",\n  \"publisher\": \"acme\",\n  \"version\": \"1.0.0\"\n}\n",
+    )?;
+    std::fs::write(
+        proj_dir_path.join(".meta.json"),
+        "{\n  \"index\": {},\n  \"created\": \"2026-01-01T00:00:00Z\"\n}\n",
+    )?;
+
     Python::initialize();
 
     let exit_code: u8 = Python::attach(|py| -> PyResult<u8> {
         let core = import_core(py)?;
-
-        core.getattr("do_init_py_local_file")?.call1((
-            "windows-glob",
-            "acme",
-            "1.0.0",
-            proj_dir_path.as_str(),
-        ))?;
 
         // Passed as a single, unexpanded argument, exactly as `cmd.exe` and
         // PowerShell would hand it to us.

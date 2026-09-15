@@ -340,7 +340,7 @@ impl ProjectMut for ProjectLocalBrowserStorage {
         }
 
         self.vfs
-            .write_string(&manifest_path, &document.to_string())
+            .write_string(&manifest_path, document.to_string())
             .map_err(|e| ManifestWriteError::Project(Error::from(e)))?;
         Ok(())
     }
