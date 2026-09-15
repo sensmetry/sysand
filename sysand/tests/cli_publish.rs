@@ -126,17 +126,25 @@ fn mock_oidc_exchange(
 }
 
 fn mock_publish_with_bearer(server: &mut Server, token: &str) -> mockito::Mock {
+    mock_publish_with_bearer_times(server, token, 1)
+}
+
+/// The same, for a workspace publish, which uploads once per member.
+fn mock_publish_with_bearer_times(server: &mut Server, token: &str, times: usize) -> mockito::Mock {
     server
         .mock("POST", "/api/v1/upload")
         .match_header("authorization", format!("Bearer {token}").as_str())
         .with_status(201)
         .with_body("created")
-        .expect(1)
+        .expect(times)
         .create()
 }
 
+/// A workspace publish resolves every member's archive before it
+/// uploads anything, so an unbuildable member stops the command with
+/// nothing sent.
 #[test]
-fn publish_without_path_from_workspace_root_reports_explicit_error() -> TestResult {
+fn publish_workspace_with_an_unreadable_member_uploads_nothing() -> TestResult {
     let (_temp_dir, cwd) = new_temp_cwd()?;
     std::fs::write(
         cwd.join(".workspace.json"),
@@ -144,11 +152,21 @@ fn publish_without_path_from_workspace_root_reports_explicit_error() -> TestResu
     )?;
     std::fs::create_dir(cwd.join("project1"))?;
 
-    let out = run_sysand_in(&cwd, ["publish", "--index", "http://localhost:1"], None)?;
-    out.assert()
-        .failure()
-        .stderr(predicate::str::contains("not supported from a workspace"))
-        .stderr(predicate::str::contains("explicit .kpar path"));
+    let mut server = Server::new();
+    let upload_mock = mock_publish_with_bearer_times(&mut server, "test-token", 0);
+    let env = bearer_env_for_url(server.url().as_str());
+
+    run_sysand_in_with(
+        &cwd,
+        ["publish", "--index", server.url().as_str()],
+        None,
+        &env,
+    )?
+    .assert()
+    .failure()
+    // The failure names the member, which `KParBuildError` does not.
+    .stderr(predicate::str::contains("`project1`"));
+    upload_mock.assert();
 
     Ok(())
 }
@@ -1049,5 +1067,193 @@ fn publish_toml_project_with_a_stdlib_usage() -> TestResult {
 
     config_mock.assert();
     publish_mock.assert();
+    Ok(())
+}
+
+// ------------------------ publishing a workspace in dependency order
+
+/// A `model.toml` member at `at`, with a license file, a source, a
+/// metamodel and optional `dir` usages of its siblings.
+///
+/// A *toml* member, because an inter-member `dir` usage is what creates
+/// a dependency order, and `publish` refuses a typed path usage outright. A
+/// toml build rewrites such a usage into `pkg:sysand/<pub>/<name>`
+/// constrained to the target's version, which publishes; a
+/// json build would keep it a path.
+fn workspace_member(root: &Utf8Path, at: &str, deps: &[&str]) -> TestResult {
+    let cwd = root.join(at);
+    fs::create_dir_all(&cwd)?;
+    let mut manifest = format!(
+        "manifest-version = 1\n\n[project]\npublisher = \"example-pub1\"\nname = \"{at}\"\n\
+         version = \"1.0.0\"\nlicense = \"MIT\"\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\nsources = [\"test.sysml\"]\n"
+    );
+    for dep in deps {
+        let name = dep.rsplit('/').next().unwrap_or(dep);
+        manifest.push_str("\n[[inline-usages]]\npublisher = \"example-pub1\"\nname = \"");
+        manifest.push_str(name);
+        manifest.push_str("\"\ndir = \"");
+        manifest.push_str(dep);
+        manifest.push_str("\"\n");
+    }
+    fs::write(cwd.join("model.toml"), manifest)?;
+    fs::write(cwd.join("test.sysml"), "package P;\n")?;
+    fs::create_dir(cwd.join("LICENSES"))?;
+    fs::File::create(cwd.join("LICENSES/MIT.txt"))?;
+    Ok(())
+}
+
+fn workspace_of(root: &Utf8Path, members: &[&str]) -> TestResult {
+    let projects: Vec<String> = members
+        .iter()
+        .map(|m| format!(r#"{{"path": "{m}", "iris": []}}"#))
+        .collect();
+    fs::write(
+        root.join(".workspace.json"),
+        format!(r#"{{"projects": [{}]}}"#, projects.join(", ")),
+    )?;
+    Ok(())
+}
+
+/// Every member is published, in dependency order. The order is read from
+/// stderr's byte offsets: a mock records a hit count, and `contains` is
+/// order-blind.
+#[test]
+fn publish_workspace_publishes_every_member() -> TestResult {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    workspace_of(&cwd, &["gamma", "beta", "alpha"])?;
+    workspace_member(&cwd, "alpha", &[])?;
+    workspace_member(&cwd, "beta", &["../alpha"])?;
+    workspace_member(&cwd, "gamma", &["../beta"])?;
+    run_sysand_ok(&cwd, &["build"], None)?;
+
+    let mut server = Server::new();
+    let config_mock = mock_index_config_api_at_api(&mut server);
+    let upload_mock = mock_publish_with_bearer_times(&mut server, "test-token", 3);
+    let env = bearer_env_for_url(server.url().as_str());
+
+    let out = run_sysand_in_with(
+        &cwd,
+        ["publish", "--index", server.url().as_str()],
+        None,
+        &env,
+    )?;
+    out.clone().assert().success();
+    // The config mock is `expect(1)`: discovery is a property of the
+    // index, not of the archive, so it must not repeat per member.
+    config_mock.assert();
+    upload_mock.assert();
+
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    let at = |name: &str| {
+        stderr
+            .find(&format!("Published example-pub1/{name}"))
+            .unwrap_or_else(|| panic!("`{name}` was not reported as published:\n{stderr}"))
+    };
+    assert!(
+        at("alpha") < at("beta") && at("beta") < at("gamma"),
+        "members must publish dependency-first:\n{stderr}"
+    );
+    Ok(())
+}
+
+/// "a failure stops the sequence and reports what was published".
+#[test]
+fn publish_workspace_stops_at_the_first_failure() -> TestResult {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    workspace_of(&cwd, &["gamma", "beta", "alpha"])?;
+    workspace_member(&cwd, "alpha", &[])?;
+    workspace_member(&cwd, "beta", &["../alpha"])?;
+    workspace_member(&cwd, "gamma", &["../beta"])?;
+    run_sysand_ok(&cwd, &["build"], None)?;
+
+    let mut server = Server::new();
+    let config_mock = mock_index_config_api_at_api(&mut server);
+    // The 201 is created first, so it takes the first request; the
+    // rejection then takes the second. A third upload would push it to
+    // two hits and fail its assert.
+    let ok_mock = mock_publish_with_bearer_times(&mut server, "test-token", 1);
+    let reject_mock = server
+        .mock("POST", "/api/v1/upload")
+        .with_status(409)
+        .with_body("conflict")
+        .expect(1)
+        .create();
+    let env = bearer_env_for_url(server.url().as_str());
+
+    run_sysand_in_with(
+        &cwd,
+        ["publish", "--index", server.url().as_str()],
+        None,
+        &env,
+    )?
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains("already published"))
+    .stderr(predicate::str::contains("example-pub1/alpha"));
+    config_mock.assert();
+    ok_mock.assert();
+    reject_mock.assert();
+    Ok(())
+}
+
+/// The archive exists and is not a zip. Unlike a *missing* archive,
+/// which the existence check catches wherever it sits, this is only
+/// found before the first upload if every payload is prepared up front.
+#[test]
+fn publish_workspace_with_a_malformed_archive_uploads_nothing() -> TestResult {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    workspace_of(&cwd, &["beta", "alpha"])?;
+    workspace_member(&cwd, "alpha", &[])?;
+    workspace_member(&cwd, "beta", &["../alpha"])?;
+    run_sysand_ok(&cwd, &["build"], None)?;
+    // `beta` comes second in dependency order.
+    fs::write(cwd.join("output/beta-1.0.0.kpar"), b"not a zip\n")?;
+
+    let mut server = Server::new();
+    // The config mock matters: without it the command fails at
+    // discovery, before any upload, and the test could not tell a
+    // payload prepared up front from one prepared in the loop.
+    let _config_mock = mock_index_config_api_at_api(&mut server);
+    let upload_mock = mock_publish_with_bearer_times(&mut server, "test-token", 0);
+    let env = bearer_env_for_url(server.url().as_str());
+
+    run_sysand_in_with(
+        &cwd,
+        ["publish", "--index", server.url().as_str()],
+        None,
+        &env,
+    )?
+    .assert()
+    .failure();
+    upload_mock.assert();
+    Ok(())
+}
+
+/// From a member directory, only that member.
+#[test]
+fn publish_from_a_member_directory_publishes_only_that_member() -> TestResult {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    workspace_of(&cwd, &["beta", "alpha"])?;
+    workspace_member(&cwd, "alpha", &[])?;
+    workspace_member(&cwd, "beta", &[])?;
+    run_sysand_ok(&cwd, &["build"], None)?;
+
+    let mut server = Server::new();
+    let config_mock = mock_index_config_api_at_api(&mut server);
+    let upload_mock = mock_publish_with_bearer_times(&mut server, "test-token", 1);
+    let env = bearer_env_for_url(server.url().as_str());
+
+    run_sysand_in_with(
+        &cwd.join("alpha"),
+        ["publish", "--index", server.url().as_str()],
+        None,
+        &env,
+    )?
+    .assert()
+    .success()
+    .stderr(predicate::str::contains("Published example-pub1/alpha"));
+    config_mock.assert();
+    upload_mock.assert();
     Ok(())
 }

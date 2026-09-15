@@ -6,7 +6,7 @@ use std::sync::Arc;
 use anyhow::{Result, bail};
 use camino::Utf8PathBuf;
 use sysand_core::{
-    build::default_kpar_path,
+    build::{default_kpar_path, workspace_publish_order},
     commands::publish::{
         PublishBearerProvenance, PublishError, TrustedPublishingEnvironment, do_publish,
         prepare_publish_payload, resolve_publish_bearer, validate_api_root_url_shape,
@@ -28,13 +28,19 @@ pub fn command_publish(
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
-    let kpar_path = resolve_publish_kpar_path(path, ctx)?;
-    if !wrapfs::is_file(&kpar_path)? {
-        bail!("KPAR file not found at `{kpar_path}`, run `sysand build` first");
+    let archives = resolve_publish_archives(path, ctx)?;
+    // Validate and prepare every payload before any network work, so
+    // kpar-content errors surface before discovery or credential
+    // matching -- and, for a workspace, before anything at all is
+    // uploaded. Discovering a malformed archive after uploading three
+    // others is not a state to leave a user in.
+    let mut prepared = Vec::with_capacity(archives.len());
+    for kpar_path in &archives {
+        if !wrapfs::is_file(kpar_path)? {
+            bail!("KPAR file not found at `{kpar_path}`, run `sysand build` first");
+        }
+        prepared.push(prepare_publish_payload(kpar_path)?);
     }
-    // Validate and prepare the kpar payload before any network work, so
-    // kpar-content errors surface before discovery or credential matching.
-    let prepared = prepare_publish_payload(&kpar_path)?;
 
     // Resolve `api_root` before credential matching so publish credentials
     // are matched against the actual upload URL. Discovery uses the full
@@ -77,20 +83,42 @@ pub fn command_publish(
     )
     .map_err(|err| publish_error_with_hint(err, &index_display))?;
 
-    let response = do_publish(prepared, index, api_root, bearer, client, runtime)
-        .map_err(|err| publish_error_with_hint(err, &index_display))?;
-
     let header = sysand_core::style::get_style_config().header;
-    if response.is_new_project {
-        log::info!(
-            "{header}{:>12}{header:#} new project successfully",
-            "Published"
-        );
-    } else {
-        log::info!(
-            "{header}{:>12}{header:#} new release successfully",
-            "Published"
-        );
+    let mut published: Vec<String> = Vec::new();
+    for (payload, kpar_path) in prepared.into_iter().zip(&archives) {
+        let name = payload.identity();
+        let response = do_publish(
+            payload,
+            index.clone(),
+            api_root.clone(),
+            bearer.clone(),
+            client.clone(),
+            runtime.clone(),
+        )
+        .map_err(|err| {
+            // A failure stops the sequence and reports what was
+            // published: the uploads that succeeded are not undone, so
+            // the user has to be told which they were.
+            let err = publish_error_with_hint(err, &index_display);
+            if published.is_empty() {
+                err
+            } else {
+                err.context(format!(
+                    "already published: {}; `{kpar_path}` and any after it were not",
+                    published.join(", ")
+                ))
+            }
+        })?;
+
+        // The name, because one archive's "Published new project
+        // successfully" is fine and five of them are not.
+        let what = if response.is_new_project {
+            "new project"
+        } else {
+            "new release"
+        };
+        log::info!("{header}{:>12}{header:#} {name} as a {what}", "Published");
+        published.push(name);
     }
 
     Ok(())
@@ -140,31 +168,40 @@ fn publish_error_with_hint(err: PublishError, index: &str) -> anyhow::Error {
     }
 }
 
-fn resolve_publish_kpar_path(
+/// The archives to publish, in the order they must go.
+///
+/// One for an explicit `[PATH]` or for a project directory -- a
+/// workspace member included, which resolves to the member's own
+/// archive under the workspace `output/`. From a workspace root with no
+/// project, every member in dependency order.
+fn resolve_publish_archives(
     path: Option<Utf8PathBuf>,
     ctx: &ProjectContext,
-) -> Result<Utf8PathBuf> {
+) -> Result<Vec<Utf8PathBuf>> {
     if let Some(path) = path {
-        return Ok(path);
+        return Ok(vec![path]);
     }
 
-    // Without an explicit path, publish must resolve one concrete project artifact.
-    // If no current project is discovered but a workspace is, this is ambiguous
-    // (workspace-level context may contain multiple projects), so require `[PATH]`.
-    let current_project = match (ctx.current_project.as_ref(), ctx.current_workspace.as_ref()) {
-        (Some(current_project), _) => current_project,
-        (None, Some(_)) => {
-            bail!(
-                "`sysand publish` without [PATH] is not supported from a workspace; \
-                 run the command from a project directory or pass an explicit .kpar path"
+    match (ctx.current_project.as_ref(), ctx.current_workspace.as_ref()) {
+        (Some(current_project), workspace) => Ok(vec![default_kpar_path(
+            current_project,
+            workspace,
+            current_project.root_path(),
+        )?]),
+        // From a workspace root, every member, in dependency order.
+        (None, Some(workspace)) => {
+            log::warn!(
+                "Workspaces are an experimental feature\n\
+                and their behavior may change even with minor\n\
+                releases. For the status of this feature, see\n\
+                https://github.com/sensmetry/sysand/issues/101."
             );
+            Ok(workspace_publish_order(workspace)
+                .map_err(|failure| anyhow::anyhow!("{failure}"))?
+                .into_iter()
+                .map(|(_, archive)| archive)
+                .collect())
         }
-        (None, None) => return Err(CliError::MissingProjectCurrentDir.into()),
-    };
-
-    Ok(default_kpar_path(
-        current_project,
-        ctx.current_workspace.as_ref(),
-        current_project.root_path(),
-    )?)
+        (None, None) => Err(CliError::MissingProjectCurrentDir.into()),
+    }
 }
