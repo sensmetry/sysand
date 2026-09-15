@@ -59,7 +59,7 @@ pub fn detect_format(dir: &Utf8Path) -> Result<ProjectFormat, Box<FsIoError>> {
 /// The json manifest `dir` holds, `.project.json` first when it holds
 /// both. Only a message needs to know which one, and naming a file that
 /// is not there would send the reader looking for it.
-fn json_manifest(dir: &Utf8Path) -> Result<Option<&'static str>, Box<FsIoError>> {
+pub(crate) fn json_manifest(dir: &Utf8Path) -> Result<Option<&'static str>, Box<FsIoError>> {
     for file in [PROJECT_JSON_FILE, META_JSON_FILE] {
         if wrapfs::is_file(dir.join(file))? {
             return Ok(Some(file));

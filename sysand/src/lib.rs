@@ -876,8 +876,11 @@ fn run_cli_with(
                 let current_workspace = ctx
                     .current_workspace
                     .ok_or(CliError::MissingProjectCurrentDir)?;
-                let output_dir =
-                    path.unwrap_or_else(|| current_workspace.root_path().join("output"));
+                let output_dir = path.unwrap_or_else(|| {
+                    current_workspace
+                        .root_path()
+                        .join(sysand_core::build::DEFAULT_OUTPUT_NAME)
+                });
                 if !wrapfs::is_dir(&output_dir)? {
                     wrapfs::create_dir(&output_dir)?;
                 }

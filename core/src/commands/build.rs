@@ -213,6 +213,11 @@ impl<ProjectReadError: ErrorBound> From<IncludeError<ProjectReadError>>
     }
 }
 
+/// workspaces.md "Build output": where a build writes when it is not
+/// told otherwise. A workspace has one, at its root; a standalone
+/// project has its own.
+pub const DEFAULT_OUTPUT_NAME: &str = "output";
+
 pub fn default_kpar_path<Pr: ProjectRead>(
     project: &Pr,
     workspace: Option<&Workspace>,
@@ -220,7 +225,7 @@ pub fn default_kpar_path<Pr: ProjectRead>(
 ) -> Result<Utf8PathBuf, KParBuildError<Pr::Error>> {
     let mut path = workspace
         .map_or(project_path, Workspace::root_path)
-        .join("output");
+        .join(DEFAULT_OUTPUT_NAME);
     path.push(default_kpar_file_name(project)?);
     Ok(path)
 }

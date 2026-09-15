@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+pub mod model_toml;
+
 use camino::{Utf8Path, Utf8PathBuf};
 use fluent_uri::Iri;
 
@@ -177,5 +179,5 @@ impl Workspace {
 }
 
 #[cfg(test)]
-#[path = "./workspace_tests.rs"]
+#[path = "./mod_tests.rs"]
 mod tests;
