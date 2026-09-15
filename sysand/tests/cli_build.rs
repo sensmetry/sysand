@@ -1343,3 +1343,50 @@ fn build_toml_project_with_a_stdlib_usage() -> Result<(), Box<dyn std::error::Er
     );
     Ok(())
 }
+
+/// The `Building kpar` lines appear in `members` order, whatever the
+/// members' `dir` usages of each other.
+///
+/// `contains` cannot express ordering, so the assertion is on the
+/// relative byte offsets of the three lines in stderr.
+#[test]
+fn workspace_build_follows_members_order() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    std::fs::write(
+        cwd.join(".workspace.json"),
+        br#"{"projects": [{"path": "gamma", "iris": []}, {"path": "beta", "iris": []}, {"path": "alpha", "iris": []}]}"#,
+    )?;
+    for (at, dep) in [
+        ("alpha", None),
+        ("beta", Some("../alpha")),
+        ("gamma", Some("../beta")),
+    ] {
+        let path = cwd.join(at);
+        std::fs::create_dir_all(&path)?;
+        let usage = dep.map_or_else(String::new, |d| {
+            format!("\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"{d}\"\n")
+        });
+        std::fs::write(
+            path.join("model.toml"),
+            format!(
+                "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"{at}\"\n\
+                 version = \"1.0.0\"\nsources = [\"m.kerml\"]\n{usage}"
+            ),
+        )?;
+        std::fs::write(path.join("m.kerml"), b"package M;\n")?;
+    }
+
+    let out = run_sysand_in(&cwd, ["build", "--allow-path-usage"], None)?;
+    out.clone().assert().success();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    let at = |name: &str| {
+        stderr
+            .find(&format!("{name}-1.0.0.kpar"))
+            .unwrap_or_else(|| panic!("`{name}` was not built:\n{stderr}"))
+    };
+    assert!(
+        at("gamma") < at("beta") && at("beta") < at("alpha"),
+        "members must be built in `members` order:\n{stderr}"
+    );
+    Ok(())
+}
