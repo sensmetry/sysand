@@ -1028,7 +1028,6 @@ fn do_build_py(
                 | KParBuildError::MissingMeta
                 | KParBuildError::MissingInfoMeta
                 | KParBuildError::TomlStdlibUsage { .. }
-                | KParBuildError::TomlStdlibTarget { .. }
                 | KParBuildError::TomlTargetMissing { .. }
                 | KParBuildError::TomlTargetVersion { .. }
                 | KParBuildError::TomlTargetRead { .. }

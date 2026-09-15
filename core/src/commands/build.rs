@@ -184,26 +184,11 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
         path: String,
         reason: String,
     },
-    /// model-toml.md "Standard library": "a usage whose target carries
-    /// `stdlib` is written as `resource = \"<target's metamodel>/<target's
-    /// stdlib>.kpar\"`". Writing that IRI is WP-6b-ii; until then such a
-    /// target is refused rather than silently given the PURL every
-    /// other local target gets.
-    ///
-    /// Only without `--allow-path-usage`: "under `--allow-path-usage` a
-    /// local usage stays a typed path usage, stdlib target or not".
-    #[error(
-        "usage `{usage}` targets `{path}`, which carries `stdlib`, and building that is not\n\
-        {SP:>8} supported yet; this version of Sysand cannot write the OMG IRI it needs.\n\
-        {SP:>8} Pass `--allow-path-usage` to keep it as a path usage instead",
-        SP = ' '
-    )]
-    TomlStdlibTarget { usage: String, path: String },
     /// model-toml.md "TOML to KPAR": "an index, source path or kpar path
     /// usage whose target carries `stdlib`: the OMG IRI instead of the
     /// PURL". For an index usage the target is not on disk at all -- the
     /// IRI comes from the embedded metadata of `known_std_libs()` -- so
-    /// this one is WP-6b too.
+    /// this one is WP-6b-ii.
     ///
     /// `--allow-path-usage` does not excuse it: the flag is about path
     /// usages, and "under `--allow-path-usage` a local usage stays a
@@ -699,10 +684,34 @@ fn local_target_usage<E: ErrorBound>(
         // would fail *this* project's build.
         match source.manifest() {
             Ok(manifest) => {
-                if manifest.stdlib.is_some() {
-                    return Err(KParBuildError::TomlStdlibTarget {
-                        usage: usage.to_string(),
-                        path: relative.to_owned(),
+                // model-toml.md "Standard library": "a usage whose
+                // target carries `stdlib` is written as `resource =
+                // \"<target's metamodel>/<target's stdlib>.kpar\"` --
+                // the metamodel supplies the prefix and release date --
+                // with its version constraint, instead of as a PURL".
+                //
+                // Only the resource changes: "instead of the PURL"
+                // names one substitution, so the constraint stays the
+                // `^<version>` every other local target gets.
+                if let Some(stem) = &manifest.stdlib {
+                    let Some(metamodel) = &manifest.metamodel else {
+                        // `ProjectManifest::resolve` refuses `stdlib`
+                        // unless the metamodel is a recognized OMG one,
+                        // so this cannot happen -- and a `format!` over
+                        // an absent prefix would write
+                        // `/Semantic-Library.kpar`.
+                        return Err(unreadable(&format_args!(
+                            "it carries `stdlib` but declares no `metamodel`, \
+                             so no standard-library IRI can be written"
+                        )));
+                    };
+                    return Ok(InterchangeProjectUsageRaw::Resource {
+                        resource: format!("{metamodel}/{stem}.kpar"),
+                        version_constraint: Some(caret(
+                            &manifest.version.to_string(),
+                            usage,
+                            relative,
+                        )?),
                     });
                 }
                 // A `model.toml` constrains its own version to semver,
@@ -721,21 +730,28 @@ fn local_target_usage<E: ErrorBound>(
         }
     };
 
-    // The parse error is discarded deliberately: row 40's message is
-    // about there being no `^<v>` to write, and semver's own complaint
-    // about the string would say less than the version does.
-    let constraint = semver::VersionReq::parse(&format!("^{version}")).map_err(|_parse_error| {
-        KParBuildError::TomlTargetVersion {
-            usage: usage.to_string(),
-            path: relative.to_owned(),
-            version: version.clone(),
-        }
-    })?;
-
     Ok(InterchangeProjectUsageRaw::Resource {
         resource: normalized_identity(usage.publisher(), usage.name()).lock_identifier(),
-        version_constraint: Some(constraint.to_string()),
+        version_constraint: Some(caret(&version, usage, relative)?),
     })
+}
+
+/// `^<version>`, or appendix A row 40.
+fn caret<E: ErrorBound>(
+    version: &str,
+    usage: &Usage,
+    relative: &str,
+) -> Result<String, KParBuildError<E>> {
+    // The parse error is discarded deliberately: the error's message is
+    // about there being no `^<v>` to write, and semver's own complaint
+    // about the string would say less than the version does.
+    semver::VersionReq::parse(&format!("^{version}"))
+        .map(|constraint| constraint.to_string())
+        .map_err(|_parse_error| KParBuildError::TomlTargetVersion {
+            usage: usage.to_string(),
+            path: relative.to_owned(),
+            version: version.to_owned(),
+        })
 }
 
 pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
