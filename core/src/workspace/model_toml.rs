@@ -194,7 +194,8 @@ impl Workspace {
         Ok(Some(workspace))
     }
 
-    /// Appendix A row 25: what the command started in.
+    /// Appendix A row 25: what the command started in, which is what it
+    /// acts on when no selector says otherwise.
     ///
     /// The project `from` sits in is the one [`crate::discover::discover_project`]
     /// would find, so it is found with the same predicate rather than a
@@ -279,6 +280,45 @@ impl Workspace {
                     .collect::<Vec<_>>()
                     .join(" and "),
             }),
+        }
+    }
+
+    /// What `build`, `sources`, `info` and `publish` act on.
+    ///
+    /// [`Workspace::start`] runs first and its error is propagated
+    /// before the selector is looked at: an unlisted project directory
+    /// "is the hard error of Included projects, whatever the command",
+    /// so a selector cannot excuse standing in one.
+    pub fn select(
+        &self,
+        from: impl AsRef<Utf8Path>,
+        selector: Selector<'_>,
+    ) -> Result<Selection<'_>, DiscoverError> {
+        let start = self.start(from)?;
+        Ok(match selector {
+            Selector::Member(selector) => Selection::Member(self.member(selector)?),
+            Selector::Workspace => Selection::Workspace,
+            Selector::Current => start,
+        })
+    }
+
+    /// What `add`, `remove`, `include`, `exclude` and the writing `info`
+    /// verbs act on.
+    ///
+    /// The same rule as [`Workspace::select`] except where that answers
+    /// [`Selection::Workspace`]: these commands need a project, so the
+    /// whole workspace is not an answer they can take, and the table
+    /// makes that column an error (workspaces.md "Command scopes"). It
+    /// never returns [`Selection::Workspace`].
+    pub fn select_member(
+        &self,
+        from: impl AsRef<Utf8Path>,
+        member: Option<&str>,
+    ) -> Result<Selection<'_>, DiscoverError> {
+        let selector = member.map_or(Selector::Current, Selector::Member);
+        match self.select(from, selector)? {
+            Selection::Workspace => Err(DiscoverError::NeedsProject),
+            selection => Ok(selection),
         }
     }
 
@@ -382,6 +422,13 @@ pub enum DiscoverError {
     Relativize(#[from] RelativizePathError),
     #[error(transparent)]
     Select(SelectError),
+    /// The target is the whole workspace, and the command needs a
+    /// project (workspaces.md "Command scopes").
+    #[error(
+        "this command needs a project; run it from a member directory or pass \
+         `--member <path-or-name>`"
+    )]
+    NeedsProject,
 }
 
 impl From<ClassifyError> for DiscoverError {
@@ -415,12 +462,28 @@ impl From<SelectError> for DiscoverError {
     }
 }
 
-/// What the command started in, once the root is known.
+/// Which part of a workspace a command was asked to act on.
 ///
-/// workspaces.md: "the walk classifies the project the command started
-/// in, if any: it is a member (listed in `members`), it is standalone
-/// (under an `exclude`d directory), or it is neither, which is a hard
-/// error".
+/// workspaces.md "Command scopes": `--workspace` forces all members,
+/// `--member <path-or-name>` picks one, and with neither the starting
+/// directory decides.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Selector<'a> {
+    /// What the starting directory implies.
+    Current,
+    /// Every member.
+    Workspace,
+    /// One member, named by its `members` entry as written or by its
+    /// project name; see [`Workspace::member`].
+    Member(&'a str),
+}
+
+/// What a command acts on.
+///
+/// workspaces.md "Command scopes": "When run from the workspace root or
+/// from a non-member directory under it that defines no project, the
+/// whole workspace is the command's target; when run from a member
+/// (sub)dir, only that member is."
 #[derive(Debug)]
 pub enum Selection<'a> {
     /// No project between the starting directory and the root, so the
@@ -429,7 +492,11 @@ pub enum Selection<'a> {
     Workspace,
     Member(&'a Member),
     /// A project under an `exclude`d directory: "This is the only kind
-    /// of non-member project that may sit under a workspace root."
+    /// of non-member project that may sit under a workspace root." The
+    /// workspace was found -- the walk goes straight past such a project
+    /// to the root above it -- but the command acts on the project alone,
+    /// "a standalone project with its own lockfile, `.sysand` and
+    /// `output`".
     Standalone(Utf8PathBuf),
 }
 

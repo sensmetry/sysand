@@ -5,8 +5,8 @@ use camino::{Utf8Path, Utf8PathBuf};
 use camino_tempfile::Utf8TempDir;
 
 use super::{
-    Classification, DiscoverError, LoadError, LoadFailure, SelectError, Selection, Workspace,
-    candidate_root, confirm_root,
+    Classification, DiscoverError, LoadError, LoadFailure, SelectError, Selection, Selector,
+    Workspace, candidate_root, confirm_root,
 };
 use crate::manifest::diagnostics::Diagnostic;
 use crate::project::utils::ProjectDeserializationError;
@@ -1134,4 +1134,222 @@ fn an_unknown_member_lists_the_ones_that_exist() {
         }
         other => panic!("expected no such member, got `{other:?}`"),
     }
+}
+
+// --------------------------------------------------------------- scope
+
+fn member_of<'a>(selection: &Selection<'a>) -> &'a str {
+    match selection {
+        Selection::Member(member) => member.path.raw.as_str(),
+        other => panic!("expected a member, got `{other:?}`"),
+    }
+}
+
+/// A workspace with a member, an excluded standalone project, a
+/// non-member directory and an unlisted project.
+fn scoped() -> Fixture {
+    let fixture = Fixture::new(
+        "manifest-version = 1\n\n[workspace]\nmembers = [\"app\", \"lib\"]\n\
+         exclude = [\"vendor\"]\n",
+    );
+    fixture.project_named("app", "alpha");
+    fixture.project_named("lib", "beta");
+    fixture.project_named("vendor/thing", "gamma");
+    fixture.mkdir("notes");
+    fixture.project_named("stray", "delta");
+    fixture
+}
+
+#[test]
+fn the_root_selects_the_whole_workspace() {
+    let fixture = scoped();
+    let workspace = fixture.loaded();
+    assert!(matches!(
+        workspace
+            .select(fixture.root(), Selector::Current)
+            .expect("selects"),
+        Selection::Workspace
+    ));
+}
+
+#[test]
+fn a_non_member_directory_selects_the_whole_workspace() {
+    let fixture = scoped();
+    let workspace = fixture.loaded();
+    assert!(matches!(
+        workspace
+            .select(fixture.under("notes"), Selector::Current)
+            .expect("selects"),
+        Selection::Workspace
+    ));
+}
+
+#[test]
+fn a_member_directory_selects_that_member() {
+    let fixture = scoped();
+    let workspace = fixture.loaded();
+    let selection = workspace
+        .select(fixture.under("app"), Selector::Current)
+        .expect("selects");
+    assert_eq!(member_of(&selection), "app");
+}
+
+#[test]
+fn a_directory_under_a_member_selects_that_member() {
+    let fixture = scoped();
+    fixture.mkdir("app/src/deep");
+    let workspace = fixture.loaded();
+    let selection = workspace
+        .select(fixture.under("app/src/deep"), Selector::Current)
+        .expect("selects");
+    assert_eq!(member_of(&selection), "app");
+}
+
+#[test]
+fn the_workspace_flag_forces_the_whole_workspace_from_a_member() {
+    let fixture = scoped();
+    let workspace = fixture.loaded();
+    assert!(matches!(
+        workspace
+            .select(fixture.under("app"), Selector::Workspace)
+            .expect("selects"),
+        Selection::Workspace
+    ));
+}
+
+#[test]
+fn the_member_flag_picks_one_from_the_root() {
+    let fixture = scoped();
+    let workspace = fixture.loaded();
+    let selection = workspace
+        .select(fixture.root(), Selector::Member("lib"))
+        .expect("selects");
+    assert_eq!(member_of(&selection), "lib");
+}
+
+/// Position is only the default.
+#[test]
+fn the_member_flag_picks_another_from_inside_a_member() {
+    let fixture = scoped();
+    let workspace = fixture.loaded();
+    let selection = workspace
+        .select(fixture.under("app"), Selector::Member("lib"))
+        .expect("selects");
+    assert_eq!(member_of(&selection), "lib");
+}
+
+#[test]
+fn an_excluded_project_selects_standalone() {
+    let fixture = scoped();
+    let workspace = fixture.loaded();
+    match workspace
+        .select(fixture.under("vendor/thing"), Selector::Current)
+        .expect("selects")
+    {
+        Selection::Standalone(dir) => assert_eq!(dir, fixture.under("vendor/thing")),
+        other => panic!("expected standalone, got `{other:?}`"),
+    }
+}
+
+#[test]
+fn a_selector_beats_standing_in_an_excluded_project() {
+    let fixture = scoped();
+    let workspace = fixture.loaded();
+    let selection = workspace
+        .select(fixture.under("vendor/thing"), Selector::Member("app"))
+        .expect("selects");
+    assert_eq!(member_of(&selection), "app");
+}
+
+#[test]
+fn the_workspace_flag_beats_standing_in_an_excluded_project() {
+    let fixture = scoped();
+    let workspace = fixture.loaded();
+    assert!(matches!(
+        workspace
+            .select(fixture.under("vendor/thing"), Selector::Workspace)
+            .expect("selects"),
+        Selection::Workspace
+    ));
+}
+
+#[test]
+fn an_unlisted_project_is_refused_by_select() {
+    let fixture = scoped();
+    let workspace = fixture.loaded();
+    assert!(matches!(
+        workspace.select(fixture.under("stray"), Selector::Current),
+        Err(DiscoverError::Unlisted { .. })
+    ));
+}
+
+/// "a project directory under the root that is neither a member nor
+/// excluded is the hard error of Included projects, whatever the
+/// command" -- a selector does not excuse standing in one.
+#[test]
+fn an_unlisted_project_is_refused_by_select_with_a_selector() {
+    let fixture = scoped();
+    let workspace = fixture.loaded();
+    assert!(matches!(
+        workspace.select(fixture.under("stray"), Selector::Member("app")),
+        Err(DiscoverError::Unlisted { .. })
+    ));
+}
+
+#[test]
+fn select_member_from_a_member_directory_needs_no_flag() {
+    let fixture = scoped();
+    let workspace = fixture.loaded();
+    let selection = workspace
+        .select_member(fixture.under("app"), None)
+        .expect("selects");
+    assert_eq!(member_of(&selection), "app");
+}
+
+#[test]
+fn select_member_from_the_root_is_refused() {
+    let fixture = scoped();
+    let workspace = fixture.loaded();
+    match workspace.select_member(fixture.root(), None) {
+        Err(error @ DiscoverError::NeedsProject) => assert_eq!(
+            error.to_string(),
+            "this command needs a project; run it from a member directory or pass \
+             `--member <path-or-name>`"
+        ),
+        other => panic!("expected `NeedsProject`, got `{other:?}`"),
+    }
+}
+
+#[test]
+fn select_member_from_a_non_member_directory_is_refused() {
+    let fixture = scoped();
+    let workspace = fixture.loaded();
+    assert!(matches!(
+        workspace.select_member(fixture.under("notes"), None),
+        Err(DiscoverError::NeedsProject)
+    ));
+}
+
+#[test]
+fn select_member_with_the_flag_from_the_root_is_accepted() {
+    let fixture = scoped();
+    let workspace = fixture.loaded();
+    let selection = workspace
+        .select_member(fixture.root(), Some("lib"))
+        .expect("selects");
+    assert_eq!(member_of(&selection), "lib");
+}
+
+/// A writing command in an excluded standalone project acts on that
+/// project, which is why `select_member` cannot return a `&Member`.
+#[test]
+fn select_member_in_an_excluded_project_is_standalone() {
+    let fixture = scoped();
+    let workspace = fixture.loaded();
+    assert!(matches!(
+        workspace
+            .select_member(fixture.under("vendor/thing"), None)
+            .expect("selects"),
+        Selection::Standalone(_)
+    ));
 }
