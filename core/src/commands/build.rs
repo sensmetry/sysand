@@ -10,6 +10,7 @@ use std::{collections::HashSet, io::Write as _};
 
 use crate::{
     env::utils::ErrorBound,
+    graph::DependencyGraph,
     include::{IncludeError, extract_symbols, read_project_file_to_string},
     manifest::common::normalized_identity,
     manifest::usage::{Usage, UsageBase},
@@ -833,6 +834,54 @@ fn read_members(workspace: &Workspace) -> Vec<Member> {
         .collect()
 }
 
+/// The members in dependency order, each with the archive `sysand build`
+/// writes for it -- `<root>/output/<name>-<version>.kpar`.
+///
+/// The archive name needs the member's own name and version, so every
+/// member is read here, before the caller uploads anything: publishing
+/// half a workspace because the last member was unreadable is worse than
+/// publishing none.
+///
+/// The error names the member, because `KParBuildError` does not: a
+/// failure report whose entries cannot be told apart is a count, not a
+/// report.
+pub fn workspace_publish_order(
+    workspace: &Workspace,
+) -> Result<Vec<(Utf8PathBuf, Utf8PathBuf)>, MemberFailure> {
+    let root = workspace.root_path();
+    let members = read_members(workspace);
+
+    // workspaces.md "Build output": members are published in dependency
+    // order, a topological sort of their `dir` usages of each other.
+    //
+    // Every member is a node, whether or not its directory resolves: a
+    // member that cannot be read must fail with its own message, not
+    // vanish from the order.
+    let mut graph = DependencyGraph::new();
+    for member in &members {
+        graph.add_node(member.dir.clone());
+    }
+    for member in &members {
+        for dependency in member_dependencies(&member.project) {
+            // `add_edge` ignores an endpoint the graph does not hold,
+            // which is what a usage of a project outside the workspace
+            // is.
+            graph.add_edge(&member.dir, &canonical_or(member.dir.join(dependency)));
+        }
+    }
+
+    let mut archives = Vec::new();
+    for dir in graph.dependency_order() {
+        for member in members.iter().filter(|member| &member.dir == dir) {
+            let short = shorten(&member.dir, root);
+            let archive = default_kpar_path(&member.project, Some(workspace), &member.dir)
+                .map_err(|error| MemberFailure::at(&short, error))?;
+            archives.push((short, archive));
+        }
+    }
+    Ok(archives)
+}
+
 /// Build every member, in `members` order, and return the archives.
 ///
 /// workspaces.md "Build output": a build reads a target's `version` from
@@ -950,6 +999,45 @@ struct Member {
 /// node, it gets built, and it fails with its own message.
 fn canonical_or(path: Utf8PathBuf) -> Utf8PathBuf {
     wrapfs::canonicalize(&path).unwrap_or(path)
+}
+
+/// The `dir` usages a member declares, as written: what the publish
+/// order needs from it.
+///
+/// For a toml member the reader is `manifest()`, not `usage()`: the
+/// latter goes through `get_info`, which builds the whole KPAR view --
+/// reading, hashing and symbol-extracting every source file the member
+/// lists. A json member has no `model.toml`, so it answers
+/// `NoTomlManifest` and its usages come from `.project.json`.
+///
+/// A member that cannot be read at all contributes no edges. It fails
+/// with a message about what is actually wrong with it as soon as its
+/// archive name is asked for.
+fn member_dependencies(project: &LocalSrcProject) -> Vec<String> {
+    match project.manifest() {
+        Ok(manifest) => manifest
+            .usages
+            .iter()
+            .filter_map(|located| match &located.usage {
+                Usage::SourcePath { dir, .. } => Some(dir.as_str().to_owned()),
+                _ => None,
+            })
+            .collect(),
+        Err(ManifestError::NoTomlManifest) => match project.get_info() {
+            Ok(Some(info)) => info
+                .usage
+                .iter()
+                .filter_map(|usage| match usage {
+                    InterchangeProjectUsageRaw::Directory { dir, .. } => {
+                        Some(dir.as_str().to_owned())
+                    }
+                    _ => None,
+                })
+                .collect(),
+            Ok(None) | Err(_) => Vec::new(),
+        },
+        Err(ManifestError::Project(_)) => Vec::new(),
+    }
 }
 
 /// A member directory as the workspace names it.

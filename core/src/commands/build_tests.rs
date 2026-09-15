@@ -930,3 +930,48 @@ fn a_member_with_no_manifest_fails_as_itself() -> Result<(), Box<dyn std::error:
     );
     Ok(())
 }
+
+// --------------------------------------------------- the publish order
+
+#[test]
+fn publish_order_is_the_dependency_order() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    json_workspace(&dir, &["gamma", "beta", "alpha"]);
+    toml_member(&dir, "alpha", &[], false);
+    toml_member(&dir, "beta", &["../alpha"], false);
+    toml_member(&dir, "gamma", &["../beta"], false);
+
+    let workspace = crate::workspace::Workspace::new(dir.path().to_owned())?;
+    let order = super::workspace_publish_order(&workspace).map_err(|e| e.to_string())?;
+
+    let root = crate::project::utils::wrapfs::canonicalize(dir.path())?;
+    assert_eq!(
+        order,
+        vec![
+            ("alpha".into(), root.join("output/alpha-1.0.0.kpar")),
+            ("beta".into(), root.join("output/beta-1.0.0.kpar")),
+            ("gamma".into(), root.join("output/gamma-1.0.0.kpar")),
+        ],
+        "the full archive path matters: a member-directory `output/` is also under the root"
+    );
+    Ok(())
+}
+
+/// Found while mapping members to archives, before the caller uploads
+/// anything -- and named, since `KParBuildError` carries no identity.
+#[test]
+fn publish_order_refuses_a_member_with_no_manifest() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    json_workspace(&dir, &["alpha", "beta"]);
+    broken_member(&dir, "alpha");
+    toml_member(&dir, "beta", &[], false);
+
+    let workspace = crate::workspace::Workspace::new(dir.path().to_owned())?;
+    let failure = super::workspace_publish_order(&workspace).expect_err("alpha has no manifest");
+    assert_eq!(failure.member, "alpha");
+    assert!(
+        matches!(*failure.error, KParBuildError::MissingInfo),
+        "{failure}"
+    );
+    Ok(())
+}
