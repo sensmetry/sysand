@@ -702,3 +702,130 @@ fn a_target_of_the_wrong_kind_defines_no_project() -> Result<(), Box<dyn std::er
     );
     Ok(())
 }
+
+// -------------------------------------- members build in `members` order
+
+/// A valid project name for a usage of `dep`. The build runs with
+/// `--allow-path-usage`, so no target is read and the name only has to
+/// satisfy the manifest's own rules, which a name of fewer than three
+/// characters does not.
+fn usage_name(dep: &str) -> String {
+    let last: String = dep
+        .rsplit('/')
+        .next()
+        .unwrap_or(dep)
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .collect();
+    if last.len() < 3 {
+        "selfdep".to_owned()
+    } else {
+        last
+    }
+}
+
+fn json_workspace(dir: &camino_tempfile::Utf8TempDir, members: &[&str]) {
+    let projects: Vec<String> = members
+        .iter()
+        .map(|m| format!(r#"{{"path": "{m}", "iris": []}}"#))
+        .collect();
+    std::fs::write(
+        dir.path().join(".workspace.json"),
+        format!(r#"{{"projects": [{}]}}"#, projects.join(", ")),
+    )
+    .expect("a workspace file");
+}
+
+/// A `model.toml` member. `stdlib` needs publisher `omg` and an OMG
+/// metamodel, which `ProjectManifest::resolve` enforces.
+fn toml_member(dir: &camino_tempfile::Utf8TempDir, at: &str, deps: &[&str], stdlib: bool) {
+    let path = dir.path().join(at);
+    std::fs::create_dir_all(&path).expect("the member directory");
+    let head = if stdlib {
+        format!(
+            "manifest-version = 1\n\n[project]\npublisher = \"omg\"\nname = \"{at}\"\n\
+             version = \"1.0.0\"\nsources = [\"m.kerml\"]\nstdlib = \"Semantic-Library\"\n\
+             metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n"
+        )
+    } else {
+        format!(
+            "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"{at}\"\n\
+             version = \"1.0.0\"\nsources = [\"m.kerml\"]\n"
+        )
+    };
+    let mut manifest = head;
+    for d in deps {
+        let name = usage_name(d);
+        manifest.push_str("\n[[inline-usages]]\npublisher = \"acme\"\nname = \"");
+        manifest.push_str(&name);
+        manifest.push_str("\"\ndir = \"");
+        manifest.push_str(d);
+        manifest.push_str("\"\n");
+    }
+    std::fs::write(path.join("model.toml"), manifest).expect("a member manifest");
+    std::fs::write(path.join("m.kerml"), b"package M;\n").expect("a member source");
+}
+
+fn build_workspace(
+    dir: &camino_tempfile::Utf8TempDir,
+) -> Result<Vec<String>, KParBuildError<crate::project::local_src::LocalSrcError>> {
+    let workspace =
+        crate::workspace::Workspace::new(dir.path().to_owned()).expect("the workspace file reads");
+    let out = dir.path().join("output");
+    std::fs::create_dir_all(&out).expect("the output directory");
+    let built = super::do_build_workspace_kpars(
+        &workspace,
+        &out,
+        KparCompressionMethod::default(),
+        true,
+        true,
+    )?;
+    Ok(built
+        .iter()
+        .map(|p| {
+            crate::project::ProjectRead::name(p)
+                .ok()
+                .flatten()
+                .unwrap_or_default()
+        })
+        .collect())
+}
+
+/// workspaces.md "Build output": every member is built, in `members`
+/// order, whatever their `dir` usages of each other.
+#[test]
+fn members_build_in_members_order() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    json_workspace(&dir, &["gamma", "beta", "alpha"]);
+    toml_member(&dir, "alpha", &[], false);
+    toml_member(&dir, "beta", &["../alpha"], false);
+    toml_member(&dir, "gamma", &["../beta"], false);
+    assert_eq!(build_workspace(&dir)?, vec!["gamma", "beta", "alpha"]);
+    Ok(())
+}
+
+/// "Nodes keep the order they were added in": with no edges, `members`
+/// order is the answer.
+#[test]
+fn independent_members_keep_their_declared_order() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    json_workspace(&dir, &["gamma", "beta", "alpha"]);
+    for at in ["alpha", "beta", "gamma"] {
+        toml_member(&dir, at, &[], false);
+    }
+    assert_eq!(build_workspace(&dir)?, vec!["gamma", "beta", "alpha"]);
+    Ok(())
+}
+
+/// "a project's usages routinely name projects outside it": such a
+/// usage is not an edge, and the outsider is not built.
+#[test]
+fn a_usage_of_a_non_member_is_not_an_edge() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    json_workspace(&dir, &["gamma", "beta"]);
+    toml_member(&dir, "outside", &[], false);
+    toml_member(&dir, "beta", &["../outside"], false);
+    toml_member(&dir, "gamma", &[], false);
+    assert_eq!(build_workspace(&dir)?, vec!["gamma", "beta"]);
+    Ok(())
+}
