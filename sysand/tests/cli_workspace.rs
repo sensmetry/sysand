@@ -112,7 +112,7 @@ fn a_config_at_the_workspace_root_is_used() -> Result<(), Box<dyn std::error::Er
     run_sysand_discovering(&member, ["lock"])?
         .assert()
         .success();
-    assert_eq!(locked_projects(&member)?, 2);
+    assert_eq!(locked_projects(dir.path())?, 2);
     Ok(())
 }
 
@@ -176,7 +176,7 @@ fn a_relative_override_is_relative_to_the_workspace_root() -> Result<(), Box<dyn
     run_sysand_discovering(&member, ["lock"])?
         .assert()
         .success();
-    assert_eq!(locked_projects(&member)?, 2);
+    assert_eq!(locked_projects(dir.path())?, 2);
     Ok(())
 }
 
@@ -271,33 +271,19 @@ fn a_workspace_json_tree_is_unaffected() -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
-/// Configuration is not about the members.
+/// A `members` entry naming nothing refuses the lock outright.
+///
+/// `Workspace::load_with` refuses a member that is not there, and a
+/// workspace lock reads every member.
 #[test]
-fn a_broken_member_does_not_change_where_config_is_read() -> Result<(), Box<dyn std::error::Error>>
-{
+fn a_missing_member_refuses_the_lock() -> Result<(), Box<dyn std::error::Error>> {
     let dir = workspace("manifest-version = 1\n\n[workspace]\nmembers = [\"app\", \"gone\"]\n")?;
     let member = dir.path().join("app");
-    dependency(dir.path(), "local-dep")?;
-    run_sysand_in(
-        &member,
-        [
-            "add",
-            "--iri",
-            USAGE,
-            "--version-constraint",
-            CONSTRAINT,
-            "--no-lock",
-        ],
-        None,
-    )?
-    .assert()
-    .success();
-    write_config(dir.path(), "local-dep")?;
 
     run_sysand_discovering(&member, ["lock"])?
         .assert()
-        .success();
-    assert_eq!(locked_projects(&member)?, 2);
+        .failure()
+        .stderr(predicate::str::contains("member `gone` does not exist"));
     Ok(())
 }
 
@@ -570,11 +556,10 @@ fn an_excluded_project_is_not_unlisted() -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
-/// The reason the scope check reads the table and not the members:
-/// `lock` writes a lockfile into the member it locks, and
-/// `workspaces.md` "Stray per-member state" makes that an error for a
-/// member. A command that loaded the members would refuse the workspace
-/// its own previous run created.
+/// `lock` twice in a member still works, and writes one file -- at the
+/// workspace root. The scope check reads the table and not the members,
+/// which is why a member holding a lockfile of its own does not stop
+/// anything either.
 #[test]
 fn a_members_own_lockfile_does_not_stop_a_later_command() -> Result<(), Box<dyn std::error::Error>>
 {
@@ -583,7 +568,8 @@ fn a_members_own_lockfile_does_not_stop_a_later_command() -> Result<(), Box<dyn 
     run_sysand_discovering(&member, ["lock"])?
         .assert()
         .success();
-    assert!(member.join(DEFAULT_LOCKFILE_NAME).exists());
+    assert!(dir.path().join(DEFAULT_LOCKFILE_NAME).exists());
+    assert!(!member.join(DEFAULT_LOCKFILE_NAME).exists());
     run_sysand_discovering(&member, ["lock"])?
         .assert()
         .success();
@@ -652,5 +638,148 @@ fn print_root_outside_a_workspace_prints_the_project_root() -> Result<(), Box<dy
         .assert()
         .success()
         .stdout(format!("{cwd}\n"));
+    Ok(())
+}
+
+// ------------------- one lockfile and one env per workspace
+
+/// A second member, at a depth, using the first. `dir` usages are
+/// hand-written: `add` emits an IRI usage plus a config override, and a
+/// group entry would be relative to the root, which the workspace lock
+/// refuses.
+fn two_member_workspace() -> Result<camino_tempfile::Utf8TempDir, Box<dyn std::error::Error>> {
+    let dir = camino_tempfile::tempdir()?;
+    std::fs::write(
+        dir.path().join("model.toml"),
+        "manifest-version = 1\n\n[workspace]\nmembers = [\"app\", \"libs/gamma\"]\n",
+    )?;
+    std::fs::create_dir_all(dir.path().join("app"))?;
+    std::fs::write(dir.path().join("app/model.toml"), MEMBER)?;
+    std::fs::create_dir_all(dir.path().join("libs/gamma"))?;
+    std::fs::write(
+        dir.path().join("libs/gamma/model.toml"),
+        "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"gamma\"\n\
+         version = \"1.0.0\"\nsources = []\n\n\
+         [[inline-usages]]\npublisher = \"acme\"\nname = \"alpha\"\ndir = \"../../app\"\n",
+    )?;
+    Ok(dir)
+}
+
+#[test]
+fn lock_in_a_member_writes_at_the_workspace_root() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace()?;
+    run_sysand_discovering(&dir.path().join("app"), ["lock"])?
+        .assert()
+        .success();
+    assert!(dir.path().join(DEFAULT_LOCKFILE_NAME).exists());
+    assert!(!dir.path().join("app").join(DEFAULT_LOCKFILE_NAME).exists());
+    Ok(())
+}
+
+/// Both members, and each recorded editable at its own path -- the
+/// member at a depth reaching back two levels, which a single base
+/// would resolve wrongly.
+#[test]
+fn the_workspace_lockfile_records_every_member() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace()?;
+    run_sysand_discovering(&dir.path().join("libs/gamma"), ["lock"])?
+        .assert()
+        .success();
+
+    let text = std::fs::read_to_string(dir.path().join(DEFAULT_LOCKFILE_NAME))?;
+    for expected in [
+        "pkg:sysand/acme/alpha",
+        "pkg:sysand/acme/gamma",
+        "editable = \"app\"",
+        "editable = \"libs/gamma\"",
+    ] {
+        assert!(
+            text.contains(expected),
+            "`{expected}` missing from:\n{text}"
+        );
+    }
+    Ok(())
+}
+
+/// From the root, where there is no project at all -- which must not
+/// bail with "not inside a project".
+#[test]
+fn lock_from_the_root_locks_every_member() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace()?;
+    run_sysand_discovering(dir.path(), ["lock"])?
+        .assert()
+        .success();
+    assert_eq!(locked_projects(dir.path())?, 2);
+    Ok(())
+}
+
+/// `sync` reads the root's lockfile and installs into the root's
+/// `.sysand`. The hand-added comment survives, which a silent re-lock
+/// would have removed.
+#[test]
+fn sync_in_a_member_uses_the_root_lockfile_and_env() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace()?;
+    run_sysand_discovering(dir.path(), ["lock"])?
+        .assert()
+        .success();
+    let lockfile = dir.path().join(DEFAULT_LOCKFILE_NAME);
+    let marked = format!("# kept\n{}", std::fs::read_to_string(&lockfile)?);
+    std::fs::write(&lockfile, &marked)?;
+
+    run_sysand_discovering(&dir.path().join("app"), ["sync"])?
+        .assert()
+        .success();
+
+    assert!(
+        dir.path().join(".sysand").is_dir(),
+        "the env is at the root"
+    );
+    assert!(!dir.path().join("app/.sysand").exists());
+    assert!(!dir.path().join("app").join(DEFAULT_LOCKFILE_NAME).exists());
+    assert!(
+        std::fs::read_to_string(&lockfile)?.starts_with("# kept"),
+        "the lockfile was rewritten, so `sync` re-locked instead of reading"
+    );
+    Ok(())
+}
+
+/// The auto-lock fallback: no lockfile at all, and `sync` must lock the
+/// workspace rather than one member into the current directory.
+#[test]
+fn sync_without_a_lockfile_locks_the_workspace() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace()?;
+    run_sysand_discovering(&dir.path().join("app"), ["sync"])?
+        .assert()
+        .success();
+    assert_eq!(locked_projects(dir.path())?, 2);
+    assert!(!dir.path().join("app").join(DEFAULT_LOCKFILE_NAME).exists());
+    Ok(())
+}
+
+/// `add` in one member re-locks the workspace: the other member is
+/// still there afterwards. Redirecting only the write would have left a
+/// single-member solve over the shared file.
+#[test]
+fn add_in_a_member_keeps_every_member() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace()?;
+    dependency(dir.path(), "local-dep")?;
+    run_sysand_discovering(
+        &dir.path().join("app"),
+        [
+            "add",
+            "--iri",
+            USAGE,
+            "--version-constraint",
+            CONSTRAINT,
+            "--as-local-src",
+            "local-dep",
+        ],
+    )?
+    .assert()
+    .success();
+
+    let text = std::fs::read_to_string(dir.path().join(DEFAULT_LOCKFILE_NAME))?;
+    assert!(text.contains("pkg:sysand/acme/gamma"), "{text}");
+    assert!(!dir.path().join("app").join(DEFAULT_LOCKFILE_NAME).exists());
     Ok(())
 }

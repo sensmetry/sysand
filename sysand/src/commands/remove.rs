@@ -144,7 +144,13 @@ fn lock_sync<Policy: HTTPAuthentication>(
         None
     };
 
-    if let Some(mut lockfile) = Lockfile::try_read(&project_root)? {
+    // In a workspace the lockfile is the shared one at the root, and so
+    // is the directory its `src_path`s are relative to.
+    let lock_root = ctx
+        .model_workspace_root
+        .clone()
+        .unwrap_or_else(|| project_root.clone());
+    if let Some(mut lockfile) = Lockfile::try_read(&lock_root)? {
         let info = current_project
             .get_info()?
             .ok_or(CliError::MissingProjectCurrentDir)?;
@@ -197,13 +203,14 @@ fn lock_sync<Policy: HTTPAuthentication>(
         if !no_sync {
             let mut env = crate::get_or_create_env(
                 ctx.env,
+                ctx.model_workspace_root.as_deref(),
                 ctx.current_workspace.as_ref(),
                 ctx.current_project.as_ref(),
                 ctx.current_directory,
             )?;
             command_sync(
                 lockfile.lock(),
-                project_root,
+                &lock_root,
                 &mut env,
                 client,
                 &provided_iris,

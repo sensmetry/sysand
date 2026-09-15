@@ -64,7 +64,7 @@ use crate::{
         index::{command_index_add, command_index_init, command_index_remove, command_index_yank},
         info::{LocalProjectKind, command_info_field, command_info_field_path, command_info_path},
         init::command_init,
-        lock::command_lock,
+        lock::{command_lock, command_lock_workspace},
         print_root::command_print_root,
         publish::command_publish,
         remove::command_remove,
@@ -432,20 +432,27 @@ fn run_cli_with(
         None
     };
 
-    let env = match (&current_workspace, &current_project) {
+    // `workspaces.md` "Syncing": "Always a single `.sysand` directory in
+    // workspace root." From `scope`, not from `workspace_root`: the
+    // latter is `Some` for any discovered table, an `exclude`d
+    // standalone project included, and such a project keeps its own
+    // state.
+    let model_workspace_root = scope.as_ref().and_then(|(root, start)| {
+        matches!(start, StartRegion::Member(_) | StartRegion::Workspace).then(|| root.clone())
+    });
+
+    let env = match (&model_workspace_root, &current_workspace, &current_project) {
+        (Some(root), _, _) => get_env(root)?,
         // TODO: does it make sense to support env unassociated with a project
         // when index and env are different?
-        (None, None) => get_env(&cwd)?,
-        (None, Some(pr)) => get_env(pr.root_path())?,
-        (Some(w), _) => get_env(w.root_path())?,
+        (None, None, None) => get_env(&cwd)?,
+        (None, None, Some(pr)) => get_env(pr.root_path())?,
+        (None, Some(w), _) => get_env(w.root_path())?,
     };
     let config_root = config_root(&cwd, project_root.as_deref(), workspace_root.as_deref());
     let ctx = ProjectContext {
         env,
-        // Set when the workspace lockfile moves to the root (WP-5e):
-        // while it still lives in the member, a `src_path` relative to
-        // the root would be relative to the wrong directory.
-        model_workspace_root: None,
+        model_workspace_root: model_workspace_root.clone(),
         current_workspace,
         current_project,
         current_directory: cwd,
@@ -640,7 +647,20 @@ fn run_cli_with(
             Ok(())
         }
         Command::Lock { resolution_opts } => {
-            if let Some(project_root) = project_root {
+            // `workspaces.md` "Locking": one lockfile for the whole
+            // workspace, at its root, from anywhere under it.
+            if let Some(root) = &model_workspace_root {
+                command_lock_workspace(
+                    root,
+                    resolution_opts,
+                    &config,
+                    client,
+                    runtime,
+                    auth_policy,
+                    &ctx,
+                )
+                .map(|_| ())
+            } else if let Some(project_root) = project_root {
                 command_lock(
                     ".",
                     resolution_opts,
@@ -668,22 +688,42 @@ fn run_cli_with(
                 known_std_libs()
             };
 
-            let project_root = project_root.unwrap_or_else(|| ctx.current_directory.clone());
+            // The lockfile, and the root every `src_path` in it is
+            // relative to, are the workspace's when there is one.
+            let project_root = model_workspace_root
+                .clone()
+                .or(project_root)
+                .unwrap_or_else(|| ctx.current_directory.clone());
             let lock = match Lockfile::try_read(&project_root)? {
                 Some(lockfile) => lockfile.into_lock(),
-                None => command_lock(
-                    ".",
-                    resolution_opts,
-                    &config,
-                    &project_root,
-                    client.clone(),
-                    runtime.clone(),
-                    auth_policy.clone(),
-                    &ctx,
-                )?,
+                // The same branch as `Command::Lock`: locking a workspace
+                // one member at a time would write a single-member solve
+                // over the shared file.
+                None => match &model_workspace_root {
+                    Some(root) => command_lock_workspace(
+                        root,
+                        resolution_opts,
+                        &config,
+                        client.clone(),
+                        runtime.clone(),
+                        auth_policy.clone(),
+                        &ctx,
+                    )?,
+                    None => command_lock(
+                        ".",
+                        resolution_opts,
+                        &config,
+                        &project_root,
+                        client.clone(),
+                        runtime.clone(),
+                        auth_policy.clone(),
+                        &ctx,
+                    )?,
+                },
             };
             let mut local_environment = get_or_create_env(
                 ctx.env,
+                ctx.model_workspace_root.as_deref(),
                 ctx.current_workspace.as_ref(),
                 ctx.current_project.as_ref(),
                 &ctx.current_directory,
@@ -1019,6 +1059,7 @@ pub fn get_env(
 /// Unpack `env`, or create an empty environment otherwise
 pub fn get_or_create_env(
     env: Option<LocalDirectoryEnvironment>,
+    model_workspace_root: Option<&Utf8Path>,
     workspace: Option<&Workspace>,
     project: Option<&LocalSrcProject>,
     cwd: impl AsRef<Utf8Path>,
@@ -1026,10 +1067,11 @@ pub fn get_or_create_env(
     if let Some(env) = env {
         return Ok(env);
     }
-    let base_path = match (workspace, project) {
-        (None, None) => cwd.as_ref(),
-        (None, Some(pr)) => pr.root_path(),
-        (Some(w), _) => w.root_path(),
+    let base_path = match (model_workspace_root, workspace, project) {
+        (Some(root), _, _) => root,
+        (None, None, None) => cwd.as_ref(),
+        (None, None, Some(pr)) => pr.root_path(),
+        (None, Some(w), _) => w.root_path(),
     };
     command_env(base_path.join(DEFAULT_ENV_NAME))
 }

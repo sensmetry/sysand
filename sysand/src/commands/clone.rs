@@ -178,6 +178,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
 
         let mut env = get_or_create_env(
             ctx.env,
+            ctx.model_workspace_root.as_deref(),
             ctx.current_workspace.as_ref(),
             ctx.current_project.as_ref(),
             ctx.current_directory,

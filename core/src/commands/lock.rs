@@ -729,6 +729,34 @@ pub fn do_lock_workspace<PD: ProjectRead + Debug, R: ResolveRead<ProjectStorage 
     provided_usages: &ProvidedProjects,
     ctx: &ProjectContext,
 ) -> Result<LockOutcome<PD>, LockProjectError<EditableLocalSrcProject, PD, R>> {
+    lock_workspace(workspace, resolver, provided_usages, ctx, None)
+}
+
+/// [`do_lock_workspace`], with the spelling of the typed usage of
+/// `respelled` that the members declare not checked (see
+/// [`check_typed_usages`])
+#[cfg(feature = "filesystem")]
+pub fn do_lock_workspace_respelling<
+    PD: ProjectRead + Debug,
+    R: ResolveRead<ProjectStorage = PD> + Debug,
+>(
+    workspace: &crate::workspace::model_toml::Workspace,
+    resolver: R,
+    provided_usages: &ProvidedProjects,
+    ctx: &ProjectContext,
+    respelled: &Identifier,
+) -> Result<LockOutcome<PD>, LockProjectError<EditableLocalSrcProject, PD, R>> {
+    lock_workspace(workspace, resolver, provided_usages, ctx, Some(respelled))
+}
+
+#[cfg(feature = "filesystem")]
+fn lock_workspace<PD: ProjectRead + Debug, R: ResolveRead<ProjectStorage = PD> + Debug>(
+    workspace: &crate::workspace::model_toml::Workspace,
+    resolver: R,
+    provided_usages: &ProvidedProjects,
+    ctx: &ProjectContext,
+    respelled: Option<&Identifier>,
+) -> Result<LockOutcome<PD>, LockProjectError<EditableLocalSrcProject, PD, R>> {
     debug_assert_eq!(
         ctx.sources_root().as_deref(),
         Some(workspace.root()),
@@ -764,7 +792,7 @@ pub fn do_lock_workspace<PD: ProjectRead + Debug, R: ResolveRead<ProjectStorage 
         })
         .collect();
 
-    do_lock_projects_with_bases(
+    lock_projects(
         members
             .iter()
             .zip(workspace.members())
@@ -780,6 +808,7 @@ pub fn do_lock_workspace<PD: ProjectRead + Debug, R: ResolveRead<ProjectStorage 
         resolver,
         provided_usages,
         ctx,
+        respelled,
     )
 }
 

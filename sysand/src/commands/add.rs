@@ -12,7 +12,10 @@ use sysand_core::{
     add::{IndexSpellingError, IndexUsageToAdd, do_add, index_usage_to_add, spell_index_usage},
     auth::HTTPAuthentication,
     commands::{
-        lock::{LockOutcome, do_lock_local_editable, do_lock_local_editable_respelling},
+        lock::{
+            LockOutcome, do_lock_local_editable, do_lock_local_editable_respelling,
+            do_lock_workspace, do_lock_workspace_respelling,
+        },
         sync::SyncOutcome,
     },
     config::{
@@ -34,6 +37,7 @@ use sysand_core::{
     },
     resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead as _, standard::standard_resolver},
     utils::{ProvidedProjects, format_err},
+    workspace::model_toml::{MemberChecks, Workspace},
 };
 
 use crate::{
@@ -713,7 +717,23 @@ fn lock_project<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     ctx: &ProjectContext,
     respelled: Option<&Identifier>,
 ) -> Result<Lock> {
-    // FIXME: use project path relative to and under the workspace root.
+    // In a workspace, `add` and `remove` re-lock the *workspace*: a
+    // single-member solve written over the shared file would drop every
+    // other member
+    if let Some(root) = &ctx.model_workspace_root {
+        let workspace = Workspace::load_with(root, MemberChecks::SkipStrayState)?;
+        let LockOutcome {
+            lock,
+            dependencies: _,
+        } = match respelled {
+            None => do_lock_workspace(&workspace, resolver, provided_iris, ctx),
+            Some(respelled) => {
+                do_lock_workspace_respelling(&workspace, resolver, provided_iris, ctx, respelled)
+            }
+        }
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
+        return Ok(lock.canonicalize());
+    }
     let LockOutcome {
         lock,
         dependencies: _,
@@ -753,18 +773,25 @@ fn write_lock_and_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     provided_iris: &ProvidedProjects,
     ctx: ProjectContext,
 ) -> Result<(), anyhow::Error> {
-    let lockfile = Lockfile::new(&project_root, lock);
+    // In a workspace the lockfile is the shared one at the root, and so
+    // is the directory its `src_path`s are relative to
+    let lock_root = ctx
+        .model_workspace_root
+        .clone()
+        .unwrap_or_else(|| project_root.as_ref().to_owned());
+    let lockfile = Lockfile::new(&lock_root, lock);
     lockfile.write()?;
     if !no_sync {
         let mut env = crate::get_or_create_env(
             ctx.env,
+            ctx.model_workspace_root.as_deref(),
             ctx.current_workspace.as_ref(),
             ctx.current_project.as_ref(),
             ctx.current_directory,
         )?;
         command_sync(
             lockfile.lock(),
-            project_root,
+            &lock_root,
             &mut env,
             client,
             provided_iris,
