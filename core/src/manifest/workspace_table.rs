@@ -129,7 +129,55 @@ pub struct WorkspaceTable {
     pub groups: BTreeMap<String, GroupProperties>,
 }
 
+/// Where a directory sits with respect to a workspace, as far as the
+/// table alone can tell.
+///
+/// [`crate::workspace::model_toml::Workspace::classify`] is this plus
+/// the two things a table does not have: an absolute path to
+/// relativize, and the loaded member to hand back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Region<'a> {
+    /// The index of the `members` entry, and the entry. The index is
+    /// what lets a loaded workspace find the member without comparing
+    /// paths: a load that succeeded produced one member per entry, in
+    /// order.
+    Member(usize, &'a MemberPath),
+    Excluded(&'a MemberPath),
+    Unlisted,
+}
+
 impl WorkspaceTable {
+    /// Which of the workspace's three regions `relative` falls in.
+    ///
+    /// `relative` is relative to the workspace root and free of `.` and
+    /// `..` components -- what [`normalize_relative`] produces. The type
+    /// cannot say so, and nothing here checks it: a path that escapes
+    /// upwards would be compared as if it did not.
+    ///
+    /// The most specific entry answers, and an exact tie between the two
+    /// lists goes to `members`. Every combination is reachable, because
+    /// nothing refuses them: the cross-entry checks compare entries only
+    /// against others in the same list, and for `exclude` not even that.
+    pub fn region(&self, relative: &Utf8UnixPath) -> Region<'_> {
+        // At most one member can match: nested members *are* refused, so
+        // no `members` entry is a prefix of another.
+        let member = self.members.iter().enumerate().find_map(|(index, member)| {
+            prefix_depth(relative, &member.path).map(|at| (at, index, member))
+        });
+        let excluded = self.excluding(relative);
+
+        match (member, excluded) {
+            (Some((member_at, index, member)), Some((excluded_at, _)))
+                if member_at >= excluded_at =>
+            {
+                Region::Member(index, member)
+            }
+            (_, Some((_, excluded))) => Region::Excluded(excluded),
+            (Some((_, index, member)), None) => Region::Member(index, member),
+            (None, None) => Region::Unlisted,
+        }
+    }
+
     /// The `exclude` entry that covers `relative`, and how many of its
     /// segments matched.
     ///
