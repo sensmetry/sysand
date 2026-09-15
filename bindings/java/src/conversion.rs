@@ -885,7 +885,7 @@ pub(crate) fn handle_build_error(env: &mut Env<'_>, error: &KParBuildError<Local
         KParBuildError::MissingMeta => {
             env.throw_exception(ExceptionKind::SysandException, "Missing project metadata");
         }
-        KParBuildError::TomlStdlibUsage { .. }
+        KParBuildError::TomlStdlibUnmatched { .. }
         | KParBuildError::TomlTargetMissing { .. }
         | KParBuildError::TomlTargetVersion { .. }
         | KParBuildError::TomlTargetRead { .. } => {

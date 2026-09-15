@@ -217,53 +217,126 @@ fn a_local_usage_builds_under_allow_path_usage() -> Result<(), Box<dyn std::erro
     Ok(())
 }
 
-/// "an index, source path or kpar path usage whose target carries
-/// `stdlib`: the OMG IRI instead of the PURL". For an index usage the
-/// IRI comes from embedded metadata, which is WP-6b.
+/// model-toml.md "Standard library": the IRI comes from the metadata
+/// Sysand embeds, "provided by the tooling".
 #[test]
-fn a_stdlib_index_usage_is_refused_for_now() -> Result<(), Box<dyn std::error::Error>> {
+fn a_stdlib_index_usage_becomes_its_embedded_iri() -> Result<(), Box<dyn std::error::Error>> {
     let dir = toml_project(
-        "\n[[inline-usages]]\npublisher = \"OMG\"\nname = \"kerml\"\nversion = \"^1.0.0\"\n",
+        "\n[[inline-usages]]\npublisher = \"OMG\"\nname = \"Kernel Semantic Library\"\n\
+         version = \"^1.0.0\"\n",
     )?;
-    let error = built(&dir, false).expect_err("a stdlib usage cannot be rewritten yet");
-    assert!(matches!(error, KParBuildError::TomlStdlibUsage { .. }));
+    let (info, _) = built(&dir, false)?;
+    assert_eq!(
+        resource(&info.usage[0]).0,
+        "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar"
+    );
     Ok(())
 }
 
-/// The flag is about path usages: "under `--allow-path-usage` a local
-/// usage stays a typed path usage, stdlib target or not" says nothing
-/// about an index usage.
+/// "with its version constraint" -- as declared, not as the embedded
+/// release spells its version.
 #[test]
-fn a_stdlib_index_usage_is_refused_under_allow_path_usage_too()
--> Result<(), Box<dyn std::error::Error>> {
+fn a_stdlib_index_usage_keeps_its_declared_constraint() -> Result<(), Box<dyn std::error::Error>> {
     let dir = toml_project(
-        "\n[[inline-usages]]\npublisher = \"OMG\"\nname = \"kerml\"\nversion = \"^1.0.0\"\n",
+        "\n[[inline-usages]]\npublisher = \"OMG\"\nname = \"Kernel Semantic Library\"\n\
+         version = \"^1\"\n",
     )?;
-    let error = built(&dir, true).expect_err("the flag does not excuse a stdlib usage");
-    assert!(matches!(error, KParBuildError::TomlStdlibUsage { .. }));
+    let (info, _) = built(&dir, false)?;
+    assert_eq!(resource(&info.usage[0]).1, Some("^1".to_owned()));
     Ok(())
 }
 
-/// A json project's `.project.json` and its `created` survive a build.
-///
-/// Not "byte for byte": the build always rewrites `checksum` -- values
-/// and algorithm -- and, without `--keep-index`, `index`.
+/// The stem is not derivable from the name: this one is published at
+/// `Quantities-and-Units-Domain-Library.kpar`, and "Domain" appears in
+/// the IRI and not in the name. So the resource is the map key.
 #[test]
-fn a_json_build_keeps_its_created() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = tempdir()?;
-    std::fs::write(
-        dir.path().join(".project.json"),
-        br#"{"name": "widgets", "publisher": "acme", "version": "1.0.0", "usage": []}"#,
+fn a_stdlib_name_whose_iri_differs_is_still_found() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = toml_project(
+        "\n[[inline-usages]]\npublisher = \"OMG\"\n\
+         name = \"SysML Quantities and Units Library\"\nversion = \"^2.0.0\"\n",
     )?;
-    std::fs::write(
-        dir.path().join(".meta.json"),
-        br#"{"created": "2001-02-03T04:05:06Z", "index": {}, "checksum": {"a.sysml": {"value": "", "algorithm": "NONE"}}}"#,
-    )?;
-    std::fs::write(dir.path().join("a.sysml"), b"package A;\n")?;
+    let (info, _) = built(&dir, false)?;
+    assert_eq!(
+        resource(&info.usage[0]).0,
+        "https://www.omg.org/spec/SysML/20250201/Quantities-and-Units-Domain-Library.kpar"
+    );
+    Ok(())
+}
 
-    let (info, meta) = built(&dir, false)?;
-    assert_eq!(meta.created, "2001-02-03T04:05:06Z");
-    assert_eq!(info.publisher.as_deref(), Some("acme"));
+/// "A usage is a standard-library usage iff its publisher normalizes to
+/// `omg`", and the name is matched normalized too.
+#[test]
+fn a_stdlib_usage_matches_case_insensitively() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = toml_project(
+        "\n[[inline-usages]]\npublisher = \"omg\"\nname = \"kernel semantic library\"\n\
+         version = \"^1.0.0\"\n",
+    )?;
+    let (info, _) = built(&dir, false)?;
+    assert_eq!(
+        resource(&info.usage[0]).0,
+        "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar"
+    );
+    Ok(())
+}
+
+/// The flag is about path usages: an index usage is rewritten either
+/// way.
+#[test]
+fn a_stdlib_index_usage_is_rewritten_under_the_flag_too() -> Result<(), Box<dyn std::error::Error>>
+{
+    let dir = toml_project(
+        "\n[[inline-usages]]\npublisher = \"OMG\"\nname = \"Kernel Semantic Library\"\n\
+         version = \"^1.0.0\"\n",
+    )?;
+    let (info, _) = built(&dir, true)?;
+    assert_eq!(
+        resource(&info.usage[0]).0,
+        "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar"
+    );
+    Ok(())
+}
+
+/// A standard-library usage no embedded release satisfies, reached with
+/// a name that matches.
+#[test]
+fn an_unsatisfiable_stdlib_constraint_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = toml_project(
+        "\n[[inline-usages]]\npublisher = \"OMG\"\nname = \"Kernel Semantic Library\"\n\
+         version = \"^9\"\n",
+    )?;
+    let error = built(&dir, false).expect_err("no embedded release satisfies `^9`");
+    assert!(matches!(error, KParBuildError::TomlStdlibUnmatched { .. }));
+    let text = error.to_string();
+    assert!(text.contains("^9"), "{text}");
+    assert!(text.contains("1.0.0"), "{text}");
+    Ok(())
+}
+
+/// And with a name that does not. There is no embedded version to
+/// quote, so the parenthesis says so instead.
+#[test]
+fn an_unknown_stdlib_name_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = toml_project(
+        "\n[[inline-usages]]\npublisher = \"OMG\"\nname = \"Not A Library\"\n\
+         version = \"^1\"\n",
+    )?;
+    let error = built(&dir, false).expect_err("no such library is embedded");
+    assert!(matches!(error, KParBuildError::TomlStdlibUnmatched { .. }));
+    assert!(
+        error.to_string().contains("no release of that name"),
+        "{error}"
+    );
+    Ok(())
+}
+
+/// Only an `omg` publisher takes the standard-library path.
+#[test]
+fn a_non_omg_index_usage_is_untouched() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = toml_project(
+        "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\nversion = \"^1\"\n",
+    )?;
+    let (info, _) = built(&dir, false)?;
+    assert_eq!(resource(&info.usage[0]).0, "pkg:sysand/acme/dep");
     Ok(())
 }
 
