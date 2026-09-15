@@ -13,9 +13,10 @@ use crate::manifest::common::{
 };
 use crate::manifest::diagnostics::Position;
 use crate::manifest::edit::{
-    EditError, INHERITABLE_KEYS, ProjectKey, clear_project_key, clear_url_key, exclude_source,
-    include_source, open, push_member, push_usage, remove_usage, render_new, set_inherit_marker,
-    set_project_key, set_url_key, set_usage_version,
+    EditError, INHERITABLE_KEYS, ListKey, ProjectKey, clear_project_key, clear_url_key,
+    exclude_source, include_source, open, push_list_entry, push_member, push_usage,
+    remove_list_entry, remove_usage, render_new, set_inherit_marker, set_project_key, set_url_key,
+    set_usage_version,
 };
 use crate::manifest::inherit::{Inherited, MetaProperty};
 use crate::manifest::project::{PROJECT_KEYS, ProjectManifest, ProjectTable, Urls};
@@ -1309,4 +1310,62 @@ fn a_workspace_with_no_members_yet_gains_the_array() {
     push_member(&mut doc, "app").expect("a new member");
 
     assert!(doc.to_string().contains("members = [\"app\"]"));
+}
+
+// --- list-valued `[project]` keys -------------------------------------
+
+const WITH_LIST: &str = "manifest-version = 1\n\n\
+                         [project]\n\
+                         publisher = \"acme\"\n\
+                         name = \"widgets\"\n\
+                         version = \"1.0.0\"\n\
+                         sources = []\n\
+                         # who to blame\n\
+                         maintainers = [\n    \"Ada <ada@example.com>\",  # the first\n    \"Bob <bob@example.com>\",\n]\n";
+
+#[test]
+fn appending_to_a_list_key_keeps_the_comments_in_it() {
+    let mut doc = opened(WITH_LIST);
+    push_list_entry(&mut doc, ListKey::Maintainers, "Cy <cy@example.com>").expect("a list key");
+
+    let text = doc.to_string();
+    assert!(text.contains("# who to blame"));
+    assert!(text.contains("\"Ada <ada@example.com>\",  # the first\n"));
+    assert!(text.contains("    \"Cy <cy@example.com>\",\n"));
+}
+
+#[test]
+fn removing_from_a_list_key_keeps_a_neighbours_comment() {
+    let mut doc = opened(WITH_LIST);
+    remove_list_entry(&mut doc, ListKey::Maintainers, 1).expect("a list key");
+
+    // `# the first` is written on Ada's line and stored at the front of
+    // Bob's prefix; removing Bob must not take it.
+    assert!(
+        doc.to_string()
+            .contains("\"Ada <ada@example.com>\",  # the first\n")
+    );
+}
+
+#[test]
+fn removing_an_index_that_is_not_there_is_refused() {
+    let mut doc = opened(WITH_LIST);
+
+    let error = remove_list_entry(&mut doc, ListKey::Maintainers, 7).expect_err("out of range");
+    assert_eq!(
+        error,
+        EditError::NoSuchEntry {
+            key: "maintainers".to_owned(),
+            index: 7,
+            len: 2,
+        }
+    );
+}
+
+#[test]
+fn a_list_key_that_is_not_there_is_created() {
+    let mut doc = opened(&with_sources("[]"));
+    push_list_entry(&mut doc, ListKey::Topics, "widgets").expect("a list key");
+
+    assert!(doc.to_string().contains("topics = [\"widgets\"]"));
 }

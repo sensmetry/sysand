@@ -443,6 +443,14 @@ pub enum EditError {
     NotAnIndexUsage(NormalizedIdentity),
     #[error("`{0}` is already a member")]
     DuplicateMember(Utf8UnixPathBuf),
+    #[error("`{key}` has {len} entries; there is none at {index}")]
+    NoSuchEntry {
+        key: String,
+        index: usize,
+        len: usize,
+    },
+    #[error("`{0}` is not a list")]
+    NotAList(String),
     #[error(transparent)]
     MemberPath(#[from] crate::utils::NormalizeRelativeError),
 }
@@ -638,6 +646,29 @@ impl ProjectKey {
     }
 }
 
+/// A list-valued `[project]` key, which [`push_list_entry`] and
+/// [`remove_list_entry`] edit entry by entry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ListKey {
+    Topics,
+    Maintainers,
+}
+
+impl ListKey {
+    pub fn as_str(self) -> &'static str {
+        ProjectKey::from(self).as_str()
+    }
+}
+
+impl From<ListKey> for ProjectKey {
+    fn from(key: ListKey) -> Self {
+        match key {
+            ListKey::Topics => Self::Topics,
+            ListKey::Maintainers => Self::Maintainers,
+        }
+    }
+}
+
 /// Set one key of `[project.urls]`.
 ///
 /// model-toml.md allows three shapes and users write all of them: a
@@ -770,6 +801,53 @@ pub fn exclude_source(doc: &mut DocumentMut, path: &str) -> Result<Utf8UnixPathB
 
     remove_entry(array, at);
     Ok(wanted)
+}
+
+/// Append one entry to a list-valued `[project]` key.
+///
+/// The array surgery of [`include_source`] is `sources`-only, and
+/// `maintainers` and `topics` are arrays too. Reading such an array
+/// out, changing it and writing it back with [`set_project_key`] would
+/// replace the whole value and take every comment inside it -- which is
+/// the one thing "Editing the manifest" forbids.
+pub fn push_list_entry(doc: &mut DocumentMut, key: ListKey, value: &str) -> Result<(), EditError> {
+    push_entry(list_mut(doc, key)?, value);
+    Ok(())
+}
+
+/// Remove the entry at `at` from a list-valued `[project]` key.
+///
+/// The index is the caller's, and out of range is an error rather than
+/// a silent no-op: `info topic --remove 7` on a list of three is a
+/// mistake worth naming.
+pub fn remove_list_entry(doc: &mut DocumentMut, key: ListKey, at: usize) -> Result<(), EditError> {
+    let array = list_mut(doc, key)?;
+    if at >= array.len() {
+        return Err(EditError::NoSuchEntry {
+            key: key.as_str().to_owned(),
+            index: at,
+            len: array.len(),
+        });
+    }
+    remove_entry(array, at);
+    Ok(())
+}
+
+/// The array a list-valued `[project]` key holds.
+///
+/// A key that is absent is created empty, so that `--add` on a project
+/// that has never had one works; a key holding something that is not an
+/// array is a manifest problem, not an edit.
+fn list_mut(doc: &mut DocumentMut, key: ListKey) -> Result<&mut Array, EditError> {
+    let key = key.as_str();
+    let project = project_mut(doc)?;
+    if project.get(key).is_none() {
+        project[key] = value(Array::new());
+    }
+    project
+        .get_mut(key)
+        .and_then(Item::as_array_mut)
+        .ok_or_else(|| EditError::NotAList(key.to_owned()))
 }
 
 fn sources_mut(doc: &mut DocumentMut) -> Result<&mut Array, EditError> {
