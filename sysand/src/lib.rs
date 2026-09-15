@@ -22,7 +22,7 @@ use sysand_core::{
     commands::sync::SyncOutcome,
     config::{
         Config,
-        local_fs::{get_config, load_configs, read_config},
+        local_fs::{CONFIG_FILE, get_config, load_configs, read_config},
     },
     context::ProjectContext,
     discover::{discover_project, discover_workspace},
@@ -33,6 +33,7 @@ use sysand_core::{
     index::RemoveTarget,
     index_location::IndexLocation,
     lock::Lockfile,
+    manifest::diagnostics::ReadWarning,
     model::InterchangeProjectUsage,
     project::{
         any::{AnyProject, OverrideProject},
@@ -411,6 +412,20 @@ fn run_cli_with(
     let auto_config = if global_opts.no_config {
         Config::default()
     } else {
+        // workspaces.md "Source overrides": a `sysand.toml` under the
+        // workspace but not at its root is ignored with a warning.
+        // `--no-config` silences it too: warning
+        // about a file the run was told to ignore is noise.
+        if reads_configuration(&command) {
+            for stray in stray_configs(&ctx.current_directory, &ctx.config_root)? {
+                log::warn!(
+                    "{}",
+                    ReadWarning::IgnoredSourceOverrides {
+                        path: stray.to_string()
+                    }
+                );
+            }
+        }
         load_configs(&ctx.config_root)?
     };
 
@@ -983,6 +998,57 @@ fn get_log_level(verbose: bool, quiet: bool) -> log::LevelFilter {
 }
 
 pub type Overrides<Policy> = Vec<(Identifier, Vec<OverrideProject<Policy>>)>;
+
+/// workspaces.md "Source overrides": "A `sysand.toml` anywhere else
+/// under the workspace is ignored as a whole -- its `[[index]]`
+/// configuration included -- with a warning on any operation touching
+/// the overrides or the indexes."
+///
+/// Those operations are `lock`, `sync`, `add`, `remove`, `clone`, `env`,
+/// `info` in a form that resolves, and `publish`. `publish` is passed no `Config` at all and
+/// warns because the specification says so rather than because of the
+/// code.
+///
+/// `info` resolves under `--iri` and under a `<publisher>/<name>`
+/// identifier, which is looked up in the indexes.
+fn reads_configuration(command: &cli::Command) -> bool {
+    match command {
+        cli::Command::Lock { .. }
+        | cli::Command::Sync { .. }
+        | cli::Command::Add { .. }
+        | cli::Command::Remove { .. }
+        | cli::Command::Clone { .. }
+        | cli::Command::Env { .. }
+        | cli::Command::Publish { .. } => true,
+        cli::Command::Info { locator, .. } => locator.iri.is_some() || locator.identifier.is_some(),
+        _ => false,
+    }
+}
+
+/// Every `sysand.toml` between `cwd` and the workspace root, which is
+/// none when `root` is not a workspace root above `cwd`.
+///
+/// Upward only, and stopping *below* the root: the root's own file is
+/// the one being used, not a stray. "there is no downward scan" -- a
+/// member that is not an ancestor of `cwd` is never looked at, so a
+/// workspace with fifty members does not stat fifty directories.
+fn stray_configs(cwd: &Utf8Path, root: &Utf8Path) -> Result<Vec<Utf8PathBuf>> {
+    let mut strays = Vec::new();
+    let mut current = Some(cwd);
+    while let Some(dir) = current {
+        if dir == root {
+            return Ok(strays);
+        }
+        let candidate = dir.join(CONFIG_FILE);
+        if wrapfs::is_file(&candidate)? {
+            strays.push(candidate);
+        }
+        current = dir.parent();
+    }
+    // `root` was not an ancestor of `cwd`, so there is no workspace
+    // above this directory and nothing is being ignored.
+    Ok(Vec::new())
+}
 
 /// Where `sysand.toml` is read and written for a command run in `cwd`.
 ///
