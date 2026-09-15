@@ -63,7 +63,7 @@ pub fn command_remove<Policy: HTTPAuthentication>(
         .ok_or(CliError::MissingProjectCurrentDir)?;
     let project_root = current_project.root_path().to_owned();
     let config_path =
-        config_file.or_else(|| (!no_config).then(|| current_project.root_path().join(CONFIG_FILE)));
+        config_file.or_else(|| (!no_config).then(|| ctx.config_root.join(CONFIG_FILE)));
 
     // `.project.json` is not backed up here, since the failure to lock
     // or sync cannot logically be caused by the remove command itself
@@ -218,7 +218,6 @@ fn lock_sync<Policy: HTTPAuthentication>(
         let resolver = create_resolver(
             resolution_opts,
             &config,
-            &project_root,
             &ctx,
             provided_iris.clone(),
             client.clone(),

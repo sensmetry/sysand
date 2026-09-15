@@ -319,7 +319,6 @@ pub fn command_add<Policy: HTTPAuthentication>(
         create_resolver(
             resolution_opts,
             &config,
-            current_project.root_path(),
             &ctx,
             provided_iris.clone(),
             client.clone(),
@@ -564,8 +563,8 @@ fn process_overrides<Policy: HTTPAuthentication>(
         None
     };
     let _: () = if let Some(source) = source {
-        let config_path = config_file
-            .or_else(|| (!no_config).then(|| current_project.root_path().join(CONFIG_FILE)));
+        let config_path =
+            config_file.or_else(|| (!no_config).then(|| ctx.config_root.join(CONFIG_FILE)));
 
         if let Some(path) = config_path {
             add_project_source_to_config(&path, iri.borrow(), &source)?;

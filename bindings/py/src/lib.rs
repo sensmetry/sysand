@@ -588,12 +588,26 @@ fn project_context(start: &Utf8Path) -> PyResult<(ProjectContext, Utf8PathBuf)> 
         .as_ref()
         .map_or_else(|| project_root.clone(), |w| w.root_path().to_owned());
     let env = get_env(&env_root).map_err(|e| project_error(format_err(e)))?;
+    // workspaces.md "Source overrides": a project-local `sysand.toml`
+    // belongs at the workspace root. `discover_table` and not
+    // `Workspace::discover`, since configuration is not about the
+    // members; and a discovery error is not fatal, since an operation
+    // that never looks at the workspace must not fail on it.
+    let config_root = match sysand_core::workspace::model_toml::discover_table(&cwd) {
+        Ok(Some((root, _))) => root,
+        Ok(None) => project_root.clone(),
+        Err(error) => {
+            log::debug!("not reading configuration from a workspace root: {error}");
+            project_root.clone()
+        }
+    };
     Ok((
         ProjectContext {
             env,
             current_workspace,
             current_project,
             current_directory: cwd,
+            config_root,
         },
         project_root,
     ))

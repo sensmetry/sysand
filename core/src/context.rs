@@ -21,6 +21,22 @@ pub struct ProjectContext {
     /// Path to current directory
     #[cfg(feature = "filesystem")]
     pub current_directory: Utf8PathBuf,
+    /// Where `sysand.toml` is read and written, and what a relative
+    /// override path is relative to.
+    ///
+    /// workspaces.md "Source overrides": "a project-local one must be at
+    /// the workspace root: overrides apply workspace-wide ... as a
+    /// member cannot override sources for itself alone". So in a
+    /// workspace this is the workspace root, and outside one it is the
+    /// project root -- or the current directory when there is no
+    /// project.
+    ///
+    /// The three uses have to agree. Reading the config at the root
+    /// while a relative override path still resolved against the member,
+    /// or while `add` still wrote into the member, would record an
+    /// override that the next command ignores and warns about.
+    #[cfg(feature = "filesystem")]
+    pub config_root: Utf8PathBuf,
     /// Metadata of the current workspace/project `.sysand`. `Some` if
     /// either `current_workspace` or `current_project` is `Some` and
     /// the environment metadata file exists.

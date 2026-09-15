@@ -103,7 +103,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
 
     let overrides = get_overrides(
         config,
-        &project_root,
+        &ctx.config_root,
         &client,
         runtime.clone(),
         auth_policy.clone(),
@@ -297,7 +297,7 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
     if !no_deps {
         let overrides = get_overrides(
             config,
-            &project_root,
+            &ctx.config_root,
             &client,
             runtime.clone(),
             auth_policy.clone(),

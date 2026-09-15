@@ -101,9 +101,26 @@ pub fn sysand_cmd_in_with<'a, I: IntoIterator<Item = &'a str>>(
     cfg: Option<&'a str>,
     env: &IndexMap<impl AsRef<OsStr>, impl AsRef<OsStr>>,
 ) -> Result<Command, Box<dyn Error>> {
+    sysand_cmd_in_discovering(cwd, args, cfg, env, false)
+}
+
+/// The same, optionally letting the binary discover `sysand.toml`
+/// itself.
+///
+/// Every other helper here appends `--no-config`, and `cfg` is
+/// `--config-file`, an explicit path that bypasses discovery. A test of
+/// where configuration is *found* must opt in, and accepts that a
+/// developer's `$XDG_CONFIG_HOME/sysand/sysand.toml` is then in play.
+pub fn sysand_cmd_in_discovering<'a, I: IntoIterator<Item = &'a str>>(
+    cwd: &Utf8Path,
+    args: I,
+    cfg: Option<&'a str>,
+    env: &IndexMap<impl AsRef<OsStr>, impl AsRef<OsStr>>,
+    discover_config: bool,
+) -> Result<Command, Box<dyn Error>> {
     let args = args
         .into_iter()
-        .chain(["--no-config"])
+        .chain((!discover_config).then_some("--no-config"))
         .chain(cfg.iter().flat_map(|cfg| ["--config-file", cfg]));
 
     // NOTE had trouble getting test-temp-dir crate working, but would be better
@@ -385,6 +402,17 @@ pub fn run_sysand_in<'a, I: IntoIterator<Item = &'a str>>(
     cfg: Option<&'a str>,
 ) -> Result<Output, Box<dyn Error>> {
     Ok(sysand_cmd_in(cwd, args, cfg)?.output()?)
+}
+
+/// [`run_sysand_in`] with configuration discovery left on.
+pub fn run_sysand_discovering<'a, I: IntoIterator<Item = &'a str>>(
+    cwd: &Utf8Path,
+    args: I,
+) -> Result<Output, Box<dyn Error>> {
+    Ok(
+        sysand_cmd_in_discovering(cwd, args, None, &IndexMap::<&str, &str>::new(), true)?
+            .output()?,
+    )
 }
 
 pub fn run_sysand_with<'a, I: IntoIterator<Item = &'a str>>(
