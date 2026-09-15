@@ -16,7 +16,7 @@ pub use common::*;
 
 #[test]
 fn include_and_exclude_simple() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "include_and_exclude", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "include-and-exclude", "1.2.3")?;
 
     fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
@@ -63,7 +63,7 @@ fn include_and_exclude_simple() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn include_no_checksum() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "include_no_checksum", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "include-no-checksum", "1.2.3")?;
 
     fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
@@ -97,7 +97,7 @@ fn include_no_checksum() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn include_no_index() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "include_and_exclude", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "include-and-exclude", "1.2.3")?;
 
     fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
@@ -138,7 +138,7 @@ fn include_no_index() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn include_empty_and_update() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "include_and_exclude", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "include-and-exclude", "1.2.3")?;
 
     let mut sysml_file = fs::File::create(cwd.join("test.sysml"))?;
     sysml_file.sync_all()?;
@@ -199,7 +199,7 @@ fn include_empty_and_update() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn include_same_file_replaces_old_symbols() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) =
-        cli_init_project_basic("a", "include_same_file_replaces_old_symbols", "1.2.3")?;
+        cli_init_project_basic("acme", "include-same-file-replaces-old-symbols", "1.2.3")?;
 
     fs::write(cwd.join("test.sysml"), b"package A;\npackage B;\n")?;
 
@@ -239,7 +239,7 @@ fn include_same_file_replaces_old_symbols() -> Result<(), Box<dyn std::error::Er
 
 #[test]
 fn include_and_exclude_both_nested() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "include_and_exclude", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "include-and-exclude", "1.2.3")?;
 
     fs::write(cwd.join("test.sysml"), b"package P;\n")?;
     fs::create_dir(cwd.join("extra"))?;
@@ -313,7 +313,7 @@ fn include_and_exclude_both_nested() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn include_and_exclude_single_nested() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) =
-        cli_init_project_basic("a", "include_and_exclude_single_nested", "1.2.3")?;
+        cli_init_project_basic("acme", "include-and-exclude-single-nested", "1.2.3")?;
 
     fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
@@ -402,7 +402,7 @@ fn include_and_exclude_single_nested() -> Result<(), Box<dyn std::error::Error>>
 
 #[test]
 fn include_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "include_nonexistent", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "include-nonexistent", "1.2.3")?;
 
     out.assert().success();
 
@@ -425,7 +425,7 @@ fn include_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn exclude_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "exclude_nonexistent", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "exclude-nonexistent", "1.2.3")?;
 
     out.assert().success();
 

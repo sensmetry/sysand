@@ -22,7 +22,7 @@ fn basic_init() -> Result<(), Box<dyn std::error::Error>> {
             .expect("Failed to get do_init_py_local_file function");
 
         do_init_py_local_file_fn
-            .call1(("basic_init", "a", "1.2.3", proj_dir_path.as_str()))
+            .call1(("basic_init", "acme", "1.2.3", proj_dir_path.as_str()))
             .unwrap();
     });
 
@@ -37,7 +37,7 @@ fn basic_init() -> Result<(), Box<dyn std::error::Error>> {
         info,
         r#"{
   "name": "basic_init",
-  "publisher": "a",
+  "publisher": "acme",
   "version": "1.2.3"
 }
 "#

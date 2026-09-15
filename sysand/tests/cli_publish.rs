@@ -368,7 +368,7 @@ fn env_credentials_without_a_label_get_a_labels_are_required_error() -> TestResu
     // group; the error explains the label grammar instead.
     let (_temp_dir, cwd) = setup_built_project("publish-label-less-creds")?;
     let mut env = IndexMap::new();
-    env.insert("SYSAND_CRED".to_owned(), "https://a.org".to_owned());
+    env.insert("SYSAND_CRED".to_owned(), "https://acme.org".to_owned());
     env.insert("SYSAND_CRED_BASIC_USER".to_owned(), "user-a".to_owned());
     env.insert(
         "SYSAND_CRED_BASIC_PASS".to_owned(),

@@ -22,8 +22,8 @@ mod browser_tests {
     #[wasm_bindgen_test(unsupported = test)]
     fn basic_init() -> Result<(), Box<dyn Error>> {
         do_init_js_local_storage(
-            "basic_init".to_owned(),
-            "a".into(),
+            "basic-init".to_owned(),
+            "acme".into(),
             "1.2.3".to_owned(),
             "sysand_storage",
             "/",
@@ -59,8 +59,8 @@ mod browser_tests {
         assert_eq!(
             info,
             InterchangeProjectInfoRaw {
-                name: "basic_init".to_owned(),
-                publisher: Some(String::from("a")),
+                name: "basic-init".to_owned(),
+                publisher: Some(String::from("acme")),
                 description: None,
                 version: "1.2.3".to_owned(),
                 license: Some("MIT OR Apache-2.0".to_owned()),

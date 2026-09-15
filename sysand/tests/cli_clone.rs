@@ -187,7 +187,8 @@ fn clone_not_found() -> Result<(), Box<dyn std::error::Error>> {
 // note if deps of cloned project include std libs
 #[test]
 fn clone_std_deps_note() -> Result<(), Box<dyn std::error::Error>> {
-    let (_dep_temp_dir, cwd_dep, out) = cli_init_project_basic("a", "clone_std_note_dep", "1.2.3")?;
+    let (_dep_temp_dir, cwd_dep, out) =
+        cli_init_project_basic("acme", "clone-std-note-dep", "1.2.3")?;
     out.assert().success();
 
     std::fs::write(

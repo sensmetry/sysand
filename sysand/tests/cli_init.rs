@@ -19,7 +19,7 @@ fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
             "--version",
             "1.2.3",
             "--publisher",
-            "a",
+            "acme",
             "init_basic",
         ],
         None,
@@ -40,7 +40,7 @@ fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
         info,
         r#"{
   "name": "init_basic",
-  "publisher": "a",
+  "publisher": "acme",
   "version": "1.2.3"
 }
 "#
@@ -55,9 +55,9 @@ fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn init_default_version() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) =
-        cli_init_project(Some("init_default_version"), "a", None, None, None)?;
+        cli_init_project(Some("init-default-version"), "acme", None, None, None)?;
 
-    let proj_dir_path = cwd.join("init_default_version");
+    let proj_dir_path = cwd.join("init-default-version");
 
     out.assert().success().stdout(predicate::str::is_empty());
 
@@ -66,8 +66,8 @@ fn init_default_version() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(
         info,
         r#"{
-  "name": "init_default_version",
-  "publisher": "a",
+  "name": "init-default-version",
+  "publisher": "acme",
   "version": "0.0.1"
 }
 "#
@@ -80,7 +80,7 @@ fn init_default_version() -> Result<(), Box<dyn std::error::Error>> {
 /// project in cwd.
 #[test]
 fn init_basic_cwd() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("b", "init_basic_cwd", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("bravo", "init-basic-cwd", "1.2.3")?;
 
     out.assert().success().stdout(predicate::str::is_empty());
 
@@ -94,8 +94,8 @@ fn init_basic_cwd() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(
         info,
         r#"{
-  "name": "init_basic_cwd",
-  "publisher": "b",
+  "name": "init-basic-cwd",
+  "publisher": "bravo",
   "version": "1.2.3"
 }
 "#
@@ -117,7 +117,7 @@ fn init_explicit_name() -> Result<(), Box<dyn std::error::Error>> {
             "--version",
             "1.2.3",
             "--publisher",
-            "c",
+            "charlie",
             "--name",
             "other_than_init_explicit_name",
             "init_explicit_name",
@@ -140,7 +140,7 @@ fn init_explicit_name() -> Result<(), Box<dyn std::error::Error>> {
         info,
         r#"{
   "name": "other_than_init_explicit_name",
-  "publisher": "c",
+  "publisher": "charlie",
   "version": "1.2.3"
 }
 "#
@@ -186,7 +186,7 @@ fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
         [
             "init",
             "--publisher",
-            "a",
+            "acme",
             "--version",
             "1.2.3",
             "init_fail_on_double_init",
@@ -208,7 +208,7 @@ fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
         [
             "init",
             "--publisher",
-            "a",
+            "acme",
             "--version",
             "1.2.3",
             "init_fail_on_double_init",
@@ -239,7 +239,7 @@ fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
 fn init_fail_on_double_init_cwd() -> Result<(), Box<dyn std::error::Error>> {
     // Run 1
     let (_temp_dir, cwd, out) =
-        cli_init_project_basic("a", "init_fail_on_double_init_cwd", "1.2.3")?;
+        cli_init_project_basic("acme", "init-fail-on-double-init-cwd", "1.2.3")?;
     out.assert().success().stdout(predicate::str::is_empty());
 
     let original_info = std::fs::read_to_string(cwd.join(".project.json"))?;
@@ -251,7 +251,7 @@ fn init_fail_on_double_init_cwd() -> Result<(), Box<dyn std::error::Error>> {
         [
             "init",
             "--publisher",
-            "a",
+            "acme",
             "--name",
             "init_fail_on_double_init_cwd_again",
             "--version",
@@ -431,4 +431,123 @@ fn init_metamodel_release_requires_metamodel() -> Result<(), Box<dyn std::error:
     assert!(!cwd.join("p").exists());
 
     Ok(())
+}
+
+/// Every identifier the suite creates a project with has to be one the
+/// manifest rule accepts.
+///
+/// `init` itself refuses such an identifier, but a `.project.json` is
+/// never validated on write, so a hand-written legacy fixture can pass
+/// while describing a project no manifest could. This checks every call
+/// site without running the whole suite.
+#[test]
+fn every_identifier_the_suite_inits_with_is_valid() -> Result<(), Box<dyn std::error::Error>> {
+    use sysand_core::model::{IndexName, IndexPublisher};
+
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+    let mut checked = 0usize;
+
+    for entry in std::fs::read_dir(&dir)? {
+        let path = entry?.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+            continue;
+        }
+        let file = path
+            .file_name()
+            .and_then(|f| f.to_str())
+            .unwrap_or_default()
+            .to_owned();
+        let text = std::fs::read_to_string(&path)?;
+
+        for (call, at) in call_sites(&text) {
+            let args = arguments(&text[at..]);
+            // `_basic(publisher, name, version)`; the others take a
+            // leading `&cwd` and/or a `path`, then publisher and name.
+            let args: Vec<&str> = if call == "cli_init_project_basic" {
+                args
+            } else {
+                args.into_iter()
+                    .skip_while(|a| a.starts_with('&'))
+                    .collect()
+            };
+            let (publisher, name) = if call == "cli_init_project_basic" {
+                (arg(args.first()), arg(args.get(1)))
+            } else {
+                // With no `--name`, the name comes from the directory.
+                (arg(args.get(1)), arg(args.get(2)).or(arg(args.first())))
+            };
+            let Some(publisher) = publisher else { continue };
+
+            assert!(
+                IndexPublisher::parse(publisher).is_ok(),
+                "{file}: `{publisher}` is not a publisher a `model.toml` can hold"
+            );
+            if let Some(name) = name {
+                assert!(
+                    IndexName::parse(name).is_ok(),
+                    "{file}: `{name}` is not a name a `model.toml` can hold"
+                );
+            }
+            checked += 1;
+        }
+    }
+
+    assert!(checked > 100, "the scan found only {checked} call sites");
+    Ok(())
+}
+
+/// Where each `cli_init_project*` call's argument list begins.
+fn call_sites(text: &str) -> Vec<(&'static str, usize)> {
+    let mut found = vec![];
+    for call in [
+        "cli_init_project_basic",
+        "cli_init_project_in",
+        "cli_init_project",
+    ] {
+        let mut from = 0;
+        while let Some(at) = text[from..].find(&format!("{call}(")) {
+            let open = from + at + call.len() + 1;
+            // `cli_init_project` is a prefix of the other two.
+            if !found.iter().any(|(_, other)| *other == open) {
+                found.push((call, open));
+            }
+            from = open;
+        }
+    }
+    found
+}
+
+/// The comma-separated arguments of one call, trimmed.
+fn arguments(text: &str) -> Vec<&str> {
+    let mut depth = 0i32;
+    let mut args = vec![];
+    let mut start = 0usize;
+    let mut in_string = false;
+    for (i, c) in text.char_indices() {
+        match c {
+            '"' if !text[..i].ends_with('\\') => in_string = !in_string,
+            _ if in_string => {}
+            '(' | '[' => depth += 1,
+            ')' if depth == 0 => {
+                args.push(text[start..i].trim());
+                return args;
+            }
+            ')' | ']' => depth -= 1,
+            ',' if depth == 0 => {
+                args.push(text[start..i].trim());
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    args
+}
+
+/// The string inside `"x"` or `Some("x")`; `None` for anything else.
+fn arg<'a>(raw: Option<&&'a str>) -> Option<&'a str> {
+    let raw = raw?.trim();
+    let inner = raw
+        .strip_prefix("Some(")
+        .map_or(raw, |rest| rest.strip_suffix(')').unwrap_or(rest));
+    inner.strip_prefix('"')?.strip_suffix('"')
 }
