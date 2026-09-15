@@ -339,3 +339,123 @@ fn a_nested_workspace_does_not_break_config_loading() -> Result<(), Box<dyn std:
         .stderr(predicate::str::contains("nested workspaces").not());
     Ok(())
 }
+
+// ------------------------------------------------- stray configuration
+
+const ROW_26: &str = "is not at the workspace root, so it is ignored as a whole";
+
+/// The warning names the file, not its directory: a reader told about a
+/// directory would have to guess which file in it is meant.
+#[test]
+fn a_config_in_a_member_warns() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace(ROOT)?;
+    let member = dir.path().join("app");
+    write_config(&member, "local-dep")?;
+
+    run_sysand_discovering(&member, ["lock"])?
+        .assert()
+        .stderr(predicate::str::contains(format!(
+            "`{}` {ROW_26}",
+            member.join(config::local_fs::CONFIG_FILE)
+        )));
+    Ok(())
+}
+
+#[test]
+fn a_config_between_cwd_and_the_root_warns() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace(ROOT)?;
+    let deep = dir.path().join("app/src");
+    std::fs::create_dir_all(&deep)?;
+    write_config(&deep, "local-dep")?;
+
+    run_sysand_discovering(&deep, ["lock"])?
+        .assert()
+        .stderr(predicate::str::contains(ROW_26));
+    Ok(())
+}
+
+/// Two strays are two mistakes.
+#[test]
+fn every_stray_config_is_reported() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace(ROOT)?;
+    let member = dir.path().join("app");
+    let deep = member.join("src");
+    std::fs::create_dir_all(&deep)?;
+    write_config(&member, "local-dep")?;
+    write_config(&deep, "local-dep")?;
+
+    let out = run_sysand_discovering(&deep, ["lock"])?;
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert_eq!(
+        stderr.matches(ROW_26).count(),
+        2,
+        "both strays must be named: {stderr}"
+    );
+    Ok(())
+}
+
+/// The root's own file is the one being used.
+#[test]
+fn the_root_config_is_not_reported_as_a_stray() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace(ROOT)?;
+    let member = dir.path().join("app");
+    dependency(dir.path(), "local-dep")?;
+    run_sysand_in(&member, ["add", USAGE, CONSTRAINT, "--no-lock"], None)?
+        .assert()
+        .success();
+    write_config(dir.path(), "local-dep")?;
+
+    run_sysand_discovering(&member, ["lock"])?
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(ROW_26).not());
+    Ok(())
+}
+
+/// `print-root` reads no configuration, so a warning about one would be
+/// noise.
+#[test]
+fn a_command_that_reads_no_config_does_not_warn() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace(ROOT)?;
+    let member = dir.path().join("app");
+    write_config(&member, "local-dep")?;
+
+    run_sysand_discovering(&member, ["print-root"])?
+        .assert()
+        .stderr(predicate::str::contains(ROW_26).not());
+    Ok(())
+}
+
+/// `info` resolves under `--iri` and under `--auto-location`, which
+/// parses its argument as an IRI and reaches the same resolver.
+#[test]
+fn info_warns_with_an_iri_and_with_an_auto_location() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace(ROOT)?;
+    let member = dir.path().join("app");
+    write_config(&member, "local-dep")?;
+
+    run_sysand_discovering(&member, ["info", "--iri", USAGE])?
+        .assert()
+        .stderr(predicate::str::contains(ROW_26));
+    run_sysand_discovering(&member, ["info", "-a", USAGE])?
+        .assert()
+        .stderr(predicate::str::contains(ROW_26));
+    // Plain `info` reads the project in front of it and resolves
+    // nothing.
+    run_sysand_discovering(&member, ["info"])?
+        .assert()
+        .stderr(predicate::str::contains(ROW_26).not());
+    Ok(())
+}
+
+#[test]
+fn no_config_silences_the_warning() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace(ROOT)?;
+    let member = dir.path().join("app");
+    write_config(&member, "local-dep")?;
+
+    run_sysand_in(&member, ["lock"], None)?
+        .assert()
+        .stderr(predicate::str::contains(ROW_26).not());
+    Ok(())
+}
