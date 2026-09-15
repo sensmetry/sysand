@@ -386,7 +386,9 @@ fn a_workspace_of_toml_members_records_the_build_time() -> Result<(), Box<dyn st
         true,
         false,
     )?;
-    let (_, meta) = crate::project::ProjectRead::get_project(&built[0]).expect("the pair reads");
+    let (_, meta) =
+        crate::project::ProjectRead::get_project(built.first().expect("one member was built"))
+            .expect("the pair reads");
     let created: jiff::Timestamp = meta.expect("a meta").created.parse()?;
     assert_ne!(created, VIEW_CREATED);
     Ok(())
@@ -766,29 +768,29 @@ fn toml_member(dir: &camino_tempfile::Utf8TempDir, at: &str, deps: &[&str], stdl
     std::fs::write(path.join("m.kerml"), b"package M;\n").expect("a member source");
 }
 
-fn build_workspace(
+/// The names of the archives, in the order they were built, of a
+/// workspace in which every member builds.
+fn build_workspace(dir: &camino_tempfile::Utf8TempDir) -> Vec<String> {
+    names(
+        &build_workspace_result(dir)
+            .unwrap_or_else(|failure| panic!("{failure}: {:?}", failure.failed)),
+    )
+}
+
+fn build_workspace_result(
     dir: &camino_tempfile::Utf8TempDir,
-) -> Result<Vec<String>, KParBuildError<crate::project::local_src::LocalSrcError>> {
+) -> Result<Vec<super::LocalKParProjectRaw>, super::WorkspaceBuildFailure> {
     let workspace =
         crate::workspace::Workspace::new(dir.path().to_owned()).expect("the workspace file reads");
     let out = dir.path().join("output");
     std::fs::create_dir_all(&out).expect("the output directory");
-    let built = super::do_build_workspace_kpars(
+    super::do_build_workspace_kpars(
         &workspace,
         &out,
         KparCompressionMethod::default(),
         true,
         true,
-    )?;
-    Ok(built
-        .iter()
-        .map(|p| {
-            crate::project::ProjectRead::name(p)
-                .ok()
-                .flatten()
-                .unwrap_or_default()
-        })
-        .collect())
+    )
 }
 
 /// workspaces.md "Build output": every member is built, in `members`
@@ -800,7 +802,7 @@ fn members_build_in_members_order() -> Result<(), Box<dyn std::error::Error>> {
     toml_member(&dir, "alpha", &[], false);
     toml_member(&dir, "beta", &["../alpha"], false);
     toml_member(&dir, "gamma", &["../beta"], false);
-    assert_eq!(build_workspace(&dir)?, vec!["gamma", "beta", "alpha"]);
+    assert_eq!(build_workspace(&dir), vec!["gamma", "beta", "alpha"]);
     Ok(())
 }
 
@@ -813,7 +815,7 @@ fn independent_members_keep_their_declared_order() -> Result<(), Box<dyn std::er
     for at in ["alpha", "beta", "gamma"] {
         toml_member(&dir, at, &[], false);
     }
-    assert_eq!(build_workspace(&dir)?, vec!["gamma", "beta", "alpha"]);
+    assert_eq!(build_workspace(&dir), vec!["gamma", "beta", "alpha"]);
     Ok(())
 }
 
@@ -826,6 +828,105 @@ fn a_usage_of_a_non_member_is_not_an_edge() -> Result<(), Box<dyn std::error::Er
     toml_member(&dir, "outside", &[], false);
     toml_member(&dir, "beta", &["../outside"], false);
     toml_member(&dir, "gamma", &[], false);
-    assert_eq!(build_workspace(&dir)?, vec!["gamma", "beta"]);
+    assert_eq!(build_workspace(&dir), vec!["gamma", "beta"]);
+    Ok(())
+}
+
+// ------------------------------ a failed member does not stop the others
+
+/// A member directory with no manifest at all: it fails, and it fails at
+/// `default_kpar_file_name` rather than inside the build.
+fn broken_member(dir: &camino_tempfile::Utf8TempDir, at: &str) {
+    std::fs::create_dir_all(dir.path().join(at)).expect("the member directory");
+}
+
+/// The project names of `archives`.
+fn names(archives: &[super::LocalKParProjectRaw]) -> Vec<String> {
+    archives
+        .iter()
+        .map(|p| {
+            crate::project::ProjectRead::name(p)
+                .ok()
+                .flatten()
+                .unwrap_or_default()
+        })
+        .collect()
+}
+
+/// The failure of a workspace build that is expected to fail.
+fn build_workspace_failure(dir: &camino_tempfile::Utf8TempDir) -> super::WorkspaceBuildFailure {
+    build_workspace_result(dir).expect_err("a member fails")
+}
+
+fn failed_members(failure: &super::WorkspaceBuildFailure) -> Vec<&str> {
+    failure
+        .failed
+        .iter()
+        .map(|failed| failed.member.as_str())
+        .collect()
+}
+
+#[test]
+fn a_failed_member_does_not_stop_an_independent_one() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    json_workspace(&dir, &["alpha", "beta"]);
+    broken_member(&dir, "alpha");
+    toml_member(&dir, "beta", &[], false);
+
+    let failure = build_workspace_failure(&dir);
+    assert_eq!(failed_members(&failure), ["alpha"]);
+    assert_eq!(names(&failure.built), ["beta"]);
+    assert_eq!(
+        failure.to_string(),
+        "1 of 2 workspace members failed to build"
+    );
+    Ok(())
+}
+
+/// A build never reads another member's archive, so a member whose
+/// dependency failed builds all the same.
+#[test]
+fn a_failed_member_does_not_stop_its_dependents() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    json_workspace(&dir, &["beta", "alpha"]);
+    broken_member(&dir, "alpha");
+    toml_member(&dir, "beta", &["../alpha"], false);
+
+    let failure = build_workspace_failure(&dir);
+    assert_eq!(failed_members(&failure), ["alpha"]);
+    assert_eq!(names(&failure.built), ["beta"]);
+    Ok(())
+}
+
+#[test]
+fn a_workspace_that_builds_reports_every_member_built() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    json_workspace(&dir, &["gamma", "beta", "alpha"]);
+    toml_member(&dir, "alpha", &[], false);
+    toml_member(&dir, "beta", &["../alpha"], false);
+    toml_member(&dir, "gamma", &["../beta"], false);
+
+    assert_eq!(build_workspace(&dir).len(), 3);
+    Ok(())
+}
+
+/// `default_kpar_file_name` is the call that fails for a member with no
+/// manifest. Outside the per-member arm it would stop the workspace.
+#[test]
+fn a_member_with_no_manifest_fails_as_itself() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    json_workspace(&dir, &["alpha"]);
+    broken_member(&dir, "alpha");
+
+    let failure = build_workspace_failure(&dir);
+    let [failed] = failure.failed.as_slice() else {
+        panic!("one failure: {:?}", failure.failed);
+    };
+    assert_eq!(failed.member, "alpha");
+    assert!(
+        matches!(*failed.error, KParBuildError::MissingInfo),
+        "{}",
+        failed.error
+    );
     Ok(())
 }
