@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+//! `sysand build` refuses a `model.toml` project outright. So every
+//! project in this file is written as a legacy `.project.json` pair by
+//! hand rather than created through `sysand init`, which writes a
+//! `model.toml`.
+
 use assert_cmd::prelude::*;
 use camino::Utf8PathBuf;
 use clap::ValueEnum as _;
@@ -45,8 +50,7 @@ fn expected_index() -> IndexMap<String, String> {
 /// a warning that says so.
 #[test]
 fn build_warns_about_an_unknown_key() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "test-unknown", "1.2.3")?;
-    out.assert().success();
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "test-unknown", "1.2.3", None)?;
 
     let info_path = cwd.join(".project.json");
     let info = fs::read_to_string(&info_path)?;
@@ -69,11 +73,9 @@ fn build_warns_about_an_unknown_key() -> Result<(), Box<dyn std::error::Error>> 
 
 #[test]
 fn project_build() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "test-build", "1.2.3")?;
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "test-build", "1.2.3", None)?;
 
     std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
-
-    out.assert().success();
 
     let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
 
@@ -148,11 +150,9 @@ fn project_build() -> Result<(), Box<dyn std::error::Error>> {
 /// inside the built kpar, not minified onto a single line.
 #[test]
 fn project_build_pretty_prints_project_and_meta_json() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "test-pretty", "1.2.3")?;
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "test-pretty", "1.2.3", None)?;
 
     std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
-
-    out.assert().success();
 
     let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
     out.assert().success();
@@ -182,9 +182,13 @@ fn project_build_pretty_prints_project_and_meta_json() -> Result<(), Box<dyn std
 
 #[test]
 fn build_errors_when_index_symbol_is_missing_from_file() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) =
-        cli_init_project_basic("acme", "test-build-missing-index-symbol", "1.2.3")?;
-    out.assert().success();
+    let (_temp_dir, cwd) = cli_init_json_project(
+        None,
+        "acme",
+        "test-build-missing-index-symbol",
+        "1.2.3",
+        None,
+    )?;
 
     std::fs::write(cwd.join("test.sysml"), b"package Present;\n")?;
     let out = run_sysand_in(
@@ -225,9 +229,13 @@ fn build_errors_when_index_symbol_is_missing_from_file() -> Result<(), Box<dyn s
 #[test]
 fn project_build_warns_when_file_symbol_is_missing_from_index()
 -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) =
-        cli_init_project_basic("acme", "test-build-missing-index-entry", "1.2.3")?;
-    out.assert().success();
+    let (_temp_dir, cwd) = cli_init_json_project(
+        None,
+        "acme",
+        "test-build-missing-index-entry",
+        "1.2.3",
+        None,
+    )?;
 
     std::fs::write(cwd.join("test.sysml"), b"package Present;\n")?;
     let out = run_sysand_in(
@@ -254,12 +262,8 @@ fn project_build_warns_when_file_symbol_is_missing_from_index()
 /// Build a project that has a path (`file:`) usage
 #[test]
 fn project_build_path_usage() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir1, cwd1, out1) = cli_init_project_basic("acme", "test-build1", "1.2.3")?;
-    let (_temp_dir2, cwd2, out2) = cli_init_project_basic("acme", "test-build2", "1.2.3")?;
-
-    out1.assert().success();
-    out2.assert().success();
-
+    let (_temp_dir1, cwd1) = cli_init_json_project(None, "acme", "test-build1", "1.2.3", None)?;
+    let (_temp_dir2, cwd2) = cli_init_json_project(None, "acme", "test-build2", "1.2.3", None)?;
     let out = run_sysand_in(&cwd1, ["add", "--iri-path", cwd2.as_str()], None)?;
     out.assert().success();
 
@@ -306,8 +310,7 @@ fn project_build_path_usage() -> Result<(), Box<dyn std::error::Error>> {
 /// KPAR keeps it as it is
 #[test]
 fn project_build_index_usage() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "test-build", "1.2.3")?;
-    out.assert().success();
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "test-build", "1.2.3", None)?;
     install_in_env(&cwd, "Acme Labs", "My Lib", "1.0.0")?;
 
     run_sysand_in(
@@ -390,15 +393,13 @@ fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
 
     for project_cwd in [&project1_cwd, &project2_cwd, &project3_cwd] {
         std::fs::create_dir(project_cwd)?;
-        let out = cli_init_project_in(
+        write_legacy_project(
             project_cwd,
-            None,
             "acme",
-            Some(project_cwd.file_name().unwrap()),
-            Some("1.2.3"),
+            project_cwd.file_name().unwrap(),
+            "1.2.3",
             None,
         )?;
-        out.assert().success();
 
         std::fs::write(project_cwd.join("test.sysml"), b"package P;\n")?;
         let out = run_sysand_in(
@@ -515,15 +516,7 @@ fn workspace_build_with_metamodel() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     std::fs::create_dir(&project1_cwd)?;
-    let out = cli_init_project_in(
-        &project1_cwd,
-        None,
-        "acme",
-        Some("project1"),
-        Some("1.0.0"),
-        None,
-    )?;
-    out.assert().success();
+    write_legacy_project(&project1_cwd, "acme", "project1", "1.0.0", None)?;
 
     std::fs::write(project1_cwd.join("test.sysml"), b"package P;\n")?;
     let out = run_sysand_in(
@@ -572,15 +565,7 @@ fn workspace_build_with_unknown_metamodel() -> Result<(), Box<dyn std::error::Er
     )?;
 
     std::fs::create_dir(&project1_cwd)?;
-    let out = cli_init_project_in(
-        &project1_cwd,
-        None,
-        "acme",
-        Some("project1"),
-        Some("1.0.0"),
-        None,
-    )?;
-    out.assert().success();
+    write_legacy_project(&project1_cwd, "acme", "project1", "1.0.0", None)?;
 
     std::fs::write(project1_cwd.join("test.sysml"), b"package P;\n")?;
     let out = run_sysand_in(
@@ -630,15 +615,7 @@ fn workspace_build_metamodel_conflict() -> Result<(), Box<dyn std::error::Error>
     )?;
 
     std::fs::create_dir(&project1_cwd)?;
-    let out = cli_init_project_in(
-        &project1_cwd,
-        None,
-        "acme",
-        Some("project1"),
-        Some("1.0.0"),
-        None,
-    )?;
-    out.assert().success();
+    write_legacy_project(&project1_cwd, "acme", "project1", "1.0.0", None)?;
 
     std::fs::write(project1_cwd.join("test.sysml"), b"package P;\n")?;
     let out = run_sysand_in(
@@ -683,15 +660,7 @@ fn workspace_build_metamodel_same_no_conflict() -> Result<(), Box<dyn std::error
     )?;
 
     std::fs::create_dir(&project1_cwd)?;
-    let out = cli_init_project_in(
-        &project1_cwd,
-        None,
-        "acme",
-        Some("project1"),
-        Some("1.0.0"),
-        None,
-    )?;
-    out.assert().success();
+    write_legacy_project(&project1_cwd, "acme", "project1", "1.0.0", None)?;
 
     std::fs::write(project1_cwd.join("test.sysml"), b"package P;\n")?;
     let out = run_sysand_in(
@@ -737,15 +706,7 @@ fn workspace_build_metamodel_idempotent() -> Result<(), Box<dyn std::error::Erro
     )?;
 
     std::fs::create_dir(&project1_cwd)?;
-    let out = cli_init_project_in(
-        &project1_cwd,
-        None,
-        "acme",
-        Some("project1"),
-        Some("1.0.0"),
-        None,
-    )?;
-    out.assert().success();
+    write_legacy_project(&project1_cwd, "acme", "project1", "1.0.0", None)?;
 
     std::fs::write(project1_cwd.join("test.sysml"), b"package P;\n")?;
     let out = run_sysand_in(
@@ -808,13 +769,10 @@ fn compression_methods() -> Result<(), Box<dyn std::error::Error>> {
 /// Build a project with a README.md at the project root
 #[test]
 fn project_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "test-readme", "1.2.3")?;
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "test-readme", "1.2.3", None)?;
 
     std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
     std::fs::write(cwd.join("README.md"), b"# My Project\nHello world\n")?;
-
-    out.assert().success();
-
     let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
     out.assert().success();
 
@@ -835,11 +793,9 @@ fn project_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
 /// Build a project without any README file — should succeed
 #[test]
 fn project_build_without_readme() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "test-no-readme", "1.2.3")?;
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "test-no-readme", "1.2.3", None)?;
 
     std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
-
-    out.assert().success();
 
     let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
     out.assert().success();
@@ -873,15 +829,7 @@ fn workspace_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
     ] {
         std::fs::create_dir(project_cwd)?;
         let project_name = project_cwd.file_name().unwrap();
-        let out = cli_init_project_in(
-            project_cwd,
-            None,
-            "acme",
-            Some(project_name),
-            Some("1.2.3"),
-            None,
-        )?;
-        out.assert().success();
+        write_legacy_project(project_cwd, "acme", project_name, "1.2.3", None)?;
 
         std::fs::write(project_cwd.join("test.sysml"), b"package P;\n")?;
         let out = run_sysand_in(
@@ -914,15 +862,13 @@ fn workspace_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
 /// Build a project with a CHANGELOG.md at the project root
 #[test]
 fn project_build_with_changelog() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "test-changelog", "1.2.3")?;
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "test-changelog", "1.2.3", None)?;
 
     std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
     std::fs::write(
         cwd.join("CHANGELOG.md"),
         b"# Changelog\n\n## 1.2.3\n- Initial release\n",
     )?;
-
-    out.assert().success();
 
     let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
     out.assert().success();
@@ -944,11 +890,9 @@ fn project_build_with_changelog() -> Result<(), Box<dyn std::error::Error>> {
 /// Build a project without any CHANGELOG file — should succeed
 #[test]
 fn project_build_without_changelog() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "test-no-changelog", "1.2.3")?;
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "test-no-changelog", "1.2.3", None)?;
 
     std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
-
-    out.assert().success();
 
     let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
     out.assert().success();
@@ -982,15 +926,7 @@ fn workspace_build_with_changelog() -> Result<(), Box<dyn std::error::Error>> {
     ] {
         std::fs::create_dir(project_cwd)?;
         let project_name = project_cwd.file_name().unwrap();
-        let out = cli_init_project_in(
-            project_cwd,
-            None,
-            "acme",
-            Some(project_name),
-            Some("1.2.3"),
-            None,
-        )?;
-        out.assert().success();
+        write_legacy_project(project_cwd, "acme", project_name, "1.2.3", None)?;
 
         std::fs::write(project_cwd.join("test.sysml"), b"package P;\n")?;
         let out = run_sysand_in(
@@ -1028,20 +964,12 @@ fn workspace_build_with_changelog() -> Result<(), Box<dyn std::error::Error>> {
 /// `LICENSES/<id>.txt` is included in the KPAR.
 #[test]
 fn project_build_with_single_license() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project(
-        None,
-        "acme",
-        Some("test-license"),
-        Some("1.2.3"),
-        Some("MIT"),
-    )?;
+    let (_temp_dir, cwd) =
+        cli_init_json_project(None, "acme", "test-license", "1.2.3", Some("MIT"))?;
 
     std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
     std::fs::create_dir(cwd.join("LICENSES"))?;
     std::fs::write(cwd.join("LICENSES").join("MIT.txt"), b"MIT license text\n")?;
-
-    out.assert().success();
-
     let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
     out.assert().success();
 
@@ -1063,11 +991,11 @@ fn project_build_with_single_license() -> Result<(), Box<dyn std::error::Error>>
 /// are included.
 #[test]
 fn project_build_with_compound_license() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project(
+    let (_temp_dir, cwd) = cli_init_json_project(
         None,
         "acme",
-        Some("test-compound-license"),
-        Some("1.2.3"),
+        "test-compound-license",
+        "1.2.3",
         Some("MIT OR Apache-2.0"),
     )?;
 
@@ -1078,9 +1006,6 @@ fn project_build_with_compound_license() -> Result<(), Box<dyn std::error::Error
         cwd.join("LICENSES").join("Apache-2.0.txt"),
         b"Apache body\n",
     )?;
-
-    out.assert().success();
-
     let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
     out.assert().success();
 
@@ -1105,11 +1030,11 @@ fn project_build_with_compound_license() -> Result<(), Box<dyn std::error::Error
 /// exception file are included.
 #[test]
 fn project_build_with_license_exception() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project(
+    let (_temp_dir, cwd) = cli_init_json_project(
         None,
         "acme",
-        Some("test-license-with"),
-        Some("1.2.3"),
+        "test-license-with",
+        "1.2.3",
         Some("GPL-2.0-only WITH Classpath-exception-2.0"),
     )?;
 
@@ -1120,9 +1045,6 @@ fn project_build_with_license_exception() -> Result<(), Box<dyn std::error::Erro
         cwd.join("LICENSES").join("Classpath-exception-2.0.txt"),
         b"Classpath exception body\n",
     )?;
-
-    out.assert().success();
-
     let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
     out.assert().success();
 
@@ -1147,11 +1069,11 @@ fn project_build_with_license_exception() -> Result<(), Box<dyn std::error::Erro
 /// file is bundled verbatim.
 #[test]
 fn project_build_with_license_ref() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project(
+    let (_temp_dir, cwd) = cli_init_json_project(
         None,
         "acme",
-        Some("test-license-ref"),
-        Some("1.2.3"),
+        "test-license-ref",
+        "1.2.3",
         Some("LicenseRef-MyCustom"),
     )?;
 
@@ -1161,9 +1083,6 @@ fn project_build_with_license_ref() -> Result<(), Box<dyn std::error::Error>> {
         cwd.join("LICENSES").join("LicenseRef-MyCustom.txt"),
         b"Custom license body\n",
     )?;
-
-    out.assert().success();
-
     let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
     out.assert().success();
 
@@ -1183,17 +1102,10 @@ fn project_build_with_license_ref() -> Result<(), Box<dyn std::error::Error>> {
 /// the build succeeds and warns about the missing license file.
 #[test]
 fn project_build_with_license_file_missing() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project(
-        None,
-        "acme",
-        Some("test-missing-license"),
-        Some("1.2.3"),
-        Some("MIT"),
-    )?;
+    let (_temp_dir, cwd) =
+        cli_init_json_project(None, "acme", "test-missing-license", "1.2.3", Some("MIT"))?;
 
     std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
-
-    out.assert().success();
 
     let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
     out.assert().success();
@@ -1211,11 +1123,9 @@ fn project_build_with_license_file_missing() -> Result<(), Box<dyn std::error::E
 /// Build a project without any license — no LICENSES/* entries are added.
 #[test]
 fn project_build_without_license() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "test-no-license", "1.2.3")?;
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "test-no-license", "1.2.3", None)?;
 
     std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
-
-    out.assert().success();
 
     let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
     out.assert().success();
@@ -1266,15 +1176,12 @@ fn assert_kpar_no_licenses_dir(kpar_path: &camino::Utf8Path) {
 }
 
 fn compression_method(compression: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "test-build", "1.2.3")?;
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "test-build", "1.2.3", None)?;
 
     {
         let mut sysml_file = std::fs::File::create(cwd.join("test.sysml"))?;
         sysml_file.write_all(b"package P;\n")?;
     }
-
-    out.assert().success();
-
     let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
 
     out.assert().success();

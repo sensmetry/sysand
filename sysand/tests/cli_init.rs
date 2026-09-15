@@ -474,7 +474,10 @@ fn every_identifier_the_suite_inits_with_is_valid() -> Result<(), Box<dyn std::e
                 (arg(args.first()), arg(args.get(1)))
             } else {
                 // With no `--name`, the name comes from the directory.
-                (arg(args.get(1)), arg(args.get(2)).or(arg(args.first())))
+                (
+                    arg(args.get(1)),
+                    arg(args.get(2)).or_else(|| arg(args.first())),
+                )
             };
             let Some(publisher) = publisher else { continue };
 

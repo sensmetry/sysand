@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+//! `sysand publish` builds the project first, and `sysand build`
+//! refuses a `model.toml` project outright. So every project in this
+//! file is written as a legacy `.project.json` pair by hand rather than
+//! created through `sysand init`, which writes a `model.toml`.
+
 use std::fs;
 
 use assert_cmd::prelude::*;
@@ -17,9 +22,7 @@ pub use common::*;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 fn init_project(name: &str) -> Result<(Utf8TempDir, Utf8PathBuf), Box<dyn std::error::Error>> {
-    let (temp_dir, cwd, out) =
-        cli_init_project(None, "example-pub1", Some(name), Some("1.0.0"), Some("MIT"))?;
-    out.assert().success();
+    let (temp_dir, cwd) = cli_init_json_project(None, "example-pub1", name, "1.0.0", Some("MIT"))?;
     let mut licenses = cwd.join("LICENSES");
     fs::create_dir(&licenses)?;
     licenses.push("MIT.txt");
