@@ -31,7 +31,7 @@ fn mock_index_config_absent(server: &mut mockito::Server, expected_count: usize)
 
 #[test]
 fn info_basic_in_cwd() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, out_init) = cli_init_project_basic("a", "info_basic", "1.2.3")?;
+    let (_temp_dir, cwd, out_init) = cli_init_project_basic("acme", "info-basic", "1.2.3")?;
     out_init
         .assert()
         .success()
@@ -41,7 +41,7 @@ fn info_basic_in_cwd() -> Result<(), Box<dyn Error>> {
 
     out.assert()
         .success()
-        .stdout(predicate::str::contains("Name: info_basic"))
+        .stdout(predicate::str::contains("Name: info-basic"))
         .stdout(predicate::str::contains("Version: 1.2.3"));
 
     Ok(())
@@ -50,7 +50,7 @@ fn info_basic_in_cwd() -> Result<(), Box<dyn Error>> {
 #[test]
 fn info_prints_all_usage_types() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd, out_init) =
-        cli_init_project_basic("pub1", "info_all_usage_types", "1.2.3")?;
+        cli_init_project_basic("pub1", "info-all-usage-types", "1.2.3")?;
     out_init.assert().success();
 
     // One usage of each shape: legacy `resource` (with and without a version
@@ -58,7 +58,7 @@ fn info_prints_all_usage_types() -> Result<(), Box<dyn Error>> {
     std::fs::write(
         cwd.join(".project.json"),
         r#"{
-  "name": "info_all_usage_types",
+  "name": "info-all-usage-types",
   "version": "1.2.3",
   "usage": [
     {
@@ -104,7 +104,7 @@ fn info_prints_all_usage_types() -> Result<(), Box<dyn Error>> {
 
 fn info_basic(use_iri: bool) -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd, out_init) =
-        cli_init_project(Some("info_basic"), "a", None, Some("1.2.3"), None)?;
+        cli_init_project(Some("info-basic"), "acme", None, Some("1.2.3"), None)?;
     out_init
         .assert()
         .success()
@@ -125,9 +125,9 @@ fn info_basic(use_iri: bool) -> Result<(), Box<dyn Error>> {
         let out_relative = {
             let mut args = vec!["info"];
             if use_iri {
-                args.extend(["--iri", "file://info_basic"]);
+                args.extend(["--iri", "file://info-basic"]);
             } else {
-                args.extend(["--dir", "info_basic"]);
+                args.extend(["--dir", "info-basic"]);
             }
             run_sysand_in(&cwd, args, None)?
         };
@@ -135,11 +135,11 @@ fn info_basic(use_iri: bool) -> Result<(), Box<dyn Error>> {
         out_relative
             .assert()
             .success()
-            .stdout(predicate::str::contains("Name: info_basic"))
+            .stdout(predicate::str::contains("Name: info-basic"))
             .stdout(predicate::str::contains("Version: 1.2.3"));
     }
 
-    let project_path: Utf8PathBuf = cwd.join("info_basic");
+    let project_path: Utf8PathBuf = cwd.join("info-basic");
     let out_absolute = {
         let mut args = vec!["info"];
         #[expect(clippy::branches_sharing_code, reason = "does not compile otherwise")]
@@ -156,7 +156,7 @@ fn info_basic(use_iri: bool) -> Result<(), Box<dyn Error>> {
     out_absolute
         .assert()
         .success()
-        .stdout(predicate::str::contains("Name: info_basic"))
+        .stdout(predicate::str::contains("Name: info-basic"))
         .stdout(predicate::str::contains("Version: 1.2.3"));
 
     Ok(())
@@ -176,7 +176,7 @@ fn info_basic_iri_explicit() -> Result<(), Box<dyn Error>> {
 /// IRI or a path
 #[test]
 fn info_positional_is_identifier() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, _) = cli_init_project(Some("info_positional"), "acme", None, None, None)?;
+    let (_temp_dir, cwd, _) = cli_init_project(Some("info-positional"), "acme", None, None, None)?;
 
     run_sysand_in(&cwd, ["info", "acme/some-project", "--no-index"], None)?
         .assert()
@@ -195,7 +195,7 @@ fn info_positional_is_identifier() -> Result<(), Box<dyn Error>> {
     for invalid_identifier in [
         "name",
         "urn:kpar:test",
-        "info_positional",
+        "info-positional",
         "c:/foo",
         "a/b/c",
     ] {
@@ -216,8 +216,8 @@ fn info_positional_is_identifier() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn info_dir_and_kpar_path_are_not_interchangeable() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, _) = cli_init_project(Some("info_kinds"), "acme", None, None, None)?;
-    let project = cwd.join("info_kinds");
+    let (_temp_dir, cwd, _) = cli_init_project(Some("info-kinds"), "acme", None, None, None)?;
+    let project = cwd.join("info-kinds");
     let file = project.join(".project.json");
 
     run_sysand_in(&cwd, ["info", "--kpar-path", project.as_str()], None)?
@@ -956,6 +956,13 @@ fn mock_index_project(
             .create(),
     ];
 
+    // The route names the publisher, and an index entry is checked against
+    // the identity that found it
+    let publisher = project_dir
+        .trim_start_matches('/')
+        .split('/')
+        .next()
+        .unwrap();
     for version in versions {
         mocks.push(
             server
@@ -965,7 +972,7 @@ fn mock_index_project(
                 )
                 .with_status(200)
                 .with_header("content-type", "application/json")
-                .with_body(project_json_for(name, version))
+                .with_body(project_json_with_publisher_for(publisher, name, version))
                 .create(),
         );
         mocks.push(
@@ -1645,9 +1652,10 @@ fn info_multi_index_url_config() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn info_get_and_edit_fields() -> Result<(), Box<dyn Error>> {
-    let (_tmp, cwd, out) = cli_init_project(Some("info_fields"), "a", None, Some("1.2.3"), None)?;
+    let (_tmp, cwd, out) =
+        cli_init_project(Some("info-fields"), "acme", None, Some("1.2.3"), None)?;
     out.assert().success();
-    let project_path = &cwd.join("info_fields");
+    let project_path = &cwd.join("info-fields");
 
     let get = |field: &str| -> Result<String, Box<dyn Error>> {
         let out = run_sysand_in(project_path, ["info", "--get", field], None)?;
@@ -1665,11 +1673,11 @@ fn info_get_and_edit_fields() -> Result<(), Box<dyn Error>> {
         Ok(())
     };
 
-    assert_eq!(get("name")?, "info_fields\n");
+    assert_eq!(get("name")?, "info-fields\n");
     edit(&["--name", "info_fields_alt"])?;
     assert_eq!(get("name")?, "info_fields_alt\n");
 
-    assert_eq!(get("publisher")?, "a\n");
+    assert_eq!(get("publisher")?, "acme\n");
     edit(&["--publisher", "a_alt"])?;
     assert_eq!(get("publisher")?, "a_alt\n");
 
@@ -1781,19 +1789,19 @@ fn info_get_and_edit_fields() -> Result<(), Box<dyn Error>> {
 /// `sysand edit --dir` edits the project in the given directory
 #[test]
 fn edit_dir() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project(Some("edit_dir"), "a", None, None, None)?;
+    let (_temp_dir, cwd, out) = cli_init_project(Some("edit-dir"), "acme", None, None, None)?;
     out.assert().success();
 
     run_sysand_in(
         &cwd,
-        ["edit", "--dir", "edit_dir", "--version", "2.0.0"],
+        ["edit", "--dir", "edit-dir", "--version", "2.0.0"],
         None,
     )?
     .assert()
     .success();
     run_sysand_in(
         &cwd,
-        ["info", "--dir", "edit_dir", "--get", "version"],
+        ["info", "--dir", "edit-dir", "--get", "version"],
         None,
     )?
     .assert()
@@ -1805,7 +1813,7 @@ fn edit_dir() -> Result<(), Box<dyn Error>> {
         [
             "edit",
             "--dir",
-            "edit_dir/.project.json",
+            "edit-dir/.project.json",
             "--version",
             "3.0.0",
         ],
@@ -1821,15 +1829,15 @@ fn edit_dir() -> Result<(), Box<dyn Error>> {
 #[test]
 fn edit_metamodel() -> Result<(), Box<dyn Error>> {
     let (_tmp, cwd, out) = cli_init_project(
-        Some("info_custom_metamodel"),
-        "a",
+        Some("info-custom-metamodel"),
+        "acme",
         None,
         Some("1.2.3"),
         None,
     )?;
     out.assert().success();
 
-    let project_path = &cwd.join("info_custom_metamodel");
+    let project_path = &cwd.join("info-custom-metamodel");
 
     let get_metamodel = |expected: Option<String>| -> Result<String, Box<dyn Error>> {
         let out = run_sysand_in(project_path, ["info", "--get", "metamodel"], None)?;
@@ -1963,7 +1971,7 @@ fn edit_metamodel() -> Result<(), Box<dyn Error>> {
 /// leave `.project.json` unchanged
 #[test]
 fn edit_rejects_invalid_name_and_publisher() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "info_set_invalid", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "info-set-invalid", "1.2.3")?;
     out.assert().success();
     let original = std::fs::read_to_string(cwd.join(".project.json"))?;
 
@@ -2014,7 +2022,7 @@ fn edit_rejects_invalid_name_and_publisher() -> Result<(), Box<dyn Error>> {
 /// spaces
 #[test]
 fn edit_accepts_spaces_in_name_and_publisher() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "info_set_spaces", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "info-set-spaces", "1.2.3")?;
     out.assert().success();
 
     run_sysand_in(

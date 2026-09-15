@@ -47,8 +47,8 @@ def test_basic_init(caplog: pytest.LogCaptureFixture) -> None:
     with tempfile.TemporaryDirectory() as tmpdirname:
         sysand.init(
             project_dir=tmpdirname,
-            name="test_basic_init",
-            publisher="a",
+            name="test-basic-init",
+            publisher="acme",
             version="1.2.3",
         )
 
@@ -56,13 +56,13 @@ def test_basic_init(caplog: pytest.LogCaptureFixture) -> None:
             (
                 "sysand_core.commands.init",
                 logging.INFO,
-                "    Creating interchange project `test_basic_init`",
+                "    Creating interchange project `test-basic-init`",
             )
         ]
         with open(Path(tmpdirname) / ".project.json", "r") as f:
             assert (
                 f.read()
-                == '{\n  "name": "test_basic_init",\n  "publisher": "a",\n  "version": "1.2.3"\n}\n'
+                == '{\n  "name": "test-basic-init",\n  "publisher": "acme",\n  "version": "1.2.3"\n}\n'
             )
         with open(Path(tmpdirname) / ".meta.json", "r") as f:
             assert re.match(
@@ -140,7 +140,7 @@ def test_add_by_publisher_and_name() -> None:
         sysand.init(
             project_dir=tmpdirname,
             name="test_add_by_publisher_and_name",
-            publisher="a",
+            publisher="acme",
             version="1.2.3",
         )
 
@@ -167,7 +167,7 @@ def test_add_by_publisher_and_name() -> None:
 
         assert (
             (Path(tmpdirname) / ".project.json").read_text()
-            == '{\n  "name": "test_add_by_publisher_and_name",\n  "publisher": "a",\n  "version": "1.2.3",\n  "usage": [\n    {\n      "publisher": "Acme Labs",\n      "name": "My.Project",\n      "versionConstraint": "*"\n    },\n    {\n      "publisher": "Acme Labs",\n      "name": "My.Project2",\n      "versionConstraint": "*"\n    }\n  ]\n}\n'
+            == '{\n  "name": "test_add_by_publisher_and_name",\n  "publisher": "acme",\n  "version": "1.2.3",\n  "usage": [\n    {\n      "publisher": "Acme Labs",\n      "name": "My.Project",\n      "versionConstraint": "*"\n    },\n    {\n      "publisher": "Acme Labs",\n      "name": "My.Project2",\n      "versionConstraint": "*"\n    }\n  ]\n}\n'
         )
 
 
@@ -176,7 +176,7 @@ def test_remove_by_publisher_and_name() -> None:
         sysand.init(
             project_dir=tmpdirname,
             name="test_remove_by_publisher_and_name",
-            publisher="a",
+            publisher="acme",
             version="1.2.3",
         )
         _install_in_env(tmpdirname, "acme-labs", "my.project")
@@ -192,7 +192,7 @@ def test_remove_by_publisher_and_name() -> None:
 
         assert (
             (Path(tmpdirname) / ".project.json").read_text()
-            == '{\n  "name": "test_remove_by_publisher_and_name",\n  "publisher": "a",\n  "version": "1.2.3"\n}\n'
+            == '{\n  "name": "test_remove_by_publisher_and_name",\n  "publisher": "acme",\n  "version": "1.2.3"\n}\n'
         )
 
 
@@ -449,7 +449,7 @@ def test_set_usage_constraint_normalizes_hand_formatted_whitespace(
 
 def test_add_returns_whether_a_usage_was_added(tmp_path: Path) -> None:
     sysand.init(
-        project_dir=tmp_path, name="test_add_returns", publisher="a", version="1.2.3"
+        project_dir=tmp_path, name="test-add-returns", publisher="acme", version="1.2.3"
     )
     _install_in_env(tmp_path, "acme-labs", "my.project")
 
@@ -1021,8 +1021,8 @@ def test_basic_info(caplog: pytest.LogCaptureFixture) -> None:
     with tempfile.TemporaryDirectory() as tmpdirname:
         sysand.init(
             project_dir=tmpdirname,
-            name="test_basic_info",
-            publisher="a",
+            name="test-basic-info",
+            publisher="acme",
             version="1.2.3",
         )
 
@@ -1032,8 +1032,8 @@ def test_basic_info(caplog: pytest.LogCaptureFixture) -> None:
         info, meta = info_meta
 
         assert info == {
-            "name": "test_basic_info",
-            "publisher": "a",
+            "name": "test-basic-info",
+            "publisher": "acme",
             "description": None,
             "version": "1.2.3",
             "license": None,
@@ -1063,7 +1063,7 @@ def test_http_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) -> 
     caplog.set_level(level)
 
     httpserver.expect_request("/.project.json").respond_with_json(
-        {"name": "test_http_info", "publisher": "a", "version": "1.2.3"}
+        {"name": "test_http_info", "publisher": "acme", "version": "1.2.3"}
     )
     httpserver.expect_request("/.meta.json").respond_with_json(
         {"index": {}, "created": "0000-00-00T00:00:00.123456789Z"}
@@ -1073,7 +1073,7 @@ def test_http_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) -> 
 
     assert info == {
         "name": "test_http_info",
-        "publisher": "a",
+        "publisher": "acme",
         "description": None,
         "version": "1.2.3",
         "license": None,
@@ -1259,20 +1259,20 @@ def test_end_to_end_install_sources() -> None:
         tmp_std = Path(tmp_std).resolve()
         sysand.init(
             project_dir=tmp_main,
-            name="test_end_to_end_install_sources",
-            publisher="a",
+            name="test-end-to-end-install-sources",
+            publisher="acme",
             version="1.2.3",
         )
         sysand.init(
             project_dir=tmp_dep,
-            name="test_end_to_end_install_sources_dep",
-            publisher="a",
+            name="test-end-to-end-install-sources-dep",
+            publisher="acme",
             version="1.2.3",
         )
         sysand.init(
             project_dir=tmp_std,
             name="Kernel Function Library",
-            publisher="a",
+            publisher="acme",
             version=std_version,
         )
 
@@ -1297,14 +1297,14 @@ def test_end_to_end_install_sources() -> None:
 
         sysand.env.install_path(
             env_path=env_path,
-            iri="urn:kpar:test_end_to_end_install_sources_dep",
+            iri="urn:kpar:test-end-to-end-install-sources-dep",
             location=tmp_dep,
         )
         sysand.env.install_path(env_path=env_path, iri=std_iri, location=tmp_std)
 
         sysand.add(
             project_dir=tmp_main,
-            iri="urn:kpar:test_end_to_end_install_sources_dep",
+            iri="urn:kpar:test-end-to-end-install-sources-dep",
             version_constraint="1.2.3",
             lock=False,
         )
@@ -1318,7 +1318,7 @@ def test_end_to_end_install_sources() -> None:
         dep_src = (
             env_path
             / "lib"
-            / "kpar.test_end_to_end_install_sources_dep_1.2.3"
+            / "kpar.test-end-to-end-install-sources-dep_1.2.3"
             / "src_dep.sysml"
         )
 
@@ -1419,7 +1419,7 @@ def test_root() -> None:
     with tempfile.TemporaryDirectory() as tmpdirname:
         tmpdirname = Path(tmpdirname).resolve()
         sysand.init(
-            project_dir=tmpdirname, name="test_root", publisher="a", version="1.2.3"
+            project_dir=tmpdirname, name="test-root", publisher="acme", version="1.2.3"
         )
 
         subdir = tmpdirname / "sub" / "nested"
@@ -1447,7 +1447,7 @@ def test_build(compression: Union[sysand.CompressionMethod, None]) -> None:
     with tempfile.TemporaryDirectory() as tmp_main:
         tmp_main = Path(tmp_main).resolve()
         sysand.init(
-            project_dir=tmp_main, name="test_build", publisher="a", version="1.2.3"
+            project_dir=tmp_main, name="test-build", publisher="acme", version="1.2.3"
         )
 
         with open(tmp_main / "src.sysml", "w") as f:
@@ -1456,7 +1456,7 @@ def test_build(compression: Union[sysand.CompressionMethod, None]) -> None:
         sysand.include(project_dir=tmp_main, src_path="src.sysml")
 
         sysand.build(
-            output_path=tmp_main / "test_build.kpar",
+            output_path=tmp_main / "test-build.kpar",
             project_dir=tmp_main,
             compression=compression,
         )

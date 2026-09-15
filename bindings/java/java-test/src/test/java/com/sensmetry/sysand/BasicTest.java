@@ -18,7 +18,7 @@ public class BasicTest {
     public void testBasicInit() {
         try {
             java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-init");
-            com.sensmetry.sysand.Sysand.init("test", "a", "1.0.0", null, tempDir);
+            com.sensmetry.sysand.Sysand.init("test", "acme", "1.0.0", null, tempDir);
 
             assertTrue(Files.exists(tempDir.resolve(".project.json")), "Project file should exist");
             assertTrue(Files.exists(tempDir.resolve(".meta.json")), "Metadata file should exist");
@@ -45,14 +45,14 @@ public class BasicTest {
     public void testInitWithNullNameThrowsNullPointerException() throws Exception {
         java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-init-null-name");
         assertThrows(NullPointerException.class,
-                () -> com.sensmetry.sysand.Sysand.init(null, "a", "1.0.0", null, tempDir));
+                () -> com.sensmetry.sysand.Sysand.init(null, "acme", "1.0.0", null, tempDir));
     }
 
     @Test
     public void testInitWithInvalidVersionThrowsInvalidSemanticVersion() throws Exception {
         java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-init-bad-version");
         assertThrows(com.sensmetry.sysand.exceptions.InvalidSemanticVersion.class,
-                () -> com.sensmetry.sysand.Sysand.init("test", "a", "not-a-version", null, tempDir));
+                () -> com.sensmetry.sysand.Sysand.init("test", "acme", "not-a-version", null, tempDir));
     }
 
     @Test
@@ -77,8 +77,8 @@ public class BasicTest {
         assertNotNull(project);
         assertNotNull(project.info);
         assertNotNull(project.metadata);
-        assertEquals(project.info.getName(), "test_basic_info");
-        assertEquals(project.info.getPublisher(), "a");
+        assertEquals(project.info.getName(), "test-basic-info");
+        assertEquals(project.info.getPublisher(), "acme");
         assertEquals(project.info.getDescription(), null);
         assertEquals(project.info.getVersion(), "1.2.3");
         assertEquals(project.info.getLicense(), "MIT");
@@ -100,7 +100,7 @@ public class BasicTest {
     public void testBasicInfo() {
         try {
             java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-info");
-            com.sensmetry.sysand.Sysand.init("test_basic_info", "a", "1.2.3", "MIT", tempDir);
+            com.sensmetry.sysand.Sysand.init("test-basic-info", "acme", "1.2.3", "MIT", tempDir);
 
             com.sensmetry.sysand.model.InterchangeProject project = com.sensmetry.sysand.Sysand.infoPath(tempDir);
             assertExpectedProject(project);
@@ -119,7 +119,7 @@ public class BasicTest {
     public void testProjectBuild() {
         try {
             java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-build");
-            com.sensmetry.sysand.Sysand.init("test_basic_info", "a", "1.2.3", "MIT", tempDir);
+            com.sensmetry.sysand.Sysand.init("test-basic-info", "acme", "1.2.3", "MIT", tempDir);
 
             com.sensmetry.sysand.model.InterchangeProject project = com.sensmetry.sysand.Sysand.infoPath(tempDir);
             assertExpectedProject(project);
@@ -145,7 +145,7 @@ public class BasicTest {
     public void testSetProjectIndex() {
         try {
             java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-update-index");
-            com.sensmetry.sysand.Sysand.init("test_index", "a", "1.0.0", null, tempDir);
+            com.sensmetry.sysand.Sysand.init("test-index", "acme", "1.0.0", null, tempDir);
 
             java.util.LinkedHashMap<String, String> index = new java.util.LinkedHashMap<>();
             index.put("Foo", "src/Foo.sysml");
@@ -199,8 +199,8 @@ public class BasicTest {
             java.nio.file.Path projB = tempDir.resolve("projB");
             Files.createDirectories(projA);
             Files.createDirectories(projB);
-            com.sensmetry.sysand.Sysand.init("projA", "a", "1.0.0", null, projA);
-            com.sensmetry.sysand.Sysand.init("projB", "a", "1.0.0", null, projB);
+            com.sensmetry.sysand.Sysand.init("projA", "acme", "1.0.0", null, projA);
+            com.sensmetry.sysand.Sysand.init("projB", "acme", "1.0.0", null, projB);
 
             // Write .workspace.json
             writeWorkspaceJson(tempDir, "projA", "projB");
@@ -232,8 +232,8 @@ public class BasicTest {
             java.nio.file.Path projB = tempDir.resolve("projB");
             Files.createDirectories(projA);
             Files.createDirectories(projB);
-            com.sensmetry.sysand.Sysand.init("projA", "a", "1.0.0", null, projA);
-            com.sensmetry.sysand.Sysand.init("projB", "a", "1.0.0", null, projB);
+            com.sensmetry.sysand.Sysand.init("projA", "acme", "1.0.0", null, projA);
+            com.sensmetry.sysand.Sysand.init("projB", "acme", "1.0.0", null, projB);
 
             // Write .workspace.json
             writeWorkspaceJson(tempDir, "projA", "projB");

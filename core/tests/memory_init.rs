@@ -10,13 +10,14 @@ use sysand_core::{
 /// and .meta.json files in the current working directory. (Non-interactive use)
 #[test]
 fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
-    let memory_storage = do_init_memory("init_basic", "e", "1.2.3", Some("Apache-2.0".to_owned()))?;
+    let memory_storage =
+        do_init_memory("init_basic", "echo", "1.2.3", Some("Apache-2.0".to_owned()))?;
 
     assert_eq!(
         memory_storage.info.unwrap(),
         InterchangeProjectInfoRaw {
             name: "init_basic".to_owned(),
-            publisher: Some("e".to_owned()),
+            publisher: Some("echo".to_owned()),
             description: None,
             version: "1.2.3".to_owned(),
             license: Some("Apache-2.0".to_owned()),
@@ -58,7 +59,7 @@ fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
 fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
     let mut memory_storage = do_init_memory(
         "init_fail_on_double_init",
-        "a",
+        "acme",
         "1.2.3",
         Some("Apache-2.0 OR MIT".to_owned()),
     )?;
@@ -68,7 +69,7 @@ fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
 
     let second_result = do_init_parse(
         "init_fail_on_double_init".to_owned(),
-        "a".into(),
+        "acme".into(),
         "1.2.3".to_owned(),
         Some("Apache-2.0 OR MIT".to_owned()),
         None,

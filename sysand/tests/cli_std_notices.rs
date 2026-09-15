@@ -22,7 +22,7 @@ const FUNCTION_LIBRARY_IRI: &str = "https://www.omg.org/spec/KerML/20250201/Func
 /// provided (source-less) dependency
 #[test]
 fn add_std_lib_direct_note_still_locks_skips_sync() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("u", "add_std_direct", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("uniform", "add-std-direct", "1.2.3")?;
     out.assert().success();
 
     let out = run_sysand_in(&cwd, ["add", "--iri", FUNCTION_LIBRARY_IRI], None)?;
@@ -39,8 +39,8 @@ fn add_std_lib_direct_note_still_locks_skips_sync() -> Result<(), Box<dyn std::e
         info_json,
         format!(
             r#"{{
-  "name": "add_std_direct",
-  "publisher": "u",
+  "name": "add-std-direct",
+  "publisher": "uniform",
   "version": "1.2.3",
   "usage": [
     {{
@@ -135,7 +135,7 @@ fn env_install_std_lib_direct_no_path_warns_and_skips() -> Result<(), Box<dyn st
 fn env_install_transitive_std_deps_note() -> Result<(), Box<dyn std::error::Error>> {
     // A project that itself depends on a standard library.
     let (_dep_temp_dir, cwd_dep, out) =
-        cli_init_project_basic("a", "env_install_std_dep", "1.2.3")?;
+        cli_init_project_basic("acme", "env-install-std-dep", "1.2.3")?;
     out.assert().success();
 
     std::fs::write(cwd_dep.join("EnvInstallStdDep.sysml"), "package Dep;")?;
@@ -158,7 +158,7 @@ fn env_install_transitive_std_deps_note() -> Result<(), Box<dyn std::error::Erro
     let cfg = toml::to_string(&config::Config {
         indexes: vec![],
         projects: vec![ConfigProject {
-            identifiers: vec!["urn:kpar:env_install_std_dep".to_owned()],
+            identifiers: vec!["urn:kpar:env-install-std-dep".to_owned()],
             sources: vec![OverrideSource::LocalSrc {
                 src_path: cwd_dep.as_str().into(),
             }],
@@ -171,7 +171,7 @@ fn env_install_transitive_std_deps_note() -> Result<(), Box<dyn std::error::Erro
         [
             "env",
             "install",
-            "urn:kpar:env_install_std_dep",
+            "urn:kpar:env-install-std-dep",
             "--no-index",
         ],
         Some(cfg_path.as_str()),
@@ -194,7 +194,7 @@ fn env_install_transitive_std_deps_note() -> Result<(), Box<dyn std::error::Erro
 /// "All usages are ignored" note instead of an empty/misleading usage list.
 #[test]
 fn info_all_usages_ignored_std_only() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "info_std_only", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "info-std-only", "1.2.3")?;
     out.assert().success();
 
     run_sysand_in(
@@ -232,7 +232,7 @@ fn info_all_usages_ignored_std_only() -> Result<(), Box<dyn std::error::Error>> 
 /// usage prints the normal usage plus the "Some usages are ignored" note.
 #[test]
 fn info_some_usages_ignored_mixed() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "info_mixed", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "info-mixed", "1.2.3")?;
     out.assert().success();
 
     run_sysand_in(

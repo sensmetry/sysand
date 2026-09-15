@@ -34,8 +34,8 @@ fn run_cli_expands_glob_pattern() -> Result<(), Box<dyn std::error::Error>> {
         let core = import_core(py)?;
 
         core.getattr("do_init_py_local_file")?.call1((
-            "windows_glob",
-            "a",
+            "windows-glob",
+            "acme",
             "1.0.0",
             proj_dir_path.as_str(),
         ))?;
