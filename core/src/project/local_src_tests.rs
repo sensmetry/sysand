@@ -373,8 +373,9 @@ fn a_model_toml_missing_a_required_key_reports_every_one() {
     }
 }
 
-/// A member's manifest read on its own, with no workspace to inherit
-/// from, says so.
+/// A project read on its own resolves against no table, so a member's
+/// manifest read that way says exactly that. `new_member` is the way to
+/// read one as a member.
 #[test]
 fn a_model_toml_that_inherits_outside_a_workspace_says_so() {
     let dir = tempdir().expect("a temporary directory");
@@ -803,4 +804,73 @@ fn a_json_project_hands_back_no_manifest_document() -> Result<(), Box<dyn std::e
         .manifest_document()
         .expect_err("a json project has no manifest document");
     Ok(())
+}
+
+// ------------------- a project that knows its workspace
+
+/// A table whose default group carries `version = "9.9.9"`.
+fn versioned_table() -> std::sync::Arc<crate::manifest::workspace_table::WorkspaceTable> {
+    std::sync::Arc::new(crate::manifest::workspace_table::WorkspaceTable {
+        default_group: crate::manifest::workspace_table::GroupProperties {
+            version: Some("9.9.9".parse().expect("a version")),
+            ..Default::default()
+        },
+        ..Default::default()
+    })
+}
+
+const INHERITS_VERSION: &str = "manifest-version = 1\n\n\
+     [project]\n\
+     publisher = \"acme\"\n\
+     name = \"widgets\"\n\
+     version.workspace = true\n\
+     sources = []\n";
+
+/// A member's marker follows the table it was given.
+#[test]
+fn a_member_project_resolves_against_its_table() {
+    let dir = tempdir().expect("a temporary directory");
+    write_model_toml(dir.path(), INHERITS_VERSION);
+
+    let (info, _) = LocalSrcProject::new_member(dir.path(), None, versioned_table())
+        .get_project()
+        .expect("a member reads");
+    assert_eq!(info.expect("an info").version, "9.9.9");
+}
+
+/// `manifest()` is a second read path with its own resolve, so it
+/// follows the table too.
+#[test]
+fn a_member_projects_manifest_resolves_against_its_table() {
+    let dir = tempdir().expect("a temporary directory");
+    write_model_toml(dir.path(), INHERITS_VERSION);
+
+    let manifest = crate::project::ProjectRead::manifest(&LocalSrcProject::new_member(
+        dir.path(),
+        None,
+        versioned_table(),
+    ))
+    .expect("a member's manifest reads");
+    assert_eq!(manifest.version.to_string(), "9.9.9");
+}
+
+/// A value the project states itself wins over the group's. The fixture
+/// collides on purpose: a table that agreed would prove nothing.
+#[test]
+fn a_member_project_prefers_its_own_values() {
+    let dir = tempdir().expect("a temporary directory");
+    write_model_toml(
+        dir.path(),
+        "manifest-version = 1\n\n\
+         [project]\n\
+         publisher = \"acme\"\n\
+         name = \"widgets\"\n\
+         version = \"1.2.3\"\n\
+         sources = []\n",
+    );
+
+    let (info, _) = LocalSrcProject::new_member(dir.path(), None, versioned_table())
+        .get_project()
+        .expect("a member reads");
+    assert_eq!(info.expect("an info").version, "1.2.3");
 }

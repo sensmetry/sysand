@@ -86,6 +86,18 @@ pub struct LocalSrcProject {
     // TODO: enforce that the project matches the checksum if provided
     // before reading; see LocalKparProject for example
     expected_checksum: Option<String>,
+    /// The workspace this project is a member of, if a caller said so.
+    ///
+    /// A member's manifest may carry inheritance markers, and resolving
+    /// with `None` refuses every one of them. Nothing goes looking for a
+    /// table: most `LocalSrcProject`s have no workspace and must keep
+    /// resolving with `None`, and a project that walked the filesystem
+    /// from inside a manifest parse would be a different thing.
+    ///
+    /// `Arc` because a `WorkspaceTable` is several hundred bytes and
+    /// this struct is a variant of `FileResolverProject`, for the same
+    /// reason the view below is boxed.
+    workspace: Option<std::sync::Arc<crate::manifest::workspace_table::WorkspaceTable>>,
     /// The pair a `model.toml` project answers with, computed once.
     ///
     /// Building it parses the manifest and then reads, hashes and
@@ -116,6 +128,7 @@ impl LocalSrcProject {
             nominal_path,
             project_path: path.into(),
             expected_checksum: None,
+            workspace: None,
             view: OnceCell::new(),
         }
     }
@@ -132,6 +145,19 @@ impl LocalSrcProject {
     ) -> Self {
         Self {
             expected_checksum: Some(checksum),
+            ..Self::new_access(path, nominal_path)
+        }
+    }
+
+    /// [`LocalSrcProject::new_access`] for a workspace member, whose
+    /// manifest resolves against `table`.
+    pub fn new_member(
+        path: impl Into<Utf8PathBuf>,
+        nominal_path: Option<Utf8UnixPathBuf>,
+        table: std::sync::Arc<crate::manifest::workspace_table::WorkspaceTable>,
+    ) -> Self {
+        Self {
+            workspace: Some(table),
             ..Self::new_access(path, nominal_path)
         }
     }
@@ -337,15 +363,16 @@ impl LocalSrcProject {
     /// read a source file safely from inside the project.
     fn read_model_toml(&self) -> Result<ViewPair, LocalSrcError> {
         let text = self.model_toml_text()?;
-        let (info, meta) = kpar_view::of_model_toml(&text, |source| {
-            let source_path = self.get_source_path(source)?;
-            Ok(wrapfs::read_to_string(&source_path)?)
-        })
-        .map_err(|error| match error {
-            ViewError::Manifest(error) => LocalSrcError::Deserialize(error),
-            ViewError::Read(error) => error,
-            ViewError::Symbols(error) => LocalSrcError::Symbols(error),
-        })?;
+        let (info, meta) =
+            kpar_view::of_model_toml_in(&text, self.workspace.as_deref(), |source| {
+                let source_path = self.get_source_path(source)?;
+                Ok(wrapfs::read_to_string(&source_path)?)
+            })
+            .map_err(|error| match error {
+                ViewError::Manifest(error) => LocalSrcError::Deserialize(error),
+                ViewError::Read(error) => error,
+                ViewError::Symbols(error) => LocalSrcError::Symbols(error),
+            })?;
 
         Ok((Some(info), Some(meta)))
     }
@@ -619,7 +646,7 @@ impl ProjectRead for LocalSrcProject {
             return Err(ManifestError::NoTomlManifest);
         }
         let text = self.model_toml_text().map_err(ManifestError::Project)?;
-        kpar_view::resolved_of_text(MODEL_TOML_FILE, &text)
+        kpar_view::resolved_of_text_in(MODEL_TOML_FILE, &text, self.workspace.as_deref())
             .map_err(|error| ManifestError::Project(LocalSrcError::Deserialize(error)))
     }
 

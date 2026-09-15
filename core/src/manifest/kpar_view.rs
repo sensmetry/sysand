@@ -28,6 +28,7 @@ use crate::manifest::common::Sources;
 use crate::manifest::diagnostics::Report;
 use crate::manifest::project::{ProjectManifest, ResolvedProject};
 use crate::manifest::usage::Usage;
+use crate::manifest::workspace_table::WorkspaceTable;
 use crate::manifest::{MODEL_TOML_FILE, ModelToml};
 use crate::model::{
     IndexName, IndexPublisher, InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw,
@@ -308,6 +309,10 @@ pub fn info(project: &ResolvedProject) -> InterchangeProjectInfoRaw {
             .as_ref()
             .map(|website| website.as_str().to_owned()),
         topic: project.topics.clone(),
+        // TODO: `located.base` is discarded. For a member that inherits
+        // a *group* `dir` usage the base is the workspace root, not the
+        // member, and a caller that reads its input usages from here
+        // would join the path onto the wrong directory.
         usage: project
             .usages
             .iter()
@@ -410,12 +415,27 @@ pub fn resolved_of_text(
     file: &str,
     text: &str,
 ) -> Result<ResolvedProject, ProjectDeserializationError> {
+    resolved_of_text_in(file, text, None)
+}
+
+/// [`resolved_of_text`], resolved against the workspace the project is a
+/// member of.
+///
+/// A member's manifest may carry inheritance markers, and `None` refuses
+/// every one of them: "`version` inherits from the default group, but
+/// the project is not a member of any workspace". A caller that knows
+/// which workspace this is passes its table.
+pub fn resolved_of_text_in(
+    file: &str,
+    text: &str,
+    table: Option<&WorkspaceTable>,
+) -> Result<ResolvedProject, ProjectDeserializationError> {
     let manifest: ProjectManifest = validate_manifest(file, ModelToml::parse(file, text))?
         .into_project(file)
         .map_err(|problem| {
             ProjectDeserializationError::invalid(file, Report::from_iter([problem]))
         })?;
-    validate_manifest(file, manifest.resolve(None))
+    validate_manifest(file, manifest.resolve(table))
 }
 
 /// The KPAR view of a `model.toml`, from its text.
@@ -429,7 +449,18 @@ pub fn of_text<E>(
     text: &str,
     read: impl FnMut(&Utf8UnixPath) -> Result<String, E>,
 ) -> Result<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw), ViewError<E>> {
-    let project = resolved_of_text(file, text)?;
+    of_text_in(file, text, None, read)
+}
+
+/// [`of_text`], resolved against the workspace the project is a member
+/// of. See [`resolved_of_text_in`].
+pub fn of_text_in<E>(
+    file: &str,
+    text: &str,
+    table: Option<&WorkspaceTable>,
+    read: impl FnMut(&Utf8UnixPath) -> Result<String, E>,
+) -> Result<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw), ViewError<E>> {
+    let project = resolved_of_text_in(file, text, table)?;
     view(&project, &VIEW_CREATED, read)
 }
 
@@ -439,7 +470,17 @@ pub fn of_model_toml<E>(
     text: &str,
     read: impl FnMut(&Utf8UnixPath) -> Result<String, E>,
 ) -> Result<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw), ViewError<E>> {
-    of_text(MODEL_TOML_FILE, text, read)
+    of_model_toml_in(text, None, read)
+}
+
+/// [`of_model_toml`], resolved against the workspace the project is a
+/// member of. See [`resolved_of_text_in`].
+pub fn of_model_toml_in<E>(
+    text: &str,
+    table: Option<&WorkspaceTable>,
+    read: impl FnMut(&Utf8UnixPath) -> Result<String, E>,
+) -> Result<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw), ViewError<E>> {
+    of_text_in(MODEL_TOML_FILE, text, table, read)
 }
 
 #[cfg(test)]
