@@ -7,12 +7,20 @@ use camino::{Utf8Path, Utf8PathBuf};
 use semver::Version;
 use sysand_core::{
     context::ProjectContext,
-    discover::{discover_project, discover_workspace},
+    discover::{discover_project, is_project_file},
     init::InitError,
+    manifest::{
+        MODEL_TOML_FILE,
+        edit::{push_member, validated},
+        workspace_table::Region,
+    },
     model::{IdentifierKind, ProjectName, ProjectPublisher},
-    project::{local_src::LocalSrcProject, utils::wrapfs},
+    project::{
+        local_src::LocalSrcProject,
+        utils::{relativize_path, wrapfs},
+    },
     utils::{RelativePathKind, parse_relative_unix_path},
-    workspace::Workspace,
+    workspace::model_toml::discover_table,
 };
 
 const DEFAULT_VERSION: &str = "0.0.1";
@@ -33,7 +41,10 @@ pub fn command_init(
         }
         None => Utf8PathBuf::from("."),
     };
-    warn_parent_project_workspace(&target, &ctx)?;
+    warn_parent_project(&target, &ctx)?;
+    // Before `do_init`, so that a refusal is about the workspace rather
+    // than about a file collision the workspace explains.
+    let member = workspace_member(&target)?;
 
     let version = version.unwrap_or_else(|| Version::parse(DEFAULT_VERSION).unwrap());
     // Whether the name was chosen or inherited decides whether there is
@@ -68,6 +79,86 @@ pub fn command_init(
     if has_license {
         log_license_files_note();
     }
+
+    // After, so a project that could not be written leaves no `members`
+    // entry pointing at nothing.
+    if let Some((root, path)) = member {
+        append_member(&root, &path)?;
+    }
+    Ok(())
+}
+
+/// workspaces.md "Command scopes": `init` "create[s] the project and
+/// append[s] it to `members`". `Ok(Some(..))` is the root to append to
+/// and the path to write; `Ok(None)` is every case where nothing is
+/// appended -- no workspace, or an excluded directory.
+///
+/// The table is read rather than the workspace loaded, so that an
+/// unrelated member's mistake does not block the one command that could
+/// fix it.
+fn workspace_member(target: &Utf8Path) -> Result<Option<(Utf8PathBuf, String)>> {
+    // `relativize_path` asserts absolute, dot-free paths, and `target`
+    // is a raw command-line argument.
+    let target = wrapfs::canonicalize(target)?;
+    let Some((root, table)) = discover_table(&target)? else {
+        return Ok(None);
+    };
+
+    // workspaces.md "Included projects": "Workspace root must not
+    // contain a project." `do_init` refuses this anyway -- the root
+    // holds a `model.toml` -- so what this adds is the sentence.
+    if target == root {
+        bail!(
+            "the workspace root must not contain a project;\n\
+            {SP:>8} create it in a subdirectory",
+            SP = ' '
+        );
+    }
+
+    let relative = relativize_path(&target, &root)?;
+    match table.region(&relative) {
+        Region::Member(_, entry) if relative == entry.path => bail!(
+            "`{relative}` is already member `{}`;\n\
+            {SP:>8} a member directory holds one project",
+            entry.raw,
+            SP = ' '
+        ),
+        Region::Member(_, entry) => bail!(
+            "`{relative}` lies inside member `{}`;\n\
+            {SP:>8} nested members are not supported",
+            entry.raw,
+            SP = ' '
+        ),
+        // "Anything under one of them is outside the workspace": a
+        // standalone project, which `members` must not list.
+        Region::Excluded(_) => Ok(None),
+        Region::Unlisted => {
+            // workspaces.md "Included projects": a project under the
+            // root in neither list is a hard error. Without this the
+            // author is told `model.toml` already exists, which is true
+            // and says nothing about the workspace the directory sits in.
+            if is_project_file(&target)? {
+                bail!(
+                    "the project at `{target}` lies under the workspace at `{root}`\n\
+                    {SP:>8} but is neither listed in `workspace.members` nor under\n\
+                    {SP:>8} `workspace.exclude`; add it to one of the two",
+                    SP = ' '
+                );
+            }
+            Ok(Some((root, relative.to_string())))
+        }
+    }
+}
+
+/// Add `path` to the root's `members`, through the editor, so that the
+/// rest of the file -- comments included -- is left alone.
+fn append_member(root: &Utf8Path, path: &str) -> Result<()> {
+    let file = root.join(MODEL_TOML_FILE);
+    let text = wrapfs::read_to_string(&file)?;
+    let mut document = validated(file.as_str(), &text)?;
+    push_member(&mut document, path)?;
+    wrapfs::write(&file, document.to_string())?;
+    log::info!("added `{path}` to the workspace at `{root}`");
     Ok(())
 }
 
@@ -82,42 +173,28 @@ fn default_name_from_path<P: AsRef<Utf8Path>>(path: P) -> Result<ProjectName> {
         .map_err(|(dir_name, e)| CliError::InvalidDirectoryName(dir_name, e))?)
 }
 
-pub fn warn_parent_project_workspace(target: &Utf8Path, ctx: &ProjectContext) -> Result<()> {
+/// Warn about a project above `target`. A workspace above it is
+/// [`workspace_member`]'s concern, which acts rather than warns.
+pub fn warn_parent_project(target: &Utf8Path, ctx: &ProjectContext) -> Result<()> {
     if parse_relative_unix_path(target.as_str(), RelativePathKind::SubDirectory).is_ok() {
         // Target is a subdirectory of cwd
         if let Some(existing_project) = &ctx.current_project {
-            warn_parent_project(existing_project);
-        }
-        if let Some(existing_workspace) = &ctx.current_workspace {
-            warn_parent_workspace(existing_workspace);
+            warn_found_project(existing_project);
         }
     } else {
         // Target may be out of cwd, so cwd-derived ctx is irrelevant
         if let Some(existing_project) = discover_project(target)? {
-            warn_parent_project(&existing_project);
-        }
-        if let Some(existing_workspace) = discover_workspace(target)? {
-            warn_parent_workspace(&existing_workspace);
+            warn_found_project(&existing_project);
         }
     }
     Ok(())
 }
 
-fn warn_parent_project(existing_project: &LocalSrcProject) {
+fn warn_found_project(existing_project: &LocalSrcProject) {
     log::warn!(
         "found an existing project in one of target path's parent\n\
         {:>8} directories `{}`",
         ' ',
         existing_project.root_path()
-    );
-}
-
-fn warn_parent_workspace(existing_workspace: &Workspace) {
-    log::warn!(
-        "found an existing workspace in one of target path's parent\n\
-        {:>8} directories `{}`;\n\
-        you may want to add this project to the workspace",
-        ' ',
-        existing_workspace.root_path()
     );
 }

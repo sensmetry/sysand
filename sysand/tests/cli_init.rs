@@ -566,3 +566,248 @@ fn arg<'a>(raw: Option<&&'a str>) -> Option<&'a str> {
         .map_or(raw, |rest| rest.strip_suffix(')').unwrap_or(rest));
     inner.strip_prefix('"')?.strip_suffix('"')
 }
+
+// ------------------------------------------------- `init` in a workspace
+
+use camino::{Utf8Path, Utf8PathBuf};
+
+const WORKSPACE: &str = "\
+manifest-version = 1
+
+[workspace]
+members = [\"app\"]
+";
+
+/// A workspace root with one member, in a temporary directory.
+fn workspace(root_text: &str) -> Result<camino_tempfile::Utf8TempDir, Box<dyn std::error::Error>> {
+    let dir = camino_tempfile::tempdir()?;
+    std::fs::write(dir.path().join("model.toml"), root_text)?;
+    Ok(dir)
+}
+
+fn member(dir: &Utf8Path, at: &str, name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    std::fs::create_dir_all(dir.join(at))?;
+    std::fs::write(
+        dir.join(at).join("model.toml"),
+        format!(
+            "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"{name}\"\n\
+             version = \"1.0.0\"\nsources = []\n"
+        ),
+    )?;
+    Ok(())
+}
+
+fn members_of(root: &Utf8Path) -> Result<String, Box<dyn std::error::Error>> {
+    Ok(std::fs::read_to_string(root.join("model.toml"))?)
+}
+
+fn init_in(
+    cwd: &Utf8Path,
+    target: &str,
+) -> Result<std::process::Output, Box<dyn std::error::Error>> {
+    run_sysand_in(
+        cwd,
+        ["init", "--publisher", "acme", "--name", "widgets", target],
+        None,
+    )
+}
+
+#[test]
+fn init_in_a_workspace_appends_the_member() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace(WORKSPACE)?;
+    member(dir.path(), "app", "alpha")?;
+
+    init_in(dir.path(), "lib")?.assert().success();
+
+    let text = members_of(dir.path())?;
+    assert!(text.contains("\"lib\""), "{text}");
+    assert!(dir.path().join("lib").join("model.toml").exists());
+    Ok(())
+}
+
+/// An absolute entry would be refused by `normalize_relative`, so this
+/// fails loudly rather than silently writing the wrong thing.
+#[test]
+fn init_appends_the_path_relative_to_the_root() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace(WORKSPACE)?;
+    member(dir.path(), "app", "alpha")?;
+
+    init_in(dir.path(), "nested/lib")?.assert().success();
+
+    let text = members_of(dir.path())?;
+    assert!(text.contains("\"nested/lib\""), "{text}");
+    Ok(())
+}
+
+#[test]
+fn init_from_a_subdirectory_appends_relative_to_the_root() -> Result<(), Box<dyn std::error::Error>>
+{
+    let dir = workspace(WORKSPACE)?;
+    member(dir.path(), "app", "alpha")?;
+    let below: Utf8PathBuf = dir.path().join("nested");
+    std::fs::create_dir_all(&below)?;
+
+    init_in(&below, "lib")?.assert().success();
+
+    let text = members_of(dir.path())?;
+    assert!(text.contains("\"nested/lib\""), "{text}");
+    Ok(())
+}
+
+/// The target holds nothing, so an unrefused mutation would *succeed*.
+#[test]
+fn init_inside_a_member_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace(WORKSPACE)?;
+    member(dir.path(), "app", "alpha")?;
+
+    init_in(dir.path(), "app/sub")?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("lies inside member `app`"))
+        .stderr(predicate::str::contains("nested members are not supported"));
+    Ok(())
+}
+
+/// "lies inside member `app`" is false of `app` itself. The directory
+/// holds a `model.toml`, so the text is what distinguishes this from
+/// the collision `init` would report anyway.
+#[test]
+fn init_at_a_member_directory_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace(WORKSPACE)?;
+    member(dir.path(), "app", "alpha")?;
+
+    init_in(dir.path(), "app")?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("is already member `app`"));
+    Ok(())
+}
+
+#[test]
+fn init_under_an_excluded_directory_is_created_but_not_listed()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace(
+        "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\nexclude = [\"vendor\"]\n",
+    )?;
+    member(dir.path(), "app", "alpha")?;
+
+    init_in(dir.path(), "vendor/thing")?.assert().success();
+
+    assert!(dir.path().join("vendor/thing/model.toml").exists());
+    let text = members_of(dir.path())?;
+    // The root text names `vendor` in `exclude`; what must not change
+    // is `members`.
+    assert!(
+        text.contains("members = [\"app\"]"),
+        "`members` must be left alone: {text}"
+    );
+    Ok(())
+}
+
+#[test]
+fn init_at_the_workspace_root_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace(WORKSPACE)?;
+    member(dir.path(), "app", "alpha")?;
+
+    init_in(dir.path(), ".")?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "the workspace root must not contain a project",
+        ));
+    Ok(())
+}
+
+/// workspaces.md "Included projects": a project under the root in
+/// neither list is a hard error. Without it the author is told
+/// `model.toml` already exists, which says nothing about the workspace.
+#[test]
+fn init_in_an_unlisted_existing_project_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace(WORKSPACE)?;
+    member(dir.path(), "app", "alpha")?;
+    member(dir.path(), "stray", "delta")?;
+
+    init_in(dir.path(), "stray")?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "is neither listed in `workspace.members` nor under",
+        ));
+    Ok(())
+}
+
+/// Creating a new project cannot be blocked by an unrelated member's
+/// mistake.
+#[test]
+fn init_in_a_workspace_with_a_broken_member_still_works() -> Result<(), Box<dyn std::error::Error>>
+{
+    let dir = workspace("manifest-version = 1\n\n[workspace]\nmembers = [\"app\", \"gone\"]\n")?;
+    member(dir.path(), "app", "alpha")?;
+
+    init_in(dir.path(), "lib")?.assert().success();
+
+    let text = members_of(dir.path())?;
+    assert!(text.contains("\"lib\""), "{text}");
+    Ok(())
+}
+
+/// The target must be one that reaches `do_init` and *then* fails --
+/// an empty directory with a publisher the manifest refuses. A target
+/// that already holds a project would be refused as unlisted first, and
+/// the test would pass without the ordering being right.
+#[test]
+fn init_does_not_append_when_the_project_could_not_be_created()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace(WORKSPACE)?;
+    member(dir.path(), "app", "alpha")?;
+
+    run_sysand_in(
+        dir.path(),
+        ["init", "--publisher", "x", "--name", "widgets", "half"],
+        None,
+    )?
+    .assert()
+    .failure();
+
+    let text = members_of(dir.path())?;
+    assert!(!text.contains("half"), "nothing may be appended: {text}");
+    Ok(())
+}
+
+/// The rule is keyed on the target, not on cwd.
+#[test]
+fn init_targeting_outside_the_workspace_from_a_member_succeeds()
+-> Result<(), Box<dyn std::error::Error>> {
+    let outer = camino_tempfile::tempdir()?;
+    let root = outer.path().join("ws");
+    std::fs::create_dir_all(&root)?;
+    std::fs::write(root.join("model.toml"), WORKSPACE)?;
+    member(&root, "app", "alpha")?;
+
+    init_in(&root.join("app"), "../../elsewhere")?
+        .assert()
+        .success();
+
+    assert!(outer.path().join("elsewhere/model.toml").exists());
+    let text = members_of(&root)?;
+    assert!(!text.contains("elsewhere"), "{text}");
+    Ok(())
+}
+
+/// `init` edits through the editor rather than re-rendering the file.
+#[test]
+fn the_appended_entry_leaves_the_rest_of_the_file_alone() -> Result<(), Box<dyn std::error::Error>>
+{
+    let dir = workspace(
+        "# the workspace\nmanifest-version = 1\n\n[workspace]\nmembers = [\n  \"app\", # first\n]\n",
+    )?;
+    member(dir.path(), "app", "alpha")?;
+
+    init_in(dir.path(), "lib")?.assert().success();
+
+    let text = members_of(dir.path())?;
+    assert!(text.starts_with("# the workspace\n"), "{text}");
+    assert!(text.contains("# first"), "{text}");
+    assert!(text.contains("\"lib\""), "{text}");
+    Ok(())
+}
