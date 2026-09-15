@@ -2146,7 +2146,7 @@ fn edit_metamodel_on_a_toml_project_is_not_yet_supported() -> Result<(), Box<dyn
 /// project Sysand actually accepts rather than merely plausible json.
 #[test]
 fn a_hand_written_legacy_project_is_read() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "widgets", "1.2.3")?;
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "widgets", "1.2.3", None)?;
 
     let out = run_sysand_in(&cwd, ["info"], None)?;
 
@@ -2156,5 +2156,41 @@ fn a_hand_written_legacy_project_is_read() -> Result<(), Box<dyn Error>> {
         .stdout(predicate::str::contains("acme"))
         .stdout(predicate::str::contains("1.2.3"));
 
+    Ok(())
+}
+
+/// The fixture's license is written exactly as `init --license` writes
+/// it: a `skip_serializing_if` key, so present or absent changes the
+/// bytes.
+#[test]
+fn a_hand_written_legacy_project_carries_its_license() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "widgets", "1.2.3", Some("MIT"))?;
+    let by_hand = std::fs::read_to_string(cwd.join(".project.json"))?;
+
+    let (_temp_dir, cli_cwd, out) =
+        cli_init_project(None, "acme", Some("widgets"), Some("1.2.3"), Some("MIT"))?;
+    out.assert().success();
+
+    assert_eq!(
+        by_hand,
+        std::fs::read_to_string(cli_cwd.join(".project.json"))?
+    );
+    Ok(())
+}
+
+/// The legacy counterpart of `cli_init_project_in`: a directory that
+/// already exists.
+#[test]
+fn a_legacy_project_can_be_written_into_an_existing_directory() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    let nested = cwd.join("member");
+    std::fs::create_dir_all(&nested)?;
+
+    write_legacy_project(&nested, "acme", "widgets", "1.2.3", None)?;
+
+    let out = run_sysand_in(&nested, ["info"], None)?;
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains("widgets"));
     Ok(())
 }

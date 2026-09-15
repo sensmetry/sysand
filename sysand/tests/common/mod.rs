@@ -300,6 +300,7 @@ pub fn cli_init_json_project(
     publisher: &str,
     name: &str,
     version: &str,
+    license: Option<&str>,
 ) -> Result<(Utf8TempDir, Utf8PathBuf), Box<dyn Error>> {
     let (temp_dir, cwd) = new_temp_cwd()?;
     let project_dir = match path {
@@ -310,22 +311,30 @@ pub fn cli_init_json_project(
         }
         None => cwd.clone(),
     };
-    write_legacy_project(&project_dir, publisher, name, version)?;
+    write_legacy_project(&project_dir, publisher, name, version, license)?;
     Ok((temp_dir, cwd))
 }
 
-/// The pair itself, for a directory that already exists.
+/// The pair itself, for a directory that already exists -- the legacy
+/// counterpart of [`cli_init_project_in`].
 pub fn write_legacy_project(
     dir: &Utf8Path,
     publisher: &str,
     name: &str,
     version: &str,
+    license: Option<&str>,
 ) -> Result<(), Box<dyn Error>> {
-    let info = serde_json::json!({
-        "name": name,
-        "publisher": publisher,
-        "version": version,
-    });
+    // `license` is a `skip_serializing_if` key, so a fixture that
+    // always wrote it -- or never did -- would not be byte-identical to
+    // a real legacy project.
+    let mut info = serde_json::Map::new();
+    info.insert("name".to_owned(), name.into());
+    info.insert("publisher".to_owned(), publisher.into());
+    info.insert("version".to_owned(), version.into());
+    if let Some(license) = license {
+        info.insert("license".to_owned(), license.into());
+    }
+    let info = serde_json::Value::Object(info);
     let meta = serde_json::json!({
         "index": {},
         "created": format!("{:.0}", jiff::Timestamp::now()),
