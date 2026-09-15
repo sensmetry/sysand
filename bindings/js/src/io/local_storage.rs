@@ -87,6 +87,8 @@ pub enum Error {
          (see `sysand migrate`)"
     )]
     TomlWriteToJsonProject,
+    #[error(transparent)]
+    Deserialize(#[from] sysand_core::project::utils::ProjectDeserializationError),
     /// A source file listed in `sources` could not be indexed.
     #[error(transparent)]
     Symbols(#[from] sysand_core::symbols::SymbolsError),
@@ -147,6 +149,49 @@ impl ProjectLocalBrowserStorage {
 
 impl ProjectRead for ProjectLocalBrowserStorage {
     type Error = Error;
+
+    /// The project's own manifest, as [`LocalSrcProject`] answers it.
+    ///
+    /// This store reads a `model.toml` and had no way to hand one back:
+    /// it would have claimed to have none for a project it demonstrably
+    /// has one for.
+    fn manifest(
+        &self,
+    ) -> Result<
+        sysand_core::manifest::project::ResolvedProject,
+        sysand_core::project::ManifestError<Self::Error>,
+    > {
+        use sysand_core::project::ManifestError;
+
+        if self.format().map_err(ManifestError::Project)? != ProjectFormat::Toml {
+            return Err(ManifestError::NoTomlManifest);
+        }
+        let text = self
+            .vfs
+            .read_string(self.root_path.join(MODEL_TOML_FILE))
+            .map_err(|e| ManifestError::Project(Error::from(e)))?;
+        kpar_view::resolved_of_text(MODEL_TOML_FILE, &text)
+            .map_err(|e| ManifestError::Project(Error::Deserialize(e)))
+    }
+
+    fn manifest_document(
+        &self,
+    ) -> Result<
+        sysand_core::manifest::edit::DocumentMut,
+        sysand_core::project::ManifestError<Self::Error>,
+    > {
+        use sysand_core::project::ManifestError;
+
+        if self.format().map_err(ManifestError::Project)? != ProjectFormat::Toml {
+            return Err(ManifestError::NoTomlManifest);
+        }
+        let text = self
+            .vfs
+            .read_string(self.root_path.join(MODEL_TOML_FILE))
+            .map_err(|e| ManifestError::Project(Error::from(e)))?;
+        sysand_core::manifest::edit::validated(MODEL_TOML_FILE, &text)
+            .map_err(|e| ManifestError::Project(Error::Deserialize(e)))
+    }
 
     fn format(&self) -> Result<ProjectFormat, Self::Error> {
         let toml = self.vfs.exists(self.root_path.join(MODEL_TOML_FILE))?;

@@ -264,6 +264,20 @@ impl ProjectRead for FileResolverProject {
         }
     }
 
+    /// Forwarded for the same reason as [`Self::format`].
+    fn manifest_document(
+        &self,
+    ) -> Result<sysand_core::manifest::edit::DocumentMut, project::ManifestError<Self::Error>> {
+        match self {
+            Self::LocalSrcProject(project) => project
+                .manifest_document()
+                .map_err(|e| e.map_project_read(Into::into)),
+            Self::LocalKParProject(project) => project
+                .manifest_document()
+                .map_err(|e| e.map_project_read(Into::into)),
+        }
+    }
+
     type Error = FileResolverProjectError;
 
     fn get_project(

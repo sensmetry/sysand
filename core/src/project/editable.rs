@@ -54,6 +54,13 @@ impl<P: ProjectRead> ProjectRead for EditableProject<P> {
         self.inner.manifest()
     }
 
+    fn manifest_document(
+        &self,
+    ) -> Result<crate::manifest::edit::DocumentMut, crate::project::ManifestError<Self::Error>>
+    {
+        self.inner.manifest_document()
+    }
+
     type Error = P::Error;
 
     fn get_project(

@@ -780,3 +780,25 @@ fn a_manifest_overwritten_after_a_read_is_read_again() -> Result<(), Box<dyn std
     assert_eq!(info.expect("info").version, "2.0.0");
     Ok(())
 }
+
+#[test]
+fn a_local_project_hands_back_its_manifest_document() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    let commented = "manifest-version = 1\n\n[project]\n# who publishes it\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n";
+    write_model_toml(dir.path(), commented);
+    let project = LocalSrcProject::new_access(dir.path(), None);
+
+    let document = project.manifest_document().expect("a document");
+    assert_eq!(document.to_string(), commented);
+    Ok(())
+}
+
+#[test]
+fn a_json_project_hands_back_no_manifest_document() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    write_project_json(dir.path(), r#"{"name":"widgets","version":"1.0.0"}"#);
+    let project = LocalSrcProject::new_access(dir.path(), None);
+
+    assert!(project.manifest_document().is_err());
+    Ok(())
+}

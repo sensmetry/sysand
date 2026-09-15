@@ -603,6 +603,17 @@ impl ProjectRead for LocalSrcProject {
         Ok(detect_format(&self.project_path)?)
     }
 
+    fn manifest_document(
+        &self,
+    ) -> Result<crate::manifest::edit::DocumentMut, ManifestError<Self::Error>> {
+        if self.format().map_err(ManifestError::Project)? != ProjectFormat::Toml {
+            return Err(ManifestError::NoTomlManifest);
+        }
+        let text = self.model_toml_text().map_err(ManifestError::Project)?;
+        crate::manifest::edit::validated(MODEL_TOML_FILE, &text)
+            .map_err(|e| ManifestError::Project(LocalSrcError::Deserialize(e)))
+    }
+
     fn manifest(&self) -> Result<ResolvedProject, ManifestError<Self::Error>> {
         if self.format().map_err(ManifestError::Project)? != ProjectFormat::Toml {
             return Err(ManifestError::NoTomlManifest);

@@ -266,6 +266,16 @@ impl ProjectRead for InMemoryProject {
         })
     }
 
+    fn manifest_document(
+        &self,
+    ) -> Result<crate::manifest::edit::DocumentMut, ManifestError<InMemoryError>> {
+        let Some(text) = &self.model_toml else {
+            return Err(ManifestError::NoTomlManifest);
+        };
+        crate::manifest::edit::validated(MODEL_TOML_FILE, text)
+            .map_err(|e| ManifestError::Project(InMemoryError::Manifest(e)))
+    }
+
     fn manifest(&self) -> Result<ResolvedProject, ManifestError<InMemoryError>> {
         let Some(text) = &self.model_toml else {
             return Err(ManifestError::NoTomlManifest);

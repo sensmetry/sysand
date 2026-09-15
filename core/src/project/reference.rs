@@ -48,6 +48,13 @@ impl<Project: ProjectRead> ProjectRead for ProjectReference<Project> {
         self.project.manifest()
     }
 
+    fn manifest_document(
+        &self,
+    ) -> Result<crate::manifest::edit::DocumentMut, crate::project::ManifestError<Self::Error>>
+    {
+        self.project.manifest_document()
+    }
+
     type Error = Project::Error;
 
     fn get_project(
