@@ -2167,22 +2167,37 @@ fn a_hand_written_legacy_project_is_read() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// The fixture's license is written exactly as `init --license` writes
-/// it: a `skip_serializing_if` key, so present or absent changes the
-/// bytes.
+/// The bytes a legacy project is made of, frozen.
+///
+/// `sysand init` writes a `model.toml`, so there is no command output
+/// to compare the fixture against, and many tests depend on it being
+/// what a legacy project looks like. So the bytes are pinned here. They
+/// were taken from `sysand init --publisher acme --name widgets
+/// --version 1.2.3 --license MIT` at commit `117558d`, whose `init`
+/// wrote the json pair. Changing them is a deliberate edit of a
+/// recorded value, not a drift.
 #[test]
-fn a_hand_written_legacy_project_carries_its_license() -> Result<(), Box<dyn Error>> {
+fn the_legacy_fixture_writes_these_exact_bytes() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "widgets", "1.2.3", Some("MIT"))?;
-    let by_hand = std::fs::read_to_string(cwd.join(".project.json"))?;
-
-    let (_temp_dir, cli_cwd, out) =
-        cli_init_project(None, "acme", Some("widgets"), Some("1.2.3"), Some("MIT"))?;
-    out.assert().success();
 
     assert_eq!(
-        by_hand,
-        std::fs::read_to_string(cli_cwd.join(".project.json"))?
+        std::fs::read_to_string(cwd.join(".project.json"))?,
+        "{\n  \"name\": \"widgets\",\n  \"publisher\": \"acme\",\n  \"version\": \"1.2.3\",\n  \"license\": \"MIT\"\n}\n"
     );
+
+    // `created` is a timestamp, so the meta document is pinned by shape.
+    let meta = std::fs::read_to_string(cwd.join(".meta.json"))?;
+    assert!(meta.starts_with("{\n  \"index\": {},\n  \"created\": \""));
+    assert!(meta.ends_with("\"\n}\n"));
+
+    // Without a license the key is absent, not empty: it is a
+    // `skip_serializing_if` field.
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "widgets", "1.2.3", None)?;
+    assert_eq!(
+        std::fs::read_to_string(cwd.join(".project.json"))?,
+        "{\n  \"name\": \"widgets\",\n  \"publisher\": \"acme\",\n  \"version\": \"1.2.3\"\n}\n"
+    );
+
     Ok(())
 }
 
