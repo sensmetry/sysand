@@ -5,10 +5,11 @@ use thiserror::Error;
 
 use crate::{
     env::ReadEnvironment,
+    manifest::usage::{MemberUsage, Usage},
     model::{
         IndexName, IndexPublisher, InterchangeProjectUsageRaw, InterchangeProjectValidationError,
     },
-    project::{ProjectMut, ProjectRead, utils::Identifier},
+    project::{ProjectFormat, ProjectMut, ProjectRead, utils::Identifier},
     utils::SP,
 };
 
@@ -48,6 +49,14 @@ pub enum AddError<ProjectError> {
         existing: String,
         new: String,
     },
+    /// The usage has no `model.toml` form. Three different reasons, and
+    /// the message names which.
+    #[error(transparent)]
+    NoManifestForm(crate::manifest::kpar_view::NoManifestForm),
+    #[error(transparent)]
+    Edit(crate::manifest::edit::EditError),
+    #[error("failed to read the project's `model.toml`: {0}")]
+    Manifest(Box<str>),
 }
 
 /// Why [`spell_index_usage`] could not settle the spelling of an index usage
@@ -314,6 +323,72 @@ pub fn index_usage_to_add<E>(
     })
 }
 
+/// `add` on a `model.toml` project: append an `[[inline-usages]]` entry.
+///
+/// The json arm's four "already present" cases are reproduced rather
+/// than inheriting `push_usage`'s outright refusal, because the `bool`
+/// this function returns is part of its contract: `false` means the
+/// usage was already there and nothing was written.
+fn add_toml<P: ProjectMut>(
+    project: &mut P,
+    usage_raw: &InterchangeProjectUsageRaw,
+) -> Result<bool, AddError<P::Error>> {
+    use crate::manifest::edit;
+
+    let usage =
+        crate::manifest::kpar_view::usage_of_raw(usage_raw, crate::manifest::MODEL_TOML_FILE)
+            .map_err(AddError::NoManifestForm)?;
+    let identity = usage.identity();
+
+    let mut document = project.manifest_document().map_err(|e| match e {
+        crate::project::ManifestError::Project(e) => AddError::Project(e),
+        crate::project::ManifestError::NoTomlManifest => {
+            AddError::Manifest("this project has no `model.toml` manifest".into())
+        }
+    })?;
+
+    // Already declared? Then the question is only whether the
+    // constraint changes, which is what the json arm asks too.
+    if edit::usage_constraint(&document, &identity).is_some() {
+        let new = match &usage {
+            Usage::Index {
+                version_constraint, ..
+            } => Some(version_constraint.clone()),
+            _ => None,
+        };
+        let Some(new) = new else {
+            log::warn!("ignoring usage `{identity}`, since it is already present");
+            return Ok(false);
+        };
+        let current = edit::usage_constraint(&document, &identity).flatten();
+        if current.as_ref() == Some(&new.to_string()) {
+            log::warn!("ignoring usage `{identity}`, since it is already present");
+            return Ok(false);
+        }
+        edit::set_usage_version(&mut document, &identity, &new).map_err(AddError::Edit)?;
+        write_manifest(project, &document)?;
+        return Ok(true);
+    }
+
+    edit::push_usage(&mut document, &MemberUsage::Declared(usage)).map_err(AddError::Edit)?;
+    write_manifest(project, &document)?;
+    Ok(true)
+}
+
+fn write_manifest<P: ProjectMut>(
+    project: &mut P,
+    document: &crate::manifest::edit::DocumentMut,
+) -> Result<(), AddError<P::Error>> {
+    project
+        .put_manifest_document(document, true)
+        .map_err(|e| match e {
+            crate::project::ManifestWriteError::Project(e) => AddError::Project(e),
+            crate::project::ManifestWriteError::Unsupported => {
+                AddError::Manifest("this project cannot store a `model.toml`".into())
+            }
+        })
+}
+
 /// Ok(true) => project info changed: the usage was added, or an existing
 /// usage of it was updated
 /// Ok(false) => usage already present in project info as given
@@ -332,6 +407,12 @@ pub fn do_add<P: ProjectMut>(
     let adding = "Adding";
     let header = crate::style::get_style_config().header;
     log::info!("{header}{adding:>12}{header:#} usage: {usage_raw}");
+
+    // `Both` falls through to the json arm, where `get_info` refuses it
+    // as the ambiguity it is.
+    if project.format().map_err(AddError::Project)? == ProjectFormat::Toml {
+        return add_toml(project, &usage);
+    }
 
     if let Some(info) = project.get_info().map_err(AddError::Project)?.as_mut() {
         let mut dont_add = false;

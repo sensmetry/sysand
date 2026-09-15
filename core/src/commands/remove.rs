@@ -5,7 +5,7 @@ use thiserror::Error;
 
 use crate::{
     model::{InterchangeProjectUsageRaw, InterchangeProjectValidationError, UsageRef},
-    project::{ProjectMut, utils::Identifier},
+    project::{ProjectFormat, ProjectMut, ProjectRead as _, utils::Identifier},
 };
 
 #[derive(Error, Debug)]
@@ -38,6 +38,55 @@ pub enum RemoveError<ProjectError> {
     MissingInfo,
 }
 
+/// `remove` on a `model.toml` project.
+///
+/// This matches *more* than the json arm does for an IRI: there a
+/// `Resource` usage is matched by its literal IRI, while a manifest
+/// entry is matched by its normalized identity whatever kind it is. So
+/// `sysand remove acme/lib`, or `sysand remove pkg:sysand/acme/lib`,
+/// removes a `dir` entry here.
+///
+/// The usage has to name a project, so one identified by anything but a
+/// `pkg:sysand` PURL or a `publisher/name` pair cannot be removed by
+/// name -- which is the same reason it could not have been added.
+fn remove_toml<P: ProjectMut>(
+    project: &mut P,
+    usage: &UsageRef<'_>,
+) -> Result<Vec<InterchangeProjectUsageRaw>, RemoveError<P::Error>> {
+    use crate::manifest::{common::normalized_identity, edit};
+    use crate::model::{IndexName, IndexPublisher};
+
+    let not_found = || RemoveError::UsageNotFound(usage.to_string().into_boxed_str());
+    let (publisher, name) = match usage {
+        UsageRef::Typed(publisher, name) => ((*publisher).to_owned(), (*name).to_owned()),
+        UsageRef::Resource(iri) => match crate::purl::parse_sysand_purl(iri.as_str()) {
+            Ok(Some((publisher, name))) => (publisher.to_owned(), name.to_owned()),
+            _ => return Err(not_found()),
+        },
+    };
+    let publisher = IndexPublisher::parse(publisher).map_err(|_not_an_identity| not_found())?;
+    let name = IndexName::parse(name).map_err(|_not_an_identity| not_found())?;
+    let identity = normalized_identity(&publisher, &name);
+
+    let mut document = project.manifest_document().map_err(|e| match e {
+        crate::project::ManifestError::Project(e) => RemoveError::Project(e),
+        crate::project::ManifestError::NoTomlManifest => RemoveError::MissingInfo,
+    })?;
+
+    edit::remove_usage(&mut document, &identity).map_err(|_not_declared| not_found())?;
+
+    project
+        .put_manifest_document(&document, true)
+        .map_err(|e| match e {
+            crate::project::ManifestWriteError::Project(e) => RemoveError::Project(e),
+            crate::project::ManifestWriteError::Unsupported => RemoveError::MissingInfo,
+        })?;
+
+    // The json arm hands back what it removed; a manifest entry has no
+    // `.project.json` shape, so nothing is handed back here.
+    Ok(vec![])
+}
+
 /// Remove the usages matching `usage` according to [`UsageRef::matches`]
 pub fn do_remove<P: ProjectMut>(
     project: &mut P,
@@ -46,6 +95,12 @@ pub fn do_remove<P: ProjectMut>(
     let removing = "Removing";
     let header = crate::style::get_style_config().header;
     log::info!("{header}{removing:>12}{header:#} `{usage}` from usages");
+
+    // `Both` falls through to the json arm, where `get_info` refuses it
+    // as the ambiguity it is.
+    if project.format().map_err(RemoveError::Project)? == ProjectFormat::Toml {
+        return remove_toml(project, &usage);
+    }
 
     let Some(mut info) = project.get_info().map_err(RemoveError::Project)? else {
         return Err(RemoveError::MissingInfo);
