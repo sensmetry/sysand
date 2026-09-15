@@ -22,7 +22,9 @@ use spdx::Expression;
 use typed_path::Utf8UnixPathBuf;
 
 use crate::manifest::common::{InheritFrom, Maintainer, ResolvedUrls, is_valid_group_name};
-use crate::manifest::diagnostics::{Diagnostic, KeyLocation, ReadWarning, Report, Validated};
+use crate::manifest::diagnostics::{
+    Diagnostic, KeyLocation, Position, ReadWarning, Report, Validated,
+};
 use crate::manifest::reader::{TableReader, checked, maintainers, parsed};
 use crate::manifest::spans::Positions;
 use crate::manifest::usage::{Usage, UsageRaw, UsageSite, check_duplicates};
@@ -88,13 +90,31 @@ pub struct GroupProperties {
 
 /// One entry of `members` or `exclude`.
 ///
-/// Both spellings are kept: every path comparison uses the normalized
-/// one, while `--member <path>` matches a `members` entry "literally"
-/// (workspaces.md "Command scopes").
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// An entry is admitted only in its normalized form (workspaces.md
+/// "Included projects"), so the two spellings are always equal. Both are
+/// kept because they answer different questions: every path comparison
+/// uses the typed one, while `--member <path>` matches a `members` entry
+/// "literally" (workspaces.md "Command scopes").
+#[derive(Clone, Debug, Eq)]
 pub struct MemberPath {
     pub raw: String,
     pub path: Utf8UnixPathBuf,
+    /// Where the entry was written, so that a diagnostic *about the
+    /// directory* -- a member requirement or stray state, raised long
+    /// after this table was read -- can point at the line that named it.
+    ///
+    /// `None` when the document carried no span index, which is what a
+    /// hand-built table has.
+    pub at: Option<Position>,
+}
+
+/// A path is where it points and how it was spelled. Where it was
+/// *written* is provenance for a message, so two entries naming the same
+/// directory from different lines are the same path.
+impl PartialEq for MemberPath {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw == other.raw && self.path == other.path
+    }
 }
 
 /// The `[workspace]` table, validated.
@@ -383,6 +403,7 @@ fn member_paths(
         paths.push(MemberPath {
             raw: (*entry).to_owned(),
             path,
+            at: at(),
         });
     }
     paths

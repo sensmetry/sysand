@@ -411,6 +411,7 @@ fn member(raw: &str) -> MemberPath {
     MemberPath {
         raw: raw.to_owned(),
         path: crate::utils::normalize_relative(raw).expect("a valid member path"),
+        at: None,
     }
 }
 
