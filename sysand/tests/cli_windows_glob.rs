@@ -19,7 +19,7 @@ pub use common::*;
 
 #[test]
 fn include_expands_glob_pattern() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "windows_glob", "1.0.0")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "windows-glob", "1.0.0")?;
 
     out.assert().success();
 

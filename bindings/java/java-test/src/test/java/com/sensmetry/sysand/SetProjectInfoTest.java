@@ -23,7 +23,7 @@ public class SetProjectInfoTest {
 
     private Path initProject() throws Exception {
         Path tempDir = Files.createTempDirectory("sysand-test-set-info");
-        Sysand.init("original", "pub", "1.0.0", null, tempDir);
+        Sysand.init("original", "publisher-co", "1.0.0", null, tempDir);
         return tempDir;
     }
 
@@ -34,7 +34,7 @@ public class SetProjectInfoTest {
         Path dir = initProject();
 
         InterchangeProjectInfo updated = new InterchangeProjectInfo(
-                "original", "pub", null, "2.0.0", null,
+                "original", "publisher-co", null, "2.0.0", null,
                 new String[]{}, null, new String[]{},
                 new InterchangeProjectUsage[]{});
         Sysand.setProjectInfo(dir, updated);
@@ -48,7 +48,7 @@ public class SetProjectInfoTest {
         Path dir = initProject();
 
         InterchangeProjectInfo updated = new InterchangeProjectInfo(
-                "renamed", "pub", null, "1.0.0", null,
+                "renamed", "publisher-co", null, "1.0.0", null,
                 new String[]{}, null, new String[]{},
                 new InterchangeProjectUsage[]{});
         Sysand.setProjectInfo(dir, updated);
@@ -87,7 +87,7 @@ public class SetProjectInfoTest {
                 new InterchangeProjectUsageResource("urn:example:dep-b", null),
         };
         InterchangeProjectInfo updated = new InterchangeProjectInfo(
-                "original", "pub", null, "1.0.0", null,
+                "original", "publisher-co", null, "1.0.0", null,
                 new String[]{}, null, new String[]{}, usages);
         Sysand.setProjectInfo(dir, updated);
 
@@ -107,14 +107,14 @@ public class SetProjectInfoTest {
 
         // First update
         InterchangeProjectInfo first = new InterchangeProjectInfo(
-                "first", "pub", null, "1.0.0", null,
+                "first", "publisher-co", null, "1.0.0", null,
                 new String[]{}, null, new String[]{},
                 new InterchangeProjectUsage[]{});
         Sysand.setProjectInfo(dir, first);
 
         // Second update overwrites
         InterchangeProjectInfo second = new InterchangeProjectInfo(
-                "second", "pub", null, "2.0.0", null,
+                "second", "publisher-co", null, "2.0.0", null,
                 new String[]{}, null, new String[]{},
                 new InterchangeProjectUsage[]{});
         Sysand.setProjectInfo(dir, second);
@@ -129,7 +129,7 @@ public class SetProjectInfoTest {
         Path dir = initProject();
 
         InterchangeProjectInfo updated = new InterchangeProjectInfo(
-                "persisted", "pub", null, "3.0.0", "Apache-2.0",
+                "persisted", "publisher-co", null, "3.0.0", "Apache-2.0",
                 new String[]{}, null, new String[]{},
                 new InterchangeProjectUsage[]{});
         Sysand.setProjectInfo(dir, updated);
@@ -150,7 +150,7 @@ public class SetProjectInfoTest {
         Sysand.setProjectIndex(dir, index);
 
         InterchangeProjectInfo updated = new InterchangeProjectInfo(
-                "original", "pub", null, "9.9.9", null,
+                "original", "publisher-co", null, "9.9.9", null,
                 new String[]{}, null, new String[]{},
                 new InterchangeProjectUsage[]{});
         Sysand.setProjectInfo(dir, updated);
@@ -168,7 +168,7 @@ public class SetProjectInfoTest {
         InterchangeProjectUsageDirectory usage = new InterchangeProjectUsageDirectory(
                 "../some-dep", "acme", "lib");
         InterchangeProjectInfo updated = new InterchangeProjectInfo(
-                "original", "pub", null, "1.0.0", null,
+                "original", "publisher-co", null, "1.0.0", null,
                 new String[]{}, null, new String[]{},
                 new InterchangeProjectUsage[]{usage});
 
@@ -191,7 +191,7 @@ public class SetProjectInfoTest {
         InterchangeProjectUsageKparPath usage = new InterchangeProjectUsageKparPath(
                 "deps/lib.kpar", "acme", "lib");
         InterchangeProjectInfo updated = new InterchangeProjectInfo(
-                "original", "pub", null, "1.0.0", null,
+                "original", "publisher-co", null, "1.0.0", null,
                 new String[]{}, null, new String[]{},
                 new InterchangeProjectUsage[]{usage});
 

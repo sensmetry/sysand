@@ -366,13 +366,13 @@ fn env_install_from_local_dir_allow_overwrite() -> Result<(), Box<dyn std::error
 
 #[test]
 fn install_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "install_nonexistent", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "install-nonexistent", "1.2.3")?;
 
     out.assert().success();
 
     let out = run_sysand_in(
         &cwd,
-        ["add", "--iri", "urn:kpar:install_nonexistent", "--no-index"],
+        ["add", "--iri", "urn:kpar:install-nonexistent", "--no-index"],
         None,
     )?;
 
@@ -395,7 +395,7 @@ fn env_install_allow_multiple() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, _) = run_sysand(["env"], None)?;
 
     // Build v1 with a .meta.json so checksum_canonical_variant succeeds.
-    let (_temp_v1, cwd_v1, out) = cli_init_project_basic("a", "allow_multiple_lib", "1.0.0")?;
+    let (_temp_v1, cwd_v1, out) = cli_init_project_basic("acme", "allow-multiple-lib", "1.0.0")?;
     out.assert().success();
     std::fs::write(cwd_v1.join("TestLib.sysml"), "package TestLib;")?;
     run_sysand_in(&cwd_v1, ["include", "TestLib.sysml"], None)?
@@ -403,7 +403,7 @@ fn env_install_allow_multiple() -> Result<(), Box<dyn std::error::Error>> {
         .success();
 
     // Build v2 with the same IRI but a different version.
-    let (_temp_v2, cwd_v2, out) = cli_init_project_basic("a", "allow_multiple_lib", "2.0.0")?;
+    let (_temp_v2, cwd_v2, out) = cli_init_project_basic("acme", "allow-multiple-lib", "2.0.0")?;
     out.assert().success();
     std::fs::write(cwd_v2.join("TestLib.sysml"), "package TestLib;")?;
     run_sysand_in(&cwd_v2, ["include", "TestLib.sysml"], None)?
@@ -511,14 +511,14 @@ fn env_install_multiple_projects_env_toml() -> Result<(), Box<dyn std::error::Er
     let (_temp_dir, cwd, _) = run_sysand(["env"], None)?;
 
     // Build two projects with valid .meta.json so checksum_canonical_variant succeeds.
-    let (_tmp_a, cwd_a, out) = cli_init_project_basic("a", "env_multi_proj_a", "1.0.0")?;
+    let (_tmp_a, cwd_a, out) = cli_init_project_basic("acme", "env-multi-proj-a", "1.0.0")?;
     out.assert().success();
     std::fs::write(cwd_a.join("A.sysml"), "package A;")?;
     run_sysand_in(&cwd_a, ["include", "A.sysml"], None)?
         .assert()
         .success();
 
-    let (_tmp_b, cwd_b, out) = cli_init_project_basic("a", "env_multi_proj_b", "2.0.0")?;
+    let (_tmp_b, cwd_b, out) = cli_init_project_basic("acme", "env-multi-proj-b", "2.0.0")?;
     out.assert().success();
     std::fs::write(cwd_b.join("B.sysml"), "package B;")?;
     run_sysand_in(&cwd_b, ["include", "B.sysml"], None)?
@@ -603,11 +603,12 @@ fn env_install_multiple_projects_env_toml() -> Result<(), Box<dyn std::error::Er
 /// still be on disk and registered in `env.toml` once the command returns.
 #[test]
 fn env_install_via_config_override_survives() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("t", "env_install_survives_app", "1.0.0")?;
+    let (_temp_dir, cwd, out) =
+        cli_init_project_basic("tango", "env-install-survives-app", "1.0.0")?;
     out.assert().success();
 
     let (_tmp_dep, cwd_dep, out) =
-        cli_init_project_basic("a", "env_install_survives_dep", "1.0.0")?;
+        cli_init_project_basic("acme", "env-install-survives-dep", "1.0.0")?;
     let relative_cwd_dep = relativize_path(&cwd_dep, &cwd).unwrap();
     out.assert().success();
 

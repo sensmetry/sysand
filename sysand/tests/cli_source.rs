@@ -11,10 +11,10 @@ use sysand_core::project::utils::wrapfs;
 #[test]
 fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir1, cwd_dep, out) =
-        cli_init_project(Some("list_sources_dep"), "a", None, Some("1.2.3"), None)?;
+        cli_init_project(Some("list-sources-dep"), "acme", None, Some("1.2.3"), None)?;
     out.assert().success();
 
-    let dep_path = cwd_dep.join("list_sources_dep");
+    let dep_path = cwd_dep.join("list-sources-dep");
 
     std::fs::write(dep_path.join("dep_src.sysml"), "package DepSrc;")?;
 
@@ -22,10 +22,10 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
     out.assert().success();
 
     let (_temp_dir2, cwd, out) =
-        cli_init_project(Some("list_sources"), "a", None, Some("1.2.3"), None)?;
+        cli_init_project(Some("list-sources"), "acme", None, Some("1.2.3"), None)?;
     out.assert().success();
 
-    let path = cwd.join("list_sources");
+    let path = cwd.join("list-sources");
 
     std::fs::write(path.join("src.sysml"), "package Src;")?;
 
@@ -37,7 +37,7 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
         [
             "add",
             "--iri",
-            "urn:kpar:list_sources_dep",
+            "urn:kpar:list-sources-dep",
             "--as-local-src",
             dep_path.as_str(),
             "--no-index",
@@ -49,7 +49,7 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
     let expected_path = path.join("src.sysml");
     let dep_expected_path = path
         .join(".sysand/lib")
-        .join("kpar.list_sources_dep_1.2.3")
+        .join("kpar.list-sources-dep_1.2.3")
         .join("dep_src.sysml");
     let combined_path = [&expected_path, &dep_expected_path];
 
@@ -83,7 +83,7 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
             "env",
             "sources",
             "--iri",
-            "urn:kpar:list_sources_dep",
+            "urn:kpar:list-sources-dep",
             "--deps",
             "none",
         ],
@@ -120,15 +120,15 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn sources_without_std() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir1, cwd_dep, out) = cli_init_project(
-        Some("sources_without_std_dep"),
-        "a",
+        Some("sources-without-std-dep"),
+        "acme",
         None,
         Some("1.2.3"),
         None,
     )?;
     out.assert().success();
 
-    let path_dep = cwd_dep.join("sources_without_std_dep");
+    let path_dep = cwd_dep.join("sources-without-std-dep");
 
     std::fs::write(path_dep.join("src_dep.sysml"), "package SrcDep;")?;
 
@@ -183,11 +183,16 @@ fn sources_without_std() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     out.assert().success();
 
-    let (_temp_dir2, cwd, out) =
-        cli_init_project(Some("sources_without_std"), "a", None, Some("1.2.3"), None)?;
+    let (_temp_dir2, cwd, out) = cli_init_project(
+        Some("sources-without-std"),
+        "acme",
+        None,
+        Some("1.2.3"),
+        None,
+    )?;
     out.assert().success();
 
-    let path = cwd.join("sources_without_std");
+    let path = cwd.join("sources-without-std");
 
     std::fs::write(path.join("src.sysml"), "package Src;")?;
 
@@ -202,7 +207,7 @@ fn sources_without_std() -> Result<(), Box<dyn std::error::Error>> {
         [
             "add",
             "--iri",
-            "urn:kpar:sources_without_std_dep",
+            "urn:kpar:sources-without-std-dep",
             "--as-local-src",
             path_dep.as_str(),
             "--no-index",

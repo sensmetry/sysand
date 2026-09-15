@@ -17,7 +17,7 @@ pub use common::*;
 
 #[test]
 fn add_and_remove_without_lock() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("e", "add_and_remove", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("echo", "add-and-remove", "1.2.3")?;
 
     out.assert().success();
 
@@ -32,8 +32,8 @@ fn add_and_remove_without_lock() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(
         info_json,
         r#"{
-  "name": "add_and_remove",
-  "publisher": "e",
+  "name": "add-and-remove",
+  "publisher": "echo",
   "version": "1.2.3",
   "usage": [
     {
@@ -56,8 +56,8 @@ fn add_and_remove_without_lock() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(
         info_json,
         r#"{
-  "name": "add_and_remove",
-  "publisher": "e",
+  "name": "add-and-remove",
+  "publisher": "echo",
   "version": "1.2.3"
 }
 "#
@@ -68,7 +68,7 @@ fn add_and_remove_without_lock() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn add_rejects_sysand_shorthand() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("f", "reject_add_shorthand", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("foxtrot", "reject-add-shorthand", "1.2.3")?;
 
     out.assert().success();
 
@@ -89,8 +89,8 @@ fn add_rejects_sysand_shorthand() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(
         info_json,
         r#"{
-  "name": "reject_add_shorthand",
-  "publisher": "f",
+  "name": "reject-add-shorthand",
+  "publisher": "foxtrot",
   "version": "1.2.3"
 }
 "#
@@ -101,7 +101,7 @@ fn add_rejects_sysand_shorthand() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn add_path_like_iri_suggests_path_options() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, _cwd, out) = run_sysand(["add", "--iri", "a/b/c"], None)?;
+    let (_temp_dir, _cwd, out) = run_sysand(["add", "--iri", "acme/bravo/c"], None)?;
 
     out.assert().failure().stderr(contains(
         "use `--dir`, `--kpar-path` or `--iri-path` instead",
@@ -112,7 +112,8 @@ fn add_path_like_iri_suggests_path_options() -> Result<(), Box<dyn std::error::E
 
 #[test]
 fn remove_rejects_sysand_shorthand() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("h", "reject_remove_shorthand", "1.2.3")?;
+    let (_temp_dir, cwd, out) =
+        cli_init_project_basic("hotel", "reject-remove-shorthand", "1.2.3")?;
 
     out.assert().success();
 
@@ -144,8 +145,8 @@ fn remove_rejects_sysand_shorthand() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(
         info_json,
         r#"{
-  "name": "reject_remove_shorthand",
-  "publisher": "h",
+  "name": "reject-remove-shorthand",
+  "publisher": "hotel",
   "version": "1.2.3",
   "usage": [
     {
@@ -161,7 +162,7 @@ fn remove_rejects_sysand_shorthand() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn remove_path_like_iri_suggests_iri_path() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, _cwd, out) = run_sysand(["remove", "--iri", "a/b/c"], None)?;
+    let (_temp_dir, _cwd, out) = run_sysand(["remove", "--iri", "acme/bravo/c"], None)?;
 
     out.assert()
         .failure()
@@ -173,8 +174,10 @@ fn remove_path_like_iri_suggests_iri_path() -> Result<(), Box<dyn std::error::Er
 /// Add and remove usages with `--iri-path <path>`
 #[test]
 fn add_and_remove_path() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir1, cwd1, out1) = cli_init_project_basic("i", "add_and_remove_path1", "1.2.3")?;
-    let (_temp_dir2, cwd2, out2) = cli_init_project_basic("i", "add_and_remove_path2", "1.2.3")?;
+    let (_temp_dir1, cwd1, out1) =
+        cli_init_project_basic("india", "add-and-remove-path1", "1.2.3")?;
+    let (_temp_dir2, cwd2, out2) =
+        cli_init_project_basic("india", "add-and-remove-path2", "1.2.3")?;
     let file_url = file_url_from_path(&cwd2);
 
     out1.assert().success();
@@ -196,8 +199,8 @@ fn add_and_remove_path() -> Result<(), Box<dyn std::error::Error>> {
         info_json,
         format!(
             r#"{{
-  "name": "add_and_remove_path1",
-  "publisher": "i",
+  "name": "add-and-remove-path1",
+  "publisher": "india",
   "version": "1.2.3",
   "usage": [
     {{
@@ -221,8 +224,8 @@ fn add_and_remove_path() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(
         info_json,
         r#"{
-  "name": "add_and_remove_path1",
-  "publisher": "i",
+  "name": "add-and-remove-path1",
+  "publisher": "india",
   "version": "1.2.3"
 }
 "#
@@ -234,7 +237,7 @@ fn add_and_remove_path() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn config_file_must_be_readable() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) =
-        cli_init_project_basic("j", "config_file_must_be_readable", "1.2.3")?;
+        cli_init_project_basic("juliet", "config-file-must-be-readable", "1.2.3")?;
     out.assert().success();
 
     // Missing, or a directory. Only `add` with a source creates it, as
@@ -258,7 +261,7 @@ fn config_file_must_be_readable() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn add_and_remove_as_editable() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("j", "add_and_remove", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("juliet", "add-and-remove", "1.2.3")?;
 
     out.assert().success();
 
@@ -288,8 +291,8 @@ fn add_and_remove_as_editable() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(
         info_json,
         r#"{
-  "name": "add_and_remove",
-  "publisher": "j",
+  "name": "add-and-remove",
+  "publisher": "juliet",
   "version": "1.2.3",
   "usage": [
     {
@@ -335,8 +338,8 @@ sources = [
     assert_eq!(
         info_json,
         r#"{
-  "name": "add_and_remove",
-  "publisher": "j",
+  "name": "add-and-remove",
+  "publisher": "juliet",
   "version": "1.2.3"
 }
 "#
@@ -349,7 +352,7 @@ sources = [
 
 #[test]
 fn add_and_remove_as_local_src() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("k", "add_and_remove", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("kilo", "add-and-remove", "1.2.3")?;
 
     out.assert().success();
 
@@ -379,8 +382,8 @@ fn add_and_remove_as_local_src() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(
         info_json,
         r#"{
-  "name": "add_and_remove",
-  "publisher": "k",
+  "name": "add-and-remove",
+  "publisher": "kilo",
   "version": "1.2.3",
   "usage": [
     {
@@ -426,8 +429,8 @@ sources = [
     assert_eq!(
         info_json,
         r#"{
-  "name": "add_and_remove",
-  "publisher": "k",
+  "name": "add-and-remove",
+  "publisher": "kilo",
   "version": "1.2.3"
 }
 "#
@@ -440,7 +443,7 @@ sources = [
 
 #[test]
 fn add_and_remove_as_local_kpar() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("l", "add_and_remove", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("lima", "add-and-remove", "1.2.3")?;
 
     out.assert().success();
 
@@ -470,8 +473,8 @@ fn add_and_remove_as_local_kpar() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(
         info_json,
         r#"{
-  "name": "add_and_remove",
-  "publisher": "l",
+  "name": "add-and-remove",
+  "publisher": "lima",
   "version": "1.2.3",
   "usage": [
     {
@@ -517,8 +520,8 @@ sources = [
     assert_eq!(
         info_json,
         r#"{
-  "name": "add_and_remove",
-  "publisher": "l",
+  "name": "add-and-remove",
+  "publisher": "lima",
   "version": "1.2.3"
 }
 "#
@@ -531,7 +534,7 @@ sources = [
 
 #[test]
 fn add_and_remove_as_remote_src() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("m", "add_and_remove", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("mike", "add-and-remove", "1.2.3")?;
 
     out.assert().success();
 
@@ -561,8 +564,8 @@ fn add_and_remove_as_remote_src() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(
         info_json,
         r#"{
-  "name": "add_and_remove",
-  "publisher": "m",
+  "name": "add-and-remove",
+  "publisher": "mike",
   "version": "1.2.3",
   "usage": [
     {
@@ -608,8 +611,8 @@ sources = [
     assert_eq!(
         info_json,
         r#"{
-  "name": "add_and_remove",
-  "publisher": "m",
+  "name": "add-and-remove",
+  "publisher": "mike",
   "version": "1.2.3"
 }
 "#
@@ -622,7 +625,7 @@ sources = [
 
 #[test]
 fn add_and_remove_as_remote_kpar() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("n", "add_and_remove", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("november", "add-and-remove", "1.2.3")?;
 
     out.assert().success();
 
@@ -652,8 +655,8 @@ fn add_and_remove_as_remote_kpar() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(
         info_json,
         r#"{
-  "name": "add_and_remove",
-  "publisher": "n",
+  "name": "add-and-remove",
+  "publisher": "november",
   "version": "1.2.3",
   "usage": [
     {
@@ -699,8 +702,8 @@ sources = [
     assert_eq!(
         info_json,
         r#"{
-  "name": "add_and_remove",
-  "publisher": "n",
+  "name": "add-and-remove",
+  "publisher": "november",
   "version": "1.2.3"
 }
 "#
@@ -713,7 +716,7 @@ sources = [
 
 #[test]
 fn add_and_remove_as_remote_git() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("n", "add_and_remove", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("november", "add-and-remove", "1.2.3")?;
 
     out.assert().success();
 
@@ -743,8 +746,8 @@ fn add_and_remove_as_remote_git() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(
         info_json,
         r#"{
-  "name": "add_and_remove",
-  "publisher": "n",
+  "name": "add-and-remove",
+  "publisher": "november",
   "version": "1.2.3",
   "usage": [
     {
@@ -790,8 +793,8 @@ sources = [
     assert_eq!(
         info_json,
         r#"{
-  "name": "add_and_remove",
-  "publisher": "n",
+  "name": "add-and-remove",
+  "publisher": "november",
   "version": "1.2.3"
 }
 "#
@@ -804,7 +807,7 @@ sources = [
 
 #[test]
 fn add_and_remove_from_path() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("o", "add_and_remove", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("oscar", "add-and-remove", "1.2.3")?;
 
     out.assert().success();
 
@@ -856,8 +859,8 @@ fn add_and_remove_from_path() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(
         info_json,
         r#"{
-  "name": "add_and_remove",
-  "publisher": "o",
+  "name": "add-and-remove",
+  "publisher": "oscar",
   "version": "1.2.3",
   "usage": [
     {
@@ -923,8 +926,8 @@ sources = [
     assert_eq!(
         info_json,
         r#"{
-  "name": "add_and_remove",
-  "publisher": "o",
+  "name": "add-and-remove",
+  "publisher": "oscar",
   "version": "1.2.3"
 }
 "#
@@ -941,10 +944,11 @@ sources = [
 /// configuration file, similar to `--path` but driven by the URL resolver.
 #[test]
 fn add_and_remove_from_url() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir_dep, cwd_dep, out) = cli_init_project_basic("p", "add_from_url_dep", "1.2.3")?;
+    let (_temp_dir_dep, cwd_dep, out) =
+        cli_init_project_basic("papa", "add-from-url-dep", "1.2.3")?;
     out.assert().success();
 
-    let (_temp_dir, cwd, out) = cli_init_project_basic("p", "add_from_url", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("papa", "add-from-url", "1.2.3")?;
     out.assert().success();
 
     let dep_url = file_url_from_path(&cwd_dep);
@@ -973,8 +977,8 @@ fn add_and_remove_from_url() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(
         info_json,
         r#"{
-  "name": "add_from_url",
-  "publisher": "p",
+  "name": "add-from-url",
+  "publisher": "papa",
   "version": "1.2.3",
   "usage": [
     {
@@ -1012,8 +1016,8 @@ fn add_and_remove_from_url() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(
         info_json,
         r#"{
-  "name": "add_from_url",
-  "publisher": "p",
+  "name": "add-from-url",
+  "publisher": "papa",
   "version": "1.2.3"
 }
 "#
@@ -1027,7 +1031,7 @@ fn add_and_remove_from_url() -> Result<(), Box<dyn std::error::Error>> {
 /// `add <URL>` of a kpar served over HTTP installs it into `.sysand`
 #[test]
 fn add_from_http_kpar() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("t", "add_from_http_kpar", "1.0.0")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("tango", "add-from-http-kpar", "1.0.0")?;
     out.assert().success();
 
     let test_path = fixture_path("test_lib.kpar");
@@ -1098,7 +1102,7 @@ fn add_from_http_kpar() -> Result<(), Box<dyn std::error::Error>> {
 /// verbatim.
 #[test]
 fn add_and_remove_full_purl_sysand_without_lock() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("q", "add_full_purl", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("quebec", "add-full-purl", "1.2.3")?;
 
     out.assert().success();
 
@@ -1122,8 +1126,8 @@ fn add_and_remove_full_purl_sysand_without_lock() -> Result<(), Box<dyn std::err
     assert_eq!(
         info_json,
         r#"{
-  "name": "add_full_purl",
-  "publisher": "q",
+  "name": "add-full-purl",
+  "publisher": "quebec",
   "version": "1.2.3",
   "usage": [
     {
@@ -1150,8 +1154,8 @@ fn add_and_remove_full_purl_sysand_without_lock() -> Result<(), Box<dyn std::err
     assert_eq!(
         info_json,
         r#"{
-  "name": "add_full_purl",
-  "publisher": "q",
+  "name": "add-full-purl",
+  "publisher": "quebec",
   "version": "1.2.3"
 }
 "#
@@ -1164,7 +1168,7 @@ fn add_and_remove_full_purl_sysand_without_lock() -> Result<(), Box<dyn std::err
 /// verbatim.
 #[test]
 fn add_and_remove_urn_with_slash() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("r", "urn_slash", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("romeo", "urn-slash", "1.2.3")?;
 
     out.assert().success();
 
@@ -1183,8 +1187,8 @@ fn add_and_remove_urn_with_slash() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(
         info_json,
         r#"{
-  "name": "urn_slash",
-  "publisher": "r",
+  "name": "urn-slash",
+  "publisher": "romeo",
   "version": "1.2.3",
   "usage": [
     {
@@ -1211,8 +1215,8 @@ fn add_and_remove_urn_with_slash() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(
         info_json,
         r#"{
-  "name": "urn_slash",
-  "publisher": "r",
+  "name": "urn-slash",
+  "publisher": "romeo",
   "version": "1.2.3"
 }
 "#
@@ -1228,25 +1232,25 @@ fn add_and_remove_urn_with_slash() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir_dep, cwd_dep, out) =
-        cli_init_project_basic("a", "add_and_remove_with_lock_preinstall_dep", "1.2.3")?;
+        cli_init_project_basic("acme", "add-and-remove-with-lock-preinstall-dep", "1.2.3")?;
 
     out.assert().success();
 
     std::fs::write(
-        cwd_dep.join("add_and_remove_with_lock_preinstall_dep.sysml"),
+        cwd_dep.join("add-and-remove-with-lock-preinstall-dep.sysml"),
         "package AddAndRemoveWithLockLocalDep;",
     )?;
 
     run_sysand_in(
         &cwd_dep,
-        ["include", "add_and_remove_with_lock_preinstall_dep.sysml"],
+        ["include", "add-and-remove-with-lock-preinstall-dep.sysml"],
         None,
     )?
     .assert()
     .success();
 
     let (_temp_dir, cwd, out) =
-        cli_init_project_basic("t", "add_and_remove_with_lock_preinstall", "1.2.3")?;
+        cli_init_project_basic("tango", "add-and-remove-with-lock-preinstall", "1.2.3")?;
 
     out.assert().success();
 
@@ -1255,7 +1259,7 @@ fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error
         [
             "env",
             "install",
-            "urn:kpar:add_and_remove_with_lock_preinstall_dep",
+            "urn:kpar:add-and-remove-with-lock-preinstall-dep",
             "--path",
             cwd_dep.as_str(),
         ],
@@ -1268,7 +1272,7 @@ fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error
         &cwd,
         [
             "add",
-            "--iri", "urn:kpar:add_and_remove_with_lock_preinstall_dep",
+            "--iri", "urn:kpar:add-and-remove-with-lock-preinstall-dep",
             "--no-index",
         ],
         None,
@@ -1276,7 +1280,7 @@ fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error
     .assert()
     .success()
     .stderr(contains(
-        "Adding usage: IRI `urn:kpar:add_and_remove_with_lock_preinstall_dep`",
+        "Adding usage: IRI `urn:kpar:add-and-remove-with-lock-preinstall-dep`",
     ));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
@@ -1284,12 +1288,12 @@ fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error
     assert_eq!(
         info_json,
         r#"{
-  "name": "add_and_remove_with_lock_preinstall",
-  "publisher": "t",
+  "name": "add-and-remove-with-lock-preinstall",
+  "publisher": "tango",
   "version": "1.2.3",
   "usage": [
     {
-      "resource": "urn:kpar:add_and_remove_with_lock_preinstall_dep"
+      "resource": "urn:kpar:add-and-remove-with-lock-preinstall-dep"
     }
   ]
 }
@@ -1298,7 +1302,7 @@ fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error
 
     run_sysand_in(
         &cwd,
-        ["remove", "--iri", "urn:kpar:add_and_remove_with_lock_preinstall_dep"],
+        ["remove", "--iri", "urn:kpar:add-and-remove-with-lock-preinstall-dep"],
         None,
     )?
     .assert()
@@ -1309,8 +1313,8 @@ fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error
     assert_eq!(
         info_json,
         r#"{
-  "name": "add_and_remove_with_lock_preinstall",
-  "publisher": "t",
+  "name": "add-and-remove-with-lock-preinstall",
+  "publisher": "tango",
   "version": "1.2.3"
 }
 "#
@@ -1322,7 +1326,7 @@ fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error
 
 #[test]
 fn add_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "add_nonexistent", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "add-nonexistent", "1.2.3")?;
 
     out.assert().success();
 
@@ -1332,7 +1336,7 @@ fn add_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
         [
             "add",
             "--iri",
-            "urn:kpar:add_nonexistent",
+            "urn:kpar:add-nonexistent",
             "--default-index",
             "http://127.0.0.1:1",
         ],
@@ -1348,18 +1352,18 @@ fn add_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn remove_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "remove_nonexistent", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "remove-nonexistent", "1.2.3")?;
 
     out.assert().success();
 
     let out = run_sysand_in(
         &cwd,
-        ["remove", "--iri", "urn:kpar:remove_nonexistent"],
+        ["remove", "--iri", "urn:kpar:remove-nonexistent"],
         None,
     )?;
 
     out.assert().failure().stderr(contains(
-        "could not find usage for `urn:kpar:remove_nonexistent`",
+        "could not find usage for `urn:kpar:remove-nonexistent`",
     ));
 
     Ok(())
@@ -1369,10 +1373,10 @@ fn remove_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
 /// all (no env created, no install performed).
 #[test]
 fn add_no_sync_skips_env_sync() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "add_no_sync_app", "1.0.0")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "add-no-sync-app", "1.0.0")?;
     out.assert().success();
 
-    let (_tmp_dep, cwd_dep, out) = cli_init_project_basic("a", "add_no_sync_dep", "1.0.0")?;
+    let (_tmp_dep, cwd_dep, out) = cli_init_project_basic("acme", "add-no-sync-dep", "1.0.0")?;
     out.assert().success();
 
     let config_path = cwd.join("sysand.toml");
@@ -1417,16 +1421,16 @@ fn add_no_sync_skips_env_sync() -> Result<(), Box<dyn std::error::Error>> {
 /// still needed (and the dependency being added) alone.
 #[test]
 fn add_prunes_unneeded_dependency_by_default() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "add_prune_app", "1.0.0")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "add-prune-app", "1.0.0")?;
     out.assert().success();
 
-    let (_tmp_keep, cwd_keep, out) = cli_init_project_basic("a", "add_prune_keep", "1.0.0")?;
+    let (_tmp_keep, cwd_keep, out) = cli_init_project_basic("acme", "add-prune-keep", "1.0.0")?;
     out.assert().success();
 
-    let (_tmp_drop, cwd_drop, out) = cli_init_project_basic("a", "add_prune_drop", "1.0.0")?;
+    let (_tmp_drop, cwd_drop, out) = cli_init_project_basic("acme", "add-prune-drop", "1.0.0")?;
     out.assert().success();
 
-    let (_tmp_new, cwd_new, out) = cli_init_project_basic("a", "add_prune_new", "1.0.0")?;
+    let (_tmp_new, cwd_new, out) = cli_init_project_basic("acme", "add-prune-new", "1.0.0")?;
     out.assert().success();
 
     let config_path = cwd.join("sysand.toml");
@@ -1520,16 +1524,16 @@ fn add_prunes_unneeded_dependency_by_default() -> Result<(), Box<dyn std::error:
 /// freshly regenerated lockfile installed in `.sysand`.
 #[test]
 fn add_no_prune_keeps_unneeded_dependency() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "add_no_prune_app", "1.0.0")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "add-no-prune-app", "1.0.0")?;
     out.assert().success();
 
-    let (_tmp_keep, cwd_keep, out) = cli_init_project_basic("a", "add_no_prune_keep", "1.0.0")?;
+    let (_tmp_keep, cwd_keep, out) = cli_init_project_basic("acme", "add-no-prune-keep", "1.0.0")?;
     out.assert().success();
 
-    let (_tmp_drop, cwd_drop, out) = cli_init_project_basic("a", "add_no_prune_drop", "1.0.0")?;
+    let (_tmp_drop, cwd_drop, out) = cli_init_project_basic("acme", "add-no-prune-drop", "1.0.0")?;
     out.assert().success();
 
-    let (_tmp_new, cwd_new, out) = cli_init_project_basic("a", "add_no_prune_new", "1.0.0")?;
+    let (_tmp_new, cwd_new, out) = cli_init_project_basic("acme", "add-no-prune-new", "1.0.0")?;
     out.assert().success();
 
     let config_path = cwd.join("sysand.toml");
@@ -1617,10 +1621,10 @@ fn add_no_prune_keeps_unneeded_dependency() -> Result<(), Box<dyn std::error::Er
 /// internally consistent, and the dependency should be gone from `.sysand`
 #[test]
 fn remove_keeps_lockfile_valid_and_syncs() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "remove_lock_app", "1.0.0")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "remove-lock-app", "1.0.0")?;
     out.assert().success();
 
-    let (_tmp_dep, cwd_dep, out) = cli_init_project_basic("a", "remove_lock_dep", "1.0.0")?;
+    let (_tmp_dep, cwd_dep, out) = cli_init_project_basic("acme", "remove-lock-dep", "1.0.0")?;
     out.assert().success();
 
     let config_path = cwd.join("sysand.toml");
@@ -1670,16 +1674,17 @@ fn remove_keeps_lockfile_valid_and_syncs() -> Result<(), Box<dyn std::error::Err
 /// needed, while leaving dependencies that are still needed alone.
 #[test]
 fn remove_prunes_unneeded_dependency_by_default() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "remove_prune_app", "1.0.0")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "remove-prune-app", "1.0.0")?;
     out.assert().success();
 
-    let (_tmp_keep, cwd_keep, out) = cli_init_project_basic("a", "remove_prune_keep", "1.0.0")?;
+    let (_tmp_keep, cwd_keep, out) = cli_init_project_basic("acme", "remove-prune-keep", "1.0.0")?;
     out.assert().success();
 
-    let (_tmp_drop, cwd_drop, out) = cli_init_project_basic("a", "remove_prune_drop", "1.0.0")?;
+    let (_tmp_drop, cwd_drop, out) = cli_init_project_basic("acme", "remove-prune-drop", "1.0.0")?;
     out.assert().success();
 
-    let (_tmp_extra, cwd_extra, out) = cli_init_project_basic("a", "remove_prune_extra", "1.0.0")?;
+    let (_tmp_extra, cwd_extra, out) =
+        cli_init_project_basic("acme", "remove-prune-extra", "1.0.0")?;
     out.assert().success();
 
     let config_path = cwd.join("sysand.toml");
@@ -1774,17 +1779,19 @@ fn remove_prunes_unneeded_dependency_by_default() -> Result<(), Box<dyn std::err
 #[test]
 fn remove_no_prune_keeps_unneeded_dependency_and_still_syncs()
 -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "remove_no_prune_app", "1.0.0")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "remove-no-prune-app", "1.0.0")?;
     out.assert().success();
 
-    let (_tmp_keep, cwd_keep, out) = cli_init_project_basic("a", "remove_no_prune_keep", "1.0.0")?;
+    let (_tmp_keep, cwd_keep, out) =
+        cli_init_project_basic("acme", "remove-no-prune-keep", "1.0.0")?;
     out.assert().success();
 
-    let (_tmp_drop, cwd_drop, out) = cli_init_project_basic("a", "remove_no_prune_drop", "1.0.0")?;
+    let (_tmp_drop, cwd_drop, out) =
+        cli_init_project_basic("acme", "remove-no-prune-drop", "1.0.0")?;
     out.assert().success();
 
     let (_tmp_extra, cwd_extra, out) =
-        cli_init_project_basic("a", "remove_no_prune_extra", "1.0.0")?;
+        cli_init_project_basic("acme", "remove-no-prune-extra", "1.0.0")?;
     out.assert().success();
 
     let config_path = cwd.join("sysand.toml");
@@ -1906,7 +1913,7 @@ fn write_dep_kpar(
 
 #[test]
 fn add_dir_and_remove_identifier_without_lock() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "exp_add_and_remove", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "exp-add-and-remove", "1.2.3")?;
     out.assert().success();
 
     let dep_dir = cwd.join("dep");
@@ -1932,8 +1939,8 @@ fn add_dir_and_remove_identifier_without_lock() -> Result<(), Box<dyn std::error
     assert_eq!(
         info_json,
         r#"{
-  "name": "exp_add_and_remove",
-  "publisher": "a",
+  "name": "exp-add-and-remove",
+  "publisher": "acme",
   "version": "1.2.3",
   "usage": [
     {
@@ -1961,8 +1968,8 @@ fn add_dir_and_remove_identifier_without_lock() -> Result<(), Box<dyn std::error
     assert_eq!(
         info_json,
         r#"{
-  "name": "exp_add_and_remove",
-  "publisher": "a",
+  "name": "exp-add-and-remove",
+  "publisher": "acme",
   "version": "1.2.3"
 }
 "#
@@ -1973,7 +1980,7 @@ fn add_dir_and_remove_identifier_without_lock() -> Result<(), Box<dyn std::error
 
 #[test]
 fn add_dir_missing_publisher_fails() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "exp_add_no_publisher", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "exp-add-no-publisher", "1.2.3")?;
     out.assert().success();
 
     let dep_dir = cwd.join("dep");
@@ -1997,8 +2004,8 @@ fn add_dir_missing_publisher_fails() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(
         info_json,
         r#"{
-  "name": "exp_add_no_publisher",
-  "publisher": "a",
+  "name": "exp-add-no-publisher",
+  "publisher": "acme",
   "version": "1.2.3"
 }
 "#
@@ -2009,7 +2016,7 @@ fn add_dir_missing_publisher_fails() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn add_dir_nonexistent_project_fails() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "exp_add_nonexistent", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "exp-add-nonexistent", "1.2.3")?;
     out.assert().success();
 
     let dep_dir = cwd.join("dep");
@@ -2027,7 +2034,7 @@ fn add_dir_nonexistent_project_fails() -> Result<(), Box<dyn std::error::Error>>
 
 #[test]
 fn add_dir_already_present_is_ignored() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "exp_add_already_present", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "exp-add-already-present", "1.2.3")?;
     out.assert().success();
 
     let dep_dir = cwd.join("dep");
@@ -2057,8 +2064,8 @@ fn add_dir_already_present_is_ignored() -> Result<(), Box<dyn std::error::Error>
     assert_eq!(
         info_json,
         r#"{
-  "name": "exp_add_already_present",
-  "publisher": "a",
+  "name": "exp-add-already-present",
+  "publisher": "acme",
   "version": "1.2.3",
   "usage": [
     {
@@ -2076,7 +2083,7 @@ fn add_dir_already_present_is_ignored() -> Result<(), Box<dyn std::error::Error>
 
 #[test]
 fn remove_identifier() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "exp_remove", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "exp-remove", "1.2.3")?;
     out.assert().success();
 
     let dep_dir = cwd.join("dep");
@@ -2111,8 +2118,8 @@ fn remove_identifier() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(
         info_json,
         r#"{
-  "name": "exp_remove",
-  "publisher": "a",
+  "name": "exp-remove",
+  "publisher": "acme",
   "version": "1.2.3"
 }
 "#
@@ -2123,7 +2130,7 @@ fn remove_identifier() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn remove_identifier_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "exp_remove_nonexistent", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "exp-remove-nonexistent", "1.2.3")?;
     out.assert().success();
 
     let out = run_sysand_in(&cwd, ["remove", "Acme Labs/Nonexistent"], None)?;
@@ -2138,7 +2145,7 @@ fn remove_identifier_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn add_kpar_path_and_remove_identifier_without_lock() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) =
-        cli_init_project_basic("a", "exp_add_and_remove_kpar_path", "1.2.3")?;
+        cli_init_project_basic("acme", "exp-add-and-remove-kpar-path", "1.2.3")?;
     out.assert().success();
 
     let dep_kpar = cwd.join("dep.kpar");
@@ -2154,8 +2161,8 @@ fn add_kpar_path_and_remove_identifier_without_lock() -> Result<(), Box<dyn std:
     assert_eq!(
         info_json,
         r#"{
-  "name": "exp_add_and_remove_kpar_path",
-  "publisher": "a",
+  "name": "exp-add-and-remove-kpar-path",
+  "publisher": "acme",
   "version": "1.2.3",
   "usage": [
     {
@@ -2183,8 +2190,8 @@ fn add_kpar_path_and_remove_identifier_without_lock() -> Result<(), Box<dyn std:
     assert_eq!(
         info_json,
         r#"{
-  "name": "exp_add_and_remove_kpar_path",
-  "publisher": "a",
+  "name": "exp-add-and-remove-kpar-path",
+  "publisher": "acme",
   "version": "1.2.3"
 }
 "#
@@ -2196,7 +2203,7 @@ fn add_kpar_path_and_remove_identifier_without_lock() -> Result<(), Box<dyn std:
 #[test]
 fn add_kpar_path_missing_publisher_fails() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) =
-        cli_init_project_basic("a", "exp_add_kpar_path_no_publisher", "1.2.3")?;
+        cli_init_project_basic("acme", "exp-add-kpar-path-no-publisher", "1.2.3")?;
     out.assert().success();
 
     let dep_kpar = cwd.join("dep.kpar");
@@ -2221,8 +2228,8 @@ fn add_kpar_path_missing_publisher_fails() -> Result<(), Box<dyn std::error::Err
     assert_eq!(
         info_json,
         r#"{
-  "name": "exp_add_kpar_path_no_publisher",
-  "publisher": "a",
+  "name": "exp-add-kpar-path-no-publisher",
+  "publisher": "acme",
   "version": "1.2.3"
 }
 "#
@@ -2234,7 +2241,7 @@ fn add_kpar_path_missing_publisher_fails() -> Result<(), Box<dyn std::error::Err
 #[test]
 fn add_kpar_path_nonexistent_project_fails() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) =
-        cli_init_project_basic("a", "exp_add_kpar_path_nonexistent", "1.2.3")?;
+        cli_init_project_basic("acme", "exp-add-kpar-path-nonexistent", "1.2.3")?;
     out.assert().success();
 
     let dep_kpar = cwd.join("dep.kpar");
@@ -2256,7 +2263,7 @@ fn add_kpar_path_nonexistent_project_fails() -> Result<(), Box<dyn std::error::E
 #[test]
 fn add_kpar_path_already_present_is_ignored() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) =
-        cli_init_project_basic("a", "exp_add_kpar_path_already_present", "1.2.3")?;
+        cli_init_project_basic("acme", "exp-add-kpar-path-already-present", "1.2.3")?;
     out.assert().success();
 
     let dep_kpar = cwd.join("dep.kpar");
@@ -2276,8 +2283,8 @@ fn add_kpar_path_already_present_is_ignored() -> Result<(), Box<dyn std::error::
     assert_eq!(
         info_json,
         r#"{
-  "name": "exp_add_kpar_path_already_present",
-  "publisher": "a",
+  "name": "exp-add-kpar-path-already-present",
+  "publisher": "acme",
   "version": "1.2.3",
   "usage": [
     {
@@ -2295,7 +2302,7 @@ fn add_kpar_path_already_present_is_ignored() -> Result<(), Box<dyn std::error::
 
 #[test]
 fn remove_identifier_kpar_path() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "exp_remove_kpar_path", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "exp-remove-kpar-path", "1.2.3")?;
     out.assert().success();
 
     let dep_kpar = cwd.join("dep.kpar");
@@ -2320,8 +2327,8 @@ fn remove_identifier_kpar_path() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(
         info_json,
         r#"{
-  "name": "exp_remove_kpar_path",
-  "publisher": "a",
+  "name": "exp-remove-kpar-path",
+  "publisher": "acme",
   "version": "1.2.3"
 }
 "#
@@ -2335,7 +2342,7 @@ fn remove_identifier_kpar_path() -> Result<(), Box<dyn std::error::Error>> {
 /// from `.sysand`.
 #[test]
 fn remove_identifier_keeps_lockfile_valid_and_syncs() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "exp_remove_lock_app", "1.0.0")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "exp-remove-lock-app", "1.0.0")?;
     out.assert().success();
 
     let dep_dir = cwd.join("dep");
@@ -2382,7 +2389,7 @@ fn remove_identifier_keeps_lockfile_valid_and_syncs() -> Result<(), Box<dyn std:
 
 #[test]
 fn remove_identifier_removes_the_sysand_purl_resource() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "remove_identifier_purl", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "remove-identifier-purl", "1.2.3")?;
     out.assert().success();
 
     run_sysand_in(
@@ -2409,8 +2416,8 @@ fn remove_identifier_removes_the_sysand_purl_resource() -> Result<(), Box<dyn st
     assert_eq!(
         info_json,
         r#"{
-  "name": "remove_identifier_purl",
-  "publisher": "a",
+  "name": "remove-identifier-purl",
+  "publisher": "acme",
   "version": "1.2.3"
 }
 "#
@@ -2423,7 +2430,7 @@ fn remove_identifier_removes_the_sysand_purl_resource() -> Result<(), Box<dyn st
 fn remove_identifier_matches_a_typed_usage_by_the_normalized_form()
 -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) =
-        cli_init_project_basic("a", "remove_identifier_normalized", "1.2.3")?;
+        cli_init_project_basic("acme", "remove-identifier-normalized", "1.2.3")?;
     out.assert().success();
 
     let dep_dir = cwd.join("dep");
@@ -2453,8 +2460,8 @@ fn remove_identifier_matches_a_typed_usage_by_the_normalized_form()
     assert_eq!(
         info_json,
         r#"{
-  "name": "remove_identifier_normalized",
-  "publisher": "a",
+  "name": "remove-identifier-normalized",
+  "publisher": "acme",
   "version": "1.2.3"
 }
 "#
@@ -2465,7 +2472,7 @@ fn remove_identifier_matches_a_typed_usage_by_the_normalized_form()
 
 #[test]
 fn remove_iri_of_a_typed_usage_suggests_identifier() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "remove_iri_of_typed", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "remove-iri-of-typed", "1.2.3")?;
     out.assert().success();
 
     let dep_dir = cwd.join("dep");
@@ -2507,21 +2514,14 @@ fn remove_iri_of_a_typed_usage_suggests_identifier() -> Result<(), Box<dyn std::
 #[test]
 fn remove_typed_by_normalized_spelling_updates_lockfile() -> Result<(), Box<dyn std::error::Error>>
 {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "remove_norm_app", "1.0.0")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "remove-norm-app", "1.0.0")?;
     out.assert().success();
 
     let dep_dir = cwd.join("dep");
     std::fs::create_dir_all(&dep_dir)?;
-    cli_init_project_in(
-        &dep_dir,
-        None,
-        "ACME Inc.",
-        Some("Foo"),
-        Some("1.0.0"),
-        None,
-    )?
-    .assert()
-    .success();
+    // Written by hand: the spelling is one a json project may carry but
+    // no `model.toml` can, which is what the test is about
+    common::write_legacy_project(&dep_dir, "ACME Inc.", "Foo", "1.0.0", None)?;
 
     run_sysand_in(&cwd, ["add", "--no-index", "--dir", "dep"], None)?
         .assert()
@@ -2612,7 +2612,7 @@ const INVALID_INDEX_IDENTIFIERS: &[(&str, &str)] = &[
 /// while parsing arguments, before adding anything
 #[test]
 fn add_identifier_rejects_invalid_identifiers() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "add_identifier_invalid", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "add-identifier-invalid", "1.2.3")?;
     out.assert().success();
     let original = fs::read_to_string(cwd.join(".project.json"))?;
 
@@ -2636,7 +2636,7 @@ fn add_identifier_rejects_invalid_identifiers() -> Result<(), Box<dyn std::error
 /// reaching the typed add
 #[test]
 fn add_identifier_accepts_spaces() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "add_identifier_spaces", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "add-identifier-spaces", "1.2.3")?;
     out.assert().success();
 
     let out = run_sysand_in(&cwd, ["add", "--no-lock", "Acme Labs/My Project"], None)?;
@@ -2652,7 +2652,8 @@ fn add_identifier_accepts_spaces() -> Result<(), Box<dyn std::error::Error>> {
 /// parsing arguments, leaving the project untouched
 #[test]
 fn remove_identifier_rejects_invalid_identifiers() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "remove_identifier_invalid", "1.2.3")?;
+    let (_temp_dir, cwd, out) =
+        cli_init_project_basic("acme", "remove-identifier-invalid", "1.2.3")?;
     out.assert().success();
     let original = fs::read_to_string(cwd.join(".project.json"))?;
 
@@ -2677,7 +2678,7 @@ fn remove_identifier_rejects_invalid_identifiers() -> Result<(), Box<dyn std::er
 #[test]
 fn remove_still_needed_dependency_updates_root_usages_in_lockfile()
 -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "remove_needed_app", "1.0.0")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "remove-needed-app", "1.0.0")?;
     out.assert().success();
 
     for name in ["dep-a", "dep-b"] {
@@ -2705,7 +2706,7 @@ fn remove_still_needed_dependency_updates_root_usages_in_lockfile()
         let root = lock
             .projects
             .iter()
-            .find(|p| p.name == "remove_needed_app")
+            .find(|p| p.name == "remove-needed-app")
             .unwrap();
         root.usages.iter().map(|u| u.to_string()).collect()
     };
@@ -2731,7 +2732,7 @@ fn remove_still_needed_dependency_updates_root_usages_in_lockfile()
 
 #[test]
 fn add_publisher_name_writes_an_index_usage() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("f", "add_index_usage", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("foxtrot", "add-index-usage", "1.2.3")?;
     out.assert().success();
     install_in_env(&cwd, "Acme Labs", "My Lib", "1.0.0")?;
 
@@ -2769,8 +2770,8 @@ fn add_publisher_name_writes_an_index_usage() -> Result<(), Box<dyn std::error::
     assert_eq!(
         info_json,
         r#"{
-  "name": "add_index_usage",
-  "publisher": "f",
+  "name": "add-index-usage",
+  "publisher": "foxtrot",
   "version": "1.2.3",
   "usage": [
     {
@@ -2811,7 +2812,8 @@ fn add_publisher_name_writes_an_index_usage() -> Result<(), Box<dyn std::error::
 
 #[test]
 fn add_index_usage_without_lock_needs_a_constraint() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("f", "add_index_no_constraint", "1.2.3")?;
+    let (_temp_dir, cwd, out) =
+        cli_init_project_basic("foxtrot", "add-index-no-constraint", "1.2.3")?;
     out.assert().success();
 
     run_sysand_in(&cwd, ["add", "--no-lock", "acme/lib"], None)?
@@ -2824,7 +2826,7 @@ fn add_index_usage_without_lock_needs_a_constraint() -> Result<(), Box<dyn std::
 
 #[test]
 fn add_rejects_an_invalid_publisher() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("g", "reject_add_shorthand", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("golf", "reject-add-shorthand", "1.2.3")?;
     out.assert().success();
 
     run_sysand_in(
@@ -2850,7 +2852,7 @@ fn add_rejects_an_invalid_publisher() -> Result<(), Box<dyn std::error::Error>> 
 /// Migrating a legacy PURL usage means removing it first
 #[test]
 fn add_index_usage_over_a_legacy_purl_is_refused() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("g", "add_index_over_purl", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("golf", "add-index-over-purl", "1.2.3")?;
     out.assert().success();
 
     run_sysand_in(
@@ -2884,7 +2886,7 @@ fn add_index_usage_over_a_legacy_purl_is_refused() -> Result<(), Box<dyn std::er
 
 #[test]
 fn remove_index_usage_by_exact_spelling() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("h", "remove_index_usage", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("hotel", "remove-index-usage", "1.2.3")?;
     out.assert().success();
     install_in_env(&cwd, "Acme Labs", "My Lib", "1.0.0")?;
 
@@ -2935,8 +2937,8 @@ fn remove_index_usage_by_exact_spelling() -> Result<(), Box<dyn std::error::Erro
     assert_eq!(
         info_json,
         r#"{
-  "name": "remove_index_usage",
-  "publisher": "h",
+  "name": "remove-index-usage",
+  "publisher": "hotel",
   "version": "1.2.3"
 }
 "#
@@ -2978,7 +2980,7 @@ fn remove_path_like_identifier_suggests_iri_path() -> Result<(), Box<dyn std::er
 #[test]
 fn remove_nonexistent_identifier() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) =
-        cli_init_project_basic("a", "remove_nonexistent_identifier", "1.2.3")?;
+        cli_init_project_basic("acme", "remove-nonexistent-identifier", "1.2.3")?;
 
     out.assert().success();
 
@@ -2996,7 +2998,7 @@ fn remove_nonexistent_identifier() -> Result<(), Box<dyn std::error::Error>> {
 /// constraint naming one
 #[test]
 fn add_index_usage_constrains_to_the_locked_version() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("main", "add_index_highest", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("main", "add-index-highest", "1.2.3")?;
     out.assert().success();
     for version in ["1.0.0", "1.2.0", "2.0.0-dev"] {
         install_in_env(&cwd, "Acme Labs", "My Lib", version)?;
@@ -3034,7 +3036,7 @@ fn add_index_usage_constrains_to_the_locked_version() -> Result<(), Box<dyn std:
 #[test]
 fn add_index_usage_constrains_to_a_version_the_graph_allows()
 -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("main", "add_index_graph", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("main", "add-index-graph", "1.2.3")?;
     out.assert().success();
     for version in ["1.4.0", "2.0.0"] {
         install_in_env(&cwd, "Acme Labs", "My Lib", version)?;
@@ -3089,7 +3091,7 @@ fn add_index_usage_constrains_to_a_version_the_graph_allows()
 /// the manifest is restored
 #[test]
 fn add_index_usage_spelled_unlike_the_project_fails() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("main", "add_index_misspelled", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("main", "add-index-misspelled", "1.2.3")?;
     out.assert().success();
     install_in_env(&cwd, "Acme Labs", "My Lib", "1.0.0")?;
     let before = std::fs::read_to_string(cwd.join(".project.json"))?;
@@ -3109,7 +3111,7 @@ fn add_index_usage_spelled_unlike_the_project_fails() -> Result<(), Box<dyn std:
             .assert()
             .failure()
             .stderr(contains(
-                "index usage `Acme labs/My Lib` in `add_index_misspelled` 1.2.3 resolved to \
+                "index usage `Acme labs/My Lib` in `add-index-misspelled` 1.2.3 resolved to \
                  version 1.0.0 of `Acme Labs/My Lib`, but is rejected because its spelling does \
                  not match the project's;\nspell the usage exactly as `Acme Labs/My Lib`",
             ));
@@ -3126,7 +3128,7 @@ fn add_normalized_index_usage_takes_the_resolved_spelling() -> Result<(), Box<dy
 {
     for (constraint, written) in [(Some("^1"), "^1"), (None, "^1.0.0")] {
         let (_temp_dir, cwd, out) =
-            cli_init_project_basic("main", "add_index_normalized", "1.2.3")?;
+            cli_init_project_basic("main", "add-index-normalized", "1.2.3")?;
         out.assert().success();
         install_in_env(&cwd, "Acme Labs", "My Lib", "1.0.0")?;
 
@@ -3161,7 +3163,7 @@ fn add_normalized_index_usage_takes_the_resolved_spelling() -> Result<(), Box<dy
 /// Source overrides are only for resource usages
 #[test]
 fn add_index_usage_refuses_a_source_override() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("main", "add_index_override", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("main", "add-index-override", "1.2.3")?;
     out.assert().success();
 
     run_sysand_in(
@@ -3180,7 +3182,7 @@ fn add_index_usage_refuses_a_source_override() -> Result<(), Box<dyn std::error:
 /// to the index usage: overrides are keyed by the IRIs of resource usages
 #[test]
 fn source_override_does_not_apply_to_an_index_usage() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("main", "override_not_index", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("main", "override-not-index", "1.2.3")?;
     out.assert().success();
     install_in_env(&cwd, "Acme Labs", "My Lib", "1.0.0")?;
     cli_init_project_in(
@@ -3227,7 +3229,7 @@ sources = [{ src_path = "dep" }]
 #[test]
 fn source_override_reaches_an_index_usage_of_the_same_project_through_coalescing()
 -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("main", "override_coalesced", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("main", "override-coalesced", "1.2.3")?;
     out.assert().success();
     install_in_env(&cwd, "Acme Labs", "My Lib", "1.0.0")?;
     cli_init_project_in(
@@ -3302,7 +3304,8 @@ fn source_override_reaches_an_index_usage_of_the_same_project_through_coalescing
 #[test]
 fn add_normalized_index_usage_without_lock_takes_the_installed_spelling()
 -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("f", "add_index_env_spelling", "1.2.3")?;
+    let (_temp_dir, cwd, out) =
+        cli_init_project_basic("foxtrot", "add-index-env-spelling", "1.2.3")?;
     out.assert().success();
     install_in_env(&cwd, "Acme Labs", "My Lib", "1.0.0")?;
 
@@ -3359,7 +3362,8 @@ fn add_normalized_index_usage_without_lock_takes_the_installed_spelling()
 /// from, the local environment is refused
 #[test]
 fn add_index_usage_without_lock_needs_it_installed() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("f", "add_index_not_installed", "1.2.3")?;
+    let (_temp_dir, cwd, out) =
+        cli_init_project_basic("foxtrot", "add-index-not-installed", "1.2.3")?;
     out.assert().success();
     let before = std::fs::read_to_string(cwd.join(".project.json"))?;
 
@@ -3412,7 +3416,8 @@ fn add_index_usage_without_lock_needs_it_installed() -> Result<(), Box<dyn std::
 #[test]
 fn add_index_usage_without_lock_takes_the_installed_spelling_whatever_the_constraint()
 -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("f", "add_index_any_version", "1.2.3")?;
+    let (_temp_dir, cwd, out) =
+        cli_init_project_basic("foxtrot", "add-index-any-version", "1.2.3")?;
     out.assert().success();
     // Not accepted by the constraint
     install_in_env(&cwd, "ACME Labs", "My Lib", "2.0.0")?;
@@ -3435,7 +3440,7 @@ fn add_index_usage_without_lock_takes_the_installed_spelling_whatever_the_constr
     // An exact spelling is checked against it, in a project that does not
     // declare the usage yet
     let (_other_dir, cwd, out) =
-        cli_init_project_basic("f", "add_index_any_version_exact", "1.2.3")?;
+        cli_init_project_basic("foxtrot", "add-index-any-version-exact", "1.2.3")?;
     out.assert().success();
     install_in_env(&cwd, "ACME Labs", "My Lib", "2.0.0")?;
     run_sysand_in(
@@ -3462,7 +3467,7 @@ fn add_index_usage_without_lock_takes_the_installed_spelling_whatever_the_constr
 /// environment may be missing or stale
 #[test]
 fn add_already_present_usage_still_syncs() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("main", "add_present_syncs", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("main", "add-present-syncs", "1.2.3")?;
     out.assert().success();
     cli_init_project_in(&cwd, Some("dep"), "Acme", Some("Dep"), Some("1.0.0"), None)?
         .assert()
@@ -3504,7 +3509,7 @@ fn add_already_present_usage_still_syncs() -> Result<(), Box<dyn std::error::Err
 /// leaves it as it is but still locks
 #[test]
 fn add_already_present_index_usage_still_locks() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("main", "add_present_locks", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("main", "add-present-locks", "1.2.3")?;
     out.assert().success();
     install_in_env(&cwd, "Acme Labs", "My Lib", "1.0.0")?;
     run_sysand_in(
@@ -3541,7 +3546,7 @@ fn add_already_present_index_usage_still_locks() -> Result<(), Box<dyn std::erro
 #[test]
 fn add_without_lock_of_a_declared_index_usage_needs_nothing_installed()
 -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("f", "add_declared_no_lock", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("foxtrot", "add-declared-no-lock", "1.2.3")?;
     out.assert().success();
     install_in_env(&cwd, "Acme Labs", "My Lib", "1.0.0")?;
     run_sysand_in(

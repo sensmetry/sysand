@@ -45,7 +45,7 @@ fn expected_index() -> IndexMap<String, String> {
 /// a warning that says so.
 #[test]
 fn build_warns_about_an_unknown_key() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "test_unknown", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "test-unknown", "1.2.3")?;
     out.assert().success();
 
     let info_path = cwd.join(".project.json");
@@ -55,12 +55,12 @@ fn build_warns_about_an_unknown_key() -> Result<(), Box<dyn std::error::Error>> 
         info.replacen('{', "{\n  \"x-unknown\": \"kept for later\",", 1),
     )?;
 
-    let out = run_sysand_in(&cwd, ["build", "./test_unknown.kpar"], None)?;
+    let out = run_sysand_in(&cwd, ["build", "./test-unknown.kpar"], None)?;
     out.assert().success().stderr(predicate::str::contains(
         "unknown key `x-unknown` in `.project.json`",
     ));
 
-    let kpar_project = LocalKParProjectRaw::new_guess_root(cwd.join("test_unknown.kpar"))?;
+    let kpar_project = LocalKParProjectRaw::new_guess_root(cwd.join("test-unknown.kpar"))?;
     let (Some(_), Some(_)) = kpar_project.get_project()? else {
         panic!("failed to get built project info/meta");
     };
@@ -69,7 +69,7 @@ fn build_warns_about_an_unknown_key() -> Result<(), Box<dyn std::error::Error>> 
 
 #[test]
 fn project_build() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "test_build", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "test-build", "1.2.3")?;
 
     std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
@@ -83,22 +83,22 @@ fn project_build() -> Result<(), Box<dyn std::error::Error>> {
     let orig_info_contents = fs::read_to_string(&orig_info_path)?;
     let orig_meta_contents = fs::read_to_string(&orig_meta_path)?;
 
-    let out = run_sysand_in(&cwd, ["build", "./test_build.kpar", "--keep-index"], None)?;
+    let out = run_sysand_in(&cwd, ["build", "./test-build.kpar", "--keep-index"], None)?;
 
     out.assert().success();
 
     let out = run_sysand_in(
         &cwd,
-        ["info", "--kpar-path", cwd.join("test_build.kpar").as_str()],
+        ["info", "--kpar-path", cwd.join("test-build.kpar").as_str()],
         None,
     )?;
 
     out.assert()
         .success()
-        .stdout(predicate::str::contains("Name: test_build"))
+        .stdout(predicate::str::contains("Name: test-build"))
         .stdout(predicate::str::contains("Version: 1.2.3"));
 
-    let kpar_project = LocalKParProjectRaw::new_guess_root(cwd.join("test_build.kpar"))?;
+    let kpar_project = LocalKParProjectRaw::new_guess_root(cwd.join("test-build.kpar"))?;
 
     let (Some(info), Some(meta)) = kpar_project.get_project()? else {
         panic!("failed to get built project info/meta");
@@ -123,9 +123,9 @@ fn project_build() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(meta.checksum, expected_checksum);
 
     // Now canonicalize meta during build
-    let out = run_sysand_in(&cwd, ["build", "./test_build2.kpar"], None)?;
+    let out = run_sysand_in(&cwd, ["build", "./test-build2.kpar"], None)?;
     out.assert().success();
-    let kpar_project = LocalKParProjectRaw::new_guess_root(cwd.join("test_build2.kpar"))?;
+    let kpar_project = LocalKParProjectRaw::new_guess_root(cwd.join("test-build2.kpar"))?;
 
     let (Some(_), Some(meta)) = kpar_project.get_project()? else {
         panic!("failed to get built project info/meta");
@@ -148,7 +148,7 @@ fn project_build() -> Result<(), Box<dyn std::error::Error>> {
 /// inside the built kpar, not minified onto a single line.
 #[test]
 fn project_build_pretty_prints_project_and_meta_json() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "test_pretty", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "test-pretty", "1.2.3")?;
 
     std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
@@ -157,11 +157,11 @@ fn project_build_pretty_prints_project_and_meta_json() -> Result<(), Box<dyn std
     let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
     out.assert().success();
 
-    let out = run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?;
+    let out = run_sysand_in(&cwd, ["build", "./test-build.kpar"], None)?;
     out.assert().success();
 
     for archive_path in [".project.json", ".meta.json"] {
-        let content = read_kpar_file(&cwd.join("test_build.kpar"), archive_path);
+        let content = read_kpar_file(&cwd.join("test-build.kpar"), archive_path);
 
         assert!(
             content.lines().count() > 1,
@@ -183,7 +183,7 @@ fn project_build_pretty_prints_project_and_meta_json() -> Result<(), Box<dyn std
 #[test]
 fn build_errors_when_index_symbol_is_missing_from_file() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) =
-        cli_init_project_basic("a", "test_build_missing_index_symbol", "1.2.3")?;
+        cli_init_project_basic("acme", "test-build-missing-index-symbol", "1.2.3")?;
     out.assert().success();
 
     std::fs::write(cwd.join("test.sysml"), b"package Present;\n")?;
@@ -226,7 +226,7 @@ fn build_errors_when_index_symbol_is_missing_from_file() -> Result<(), Box<dyn s
 fn project_build_warns_when_file_symbol_is_missing_from_index()
 -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) =
-        cli_init_project_basic("a", "test_build_missing_index_entry", "1.2.3")?;
+        cli_init_project_basic("acme", "test-build-missing-index-entry", "1.2.3")?;
     out.assert().success();
 
     std::fs::write(cwd.join("test.sysml"), b"package Present;\n")?;
@@ -242,11 +242,11 @@ fn project_build_warns_when_file_symbol_is_missing_from_index()
     )?;
     out.assert().success();
 
-    let out = run_sysand_in(&cwd, ["build", "./test_build.kpar", "--keep-index"], None)?;
+    let out = run_sysand_in(&cwd, ["build", "./test-build.kpar", "--keep-index"], None)?;
     out.assert().success().stderr(predicate::str::contains(
         "index is missing symbol `Present` found in file `test.sysml`",
     ));
-    assert!(cwd.join("test_build.kpar").exists());
+    assert!(cwd.join("test-build.kpar").exists());
 
     Ok(())
 }
@@ -254,8 +254,8 @@ fn project_build_warns_when_file_symbol_is_missing_from_index()
 /// Build a project that has a path (`file:`) usage
 #[test]
 fn project_build_path_usage() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir1, cwd1, out1) = cli_init_project_basic("a", "test_build1", "1.2.3")?;
-    let (_temp_dir2, cwd2, out2) = cli_init_project_basic("a", "test_build2", "1.2.3")?;
+    let (_temp_dir1, cwd1, out1) = cli_init_project_basic("acme", "test-build1", "1.2.3")?;
+    let (_temp_dir2, cwd2, out2) = cli_init_project_basic("acme", "test-build2", "1.2.3")?;
 
     out1.assert().success();
     out2.assert().success();
@@ -263,16 +263,16 @@ fn project_build_path_usage() -> Result<(), Box<dyn std::error::Error>> {
     let out = run_sysand_in(&cwd1, ["add", "--iri-path", cwd2.as_str()], None)?;
     out.assert().success();
 
-    let out = run_sysand_in(&cwd1, ["build", "./test_build.kpar"], None)?;
+    let out = run_sysand_in(&cwd1, ["build", "./test-build.kpar"], None)?;
 
     out.assert()
         .failure()
         .stderr(predicate::str::contains("project includes a path usage"));
-    assert!(!cwd1.join("test_build.kpar").is_file());
+    assert!(!cwd1.join("test-build.kpar").is_file());
 
     let out = run_sysand_in(
         &cwd1,
-        ["build", "./test_build.kpar", "--allow-path-usage"],
+        ["build", "./test-build.kpar", "--allow-path-usage"],
         None,
     )?;
 
@@ -283,17 +283,17 @@ fn project_build_path_usage() -> Result<(), Box<dyn std::error::Error>> {
 
     let out = run_sysand_in(
         &cwd1,
-        ["info", "--kpar-path", cwd1.join("test_build.kpar").as_str()],
+        ["info", "--kpar-path", cwd1.join("test-build.kpar").as_str()],
         None,
     )?;
 
     out.assert()
         .success()
-        .stdout(predicate::str::contains("Name: test_build"))
+        .stdout(predicate::str::contains("Name: test-build"))
         .stdout(predicate::str::contains("Version: 1.2.3"))
         .stdout(predicate::str::contains(file_url_from_path(&cwd2)));
 
-    let kpar_project = LocalKParProjectRaw::new_guess_root(cwd1.join("test_build.kpar"))?;
+    let kpar_project = LocalKParProjectRaw::new_guess_root(cwd1.join("test-build.kpar"))?;
 
     let (Some(_), Some(_)) = kpar_project.get_project()? else {
         panic!("failed to get built project info/meta");
@@ -306,7 +306,7 @@ fn project_build_path_usage() -> Result<(), Box<dyn std::error::Error>> {
 /// KPAR keeps it as it is
 #[test]
 fn project_build_index_usage() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "test_build", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "test-build", "1.2.3")?;
     out.assert().success();
     install_in_env(&cwd, "Acme Labs", "My Lib", "1.0.0")?;
 
@@ -323,12 +323,12 @@ fn project_build_index_usage() -> Result<(), Box<dyn std::error::Error>> {
     )?
     .assert()
     .success();
-    run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?
+    run_sysand_in(&cwd, ["build", "./test-build.kpar"], None)?
         .assert()
         .success()
         .stderr(predicate::str::contains("path usage").not());
 
-    let info = read_kpar_file(&cwd.join("test_build.kpar"), ".project.json");
+    let info = read_kpar_file(&cwd.join("test-build.kpar"), ".project.json");
     assert!(
         info.contains(
             r#"{
@@ -393,7 +393,7 @@ fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
         let out = cli_init_project_in(
             project_cwd,
             None,
-            "a",
+            "acme",
             Some(project_cwd.file_name().unwrap()),
             Some("1.2.3"),
             None,
@@ -518,7 +518,7 @@ fn workspace_build_with_metamodel() -> Result<(), Box<dyn std::error::Error>> {
     let out = cli_init_project_in(
         &project1_cwd,
         None,
-        "a",
+        "acme",
         Some("project1"),
         Some("1.0.0"),
         None,
@@ -575,7 +575,7 @@ fn workspace_build_with_unknown_metamodel() -> Result<(), Box<dyn std::error::Er
     let out = cli_init_project_in(
         &project1_cwd,
         None,
-        "a",
+        "acme",
         Some("project1"),
         Some("1.0.0"),
         None,
@@ -633,7 +633,7 @@ fn workspace_build_metamodel_conflict() -> Result<(), Box<dyn std::error::Error>
     let out = cli_init_project_in(
         &project1_cwd,
         None,
-        "a",
+        "acme",
         Some("project1"),
         Some("1.0.0"),
         None,
@@ -686,7 +686,7 @@ fn workspace_build_metamodel_same_no_conflict() -> Result<(), Box<dyn std::error
     let out = cli_init_project_in(
         &project1_cwd,
         None,
-        "a",
+        "acme",
         Some("project1"),
         Some("1.0.0"),
         None,
@@ -740,7 +740,7 @@ fn workspace_build_metamodel_idempotent() -> Result<(), Box<dyn std::error::Erro
     let out = cli_init_project_in(
         &project1_cwd,
         None,
-        "a",
+        "acme",
         Some("project1"),
         Some("1.0.0"),
         None,
@@ -808,7 +808,7 @@ fn compression_methods() -> Result<(), Box<dyn std::error::Error>> {
 /// Build a project with a README.md at the project root
 #[test]
 fn project_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "test_readme", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "test-readme", "1.2.3")?;
 
     std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
     std::fs::write(cwd.join("README.md"), b"# My Project\nHello world\n")?;
@@ -818,13 +818,13 @@ fn project_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
     let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
     out.assert().success();
 
-    let out = run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?;
+    let out = run_sysand_in(&cwd, ["build", "./test-build.kpar"], None)?;
     out.assert()
         .success()
         .stderr(predicate::str::contains("Including readme from"));
 
     assert_kpar_file(
-        &cwd.join("test_build.kpar"),
+        &cwd.join("test-build.kpar"),
         "README.md",
         "# My Project\nHello world\n",
     );
@@ -835,7 +835,7 @@ fn project_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
 /// Build a project without any README file — should succeed
 #[test]
 fn project_build_without_readme() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "test_no_readme", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "test-no-readme", "1.2.3")?;
 
     std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
@@ -844,10 +844,10 @@ fn project_build_without_readme() -> Result<(), Box<dyn std::error::Error>> {
     let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
     out.assert().success();
 
-    let out = run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?;
+    let out = run_sysand_in(&cwd, ["build", "./test-build.kpar"], None)?;
     out.assert().success();
 
-    assert_kpar_missing(&cwd.join("test_build.kpar"), "README.md");
+    assert_kpar_missing(&cwd.join("test-build.kpar"), "README.md");
 
     Ok(())
 }
@@ -876,7 +876,7 @@ fn workspace_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
         let out = cli_init_project_in(
             project_cwd,
             None,
-            "a",
+            "acme",
             Some(project_name),
             Some("1.2.3"),
             None,
@@ -914,7 +914,7 @@ fn workspace_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
 /// Build a project with a CHANGELOG.md at the project root
 #[test]
 fn project_build_with_changelog() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "test_changelog", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "test-changelog", "1.2.3")?;
 
     std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
     std::fs::write(
@@ -927,13 +927,13 @@ fn project_build_with_changelog() -> Result<(), Box<dyn std::error::Error>> {
     let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
     out.assert().success();
 
-    let out = run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?;
+    let out = run_sysand_in(&cwd, ["build", "./test-build.kpar"], None)?;
     out.assert()
         .success()
         .stderr(predicate::str::contains("Including changelog from"));
 
     assert_kpar_file(
-        &cwd.join("test_build.kpar"),
+        &cwd.join("test-build.kpar"),
         "CHANGELOG.md",
         "# Changelog\n\n## 1.2.3\n- Initial release\n",
     );
@@ -944,7 +944,7 @@ fn project_build_with_changelog() -> Result<(), Box<dyn std::error::Error>> {
 /// Build a project without any CHANGELOG file — should succeed
 #[test]
 fn project_build_without_changelog() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "test_no_changelog", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "test-no-changelog", "1.2.3")?;
 
     std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
@@ -953,10 +953,10 @@ fn project_build_without_changelog() -> Result<(), Box<dyn std::error::Error>> {
     let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
     out.assert().success();
 
-    let out = run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?;
+    let out = run_sysand_in(&cwd, ["build", "./test-build.kpar"], None)?;
     out.assert().success();
 
-    assert_kpar_missing(&cwd.join("test_build.kpar"), "CHANGELOG.md");
+    assert_kpar_missing(&cwd.join("test-build.kpar"), "CHANGELOG.md");
 
     Ok(())
 }
@@ -985,7 +985,7 @@ fn workspace_build_with_changelog() -> Result<(), Box<dyn std::error::Error>> {
         let out = cli_init_project_in(
             project_cwd,
             None,
-            "a",
+            "acme",
             Some(project_name),
             Some("1.2.3"),
             None,
@@ -1028,8 +1028,13 @@ fn workspace_build_with_changelog() -> Result<(), Box<dyn std::error::Error>> {
 /// `LICENSES/<id>.txt` is included in the KPAR.
 #[test]
 fn project_build_with_single_license() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) =
-        cli_init_project(None, "a", Some("test_license"), Some("1.2.3"), Some("MIT"))?;
+    let (_temp_dir, cwd, out) = cli_init_project(
+        None,
+        "acme",
+        Some("test-license"),
+        Some("1.2.3"),
+        Some("MIT"),
+    )?;
 
     std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
     std::fs::create_dir(cwd.join("LICENSES"))?;
@@ -1040,13 +1045,13 @@ fn project_build_with_single_license() -> Result<(), Box<dyn std::error::Error>>
     let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
     out.assert().success();
 
-    let out = run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?;
+    let out = run_sysand_in(&cwd, ["build", "./test-build.kpar"], None)?;
     out.assert()
         .success()
         .stderr(predicate::str::contains("Including license from"));
 
     assert_kpar_file(
-        &cwd.join("test_build.kpar"),
+        &cwd.join("test-build.kpar"),
         "LICENSES/MIT.txt",
         "MIT license text\n",
     );
@@ -1060,8 +1065,8 @@ fn project_build_with_single_license() -> Result<(), Box<dyn std::error::Error>>
 fn project_build_with_compound_license() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = cli_init_project(
         None,
-        "a",
-        Some("test_compound_license"),
+        "acme",
+        Some("test-compound-license"),
         Some("1.2.3"),
         Some("MIT OR Apache-2.0"),
     )?;
@@ -1079,16 +1084,16 @@ fn project_build_with_compound_license() -> Result<(), Box<dyn std::error::Error
     let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
     out.assert().success();
 
-    let out = run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?;
+    let out = run_sysand_in(&cwd, ["build", "./test-build.kpar"], None)?;
     out.assert().success();
 
     assert_kpar_file(
-        &cwd.join("test_build.kpar"),
+        &cwd.join("test-build.kpar"),
         "LICENSES/MIT.txt",
         "MIT body\n",
     );
     assert_kpar_file(
-        &cwd.join("test_build.kpar"),
+        &cwd.join("test-build.kpar"),
         "LICENSES/Apache-2.0.txt",
         "Apache body\n",
     );
@@ -1102,8 +1107,8 @@ fn project_build_with_compound_license() -> Result<(), Box<dyn std::error::Error
 fn project_build_with_license_exception() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = cli_init_project(
         None,
-        "a",
-        Some("test_license_with"),
+        "acme",
+        Some("test-license-with"),
         Some("1.2.3"),
         Some("GPL-2.0-only WITH Classpath-exception-2.0"),
     )?;
@@ -1121,16 +1126,16 @@ fn project_build_with_license_exception() -> Result<(), Box<dyn std::error::Erro
     let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
     out.assert().success();
 
-    let out = run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?;
+    let out = run_sysand_in(&cwd, ["build", "./test-build.kpar"], None)?;
     out.assert().success();
 
     assert_kpar_file(
-        &cwd.join("test_build.kpar"),
+        &cwd.join("test-build.kpar"),
         "LICENSES/GPL-2.0-only.txt",
         "GPL body\n",
     );
     assert_kpar_file(
-        &cwd.join("test_build.kpar"),
+        &cwd.join("test-build.kpar"),
         "LICENSES/Classpath-exception-2.0.txt",
         "Classpath exception body\n",
     );
@@ -1144,8 +1149,8 @@ fn project_build_with_license_exception() -> Result<(), Box<dyn std::error::Erro
 fn project_build_with_license_ref() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = cli_init_project(
         None,
-        "a",
-        Some("test_license_ref"),
+        "acme",
+        Some("test-license-ref"),
         Some("1.2.3"),
         Some("LicenseRef-MyCustom"),
     )?;
@@ -1162,11 +1167,11 @@ fn project_build_with_license_ref() -> Result<(), Box<dyn std::error::Error>> {
     let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
     out.assert().success();
 
-    let out = run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?;
+    let out = run_sysand_in(&cwd, ["build", "./test-build.kpar"], None)?;
     out.assert().success();
 
     assert_kpar_file(
-        &cwd.join("test_build.kpar"),
+        &cwd.join("test-build.kpar"),
         "LICENSES/LicenseRef-MyCustom.txt",
         "Custom license body\n",
     );
@@ -1180,8 +1185,8 @@ fn project_build_with_license_ref() -> Result<(), Box<dyn std::error::Error>> {
 fn project_build_with_license_file_missing() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = cli_init_project(
         None,
-        "a",
-        Some("test_missing_license"),
+        "acme",
+        Some("test-missing-license"),
         Some("1.2.3"),
         Some("MIT"),
     )?;
@@ -1193,12 +1198,12 @@ fn project_build_with_license_file_missing() -> Result<(), Box<dyn std::error::E
     let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
     out.assert().success();
 
-    let out = run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?;
+    let out = run_sysand_in(&cwd, ["build", "./test-build.kpar"], None)?;
     out.assert()
         .success()
         .stderr(predicate::str::contains("LICENSES/MIT.txt"));
 
-    assert_kpar_missing(&cwd.join("test_build.kpar"), "LICENSES/MIT.txt");
+    assert_kpar_missing(&cwd.join("test-build.kpar"), "LICENSES/MIT.txt");
 
     Ok(())
 }
@@ -1206,7 +1211,7 @@ fn project_build_with_license_file_missing() -> Result<(), Box<dyn std::error::E
 /// Build a project without any license — no LICENSES/* entries are added.
 #[test]
 fn project_build_without_license() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "test_no_license", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "test-no-license", "1.2.3")?;
 
     std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
@@ -1215,10 +1220,10 @@ fn project_build_without_license() -> Result<(), Box<dyn std::error::Error>> {
     let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
     out.assert().success();
 
-    let out = run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?;
+    let out = run_sysand_in(&cwd, ["build", "./test-build.kpar"], None)?;
     out.assert().success();
 
-    assert_kpar_no_licenses_dir(&cwd.join("test_build.kpar"));
+    assert_kpar_no_licenses_dir(&cwd.join("test-build.kpar"));
 
     Ok(())
 }
@@ -1261,7 +1266,7 @@ fn assert_kpar_no_licenses_dir(kpar_path: &camino::Utf8Path) {
 }
 
 fn compression_method(compression: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "test_build", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "test-build", "1.2.3")?;
 
     {
         let mut sysml_file = std::fs::File::create(cwd.join("test.sysml"))?;
@@ -1277,32 +1282,32 @@ fn compression_method(compression: Option<&str>) -> Result<(), Box<dyn std::erro
     let out = match compression {
         Some(compression) => run_sysand_in(
             &cwd,
-            ["build", "--compression", compression, "./test_build.kpar"],
+            ["build", "--compression", compression, "./test-build.kpar"],
             None,
         )?,
-        None => run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?,
+        None => run_sysand_in(&cwd, ["build", "./test-build.kpar"], None)?,
     };
 
     out.assert().success();
 
     let out = run_sysand_in(
         &cwd,
-        ["info", "--kpar-path", cwd.join("test_build.kpar").as_str()],
+        ["info", "--kpar-path", cwd.join("test-build.kpar").as_str()],
         None,
     )?;
 
     out.assert()
         .success()
-        .stdout(predicate::str::contains("Name: test_build"))
+        .stdout(predicate::str::contains("Name: test-build"))
         .stdout(predicate::str::contains("Version: 1.2.3"));
 
-    let kpar_project = LocalKParProjectRaw::new_guess_root(cwd.join("test_build.kpar"))?;
+    let kpar_project = LocalKParProjectRaw::new_guess_root(cwd.join("test-build.kpar"))?;
 
     let (Some(info), Some(meta)) = kpar_project.get_project()? else {
         panic!("failed to get built project info/meta");
     };
 
-    assert_eq!(info.name, "test_build");
+    assert_eq!(info.name, "test-build");
     assert_eq!(info.version, "1.2.3");
 
     assert_eq!(meta.checksum, expected_checksum());
