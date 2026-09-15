@@ -194,45 +194,19 @@ impl Workspace {
         Ok(Some(workspace))
     }
 
-    /// Appendix A row 25: what the command started in, which is what it
-    /// acts on when no selector says otherwise.
+    /// What the command started in, which is what it acts on when no
+    /// selector says otherwise.
     ///
-    /// The project `from` sits in is the one [`crate::discover::discover_project`]
-    /// would find, so it is found with the same predicate rather than a
-    /// second spelling of the question. The search is bounded at the
-    /// root: a project above the root is a different project, which this
-    /// workspace has no opinion about.
+    /// [`start_region`] with the members in hand: the walk is the same
+    /// one, and the index it answers with is an index into
+    /// `table.members`, which a loaded workspace matches one for one
+    /// (see [`Workspace::classify`]).
     pub fn start(&self, from: impl AsRef<Utf8Path>) -> Result<Selection<'_>, DiscoverError> {
-        let from = wrapfs::canonicalize(from.as_ref())?;
-        let mut current: &Utf8Path = &from;
-        loop {
-            if current == self.root {
-                return Ok(Selection::Workspace);
-            }
-            if crate::discover::is_project_file(current)? {
-                return match self.classify(current)? {
-                    Classification::Member(member) => Ok(Selection::Member(member)),
-                    Classification::Excluded(_) => Ok(Selection::Standalone(current.to_owned())),
-                    Classification::Unlisted => Err(DiscoverError::Unlisted {
-                        project: current.to_owned(),
-                        root: self.root.clone(),
-                    }),
-                    Classification::Outside => Err(DiscoverError::NotUnderRoot {
-                        dir: current.to_owned(),
-                        root: self.root.clone(),
-                    }),
-                };
-            }
-            match current.parent() {
-                Some(parent) => current = parent,
-                None => {
-                    return Err(DiscoverError::NotUnderRoot {
-                        dir: from,
-                        root: self.root.clone(),
-                    });
-                }
-            }
-        }
+        Ok(match start_region(&self.root, &self.table, from)? {
+            StartRegion::Member(index) => Selection::Member(&self.members[index]),
+            StartRegion::Standalone(dir) => Selection::Standalone(dir),
+            StartRegion::Workspace => Selection::Workspace,
+        })
     }
 
     /// The member `--member <path-or-name>` names.
@@ -490,6 +464,82 @@ pub enum Selection<'a> {
     /// "a standalone project with its own lockfile, `.sysand` and
     /// `output`".
     Standalone(Utf8PathBuf),
+}
+
+/// Where a command run in `from` starts, answered from the table alone.
+///
+/// [`Workspace::start`] is this walk plus the member lookup. The split
+/// exists because the two questions have different costs: this one is a
+/// path comparison against [`WorkspaceTable::region`], while producing a
+/// [`Member`] means [`Workspace::load`], which reads and resolves every
+/// member's manifest and enforces the member requirements.
+///
+/// The CLI needs the cheap one first. `workspaces.md` "Stray per-member
+/// state" makes a member holding a `sysand-lock.toml`, a `.sysand/` or
+/// an `output/` an error. A command that writes such state into the
+/// member it acts on, and asked where it starts through
+/// [`Workspace::load`], would refuse the workspace its own previous run
+/// created.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StartRegion {
+    /// Inside `table.members[index]`.
+    Member(usize),
+    /// A project under an `exclude`d directory.
+    Standalone(Utf8PathBuf),
+    /// The root itself, or a directory under it that defines no project.
+    Workspace,
+}
+
+/// The classification of workspaces.md "Included projects", over a
+/// [`WorkspaceTable`] and a root path.
+///
+/// The project `from` sits in is the one [`crate::discover::discover_project`]
+/// would find, so it is found with the same predicate rather than a
+/// second spelling of the question. The search is bounded at the root: a
+/// project above the root is a different project, which this workspace
+/// has no opinion about.
+///
+/// `root` must be canonical -- [`candidate_root`] and [`Workspace::load`]
+/// both canonicalize what they return -- because `from` is canonicalized
+/// here and the two are compared.
+pub fn start_region(
+    root: &Utf8Path,
+    table: &WorkspaceTable,
+    from: impl AsRef<Utf8Path>,
+) -> Result<StartRegion, DiscoverError> {
+    let from = wrapfs::canonicalize(from.as_ref())?;
+    let mut current: &Utf8Path = &from;
+    loop {
+        if current == root {
+            return Ok(StartRegion::Workspace);
+        }
+        if crate::discover::is_project_file(current)? {
+            let relative = relativize_path(current, root)?;
+            if relative.components().any(|c| c.as_str() == "..") {
+                return Err(DiscoverError::NotUnderRoot {
+                    dir: current.to_owned(),
+                    root: root.to_owned(),
+                });
+            }
+            return match table.region(&relative) {
+                Region::Member(index, _) => Ok(StartRegion::Member(index)),
+                Region::Excluded(_) => Ok(StartRegion::Standalone(current.to_owned())),
+                Region::Unlisted => Err(DiscoverError::Unlisted {
+                    project: current.to_owned(),
+                    root: root.to_owned(),
+                }),
+            };
+        }
+        match current.parent() {
+            Some(parent) => current = parent,
+            None => {
+                return Err(DiscoverError::NotUnderRoot {
+                    dir: from,
+                    root: root.to_owned(),
+                });
+            }
+        }
+    }
 }
 
 /// Whether `dir` holds a `model.toml` that defines a `[workspace]`.

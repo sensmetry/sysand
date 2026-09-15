@@ -1519,3 +1519,46 @@ fn a_candidate_defining_both_tables_still_fails_as_that() {
         other => panic!("expected the candidate's own manifest error, got `{other:?}`"),
     }
 }
+
+// ------------------------------- `start_region` reads no member
+
+/// The property the CLI depends on: the walk answers over the table
+/// alone, so a member that `Workspace::load` refuses does not stop it.
+///
+/// `workspaces.md` "Stray per-member state" makes a member's own
+/// `sysand-lock.toml` an error, and the walk must still answer for a
+/// member that has one.
+#[test]
+fn start_region_ignores_a_members_own_lockfile() {
+    let fixture = Fixture::new(&workspace_with("\"app\""));
+    fixture.project("app");
+    fixture.write("app/sysand-lock.toml", "");
+    fixture
+        .load()
+        .expect_err("the tree is one `load` refuses, which is the point");
+
+    let (root, table) = super::discover_table(fixture.root())
+        .expect("the table reads")
+        .expect("a workspace");
+    assert_eq!(
+        super::start_region(&root, &table, fixture.under("app")).expect("classifies"),
+        super::StartRegion::Member(0)
+    );
+}
+
+/// And the same for an entry naming nothing: only the entry the walk
+/// matched is consulted.
+#[test]
+fn start_region_ignores_a_member_that_does_not_exist() {
+    let fixture = Fixture::new(&workspace_with("\"app\", \"gone\""));
+    fixture.project("app");
+    fixture.load().expect_err("`load` refuses a missing member");
+
+    let (root, table) = super::discover_table(fixture.root())
+        .expect("the table reads")
+        .expect("a workspace");
+    assert_eq!(
+        super::start_region(&root, &table, fixture.under("app")).expect("classifies"),
+        super::StartRegion::Member(0)
+    );
+}
