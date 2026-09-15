@@ -213,7 +213,8 @@ pub enum Command {
     Publish {
         /// Path to the KPAR file to publish. If not provided, will look
         /// for a KPAR in the output directory with the current project's
-        /// name and version
+        /// name and version; from a workspace root, every member's, in
+        /// dependency order
         #[clap(verbatim_doc_comment)]
         path: Option<Utf8PathBuf>,
 

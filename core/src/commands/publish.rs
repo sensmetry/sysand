@@ -1036,6 +1036,17 @@ pub struct PublishPreparation {
     metadata: String,
 }
 
+impl PublishPreparation {
+    /// `<publisher>/<name> v<version>`, for a caller reporting which of
+    /// several archives it is working on.
+    pub fn identity(&self) -> String {
+        format!(
+            "{}/{} v{}",
+            self.norm_publisher, self.norm_name, self.version
+        )
+    }
+}
+
 // An unknown field in `.project.json`/`.meta.json` is warned about when
 // the document is read, so it is reported before a publish as well as
 // before a build.
