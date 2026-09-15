@@ -436,6 +436,10 @@ fn run_cli_with(
     };
     let ctx = ProjectContext {
         env,
+        // Set when the workspace lockfile moves to the root (WP-5e):
+        // while it still lives in the member, a `src_path` relative to
+        // the root would be relative to the wrong directory.
+        model_workspace_root: None,
         current_workspace,
         current_project,
         current_directory: cwd,

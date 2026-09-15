@@ -603,6 +603,8 @@ fn project_context(start: &Utf8Path) -> PyResult<(ProjectContext, Utf8PathBuf)> 
     };
     Ok((
         ProjectContext {
+            // The binding locks a member alone, at the member's root.
+            model_workspace_root: None,
             env,
             current_workspace,
             current_project,

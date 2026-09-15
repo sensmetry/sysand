@@ -112,6 +112,9 @@ pub fn command_clone<Policy: HTTPAuthentication>(
     // TODO: Consider under which circumstances (if any)
     //       the workspace should carry over.
     let ctx = ProjectContext {
+        // The workspace does not carry over to the clone (see the TODO
+        // above).
+        model_workspace_root: None,
         current_workspace: None,
         current_project: Some(local_project.clone()),
         current_directory: ctx.current_directory,

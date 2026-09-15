@@ -741,12 +741,8 @@ impl ProjectRead for LocalSrcProject {
         };
         let src_path = if let Some(np) = self.nominal_path.as_ref() {
             np.as_str().into()
-        } else if let Some(w) = &ctx.current_workspace {
-            relativize_path(&self.project_path, w.root_path())?
-                .into_string()
-                .into()
-        } else if let Some(cp) = &ctx.current_project {
-            relativize_path(&self.project_path, cp.root_path())?
+        } else if let Some(root) = ctx.sources_root() {
+            relativize_path(&self.project_path, &root)?
                 .into_string()
                 .into()
         } else {
