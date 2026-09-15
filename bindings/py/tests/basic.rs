@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use predicates::prelude::*;
 use pyo3::prelude::*;
 
 use camino_tempfile::Utf8TempDir;
@@ -22,28 +21,23 @@ fn basic_init() -> Result<(), Box<dyn std::error::Error>> {
             .expect("Failed to get do_init_py_local_file function");
 
         do_init_py_local_file_fn
-            .call1(("basic_init", "acme", "1.2.3", proj_dir_path.as_str()))
+            .call1(("basic-init", "acme", "1.2.3", proj_dir_path.as_str()))
             .unwrap();
     });
 
-    let info = std::fs::read_to_string(proj_dir_path.join(".project.json"))?;
-    let meta = std::fs::read_to_string(proj_dir_path.join(".meta.json"))?;
-
-    let meta_match = predicate::str::is_match(
-        r#"\{\n  "index": \{\},\n  "created": "\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"\n}\n"#,
-    )?;
-
+    // `init` writes a `model.toml`, through the binding as through the
+    // CLI: the two json documents are what a build produces and what a
+    // legacy project has.
     assert_eq!(
-        info,
-        r#"{
-  "name": "basic_init",
-  "publisher": "acme",
-  "version": "1.2.3"
-}
-"#
+        std::fs::read_to_string(proj_dir_path.join("model.toml"))?,
+        "manifest-version = 1\n\n\
+         [project]\n\
+         publisher = \"acme\"\n\
+         name = \"basic-init\"\n\
+         version = \"1.2.3\"\n\
+         sources = []\n"
     );
-
-    assert!(meta_match.eval(&meta));
+    assert!(!proj_dir_path.join(".project.json").exists());
 
     Ok(())
 }
