@@ -15,7 +15,8 @@ use crate::{
         KerMlChecksumAlg,
     },
     project::{
-        ManifestWriteError, ProjectChecksum, ProjectFormat, ProjectMut, ProjectRead, hash_reader,
+        ManifestError, ManifestWriteError, ProjectChecksum, ProjectFormat, ProjectMut, ProjectRead,
+        hash_reader,
         memory::{InMemoryError, InMemoryProject},
         reference::ProjectReference,
     },
@@ -258,4 +259,57 @@ fn a_mutable_reference_forwards_a_manifest_write() {
     store(&mut project, &a_manifest()).expect("an in-memory project stores a manifest");
 
     assert_eq!(project.format().expect("a format"), ProjectFormat::Toml);
+}
+
+#[test]
+fn a_project_without_a_manifest_has_no_document() {
+    assert!(matches!(
+        Silent.manifest_document(),
+        Err(ManifestError::NoTomlManifest)
+    ));
+}
+
+#[test]
+fn a_memory_project_hands_back_its_manifest_document() {
+    // Comments included: what an editor needs is what the file says,
+    // not the values `manifest()` resolves out of it.
+    let commented = "manifest-version = 1\n\n[project]\n# who publishes it\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n";
+    let mut project = InMemoryProject::default();
+    project
+        .put_manifest_document(&commented.parse().expect("a manifest"), false)
+        .expect("stores a manifest");
+
+    let document = project.manifest_document().expect("a document");
+    assert!(document.to_string().contains("# who publishes it"));
+}
+
+#[test]
+fn a_manifest_this_sysand_cannot_read_is_refused_before_it_is_edited() {
+    // Parsing TOML is not reading a manifest. A file written for a
+    // version this Sysand does not support parses perfectly well and
+    // must not be edited.
+    let newer = "manifest-version = 2\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n";
+    let project = InMemoryProject {
+        model_toml: Some(newer.to_owned()),
+        ..InMemoryProject::default()
+    };
+
+    let error = project
+        .manifest_document()
+        .expect_err("a manifest from the future is not editable");
+    assert!(error.to_string().contains("manifest-version 2"));
+}
+
+#[test]
+fn a_mutable_reference_forwards_the_manifest_document() {
+    fn document<P: ProjectRead>(project: P) -> Result<DocumentMut, ManifestError<P::Error>> {
+        project.manifest_document()
+    }
+
+    let mut project = InMemoryProject::default();
+    project
+        .put_manifest_document(&a_manifest(), false)
+        .expect("stores a manifest");
+
+    assert!(document(&project).is_ok());
 }
