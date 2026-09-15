@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-//! `sysand publish` builds the project first, and `sysand build`
-//! refuses a `model.toml` project outright. So every project in this
-//! file is written as a legacy `.project.json` pair by hand rather than
-//! created through `sysand init`, which writes a `model.toml`.
+//! Every project in this file is written as a legacy `.project.json`
+//! pair by hand rather than created through `sysand init`, which
+//! writes a `model.toml`: what these fixtures pin is the json path,
+//! which "TOML to KPAR" leaves unchanged.
+//!
+//! `publish_toml_project_with_a_stdlib_usage`, at the end of the file,
+//! is the toml end-to-end case.
+//!
+//! Note `sysand publish` does *not* build: it uploads the archive
+//! `sysand build` left in `output/`.
 
 use std::fs;
 
@@ -1000,5 +1006,48 @@ fn publish_index_with_unknown_placeholder_reports_parse_error() -> TestResult {
         .failure()
         .stderr(predicate::str::contains("unknown placeholder `{file}`"));
 
+    Ok(())
+}
+
+/// `build` and `publish` agree about a standard-library usage.
+///
+/// The manifest is written by hand -- `setup_built_project` writes a
+/// legacy json pair and runs `include --no-index-symbols`, which a
+/// `model.toml` project refuses -- and it carries `license` and
+/// `metamodel` because `publish` requires both.
+#[test]
+fn publish_toml_project_with_a_stdlib_usage() -> TestResult {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    fs::write(
+        cwd.join("model.toml"),
+        "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
+         version = \"1.0.0\"\nlicense = \"MIT\"\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\nsources = [\"a.sysml\"]\n\n\
+         [[inline-usages]]\npublisher = \"OMG\"\nname = \"Kernel Semantic Library\"\n\
+         version = \"^1.0.0\"\n",
+    )?;
+    fs::write(cwd.join("a.sysml"), b"package A;\n")?;
+    fs::create_dir(cwd.join("LICENSES"))?;
+    fs::write(cwd.join("LICENSES/MIT.txt"), "MIT\n")?;
+
+    // `publish` uploads what `build` left behind.
+    run_sysand_ok(&cwd, &["build"], None)?;
+
+    let mut server = Server::new();
+    let config_mock = mock_index_config_api_at_api(&mut server);
+    let publish_mock = mock_publish_with_bearer(&mut server, "test-token");
+    let env = bearer_env_for_url(server.url().as_str());
+
+    run_sysand_in_with(
+        &cwd,
+        ["publish", "--index", server.url().as_str()],
+        None,
+        &env,
+    )?
+    .assert()
+    .success();
+
+    config_mock.assert();
+    publish_mock.assert();
     Ok(())
 }
