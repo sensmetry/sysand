@@ -332,3 +332,38 @@ fn a_workspace_of_toml_members_records_the_build_time() -> Result<(), Box<dyn st
     assert_ne!(created, VIEW_CREATED);
     Ok(())
 }
+
+/// model-toml.md "TOML to KPAR": "`publisher` goes into
+/// `project.publisher`, unless the project carries `stdlib`", so that a
+/// locally built standard-library KPAR matches the published one.
+///
+/// `ProjectManifest::resolve` accepts `stdlib` only for a publisher
+/// normalizing to `omg` under a known OMG metamodel, so the fixture
+/// needs a real metamodel URL.
+#[test]
+fn a_stdlib_project_omits_its_publisher() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    std::fs::write(
+        dir.path().join("model.toml"),
+        "manifest-version = 1\n\n[project]\npublisher = \"omg\"\nname = \"kerml\"\n\
+         version = \"1.0.0\"\nsources = [\"a.sysml\"]\nstdlib = \"KerML\"\n\
+         metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n",
+    )?;
+    std::fs::write(dir.path().join("a.sysml"), b"package A;\n")?;
+
+    let (info, _) = built(&dir, false)?;
+    assert_eq!(
+        info.publisher, None,
+        "a stdlib archive carries no publisher"
+    );
+    assert_eq!(info.name, "kerml");
+    Ok(())
+}
+
+#[test]
+fn a_non_stdlib_project_keeps_its_publisher() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = toml_project("")?;
+    let (info, _) = built(&dir, false)?;
+    assert_eq!(info.publisher.as_deref(), Some("acme"));
+    Ok(())
+}
