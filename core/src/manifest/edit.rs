@@ -49,6 +49,7 @@ use crate::manifest::usage::{MemberUsage, UsageRaw};
 use crate::manifest::workspace_table::{GROUP_KEYS, GroupProperties, WorkspaceTable};
 use crate::manifest::{ModelToml, SUPPORTED_MANIFEST_VERSION};
 use crate::model::{IndexName, IndexPublisher};
+use crate::project::utils::ProjectDeserializationError;
 
 /// Render a manifest as a freshly generated file.
 ///
@@ -454,6 +455,26 @@ pub enum EditError {
 /// `toml::Value`s -- is unreachable for anything that parses, since
 /// duplicate keys are refused at parse time and every TOML type is a
 /// `toml::Value`, so this matches only the parse.
+/// Parse a `model.toml` for editing, after checking that it is one this
+/// Sysand can read.
+///
+/// [`open`] is a bare parse: a file written for a `manifest-version`
+/// this Sysand does not support parses perfectly well, and editing it
+/// would be writing into a schema nothing here understands. So the same
+/// read a project's [`crate::project::ProjectRead::manifest`] does runs
+/// first, for its diagnostics alone, and the document is handed back
+/// only when there are none.
+pub fn validated(file: &str, text: &str) -> Result<DocumentMut, ProjectDeserializationError> {
+    crate::manifest::ModelToml::parse(file, text)
+        .map_err(|report| ProjectDeserializationError::invalid(file, report))?;
+    open(file, text).map_err(|problem| {
+        ProjectDeserializationError::invalid(
+            file,
+            crate::manifest::diagnostics::Report::from_iter([problem]),
+        )
+    })
+}
+
 pub fn open(file: &str, text: &str) -> Result<DocumentMut, Diagnostic> {
     Source::new(file, text).parse_mut()
 }

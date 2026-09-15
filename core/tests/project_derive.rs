@@ -311,3 +311,18 @@ fn a_derived_project_forwards_a_manifest_write() {
         sysand_core::project::ProjectFormat::Toml
     );
 }
+
+#[test]
+fn a_derived_project_forwards_the_manifest_document() {
+    let mut inner = InMemoryProject::new();
+    let document: DocumentMut =
+        "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n"
+            .parse()
+            .expect("a valid manifest document");
+    inner
+        .put_manifest_document(&document, false)
+        .expect("stores a manifest");
+
+    let project = OneVariantProjectMut::Variant(inner);
+    assert!(project.manifest_document().is_ok());
+}
