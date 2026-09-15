@@ -1390,3 +1390,71 @@ fn workspace_build_follows_members_order() -> Result<(), Box<dyn std::error::Err
     );
     Ok(())
 }
+
+/// Every failure is reported, and an independent member is
+/// still built.
+///
+/// The failures must be distinguishable, and their error texts are
+/// identical -- so the assertion is on the member names the CLI adds.
+#[test]
+fn workspace_build_reports_every_failure() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    std::fs::write(
+        cwd.join(".workspace.json"),
+        br#"{"projects": [{"path": "alpha", "iris": []}, {"path": "beta", "iris": []}, {"path": "gamma", "iris": []}]}"#,
+    )?;
+    std::fs::create_dir_all(cwd.join("alpha"))?;
+    std::fs::create_dir_all(cwd.join("beta"))?;
+    let good = cwd.join("gamma");
+    std::fs::create_dir_all(&good)?;
+    write_legacy_project(&good, "acme", "gamma", "1.0.0", None)?;
+
+    run_sysand_in(&cwd, ["build"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("failed to build member `alpha`"))
+        .stderr(predicate::str::contains("failed to build member `beta`"))
+        .stderr(predicate::str::contains(
+            "2 of 3 workspace members failed to build",
+        ));
+    assert!(
+        cwd.join("output/gamma-1.0.0.kpar").exists(),
+        "an independent member is still built"
+    );
+    Ok(())
+}
+
+/// A build never reads another member's archive, so a member whose
+/// dependency failed is built all the same.
+#[test]
+fn workspace_build_builds_a_dependent_of_a_failed_member() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    std::fs::write(
+        cwd.join(".workspace.json"),
+        br#"{"projects": [{"path": "beta", "iris": []}, {"path": "alpha", "iris": []}]}"#,
+    )?;
+    std::fs::create_dir_all(cwd.join("alpha"))?;
+    let beta = cwd.join("beta");
+    std::fs::create_dir_all(&beta)?;
+    std::fs::write(
+        beta.join("model.toml"),
+        "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"beta\"\n\
+         version = \"1.0.0\"\nsources = [\"m.kerml\"]\n\n\
+         [[inline-usages]]\npublisher = \"acme\"\nname = \"alpha\"\ndir = \"../alpha\"\n",
+    )?;
+    std::fs::write(beta.join("m.kerml"), b"package M;\n")?;
+
+    run_sysand_in(&cwd, ["build", "--allow-path-usage"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("failed to build member `alpha`"))
+        .stderr(predicate::str::contains(
+            "1 of 2 workspace members failed to build",
+        ));
+    assert!(
+        cwd.join("output/beta-1.0.0.kpar").exists(),
+        "the dependent is built"
+    );
+    Ok(())
+}
