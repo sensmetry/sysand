@@ -3,8 +3,13 @@
 
 use anyhow::{Result, bail};
 use sysand_core::{
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{ProjectFormat, ProjectRead, local_src::LocalSrcProject},
+    manifest::{
+        common::Maintainer,
+        edit::{self, Array, DocumentMut, ListKey, ProjectKey, Value},
+    },
+    model::{IndexName, IndexPublisher, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    project::{ProjectFormat, ProjectMut, ProjectRead, local_src::LocalSrcProject},
+    utils::format_err,
 };
 
 use crate::{
@@ -21,6 +26,15 @@ pub fn command_edit(mut project: LocalSrcProject, edits: EditArgs) -> Result<()>
     let (edits_info, edits_meta) = (edits_info(&edits), edits_meta(&edits));
     if !edits_info && !edits_meta {
         unreachable!()
+    }
+    // `Both` falls through to the json arm, where the read refuses it as
+    // the ambiguity it is
+    if project.format()? == ProjectFormat::Toml {
+        edit_toml(&mut project, &edits)?;
+        if edits.license.is_some() {
+            log_license_files_note();
+        }
+        return Ok(());
     }
     if edits_info {
         let mut info = get_info_or_bail(&project)?;
@@ -247,4 +261,186 @@ fn edit_meta(edits: &EditArgs, meta: &mut InterchangeProjectMetadataRaw) {
     } else if edits.clear_includes_implied {
         meta.includes_implied = None;
     }
+}
+
+// --- `model.toml` projects --------------------------------------------
+//
+// model-toml.md "Editing the manifest": the edits go into the existing
+// document in place. Three things make this more than a forwarding
+// layer.
+//
+// The flags are named after `.project.json`'s fields and three of them
+// are spelled differently in a manifest -- `maintainer`/`maintainers`,
+// `topic`/`topics`, and `website`, which is one key of a `[project.urls]`
+// table rather than a scalar. Writing the json spelling is *silent*: an
+// unknown key is a warning, and the value then reads back as absent.
+//
+// And a manifest validates what the json documents never did. A
+// maintainer without an email, a name or publisher the identifier rule
+// refuses -- each is accepted by `.project.json` and makes a
+// `model.toml` unreadable. So each is refused here, by the same parsers
+// the reader uses rather than by a restatement of their rules. The
+// version and the license are already parsed by the argument parser.
+//
+// Lists go through the in-place array editors rather than being replaced
+// wholesale, so `--add-*` and `--remove-*` keep the comments inside them.
+
+fn manifest_document<Project: ProjectRead>(project: &Project) -> Result<DocumentMut> {
+    project
+        .manifest_document()
+        .map_err(|e| anyhow::anyhow!("failed to read `model.toml`: {}", format_err(e)))
+}
+
+fn write_manifest<Project: ProjectMut>(
+    project: &mut Project,
+    document: &DocumentMut,
+) -> Result<()> {
+    project
+        .put_manifest_document(document, true)
+        .map_err(|e| anyhow::anyhow!("failed to write `model.toml`: {}", format_err(e)))
+}
+
+fn edit_toml(project: &mut LocalSrcProject, edits: &EditArgs) -> Result<()> {
+    refuse_computed_fields(project, edits)?;
+    let mut document = manifest_document(project)?;
+
+    if let Some(name) = &edits.name {
+        IndexName::parse(name.as_str()).map_err(|e| anyhow::anyhow!("`{}`: {e}", e.value))?;
+        edit::set_project_key(&mut document, ProjectKey::Name, name.as_str().into())?;
+    }
+    if let Some(publisher) = &edits.publisher {
+        IndexPublisher::parse(publisher.as_str())
+            .map_err(|e| anyhow::anyhow!("`{}`: {e}", e.value))?;
+        edit::set_project_key(
+            &mut document,
+            ProjectKey::Publisher,
+            publisher.as_str().into(),
+        )?;
+    }
+    if let Some(version) = &edits.version {
+        edit::set_project_key(
+            &mut document,
+            ProjectKey::Version,
+            version.to_string().into(),
+        )?;
+    }
+    if let Some(description) = &edits.description {
+        edit::set_project_key(
+            &mut document,
+            ProjectKey::Description,
+            description.as_str().into(),
+        )?;
+    } else if edits.clear_description {
+        edit::clear_project_key(&mut document, ProjectKey::Description)?;
+    }
+    if let Some(license) = &edits.license {
+        edit::set_project_key(
+            &mut document,
+            ProjectKey::License,
+            license.to_string().into(),
+        )?;
+    } else if edits.clear_license {
+        edit::clear_project_key(&mut document, ProjectKey::License)?;
+    }
+    // `urls` is a table, so this is not a `[project]` key
+    if let Some(website) = &edits.website {
+        edit::set_url_key(&mut document, "website", website.as_str())?;
+    } else if edits.clear_website {
+        edit::clear_url_key(&mut document, "website")?;
+    }
+    for value in &edits.add_maintainer {
+        Maintainer::parse(value)?;
+    }
+    edit_toml_list(
+        &mut document,
+        "maintainer",
+        ListKey::Maintainers,
+        edits.clear_maintainers,
+        &edits.remove_maintainer,
+        &edits.add_maintainer,
+    )?;
+    edit_toml_list(
+        &mut document,
+        "topic",
+        ListKey::Topics,
+        edits.clear_topics,
+        &edits.remove_topic,
+        &edits.add_topic,
+    )?;
+    if let Some(kind) = edits.metamodel {
+        let metamodel = match edits.metamodel_release_custom {
+            Some(release) => format!("{kind}{release}"),
+            None => Metamodel(kind, edits.metamodel_release).into(),
+        };
+        edit::set_project_key(&mut document, ProjectKey::Metamodel, metamodel.into())?;
+    } else if let Some(metamodel) = &edits.custom_metamodel {
+        edit::set_project_key(
+            &mut document,
+            ProjectKey::Metamodel,
+            metamodel.as_str().into(),
+        )?;
+    } else if edits.clear_metamodel {
+        edit::clear_project_key(&mut document, ProjectKey::Metamodel)?;
+    }
+
+    write_manifest(project, &document)
+}
+
+/// [`edit_list`] on the `[project]` list `key`: clears it (if `clear`),
+/// then removes every entry equal to one of `remove`, then appends `add`.
+/// A value to remove that is not in the list is an error, as on a json
+/// project
+fn edit_toml_list(
+    document: &mut DocumentMut,
+    kind: &str,
+    key: ListKey,
+    clear: bool,
+    remove: &[String],
+    add: &[String],
+) -> Result<()> {
+    if clear {
+        edit::clear_project_key(document, key.into())?;
+    }
+    for value in remove {
+        let entries: Vec<String> = document
+            .get("project")
+            .and_then(|project| project.get(key.as_str()))
+            .and_then(|list| list.as_array())
+            .map(|list| {
+                list.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut found = false;
+        // Removed from the end, so the indexes of the rest stay valid
+        for (at, entry) in entries.iter().enumerate().rev() {
+            if entry == value {
+                edit::remove_list_entry(document, key, at)?;
+                found = true;
+            }
+        }
+        if !found {
+            bail!("project has no {kind} `{value}`");
+        }
+    }
+    if !add.is_empty() {
+        let present = document
+            .get("project")
+            .and_then(|project| project.get(key.as_str()))
+            .is_some_and(|list| list.as_array().is_some());
+        if present {
+            for value in add {
+                edit::push_list_entry(document, key, value)?;
+            }
+        } else {
+            let list: Array = add
+                .iter()
+                .map(|value| Value::from(value.as_str()))
+                .collect();
+            edit::set_project_key(document, key.into(), Value::Array(list))?;
+        }
+    }
+    Ok(())
 }

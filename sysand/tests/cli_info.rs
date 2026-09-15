@@ -2118,18 +2118,26 @@ fn info_index_get_works_on_a_toml_project() -> Result<(), Box<dyn Error>> {
 }
 
 /// The other side of the distinction: `metamodel` is a real `[project]`
-/// key, so writing it is refused as *not yet supported*, not as
-/// impossible. Pinned so that the refusal above cannot swallow it.
+/// key, so it is written rather than refused.
 #[test]
-fn edit_metamodel_on_a_toml_project_is_not_yet_supported() -> Result<(), Box<dyn Error>> {
+fn edit_sets_and_clears_metamodel_on_a_toml_project() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd) = toml_project_cwd()?;
 
-    let out = run_sysand_in(&cwd, ["edit", "--metamodel", "sysml"], None)?;
-
-    out.assert().failure().stderr(
-        predicate::str::contains("is a `model.toml` project")
-            .and(predicate::str::contains("computed when the KPAR is built").not()),
+    run_sysand_in(&cwd, ["edit", "--metamodel", "sysml"], None)?
+        .assert()
+        .success();
+    // The shorthand expands to the canonical IRI before it reaches the
+    // manifest, as it does for a json project.
+    assert!(
+        std::fs::read_to_string(cwd.join("model.toml"))?
+            .contains("metamodel = \"https://www.omg.org/spec/SysML/")
     );
+
+    // `--set` without `--clear` would be an asymmetric half-support.
+    run_sysand_in(&cwd, ["edit", "--clear-metamodel"], None)?
+        .assert()
+        .success();
+    assert!(!std::fs::read_to_string(cwd.join("model.toml"))?.contains("metamodel"));
 
     Ok(())
 }
@@ -2201,5 +2209,133 @@ fn a_legacy_project_can_be_written_into_an_existing_directory() -> Result<(), Bo
     out.assert()
         .success()
         .stdout(predicate::str::contains("widgets"));
+    Ok(())
+}
+
+/// The verbs are named after `.project.json`'s fields, and three of
+/// them are spelled differently in a manifest. Writing the json
+/// spelling is silent -- an unknown key is a warning and the value
+/// reads back as absent -- so this asserts the text *and* that reading
+/// it back says nothing.
+#[test]
+fn edit_writes_the_manifest_spelling_of_each_key() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = toml_project_cwd()?;
+
+    run_sysand_in(
+        &cwd,
+        ["edit", "--add-maintainer", "Ada <ada@example.com>"],
+        None,
+    )?
+    .assert()
+    .success();
+    run_sysand_in(&cwd, ["edit", "--add-topic", "widgets"], None)?
+        .assert()
+        .success();
+    run_sysand_in(&cwd, ["edit", "--website", "https://example.com"], None)?
+        .assert()
+        .success();
+
+    let manifest = std::fs::read_to_string(cwd.join("model.toml"))?;
+    assert!(manifest.contains("maintainers = ["), "manifest: {manifest}");
+    assert!(manifest.contains("topics = ["), "manifest: {manifest}");
+    assert!(manifest.contains("[project.urls]"), "manifest: {manifest}");
+    assert!(manifest.contains("website = \"https://example.com\""));
+
+    // The json spellings would have been unknown keys: a warning, and
+    // a value that reads back as absent.
+    let out = run_sysand_in(&cwd, ["info", "--get", "maintainer"], None)?;
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains("Ada <ada@example.com>"))
+        .stderr(predicate::str::contains("unknown key").not());
+
+    Ok(())
+}
+
+/// A manifest validates what the json documents never did. Each of
+/// these is accepted by a `.project.json` and would make a `model.toml`
+/// unreadable.
+#[test]
+fn edit_refuses_values_a_manifest_cannot_hold() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = toml_project_cwd()?;
+
+    for (args, expected) in [
+        (vec!["edit", "--version", "2023-12"], "2023-12"),
+        (vec!["edit", "--license", "notspdx"], "SPDX"),
+        (
+            vec!["edit", "--name", "my_project"],
+            "name must be 3-50 ASCII alphanumeric chars",
+        ),
+        (
+            vec!["edit", "--publisher", "ab"],
+            "publisher must be 3-50 ASCII alphanumeric chars",
+        ),
+        (vec!["edit", "--add-maintainer", "Ada"], "maintainer"),
+    ] {
+        run_sysand_in(&cwd, args.clone(), None)?
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(expected));
+    }
+
+    Ok(())
+}
+
+/// A list key keeps its shape and its comments through `--add` and
+/// `--remove`, which is the property the whole editor exists for.
+#[test]
+fn edit_add_and_remove_keep_the_list_formatting() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = toml_project_cwd()?;
+    let manifest = std::fs::read_to_string(cwd.join("model.toml"))?.replace(
+        "sources = []",
+        "sources = []\n# who to blame\nmaintainers = [\n    \"Ada <ada@example.com>\",\n]",
+    );
+    std::fs::write(cwd.join("model.toml"), &manifest)?;
+
+    run_sysand_in(
+        &cwd,
+        ["edit", "--add-maintainer", "Bob <bob@example.com>"],
+        None,
+    )?
+    .assert()
+    .success();
+
+    let after = std::fs::read_to_string(cwd.join("model.toml"))?;
+    assert!(after.contains("# who to blame"), "manifest: {after}");
+    assert!(
+        after.contains("    \"Bob <bob@example.com>\",\n"),
+        "manifest: {after}"
+    );
+
+    run_sysand_in(
+        &cwd,
+        ["edit", "--remove-maintainer", "Ada <ada@example.com>"],
+        None,
+    )?
+    .assert()
+    .success();
+    let after = std::fs::read_to_string(cwd.join("model.toml"))?;
+    assert!(!after.contains("Ada"), "manifest: {after}");
+    assert!(after.contains("# who to blame"), "manifest: {after}");
+
+    Ok(())
+}
+
+/// The value rules apply to a project given by path too. This is a json
+/// project: the rule is not about `model.toml`.
+#[test]
+fn edit_dir_validates_a_version_too() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "widgets", "1.2.3", None)?;
+
+    run_sysand(
+        ["edit", "--dir", cwd.as_str(), "--version", "2023-12"],
+        None,
+    )?
+    .2
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains("2023-12"));
+    assert!(std::fs::read_to_string(cwd.join(".project.json"))?.contains("1.2.3"));
+
     Ok(())
 }

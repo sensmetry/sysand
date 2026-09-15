@@ -26,16 +26,17 @@
 //! Like the rest of `manifest/`, this module is free of Cargo features.
 
 use thiserror::Error;
-use toml_edit::{Array, ArrayOfTables, Decor, Item, Table, Value, value};
+use toml_edit::{ArrayOfTables, Decor, Item, Table, value};
 
-/// The document type every writer works on.
+/// The document type every writer works on, and the two value types a
+/// caller needs to build one.
 ///
 /// Re-exported because a crate that stores a manifest has to name it --
 /// the JS binding's browser store, any project type outside this crate
 /// -- and should not have to depend on `toml_edit` to do so. The
 /// `ProjectMut` derive expands into the user's crate, so it would
 /// otherwise require the same dependency at every derive site.
-pub use toml_edit::DocumentMut;
+pub use toml_edit::{Array, DocumentMut, Value};
 use typed_path::Utf8UnixPathBuf;
 
 use crate::manifest::common::{
