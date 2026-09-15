@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
+// SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-//! Tests for notices about ignored std libs
+//! These tests add a usage with `sysand add`, and every project in this
+//! file is written as a legacy `.project.json` pair by hand rather than
+//! created through `sysand init`, which writes a `model.toml`. They
+//! exercise the json form.
 
 use assert_cmd::prelude::*;
 use predicates::prelude::{predicate::str::contains, *};
@@ -22,8 +25,7 @@ const FUNCTION_LIBRARY_IRI: &str = "https://www.omg.org/spec/KerML/20250201/Func
 /// provided (source-less) dependency
 #[test]
 fn add_std_lib_direct_note_still_locks_skips_sync() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("uniform", "add-std-direct", "1.2.3")?;
-    out.assert().success();
+    let (_temp_dir, cwd) = cli_init_json_project(None, "uniform", "add-std-direct", "1.2.3", None)?;
 
     let out = run_sysand_in(&cwd, ["add", "--iri", FUNCTION_LIBRARY_IRI], None)?;
 
@@ -134,9 +136,8 @@ fn env_install_std_lib_direct_no_path_warns_and_skips() -> Result<(), Box<dyn st
 #[test]
 fn env_install_transitive_std_deps_note() -> Result<(), Box<dyn std::error::Error>> {
     // A project that itself depends on a standard library.
-    let (_dep_temp_dir, cwd_dep, out) =
-        cli_init_project_basic("acme", "env-install-std-dep", "1.2.3")?;
-    out.assert().success();
+    let (_dep_temp_dir, cwd_dep) =
+        cli_init_json_project(None, "acme", "env-install-std-dep", "1.2.3", None)?;
 
     std::fs::write(cwd_dep.join("EnvInstallStdDep.sysml"), "package Dep;")?;
     run_sysand_in(&cwd_dep, ["include", "EnvInstallStdDep.sysml"], None)?
@@ -194,8 +195,7 @@ fn env_install_transitive_std_deps_note() -> Result<(), Box<dyn std::error::Erro
 /// "All usages are ignored" note instead of an empty/misleading usage list.
 #[test]
 fn info_all_usages_ignored_std_only() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "info-std-only", "1.2.3")?;
-    out.assert().success();
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "info-std-only", "1.2.3", None)?;
 
     run_sysand_in(
         &cwd,
@@ -232,8 +232,7 @@ fn info_all_usages_ignored_std_only() -> Result<(), Box<dyn std::error::Error>> 
 /// usage prints the normal usage plus the "Some usages are ignored" note.
 #[test]
 fn info_some_usages_ignored_mixed() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "info-mixed", "1.2.3")?;
-    out.assert().success();
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "info-mixed", "1.2.3", None)?;
 
     run_sysand_in(
         &cwd,

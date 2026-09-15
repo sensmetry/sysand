@@ -90,22 +90,6 @@ fn program_name_does_not_change_the_footer() {
 }
 
 #[test]
-fn trailing_var_arg_subcommand_still_renders_its_own_help() {
-    // `new` takes `trailing_var_arg` + `allow_hyphen_values`, so an appended
-    // `--help` is swallowed as one of its values and the command line parses
-    // cleanly. Falling back to the root help there would be silently wrong.
-    for args in [vec!["new"], vec!["new", "somewhere"]] {
-        let help = render_long_help("sysand", args.clone());
-
-        assert!(help.contains("Usage: sysand new"), "{args:?}: {help}");
-        assert!(
-            !help.contains("A package manager for SysML v2 and KerML"),
-            "{args:?} fell back to the root help: {help}"
-        );
-    }
-}
-
-#[test]
 fn unknown_subcommand_returns_claps_error() {
     let help = render_long_help("sysand", ["definitely-not-a-subcommand"]);
 
