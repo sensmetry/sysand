@@ -234,6 +234,54 @@ impl Workspace {
         }
     }
 
+    /// The member `--member <path-or-name>` names.
+    ///
+    /// The selector matches a `members` path or a member's `name`, both
+    /// literally, and a value that matches one member's path and
+    /// another's name is an ambiguity error naming both, not a path match
+    /// that wins by being tried first. So the rule is a union over both
+    /// halves: collect every member the selector names, count a member
+    /// named both ways once, and refuse anything but a single answer.
+    /// There is no input whose result depends on an order.
+    ///
+    /// "Literally" is read as against the spelling the author wrote, so
+    /// `--member ./app/` matches the entry written `./app/` and
+    /// `--member app` does not.
+    pub fn member(&self, selector: &str) -> Result<&Member, SelectError> {
+        let mut matched: Vec<(&Member, &'static str)> = Vec::new();
+        for member in &self.members {
+            if member.path.raw == selector {
+                matched.push((member, "the path"));
+            } else if member.project.name.as_str() == selector {
+                matched.push((member, "the name of the member at"));
+            }
+        }
+        match matched.as_slice() {
+            [(member, _)] => Ok(member),
+            [] => Err(SelectError::NoSuchMember {
+                root: self.root.clone(),
+                selector: selector.to_owned(),
+                known: if self.members.is_empty() {
+                    "no members".to_owned()
+                } else {
+                    self.members
+                        .iter()
+                        .map(|member| format!("`{}`", member.path.raw))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                },
+            }),
+            _ => Err(SelectError::AmbiguousMember {
+                selector: selector.to_owned(),
+                matches: matched
+                    .iter()
+                    .map(|(member, how)| format!("{how} `{}`", member.path.raw))
+                    .collect::<Vec<_>>()
+                    .join(" and "),
+            }),
+        }
+    }
+
     pub fn root(&self) -> &Utf8Path {
         &self.root
     }
@@ -332,6 +380,8 @@ pub enum DiscoverError {
     NotUnderRoot { dir: Utf8PathBuf, root: Utf8PathBuf },
     #[error(transparent)]
     Relativize(#[from] RelativizePathError),
+    #[error(transparent)]
+    Select(SelectError),
 }
 
 impl From<ClassifyError> for DiscoverError {
@@ -339,6 +389,29 @@ impl From<ClassifyError> for DiscoverError {
         match error {
             ClassifyError::Relativize(error) => Self::Relativize(error),
         }
+    }
+}
+
+/// Why `--member <path-or-name>` did not pick one member.
+///
+/// Its own type rather than a [`DiscoverError`]: selecting a member does
+/// no I/O and no discovery, and a caller that only selects should not
+/// have to match on variants that cannot occur.
+#[derive(Debug, Error)]
+pub enum SelectError {
+    #[error("the workspace at `{root}` has no member `{selector}`; it has {known}")]
+    NoSuchMember {
+        root: Utf8PathBuf,
+        selector: String,
+        known: String,
+    },
+    #[error("`{selector}` is ambiguous: it matches {matches}")]
+    AmbiguousMember { selector: String, matches: String },
+}
+
+impl From<SelectError> for DiscoverError {
+    fn from(error: SelectError) -> Self {
+        Self::Select(error)
     }
 }
 
