@@ -26,7 +26,7 @@ use crate::{
 /// as *found*. The file is this directory's manifest and it is broken;
 /// walking past it to a parent would answer a different directory's
 /// question and bury the error.
-fn is_project_file(path: &Utf8Path) -> Result<bool, Box<FsIoError>> {
+pub(crate) fn is_project_file(path: &Utf8Path) -> Result<bool, Box<FsIoError>> {
     let model_toml = path.join(MODEL_TOML_FILE);
     if wrapfs::is_file(&model_toml)? {
         let text = wrapfs::read_to_string(&model_toml)?;

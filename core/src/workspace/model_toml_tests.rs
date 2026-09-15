@@ -5,7 +5,8 @@ use camino::{Utf8Path, Utf8PathBuf};
 use camino_tempfile::Utf8TempDir;
 
 use super::{
-    Classification, DiscoverError, LoadError, LoadFailure, Workspace, candidate_root, confirm_root,
+    Classification, DiscoverError, LoadError, LoadFailure, Selection, Workspace, candidate_root,
+    confirm_root,
 };
 use crate::manifest::diagnostics::Diagnostic;
 use crate::project::utils::ProjectDeserializationError;
@@ -849,4 +850,184 @@ fn an_outer_whose_member_is_broken_still_confirms_the_candidate() {
         "manifest-version = 1\n\n[workspace]\nmembers = [\"gone\"]\nexclude = [\"inner\"]\n",
     );
     confirm_root(fixture.root()).expect("the outer's own members are not this command's problem");
+}
+
+// --------------------------------------------------------- discovery
+
+fn discover_error(from: impl AsRef<Utf8Path>) -> DiscoverError {
+    Workspace::discover(from).expect_err("expected discovery to fail")
+}
+
+#[test]
+fn discover_loads_the_workspace_it_found() {
+    let fixture = Fixture::new(&workspace_with("\"app\""));
+    fixture.project("app");
+    fixture.mkdir("app/src");
+
+    let workspace = Workspace::discover(fixture.under("app/src"))
+        .expect("readable")
+        .expect("a workspace");
+    assert_eq!(workspace.root(), fixture.root());
+    assert_eq!(workspace.members().len(), 1);
+}
+
+#[test]
+fn discover_reports_a_load_failure_from_the_candidate() {
+    let fixture = Fixture::new(&workspace_with("\"app\""));
+    assert!(matches!(
+        discover_error(fixture.root()),
+        DiscoverError::Load(_)
+    ));
+}
+
+/// `peek` answers `Workspace` for a file carrying both tables, so such a
+/// member becomes a candidate. Ruling on nesting first would report the
+/// wrong fault.
+#[test]
+fn a_candidate_defining_both_tables_fails_as_that_not_as_nesting() {
+    let fixture = Fixture::at("inner", &format!("{EMPTY_WORKSPACE}\n{PROJECT}"));
+    fixture.above("model.toml", EMPTY_WORKSPACE);
+
+    match discover_error(fixture.root()) {
+        DiscoverError::Load(_) => {}
+        other => panic!("expected the candidate's own manifest error, got `{other:?}`"),
+    }
+}
+
+#[test]
+fn a_member_directory_starts_in_that_member() {
+    let fixture = Fixture::new(&workspace_with("\"app\""));
+    fixture.project("app");
+    let workspace = fixture.loaded();
+    match workspace.start(fixture.under("app")).expect("classifies") {
+        Selection::Member(member) => assert_eq!(member.path.raw, "app"),
+        other => panic!("expected a member, got `{other:?}`"),
+    }
+}
+
+#[test]
+fn a_directory_under_a_member_starts_in_that_member() {
+    let fixture = Fixture::new(&workspace_with("\"app\""));
+    fixture.project("app");
+    fixture.mkdir("app/src/deep");
+    let workspace = fixture.loaded();
+    match workspace
+        .start(fixture.under("app/src/deep"))
+        .expect("classifies")
+    {
+        Selection::Member(member) => assert_eq!(member.path.raw, "app"),
+        other => panic!("expected a member, got `{other:?}`"),
+    }
+}
+
+/// "This is the only kind of non-member project that may sit under a
+/// workspace root."
+#[test]
+fn an_excluded_project_starts_standalone() {
+    let fixture = Fixture::new(
+        "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\nexclude = [\"vendor\"]\n",
+    );
+    fixture.project("app");
+    fixture.project("vendor/other");
+    let workspace = fixture.loaded();
+    match workspace
+        .start(fixture.under("vendor/other"))
+        .expect("classifies")
+    {
+        Selection::Standalone(path) => assert_eq!(path, fixture.under("vendor/other")),
+        other => panic!("expected standalone, got `{other:?}`"),
+    }
+}
+
+#[test]
+fn an_unlisted_project_is_refused() {
+    let fixture = Fixture::new(&workspace_with("\"app\""));
+    fixture.project("app");
+    fixture.project("stray");
+    let workspace = fixture.loaded();
+    let error = workspace
+        .start(fixture.under("stray"))
+        .expect_err("an unlisted project");
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "the project at `{}` lies under the workspace at `{}` but is neither listed in \
+             `workspace.members` nor under `workspace.exclude`; add it to one of the two",
+            fixture.under("stray"),
+            fixture.root()
+        )
+    );
+}
+
+#[test]
+fn a_directory_with_no_project_starts_in_the_workspace() {
+    let fixture = Fixture::new(&workspace_with("\"app\""));
+    fixture.project("app");
+    fixture.mkdir("notes");
+    let workspace = fixture.loaded();
+    assert!(matches!(
+        workspace.start(fixture.under("notes")).expect("classifies"),
+        Selection::Workspace
+    ));
+}
+
+/// "the workspace root is never a member, so commands run from the
+/// workspace root always target the whole workspace".
+#[test]
+fn the_root_starts_in_the_workspace() {
+    let fixture = Fixture::new(&workspace_with("\"app\""));
+    fixture.project("app");
+    let workspace = fixture.loaded();
+    assert!(matches!(
+        workspace.start(fixture.root()).expect("classifies"),
+        Selection::Workspace
+    ));
+}
+
+/// A project above the root is a different project, which this
+/// workspace has no opinion about.
+#[test]
+fn a_project_above_the_root_is_not_the_starting_project() {
+    let fixture = Fixture::at("ws", &workspace_with("\"app\""));
+    fixture.project("app");
+    fixture.mkdir("notes");
+    fixture.above("model.toml", PROJECT);
+    let workspace = fixture.loaded();
+    assert!(matches!(
+        workspace.start(fixture.under("notes")).expect("classifies"),
+        Selection::Workspace
+    ));
+}
+
+#[test]
+fn a_directory_outside_the_workspace_is_refused() {
+    let fixture = Fixture::at("ws", &workspace_with("\"app\""));
+    fixture.project("app");
+    let workspace = fixture.loaded();
+    assert!(matches!(
+        workspace.start(fixture.base()),
+        Err(DiscoverError::NotUnderRoot { .. })
+    ));
+}
+
+/// `relativize_path` asserts absolute, dot-free paths with a plain
+/// `assert!`, which panics in release too.
+///
+/// A `..` component and not a `.` one: `Utf8Path::components` drops `.`
+/// on its way past, so a path spelled with one is already canonical by
+/// the time anything looks, and a test built on it would pin nothing.
+#[test]
+fn a_starting_path_with_a_parent_component_is_accepted() {
+    let fixture = Fixture::new(&workspace_with("\"app\""));
+    fixture.project("app");
+    let roundabout = fixture.under("app").join("..").join("app");
+
+    let workspace = Workspace::discover(&roundabout)
+        .expect("readable")
+        .expect("a workspace");
+    assert_eq!(workspace.root(), fixture.root());
+    assert!(matches!(
+        workspace.start(&roundabout).expect("classifies"),
+        Selection::Member(_)
+    ));
 }
