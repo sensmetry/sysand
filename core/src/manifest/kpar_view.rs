@@ -30,8 +30,8 @@ use crate::manifest::project::{ProjectManifest, ResolvedProject};
 use crate::manifest::usage::Usage;
 use crate::manifest::{MODEL_TOML_FILE, ModelToml};
 use crate::model::{
-    InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
-    InterchangeProjectUsageRaw, KerMlChecksumAlg, format_created,
+    IndexName, IndexPublisher, InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw,
+    InterchangeProjectMetadataRaw, InterchangeProjectUsageRaw, KerMlChecksumAlg, format_created,
 };
 use crate::project::utils::{ProjectDeserializationError, validate_manifest};
 use crate::symbols::{SymbolsError, top_level_symbols};
@@ -71,6 +71,124 @@ pub enum ViewError<E> {
     Symbols(#[from] SymbolsError),
 }
 
+/// Why a json usage has no `model.toml` form.
+///
+/// Three different refusals, because a caller has three different
+/// things to tell the user. A single "cannot be expressed" would be
+/// useless: one is fixed by typing a constraint, one by editing the
+/// target's `.project.json`, and one cannot be fixed at all in v1.
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
+pub enum NoManifestForm {
+    /// model-toml.md "Usages": an index usage "requires a `version`
+    /// constraint", and a `pkg:sysand` PURL carries none.
+    ///
+    /// The specification resolves this at migration time by asking the
+    /// index for the version and pinning `^<version>`. Inside `sysand
+    /// add` that would be a network call in the middle of a manifest
+    /// edit, so the constraint is asked for instead.
+    #[error(
+        "a `model.toml` index usage needs a version constraint;\n\
+        {SP:>8} try `sysand add {publisher}/{name} <constraint>`",
+        SP = ' '
+    )]
+    NoConstraint { publisher: String, name: String },
+    /// An untyped usage that is not a `pkg:sysand` PURL. model-toml.md:
+    /// identity in a manifest "is always publisher+name", and there is
+    /// nothing here to take them from.
+    #[error(
+        "`{0}` cannot be written into a `model.toml`:\n\
+        {SP:>8} a manifest usage is named by its publisher and name, which this IRI does not carry",
+        SP = ' '
+    )]
+    UntypedIri(String),
+    /// The target declares a publisher or name a manifest cannot hold.
+    #[error(
+        "`{file}` declares {problem};\n\
+        {SP:>8} a `model.toml` usage cannot name it",
+        SP = ' '
+    )]
+    Identifier { file: String, problem: String },
+}
+
+/// Read a json usage as a manifest usage.
+///
+/// The reverse of [`usage`], and deliberately not its inverse: the
+/// forward map writes an index usage as the *normalized* PURL, so a
+/// publisher written `ACME` comes back `acme`; and it turns a `url`
+/// usage into a bare IRI, dropping the publisher and name a manifest
+/// needs. Nothing can therefore produce a `url` entry from json, which
+/// is a gap in v1 rather than in this function.
+///
+/// `file` names the document the raw usage came from, for the one
+/// refusal whose fix is in another project's manifest.
+pub fn usage_of_raw(raw: &InterchangeProjectUsageRaw, file: &str) -> Result<Usage, NoManifestForm> {
+    let identity =
+        |publisher: &str, name: &str| -> Result<(IndexPublisher, IndexName), NoManifestForm> {
+            let publisher =
+                IndexPublisher::parse(publisher).map_err(|e| NoManifestForm::Identifier {
+                    file: file.to_owned(),
+                    problem: format!("`{}`: {e}", e.value),
+                })?;
+            let name = IndexName::parse(name).map_err(|e| NoManifestForm::Identifier {
+                file: file.to_owned(),
+                problem: format!("`{}`: {e}", e.value),
+            })?;
+            Ok((publisher, name))
+        };
+
+    match raw {
+        InterchangeProjectUsageRaw::Resource {
+            resource,
+            version_constraint,
+        } => {
+            let Ok(Some((publisher, name))) = crate::purl::parse_sysand_purl(resource) else {
+                return Err(NoManifestForm::UntypedIri(resource.clone()));
+            };
+            let Some(constraint) = version_constraint else {
+                return Err(NoManifestForm::NoConstraint {
+                    publisher: publisher.to_owned(),
+                    name: name.to_owned(),
+                });
+            };
+            let (publisher, name) = identity(publisher, name)?;
+            let version_constraint =
+                semver::VersionReq::parse(constraint).map_err(|e| NoManifestForm::Identifier {
+                    file: file.to_owned(),
+                    problem: format!("version constraint `{constraint}`: {e}"),
+                })?;
+            Ok(Usage::Index {
+                publisher,
+                name,
+                version_constraint,
+            })
+        }
+        InterchangeProjectUsageRaw::Directory {
+            dir,
+            publisher,
+            name,
+        } => {
+            let (publisher, name) = identity(publisher, name)?;
+            Ok(Usage::SourcePath {
+                publisher,
+                name,
+                dir: dir.as_str().into(),
+            })
+        }
+        InterchangeProjectUsageRaw::KparPath {
+            kpar_path,
+            publisher,
+            name,
+        } => {
+            let (publisher, name) = identity(publisher, name)?;
+            Ok(Usage::KparPath {
+                publisher,
+                name,
+                kpar_path: kpar_path.as_str().into(),
+            })
+        }
+    }
+}
+
 /// One usage as a `.project.json` carries it.
 ///
 /// model-toml.md "TOML to KPAR": an index usage becomes a PURL with the
@@ -86,7 +204,7 @@ pub enum ViewError<E> {
 /// match the values found at the target". That is about what is
 /// *written*; the identity check when the usage resolves normalizes
 /// both sides, as model-toml.md "Normalization" requires. A PURL is built from the
-/// normalized pair instead, and cannot fail: `Publisher` and `Name`
+/// normalized pair instead, and cannot fail: `IndexPublisher` and `IndexName`
 /// accept only values that are valid PURL segments once normalized (see
 /// `purl::is_valid_unnormalized_publisher`), so the identity a usage
 /// holds is always encodable. It is spelled by the same function the
