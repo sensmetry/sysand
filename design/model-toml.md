@@ -44,15 +44,20 @@ manifest-version = 1
 # ...
 ```
 
+The value is a string of the form `"<major>.<minor>"`, not an integer, so
+that the format has room to say *how* it changed: additions bump the
+minor, an incompatible change the major. Files written for v1 carry
+`"1.0"`.
+
 The key is mandatory and not inheritable: a member's file must be
 self-describing before the `[workspace]` table it inherits from is
 read. It is read before anything else, so that a file this Sysand
 cannot read is refused with the right message rather than with a schema
 error:
-- absent: an error naming the key
-- greater than the highest version this Sysand supports: the error
-  "`<file>` is written for manifest-version N; this Sysand supports up
-  to M; update Sysand"
+- absent, or not a `<major>.<minor>` string: an error naming the key
+- greater, in major-then-minor order, than the highest version this Sysand
+  supports: the error "`<file>` is written for manifest-version N; this
+  Sysand supports up to M; update Sysand"
 
 Additions to the common schema -- a new key on usage entries, say, such
 as an explicit `index` (see Usages) -- bump the version. Additions

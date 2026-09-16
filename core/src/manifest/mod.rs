@@ -34,12 +34,45 @@ use crate::manifest::workspace_table::WorkspaceTable;
 /// is named here, beside the type that parses it.
 pub const MODEL_TOML_FILE: &str = "model.toml";
 
-/// model-toml.md "Manifest version": the highest `manifest-version` this
-/// reader supports, and the value generated files carry.
+/// A `manifest-version`: `<major>.<minor>`, ordered by major, then minor.
 ///
-/// `i64` is what `toml::Value::Integer` holds, and what
-/// `toml_edit::value` takes back when a manifest is written.
-pub const SUPPORTED_MANIFEST_VERSION: i64 = 1;
+/// Additions bump the minor, an incompatible change the major, so what a
+/// reader has to decide about a file it did not write is a version
+/// comparison.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ManifestVersion {
+    major: u32,
+    minor: u32,
+}
+
+impl ManifestVersion {
+    pub const fn new(major: u32, minor: u32) -> Self {
+        Self { major, minor }
+    }
+
+    /// Two plain decimal numbers around a dot: no sign, no leading zeros,
+    /// no further components.
+    fn parse(text: &str) -> Option<Self> {
+        fn number(text: &str) -> Option<u32> {
+            let plain = !text.is_empty()
+                && text.bytes().all(|b| b.is_ascii_digit())
+                && (text == "0" || !text.starts_with('0'));
+            plain.then(|| text.parse().ok()).flatten()
+        }
+        let (major, minor) = text.split_once('.')?;
+        Some(Self::new(number(major)?, number(minor)?))
+    }
+}
+
+impl std::fmt::Display for ManifestVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}.{}", self.major, self.minor)
+    }
+}
+
+/// The highest `manifest-version` this reader supports, and the value
+/// generated files carry. Files written for v1 carry `"1.0"`.
+pub const SUPPORTED_MANIFEST_VERSION: ManifestVersion = ManifestVersion::new(1, 0);
 
 /// The top-level keys of a file that defines a project.
 const PROJECT_TOP_KEYS: &[&str] = &["manifest-version", "project", "inline-usages"];
@@ -92,10 +125,9 @@ impl ModelToml {
     ///
     /// 1. the file is not TOML;
     /// 2. `manifest-version` is written but unusable (too new for this
-    ///    Sysand, or not an integer). model-toml.md: "It is read before
-    ///    anything else, so that a file this Sysand cannot read is
-    ///    refused with the right message rather than with a schema
-    ///    error";
+    ///    Sysand, or not a `<major>.<minor>` string). It is read before anything
+    ///    else, so that a file this Sysand cannot read is refused with the
+    ///    right message;
     /// 3. the file defines both tables, or neither.
     ///
     /// An absent `manifest-version` is *not* one of them: it means no
@@ -245,7 +277,7 @@ fn manifest_version(source: &Source<'_>, top: &TableReader<'_>, report: &mut Rep
     const KEY: &str = "manifest-version";
     let file = source.file();
     let version = own(top, KEY, "every file carries its own", report, |report| {
-        top.integer(KEY, report)
+        read_version(source, top, KEY, report)
     });
     match version {
         Some(found) if found > SUPPORTED_MANIFEST_VERSION => {
@@ -260,23 +292,62 @@ fn manifest_version(source: &Source<'_>, top: &TableReader<'_>, report: &mut Rep
         }
         // model-toml.md names two failures, absent and too new, so a
         // version below the supported one is read as this one. It is
-        // almost certainly a typo for `1`, but refusing it would be a
-        // third rule the specification does not state.
+        // almost certainly a typo, but refusing it would be a third rule
+        // the specification does not state.
         Some(_) => Stop::No,
-        // Written, and unreadable: whoever read it has said why, and
-        // what schema the file is in is exactly what is now unknown.
+        // Written, and unusable: `read_version` has said so -- or, for
+        // the inheritance marker, `own` has -- and what schema the file
+        // is in is exactly what is unknown.
         None if top.has(KEY) => Stop::Yes,
-        None => {
-            report.push(at_file(
-                source,
-                format!(
-                    "`{file}` has no `{KEY}`; every `model.toml` starts with \
-                     `{KEY} = {SUPPORTED_MANIFEST_VERSION}`"
-                ),
-            ));
-            Stop::No
-        }
+        // Absent. Said too, by `read_version`, and the rest of the file
+        // is still judged: no other schema is in play.
+        None => Stop::No,
     }
+}
+
+/// The version the file states, or the error that it states none.
+///
+/// One text for three failures -- absent, not a string, and a string
+/// that is not a `<major>.<minor>` version -- because from here they are
+/// one failure: the file does not say which format it is written in. Going
+/// through [`TableReader::string`] instead would answer an integer with
+/// a wrong-type message that names no version at all.
+///
+/// The value is quoted as the file spells it: `toml::Value`'s `Display`
+/// writes TOML, so `manifest-version = "1.0"` is answered with what
+/// it wrote.
+///
+/// Reporting happens *here*, not in the caller's match, because `own`
+/// short-circuits on an inheritance marker without calling this at all:
+/// a report from the match would land on top of the marker's own error.
+fn read_version(
+    source: &Source<'_>,
+    top: &TableReader<'_>,
+    key: &str,
+    report: &mut Report,
+) -> Option<ManifestVersion> {
+    let found = top.raw().get(key);
+    if let Some(toml::Value::String(written)) = found
+        && let Some(version) = ManifestVersion::parse(written)
+    {
+        return Some(version);
+    }
+    let spelled = match found {
+        Some(value) => format!(" (`{value}`)"),
+        None => String::new(),
+    };
+    let file = source.file();
+    let message = format!(
+        "`{file}` has no usable `{key}`{spelled}; every `model.toml` starts with \
+         `{key} = \"{SUPPORTED_MANIFEST_VERSION}\"`"
+    );
+    // A written key has a place to point at; an absent one is a problem
+    // with the file as a whole, and points at its start.
+    report.push(match found {
+        Some(_) => Diagnostic::error(message).at_opt(top.at(key)),
+        None => at_file(source, message),
+    });
+    None
 }
 
 fn workspace(
