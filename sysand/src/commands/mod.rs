@@ -13,6 +13,7 @@ pub mod index;
 pub mod info;
 pub mod init;
 pub mod lock;
+pub mod migrate;
 pub mod print_root;
 pub mod publish;
 pub mod remove;

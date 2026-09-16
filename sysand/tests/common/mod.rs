@@ -29,7 +29,10 @@ version = \"0.2\"
 /// system, user or environment git configuration is read, so nothing on
 /// the machine running the tests (commit signing, hooks, a default branch)
 /// changes the repository.
-pub fn git_commit_files(dir: &Utf8Path, files: &[(&str, &str)]) -> Result<(), Box<dyn Error>> {
+pub fn git_commit_files<C: AsRef<[u8]>>(
+    dir: &Utf8Path,
+    files: &[(&str, C)],
+) -> Result<(), Box<dyn Error>> {
     let repo = gix::ThreadSafeRepository::init_opts(
         dir,
         gix::create::Kind::WithWorktree,
