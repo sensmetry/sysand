@@ -1,0 +1,5 @@
+manifest-version = 1
+
+[workspace]
+members = ["project1"]
+metamodel = "https://www.omg.org/spec/SysML/20250201"

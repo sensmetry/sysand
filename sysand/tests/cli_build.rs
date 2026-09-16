@@ -453,14 +453,10 @@ fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Explicit inheritance replaces the old injection: a workspace
-/// `metamodel` reaches a member that asks for it with
-/// `metamodel.workspace = true`, and only then.
-///
-/// This is the coverage the switch owes. The `.workspace.json` rule was
-/// that the workspace metamodel was written into every member that
-/// declared none; `workspaces.md` deletes the workspace-level
-/// metamodel, so the member has to say so.
+/// Explicit inheritance: a workspace `metamodel` reaches a member that
+/// asks for it with `metamodel.workspace = true`, and only then.
+/// `workspaces.md` has no workspace-level metamodel, so the member has
+/// to say so.
 #[test]
 fn workspace_build_with_inherited_metamodel() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
@@ -561,12 +557,10 @@ fn workspace_build_with_unknown_metamodel() -> Result<(), Box<dyn std::error::Er
 /// A member that declares its own metamodel builds with it, beside a
 /// workspace that declares another.
 ///
-/// The `.workspace.json` pair this replaces -- `metamodel_conflict` and
-/// `metamodel_same_no_conflict` -- tested a rule the specification
-/// deletes: "There is no workspace-level metamodel. Members with
-/// different metamodels ... may share a workspace." There is nothing
-/// left to conflict, so the surviving question is whether the member's
-/// own value reaches the archive.
+/// The specification gives the two nothing to conflict over: "There is
+/// no workspace-level metamodel. Members with different metamodels ...
+/// may share a workspace." So the question is whether the member's own
+/// value reaches the archive.
 #[test]
 fn a_member_declares_its_own_metamodel() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;

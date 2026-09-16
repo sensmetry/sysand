@@ -199,9 +199,9 @@ public class BasicTest {
     }
 
     /**
-     * A {@code model.toml} workspace root. {@code .workspace.json} is no
-     * longer read: a workspace is a {@code model.toml} with a
-     * {@code [workspace]} table, and every member must be one too.
+     * A {@code model.toml} workspace root: a workspace is a
+     * {@code model.toml} with a {@code [workspace]} table, and every
+     * member must be one too.
      */
     private void writeWorkspaceToml(java.nio.file.Path workspaceDir, String... projectNames) throws java.io.IOException {
         StringBuilder sb = new StringBuilder();

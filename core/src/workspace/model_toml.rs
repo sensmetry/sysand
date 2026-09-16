@@ -3,9 +3,6 @@
 
 //! A workspace read from the `[workspace]` table of a `model.toml`.
 //!
-//! It is separate from [`crate::workspace`]'s `.workspace.json`
-//! workspace, which nothing here uses.
-//!
 //! What a load does, beyond reading the table, is check the members --
 //! workspaces.md "Member requirements" and "Stray per-member state" --
 //! and resolve each member's manifest

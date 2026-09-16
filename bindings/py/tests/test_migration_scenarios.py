@@ -142,14 +142,16 @@ def test_add_when_missing(make_baseline: MakeBaseline) -> None:
 def test_workspace_detection(baseline: Baseline) -> None:
     # A tool that must not edit a project inside a workspace checks
     # `discover` first: the project root is found, the workspace root only
-    # once a `.workspace.json` appears above the project.
+    # once a `[workspace]` table appears above the project.
     discovery = sysand.discover(path=baseline.root)
     assert discovery["workspace_root"] is None
     assert discovery["project_root"] is not None
     assert os.path.samefile(discovery["project_root"], baseline.root)
 
     workspace = baseline.root.parent
-    (workspace / ".workspace.json").write_text('{"projects": []}\n')
+    (workspace / "model.toml").write_text(
+        f'manifest-version = 1\n\n[workspace]\nmembers = ["{baseline.root.name}"]\n'
+    )
     discovery = sysand.discover(path=baseline.root)
     assert discovery["workspace_root"] is not None
     assert os.path.samefile(discovery["workspace_root"], workspace)
