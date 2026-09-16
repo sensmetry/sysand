@@ -29,6 +29,7 @@ pub mod redact;
 pub mod resolve;
 pub mod solve;
 pub mod stdlib;
+pub mod stdlib_compare;
 pub mod style;
 pub mod symbols;
 pub mod utils;
