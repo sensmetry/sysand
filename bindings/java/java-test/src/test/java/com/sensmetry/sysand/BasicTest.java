@@ -198,17 +198,28 @@ public class BasicTest {
         }
     }
 
-    private void writeWorkspaceJson(java.nio.file.Path workspaceDir, String... projectNames) throws java.io.IOException {
+    /**
+     * A {@code model.toml} workspace root. {@code .workspace.json} is no
+     * longer read: a workspace is a {@code model.toml} with a
+     * {@code [workspace]} table, and every member must be one too.
+     */
+    private void writeWorkspaceToml(java.nio.file.Path workspaceDir, String... projectNames) throws java.io.IOException {
         StringBuilder sb = new StringBuilder();
-        sb.append("{\n  \"projects\": [\n");
+        sb.append("manifest-version = 1\n\n[workspace]\nmembers = [");
         for (int i = 0; i < projectNames.length; i++) {
-            sb.append("    {\"path\": \"").append(projectNames[i])
-              .append("\", \"iris\": [\"urn:test:").append(projectNames[i]).append("\"]}");
-            if (i < projectNames.length - 1) sb.append(",");
-            sb.append("\n");
+            sb.append("\"").append(projectNames[i]).append("\"");
+            if (i < projectNames.length - 1) sb.append(", ");
         }
-        sb.append("  ]\n}\n");
-        Files.write(workspaceDir.resolve(".workspace.json"), sb.toString().getBytes());
+        sb.append("]\n");
+        Files.write(workspaceDir.resolve("model.toml"), sb.toString().getBytes());
+    }
+
+    /** A {@code model.toml} project, which is what a member must be. */
+    private void writeTomlProject(java.nio.file.Path dir, String publisher, String name, String version)
+            throws java.io.IOException {
+        String manifest = "manifest-version = 1\n\n[project]\npublisher = \"" + publisher
+                + "\"\nname = \"" + name + "\"\nversion = \"" + version + "\"\n";
+        Files.write(dir.resolve("model.toml"), manifest.getBytes());
     }
 
     @Test
@@ -221,11 +232,11 @@ public class BasicTest {
             java.nio.file.Path projB = tempDir.resolve("projB");
             Files.createDirectories(projA);
             Files.createDirectories(projB);
-            writeLegacyProject(projA, "acme", "projA", "1.0.0", null);
-            writeLegacyProject(projB, "acme", "projB", "1.0.0", null);
+            writeTomlProject(projA, "acme", "projA", "1.0.0");
+            writeTomlProject(projB, "acme", "projB", "1.0.0");
 
-            // Write .workspace.json
-            writeWorkspaceJson(tempDir, "projA", "projB");
+            // Write the workspace root
+            writeWorkspaceToml(tempDir, "projA", "projB");
 
             // Get project paths via API
             String[] paths = com.sensmetry.sysand.Sysand.workspaceProjectPaths(tempDir);
@@ -244,10 +255,16 @@ public class BasicTest {
         }
     }
 
+    /**
+     * {@code setProjectIndex} writes {@code .meta.json}, so it applies to
+     * json projects only -- and a workspace member cannot be one. So the
+     * index writes are tested here, on plain project directories, and
+     * {@code workspaceProjectPaths} is tested above.
+     */
     @Test
-    public void testSetWorkspaceProjectIndexes() {
+    public void testSetProjectIndexes() {
         try {
-            java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-workspace-index");
+            java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-project-index");
 
             // Create two project directories and init them
             java.nio.file.Path projA = tempDir.resolve("projA");
@@ -257,11 +274,7 @@ public class BasicTest {
             writeLegacyProject(projA, "acme", "projA", "1.0.0", null);
             writeLegacyProject(projB, "acme", "projB", "1.0.0", null);
 
-            // Write .workspace.json
-            writeWorkspaceJson(tempDir, "projA", "projB");
-
-            // Get project paths and update each with distinct indexes
-            String[] paths = com.sensmetry.sysand.Sysand.workspaceProjectPaths(tempDir);
+            String[] paths = new String[] { projA.toString(), projB.toString() };
             assertEquals(2, paths.length);
 
             java.util.LinkedHashMap<String, String> indexA = new java.util.LinkedHashMap<>();

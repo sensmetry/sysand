@@ -127,7 +127,7 @@ public class Sysand {
     /**
      * Get absolute paths of all projects in a workspace.
      *
-     * @param workspacePath The path to the workspace directory containing {@code .workspace.json}.
+     * @param workspacePath The path to the workspace directory containing a {@code model.toml} with a {@code [workspace]} table.
      * @return An array of absolute project paths.
      */
     private static native String[] workspaceProjectPaths(String workspacePath)
@@ -136,7 +136,7 @@ public class Sysand {
     /**
      * Get absolute paths of all projects in a workspace.
      *
-     * @param workspacePath The path to the workspace directory containing {@code .workspace.json}.
+     * @param workspacePath The path to the workspace directory containing a {@code model.toml} with a {@code [workspace]} table.
      * @return An array of absolute project paths.
      */
     public static String[] workspaceProjectPaths(java.nio.file.Path workspacePath)

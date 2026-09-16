@@ -6,7 +6,7 @@ use camino::Utf8Path;
 use sysand_core::{
     build::{KParBuildError, KparCompressionMethod, do_build_kpar, do_build_workspace_kpars},
     project::local_src::LocalSrcProject,
-    workspace::Workspace,
+    workspace::model_toml::Workspace,
 };
 
 pub fn command_build_for_project<P: AsRef<Utf8Path>>(
@@ -37,7 +37,7 @@ pub fn command_build_for_project<P: AsRef<Utf8Path>>(
 pub fn command_build_for_workspace<P: AsRef<Utf8Path>>(
     path: P,
     compression: KparCompressionMethod,
-    workspace: Workspace,
+    workspace: &Workspace,
     update_index: bool,
     allow_path_usage: bool,
 ) -> Result<()> {
@@ -48,7 +48,7 @@ pub fn command_build_for_workspace<P: AsRef<Utf8Path>>(
         https://github.com/sensmetry/sysand/issues/101."
     );
     if let Err(failure) = do_build_workspace_kpars(
-        &workspace,
+        workspace,
         &path,
         compression,
         update_index,

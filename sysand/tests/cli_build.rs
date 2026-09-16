@@ -10,7 +10,6 @@
 //! usage rules are pinned in `core/src/commands/build_tests.rs`.
 
 use assert_cmd::prelude::*;
-use camino::Utf8PathBuf;
 use clap::ValueEnum as _;
 use indexmap::IndexMap;
 use predicates::prelude::*;
@@ -349,190 +348,135 @@ fn project_build_index_usage() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-struct WProject {
-    name: String,
-    info_path: Utf8PathBuf,
-    meta_path: Utf8PathBuf,
-    orig_info_contents: String,
-    orig_meta_contents: String,
-}
-impl WProject {
-    fn new(cwd: Utf8PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
-        let name = cwd.file_name().unwrap().to_owned();
-        let info_path = cwd.join(".project.json");
-        let meta_path = cwd.join(".meta.json");
-        let orig_info_contents = fs::read_to_string(&info_path)?;
-        let orig_meta_contents = fs::read_to_string(&meta_path)?;
-        Ok(Self {
-            name,
-            info_path,
-            meta_path,
-            orig_info_contents,
-            orig_meta_contents,
-        })
-    }
+/// A `model.toml` workspace root listing `members`.
+fn write_workspace(
+    cwd: &camino::Utf8Path,
+    members: &[&str],
+) -> Result<(), Box<dyn std::error::Error>> {
+    write_workspace_with(cwd, members, "")
 }
 
+/// As [`write_workspace`], with extra `[workspace]` keys -- a
+/// `metamodel` for members that inherit one.
+fn write_workspace_with(
+    cwd: &camino::Utf8Path,
+    members: &[&str],
+    extra: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let entries: Vec<String> = members.iter().map(|m| format!("\"{m}\"")).collect();
+    std::fs::write(
+        cwd.join("model.toml"),
+        format!(
+            "manifest-version = 1\n\n[workspace]\nmembers = [{}]\n{extra}",
+            entries.join(", ")
+        ),
+    )?;
+    Ok(())
+}
+
+/// A `model.toml` member with one source file, `test.sysml`, which is
+/// what [`expected_checksum`] and [`expected_index`] describe.
+///
+/// No `license`: a build demands a matching `LICENSES/` file for one,
+/// and none of these fixtures is about licences.
+fn write_toml_member(
+    dir: &camino::Utf8Path,
+    name: &str,
+    version: &str,
+    extra: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    std::fs::create_dir_all(dir)?;
+    std::fs::write(
+        dir.join("model.toml"),
+        format!(
+            "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"{name}\"\n\
+             version = \"{version}\"\nsources = [\"test.sysml\"]\n{extra}"
+        ),
+    )?;
+    std::fs::write(dir.join("test.sysml"), b"package P;\n")?;
+    Ok(())
+}
+
+/// A workspace build writes one archive per member under the workspace
+/// root's `output/`, whatever depth the member sits at, and leaves the
+/// members themselves untouched.
 #[test]
-/// Legacy json fixture, like the rest of this file: it pins the
-/// `.workspace.json` workspace build.
 fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    let project_group_cwd = cwd.join("subgroup");
-    std::fs::create_dir(&project_group_cwd)?;
-
-    let project1_cwd = project_group_cwd.join("project1");
-    let project2_cwd = project_group_cwd.join("project2");
-    let project3_cwd = cwd.join("project3");
-
-    // Create .workspace.json file
-    std::fs::write(
-        cwd.join(".workspace.json"),
-        json!({"projects": [
-        {"path": "subgroup/project1", "iris": ["urn:kpar:project1"]},
-        {"path": "subgroup/project2", "iris": ["urn:kpar:project2"]},
-        {"path": "project3", "iris": ["urn:kpar:project3"]}
-        ]})
-        .to_string(),
+    write_workspace(
+        &cwd,
+        &["subgroup/project1", "subgroup/project2", "project3"],
     )?;
 
-    for project_cwd in [&project1_cwd, &project2_cwd, &project3_cwd] {
-        std::fs::create_dir(project_cwd)?;
-        write_legacy_project(
-            project_cwd,
-            "acme",
-            project_cwd.file_name().unwrap(),
-            "1.2.3",
-            None,
-        )?;
-
-        std::fs::write(project_cwd.join("test.sysml"), b"package P;\n")?;
-        let out = run_sysand_in(
-            project_cwd,
-            ["include", "--no-index-symbols", "test.sysml"],
-            None,
-        )?;
-        out.assert().success();
-    }
-
-    let projects = [
-        WProject::new(project1_cwd)?,
-        WProject::new(project2_cwd)?,
-        WProject::new(project3_cwd)?,
+    let members = [
+        cwd.join("subgroup/project1"),
+        cwd.join("subgroup/project2"),
+        cwd.join("project3"),
     ];
+    for member in &members {
+        write_toml_member(member, member.file_name().unwrap(), "1.2.3", "")?;
+    }
+    let before = members
+        .iter()
+        .map(|m| std::fs::read_to_string(m.join("model.toml")))
+        .collect::<Result<Vec<_>, _>>()?;
 
-    let expected_checksum = expected_checksum();
+    run_sysand_in(&cwd, ["build"], None)?.assert().success();
 
-    let out = run_sysand_in(&cwd, ["build", "--keep-index"], None)?;
-    out.assert().success();
-
-    for project in &projects {
-        let kpar_path = cwd
-            .join("output")
-            .join(format!("{}-1.2.3.kpar", project.name));
+    for member in &members {
+        let name = member.file_name().unwrap();
+        let kpar_path = cwd.join("output").join(format!("{name}-1.2.3.kpar"));
         assert!(kpar_path.is_file(), "kpar file does not exist: {kpar_path}");
 
         let out = run_sysand_in(&cwd, ["info", "--kpar-path", kpar_path.as_str()], None)?;
 
         out.assert()
             .success()
-            .stdout(predicate::str::contains(format!("Name: {}", project.name)))
+            .stdout(predicate::str::contains(format!("Name: {name}")))
             .stdout(predicate::str::contains("Version: 1.2.3"));
 
         let kpar_project = LocalKParProjectRaw::new_guess_root(kpar_path)?;
-
         let (Some(info), Some(meta)) = kpar_project.get_project()? else {
             panic!("failed to get built project info/meta");
         };
-
-        // Ensure the build artifact matches original project
-        let original_meta: InterchangeProjectMetadataRaw =
-            serde_json::from_str(&project.orig_meta_contents)?;
-        let original_info: InterchangeProjectInfoRaw =
-            serde_json::from_str(&project.orig_info_contents)?;
-        assert_eq!(original_info, info);
-        // Index should not change
-        assert_eq!(meta.index, original_meta.index);
-        // File hash should still be updated
-        assert_eq!(meta.checksum, expected_checksum);
-
-        // Ensure no changes were made to the original project
-        let new_info_contents = fs::read_to_string(&project.info_path)?;
-        let new_meta_contents = fs::read_to_string(&project.meta_path)?;
-        assert_eq!(project.orig_info_contents, new_info_contents);
-        assert_eq!(project.orig_meta_contents, new_meta_contents);
+        assert_eq!(info.name, name);
+        assert_eq!(info.version, "1.2.3");
+        assert_eq!(meta.checksum, expected_checksum());
+        assert_eq!(meta.index, expected_index());
     }
 
-    // Now canonicalize meta during build. Previous artifacts should be overwritten
-    let out = run_sysand_in(&cwd, ["build"], None)?;
-    out.assert().success();
-    let expected_index = expected_index();
-
-    for project in &projects {
-        let kpar_path = cwd
-            .join("output")
-            .join(format!("{}-1.2.3.kpar", project.name));
-        assert!(kpar_path.is_file(), "kpar file does not exist: {kpar_path}");
-
-        let out = run_sysand_in(&cwd, ["info", "--kpar-path", kpar_path.as_str()], None)?;
-
-        out.assert()
-            .success()
-            .stdout(predicate::str::contains(format!("Name: {}", project.name)))
-            .stdout(predicate::str::contains("Version: 1.2.3"));
-
-        let kpar_project = LocalKParProjectRaw::new_guess_root(kpar_path)?;
-
-        let (Some(_), Some(meta)) = kpar_project.get_project()? else {
-            panic!("failed to get built project info/meta");
-        };
-
-        // File hash should be updated
-        assert_eq!(meta.checksum, expected_checksum);
-
-        assert_eq!(meta.index, expected_index);
-
-        // Ensure no changes were made to the original project
-        let new_info_contents = fs::read_to_string(&project.info_path)?;
-        let new_meta_contents = fs::read_to_string(&project.meta_path)?;
-        assert_eq!(project.orig_info_contents, new_info_contents);
-        assert_eq!(project.orig_meta_contents, new_meta_contents);
+    // The build reads the members; it must not write to them.
+    for (member, text) in members.iter().zip(&before) {
+        assert_eq!(&std::fs::read_to_string(member.join("model.toml"))?, text);
     }
 
     Ok(())
 }
 
-/// Workspace with `meta.metamodel` set — projects without metamodel get it injected
+/// Explicit inheritance replaces the old injection: a workspace
+/// `metamodel` reaches a member that asks for it with
+/// `metamodel.workspace = true`, and only then.
+///
+/// This is the coverage the switch owes. The `.workspace.json` rule was
+/// that the workspace metamodel was written into every member that
+/// declared none; `workspaces.md` deletes the workspace-level
+/// metamodel, so the member has to say so.
 #[test]
-fn workspace_build_with_metamodel() -> Result<(), Box<dyn std::error::Error>> {
+fn workspace_build_with_inherited_metamodel() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    let project1_cwd = cwd.join("project1");
-
-    std::fs::write(
-        cwd.join(".workspace.json"),
-        br#"{
-            "projects": [
-                {"path": "project1", "iris": ["urn:kpar:project1"]}
-            ],
-            "meta": {
-                "metamodel": "https://www.omg.org/spec/SysML/20250201"
-            }
-        }"#,
+    write_workspace_with(
+        &cwd,
+        &["project1"],
+        "metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    )?;
+    write_toml_member(
+        &cwd.join("project1"),
+        "project1",
+        "1.0.0",
+        "metamodel.workspace = true\n",
     )?;
 
-    std::fs::create_dir(&project1_cwd)?;
-    write_legacy_project(&project1_cwd, "acme", "project1", "1.0.0", None)?;
-
-    std::fs::write(project1_cwd.join("test.sysml"), b"package P;\n")?;
-    let out = run_sysand_in(
-        &project1_cwd,
-        ["include", "--no-index-symbols", "test.sysml"],
-        None,
-    )?;
-    out.assert().success();
-
-    let out = run_sysand_in(&cwd, ["build"], None)?;
-    out.assert().success();
+    run_sysand_in(&cwd, ["build"], None)?.assert().success();
 
     let kpar_path = cwd.join("output").join("project1-1.0.0.kpar");
     assert!(kpar_path.is_file(), "kpar file does not exist: {kpar_path}");
@@ -549,47 +493,60 @@ fn workspace_build_with_metamodel() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Workspace with unknown `meta.metamodel` — build succeeds with a warning.
-/// The value is outside both recognized metamodel families: an OMG release
-/// Sysand has not heard of is a perfectly good metamodel and does not warn.
+/// A member that does *not* ask to inherit gets no metamodel, which
+/// `model-toml.md` defines as an OMG project.
+///
+/// The counterpart of the test above.
+#[test]
+fn a_member_that_does_not_inherit_gets_no_metamodel() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    write_workspace_with(
+        &cwd,
+        &["project1"],
+        "metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    )?;
+    write_toml_member(&cwd.join("project1"), "project1", "1.0.0", "")?;
+
+    run_sysand_in(&cwd, ["build"], None)?.assert().success();
+
+    let kpar_project =
+        LocalKParProjectRaw::new_guess_root(cwd.join("output").join("project1-1.0.0.kpar"))?;
+    let (Some(_), Some(meta)) = kpar_project.get_project()? else {
+        panic!("failed to get built project info/meta");
+    };
+    assert_eq!(meta.metamodel, None);
+
+    Ok(())
+}
+
+/// An unrecognized `[workspace] metamodel` warns and builds. The value
+/// is outside both recognized metamodel families: an OMG release Sysand
+/// has not heard of is a perfectly good metamodel and does not warn.
 #[test]
 fn workspace_build_with_unknown_metamodel() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    let project1_cwd = cwd.join("project1");
-
-    std::fs::write(
-        cwd.join(".workspace.json"),
-        br#"{
-            "projects": [
-                {"path": "project1", "iris": ["urn:kpar:project1"]}
-            ],
-            "meta": {
-                "metamodel": "https://example.com/spec/SysML/20251201"
-            }
-        }"#,
+    write_workspace_with(
+        &cwd,
+        &["project1"],
+        "metamodel = \"https://example.com/spec/SysML/20251201\"\n",
+    )?;
+    write_toml_member(
+        &cwd.join("project1"),
+        "project1",
+        "1.0.0",
+        "metamodel.workspace = true\n",
     )?;
 
-    std::fs::create_dir(&project1_cwd)?;
-    write_legacy_project(&project1_cwd, "acme", "project1", "1.0.0", None)?;
+    run_sysand_in(&cwd, ["build"], None)?
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "declares metamodel `https://example.com/spec/SysML/20251201`, \
+             which this version of Sysand does not recognize",
+        ));
 
-    std::fs::write(project1_cwd.join("test.sysml"), b"package P;\n")?;
-    let out = run_sysand_in(
-        &project1_cwd,
-        ["include", "--no-index-symbols", "test.sysml"],
-        None,
-    )?;
-    out.assert().success();
-
-    let out = run_sysand_in(&cwd, ["build"], None)?;
-    out.assert().success().stderr(predicate::str::contains(
-        "`.workspace.json` declares metamodel `https://example.com/spec/SysML/20251201`, \
-         which this version of Sysand does not recognize",
-    ));
-
-    let kpar_path = cwd.join("output").join("project1-1.0.0.kpar");
-    assert!(kpar_path.is_file(), "kpar file does not exist: {kpar_path}");
-
-    let kpar_project = LocalKParProjectRaw::new_guess_root(kpar_path)?;
+    let kpar_project =
+        LocalKParProjectRaw::new_guess_root(cwd.join("output").join("project1-1.0.0.kpar"))?;
     let (Some(_), Some(meta)) = kpar_project.get_project()? else {
         panic!("failed to get built project info/meta");
     };
@@ -601,161 +558,41 @@ fn workspace_build_with_unknown_metamodel() -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
-/// Workspace with `meta.metamodel` + project that also has metamodel — build fails
+/// A member that declares its own metamodel builds with it, beside a
+/// workspace that declares another.
+///
+/// The `.workspace.json` pair this replaces -- `metamodel_conflict` and
+/// `metamodel_same_no_conflict` -- tested a rule the specification
+/// deletes: "There is no workspace-level metamodel. Members with
+/// different metamodels ... may share a workspace." There is nothing
+/// left to conflict, so the surviving question is whether the member's
+/// own value reaches the archive.
 #[test]
-fn workspace_build_metamodel_conflict() -> Result<(), Box<dyn std::error::Error>> {
+fn a_member_declares_its_own_metamodel() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    let project1_cwd = cwd.join("project1");
-
-    std::fs::write(
-        cwd.join(".workspace.json"),
-        br#"{
-            "projects": [
-                {"path": "project1", "iris": ["urn:kpar:project1"]}
-            ],
-            "meta": {
-                "metamodel": "https://www.omg.org/spec/SysML/20250201"
-            }
-        }"#,
+    write_workspace_with(
+        &cwd,
+        &["project1"],
+        "metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    )?;
+    write_toml_member(
+        &cwd.join("project1"),
+        "project1",
+        "1.0.0",
+        "metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n",
     )?;
 
-    std::fs::create_dir(&project1_cwd)?;
-    write_legacy_project(&project1_cwd, "acme", "project1", "1.0.0", None)?;
+    run_sysand_in(&cwd, ["build"], None)?.assert().success();
 
-    std::fs::write(project1_cwd.join("test.sysml"), b"package P;\n")?;
-    let out = run_sysand_in(
-        &project1_cwd,
-        ["include", "--no-index-symbols", "test.sysml"],
-        None,
-    )?;
-    out.assert().success();
-
-    // Set metamodel in the project's .meta.json to create a conflict
-    let meta_path = project1_cwd.join(".meta.json");
-    let meta_content = std::fs::read_to_string(&meta_path)?;
-    let mut meta: serde_json::Value = serde_json::from_str(&meta_content)?;
-    meta["metamodel"] =
-        serde_json::Value::String("https://www.omg.org/spec/KerML/20250201".to_owned());
-    std::fs::write(&meta_path, serde_json::to_string_pretty(&meta)?)?;
-
-    let out = run_sysand_in(&cwd, ["build"], None)?;
-    out.assert()
-        .failure()
-        .stderr(predicate::str::contains("sets a different metamodel"));
-
-    Ok(())
-}
-
-/// Workspace and project set the **same** metamodel — no conflict, build succeeds
-#[test]
-fn workspace_build_metamodel_same_no_conflict() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd) = new_temp_cwd()?;
-    let project1_cwd = cwd.join("project1");
-
-    std::fs::write(
-        cwd.join(".workspace.json"),
-        br#"{
-            "projects": [
-                {"path": "project1", "iris": ["urn:kpar:project1"]}
-            ],
-            "meta": {
-                "metamodel": "https://www.omg.org/spec/SysML/20250201"
-            }
-        }"#,
-    )?;
-
-    std::fs::create_dir(&project1_cwd)?;
-    write_legacy_project(&project1_cwd, "acme", "project1", "1.0.0", None)?;
-
-    std::fs::write(project1_cwd.join("test.sysml"), b"package P;\n")?;
-    let out = run_sysand_in(
-        &project1_cwd,
-        ["include", "--no-index-symbols", "test.sysml"],
-        None,
-    )?;
-    out.assert().success();
-
-    // Set the same metamodel in the project's .meta.json — should NOT conflict
-    let meta_path = project1_cwd.join(".meta.json");
-    let meta_content = std::fs::read_to_string(&meta_path)?;
-    let mut meta: serde_json::Value = serde_json::from_str(&meta_content)?;
-    meta["metamodel"] =
-        serde_json::Value::String("https://www.omg.org/spec/SysML/20250201".to_owned());
-    std::fs::write(&meta_path, serde_json::to_string_pretty(&meta)?)?;
-
-    let out = run_sysand_in(&cwd, ["build"], None)?;
-    out.assert().success();
-
-    Ok(())
-}
-
-/// Building a workspace with `meta.metamodel` twice must succeed both times.
-/// This verifies that `put_meta` only writes to the temp directory, not the
-/// original project directory, so the conflict check sees the same unmodified
-/// `.meta.json` on both runs.
-#[test]
-fn workspace_build_metamodel_idempotent() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd) = new_temp_cwd()?;
-    let project1_cwd = cwd.join("project1");
-
-    std::fs::write(
-        cwd.join(".workspace.json"),
-        br#"{
-            "projects": [
-                {"path": "project1", "iris": ["urn:kpar:project1"]}
-            ],
-            "meta": {
-                "metamodel": "https://www.omg.org/spec/SysML/20250201"
-            }
-        }"#,
-    )?;
-
-    std::fs::create_dir(&project1_cwd)?;
-    write_legacy_project(&project1_cwd, "acme", "project1", "1.0.0", None)?;
-
-    std::fs::write(project1_cwd.join("test.sysml"), b"package P;\n")?;
-    let out = run_sysand_in(
-        &project1_cwd,
-        ["include", "--no-index-symbols", "test.sysml"],
-        None,
-    )?;
-    out.assert().success();
-
-    // First build
-    let out = run_sysand_in(&cwd, ["build"], None)?;
-    out.assert().success();
-
-    let kpar_path = cwd.join("output").join("project1-1.0.0.kpar");
-    assert!(kpar_path.is_file());
-
-    let kpar_project = LocalKParProjectRaw::new_guess_root(&kpar_path)?;
+    let kpar_project =
+        LocalKParProjectRaw::new_guess_root(cwd.join("output").join("project1-1.0.0.kpar"))?;
     let (Some(_), Some(meta)) = kpar_project.get_project()? else {
         panic!("failed to get built project info/meta");
     };
     assert_eq!(
         meta.metamodel.as_deref(),
-        Some("https://www.omg.org/spec/SysML/20250201")
-    );
-
-    // Second build — must also succeed (no conflict from first build's injection)
-    let out = run_sysand_in(&cwd, ["build"], None)?;
-    out.assert().success();
-
-    let kpar_project = LocalKParProjectRaw::new_guess_root(&kpar_path)?;
-    let (Some(_), Some(meta)) = kpar_project.get_project()? else {
-        panic!("failed to get built project info/meta on second build");
-    };
-    assert_eq!(
-        meta.metamodel.as_deref(),
-        Some("https://www.omg.org/spec/SysML/20250201")
-    );
-
-    // Verify original project .meta.json was NOT modified
-    let original_meta_content = std::fs::read_to_string(project1_cwd.join(".meta.json"))?;
-    let original_meta: serde_json::Value = serde_json::from_str(&original_meta_content)?;
-    assert!(
-        original_meta.get("metamodel").is_none(),
-        "original project .meta.json should not have metamodel set"
+        Some("https://www.omg.org/spec/KerML/20250201"),
+        "the member's own metamodel, not the workspace's"
     );
 
     Ok(())
@@ -820,30 +657,13 @@ fn workspace_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
     let project1_cwd = cwd.join("project1");
     let project2_cwd = cwd.join("project2");
 
-    std::fs::write(
-        cwd.join(".workspace.json"),
-        br#"{"projects": [
-            {"path": "project1", "iris": ["urn:kpar:project1"]},
-            {"path": "project2", "iris": ["urn:kpar:project2"]}
-            ]}"#,
-    )?;
+    write_workspace(&cwd, &["project1", "project2"])?;
 
     for (project_cwd, readme_content) in [
         (&project1_cwd, "# Project 1\n"),
         (&project2_cwd, "# Project 2\n"),
     ] {
-        std::fs::create_dir(project_cwd)?;
-        let project_name = project_cwd.file_name().unwrap();
-        write_legacy_project(project_cwd, "acme", project_name, "1.2.3", None)?;
-
-        std::fs::write(project_cwd.join("test.sysml"), b"package P;\n")?;
-        let out = run_sysand_in(
-            project_cwd,
-            ["include", "--no-index-symbols", "test.sysml"],
-            None,
-        )?;
-        out.assert().success();
-
+        write_toml_member(project_cwd, project_cwd.file_name().unwrap(), "1.2.3", "")?;
         std::fs::write(project_cwd.join("README.md"), readme_content.as_bytes())?;
     }
 
@@ -917,30 +737,13 @@ fn workspace_build_with_changelog() -> Result<(), Box<dyn std::error::Error>> {
     let project1_cwd = cwd.join("project1");
     let project2_cwd = cwd.join("project2");
 
-    std::fs::write(
-        cwd.join(".workspace.json"),
-        br#"{"projects": [
-            {"path": "project1", "iris": ["urn:kpar:project1"]},
-            {"path": "project2", "iris": ["urn:kpar:project2"]}
-            ]}"#,
-    )?;
+    write_workspace(&cwd, &["project1", "project2"])?;
 
     for (project_cwd, changelog_content) in [
         (&project1_cwd, "# Project 1 Changelog\n"),
         (&project2_cwd, "# Project 2 Changelog\n"),
     ] {
-        std::fs::create_dir(project_cwd)?;
-        let project_name = project_cwd.file_name().unwrap();
-        write_legacy_project(project_cwd, "acme", project_name, "1.2.3", None)?;
-
-        std::fs::write(project_cwd.join("test.sysml"), b"package P;\n")?;
-        let out = run_sysand_in(
-            project_cwd,
-            ["include", "--no-index-symbols", "test.sysml"],
-            None,
-        )?;
-        out.assert().success();
-
+        write_toml_member(project_cwd, project_cwd.file_name().unwrap(), "1.2.3", "")?;
         std::fs::write(
             project_cwd.join("CHANGELOG.md"),
             changelog_content.as_bytes(),
@@ -1352,10 +1155,7 @@ fn build_toml_project_with_a_stdlib_usage() -> Result<(), Box<dyn std::error::Er
 #[test]
 fn workspace_build_follows_members_order() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    std::fs::write(
-        cwd.join(".workspace.json"),
-        br#"{"projects": [{"path": "gamma", "iris": []}, {"path": "beta", "iris": []}, {"path": "alpha", "iris": []}]}"#,
-    )?;
+    write_workspace(&cwd, &["gamma", "beta", "alpha"])?;
     for (at, dep) in [
         ("alpha", None),
         ("beta", Some("../alpha")),
@@ -1391,6 +1191,28 @@ fn workspace_build_follows_members_order() -> Result<(), Box<dyn std::error::Err
     Ok(())
 }
 
+/// A member that loads and cannot be built: its manifest is valid, so
+/// the workspace loads, and the source it lists is not there.
+///
+/// Not an empty directory: a workspace
+/// member must define a project, and `Workspace::load_with` refuses one
+/// that does not -- which fails the whole load and never reaches the
+/// per-member reporting these tests are about.
+fn write_broken_member(
+    dir: &camino::Utf8Path,
+    name: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    std::fs::create_dir_all(dir)?;
+    std::fs::write(
+        dir.join("model.toml"),
+        format!(
+            "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"{name}\"\n\
+             version = \"1.0.0\"\nsources = [\"missing.sysml\"]\n"
+        ),
+    )?;
+    Ok(())
+}
+
 /// Every failure is reported, and an independent member is
 /// still built.
 ///
@@ -1399,15 +1221,10 @@ fn workspace_build_follows_members_order() -> Result<(), Box<dyn std::error::Err
 #[test]
 fn workspace_build_reports_every_failure() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    std::fs::write(
-        cwd.join(".workspace.json"),
-        br#"{"projects": [{"path": "alpha", "iris": []}, {"path": "beta", "iris": []}, {"path": "gamma", "iris": []}]}"#,
-    )?;
-    std::fs::create_dir_all(cwd.join("alpha"))?;
-    std::fs::create_dir_all(cwd.join("beta"))?;
-    let good = cwd.join("gamma");
-    std::fs::create_dir_all(&good)?;
-    write_legacy_project(&good, "acme", "gamma", "1.0.0", None)?;
+    write_workspace(&cwd, &["alpha", "beta", "gamma"])?;
+    write_broken_member(&cwd.join("alpha"), "alpha")?;
+    write_broken_member(&cwd.join("beta"), "beta")?;
+    write_toml_member(&cwd.join("gamma"), "gamma", "1.0.0", "")?;
 
     run_sysand_in(&cwd, ["build"], None)?
         .assert()
@@ -1430,20 +1247,14 @@ fn workspace_build_reports_every_failure() -> Result<(), Box<dyn std::error::Err
 fn workspace_build_builds_a_dependent_of_a_failed_member() -> Result<(), Box<dyn std::error::Error>>
 {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    std::fs::write(
-        cwd.join(".workspace.json"),
-        br#"{"projects": [{"path": "beta", "iris": []}, {"path": "alpha", "iris": []}]}"#,
+    write_workspace(&cwd, &["beta", "alpha"])?;
+    write_broken_member(&cwd.join("alpha"), "alpha")?;
+    write_toml_member(
+        &cwd.join("beta"),
+        "beta",
+        "1.0.0",
+        "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"alpha\"\ndir = \"../alpha\"\n",
     )?;
-    std::fs::create_dir_all(cwd.join("alpha"))?;
-    let beta = cwd.join("beta");
-    std::fs::create_dir_all(&beta)?;
-    std::fs::write(
-        beta.join("model.toml"),
-        "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"beta\"\n\
-         version = \"1.0.0\"\nsources = [\"m.kerml\"]\n\n\
-         [[inline-usages]]\npublisher = \"acme\"\nname = \"alpha\"\ndir = \"../alpha\"\n",
-    )?;
-    std::fs::write(beta.join("m.kerml"), b"package M;\n")?;
 
     run_sysand_in(&cwd, ["build", "--allow-path-usage"], None)?
         .assert()

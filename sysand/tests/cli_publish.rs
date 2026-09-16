@@ -146,11 +146,16 @@ fn mock_publish_with_bearer_times(server: &mut Server, token: &str, times: usize
 #[test]
 fn publish_workspace_with_an_unreadable_member_uploads_nothing() -> TestResult {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    std::fs::write(
-        cwd.join(".workspace.json"),
-        br#"{"projects": [{"path": "project1", "iris": ["urn:kpar:project1"]}]}"#,
-    )?;
+    workspace_of(&cwd, &["project1"])?;
+    // Loads, and cannot be read as a project: `Workspace::load_with`
+    // refuses a member that defines no project at all, which would fail
+    // before the per-member resolution this test is about.
     std::fs::create_dir(cwd.join("project1"))?;
+    std::fs::write(
+        cwd.join("project1/model.toml"),
+        "manifest-version = 1\n\n[project]\npublisher = \"example-pub1\"\n\
+         name = \"project1\"\nversion = \"1.0.0\"\nsources = [\"missing.sysml\"]\n",
+    )?;
 
     let mut server = Server::new();
     let upload_mock = mock_publish_with_bearer_times(&mut server, "test-token", 0);
@@ -1104,13 +1109,13 @@ fn workspace_member(root: &Utf8Path, at: &str, deps: &[&str]) -> TestResult {
 }
 
 fn workspace_of(root: &Utf8Path, members: &[&str]) -> TestResult {
-    let projects: Vec<String> = members
-        .iter()
-        .map(|m| format!(r#"{{"path": "{m}", "iris": []}}"#))
-        .collect();
+    let entries: Vec<String> = members.iter().map(|m| format!("\"{m}\"")).collect();
     fs::write(
-        root.join(".workspace.json"),
-        format!(r#"{{"projects": [{}]}}"#, projects.join(", ")),
+        root.join("model.toml"),
+        format!(
+            "manifest-version = 1\n\n[workspace]\nmembers = [{}]\n",
+            entries.join(", ")
+        ),
     )?;
     Ok(())
 }

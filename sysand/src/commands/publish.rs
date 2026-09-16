@@ -15,6 +15,7 @@ use sysand_core::{
     env::discovery::{ResolvedEndpoints, fetch_index_config},
     index_location::IndexLocation,
     project::utils::wrapfs,
+    workspace::model_toml::{MemberChecks, Workspace},
 };
 
 use crate::{CliAuthPolicy, CliError, cli::TrustedPublishingMode};
@@ -182,21 +183,27 @@ fn resolve_publish_archives(
         return Ok(vec![path]);
     }
 
-    match (ctx.current_project.as_ref(), ctx.current_workspace.as_ref()) {
-        (Some(current_project), workspace) => Ok(vec![default_kpar_path(
+    match (
+        ctx.current_project.as_ref(),
+        ctx.model_workspace_root.as_ref(),
+    ) {
+        // A member publishes the archive `sysand build` wrote for it,
+        // which is in the workspace's single `output/`.
+        (Some(current_project), workspace_root) => Ok(vec![default_kpar_path(
             current_project,
-            workspace,
+            workspace_root.map(camino::Utf8PathBuf::as_path),
             current_project.root_path(),
         )?]),
         // From a workspace root, every member, in dependency order.
-        (None, Some(workspace)) => {
+        (None, Some(root)) => {
             log::warn!(
                 "Workspaces are an experimental feature\n\
                 and their behavior may change even with minor\n\
                 releases. For the status of this feature, see\n\
                 https://github.com/sensmetry/sysand/issues/101."
             );
-            Ok(workspace_publish_order(workspace)
+            let workspace = Workspace::load_with(root, MemberChecks::SkipStrayState)?;
+            Ok(workspace_publish_order(&workspace)
                 .map_err(|failure| anyhow::anyhow!("{failure}"))?
                 .into_iter()
                 .map(|(_, archive)| archive)
