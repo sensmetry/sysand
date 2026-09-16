@@ -68,6 +68,23 @@ fn memory_project(
         }),
         files: HashMap::default(),
         nominal_sources: vec![],
+        // These fixtures stand in for an index listing several versions of a
+        // project, which is what makes a default version constraint apply.
+        source_may_offer_multiple_versions: true,
+    }
+}
+
+/// Like [`trivial_memory_project`], but standing in for a source that names a
+/// single project outright -- a path, a URL, a source override -- where there
+/// is no version to choose between and so no default constraint.
+fn single_project_source<'a>(
+    name: &str,
+    version: &str,
+    usage: impl IntoIterator<Item = (&'a str, Option<&'a str>)>,
+) -> InMemoryProject {
+    InMemoryProject {
+        source_may_offer_multiple_versions: false,
+        ..trivial_memory_project(name, version, usage)
     }
 }
 
@@ -519,6 +536,11 @@ impl ProjectRead for StubProject {
 
     fn checksum_canonical_variant(&self) -> Result<crate::project::ProjectChecksum, Self::Error> {
         unimplemented!("not used by the solver")
+    }
+
+    fn source_may_offer_multiple_versions(&self) -> bool {
+        // Like `memory_project`, this stands in for an index.
+        true
     }
 
     fn version(&self) -> Result<Option<String>, Self::Error> {
@@ -1013,8 +1035,13 @@ fn conflicts_name_the_dependents_that_pin_transitively() {
     );
 }
 
+/// A constraint that nothing satisfies makes the project that stated it
+/// unusable, which is a solve failure rather than a retrieval one: the
+/// project was retrieved, it just cannot be used. Where the root states the
+/// constraint there is nothing to backtrack to, so the solve still fails --
+/// with one cause, named in full.
 #[test]
-fn no_matching_version_is_a_retrieval_failure_with_the_found_versions() {
+fn no_matching_version_is_a_no_versions_conflict_with_the_found_versions() {
     let widget_v1 = trivial_memory_project("widget", "1.0.0", vec![]);
     let widget_v2 = trivial_memory_project("widget", "2.0.0", vec![]);
     let resolver = memory_resolver(&[("urn:kpar:widget", &[widget_v1, widget_v2])]);
@@ -1026,24 +1053,63 @@ fn no_matching_version_is_a_retrieval_failure_with_the_found_versions() {
     )
     .unwrap_err();
 
-    assert_eq!(err.kind(), "retrieval");
+    assert_eq!(err.kind(), "no_solution");
     assert_eq!(
         err.conflicts(),
         vec![SolveConflict::NoVersions {
             iri: "urn:kpar:widget".to_owned(),
             constraint: ">=3".to_owned(),
+            defaulted: false,
             found: vec!["1.0.0".to_owned(), "2.0.0".to_owned()],
             required_by: None,
         }]
     );
-    // The CLI's wording is unchanged.
     assert_eq!(
         err.to_string(),
-        "failed to retrieve project(s): requested version unavailable: project `urn:kpar:widget`\n\
+        "requested version unavailable: project `urn:kpar:widget`\n\
          was found, but the requested version constraint `>=3`\n\
          was not satisfied by any of the found versions:\n\
          `1.0.0`, `2.0.0`"
     );
+}
+
+/// Where the constraint comes from a dependency rather than the root, the
+/// report names the dependency that could not be used alongside the cause,
+/// and `conflicts()` attributes it with `required_by`.
+#[test]
+fn no_matching_version_for_a_dependency_names_the_dependent_in_the_report() {
+    let app = trivial_memory_project("app", "1.0.0", vec![("urn:kpar:widget", Some("^2"))]);
+    let widget = trivial_memory_project("widget", "1.0.0", vec![]);
+    let resolver = memory_resolver(&[("urn:kpar:app", &[app]), ("urn:kpar:widget", &[widget])]);
+
+    let err = super::solve(vec![root_usage("urn:kpar:app", None)], None, resolver).unwrap_err();
+
+    assert_eq!(err.kind(), "no_solution");
+    assert!(
+        err.conflicts().contains(&SolveConflict::NoVersions {
+            iri: "urn:kpar:widget".to_owned(),
+            constraint: "^2".to_owned(),
+            defaulted: false,
+            found: vec!["1.0.0".to_owned()],
+            required_by: Some("urn:kpar:app".to_owned()),
+        }),
+        "got: {:?}",
+        err.conflicts()
+    );
+
+    // More than one cause, so the report is pubgrub's own, and both projects
+    // are in it
+    let report = err.to_string();
+    for expected in [
+        "failed to satisfy usage constraints:",
+        "IRI `urn:kpar:app`",
+        "depends on IRI `urn:kpar:widget` (^2)",
+    ] {
+        assert!(
+            report.contains(expected),
+            "`{expected}` missing from:\n{report}"
+        );
+    }
 }
 
 #[test]
@@ -1082,3 +1148,548 @@ fn unknown_project_is_a_not_found_conflict() {
         [SolveConflict::NotFound { iri, .. }] if iri == "urn:kpar:absent"
     );
 }
+
+// --- prerelease versions --------------------------------------------------
+//
+// Constraint matching goes through `semver::VersionReq`, which implements
+// cargo's rule: a prerelease is only ever selected by a constraint that
+// itself names a prerelease of the same `major.minor.patch`.
+
+/// A constraint that names no prerelease never selects one, even when the
+/// prerelease is the highest version published.
+#[test]
+fn prerelease_is_ignored_by_a_release_constraint() -> Result<(), Box<dyn std::error::Error>> {
+    let prerelease = trivial_memory_project("widget", "1.1.0-alpha.1", vec![]);
+    let release = trivial_memory_project("widget", "1.0.0", vec![]);
+    let resolver = memory_resolver(&[("urn:kpar:widget", &[prerelease, release])]);
+
+    let solution = super::solve(
+        vec![root_usage("urn:kpar:widget", Some("^1"))],
+        None,
+        resolver,
+    )?;
+
+    let install = &solution[&Identifier::from_iri_unchecked_str("urn:kpar:widget")];
+    assert_eq!(install.version()?.unwrap(), "1.0.0");
+
+    Ok(())
+}
+
+/// `*` is not an opt-in either: like cargo's `*`, it selects releases only.
+#[test]
+fn star_constraint_ignores_prereleases() -> Result<(), Box<dyn std::error::Error>> {
+    let prerelease = trivial_memory_project("widget", "2.0.0-beta.1", vec![]);
+    let release = trivial_memory_project("widget", "1.0.0", vec![]);
+    let resolver = memory_resolver(&[("urn:kpar:widget", &[prerelease, release])]);
+
+    let solution = super::solve(
+        vec![root_usage("urn:kpar:widget", Some("*"))],
+        None,
+        resolver,
+    )?;
+
+    let install = &solution[&Identifier::from_iri_unchecked_str("urn:kpar:widget")];
+    assert_eq!(install.version()?.unwrap(), "1.0.0");
+
+    Ok(())
+}
+
+/// A constraint that names a prerelease opts in to prereleases of that
+/// `major.minor.patch`.
+#[test]
+fn prerelease_is_selected_when_the_constraint_names_one() -> Result<(), Box<dyn std::error::Error>>
+{
+    let alpha = trivial_memory_project("widget", "1.1.0-alpha.1", vec![]);
+    let release = trivial_memory_project("widget", "1.0.0", vec![]);
+    let resolver = memory_resolver(&[("urn:kpar:widget", &[alpha, release])]);
+
+    let solution = super::solve(
+        vec![root_usage("urn:kpar:widget", Some("^1.1.0-alpha"))],
+        None,
+        resolver,
+    )?;
+
+    let install = &solution[&Identifier::from_iri_unchecked_str("urn:kpar:widget")];
+    assert_eq!(install.version()?.unwrap(), "1.1.0-alpha.1");
+
+    Ok(())
+}
+
+/// The opt-in is per release: a prerelease of a *different* release stays
+/// excluded, even one that is numerically greater than everything allowed.
+#[test]
+fn prerelease_constraint_does_not_admit_other_prereleases() -> Result<(), Box<dyn std::error::Error>>
+{
+    let beta = trivial_memory_project("widget", "2.0.0-beta.1", vec![]);
+    let alpha = trivial_memory_project("widget", "1.0.0-alpha.1", vec![]);
+    let resolver = memory_resolver(&[("urn:kpar:widget", &[beta, alpha])]);
+
+    let solution = super::solve(
+        vec![root_usage("urn:kpar:widget", Some(">=1.0.0-alpha"))],
+        None,
+        resolver,
+    )?;
+
+    let install = &solution[&Identifier::from_iri_unchecked_str("urn:kpar:widget")];
+    assert_eq!(install.version()?.unwrap(), "1.0.0-alpha.1");
+
+    Ok(())
+}
+
+/// When only prereleases are published, a release constraint matches nothing
+/// and the prereleases are reported as the versions that were found.
+#[test]
+fn only_prereleases_published_is_a_no_versions_failure() {
+    let beta = trivial_memory_project("widget", "1.0.0-beta.1", vec![]);
+    let alpha = trivial_memory_project("widget", "1.0.0-alpha.1", vec![]);
+    let resolver = memory_resolver(&[("urn:kpar:widget", &[beta, alpha])]);
+
+    let err = super::solve(
+        vec![root_usage("urn:kpar:widget", Some("^1"))],
+        None,
+        resolver,
+    )
+    .unwrap_err();
+
+    assert_eq!(err.kind(), "no_solution");
+    assert_eq!(
+        err.conflicts(),
+        vec![SolveConflict::NoVersions {
+            iri: "urn:kpar:widget".to_owned(),
+            constraint: "^1".to_owned(),
+            defaulted: false,
+            found: vec!["1.0.0-alpha.1".to_owned(), "1.0.0-beta.1".to_owned()],
+            required_by: None,
+        }]
+    );
+}
+
+/// The rule applies to a constraint coming from a dependency just as it does
+/// to one written in the root project.
+#[test]
+fn transitive_constraint_ignores_prereleases() -> Result<(), Box<dyn std::error::Error>> {
+    let app = trivial_memory_project("app", "1.0.0", vec![("urn:kpar:widget", Some("^1"))]);
+    let prerelease = trivial_memory_project("widget", "1.1.0-alpha.1", vec![]);
+    let release = trivial_memory_project("widget", "1.0.0", vec![]);
+    let resolver = memory_resolver(&[
+        ("urn:kpar:app", &[app]),
+        ("urn:kpar:widget", &[prerelease, release]),
+    ]);
+
+    let solution = super::solve(vec![root_usage("urn:kpar:app", Some("^1"))], None, resolver)?;
+
+    let install = &solution[&Identifier::from_iri_unchecked_str("urn:kpar:widget")];
+    assert_eq!(install.version()?.unwrap(), "1.0.0");
+
+    Ok(())
+}
+
+/// A prerelease named by one dependent does not leak into the constraint of
+/// another: opting in is not transitive across dependents.
+#[test]
+fn prerelease_opt_in_of_one_dependent_conflicts_with_a_release_pin() {
+    let app_a = trivial_memory_project(
+        "app_a",
+        "1.0.0",
+        vec![("urn:kpar:widget", Some("=1.0.0-alpha.1"))],
+    );
+    let app_b = trivial_memory_project("app_b", "1.0.0", vec![("urn:kpar:widget", Some("^1"))]);
+    let release = trivial_memory_project("widget", "1.0.0", vec![]);
+    let alpha = trivial_memory_project("widget", "1.0.0-alpha.1", vec![]);
+    let resolver = memory_resolver(&[
+        ("urn:kpar:app_a", &[app_a]),
+        ("urn:kpar:app_b", &[app_b]),
+        ("urn:kpar:widget", &[release, alpha]),
+    ]);
+
+    let err = super::solve(
+        vec![
+            root_usage("urn:kpar:app_a", None),
+            root_usage("urn:kpar:app_b", None),
+        ],
+        None,
+        resolver,
+    )
+    .unwrap_err();
+
+    assert_eq!(err.kind(), "no_solution");
+}
+
+// --- the default constraint -----------------------------------------------
+
+/// An unconstrained PURL usage takes `DEFAULT_INDEX_CONSTRAINT`, so it ignores
+/// prereleases exactly as a written-out `*` does.
+#[test]
+fn unconstrained_purl_usage_ignores_prereleases() -> Result<(), Box<dyn std::error::Error>> {
+    // Index order: descending, so the highest release is the first candidate
+    // the default admits.
+    let candidates: Vec<_> = ["3.0.0-beta.1", "2.0.0", "1.0.0"]
+        .into_iter()
+        .map(|v| trivial_memory_project("widget", v, vec![]))
+        .collect();
+    let resolver = memory_resolver(&[("pkg:sysand/acme/widget", &candidates)]);
+
+    let solution = super::solve(
+        vec![root_usage("pkg:sysand/acme/widget", None)],
+        None,
+        resolver,
+    )?;
+
+    let install = &solution[&Identifier::from_iri_unchecked_str("pkg:sysand/acme/widget")];
+    assert_eq!(install.version()?.unwrap(), "2.0.0");
+
+    Ok(())
+}
+
+/// An unconstrained PURL usage of a project that has only ever had
+/// prereleases published fails the way `*` does, naming `*` as the constraint
+/// that went unsatisfied -- but saying that `*` is the default, since a reader
+/// told a `*` went unsatisfied would go looking for one they never wrote.
+#[test]
+fn unconstrained_purl_usage_of_a_prerelease_only_project_is_a_no_versions_failure() {
+    let alpha = trivial_memory_project("widget", "1.0.0-alpha.1", vec![]);
+    let resolver = memory_resolver(&[("pkg:sysand/acme/widget", &[alpha])]);
+
+    let err = super::solve(
+        vec![root_usage("pkg:sysand/acme/widget", None)],
+        None,
+        resolver,
+    )
+    .unwrap_err();
+
+    assert_eq!(err.kind(), "no_solution");
+    assert_eq!(
+        err.conflicts(),
+        vec![SolveConflict::NoVersions {
+            iri: "pkg:sysand/acme/widget".to_owned(),
+            constraint: "*".to_owned(),
+            defaulted: true,
+            found: vec!["1.0.0-alpha.1".to_owned()],
+            required_by: None,
+        }]
+    );
+    assert_eq!(
+        err.to_string(),
+        "no usable version: project `pkg:sysand/acme/widget`\n\
+         was found, but the default version constraint `*`\n\
+         was not satisfied by any of the found versions:\n\
+         `1.0.0-alpha.1`"
+    );
+}
+
+/// A PURL dependency that states no constraint takes the default just as a
+/// root usage does.
+#[test]
+fn unconstrained_transitive_purl_usage_ignores_prereleases()
+-> Result<(), Box<dyn std::error::Error>> {
+    let app = trivial_memory_project("app", "1.0.0", vec![("pkg:sysand/acme/widget", None)]);
+    let prerelease = trivial_memory_project("widget", "2.0.0-beta.1", vec![]);
+    let release = trivial_memory_project("widget", "1.0.0", vec![]);
+    let resolver = memory_resolver(&[
+        ("urn:kpar:app", &[app]),
+        ("pkg:sysand/acme/widget", &[prerelease, release]),
+    ]);
+
+    let solution = super::solve(vec![root_usage("urn:kpar:app", None)], None, resolver)?;
+
+    let install = &solution[&Identifier::from_iri_unchecked_str("pkg:sysand/acme/widget")];
+    assert_eq!(install.version()?.unwrap(), "1.0.0");
+
+    Ok(())
+}
+
+/// The default follows the source, not the IRI. A source that names one
+/// project -- a local path, an HTTP URL, a git repository, a source override
+/// -- has no version to choose between, so whatever is there is taken as it
+/// is, prerelease and all. Defaulting to `*` would refuse such a project
+/// outright, and no constraint the user could add to the usage would express
+/// "whatever is at this location" again. That holds for a `pkg:sysand` IRI
+/// pinned to such a source just as much as for any other form.
+#[test]
+fn unconstrained_usage_of_a_single_project_source_admits_a_prerelease()
+-> Result<(), Box<dyn std::error::Error>> {
+    for iri in [
+        "pkg:sysand/acme/widget",
+        "urn:kpar:widget",
+        "file:///home/someone/widget",
+        "https://example.com/widget",
+        "git+https://example.com/widget.git",
+    ] {
+        let prerelease = single_project_source("widget", "1.0.0-alpha.1", vec![]);
+        let resolver = memory_resolver(&[(iri, &[prerelease])]);
+
+        let solution = super::solve(vec![root_usage(iri, None)], None, resolver)?;
+
+        let install = &solution[&Identifier::from_iri_unchecked_str(iri)];
+        assert_eq!(install.version()?.unwrap(), "1.0.0-alpha.1", "for `{iri}`");
+    }
+
+    Ok(())
+}
+
+/// And the other way round: an opaque `urn:kpar:` IRI that an index advertises
+/// takes the default like any other index usage. The IRI form says nothing
+/// about whether there was a choice to make.
+#[test]
+fn unconstrained_usage_of_a_multi_version_source_ignores_prereleases()
+-> Result<(), Box<dyn std::error::Error>> {
+    let release = trivial_memory_project("widget", "1.0.0", vec![]);
+    let prerelease = trivial_memory_project("widget", "2.0.0-beta.1", vec![]);
+    let resolver = memory_resolver(&[("urn:kpar:widget", &[prerelease, release])]);
+
+    let solution = super::solve(vec![root_usage("urn:kpar:widget", None)], None, resolver)?;
+
+    let install = &solution[&Identifier::from_iri_unchecked_str("urn:kpar:widget")];
+    assert_eq!(install.version()?.unwrap(), "1.0.0");
+
+    Ok(())
+}
+
+/// With no constraint and no default, `selected_by` selects every candidate,
+/// which is the cofinite case `choose_version()` answers with the highest
+/// version -- prerelease included.
+#[test]
+fn unconstrained_usage_of_a_single_project_source_takes_the_highest_version()
+-> Result<(), Box<dyn std::error::Error>> {
+    let release = single_project_source("widget", "1.0.0", vec![]);
+    let prerelease = single_project_source("widget", "2.0.0-beta.1", vec![]);
+    let resolver = memory_resolver(&[("urn:kpar:widget", &[release, prerelease])]);
+
+    let solution = super::solve(vec![root_usage("urn:kpar:widget", None)], None, resolver)?;
+
+    let install = &solution[&Identifier::from_iri_unchecked_str("urn:kpar:widget")];
+    assert_eq!(install.version()?.unwrap(), "2.0.0-beta.1");
+
+    Ok(())
+}
+
+/// Directory and `.kpar` path usages carry no constraint at all and never
+/// reach `selected_by`: like a cargo path dependency, they take whatever
+/// version the project at that location has, prerelease or not.
+#[test]
+fn directory_usage_admits_a_prerelease() -> Result<(), Box<dyn std::error::Error>> {
+    let widget = trivial_memory_project("widget", "1.0.0-alpha.1", vec![]);
+    let resolver = simple_resolver_environment(&[("pkg:sysand/acme/widget", &[widget])]);
+
+    let solution = super::solve(
+        vec![InterchangeProjectUsage::Directory {
+            dir: "some/dir".into(),
+            publisher: "acme".to_owned(),
+            name: "widget".to_owned(),
+        }],
+        None,
+        resolver,
+    )?;
+
+    let install = &solution[&Identifier::from_pub_name("acme", "widget")];
+    assert_eq!(install.version()?.unwrap(), "1.0.0-alpha.1");
+
+    Ok(())
+}
+
+// --- candidate order ------------------------------------------------------
+
+/// Once any constraint applies — stated or defaulted — selection runs through
+/// the `DiscreteHashSet::Finite` arm of `choose_version()`, which takes
+/// `min()` over candidate indices: the first matching candidate the resolver
+/// listed, not the highest matching version.
+///
+/// Candidate order is a preference rank, not an accident — `CombinedResolver`
+/// emits authoritative sources first and appends unmatched local cache copies
+/// last — so ranking by index is the right thing to do. What it relies on is
+/// every source listing its own versions in descending order, which the index
+/// protocol enforces (see
+/// `index_order_makes_the_lowest_candidate_index_the_highest_version`) but
+/// `LocalDirectoryEnvironment` does not: it yields install order.
+///
+/// Spelled out here with prereleases because that is where it bites hardest:
+/// out of descending order, `^1.0.0-alpha` picks `1.0.0-alpha.1` over the
+/// finished `1.0.0`.
+#[test]
+fn constrained_usage_picks_by_candidate_order_not_by_version()
+-> Result<(), Box<dyn std::error::Error>> {
+    let alpha = trivial_memory_project("widget", "1.0.0-alpha.1", vec![]);
+    let release = trivial_memory_project("widget", "1.0.0", vec![]);
+
+    for (candidates, expected) in [
+        ([alpha.clone(), release.clone()], "1.0.0-alpha.1"),
+        ([release, alpha], "1.0.0"),
+    ] {
+        let resolver = memory_resolver(&[("urn:kpar:widget", &candidates)]);
+
+        let solution = super::solve(
+            vec![root_usage("urn:kpar:widget", Some("^1.0.0-alpha"))],
+            None,
+            resolver,
+        )?;
+
+        let install = &solution[&Identifier::from_iri_unchecked_str("urn:kpar:widget")];
+        assert_eq!(install.version()?.unwrap(), expected);
+    }
+
+    Ok(())
+}
+
+/// Documents a known shortcoming: within one source, the highest matching
+/// version should win, and today it does not.
+///
+/// Candidate order *across* sources is deliberate — `CombinedResolver` ranks
+/// authoritative sources ahead of local cache copies, and `choose_version()`
+/// honouring that rank is correct. What is missing is the other half: each
+/// source should list its own versions in descending order, so that the rank
+/// and the version agree. The index protocol requires exactly that, but
+/// `LocalDirectoryEnvironment::versions` yields `sysand_env.json` install
+/// order, which this fixture stands in for — install `1.0.0`, then `1.2.0`,
+/// ask for `^1`, and resolution settles on `1.0.0`.
+///
+/// It decides anything only where the local environment is the sole source of
+/// a project: offline, or a project no index advertises. Anywhere an
+/// authoritative source also has it, matching versions are folded together by
+/// checksum and the leftovers are last-resort by design.
+///
+/// The fix belongs in the environment, not here — sorting in
+/// `choose_version()` would flatten the cross-source rank and let a stale
+/// cached copy outrank an index. Drop the `#[should_panic]` when the
+/// environment sorts.
+#[test]
+#[should_panic(expected = "resolved to `1.0.0`, not the highest matching version")]
+fn constrained_usage_should_pick_the_highest_matching_version_within_one_source() {
+    // The order a local environment hands over: install order, not descending.
+    let candidates = ["1.0.0", "1.2.0"].map(|v| trivial_memory_project("widget", v, vec![]));
+    let resolver = memory_resolver(&[("urn:kpar:widget", &candidates)]);
+
+    let solution = super::solve(
+        vec![root_usage("urn:kpar:widget", Some("^1"))],
+        None,
+        resolver,
+    )
+    .unwrap();
+
+    let install = &solution[&Identifier::from_iri_unchecked_str("urn:kpar:widget")];
+    let version = install.version().unwrap().unwrap();
+    assert_eq!(
+        version, "1.2.0",
+        "resolved to `{version}`, not the highest matching version"
+    );
+}
+
+/// Why the preceding shortcoming is invisible over an index: `versions.json`
+/// MUST be in strictly descending semver precedence (`validate_versions`
+/// rejects anything else with `VersionsOutOfOrder`), and `EnvResolver` hands
+/// that order to the solver unchanged, so candidate index 0 is the highest
+/// version and `choose_version()`'s lowest-index pick lands on it.
+///
+/// The two rules are load-bearing together: relaxing the ordering rule at the
+/// protocol boundary would silently change which version gets resolved.
+/// Descending order also puts a release ahead of its own prereleases, since
+/// `1.0.0-alpha.1 < 1.0.0`, so an opt-in constraint still prefers the release.
+#[test]
+fn index_order_makes_the_lowest_candidate_index_the_highest_version()
+-> Result<(), Box<dyn std::error::Error>> {
+    // Candidates in the order an index advertises them.
+    let versions = ["2.0.0", "1.1.0", "1.0.0", "1.0.0-alpha.1"];
+    let parsed: Vec<semver::Version> = versions
+        .iter()
+        .map(|v| semver::Version::parse(v).unwrap())
+        .collect();
+    assert!(
+        parsed.is_sorted_by(|v1, v2| v1 > v2),
+        "fixture must be in the strictly descending order the index protocol requires"
+    );
+    let candidates: Vec<_> = versions
+        .into_iter()
+        .map(|v| trivial_memory_project("widget", v, vec![]))
+        .collect();
+
+    for (constraint, expected) in [
+        (Some("^1"), "1.1.0"),
+        (Some("^1.0.0-alpha"), "1.1.0"),
+        (Some("*"), "2.0.0"),
+        // The default `*` that an unconstrained PURL usage takes.
+        (None, "2.0.0"),
+    ] {
+        let resolver = memory_resolver(&[("pkg:sysand/acme/widget", &candidates)]);
+
+        let solution = super::solve(
+            vec![root_usage("pkg:sysand/acme/widget", constraint)],
+            None,
+            resolver,
+        )?;
+
+        let install = &solution[&Identifier::from_iri_unchecked_str("pkg:sysand/acme/widget")];
+        assert_eq!(
+            install.version()?.unwrap(),
+            expected,
+            "for `{constraint:?}`"
+        );
+    }
+
+    Ok(())
+}
+
+// --- backtracking ---------------------------------------------------------
+
+/// A constraint that selects none of the candidates is handed to pubgrub as
+/// an empty dependency set, which rules out only the candidate that stated it.
+/// An `Err` out of `get_dependencies` would instead abort `pubgrub::resolve`
+/// outright, so the solver would never try the other candidates. It does:
+/// it backtracks past a dependency whose own constraint cannot be met rather
+/// than failing a solve that has an answer.
+///
+/// Here `app` 2.0.0 wants a `widget` that was never published, while `app`
+/// 1.0.0 wants one that was: `app` 1.0.0 with `widget` 1.0.0 is the solution.
+#[test]
+fn solve_backtracks_past_a_constraint_that_selects_nothing()
+-> Result<(), Box<dyn std::error::Error>> {
+    // Index order: descending, so `app` 2.0.0 is the candidate tried first.
+    let app_v2 = trivial_memory_project("app", "2.0.0", vec![("urn:kpar:widget", Some("^2"))]);
+    let app_v1 = trivial_memory_project("app", "1.0.0", vec![("urn:kpar:widget", Some("^1"))]);
+    // `widget` 2.x was never published.
+    let widget = trivial_memory_project("widget", "1.0.0", vec![]);
+    let resolver = memory_resolver(&[
+        ("urn:kpar:app", &[app_v2, app_v1]),
+        ("urn:kpar:widget", &[widget]),
+    ]);
+
+    let solution = super::solve(vec![root_usage("urn:kpar:app", Some("*"))], None, resolver)?;
+
+    let app = &solution[&Identifier::from_iri_unchecked_str("urn:kpar:app")];
+    assert_eq!(app.version()?.unwrap(), "1.0.0");
+    let widget = &solution[&Identifier::from_iri_unchecked_str("urn:kpar:widget")];
+    assert_eq!(widget.version()?.unwrap(), "1.0.0");
+
+    Ok(())
+}
+
+/// The same, reached through the default constraint rather than a written
+/// one: `app` 2.0.0 depends on a `widget` that exists but has only ever been
+/// published as a prerelease, so the default `*` selects nothing. `app` 1.0.0
+/// needs no `widget` at all.
+#[test]
+fn solve_backtracks_past_a_default_constraint_that_selects_nothing()
+-> Result<(), Box<dyn std::error::Error>> {
+    let app_v2 = trivial_memory_project("app", "2.0.0", vec![("pkg:sysand/acme/widget", None)]);
+    let app_v1 = trivial_memory_project("app", "1.0.0", vec![]);
+    let alpha = trivial_memory_project("widget", "1.0.0-alpha.1", vec![]);
+    let resolver = memory_resolver(&[
+        ("pkg:sysand/acme/app", &[app_v2, app_v1]),
+        ("pkg:sysand/acme/widget", &[alpha]),
+    ]);
+
+    let solution = super::solve(
+        vec![root_usage("pkg:sysand/acme/app", None)],
+        None,
+        resolver,
+    )?;
+
+    let app = &solution[&Identifier::from_iri_unchecked_str("pkg:sysand/acme/app")];
+    assert_eq!(app.version()?.unwrap(), "1.0.0");
+    assert_eq!(solution.len(), 1);
+
+    Ok(())
+}
+
+// Backtracking does not paper over a genuinely unsolvable case: with no
+// alternative candidate to fall back to, the solve still fails and names the
+// constraint that could not be met -- see
+// `no_matching_version_for_a_dependency_names_the_dependent_in_the_report`.

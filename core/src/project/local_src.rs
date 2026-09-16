@@ -64,6 +64,22 @@ impl LocalSrcProject {
         }
     }
 
+    /// Like [`Self::new_access`], for a caller that already knows the
+    /// canonical project checksum — an environment that recorded the checksum
+    /// of what it installed, say. Knowing it spares `sources()` a hash of the
+    /// whole project tree to arrive at the same value; a caller that does not
+    /// have one wants [`Self::new_access`].
+    pub fn new_access_with_checksum(
+        path: impl Into<Utf8PathBuf>,
+        nominal_path: Option<Utf8UnixPathBuf>,
+        checksum: String,
+    ) -> Self {
+        Self {
+            expected_checksum: Some(checksum),
+            ..Self::new_access(path, nominal_path)
+        }
+    }
+
     pub fn new_for_solve(
         path: impl Into<Utf8PathBuf>,
         nominal_path: Option<Utf8UnixPathBuf>,
@@ -511,6 +527,13 @@ impl ProjectRead for LocalSrcProject {
             panic!("`LocalSrcProject` without `nominal_path` does not have any project sources");
         };
         Ok(vec![Source::LocalSrc { src_path, checksum }])
+    }
+
+    fn source_may_offer_multiple_versions(&self) -> bool {
+        // A path names one project. Note that an environment hands back one of
+        // these per installed version -- see the TODO on
+        // `LocalDirectoryEnvironment::get_project_storage`.
+        false
     }
 
     fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {

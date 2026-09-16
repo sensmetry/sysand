@@ -157,7 +157,8 @@ pub enum Command {
         #[arg(long, short, default_value = None, verbatim_doc_comment)]
         target: Option<Utf8PathBuf>,
         /// Version of the project to clone. Defaults to the latest
-        /// version according to SemVer 2.0
+        /// version according to SemVer 2.0; for `pkg:sysand` projects
+        /// pre-releases are ignored unless this names one
         #[arg(long, short = 'V', verbatim_doc_comment)]
         version: Option<String>,
 
@@ -1537,8 +1538,9 @@ pub enum EnvCommand {
     Install {
         /// IRI identifying the project to be installed
         iri: fluent_uri::Iri<String>,
-        /// Version to be installed. Defaults to the latest
-        /// version according to SemVer 2.0, ignoring pre-releases
+        /// Version to be installed. Defaults to the latest version
+        /// according to SemVer 2.0; for `pkg:sysand` projects
+        /// pre-releases are ignored unless this names one
         #[clap(verbatim_doc_comment)]
         version: Option<String>,
         /// Path to interchange project

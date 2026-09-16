@@ -79,6 +79,7 @@ fn macro_get_project() {
         meta: Some(meta.clone()),
         files: HashMap::new(),
         nominal_sources: vec![],
+        source_may_offer_multiple_versions: false,
     });
 
     assert_eq!(test_double.get_project().unwrap(), (Some(info), Some(meta)));
@@ -95,6 +96,7 @@ fn macro_read_source() {
         meta: None,
         files,
         nominal_sources: vec![],
+        source_may_offer_multiple_versions: false,
     });
 
     let mut buffer = String::new();
@@ -166,6 +168,7 @@ fn macro_write_source() {
         meta: None,
         files: HashMap::new(),
         nominal_sources: vec![],
+        source_may_offer_multiple_versions: false,
     });
 
     project
@@ -234,6 +237,10 @@ impl ProjectRead for FixedDigestProject {
 
     fn sources(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         Ok(vec![])
+    }
+
+    fn source_may_offer_multiple_versions(&self) -> bool {
+        false
     }
 
     fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {

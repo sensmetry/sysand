@@ -60,6 +60,11 @@ impl<Local: ProjectRead, Remote: ProjectRead> ProjectRead for CachedProject<Loca
         Ok(self.remote.sources(ctx).unwrap())
     }
 
+    fn source_may_offer_multiple_versions(&self) -> bool {
+        // `remote` is the authoritative source; `local` is only a faster copy of it.
+        self.remote.source_may_offer_multiple_versions()
+    }
+
     fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
         self.local.get_info()
     }

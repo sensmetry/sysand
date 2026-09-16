@@ -139,3 +139,7 @@ pub fn do_info<R: ResolveRead>(
         }),
     }
 }
+
+#[cfg(test)]
+#[path = "./info_tests.rs"]
+mod tests;

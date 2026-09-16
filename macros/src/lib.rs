@@ -92,6 +92,7 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
         read_source_match_part: TokenStream2,
         sources_match_part: TokenStream2,
         project_root_match_part: TokenStream2,
+        source_may_offer_multiple_versions_match_part: TokenStream2,
         get_info_match_part: TokenStream2,
         get_meta_match_part: TokenStream2,
         version_match_part: TokenStream2,
@@ -176,6 +177,9 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
                 project_root_match_part: quote! {
                     #enum_ident::#variant_ident(project) => project.project_root()
                 },
+                source_may_offer_multiple_versions_match_part: quote! {
+                    #enum_ident::#variant_ident(project) => project.source_may_offer_multiple_versions()
+                },
                 get_info_match_part: quote! {
                     #enum_ident::#variant_ident(project) => project
                         .get_info()
@@ -226,6 +230,7 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
     let mut source_reader_match = vec![];
     let mut source_reader_args = vec![];
     let mut project_root_match = vec![];
+    let mut source_may_offer_multiple_versions_match = vec![];
     let mut get_project_match = vec![];
     let mut read_source_match = vec![];
     let mut sources_match = vec![];
@@ -248,6 +253,7 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
         read_source_match_part,
         sources_match_part,
         project_root_match_part,
+        source_may_offer_multiple_versions_match_part,
         get_info_match_part,
         get_meta_match_part,
         version_match_part,
@@ -264,6 +270,8 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
         source_reader_match.push(source_reader_match_part);
         source_reader_args.push(source_reader_args_part);
         project_root_match.push(project_root_match_part);
+        source_may_offer_multiple_versions_match
+            .push(source_may_offer_multiple_versions_match_part);
         get_project_match.push(get_project_match_part);
         read_source_match.push(read_source_match_part);
         sources_match.push(sources_match_part);
@@ -346,6 +354,12 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
             fn project_root(&self) -> ::std::option::Option<&::camino::Utf8Path> {
                 match self {
                     #( #project_root_match ),*
+                }
+            }
+
+            fn source_may_offer_multiple_versions(&self) -> bool {
+                match self {
+                    #( #source_may_offer_multiple_versions_match ),*
                 }
             }
 

@@ -64,6 +64,10 @@ impl<Project: ProjectRead> ProjectRead for ProjectReference<Project> {
         self.project.sources(ctx)
     }
 
+    fn source_may_offer_multiple_versions(&self) -> bool {
+        self.project.source_may_offer_multiple_versions()
+    }
+
     fn checksum_canonical_variant(&self) -> Result<super::ProjectChecksum, Self::Error> {
         self.project.checksum_canonical_variant()
     }

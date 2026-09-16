@@ -170,6 +170,11 @@ impl ProjectRead for GixDownloadedProject {
         }])
     }
 
+    fn source_may_offer_multiple_versions(&self) -> bool {
+        // A git checkout is one project at one revision.
+        false
+    }
+
     fn checksum_canonical_variant(&self) -> Result<super::ProjectChecksum, Self::Error> {
         self.ensure_downloaded()?;
 

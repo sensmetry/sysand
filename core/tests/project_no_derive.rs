@@ -116,6 +116,14 @@ where
         }
     }
 
+    fn source_may_offer_multiple_versions(&self) -> bool {
+        match self {
+            Self::Variant1(project) => project.source_may_offer_multiple_versions(),
+            Self::Variant2(project) => project.source_may_offer_multiple_versions(),
+            Self::Variant3(project) => project.source_may_offer_multiple_versions(),
+        }
+    }
+
     fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
         match self {
             Self::Variant1(project) => project

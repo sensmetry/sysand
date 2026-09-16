@@ -153,6 +153,13 @@ impl ProjectRead for ProjectLocalBrowserStorage {
         }])
     }
 
+    fn source_may_offer_multiple_versions(&self) -> bool {
+        // A path names one project. The browser-storage environment hands back
+        // one of these per installed version, so the same caveat applies as for
+        // `LocalDirectoryEnvironment::get_project_storage`.
+        false
+    }
+
     fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
         match self.checksum_canonical_hex() {
             Ok(c) => match c {

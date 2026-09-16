@@ -34,7 +34,7 @@ fn default_index_env(value: &str) -> IndexMap<String, String> {
 }
 
 #[test]
-fn auth_logout_rejects_an_unparseable_url() -> TestResult {
+fn auth_logout_rejects_an_unparsable_url() -> TestResult {
     let (_temp_dir, _cwd, out) = run_sysand(["auth", "logout", "not a url"], None)?;
     out.assert()
         .failure()

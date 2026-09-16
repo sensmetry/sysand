@@ -791,7 +791,7 @@ mod versions {
 
     #[test]
     fn versions_json_non_semver_version_errors() -> Result<(), Box<dyn std::error::Error>> {
-        // Without a parseable semver the client cannot order entries —
+        // Without a parsable semver the client cannot order entries —
         // reject the whole document.
         let mut server = mockito::Server::new();
 

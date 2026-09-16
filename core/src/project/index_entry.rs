@@ -174,6 +174,11 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for IndexEntryProject<Policy> 
         }])
     }
 
+    fn source_may_offer_multiple_versions(&self) -> bool {
+        // An index advertises every version of a project it holds.
+        true
+    }
+
     async fn get_info_async(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
         Ok(Some(self.ensure_downloaded().await?.0.clone()))
     }

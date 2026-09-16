@@ -81,6 +81,10 @@ impl ProjectRead for NullProject {
         match self.nothing {}
     }
 
+    fn source_may_offer_multiple_versions(&self) -> bool {
+        match self.nothing {}
+    }
+
     fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
         match self.nothing {}
     }
@@ -118,6 +122,10 @@ impl ProjectReadAsync for NullProject {
     }
 
     async fn sources_async(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
+        match self.nothing {}
+    }
+
+    fn source_may_offer_multiple_versions(&self) -> bool {
         match self.nothing {}
     }
 

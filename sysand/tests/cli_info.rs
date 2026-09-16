@@ -16,7 +16,7 @@ use predicates::prelude::*;
 // pub due to https://github.com/rust-lang/rust/issues/46379
 mod common;
 pub use common::*;
-use sysand_core::project::utils::wrapfs;
+use sysand_core::{project::utils::wrapfs, utils::sha256_lowercase_hex};
 
 /// Register a `sysand-index-config.json` 404 mock on `server`.
 /// Configured index URLs go through the discovery step, which fetches this
@@ -922,6 +922,134 @@ fn info_basic_index_url() -> Result<(), Box<dyn Error>> {
     ));
     config_mock.assert();
     missing_versions_mock.assert();
+
+    Ok(())
+}
+
+/// Register `versions.json` plus the per-version `.project.json`/`.meta.json`
+/// pair for every version of a project served under `project_dir`. `info`
+/// reads the per-version JSON of *each* candidate before it picks one, so all
+/// of them have to be mocked
+fn mock_index_project(
+    server: &mut mockito::Server,
+    project_dir: &str,
+    name: &str,
+    versions: &[&str],
+) -> Vec<mockito::Mock> {
+    let versions_body = versions_json_body(
+        &versions
+            .iter()
+            .map(|version| {
+                versions_json_entry_body(
+                    version,
+                    42,
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                )
+            })
+            .collect::<Vec<_>>(),
+    );
+
+    let mut mocks = vec![
+        server
+            .mock("GET", format!("{project_dir}/versions.json").as_str())
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(&versions_body)
+            .expect(1)
+            .create(),
+    ];
+
+    for version in versions {
+        mocks.push(
+            server
+                .mock(
+                    "GET",
+                    format!("{project_dir}/{version}/.project.json").as_str(),
+                )
+                .with_status(200)
+                .with_header("content-type", "application/json")
+                .with_body(project_json_for(name, version))
+                .create(),
+        );
+        mocks.push(
+            server
+                .mock(
+                    "GET",
+                    format!("{project_dir}/{version}/.meta.json").as_str(),
+                )
+                .with_status(200)
+                .with_header("content-type", "application/json")
+                .with_body(TEST_META_JSON_BODY)
+                .create(),
+        );
+    }
+
+    mocks
+}
+
+/// `info` must always describe the latest version, including pre-releases
+#[test]
+fn info_index_iri_takes_the_highest_version_including_a_prerelease() -> Result<(), Box<dyn Error>> {
+    let mut server = mockito::Server::new();
+    let config_mock = mock_index_config_absent(&mut server, 1);
+
+    let iri = "urn:kpar:info_index_prerelease";
+    let iri_dir = format!("/_iri/{}", sha256_lowercase_hex(iri));
+    let mocks = mock_index_project(
+        &mut server,
+        &iri_dir,
+        "info_index_prerelease",
+        &["2.0.0-beta.1", "1.0.0"],
+    );
+
+    let (_, _, out) = run_sysand(
+        ["info", "--iri", iri, "--default-index", &server.url()],
+        None,
+    )?;
+
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains("Name: info_index_prerelease"))
+        .stdout(predicate::str::contains("Version: 2.0.0-beta.1"));
+
+    config_mock.assert();
+    mocks[0].assert();
+
+    Ok(())
+}
+
+/// `info` must always describe the latest version, including pre-releases
+#[test]
+fn info_index_purl_takes_the_highest_version_including_a_prerelease() -> Result<(), Box<dyn Error>>
+{
+    let mut server = mockito::Server::new();
+    let config_mock = mock_index_config_absent(&mut server, 1);
+
+    let mocks = mock_index_project(
+        &mut server,
+        "/acme/widget",
+        "widget",
+        &["3.0.0-beta.1", "2.0.0"],
+    );
+
+    let (_, _, out) = run_sysand(
+        [
+            "info",
+            "--iri",
+            "pkg:sysand/acme/widget",
+            "--default-index",
+            &server.url(),
+        ],
+        None,
+    )?;
+
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains("Name: widget"))
+        .stdout(predicate::str::contains("Version: 3.0.0-beta.1"));
+
+    config_mock.assert();
+    mocks[0].assert();
 
     Ok(())
 }

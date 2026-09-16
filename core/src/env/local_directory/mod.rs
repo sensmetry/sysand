@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 use std::{
-    fs,
+    debug_assert_matches, fs,
     io::{ErrorKind, Write as _},
     vec,
 };
@@ -184,6 +184,16 @@ impl LocalDirectoryEnvironment {
         }
     }
 
+    // TODO: an environment holds every installed version of a project, and
+    // `EnvResolver` hands all of them to the solver, so resolving through one
+    // *is* a version choice and ought to default a version constraint the way
+    // an index does. What comes back here is a plain `LocalSrcProject`, which
+    // answers `source_may_offer_multiple_versions()` with `false` because a
+    // path names one project -- the type cannot tell its two roles apart. So a
+    // `pkg:sysand` usage met only by the environment currently admits a
+    // prerelease where the index would not. The fix is for the environment to
+    // say so when it constructs the project, rather than the project inferring
+    // it from its own shape.
     fn get_project_storage(&self, project: &EnvProject) -> LocalSrcProject {
         let relative = project.path.as_str();
         if project.editable {
@@ -207,11 +217,20 @@ impl LocalDirectoryEnvironment {
                     }
                 }
             }
+            // Editable projects must not have checksums
+            debug_assert_matches!(project.checksum, None);
             LocalSrcProject::new_access(absolute, Some(relative.into()))
         } else {
             let absolute = self.root_dir.join(relative);
-            let relative = format!("{}/{relative}", self.root_dir.file_name().unwrap());
-            LocalSrcProject::new_access(absolute, Some(relative.into()))
+            let relative = format!("{}/{relative}", self.root_dir.file_name().unwrap()).into();
+            match project.src_checksum() {
+                Some(checksum) => LocalSrcProject::new_access_with_checksum(
+                    absolute,
+                    Some(relative),
+                    checksum.to_owned(),
+                ),
+                None => LocalSrcProject::new_access(absolute, Some(relative)),
+            }
         }
     }
 

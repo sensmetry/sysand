@@ -17,6 +17,7 @@ use sysand_core::{
     config::Config,
     context::ProjectContext,
     env::{local_directory::utils::clean_dir, utils::clone_project},
+    model::InterchangeProjectUsage,
     project::{
         ProjectRead, editable::EditableProject, local_kpar::LocalKParProjectRaw,
         local_src::LocalSrcProject, utils::wrapfs,
@@ -27,6 +28,7 @@ use sysand_core::{
         priority::PriorityResolver,
         standard::{StandardResolver, standard_resolver},
     },
+    solve::pubgrub::DEFAULT_INDEX_CONSTRAINT,
     utils::{SP, format_err},
 };
 
@@ -325,8 +327,8 @@ fn clone_local<P: ProjectRead>(
 }
 
 /// Obtains a project identified by `resolve` via `resolver`. If
-/// version is given, obtains exactly that version. If not,
-/// obtains the latest version (including prerelease versions)
+/// version is given, obtains exactly that version, prerelease or not. If
+/// not, obtains the latest version, but constrains PURLs with `*` like the solver
 pub fn get_project_version<R: ResolveRead>(
     resolve: &ResolutionInfo,
     version: Option<String>,
@@ -346,7 +348,31 @@ pub fn get_project_version<R: ResolveRead>(
                         .map_err(|e| anyhow!("failed to parse given version {v} as SemVer: {e}"))
                 })
                 .transpose()?;
+            // Match what the solver does: an unconstrained usage defaults to
+            // `*`, but only for candidates whose source poses a version choice
+            // in the first place
+            let defaults_constraint = match (&requested_version, resolve.usage()) {
+                (Some(_), _) => false,
+                (
+                    None,
+                    InterchangeProjectUsage::Directory { .. }
+                    | InterchangeProjectUsage::KparPath { .. }
+                    | InterchangeProjectUsage::Resource {
+                        version_constraint: Some(_),
+                        ..
+                    },
+                ) => false,
+                (
+                    None,
+                    InterchangeProjectUsage::Resource {
+                        version_constraint: None,
+                        ..
+                    },
+                ) => true,
+            };
             let mut candidates = Vec::new();
+            // Versions only the default ruled out, kept for the error message
+            let mut excluded_by_default = Vec::new();
             for alt in alternatives {
                 let candidate_project = match alt {
                     Ok(cp) => cp,
@@ -387,12 +413,35 @@ pub fn get_project_version<R: ResolveRead>(
                 {
                     continue;
                 }
+                if defaults_constraint
+                    && candidate_project.source_may_offer_multiple_versions()
+                    && !DEFAULT_INDEX_CONSTRAINT.matches(&candidate_version)
+                {
+                    log::debug!(
+                        "skipping prerelease {candidate_version} of {resolve},\n\
+                        due to the default constraint `*`"
+                    );
+                    excluded_by_default.push(candidate_version);
+                    continue;
+                }
                 candidates.push((candidate_version, candidate_project));
             }
 
             match candidates.len() {
                 0 => match version {
                     Some(v) => bail!(CliError::MissingProjectVersion(resolve.to_string(), v)),
+                    None if !excluded_by_default.is_empty() => {
+                        excluded_by_default.sort_unstable_by(|v1, v2| v2.cmp(v1));
+                        excluded_by_default.dedup();
+                        bail!(CliError::OnlyPrereleaseVersions(
+                            resolve.to_string(),
+                            excluded_by_default
+                                .iter()
+                                .map(ToString::to_string)
+                                .collect::<Vec<_>>()
+                                .join(", "),
+                        ))
+                    }
                     None => bail!(CliError::MissingProject(resolve.to_string())),
                 },
                 1 => {
@@ -419,3 +468,7 @@ pub fn get_project_version<R: ResolveRead>(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "./clone_tests.rs"]
+mod tests;

@@ -311,6 +311,13 @@ impl ProjectRead for FileResolverProject {
         }
     }
 
+    fn source_may_offer_multiple_versions(&self) -> bool {
+        match self {
+            Self::LocalSrcProject(proj) => proj.source_may_offer_multiple_versions(),
+            Self::LocalKParProject(proj) => proj.source_may_offer_multiple_versions(),
+        }
+    }
+
     fn checksum_canonical_variant(&self) -> Result<project::ProjectChecksum, Self::Error> {
         match self {
             Self::LocalSrcProject(proj) => proj

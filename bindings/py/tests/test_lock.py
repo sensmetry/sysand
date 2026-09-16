@@ -127,12 +127,15 @@ def test_lock_no_matching_version(tmp_path: Path, mock_index: MockIndex) -> None
         sysand.lock(root, resolution=resolution(mock_index), write=False)
     error = excinfo.value
 
-    assert error.kind == "retrieval"
+    # A constraint nothing satisfies rules out the project that stated it,
+    # which is a solve failure, not a retrieval one: the project was fetched.
+    assert error.kind == "no_solution"
     assert error.conflicts == [
         {
             "kind": "NoVersions",
             "iri": LIBRARY,
             "constraint": ">=0.11.0, <0.12.0",
+            "defaulted": False,
             "found": ["0.10.3"],
             "required_by": None,
         }

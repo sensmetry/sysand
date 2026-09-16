@@ -644,12 +644,14 @@ fn conflict_to_dict<'py>(
         SolveConflict::NoVersions {
             iri,
             constraint,
+            defaulted,
             found,
             required_by,
         } => {
             dict.set_item("kind", "NoVersions")?;
             dict.set_item("iri", iri)?;
             dict.set_item("constraint", constraint)?;
+            dict.set_item("defaulted", defaulted)?;
             dict.set_item("found", found)?;
             dict.set_item("required_by", required_by)?;
         }
