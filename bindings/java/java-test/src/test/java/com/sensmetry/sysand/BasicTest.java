@@ -227,7 +227,8 @@ public class BasicTest {
     private void writeTomlProject(java.nio.file.Path dir, String publisher, String name, String version)
             throws java.io.IOException {
         String manifest = "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"" + publisher
-                + "\"\nname = \"" + name + "\"\nversion = \"" + version + "\"\nsources = []\n";
+                + "\"\nname = \"" + name + "\"\nversion = \"" + version + "\"\nsources = []\n"
+                + "metamodel = \"" + SYSML + "\"\n";
         Files.write(dir.resolve("model.toml"), manifest.getBytes());
     }
 

@@ -368,19 +368,31 @@ fn edit_toml(project: &mut LocalSrcProject, edits: &EditArgs) -> Result<()> {
         &edits.add_topic,
     )?;
     if let Some(kind) = edits.metamodel {
-        let metamodel = match edits.metamodel_release_custom {
+        let metamodel: String = match edits.metamodel_release_custom {
             Some(release) => format!("{kind}{release}"),
             None => Metamodel(kind, edits.metamodel_release).into(),
         };
+        // model-toml.md "Metamodel": a `model.toml` holds one of four
+        // values, and a custom release can spell anything
+        crate::commands::check_metamodel(&metamodel)?;
         edit::set_project_key(&mut document, ProjectKey::Metamodel, metamodel.into())?;
     } else if let Some(metamodel) = &edits.custom_metamodel {
+        crate::commands::check_metamodel(metamodel)?;
         edit::set_project_key(
             &mut document,
             ProjectKey::Metamodel,
             metamodel.as_str().into(),
         )?;
     } else if edits.clear_metamodel {
-        edit::clear_project_key(&mut document, ProjectKey::Metamodel)?;
+        // Every project declares one (model-toml.md "Metamodel": "in a
+        // `model.toml` it is mandatory"), so clearing it writes a file
+        // Sysand refuses to read. A json project has no such rule and
+        // keeps the flag.
+        bail!(
+            "`metamodel` cannot be cleared from a `model.toml` project:\n\
+            {SP:>8} every project declares one; `--metamodel` changes it",
+            SP = ' ',
+        );
     }
 
     write_manifest(project, &document)

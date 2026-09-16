@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use crate::manifest::diagnostics::{Diagnostic, Report, Severity, Validated};
+use crate::manifest::diagnostics::{Diagnostic, Report, Validated};
 use crate::manifest::spans::Source;
 use crate::manifest::usage::Usage;
 use crate::manifest::workspace_table::WorkspaceTable;
+use crate::model::KnownMetamodel;
 
 /// The whole `[workspace]` of a document, read the way `ModelToml::parse`
 /// will read it.
@@ -127,7 +128,7 @@ fn a_group_reads_every_documented_key() {
     );
     assert_eq!(root.license.as_ref().expect("license").to_string(), "MIT");
     assert_eq!(
-        root.metamodel.as_deref(),
+        root.metamodel.as_ref().map(ToString::to_string).as_deref(),
         Some("https://www.omg.org/spec/SysML/20250201")
     );
     assert_eq!(
@@ -214,71 +215,42 @@ fn an_unparseable_url_is_an_error() {
     );
 }
 
-/// model-toml.md "Metamodel": "Any other value is a warning, not an
-/// error." The values that sentence ranges over are the other *URLs*,
-/// the section having opened with "`metamodel` is a URL", so the read
-/// succeeds and the value is kept as written.
+/// model-toml.md "Metamodel": "A value matching none of the four shapes
+/// is an error naming the key and listing them." A group's value is no
+/// exception: it exists to be inherited by a `[project]`, which could use
+/// no other.
 #[test]
-fn an_unrecognized_metamodel_is_a_warning_not_an_error() {
+fn a_metamodel_that_is_not_one_of_the_four_is_refused() {
     for value in [
         "https://example.com/spec/SysML/20250201",
         "urn:example:sysml",
+        "https://www.omg.org/spec/SysML/nineteen",
+        "not a url at all",
     ] {
-        let validated = accepted(&format!("metamodel = \"{value}\"\n"));
-        let (table, warnings) = validated.into_parts();
-        assert_eq!(table.default_group.metamodel.as_deref(), Some(value));
+        let report = rejected(&format!("metamodel = \"{value}\"\n"));
         assert_eq!(
-            messages(&warnings),
+            texts(&report),
             [format!(
-                "`[workspace]` declares metamodel `{value}`, which this version of Sysand \
-                 does not recognize"
+                "`metamodel` in `[workspace]` is `{value}`, which is not one of the four values \
+                 a `model.toml` recognizes;\nthey are {}",
+                KnownMetamodel::RECOGNIZED
             )
             .as_str()],
+            "{value}"
         );
-        assert!(warnings.iter().all(|w| w.severity == Severity::Warning));
+        assert_eq!(places(&report), [(2, 1)], "{value}");
     }
-}
-
-/// A recognized metamodel with a malformed release is not some other
-/// metamodel: it is an error.
-#[test]
-fn a_malformed_release_of_a_recognized_metamodel_is_an_error() {
-    let report = rejected("metamodel = \"https://www.omg.org/spec/SysML/nineteen\"\n");
-    assert_eq!(
-        texts(&report),
-        [
-            "`[workspace]` sets `metamodel = \"https://www.omg.org/spec/SysML/nineteen\"`, which \
-          is not a metamodel: metamodel `https://www.omg.org/spec/SysML/nineteen` has an \
-          invalid release `nineteen`; a release is eight digits `20YYMMNN`, with month `MM` \
-          between `01` and `12`"
-        ]
-    );
-}
-
-/// The other half of the rule above: a value that is not a URL at all
-/// is an error, as it is in `[project]` and in a `.meta.json`.
-#[test]
-fn a_metamodel_that_is_not_a_url_is_refused() {
-    let report = rejected("metamodel = \"not a url at all\"\n");
-    assert!(
-        texts(&report)[0].starts_with(
-            "`[workspace]` sets `metamodel = \"not a url at all\"`, which is not a metamodel: \
-             `not a url at all` is not a URL"
-        ),
-        "unexpected message: {:?}",
-        texts(&report)
-    );
 }
 
 /// A group reads its `metamodel` through the same code, and names
 /// itself.
 #[test]
-fn a_group_metamodel_that_is_not_a_url_is_refused() {
+fn a_group_metamodel_that_is_not_one_of_the_four_is_refused() {
     let report = rejected("[workspace.group.kerml]\nmetamodel = \"not a url at all\"\n");
     assert!(
         texts(&report)[0].starts_with(
-            "`[workspace.group.kerml]` sets `metamodel = \"not a url at all\"`, \
-             which is not a metamodel: `not a url at all` is not a URL"
+            "`metamodel` in `[workspace.group.kerml]` is `not a url at all`, which is not one \
+             of the four values"
         ),
         "unexpected message: {:?}",
         texts(&report)

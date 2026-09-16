@@ -6,6 +6,8 @@ use std::assert_matches;
 use fluent_uri::Iri;
 use indexmap::IndexMap;
 
+use crate::symbols::Language;
+
 use crate::{
     model::{
         InterchangeProjectInfoPartial, InterchangeProjectInfoRaw,
@@ -803,9 +805,7 @@ fn metamodel_parses_both_families() {
     }
 }
 
-/// The value is rebuilt from the parts when a standard-library usage IRI
-/// is composed from the target's metamodel, so it has to be the value that
-/// was read.
+/// `Display` gives back exactly the value a metamodel was parsed from.
 #[test]
 fn metamodel_round_trips_through_display() {
     for value in [
@@ -1133,4 +1133,54 @@ fn a_null_list_is_an_empty_list() {
 
     assert_eq!(validated.value.usage, []);
     assert_eq!(validated.value.maintainer, [] as [String; 0]);
+}
+
+// ------------------------------------------------- what a metamodel admits
+
+/// model-toml.md "Metamodel": "a `KerML` project admits `.kerml` files
+/// only, and a `SysML` project admits `.sysml` and `.kerml`, SysML
+/// being layered on KerML".
+#[test]
+fn a_kerml_metamodel_admits_kerml_only() {
+    for value in [
+        "https://www.omg.org/spec/KerML/20250201",
+        "https://www.sysand.com/spec/KerML/20250201",
+    ] {
+        let kind = KnownMetamodel::recognize(value).expect("recognized");
+        assert!(kind.spec.admits(Language::KerML), "{value}");
+        assert!(!kind.spec.admits(Language::SysML), "{value}");
+    }
+}
+
+#[test]
+fn a_sysml_metamodel_admits_both() {
+    for value in [
+        "https://www.omg.org/spec/SysML/20250201",
+        "https://www.sysand.com/spec/SysML/20250201",
+    ] {
+        let kind = KnownMetamodel::recognize(value).expect("recognized");
+        assert!(kind.spec.admits(Language::KerML), "{value}");
+        assert!(kind.spec.admits(Language::SysML), "{value}");
+    }
+}
+
+/// "Both families answer this the same way, the Syside metamodels
+/// mirroring the OMG spec kind they extend." The family and the release
+/// date decide other things; they do not decide this one.
+#[test]
+fn the_two_families_admit_the_same_languages() {
+    for spec in ["KerML", "SysML"] {
+        let omg = KnownMetamodel::recognize(&format!("https://www.omg.org/spec/{spec}/20250201"))
+            .expect("recognized");
+        let syside =
+            KnownMetamodel::recognize(&format!("https://www.sysand.com/spec/{spec}/20991231"))
+                .expect("recognized");
+        for language in [Language::KerML, Language::SysML] {
+            assert_eq!(
+                omg.spec.admits(language),
+                syside.spec.admits(language),
+                "{spec}"
+            );
+        }
+    }
 }

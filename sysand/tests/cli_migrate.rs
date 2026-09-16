@@ -573,7 +573,8 @@ fn a_file_usage_to_a_workspace_member_resolves() -> Result<(), Box<dyn std::erro
     std::fs::write(
         dep.join("model.toml"),
         "manifest-version = \"1.0.0\"\n\n[project]\npublisher.workspace = true\nname = \"dep\"\n\
-         version = \"1.0.0\"\nsources = []\n",
+         version = \"1.0.0\"\nsources = []\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
     )?;
     json_with_file_usage(&app, &dep)?;
     git_repo(&root, true)?;
@@ -618,7 +619,8 @@ fn a_target_nested_inside_a_member_is_not_a_member() -> Result<(), Box<dyn std::
     std::fs::write(
         dep.join("model.toml"),
         "manifest-version = \"1.0.0\"\n\n[project]\npublisher.workspace = true\nname = \"dep\"\n\
-         version = \"1.0.0\"\nsources = []\n",
+         version = \"1.0.0\"\nsources = []\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
     )?;
     json_with_file_usage(&app, &dep)?;
     git_repo(&root, true)?;
@@ -649,7 +651,8 @@ fn an_unlisted_target_is_not_given_the_table() -> Result<(), Box<dyn std::error:
     std::fs::write(
         dep.join("model.toml"),
         "manifest-version = \"1.0.0\"\n\n[project]\npublisher.workspace = true\nname = \"dep\"\n\
-         version = \"1.0.0\"\nsources = []\n",
+         version = \"1.0.0\"\nsources = []\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
     )?;
     json_with_file_usage(&app, &dep)?;
     git_repo(&root, true)?;
@@ -713,7 +716,8 @@ fn an_excluded_target_is_not_given_the_table() -> Result<(), Box<dyn std::error:
     std::fs::write(
         vendor.join("model.toml"),
         "manifest-version = \"1.0.0\"\n\n[project]\npublisher.workspace = true\nname = \"dep\"\n\
-         version = \"1.0.0\"\nsources = []\n",
+         version = \"1.0.0\"\nsources = []\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
     )?;
     json_with_file_usage(&app, &vendor)?;
     git_repo(&root, true)?;
@@ -861,11 +865,13 @@ fn a_constrained_purl_consults_no_index() -> Result<(), Box<dyn std::error::Erro
 fn migrate_without_resource_usages_needs_no_index() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
     json_with_usages(&cwd, "")?;
-    // Valid TOML -- so `load_configs` accepts it -- whose URL carries a
-    // fragment, which `IndexLocation::parse` refuses.
+    // A well-formed index that nothing answers at: reading the
+    // configuration validates the URL, so a malformed one would be
+    // refused before `migrate` ran, but an index is only contacted when
+    // a resource usage needs one.
     std::fs::write(
         cwd.join("bad-config.toml"),
-        "[[index]]\nurl = \"https://example.com/#frag\"\n",
+        "[[index]]\nurl = \"http://127.0.0.1:9/\"\n",
     )?;
     git_repo(&cwd, true)?;
 

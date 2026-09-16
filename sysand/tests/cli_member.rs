@@ -27,6 +27,7 @@ publisher.workspace = true
 name = \"app\"
 version.workspace = true
 sources = [\"src/main.sysml\"]
+metamodel.workspace = true
 ";
 
 const ROOT: &str = "\
@@ -37,6 +38,7 @@ members = [\"app\"]
 exclude = [\"vendor\"]
 publisher = \"acme\"
 version = \"1.2.3\"
+metamodel = \"https://www.omg.org/spec/SysML/20250201\"
 ";
 
 /// A workspace with one inheriting member `app`, and an *excluded*

@@ -117,7 +117,12 @@ fn toml_project(body: &str) -> Result<camino_tempfile::Utf8TempDir, Box<dyn std:
         dir.path().join("model.toml"),
         format!(
             "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
-             version = \"1.0.0\"\nsources = [\"a.sysml\"]\n{body}"
+             version = \"1.0.0\"\nsources = [\"a.sysml\"]\n{metamodel}{body}",
+            metamodel = if body.contains("metamodel") {
+                ""
+            } else {
+                "metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n"
+            }
         ),
     )?;
     std::fs::write(dir.path().join("a.sysml"), b"package A;\n")?;
@@ -386,7 +391,7 @@ fn a_workspace_of_toml_members_records_the_build_time() -> Result<(), Box<dyn st
     std::fs::write(
         dir.path().join("app/model.toml"),
         "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"alpha\"\n\
-         version = \"1.0.0\"\nsources = [\"a.sysml\"]\n",
+         version = \"1.0.0\"\nsources = [\"a.sysml\"]\nmetamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
     )?;
     std::fs::write(dir.path().join("app/a.sysml"), b"package A;\n")?;
 
@@ -472,7 +477,12 @@ fn toml_target(dir: &camino_tempfile::Utf8TempDir, at: &str, version: &str, body
         path.join("model.toml"),
         format!(
             "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"dep\"\n\
-             version = \"{version}\"\nsources = [\"b.sysml\"]\n{body}"
+             version = \"{version}\"\nsources = [\"b.sysml\"]\n{metamodel}{body}",
+            metamodel = if body.contains("metamodel") {
+                ""
+            } else {
+                "metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n"
+            }
         ),
     )
     .expect("a target manifest");
@@ -801,7 +811,7 @@ fn toml_member(dir: &camino_tempfile::Utf8TempDir, at: &str, deps: &[&str], stdl
     } else {
         format!(
             "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"{at}\"\n\
-             version = \"1.0.0\"\nsources = [\"m.kerml\"]\n"
+             version = \"1.0.0\"\nsources = [\"m.kerml\"]\nmetamodel = \"https://www.omg.org/spec/KerML/20250201\"\n"
         )
     };
     let mut manifest = head;
@@ -897,7 +907,7 @@ fn broken_member(dir: &camino_tempfile::Utf8TempDir, at: &str) {
         path.join(MODEL_TOML_FILE),
         format!(
             "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"{at}\"\n\
-             version = \"1.0.0\"\nsources = [\"missing.kerml\"]\n"
+             version = \"1.0.0\"\nsources = [\"missing.kerml\"]\nmetamodel = \"https://www.omg.org/spec/KerML/20250201\"\n"
         ),
     )
     .expect("a member manifest");

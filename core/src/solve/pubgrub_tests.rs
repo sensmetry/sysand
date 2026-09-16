@@ -2237,7 +2237,8 @@ fn a_transitive_usage_takes_the_format_of_its_candidate() -> Result<(), Box<dyn 
          publisher = \"acme\"\n\
          name = \"app\"\n\
          version = \"1.0.0\"\n\
-         sources = []\n\n\
+         sources = []\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
          [[inline-usages]]\n\
          publisher = \"acme\"\n\
          name = \"lib\"\n\

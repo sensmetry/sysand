@@ -23,7 +23,7 @@ use crate::manifest::project::{PROJECT_KEYS, ProjectManifest, ProjectTable, Urls
 use crate::manifest::usage::{MemberUsage, Usage};
 use crate::manifest::workspace_table::{GroupProperties, MemberPath, WorkspaceTable};
 use crate::manifest::{ModelToml, SUPPORTED_MANIFEST_VERSION};
-use crate::model::{IndexName, IndexPublisher};
+use crate::model::{IndexName, IndexPublisher, KnownMetamodel};
 
 const METAMODEL: &str = "https://www.omg.org/spec/SysML/20250201";
 
@@ -86,7 +86,7 @@ fn maximal() -> ModelToml {
         "widgets".to_owned(),
         "parts".to_owned(),
     ]));
-    table.metamodel = Some(MetaProperty::Provided(METAMODEL.to_owned()));
+    table.metamodel = Some(MetaProperty::Provided(metamodel(METAMODEL)));
     table.maintainers = Some(MetaProperty::Provided(vec![
         Maintainer::parse("Ada Lovelace <ada@example.com>").expect("a valid maintainer"),
     ]));
@@ -372,12 +372,8 @@ fn a_generated_project_file_parses_back_into_itself() {
         Some(&vec!["widgets".to_owned(), "parts".to_owned()])
     );
     assert_eq!(
-        table
-            .metamodel
-            .as_ref()
-            .and_then(MetaProperty::provided)
-            .map(String::as_str),
-        Some(METAMODEL)
+        table.metamodel.as_ref().and_then(MetaProperty::provided),
+        Some(&metamodel(METAMODEL))
     );
     assert_eq!(
         table
@@ -430,7 +426,7 @@ fn workspace() -> ModelToml {
         version: Some(Version::new(1, 0, 0)),
         license: Some(Expression::parse("MIT").expect("a valid SPDX expression")),
         topics: Some(vec!["widgets".to_owned()]),
-        metamodel: Some(METAMODEL.to_owned()),
+        metamodel: Some(metamodel(METAMODEL)),
         maintainers: Some(vec![
             Maintainer::parse("Ada Lovelace <ada@example.com>").expect("a valid maintainer"),
         ]),
@@ -441,7 +437,7 @@ fn workspace() -> ModelToml {
         inline_usages: vec![index_usage("dep", "^1.2")],
     };
     let kerml = GroupProperties {
-        metamodel: Some(KERML.to_owned()),
+        metamodel: Some(metamodel(KERML)),
         inline_usages: vec![index_usage("other", "^2")],
         ..GroupProperties::default()
     };
@@ -1371,4 +1367,8 @@ fn a_list_key_that_is_not_there_is_created() {
     push_list_entry(&mut doc, ListKey::Topics, "widgets").expect("a list key");
 
     assert!(doc.to_string().contains("topics = [\"widgets\"]"));
+}
+
+fn metamodel(value: &str) -> KnownMetamodel {
+    KnownMetamodel::recognize(value).expect("one of the four")
 }

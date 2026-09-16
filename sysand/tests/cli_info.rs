@@ -2055,7 +2055,8 @@ fn info_reads_a_model_toml_project() -> Result<(), Box<dyn Error>> {
          publisher = \"acme\"\n\
          name = \"widgets\"\n\
          version = \"1.2.3\"\n\
-         sources = []\n",
+         sources = []\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
     )?;
 
     let out = run_sysand_in(&cwd, ["info"], None)?;
@@ -2078,7 +2079,8 @@ fn toml_project_cwd() -> Result<(Utf8TempDir, Utf8PathBuf), Box<dyn Error>> {
          publisher = \"acme\"\n\
          name = \"widgets\"\n\
          version = \"1.2.3\"\n\
-         sources = []\n",
+         sources = []\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
     )?;
     Ok((temp_dir, cwd))
 }
@@ -2143,11 +2145,45 @@ fn edit_sets_and_clears_metamodel_on_a_toml_project() -> Result<(), Box<dyn Erro
             .contains("metamodel = \"https://www.omg.org/spec/SysML/")
     );
 
-    // `--set` without `--clear` would be an asymmetric half-support.
+    // But it cannot be *cleared*: every project declares a metamodel,
+    // so clearing it would write a file Sysand refuses to read.
     run_sysand_in(&cwd, ["edit", "--clear-metamodel"], None)?
         .assert()
-        .success();
-    assert!(!std::fs::read_to_string(cwd.join("model.toml"))?.contains("metamodel"));
+        .failure()
+        .stderr(predicate::str::contains(
+            "`metamodel` cannot be cleared from a `model.toml` project",
+        ));
+    assert!(std::fs::read_to_string(cwd.join("model.toml"))?.contains("metamodel"));
+
+    Ok(())
+}
+
+/// The other half of the same rule: `--custom-metamodel` and
+/// `--metamodel-release-custom` can spell anything, and a `model.toml`
+/// holds one of four values.
+#[test]
+fn edit_refuses_an_unrecognized_metamodel_on_a_toml_project() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = toml_project_cwd()?;
+    let before = std::fs::read_to_string(cwd.join("model.toml"))?;
+
+    for args in [
+        vec!["edit", "--custom-metamodel", "urn:example:metamodel"],
+        vec![
+            "edit",
+            "--metamodel",
+            "sysml",
+            "--metamodel-release-custom",
+            "123",
+        ],
+    ] {
+        run_sysand_in(&cwd, args.clone(), None)?
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(
+                "`--metamodel` is not a metamodel Sysand recognizes",
+            ));
+        assert_eq!(std::fs::read_to_string(cwd.join("model.toml"))?, before);
+    }
 
     Ok(())
 }

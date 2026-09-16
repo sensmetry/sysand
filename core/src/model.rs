@@ -24,6 +24,7 @@ use crate::manifest::diagnostics::{
 };
 use crate::project::utils::Identifier;
 use crate::purl::parse_sysand_purl;
+use crate::symbols::Language;
 use crate::utils::{
     CASE_MAPPER, GENERAL_CATEGORY, IGNORABLE, NFKC_NORMALIZER, NFKD_NORMALIZER,
     PROJECT_FIELD_ASCII_PUNCTUATION, PURL_NAME_SEPARATOR, PURL_SEPARATOR, RelativePathKind,
@@ -101,6 +102,22 @@ impl SpecKind {
         match self {
             Self::SysMl => "SysMLv2",
             Self::KerMl => "KerML",
+        }
+    }
+
+    /// Whether a source file of this language belongs to a project with
+    /// this specification.
+    ///
+    /// model-toml.md "Metamodel": "The spec kind bounds what `sources`
+    /// may list: a `KerML` project admits `.kerml` files only, and a
+    /// `SysML` project admits `.sysml` and `.kerml`, SysML being layered
+    /// on KerML. [...] Both families answer this the same way, the
+    /// Syside metamodels mirroring the OMG spec kind they extend."
+    pub fn admits(self, language: Language) -> bool {
+        match (self, language) {
+            (Self::KerMl, Language::KerML) => true,
+            (Self::KerMl, Language::SysML) => false,
+            (Self::SysMl, _) => true,
         }
     }
 
@@ -205,7 +222,7 @@ impl Metamodel {
     /// article belongs here rather than in the sentence.
     pub fn describe(metamodel: Option<&Self>) -> String {
         match metamodel {
-            Some(Self::Known(known)) => format!("the {} metamodel `{known}`", known.family),
+            Some(Self::Known(known)) => known.describe(),
             Some(Self::Other(iri)) => format!("the unrecognized metamodel `{iri}`"),
             None => "no declared metamodel (OMG assumed)".to_owned(),
         }
@@ -258,6 +275,11 @@ impl KnownMetamodel {
             spec,
             release,
         }
+    }
+
+    /// How a message names this metamodel: "the OMG metamodel `<url>`".
+    pub fn describe(&self) -> String {
+        format!("the {} metamodel `{self}`", self.family)
     }
 
     /// The recognized metamodel a raw `metamodel` value names: `None` when

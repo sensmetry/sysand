@@ -31,11 +31,7 @@ fn the_workspace_has_ten_members() {
 #[test]
 fn every_member_inherits_its_metamodel() {
     for member in load().members() {
-        let metamodel = member
-            .project
-            .metamodel
-            .as_deref()
-            .unwrap_or_else(|| panic!("`{}` resolves a metamodel", member.path.raw));
+        let metamodel = member.project.metamodel.to_string();
         assert!(
             metamodel == "https://www.omg.org/spec/KerML/20250201"
                 || metamodel == "https://www.omg.org/spec/SysML/20250201",

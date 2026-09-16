@@ -386,11 +386,18 @@ fn write_toml_member(
     extra: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(dir)?;
+    // Every project declares a metamodel; a test that is about which one
+    // writes it into `extra` instead.
+    let metamodel = if extra.contains("metamodel") {
+        ""
+    } else {
+        "metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n"
+    };
     std::fs::write(
         dir.join("model.toml"),
         format!(
             "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"{name}\"\n\
-             version = \"{version}\"\nsources = [\"test.sysml\"]\n{extra}"
+             version = \"{version}\"\nsources = [\"test.sysml\"]\n{metamodel}{extra}"
         ),
     )?;
     std::fs::write(dir.join("test.sysml"), b"package P;\n")?;
@@ -489,19 +496,28 @@ fn workspace_build_with_inherited_metamodel() -> Result<(), Box<dyn std::error::
     Ok(())
 }
 
-/// A member that does *not* ask to inherit gets no metamodel, which
-/// `model-toml.md` defines as an OMG project.
+/// A member that does *not* ask to inherit declares its own, and the
+/// build carries that one rather than the workspace's.
 ///
-/// The counterpart of the test above.
+/// The counterpart of the test above, and the whole difference between
+/// explicit inheritance and injecting the workspace's value. Every
+/// project declares a metamodel (model-toml.md "Metamodel"), so what
+/// this proves is that the workspace's value does not leak into a
+/// member that did not ask.
 #[test]
-fn a_member_that_does_not_inherit_gets_no_metamodel() -> Result<(), Box<dyn std::error::Error>> {
+fn a_member_that_does_not_inherit_declares_its_own() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
     write_workspace_with(
         &cwd,
         &["project1"],
         "metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
     )?;
-    write_toml_member(&cwd.join("project1"), "project1", "1.0.0", "")?;
+    write_toml_member(
+        &cwd.join("project1"),
+        "project1",
+        "1.0.0",
+        "metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n",
+    )?;
 
     run_sysand_in(&cwd, ["build"], None)?.assert().success();
 
@@ -510,16 +526,19 @@ fn a_member_that_does_not_inherit_gets_no_metamodel() -> Result<(), Box<dyn std:
     let (Some(_), Some(meta)) = kpar_project.get_project()? else {
         panic!("failed to get built project info/meta");
     };
-    assert_eq!(meta.metamodel, None);
+    assert_eq!(
+        meta.metamodel.as_deref(),
+        Some("https://www.omg.org/spec/KerML/20250201")
+    );
 
     Ok(())
 }
 
-/// An unrecognized `[workspace] metamodel` warns and builds. The value
-/// is outside both recognized metamodel families: an OMG release Sysand
-/// has not heard of is a perfectly good metamodel and does not warn.
+/// An unrecognized `[workspace] metamodel` is refused where it is
+/// written: a group's value is held to the four, since the only thing it
+/// is for is being inherited by a `[project]`.
 #[test]
-fn workspace_build_with_unknown_metamodel() -> Result<(), Box<dyn std::error::Error>> {
+fn an_unrecognized_workspace_metamodel_is_refused() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
     write_workspace_with(
         &cwd,
@@ -535,21 +554,12 @@ fn workspace_build_with_unknown_metamodel() -> Result<(), Box<dyn std::error::Er
 
     run_sysand_in(&cwd, ["build"], None)?
         .assert()
-        .success()
+        .failure()
         .stderr(predicate::str::contains(
-            "declares metamodel `https://example.com/spec/SysML/20251201`, \
-             which this version of Sysand does not recognize",
+            "`metamodel` in `[workspace]` is `https://example.com/spec/SysML/20251201`, \
+             which is not one of the four values a `model.toml` recognizes",
         ));
-
-    let kpar_project =
-        LocalKParProjectRaw::new_guess_root(cwd.join("output").join("project1-1.0.0.kpar"))?;
-    let (Some(_), Some(meta)) = kpar_project.get_project()? else {
-        panic!("failed to get built project info/meta");
-    };
-    assert_eq!(
-        meta.metamodel.as_deref(),
-        Some("https://example.com/spec/SysML/20251201")
-    );
+    assert!(!cwd.join("output").exists(), "nothing was built");
 
     Ok(())
 }
@@ -1079,7 +1089,7 @@ fn build_toml_project_with_a_dir_usage() -> Result<(), Box<dyn std::error::Error
     std::fs::write(
         cwd.join("model.toml"),
         "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
-         version = \"1.0.0\"\nsources = [\"a.sysml\"]\n\n\
+         version = \"1.0.0\"\nsources = [\"a.sysml\"]\nmetamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
          [[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"dep\"\n",
     )?;
     std::fs::write(cwd.join("a.sysml"), b"package A;\n")?;
@@ -1098,7 +1108,7 @@ fn build_toml_project_with_a_missing_target() -> Result<(), Box<dyn std::error::
     std::fs::write(
         cwd.join("model.toml"),
         "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
-         version = \"1.0.0\"\nsources = [\"a.sysml\"]\n\n\
+         version = \"1.0.0\"\nsources = [\"a.sysml\"]\nmetamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
          [[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"dep\"\n",
     )?;
     std::fs::write(cwd.join("a.sysml"), b"package A;\n")?;
@@ -1124,7 +1134,7 @@ fn build_toml_project_with_a_stdlib_usage() -> Result<(), Box<dyn std::error::Er
     std::fs::write(
         cwd.join("model.toml"),
         "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
-         version = \"1.0.0\"\nsources = [\"a.sysml\"]\n\n\
+         version = \"1.0.0\"\nsources = [\"a.sysml\"]\nmetamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
          [[inline-usages]]\npublisher = \"OMG\"\nname = \"Kernel Semantic Library\"\n\
          version = \"^1.0.0\"\n",
     )?;
@@ -1166,7 +1176,7 @@ fn workspace_build_follows_members_order() -> Result<(), Box<dyn std::error::Err
             path.join("model.toml"),
             format!(
                 "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"{at}\"\n\
-                 version = \"1.0.0\"\nsources = [\"m.kerml\"]\n{usage}"
+                 version = \"1.0.0\"\nsources = [\"m.kerml\"]\nmetamodel = \"https://www.omg.org/spec/SysML/20250201\"\n{usage}"
             ),
         )?;
         std::fs::write(path.join("m.kerml"), b"package M;\n")?;
@@ -1203,7 +1213,7 @@ fn write_broken_member(
         dir.join("model.toml"),
         format!(
             "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"{name}\"\n\
-             version = \"1.0.0\"\nsources = [\"missing.sysml\"]\n"
+             version = \"1.0.0\"\nsources = [\"missing.sysml\"]\nmetamodel = \"https://www.omg.org/spec/SysML/20250201\"\n"
         ),
     )?;
     Ok(())

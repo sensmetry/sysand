@@ -6,7 +6,7 @@ use crate::manifest::edit::DocumentMut;
 use crate::model::InterchangeProjectInfoRaw;
 use crate::project::{ProjectFormat, ProjectMut as _, ProjectRead as _};
 
-const MANIFEST: &str = "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n";
+const MANIFEST: &str = "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\nmetamodel = \"https://www.omg.org/spec/SysML/20250201\"\n";
 
 fn document(text: &str) -> DocumentMut {
     text.parse().expect("a valid manifest document")

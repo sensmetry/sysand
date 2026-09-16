@@ -28,6 +28,7 @@ use toml::Value;
 use crate::manifest::common::Maintainer;
 use crate::manifest::diagnostics::{Diagnostic, KeyLocation, Position, ReadWarning, Report};
 use crate::manifest::spans::Positions;
+use crate::model::KnownMetamodel;
 
 /// How a message names the TOML type a value turned out to have, with
 /// the article that reads in "but it is ...".
@@ -326,6 +327,29 @@ pub fn parsed<T, E: std::fmt::Display>(
             None
         }
     }
+}
+
+/// model-toml.md "Metamodel": "Exactly four values are recognized [...]
+/// A value matching none of the four shapes is an error naming the key
+/// and listing them." That holds for a group's value as much as for a
+/// `[project]`'s: a group's value exists to be inherited by one. There is
+/// no separate URL check: all four are URLs, so a value that is not one is
+/// not one of the four either, and one message about one key is enough.
+pub fn metamodel(reader: &TableReader<'_>, report: &mut Report) -> Option<KnownMetamodel> {
+    let raw = reader.string("metamodel", report)?;
+    let metamodel = KnownMetamodel::recognize(raw);
+    if metamodel.is_none() {
+        report.push(
+            Diagnostic::error(format!(
+                "`metamodel` in {} is `{raw}`, which is not one of the four values a \
+                 `model.toml` recognizes;\nthey are {list}",
+                reader.location(),
+                list = KnownMetamodel::RECOGNIZED,
+            ))
+            .at_opt(reader.at("metamodel")),
+        );
+    }
+    metamodel
 }
 
 /// A value whose error does not name the key or the value it came from,

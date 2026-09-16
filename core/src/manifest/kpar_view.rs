@@ -340,7 +340,9 @@ pub fn meta(
     InterchangeProjectMetadataRaw {
         index,
         created: format_created(created),
-        metamodel: project.metamodel.clone(),
+        // Always written: a resolved project declares one of the
+        // four (model-toml.md "Metamodel").
+        metamodel: Some(project.metamodel.to_string()),
         includes_derived: None,
         includes_implied: None,
         checksum: Some(checksum),

@@ -335,7 +335,7 @@ fn an_empty_inline_usages_array_is_refused_too() {
 #[test]
 fn an_unknown_top_level_key_is_a_warning() {
     let validated = accepted(&format!(
-        "manifest-version = \"1.0.0\"\ncolour = \"red\"\n{}metamodel = \"https://example.com/other\"\n",
+        "manifest-version = \"1.0.0\"\ncolour = \"red\"\n{}metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
         project_body()
     ));
     assert_eq!(

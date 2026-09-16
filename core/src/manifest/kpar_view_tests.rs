@@ -175,6 +175,7 @@ fn a_usage_path_the_manifest_accepts_may_still_not_validate() {
 use std::collections::{BTreeMap, HashSet};
 
 use crate::manifest::project::ProjectManifest;
+use crate::manifest::spans::Positions;
 use crate::manifest::spans::Source;
 
 /// A `[project]` whose body is `body`, read and resolved outside any
@@ -194,13 +195,14 @@ fn resolved(body: &str) -> ResolvedProject {
         .0
 }
 
-/// The three keys `[project]` requires plus the `sources` an
-/// OMG-metamodel project needs.
+/// The keys `[project]` requires: the three every metamodel needs, the
+/// `metamodel` itself, and the `sources` an OMG-metamodel project needs.
 const REQUIRED: &str = "\
 publisher = \"acme\"
 name = \"widgets\"
 version = \"1.2.3\"
 sources = []
+metamodel = \"https://www.omg.org/spec/SysML/20250201\"
 ";
 
 /// A reader over a fixed set of files, standing in for a directory.
@@ -540,13 +542,19 @@ fn meta_json_from_the_view_validates() {
     meta.validate().expect("a valid `.meta.json`");
 }
 
-/// The guard on the test above: a `metamodel` that is not a URL cannot
+/// The guard on the test above: a `metamodel` outside the four cannot
 /// reach a view, because the manifest carrying one does not read. Were
 /// that to change, `meta_json_from_the_view_validates` would start
 /// passing for the wrong reason.
 #[test]
-fn a_metamodel_that_is_not_a_url_never_reaches_the_view() {
-    let text = format!("[project]\n{REQUIRED}metamodel = \"not a url at all\"\n");
+fn an_unrecognized_metamodel_never_reaches_the_view() {
+    let text = format!(
+        "[project]\n{}metamodel = \"not a url at all\"\n",
+        REQUIRED.replace(
+            "metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+            ""
+        )
+    );
     let (table, positions) = Source::new("model.toml", &text)
         .read()
         .expect("the document parses");
@@ -609,6 +617,7 @@ publisher = \"acme\"
 name = \"widgets\"
 version = \"1.2.3\"
 sources = []
+metamodel = \"https://www.omg.org/spec/SysML/20250201\"
 ";
 
 fn nothing_to_read(path: &Utf8UnixPath) -> Result<String, String> {
@@ -794,7 +803,8 @@ const INHERITS_VERSION: &str = "manifest-version = \"1.0.0\"\n\n\
      publisher = \"acme\"\n\
      name = \"widgets\"\n\
      version.workspace = true\n\
-     sources = []\n";
+     sources = []\n\
+     metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n";
 
 #[test]
 fn resolved_of_text_in_follows_the_table() {

@@ -154,7 +154,8 @@ fn publish_workspace_with_an_unreadable_member_uploads_nothing() -> TestResult {
     std::fs::write(
         cwd.join("project1/model.toml"),
         "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"example-pub1\"\n\
-         name = \"project1\"\nversion = \"1.0.0\"\nsources = [\"missing.sysml\"]\n",
+         name = \"project1\"\nversion = \"1.0.0\"\nsources = [\"missing.sysml\"]\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
     )?;
 
     let mut server = Server::new();

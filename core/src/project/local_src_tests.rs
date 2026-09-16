@@ -205,8 +205,8 @@ fn an_ambiguous_directory_names_the_json_file_it_has() {
 
 // ----- reading a `model.toml` -----
 
-/// The three keys `[project]` requires plus the `sources` an
-/// OMG-metamodel project needs.
+/// The keys `[project]` requires: the three every metamodel needs, the
+/// `metamodel` itself, and the `sources` an OMG-metamodel project lists.
 const TOML_REQUIRED: &str = "\
 manifest-version = \"1.0.0\"
 
@@ -215,6 +215,7 @@ publisher = \"acme\"
 name = \"widgets\"
 version = \"1.2.3\"
 sources = []
+metamodel = \"https://www.omg.org/spec/SysML/20250201\"
 ";
 
 fn toml_project(dir: &camino::Utf8Path) -> LocalSrcProject {
@@ -386,7 +387,8 @@ fn a_model_toml_that_inherits_outside_a_workspace_says_so() {
          name = \"widgets\"\n\
          version = \"1.2.3\"\n\
          publisher.workspace = true\n\
-         sources = []\n",
+         sources = []\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
     );
     assert!(
         read_error(dir.path()).contains("not a member of any workspace"),
@@ -682,7 +684,7 @@ fn a_json_project_missing_one_file_is_unchanged() {
 
 // --- storing a manifest -----------------------------------------------
 
-const MANIFEST: &str = "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n";
+const MANIFEST: &str = "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\nmetamodel = \"https://www.omg.org/spec/SysML/20250201\"\n";
 
 fn document(text: &str) -> crate::manifest::edit::DocumentMut {
     text.parse().expect("a valid manifest document")
@@ -788,7 +790,7 @@ fn a_manifest_overwritten_after_a_read_is_read_again() -> Result<(), Box<dyn std
 #[test]
 fn a_local_project_hands_back_its_manifest_document() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
-    let commented = "manifest-version = \"1.0.0\"\n\n[project]\n# who publishes it\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n";
+    let commented = "manifest-version = \"1.0.0\"\n\n[project]\n# who publishes it\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\nmetamodel = \"https://www.omg.org/spec/SysML/20250201\"\n";
     write_model_toml(dir.path(), commented);
     let project = LocalSrcProject::new_access(dir.path(), None);
 
@@ -827,7 +829,8 @@ const INHERITS_VERSION: &str = "manifest-version = \"1.0.0\"\n\n\
      publisher = \"acme\"\n\
      name = \"widgets\"\n\
      version.workspace = true\n\
-     sources = []\n";
+     sources = []\n\
+     metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n";
 
 /// A member's marker follows the table it was given.
 #[test]
@@ -869,7 +872,8 @@ fn a_member_project_prefers_its_own_values() {
          publisher = \"acme\"\n\
          name = \"widgets\"\n\
          version = \"1.2.3\"\n\
-         sources = []\n",
+         sources = []\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
     );
 
     let (info, _) = LocalSrcProject::new_member(dir.path(), None, versioned_table())

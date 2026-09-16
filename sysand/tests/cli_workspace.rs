@@ -32,6 +32,7 @@ publisher = \"acme\"
 name = \"alpha\"
 version = \"1.0.0\"
 sources = []
+metamodel = \"https://www.omg.org/spec/SysML/20250201\"
 ";
 
 /// A workspace root with one member, `app`, and one project the member
@@ -655,7 +656,8 @@ fn two_member_workspace() -> Result<camino_tempfile::Utf8TempDir, Box<dyn std::e
     std::fs::write(
         dir.path().join("libs/gamma/model.toml"),
         "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"gamma\"\n\
-         version = \"1.0.0\"\nsources = []\n\n\
+         version = \"1.0.0\"\nsources = []\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
          [[inline-usages]]\npublisher = \"acme\"\nname = \"alpha\"\ndir = \"../../app\"\n",
     )?;
     Ok(dir)

@@ -476,7 +476,8 @@ fn a_requested_usage_takes_the_origin_of_the_project_that_declared_it() {
          publisher = \"acme\"\n\
          name = \"app\"\n\
          version = \"1.0.0\"\n\
-         sources = []\n\n\
+         sources = []\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
          [[inline-usages]]\n\
          publisher = \"acme\"\n\
          name = \"lib\"\n\
@@ -754,7 +755,7 @@ fn workspace_tree(members: &[(&str, &str)], root_extra: &str) -> camino_tempfile
 fn member_toml(name: &str, usages: &str) -> String {
     format!(
         "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"{name}\"\n\
-         version = \"1.0.0\"\nsources = []\n{usages}"
+         version = \"1.0.0\"\nsources = []\nmetamodel = \"https://www.omg.org/spec/SysML/20250201\"\n{usages}"
     )
 }
 
@@ -997,7 +998,7 @@ fn an_inheriting_member_locks_with_the_tables_value() -> Result<(), Box<dyn std:
         &[(
             "app",
             "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"alpha\"\n\
-             version.workspace = true\nsources = []\n",
+             version.workspace = true\nsources = []\nmetamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
         )],
         "version = \"9.9.9\"\n",
     );

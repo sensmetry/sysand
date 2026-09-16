@@ -35,7 +35,7 @@ def workspace(root: Path, members: dict[str, str]) -> None:
         (member / "model.toml").write_text(
             'manifest-version = "1.0.0"\n\n[project]\n'
             f'publisher = "acme"\nname = "{name}"\nversion = "1.0.0"\n'
-            f"sources = []\n{extra}"
+            f'sources = []\nmetamodel = "{SYSML}"\n{extra}'
         )
 
 

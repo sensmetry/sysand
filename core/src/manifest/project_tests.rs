@@ -8,7 +8,7 @@ use crate::manifest::project::{ProjectManifest, ProjectTable, ResolvedProject};
 use crate::manifest::spans::Source;
 use crate::manifest::usage::{MemberUsage, Usage, UsageBase};
 use crate::manifest::workspace_table::WorkspaceTable;
-use crate::model::{IndexName, IndexPublisher};
+use crate::model::{IndexName, IndexPublisher, KnownMetamodel, MetamodelFamily, SpecKind};
 use fluent_uri::Iri;
 
 /// The project side of a document, read the way `ModelToml::parse` will
@@ -73,6 +73,18 @@ const REQUIRED: &str = "\
 publisher = \"acme\"
 name = \"widgets\"
 version = \"1.2.3\"
+";
+
+/// [`REQUIRED`] plus the two keys a project needs to *resolve*: the
+/// `metamodel` every `model.toml` declares, and the `sources` an
+/// OMG-metamodel project lists. For the tests that are about something
+/// else.
+const RESOLVABLE: &str = "\
+publisher = \"acme\"
+name = \"widgets\"
+version = \"1.2.3\"
+sources = []
+metamodel = \"https://www.omg.org/spec/SysML/20250201\"
 ";
 
 /// [`REQUIRED`] plus `sources`, without `key`: a key cannot be written
@@ -177,7 +189,7 @@ fn every_documented_key_is_read() {
         &["examples".to_owned(), "widgets".to_owned()]
     );
     assert_eq!(
-        provided(project.metamodel.as_ref().expect("metamodel")),
+        provided(project.metamodel.as_ref().expect("metamodel")).to_string(),
         "https://www.omg.org/spec/SysML/20250201"
     );
     assert_eq!(
@@ -269,16 +281,24 @@ fn a_required_key_that_is_present_but_unreadable_is_not_also_missing() {
     }
 }
 
-/// model-toml.md "Metamodel", rule (a): a schema complaint in a project
-/// whose metamodel is unrecognized says the metamodel may be the reason.
+/// Rule (a) is a json-only rule: a `model.toml` whose metamodel is
+/// unrecognized is refused before any required-key check runs, so the
+/// suffix has nothing to explain.
 #[test]
-fn a_missing_key_names_an_unrecognized_metamodel() {
+fn a_missing_key_does_not_name_the_metamodel() {
     let report = rejected("name = \"widgets\"\nmetamodel = \"https://example.com/other\"\n");
+    assert_eq!(
+        texts(&report)
+            .iter()
+            .filter(|text| text.contains("this may be because"))
+            .count(),
+        0,
+        "unexpected report: {report}"
+    );
     assert!(
-        texts(&report).contains(
-            &"missing key `publisher` in `[project]`; this may be because the project uses a \
-              metamodel this version of Sysand does not support: `https://example.com/other`"
-        ),
+        texts(&report)
+            .iter()
+            .any(|text| text.contains("is not one of the four values")),
         "unexpected report: {report}"
     );
 }
@@ -330,37 +350,26 @@ fn sources_cannot_be_inherited() {
 }
 
 /// workspaces.md "Unknown keys": a warning, in `[project]` and in the
-/// `urls` table alike, carrying rule (a)'s suffix when the metamodel is
-/// unrecognized.
+/// `urls` table alike. Rule (a)'s suffix is gone from both: a
+/// `model.toml` with an unrecognized metamodel does not get this far.
 #[test]
 fn an_unknown_key_is_a_positioned_warning() {
-    let validated = accepted(&format!(
-        "{REQUIRED}sources = []\nfuture-project-key = \"?\"\n"
-    ));
+    let validated = accepted(&format!("{RESOLVABLE}future-project-key = \"?\"\n"));
     assert_eq!(
         messages(&validated.warnings),
         ["unknown key `future-project-key` in `[project]`"]
     );
 
     let text = format!(
-        "[project]\n{REQUIRED}sources = []\n\
-         metamodel = \"https://example.com/other\"\nfuture-project-key = \"?\"\n\n\
+        "[project]\n{RESOLVABLE}future-project-key = \"?\"\n\n\
          [project.urls]\nwebsite = \"https://example.com\"\nfuture-url = \"?\"\n"
     );
     let validated = read(&text).expect("the manifest validates");
     assert_eq!(
         messages(&validated.warnings),
         [
-            // `metamodel` is written before the unknown key, and a
-            // report reads in document order.
-            "`[project]` declares metamodel `https://example.com/other`, which this version \
-             of Sysand does not recognize",
-            "unknown key `future-project-key` in `[project]`; this may be because the project \
-             uses a metamodel this version of Sysand does not support: \
-             `https://example.com/other`",
-            "unknown key `future-url` in `[project.urls]`; this may be because the project \
-             uses a metamodel this version of Sysand does not support: \
-             `https://example.com/other`",
+            "unknown key `future-project-key` in `[project]`",
+            "unknown key `future-url` in `[project.urls]`",
         ]
     );
     assert!(
@@ -371,52 +380,46 @@ fn an_unknown_key_is_a_positioned_warning() {
     );
 }
 
-/// model-toml.md "Metamodel": "Any other value is a warning, not an
-/// error". The values that sentence ranges over are the other *URLs* --
-/// the section opens with "`metamodel` is a URL". Such a value is kept
-/// as written.
+/// model-toml.md "Metamodel": "Exactly four values
+/// are recognized [...] A value matching none of the four shapes is an
+/// error naming the key and listing them." A URL of another family and
+/// a value that is not a URL at all are one answer: neither is one of
+/// the four.
 #[test]
-fn an_unrecognized_metamodel_warns_and_is_kept() {
-    for value in ["https://example.com/other", "urn:example:sysml"] {
-        let read = manifest(&format!(
+fn an_unrecognized_metamodel_is_refused() {
+    for value in [
+        "https://example.com/other",
+        "urn:example:sysml",
+        "not a url at all",
+        "https://www.omg.org/spec/SysML/2025",
+    ] {
+        let report = rejected(&format!(
             "{REQUIRED}sources = []\nmetamodel = \"{value}\"\n"
         ));
         assert_eq!(
-            provided(read.project.metamodel.as_ref().expect("metamodel")),
-            value
+            texts(&report),
+            [format!(
+                "`metamodel` in `[project]` is `{value}`, which is not one of the four values \
+                 a `model.toml` recognizes;\nthey are `https://www.omg.org/spec/KerML/<date>`, \
+                 `https://www.omg.org/spec/SysML/<date>`, \
+                 `https://www.sysand.com/spec/KerML/<date>` or \
+                 `https://www.sysand.com/spec/SysML/<date>`"
+            )],
+            "{value}"
         );
+        assert_eq!(places(&report), [(6, 1)], "{value}");
     }
 }
 
-/// model-toml.md "Metamodel" opens with "`metamodel` is a URL", so a
-/// value that is not one is an error rather than the warning an
-/// unrecognized URL gets. `.meta.json` types the field as an IRI and
-/// refuses anything else (`InterchangeProjectMetadataRaw::validate`), so
-/// keeping one here would build a KPAR view that cannot be read back.
+/// An unrecognized metamodel says nothing about the schema either, so
+/// rule (b) does not run over `root`: one error, not an error and a
+/// warning about a key whose schema the reader cannot know. The
+/// companion of `a_metamodel_that_is_not_a_string_does_not_decide_the_schema`,
+/// which covers the value that is not a string at all.
 #[test]
-fn a_metamodel_that_is_not_a_url_is_refused() {
+fn an_unrecognized_metamodel_does_not_decide_the_schema() {
     let report = rejected(&format!(
-        "{REQUIRED}sources = []\nmetamodel = \"not a url at all\"\n"
-    ));
-    assert!(
-        texts(&report)[0].starts_with(
-            "`[project]` sets `metamodel = \"not a url at all\"`, which is not a metamodel: \
-             `not a url at all` is not a URL"
-        ),
-        "unexpected message: {:?}",
-        texts(&report)
-    );
-    assert_eq!(places(&report), [(6, 1)]);
-}
-
-/// A `metamodel` that could not be read says nothing about the schema,
-/// so the judgements that depend on it do not run, just as for
-/// `metamodel = 3`. Otherwise `root` would be told it belongs to another
-/// metamodel by a reader that does not know which one is declared.
-#[test]
-fn a_metamodel_that_is_not_a_url_does_not_decide_the_schema() {
-    let report = rejected(&format!(
-        "{REQUIRED}sources = []\nmetamodel = \"not a url\"\nroot = \"main.sysml\"\n"
+        "{REQUIRED}sources = []\nmetamodel = \"https://example.com/other\"\nroot = \"main.sysml\"\n"
     ));
     assert_eq!(texts(&report).len(), 1, "{:?}", texts(&report));
 }
@@ -427,7 +430,7 @@ fn a_metamodel_that_is_not_a_url_does_not_decide_the_schema() {
 /// OMG-metamodel project still errors on the missing `sources`".
 #[test]
 fn root_warns_in_an_omg_project_and_sources_is_still_required() {
-    let validated = accepted(&format!("{REQUIRED}sources = []\nroot = \"main.sysml\"\n"));
+    let validated = accepted(&format!("{RESOLVABLE}root = \"main.sysml\"\n"));
     assert_eq!(
         messages(&validated.warnings),
         ["`root` in `[project]` is only supported by the Syside metamodel and is ignored here"]
@@ -440,7 +443,10 @@ fn root_warns_in_an_omg_project_and_sources_is_still_required() {
         .expect("`sources` is there, so `root` costs only the warning");
 
     // `root` alone does not stand in for `sources`.
-    let validated = accepted(&format!("{REQUIRED}root = \"main.sysml\"\n"));
+    let validated = accepted(&format!(
+        "{REQUIRED}metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\
+         root = \"main.sysml\"\n"
+    ));
     assert_eq!(messages(&validated.warnings).len(), 1);
     let report = validated.value.resolve(None).expect_err("no sources");
     assert!(
@@ -468,7 +474,7 @@ fn root_does_not_warn_when_the_project_declares_syside() {
 /// not leave a `root` behind as if one had been written.
 #[test]
 fn a_marker_on_root_does_not_become_a_written_root() {
-    let report = rejected(&format!("{REQUIRED}sources = []\nroot.workspace = true\n"));
+    let report = rejected(&format!("{RESOLVABLE}root.workspace = true\n"));
     assert_eq!(
         texts(&report),
         [
@@ -530,7 +536,7 @@ fn every_inheritable_key_accepts_a_marker() {
 #[test]
 fn a_urls_table_inherits_whole_or_per_key() {
     let read = manifest(&format!(
-        "{REQUIRED}sources = []\n\
+        "{RESOLVABLE}\
          urls.website.workspace = \"legacy\"\n\
          urls.repository = \"https://example.com/repo.git\"\n"
     ));
@@ -596,7 +602,7 @@ fn stdlib_is_read_as_a_path_segment() {
         "Semantic-Library"
     );
     for bad in ["", "-x", "a/b", "..", "a b", "a.kpar"] {
-        let report = rejected(&format!("{REQUIRED}sources = []\nstdlib = \"{bad}\"\n"));
+        let report = rejected(&format!("{RESOLVABLE}stdlib = \"{bad}\"\n"));
         assert_eq!(texts(&report).len(), 1, "{bad}");
     }
 }
@@ -606,7 +612,7 @@ fn stdlib_is_read_as_a_path_segment() {
 #[test]
 fn a_wrong_typed_key_is_one_diagnostic_and_the_read_continues() {
     let report = rejected(&format!(
-        "{REQUIRED}sources = []\ndescription = 1\ntopics = \"a\"\nlicense = true\n"
+        "{RESOLVABLE}description = 1\ntopics = \"a\"\nlicense = true\n"
     ));
     assert_eq!(
         texts(&report),
@@ -622,7 +628,7 @@ fn a_wrong_typed_key_is_one_diagnostic_and_the_read_continues() {
 #[test]
 fn inline_usages_are_read_from_the_top_level() {
     let text = format!(
-        "[project]\n{REQUIRED}sources = []\n\n\
+        "[project]\n{RESOLVABLE}\n\
          [[inline-usages]]\npublisher = \"acme\"\nname = \"own\"\ndir = \"../own\"\n\n\
          [[inline-usages]]\npublisher = \"acme\"\nname = \"shared\"\nworkspace = true\n"
     );
@@ -653,7 +659,7 @@ fn inline_usages_are_read_from_the_top_level() {
 #[test]
 fn duplicate_usages_are_rejected_per_array() {
     let text = format!(
-        "[project]\n{REQUIRED}sources = []\n\n\
+        "[project]\n{RESOLVABLE}\n\
          [[inline-usages]]\npublisher = \"acme\"\nname = \"lib\"\ndir = \"../lib\"\n\n\
          [[inline-usages]]\npublisher = \"Acme\"\nname = \"lib\"\nworkspace = true\n"
     );
@@ -763,8 +769,8 @@ fn a_member_inherits_every_key_from_the_default_group() {
     );
     assert_eq!(project.topics, ["shared".to_owned()]);
     assert_eq!(
-        project.metamodel.as_deref(),
-        Some("https://www.omg.org/spec/SysML/20250201")
+        project.metamodel.to_string(),
+        "https://www.omg.org/spec/SysML/20250201"
     );
     assert_eq!(
         project
@@ -788,7 +794,8 @@ fn a_member_inherits_from_a_named_group() {
         "name = \"member\"\n\
          publisher.workspace = \"legacy\"\n\
          version.workspace = \"legacy\"\n\
-         sources = []\n",
+         sources = []\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
     );
     assert_eq!(project.publisher.as_str(), "acme-legacy");
     assert_eq!(project.version.to_string(), "0.9.0");
@@ -798,7 +805,7 @@ fn a_member_inherits_from_a_named_group() {
 /// the group's `urls` as it is.
 #[test]
 fn a_whole_urls_table_is_inherited() {
-    let project = resolved(&format!("{REQUIRED}sources = []\nurls.workspace = true\n"));
+    let project = resolved(&format!("{RESOLVABLE}urls.workspace = true\n"));
     assert_eq!(
         project.urls.repository.as_ref().map(Iri::as_str),
         Some("https://example.com/repo.git")
@@ -813,7 +820,7 @@ fn a_whole_urls_table_is_inherited() {
 #[test]
 fn one_url_key_is_inherited_while_another_is_given() {
     let project = resolved(&format!(
-        "{REQUIRED}sources = []\n\
+        "{RESOLVABLE}\
          urls.website.workspace = \"legacy\"\n\
          urls.repository = \"https://member.example.com/repo.git\"\n"
     ));
@@ -834,7 +841,8 @@ fn one_url_key_is_inherited_while_another_is_given() {
 #[test]
 fn a_marker_outside_a_workspace_is_an_error() {
     let report = manifest(
-        "name = \"member\"\npublisher.workspace = true\nversion = \"1.0.0\"\nsources = []\n",
+        "name = \"member\"\npublisher.workspace = true\nversion = \"1.0.0\"\nsources = []\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
     )
     .resolve(None)
     .expect_err("no workspace");
@@ -847,7 +855,7 @@ fn a_marker_outside_a_workspace_is_an_error() {
 
     // An opt-in usage names itself rather than a key.
     let text = format!(
-        "[project]\n{REQUIRED}sources = []\n\n\
+        "[project]\n{RESOLVABLE}\n\
          [[inline-usages]]\npublisher = \"acme\"\nname = \"lib\"\nworkspace = \"legacy\"\n"
     );
     let report = read(&text)
@@ -868,9 +876,7 @@ fn a_marker_outside_a_workspace_is_an_error() {
 /// does not exist ... is an error."
 #[test]
 fn a_marker_naming_a_group_that_does_not_exist_is_an_error() {
-    let report = unresolved(&format!(
-        "{REQUIRED}sources = []\nlicense.workspace = \"nope\"\n"
-    ));
+    let report = unresolved(&format!("{RESOLVABLE}license.workspace = \"nope\"\n"));
     assert_eq!(
         texts(&report),
         ["`license` inherits from group `nope`, which the workspace does not define"]
@@ -882,22 +888,18 @@ fn a_marker_naming_a_group_that_does_not_exist_is_an_error() {
 /// while no `topics` at all does not.
 #[test]
 fn a_marker_on_a_key_the_group_does_not_give_is_an_error() {
-    let report = unresolved(&format!(
-        "{REQUIRED}sources = []\ntopics.workspace = \"legacy\"\n"
-    ));
+    let report = unresolved(&format!("{RESOLVABLE}topics.workspace = \"legacy\"\n"));
     assert_eq!(
         texts(&report),
         ["`topics` inherits from group `legacy`, which does not give it"]
     );
 
     let empty = workspace("[workspace]\nmembers = []\ntopics = []\n");
-    let project = manifest(&format!(
-        "{REQUIRED}sources = []\ntopics.workspace = true\n"
-    ))
-    .resolve(Some(&empty))
-    .expect("an empty list is a value")
-    .into_parts()
-    .0;
+    let project = manifest(&format!("{RESOLVABLE}topics.workspace = true\n"))
+        .resolve(Some(&empty))
+        .expect("an empty list is a value")
+        .into_parts()
+        .0;
     assert_eq!(project.topics, [] as [std::string::String; 0]);
 }
 
@@ -909,6 +911,7 @@ fn every_failing_marker_is_reported() {
          publisher.workspace = \"nope\"\n\
          version.workspace = \"nope\"\n\
          sources = []\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\
          topics.workspace = \"legacy\"\n",
     );
     assert_eq!(texts(&report).len(), 3, "unexpected report: {report}");
@@ -921,7 +924,7 @@ fn every_failing_marker_is_reported() {
 #[test]
 fn an_opt_in_takes_the_group_entry_whole() {
     let text = format!(
-        "[project]\n{REQUIRED}sources = []\n\n\
+        "[project]\n{RESOLVABLE}\n\
          [[inline-usages]]\npublisher = \"acme\"\nname = \"shared-dep\"\nworkspace = true\n\n\
          [[inline-usages]]\npublisher = \"acme\"\nname = \"legacy-dep\"\nworkspace = \"legacy\"\n\n\
          [[inline-usages]]\npublisher = \"acme\"\nname = \"own\"\ndir = \"../own\"\n"
@@ -964,7 +967,7 @@ fn an_opt_in_takes_the_group_entry_whole() {
 #[test]
 fn an_opt_in_matches_publisher_and_name_literally() {
     let text = format!(
-        "[project]\n{REQUIRED}sources = []\n\n\
+        "[project]\n{RESOLVABLE}\n\
          [[inline-usages]]\npublisher = \"Acme\"\nname = \"shared-dep\"\nworkspace = true\n"
     );
     let report = read(&text)
@@ -987,7 +990,7 @@ fn an_opt_in_matches_publisher_and_name_literally() {
 #[test]
 fn an_opt_in_naming_a_group_that_does_not_exist_is_an_error() {
     let text = format!(
-        "[project]\n{REQUIRED}sources = []\n\n\
+        "[project]\n{RESOLVABLE}\n\
          [[inline-usages]]\npublisher = \"acme\"\nname = \"lib\"\nworkspace = \"nope\"\n"
     );
     let report = read(&text)
@@ -1007,7 +1010,11 @@ fn an_opt_in_naming_a_group_that_does_not_exist_is_an_error() {
 /// inheritance, since the metamodel may itself be inherited.
 #[test]
 fn sources_is_required_after_inheritance() {
-    let report = manifest(REQUIRED).resolve(None).expect_err("no sources");
+    let report = manifest(&format!(
+        "{REQUIRED}metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n"
+    ))
+    .resolve(None)
+    .expect_err("no sources");
     assert_eq!(
         texts(&report),
         [
@@ -1016,7 +1023,7 @@ fn sources_is_required_after_inheritance() {
         ]
     );
 
-    let project = manifest(&format!("{REQUIRED}sources = []\n"))
+    let project = manifest(RESOLVABLE)
         .resolve(None)
         .expect("an empty list is a value")
         .into_parts()
@@ -1047,20 +1054,21 @@ fn a_syside_project_is_reported_as_unsupported() {
     );
 }
 
-/// Rule (a) reaches the metamodel-dependent check too.
+/// An unrecognized metamodel never reaches the metamodel-dependent
+/// checks: the file is refused when it is read, so a missing `sources`
+/// is a second run's problem. The bargain `manifest-version` already
+/// makes -- what the file says about its own schema cannot be acted on,
+/// so nothing that depends on it can be judged.
 #[test]
-fn an_unrecognized_metamodel_reaches_the_sources_error() {
-    let report = manifest(&format!(
+fn an_unrecognized_metamodel_hides_the_sources_check() {
+    let report = rejected(&format!(
         "{REQUIRED}metamodel = \"https://example.com/future\"\n"
-    ))
-    .resolve(None)
-    .expect_err("no sources");
-    assert_eq!(
-        texts(&report),
-        [
-            "missing key `sources` in `[project]`; this may be because the project uses a \
-             metamodel this version of Sysand does not support: `https://example.com/future`"
-        ]
+    ));
+    assert_eq!(texts(&report).len(), 1, "{:?}", texts(&report));
+    assert!(
+        texts(&report)[0].contains("is not one of the four values"),
+        "{:?}",
+        texts(&report)
     );
 }
 
@@ -1070,14 +1078,10 @@ fn an_unrecognized_metamodel_reaches_the_sources_error() {
 #[test]
 fn stdlib_is_refused_unless_the_project_is_the_standard_library() {
     let stdlib = |publisher: &str, metamodel: &str| {
-        let metamodel = if metamodel.is_empty() {
-            String::new()
-        } else {
-            format!("metamodel = \"{metamodel}\"\n")
-        };
         manifest(&format!(
             "publisher = \"{publisher}\"\nname = \"Kernel Semantic Library\"\n\
-             version = \"1.0.0\"\nsources = []\nstdlib = \"Semantic-Library\"\n{metamodel}"
+             version = \"1.0.0\"\nsources = []\nstdlib = \"Semantic-Library\"\n\
+             metamodel = \"{metamodel}\"\n"
         ))
         .resolve(None)
     };
@@ -1104,13 +1108,6 @@ fn stdlib_is_refused_unless_the_project_is_the_standard_library() {
             "found publisher `OMG` and the Syside metamodel \
              `https://www.sysand.com/spec/KerML/20250201`",
         ),
-        // "the IRI needs its release date", so no metamodel at all is
-        // not an OMG metamodel for this purpose.
-        (
-            "OMG",
-            "",
-            "found publisher `OMG` and no declared metamodel (OMG assumed)",
-        ),
     ] {
         let report = stdlib(publisher, metamodel).expect_err("refused");
         assert_eq!(
@@ -1135,6 +1132,7 @@ fn stdlib_is_not_checked_when_the_publisher_did_not_resolve() {
          publisher.workspace = \"nope\"\n\
          version = \"1.0.0\"\n\
          sources = []\n\
+         metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n\
          stdlib = \"Semantic-Library\"\n",
     );
     assert_eq!(
@@ -1164,14 +1162,9 @@ fn an_inherited_metamodel_settles_the_sources_check() {
 /// resolves.
 #[test]
 fn inherits_answers_before_resolving() {
-    assert!(!manifest(&format!("{REQUIRED}sources = []\n")).inherits());
-    assert!(manifest(&format!("{REQUIRED}sources = []\nurls.workspace = true\n")).inherits());
-    assert!(
-        manifest(&format!(
-            "{REQUIRED}sources = []\nurls.website.workspace = true\n"
-        ))
-        .inherits()
-    );
+    assert!(!manifest(RESOLVABLE).inherits());
+    assert!(manifest(&format!("{RESOLVABLE}urls.workspace = true\n")).inherits());
+    assert!(manifest(&format!("{RESOLVABLE}urls.website.workspace = true\n")).inherits());
 }
 
 /// A `project` key that is written but is not a table has one thing
@@ -1228,6 +1221,12 @@ fn a_built_manifest_resolves_like_one_that_was_read() {
     let mut project = built();
     project.sources =
         Some(Sources::new(vec!["Widgets.sysml".into()]).expect("a valid sources list"));
+    // A resolved project declares a metamodel, so a table built in code
+    // is given one too.
+    project.metamodel = Some(MetaProperty::Provided(
+        KnownMetamodel::recognize("https://www.omg.org/spec/SysML/20250201")
+            .expect("one of the four"),
+    ));
 
     let manifest = ProjectManifest {
         project,
@@ -1245,7 +1244,10 @@ fn a_built_manifest_resolves_like_one_that_was_read() {
         resolved.sources.as_slice(),
         &[typed_path::Utf8UnixPathBuf::from("Widgets.sysml")]
     );
-    assert!(resolved.metamodel.is_none());
+    assert_eq!(
+        resolved.metamodel.to_string(),
+        "https://www.omg.org/spec/SysML/20250201"
+    );
     assert_eq!(
         resolved.usages,
         [] as [crate::manifest::usage::LocatedUsage; 0]
@@ -1258,8 +1260,13 @@ fn a_built_manifest_resolves_like_one_that_was_read() {
 
 #[test]
 fn a_built_manifest_without_sources_reports_it_without_a_position() {
+    let mut project = built();
+    project.metamodel = Some(MetaProperty::Provided(
+        KnownMetamodel::recognize("https://www.omg.org/spec/SysML/20250201")
+            .expect("one of the four"),
+    ));
     let manifest = ProjectManifest {
-        project: built(),
+        project,
         inline_usages: vec![],
     };
 
@@ -1273,4 +1280,88 @@ fn a_built_manifest_without_sources_reports_it_without_a_position() {
     assert_eq!(texts(&report).len(), 1);
     assert!(texts(&report)[0].starts_with("missing key `sources` in `[project]`"));
     assert!(report.diagnostics()[0].position.is_none());
+}
+
+// -------------------------------------- the metamodel is mandatory
+
+/// model-toml.md "Metamodel": "`metamodel` is a URL,
+/// and in a `model.toml` it is mandatory."
+#[test]
+fn a_metamodel_is_required() {
+    let report = manifest(&format!("{REQUIRED}sources = []\n"))
+        .resolve(None)
+        .expect_err("no metamodel");
+    assert_eq!(
+        texts(&report),
+        [
+            "missing key `metamodel` in `[project]`;\nevery project declares one of \
+             `https://www.omg.org/spec/KerML/<date>`, `https://www.omg.org/spec/SysML/<date>`, \
+             `https://www.sysand.com/spec/KerML/<date>` or \
+             `https://www.sysand.com/spec/SysML/<date>`"
+        ]
+    );
+}
+
+/// "Exactly four values are recognized -- two families, two spec kinds
+/// each." All four resolve, and the resolved project carries the kind
+/// rather than the string it was written as.
+#[test]
+fn each_of_the_four_metamodels_resolves() {
+    for (value, family, spec) in [
+        (
+            "https://www.omg.org/spec/KerML/20250201",
+            MetamodelFamily::Omg,
+            SpecKind::KerMl,
+        ),
+        (
+            "https://www.omg.org/spec/SysML/20250201",
+            MetamodelFamily::Omg,
+            SpecKind::SysMl,
+        ),
+        (
+            "https://www.sysand.com/spec/KerML/20250201",
+            MetamodelFamily::Syside,
+            SpecKind::KerMl,
+        ),
+        (
+            "https://www.sysand.com/spec/SysML/20250201",
+            MetamodelFamily::Syside,
+            SpecKind::SysMl,
+        ),
+    ] {
+        // A Syside project has no `sources` schema in v1, so the two
+        // Syside values are checked through `validate` alone; the OMG
+        // ones resolve whole.
+        let manifest = manifest(&format!(
+            "{REQUIRED}sources = []\nmetamodel = \"{value}\"\n"
+        ));
+        let declared = manifest
+            .project
+            .metamodel
+            .as_ref()
+            .and_then(|property| property.provided())
+            .expect("a declared metamodel");
+        let kind = declared;
+        assert_eq!(kind.family, family, "{value}");
+        assert_eq!(kind.spec, spec, "{value}");
+
+        if family == MetamodelFamily::Omg {
+            let project = manifest.resolve(None).expect("resolves").into_parts().0;
+            assert_eq!(project.metamodel.to_string(), value);
+        }
+    }
+}
+
+/// workspaces.md: "`metamodel.workspace = true` [...] satisfies its
+/// requirement in `[project]`" -- which is why the requirement is
+/// checked after inheritance and not while the table is read.
+#[test]
+fn an_inherited_metamodel_satisfies_the_requirement() {
+    let project = resolved(
+        "name = \"member\"\npublisher.workspace = true\nversion = \"1.0.0\"\nsources = []\nmetamodel.workspace = true\n",
+    );
+    assert_eq!(
+        project.metamodel.to_string(),
+        "https://www.omg.org/spec/SysML/20250201"
+    );
 }

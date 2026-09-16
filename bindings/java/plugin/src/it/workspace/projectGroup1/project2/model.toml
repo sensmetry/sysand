@@ -5,3 +5,4 @@ publisher = "sysand-it"
 name = "project2"
 version = "0.0.1"
 sources = ["b.sysml"]
+metamodel = "https://www.omg.org/spec/SysML/20250201"
