@@ -716,19 +716,12 @@ fn local_target_usage<E: ErrorBound>(
                 // names one substitution, so the constraint stays the
                 // `^<version>` every other local target gets.
                 if let Some(stem) = &manifest.stdlib {
-                    let Some(metamodel) = &manifest.metamodel else {
-                        // `ProjectManifest::resolve` refuses `stdlib`
-                        // unless the metamodel is a recognized OMG one,
-                        // so this cannot happen -- and a `format!` over
-                        // an absent prefix would write
-                        // `/Semantic-Library.kpar`.
-                        return Err(unreadable(&format_args!(
-                            "it carries `stdlib` but declares no `metamodel`, \
-                             so no standard-library IRI can be written"
-                        )));
-                    };
+                    // A resolved project declares one of the four
+                    // metamodels, and `resolve` refuses `stdlib` unless
+                    // it is a recognized OMG one, so the prefix is
+                    // there to be written.
                     return Ok(InterchangeProjectUsageRaw::Resource {
-                        resource: format!("{metamodel}/{stem}.kpar"),
+                        resource: format!("{}/{stem}.kpar", manifest.metamodel),
                         version_constraint: Some(caret(
                             &manifest.version.to_string(),
                             usage,

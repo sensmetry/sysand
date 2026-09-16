@@ -22,13 +22,11 @@ use spdx::Expression;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
 use crate::manifest::common::{InheritFrom, Maintainer, ResolvedUrls, is_valid_group_name};
-use crate::manifest::diagnostics::{
-    Diagnostic, KeyLocation, Position, ReadWarning, Report, Validated,
-};
-use crate::manifest::reader::{TableReader, checked, maintainers, parsed};
+use crate::manifest::diagnostics::{Diagnostic, KeyLocation, Position, Report, Validated};
+use crate::manifest::reader::{self, TableReader, checked, maintainers, parsed};
 use crate::manifest::spans::Positions;
 use crate::manifest::usage::{Usage, UsageRaw, UsageSite, check_duplicates};
-use crate::model::{IndexPublisher, Metamodel};
+use crate::model::{IndexPublisher, KnownMetamodel};
 use crate::utils::{NormalizeRelativeError, normalize_relative};
 
 /// The keys a group gives, the default group and a named one alike.
@@ -74,9 +72,7 @@ pub struct GroupProperties {
     pub version: Option<Version>,
     pub license: Option<Expression>,
     pub topics: Option<Vec<String>>,
-    /// Kept as written: model-toml.md warns about a value it does not
-    /// recognize rather than refusing it, so this is not an `Iri`.
-    pub metamodel: Option<String>,
+    pub metamodel: Option<KnownMetamodel>,
     pub maintainers: Option<Vec<Maintainer>>,
     pub urls: Option<ResolvedUrls>,
     /// `[[workspace.inline-usages]]` for the default group,
@@ -306,31 +302,7 @@ fn read_group(
     let topics = reader
         .strings("topics", report)
         .map(|values| values.into_iter().map(ToOwned::to_owned).collect());
-    let metamodel = reader.string("metamodel", report).and_then(|raw| {
-        // model-toml.md "Metamodel" opens with "`metamodel` is a URL",
-        // and only then says "Any other value is a warning, not an
-        // error": the other values are the other URLs. See
-        // `ProjectTable::validate`, which refuses a non-URL for the same
-        // reasons.
-        let metamodel = checked(
-            Metamodel::parse(raw),
-            reader,
-            "metamodel",
-            raw,
-            "a metamodel",
-            report,
-        )?;
-        if let Metamodel::Other(_) = metamodel {
-            report.push(
-                Diagnostic::from(ReadWarning::UnknownMetamodel {
-                    location: reader.location().clone(),
-                    value: raw.to_owned(),
-                })
-                .at_opt(reader.at("metamodel")),
-            );
-        }
-        Some(raw.to_owned())
-    });
+    let metamodel = reader::metamodel(reader, report);
     let maintainers = maintainers(reader, report);
     let urls = urls(reader, report);
     let inline_usages = group_usages(reader, table, report);

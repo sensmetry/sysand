@@ -61,8 +61,8 @@ pub enum InitError<ProjectError: ErrorBound> {
 /// [`ProjectTable`] holds the validated types, so parsing them is the
 /// only way to build one. A publisher or name the rule refuses is
 /// [`InitError::Identifier`].
-/// The metamodel, when given, must be an IRI, with a well-formed release
-/// if it is a recognized one, and is written as given.
+/// The metamodel, when given, must be one of the four a `model.toml`
+/// recognizes ([`InitError::Metamodel`]).
 pub fn do_init<P: ProjectMut>(
     name: String,
     publisher: String,
@@ -84,11 +84,14 @@ pub fn do_init<P: ProjectMut>(
     // A marker names a group, not a metamodel, so there is nothing to
     // parse: what it resolves to is the workspace's business, and the
     // reader's.
-    if let Some(MetaProperty::Provided(value)) = &metamodel
-        && KnownMetamodel::recognize(value).is_none()
-    {
-        return Err(InitError::Metamodel(value.as_str().into()));
-    }
+    let metamodel = metamodel
+        .map(|metamodel| match metamodel {
+            MetaProperty::Provided(value) => KnownMetamodel::recognize(&value)
+                .map(MetaProperty::Provided)
+                .ok_or_else(|| InitError::Metamodel(value.into())),
+            MetaProperty::Inherited(inherited) => Ok(MetaProperty::Inherited(inherited)),
+        })
+        .transpose()?;
 
     let creating = "Creating";
     let header = crate::style::get_style_config().header;

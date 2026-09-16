@@ -264,12 +264,10 @@ fn migrate_metamodel(
     meta: &InterchangeProjectMetadataRaw,
     options: &MigrateOptions,
     report: &mut Report,
-) -> Option<String> {
+) -> Option<KnownMetamodel> {
     let declared = meta.metamodel.as_ref();
-    if let Some(raw) = declared
-        && KnownMetamodel::recognize(raw).is_some()
-    {
-        return Some(raw.clone());
+    if let Some(metamodel) = declared.and_then(|raw| KnownMetamodel::recognize(raw)) {
+        return Some(metamodel);
     }
     let Some(supplied) = options.metamodel.as_ref() else {
         report.push(Diagnostic::error(match declared {
@@ -286,13 +284,13 @@ fn migrate_metamodel(
         }));
         return None;
     };
-    if KnownMetamodel::recognize(supplied).is_none() {
+    let Some(metamodel) = KnownMetamodel::recognize(supplied) else {
         report.push(Diagnostic::error(format!(
             "`{supplied}` is not a metamodel Sysand recognizes;\nit is one of {list}",
             list = KnownMetamodel::RECOGNIZED
         )));
         return None;
-    }
+    };
     // What is being dropped is worth saying, even though the fix is
     // already in hand.
     if let Some(raw) = declared {
@@ -306,7 +304,7 @@ fn migrate_metamodel(
             .to_string(),
         ));
     }
-    Some(supplied.clone())
+    Some(metamodel)
 }
 
 /// model-toml.md "JSON to TOML": the metadata keys that do not survive.

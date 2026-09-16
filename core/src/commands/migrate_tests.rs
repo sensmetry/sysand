@@ -209,7 +209,7 @@ fn declared_metamodel(manifest: &ModelToml) -> Option<String> {
         .metamodel
         .as_ref()
         .and_then(|property| property.provided())
-        .map(ToOwned::to_owned)
+        .map(ToString::to_string)
 }
 
 /// The value the json side declares is not one

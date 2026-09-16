@@ -33,13 +33,13 @@ use crate::manifest::inherit::{
     MetaProperty, from_group, inheritable, inheritable_table, own, resolve_optional,
     resolve_property,
 };
-use crate::manifest::reader::{TableReader, checked, maintainers, parsed};
+use crate::manifest::reader::{self, TableReader, checked, maintainers, parsed};
 use crate::manifest::spans::Positions;
 use crate::manifest::usage::{
     LocatedUsage, MemberUsage, Usage, UsageRaw, UsageSite, check_duplicates,
 };
 use crate::manifest::workspace_table::{GroupProperties, WorkspaceTable};
-use crate::model::{IndexName, IndexPublisher, KnownMetamodel, Metamodel, MetamodelFamily};
+use crate::model::{IndexName, IndexPublisher, KnownMetamodel, MetamodelFamily};
 
 /// Every key model-toml.md "Main project metadata" documents, in the
 /// order it documents them, which is the order a generated file writes.
@@ -96,9 +96,7 @@ pub struct ProjectTable {
     pub license: Option<MetaProperty<Expression>>,
     pub description: Option<String>,
     pub topics: Option<MetaProperty<Vec<String>>>,
-    /// Kept as written: model-toml.md warns about a value it does not
-    /// recognize rather than refusing it, so this is not an `Iri`.
-    pub metamodel: Option<MetaProperty<String>>,
+    pub metamodel: Option<MetaProperty<KnownMetamodel>>,
     pub maintainers: Option<MetaProperty<Vec<Maintainer>>>,
     /// model-toml.md "Standard library": not inheritable, so a plain
     /// value.
@@ -135,7 +133,10 @@ pub struct ResolvedProject {
     pub license: Option<Expression>,
     pub description: Option<String>,
     pub topics: Vec<String>,
-    pub metamodel: Option<String>,
+    /// model-toml.md "Metamodel": mandatory in a `model.toml`, and one
+    /// of exactly four values, so a resolved project always knows its
+    /// family, spec kind and release date.
+    pub metamodel: KnownMetamodel,
     pub maintainers: Vec<Maintainer>,
     pub stdlib: Option<StdlibStem>,
     pub urls: ResolvedUrls,
@@ -148,10 +149,6 @@ pub struct ResolvedProject {
 impl ResolvedProject {
     pub fn identity(&self) -> NormalizedIdentity {
         normalized_identity(&self.publisher, &self.name)
-    }
-
-    pub fn parsed_metamodel(&self) -> Option<Metamodel> {
-        Metamodel::parse(self.metamodel.as_deref()?).ok()
     }
 }
 
@@ -219,46 +216,16 @@ impl ProjectTable {
         // Read first: the metamodel selects the schema the rest of the
         // table is judged against (model-toml.md "Metamodel").
         let metamodel = inheritable(&reader, "metamodel", &mut report, |report| {
-            let raw = reader.string("metamodel", report)?;
-            // model-toml.md opens the section with "`metamodel` is a
-            // URL" and only then says "Any other value is a warning, not
-            // an error": the other values that sentence ranges over are
-            // the other URLs. A value that is not one is refused, as it
-            // is in a `.meta.json` (`InterchangeProjectMetadataRaw::validate`),
-            // which types the field as an IRI -- so a KPAR view built
-            // from a manifest that kept one could not be read back.
-            let metamodel = checked(
-                Metamodel::parse(raw),
-                &reader,
-                "metamodel",
-                raw,
-                "a metamodel",
-                report,
-            )?;
-            // A URL of neither recognized family is the warning.
-            if let Metamodel::Other(_) = metamodel {
-                report.push(
-                    Diagnostic::from(ReadWarning::UnknownMetamodel {
-                        location: reader.location().clone(),
-                        value: raw.to_owned(),
-                    })
-                    .at_opt(reader.at("metamodel")),
-                );
-            }
-            Some(raw.to_owned())
+            reader::metamodel(&reader, report)
         });
         // A `metamodel` that is written but could not be read says
         // nothing about the schema, so neither judgement that depends on
         // it runs: treating it as "no metamodel" would mean an OMG
         // schema, and a rule-(b) warning aimed at a project that may
-        // well have declared a Syside one.
+        // well have declared a Syside one. Reachable although an
+        // unrecognized value is an error: `metamodel = 3` is neither.
         let unreadable_metamodel = reader.has("metamodel") && metamodel.is_none();
         let declared = metamodel.as_ref().and_then(MetaProperty::provided);
-        // Rule (a): a complaint about a key in a project whose metamodel
-        // is unrecognized says the metamodel may be the reason.
-        let unrecognized = declared
-            .filter(|value| KnownMetamodel::recognize(value).is_none())
-            .cloned();
 
         let name = own(
             &reader,
@@ -336,19 +303,15 @@ impl ProjectTable {
             |_| reader.has("root").then_some(()),
         )
         .is_some();
-        let urls = inheritable_table(&reader, "urls", &mut report, |report| {
-            urls(&reader, unrecognized.as_deref(), report)
-        });
+        let urls = inheritable_table(&reader, "urls", &mut report, |report| urls(&reader, report));
 
         // Rule (b): "a key that belongs to another metamodel's schema
         // (`root` in an OMG-metamodel project) is a warning naming the
         // metamodel that supports it". A project that declares a Syside
         // metamodel is using its own schema, and gets the missing
         // `sources` error that names it from `resolve` instead.
-        let declares_syside = declared.is_some_and(|value| {
-            KnownMetamodel::recognize(value)
-                .is_some_and(|known| known.family == MetamodelFamily::Syside)
-        });
+        let declares_syside =
+            declared.is_some_and(|metamodel| metamodel.family == MetamodelFamily::Syside);
         if root && !declares_syside && !unreadable_metamodel {
             report.push(
                 Diagnostic::from(ReadWarning::ForeignSchemaKey {
@@ -369,14 +332,15 @@ impl ProjectTable {
             // been reported; saying it is missing as well would be two
             // complaints about one mistake.
             if !present && !reader.has(key) {
-                report.push(
-                    missing_key(key, reader.location(), unrecognized.as_deref())
-                        .at_opt(reader.here()),
-                );
+                report.push(missing_key(key, reader.location(), None).at_opt(reader.here()));
             }
         }
 
-        report.extend(reader.unknown_keys(PROJECT_KEYS, unrecognized.as_deref()));
+        // Rule (a)'s suffix -- "this may be because the project uses a
+        // metamodel this version of Sysand does not support" -- is for
+        // json projects only. A `model.toml` whose metamodel is
+        // unrecognized never reaches this line: it was refused above.
+        report.extend(reader.unknown_keys(PROJECT_KEYS, None));
         report.sort_by_position();
 
         // The value is built only once every key has been read, so that
@@ -453,7 +417,7 @@ fn sources_position(
         .or_else(|| reader.at("sources"))
 }
 
-fn urls(reader: &TableReader<'_>, unrecognized: Option<&str>, report: &mut Report) -> Option<Urls> {
+fn urls(reader: &TableReader<'_>, report: &mut Report) -> Option<Urls> {
     let urls = reader.table("urls", report)?;
     let one = |key: &str, report: &mut Report| {
         inheritable(&urls, key, report, |report| {
@@ -471,7 +435,7 @@ fn urls(reader: &TableReader<'_>, unrecognized: Option<&str>, report: &mut Repor
     let website = one("website", report);
     let documentation = one("documentation", report);
     let repository = one("repository", report);
-    report.extend(urls.unknown_keys(URL_KEYS, unrecognized));
+    report.extend(urls.unknown_keys(URL_KEYS, None));
     Some(Urls {
         website,
         documentation,
@@ -678,7 +642,7 @@ impl ProjectManifest {
         .flatten()
         .unwrap_or_default();
         // The outer `Option` is whether the key resolved at all, which is
-        // not the same as an absent `metamodel`: the two checks below are
+        // not the same as an absent `metamodel`: the checks below are
         // skipped entirely when it did not.
         let metamodel = collect(
             resolve_optional(
@@ -690,6 +654,26 @@ impl ProjectManifest {
             ),
             &mut report,
         );
+        // model-toml.md "Metamodel": "`metamodel` is a URL, and in a
+        // `model.toml` it is mandatory." Checked after inheritance,
+        // because a marker satisfies the requirement like any other
+        // value. Declared and group values alike were checked against
+        // the four when their tables were read.
+        let metamodel = match metamodel {
+            None => None,
+            Some(None) => {
+                report.push(
+                    Diagnostic::error(format!(
+                        "missing key `metamodel` in {};\nevery project declares one of {list}",
+                        KeyLocation::Table(TABLE.to_owned()),
+                        list = KnownMetamodel::RECOGNIZED,
+                    ))
+                    .at_opt(table_at.clone()),
+                );
+                None
+            }
+            Some(Some(value)) => Some(value),
+        };
         let urls = collect(resolve_urls(urls, workspace), &mut report);
 
         let mut usages = Vec::with_capacity(inline_usages.len());
@@ -712,20 +696,15 @@ impl ProjectManifest {
         // metamodel", and v1 knows only the OMG schema, so a
         // Syside-metamodel project fails here too -- with a message
         // naming its metamodel as unsupported.
-        let effective = metamodel.as_ref().map(|value| {
-            let value = value.as_deref()?;
-            Metamodel::parse(value).ok()
+        //
+        // A project whose `metamodel` is missing entirely still gets
+        // this: every one of the four requires `sources` in v1, so the
+        // plain missing-key text is right without a metamodel to name,
+        // and one report holds both problems.
+        let sources = sources.or_else(|| {
+            report.push(missing_sources(metamodel.as_ref()).at_opt(table_at));
+            None
         });
-        let sources = match (sources, effective.as_ref()) {
-            (Some(sources), _) => Some(sources),
-            // With an unresolved metamodel there is nothing to name, and
-            // the marker's own failure already fails this resolve.
-            (None, None) => None,
-            (None, Some(effective)) => {
-                report.push(missing_sources(effective.as_ref()).at_opt(table_at));
-                None
-            }
-        };
 
         // model-toml.md "Standard library": the key "is refused unless
         // the project's publisher normalizes to `omg` and its metamodel,
@@ -733,23 +712,18 @@ impl ProjectManifest {
         // its release date)".
         if stdlib.is_some()
             && let Some(publisher) = publisher.as_ref()
-            && let Some(effective) = effective.as_ref()
+            && let Some(kind) = metamodel.as_ref()
+            && (!publisher.is_stdlib_publisher() || kind.family != MetamodelFamily::Omg)
         {
-            let omg = effective
-                .as_ref()
-                .and_then(Metamodel::known)
-                .is_some_and(|known| known.family == MetamodelFamily::Omg);
-            if !publisher.is_stdlib_publisher() || !omg {
-                report.push(
-                    Diagnostic::error(format!(
-                        "`stdlib` is only allowed for the standard library itself: a publisher \
-                         normalizing to `omg` and an OMG metamodel;\n\
-                         found publisher `{publisher}` and {}",
-                        Metamodel::describe(effective.as_ref())
-                    ))
-                    .at_opt(stdlib_at),
-                );
-            }
+            report.push(
+                Diagnostic::error(format!(
+                    "`stdlib` is only allowed for the standard library itself: a publisher \
+                     normalizing to `omg` and an OMG metamodel;\n\
+                     found publisher `{publisher}` and {}",
+                    kind.describe()
+                ))
+                .at_opt(stdlib_at),
+            );
         }
 
         report.sort_by_position();
@@ -874,17 +848,18 @@ fn from_group_usage(
 /// The error for a missing `sources`. A Syside-metamodel project is
 /// named as such; an unrecognized metamodel gets rule (a)'s suffix, as
 /// every other missing key does.
-fn missing_sources(metamodel: Option<&Metamodel>) -> Diagnostic {
+fn missing_sources(metamodel: Option<&KnownMetamodel>) -> Diagnostic {
     let location = KeyLocation::Table(TABLE.to_owned());
     match metamodel {
-        Some(Metamodel::Known(known)) if known.family == MetamodelFamily::Syside => {
-            Diagnostic::error(format!(
-                "missing key `sources` in {location}; the project declares the Syside metamodel \
-                 `{known}`,\nwhose schema this version of Sysand does not support"
-            ))
-        }
-        Some(Metamodel::Other(iri)) => missing_key("sources", &location, Some(iri.as_str())),
-        _ => Diagnostic::error(format!(
+        Some(kind) if kind.family == MetamodelFamily::Syside => Diagnostic::error(format!(
+            "missing key `sources` in {location}; the project declares the Syside metamodel \
+             `{kind}`,\nwhose schema this version of Sysand does not support"
+        )),
+        // No metamodel to name -- it is missing too, and said so -- but
+        // every one of the four requires `sources` in v1, so the key is
+        // missing whichever one this project turns out to declare.
+        None => missing_key("sources", &location, None),
+        Some(_) => Diagnostic::error(format!(
             "missing key `sources` in {location}; the OMG metamodel requires it\n\
              (a project with no source files writes `sources = []`)"
         )),

@@ -122,7 +122,7 @@ fn project_table(project: &ProjectTable) -> Table {
                 Value::Array(topics.iter().map(String::as_str).collect())
             }),
             "metamodel" => optional(&mut table, key, project.metamodel.as_ref(), |value| {
-                Value::from(value.as_str())
+                Value::from(value.to_string())
             }),
             "maintainers" => optional(&mut table, key, project.maintainers.as_ref(), |list| {
                 Value::Array(list.iter().map(ToString::to_string).collect())
@@ -335,7 +335,7 @@ fn group(table: &mut Table, properties: &GroupProperties) {
             }
             "metamodel" => {
                 if let Some(metamodel) = &properties.metamodel {
-                    table[key] = value(metamodel.as_str());
+                    table[key] = value(metamodel.to_string());
                 }
             }
             "maintainers" => {

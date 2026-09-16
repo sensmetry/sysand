@@ -19,6 +19,7 @@ publisher = \"acme\"
 name = \"widgets\"
 version = \"1.2.3\"
 sources = []
+metamodel = \"https://www.omg.org/spec/SysML/20250201\"
 ";
 
 /// A workspace on disk: a root manifest and a tree of member
@@ -443,6 +444,7 @@ publisher = \"acme\"
 name = \"widgets\"
 version.workspace = true
 sources = []
+metamodel = \"https://www.omg.org/spec/SysML/20250201\"
 ";
 
 /// A member's own marker cannot be followed by anything that does not
