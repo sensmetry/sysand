@@ -7,7 +7,7 @@ use super::{IncludeError, do_include};
 use crate::commands::exclude::{ExcludeError, do_exclude};
 use crate::project::{ProjectMut as _, memory::InMemoryProject};
 
-const MANIFEST: &str = "manifest-version = 1\n\n\
+const MANIFEST: &str = "manifest-version = \"1.0.0\"\n\n\
                         [project]\n\
                         publisher = \"acme\"\n\
                         name = \"widgets\"\n\
@@ -159,7 +159,7 @@ fn force_format_is_refused_on_a_toml_project() {
 
 #[test]
 fn including_into_a_manifest_without_sources_says_to_add_one() {
-    let bare = "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\n";
+    let bare = "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\n";
     let mut project = InMemoryProject {
         model_toml: Some(bare.to_owned()),
         ..InMemoryProject::default()
@@ -183,7 +183,7 @@ fn excluding_a_source_removes_it_from_the_manifest() {
 
 #[test]
 fn excluding_keeps_the_comment_on_a_neighbouring_entry() {
-    let commented = "manifest-version = 1\n\n\
+    let commented = "manifest-version = \"1.0.0\"\n\n\
                      [project]\n\
                      publisher = \"acme\"\n\
                      name = \"widgets\"\n\

@@ -42,7 +42,7 @@ fn places(report: &Report) -> Vec<(usize, usize)> {
 
 /// The smallest file that defines a project.
 const PROJECT: &str = "\
-manifest-version = 1
+manifest-version = \"1.0.0\"
 
 [project]
 publisher = \"acme\"
@@ -53,11 +53,18 @@ sources = []
 
 /// The smallest file that defines a workspace.
 const WORKSPACE: &str = "\
-manifest-version = 1
+manifest-version = \"1.0.0\"
 
 [workspace]
 members = [\"projects/a\"]
 ";
+
+/// `PROJECT` without its `manifest-version` line, for the tests that
+/// supply their own. The line's length is not a constant worth
+/// retyping: getting it wrong truncates the fixture silently.
+fn project_body() -> &'static str {
+    PROJECT.split_once('\n').expect("a first line").1
+}
 
 // ----------------------------------------------------------------------
 // Manifest version
@@ -70,8 +77,8 @@ fn a_manifest_version_is_required() {
     );
     assert_eq!(
         texts(&report)[0],
-        "`model.toml` has no `manifest-version`; every `model.toml` starts with \
-         `manifest-version = 1`"
+        "`model.toml` has no usable `manifest-version`; every `model.toml` starts with \
+         `manifest-version = \"1.0.0\"`"
     );
     // A problem with the file as a whole has no key to point at, so it
     // points at the start of the file -- and therefore sorts first.
@@ -84,7 +91,7 @@ fn a_manifest_version_is_required() {
 fn a_missing_version_does_not_stop_the_read() {
     let report = rejected("[project]\nsources = []\n");
     assert_eq!(texts(&report).len(), 4, "unexpected report: {report}");
-    assert!(texts(&report)[0].contains("has no `manifest-version`"));
+    assert!(texts(&report)[0].contains("has no usable `manifest-version`"));
     assert!(
         texts(&report)[1..]
             .iter()
@@ -96,12 +103,29 @@ fn a_missing_version_does_not_stop_the_read() {
 /// The message is a text the specification fixes.
 #[test]
 fn a_newer_manifest_version_is_refused() {
-    let report = rejected(&format!("manifest-version = 2\n{}", &PROJECT[21..]));
+    let report = rejected(&format!("manifest-version = \"2.0.0\"\n{}", project_body()));
     assert_eq!(
         texts(&report),
         [
-            "`model.toml` is written for manifest-version 2; this Sysand supports up to 1; \
-          update Sysand"
+            "`model.toml` is written for manifest-version 2.0.0; this Sysand supports up to \
+             1.0.0; update Sysand"
+        ]
+    );
+}
+
+/// model-toml.md: "Additions to the common schema [...] bump the minor
+/// version, and are refused by an older reader like any other version
+/// it does not know: a reader that ignored them would misread the file,
+/// which is the hole the key exists to close." The whole point of the
+/// key being a semver version rather than a number.
+#[test]
+fn an_unknown_minor_is_refused() {
+    let report = rejected(&format!("manifest-version = \"1.1.0\"\n{}", project_body()));
+    assert_eq!(
+        texts(&report),
+        [
+            "`model.toml` is written for manifest-version 1.1.0; this Sysand supports up to \
+             1.0.0; update Sysand"
         ]
     );
 }
@@ -112,7 +136,7 @@ fn a_newer_manifest_version_is_refused() {
 /// something else here.
 #[test]
 fn a_newer_version_stops_the_read() {
-    let report = rejected("manifest-version = 2\n\n[project]\nsources = []\n");
+    let report = rejected("manifest-version = \"2.0.0\"\n\n[project]\nsources = []\n");
     assert_eq!(texts(&report).len(), 1, "unexpected report: {report}");
 }
 
@@ -122,24 +146,54 @@ fn the_supported_version_is_accepted() {
 }
 
 /// model-toml.md names exactly two failures, absent and too new, so a
-/// smaller number is read as this version. Almost certainly a typo for
-/// `1`; refusing it would be a third rule the specification does not
-/// state. Pinned so that changing it is deliberate.
+/// version below this one is read as this one. Almost certainly a typo;
+/// refusing it would be a third rule the specification does not state.
+/// Pinned so that changing it is deliberate.
 #[test]
-fn a_version_of_zero_or_less_is_accepted() {
-    for version in ["0", "-1"] {
-        let text = format!("manifest-version = {version}\n{}", &PROJECT[21..]);
+fn a_version_below_the_supported_one_is_accepted() {
+    for version in ["1.0.0", "0.9.0", "0.0.0"] {
+        let text = format!("manifest-version = \"{version}\"\n{}", project_body());
         assert!(parse(&text).is_ok(), "{version}");
     }
 }
 
+/// One text for absent, not a string and not a semver version, with
+/// the value as the file spells it.
 #[test]
-fn a_manifest_version_that_is_not_an_integer_is_refused() {
-    let report = rejected(&format!("manifest-version = \"1\"\n{}", &PROJECT[21..]));
+fn a_manifest_version_that_is_not_a_string_is_refused() {
+    // The comment moves the key off the first line: an absent version
+    // is reported at the start of the file, a written one at its key,
+    // and a fixture starting with the key cannot tell the two apart.
+    let report = rejected(&format!(
+        "# a file\nmanifest-version = 1\n{}",
+        project_body()
+    ));
     assert_eq!(
         texts(&report),
-        ["`manifest-version` in the top level must be an integer, but it is a string"]
+        [
+            "`model.toml` has no usable `manifest-version` (`1`); every `model.toml` starts \
+             with `manifest-version = \"1.0.0\"`"
+        ]
     );
+    assert_eq!(places(&report), [(2, 1)]);
+}
+
+#[test]
+fn a_manifest_version_that_is_not_semver_is_refused() {
+    for version in ["1", "1.0", "one"] {
+        let report = rejected(&format!(
+            "manifest-version = \"{version}\"\n{}",
+            project_body()
+        ));
+        assert_eq!(
+            texts(&report),
+            [format!(
+                "`model.toml` has no usable `manifest-version` (`\"{version}\"`); every \
+                 `model.toml` starts with `manifest-version = \"1.0.0\"`"
+            )],
+            "{version}"
+        );
+    }
 }
 
 /// workspaces.md "Common metadata": "`manifest-version` is not a
@@ -148,7 +202,7 @@ fn a_manifest_version_that_is_not_an_integer_is_refused() {
 fn a_manifest_version_cannot_be_inherited() {
     let report = rejected(&format!(
         "manifest-version.workspace = true\n{}",
-        &PROJECT[21..]
+        project_body()
     ));
     assert_eq!(
         texts(&report),
@@ -160,12 +214,12 @@ fn a_manifest_version_cannot_be_inherited() {
 }
 
 /// workspaces.md: "Like every `model.toml`, a workspace config starts
-/// with `manifest-version = 1`."
+/// with `manifest-version`."
 #[test]
 fn a_workspace_config_carries_a_version_too() {
     let report = rejected("[workspace]\nmembers = []\n");
     assert!(
-        texts(&report)[0].contains("has no `manifest-version`"),
+        texts(&report)[0].contains("has no usable `manifest-version`"),
         "unexpected report: {report}"
     );
 }
@@ -206,7 +260,7 @@ fn both_tables_in_one_file_are_refused() {
 /// is what a mistyped table name would otherwise become".
 #[test]
 fn neither_table_is_refused() {
-    let report = rejected("manifest-version = 1\n[projct]\nname = \"typo\"\n");
+    let report = rejected("manifest-version = \"1.0.0\"\n[projct]\nname = \"typo\"\n");
     assert_eq!(
         texts(&report)[0],
         "`model.toml` defines neither `[project]` nor `[workspace]`;\n\
@@ -221,7 +275,7 @@ fn neither_table_is_refused() {
 /// and further from the fix.
 #[test]
 fn a_scalar_project_key_still_defines_a_project() {
-    let report = rejected("manifest-version = 1\nproject = 3\n");
+    let report = rejected("manifest-version = \"1.0.0\"\nproject = 3\n");
     assert_eq!(
         texts(&report),
         ["`project` in the top level must be a table, but it is an integer"]
@@ -234,14 +288,15 @@ fn a_scalar_project_key_still_defines_a_project() {
 /// workspace root must not contain a project" is what says so.
 #[test]
 fn a_scalar_project_key_beside_a_workspace_is_the_exclusivity_error() {
-    let report = rejected("manifest-version = 1\nproject = 3\n\n[workspace]\nmembers = []\n");
+    let report =
+        rejected("manifest-version = \"1.0.0\"\nproject = 3\n\n[workspace]\nmembers = []\n");
     assert_eq!(texts(&report).len(), 1, "unexpected report: {report}");
     assert!(texts(&report)[0].contains("defines both"));
 }
 
 #[test]
 fn a_workspace_that_is_not_a_table_is_one_diagnostic() {
-    let report = rejected("manifest-version = 1\nworkspace = 3\n");
+    let report = rejected("manifest-version = \"1.0.0\"\nworkspace = 3\n");
     assert_eq!(
         texts(&report),
         ["`workspace` in the top level must be a table, but it is an integer"]
@@ -269,7 +324,7 @@ fn a_workspace_config_has_no_top_level_inline_usages() {
 #[test]
 fn an_empty_inline_usages_array_is_refused_too() {
     let report =
-        rejected("manifest-version = 1\ninline-usages = []\n\n[workspace]\nmembers = []\n");
+        rejected("manifest-version = \"1.0.0\"\ninline-usages = []\n\n[workspace]\nmembers = []\n");
     assert_eq!(texts(&report).len(), 1, "unexpected report: {report}");
     assert!(texts(&report)[0].contains("no top-level `inline-usages`"));
 }
@@ -280,8 +335,8 @@ fn an_empty_inline_usages_array_is_refused_too() {
 #[test]
 fn an_unknown_top_level_key_is_a_warning() {
     let validated = accepted(&format!(
-        "manifest-version = 1\ncolour = \"red\"\n{}metamodel = \"https://example.com/other\"\n",
-        &PROJECT[21..]
+        "manifest-version = \"1.0.0\"\ncolour = \"red\"\n{}metamodel = \"https://example.com/other\"\n",
+        project_body()
     ));
     assert_eq!(
         messages(&validated.warnings)[0],
@@ -295,7 +350,7 @@ fn an_unknown_top_level_key_is_a_warning() {
     );
 
     let validated =
-        accepted("manifest-version = 1\ncolour = \"red\"\n\n[workspace]\nmembers = []\n");
+        accepted("manifest-version = \"1.0.0\"\ncolour = \"red\"\n\n[workspace]\nmembers = []\n");
     assert_eq!(
         messages(&validated.warnings),
         ["unknown top-level key `colour`"]
@@ -306,8 +361,9 @@ fn an_unknown_top_level_key_is_a_warning() {
 /// with both is refused once rather than described twice.
 #[test]
 fn both_tables_are_refused_before_either_is_read() {
-    let report =
-        rejected("manifest-version = 1\n\n[project]\nversion = 3\n\n[workspace]\nmembers = 3\n");
+    let report = rejected(
+        "manifest-version = \"1.0.0\"\n\n[project]\nversion = 3\n\n[workspace]\nmembers = 3\n",
+    );
     assert_eq!(texts(&report).len(), 1, "unexpected report: {report}");
 }
 
@@ -320,7 +376,7 @@ fn both_tables_are_refused_before_either_is_read() {
 #[test]
 fn a_report_covers_both_levels_of_the_file() {
     const TEXT: &str = "\
-manifest-version = 1
+manifest-version = \"1.0.0\"
 colour = \"red\"
 
 [project]
@@ -395,7 +451,7 @@ fn peek_answers_without_validating() {
 #[test]
 fn peek_on_a_file_with_neither_table_is_none() {
     assert_eq!(
-        ModelToml::peek(FILE, "manifest-version = 1\n").expect("parses"),
+        ModelToml::peek(FILE, "manifest-version = \"1.0.0\"\n").expect("parses"),
         None
     );
 }
@@ -417,7 +473,7 @@ fn peek_on_a_file_with_neither_table_is_none() {
 /// The frame a project fragment is completed with.
 fn as_project_file(fragment: &str) -> String {
     format!(
-        "manifest-version = 1\n\n\
+        "manifest-version = \"1.0.0\"\n\n\
          [project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\n\
          sources = []\n\n{fragment}"
     )
@@ -425,7 +481,7 @@ fn as_project_file(fragment: &str) -> String {
 
 /// The frame a workspace fragment is completed with.
 fn as_workspace_file(fragment: &str) -> String {
-    format!("manifest-version = 1\n\n{fragment}")
+    format!("manifest-version = \"1.0.0\"\n\n{fragment}")
 }
 
 /// model-toml.md, "Manifest version" and "Standard library".
@@ -434,7 +490,7 @@ fn every_example_in_model_toml_parses() {
     // "Manifest version". A `[project]` with only a comment in it, so
     // the required keys complete it rather than frame it.
     accepted(
-        "manifest-version = 1\n\n\
+        "manifest-version = \"1.0.0\"\n\n\
          [project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\n",
     );
 
@@ -450,7 +506,7 @@ fn every_example_in_model_toml_parses() {
     // "Developing the standard library": the `[project]` of one of the
     // ten projects, which inherits its metamodel from a group.
     accepted(
-        "manifest-version = 1\n\n\
+        "manifest-version = \"1.0.0\"\n\n\
          [project]\n\
          publisher = \"OMG\"\n\
          name = \"Kernel Semantic Library\"\n\
@@ -466,7 +522,7 @@ fn every_example_in_model_toml_parses() {
 fn every_example_in_workspaces_md_parses() {
     // "Config": the one example in either document that is a whole file.
     let read = accepted(
-        "manifest-version = 1\n\n\
+        "manifest-version = \"1.0.0\"\n\n\
          [workspace]\n\
          members = [\"folder1\", \"folder2/subfolder1\"]\n\
          exclude = [\"vendor\"]\n",

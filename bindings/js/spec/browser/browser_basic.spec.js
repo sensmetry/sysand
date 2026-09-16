@@ -42,8 +42,8 @@ it("can initialise a project in browser local storage", async function () {
     "MIT OR Apache-2.0",
   );
   expect(window.localStorage.getItem("sysand_storage/model.toml")).toBe(
-    "manifest-version = 1\n\n" +
-      "[project]\n" +
+    'manifest-version = "1.0.0"\n\n' +
+      '[project]\n' +
       'publisher = "acme"\n' +
       'name = "basic-init"\n' +
       'version = "1.2.3"\n' +

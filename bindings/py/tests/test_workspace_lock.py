@@ -23,13 +23,13 @@ def workspace(root: Path, members: dict[str, str]) -> None:
     manifest body its project carries."""
     listed = ", ".join(f'"{name}"' for name in members)
     (root / "model.toml").write_text(
-        f"manifest-version = 1\n\n[workspace]\nmembers = [{listed}]\n"
+        f'manifest-version = "1.0.0"\n\n[workspace]\nmembers = [{listed}]\n'
     )
     for name, extra in members.items():
         member = root / name
         member.mkdir(parents=True, exist_ok=True)
         (member / "model.toml").write_text(
-            "manifest-version = 1\n\n[project]\n"
+            'manifest-version = "1.0.0"\n\n[project]\n'
             f'publisher = "acme"\nname = "{name}"\nversion = "1.0.0"\n'
             f"sources = []\n{extra}"
         )

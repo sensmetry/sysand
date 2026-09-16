@@ -66,7 +66,7 @@ def test_basic_init(caplog: pytest.LogCaptureFixture) -> None:
         # what a legacy project has.
         with open(Path(tmpdirname) / "model.toml", "r") as f:
             assert f.read() == (
-                "manifest-version = 1\n"
+                'manifest-version = "1.0.0"\n'
                 "\n"
                 "[project]\n"
                 'publisher = "acme"\n'
@@ -998,7 +998,7 @@ def test_discover(tmp_path: Path) -> None:
     assert sysand.discover(path=root)["project_root"] == str(sysand.root(path=root))
 
     (tmp_path / "ws" / "model.toml").write_text(
-        'manifest-version = 1\n\n[workspace]\nmembers = ["proj"]\n'
+        'manifest-version = "1.0.0"\n\n[workspace]\nmembers = ["proj"]\n'
     )
     found = sysand.discover(path=nested)
     assert found["workspace_root"] is not None
@@ -1039,7 +1039,7 @@ def test_discover_rejects_a_nested_workspace(tmp_path: Path) -> None:
     sysand.init("nested", "acme", "1.0.0", proj)
     for at, members in ((tmp_path / "outer", "inner"), (inner, "proj")):
         (at / "model.toml").write_text(
-            f'manifest-version = 1\n\n[workspace]\nmembers = ["{members}"]\n'
+            f'manifest-version = "1.0.0"\n\n[workspace]\nmembers = ["{members}"]\n'
         )
 
     with pytest.raises(sysand.ProjectError):

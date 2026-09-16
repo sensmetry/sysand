@@ -234,7 +234,7 @@ fn a_derived_enum_reports_the_format_of_its_variant() {
 }
 
 fn a_manifest() -> DocumentMut {
-    "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n"
+    "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n"
         .parse()
         .expect("a valid manifest document")
 }
@@ -273,7 +273,7 @@ fn a_project_without_a_manifest_has_no_document() {
 fn a_memory_project_hands_back_its_manifest_document() {
     // Comments included: what an editor needs is what the file says,
     // not the values `manifest()` resolves out of it.
-    let commented = "manifest-version = 1\n\n[project]\n# who publishes it\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n";
+    let commented = "manifest-version = \"1.0.0\"\n\n[project]\n# who publishes it\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n";
     let mut project = InMemoryProject::default();
     project
         .put_manifest_document(&commented.parse().expect("a manifest"), false)
@@ -288,7 +288,7 @@ fn a_manifest_this_sysand_cannot_read_is_refused_before_it_is_edited() {
     // Parsing TOML is not reading a manifest. A file written for a
     // version this Sysand does not support parses perfectly well and
     // must not be edited.
-    let newer = "manifest-version = 2\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n";
+    let newer = "manifest-version = \"2.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n";
     let project = InMemoryProject {
         model_toml: Some(newer.to_owned()),
         ..InMemoryProject::default()

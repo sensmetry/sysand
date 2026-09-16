@@ -116,7 +116,7 @@ fn toml_project(body: &str) -> Result<camino_tempfile::Utf8TempDir, Box<dyn std:
     std::fs::write(
         dir.path().join("model.toml"),
         format!(
-            "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
+            "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
              version = \"1.0.0\"\nsources = [\"a.sysml\"]\n{body}"
         ),
     )?;
@@ -380,12 +380,12 @@ fn a_workspace_of_toml_members_records_the_build_time() -> Result<(), Box<dyn st
     let dir = tempdir()?;
     std::fs::write(
         dir.path().join(MODEL_TOML_FILE),
-        "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\n",
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\"]\n",
     )?;
     std::fs::create_dir_all(dir.path().join("app"))?;
     std::fs::write(
         dir.path().join("app/model.toml"),
-        "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"alpha\"\n\
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"alpha\"\n\
          version = \"1.0.0\"\nsources = [\"a.sysml\"]\n",
     )?;
     std::fs::write(dir.path().join("app/a.sysml"), b"package A;\n")?;
@@ -420,7 +420,7 @@ fn a_stdlib_project_omits_its_publisher() -> Result<(), Box<dyn std::error::Erro
     let dir = tempdir()?;
     std::fs::write(
         dir.path().join("model.toml"),
-        "manifest-version = 1\n\n[project]\npublisher = \"omg\"\nname = \"kerml\"\n\
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"omg\"\nname = \"kerml\"\n\
          version = \"1.0.0\"\nsources = [\"a.sysml\"]\nstdlib = \"KerML\"\n\
          metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n",
     )?;
@@ -471,7 +471,7 @@ fn toml_target(dir: &camino_tempfile::Utf8TempDir, at: &str, version: &str, body
     std::fs::write(
         path.join("model.toml"),
         format!(
-            "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"dep\"\n\
+            "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"dep\"\n\
              version = \"{version}\"\nsources = [\"b.sysml\"]\n{body}"
         ),
     )
@@ -490,7 +490,7 @@ fn stdlib_target(dir: &camino_tempfile::Utf8TempDir, at: &str) {
     std::fs::create_dir_all(&path).expect("the target directory");
     std::fs::write(
         path.join("model.toml"),
-        "manifest-version = 1\n\n[project]\npublisher = \"omg\"\nname = \"dep\"\n\
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"omg\"\nname = \"dep\"\n\
          version = \"1.0.0\"\nsources = [\"b.kerml\"]\nstdlib = \"Semantic-Library\"\n\
          metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n",
     )
@@ -692,7 +692,7 @@ fn a_kpar_path_usage_becomes_a_caret_purl() -> Result<(), Box<dyn std::error::Er
     let target_dir = tempdir()?;
     std::fs::write(
         target_dir.path().join("model.toml"),
-        "manifest-version = 1\n\n[project]\npublisher = \"omg\"\nname = \"dep\"\n\
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"omg\"\nname = \"dep\"\n\
          version = \"7.8.9\"\nsources = [\"a.kerml\"]\nstdlib = \"Semantic-Library\"\n\
          metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n",
     )?;
@@ -771,7 +771,7 @@ fn workspace_root(dir: &camino_tempfile::Utf8TempDir, members: &[&str]) {
     std::fs::write(
         dir.path().join(MODEL_TOML_FILE),
         format!(
-            "manifest-version = 1\n\n[workspace]\nmembers = [{}]\n",
+            "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [{}]\n",
             entries.join(", ")
         ),
     )
@@ -794,13 +794,13 @@ fn toml_member(dir: &camino_tempfile::Utf8TempDir, at: &str, deps: &[&str], stdl
     std::fs::create_dir_all(&path).expect("the member directory");
     let head = if stdlib {
         format!(
-            "manifest-version = 1\n\n[project]\npublisher = \"omg\"\nname = \"{at}\"\n\
+            "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"omg\"\nname = \"{at}\"\n\
              version = \"1.0.0\"\nsources = [\"m.kerml\"]\nstdlib = \"Semantic-Library\"\n\
              metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n"
         )
     } else {
         format!(
-            "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"{at}\"\n\
+            "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"{at}\"\n\
              version = \"1.0.0\"\nsources = [\"m.kerml\"]\n"
         )
     };
@@ -896,7 +896,7 @@ fn broken_member(dir: &camino_tempfile::Utf8TempDir, at: &str) {
     std::fs::write(
         path.join(MODEL_TOML_FILE),
         format!(
-            "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"{at}\"\n\
+            "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"{at}\"\n\
              version = \"1.0.0\"\nsources = [\"missing.kerml\"]\n"
         ),
     )
@@ -1053,7 +1053,7 @@ fn a_member_that_inherits_can_be_a_usage_target() -> Result<(), Box<dyn std::err
     workspace_root(&dir, &["app", "dep"]);
     std::fs::write(
         dir.path().join(MODEL_TOML_FILE),
-        "manifest-version = 1\n\n[workspace]\nmembers = [\"app\", \"dep\"]\n\
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\", \"dep\"]\n\
          metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
     )?;
     for (at, extra) in [
@@ -1068,7 +1068,7 @@ fn a_member_that_inherits_can_be_a_usage_target() -> Result<(), Box<dyn std::err
         std::fs::write(
             path.join(MODEL_TOML_FILE),
             format!(
-                "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"{at}\"\n\
+                "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"{at}\"\n\
                  version = \"1.0.0\"\nmetamodel.workspace = true\n\
                  sources = [\"m.kerml\"]\n{extra}"
             ),

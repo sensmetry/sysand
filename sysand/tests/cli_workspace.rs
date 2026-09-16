@@ -25,7 +25,7 @@ mod common;
 pub use common::*;
 
 const MEMBER: &str = "\
-manifest-version = 1
+manifest-version = \"1.0.0\"
 
 [project]
 publisher = \"acme\"
@@ -44,7 +44,7 @@ fn workspace(root_text: &str) -> Result<camino_tempfile::Utf8TempDir, Box<dyn st
     Ok(dir)
 }
 
-const ROOT: &str = "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\n";
+const ROOT: &str = "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\"]\n";
 
 /// A `sysand.toml` whose one override points `urn:kpar:local-dep` at
 /// `src_path`, written at `at`.
@@ -246,7 +246,8 @@ fn outside_a_workspace_the_project_root_is_still_used() -> Result<(), Box<dyn st
 /// workspace lock reads every member.
 #[test]
 fn a_missing_member_refuses_the_lock() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = workspace("manifest-version = 1\n\n[workspace]\nmembers = [\"app\", \"gone\"]\n")?;
+    let dir =
+        workspace("manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\", \"gone\"]\n")?;
     let member = dir.path().join("app");
 
     run_sysand_discovering(&member, ["lock"])?
@@ -516,7 +517,7 @@ fn clone_runs_in_an_unlisted_project() -> Result<(), Box<dyn std::error::Error>>
 #[test]
 fn an_excluded_project_is_not_unlisted() -> Result<(), Box<dyn std::error::Error>> {
     let dir = workspace(
-        "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\nexclude = [\"vendor\"]\n",
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\"]\nexclude = [\"vendor\"]\n",
     )?;
     let excluded = dir.path().join("vendor/other");
     dependency(dir.path(), "vendor/other")?;
@@ -602,7 +603,7 @@ fn print_root_at_the_workspace_root_prints_it() -> Result<(), Box<dyn std::error
 fn print_root_in_an_excluded_project_prints_that_project() -> Result<(), Box<dyn std::error::Error>>
 {
     let (dir, root) = canonical_workspace(
-        "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\nexclude = [\"vendor\"]\n",
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\"]\nexclude = [\"vendor\"]\n",
     )?;
     dependency(dir.path(), "vendor/other")?;
     run_sysand_discovering(&dir.path().join("vendor/other"), ["print-root"])?
@@ -646,14 +647,14 @@ fn two_member_workspace() -> Result<camino_tempfile::Utf8TempDir, Box<dyn std::e
     let dir = camino_tempfile::tempdir()?;
     std::fs::write(
         dir.path().join("model.toml"),
-        "manifest-version = 1\n\n[workspace]\nmembers = [\"app\", \"libs/gamma\"]\n",
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\", \"libs/gamma\"]\n",
     )?;
     std::fs::create_dir_all(dir.path().join("app"))?;
     std::fs::write(dir.path().join("app/model.toml"), MEMBER)?;
     std::fs::create_dir_all(dir.path().join("libs/gamma"))?;
     std::fs::write(
         dir.path().join("libs/gamma/model.toml"),
-        "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"gamma\"\n\
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"gamma\"\n\
          version = \"1.0.0\"\nsources = []\n\n\
          [[inline-usages]]\npublisher = \"acme\"\nname = \"alpha\"\ndir = \"../../app\"\n",
     )?;

@@ -19,7 +19,7 @@ fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(
         memory_storage.model_toml.as_deref(),
         Some(
-            "manifest-version = 1\n\n\
+            "manifest-version = \"1.0.0\"\n\n\
              [project]\n\
              publisher = \"echo\"\n\
              name = \"init-basic\"\n\

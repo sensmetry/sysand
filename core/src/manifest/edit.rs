@@ -67,7 +67,7 @@ use crate::project::utils::ProjectDeserializationError;
 /// have is not a key with a default, and is left out.
 pub fn render_new(model: &ModelToml) -> DocumentMut {
     let mut doc = DocumentMut::new();
-    doc["manifest-version"] = value(SUPPORTED_MANIFEST_VERSION);
+    doc["manifest-version"] = value(SUPPORTED_MANIFEST_VERSION.to_string());
     match model {
         ModelToml::Project(manifest) => {
             doc["project"] = Item::Table(project_table(&manifest.project));

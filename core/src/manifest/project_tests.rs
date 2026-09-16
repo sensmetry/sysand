@@ -93,7 +93,7 @@ fn without(key: &str) -> String {
 /// `[[inline-usages]]` entry per kind declarable in v1. Ported from the
 /// prototype's `FULL_PROJECT_TOML`.
 const FULL: &str = "\
-manifest-version = 1
+manifest-version = \"1.0.0\"
 
 [project]
 publisher = \"acme\"

@@ -232,7 +232,7 @@ fn a_hand_written_project_refuses_a_manifest() {
     use sysand_core::project::ManifestWriteError;
 
     let document: DocumentMut =
-        "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n"
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n"
             .parse()
             .expect("a valid manifest document");
 

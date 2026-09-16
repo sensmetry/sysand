@@ -131,7 +131,7 @@ fn maximal() -> ModelToml {
     )
 }
 
-const MAXIMAL: &str = r#"manifest-version = 1
+const MAXIMAL: &str = r#"manifest-version = "1.0.0"
 
 [project]
 publisher = "OMG"
@@ -192,7 +192,7 @@ fn only_the_keys_a_manifest_has_are_written() {
     // key even when the list is empty.
     assert_eq!(
         render(&project(built())),
-        r#"manifest-version = 1
+        r#"manifest-version = "1.0.0"
 
 [project]
 publisher = "acme"
@@ -311,7 +311,7 @@ fn a_generated_file_carries_no_comments() {
 #[test]
 fn a_generated_file_states_the_supported_manifest_version() {
     assert!(render(&maximal()).starts_with(&format!(
-        "manifest-version = {SUPPORTED_MANIFEST_VERSION}\n"
+        "manifest-version = \"{SUPPORTED_MANIFEST_VERSION}\"\n"
     )));
 }
 
@@ -454,7 +454,7 @@ fn workspace() -> ModelToml {
     }))
 }
 
-const WORKSPACE: &str = r#"manifest-version = 1
+const WORKSPACE: &str = r#"manifest-version = "1.0.0"
 
 [workspace]
 members = ["app", "lib"]
@@ -557,7 +557,7 @@ fn a_generated_workspace_file_parses_back_into_itself() {
 // ---------------------------------------------------------------------
 
 /// A manifest with a comment in every place a comment can be.
-const COMMENTED: &str = r#"manifest-version = 1
+const COMMENTED: &str = r#"manifest-version = "1.0.0"
 
 # what this project is
 [project]
@@ -593,7 +593,7 @@ fn opened(text: &str) -> DocumentMut {
 
 #[test]
 fn a_file_that_is_not_toml_is_refused_the_way_reading_refuses_it() {
-    let broken = "manifest-version = 1\n[project\n";
+    let broken = "manifest-version = \"1.0.0\"\n[project\n";
 
     let editing = open("model.toml", broken).expect_err("not valid TOML");
     let reading = ModelToml::parse("model.toml", broken).expect_err("not valid TOML");
@@ -650,7 +650,7 @@ fn setting_a_key_that_is_not_there_appends_it_inside_the_table() {
 
 #[test]
 fn an_edit_keeps_keys_in_the_order_the_file_wrote_them() {
-    let scrambled = "manifest-version = 1\n\n[project]\nversion = \"1.0.0\"\nname = \"widgets\"\npublisher = \"acme\"\n";
+    let scrambled = "manifest-version = \"1.0.0\"\n\n[project]\nversion = \"1.0.0\"\nname = \"widgets\"\npublisher = \"acme\"\n";
     let mut doc = opened(scrambled);
     set_project_key(&mut doc, ProjectKey::Name, Value::from("gadgets")).expect("settable");
 
@@ -706,7 +706,7 @@ fn a_url_key_is_set_inside_a_project_urls_table() {
 #[test]
 fn a_url_key_is_set_inside_an_inline_urls_table() {
     // `urls` may be an inline or a standard table; users write both.
-    let inline = "manifest-version = 1\n\n[project]\nname = \"w\"\nurls = { website = \"https://a\" }  # links\n";
+    let inline = "manifest-version = \"1.0.0\"\n\n[project]\nname = \"w\"\nurls = { website = \"https://a\" }  # links\n";
     let mut doc = opened(inline);
     set_url_key(&mut doc, "documentation", "https://d").expect("a url key");
 
@@ -718,7 +718,7 @@ fn a_url_key_is_set_inside_an_inline_urls_table() {
 
 #[test]
 fn a_url_key_is_set_beside_a_dotted_urls_key() {
-    let dotted = "manifest-version = 1\n\n[project]\nname = \"w\"\nurls.website = \"https://a\"  # the site\n";
+    let dotted = "manifest-version = \"1.0.0\"\n\n[project]\nname = \"w\"\nurls.website = \"https://a\"  # the site\n";
     let mut doc = opened(dotted);
     set_url_key(&mut doc, "repository", "https://r").expect("a url key");
 
@@ -729,7 +729,7 @@ fn a_url_key_is_set_beside_a_dotted_urls_key() {
 
 #[test]
 fn setting_a_url_key_creates_a_header_table_not_an_inline_one() {
-    let bare = "manifest-version = 1\n\n[project]\nname = \"w\"\n";
+    let bare = "manifest-version = \"1.0.0\"\n\n[project]\nname = \"w\"\n";
     let mut doc = opened(bare);
     set_url_key(&mut doc, "website", "https://a").expect("a url key");
 
@@ -752,25 +752,25 @@ fn clearing_the_last_url_key_leaves_the_container() {
 
 #[test]
 fn a_marker_replaces_a_value_and_keeps_both_its_comments() {
-    let commented = "manifest-version = 1\n\n[project]\n# which version\nversion = \"1.0.0\"  # pinned\nname = \"w\"\n";
+    let commented = "manifest-version = \"1.0.0\"\n\n[project]\n# which version\nversion = \"1.0.0\"  # pinned\nname = \"w\"\n";
     let mut doc = opened(commented);
     set_inherit_marker(&mut doc, "version", &InheritFrom::DefaultGroup).expect("inheritable");
 
     assert_eq!(
         doc.to_string(),
-        "manifest-version = 1\n\n[project]\n# which version\nversion.workspace = true  # pinned\nname = \"w\"\n"
+        "manifest-version = \"1.0.0\"\n\n[project]\n# which version\nversion.workspace = true  # pinned\nname = \"w\"\n"
     );
 }
 
 #[test]
 fn a_value_replaces_a_marker_and_keeps_both_its_comments() {
-    let inherited = "manifest-version = 1\n\n[project]\n# which version\nversion.workspace = true  # inherited\nname = \"w\"\n";
+    let inherited = "manifest-version = \"1.0.0\"\n\n[project]\n# which version\nversion.workspace = true  # inherited\nname = \"w\"\n";
     let mut doc = opened(inherited);
     set_project_key(&mut doc, ProjectKey::Version, Value::from("2.0.0")).expect("settable");
 
     assert_eq!(
         doc.to_string(),
-        "manifest-version = 1\n\n[project]\n# which version\nversion = \"2.0.0\"  # inherited\nname = \"w\"\n"
+        "manifest-version = \"1.0.0\"\n\n[project]\n# which version\nversion = \"2.0.0\"  # inherited\nname = \"w\"\n"
     );
 }
 
@@ -804,7 +804,9 @@ fn the_inheritable_keys_are_the_ones_the_reader_accepts_a_marker_for() {
         .filter(|(name, _)| name != key)
         .map(|(_, line)| line)
         .collect();
-        let text = format!("manifest-version = 1\n\n[project]\n{required}{key}.workspace = true\n");
+        let text = format!(
+            "manifest-version = \"1.0.0\"\n\n[project]\n{required}{key}.workspace = true\n"
+        );
         let accepted = ModelToml::parse("model.toml", &text).is_ok();
         assert_eq!(
             accepted,
@@ -826,7 +828,7 @@ fn a_key_that_cannot_be_inherited_is_refused_a_marker() {
 
 #[test]
 fn editing_a_workspace_file_as_a_project_is_refused() {
-    let workspace = "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\n";
+    let workspace = "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\"]\n";
     let mut doc = opened(workspace);
 
     assert_eq!(
@@ -850,7 +852,7 @@ fn sources_of(doc: &DocumentMut) -> String {
 /// test, so that an edited one can be read back.
 fn with_sources(array: &str) -> String {
     format!(
-        "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = {array}\n"
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = {array}\n"
     )
 }
 
@@ -1071,7 +1073,7 @@ fn excluding_a_path_that_is_not_listed_is_refused() {
 
 #[test]
 fn including_and_excluding_a_manifest_with_no_sources_is_refused() {
-    let bare = "manifest-version = 1\n\n[project]\nname = \"widgets\"\n";
+    let bare = "manifest-version = \"1.0.0\"\n\n[project]\nname = \"widgets\"\n";
 
     assert_eq!(
         include_source(&mut opened(bare), "Base.kerml"),
@@ -1107,7 +1109,7 @@ fn declared(project: &str, constraint: &str) -> MemberUsage {
     MemberUsage::Declared(index_usage(project, constraint))
 }
 
-const WITH_USAGES: &str = r#"manifest-version = 1
+const WITH_USAGES: &str = r#"manifest-version = "1.0.0"
 
 [project]
 publisher = "acme"
@@ -1170,7 +1172,7 @@ fn pushing_a_usage_that_is_already_declared_is_refused() {
 fn an_entry_too_broken_to_name_a_project_is_not_matched() {
     // The broken entry comes *first*, so an implementation that matched
     // it would remove the wrong one.
-    let broken = "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n\n[[inline-usages]]\npublisher = \"acme\"\nname = 3\n\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\nversion = \"^1\"\n";
+    let broken = "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n\n[[inline-usages]]\npublisher = \"acme\"\nname = 3\n\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\nversion = \"^1\"\n";
     let mut doc = opened(broken);
 
     // The entry yields no identity, so it is neither matched nor in the
@@ -1274,20 +1276,20 @@ fn setting_the_version_of_an_inherited_usage_is_refused() {
 #[test]
 fn pushing_a_member_appends_it_to_members_normalized() {
     let workspace =
-        "manifest-version = 1\n\n[workspace]\nmembers = [\n    \"app\",  # the app\n]\n";
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\n    \"app\",  # the app\n]\n";
     let mut doc = opened(workspace);
     push_member(&mut doc, "./lib").expect("a new member");
 
     // Normalized: a manifest admits a `members` entry in that form only.
     assert_eq!(
         doc.to_string(),
-        "manifest-version = 1\n\n[workspace]\nmembers = [\n    \"app\",  # the app\n    \"lib\",\n]\n"
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\n    \"app\",  # the app\n    \"lib\",\n]\n"
     );
 }
 
 #[test]
 fn pushing_a_member_that_is_already_listed_is_refused() {
-    let workspace = "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\n";
+    let workspace = "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\"]\n";
     let mut doc = opened(workspace);
 
     // Normalized: `./app` is the same directory as `app`.
@@ -1306,7 +1308,7 @@ fn pushing_a_member_to_a_project_file_is_refused() {
 
 #[test]
 fn a_workspace_with_no_members_yet_gains_the_array() {
-    let workspace = "manifest-version = 1\n\n[workspace]\n";
+    let workspace = "manifest-version = \"1.0.0\"\n\n[workspace]\n";
     let mut doc = opened(workspace);
     push_member(&mut doc, "app").expect("a new member");
 
@@ -1315,7 +1317,7 @@ fn a_workspace_with_no_members_yet_gains_the_array() {
 
 // --- list-valued `[project]` keys -------------------------------------
 
-const WITH_LIST: &str = "manifest-version = 1\n\n\
+const WITH_LIST: &str = "manifest-version = \"1.0.0\"\n\n\
                          [project]\n\
                          publisher = \"acme\"\n\
                          name = \"widgets\"\n\

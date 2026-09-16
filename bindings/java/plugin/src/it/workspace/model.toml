@@ -1,4 +1,4 @@
-manifest-version = 1
+manifest-version = "1.0.0"
 
 [workspace]
 members = ["projectGroup1/project1", "projectGroup1/project2", "project3"]

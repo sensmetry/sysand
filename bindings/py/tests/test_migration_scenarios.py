@@ -150,7 +150,7 @@ def test_workspace_detection(baseline: Baseline) -> None:
 
     workspace = baseline.root.parent
     (workspace / "model.toml").write_text(
-        f'manifest-version = 1\n\n[workspace]\nmembers = ["{baseline.root.name}"]\n'
+        f'manifest-version = "1.0.0"\n\n[workspace]\nmembers = ["{baseline.root.name}"]\n'
     )
     discovery = sysand.discover(path=baseline.root)
     assert discovery["workspace_root"] is not None

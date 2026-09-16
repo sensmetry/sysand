@@ -20,7 +20,7 @@ pub use common::*;
 /// `sources = []` prints nothing, so a `sources` assertion over it
 /// would hold no matter what the command did.
 const INHERITING: &str = "\
-manifest-version = 1
+manifest-version = \"1.0.0\"
 
 [project]
 publisher.workspace = true
@@ -30,7 +30,7 @@ sources = [\"src/main.sysml\"]
 ";
 
 const ROOT: &str = "\
-manifest-version = 1
+manifest-version = \"1.0.0\"
 
 [workspace]
 members = [\"app\"]

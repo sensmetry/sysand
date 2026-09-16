@@ -6,7 +6,7 @@ use crate::manifest::edit::DocumentMut;
 use crate::model::InterchangeProjectInfoRaw;
 use crate::project::{ProjectFormat, ProjectMut as _, ProjectRead as _};
 
-const MANIFEST: &str = "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n";
+const MANIFEST: &str = "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n";
 
 fn document(text: &str) -> DocumentMut {
     text.parse().expect("a valid manifest document")
@@ -96,7 +96,10 @@ fn writing_a_memory_manifest_that_is_there_is_refused_without_overwrite() {
             .is_err()
     );
     project
-        .put_manifest_document(&document(&MANIFEST.replace("1.0.0", "2.0.0")), true)
+        .put_manifest_document(
+            &document(&MANIFEST.replace("\nversion = \"1.0.0\"", "\nversion = \"2.0.0\"")),
+            true,
+        )
         .expect("overwrite replaces it");
     assert!(
         project

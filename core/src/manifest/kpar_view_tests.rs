@@ -175,7 +175,6 @@ fn a_usage_path_the_manifest_accepts_may_still_not_validate() {
 use std::collections::{BTreeMap, HashSet};
 
 use crate::manifest::project::ProjectManifest;
-use crate::manifest::spans::Positions;
 use crate::manifest::spans::Source;
 
 /// A `[project]` whose body is `body`, read and resolved outside any
@@ -603,7 +602,7 @@ fn the_view_is_the_two_halves() {
 // ----- the view of a manifest text -----
 
 const MANIFEST: &str = "\
-manifest-version = 1
+manifest-version = \"1.0.0\"
 
 [project]
 publisher = \"acme\"
@@ -790,7 +789,7 @@ fn the_forward_map_normalizes_and_this_one_does_not() {
 
 // ------------------- resolving against a workspace table
 
-const INHERITS_VERSION: &str = "manifest-version = 1\n\n\
+const INHERITS_VERSION: &str = "manifest-version = \"1.0.0\"\n\n\
      [project]\n\
      publisher = \"acme\"\n\
      name = \"widgets\"\n\

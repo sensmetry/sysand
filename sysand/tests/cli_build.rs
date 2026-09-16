@@ -367,7 +367,7 @@ fn write_workspace_with(
     std::fs::write(
         cwd.join("model.toml"),
         format!(
-            "manifest-version = 1\n\n[workspace]\nmembers = [{}]\n{extra}",
+            "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [{}]\n{extra}",
             entries.join(", ")
         ),
     )?;
@@ -389,7 +389,7 @@ fn write_toml_member(
     std::fs::write(
         dir.join("model.toml"),
         format!(
-            "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"{name}\"\n\
+            "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"{name}\"\n\
              version = \"{version}\"\nsources = [\"test.sysml\"]\n{extra}"
         ),
     )?;
@@ -1076,7 +1076,7 @@ fn build_toml_project_with_a_dir_usage() -> Result<(), Box<dyn std::error::Error
     let (_temp_dir, cwd) = new_temp_cwd()?;
     std::fs::write(
         cwd.join("model.toml"),
-        "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
          version = \"1.0.0\"\nsources = [\"a.sysml\"]\n\n\
          [[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"dep\"\n",
     )?;
@@ -1095,7 +1095,7 @@ fn build_toml_project_with_a_missing_target() -> Result<(), Box<dyn std::error::
     let (_temp_dir, cwd) = new_temp_cwd()?;
     std::fs::write(
         cwd.join("model.toml"),
-        "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
          version = \"1.0.0\"\nsources = [\"a.sysml\"]\n\n\
          [[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"dep\"\n",
     )?;
@@ -1121,7 +1121,7 @@ fn build_toml_project_with_a_stdlib_usage() -> Result<(), Box<dyn std::error::Er
     let (_temp_dir, cwd) = new_temp_cwd()?;
     std::fs::write(
         cwd.join("model.toml"),
-        "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
          version = \"1.0.0\"\nsources = [\"a.sysml\"]\n\n\
          [[inline-usages]]\npublisher = \"OMG\"\nname = \"Kernel Semantic Library\"\n\
          version = \"^1.0.0\"\n",
@@ -1163,7 +1163,7 @@ fn workspace_build_follows_members_order() -> Result<(), Box<dyn std::error::Err
         std::fs::write(
             path.join("model.toml"),
             format!(
-                "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"{at}\"\n\
+                "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"{at}\"\n\
                  version = \"1.0.0\"\nsources = [\"m.kerml\"]\n{usage}"
             ),
         )?;
@@ -1200,7 +1200,7 @@ fn write_broken_member(
     std::fs::write(
         dir.join("model.toml"),
         format!(
-            "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"{name}\"\n\
+            "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"{name}\"\n\
              version = \"1.0.0\"\nsources = [\"missing.sysml\"]\n"
         ),
     )?;

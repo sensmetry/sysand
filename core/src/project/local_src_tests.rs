@@ -150,7 +150,7 @@ fn a_meta_json_alone_is_the_json_format() {
 #[test]
 fn a_model_toml_alone_is_the_toml_format() {
     let dir = tempdir().expect("a temporary directory");
-    write_model_toml(dir.path(), "manifest-version = 1\n");
+    write_model_toml(dir.path(), "manifest-version = \"1.0.0\"\n");
     assert_eq!(
         detect_format(dir.path()).expect("readable"),
         ProjectFormat::Toml
@@ -160,7 +160,7 @@ fn a_model_toml_alone_is_the_toml_format() {
 #[test]
 fn a_directory_with_both_is_ambiguous() {
     let dir = tempdir().expect("a temporary directory");
-    write_model_toml(dir.path(), "manifest-version = 1\n");
+    write_model_toml(dir.path(), "manifest-version = \"1.0.0\"\n");
     write_project_json(dir.path(), "{}");
     assert_eq!(
         detect_format(dir.path()).expect("readable"),
@@ -174,7 +174,7 @@ fn a_directory_with_both_is_ambiguous() {
 #[test]
 fn an_ambiguous_directory_is_refused_when_it_is_read() {
     let dir = tempdir().expect("a temporary directory");
-    write_model_toml(dir.path(), "manifest-version = 1\n");
+    write_model_toml(dir.path(), "manifest-version = \"1.0.0\"\n");
     write_project_json(dir.path(), "{}");
     write_meta_json(dir.path(), "{}");
     assert_eq!(
@@ -191,7 +191,7 @@ fn an_ambiguous_directory_is_refused_when_it_is_read() {
 #[test]
 fn an_ambiguous_directory_names_the_json_file_it_has() {
     let dir = tempdir().expect("a temporary directory");
-    write_model_toml(dir.path(), "manifest-version = 1\n");
+    write_model_toml(dir.path(), "manifest-version = \"1.0.0\"\n");
     write_meta_json(dir.path(), "{}");
     assert!(
         read_error(dir.path()).starts_with(&format!(
@@ -208,7 +208,7 @@ fn an_ambiguous_directory_names_the_json_file_it_has() {
 /// The three keys `[project]` requires plus the `sources` an
 /// OMG-metamodel project needs.
 const TOML_REQUIRED: &str = "\
-manifest-version = 1
+manifest-version = \"1.0.0\"
 
 [project]
 publisher = \"acme\"
@@ -226,7 +226,7 @@ fn a_model_toml_project_reads_as_the_pair_a_build_would_write() {
     let dir = tempdir().expect("a temporary directory");
     write_model_toml(
         dir.path(),
-        "manifest-version = 1\n\n\
+        "manifest-version = \"1.0.0\"\n\n\
          [project]\n\
          publisher = \"acme\"\n\
          name = \"widgets\"\n\
@@ -348,7 +348,7 @@ fn a_model_toml_that_defines_a_workspace_is_not_a_project() {
     let dir = tempdir().expect("a temporary directory");
     write_model_toml(
         dir.path(),
-        "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\n",
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\"]\n",
     );
     assert!(
         read_error(dir.path()).contains("`model.toml` defines a workspace, not a project"),
@@ -362,7 +362,7 @@ fn a_model_toml_missing_a_required_key_reports_every_one() {
     let dir = tempdir().expect("a temporary directory");
     write_model_toml(
         dir.path(),
-        "manifest-version = 1\n\n[project]\nsources = []\n",
+        "manifest-version = \"1.0.0\"\n\n[project]\nsources = []\n",
     );
     let error = read_error(dir.path());
     for key in ["publisher", "name", "version"] {
@@ -381,7 +381,7 @@ fn a_model_toml_that_inherits_outside_a_workspace_says_so() {
     let dir = tempdir().expect("a temporary directory");
     write_model_toml(
         dir.path(),
-        "manifest-version = 1\n\n\
+        "manifest-version = \"1.0.0\"\n\n\
          [project]\n\
          name = \"widgets\"\n\
          version = \"1.2.3\"\n\
@@ -682,7 +682,7 @@ fn a_json_project_missing_one_file_is_unchanged() {
 
 // --- storing a manifest -----------------------------------------------
 
-const MANIFEST: &str = "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n";
+const MANIFEST: &str = "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n";
 
 fn document(text: &str) -> crate::manifest::edit::DocumentMut {
     text.parse().expect("a valid manifest document")
@@ -722,7 +722,7 @@ fn writing_a_manifest_with_overwrite_replaces_it() -> Result<(), Box<dyn std::er
     let dir = tempdir()?;
     write_model_toml(dir.path(), MANIFEST);
     let mut project = LocalSrcProject::new_access(dir.path(), None);
-    let replacement = MANIFEST.replace("1.0.0", "2.0.0");
+    let replacement = MANIFEST.replace("\nversion = \"1.0.0\"", "\nversion = \"2.0.0\"");
 
     project.put_manifest_document(&document(&replacement), true)?;
 
@@ -775,7 +775,10 @@ fn a_manifest_overwritten_after_a_read_is_read_again() -> Result<(), Box<dyn std
     let (info, _) = project.get_project()?;
     assert_eq!(info.expect("info").version, "1.0.0");
 
-    project.put_manifest_document(&document(&MANIFEST.replace("1.0.0", "2.0.0")), true)?;
+    project.put_manifest_document(
+        &document(&MANIFEST.replace("\nversion = \"1.0.0\"", "\nversion = \"2.0.0\"")),
+        true,
+    )?;
 
     let (info, _) = project.get_project()?;
     assert_eq!(info.expect("info").version, "2.0.0");
@@ -785,7 +788,7 @@ fn a_manifest_overwritten_after_a_read_is_read_again() -> Result<(), Box<dyn std
 #[test]
 fn a_local_project_hands_back_its_manifest_document() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
-    let commented = "manifest-version = 1\n\n[project]\n# who publishes it\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n";
+    let commented = "manifest-version = \"1.0.0\"\n\n[project]\n# who publishes it\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n";
     write_model_toml(dir.path(), commented);
     let project = LocalSrcProject::new_access(dir.path(), None);
 
@@ -819,7 +822,7 @@ fn versioned_table() -> std::sync::Arc<crate::manifest::workspace_table::Workspa
     })
 }
 
-const INHERITS_VERSION: &str = "manifest-version = 1\n\n\
+const INHERITS_VERSION: &str = "manifest-version = \"1.0.0\"\n\n\
      [project]\n\
      publisher = \"acme\"\n\
      name = \"widgets\"\n\
@@ -861,7 +864,7 @@ fn a_member_project_prefers_its_own_values() {
     let dir = tempdir().expect("a temporary directory");
     write_model_toml(
         dir.path(),
-        "manifest-version = 1\n\n\
+        "manifest-version = \"1.0.0\"\n\n\
          [project]\n\
          publisher = \"acme\"\n\
          name = \"widgets\"\n\

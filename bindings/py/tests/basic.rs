@@ -30,7 +30,7 @@ fn basic_init() -> Result<(), Box<dyn std::error::Error>> {
     // legacy project has.
     assert_eq!(
         std::fs::read_to_string(proj_dir_path.join("model.toml"))?,
-        "manifest-version = 1\n\n\
+        "manifest-version = \"1.0.0\"\n\n\
          [project]\n\
          publisher = \"acme\"\n\
          name = \"basic-init\"\n\

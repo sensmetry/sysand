@@ -142,7 +142,7 @@ fn migrate_from_a_workspace_root_needs_a_path() -> Result<(), Box<dyn std::error
     let (_temp_dir, cwd) = new_temp_cwd()?;
     std::fs::write(
         cwd.join("model.toml"),
-        "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\n",
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\"]\n",
     )?;
     let app = cwd.join("app");
     std::fs::create_dir(&app)?;
@@ -168,7 +168,7 @@ fn migrate_refuses_a_toml_project() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
     std::fs::write(
         cwd.join("model.toml"),
-        "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
          version = \"1.0.0\"\nsources = []\n",
     )?;
     git_repo(&cwd, true)?;
@@ -338,7 +338,7 @@ fn both_fixture(
     git_repo(cwd, true)
 }
 
-const AGREEING_TOML: &str = "manifest-version = 1\n\n[project]\npublisher = \"acme\"\n\
+const AGREEING_TOML: &str = "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\n\
      name = \"widgets\"\nversion = \"1.2.3\"\nsources = []\n";
 
 #[test]
@@ -380,7 +380,7 @@ fn migrate_refuses_a_disagreeing_pair() -> Result<(), Box<dyn std::error::Error>
 #[test]
 fn the_both_comparison_normalizes() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    let toml = "manifest-version = 1\n\n[project]\npublisher = \"acme\"\n\
+    let toml = "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\n\
                 name = \"lib-test\"\nversion = \"1.2.3\"\nsources = []\n";
     both_fixture(&cwd, toml, "Lib test", "1.2.3")?;
 
@@ -396,7 +396,7 @@ fn migrate_refuses_a_workspace_beside_a_json_pair() -> Result<(), Box<dyn std::e
     let (_temp_dir, cwd) = new_temp_cwd()?;
     both_fixture(
         &cwd,
-        "manifest-version = 1\n\n[workspace]\nmembers = []\n",
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = []\n",
         "widgets",
         "1.2.3",
     )?;
@@ -417,7 +417,7 @@ fn migrate_refuses_a_workspace_beside_a_json_pair() -> Result<(), Box<dyn std::e
 #[test]
 fn migrate_refuses_an_inherited_version() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    let toml = "manifest-version = 1\n\n[project]\npublisher = \"acme\"\n\
+    let toml = "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\n\
                 name = \"widgets\"\nversion.workspace = true\nsources = []\n";
     both_fixture(&cwd, toml, "widgets", "1.2.3")?;
 
@@ -568,11 +568,11 @@ fn a_file_usage_to_a_workspace_member_resolves() -> Result<(), Box<dyn std::erro
     std::fs::create_dir_all(&dep)?;
     std::fs::write(
         root.join("model.toml"),
-        "manifest-version = 1\n\n[workspace]\nmembers = [\"dep\"]\npublisher = \"acme\"\n",
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"dep\"]\npublisher = \"acme\"\n",
     )?;
     std::fs::write(
         dep.join("model.toml"),
-        "manifest-version = 1\n\n[project]\npublisher.workspace = true\nname = \"dep\"\n\
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher.workspace = true\nname = \"dep\"\n\
          version = \"1.0.0\"\nsources = []\n",
     )?;
     json_with_file_usage(&app, &dep)?;
@@ -606,18 +606,18 @@ fn a_target_nested_inside_a_member_is_not_a_member() -> Result<(), Box<dyn std::
     std::fs::create_dir_all(&dep)?;
     std::fs::write(
         root.join("model.toml"),
-        "manifest-version = 1\n\n[workspace]\nmembers = [\"member\"]\npublisher = \"acme\"\n",
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"member\"]\npublisher = \"acme\"\n",
     )?;
     std::fs::write(
         member.join("model.toml"),
-        "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"member\"\n\
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"member\"\n\
          version = \"1.0.0\"\nsources = []\n",
     )?;
     // Byte-for-byte the target of `an_unlisted_target_is_not_given_the_table`,
     // one directory deeper. Only the location differs.
     std::fs::write(
         dep.join("model.toml"),
-        "manifest-version = 1\n\n[project]\npublisher.workspace = true\nname = \"dep\"\n\
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher.workspace = true\nname = \"dep\"\n\
          version = \"1.0.0\"\nsources = []\n",
     )?;
     json_with_file_usage(&app, &dep)?;
@@ -644,11 +644,11 @@ fn an_unlisted_target_is_not_given_the_table() -> Result<(), Box<dyn std::error:
     std::fs::create_dir_all(&dep)?;
     std::fs::write(
         root.join("model.toml"),
-        "manifest-version = 1\n\n[workspace]\nmembers = []\npublisher = \"acme\"\n",
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = []\npublisher = \"acme\"\n",
     )?;
     std::fs::write(
         dep.join("model.toml"),
-        "manifest-version = 1\n\n[project]\npublisher.workspace = true\nname = \"dep\"\n\
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher.workspace = true\nname = \"dep\"\n\
          version = \"1.0.0\"\nsources = []\n",
     )?;
     json_with_file_usage(&app, &dep)?;
@@ -707,12 +707,12 @@ fn an_excluded_target_is_not_given_the_table() -> Result<(), Box<dyn std::error:
     std::fs::create_dir_all(&vendor)?;
     std::fs::write(
         root.join("model.toml"),
-        "manifest-version = 1\n\n[workspace]\nmembers = []\nexclude = [\"vendor\"]\n\
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = []\nexclude = [\"vendor\"]\n\
          publisher = \"acme\"\n",
     )?;
     std::fs::write(
         vendor.join("model.toml"),
-        "manifest-version = 1\n\n[project]\npublisher.workspace = true\nname = \"dep\"\n\
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher.workspace = true\nname = \"dep\"\n\
          version = \"1.0.0\"\nsources = []\n",
     )?;
     json_with_file_usage(&app, &vendor)?;

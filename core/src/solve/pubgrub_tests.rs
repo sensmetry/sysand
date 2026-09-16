@@ -2232,7 +2232,7 @@ fn a_transitive_usage_takes_the_format_of_its_candidate() -> Result<(), Box<dyn 
     let toml = camino_tempfile::tempdir()?;
     std::fs::write(
         toml.path().join("model.toml"),
-        "manifest-version = 1\n\n\
+        "manifest-version = \"1.0.0\"\n\n\
          [project]\n\
          publisher = \"acme\"\n\
          name = \"app\"\n\

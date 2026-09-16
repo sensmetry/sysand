@@ -11,7 +11,7 @@ fn write(dir: &Utf8Path, name: &str, content: &str) {
 }
 
 const PROJECT: &str = "\
-manifest-version = 1
+manifest-version = \"1.0.0\"
 
 [project]
 publisher = \"acme\"
@@ -21,7 +21,7 @@ sources = []
 ";
 
 const WORKSPACE: &str = "\
-manifest-version = 1
+manifest-version = \"1.0.0\"
 
 [workspace]
 members = [\"app\"]

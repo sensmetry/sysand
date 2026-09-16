@@ -47,7 +47,7 @@ public class BasicTest {
             // java.nio.file.Files.readString is available in Java 11+
             String manifest = new String(Files.readAllBytes(tempDir.resolve("model.toml")));
             assertEquals(
-                    "manifest-version = 1\n"
+                    "manifest-version = \"1.0.0\"\n"
                             + "\n"
                             + "[project]\n"
                             + "publisher = \"acme\"\n"
@@ -205,7 +205,7 @@ public class BasicTest {
      */
     private void writeWorkspaceToml(java.nio.file.Path workspaceDir, String... projectNames) throws java.io.IOException {
         StringBuilder sb = new StringBuilder();
-        sb.append("manifest-version = 1\n\n[workspace]\nmembers = [");
+        sb.append("manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [");
         for (int i = 0; i < projectNames.length; i++) {
             sb.append("\"").append(projectNames[i]).append("\"");
             if (i < projectNames.length - 1) sb.append(", ");
@@ -217,8 +217,8 @@ public class BasicTest {
     /** A {@code model.toml} project, which is what a member must be. */
     private void writeTomlProject(java.nio.file.Path dir, String publisher, String name, String version)
             throws java.io.IOException {
-        String manifest = "manifest-version = 1\n\n[project]\npublisher = \"" + publisher
-                + "\"\nname = \"" + name + "\"\nversion = \"" + version + "\"\n";
+        String manifest = "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"" + publisher
+                + "\"\nname = \"" + name + "\"\nversion = \"" + version + "\"\nsources = []\n";
         Files.write(dir.resolve("model.toml"), manifest.getBytes());
     }
 

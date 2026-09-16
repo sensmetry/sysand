@@ -489,7 +489,7 @@ mod index_usage_to_add {
 
 // --- `model.toml` projects --------------------------------------------
 
-const TOML_MANIFEST: &str = "manifest-version = 1\n\n\
+const TOML_MANIFEST: &str = "manifest-version = \"1.0.0\"\n\n\
                              [project]\n\
                              publisher = \"acme\"\n\
                              name = \"app\"\n\

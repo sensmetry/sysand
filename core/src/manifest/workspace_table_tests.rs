@@ -71,7 +71,7 @@ fn places(report: &Report) -> Vec<(usize, usize)> {
 /// Every key workspaces.md "Common metadata" lists, as the specification
 /// writes them. Ported from the prototype's `FULL_WORKSPACE_TOML`.
 const FULL: &str = "\
-manifest-version = 1
+manifest-version = \"1.0.0\"
 
 [workspace]
 members = [\"projects/a\", \"projects/b/subfolder1\"]
@@ -596,7 +596,7 @@ fn stdlib_in_a_group_is_an_unknown_key() {
 /// carries its own", and it is not a workspace key either.
 #[test]
 fn manifest_version_in_a_workspace_is_an_unknown_key() {
-    let validated = accepted("manifest-version = 1\n");
+    let validated = accepted("manifest-version = \"1.0.0\"\n");
     let (_, warnings) = validated.into_parts();
     assert_eq!(
         messages(&warnings),

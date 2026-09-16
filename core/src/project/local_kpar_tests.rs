@@ -175,7 +175,7 @@ fn a_kpar_with_a_model_toml_beside_the_pair_is_refused() -> Result<(), Box<dyn s
         &[
             (".project.json", INFO),
             (".meta.json", META),
-            ("model.toml", "manifest-version = 1\n"),
+            ("model.toml", "manifest-version = \"1.0.0\"\n"),
         ],
     )?;
 
@@ -210,7 +210,10 @@ fn a_kpar_with_only_a_model_toml_is_refused_by_the_guess() -> Result<(), Box<dyn
 {
     let cwd = tempdir()?;
     let zip_path = cwd.path().join("test.kpar");
-    kpar(&zip_path, &[("model.toml", "manifest-version = 1\n")])?;
+    kpar(
+        &zip_path,
+        &[("model.toml", "manifest-version = \"1.0.0\"\n")],
+    )?;
 
     let project = super::LocalKParProject::new_access(zip_path, KparInnerPath::Guess, None);
     assert_matches!(
@@ -230,7 +233,7 @@ fn a_kpar_with_a_model_toml_among_its_sources_is_read() -> Result<(), Box<dyn st
     kpar(
         &zip_path,
         &[
-            ("examples/model.toml", "manifest-version = 1\n"),
+            ("examples/model.toml", "manifest-version = \"1.0.0\"\n"),
             (".project.json", INFO),
             (".meta.json", META),
         ],

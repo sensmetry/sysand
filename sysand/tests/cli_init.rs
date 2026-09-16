@@ -37,7 +37,7 @@ fn sysand_init_writes_a_model_toml() -> Result<(), Box<dyn std::error::Error>> {
     let project = cwd.join("project");
     assert_eq!(
         std::fs::read_to_string(project.join("model.toml"))?,
-        "manifest-version = 1\n\n\
+        "manifest-version = \"1.0.0\"\n\n\
          [project]\n\
          publisher = \"acme\"\n\
          name = \"widgets\"\n\
@@ -572,7 +572,7 @@ fn arg<'a>(raw: Option<&&'a str>) -> Option<&'a str> {
 use camino::{Utf8Path, Utf8PathBuf};
 
 const WORKSPACE: &str = "\
-manifest-version = 1
+manifest-version = \"1.0.0\"
 
 [workspace]
 members = [\"app\"]
@@ -590,7 +590,7 @@ fn member(dir: &Utf8Path, at: &str, name: &str) -> Result<(), Box<dyn std::error
     std::fs::write(
         dir.join(at).join("model.toml"),
         format!(
-            "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"{name}\"\n\
+            "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"{name}\"\n\
              version = \"1.0.0\"\nsources = []\n"
         ),
     )?;
@@ -687,7 +687,7 @@ fn init_at_a_member_directory_is_refused() -> Result<(), Box<dyn std::error::Err
 fn init_under_an_excluded_directory_is_created_but_not_listed()
 -> Result<(), Box<dyn std::error::Error>> {
     let dir = workspace(
-        "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\nexclude = [\"vendor\"]\n",
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\"]\nexclude = [\"vendor\"]\n",
     )?;
     member(dir.path(), "app", "alpha")?;
 
@@ -741,7 +741,8 @@ fn init_in_an_unlisted_existing_project_is_refused() -> Result<(), Box<dyn std::
 #[test]
 fn init_in_a_workspace_with_a_broken_member_still_works() -> Result<(), Box<dyn std::error::Error>>
 {
-    let dir = workspace("manifest-version = 1\n\n[workspace]\nmembers = [\"app\", \"gone\"]\n")?;
+    let dir =
+        workspace("manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\", \"gone\"]\n")?;
     member(dir.path(), "app", "alpha")?;
 
     init_in(dir.path(), "lib")?.assert().success();
@@ -799,7 +800,7 @@ fn init_targeting_outside_the_workspace_from_a_member_succeeds()
 fn the_appended_entry_leaves_the_rest_of_the_file_alone() -> Result<(), Box<dyn std::error::Error>>
 {
     let dir = workspace(
-        "# the workspace\nmanifest-version = 1\n\n[workspace]\nmembers = [\n  \"app\", # first\n]\n",
+        "# the workspace\nmanifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\n  \"app\", # first\n]\n",
     )?;
     member(dir.path(), "app", "alpha")?;
 

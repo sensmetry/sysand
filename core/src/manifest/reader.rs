@@ -158,19 +158,6 @@ impl<'a> TableReader<'a> {
         None
     }
 
-    /// The value of a key that holds an integer.
-    ///
-    /// `i64` because that is what `toml::Value::Integer` holds, and what
-    /// `toml_edit::value` takes back when a manifest is written.
-    pub fn integer(&self, key: &str, report: &mut Report) -> Option<i64> {
-        let value = self.table.get(key)?;
-        if let Value::Integer(number) = value {
-            return Some(*number);
-        }
-        report.push(self.wrong_type(key, "an integer", value));
-        None
-    }
-
     /// The values of a key that holds an array of strings. Every element
     /// that is not one is reported on its own, so one bad entry does not
     /// cost the reader the rest of the array.

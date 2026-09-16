@@ -12,7 +12,7 @@ use crate::manifest::diagnostics::Diagnostic;
 use crate::project::utils::ProjectDeserializationError;
 
 const PROJECT: &str = "\
-manifest-version = 1
+manifest-version = \"1.0.0\"
 
 [project]
 publisher = \"acme\"
@@ -153,7 +153,7 @@ fn only_root_message(failure: &LoadFailure) -> String {
 }
 
 fn workspace_with(members: &str) -> String {
-    format!("manifest-version = 1\n\n[workspace]\nmembers = [{members}]\n")
+    format!("manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [{members}]\n")
 }
 
 // ----------------------------------------------------------- loading
@@ -176,7 +176,7 @@ fn a_workspace_loads_its_members() {
 
 #[test]
 fn a_workspace_with_no_members_loads() {
-    let fixture = Fixture::new("manifest-version = 1\n\n[workspace]\n");
+    let fixture = Fixture::new("manifest-version = \"1.0.0\"\n\n[workspace]\n");
     assert!(fixture.loaded().members().is_empty());
 }
 
@@ -254,7 +254,10 @@ fn a_member_that_defines_no_project_is_refused() {
 #[test]
 fn a_member_that_is_a_workspace_root_is_refused() {
     let fixture = Fixture::new(&workspace_with("\"app\""));
-    fixture.write("app/model.toml", "manifest-version = 1\n\n[workspace]\n");
+    fixture.write(
+        "app/model.toml",
+        "manifest-version = \"1.0.0\"\n\n[workspace]\n",
+    );
     assert_eq!(
         only_root_message(&fixture.failure()),
         "member `app` defines a workspace, not a project; a member cannot be a workspace root"
@@ -353,7 +356,7 @@ fn an_excluded_project_keeps_its_own_state() {
     // The state sits on the `exclude` entry itself, so that "run the
     // member checks over `exclude` too" is a mutation this test catches.
     let fixture = Fixture::new(
-        "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\nexclude = [\"vendor\"]\n",
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\"]\nexclude = [\"vendor\"]\n",
     );
     fixture.project("app");
     fixture.project("vendor");
@@ -369,7 +372,7 @@ fn an_excluded_project_keeps_its_own_state() {
 #[test]
 fn an_excluded_directory_need_not_exist_or_hold_a_project() {
     let fixture = Fixture::new(
-        "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\n\
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\"]\n\
          exclude = [\"vendor\", \"gone\"]\n",
     );
     fixture.project("app");
@@ -380,7 +383,8 @@ fn an_excluded_directory_need_not_exist_or_hold_a_project() {
 
 #[test]
 fn a_member_diagnostic_points_at_the_entry_that_named_it() {
-    let fixture = Fixture::new("manifest-version = 1\n\n[workspace]\nmembers = [\n  \"app\",\n]\n");
+    let fixture =
+        Fixture::new("manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\n  \"app\",\n]\n");
     let failure = fixture.failure();
     let position = root_diagnostics(&failure)[0]
         .position
@@ -432,7 +436,7 @@ fn a_root_with_no_manifest_is_refused() {
 // ------------------------------------ inheritance and classification
 
 const INHERITING: &str = "\
-manifest-version = 1
+manifest-version = \"1.0.0\"
 
 [project]
 publisher = \"acme\"
@@ -447,7 +451,7 @@ sources = []
 #[test]
 fn a_member_inherits_from_the_table() {
     let fixture = Fixture::new(
-        "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\nversion = \"9.9.9\"\n",
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\"]\nversion = \"9.9.9\"\n",
     );
     fixture.write("app/model.toml", INHERITING);
 
@@ -458,7 +462,10 @@ fn a_member_inherits_from_the_table() {
 #[test]
 fn a_member_whose_own_manifest_is_broken_is_named_by_its_own_file() {
     let fixture = Fixture::new(&workspace_with("\"app\""));
-    fixture.write("app/model.toml", "manifest-version = 1\n\n[project]\n");
+    fixture.write(
+        "app/model.toml",
+        "manifest-version = \"1.0.0\"\n\n[project]\n",
+    );
 
     let failure = fixture.failure();
     assert!(failure.root.is_none(), "the root manifest is fine");
@@ -484,7 +491,7 @@ fn a_member_whose_markers_do_not_resolve_is_named_by_its_own_file() {
 
 fn classified() -> (Fixture, Workspace) {
     let fixture = Fixture::new(
-        "manifest-version = 1\n\n[workspace]\n\
+        "manifest-version = \"1.0.0\"\n\n[workspace]\n\
          members = [\"app\", \"vendor/kept\"]\n\
          exclude = [\"vendor\", \"app\"]\n",
     );
@@ -570,12 +577,12 @@ fn a_member_under_an_excluded_directory_wins() {
 #[test]
 fn a_workspace_root_under_an_excluded_directory_is_excluded() {
     let fixture = Fixture::new(
-        "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\nexclude = [\"vendor\"]\n",
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\"]\nexclude = [\"vendor\"]\n",
     );
     fixture.project("app");
     fixture.write(
         "vendor/inner/model.toml",
-        "manifest-version = 1\n\n[workspace]\n",
+        "manifest-version = \"1.0.0\"\n\n[workspace]\n",
     );
     let workspace = fixture.loaded();
     assert!(matches!(
@@ -591,7 +598,7 @@ fn a_workspace_root_under_an_excluded_directory_is_excluded() {
 #[test]
 fn the_most_specific_excluded_entry_answers() {
     let fixture = Fixture::new(
-        "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\n\
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\"]\n\
          exclude = [\"vendor\", \"vendor/deep\"]\n",
     );
     fixture.project("app");
@@ -611,7 +618,7 @@ fn the_most_specific_excluded_entry_answers() {
 #[test]
 fn an_excluded_directory_inside_a_member_is_excluded() {
     let fixture = Fixture::new(
-        "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\nexclude = [\"app/gen\"]\n",
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\"]\nexclude = [\"app/gen\"]\n",
     );
     fixture.project("app");
     let workspace = fixture.loaded();
@@ -682,7 +689,7 @@ fn classification_is_by_whole_components() {
 
 // --------------------------------------------------- the upward walk
 
-const EMPTY_WORKSPACE: &str = "manifest-version = 1\n\n[workspace]\n";
+const EMPTY_WORKSPACE: &str = "manifest-version = \"1.0.0\"\n\n[workspace]\n";
 
 #[test]
 fn a_workspace_is_found_in_the_starting_directory() {
@@ -728,7 +735,7 @@ fn the_walk_goes_past_a_project() {
 #[test]
 fn the_walk_goes_past_a_manifest_with_neither_table() {
     let fixture = Fixture::new(EMPTY_WORKSPACE);
-    fixture.write("odd/model.toml", "manifest-version = 1\n");
+    fixture.write("odd/model.toml", "manifest-version = \"1.0.0\"\n");
     assert_eq!(
         candidate_root(fixture.under("odd")).expect("readable"),
         Some(fixture.root())
@@ -796,7 +803,7 @@ fn a_nested_workspace_the_outer_excludes_is_confirmed() {
     let fixture = Fixture::at("inner", EMPTY_WORKSPACE);
     fixture.above(
         "model.toml",
-        "manifest-version = 1\n\n[workspace]\nexclude = [\"inner\"]\n",
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nexclude = [\"inner\"]\n",
     );
     confirm_root(fixture.root()).expect("the outer excludes it");
 }
@@ -808,7 +815,7 @@ fn a_nested_workspace_excluded_by_a_directory_above_it_is_confirmed() {
     let fixture = Fixture::at("vendor/inner", EMPTY_WORKSPACE);
     fixture.above(
         "model.toml",
-        "manifest-version = 1\n\n[workspace]\nexclude = [\"vendor\"]\n",
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nexclude = [\"vendor\"]\n",
     );
     confirm_root(fixture.root()).expect("an excluded directory above it");
 }
@@ -821,7 +828,7 @@ fn the_outer_workspace_is_not_itself_checked_for_nesting() {
     let fixture = Fixture::at("b/c", EMPTY_WORKSPACE);
     fixture.above(
         "b/model.toml",
-        "manifest-version = 1\n\n[workspace]\nexclude = [\"c\"]\n",
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nexclude = [\"c\"]\n",
     );
     fixture.above("model.toml", EMPTY_WORKSPACE);
     confirm_root(fixture.root()).expect("`b` excludes `c`; `a` is `b`'s problem");
@@ -845,7 +852,7 @@ fn an_outer_whose_member_paths_do_not_parse_is_reported() {
     let fixture = Fixture::at("inner", EMPTY_WORKSPACE);
     fixture.above(
         "model.toml",
-        "manifest-version = 1\n\n[workspace]\nmembers = [\"/absolute\"]\n",
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"/absolute\"]\n",
     );
     assert!(matches!(
         confirm_root(fixture.root()),
@@ -861,7 +868,7 @@ fn an_outer_whose_member_is_broken_still_confirms_the_candidate() {
     let fixture = Fixture::at("inner", EMPTY_WORKSPACE);
     fixture.above(
         "model.toml",
-        "manifest-version = 1\n\n[workspace]\nmembers = [\"gone\"]\nexclude = [\"inner\"]\n",
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"gone\"]\nexclude = [\"inner\"]\n",
     );
     confirm_root(fixture.root()).expect("the outer's own members are not this command's problem");
 }
@@ -939,7 +946,7 @@ fn a_directory_under_a_member_starts_in_that_member() {
 #[test]
 fn an_excluded_project_starts_standalone() {
     let fixture = Fixture::new(
-        "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\nexclude = [\"vendor\"]\n",
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\"]\nexclude = [\"vendor\"]\n",
     );
     fixture.project("app");
     fixture.project("vendor/other");
@@ -1171,7 +1178,7 @@ fn member_of<'a>(selection: &Selection<'a>) -> &'a str {
 /// non-member directory and an unlisted project.
 fn scoped() -> Fixture {
     let fixture = Fixture::new(
-        "manifest-version = 1\n\n[workspace]\nmembers = [\"app\", \"lib\"]\n\
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\", \"lib\"]\n\
          exclude = [\"vendor\"]\n",
     );
     fixture.project_named("app", "alpha");
@@ -1391,7 +1398,7 @@ use typed_path::Utf8UnixPath;
 /// member inside an exclusion, an exclusion inside a member, and a path
 /// written in both lists.
 const SHAPES: &str = "\
-manifest-version = 1
+manifest-version = \"1.0.0\"
 
 [workspace]
 members = [\"app\", \"vendor/kept\", \"both\"]
@@ -1696,7 +1703,7 @@ fn skipping_stray_state_still_refuses_a_missing_member() {
 #[test]
 fn an_inherited_member_resolves_when_stray_state_is_skipped() {
     let fixture = Fixture::new(
-        "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\nversion = \"9.9.9\"\n",
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\"]\nversion = \"9.9.9\"\n",
     );
     fixture.write("app/model.toml", INHERITING);
     fixture.write("app/sysand-lock.toml", "");

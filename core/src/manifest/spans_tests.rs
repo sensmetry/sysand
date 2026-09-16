@@ -6,7 +6,7 @@ use crate::manifest::spans::{Positions, Source};
 /// Line 1 `manifest-version`, 3 `[project]`, 4 `name`, 5 `urls`,
 /// 7 and 11 `[[inline-usages]]`, 8 and 12 `publisher`, 9 `name`.
 const DOC: &str = "\
-manifest-version = 1
+manifest-version = \"1.0.0\"
 
 [project]
 name = \"app\"

@@ -2046,7 +2046,7 @@ fn info_reads_a_model_toml_project() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
     wrapfs::write(
         cwd.join("model.toml"),
-        "manifest-version = 1\n\n\
+        "manifest-version = \"1.0.0\"\n\n\
          [project]\n\
          publisher = \"acme\"\n\
          name = \"widgets\"\n\
@@ -2069,7 +2069,7 @@ fn toml_project_cwd() -> Result<(Utf8TempDir, Utf8PathBuf), Box<dyn Error>> {
     let (temp_dir, cwd) = new_temp_cwd()?;
     wrapfs::write(
         cwd.join("model.toml"),
-        "manifest-version = 1\n\n\
+        "manifest-version = \"1.0.0\"\n\n\
          [project]\n\
          publisher = \"acme\"\n\
          name = \"widgets\"\n\

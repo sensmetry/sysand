@@ -471,7 +471,7 @@ fn a_requested_usage_takes_the_origin_of_the_project_that_declared_it() {
     let toml = camino_tempfile::tempdir().expect("a temporary directory");
     std::fs::write(
         toml.path().join("model.toml"),
-        "manifest-version = 1\n\n\
+        "manifest-version = \"1.0.0\"\n\n\
          [project]\n\
          publisher = \"acme\"\n\
          name = \"app\"\n\
@@ -735,7 +735,7 @@ fn workspace_tree(members: &[(&str, &str)], root_extra: &str) -> camino_tempfile
     std::fs::write(
         dir.path().join("model.toml"),
         format!(
-            "manifest-version = 1\n\n[workspace]\nmembers = [{}]\n{root_extra}",
+            "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [{}]\n{root_extra}",
             entries.join(", ")
         ),
     )
@@ -753,7 +753,7 @@ fn workspace_tree(members: &[(&str, &str)], root_extra: &str) -> camino_tempfile
 #[cfg(feature = "filesystem")]
 fn member_toml(name: &str, usages: &str) -> String {
     format!(
-        "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"{name}\"\n\
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"{name}\"\n\
          version = \"1.0.0\"\nsources = []\n{usages}"
     )
 }
@@ -996,7 +996,7 @@ fn an_inheriting_member_locks_with_the_tables_value() -> Result<(), Box<dyn std:
     let dir = workspace_tree(
         &[(
             "app",
-            "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"alpha\"\n\
+            "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"alpha\"\n\
              version.workspace = true\nsources = []\n",
         )],
         "version = \"9.9.9\"\n",
@@ -1018,7 +1018,7 @@ fn a_members_own_entry_records_its_metamodel() -> Result<(), Box<dyn std::error:
     let dir = workspace_tree(
         &[(
             "app",
-            "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"alpha\"\n\
+            "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"alpha\"\n\
              version = \"1.0.0\"\nsources = []\n\
              metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\n",
         )],

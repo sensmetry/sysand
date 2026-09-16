@@ -1,4 +1,4 @@
-manifest-version = 1
+manifest-version = "1.0.0"
 
 [project]
 publisher = "sysand-it"

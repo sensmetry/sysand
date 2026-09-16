@@ -45,20 +45,22 @@ fn places(report: &Report) -> Vec<(usize, usize)> {
 #[test]
 fn a_document_becomes_a_table_and_an_index() {
     const TEXT: &str = "\
-manifest-version = 1
+manifest-version = \"1.0.0\"
+count = 3
 when = 2026-01-02
 
 [workspace]
 members = [\"a\"]
 ";
     let (table, positions) = parse(TEXT);
-    assert_eq!(table["manifest-version"].as_integer(), Some(1));
+    assert_eq!(table["manifest-version"].as_str(), Some("1.0.0"));
+    assert_eq!(table["count"].as_integer(), Some(3));
     assert_eq!(table["when"].type_str(), "datetime");
     assert_eq!(table["workspace"]["members"][0].as_str(), Some("a"));
     let position = positions
         .at(&["workspace", "members", "0"])
         .expect("indexed");
-    assert_eq!((position.line, position.column), (5, 12));
+    assert_eq!((position.line, position.column), (6, 12));
 }
 
 /// A file that is not TOML at all is the one failure that stops a read
@@ -122,36 +124,6 @@ fn a_wrong_typed_key_is_one_positioned_diagnostic() {
     assert_eq!(
         texts(&report),
         ["`publisher` in the top level must be a string, but it is an integer"]
-    );
-    assert_eq!(places(&report), [(1, 1)]);
-}
-
-/// `manifest-version` is the one integer a `model.toml` carries.
-#[test]
-fn an_integer_key_comes_back_as_written() {
-    const TEXT: &str = "manifest-version = 1\n";
-    let (table, positions) = parse(TEXT);
-    let mut report = Report::new();
-    assert_eq!(
-        top(&table, &positions).integer("manifest-version", &mut report),
-        Some(1)
-    );
-    assert!(report.is_empty());
-}
-
-#[test]
-fn a_key_that_is_not_an_integer_is_one_diagnostic() {
-    const TEXT: &str = "manifest-version = \"1\"\n";
-    let (table, positions) = parse(TEXT);
-    let mut report = Report::new();
-    assert!(
-        top(&table, &positions)
-            .integer("manifest-version", &mut report)
-            .is_none()
-    );
-    assert_eq!(
-        texts(&report),
-        ["`manifest-version` in the top level must be an integer, but it is a string"]
     );
     assert_eq!(places(&report), [(1, 1)]);
 }

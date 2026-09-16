@@ -298,7 +298,7 @@ fn a_derived_project_forwards_a_manifest_write() {
     // exercised.
     let mut project = OneVariantProjectMut::Variant(InMemoryProject::new());
     let document: DocumentMut =
-        "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n"
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n"
             .parse()
             .expect("a valid manifest document");
 
@@ -316,7 +316,7 @@ fn a_derived_project_forwards_a_manifest_write() {
 fn a_derived_project_forwards_the_manifest_document() {
     let mut inner = InMemoryProject::new();
     let document: DocumentMut =
-        "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n"
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n"
             .parse()
             .expect("a valid manifest document");
     inner

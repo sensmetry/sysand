@@ -153,7 +153,7 @@ fn publish_workspace_with_an_unreadable_member_uploads_nothing() -> TestResult {
     std::fs::create_dir(cwd.join("project1"))?;
     std::fs::write(
         cwd.join("project1/model.toml"),
-        "manifest-version = 1\n\n[project]\npublisher = \"example-pub1\"\n\
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"example-pub1\"\n\
          name = \"project1\"\nversion = \"1.0.0\"\nsources = [\"missing.sysml\"]\n",
     )?;
 
@@ -1043,7 +1043,7 @@ fn publish_toml_project_with_a_stdlib_usage() -> TestResult {
     let (_temp_dir, cwd) = new_temp_cwd()?;
     fs::write(
         cwd.join("model.toml"),
-        "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
          version = \"1.0.0\"\nlicense = \"MIT\"\n\
          metamodel = \"https://www.omg.org/spec/SysML/20250201\"\nsources = [\"a.sysml\"]\n\n\
          [[inline-usages]]\npublisher = \"OMG\"\nname = \"Kernel Semantic Library\"\n\
@@ -1089,7 +1089,7 @@ fn workspace_member(root: &Utf8Path, at: &str, deps: &[&str]) -> TestResult {
     let cwd = root.join(at);
     fs::create_dir_all(&cwd)?;
     let mut manifest = format!(
-        "manifest-version = 1\n\n[project]\npublisher = \"example-pub1\"\nname = \"{at}\"\n\
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"example-pub1\"\nname = \"{at}\"\n\
          version = \"1.0.0\"\nlicense = \"MIT\"\n\
          metamodel = \"https://www.omg.org/spec/SysML/20250201\"\nsources = [\"test.sysml\"]\n"
     );
@@ -1113,7 +1113,7 @@ fn workspace_of(root: &Utf8Path, members: &[&str]) -> TestResult {
     fs::write(
         root.join("model.toml"),
         format!(
-            "manifest-version = 1\n\n[workspace]\nmembers = [{}]\n",
+            "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [{}]\n",
             entries.join(", ")
         ),
     )?;

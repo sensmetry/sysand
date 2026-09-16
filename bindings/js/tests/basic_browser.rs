@@ -37,7 +37,7 @@ mod browser_tests {
         assert_eq!(
             local_storage.get_item("sysand_storage/model.toml").unwrap(),
             Some(
-                "manifest-version = 1\n\n\
+                "manifest-version = \"1.0.0\"\n\n\
                  [project]\n\
                  publisher = \"acme\"\n\
                  name = \"basic-init\"\n\

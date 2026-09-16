@@ -239,7 +239,7 @@ projects it uses. This is what `sysand init` writes, and a project has
 either this or the legacy json pair — never both.
 
 ```toml
-manifest-version = 1
+manifest-version = "1.0.0"
 
 [project]
 publisher = "acme"
@@ -265,7 +265,7 @@ the metadata a member may inherit with `<key>.workspace = true`. A file holds
 either a `[project]` table or a `[workspace]` table, never both.
 
 ```toml
-manifest-version = 1
+manifest-version = "1.0.0"
 
 [workspace]
 members = ["my-project", "libs/other"]

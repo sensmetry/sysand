@@ -55,14 +55,13 @@ public class SetProjectInfoTest {
     public void testSetProjectVerbsRefuseATomlProject() throws Exception {
         java.nio.file.Path tempDir = Files.createTempDirectory("sysand-test-set-info-toml");
         Files.write(tempDir.resolve("model.toml"),
-                ("manifest-version = 1\n\n[project]\npublisher = \"acme\"\n"
+                ("manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\n"
                         + "name = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n").getBytes());
 
         com.sensmetry.sysand.model.InterchangeProjectInfo info =
-                new com.sensmetry.sysand.model.InterchangeProjectInfo();
-        info.setName("widgets");
-        info.setPublisher("acme");
-        info.setVersion("2.0.0");
+                new com.sensmetry.sysand.model.InterchangeProjectInfo(
+                        "widgets", "acme", null, "2.0.0", null, new String[0], null,
+                        new String[0], new com.sensmetry.sysand.model.InterchangeProjectUsage[0]);
         assertThrows(com.sensmetry.sysand.exceptions.SysandException.class,
                 () -> com.sensmetry.sysand.Sysand.setProjectInfo(tempDir, info));
 
