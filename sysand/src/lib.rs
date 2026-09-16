@@ -33,7 +33,7 @@ use sysand_core::{
     index::RemoveTarget,
     index_location::IndexLocation,
     lock::Lockfile,
-    manifest::diagnostics::ReadWarning,
+    manifest::{diagnostics::ReadWarning, workspace_table::WorkspaceTable},
     model::InterchangeProjectUsage,
     project::{
         any::{AnyProject, OverrideProject},
@@ -41,9 +41,11 @@ use sysand_core::{
         reference::ProjectReference,
         utils::{Identifier, wrapfs},
     },
-    resolve::{ResolutionInfo, net_utils::create_reqwest_client},
+    resolve::{ResolutionInfo, file::FileResolverProject, net_utils::create_reqwest_client},
     stdlib::known_std_libs,
-    workspace::model_toml::{MemberChecks, StartRegion, Workspace, discover_table, start_region},
+    workspace::model_toml::{
+        MemberChecks, StartRegion, Workspace, discover_table, member_index, start_region,
+    },
 };
 use url::Url;
 
@@ -59,7 +61,10 @@ use crate::{
         exclude::command_exclude,
         include::command_include,
         index::{command_index_add, command_index_init, command_index_remove, command_index_yank},
-        info::{LocalProjectKind, command_info_field, command_info_field_path, command_info_path},
+        info::{
+            LocalProjectKind, command_info_field, command_info_field_path, command_info_path,
+            command_info_project,
+        },
         init::command_init,
         lock::{command_lock, command_lock_workspace},
         print_root::command_print_root,
@@ -415,10 +420,15 @@ fn run_cli_with(
     // Nesting and unlisted projects, for the commands that have a scope.
     // The workspace root and where under it the command started: both
     // halves are needed, since `StartRegion` carries no root.
+    //
+    // The table is kept, not just consulted: a member's manifest cannot
+    // be read without it, and `current_project` below is built with it.
+    let mut workspace_table: Option<(Utf8PathBuf, Arc<WorkspaceTable>)> = None;
     let scope: Option<(Utf8PathBuf, StartRegion)> = if consults_the_workspace(&command) {
         match discovered {
             Ok(Some((root, table))) => {
                 let start = start_region(&root, &table, &cwd)?;
+                workspace_table = Some((root.clone(), Arc::new(table)));
                 Some((root, start))
             }
             Ok(None) => None,
@@ -426,6 +436,28 @@ fn run_cli_with(
         }
     } else {
         None
+    };
+
+    // `model-toml.md` "Inheritance": a marker resolves against the
+    // workspace table, and only for a member. Without the table, a
+    // member that inherits cannot be read as the current project.
+    //
+    // `member_index` and not `scope`: `StartRegion::Member` prefix-
+    // matches, so it also holds for a project nested *inside* a member,
+    // which is not one. `None` as the nominal path is what makes
+    // `sources` relativize against the workspace root -- the directory the shared lockfile's
+    // `src_path`s are relative to.
+    let current_project = match (current_project, &workspace_table) {
+        (Some(project), Some((root, table)))
+            if member_index(root, table, project.root_path())?.is_some() =>
+        {
+            Some(LocalSrcProject::new_member(
+                project.root_path().to_owned(),
+                None,
+                table.clone(),
+            ))
+        }
+        (project, _) => project,
     };
 
     // `workspaces.md` "Syncing": "Always a single `.sysand` directory in
@@ -832,11 +864,20 @@ fn run_cli_with(
                     };
                     match get {
                         Some(field) => command_info_field(&current_project, field),
-                        None => command_info_path(
-                            current_project.root_path(),
-                            LocalProjectKind::Dir,
-                            &excluded_usages,
-                        ),
+                        None => {
+                            // The project is the one `run_cli`
+                            // discovered, which carries the workspace
+                            // table a member needs; `command_info_path`
+                            // would re-open the directory and throw it
+                            // away. The root is copied out before the
+                            // project moves.
+                            let root = current_project.root_path().to_owned();
+                            command_info_project(
+                                FileResolverProject::LocalSrcProject(current_project),
+                                &root,
+                                &excluded_usages,
+                            )
+                        }
                     }
                 }
                 (Location::Resolve(resolve), None) => crate::commands::info::command_info_resolve(

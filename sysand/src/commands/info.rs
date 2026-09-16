@@ -159,7 +159,29 @@ pub fn command_info_path<P: AsRef<Utf8Path>>(
     kind: LocalProjectKind,
     excluded_iris: &HashSet<Identifier>,
 ) -> Result<()> {
-    let project = interpret_project_path(&path, kind)?;
+    command_info_project(
+        interpret_project_path(&path, kind)?,
+        path.as_ref(),
+        excluded_iris,
+    )
+}
+
+/// The same, for a project that is already open.
+///
+/// [`command_info_path`] re-opens what it is given, which is right for
+/// `--path` and wrong for the working directory: the project
+/// `run_cli` discovered there carries the workspace table a member
+/// needs, and re-opening it throws that away: a member with
+/// `version.workspace = true` would read as an invalid project.
+///
+/// [`FileResolverProject`] rather than any [`ProjectRead`]: the error
+/// this reports is [`CliError::InvalidProject`], whose source is typed
+/// `InfoProjectError<FileResolverProjectError>`.
+pub fn command_info_project(
+    project: FileResolverProject,
+    iri: &Utf8Path,
+    excluded_iris: &HashSet<Identifier>,
+) -> Result<()> {
     match do_info_project(&project) {
         Ok((info, _)) => {
             pprint_interchange_project(&info, excluded_iris);
@@ -167,7 +189,7 @@ pub fn command_info_path<P: AsRef<Utf8Path>>(
             Ok(())
         }
         Err(err) => bail!(CliError::InvalidProject {
-            iri: path.as_ref().to_string(),
+            iri: iri.to_string(),
             source: err
         }),
     }
