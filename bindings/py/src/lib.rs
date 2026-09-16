@@ -19,7 +19,7 @@ use sysand::{
     cli::{AddProjectLocatorArgs, ResolutionOptions},
     commands::{
         add::command_add,
-        lock::{CliLockError, resolve_lock},
+        lock::{CliLockError, create_resolver, resolve_lock},
         sync::{CliSyncError, CommandSyncError, command_sync},
     },
     default_index_location, get_env, get_or_create_env, get_overrides, standard_auth_policy,
@@ -157,13 +157,17 @@ fn do_migrate_py(
         let resolution = resolution.unwrap_or(ResolutionSpec {
             index: vec![],
             default_index: vec![],
-            no_index: false,
+            use_index: true,
             include_std: false,
             use_config: true,
+            config_file: None,
         });
         let auth = auth.unwrap_or_default();
         let path = Utf8PathBuf::from(path);
-        let (ctx, project_root) = project_context(&path)?;
+        // `Scope::Project`: an unlisted json project under a workspace
+        // root is the one a user most wants to migrate.
+        let context = project_context(&path, Scope::Project)?;
+        let (ctx, project_root) = (context.ctx, context.root);
         let config = config_for(&resolution, &project_root)?;
         let client = create_reqwest_client().map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
         let runtime = Arc::new(
@@ -179,7 +183,7 @@ fn do_migrate_py(
             publisher,
             allow_dirty,
             allow_no_vcs,
-            resolution_options(&resolution),
+            resolution_options(&resolution)?,
             &config,
             &ctx,
             client,
@@ -646,47 +650,102 @@ fn provided_projects(specs: Vec<ProvidedSpec>) -> PyResult<ProvidedProjects> {
     Ok(provided)
 }
 
-/// The CLI's view of where a call runs: the enclosing project and
-/// workspace found from `start` and the environment that belongs to them
-/// (`run_cli`'s own steps). Fails when `start` is not inside a project.
-fn project_context(start: &Utf8Path) -> PyResult<(ProjectContext, Utf8PathBuf)> {
+/// Whether an entry point acts on the workspace a path sits in.
+///
+/// The answer differs per command: `lock` acts on the whole workspace,
+/// while `migrate` deliberately does not -- an unlisted json project
+/// under a workspace root is exactly the one a user wants to migrate.
+/// So the scope is a parameter here rather than a property of the
+/// context.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Scope {
+    /// The enclosing workspace, when the path is in one: its lockfile,
+    /// its `.sysand`, its configuration.
+    Workspace,
+    /// The project alone, whatever it sits inside.
+    Project,
+}
+
+/// What `project_context` found.
+struct Context {
+    ctx: ProjectContext,
+    /// Where a lockfile belongs and where configuration is read.
+    root: Utf8PathBuf,
+}
+
+/// The CLI's view of where a call runs: the enclosing project and, under
+/// [`Scope::Workspace`], the workspace it belongs to -- `run_cli`'s own
+/// steps, including rooting the environment and the configuration where
+/// the CLI roots them.
+///
+/// Fails when `start` is not inside a project *and* is not a workspace
+/// root under [`Scope::Workspace`].
+fn project_context(start: &Utf8Path, scope: Scope) -> PyResult<Context> {
     let project_error = |e: String| ProjectError::new_err(e);
     let cwd = wrapfs::canonicalize(start).map_err(|e| project_error(format_err(e)))?;
     let current_project = discover_project(&cwd).map_err(|e| project_error(format_err(e)))?;
-    let Some(project) = &current_project else {
+    // Where a lockfile belongs when the path is not in a workspace.
+    let project_root = current_project.as_ref().map(|p| p.root_path().to_owned());
+
+    // `discover_table` and not `Workspace::discover`, and a discovery
+    // error is not fatal, for the reasons `run_cli`'s own `config_root`
+    // gives.
+    let discovered = match sysand_core::workspace::model_toml::discover_table(&cwd) {
+        Ok(found) => found,
+        Err(error) => {
+            log::debug!("not reading configuration from a workspace root: {error}");
+            None
+        }
+    };
+
+    // Only a member or the root itself is *in* the workspace. An
+    // unlisted or excluded project is not, and that is an answer here
+    // rather than a failure: such a project is locked on its own.
+    let model_workspace_root = match (&discovered, scope) {
+        (Some((root, table)), Scope::Workspace) => {
+            match sysand_core::workspace::model_toml::start_region(root, table, &cwd) {
+                Ok(
+                    sysand_core::workspace::model_toml::StartRegion::Member(_)
+                    | sysand_core::workspace::model_toml::StartRegion::Workspace,
+                ) => Some(root.clone()),
+                _ => None,
+            }
+        }
+        _ => None,
+    };
+
+    let Some(root) = model_workspace_root
+        .clone()
+        .or_else(|| project_root.clone())
+    else {
         return Err(project_error(format!(
             "`{cwd}` is not inside a project - neither it nor any of its parent directories \
              contain a SysML v2 or KerML project"
         )));
     };
-    let project_root = project.root_path().to_owned();
-    // The project root: the binding does not root itself at the
-    // workspace, as `model_workspace_root` below records.
-    let env = get_env(&project_root).map_err(|e| project_error(format_err(e)))?;
-    // workspaces.md "Source overrides": a project-local `sysand.toml`
-    // belongs at the workspace root. `discover_table` and not
-    // `Workspace::discover`, since configuration is not about the
-    // members; and a discovery error is not fatal, since an operation
-    // that never looks at the workspace must not fail on it.
-    let config_root = match sysand_core::workspace::model_toml::discover_table(&cwd) {
-        Ok(Some((root, _))) => root,
-        Ok(None) => project_root.clone(),
-        Err(error) => {
-            log::debug!("not reading configuration from a workspace root: {error}");
-            project_root.clone()
-        }
+
+    // The environment and the configuration go where the lockfile goes:
+    // a half-moved context would leave `sources_root()` at the workspace
+    // and `ctx.env` at the member, which `do_lock_workspace` asserts
+    // against.
+    let env = get_env(&root).map_err(|e| project_error(format_err(e)))?;
+    let config_root = match (&discovered, scope) {
+        // workspaces.md "Source overrides": a project-local
+        // `sysand.toml` belongs at the workspace root.
+        (Some((workspace_root, _)), Scope::Workspace) => workspace_root.clone(),
+        _ => root.clone(),
     };
-    Ok((
-        ProjectContext {
-            // The binding locks a member alone, at the member's root.
-            model_workspace_root: None,
+
+    Ok(Context {
+        ctx: ProjectContext {
+            model_workspace_root,
             env,
             current_project,
             current_directory: cwd,
             config_root,
         },
-        project_root,
-    ))
+        root,
+    })
 }
 
 fn resolution_options(spec: &ResolutionSpec) -> PyResult<ResolutionOptions> {
@@ -876,8 +935,11 @@ fn do_lock_py(
     let provided = provided_projects(provided)?;
     let outcome: Result<(String, Vec<LockedProject>), Failure> = py.detach(|| {
         let auth = auth.unwrap_or_default();
-        let (ctx, project_root) = project_context(Utf8Path::new(&path))?;
-        let config = config_for(&resolution, &project_root)?;
+        let context = project_context(Utf8Path::new(&path), Scope::Workspace)?;
+        let Context { ctx, root } = context;
+        // At the root the workspace's configuration is read: a
+        // member-local `sysand.toml` is not the workspace's.
+        let config = config_for(&resolution, &ctx.config_root)?;
         let client = create_reqwest_client().map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
         let runtime = Arc::new(
             tokio::runtime::Builder::new_current_thread()
@@ -887,22 +949,59 @@ fn do_lock_py(
         );
         let auth_policy = build_auth_policy(&auth)?;
 
-        let lock: Lock = resolve_lock(
-            ".",
-            resolution_options(&resolution)?,
-            &config,
-            &project_root,
-            provided,
-            client,
-            runtime,
-            auth_policy.clone(),
-            &ctx,
-        )
-        .map_err(|e| lock_error_to_failure(e, &auth, &auth_policy))?;
+        let lock: Lock = match &ctx.model_workspace_root {
+            // One solve for the whole workspace, at its root. Not
+            // `command_lock_workspace`: this needs `write=False`, an
+            // error it can downcast, and `provided`.
+            Some(workspace_root) => {
+                let mut provided_iris = if resolution.include_std {
+                    std::collections::HashMap::default()
+                } else {
+                    sysand_core::stdlib::known_std_libs()
+                };
+                provided_iris.extend(provided);
+                let workspace = sysand_core::workspace::model_toml::Workspace::load_with(
+                    workspace_root,
+                    // As `do_lock_workspace` asks for.
+                    sysand_core::workspace::model_toml::MemberChecks::SkipStrayState,
+                )
+                .map_err(|e| Failure::Py(ProjectError::new_err(format_err(e))))?;
+                let resolver = create_resolver(
+                    resolution_options(&resolution)?,
+                    &config,
+                    &ctx,
+                    provided_iris.clone(),
+                    client,
+                    runtime,
+                    auth_policy.clone(),
+                )
+                .map_err(|e| Failure::Py(ProjectError::new_err(format!("{e:#}"))))?;
+                let outcome = sysand_core::commands::lock::do_lock_workspace(
+                    &workspace,
+                    resolver,
+                    &provided_iris,
+                    &ctx,
+                )
+                .map_err(|e| lock_error_to_failure(anyhow::Error::new(e), &auth, &auth_policy))?;
+                outcome.lock.canonicalize()
+            }
+            None => resolve_lock(
+                ".",
+                resolution_options(&resolution)?,
+                &config,
+                &root,
+                provided,
+                client,
+                runtime,
+                auth_policy.clone(),
+                &ctx,
+            )
+            .map_err(|e| lock_error_to_failure(e, &auth, &auth_policy))?,
+        };
 
         let text = Lockfile::to_text(&lock);
         let lock = if write {
-            let lockfile = Lockfile::new(&project_root, lock);
+            let lockfile = Lockfile::new(&root, lock);
             lockfile
                 .write()
                 .map_err(|e| Failure::Wrote(format_err(e)))?;
@@ -953,7 +1052,9 @@ fn do_sync_py(
     let extra_provided = provided_projects(provided)?;
     let outcome: Result<_, Failure> = py.detach(|| {
         let auth = auth.unwrap_or_default();
-        let (mut ctx, project_root) = project_context(Utf8Path::new(&path))?;
+        // As `lock`: the lockfile and the environment are the workspace's
+        let context = project_context(Utf8Path::new(&path), Scope::Workspace)?;
+        let (mut ctx, project_root) = (context.ctx, context.root);
 
         let client = create_reqwest_client().map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
         let runtime = Arc::new(
@@ -1426,7 +1527,9 @@ fn do_add_py(
 
     let outcome: Result<bool, Failure> = py.detach(|| {
         let auth = auth.unwrap_or_default();
-        let (ctx, project_root) = project_context(Utf8Path::new(&path))?;
+        // `add` re-locks the workspace the project is in
+        let context = project_context(Utf8Path::new(&path), Scope::Workspace)?;
+        let (ctx, project_root) = (context.ctx, context.root);
         let config = config_for(&resolution, &project_root)?;
         let client = create_reqwest_client().map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
         let runtime = Arc::new(

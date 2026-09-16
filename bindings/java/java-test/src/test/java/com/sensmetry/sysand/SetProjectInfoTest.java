@@ -25,8 +25,14 @@ public class SetProjectInfoTest {
      * A legacy json project, written by hand.
      *
      * <p>{@code Sysand.init} writes a {@code model.toml}, and
-     * {@code setProjectInfo}/{@code setProjectMetadata} write the json
-     * documents, so these tests keep a json project.
+     * {@code setProjectInfo}/{@code setProjectMetadata}/{@code setProjectIndex}
+     * write {@code .project.json}/{@code .meta.json} -- so the two do
+     * not compose, and cannot.
+     *
+     * <p>Those three verbs are json-only by design: they refuse a
+     * {@code model.toml} project outright, which
+     * {@code testSetProjectVerbsRefuseATomlProject} asserts. A json fixture
+     * is the only fixture they have.
      */
     private Path initProject() throws Exception {
         Path tempDir = Files.createTempDirectory("sysand-test-set-info");
@@ -36,6 +42,34 @@ public class SetProjectInfoTest {
         Files.write(tempDir.resolve(".meta.json"),
                 "{\n  \"index\": {},\n  \"created\": \"2026-01-01T00:00:00Z\"\n}\n".getBytes());
         return tempDir;
+    }
+
+    /**
+     * The three write verbs refuse a {@code model.toml} project.
+     *
+     * <p>{@code setProjectIndex} reaches the same refusal by a longer
+     * route -- it reads the metadata the toml view synthesises and then
+     * tries to write it back.
+     */
+    @Test
+    public void testSetProjectVerbsRefuseATomlProject() throws Exception {
+        java.nio.file.Path tempDir = Files.createTempDirectory("sysand-test-set-info-toml");
+        Files.write(tempDir.resolve("model.toml"),
+                ("manifest-version = 1\n\n[project]\npublisher = \"acme\"\n"
+                        + "name = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n").getBytes());
+
+        com.sensmetry.sysand.model.InterchangeProjectInfo info =
+                new com.sensmetry.sysand.model.InterchangeProjectInfo();
+        info.setName("widgets");
+        info.setPublisher("acme");
+        info.setVersion("2.0.0");
+        assertThrows(com.sensmetry.sysand.exceptions.SysandException.class,
+                () -> com.sensmetry.sysand.Sysand.setProjectInfo(tempDir, info));
+
+        java.util.LinkedHashMap<String, String> index = new java.util.LinkedHashMap<>();
+        index.put("Alpha", "src/Alpha.sysml");
+        assertThrows(com.sensmetry.sysand.exceptions.SysandException.class,
+                () -> com.sensmetry.sysand.Sysand.setProjectIndex(tempDir, index));
     }
 
     // --- setProjectInfo ---
