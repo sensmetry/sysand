@@ -162,6 +162,9 @@ class LockedProject(typing.TypedDict):
     publisher: str | None
     name: str
     version: str
+    metamodel: str | None
+    """The metamodel the project declares, or ``None``. Recorded so the
+    lockfile's own edge checks have something to read."""
     identifiers: list[str]
     exports: list[str]
     usages: list[str]

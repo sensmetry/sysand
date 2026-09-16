@@ -126,20 +126,6 @@ fn an_edge_to_an_unknown_node_is_ignored() {
 }
 
 #[test]
-fn edges_are_listed_in_insertion_order() {
-    let graph = graph(&["a", "b", "c"], &[("a", "b"), ("a", "c"), ("b", "c")]);
-
-    assert_eq!(
-        graph.edges().collect::<Vec<_>>(),
-        [
-            (&"a".to_owned(), &"b".to_owned()),
-            (&"a".to_owned(), &"c".to_owned()),
-            (&"b".to_owned(), &"c".to_owned()),
-        ]
-    );
-}
-
-#[test]
 fn graph_deduplicates_nodes_and_edges() {
     let mut graph = DependencyGraph::new();
     let first = graph.add_node("a".to_owned());
@@ -149,7 +135,6 @@ fn graph_deduplicates_nodes_and_edges() {
     assert!(graph.add_edge(&"a".to_owned(), &"b".to_owned()));
     assert!(graph.add_edge(&"a".to_owned(), &"b".to_owned()));
     assert_eq!(graph.nodes().len(), 2);
-    assert_eq!(graph.edges().count(), 1);
     assert_eq!(order(&graph), ["b", "a"]);
 }
 

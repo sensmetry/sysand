@@ -74,19 +74,6 @@ impl<N: Clone + Debug + Display + Eq + Hash> DependencyGraph<N> {
         &self.nodes
     }
 
-    /// Every edge as a `(dependent, dependency)` pair, in the order the
-    /// edges were added.
-    pub fn edges(&self) -> impl Iterator<Item = (&N, &N)> {
-        self.edges
-            .iter()
-            .enumerate()
-            .flat_map(move |(from, targets)| {
-                targets
-                    .iter()
-                    .map(move |to| (&self.nodes[from], &self.nodes[*to]))
-            })
-    }
-
     /// Every cycle in the graph, as its strongly connected component.
     ///
     /// A component of more than one node is a cycle, and so is a single
