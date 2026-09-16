@@ -1,0 +1,549 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
+
+use indexmap::IndexMap;
+
+use super::{MigrateOptions, migrate_project};
+use crate::{
+    manifest::{ModelToml, project::ProjectManifest},
+    model::{
+        InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
+        InterchangeProjectUsageRaw,
+    },
+};
+
+fn info(name: &str, publisher: Option<&str>, version: &str) -> InterchangeProjectInfoRaw {
+    InterchangeProjectInfoRaw {
+        name: name.to_owned(),
+        publisher: publisher.map(ToOwned::to_owned),
+        description: None,
+        version: version.to_owned(),
+        license: None,
+        maintainer: vec![],
+        website: None,
+        topic: vec![],
+        usage: vec![],
+    }
+}
+
+fn meta() -> InterchangeProjectMetadataRaw {
+    InterchangeProjectMetadataRaw {
+        index: IndexMap::new(),
+        created: "2001-02-03T04:05:06Z".to_owned(),
+        metamodel: None,
+        includes_derived: None,
+        includes_implied: None,
+        checksum: None,
+    }
+}
+
+fn checksum_of(paths: &[&str]) -> IndexMap<String, InterchangeProjectChecksumRaw> {
+    {
+        paths
+            .iter()
+            .map(|path| {
+                (
+                    (*path).to_owned(),
+                    InterchangeProjectChecksumRaw {
+                        value: "0".repeat(64),
+                        algorithm: "SHA256".to_owned(),
+                    },
+                )
+            })
+            .collect()
+    }
+}
+
+fn migrated(
+    info: &InterchangeProjectInfoRaw,
+    meta: &InterchangeProjectMetadataRaw,
+) -> ProjectManifest {
+    let validated = migrate_project(info, meta, &MigrateOptions::default())
+        .unwrap_or_else(|report| panic!("the conversion succeeds:\n{report}"));
+    match validated.value {
+        ModelToml::Project(project) => *project,
+        ModelToml::Workspace(_) => panic!("migrate produces a project"),
+    }
+}
+
+fn errors(
+    info: &InterchangeProjectInfoRaw,
+    meta: &InterchangeProjectMetadataRaw,
+    options: &MigrateOptions,
+) -> String {
+    migrate_project(info, meta, options)
+        .expect_err("the conversion fails")
+        .to_string()
+}
+
+// ------------------------------------------------- the carried fields
+
+#[test]
+fn a_minimal_project_migrates() {
+    let manifest = migrated(&info("widgets", Some("acme"), "1.0.0"), &meta());
+    assert_eq!(manifest.project.name.as_str(), "widgets");
+    assert_eq!(
+        manifest.project.sources.as_ref().map(Sources::is_empty),
+        Some(true),
+        "a project with no sources is written as `sources = []`"
+    );
+}
+
+use crate::manifest::common::Sources;
+
+#[test]
+fn the_scalar_fields_are_carried() {
+    let mut raw = info("widgets", Some("acme"), "1.2.3");
+    raw.description = Some("a description".to_owned());
+    raw.license = Some("MIT".to_owned());
+    raw.maintainer = vec!["Ada <ada@example.com>".to_owned()];
+    raw.website = Some("https://example.com/widgets".to_owned());
+    raw.topic = vec!["systems".to_owned()];
+
+    let manifest = migrated(&raw, &meta());
+    assert_eq!(
+        manifest.project.description.as_deref(),
+        Some("a description")
+    );
+    assert_eq!(
+        manifest
+            .project
+            .license
+            .as_ref()
+            .map(|l| l.provided().unwrap().to_string()),
+        Some("MIT".to_owned())
+    );
+    assert_eq!(
+        manifest
+            .project
+            .maintainers
+            .as_ref()
+            .unwrap()
+            .provided()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        manifest
+            .project
+            .topics
+            .as_ref()
+            .unwrap()
+            .provided()
+            .unwrap(),
+        &vec!["systems".to_owned()]
+    );
+    let urls = manifest.project.urls.as_ref().unwrap().provided().unwrap();
+    assert_eq!(
+        urls.website.as_ref().unwrap().provided().unwrap().as_str(),
+        "https://example.com/widgets"
+    );
+}
+
+#[test]
+fn a_value_that_never_had_to_satisfy_the_manifests_rules_is_an_error() {
+    // Legacy json names are unconstrained strings; a manifest name must
+    // normalize to a valid purl part, which `ab` is too short for.
+    let rendered = errors(
+        &info("ab", Some("acme"), "1.0.0"),
+        &meta(),
+        &MigrateOptions::default(),
+    );
+    assert!(rendered.contains("`name`"), "{rendered}");
+}
+
+#[test]
+fn a_non_semver_version_is_an_error() {
+    let rendered = errors(
+        &info("widgets", Some("acme"), "2023-11"),
+        &meta(),
+        &MigrateOptions::default(),
+    );
+    assert!(rendered.contains("not a semantic version"), "{rendered}");
+}
+
+#[test]
+fn a_bad_license_maintainer_and_website_are_errors() {
+    let mut raw = info("widgets", Some("acme"), "1.0.0");
+    raw.license = Some("Not A Licence".to_owned());
+    raw.maintainer = vec!["Ada".to_owned()];
+    raw.website = Some("not an iri".to_owned());
+    let rendered = errors(&raw, &meta(), &MigrateOptions::default());
+    assert!(rendered.contains("SPDX"), "{rendered}");
+    assert!(rendered.contains("maintainer"), "{rendered}");
+    assert!(rendered.contains("website"), "{rendered}");
+}
+
+// ------------------------------------------------------- the metamodel
+
+#[test]
+fn an_unrecognized_metamodel_warns_and_migrates() {
+    let mut m = meta();
+    m.metamodel = Some("https://example.com/spec/SysML/20251201".to_owned());
+    let validated = migrate_project(
+        &info("widgets", Some("acme"), "1.0.0"),
+        &m,
+        &MigrateOptions::default(),
+    )
+    .expect("an unrecognized metamodel is a warning");
+    assert!(
+        validated
+            .warnings
+            .iter()
+            .any(|w| w.message.contains("does not recognize")),
+        "{:?}",
+        validated.warnings
+    );
+}
+
+/// `ProjectTable::validate` refuses a metamodel that is not an IRI, so
+/// migrating one would write a manifest this crate cannot read back.
+#[test]
+fn a_metamodel_that_is_not_an_iri_is_an_error() {
+    let mut m = meta();
+    m.metamodel = Some("not an iri".to_owned());
+    let rendered = errors(
+        &info("widgets", Some("acme"), "1.0.0"),
+        &m,
+        &MigrateOptions::default(),
+    );
+    assert!(rendered.contains("`not an iri` is not a URL"), "{rendered}");
+}
+
+// ---------------------------------------------------------- `sources`
+
+fn sources_of(meta: &InterchangeProjectMetadataRaw) -> Vec<String> {
+    migrated(&info("widgets", Some("acme"), "1.0.0"), meta)
+        .project
+        .sources
+        .as_ref()
+        .expect("sources")
+        .iter()
+        .map(ToString::to_string)
+        .collect()
+}
+
+#[test]
+fn sources_come_from_the_index_values() {
+    let mut m = meta();
+    m.index = IndexMap::from([("A".to_owned(), "a.sysml".to_owned())]);
+    assert_eq!(sources_of(&m), vec!["a.sysml".to_owned()]);
+}
+
+#[test]
+fn sources_come_from_the_checksum_keys() {
+    let mut m = meta();
+    m.checksum = Some(checksum_of(&["b.kerml"]));
+    assert_eq!(sources_of(&m), vec!["b.kerml".to_owned()]);
+}
+
+/// The union deduplicates. `index` maps *symbol* to path, so a file
+/// exporting three symbols appears three times, and its checksum key a
+/// fourth -- which `Sources::new` would refuse outright.
+#[test]
+fn the_union_is_deduplicated() {
+    let mut m = meta();
+    m.index = IndexMap::from([
+        ("A".to_owned(), "a.sysml".to_owned()),
+        ("B".to_owned(), "a.sysml".to_owned()),
+        ("C".to_owned(), "b.kerml".to_owned()),
+    ]);
+    m.checksum = Some(checksum_of(&["a.sysml", "b.kerml"]));
+    assert_eq!(
+        sources_of(&m),
+        vec!["a.sysml".to_owned(), "b.kerml".to_owned()]
+    );
+}
+
+#[test]
+fn no_index_and_no_checksum_is_an_empty_sources() {
+    assert_eq!(sources_of(&meta()), [] as [std::string::String; 0]);
+}
+
+/// One diagnostic naming *every* offending key.
+#[test]
+fn every_bad_checksum_key_is_listed_in_one_diagnostic() {
+    let mut m = meta();
+    m.checksum = Some(checksum_of(&["README.md", "a.sysml", "notes.txt"]));
+    let rendered = errors(
+        &info("widgets", Some("acme"), "1.0.0"),
+        &m,
+        &MigrateOptions::default(),
+    );
+    assert!(rendered.contains("`README.md`"), "{rendered}");
+    assert!(rendered.contains("`notes.txt`"), "{rendered}");
+    assert!(rendered.contains("run `sysand exclude`"), "{rendered}");
+    assert_eq!(
+        rendered.matches("run `sysand exclude`").count(),
+        1,
+        "one diagnostic, not one per key:\n{rendered}"
+    );
+}
+
+/// An `index` value that is not a model file is an error of its own,
+/// which has no plural form.
+#[test]
+fn a_non_model_index_value_is_an_error() {
+    let mut m = meta();
+    m.index = IndexMap::from([("A".to_owned(), "README.md".to_owned())]);
+    let rendered = errors(
+        &info("widgets", Some("acme"), "1.0.0"),
+        &m,
+        &MigrateOptions::default(),
+    );
+    assert!(
+        rendered.contains("`sources` lists model files only"),
+        "{rendered}"
+    );
+}
+
+// --------------------------------------------------------- `publisher`
+
+#[test]
+fn no_publisher_anywhere_is_an_error() {
+    let rendered = errors(
+        &info("widgets", None, "1.0.0"),
+        &meta(),
+        &MigrateOptions::default(),
+    );
+    assert!(
+        rendered.contains("declares no `publisher` and none was given"),
+        "{rendered}"
+    );
+}
+
+#[test]
+fn the_publisher_comes_from_options_when_the_file_has_none() {
+    let manifest = match migrate_project(
+        &info("widgets", None, "1.0.0"),
+        &meta(),
+        &MigrateOptions {
+            publisher: Some("acme".to_owned()),
+        },
+    )
+    .expect("the option supplies it")
+    .value
+    {
+        ModelToml::Project(project) => *project,
+        ModelToml::Workspace(_) => unreachable!(),
+    };
+    assert_eq!(
+        manifest.project.publisher.provided().unwrap().as_str(),
+        "acme"
+    );
+}
+
+/// The file's own publisher is migrated rather than overridden. Both
+/// values are set, and they differ, or the assertion would pass under
+/// either precedence.
+#[test]
+fn the_files_publisher_wins_over_the_option() {
+    let manifest = match migrate_project(
+        &info("widgets", Some("fromfile"), "1.0.0"),
+        &meta(),
+        &MigrateOptions {
+            publisher: Some("fromoption".to_owned()),
+        },
+    )
+    .expect("both are valid")
+    .value
+    {
+        ModelToml::Project(project) => *project,
+        ModelToml::Workspace(_) => unreachable!(),
+    };
+    assert_eq!(
+        manifest.project.publisher.provided().unwrap().as_str(),
+        "fromfile"
+    );
+}
+
+// -------------------------------------------------- discarded metadata
+
+#[test]
+fn the_discarded_metadata_warns() {
+    let mut m = meta();
+    m.index = IndexMap::from([("A".to_owned(), "a.sysml".to_owned())]);
+    m.checksum = Some(checksum_of(&["a.sysml"]));
+    m.includes_derived = Some(true);
+    m.includes_implied = Some(false);
+    let validated = migrate_project(
+        &info("widgets", Some("acme"), "1.0.0"),
+        &m,
+        &MigrateOptions::default(),
+    )
+    .expect("the conversion succeeds");
+    let text = validated
+        .warnings
+        .iter()
+        .map(|w| w.message.clone())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("`created`"), "{text}");
+    assert!(text.contains("`includesDerived`"), "{text}");
+    assert!(text.contains("`includesImplied`"), "{text}");
+    // The paths are *not* discarded, and the warning has to say so.
+    assert!(text.contains("apart from its paths"), "{text}");
+}
+
+// ------------------------------------------------------------- usages
+
+fn usage_error(usage: InterchangeProjectUsageRaw) -> String {
+    let mut raw = info("widgets", Some("acme"), "1.0.0");
+    raw.usage = vec![usage];
+    errors(&raw, &meta(), &MigrateOptions::default())
+}
+
+fn one_usage(usage: InterchangeProjectUsageRaw) -> crate::manifest::usage::Usage {
+    let mut raw = info("widgets", Some("acme"), "1.0.0");
+    raw.usage = vec![usage];
+    match migrated(&raw, &meta()).inline_usages.remove(0) {
+        crate::manifest::usage::MemberUsage::Declared(usage) => usage,
+        crate::manifest::usage::MemberUsage::Inherited { .. } => {
+            panic!("migrate declares usages, it does not inherit them")
+        }
+    }
+}
+
+#[test]
+fn a_directory_usage_converts() {
+    let usage = one_usage(InterchangeProjectUsageRaw::Directory {
+        dir: "../dep".to_owned(),
+        publisher: "acme".to_owned(),
+        name: "dep".to_owned(),
+    });
+    assert!(
+        matches!(usage, crate::manifest::usage::Usage::SourcePath { .. }),
+        "{usage:?}"
+    );
+}
+
+#[test]
+fn a_kpar_path_usage_converts() {
+    let usage = one_usage(InterchangeProjectUsageRaw::KparPath {
+        kpar_path: "../dep.kpar".to_owned(),
+        publisher: "acme".to_owned(),
+        name: "dep".to_owned(),
+    });
+    assert!(
+        matches!(usage, crate::manifest::usage::Usage::KparPath { .. }),
+        "{usage:?}"
+    );
+}
+
+/// model-toml.md "JSON to TOML": a json path is "rewritten into the form a
+/// `dir` or `kpar-path` requires", which is the only form a `model.toml`
+/// admits.
+#[test]
+fn a_local_path_is_written_in_normal_form() {
+    for (json, written) in [("./dep/", "dep"), ("./../libs/./x/../dep", "../libs/dep")] {
+        let usage = one_usage(InterchangeProjectUsageRaw::Directory {
+            dir: json.to_owned(),
+            publisher: "acme".to_owned(),
+            name: "dep".to_owned(),
+        });
+        assert_eq!(
+            usage.local_path().map(|path| path.as_str()),
+            Some(written),
+            "`{json}`"
+        );
+    }
+    let usage = one_usage(InterchangeProjectUsageRaw::KparPath {
+        kpar_path: "./dep.kpar".to_owned(),
+        publisher: "acme".to_owned(),
+        name: "dep".to_owned(),
+    });
+    assert_eq!(
+        usage.local_path().map(|path| path.as_str()),
+        Some("dep.kpar")
+    );
+}
+
+#[test]
+fn a_local_path_that_names_the_project_itself_is_an_error() {
+    let rendered = usage_error(InterchangeProjectUsageRaw::Directory {
+        dir: "dep/..".to_owned(),
+        publisher: "acme".to_owned(),
+        name: "dep".to_owned(),
+    });
+    assert!(
+        rendered.contains("usage path `dep/..` names the project itself"),
+        "{rendered}"
+    );
+}
+
+#[test]
+fn a_typed_usage_with_an_invalid_publisher_is_an_error() {
+    let rendered = usage_error(InterchangeProjectUsageRaw::Directory {
+        dir: "../dep".to_owned(),
+        publisher: "no".to_owned(),
+        name: "dep".to_owned(),
+    });
+    assert!(rendered.contains("`publisher`"), "{rendered}");
+}
+
+#[test]
+fn a_constrained_purl_usage_becomes_an_index_usage() {
+    let usage = one_usage(InterchangeProjectUsageRaw::Resource {
+        resource: "pkg:sysand/acme/dep".to_owned(),
+        version_constraint: Some("^1.0.0".to_owned()),
+    });
+    assert!(
+        matches!(usage, crate::manifest::usage::Usage::Index { .. }),
+        "{usage:?}"
+    );
+}
+
+#[test]
+fn an_unconstrained_purl_usage_needs_the_index() {
+    let rendered = usage_error(InterchangeProjectUsageRaw::Resource {
+        resource: "pkg:sysand/acme/dep".to_owned(),
+        version_constraint: None,
+    });
+    assert!(rendered.contains("cannot do that yet"), "{rendered}");
+}
+
+#[test]
+fn a_located_usage_needs_its_target_read() {
+    for resource in [
+        "https://example.com/dep.kpar",
+        "file:///srv/dep",
+        "http://example.com/dep.kpar",
+    ] {
+        let rendered = usage_error(InterchangeProjectUsageRaw::Resource {
+            resource: resource.to_owned(),
+            version_constraint: None,
+        });
+        assert!(
+            rendered.contains("must be read from the target"),
+            "{resource}: {rendered}"
+        );
+    }
+}
+
+#[test]
+fn a_git_usage_is_refused() {
+    let rendered = usage_error(InterchangeProjectUsageRaw::Resource {
+        resource: "git+https://example.com/dep.git".to_owned(),
+        version_constraint: None,
+    });
+    assert!(rendered.contains("git repository"), "{rendered}");
+}
+
+// ------------------------------------------------------ all-or-nothing
+
+/// Every problem in one report: a user with four mistakes runs `migrate`
+/// once, not four times.
+#[test]
+fn every_problem_is_reported_together() {
+    let mut raw = info("widgets", Some("acme"), "2023-11");
+    raw.maintainer = vec!["Ada".to_owned()];
+    let mut m = meta();
+    m.checksum = Some(checksum_of(&["README.md", "notes.txt"]));
+
+    let rendered = errors(&raw, &m, &MigrateOptions::default());
+    assert!(rendered.contains("not a semantic version"), "{rendered}");
+    assert!(rendered.contains("maintainer"), "{rendered}");
+    assert!(rendered.contains("`README.md`"), "{rendered}");
+    assert!(rendered.contains("`notes.txt`"), "{rendered}");
+}
