@@ -14,6 +14,7 @@ pub mod index;
 pub mod info;
 pub mod init;
 pub mod lock;
+pub mod migrate;
 #[cfg(all(feature = "filesystem", feature = "networking"))]
 pub mod publish;
 pub mod remove;
