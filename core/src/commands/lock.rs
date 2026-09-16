@@ -235,7 +235,7 @@ pub fn do_lock_projects<
     ctx: &ProjectContext,
 ) -> Result<LockOutcome<PD>, LockProjectError<PI, PD, R>> {
     #[cfg(feature = "filesystem")]
-    let base_path = ctx.workspace_or_project_root();
+    let base_path = ctx.project_root();
     #[cfg(not(feature = "filesystem"))]
     let base_path = None;
     lock_projects(
@@ -393,7 +393,7 @@ pub fn do_lock_extend<
     ctx: &ProjectContext,
 ) -> Result<LockOutcome<PD>, LockError<PD, R>> {
     #[cfg(feature = "filesystem")]
-    let base_path = ctx.workspace_or_project_root();
+    let base_path = ctx.project_root();
     #[cfg(not(feature = "filesystem"))]
     let base_path = None;
     lock_extend(
@@ -694,7 +694,7 @@ pub fn do_lock_local_editable_respelling<
         ),
     );
 
-    let base_path = ctx.workspace_or_project_root();
+    let base_path = ctx.project_root();
     lock_projects(
         [(identifiers, &project, base_path)],
         resolver,

@@ -921,12 +921,6 @@ pub(crate) fn handle_build_error(env: &mut Env<'_>, error: &KParBuildError<Local
                 format!("Project serialization error: {e}"),
             );
         }
-        KParBuildError::WorkspaceRead(_) => {
-            env.throw_exception(
-                ExceptionKind::SysandException,
-                format!("Workspace read error: {e}"),
-            );
-        }
         KParBuildError::PathUsage(_) => {
             env.throw_exception(ExceptionKind::SysandException, e);
         }

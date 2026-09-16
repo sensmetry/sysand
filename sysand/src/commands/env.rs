@@ -66,7 +66,6 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
     let env = crate::get_or_create_env(
         ctx.env,
         ctx.model_workspace_root.as_deref(),
-        ctx.current_workspace.as_ref(),
         ctx.current_project.as_ref(),
         &ctx.current_directory,
     )?;
@@ -193,7 +192,6 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
             &provided_usages,
             runtime,
             auth_policy,
-            ctx.current_workspace.as_ref(),
             // Since this explicitly installs into env, it would not make sense to prune
             true,
             &mut SyncOutcome::default(),
@@ -221,7 +219,6 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
     let env = crate::get_or_create_env(
         ctx.env,
         ctx.model_workspace_root.as_deref(),
-        ctx.current_workspace.as_ref(),
         ctx.current_project.as_ref(),
         &ctx.current_directory,
     )?;
@@ -344,7 +341,6 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
             &provided_usages,
             runtime,
             auth_policy,
-            ctx.current_workspace.as_ref(),
             // Since this explicitly installs into env, it would not make sense to prune
             true,
             &mut SyncOutcome::default(),

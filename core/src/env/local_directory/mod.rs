@@ -33,7 +33,6 @@ use crate::{
             RelativizePathError, wrapfs,
         },
     },
-    workspace::Workspace,
 };
 
 pub mod metadata;
@@ -111,7 +110,11 @@ impl LocalDirectoryEnvironment {
     /// non-installed projects are removed first.
     /// To install a project in the environment, use `put_project()`.
     /// Call is idempotent. Does not update metadata file
-    pub fn merge_lock(&mut self, lock: &Lock, ws: Option<&Workspace>) {
+    ///
+    /// The `workspace` flag of every `EnvProject` it adds is `false`,
+    /// which the serializer omits. Setting it for a `model.toml`
+    /// workspace would need the loaded `Workspace`.
+    pub fn merge_lock(&mut self, lock: &Lock) {
         self.metadata.projects.retain(Self::is_installed);
         for project in &lock.projects {
             // Projects that are installed in the environment are ignored, so only
@@ -122,9 +125,6 @@ impl LocalDirectoryEnvironment {
                     .iter()
                     .map(|usage| usage.to_string())
                     .collect();
-
-                let workspace_member =
-                    ws.is_some_and(|w| w.projects().iter().any(|p| p.path.as_str() == editable));
 
                 self.metadata.projects.push(EnvProject {
                     publisher: project.publisher.clone(),
@@ -138,7 +138,7 @@ impl LocalDirectoryEnvironment {
                         .collect(),
                     usages,
                     editable: true,
-                    workspace: workspace_member,
+                    workspace: false,
                     checksum: None,
                 });
             }

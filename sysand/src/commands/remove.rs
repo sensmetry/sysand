@@ -4,7 +4,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
-use camino::{Utf8Path, Utf8PathBuf};
+use camino::Utf8PathBuf;
 
 use fluent_uri::Iri;
 use reqwest_middleware::ClientWithMiddleware;
@@ -135,15 +135,6 @@ fn lock_sync<Policy: HTTPAuthentication>(
     };
     let current_project = ctx.current_project.as_ref().unwrap();
 
-    let alias_iris = if let Some(w) = &ctx.current_workspace {
-        w.projects()
-            .iter()
-            .find(|p| Utf8Path::new(&p.path) == current_project.root_path())
-            .map(|p| p.iris.clone())
-    } else {
-        None
-    };
-
     // In a workspace the lockfile is the shared one at the root, and so
     // is the directory its `src_path`s are relative to.
     let lock_root = ctx
@@ -204,7 +195,6 @@ fn lock_sync<Policy: HTTPAuthentication>(
             let mut env = crate::get_or_create_env(
                 ctx.env,
                 ctx.model_workspace_root.as_deref(),
-                ctx.current_workspace.as_ref(),
                 ctx.current_project.as_ref(),
                 ctx.current_directory,
             )?;
@@ -216,7 +206,6 @@ fn lock_sync<Policy: HTTPAuthentication>(
                 &provided_iris,
                 runtime,
                 auth_policy,
-                ctx.current_workspace.as_ref(),
                 no_prune,
                 &mut SyncOutcome::default(),
             )?;
@@ -239,7 +228,8 @@ fn lock_sync<Policy: HTTPAuthentication>(
             runtime,
             auth_policy,
             project_root,
-            alias_iris,
+            // See `commands/lock.rs`: `model.toml` has no alias IRIs.
+            None,
             provided_iris,
             ctx,
         )?;

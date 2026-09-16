@@ -25,7 +25,7 @@ use sysand_core::{
         local_fs::{CONFIG_FILE, get_config, load_configs, read_config},
     },
     context::ProjectContext,
-    discover::{discover_project, discover_workspace},
+    discover::discover_project,
     env::{
         DEFAULT_ENV_NAME,
         local_directory::{LocalDirectoryEnvironment, metadata::EnvMetadataError},
@@ -43,10 +43,7 @@ use sysand_core::{
     },
     resolve::{ResolutionInfo, net_utils::create_reqwest_client},
     stdlib::known_std_libs,
-    workspace::{
-        Workspace,
-        model_toml::{MemberChecks, StartRegion, discover_table, start_region},
-    },
+    workspace::model_toml::{MemberChecks, StartRegion, Workspace, discover_table, start_region},
 };
 use url::Url;
 
@@ -394,7 +391,6 @@ fn run_cli_with(
     log::debug!("sysand v{}", env!("CARGO_PKG_VERSION"));
 
     let current_project = discover_project(&cwd)?;
-    let current_workspace = discover_workspace(&cwd)?;
     let project_root = current_project.as_ref().map(|p| p.root_path().to_owned());
 
     // One upward walk for both questions below: configuration is read
@@ -441,19 +437,17 @@ fn run_cli_with(
         matches!(start, StartRegion::Member(_) | StartRegion::Workspace).then(|| root.clone())
     });
 
-    let env = match (&model_workspace_root, &current_workspace, &current_project) {
-        (Some(root), _, _) => get_env(root)?,
+    let env = match (&model_workspace_root, &current_project) {
+        (Some(root), _) => get_env(root)?,
+        (None, Some(pr)) => get_env(pr.root_path())?,
         // TODO: does it make sense to support env unassociated with a project
         // when index and env are different?
-        (None, None, None) => get_env(&cwd)?,
-        (None, None, Some(pr)) => get_env(pr.root_path())?,
-        (None, Some(w), _) => get_env(w.root_path())?,
+        (None, None) => get_env(&cwd)?,
     };
     let config_root = config_root(&cwd, project_root.as_deref(), workspace_root.as_deref());
     let ctx = ProjectContext {
         env,
         model_workspace_root: model_workspace_root.clone(),
-        current_workspace,
         current_project,
         current_directory: cwd,
         config_root,
@@ -724,7 +718,6 @@ fn run_cli_with(
             let mut local_environment = get_or_create_env(
                 ctx.env,
                 ctx.model_workspace_root.as_deref(),
-                ctx.current_workspace.as_ref(),
                 ctx.current_project.as_ref(),
                 &ctx.current_directory,
             )?;
@@ -736,7 +729,6 @@ fn run_cli_with(
                 &provided_iris,
                 runtime,
                 auth_policy,
-                ctx.current_workspace.as_ref(),
                 no_prune,
                 &mut SyncOutcome::default(),
             )?;
@@ -979,13 +971,9 @@ fn run_cli_with(
                 // missing project because that is what the user is more likely
                 // to be looking for.
                 let root = model_workspace_root.ok_or(CliError::MissingProjectCurrentDir)?;
-                // `SkipStrayState`, as `lock` and `add` do: a member
-                // that a previous `sysand build` left an `output/` in
-                // is still a member.
-                let workspace = sysand_core::workspace::model_toml::Workspace::load_with(
-                    &root,
-                    MemberChecks::SkipStrayState,
-                )?;
+                // `SkipStrayState`: a member that an earlier `sysand
+                // build` left an `output/` in is still a member.
+                let workspace = Workspace::load_with(&root, MemberChecks::SkipStrayState)?;
                 let output_dir =
                     path.unwrap_or_else(|| root.join(sysand_core::build::DEFAULT_OUTPUT_NAME));
                 if !wrapfs::is_dir(&output_dir)? {
@@ -1067,18 +1055,17 @@ pub fn get_env(
 pub fn get_or_create_env(
     env: Option<LocalDirectoryEnvironment>,
     model_workspace_root: Option<&Utf8Path>,
-    workspace: Option<&Workspace>,
     project: Option<&LocalSrcProject>,
     cwd: impl AsRef<Utf8Path>,
 ) -> Result<LocalDirectoryEnvironment> {
     if let Some(env) = env {
         return Ok(env);
     }
-    let base_path = match (model_workspace_root, workspace, project) {
-        (Some(root), _, _) => root,
-        (None, None, None) => cwd.as_ref(),
-        (None, None, Some(pr)) => pr.root_path(),
-        (None, Some(w), _) => w.root_path(),
+    // workspaces.md "Syncing": one `.sysand` per workspace, at its root.
+    let base_path = match (model_workspace_root, project) {
+        (Some(root), _) => root,
+        (None, Some(pr)) => pr.root_path(),
+        (None, None) => cwd.as_ref(),
     };
     command_env(base_path.join(DEFAULT_ENV_NAME))
 }

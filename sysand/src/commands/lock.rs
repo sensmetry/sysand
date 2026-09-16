@@ -84,23 +84,16 @@ pub fn resolve_lock<P: AsRef<Utf8UnixPath>, Policy: HTTPAuthentication, R: AsRef
         auth_policy,
     )?;
 
-    let alias_iris = if let Some(w) = &ctx.current_workspace
-        && let Some(project) = &ctx.current_project
-    {
-        w.projects()
-            .iter()
-            .find(|p| p.path == project.nominal_path().unwrap())
-            .map(|p| p.iris.clone())
-    } else {
-        None
-    };
     let LockOutcome {
         lock,
         dependencies: _dependencies,
     } = do_lock_local_editable(
         &path,
         &project_root,
-        alias_iris,
+        // No alias IRIs: `model.toml` has no such key. A member is
+        // identified by its `[project]` table, and `do_lock_workspace`
+        // records `identity().lock_identifier()`.
+        None,
         &provided_iris,
         wrapped_resolver,
         ctx,

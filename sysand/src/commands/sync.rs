@@ -25,7 +25,6 @@ use sysand_core::{
         utils::FsIoError,
     },
     utils::ProvidedProjects,
-    workspace::Workspace,
 };
 
 /// The `SyncError` instantiation `command_sync` fails with when the sync
@@ -53,12 +52,12 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     provided_usages: &ProvidedProjects,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
-    ws: Option<&Workspace>,
     no_prune: bool,
     outcome: &mut SyncOutcome,
 ) -> Result<(), CommandSyncError> {
-    #[expect(clippy::or_fun_call, reason = "cheap")]
-    let relative_root = ws.map_or(project_root.as_ref(), Workspace::root_path);
+    // `project_root` is the root the lockfile's `src_path`s are relative
+    // to: the workspace root for a workspace's lockfile.
+    let relative_root = project_root.as_ref();
     sysand_core::commands::sync::do_sync(
         lock,
         env,
@@ -151,7 +150,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         outcome,
     )?;
 
-    env.merge_lock(lock, ws);
+    env.merge_lock(lock);
     env.write()?;
 
     Ok(())

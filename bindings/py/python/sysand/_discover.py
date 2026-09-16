@@ -14,11 +14,15 @@ def discover(*, path: str | Path = ".") -> Discovery:
     """Find the project and the workspace enclosing ``path``.
 
     This is the same lookup every CLI command performs first: walk up from
-    ``path`` to the nearest directory holding ``.project.json`` (or
-    ``.meta.json``), and separately to the nearest one holding
-    ``.workspace.json``. Paths are canonicalized, as :func:`sysand.root` does.
-    A tool that must not operate inside a workspace checks
-    ``workspace_root`` before doing anything else.
+    ``path`` to the nearest directory holding a project manifest
+    (``model.toml``, or the legacy ``.project.json``/``.meta.json`` pair),
+    and separately to the nearest ``model.toml`` holding a ``[workspace]``
+    table. Paths are canonicalized, as :func:`sysand.root` does. A tool that
+    must not operate inside a workspace checks ``workspace_root`` before
+    doing anything else.
+
+    A ``path`` that does not exist yields ``None`` for both roots rather
+    than raising.
 
     Args:
         path: Where to start searching. Defaults to the current directory.
@@ -28,8 +32,9 @@ def discover(*, path: str | Path = ".") -> Discovery:
         none.
 
     Raises:
-        ProjectError: a directory could not be read, or ``.workspace.json`` is
-            malformed.
+        ProjectError: a directory could not be read; a manifest is malformed;
+            or the workspace found is nested inside another, which sysand
+            does not support.
     """
     project_root, workspace_root = sysand_rs.do_discover_py(str(path))
     return Discovery(project_root=project_root, workspace_root=workspace_root)

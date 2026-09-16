@@ -41,7 +41,7 @@ use sysand_core::{
         local_fs::{load_configs, read_config},
     },
     context::ProjectContext,
-    discover::{discover_project, discover_workspace},
+    discover::discover_project,
     env::{
         DEFAULT_ENV_NAME, PutProjectError, ReadEnvironment,
         discovery::DiscoveryError,
@@ -576,7 +576,6 @@ fn project_context(start: &Utf8Path) -> PyResult<(ProjectContext, Utf8PathBuf)> 
     let project_error = |e: String| ProjectError::new_err(e);
     let cwd = wrapfs::canonicalize(start).map_err(|e| project_error(format_err(e)))?;
     let current_project = discover_project(&cwd).map_err(|e| project_error(format_err(e)))?;
-    let current_workspace = discover_workspace(&cwd).map_err(|e| project_error(format_err(e)))?;
     let Some(project) = &current_project else {
         return Err(project_error(format!(
             "`{cwd}` is not inside a project - neither it nor any of its parent directories \
@@ -584,10 +583,9 @@ fn project_context(start: &Utf8Path) -> PyResult<(ProjectContext, Utf8PathBuf)> 
         )));
     };
     let project_root = project.root_path().to_owned();
-    let env_root = current_workspace
-        .as_ref()
-        .map_or_else(|| project_root.clone(), |w| w.root_path().to_owned());
-    let env = get_env(&env_root).map_err(|e| project_error(format_err(e)))?;
+    // The project root: the binding does not root itself at the
+    // workspace, as `model_workspace_root` below records.
+    let env = get_env(&project_root).map_err(|e| project_error(format_err(e)))?;
     // workspaces.md "Source overrides": a project-local `sysand.toml`
     // belongs at the workspace root. `discover_table` and not
     // `Workspace::discover`, since configuration is not about the
@@ -606,7 +604,6 @@ fn project_context(start: &Utf8Path) -> PyResult<(ProjectContext, Utf8PathBuf)> 
             // The binding locks a member alone, at the member's root.
             model_workspace_root: None,
             env,
-            current_workspace,
             current_project,
             current_directory: cwd,
             config_root,
@@ -1036,9 +1033,7 @@ fn do_build_py(
                     "{e}\nto build anyway, pass `allow_path_usage=True`"
                 )),
                 KParBuildError::Io(_) | KParBuildError::Zip(_) => PyIOError::new_err(e),
-                KParBuildError::ProjectRead(_) | KParBuildError::WorkspaceRead(_) => {
-                    PyRuntimeError::new_err(e)
-                }
+                KParBuildError::ProjectRead(_) => PyRuntimeError::new_err(e),
             }
         }),
     }
@@ -1725,6 +1720,18 @@ fn do_env_projects_py(env_path: String) -> PyResult<Vec<EnvProject>> {
 /// `(project_root, workspace_root)`, both canonicalized as `do_root_py` does,
 /// found by walking up from `path` exactly as the CLI does before every
 /// command.
+///
+/// The workspace is a `model.toml` holding a `[workspace]` table, found
+/// by `discover_table` -- the function `run_cli` uses for the same
+/// question. Not `Workspace::discover`, which also reads every member:
+/// asking where you are should not fail because some unrelated member
+/// is malformed. It can still fail on the workspace file itself, and on
+/// a nested workspace, which is a configuration error every command
+/// rejects.
+///
+/// A `path` that does not exist answers `(None, None)` rather than
+/// raising: `discover_project` does not canonicalize its input, and the
+/// two halves of the answer should agree about a missing directory.
 #[pyfunction(name = "do_discover_py")]
 #[pyo3(
     signature = (path),
@@ -1738,11 +1745,17 @@ fn do_discover_py(path: String) -> PyResult<(Option<String>, Option<String>)> {
         .map(|project| wrapfs::canonicalize(project.root_path()))
         .transpose()
         .map_err(|e| ProjectError::new_err(format_err(e)))?;
-    let workspace_root = discover_workspace(&path)
-        .map_err(|e| ProjectError::new_err(format_err(e)))?
-        .map(|workspace| wrapfs::canonicalize(workspace.root_path()))
-        .transpose()
-        .map_err(|e| ProjectError::new_err(format_err(e)))?;
+    // `discover_table` opens with a canonicalize, so a missing path
+    // would raise where `discover_project` answered `None`.
+    let workspace_root = if wrapfs::canonicalize(&path).is_ok() {
+        sysand_core::workspace::model_toml::discover_table(&path)
+            .map_err(|e| ProjectError::new_err(format_err(e)))?
+            .map(|(root, _)| wrapfs::canonicalize(root))
+            .transpose()
+            .map_err(|e| ProjectError::new_err(format_err(e)))?
+    } else {
+        None
+    };
     Ok((
         project_root.map(Utf8PathBuf::into_string),
         workspace_root.map(Utf8PathBuf::into_string),

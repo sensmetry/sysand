@@ -1,0 +1,12 @@
+manifest-version = 1
+
+[project]
+publisher = "sysand-it"
+name = "project3"
+version = "0.0.1"
+sources = ["c.sysml"]
+
+[[inline-usages]]
+publisher = "sysand-it"
+name = "project2"
+dir = "../projectGroup1/project2"

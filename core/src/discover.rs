@@ -10,7 +10,6 @@ use crate::{
         local_src::LocalSrcProject,
         utils::{FsIoError, ToPathBuf as _, wrapfs},
     },
-    workspace::{Workspace, WorkspaceReadError},
 };
 
 /// Whether `path` is a project directory.
@@ -53,22 +52,6 @@ pub fn discover_project<P: AsRef<Utf8Path>>(
 
 /// Tries to find workspace in `working_directory` or its ancestors.
 /// If found, returns result of reading the workspace info file
-pub fn discover_workspace<P: AsRef<Utf8Path>>(
-    working_directory: P,
-) -> Result<Option<Workspace>, WorkspaceReadError> {
-    log::debug!(
-        "trying to discover workspace in `{}`",
-        working_directory.as_ref()
-    );
-    let Some(path) = discover(working_directory, |path| {
-        wrapfs::is_file(path.join(".workspace.json"))
-    })?
-    else {
-        return Ok(None);
-    };
-    Some(Workspace::new(path)).transpose()
-}
-
 #[cfg(test)]
 #[path = "./discover_tests.rs"]
 mod tests;

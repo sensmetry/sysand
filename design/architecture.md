@@ -61,9 +61,9 @@ library in particular is only a proof-of-concept that is not yet usable.
 Sysand works with [SysML v2] and [KerML] Interchange Projects, as defined in the KerML spec section 10.3, and also introduces a few concepts of its own.
 
 ```
-Workspace (.workspace.json)
- └─ lists projects with their paths and IRIs
- └─ optionally specifies a metamodel (SysML/KerML)
+Workspace (model.toml, [workspace] table)
+ └─ lists member projects by path
+ └─ carries metadata members may inherit (version, license, metamodel, ...)
 
 Environment (storage backend)
  └─ stores projects indexed by IRI and version
@@ -230,19 +230,22 @@ system:
 
 ## Sysand specific files
 
-### `.workspace.json`
+### `model.toml` with a `[workspace]` table
 
-Defines a workspace. Lists the projects the user is working on and optionally
-specifies a default metamodel for projects' `.meta.json` files:
+Defines a workspace: the member projects the user is working on together, and
+the metadata a member may inherit with `<key>.workspace = true`. A file holds
+either a `[project]` table or a `[workspace]` table, never both.
 
-```json
-{
-  "projects": [{ "path": "my-project", "iris": ["urn:example:my-project"] }],
-  "meta": {
-    "metamodel": "https://www.omg.org/spec/SysML/20250201"
-  }
-}
+```toml
+manifest-version = 1
+
+[workspace]
+members = ["my-project", "libs/other"]
+metamodel = "https://www.omg.org/spec/SysML/20250201"
 ```
+
+A workspace has one lockfile and one `.sysand` environment, both at its root.
+Every member must itself be a `model.toml` project.
 
 ### `sysand.toml`
 

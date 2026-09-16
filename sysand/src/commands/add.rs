@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{assert_matches, collections::HashMap, convert::Infallible, path::Path, sync::Arc};
+use std::{assert_matches, collections::HashMap, convert::Infallible, sync::Arc};
 
 use anyhow::{Result, anyhow, bail};
 use camino::{Utf8Path, Utf8PathBuf};
@@ -331,14 +331,8 @@ pub fn command_add<Policy: HTTPAuthentication>(
         )
     });
 
-    let alias_iris = if let Some(w) = &ctx.current_workspace {
-        w.projects()
-            .iter()
-            .find(|p| Path::new(&p.path) == current_project.root_path())
-            .map(|p| p.iris.clone())
-    } else {
-        None
-    };
+    // See `commands/lock.rs`: `model.toml` has no alias IRIs.
+    let alias_iris = None;
 
     let project_root = current_project.root_path().to_owned();
     let locked = resolver.and_then(|resolver| {
@@ -785,7 +779,6 @@ fn write_lock_and_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         let mut env = crate::get_or_create_env(
             ctx.env,
             ctx.model_workspace_root.as_deref(),
-            ctx.current_workspace.as_ref(),
             ctx.current_project.as_ref(),
             ctx.current_directory,
         )?;
@@ -797,7 +790,6 @@ fn write_lock_and_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
             provided_iris,
             runtime,
             auth_policy,
-            ctx.current_workspace.as_ref(),
             no_prune,
             &mut SyncOutcome::default(),
         )?;

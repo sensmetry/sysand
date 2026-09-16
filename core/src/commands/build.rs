@@ -29,7 +29,7 @@ use crate::{
         ProvidedProjects, format_err, license_file_stems, sha256_lowercase_hex,
         to_pretty_json_string,
     },
-    workspace::{WorkspaceReadError, model_toml},
+    workspace::model_toml,
 };
 
 #[derive(Default, Copy, Clone, Debug, PartialEq, Eq)]
@@ -137,8 +137,6 @@ impl TryFrom<&str> for KparCompressionMethod {
 pub enum KParBuildError<ProjectReadError: ErrorBound> {
     #[error(transparent)]
     ProjectRead(ProjectReadError),
-    #[error(transparent)]
-    WorkspaceRead(#[from] WorkspaceReadError),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
     #[error("project's `.{name}.json` is invalid")]

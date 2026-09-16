@@ -24,9 +24,13 @@ def lock(
     does, and return the resolved set.
 
     ``path`` is where discovery starts, like the CLI's working directory:
-    the enclosing project (``.project.json``) and workspace are found by
-    walking up, and the environment root is the workspace root, else the
-    project root. The lockfile belongs to the project root.
+    the enclosing project is found by walking up, and both the lockfile and
+    the environment root are the project root.
+
+    .. note::
+       Unlike the CLI, this does not root a workspace member's lockfile
+       and environment at the workspace root. Locking a member locks that
+       member alone.
 
     With ``write=True`` (the default, matching the CLI) ``sysand-lock.toml``
     is written at the project root; the returned ``text`` is exactly what

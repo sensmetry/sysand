@@ -117,10 +117,10 @@ class Discovery(typing.TypedDict):
 
     project_root: typing.Optional[str]
     """Canonical path of the enclosing project (the directory holding
-    ``.project.json`` or ``.meta.json``), or ``None``."""
+    ``model.toml``, ``.project.json`` or ``.meta.json``), or ``None``."""
     workspace_root: typing.Optional[str]
-    """Canonical path of the enclosing workspace (the directory holding
-    ``.workspace.json``), or ``None``."""
+    """Canonical path of the enclosing workspace (the directory whose
+    ``model.toml`` holds a ``[workspace]`` table), or ``None``."""
 
 
 class VersionListing(typing.TypedDict):

@@ -115,7 +115,6 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         // The workspace does not carry over to the clone (see the TODO
         // above).
         model_workspace_root: None,
-        current_workspace: None,
         current_project: Some(local_project.clone()),
         current_directory: ctx.current_directory,
         // A clone creates a project outside any scope, so its config is
@@ -179,7 +178,6 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         let mut env = get_or_create_env(
             ctx.env,
             ctx.model_workspace_root.as_deref(),
-            ctx.current_workspace.as_ref(),
             ctx.current_project.as_ref(),
             ctx.current_directory,
         )?;
@@ -191,7 +189,6 @@ pub fn command_clone<Policy: HTTPAuthentication>(
             &provided_usages,
             runtime,
             auth_policy,
-            ctx.current_workspace.as_ref(),
             false,
             &mut SyncOutcome::default(),
         )?;

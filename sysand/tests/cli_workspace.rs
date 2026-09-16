@@ -240,37 +240,6 @@ fn outside_a_workspace_the_project_root_is_still_used() -> Result<(), Box<dyn st
     Ok(())
 }
 
-/// A `.workspace.json` tree answers `None` to `discover_table`, so
-/// nothing about it changes.
-#[test]
-fn a_workspace_json_tree_is_unaffected() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "legacy", "1.2.3", None)?;
-    std::fs::write(
-        cwd.join(".workspace.json"),
-        br#"{"projects": [{"path": ".", "iris": []}]}"#,
-    )?;
-    dependency(&cwd, "local-dep")?;
-    run_sysand_in(
-        &cwd,
-        [
-            "add",
-            "--iri",
-            USAGE,
-            "--version-constraint",
-            CONSTRAINT,
-            "--no-lock",
-        ],
-        None,
-    )?
-    .assert()
-    .success();
-    write_config(&cwd, "local-dep")?;
-
-    run_sysand_discovering(&cwd, ["lock"])?.assert().success();
-    assert_eq!(locked_projects(&cwd)?, 2);
-    Ok(())
-}
-
 /// A `members` entry naming nothing refuses the lock outright.
 ///
 /// `Workspace::load_with` refuses a member that is not there, and a

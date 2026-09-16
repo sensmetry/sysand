@@ -997,18 +997,65 @@ def test_discover(tmp_path: Path) -> None:
         assert found["workspace_root"] is None
     assert sysand.discover(path=root)["project_root"] == str(sysand.root(path=root))
 
-    (tmp_path / "ws" / ".workspace.json").write_text('{"projects": []}\n')
+    (tmp_path / "ws" / "model.toml").write_text(
+        'manifest-version = 1\n\n[workspace]\nmembers = ["proj"]\n'
+    )
     found = sysand.discover(path=nested)
     assert found["workspace_root"] is not None
     assert os.path.samefile(found["workspace_root"], tmp_path / "ws")
     assert found["project_root"] is not None
     assert os.path.samefile(found["project_root"], root)
+    # A workspace root defines no project.
     assert sysand.discover(path=tmp_path / "ws")["project_root"] is None
 
-    (tmp_path / "ws" / ".workspace.json").write_text("not json")
+    (tmp_path / "ws" / "model.toml").write_text("not toml = = =")
     with pytest.raises(sysand.ProjectError) as excinfo:
         sysand.discover(path=root)
     assert excinfo.value.wrote is False
+
+
+def test_discover_ignores_a_legacy_json_workspace(tmp_path: Path) -> None:
+    """`.workspace.json` is not read: a tree holding one is a plain
+    project, and a tool asking where it is gets no workspace."""
+    root = tmp_path / "ws" / "proj"
+    root.mkdir(parents=True)
+    sysand.init("legacy", "acme", "1.0.0", root)
+    (tmp_path / "ws" / ".workspace.json").write_text(
+        '{"projects": [{"path": "proj", "iris": []}]}\n'
+    )
+
+    found = sysand.discover(path=root)
+    assert found["workspace_root"] is None
+    assert os.path.samefile(found["project_root"], root)
+
+
+def test_discover_rejects_a_nested_workspace(tmp_path: Path) -> None:
+    """Nested workspaces are not supported, and `discover` says so rather
+    than picking one: every command rejects the tree, so reporting a
+    location for it would be a lie."""
+    inner = tmp_path / "outer" / "inner"
+    proj = inner / "proj"
+    proj.mkdir(parents=True)
+    sysand.init("nested", "acme", "1.0.0", proj)
+    for at, members in ((tmp_path / "outer", "inner"), (inner, "proj")):
+        (at / "model.toml").write_text(
+            f'manifest-version = 1\n\n[workspace]\nmembers = ["{members}"]\n'
+        )
+
+    with pytest.raises(sysand.ProjectError):
+        sysand.discover(path=proj)
+
+
+def test_discover_on_a_missing_path_is_not_an_error(tmp_path: Path) -> None:
+    """Both halves of the answer agree about a directory that is not there.
+
+    `discover_project` does not canonicalize its input, so it answers
+    `None`; the workspace walk canonicalizes and would otherwise raise.
+    """
+    assert sysand.discover(path=tmp_path / "nope" / "deeper") == {
+        "project_root": None,
+        "workspace_root": None,
+    }
 
 
 def test_basic_info(caplog: pytest.LogCaptureFixture) -> None:
