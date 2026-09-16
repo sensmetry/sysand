@@ -35,6 +35,9 @@ from ._init import (
     init,
 )
 from ._lock import lock
+from ._migrate import (
+    migrate,
+)
 from ._model import (
     CompressionMethod,
     Dependencies,
@@ -130,6 +133,7 @@ __all__ = [  # ruff: ignore[RUF022]
     "sync",
     ## Init
     "init",
+    "migrate",
     ## Build
     "build",
     ## Include

@@ -35,6 +35,18 @@ use crate::{
     utils::{RelativePathKind, normalize_relative, parse_relative_unix_path},
 };
 
+/// How a `resource` usage that names its target by location is turned
+/// into a usage.
+///
+/// A callback, and it returns the *finished* usage, because every step
+/// is a filesystem question: which of `file:`'s two project kinds the
+/// target is, what its publisher and name are, and what the path looks
+/// like relative to the project being migrated. Keeping them here would
+/// make this module impure and, for the URL conversion, unbuildable --
+/// `url::Url::to_file_path` is `cfg`'d off on the wasm target
+/// `bindings/js` builds.
+pub type TargetLookup<'a> = &'a dyn Fn(&str) -> Result<Usage, String>;
+
 /// What the caller supplies that the documents do not.
 #[derive(Clone, Debug, Default)]
 pub struct MigrateOptions {
@@ -53,6 +65,7 @@ pub fn migrate_project(
     info: &InterchangeProjectInfoRaw,
     meta: &InterchangeProjectMetadataRaw,
     options: &MigrateOptions,
+    target: TargetLookup<'_>,
 ) -> Result<Validated<ModelToml>, Report> {
     let mut report = Report::new();
 
@@ -70,7 +83,7 @@ pub fn migrate_project(
     };
 
     let sources = migrate_sources(meta, &mut report);
-    let usages = migrate_usages(info, &mut report);
+    let usages = migrate_usages(info, target, &mut report);
     check_duplicate_usages(&usages, &mut report);
     let license = info
         .license
@@ -322,17 +335,25 @@ fn check_duplicate_usages(usages: &[MemberUsage], report: &mut Report) {
     }
 }
 
-fn migrate_usages(info: &InterchangeProjectInfoRaw, report: &mut Report) -> Vec<MemberUsage> {
+fn migrate_usages(
+    info: &InterchangeProjectInfoRaw,
+    target: TargetLookup<'_>,
+    report: &mut Report,
+) -> Vec<MemberUsage> {
     let mut usages = Vec::new();
     for usage in &info.usage {
-        if let Some(converted) = migrate_usage(usage, report) {
+        if let Some(converted) = migrate_usage(usage, target, report) {
             usages.push(MemberUsage::Declared(converted));
         }
     }
     usages
 }
 
-fn migrate_usage(usage: &InterchangeProjectUsageRaw, report: &mut Report) -> Option<Usage> {
+fn migrate_usage(
+    usage: &InterchangeProjectUsageRaw,
+    target: TargetLookup<'_>,
+    report: &mut Report,
+) -> Option<Usage> {
     match usage {
         InterchangeProjectUsageRaw::Directory {
             dir,
@@ -363,7 +384,7 @@ fn migrate_usage(usage: &InterchangeProjectUsageRaw, report: &mut Report) -> Opt
         InterchangeProjectUsageRaw::Resource {
             resource,
             version_constraint,
-        } => migrate_resource(resource, version_constraint.as_deref(), report),
+        } => migrate_resource(resource, version_constraint.as_deref(), target, report),
         // A typed index usage already carries everything a manifest
         // entry needs
         InterchangeProjectUsageRaw::Index {
@@ -402,6 +423,7 @@ fn migrate_usage(usage: &InterchangeProjectUsageRaw, report: &mut Report) -> Opt
 fn migrate_resource(
     resource: &str,
     version_constraint: Option<&str>,
+    target: TargetLookup<'_>,
     report: &mut Report,
 ) -> Option<Usage> {
     let scheme = resource.split_once(':').map(|(scheme, _)| scheme);
@@ -443,9 +465,29 @@ fn migrate_resource(
                 })
             }
         }
-        // The publisher and name come from the target, which means
-        // reading it.
-        Some("http" | "https" | "file") => {
+        // model-toml.md: "if `file:`, translate into kpar/source path;
+        // the publisher and name come from the target, and a target
+        // without a publisher is an error".
+        Some("file") => match target(resource) {
+            Ok(usage) => Some(usage),
+            Err(reason) => {
+                report.push(Diagnostic::error(reason));
+                None
+            }
+        },
+        // model-toml.md: "use as-is for URL, discard `versionConstraint`
+        // if present with a warning". The warning has to be here rather
+        // than in the caller's lookup: the callback is handed only the
+        // resource string and never sees the constraint.
+        Some("http" | "https") => {
+            if let Some(constraint) = version_constraint {
+                report.push(Diagnostic::warning(format!(
+                    "usage `{resource}` has version constraint `{constraint}`, which is not \
+                     migrated: a `url` usage carries no version constraint"
+                )));
+            }
+            // Still deferred: the publisher and name come from a target
+            // that has to be fetched.
             report.push(needs_resolution(resource));
             None
         }

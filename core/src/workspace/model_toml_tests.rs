@@ -1591,6 +1591,57 @@ fn start_region_ignores_a_member_that_does_not_exist() {
     );
 }
 
+// ------------------------------- `member_index` asks for identity
+
+/// The distinction the two functions draw, on one fixture: `app` is a
+/// member, and the project at `app/dep` -- which `start_region`
+/// prefix-matches to the same entry -- is not.
+///
+/// The consequence is inheritance: the nested project's
+/// `publisher.workspace = true` must not resolve against the table.
+#[test]
+fn member_index_refuses_a_project_nested_inside_a_member() {
+    let fixture = Fixture::new(&workspace_with("\"app\""));
+    fixture.project("app");
+    fixture.project("app/dep");
+
+    let (root, table) = super::discover_table(fixture.root())
+        .expect("the table reads")
+        .expect("a workspace");
+
+    assert_eq!(
+        super::member_index(&root, &table, fixture.under("app")).expect("classifies"),
+        Some(0),
+        "`app` is the entry"
+    );
+    assert_eq!(
+        super::member_index(&root, &table, fixture.under("app/dep")).expect("classifies"),
+        None,
+        "`app/dep` is inside the entry, which is not the same thing"
+    );
+    // And the prefix match that made the difference invisible.
+    assert_eq!(
+        super::start_region(&root, &table, fixture.under("app/dep")).expect("classifies"),
+        super::StartRegion::Member(0)
+    );
+}
+
+/// The root defines no project, so it is no member either -- and it is
+/// the one path whose relativization is empty rather than an entry.
+#[test]
+fn member_index_refuses_the_root() {
+    let fixture = Fixture::new(&workspace_with("\"app\""));
+    fixture.project("app");
+
+    let (root, table) = super::discover_table(fixture.root())
+        .expect("the table reads")
+        .expect("a workspace");
+    assert_eq!(
+        super::member_index(&root, &table, fixture.root()).expect("classifies"),
+        None
+    );
+}
+
 // ------------------- reading a member without the stray-state check
 
 /// The check that a member holds no lockfile, `.sysand` or `output` of

@@ -449,3 +449,278 @@ fn the_vcs_check_precedes_the_both_comparison() -> Result<(), Box<dyn std::error
         .stderr(predicate::str::contains("uncommitted changes"));
     Ok(())
 }
+
+// ---------------------------------------- `file:` usages and warnings
+
+/// A json project at `dir` whose sole usage is a `file:` URL to `target`.
+fn json_with_file_usage(
+    dir: &Utf8Path,
+    target: &Utf8Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    json_with_usages(dir, &format!(r#"{{"resource": "file://{target}"}}"#))
+}
+
+#[test]
+fn a_file_usage_migrates_end_to_end() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, root) = new_temp_cwd()?;
+    let app = root.join("app");
+    let dep = root.join("dep");
+    std::fs::create_dir_all(&app)?;
+    std::fs::create_dir_all(&dep)?;
+    write_legacy_project(&dep, "acme", "dep", "1.0.0", None)?;
+    json_with_file_usage(&app, &dep)?;
+    git_repo(&root, true)?;
+
+    run_sysand_in(&app, ["migrate"], None)?.assert().success();
+    let text = std::fs::read_to_string(app.join("model.toml"))?;
+    assert!(
+        text.contains("dir = \"../dep\""),
+        "relative, not absolute:\n{text}"
+    );
+    assert!(text.contains("publisher = \"acme\""), "{text}");
+    Ok(())
+}
+
+/// `sysand migrate ./app`: `relativize_path` asserts on a path that is
+/// not canonical, so this aborts the process if the command does not
+/// canonicalize first.
+#[test]
+fn migrate_does_not_panic_on_a_relative_path() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, root) = new_temp_cwd()?;
+    let app = root.join("app");
+    let dep = root.join("dep");
+    std::fs::create_dir_all(&app)?;
+    std::fs::create_dir_all(&dep)?;
+    write_legacy_project(&dep, "acme", "dep", "1.0.0", None)?;
+    json_with_file_usage(&app, &dep)?;
+    git_repo(&root, true)?;
+
+    run_sysand_in(&root, ["migrate", "./app"], None)?
+        .assert()
+        .success();
+    Ok(())
+}
+
+#[test]
+fn a_file_usage_to_a_publisherless_target_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, root) = new_temp_cwd()?;
+    let app = root.join("app");
+    let dep = root.join("dep");
+    std::fs::create_dir_all(&app)?;
+    std::fs::create_dir_all(&dep)?;
+    std::fs::write(
+        dep.join(".project.json"),
+        br#"{"name": "dep", "version": "1.0.0", "usage": []}"#,
+    )?;
+    std::fs::write(
+        dep.join(".meta.json"),
+        br#"{"created": "2001-02-03T04:05:06Z", "index": {}}"#,
+    )?;
+    json_with_file_usage(&app, &dep)?;
+    git_repo(&root, true)?;
+
+    run_sysand_in(&app, ["migrate"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("declares no `publisher`"));
+    assert!(!app.join("model.toml").exists(), "nothing was written");
+    Ok(())
+}
+
+/// model-toml.md "JSON to TOML": "print a warning about unknown fields
+/// and discard".
+#[test]
+fn unknown_json_keys_warn() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    std::fs::write(
+        cwd.join(".project.json"),
+        br#"{"name": "widgets", "publisher": "acme", "version": "1.2.3", "usage": [],
+             "totallyUnknownKey": 42}"#,
+    )?;
+    std::fs::write(
+        cwd.join(".meta.json"),
+        br#"{"created": "2001-02-03T04:05:06Z", "index": {}, "anotherUnknown": true}"#,
+    )?;
+    git_repo(&cwd, true)?;
+
+    run_sysand_in(&cwd, ["migrate"], None)?
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("totallyUnknownKey"))
+        .stderr(predicate::str::contains("anotherUnknown"));
+    Ok(())
+}
+
+// ------------------------------------ workspace members and the prompt
+
+/// A `file:` target that is a workspace member resolves its inherited
+/// `publisher` against the table.
+///
+/// Without the table, the target would read as broken and `migrate`
+/// would report "does not contain a project that `sysand migrate` can
+/// read" -- a wrong category, not just a wrong message.
+#[test]
+fn a_file_usage_to_a_workspace_member_resolves() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, root) = new_temp_cwd()?;
+    let app = root.join("app");
+    let dep = root.join("dep");
+    std::fs::create_dir_all(&app)?;
+    std::fs::create_dir_all(&dep)?;
+    std::fs::write(
+        root.join("model.toml"),
+        "manifest-version = 1\n\n[workspace]\nmembers = [\"dep\"]\npublisher = \"acme\"\n",
+    )?;
+    std::fs::write(
+        dep.join("model.toml"),
+        "manifest-version = 1\n\n[project]\npublisher.workspace = true\nname = \"dep\"\n\
+         version = \"1.0.0\"\nsources = []\n",
+    )?;
+    json_with_file_usage(&app, &dep)?;
+    git_repo(&root, true)?;
+
+    run_sysand_in(&app, ["migrate"], None)?.assert().success();
+    let text = std::fs::read_to_string(app.join("model.toml"))?;
+    assert!(text.contains("publisher = \"acme\""), "{text}");
+    Ok(())
+}
+
+/// A project that merely *sits inside* a member directory is not a
+/// member, so its markers must not resolve either.
+///
+/// `WorkspaceTable::region` prefix-matches -- that is what lets a
+/// command run from `app/src/deep` know it is in member `app` -- so
+/// `StartRegion::Member` answers for any directory *under* an entry.
+/// Member identity is a different question, and the first must not
+/// answer the second.
+///
+/// `an_unlisted_target_is_not_given_the_table` cannot catch this:
+/// its target is unlisted *and* outside every member, so the prefix
+/// match fails for the same reason the equality does.
+#[test]
+fn a_target_nested_inside_a_member_is_not_a_member() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, root) = new_temp_cwd()?;
+    let app = root.join("app");
+    let member = root.join("member");
+    let dep = member.join("dep");
+    std::fs::create_dir_all(&app)?;
+    std::fs::create_dir_all(&dep)?;
+    std::fs::write(
+        root.join("model.toml"),
+        "manifest-version = 1\n\n[workspace]\nmembers = [\"member\"]\npublisher = \"acme\"\n",
+    )?;
+    std::fs::write(
+        member.join("model.toml"),
+        "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"member\"\n\
+         version = \"1.0.0\"\nsources = []\n",
+    )?;
+    // Byte-for-byte the target of `an_unlisted_target_is_not_given_the_table`,
+    // one directory deeper. Only the location differs.
+    std::fs::write(
+        dep.join("model.toml"),
+        "manifest-version = 1\n\n[project]\npublisher.workspace = true\nname = \"dep\"\n\
+         version = \"1.0.0\"\nsources = []\n",
+    )?;
+    json_with_file_usage(&app, &dep)?;
+    git_repo(&root, true)?;
+
+    run_sysand_in(&app, ["migrate"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "the project is not a member of any workspace",
+        ));
+    Ok(())
+}
+
+/// A project under a workspace root that is *not* listed in `members`
+/// is not a member, so its markers do not resolve -- which is the rule
+/// `manifest::inherit` states and the population `migrate` exists for.
+#[test]
+fn an_unlisted_target_is_not_given_the_table() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, root) = new_temp_cwd()?;
+    let app = root.join("app");
+    let dep = root.join("dep");
+    std::fs::create_dir_all(&app)?;
+    std::fs::create_dir_all(&dep)?;
+    std::fs::write(
+        root.join("model.toml"),
+        "manifest-version = 1\n\n[workspace]\nmembers = []\npublisher = \"acme\"\n",
+    )?;
+    std::fs::write(
+        dep.join("model.toml"),
+        "manifest-version = 1\n\n[project]\npublisher.workspace = true\nname = \"dep\"\n\
+         version = \"1.0.0\"\nsources = []\n",
+    )?;
+    json_with_file_usage(&app, &dep)?;
+    git_repo(&root, true)?;
+
+    run_sysand_in(&app, ["migrate"], None)?
+        .assert()
+        .failure()
+        // Its own marker is what fails, because it is not a member --
+        // not a complaint about the workspace it sits near.
+        .stderr(predicate::str::contains("not a member of any workspace"));
+    Ok(())
+}
+
+/// model-toml.md "JSON to TOML": "when the command is interactive it
+/// may prompt for it instead". Unix only, as every interactive test
+/// here is.
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn the_prompt_supplies_a_publisher() -> Result<(), Box<dyn std::error::Error>> {
+    use common::run_sysand_interactive_in;
+
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    std::fs::write(
+        cwd.join(".project.json"),
+        br#"{"name": "widgets", "version": "1.2.3", "usage": []}"#,
+    )?;
+    std::fs::write(
+        cwd.join(".meta.json"),
+        br#"{"created": "2001-02-03T04:05:06Z", "index": {}}"#,
+    )?;
+    git_repo(&cwd, true)?;
+
+    let mut session = run_sysand_interactive_in(&cwd, ["migrate"], Some(30_000), None)?;
+    session.exp_string("Publisher for this project")?;
+    session.send_line("acme")?;
+    session.exp_eof()?;
+
+    let text = std::fs::read_to_string(cwd.join("model.toml"))?;
+    assert!(text.contains("publisher = \"acme\""), "{text}");
+    Ok(())
+}
+
+/// An *excluded* target is under the root and known to the workspace,
+/// so `start_region` answers rather than refusing -- and the answer is
+/// not `Member`, so the table must not be attached.
+///
+/// The unlisted test above cannot cover this: `start_region` refuses an
+/// unlisted project outright, so it never reaches the member gate.
+#[test]
+fn an_excluded_target_is_not_given_the_table() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, root) = new_temp_cwd()?;
+    let app = root.join("app");
+    let vendor = root.join("vendor");
+    std::fs::create_dir_all(&app)?;
+    std::fs::create_dir_all(&vendor)?;
+    std::fs::write(
+        root.join("model.toml"),
+        "manifest-version = 1\n\n[workspace]\nmembers = []\nexclude = [\"vendor\"]\n\
+         publisher = \"acme\"\n",
+    )?;
+    std::fs::write(
+        vendor.join("model.toml"),
+        "manifest-version = 1\n\n[project]\npublisher.workspace = true\nname = \"dep\"\n\
+         version = \"1.0.0\"\nsources = []\n",
+    )?;
+    json_with_file_usage(&app, &vendor)?;
+    git_repo(&root, true)?;
+
+    run_sysand_in(&app, ["migrate"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("not a member of any workspace"));
+    Ok(())
+}

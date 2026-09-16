@@ -520,6 +520,39 @@ pub enum StartRegion {
     Workspace,
 }
 
+/// The `members` entry that `dir` **is**, if any.
+///
+/// [`start_region`] answers a different question and must not be used
+/// for this one. It prefix-matches -- that is what lets a command run
+/// in `app/src/deep` know it is in member `app` -- so
+/// [`StartRegion::Member`] holds for every directory *under* an entry,
+/// a project of its own included. Inheritance markers resolve for
+/// members and for nothing else, so the gate that admits them has to
+/// ask for identity.
+///
+/// `dir` is a project directory rather than a starting point: no upward
+/// walk, and anything that is not a member answers `None` instead of an
+/// error. A `dir` outside `root` answers `None` too, because no
+/// `members` entry contains a `..` component for its relative path to
+/// equal.
+pub fn member_index(
+    root: &Utf8Path,
+    table: &WorkspaceTable,
+    dir: impl AsRef<Utf8Path>,
+) -> Result<Option<usize>, DiscoverError> {
+    let dir = wrapfs::canonicalize(dir.as_ref())?;
+    if dir == root {
+        return Ok(None);
+    }
+    let relative = relativize_path(&dir, root)?;
+    Ok(match table.region(&relative) {
+        // The weighing against `exclude` stays [`WorkspaceTable::region`]'s;
+        // the equality is the only thing added here.
+        Region::Member(index, member) if member.path == relative => Some(index),
+        _ => None,
+    })
+}
+
 /// The classification of workspaces.md "Included projects", over a
 /// [`WorkspaceTable`] and a root path.
 ///
