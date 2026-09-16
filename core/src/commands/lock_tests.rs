@@ -31,6 +31,7 @@ fn lock_export_conflict() {
                 name: "test1".into(),
                 publisher: None,
                 version: String::new(),
+                metamodel: None,
                 exports: exports.clone(),
                 identifiers: vec!["test1".into()],
                 sources: vec![],
@@ -40,6 +41,7 @@ fn lock_export_conflict() {
                 name: "test2".into(),
                 publisher: None,
                 version: String::new(),
+                metamodel: None,
                 exports,
                 identifiers: vec!["test2".into()],
                 sources: vec![],
@@ -984,5 +986,36 @@ fn an_inheriting_member_locks_with_the_tables_value() -> Result<(), Box<dyn std:
     );
     let lock = lock_workspace(&dir).map_err(|e| e.to_string())?;
     assert_eq!(lock.projects[0].version, "9.9.9");
+    Ok(())
+}
+
+/// The *input* project's own entry records its metamodel, not only its
+/// dependencies'.
+///
+/// Without it every root reads as an OMG project, and a Syside root with
+/// a Syside dependency would be a false direction error -- the very
+/// check this field feeds.
+#[cfg(feature = "filesystem")]
+#[test]
+fn a_members_own_entry_records_its_metamodel() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace_tree(
+        &[(
+            "app",
+            "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"alpha\"\n\
+             version = \"1.0.0\"\nsources = []\n\
+             metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\n",
+        )],
+        "",
+    );
+    let lock = lock_workspace(&dir).map_err(|e| e.to_string())?;
+    let member = lock
+        .projects
+        .iter()
+        .find(|p| p.name == "alpha")
+        .expect("the member is in the lockfile");
+    assert_eq!(
+        member.metamodel.as_deref(),
+        Some("https://www.sysand.com/spec/SysML/20250201")
+    );
     Ok(())
 }

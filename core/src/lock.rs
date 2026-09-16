@@ -26,8 +26,9 @@ use crate::{
     commands::lock::DEFAULT_LOCKFILE_NAME,
     config::OverrideSource,
     env::ReadEnvironment,
+    graph::check_metamodel_pair,
     migrate::{self, IdentifiedEntry, Migration},
-    model::InterchangeProjectUsage,
+    model::{InterchangeProjectUsage, Metamodel},
     project::{
         ProjectChecksum,
         utils::{FsIoError, Identifier, deserialize_unix_path, serialize_unix_path, wrapfs},
@@ -227,6 +228,8 @@ pub enum ValidationError {
         name: String,
         source: RelativeUnixPathError,
     },
+    #[error(transparent)]
+    MetamodelDirection(Box<crate::graph::MetamodelDirectionError<String>>),
     #[error("invalid source URL provided for project `{name}` in lockfile")]
     InvalidSourceUrl {
         name: String,
@@ -262,6 +265,48 @@ impl Lock {
         self.check_name_collision()?;
         self.validate_usages()?;
         self.validate_sources()?;
+        self.validate_metamodel_edges()?;
+        Ok(())
+    }
+
+    /// The metamodel rules of every edge -- direction and release -- over
+    /// the lockfile graph.
+    ///
+    /// **After** `validate_usages` and `check_name_collision`, and that
+    /// order is load-bearing: a usage that names no project's first
+    /// identifier is skipped here, so an unsatisfied usage would silently
+    /// produce no edge instead of the error it is. An edge is the rule
+    /// `validate_usages` uses: a usage names the *first* identifier of
+    /// the project satisfying it.
+    ///
+    /// Cycles are not checked here. A cycle is allowed when every project
+    /// on it carries `stdlib`, and a lockfile entry cannot say that --
+    /// the embedded standard libraries are mutually dependent and carry
+    /// no publisher, so the exception has no expression in a lockfile.
+    fn validate_metamodel_edges(&self) -> Result<(), ValidationError> {
+        let by_first_identifier: HashMap<&str, &Project> = self
+            .projects
+            .iter()
+            .filter_map(|project| Some((project.identifiers.first()?.as_str(), project)))
+            .collect();
+        let metamodel_of = |project: &Project| Metamodel::parse(project.metamodel.as_deref()?).ok();
+
+        for project in &self.projects {
+            let metamodel = metamodel_of(project);
+            for usage in &project.usages {
+                let Some(dependency) = by_first_identifier.get(usage.inner()) else {
+                    continue;
+                };
+                if let Some(mismatch) = check_metamodel_pair(
+                    (&project.label(), metamodel.as_ref()),
+                    (&dependency.label(), metamodel_of(dependency).as_ref()),
+                )
+                .map_err(ValidationError::MetamodelDirection)?
+                {
+                    log::warn!("{mismatch}");
+                }
+            }
+        }
         Ok(())
     }
 
@@ -590,6 +635,7 @@ const PROJECT_ENTRIES: &[&str] = &[
     "name",
     "publisher",
     "version",
+    "metamodel",
     "exports",
     "identifiers",
     "usages",
@@ -652,6 +698,14 @@ pub struct Project {
     pub publisher: Option<String>,
     pub name: String,
     pub version: String,
+    /// The metamodel the project declares, as written.
+    ///
+    /// Recorded so that the edge checks of `validate` have something to
+    /// read: a lockfile is all they see. Absent means the project
+    /// declared none, which the edge checks read as an OMG project of
+    /// unknown release.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub metamodel: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub exports: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
@@ -724,6 +778,14 @@ impl IdentifiedEntry for Project {
 }
 
 impl Project {
+    /// `<publisher>/<name>`, the way a diagnostic renders a project. A project with no publisher is named by name alone.
+    fn label(&self) -> String {
+        match &self.publisher {
+            Some(publisher) => format!("{publisher}/{}", self.name),
+            None => self.name.clone(),
+        }
+    }
+
     pub(crate) fn to_toml(&self) -> Table {
         let mut table = Table::new();
         if let Some(publisher) = &self.publisher {
@@ -731,6 +793,9 @@ impl Project {
         }
         table.insert("name", value(&self.name));
         table.insert("version", value(&self.version));
+        if let Some(metamodel) = &self.metamodel {
+            table.insert("metamodel", value(metamodel));
+        }
         let exports = multiline_array(self.exports.iter().map(Value::from));
         if !exports.is_empty() {
             table.insert("exports", value(exports));

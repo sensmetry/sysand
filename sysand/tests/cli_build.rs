@@ -1263,3 +1263,48 @@ fn workspace_build_builds_a_dependent_of_a_failed_member() -> Result<(), Box<dyn
     );
     Ok(())
 }
+
+// ------------------- `build` reads the lockfile of its scope
+
+/// `build` reads the lockfile of its scope when one exists and validates
+/// it before building. Parsing is the validation, so a lockfile
+/// carrying a metamodel direction error stops the build.
+#[test]
+fn build_rejects_a_lockfile_with_a_direction_error() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    write_toml_member(&cwd, "widgets", "1.0.0", "")?;
+    std::fs::write(
+        cwd.join("sysand-lock.toml"),
+        "lock_version = \"0.5\"\n\
+         \n[[project]]\npublisher = \"acme\"\nname = \"app\"\nversion = \"1.0.0\"\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\
+         identifiers = [\"urn:app\"]\nusages = [\"urn:lib\"]\n\
+         \n[[project]]\npublisher = \"acme\"\nname = \"lib\"\nversion = \"1.0.0\"\n\
+         metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\n\
+         identifiers = [\"urn:lib\"]\n",
+    )?;
+
+    run_sysand_in(&cwd, ["build"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "only Syside-metamodel projects may depend on Syside-metamodel projects",
+        ));
+    assert!(
+        !cwd.join("output").exists(),
+        "the check runs before anything is built"
+    );
+    Ok(())
+}
+
+/// Without a lockfile `build` proceeds: it resolves no usages, and the
+/// edge checks run at the next `lock`.
+#[test]
+fn build_without_a_lockfile_proceeds() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    write_toml_member(&cwd, "widgets", "1.0.0", "")?;
+
+    run_sysand_in(&cwd, ["build"], None)?.assert().success();
+    assert!(cwd.join("output/widgets-1.0.0.kpar").is_file());
+    Ok(())
+}

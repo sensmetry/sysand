@@ -937,6 +937,26 @@ fn run_cli_with(
             allow_path_usage,
             keep_index,
         } => {
+            // `build` reads the lockfile of its scope when one exists and
+            // validates it before building, so the edge checks run on
+            // `sync` and `build`. Parsing *is* the validation --
+            // `Lock::from_str` calls `validate` -- so reading the file is
+            // the whole of it.
+            // Without a lockfile `build` proceeds: it resolves no
+            // usages, and the checks run at the next `lock`.
+            //
+            // The root is computed before `ctx.current_project` moves
+            // below. A member never holds its own lockfile, so the
+            // workspace root has to win.
+            let lock_root = model_workspace_root.clone().or_else(|| {
+                ctx.current_project
+                    .as_ref()
+                    .map(|p| p.root_path().to_owned())
+            });
+            if let Some(root) = lock_root {
+                // Parsing is the validation
+                Lockfile::try_read(&root)?;
+            }
             if let Some(current_project) = ctx.current_project {
                 // Even if we are in a workspace, the project takes precedence.
                 //

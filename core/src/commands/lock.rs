@@ -346,6 +346,11 @@ fn lock_projects<
             name: info.name,
             publisher: info.publisher,
             version: info.version,
+            // Both construction sites record it: without the root's own
+            // metamodel the edge checks read it as an OMG project and a
+            // Syside root with a Syside dependency is a false direction
+            // error.
+            metamodel: meta.metamodel.clone(),
             exports: meta.index.into_keys().collect(),
             identifiers: identifiers
                 .map(|ids| ids.into_iter().map(Into::into).collect())
@@ -554,6 +559,7 @@ fn lock_extend<
             name: info.name,
             publisher: info.publisher,
             version: info.version.clone(),
+            metamodel: meta.metamodel.clone(),
             exports: meta.index.into_keys().collect(),
             identifiers: vec![identifier.to_string()],
             sources,

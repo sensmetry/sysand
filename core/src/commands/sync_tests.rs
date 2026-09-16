@@ -218,6 +218,7 @@ fn local_src_entry() -> Project {
         publisher: None,
         name: "install_test".into(),
         version: "1.2.3".into(),
+        metamodel: None,
         exports: vec![],
         identifiers: vec![URI.into()],
         usages: vec![],

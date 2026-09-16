@@ -121,6 +121,7 @@ fn minimal_to_toml() {
             name: "a".to_owned(),
             publisher: None,
             version: "0.0.1".to_owned(),
+            metamodel: None,
             exports: vec![],
             identifiers: vec![],
             usages: vec![],
@@ -142,6 +143,7 @@ fn many_projects_to_toml() {
                 name: "One".to_owned(),
                 publisher: Some("Pub 1".to_owned()),
                 version: "0.0.1".to_owned(),
+                metamodel: None,
                 exports: vec![],
                 identifiers: vec![],
                 usages: vec![],
@@ -151,6 +153,7 @@ fn many_projects_to_toml() {
                 name: "Two".to_owned(),
                 publisher: None,
                 version: "0.0.2".to_owned(),
+                metamodel: None,
                 exports: vec![],
                 identifiers: vec![],
                 usages: vec![],
@@ -160,6 +163,7 @@ fn many_projects_to_toml() {
                 name: "Three".to_owned(),
                 publisher: Some("Pub 3".to_owned()),
                 version: "0.0.3".to_owned(),
+                metamodel: None,
                 exports: vec![],
                 identifiers: vec![],
                 usages: vec![],
@@ -191,6 +195,7 @@ fn one_export_to_toml() {
             name: "One Package".to_owned(),
             publisher: None,
             version: "0.1.1".to_owned(),
+            metamodel: None,
             exports: vec!["PackageName".to_owned()],
             identifiers: vec![],
             usages: vec![],
@@ -214,6 +219,7 @@ fn many_exports_to_toml() {
             name: "Three Packages".to_owned(),
             publisher: None,
             version: "0.1.3".to_owned(),
+            metamodel: None,
             exports: vec![
                 "Package1".to_owned(),
                 "Package2".to_owned(),
@@ -243,6 +249,7 @@ fn one_iri_to_toml() {
             name: "One IRI".to_owned(),
             publisher: None,
             version: "0.2.1".to_owned(),
+            metamodel: None,
             exports: vec![],
             identifiers: vec!["urn:kpar:example".to_owned()],
             usages: vec![],
@@ -266,6 +273,7 @@ fn many_identifiers_to_toml() {
             name: "Three IRI:s".to_owned(),
             publisher: None,
             version: "0.2.3".to_owned(),
+            metamodel: None,
             exports: vec![],
             identifiers: vec![
                 "urn:kpar:example".to_owned(),
@@ -295,6 +303,7 @@ fn one_source_to_toml() {
             name: "One source".to_owned(),
             publisher: None,
             version: "0.4.1".to_owned(),
+            metamodel: None,
             exports: vec![],
             identifiers: vec![],
             usages: vec![],
@@ -320,6 +329,7 @@ fn many_sources_to_toml() {
             name: "Seven sources".to_owned(),
             publisher: None,
             version: "0.4.7".to_owned(),
+            metamodel: None,
             exports: vec![],
             identifiers: vec![],
             usages: vec![],
@@ -384,6 +394,7 @@ fn one_usage_to_toml() {
             name: "One usage".to_owned(),
             publisher: None,
             version: "0.5.1".to_owned(),
+            metamodel: None,
             exports: vec![],
             identifiers: vec![],
             usages: vec![Usage::from_str_unchecked("urn:kpar:usage")],
@@ -407,6 +418,7 @@ fn many_usage_to_toml() {
             name: "Three usages".to_owned(),
             publisher: None,
             version: "0.5.3".to_owned(),
+            metamodel: None,
             exports: vec![],
             identifiers: vec![],
             usages: vec![
@@ -501,6 +513,7 @@ fn make_project<N: AsRef<str>, S: AsRef<str>>(
         name: name.as_ref().into(),
         publisher,
         version: version.as_ref().to_owned(),
+        metamodel: None,
         exports: exports.iter().map(|s| String::from(*s)).collect(),
         identifiers: identifiers.iter().map(|s| String::from(*s)).collect(),
         usages: usages.to_vec(),
@@ -758,6 +771,7 @@ fn validate_checksum_invalid_digest_all_source_types() {
                 name: "a".into(),
                 publisher: None,
                 version: "0.0.1".to_owned(),
+                metamodel: None,
                 exports: vec![],
                 identifiers: vec![],
                 usages: vec![],
@@ -785,6 +799,7 @@ fn validate_kpar_digest_rejects_uppercase() {
             name: "Indexed".to_owned(),
             publisher: None,
             version: "0.0.1".to_owned(),
+            metamodel: None,
             exports: vec![],
             identifiers: vec!["urn:kpar:indexed".to_owned()],
             usages: vec![],
@@ -1026,6 +1041,7 @@ fn canonicalize_checksums() {
             name: "a".into(),
             publisher: None,
             version: "0.0.1".to_owned(),
+            metamodel: None,
             exports: vec![],
             identifiers: vec!["urn:kpar:a".to_owned()],
             usages: vec![],
@@ -1168,6 +1184,7 @@ fn lock_project_with_urn_sysand_identifier_to_toml() {
             name: "my-lib".to_owned(),
             publisher: Some("ab".to_owned()),
             version: "1.0.0".to_owned(),
+            metamodel: None,
             exports: vec![],
             identifiers: vec!["urn:sysand:ab/my-lib".to_owned()],
             usages: vec![],
@@ -1338,6 +1355,7 @@ fn project_with_sources(sources: Vec<Source>) -> Project {
         publisher: None,
         name: "p".to_owned(),
         version: "1.0.0".to_owned(),
+        metamodel: None,
         exports: vec![],
         identifiers: vec![],
         usages: vec![],
@@ -1363,6 +1381,7 @@ fn workspace_root_project(
         publisher: publisher.map(str::to_owned),
         name: name.to_owned(),
         version: "1.0.0".to_owned(),
+        metamodel: None,
         exports: vec![],
         identifiers: vec![],
         usages: usages
@@ -1381,6 +1400,7 @@ fn dep_project(name: &str, identifier: &str, usages: &[&str]) -> Project {
         publisher: None,
         name: name.to_owned(),
         version: "1.0.0".to_owned(),
+        metamodel: None,
         exports: vec![],
         identifiers: vec![identifier.to_owned()],
         usages: usages
@@ -1620,6 +1640,7 @@ fn lockfile_write_then_read_roundtrips() {
             publisher: None,
             name: "Root".to_owned(),
             version: "1.0.0".to_owned(),
+            metamodel: None,
             exports: vec![],
             identifiers: vec![],
             usages: vec![],
@@ -1807,4 +1828,109 @@ fn current_lockfile_is_not_migrated() {
         lock.projects[0].identifiers,
         ["urn:sysand:ACME%20Inc./App".to_owned()]
     );
+}
+
+// ------------------- the metamodel edge checks
+
+/// A `metamodel` is written when the project has one, and the key sits
+/// after `version`.
+#[test]
+fn a_metamodel_is_written_after_the_version() {
+    to_toml_matches_expected(
+        vec![Project {
+            name: "a".to_owned(),
+            publisher: None,
+            version: "0.0.1".to_owned(),
+            metamodel: Some("https://www.omg.org/spec/SysML/20250201".to_owned()),
+            exports: vec![],
+            identifiers: vec![],
+            usages: vec![],
+            sources: vec![],
+        }],
+        "\n[[project]]\nname = \"a\"\nversion = \"0.0.1\"\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    );
+}
+
+/// A project without one writes no `metamodel` key at all.
+#[test]
+fn no_metamodel_writes_no_key() {
+    to_toml_matches_expected(
+        vec![Project {
+            name: "a".to_owned(),
+            publisher: None,
+            version: "0.0.1".to_owned(),
+            metamodel: None,
+            exports: vec![],
+            identifiers: vec![],
+            usages: vec![],
+            sources: vec![],
+        }],
+        "\n[[project]]\nname = \"a\"\nversion = \"0.0.1\"\n",
+    );
+}
+
+fn edge_pair(dependent_metamodel: &str, dependency_metamodel: &str) -> String {
+    format!(
+        "{LOCKFILE_PREFIX}lock_version = \"{CURRENT_LOCK_VERSION}\"\n\
+         \n[[project]]\npublisher = \"acme\"\nname = \"app\"\nversion = \"1.0.0\"\n\
+         metamodel = \"{dependent_metamodel}\"\nidentifiers = [\"urn:app\"]\n\
+         usages = [\"urn:lib\"]\n\
+         \n[[project]]\npublisher = \"acme\"\nname = \"lib\"\nversion = \"1.0.0\"\n\
+         metamodel = \"{dependency_metamodel}\"\nidentifiers = [\"urn:lib\"]\n"
+    )
+}
+
+/// Over a lockfile: an OMG project may not depend on
+/// a Syside one. The reverse is allowed, which is what makes the rule a
+/// direction rather than a mismatch.
+#[test]
+fn validate_rejects_a_metamodel_direction_error() {
+    let text = edge_pair(
+        "https://www.omg.org/spec/SysML/20250201",
+        "https://www.sysand.com/spec/SysML/20250201",
+    );
+    let error = Lock::parse(&text).expect_err("an OMG project using a Syside one");
+    let rendered = error.to_string();
+    assert!(rendered.contains("`acme/app`"), "{rendered}");
+    assert!(rendered.contains("`acme/lib`"), "{rendered}");
+    assert!(
+        rendered.contains("only Syside-metamodel projects may depend on Syside-metamodel projects"),
+        "{rendered}"
+    );
+}
+
+/// The same edge the other way round is fine.
+#[test]
+fn validate_accepts_a_syside_project_using_an_omg_one() {
+    let text = edge_pair(
+        "https://www.sysand.com/spec/SysML/20250201",
+        "https://www.omg.org/spec/SysML/20250201",
+    );
+    Lock::parse(&text).expect("a Syside project may use an OMG one");
+}
+
+/// A release mismatch is a warning: differing release dates validate.
+#[test]
+fn validate_warns_on_a_release_mismatch() {
+    let text = edge_pair(
+        "https://www.omg.org/spec/SysML/20250201",
+        "https://www.omg.org/spec/SysML/20230201",
+    );
+    Lock::parse(&text).expect("a release mismatch is a warning, not an error");
+}
+
+/// The standard libraries are mutually dependent, so a lockfile
+/// containing them must parse. The cycle check does not run here, since
+/// a lockfile entry cannot say it carries `stdlib`.
+#[test]
+fn validate_accepts_a_cycle() {
+    let text = format!(
+        "{LOCKFILE_PREFIX}lock_version = \"{CURRENT_LOCK_VERSION}\"\n\
+         \n[[project]]\nname = \"a\"\nversion = \"1.0.0\"\n\
+         identifiers = [\"urn:a\"]\nusages = [\"urn:b\"]\n\
+         \n[[project]]\nname = \"b\"\nversion = \"1.0.0\"\n\
+         identifiers = [\"urn:b\"]\nusages = [\"urn:a\"]\n"
+    );
+    Lock::parse(&text).expect("a cycle is not rejected in a lockfile yet");
 }
