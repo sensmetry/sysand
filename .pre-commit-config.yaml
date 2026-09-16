@@ -27,7 +27,14 @@ repos:
         exclude: |-
           (?x)(
               stdlib_assets/|
-              \.lock
+              \.lock|
+              # `design/model-toml.md` and `design/workspaces.md` are
+              # byte-for-byte copies of documents maintained outside
+              # this repository. Reformatting them would mean the
+              # copy could never be compared to its source with `diff`,
+              # which is the only check that keeps a copy honest.
+              design/model-toml\.md|
+              design/workspaces\.md
           )
 
   # Autoformat: Ensure SPDX license and copyright headers

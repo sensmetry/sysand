@@ -70,8 +70,10 @@ Environment (storage backend)
  └─ implementations: local directory, remote index, git, in-memory
 
 Project (Interchange Project)
- └─ .project.json  — name, version, publisher, usages (dependencies), etc.
- └─ .meta.json     — source file index, checksums, timestamps
+ └─ model.toml     — name, version, publisher, sources, usages; what
+ │                   `sysand init` writes and every command reads
+ └─ .project.json  — the legacy pair: read too, and what a built KPAR
+ └─ .meta.json       carries. `sysand migrate` converts one to the other
  └─ source files   — the actual SysML/KerML model files
 
 Lock file (sysand-lock.toml)
@@ -229,6 +231,32 @@ system:
   implementation (no type-based differentiation)
 
 ## Sysand specific files
+
+### `model.toml` with a `[project]` table
+
+Defines a project: its identity, the source files it contains, and the
+projects it uses. This is what `sysand init` writes, and a project has
+either this or the legacy json pair — never both.
+
+```toml
+manifest-version = 1
+
+[project]
+publisher = "acme"
+name = "widgets"
+version = "1.2.3"
+sources = ["widgets.sysml"]
+
+[[inline-usages]]
+publisher = "acme"
+name = "dep"
+dir = "../dep"
+```
+
+A member of a workspace may inherit a key from it by writing
+`<key>.workspace = true`, or `<key>.workspace = "<group>"` for a named
+group. `sysand migrate` converts a `.project.json`/`.meta.json` pair
+into this form.
 
 ### `model.toml` with a `[workspace]` table
 

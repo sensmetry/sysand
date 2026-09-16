@@ -26,19 +26,34 @@ beforeEach(async function () {
 });
 
 it("can initialise a project in browser local storage", async function () {
+  // `init` writes a `model.toml`, here as everywhere else. The two
+  // json documents are what a *build* produces and what a legacy
+  // project has; `init` writes neither.
+  //
+  // `acme`/`basic-init` rather than `a`/`basic_init`: a publisher and
+  // name must normalize to a valid package-URL part, which rules out a
+  // single character and an underscore.
   sysand.do_init_js_local_storage(
-    "basic_init",
-    "a",
+    "basic-init",
+    "acme",
     "1.2.3",
     "sysand_storage",
     "/",
+    "MIT OR Apache-2.0",
+  );
+  expect(window.localStorage.getItem("sysand_storage/model.toml")).toBe(
+    "manifest-version = 1\n\n" +
+      "[project]\n" +
+      'publisher = "acme"\n' +
+      'name = "basic-init"\n' +
+      'version = "1.2.3"\n' +
+      "sources = []\n" +
+      'license = "MIT OR Apache-2.0"\n',
   );
   expect(window.localStorage.getItem("sysand_storage/.project.json")).toBe(
-    '{"name":"basic_init","publisher":"a","version":"1.2.3"}',
+    null,
   );
-  expect(window.localStorage.getItem("sysand_storage/.meta.json")).toMatch(
-    /\{"index":\{\},"created":"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"}/,
-  );
+  expect(window.localStorage.getItem("sysand_storage/.meta.json")).toBe(null);
 });
 
 it("can initialise an empty environment in browser local storage", async function () {
