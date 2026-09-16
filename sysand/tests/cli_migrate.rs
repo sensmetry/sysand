@@ -724,3 +724,162 @@ fn an_excluded_target_is_not_given_the_table() -> Result<(), Box<dyn std::error:
         .stderr(predicate::str::contains("not a member of any workspace"));
     Ok(())
 }
+
+// -------------------------------------- resolved `resource` usages
+
+use mockito::Server;
+
+/// An index serving `versions.json` and a `.project.json` per version.
+/// Enough for `get_project_version`, which reads each candidate's info.
+fn index_with_versions(server: &mut Server, versions: &[&str]) -> Vec<mockito::Mock> {
+    let mut mocks = vec![
+        server
+            .mock("GET", "/sysand-index-config.json")
+            .with_status(404)
+            .create(),
+        server
+            .mock("GET", "/mock/dep/versions.json")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(common::versions_json_body(
+                &versions
+                    .iter()
+                    .map(|v| common::versions_json_entry_body(v, 1, &"0".repeat(64)))
+                    .collect::<Vec<_>>(),
+            ))
+            .create(),
+    ];
+    for version in versions {
+        mocks.push(
+            server
+                .mock("GET", &*format!("/mock/dep/{version}/.project.json"))
+                .with_status(200)
+                .with_header("content-type", "application/json")
+                .with_body(format!(
+                    r#"{{"name": "dep", "publisher": "mock", "version": "{version}", "usage": []}}"#
+                ))
+                .create(),
+        );
+        mocks.push(
+            server
+                .mock("GET", &*format!("/mock/dep/{version}/.meta.json"))
+                .with_status(200)
+                .with_header("content-type", "application/json")
+                .with_body(r#"{"created": "2001-02-03T04:05:06Z", "index": {}}"#)
+                .create(),
+        );
+    }
+    mocks
+}
+
+/// model-toml.md: an unconstrained `pkg:sysand` usage "is resolved at
+/// migration time and pinned to `^<version>`, where `<version>` is the
+/// version that resolution found".
+///
+/// Two versions, because a single-version fixture cannot show *which*
+/// one resolution found.
+#[test]
+fn an_unconstrained_purl_is_pinned() -> Result<(), Box<dyn std::error::Error>> {
+    let mut server = Server::new();
+    // `versions.json` must be in descending semver precedence, which
+    // the index format enforces -- so the newest is listed first.
+    let _mocks = index_with_versions(&mut server, &["1.2.0", "1.0.0"]);
+
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    json_with_usages(&cwd, r#"{"resource": "pkg:sysand/mock/dep"}"#)?;
+    git_repo(&cwd, true)?;
+
+    run_sysand_in(&cwd, ["migrate", "--default-index", &server.url()], None)?
+        .assert()
+        .success();
+
+    let text = std::fs::read_to_string(cwd.join("model.toml"))?;
+    assert!(
+        text.contains("^1.2.0"),
+        "the higher version is pinned:\n{text}"
+    );
+    Ok(())
+}
+
+/// Migrating a dependency no index has is not something to guess at.
+#[test]
+fn an_unconstrained_purl_that_resolves_to_nothing_is_refused()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut server = Server::new();
+    let _config = server
+        .mock("GET", "/sysand-index-config.json")
+        .with_status(404)
+        .create();
+    let _versions = server
+        .mock("GET", "/mock/dep/versions.json")
+        .with_status(404)
+        .create();
+
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    json_with_usages(&cwd, r#"{"resource": "pkg:sysand/mock/dep"}"#)?;
+    git_repo(&cwd, true)?;
+
+    run_sysand_in(&cwd, ["migrate", "--default-index", &server.url()], None)?
+        .assert()
+        .failure();
+    assert!(!cwd.join("model.toml").exists(), "nothing was written");
+    Ok(())
+}
+
+/// A purl that already carries a constraint is written as-is and the
+/// index is never touched.
+#[test]
+fn a_constrained_purl_consults_no_index() -> Result<(), Box<dyn std::error::Error>> {
+    let mut server = Server::new();
+    let versions = server
+        .mock("GET", "/mock/dep/versions.json")
+        .with_status(200)
+        .with_body("{}")
+        .expect(0)
+        .create();
+
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    json_with_usages(
+        &cwd,
+        r#"{"resource": "pkg:sysand/mock/dep", "versionConstraint": "^1.0.0"}"#,
+    )?;
+    git_repo(&cwd, true)?;
+
+    run_sysand_in(&cwd, ["migrate", "--default-index", &server.url()], None)?
+        .assert()
+        .success();
+    versions.assert();
+    Ok(())
+}
+
+/// The resolver is built on the first usage that needs it.
+///
+/// `create_resolver` can fail on an index URL the config parser
+/// rejects, and a project with no `resource` usages resolves nothing --
+/// so it must not fail on configuration it never reads.
+#[test]
+fn migrate_without_resource_usages_needs_no_index() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    json_with_usages(&cwd, "")?;
+    // Valid TOML -- so `load_configs` accepts it -- whose URL carries a
+    // fragment, which `IndexLocation::parse` refuses.
+    std::fs::write(
+        cwd.join("bad-config.toml"),
+        "[[index]]\nurl = \"https://example.com/#frag\"\n",
+    )?;
+    git_repo(&cwd, true)?;
+
+    run_sysand_in(
+        &cwd,
+        [
+            "migrate",
+            "--config-file",
+            cwd.join("bad-config.toml").as_str(),
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+    assert!(cwd.join("model.toml").is_file());
+    Ok(())
+}

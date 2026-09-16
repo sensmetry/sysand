@@ -439,10 +439,17 @@ fn migrate_resource(
             };
             {
                 let Some(raw) = version_constraint else {
-                    // Needs the index: the pinned `^<version>` comes
-                    // from resolving the usage.
-                    report.push(needs_resolution(resource));
-                    return None;
+                    // model-toml.md: "resolved at migration time and
+                    // pinned to `^<version>`, where `<version>` is the
+                    // version that resolution found". Which version
+                    // that is belongs to the caller, with the index.
+                    return match target(resource) {
+                        Ok(usage) => Some(usage),
+                        Err(reason) => {
+                            report.push(Diagnostic::error(reason));
+                            None
+                        }
+                    };
                 };
                 let constraint = match VersionReq::parse(raw) {
                     Ok(constraint) => constraint,
@@ -486,10 +493,15 @@ fn migrate_resource(
                      migrated: a `url` usage carries no version constraint"
                 )));
             }
-            // Still deferred: the publisher and name come from a target
-            // that has to be fetched.
-            report.push(needs_resolution(resource));
-            None
+            // model-toml.md: "use as-is for URL … the publisher and
+            // name come from the target, which is fetched".
+            match target(resource) {
+                Ok(usage) => Some(usage),
+                Err(reason) => {
+                    report.push(Diagnostic::error(reason));
+                    None
+                }
+            }
         }
         Some("ssh" | "git" | "git+http" | "git+https" | "git+ssh" | "git+file") => {
             report.push(Diagnostic::error(format!(
@@ -505,16 +517,6 @@ fn migrate_resource(
             None
         }
     }
-}
-
-/// Deferred to the slice that adds the resolver. The text is a
-/// placeholder in the sense that it describes a limitation rather than a
-/// mistake, and it goes when the resolver arrives.
-fn needs_resolution(resource: &str) -> Diagnostic {
-    Diagnostic::error(format!(
-        "usage `{resource}` names its target by location, so its publisher and name must be \
-         read from the target; `sysand migrate` cannot do that yet"
-    ))
 }
 
 /// A usage's local path, in the one form a `model.toml` admits.

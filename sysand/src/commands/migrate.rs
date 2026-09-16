@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use std::{
+    cell::RefCell,
     io::{IsTerminal as _, Write as _},
     sync::Arc,
 };
@@ -10,7 +11,10 @@ use anyhow::{Context as _, Result, bail};
 use camino::{Utf8Path, Utf8PathBuf};
 
 use sysand_core::{
+    auth::HTTPAuthentication,
     commands::migrate::{MigrateOptions, VcsState, check_vcs, migrate_project},
+    config::Config,
+    context::ProjectContext,
     manifest::usage::Usage,
     manifest::{
         MODEL_TOML_FILE, ModelToml, ModelTomlKind, edit::render_new,
@@ -26,24 +30,44 @@ use sysand_core::{
         local_src::{LocalSrcProject, ProjectFormat, detect_format},
         utils::{relativize_path, validate_manifest, wrapfs},
     },
+    resolve::ResolutionInfo,
+    utils::ProvidedProjects,
     utils::format_err,
     workspace::model_toml::{discover_table, member_index},
 };
 
+use crate::{
+    cli::ResolutionOptions,
+    commands::{
+        clone::get_project_version,
+        lock::{CliResolver, create_resolver},
+    },
+};
+
 /// `sysand migrate`: a json project becomes a `model.toml` one.
-pub fn command_migrate(
+#[expect(clippy::too_many_arguments, reason = "the resolver's own five")]
+pub fn command_migrate<Policy: HTTPAuthentication>(
     path: Option<Utf8PathBuf>,
     publisher: Option<String>,
     allow_dirty: bool,
     allow_no_vcs: bool,
-    cwd: &Utf8Path,
+    resolution_opts: ResolutionOptions,
+    config: &Config,
+    ctx: &ProjectContext,
+    client: reqwest_middleware::ClientWithMiddleware,
+    runtime: Arc<tokio::runtime::Runtime>,
+    auth_policy: Arc<Policy>,
 ) -> Result<()> {
-    let dir = path.clone().unwrap_or_else(|| cwd.to_owned());
+    let dir = path
+        .clone()
+        .unwrap_or_else(|| ctx.current_directory.clone());
 
-    // Appendix A row 45. Decided here rather than through the command
-    // scope: putting `migrate` in `consults_the_workspace` would make a
-    // discovery error fatal, and an *unlisted* json project under a
-    // workspace root is exactly the project a user wants to migrate.
+    // model-toml.md "JSON to TOML": from a workspace root the command
+    // errors unless a path names the project. Decided here rather than
+    // through the command scope: putting `migrate` in
+    // `consults_the_workspace` would make a discovery error fatal, and an
+    // *unlisted* json project under a workspace root is exactly the
+    // project a user wants to migrate.
     if path.is_none() && is_workspace_root(&dir)? {
         bail!("run from a workspace root, `migrate` needs the path of the json project to convert");
     }
@@ -117,11 +141,42 @@ pub fn command_migrate(
         info.validate(PROJECT_JSON_FILE, meta.metamodel.as_deref()),
     )?;
 
-    let lookup = |resource: &str| resolve_file_target(resource, &dir);
-    // `plan-phase1.md`: "When stdin is a TTY and `--publisher` is
-    // absent, prompt". Only then -- piped and CI runs keep appendix A
-    // row 42 exactly as it is, which is what every existing test
-    // asserts.
+    // Built on the first resource that needs it. `create_resolver` can
+    // fail on a malformed index URL or a bad override, and migrating a
+    // project with no `resource` usages must not fail on configuration
+    // it never reads.
+    let resolver: RefCell<Option<CliResolver<Policy>>> = RefCell::new(None);
+    let build_resolver = || -> Result<(), String> {
+        if resolver.borrow().is_some() {
+            return Ok(());
+        }
+        let built = create_resolver(
+            resolution_opts.clone(),
+            config,
+            ctx,
+            ProvidedProjects::default(),
+            client.clone(),
+            runtime.clone(),
+            auth_policy.clone(),
+        )
+        .map_err(|e| format!("cannot reach an index: {e:#}"))?;
+        *resolver.borrow_mut() = Some(built);
+        Ok(())
+    };
+
+    let lookup = |resource: &str| {
+        if resource.starts_with("file:") {
+            return resolve_file_target(resource, &dir);
+        }
+        build_resolver()?;
+        let borrowed = resolver.borrow();
+        let resolver = borrowed.as_ref().expect("just built");
+        resolve_remote_target(resource, resolver)
+    };
+    // model-toml.md "JSON to TOML": "when the command is interactive it
+    // may prompt for it instead". Only when stdin is a TTY and
+    // `--publisher` is absent -- piped and CI runs get the
+    // missing-publisher error.
     let publisher = match publisher {
         Some(publisher) => Some(publisher),
         None if info.publisher.is_none() && std::io::stdin().is_terminal() => {
@@ -399,4 +454,59 @@ fn prompt_for_publisher() -> Result<Option<String>> {
         .context("could not read the publisher from the terminal")?;
     let answer = answer.trim();
     Ok((!answer.is_empty()).then(|| answer.to_owned()))
+}
+
+/// An `http(s)` or unconstrained-`pkg:sysand` usage, through the index.
+fn resolve_remote_target<Policy: HTTPAuthentication>(
+    resource: &str,
+    resolver: &CliResolver<Policy>,
+) -> Result<Usage, String> {
+    let iri = fluent_uri::Iri::parse(resource.to_owned())
+        .map_err(|(e, _)| format!("`{resource}` is not a valid IRI: {e}"))?;
+    let resolve = ResolutionInfo::iri(iri);
+
+    // model-toml.md: "resolved at migration time and pinned to
+    // `^<version>`, where `<version>` is the version that resolution
+    // found". `get_project_version` is that: it skips candidates that
+    // do not read, skips non-semver versions with a warning, and takes
+    // the highest. It
+    // also hands back a *typed* version, so `^{version}` cannot be
+    // built from something that is not one.
+    let (version, project) = get_project_version(&resolve, None, resolver)
+        .map_err(|e| format!("cannot resolve `{resource}`: {e:#}"))?;
+
+    let info = project
+        .get_info()
+        .map_err(|e| format!("cannot read the target of `{resource}`: {e}"))?
+        .ok_or_else(|| format!("`{resource}` resolves to nothing that declares a project"))?;
+    let Some(publisher) = info.publisher else {
+        return Err(format!(
+            "usage target `{resource}` declares no `publisher`, which `model.toml` requires"
+        ));
+    };
+    let publisher = IndexPublisher::parse(publisher).map_err(|e| format!("`{resource}`: {e}"))?;
+    let name = IndexName::parse(info.name).map_err(|e| format!("`{resource}`: {e}"))?;
+
+    if sysand_core::purl::parse_sysand_purl(resource)
+        .ok()
+        .flatten()
+        .is_some()
+    {
+        return Ok(Usage::Index {
+            publisher,
+            name,
+            version_constraint: semver::VersionReq::parse(&format!("^{version}"))
+                .map_err(|e| format!("`^{version}` is not a version requirement: {e}"))?,
+        });
+    }
+
+    // model-toml.md: "use as-is for URL". Both a KPAR and a source tree
+    // at an `http(s)` URL are written this way -- the specification's
+    // rule is unconditional, and the resolver accepts either.
+    Ok(Usage::RemoteKpar {
+        publisher,
+        name,
+        url: fluent_uri::Iri::parse(resource.to_owned())
+            .map_err(|(e, _)| format!("`{resource}` is not a valid IRI: {e}"))?,
+    })
 }
