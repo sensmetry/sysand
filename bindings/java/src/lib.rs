@@ -62,7 +62,7 @@ macro_rules! ret_null {
 // lose all error context. So the return type matches what is required, but we never
 // actually return `Err()`
 const SYSAND_INIT: NativeMethod = native_method!(
-    static fn init(name: JString, publisher: JString, version: JString, license: JString, path: JString)
+    static fn init(name: JString, publisher: JString, version: JString, license: JString, metamodel: JString, path: JString)
 );
 fn init<'local>(
     env: &mut Env<'local>,
@@ -71,6 +71,7 @@ fn init<'local>(
     publisher: JString<'local>,
     version: JString<'local>,
     license: JString<'local>,
+    metamodel: JString<'local>,
     path: JString<'local>,
 ) -> JniResult<()> {
     let Some(name) = env.get_str(&name, "name") else {
@@ -80,6 +81,9 @@ fn init<'local>(
         ret!()
     };
     let Some(version) = env.get_str(&version, "version") else {
+        ret!()
+    };
+    let Some(metamodel) = env.get_str(&metamodel, "metamodel") else {
         ret!()
     };
     let Some(path) = env.get_str(&path, "path") else {
@@ -102,16 +106,22 @@ fn init<'local>(
         }
     };
 
-    let command_result =
-        commands::init::do_init_local_file(name, publisher, version, license, None, path.into());
+    let command_result = commands::init::do_init_local_file(
+        name,
+        publisher,
+        version,
+        license,
+        Some(sysand_core::manifest::inherit::MetaProperty::Provided(
+            metamodel,
+        )),
+        path.into(),
+    );
     match command_result {
         Ok(_) => Ok(()),
         Err(error) => {
             let e = format_err(&error);
             match error {
-                InitError::MalformedMetamodel(..) => {
-                    env.throw_exception(ExceptionKind::InvalidValue, e)
-                }
+                InitError::Metamodel(..) => env.throw_exception(ExceptionKind::InvalidValue, e),
                 InitError::SemVerParse(..) => {
                     env.throw_exception(ExceptionKind::InvalidSemanticVersion, e)
                 }

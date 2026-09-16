@@ -45,6 +45,8 @@ fn runs_the_command_it_is_given() {
         "proj",
         "--publisher",
         "acme",
+        "--metamodel",
+        "sysml",
     ]);
     let code = run_parsed(global_opts(), init, ProcessOwnership::Embedded);
 

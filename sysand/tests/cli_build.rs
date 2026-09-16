@@ -1040,6 +1040,8 @@ fn build_toml_project() -> Result<(), Box<dyn std::error::Error>> {
         &cwd,
         [
             "init",
+            "--metamodel",
+            SYSML,
             "--publisher",
             "acme",
             "--name",

@@ -1758,10 +1758,14 @@ fn info_get_and_edit_fields() -> Result<(), Box<dyn Error>> {
     assert_eq!(get("topic")?, "t\n");
     assert_eq!(get("includes-implied")?, "true\n");
 
-    // Fields that are not edited directly
-    for field in ["usage", "index", "checksum", "metamodel"] {
+    // Fields that are not edited directly; the fixture declares a metamodel
+    for field in ["usage", "index", "checksum"] {
         assert_eq!(get(field)?, "", "field: {field}");
     }
+    assert_eq!(
+        get("metamodel")?,
+        "https://www.omg.org/spec/SysML/20250201\n"
+    );
     assert_ne!(get("created")?, "");
     for flag in ["--usage", "--index", "--created", "--checksum"] {
         run_sysand_in(project_path, ["edit", flag, "x"], None)?

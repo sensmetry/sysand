@@ -49,6 +49,7 @@ use crate::{
 pub fn command_migrate<Policy: HTTPAuthentication>(
     path: Option<Utf8PathBuf>,
     publisher: Option<String>,
+    metamodel: Option<String>,
     allow_dirty: bool,
     allow_no_vcs: bool,
     resolution_opts: ResolutionOptions,
@@ -184,7 +185,21 @@ pub fn command_migrate<Policy: HTTPAuthentication>(
         }
         None => None,
     };
-    let validated = migrate_project(&info, &meta, &MigrateOptions { publisher }, &lookup)?;
+    // Checked here as well as in `migrate_project`, so that the message
+    // about a value the user typed can name the flag they typed it
+    // into. The core check is what a binding caller gets.
+    if let Some(value) = &metamodel {
+        crate::commands::check_metamodel(value)?;
+    }
+    let validated = migrate_project(
+        &info,
+        &meta,
+        &MigrateOptions {
+            publisher,
+            metamodel,
+        },
+        &lookup,
+    )?;
     for warning in &validated.warnings {
         log::warn!("{warning}");
     }

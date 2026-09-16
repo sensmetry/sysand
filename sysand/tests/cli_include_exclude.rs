@@ -464,6 +464,8 @@ fn toml_project()
     let (temp_dir, cwd, out) = run_sysand(
         [
             "init",
+            "--metamodel",
+            SYSML,
             "--publisher",
             "acme",
             "--name",

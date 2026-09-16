@@ -55,7 +55,7 @@ use sysand_core::{
 use url::Url;
 
 use crate::{
-    cli::{Args, AuthCommand, Command, EnvCommand, IndexCommand, Metamodel},
+    cli::{Args, AuthCommand, Command, EnvCommand, IndexCommand},
     commands::{
         add::command_add,
         auth::{command_auth_login, command_auth_logout, command_auth_status, command_auth_whoami},
@@ -70,7 +70,7 @@ use crate::{
             LocalProjectKind, command_info_field, command_info_field_path, command_info_path,
             command_info_project,
         },
-        init::command_init,
+        init::{command_init, parse_metamodel},
         lock::{command_lock, command_lock_workspace},
         print_root::command_print_root,
         publish::command_publish,
@@ -653,15 +653,12 @@ fn run_cli_with(
             license,
             metamodel,
             metamodel_release,
-        } => command_init(
-            name,
-            publisher,
-            version,
-            license,
-            metamodel.map(|kind| Metamodel(kind, metamodel_release)),
-            path,
-            ctx,
-        ),
+        } => {
+            let metamodel = metamodel
+                .map(|metamodel| parse_metamodel(&metamodel, metamodel_release))
+                .transpose()?;
+            command_init(name, publisher, version, license, metamodel, path, ctx)
+        }
         Command::Env { command } => match command {
             None => {
                 let env_dir = {
@@ -1139,12 +1136,14 @@ fn run_cli_with(
         Command::Migrate {
             path,
             publisher,
+            metamodel,
             allow_dirty,
             allow_no_vcs,
             resolution_opts,
         } => crate::commands::migrate::command_migrate(
             path,
             publisher,
+            metamodel,
             allow_dirty,
             allow_no_vcs,
             resolution_opts,

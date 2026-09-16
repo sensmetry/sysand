@@ -75,8 +75,11 @@ pub enum TryFromError<Project: ProjectRead> {
 /// # use sysand_core::env::memory::MemoryStorageEnvironment;
 /// # use sysand_core::env::ReadEnvironment;
 /// # use sysand_core::project::memory::InMemoryProject;
-/// let project1 = do_init_memory("First", "acme", "0.0.1", None).unwrap();
-/// let project2 = do_init_memory("First", "bravo", "0.1.0", None).unwrap();
+/// # let sysml = || Some(sysand_core::manifest::inherit::MetaProperty::Provided(
+/// #     "https://www.omg.org/spec/SysML/20250201".to_owned(),
+/// # ));
+/// let project1 = do_init_memory("First", "acme", "0.0.1", None, sysml()).unwrap();
+/// let project2 = do_init_memory("First", "bravo", "0.1.0", None, sysml()).unwrap();
 /// let env = MemoryStorageEnvironment::<InMemoryProject>::try_from([
 ///     ("urn:kpar:first".into(), project1.clone()),
 ///     ("urn:kpar:first".into(), project2.clone()),
@@ -122,8 +125,11 @@ impl<Project: ProjectRead + Clone, const N: usize> TryFrom<[(String, Project); N
 /// # use sysand_core::env::memory::MemoryStorageEnvironment;
 /// # use sysand_core::env::ReadEnvironment;
 /// # use sysand_core::project::memory::InMemoryProject;
-/// let project1 = do_init_memory("First", "acme", "0.0.1", None).unwrap();
-/// let project2 = do_init_memory("First", "bravo", "0.1.0", None).unwrap();
+/// # let sysml = || Some(sysand_core::manifest::inherit::MetaProperty::Provided(
+/// #     "https://www.omg.org/spec/SysML/20250201".to_owned(),
+/// # ));
+/// let project1 = do_init_memory("First", "acme", "0.0.1", None, sysml()).unwrap();
+/// let project2 = do_init_memory("First", "bravo", "0.1.0", None, sysml()).unwrap();
 /// let env = MemoryStorageEnvironment::<InMemoryProject>::try_from(vec![
 ///     ("urn:kpar:first".into(), project1.clone()),
 ///     ("urn:kpar:first".into(), project2.clone()),
@@ -179,8 +185,11 @@ impl<Project: ProjectRead + Clone> FromIterator<(String, String, Project)>
 /// # use sysand_core::project::memory::InMemoryProject;
 /// let version1 = "0.0.1".to_string();
 /// let version2 = "0.1.0".to_string();
-/// let project1 = do_init_memory("First", "acme", &version1, None).unwrap();
-/// let project2 = do_init_memory("First", "bravo", &version2, None).unwrap();
+/// # let sysml = || Some(sysand_core::manifest::inherit::MetaProperty::Provided(
+/// #     "https://www.omg.org/spec/SysML/20250201".to_owned(),
+/// # ));
+/// let project1 = do_init_memory("First", "acme", &version1, None, sysml()).unwrap();
+/// let project2 = do_init_memory("First", "bravo", &version2, None, sysml()).unwrap();
 /// let env = MemoryStorageEnvironment::<InMemoryProject>::from([
 ///     ("urn:kpar:first".into(), version1.clone(), project1.clone()),
 ///     ("urn:kpar:first".into(), version2.clone(), project2.clone()),
@@ -221,8 +230,11 @@ impl<Project: ProjectRead + Clone, const N: usize> From<[(String, String, Projec
 /// # use sysand_core::project::memory::InMemoryProject;
 /// let version1 = "0.0.1".to_string();
 /// let version2 = "0.1.0".to_string();
-/// let project1 = do_init_memory("First", "acme", &version1, None).unwrap();
-/// let project2 = do_init_memory("First", "bravo", &version2, None).unwrap();
+/// # let sysml = || Some(sysand_core::manifest::inherit::MetaProperty::Provided(
+/// #     "https://www.omg.org/spec/SysML/20250201".to_owned(),
+/// # ));
+/// let project1 = do_init_memory("First", "acme", &version1, None, sysml()).unwrap();
+/// let project2 = do_init_memory("First", "bravo", &version2, None, sysml()).unwrap();
 /// let env = MemoryStorageEnvironment::<InMemoryProject>::from(vec![
 ///     ("urn:kpar:first".into(), version1.clone(), project1.clone()),
 ///     ("urn:kpar:first".into(), version2.clone(), project2.clone()),
