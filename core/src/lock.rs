@@ -26,8 +26,8 @@ use crate::{
     commands::lock::DEFAULT_LOCKFILE_NAME,
     config::OverrideSource,
     env::ReadEnvironment,
+    format_migrate::{self, IdentifiedEntry, Migration},
     graph::check_metamodel_pair,
-    migrate::{self, IdentifiedEntry, Migration},
     model::{InterchangeProjectUsage, Metamodel},
     project::{
         ProjectChecksum,
@@ -46,7 +46,9 @@ const LOCKFILE_ENTRIES: &[&str] = &["lock_version", "project"];
 const MIGRATIONS: &[Migration<Project>] = &[Migration {
     from: "0.5",
     to: "0.6",
-    migrate: |projects| migrate::rederive_identifiers(projects, migrate::is_derived_unnormalized),
+    migrate: |projects| {
+        format_migrate::rederive_identifiers(projects, format_migrate::is_derived_unnormalized)
+    },
 }];
 
 /// Contents of a lockfile. Reading and writing it is done through [`Lockfile`]
@@ -96,7 +98,7 @@ pub enum VersionError {
 fn check_lock_version(document: &Table) -> Result<(), VersionError> {
     if let Some(Item::Value(Value::String(lock_version))) = document.get("lock_version") {
         let version = lock_version.value();
-        if version == CURRENT_LOCK_VERSION || migrate::is_migratable(MIGRATIONS, version) {
+        if version == CURRENT_LOCK_VERSION || format_migrate::is_migratable(MIGRATIONS, version) {
             Ok(())
         } else {
             Err(VersionError::Unsupported(version.clone()))
@@ -172,7 +174,7 @@ impl Lock {
             lock_version,
             mut projects,
         } = toml_edit::de::from_document(document)?;
-        migrate::migrate(
+        format_migrate::migrate(
             MIGRATIONS,
             CURRENT_LOCK_VERSION,
             "lockfile",

@@ -24,7 +24,7 @@ use crate::{
         diagnostics::{Diagnostic, ReadWarning, Report, Validated},
         inherit::MetaProperty,
         project::{ProjectManifest, ProjectTable, Urls},
-        usage::{MemberUsage, Usage},
+        usage::{MemberUsage, Usage, UsageEntry as _},
     },
     model::{
         IndexName, IndexPublisher, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
@@ -71,6 +71,7 @@ pub fn migrate_project(
 
     let sources = migrate_sources(meta, &mut report);
     let usages = migrate_usages(info, &mut report);
+    check_duplicate_usages(&usages, &mut report);
     let license = info
         .license
         .as_ref()
@@ -289,6 +290,38 @@ fn warn_discarded(meta: &InterchangeProjectMetadataRaw, report: &mut Report) {
     }
 }
 
+/// The rule `check_duplicates` (`manifest::usage`) applies on the read
+/// path, applied here on the write path.
+///
+/// It cannot be called: its signature takes usage *sites* and a span
+/// index, and a manifest built from values has neither. So the rule and
+/// its wording are reused rather than the function -- a user who fixes
+/// the json and re-runs should not meet a second phrasing of one rule.
+///
+/// Pairwise, as `check_duplicates` is: three colliding entries produce
+/// two diagnostics, the same as reading such a file back.
+///
+/// Without this, `migrate` writes a `model.toml` that `sysand` itself
+/// refuses to read -- after deleting the json manifests that were the
+/// only readable copy.
+fn check_duplicate_usages(usages: &[MemberUsage], report: &mut Report) {
+    for (index, usage) in usages.iter().enumerate() {
+        let identity = usage.identity();
+        let Some(first) = usages[..index]
+            .iter()
+            .find(|earlier| earlier.identity() == identity)
+        else {
+            continue;
+        };
+        report.push(Diagnostic::error(format!(
+            "usages `{}` and `{}` name the same project; two entries whose publisher and \
+             name normalize to the same value are a duplicate",
+            first.label(),
+            usage.label()
+        )));
+    }
+}
+
 fn migrate_usages(info: &InterchangeProjectInfoRaw, report: &mut Report) -> Vec<MemberUsage> {
     let mut usages = Vec::new();
     for usage in &info.usage {
@@ -331,6 +364,33 @@ fn migrate_usage(usage: &InterchangeProjectUsageRaw, report: &mut Report) -> Opt
             resource,
             version_constraint,
         } => migrate_resource(resource, version_constraint.as_deref(), report),
+        // A typed index usage already carries everything a manifest
+        // entry needs
+        InterchangeProjectUsageRaw::Index {
+            publisher,
+            name,
+            version_constraint,
+        } => {
+            let constraint = match VersionReq::parse(version_constraint) {
+                Ok(constraint) => constraint,
+                Err(error) => {
+                    report.push(Diagnostic::error(format!(
+                        "usage `{publisher}/{name}` has version constraint `{version_constraint}`, \
+                         which is not a valid requirement: {error}"
+                    )));
+                    return None;
+                }
+            };
+            Some(Usage::Index {
+                publisher: parse_or_report(
+                    IndexPublisher::parse(publisher.clone()),
+                    "publisher",
+                    report,
+                )?,
+                name: parse_or_report(IndexName::parse(name.clone()), "name", report)?,
+                version_constraint: constraint,
+            })
+        }
     }
 }
 
@@ -459,3 +519,137 @@ fn parse_or_report<T, E: std::fmt::Display>(
 #[cfg(test)]
 #[path = "./migrate_tests.rs"]
 mod tests;
+
+/// Whether the project's directory has uncommitted work.
+///
+/// `migrate` deletes the json manifests, so the user should have a way
+/// back.
+#[cfg(feature = "networking")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum VcsState {
+    Clean,
+    /// The paths that differ, relative to the repository's work tree.
+    Dirty(Vec<String>),
+    NoRepository,
+}
+
+#[cfg(feature = "networking")]
+#[derive(Debug, thiserror::Error)]
+pub enum VcsError {
+    #[error("failed to open the git repository at `{path}`: {source}")]
+    Open {
+        path: camino::Utf8PathBuf,
+        #[source]
+        source: Box<gix::Error>,
+    },
+    #[error("failed to read the status of the git repository at `{path}`: {reason}")]
+    Status {
+        path: camino::Utf8PathBuf,
+        reason: String,
+    },
+}
+
+/// The state of the work tree *at `root`*.
+#[cfg(feature = "networking")]
+pub fn check_vcs(root: &camino::Utf8Path) -> Result<VcsState, VcsError> {
+    use gix::{
+        bstr::{BString, ByteSlice as _},
+        dir::entry::Status as DirStatus,
+        status::{
+            Item, UntrackedFiles, index_worktree::Item as IndexWorktreeItem,
+            plumbing::index_as_worktree::EntryStatus,
+        },
+    };
+
+    // `discover`, not `open`: a project in a subdirectory of a
+    // repository is inside its work tree.
+    let repo = match gix::discover(root) {
+        Ok(repo) => repo,
+        Err(error) => {
+            // Only three of the discovery variants mean "there is no
+            // repository here". Folding the rest in would let
+            // `--allow-no-vcs` hide a broken one. gix reports one error
+            // type for everything, with the cause inside it.
+            if matches!(
+                error.downcast_any_ref::<gix::discover::upwards::Error>(),
+                Some(
+                    gix::discover::upwards::Error::NoGitRepository { .. }
+                        | gix::discover::upwards::Error::NoGitRepositoryWithinCeiling { .. }
+                        | gix::discover::upwards::Error::NoGitRepositoryWithinFs { .. }
+                )
+            ) {
+                return Ok(VcsState::NoRepository);
+            }
+            return Err(VcsError::Open {
+                path: root.to_owned(),
+                source: Box::new(error),
+            });
+        }
+    };
+
+    let fail = |reason: String| VcsError::Status {
+        path: root.to_owned(),
+        reason,
+    };
+
+    // Scope the walk to the project. Without a pathspec the status
+    // covers the whole work tree, so a monorepo with one unrelated
+    // modified file would refuse every migration in it.
+    let workdir = repo
+        .workdir()
+        .ok_or_else(|| fail("the repository has no work tree".to_owned()))?;
+    let workdir = camino::Utf8Path::from_path(workdir)
+        .ok_or_else(|| fail("the repository's work tree is not valid UTF-8".to_owned()))?;
+    let absolute = crate::project::utils::wrapfs::canonicalize(root)
+        .map_err(|error| fail(error.to_string()))?;
+    let workdir = crate::project::utils::wrapfs::canonicalize(workdir)
+        .map_err(|error| fail(error.to_string()))?;
+    let pathspec: Vec<BString> = match absolute.strip_prefix(&workdir) {
+        Ok(relative) if !relative.as_str().is_empty() => vec![BString::from(relative.as_str())],
+        // The project *is* the work tree root: no filter needed.
+        _ => Vec::new(),
+    };
+
+    let status = repo
+        .status(gix::progress::Discard)
+        .map_err(|error| fail(error.to_string()))?
+        // Explicit, because `Repository::status` otherwise takes
+        // `status.showUntrackedFiles` from the user's configuration, so
+        // a `no` there would silently stop untracked files counting.
+        // `Files` rather than the `Collapsed` default so the report
+        // names files rather than directories.
+        .untracked_files(UntrackedFiles::Files)
+        .into_iter(pathspec)
+        .map_err(|error| fail(error.to_string()))?;
+
+    let mut dirty = Vec::new();
+    for item in status {
+        let item = item.map_err(|error| fail(error.to_string()))?;
+        let counts = match &item {
+            // Staged.
+            Item::TreeIndex(_) => true,
+            Item::IndexWorktree(IndexWorktreeItem::Modification { status, .. }) => {
+                // `NeedsUpdate` is a stat-cache refresh hint and
+                // `IntentToAdd` is documented as no change; counting
+                // either gives a machine-dependent false `Dirty`.
+                matches!(
+                    status,
+                    EntryStatus::Change(_) | EntryStatus::Conflict { .. }
+                )
+            }
+            Item::IndexWorktree(IndexWorktreeItem::DirectoryContents { entry, .. }) => {
+                entry.status == DirStatus::Untracked
+            }
+            Item::IndexWorktree(IndexWorktreeItem::Rewrite { .. }) => true,
+        };
+        if counts {
+            dirty.push(item.location().to_str_lossy().into_owned());
+        }
+    }
+
+    if dirty.is_empty() {
+        Ok(VcsState::Clean)
+    } else {
+        Ok(VcsState::Dirty(dirty))
+    }
+}

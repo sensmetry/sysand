@@ -547,3 +547,228 @@ fn every_problem_is_reported_together() {
     assert!(rendered.contains("`README.md`"), "{rendered}");
     assert!(rendered.contains("`notes.txt`"), "{rendered}");
 }
+
+// ------------------------------------------------------- `check_vcs`
+
+#[cfg(feature = "networking")]
+mod vcs {
+    use camino::Utf8Path;
+    use camino_tempfile::Utf8TempDir;
+
+    use crate::commands::migrate::{VcsState, check_vcs};
+
+    /// A repository with one committed file.
+    ///
+    /// `gix` has no staging API, so a clean work tree is built by hand:
+    /// blob, tree, commit, then the index materialized from that tree.
+    /// `commit_as` rather than `commit`, which needs `user.name` and
+    /// `user.email` configured and would break on a machine without a
+    /// global git identity.
+    fn repository_with(files: &[(&str, &str)]) -> Utf8TempDir {
+        let dir = camino_tempfile::tempdir().expect("a temporary directory");
+        let repo = gix::init(dir.path()).expect("an empty repository");
+
+        // A git tree holds one path component per entry, so a nested
+        // path needs its own subtree object.
+        let mut roots: std::collections::BTreeMap<String, Vec<(String, String)>> =
+            std::collections::BTreeMap::new();
+        for (path, contents) in files {
+            let at = dir.path().join(path);
+            if let Some(parent) = at.parent() {
+                std::fs::create_dir_all(parent).expect("a parent directory");
+            }
+            std::fs::write(&at, contents).expect("a working-tree file");
+            let (dir_part, file_part) = match path.split_once('/') {
+                Some((d, f)) => (d.to_owned(), f.to_owned()),
+                None => (String::new(), (*path).to_owned()),
+            };
+            roots
+                .entry(dir_part)
+                .or_default()
+                .push((file_part, (*contents).to_owned()));
+        }
+
+        let blob = |contents: &str| repo.write_blob(contents.as_bytes()).expect("a blob").into();
+        let mut entries = Vec::new();
+        for (dir_part, files) in roots {
+            let mut sub: Vec<gix::objs::tree::Entry> = files
+                .iter()
+                .map(|(name, contents)| gix::objs::tree::Entry {
+                    mode: gix::objs::tree::EntryKind::Blob.into(),
+                    filename: name.as_str().into(),
+                    oid: blob(contents),
+                })
+                .collect();
+            sub.sort();
+            if dir_part.is_empty() {
+                entries.extend(sub);
+            } else {
+                let id = repo
+                    .write_object(&gix::objs::Tree { entries: sub })
+                    .expect("a subtree")
+                    .detach();
+                entries.push(gix::objs::tree::Entry {
+                    mode: gix::objs::tree::EntryKind::Tree.into(),
+                    filename: dir_part.as_str().into(),
+                    oid: id,
+                });
+            }
+        }
+        entries.sort();
+        let tree = repo
+            .write_object(&gix::objs::Tree { entries })
+            .expect("a tree")
+            .detach();
+
+        let who = gix::actor::SignatureRef {
+            name: "Test".into(),
+            email: "test@example.com".into(),
+            time: "0 +0000",
+        };
+        repo.commit_as(
+            who,
+            who,
+            "HEAD",
+            "initial",
+            tree,
+            gix::commit::NO_PARENT_IDS,
+        )
+        .expect("a commit");
+
+        let tree = repo.find_tree(tree).expect("the tree reads");
+        let mut index = repo.index_from_tree(&tree.id()).expect("an index");
+        index
+            .write(gix::index::write::Options::default())
+            .expect("the index is written");
+        dir
+    }
+
+    #[test]
+    fn a_clean_repository_is_clean() {
+        let dir = repository_with(&[("a.txt", "one\n")]);
+        assert_eq!(check_vcs(dir.path()).expect("a status"), VcsState::Clean);
+    }
+
+    #[test]
+    fn an_uncommitted_change_is_dirty() {
+        let dir = repository_with(&[("a.txt", "one\n")]);
+        std::fs::write(dir.path().join("a.txt"), "two\n").expect("a change");
+        assert!(
+            matches!(check_vcs(dir.path()).expect("a status"), VcsState::Dirty(_)),
+            "a modified tracked file is a change"
+        );
+    }
+
+    #[test]
+    fn an_untracked_file_is_dirty() {
+        let dir = repository_with(&[("a.txt", "one\n")]);
+        std::fs::write(dir.path().join("new.txt"), "new\n").expect("a new file");
+        let VcsState::Dirty(paths) = check_vcs(dir.path()).expect("a status") else {
+            panic!("an untracked file is a change");
+        };
+        assert!(paths.iter().any(|p| p == "new.txt"), "{paths:?}");
+    }
+
+    #[test]
+    fn an_ignored_file_is_not_dirty() {
+        let dir = repository_with(&[("a.txt", "one\n"), (".gitignore", "ignored.txt\n")]);
+        std::fs::write(dir.path().join("ignored.txt"), "x\n").expect("an ignored file");
+        assert_eq!(check_vcs(dir.path()).expect("a status"), VcsState::Clean);
+    }
+
+    // `NoRepository` is not tested here. `gix::discover` walks upward,
+    // so the test needs `GIT_CEILING_DIRECTORIES` to stop it -- and
+    // setting that from a unit test means a process-global `set_var`
+    // that races every other test in the binary. A CLI test can set it
+    // on the child process, where it is per-process and safe.
+
+    /// `discover`, not `open`: a project in a subdirectory of a
+    /// repository is inside its work tree.
+    #[test]
+    fn a_subdirectory_of_a_repository_is_inside_it() {
+        let dir = repository_with(&[("a.txt", "one\n")]);
+        let sub = dir.path().join("sub");
+        std::fs::create_dir(&sub).expect("a subdirectory");
+        assert_eq!(check_vcs(&sub).expect("a status"), VcsState::Clean);
+    }
+
+    /// The status is scoped to the project: a change elsewhere in a
+    /// monorepo must not refuse a migration.
+    #[test]
+    fn a_change_outside_the_project_does_not_make_it_dirty() {
+        let dir = repository_with(&[("app/a.txt", "one\n"), ("other/b.txt", "two\n")]);
+        std::fs::write(dir.path().join("other/b.txt"), "changed\n").expect("a change");
+
+        let app: &Utf8Path = &dir.path().join("app");
+        assert_eq!(check_vcs(app).expect("a status"), VcsState::Clean);
+        assert!(
+            matches!(check_vcs(dir.path()).expect("a status"), VcsState::Dirty(_)),
+            "the change is still a change at the root"
+        );
+    }
+}
+
+// ---------------------------------------------------- duplicate usages
+
+fn dir_usage(dir: &str, publisher: &str, name: &str) -> InterchangeProjectUsageRaw {
+    InterchangeProjectUsageRaw::Directory {
+        dir: dir.to_owned(),
+        publisher: publisher.to_owned(),
+        name: name.to_owned(),
+    }
+}
+
+fn usage_errors(usages: Vec<InterchangeProjectUsageRaw>) -> String {
+    let mut raw = info("widgets", Some("acme"), "1.0.0");
+    raw.usage = usages;
+    errors(&raw, &meta(), &MigrateOptions::default())
+}
+
+/// Without this, `migrate` writes a manifest `sysand` cannot read --
+/// after deleting the json pair that was the only readable copy.
+#[test]
+fn two_usages_of_one_identity_are_refused() {
+    let rendered = usage_errors(vec![
+        dir_usage("../dep", "acme", "dep"),
+        dir_usage("../other", "acme", "dep"),
+    ]);
+    assert!(rendered.contains("name the same project"), "{rendered}");
+}
+
+/// The identities are normalized, so `Acme/Dep` collides with
+/// `acme/dep`. Literal comparison lets this through.
+#[test]
+fn a_duplicate_is_normalized_not_literal() {
+    let rendered = usage_errors(vec![
+        dir_usage("../dep", "acme", "dep"),
+        dir_usage("../other", "Acme", "Dep"),
+    ]);
+    assert!(rendered.contains("name the same project"), "{rendered}");
+}
+
+/// Pairwise, as the read path is: three colliding entries give two
+/// diagnostics, not one and not three.
+#[test]
+fn three_colliding_usages_report_twice() {
+    let rendered = usage_errors(vec![
+        dir_usage("../a", "acme", "dep"),
+        dir_usage("../b", "acme", "dep"),
+        dir_usage("../c", "acme", "dep"),
+    ]);
+    assert_eq!(
+        rendered.matches("name the same project").count(),
+        2,
+        "{rendered}"
+    );
+}
+
+/// Two usages of *different* projects are not a duplicate.
+#[test]
+fn two_distinct_usages_are_kept() {
+    let mut raw = info("widgets", Some("acme"), "1.0.0");
+    raw.usage = vec![
+        dir_usage("../alpha", "acme", "alpha"),
+        dir_usage("../beta", "acme", "beta"),
+    ];
+    assert_eq!(migrated(&raw, &meta()).inline_usages.len(), 2);
+}

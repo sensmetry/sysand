@@ -209,6 +209,20 @@ pub enum Command {
         #[arg(long)]
         keep_index: bool,
     },
+    /// Convert a legacy json project into a `model.toml` one
+    Migrate {
+        /// The project to convert. Defaults to the current directory
+        path: Option<Utf8PathBuf>,
+        /// The publisher to record, when the project declares none
+        #[arg(long)]
+        publisher: Option<String>,
+        /// Migrate even though the working tree has uncommitted changes
+        #[arg(long)]
+        allow_dirty: bool,
+        /// Migrate even though the project is not inside a git work tree
+        #[arg(long)]
+        allow_no_vcs: bool,
+    },
     /// Publish a KPAR to a sysand package index
     Publish {
         /// Path to the KPAR file to publish. If not provided, will look

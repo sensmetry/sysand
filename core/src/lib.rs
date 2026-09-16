@@ -15,6 +15,7 @@ pub mod config;
 pub mod context;
 pub mod credential_store;
 pub mod env;
+mod format_migrate;
 pub mod graph;
 #[cfg(feature = "filesystem")]
 pub mod index;
@@ -22,7 +23,6 @@ pub mod index_location;
 mod iri_normalize;
 pub mod lock;
 pub mod manifest;
-mod migrate;
 pub mod project;
 pub mod purl;
 pub mod resolve;

@@ -75,6 +75,7 @@ gix = { workspace = true, optional = true, features = [
   "blocking-http-transport-reqwest",
   "blocking-network-client",
   "worktree-mutation",
+  "status",
   "sha1"
 ] }
 logos = { version = "0.16.1", default-features = false, features = ["std", "export_derive"] }

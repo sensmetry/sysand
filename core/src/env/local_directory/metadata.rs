@@ -13,7 +13,7 @@ use typed_path::{Utf8UnixComponent, Utf8UnixPathBuf};
 
 use crate::{
     env::ProjectChecksum,
-    migrate::{self, IdentifiedEntry, Migration},
+    format_migrate::{self, IdentifiedEntry, Migration},
     project::{
         ProjectRead as _,
         local_src::{LocalSrcError, LocalSrcProject},
@@ -31,7 +31,9 @@ const CURRENT_METADATA_VERSION: &str = "0.2";
 const MIGRATIONS: &[Migration<EnvProject>] = &[Migration {
     from: "0.1",
     to: "0.2",
-    migrate: |projects| migrate::rederive_identifiers(projects, migrate::is_derived_unnormalized),
+    migrate: |projects| {
+        format_migrate::rederive_identifiers(projects, format_migrate::is_derived_unnormalized)
+    },
 }];
 
 #[derive(Debug, Deserialize, Clone)]
@@ -79,11 +81,11 @@ impl FromStr for EnvMetadata {
         let mut metadata: Self = toml::from_str(s)?;
 
         if metadata.version != CURRENT_METADATA_VERSION
-            && !migrate::is_migratable(MIGRATIONS, &metadata.version)
+            && !format_migrate::is_migratable(MIGRATIONS, &metadata.version)
         {
             return Err(ParseError::UnsupportedVersion(metadata.version));
         }
-        migrate::migrate(
+        format_migrate::migrate(
             MIGRATIONS,
             CURRENT_METADATA_VERSION,
             "env metadata",

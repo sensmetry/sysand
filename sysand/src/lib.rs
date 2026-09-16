@@ -1008,6 +1008,18 @@ fn run_cli_with(
                 )
             }
         }
+        Command::Migrate {
+            path,
+            publisher,
+            allow_dirty,
+            allow_no_vcs,
+        } => crate::commands::migrate::command_migrate(
+            path,
+            publisher,
+            allow_dirty,
+            allow_no_vcs,
+            &ctx.current_directory,
+        ),
         Command::Publish {
             path,
             index,
@@ -1226,24 +1238,14 @@ fn consults_the_workspace(command: &cli::Command) -> bool {
         }
         | cli::Command::Env { command: _ }
         | cli::Command::PrintRoot => true,
-        cli::Command::Init {
-            path: _,
-            name: _,
-            publisher: _,
-            version: _,
-            license: _,
-            metamodel: _,
-            metamodel_release: _,
-        }
-        | cli::Command::Clone {
-            locator: _,
-            target: _,
-            version_constraint: _,
-            no_deps: _,
-            resolution_opts: _,
-        }
-        | cli::Command::Index { command: _ }
-        | cli::Command::Auth { command: _ } => false,
+        cli::Command::Init { .. }
+        // Deliberately not: a discovery error would be fatal, and an
+        // unlisted json project under a workspace root is exactly the
+        // one a user wants to migrate. Row 45 is decided in the command.
+        | cli::Command::Migrate { .. }
+        | cli::Command::Clone { .. }
+        | cli::Command::Index { .. }
+        | cli::Command::Auth { .. } => false,
     }
 }
 
