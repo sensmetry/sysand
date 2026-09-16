@@ -222,6 +222,10 @@ pub enum Command {
         /// Migrate even though the project is not inside a git work tree
         #[arg(long)]
         allow_no_vcs: bool,
+        /// `migrate` resolves `http(s)` and unconstrained `pkg:sysand`
+        /// usages, so the index it reaches is configurable
+        #[command(flatten)]
+        resolution_opts: ResolutionOptions,
     },
     /// Publish a KPAR to a sysand package index
     Publish {

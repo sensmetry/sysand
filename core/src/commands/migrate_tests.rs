@@ -504,29 +504,49 @@ fn a_constrained_purl_usage_becomes_an_index_usage() {
     );
 }
 
+/// An unconstrained purl reaches the lookup, which resolves it: the
+/// pinned constraint is the caller's to compute.
 #[test]
-fn an_unconstrained_purl_usage_needs_the_index() {
-    let rendered = usage_error(InterchangeProjectUsageRaw::Resource {
+fn an_unconstrained_purl_usage_reaches_the_lookup() {
+    let mut raw = info("widgets", Some("acme"), "1.0.0");
+    raw.usage = vec![InterchangeProjectUsageRaw::Resource {
         resource: "pkg:sysand/acme/dep".to_owned(),
         version_constraint: None,
-    });
-    assert!(rendered.contains("cannot do that yet"), "{rendered}");
+    }];
+    let lookup = |resource: &str| {
+        assert_eq!(resource, "pkg:sysand/acme/dep");
+        Ok(TomlUsage::Index {
+            publisher: IndexPublisher::parse("acme".to_owned()).expect("a publisher"),
+            name: IndexName::parse("dep".to_owned()).expect("a name"),
+            version_constraint: semver::VersionReq::parse("^1.2.0").expect("a requirement"),
+        })
+    };
+    let validated = migrate_project(&raw, &meta(), &MigrateOptions::default(), &lookup)
+        .expect("the purl resolves");
+    let ModelToml::Project(manifest) = validated.value else {
+        panic!("a project");
+    };
+    assert_eq!(manifest.inline_usages.len(), 1);
 }
 
+/// An `http(s)` resource reaches the lookup too -- for both kinds of
+/// target, which is what model-toml.md's unconditional "use as-is for
+/// URL" asks for.
 #[test]
-fn a_located_usage_needs_its_target_read() {
+fn an_http_usage_reaches_the_lookup() {
     for resource in [
         "https://example.com/dep.kpar",
-        "http://example.com/dep.kpar",
+        "http://example.com/dep/",
+        "file:///srv/dep",
     ] {
-        let rendered = usage_error(InterchangeProjectUsageRaw::Resource {
+        let mut raw = info("widgets", Some("acme"), "1.0.0");
+        raw.usage = vec![InterchangeProjectUsageRaw::Resource {
             resource: resource.to_owned(),
             version_constraint: None,
-        });
-        assert!(
-            rendered.contains("must be read from the target"),
-            "{resource}: {rendered}"
-        );
+        }];
+        let lookup = |_: &str| Ok(resolves_to("../dep", "acme", "dep"));
+        migrate_project(&raw, &meta(), &MigrateOptions::default(), &lookup)
+            .unwrap_or_else(|e| panic!("{resource} resolves: {e}"));
     }
 }
 
@@ -857,9 +877,14 @@ fn an_http_usage_discards_its_constraint_with_a_warning() {
         resource: "https://example.com/dep.kpar".to_owned(),
         version_constraint: Some("^1.0.0".to_owned()),
     }];
-    let rendered = errors(&raw, &meta(), &MigrateOptions::default());
-    assert!(
-        rendered.contains("which is not migrated"),
-        "the discarded constraint is reported:\n{rendered}"
-    );
+    let lookup = |_: &str| Ok(resolves_to("../dep", "acme", "dep"));
+    let validated = migrate_project(&raw, &meta(), &MigrateOptions::default(), &lookup)
+        .expect("the usage resolves; the constraint is only discarded");
+    let text = validated
+        .warnings
+        .iter()
+        .map(|w| w.message.clone())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("which is not migrated"), "{text}");
 }

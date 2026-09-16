@@ -139,26 +139,55 @@ fn render_long_help(prog: &str, args: Vec<String>) -> String {
 /// `init`'s do.
 #[pyfunction(name = "do_migrate_py")]
 #[pyo3(
-    signature = (path, publisher=None, allow_dirty=false, allow_no_vcs=false),
+    signature = (path, publisher=None, allow_dirty=false, allow_no_vcs=false, resolution=None, auth=None),
 )]
 fn do_migrate_py(
+    py: Python,
     path: String,
     publisher: Option<String>,
     allow_dirty: bool,
     allow_no_vcs: bool,
+    resolution: Option<ResolutionSpec>,
+    auth: Option<AuthSpec>,
 ) -> PyResult<()> {
     common_init();
 
-    let path = Utf8PathBuf::from(path);
-    let cwd = wrapfs::current_dir().map_err(|e| ProjectError::new_err(format_err(e)))?;
-    sysand::commands::migrate::command_migrate(
-        Some(path),
-        publisher,
-        allow_dirty,
-        allow_no_vcs,
-        &cwd,
-    )
-    .map_err(|e| ProjectError::new_err(format!("{e:#}")))
+    // `py.detach`: the resolver stack is `!Send`.
+    py.detach(|| {
+        let resolution = resolution.unwrap_or(ResolutionSpec {
+            index: vec![],
+            default_index: vec![],
+            no_index: false,
+            include_std: false,
+            use_config: true,
+        });
+        let auth = auth.unwrap_or_default();
+        let path = Utf8PathBuf::from(path);
+        let (ctx, project_root) = project_context(&path)?;
+        let config = config_for(&resolution, &project_root)?;
+        let client = create_reqwest_client().map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
+        let runtime = Arc::new(
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(PyErr::from)?,
+        );
+        let auth_policy = build_auth_policy(&auth)?;
+
+        sysand::commands::migrate::command_migrate(
+            Some(path),
+            publisher,
+            allow_dirty,
+            allow_no_vcs,
+            resolution_options(&resolution),
+            &config,
+            &ctx,
+            client,
+            runtime,
+            auth_policy,
+        )
+        .map_err(|e| ProjectError::new_err(format!("{e:#}")))
+    })
 }
 
 #[pyfunction(name = "do_init_py_local_file")]

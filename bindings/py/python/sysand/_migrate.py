@@ -5,7 +5,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import sysand._sysand_core as sysand_rs  # type: ignore
+from . import _sysand_core as sysand_rs
+
+from ._auth import AuthPolicy, Resolution
 
 
 def migrate(
@@ -13,6 +15,8 @@ def migrate(
     publisher: str | None = None,
     allow_dirty: bool = False,
     allow_no_vcs: bool = False,
+    resolution: Resolution | None = None,
+    auth: AuthPolicy | None = None,
 ) -> None:
     """Convert a legacy json project into a ``model.toml`` one.
 
@@ -25,11 +29,17 @@ def migrate(
     deleted: uncommitted changes and a directory outside any git
     repository are both refused unless the matching flag is passed.
 
+    An ``http(s)`` usage, and a ``pkg:sysand`` usage with no version
+    constraint, are resolved through an index -- so ``resolution`` and
+    ``auth`` take the same shapes as :func:`sysand.lock`'s.
+
     Raises:
         ProjectError: the project could not be read or converted, the
             working tree is dirty, or it is not inside a git work tree.
     """
-    sysand_rs.do_migrate_py(str(path), publisher, allow_dirty, allow_no_vcs)
+    sysand_rs.do_migrate_py(
+        str(path), publisher, allow_dirty, allow_no_vcs, resolution, auth
+    )
 
 
 __all__ = ["migrate"]
