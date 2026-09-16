@@ -24,8 +24,11 @@ def resolution(index: MockIndex) -> sysand.Resolution:
 def project_with(tmp_path: Path, usages: list[dict]) -> Path:
     """A legacy json project with the given usages.
 
-    Written by hand: `sysand.init` writes a `model.toml`. `lock` itself
-    works on either format; these tests exercise the json one.
+    Written by hand, as json: one of these tests asserts on a
+    constraint-less usage, and `model.toml` has no index usage without a
+    version constraint. `lock` itself works on either format,
+    so what is lost here is only that these tests do not exercise the
+    toml path -- see the note in `sysand/tests/cli_lock.rs`.
     """
     root = tmp_path / "proj"
     root.mkdir()
