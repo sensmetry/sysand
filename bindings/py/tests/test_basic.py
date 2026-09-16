@@ -41,6 +41,11 @@ def _install_in_env(
         )
 
 
+# `sysand.init` takes a metamodel: a project declares one and it
+# cannot be guessed.
+SYSML = "https://www.omg.org/spec/SysML/20250201"
+
+
 def test_basic_init(caplog: pytest.LogCaptureFixture) -> None:
     level = logging.DEBUG
     logging.basicConfig(level=level)
@@ -52,6 +57,7 @@ def test_basic_init(caplog: pytest.LogCaptureFixture) -> None:
             name="test-basic-init",
             publisher="acme",
             version="1.2.3",
+            metamodel=SYSML,
         )
 
         assert caplog.record_tuples == [
@@ -73,6 +79,7 @@ def test_basic_init(caplog: pytest.LogCaptureFixture) -> None:
                 'name = "test-basic-init"\n'
                 'version = "1.2.3"\n'
                 "sources = []\n"
+                f'metamodel = "{SYSML}"\n'
             )
         assert not (Path(tmpdirname) / ".project.json").exists()
 
@@ -986,7 +993,13 @@ def test_discover(tmp_path: Path) -> None:
 
     root = tmp_path / "ws" / "proj"
     root.mkdir(parents=True)
-    sysand.init(project_dir=root, name="discover", publisher="acme", version="1.0.0")
+    sysand.init(
+        project_dir=root,
+        name="discover",
+        publisher="acme",
+        version="1.0.0",
+        metamodel=SYSML,
+    )
     nested = root / "src" / "deep"
     nested.mkdir(parents=True)
 
@@ -1019,7 +1032,13 @@ def test_discover_ignores_a_legacy_json_workspace(tmp_path: Path) -> None:
     project, and a tool asking where it is gets no workspace."""
     root = tmp_path / "ws" / "proj"
     root.mkdir(parents=True)
-    sysand.init("legacy", "acme", "1.0.0", root)
+    sysand.init(
+        project_dir=root,
+        name="legacy",
+        publisher="acme",
+        version="1.0.0",
+        metamodel=SYSML,
+    )
     (tmp_path / "ws" / ".workspace.json").write_text(
         '{"projects": [{"path": "proj", "iris": []}]}\n'
     )
@@ -1036,7 +1055,13 @@ def test_discover_rejects_a_nested_workspace(tmp_path: Path) -> None:
     inner = tmp_path / "outer" / "inner"
     proj = inner / "proj"
     proj.mkdir(parents=True)
-    sysand.init("nested", "acme", "1.0.0", proj)
+    sysand.init(
+        project_dir=proj,
+        name="nested",
+        publisher="acme",
+        version="1.0.0",
+        metamodel=SYSML,
+    )
     for at, members in ((tmp_path / "outer", "inner"), (inner, "proj")):
         (at / "model.toml").write_text(
             f'manifest-version = "1.0.0"\n\n[workspace]\nmembers = ["{members}"]\n'
@@ -1069,6 +1094,7 @@ def test_basic_info(caplog: pytest.LogCaptureFixture) -> None:
             name="test-basic-info",
             publisher="acme",
             version="1.2.3",
+            metamodel=SYSML,
         )
 
         info_meta = sysand.info_path(project_dir=tmpdirname)
@@ -1093,7 +1119,7 @@ def test_basic_info(caplog: pytest.LogCaptureFixture) -> None:
         # `created` is computed at build, so until then it is the epoch.
         assert meta["created"] == "1970-01-01T00:00:00Z"
         assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", meta["created"])
-        assert meta["metamodel"] is None
+        assert meta["metamodel"] == SYSML
         assert meta["includes_derived"] is None
         assert meta["includes_implied"] is None
         # The view computes the map; a project with no sources has an
@@ -1459,7 +1485,11 @@ def test_root() -> None:
     with tempfile.TemporaryDirectory() as tmpdirname:
         tmpdirname = Path(tmpdirname).resolve()
         sysand.init(
-            project_dir=tmpdirname, name="test-root", publisher="acme", version="1.2.3"
+            project_dir=tmpdirname,
+            name="test-root",
+            publisher="acme",
+            version="1.2.3",
+            metamodel=SYSML,
         )
 
         subdir = tmpdirname / "sub" / "nested"

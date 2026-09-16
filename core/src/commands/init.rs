@@ -15,7 +15,7 @@ use crate::{
         inherit::MetaProperty,
         project::{ProjectManifest, ProjectTable},
     },
-    model::{IdentifierError, IndexName, IndexPublisher, Metamodel, MetamodelParseError},
+    model::{IdentifierError, IndexName, IndexPublisher, KnownMetamodel},
     project::{ManifestWriteError, ProjectMut, memory::InMemoryProject},
 };
 
@@ -32,8 +32,6 @@ pub enum InitError<ProjectError: ErrorBound> {
     Project(#[from] ProjectError),
     #[error("failed to parse `{0}` as an SPDX license expression:\n{1}")]
     SPDXLicenseParse(Box<str>, spdx::error::ParseError),
-    #[error("invalid metamodel: {0}")]
-    MalformedMetamodel(MetamodelParseError),
     /// The publisher or name is not one a `model.toml` can hold.
     ///
     /// Not a check `init` chose to make: a manifest holds the validated
@@ -44,6 +42,12 @@ pub enum InitError<ProjectError: ErrorBound> {
     Identifier(IdentifierError),
     #[error(transparent)]
     Write(ManifestWriteError<ProjectError>),
+    /// model-toml.md "Metamodel": the value set is closed, so a project
+    /// cannot be created with one outside it. The CLI checks its own
+    /// argument earlier, where the message can name the flag; this is
+    /// what a binding caller gets.
+    #[error("`{0}` is not a metamodel Sysand recognizes;\nit is one of {list}", list = KnownMetamodel::RECOGNIZED)]
+    Metamodel(Box<str>),
 }
 
 /// Create a project.
@@ -64,7 +68,7 @@ pub fn do_init<P: ProjectMut>(
     publisher: String,
     version: String,
     license: Option<String>,
-    metamodel: Option<String>,
+    metamodel: Option<MetaProperty<String>>,
     storage: &mut P,
 ) -> Result<(), InitError<P::Error>> {
     let version =
@@ -77,11 +81,14 @@ pub fn do_init<P: ProjectMut>(
                 .map_err(|e| InitError::SPDXLicenseParse(raw.as_str().into(), e))
         })
         .transpose()?;
-    let metamodel = metamodel
-        .as_deref()
-        .map(Metamodel::parse)
-        .transpose()
-        .map_err(InitError::MalformedMetamodel)?;
+    // A marker names a group, not a metamodel, so there is nothing to
+    // parse: what it resolves to is the workspace's business, and the
+    // reader's.
+    if let Some(MetaProperty::Provided(value)) = &metamodel
+        && KnownMetamodel::recognize(value).is_none()
+    {
+        return Err(InitError::Metamodel(value.as_str().into()));
+    }
 
     let creating = "Creating";
     let header = crate::style::get_style_config().header;
@@ -92,7 +99,7 @@ pub fn do_init<P: ProjectMut>(
     // []`" -- an absent key is a manifest that does not resolve.
     project.sources = Some(Sources::default());
     project.license = license.map(MetaProperty::Provided);
-    project.metamodel = metamodel.map(|m| MetaProperty::Provided(String::from(m)));
+    project.metamodel = metamodel;
 
     let manifest = ModelToml::Project(Box::new(ProjectManifest {
         project,
@@ -109,6 +116,7 @@ pub fn do_init_memory<N: AsRef<str>, P: AsRef<str>, V: AsRef<str>>(
     publisher: P,
     version: V,
     license: Option<String>,
+    metamodel: Option<MetaProperty<String>>,
 ) -> Result<InMemoryProject, InitError<crate::project::memory::InMemoryError>> {
     let mut storage = InMemoryProject::default();
 
@@ -117,7 +125,7 @@ pub fn do_init_memory<N: AsRef<str>, P: AsRef<str>, V: AsRef<str>>(
         publisher.as_ref().to_owned(),
         version.as_ref().to_owned(),
         license,
-        None,
+        metamodel,
         &mut storage,
     )?;
 
@@ -130,7 +138,7 @@ pub fn do_init_local_file(
     publisher: String,
     version: String,
     license: Option<String>,
-    metamodel: Option<String>,
+    metamodel: Option<MetaProperty<String>>,
     path: Utf8PathBuf,
 ) -> Result<LocalSrcProject, InitError<LocalSrcError>> {
     let mut storage = LocalSrcProject::new_access(path, None);
@@ -138,3 +146,7 @@ pub fn do_init_local_file(
 
     Ok(storage)
 }
+
+#[cfg(test)]
+#[path = "./init_tests.rs"]
+mod tests;

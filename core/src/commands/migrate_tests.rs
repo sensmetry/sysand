@@ -32,11 +32,16 @@ fn info(name: &str, publisher: Option<&str>, version: &str) -> InterchangeProjec
     }
 }
 
+/// The metamodel the shared fixture declares. A json project that has
+/// none cannot be migrated without `--metamodel`,
+/// so every test that is not about that says which one it means here.
+const SYSML: &str = "https://www.omg.org/spec/SysML/20250201";
+
 fn meta() -> InterchangeProjectMetadataRaw {
     InterchangeProjectMetadataRaw {
         index: IndexMap::new(),
         created: "2001-02-03T04:05:06Z".to_owned(),
-        metamodel: None,
+        metamodel: Some(SYSML.to_owned()),
         includes_derived: None,
         includes_implied: None,
         checksum: None,
@@ -183,17 +188,108 @@ fn a_bad_license_maintainer_and_website_are_errors() {
 
 // ------------------------------------------------------- the metamodel
 
-#[test]
-fn an_unrecognized_metamodel_warns_and_migrates() {
+fn with_metamodel(declared: Option<&str>) -> InterchangeProjectMetadataRaw {
     let mut m = meta();
-    m.metamodel = Some("https://example.com/spec/SysML/20251201".to_owned());
+    m.metamodel = declared.map(ToOwned::to_owned);
+    m
+}
+
+fn supplying(metamodel: &str) -> MigrateOptions {
+    MigrateOptions {
+        metamodel: Some(metamodel.to_owned()),
+        ..MigrateOptions::default()
+    }
+}
+
+fn declared_metamodel(manifest: &ModelToml) -> Option<String> {
+    manifest
+        .as_project()
+        .expect("a project")
+        .project
+        .metamodel
+        .as_ref()
+        .and_then(|property| property.provided())
+        .map(ToOwned::to_owned)
+}
+
+/// The value the json side declares is not one
+/// `model.toml` can hold, and nothing was passed to replace it.
+#[test]
+fn an_unrecognized_metamodel_is_refused() {
+    let rendered = errors(
+        &info("widgets", Some("acme"), "1.0.0"),
+        &with_metamodel(Some("https://example.com/spec/SysML/20251201")),
+        &MigrateOptions::default(),
+    );
+    assert!(
+        rendered.contains("declares `https://example.com/spec/SysML/20251201`"),
+        "{rendered}"
+    );
+    assert!(rendered.contains("pass `--metamodel <url>`"), "{rendered}");
+}
+
+/// No value at all: `model.toml` requires the key and the json side
+/// has none.
+#[test]
+fn a_project_with_no_metamodel_is_refused() {
+    let rendered = errors(
+        &info("widgets", Some("acme"), "1.0.0"),
+        &with_metamodel(None),
+        &MigrateOptions::default(),
+    );
+    assert!(rendered.contains("declares no `metamodel`"), "{rendered}");
+    assert!(rendered.contains("pass `--metamodel <url>`"), "{rendered}");
+}
+
+/// A value that is not an IRI is not one of the four either, so it is
+/// reported as unrecognized and not with a second message about its
+/// syntax.
+#[test]
+fn a_metamodel_that_is_not_an_iri_is_reported_as_unrecognized() {
+    let rendered = errors(
+        &info("widgets", Some("acme"), "1.0.0"),
+        &with_metamodel(Some("not an iri")),
+        &MigrateOptions::default(),
+    );
+    assert!(rendered.contains("declares `not an iri`"), "{rendered}");
+    assert!(!rendered.contains("IRI"), "{rendered}");
+}
+
+#[test]
+fn the_metamodel_option_supplies_a_missing_one() {
     let validated = migrate_project(
         &info("widgets", Some("acme"), "1.0.0"),
-        &m,
-        &MigrateOptions::default(),
+        &with_metamodel(None),
+        &supplying(SYSML),
         &no_targets,
     )
-    .expect("an unrecognized metamodel is a warning");
+    .expect("the option supplies it");
+    assert_eq!(declared_metamodel(&validated.value).as_deref(), Some(SYSML));
+    // Nothing was discarded, so nothing is said about a metamodel; the
+    // `created` warning every migration carries is not this test's.
+    assert!(
+        !validated
+            .warnings
+            .iter()
+            .any(|w| w.message.contains("metamodel")),
+        "{:?}",
+        validated.warnings
+    );
+}
+
+/// Unlike `--publisher`, the option also replaces a declared value --
+/// one `model.toml` cannot hold is no more usable than none -- and what
+/// was dropped is still reported.
+#[test]
+fn the_metamodel_option_replaces_an_unrecognized_one() {
+    let validated = migrate_project(
+        &info("widgets", Some("acme"), "1.0.0"),
+        &with_metamodel(Some("https://example.com/spec/SysML/20251201")),
+        &supplying(SYSML),
+        &no_targets,
+    )
+    .expect("the option replaces it");
+    assert_eq!(declared_metamodel(&validated.value).as_deref(), Some(SYSML));
     assert!(
         validated
             .warnings
@@ -204,18 +300,33 @@ fn an_unrecognized_metamodel_warns_and_migrates() {
     );
 }
 
-/// `ProjectTable::validate` refuses a metamodel that is not an IRI, so
-/// migrating one would write a manifest this crate cannot read back.
+/// model-toml.md gives a recognized value "the same treatment as
+/// `name`": it is migrated, not overridden.
 #[test]
-fn a_metamodel_that_is_not_an_iri_is_an_error() {
-    let mut m = meta();
-    m.metamodel = Some("not an iri".to_owned());
+fn a_declared_metamodel_beats_the_option() {
+    let kerml = "https://www.omg.org/spec/KerML/20250201";
+    let validated = migrate_project(
+        &info("widgets", Some("acme"), "1.0.0"),
+        &with_metamodel(Some(kerml)),
+        &supplying(SYSML),
+        &no_targets,
+    )
+    .expect("the declared value is used");
+    assert_eq!(declared_metamodel(&validated.value).as_deref(), Some(kerml));
+}
+
+/// The option is a value the user typed, so it is checked too.
+#[test]
+fn an_unrecognized_option_is_refused() {
     let rendered = errors(
         &info("widgets", Some("acme"), "1.0.0"),
-        &m,
-        &MigrateOptions::default(),
+        &with_metamodel(None),
+        &supplying("https://example.com/spec"),
     );
-    assert!(rendered.contains("`not an iri` is not a URL"), "{rendered}");
+    assert!(
+        rendered.contains("`https://example.com/spec` is not a metamodel Sysand recognizes"),
+        "{rendered}"
+    );
 }
 
 // ---------------------------------------------------------- `sources`
@@ -327,6 +438,7 @@ fn the_publisher_comes_from_options_when_the_file_has_none() {
         &meta(),
         &MigrateOptions {
             publisher: Some("acme".to_owned()),
+            ..MigrateOptions::default()
         },
         &no_targets,
     )
@@ -352,6 +464,7 @@ fn the_files_publisher_wins_over_the_option() {
         &meta(),
         &MigrateOptions {
             publisher: Some("fromoption".to_owned()),
+            ..MigrateOptions::default()
         },
         &no_targets,
     )

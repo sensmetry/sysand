@@ -26,6 +26,7 @@ mod browser_tests {
             "sysand_storage",
             "/",
             Some("MIT OR Apache-2.0".to_owned()),
+            "https://www.omg.org/spec/SysML/20250201".to_owned(),
         )
         .unwrap();
 
@@ -43,7 +44,8 @@ mod browser_tests {
                  name = \"basic-init\"\n\
                  version = \"1.2.3\"\n\
                  sources = []\n\
-                 license = \"MIT OR Apache-2.0\"\n"
+                 license = \"MIT OR Apache-2.0\"\n\
+                 metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n"
                     .to_owned()
             )
         );

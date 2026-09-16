@@ -12,6 +12,10 @@ import static org.junit.jupiter.api.Assertions.*;
 import java.nio.file.Files;
 
 public class BasicTest {
+
+    /** The metamodel these projects declare: `init` takes one, it does not choose one. */
+    private static final String SYSML = "https://www.omg.org/spec/SysML/20250201";
+
     /**
      * A legacy json project, written by hand.
      *
@@ -28,8 +32,11 @@ public class BasicTest {
         // The epoch, so that a legacy fixture and a `model.toml` view
         // agree: a view's `created` is fixed, and the assertions here
         // are shared between the two.
+        // The metamodel too: the assertions are shared with a project
+        // `init` wrote, and `init` is given one.
         Files.write(dir.resolve(".meta.json"),
-                "{\n  \"index\": {},\n  \"created\": \"1970-01-01T00:00:00Z\"\n}\n".getBytes());
+                ("{\n  \"index\": {},\n  \"created\": \"1970-01-01T00:00:00Z\",\n  \"metamodel\": \""
+                        + SYSML + "\"\n}\n").getBytes());
     }
 
 
@@ -37,7 +44,7 @@ public class BasicTest {
     public void testBasicInit() {
         try {
             java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-init");
-            com.sensmetry.sysand.Sysand.init("test", "acme", "1.0.0", null, tempDir);
+            com.sensmetry.sysand.Sysand.init("test", "acme", "1.0.0", null, SYSML, tempDir);
 
             // `init` writes a `model.toml`; the two json documents are
             // what a build produces and what a legacy project has.
@@ -53,7 +60,8 @@ public class BasicTest {
                             + "publisher = \"acme\"\n"
                             + "name = \"test\"\n"
                             + "version = \"1.0.0\"\n"
-                            + "sources = []\n",
+                            + "sources = []\n"
+                            + "metamodel = \"" + SYSML + "\"\n",
                     manifest);
         } catch (java.io.IOException e) {
             fail("Failed during temporary directory operations or Sysand.init: " + e.getMessage());
@@ -66,14 +74,14 @@ public class BasicTest {
     public void testInitWithNullNameThrowsNullPointerException() throws Exception {
         java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-init-null-name");
         assertThrows(NullPointerException.class,
-                () -> com.sensmetry.sysand.Sysand.init(null, "acme", "1.0.0", null, tempDir));
+                () -> com.sensmetry.sysand.Sysand.init(null, "acme", "1.0.0", null, SYSML, tempDir));
     }
 
     @Test
     public void testInitWithInvalidVersionThrowsInvalidSemanticVersion() throws Exception {
         java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-init-bad-version");
         assertThrows(com.sensmetry.sysand.exceptions.InvalidSemanticVersion.class,
-                () -> com.sensmetry.sysand.Sysand.init("test", "acme", "not-a-version", null, tempDir));
+                () -> com.sensmetry.sysand.Sysand.init("test", "acme", "not-a-version", null, SYSML, tempDir));
     }
 
     @Test
@@ -112,7 +120,8 @@ public class BasicTest {
         // A view of a source project is not a function of the clock:
         // `created` is computed at build, so until then it is the epoch.
         assertEquals("1970-01-01T00:00:00Z", project.metadata.getCreated());
-        assertEquals(project.metadata.getMetamodel(), null);
+        // `init` is given the metamodel; the synthesized view carries it.
+        assertEquals(project.metadata.getMetamodel(), SYSML);
         assertEquals(project.metadata.getIncludesDerived(), null);
         assertEquals(project.metadata.getIncludesImplied(), null);
         assertEquals(project.metadata.getChecksum(), null);
@@ -122,7 +131,7 @@ public class BasicTest {
     public void testBasicInfo() {
         try {
             java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-info");
-            com.sensmetry.sysand.Sysand.init("test-basic-info", "acme", "1.2.3", "MIT", tempDir);
+            com.sensmetry.sysand.Sysand.init("test-basic-info", "acme", "1.2.3", "MIT", SYSML, tempDir);
 
             com.sensmetry.sysand.model.InterchangeProject project = com.sensmetry.sysand.Sysand.infoPath(tempDir);
             assertExpectedProject(project);

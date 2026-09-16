@@ -89,12 +89,19 @@ pub enum Command {
             verbatim_doc_comment
         )]
         license: Option<spdx::Expression>,
-        /// Set a SysML v2 or KerML metamodel. Defaults to omitting the
-        /// metamodel field
-        #[arg(long, value_name = "KIND", value_enum, verbatim_doc_comment)]
-        metamodel: Option<MetamodelKind>,
-        /// Choose the release of the SysML v2 or KerML metamodel.
-        /// SysML 2.0 and KerML 1.0 have the same release dates
+        /// The metamodel the project declares: `sysml` or `kerml`, the
+        /// release chosen by `--metamodel-release`, or one of the IRIs
+        /// `https://www.omg.org/spec/KerML/<date>`,
+        /// `https://www.omg.org/spec/SysML/<date>`,
+        /// `https://www.sysand.com/spec/KerML/<date>` or
+        /// `https://www.sysand.com/spec/SysML/<date>`.
+        /// Required, except inside a workspace whose default group
+        /// declares one: there the project inherits it
+        #[arg(long, value_name = "KIND|URL", verbatim_doc_comment)]
+        metamodel: Option<String>,
+        /// Choose the release of the SysML v2 or KerML metamodel given as
+        /// `sysml` or `kerml`. SysML 2.0 and KerML 1.0 have the same
+        /// release dates
         #[arg(
             long,
             value_name = "YYYYMMXX",
@@ -216,6 +223,11 @@ pub enum Command {
         /// The publisher to record, when the project declares none
         #[arg(long)]
         publisher: Option<String>,
+        /// The metamodel to record, when the project declares none or
+        /// one Sysand does not recognize. A `model.toml` holds one of
+        /// the four recognized values and nothing else
+        #[arg(long, verbatim_doc_comment)]
+        metamodel: Option<String>,
         /// Migrate even though the working tree has uncommitted changes
         #[arg(long)]
         allow_dirty: bool,

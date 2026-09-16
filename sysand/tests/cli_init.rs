@@ -20,6 +20,8 @@ fn sysand_init_writes_a_model_toml() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
         [
             "init",
+            "--metamodel",
+            SYSML,
             "--version",
             "1.2.3",
             "--publisher",
@@ -43,7 +45,8 @@ fn sysand_init_writes_a_model_toml() -> Result<(), Box<dyn std::error::Error>> {
          name = \"widgets\"\n\
          version = \"1.2.3\"\n\
          sources = []\n\
-         license = \"MIT\"\n"
+         license = \"MIT\"\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n"
     );
     assert!(!project.join(".project.json").exists());
     assert!(!project.join(".meta.json").exists());
@@ -76,7 +79,15 @@ fn invalid_license_error_is_consistent() -> Result<(), Box<dyn std::error::Error
 
     let out = run_sysand_in(
         &cwd,
-        ["init", "--publisher", "acme", "--name", "proj"],
+        [
+            "init",
+            "--publisher",
+            "acme",
+            "--name",
+            "proj",
+            "--metamodel",
+            "sysml",
+        ],
         None,
     )?;
     out.assert().success();
@@ -111,6 +122,8 @@ fn sysand_init_defaults_the_version() -> Result<(), Box<dyn std::error::Error>> 
     let (_temp_dir, cwd, out) = run_sysand(
         [
             "init",
+            "--metamodel",
+            SYSML,
             "--publisher",
             "acme",
             "--name",
@@ -133,7 +146,17 @@ fn sysand_init_defaults_the_version() -> Result<(), Box<dyn std::error::Error>> 
 /// never typed.
 #[test]
 fn a_name_from_the_directory_names_the_name_flag() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, _cwd, out) = run_sysand(["init", "--publisher", "acme", "my_project"], None)?;
+    let (_temp_dir, _cwd, out) = run_sysand(
+        [
+            "init",
+            "--metamodel",
+            SYSML,
+            "--publisher",
+            "acme",
+            "my_project",
+        ],
+        None,
+    )?;
 
     out.assert()
         .failure()
@@ -153,6 +176,8 @@ fn a_name_from_the_name_flag_is_refused_without_the_hint() -> Result<(), Box<dyn
     let (_temp_dir, _cwd, out) = run_sysand(
         [
             "init",
+            "--metamodel",
+            SYSML,
             "--publisher",
             "acme",
             "--name",
@@ -175,7 +200,16 @@ fn a_name_from_the_name_flag_is_refused_without_the_hint() -> Result<(), Box<dyn
 #[test]
 fn a_publisher_the_rule_refuses_is_an_error() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, _cwd, out) = run_sysand(
-        ["init", "--publisher", "ab", "--name", "widgets", "project"],
+        [
+            "init",
+            "--metamodel",
+            SYSML,
+            "--publisher",
+            "ab",
+            "--name",
+            "widgets",
+            "project",
+        ],
         None,
     )?;
 
@@ -192,7 +226,16 @@ fn a_publisher_the_rule_refuses_is_an_error() -> Result<(), Box<dyn std::error::
 #[test]
 fn sysand_new_is_sysand_init() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        ["new", "--publisher", "acme", "--name", "widgets", "project"],
+        [
+            "new",
+            "--metamodel",
+            SYSML,
+            "--publisher",
+            "acme",
+            "--name",
+            "widgets",
+            "project",
+        ],
         None,
     )?;
     out.assert().success();
@@ -237,10 +280,14 @@ fn created_is_the_epoch_for_a_generated_project() -> Result<(), Box<dyn std::err
 fn initing_twice_says_the_manifest_is_there() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = init_ok(&[])?;
 
-    run_sysand_in(&cwd.join("project"), ["init", "--publisher", "acme"], None)?
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("`model.toml` already exists"));
+    run_sysand_in(
+        &cwd.join("project"),
+        ["init", "--metamodel", SYSML, "--publisher", "acme"],
+        None,
+    )?
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains("`model.toml` already exists"));
     Ok(())
 }
 
@@ -302,6 +349,8 @@ fn init_accepts_spaces_in_publisher_and_name() -> Result<(), Box<dyn std::error:
             "Acme Labs",
             "--name",
             "My Project",
+            "--metamodel",
+            "sysml",
             "p",
         ],
         None,
@@ -311,12 +360,13 @@ fn init_accepts_spaces_in_publisher_and_name() -> Result<(), Box<dyn std::error:
     let manifest = std::fs::read_to_string(cwd.join("p").join("model.toml"))?;
     assert_eq!(
         manifest,
-        "manifest-version = 1\n\n\
+        "manifest-version = \"1.0.0\"\n\n\
          [project]\n\
          publisher = \"Acme Labs\"\n\
          name = \"My Project\"\n\
          version = \"0.0.1\"\n\
-         sources = []\n"
+         sources = []\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n"
     );
 
     Ok(())
@@ -328,7 +378,17 @@ fn init_accepts_spaces_in_publisher_and_name() -> Result<(), Box<dyn std::error:
 #[cfg(unix)]
 #[test]
 fn init_rejects_invalid_directory_name() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(["init", "--publisher", "acme", "bad:dir"], None)?;
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--publisher",
+            "acme",
+            "--metamodel",
+            "sysml",
+            "bad:dir",
+        ],
+        None,
+    )?;
 
     out.assert().failure().stderr(predicate::str::contains(
         "cannot use the directory name `bad:dir` as the project name: \
@@ -338,7 +398,16 @@ fn init_rejects_invalid_directory_name() -> Result<(), Box<dyn std::error::Error
 
     let out = run_sysand_in(
         &cwd,
-        ["init", "--publisher", "acme", "--name", "good", "bad:dir"],
+        [
+            "init",
+            "--publisher",
+            "acme",
+            "--name",
+            "good",
+            "--metamodel",
+            "sysml",
+            "bad:dir",
+        ],
         None,
     )?;
     out.assert().success();
@@ -397,7 +466,7 @@ fn init_metamodel_release_requires_metamodel() -> Result<(), Box<dyn std::error:
 
     out.assert()
         .failure()
-        .stderr(predicate::str::contains("--metamodel <KIND>"));
+        .stderr(predicate::str::contains("--metamodel <KIND|URL>"));
     assert!(!cwd.join("p").exists());
 
     Ok(())
@@ -412,7 +481,15 @@ fn initing_over_a_json_project_says_to_migrate() -> Result<(), Box<dyn std::erro
 
     run_sysand_in(
         &cwd,
-        ["init", "--publisher", "acme", "--name", "widgets"],
+        [
+            "init",
+            "--metamodel",
+            SYSML,
+            "--publisher",
+            "acme",
+            "--name",
+            "widgets",
+        ],
         None,
     )?
     .assert()
@@ -426,7 +503,15 @@ fn initing_over_a_json_project_says_to_migrate() -> Result<(), Box<dyn std::erro
 fn init_ok(
     extra: &[&str],
 ) -> Result<(camino_tempfile::Utf8TempDir, camino::Utf8PathBuf), Box<dyn std::error::Error>> {
-    let mut args = vec!["init", "--publisher", "acme", "--name", "widgets"];
+    let mut args = vec![
+        "init",
+        "--metamodel",
+        SYSML,
+        "--publisher",
+        "acme",
+        "--name",
+        "widgets",
+    ];
     args.extend_from_slice(extra);
     args.push("project");
     let (temp_dir, cwd, out) = run_sysand(args, None)?;
@@ -607,7 +692,16 @@ fn init_in(
 ) -> Result<std::process::Output, Box<dyn std::error::Error>> {
     run_sysand_in(
         cwd,
-        ["init", "--publisher", "acme", "--name", "widgets", target],
+        [
+            "init",
+            "--metamodel",
+            SYSML,
+            "--publisher",
+            "acme",
+            "--name",
+            "widgets",
+            target,
+        ],
         None,
     )
 }
@@ -764,7 +858,16 @@ fn init_does_not_append_when_the_project_could_not_be_created()
 
     run_sysand_in(
         dir.path(),
-        ["init", "--publisher", "x", "--name", "widgets", "half"],
+        [
+            "init",
+            "--metamodel",
+            SYSML,
+            "--publisher",
+            "x",
+            "--name",
+            "widgets",
+            "half",
+        ],
         None,
     )?
     .assert()
@@ -810,5 +913,189 @@ fn the_appended_entry_leaves_the_rest_of_the_file_alone() -> Result<(), Box<dyn 
     assert!(text.starts_with("# the workspace\n"), "{text}");
     assert!(text.contains("# first"), "{text}");
     assert!(text.contains("\"lib\""), "{text}");
+    Ok(())
+}
+
+// ------------------------------------------------------ the metamodel
+
+/// Like [`init_in`], but without the argument: what the workspace says
+/// is the whole of the answer.
+fn init_in_without_metamodel(
+    cwd: &Utf8Path,
+    target: &str,
+) -> Result<std::process::Output, Box<dyn std::error::Error>> {
+    run_sysand_in(
+        cwd,
+        ["init", "--publisher", "acme", "--name", "widgets", target],
+        None,
+    )
+}
+
+fn manifest_of(dir: &Utf8Path, at: &str) -> Result<String, Box<dyn std::error::Error>> {
+    Ok(std::fs::read_to_string(dir.join(at).join("model.toml"))?)
+}
+
+/// model-toml.md "Editing the manifest": `init`
+/// "take[s] it as a mandatory argument, erroring before writing
+/// anything if it is absent, with the message listing the four values".
+#[test]
+fn init_without_a_metamodel_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--publisher",
+            "acme",
+            "--name",
+            "widgets",
+            "project",
+        ],
+        None,
+    )?;
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains("`--metamodel <url>` is required"))
+        .stderr(predicate::str::contains(
+            "`https://www.sysand.com/spec/SysML/<date>`",
+        ));
+    assert!(
+        !cwd.join("project").join("model.toml").exists(),
+        "nothing was written"
+    );
+    Ok(())
+}
+
+#[test]
+fn init_writes_the_metamodel_it_is_given() -> Result<(), Box<dyn std::error::Error>> {
+    let kerml = "https://www.omg.org/spec/KerML/20250201";
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--metamodel",
+            kerml,
+            "--publisher",
+            "acme",
+            "--name",
+            "widgets",
+            "project",
+        ],
+        None,
+    )?;
+    out.assert().success();
+    assert!(
+        manifest_of(&cwd, "project")?.contains(&format!("\nmetamodel = \"{kerml}\"\n")),
+        "{}",
+        manifest_of(&cwd, "project")?
+    );
+    Ok(())
+}
+
+#[test]
+fn init_refuses_an_unrecognized_metamodel() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--metamodel",
+            "https://example.com/spec",
+            "--publisher",
+            "acme",
+            "--name",
+            "widgets",
+            "project",
+        ],
+        None,
+    )?;
+    out.assert().failure().stderr(predicate::str::contains(
+        "`--metamodel` is not a metamodel Sysand recognizes: `https://example.com/spec`",
+    ));
+    assert!(
+        !cwd.join("project").join("model.toml").exists(),
+        "nothing was written"
+    );
+    Ok(())
+}
+
+/// The one case where the argument may be omitted: "inside a workspace
+/// whose default group defines `metamodel` [...] the generated file
+/// carries `metamodel.workspace = true`".
+#[test]
+fn init_in_a_workspace_inherits_the_metamodel() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace(
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = []\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    )?;
+
+    init_in_without_metamodel(dir.path(), "lib")?
+        .assert()
+        .success();
+
+    let text = manifest_of(dir.path(), "lib")?;
+    assert!(text.contains("\nmetamodel.workspace = true\n"), "{text}");
+    Ok(())
+}
+
+/// The same, inside a workspace: a default group that declares no
+/// `metamodel` has nothing to inherit.
+#[test]
+fn init_in_a_workspace_without_a_group_metamodel_is_refused()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace("manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = []\n")?;
+
+    init_in_without_metamodel(dir.path(), "lib")?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("`--metamodel <url>` is required"));
+    assert!(!dir.path().join("lib").join("model.toml").exists());
+    Ok(())
+}
+
+/// "A named group is not guessed at either -- to inherit from one, the
+/// member's marker is written afterwards."
+#[test]
+fn init_does_not_guess_a_named_group() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace(
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = []\n\n\
+         [workspace.group.kerml]\n\
+         metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n",
+    )?;
+
+    init_in_without_metamodel(dir.path(), "lib")?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("`--metamodel <url>` is required"));
+    Ok(())
+}
+
+/// An argument that is given wins: a group is what a project inherits
+/// when it says nothing, not something that overrides what it was told.
+#[test]
+fn init_prefers_the_argument_to_the_group() -> Result<(), Box<dyn std::error::Error>> {
+    let kerml = "https://www.omg.org/spec/KerML/20250201";
+    let dir = workspace(
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = []\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    )?;
+
+    run_sysand_in(
+        dir.path(),
+        [
+            "init",
+            "--metamodel",
+            kerml,
+            "--publisher",
+            "acme",
+            "--name",
+            "widgets",
+            "lib",
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+
+    let text = manifest_of(dir.path(), "lib")?;
+    assert!(
+        text.contains(&format!("\nmetamodel = \"{kerml}\"\n")),
+        "{text}"
+    );
     Ok(())
 }

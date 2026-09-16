@@ -59,6 +59,7 @@ use sysand_core::{
     info::{InfoError, InfoProjectError, do_info, do_info_project},
     init::InitError,
     lock::{Lock, Lockfile, Project as LockedProject},
+    manifest::inherit::MetaProperty,
     model::{
         IndexName, IndexPublisher, InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw,
         InterchangeProjectMetadataRaw, InterchangeProjectUsage, InterchangeProjectUsageRaw,
@@ -139,12 +140,13 @@ fn render_long_help(prog: &str, args: Vec<String>) -> String {
 /// `init`'s do.
 #[pyfunction(name = "do_migrate_py")]
 #[pyo3(
-    signature = (path, publisher=None, allow_dirty=false, allow_no_vcs=false, resolution=None, auth=None),
+    signature = (path, publisher=None, metamodel=None, allow_dirty=false, allow_no_vcs=false, resolution=None, auth=None),
 )]
 fn do_migrate_py(
     py: Python,
     path: String,
     publisher: Option<String>,
+    metamodel: Option<String>,
     allow_dirty: bool,
     allow_no_vcs: bool,
     resolution: Option<ResolutionSpec>,
@@ -181,6 +183,7 @@ fn do_migrate_py(
         sysand::commands::migrate::command_migrate(
             Some(path),
             publisher,
+            metamodel,
             allow_dirty,
             allow_no_vcs,
             resolution_options(&resolution)?,
@@ -196,15 +199,15 @@ fn do_migrate_py(
 
 #[pyfunction(name = "do_init_py_local_file")]
 #[pyo3(
-    signature = (name, publisher, version, path, license=None, metamodel=None),
+    signature = (name, publisher, version, path, metamodel, license=None),
 )]
 fn do_init_py_local_file(
     name: String,
     publisher: String,
     version: String,
     path: String,
+    metamodel: String,
     license: Option<String>,
-    metamodel: Option<String>,
 ) -> PyResult<()> {
     // Initialize logger in each function independently to avoid setting up a
     // logger before `run_cli()` is called (CLI sets up its own logger). This
@@ -221,17 +224,17 @@ fn do_init_py_local_file(
         publisher,
         version,
         license,
-        metamodel,
+        Some(MetaProperty::Provided(metamodel)),
         Utf8PathBuf::from(path),
     )
     .map_err(|err| {
         let e = format_err(&err);
         match err {
+            InitError::Identifier(..) => PyValueError::new_err(e),
+            InitError::Write(..) => PyRuntimeError::new_err(e),
             InitError::SemVerParse(..)
             | InitError::SPDXLicenseParse(..)
-            | InitError::MalformedMetamodel(..)
-            | InitError::Identifier(..) => PyValueError::new_err(e),
-            InitError::Write(..) => PyRuntimeError::new_err(e),
+            | InitError::Metamodel(..) => PyValueError::new_err(e),
             InitError::Project(err) => match err {
                 LocalSrcError::AlreadyExists(_) => PyFileExistsError::new_err(e),
                 LocalSrcError::Io(_) | LocalSrcError::Path(_) => PyIOError::new_err(e),

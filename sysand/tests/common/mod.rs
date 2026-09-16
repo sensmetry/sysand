@@ -22,6 +22,11 @@ pub const DEFAULT_ENV_FILE_CONTENTS: &str =
 version = \"0.2\"
 ";
 
+/// The metamodel the helpers declare. `sysand init` takes one -- a
+/// project declares its metamodel and it cannot be guessed -- and a
+/// test that is not about the metamodel means this one.
+pub const SYSML: &str = "https://www.omg.org/spec/SysML/20250201";
+
 /// Writes `files` (relative path, content) into `dir`, makes `dir` a git
 /// repository and commits them, leaving an index that matches the commit.
 ///
@@ -218,7 +223,7 @@ pub fn cli_init_project_in(
     version: Option<&str>,
     license: Option<&str>,
 ) -> Result<Output, Box<dyn Error>> {
-    let mut args = vec!["init", "--publisher", publisher];
+    let mut args = vec!["init", "--publisher", publisher, "--metamodel", SYSML];
     if let Some(name) = name {
         args.push("--name");
         args.push(name);
@@ -354,9 +359,14 @@ pub fn write_legacy_project(
         info.insert("license".to_owned(), license.into());
     }
     let info = serde_json::Value::Object(info);
+    // A json project may declare no metamodel, but then it cannot be
+    // migrated without `--metamodel`, and most of
+    // these fixtures exist to be migrated. A test that is about the
+    // missing key writes its own pair.
     let meta = serde_json::json!({
         "index": {},
         "created": format!("{:.0}", jiff::Timestamp::now()),
+        "metamodel": SYSML,
     });
     for (file, value) in [(".project.json", &info), (".meta.json", &meta)] {
         let mut text = serde_json::to_string_pretty(value)?;

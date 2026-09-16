@@ -240,6 +240,26 @@ pub struct KnownMetamodel {
 }
 
 impl KnownMetamodel {
+    /// The values a `model.toml` recognizes, as a message lists them.
+    ///
+    /// model-toml.md "Metamodel": "Exactly four values are recognized --
+    /// two families, two spec kinds each". One string, so that the
+    /// manifest reader, `init` and `migrate` cannot list them
+    /// differently.
+    pub const RECOGNIZED: &'static str = "`https://www.omg.org/spec/KerML/<date>`, \
+         `https://www.omg.org/spec/SysML/<date>`, \
+         `https://www.sysand.com/spec/KerML/<date>` or \
+         `https://www.sysand.com/spec/SysML/<date>`";
+
+    /// The OMG metamodel of `spec` at `release`.
+    pub fn omg(spec: SpecKind, release: MetamodelRelease) -> Self {
+        Self {
+            family: MetamodelFamily::Omg,
+            spec,
+            release,
+        }
+    }
+
     /// The recognized metamodel a raw `metamodel` value names: `None` when
     /// the value is not an IRI, names some other metamodel, or has a
     /// malformed release.

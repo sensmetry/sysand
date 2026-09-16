@@ -17,9 +17,16 @@ public class Sysand {
      * @param publisher  The publisher of the project. If {@code null}, default value will be used.
      * @param version The version of the project in SemVer 2.0 format.
      * @param license The license of the project given as an SPDX license identifier. May be {@code null}.
+     * @param metamodel The metamodel the project declares, one of
+     *                {@code https://www.omg.org/spec/KerML/<date>},
+     *                {@code https://www.omg.org/spec/SysML/<date>},
+     *                {@code https://www.sysand.com/spec/KerML/<date>} or
+     *                {@code https://www.sysand.com/spec/SysML/<date>}. Required: a project
+     *                declares its metamodel and it cannot be guessed.
      * @param path    The path to the directory in which to initialize the project.
      */
-    public static native void init(String name, String publisher, String version, String license, String path)
+    public static native void init(String name, String publisher, String version, String license, String metamodel,
+            String path)
             throws com.sensmetry.sysand.exceptions.SysandException;
 
     /**
@@ -30,11 +37,13 @@ public class Sysand {
      * @param publisher  The publisher of the project. If {@code null}, default value will be used.
      * @param version The version of the project in SemVer 2.0 format.
      * @param license The license of the project given as an SPDX license identifier. May be {@code null}.
+     * @param metamodel The metamodel the project declares. See the other overload.
      * @param path    The path to the directory in which to initialize the project.
      */
-    public static void init(String name, String publisher, String version, String license, java.nio.file.Path path)
+    public static void init(String name, String publisher, String version, String license, String metamodel,
+            java.nio.file.Path path)
             throws com.sensmetry.sysand.exceptions.SysandException {
-        init(name, publisher, version, license, path.toString());
+        init(name, publisher, version, license, metamodel, path.toString());
     }
 
     /**

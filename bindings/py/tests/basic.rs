@@ -21,7 +21,13 @@ fn basic_init() -> Result<(), Box<dyn std::error::Error>> {
             .expect("Failed to get do_init_py_local_file function");
 
         do_init_py_local_file_fn
-            .call1(("basic-init", "acme", "1.2.3", proj_dir_path.as_str()))
+            .call1((
+                "basic-init",
+                "acme",
+                "1.2.3",
+                proj_dir_path.as_str(),
+                "https://www.omg.org/spec/SysML/20250201",
+            ))
             .unwrap();
     });
 
@@ -35,7 +41,8 @@ fn basic_init() -> Result<(), Box<dyn std::error::Error>> {
          publisher = \"acme\"\n\
          name = \"basic-init\"\n\
          version = \"1.2.3\"\n\
-         sources = []\n"
+         sources = []\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n"
     );
     assert!(!proj_dir_path.join(".project.json").exists());
 

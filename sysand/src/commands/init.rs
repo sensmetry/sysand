@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use crate::{CliError, cli::Metamodel, commands::info::log_license_files_note};
+use crate::{
+    CliError,
+    cli::{MetamodelKind, MetamodelVersion},
+    commands::info::log_license_files_note,
+};
 use anyhow::{Result, bail};
 use camino::{Utf8Path, Utf8PathBuf};
+use clap::ValueEnum as _;
 use semver::Version;
 use sysand_core::{
     context::ProjectContext,
@@ -11,10 +16,12 @@ use sysand_core::{
     init::InitError,
     manifest::{
         MODEL_TOML_FILE,
+        common::InheritFrom,
         edit::{push_member, validated},
+        inherit::{Inherited, MetaProperty},
         workspace_table::Region,
     },
-    model::{IdentifierKind, ProjectName, ProjectPublisher},
+    model::{IdentifierKind, KnownMetamodel, ProjectName, ProjectPublisher},
     project::{
         local_src::LocalSrcProject,
         utils::{relativize_path, wrapfs},
@@ -30,7 +37,7 @@ pub fn command_init(
     publisher: ProjectPublisher,
     version: Option<Version>,
     license: Option<spdx::Expression>,
-    metamodel: Option<Metamodel>,
+    metamodel: Option<KnownMetamodel>,
     path: Option<Utf8PathBuf>,
     ctx: ProjectContext,
 ) -> Result<()> {
@@ -45,6 +52,13 @@ pub fn command_init(
     // Before `do_init`, so that a refusal is about the workspace rather
     // than about a file collision the workspace explains.
     let member = workspace_member(&target)?;
+    // model-toml.md "Editing the manifest": `init` "take[s] it as a
+    // mandatory argument, erroring before writing anything if it is
+    // absent [...] The one exception is a project created inside a
+    // workspace whose default group defines `metamodel`". The scope is
+    // known by now and nothing has been written yet, which is what the
+    // sentence requires.
+    let metamodel = metamodel_for(metamodel, member.as_ref())?;
 
     let version = version.unwrap_or_else(|| Version::parse(DEFAULT_VERSION).unwrap());
     // Whether the name was chosen or inherited decides whether there is
@@ -61,7 +75,7 @@ pub fn command_init(
         publisher.into_string(),
         version.to_string(),
         license.map(|l| l.to_string()),
-        metamodel.map(String::from),
+        Some(metamodel),
         &mut LocalSrcProject::new_access(target, None),
     )
     .map_err(|error| match &error {
@@ -82,10 +96,59 @@ pub fn command_init(
 
     // After, so a project that could not be written leaves no `members`
     // entry pointing at nothing.
-    if let Some((root, path)) = member {
-        append_member(&root, &path)?;
+    if let Some(member) = member {
+        append_member(&member.root, &member.path)?;
     }
     Ok(())
+}
+
+/// The metamodel `--metamodel` names: `sysml` or `kerml` the OMG
+/// metamodel of `release`, anything else one of the recognized IRIs.
+pub fn parse_metamodel(value: &str, release: MetamodelVersion) -> Result<KnownMetamodel> {
+    match MetamodelKind::from_str(value, false) {
+        Ok(kind) => Ok(KnownMetamodel::omg(kind.into(), release.into())),
+        Err(_) => crate::commands::check_metamodel(value),
+    }
+}
+
+/// The metamodel `init` writes: the argument, or else the default
+/// group's, which is the one case where none given is not an error.
+///
+/// An argument that is given wins over the workspace: a group is what a
+/// project inherits when it says nothing, not something that overrides
+/// what it was told.
+fn metamodel_for(
+    metamodel: Option<KnownMetamodel>,
+    member: Option<&Member>,
+) -> Result<MetaProperty<String>> {
+    if let Some(metamodel) = metamodel {
+        return Ok(MetaProperty::Provided(metamodel.to_string()));
+    }
+    // Only the default group, and only for a project that is becoming a
+    // member: "a named group is not guessed at either".
+    if member.is_some_and(|member| member.group_metamodel) {
+        return Ok(MetaProperty::Inherited(Inherited {
+            from: InheritFrom::DefaultGroup,
+            at: None,
+        }));
+    }
+    bail!(
+        "`--metamodel <url>` is required: a project declares its metamodel,\n\
+        {SP:>8} and it cannot be guessed. It is one of {list}\n\
+        {SP:>8} (inside a workspace whose default group declares `metamodel`,\n\
+        {SP:>8} the argument may be omitted and the project inherits it)",
+        SP = ' ',
+        list = KnownMetamodel::RECOGNIZED,
+    )
+}
+
+/// What `init` learns about the workspace it is creating a project in:
+/// where to append the member, and whether the default group declares a
+/// `metamodel` the new project can inherit.
+struct Member {
+    root: Utf8PathBuf,
+    path: String,
+    group_metamodel: bool,
 }
 
 /// workspaces.md "Command scopes": `init` "create[s] the project and
@@ -96,7 +159,7 @@ pub fn command_init(
 /// The table is read rather than the workspace loaded, so that an
 /// unrelated member's mistake does not block the one command that could
 /// fix it.
-fn workspace_member(target: &Utf8Path) -> Result<Option<(Utf8PathBuf, String)>> {
+fn workspace_member(target: &Utf8Path) -> Result<Option<Member>> {
     // `relativize_path` asserts absolute, dot-free paths, and `target`
     // is a raw command-line argument.
     let target = wrapfs::canonicalize(target)?;
@@ -145,7 +208,11 @@ fn workspace_member(target: &Utf8Path) -> Result<Option<(Utf8PathBuf, String)>> 
                     SP = ' '
                 );
             }
-            Ok(Some((root, relative.to_string())))
+            Ok(Some(Member {
+                group_metamodel: table.default_group.metamodel.is_some(),
+                root,
+                path: relative.to_string(),
+            }))
         }
     }
 }

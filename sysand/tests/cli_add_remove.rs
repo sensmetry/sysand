@@ -3507,6 +3507,8 @@ fn init_toml_project(dir: &camino::Utf8Path, name: &str) -> Result<(), Box<dyn s
             name,
             "--version",
             "1.0.0",
+            "--metamodel",
+            "sysml",
         ],
         None,
     )?

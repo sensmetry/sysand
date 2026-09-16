@@ -5,15 +5,25 @@ use std::assert_matches;
 use sysand_core::{
     commands::init::do_init,
     init::do_init_memory,
+    manifest::inherit::MetaProperty,
     project::{ManifestWriteError, ProjectFormat, ProjectRead as _},
 };
+
+/// The metamodel every project here declares: `init` takes one, it
+/// does not choose one.
+const SYSML: &str = "https://www.omg.org/spec/SysML/20250201";
 
 /// `sysand init` creates a `model.toml`, not the two json documents;
 /// those are what a build produces and what a legacy project has.
 #[test]
 fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
-    let memory_storage =
-        do_init_memory("init-basic", "echo", "1.2.3", Some("Apache-2.0".to_owned()))?;
+    let memory_storage = do_init_memory(
+        "init-basic",
+        "echo",
+        "1.2.3",
+        Some("Apache-2.0".to_owned()),
+        Some(MetaProperty::Provided(SYSML.to_owned())),
+    )?;
 
     assert_eq!(memory_storage.format()?, ProjectFormat::Toml);
     assert_eq!(
@@ -25,7 +35,8 @@ fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
              name = \"init-basic\"\n\
              version = \"1.2.3\"\n\
              sources = []\n\
-             license = \"Apache-2.0\"\n"
+             license = \"Apache-2.0\"\n\
+             metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n"
         )
     );
     assert!(memory_storage.info.is_none());
@@ -53,6 +64,7 @@ fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
         "acme",
         "1.2.3",
         Some("Apache-2.0 OR MIT".to_owned()),
+        Some(MetaProperty::Provided(SYSML.to_owned())),
     )?;
 
     let original = memory_storage.model_toml.clone();
@@ -62,7 +74,7 @@ fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
         "acme".into(),
         "1.2.3".to_owned(),
         Some("Apache-2.0 OR MIT".to_owned()),
-        None,
+        Some(MetaProperty::Provided(SYSML.to_owned())),
         &mut memory_storage,
     );
 
@@ -86,7 +98,13 @@ fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
 /// name, reporting the offending input
 #[test]
 fn init_rejects_invalid_name() {
-    let result = do_init_memory("a/b", "echo", "1.2.3", None);
+    let result = do_init_memory(
+        "a/b",
+        "echo",
+        "1.2.3",
+        None,
+        Some(MetaProperty::Provided(SYSML.to_owned())),
+    );
 
     let Err(err @ sysand_core::commands::init::InitError::Identifier(..)) = result else {
         panic!("expected `Identifier`, got {result:?}");
@@ -98,7 +116,13 @@ fn init_rejects_invalid_name() {
 /// publisher, reporting the offending input
 #[test]
 fn init_rejects_invalid_publisher() {
-    let result = do_init_memory("name", "acme:labs", "1.2.3", None);
+    let result = do_init_memory(
+        "name",
+        "acme:labs",
+        "1.2.3",
+        None,
+        Some(MetaProperty::Provided(SYSML.to_owned())),
+    );
 
     let Err(err @ sysand_core::commands::init::InitError::Identifier(..)) = result else {
         panic!("expected `Identifier`, got {result:?}");
@@ -139,7 +163,7 @@ fn init_metamodel() -> Result<(), Box<dyn std::error::Error>> {
         "echo".to_owned(),
         "1.2.3".to_owned(),
         None,
-        Some("https://www.omg.org/spec/SysML/20250201".to_owned()),
+        Some(MetaProperty::Provided(SYSML.to_owned())),
         &mut storage,
     )?;
 
@@ -151,8 +175,8 @@ fn init_metamodel() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// `do_init` should reject a metamodel that is not an IRI, reporting
-/// it, and leave the storage untouched
+/// `do_init` should reject a metamodel Sysand does not recognize,
+/// reporting it, and leave the storage untouched
 #[test]
 fn init_rejects_invalid_metamodel() {
     let mut storage = sysand_core::project::memory::InMemoryProject::default();
@@ -162,16 +186,17 @@ fn init_rejects_invalid_metamodel() {
         "echo".to_owned(),
         "1.2.3".to_owned(),
         None,
-        Some("not an iri".to_owned()),
+        Some(MetaProperty::Provided("not an iri".to_owned())),
         &mut storage,
     );
 
-    let Err(err @ sysand_core::commands::init::InitError::MalformedMetamodel(..)) = result else {
-        panic!("expected `MalformedMetamodel`, got {result:?}");
+    let Err(err @ sysand_core::commands::init::InitError::Metamodel(..)) = result else {
+        panic!("expected `Metamodel`, got {result:?}");
     };
     assert!(
         err.to_string()
-            .starts_with("invalid metamodel: `not an iri` is not a URL")
+            .starts_with("`not an iri` is not a metamodel Sysand recognizes"),
+        "{err}"
     );
     assert!(storage.model_toml.is_none());
     assert!(storage.info.is_none());

@@ -24,7 +24,15 @@ def _json_project(path: Path, publisher: str | None = "acme") -> None:
         info["publisher"] = publisher
     (path / ".project.json").write_text(json.dumps(info))
     (path / ".meta.json").write_text(
-        json.dumps({"created": "2001-02-03T04:05:06Z", "index": {}})
+        json.dumps(
+            {
+                "created": "2001-02-03T04:05:06Z",
+                "index": {},
+                # A json project with no metamodel cannot be migrated
+                # without `metamodel=`; the test for that writes its own.
+                "metamodel": "https://www.omg.org/spec/SysML/20250201",
+            }
+        )
     )
 
 

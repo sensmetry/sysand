@@ -15,6 +15,10 @@ import pytest
 
 import sysand
 
+# `sysand.init` takes a metamodel: a project declares one and it
+# cannot be guessed.
+SYSML = "https://www.omg.org/spec/SysML/20250201"
+
 OFFLINE = sysand.Resolution(no_index=True)
 
 
@@ -77,7 +81,7 @@ def test_a_workspace_root_can_be_locked(tmp_path: Path) -> None:
 
 def test_a_standalone_project_locks_at_its_own_root(tmp_path: Path) -> None:
     """The workspace is used when there is one, not always."""
-    sysand.init("standalone", "acme", "1.0.0", tmp_path)
+    sysand.init("standalone", "acme", "1.0.0", tmp_path, metamodel=SYSML)
 
     sysand.lock(tmp_path, resolution=OFFLINE)
 
@@ -91,7 +95,7 @@ def test_an_unlisted_project_locks_at_its_own_root(tmp_path: Path) -> None:
     workspace(tmp_path, {"app": ""})
     unlisted = tmp_path / "vendored"
     unlisted.mkdir()
-    sysand.init("vendored", "acme", "1.0.0", unlisted)
+    sysand.init("vendored", "acme", "1.0.0", unlisted, metamodel=SYSML)
 
     sysand.lock(unlisted, resolution=OFFLINE)
 
@@ -112,7 +116,7 @@ def test_an_unlisted_project_reads_the_workspace_configuration(tmp_path: Path) -
     workspace(tmp_path, {"app": ""})
     unlisted = tmp_path / "vendored"
     unlisted.mkdir()
-    sysand.init("vendored", "acme", "1.0.0", unlisted)
+    sysand.init("vendored", "acme", "1.0.0", unlisted, metamodel=SYSML)
     # An index URL the config parser refuses, so reading it is visible.
     (tmp_path / "sysand.toml").write_text(
         '[[index]]\nurl = "https://example.com/#frag"\n'

@@ -28,7 +28,7 @@ use crate::{
     },
     model::{
         IndexName, IndexPublisher, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
-        InterchangeProjectUsageRaw, Metamodel,
+        InterchangeProjectUsageRaw, KnownMetamodel,
     },
     purl::parse_sysand_purl,
     symbols::Language,
@@ -55,6 +55,11 @@ pub struct MigrateOptions {
     /// `name`", so a declared publisher is migrated rather than
     /// overridden.
     pub publisher: Option<String>,
+    /// `--metamodel`. model-toml.md "JSON to TOML": used "when the json
+    /// side has none or one this Sysand does not recognize". Unlike
+    /// `--publisher` it therefore also replaces a declared value -- one
+    /// `model.toml` cannot hold is no more usable than none at all.
+    pub metamodel: Option<String>,
 }
 
 /// Convert a json project's documents into a `model.toml` manifest.
@@ -122,7 +127,7 @@ pub fn migrate_project(
                 None
             }
         });
-    let metamodel = migrate_metamodel(meta, &mut report);
+    let metamodel = migrate_metamodel(meta, options, &mut report);
 
     warn_discarded(meta, &mut report);
 
@@ -241,22 +246,56 @@ fn migrate_sources(meta: &InterchangeProjectMetadataRaw, report: &mut Report) ->
     }
 }
 
-/// `metamodel` must be a valid IRI, with a well-formed release if it is a
-/// recognized one, even though an unrecognized value is only a warning:
-/// [`ProjectTable::validate`] refuses the others, so writing one would
-/// produce a manifest this crate cannot read back.
-fn migrate_metamodel(meta: &InterchangeProjectMetadataRaw, report: &mut Report) -> Option<String> {
-    let raw = meta.metamodel.as_ref()?;
-    let metamodel = match Metamodel::parse(raw) {
-        Ok(metamodel) => metamodel,
-        Err(error) => {
-            report.push(Diagnostic::error(format!(
-                "`metamodel` is `{raw}`, which is not a metamodel: {error}"
-            )));
-            return None;
-        }
+/// Appendix A2 row 52.
+///
+/// model-toml.md "JSON to TOML": "`metamodel`: use as-is when it is one
+/// of the four recognized values. A json project may carry none, or one
+/// this Sysand does not recognize, and `model.toml` admits neither: the
+/// command then errors before writing, unless `--metamodel <url>`
+/// supplies a recognized value".
+///
+/// So this is *not* `migrate_publisher`'s rule, which keeps a declared
+/// value and falls back only when there is none: a metamodel
+/// `model.toml` cannot hold is no more usable than an absent one, and
+/// the flag replaces it. There is no separate IRI check -- the four
+/// values are IRIs, so one that parses as a metamodel is one, and a
+/// second message about the same key would only crowd the report.
+fn migrate_metamodel(
+    meta: &InterchangeProjectMetadataRaw,
+    options: &MigrateOptions,
+    report: &mut Report,
+) -> Option<String> {
+    let declared = meta.metamodel.as_ref();
+    if let Some(raw) = declared
+        && KnownMetamodel::recognize(raw).is_some()
+    {
+        return Some(raw.clone());
+    }
+    let Some(supplied) = options.metamodel.as_ref() else {
+        report.push(Diagnostic::error(match declared {
+            Some(raw) => format!(
+                "the project's `.meta.json` declares `{raw}`, which is not a metamodel \
+                 `model.toml` recognizes;\npass `--metamodel <url>`, one of {list}",
+                list = KnownMetamodel::RECOGNIZED
+            ),
+            None => format!(
+                "the project's `.meta.json` declares no `metamodel`, which `model.toml` \
+                 requires;\npass `--metamodel <url>`, one of {list}",
+                list = KnownMetamodel::RECOGNIZED
+            ),
+        }));
+        return None;
     };
-    if let Metamodel::Other(_) = metamodel {
+    if KnownMetamodel::recognize(supplied).is_none() {
+        report.push(Diagnostic::error(format!(
+            "`{supplied}` is not a metamodel Sysand recognizes;\nit is one of {list}",
+            list = KnownMetamodel::RECOGNIZED
+        )));
+        return None;
+    }
+    // What is being dropped is worth saying, even though the fix is
+    // already in hand.
+    if let Some(raw) = declared {
         report.push(Diagnostic::warning(
             ReadWarning::UnknownMetamodel {
                 location: crate::manifest::diagnostics::KeyLocation::File(
@@ -267,7 +306,7 @@ fn migrate_metamodel(meta: &InterchangeProjectMetadataRaw, report: &mut Report) 
             .to_string(),
         ));
     }
-    Some(raw.clone())
+    Some(supplied.clone())
 }
 
 /// model-toml.md "JSON to TOML": the metadata keys that do not survive.

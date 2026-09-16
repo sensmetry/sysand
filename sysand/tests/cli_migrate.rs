@@ -190,7 +190,7 @@ fn migrate_without_a_publisher_is_refused() -> Result<(), Box<dyn std::error::Er
     )?;
     std::fs::write(
         cwd.join(".meta.json"),
-        br#"{"created": "2001-02-03T04:05:06Z", "index": {}}"#,
+        br#"{"created": "2001-02-03T04:05:06Z", "index": {}, "metamodel": "https://www.omg.org/spec/SysML/20250201"}"#,
     )?;
     git_repo(&cwd, true)?;
 
@@ -217,7 +217,7 @@ fn nothing_is_written_when_the_conversion_fails() -> Result<(), Box<dyn std::err
     )?;
     std::fs::write(
         cwd.join(".meta.json"),
-        br#"{"created": "2001-02-03T04:05:06Z", "index": {}}"#,
+        br#"{"created": "2001-02-03T04:05:06Z", "index": {}, "metamodel": "https://www.omg.org/spec/SysML/20250201"}"#,
     )?;
     git_repo(&cwd, true)?;
 
@@ -263,7 +263,7 @@ fn json_with_usages(dir: &Utf8Path, usages: &str) -> Result<(), Box<dyn std::err
     )?;
     std::fs::write(
         dir.join(".meta.json"),
-        br#"{"created": "2001-02-03T04:05:06Z", "index": {}}"#,
+        br#"{"created": "2001-02-03T04:05:06Z", "index": {}, "metamodel": "https://www.omg.org/spec/SysML/20250201"}"#,
     )?;
     Ok(())
 }
@@ -333,7 +333,7 @@ fn both_fixture(
     )?;
     std::fs::write(
         cwd.join(".meta.json"),
-        br#"{"created": "2001-02-03T04:05:06Z", "index": {}}"#,
+        br#"{"created": "2001-02-03T04:05:06Z", "index": {}, "metamodel": "https://www.omg.org/spec/SysML/20250201"}"#,
     )?;
     git_repo(cwd, true)
 }
@@ -514,7 +514,7 @@ fn a_file_usage_to_a_publisherless_target_is_refused() -> Result<(), Box<dyn std
     )?;
     std::fs::write(
         dep.join(".meta.json"),
-        br#"{"created": "2001-02-03T04:05:06Z", "index": {}}"#,
+        br#"{"created": "2001-02-03T04:05:06Z", "index": {}, "metamodel": "https://www.omg.org/spec/SysML/20250201"}"#,
     )?;
     json_with_file_usage(&app, &dep)?;
     git_repo(&root, true)?;
@@ -539,7 +539,7 @@ fn unknown_json_keys_warn() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     std::fs::write(
         cwd.join(".meta.json"),
-        br#"{"created": "2001-02-03T04:05:06Z", "index": {}, "anotherUnknown": true}"#,
+        br#"{"created": "2001-02-03T04:05:06Z", "index": {}, "metamodel": "https://www.omg.org/spec/SysML/20250201", "anotherUnknown": true}"#,
     )?;
     git_repo(&cwd, true)?;
 
@@ -678,7 +678,7 @@ fn the_prompt_supplies_a_publisher() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     std::fs::write(
         cwd.join(".meta.json"),
-        br#"{"created": "2001-02-03T04:05:06Z", "index": {}}"#,
+        br#"{"created": "2001-02-03T04:05:06Z", "index": {}, "metamodel": "https://www.omg.org/spec/SysML/20250201"}"#,
     )?;
     git_repo(&cwd, true)?;
 
@@ -881,5 +881,113 @@ fn migrate_without_resource_usages_needs_no_index() -> Result<(), Box<dyn std::e
     .assert()
     .success();
     assert!(cwd.join("model.toml").is_file());
+    Ok(())
+}
+
+// ------------------------------------------------------ the metamodel
+
+/// A json pair whose `.meta.json` carries `declared`, or none.
+fn json_pair_with_metamodel(
+    cwd: &Utf8Path,
+    declared: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    std::fs::write(
+        cwd.join(".project.json"),
+        br#"{"name": "widgets", "publisher": "acme", "version": "1.2.3", "usage": []}"#,
+    )?;
+    let meta = match declared {
+        Some(value) => format!(
+            r#"{{"created": "2001-02-03T04:05:06Z", "index": {{}}, "metamodel": "{value}"}}"#
+        ),
+        None => r#"{"created": "2001-02-03T04:05:06Z", "index": {}}"#.to_owned(),
+    };
+    std::fs::write(cwd.join(".meta.json"), meta)?;
+    git_repo(cwd, true)?;
+    Ok(())
+}
+
+/// A json project that declares no metamodel, so there is nothing to
+/// name.
+#[test]
+fn migrate_refuses_a_json_project_with_no_metamodel() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    json_pair_with_metamodel(&cwd, None)?;
+
+    run_sysand_in(&cwd, ["migrate"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("declares no `metamodel`"));
+    assert!(!cwd.join("model.toml").exists(), "nothing was written");
+    assert!(cwd.join(".project.json").is_file(), "the pair survives");
+    Ok(())
+}
+
+/// A json project whose metamodel is a value `model.toml` cannot hold.
+#[test]
+fn migrate_refuses_an_unrecognized_metamodel() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    json_pair_with_metamodel(&cwd, Some("https://example.com/spec/SysML/20250201"))?;
+
+    run_sysand_in(&cwd, ["migrate"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "declares `https://example.com/spec/SysML/20250201`",
+        ));
+    assert!(!cwd.join("model.toml").exists(), "nothing was written");
+    Ok(())
+}
+
+/// model-toml.md: "unless `--metamodel <url>` supplies a recognized
+/// value -- the same treatment `--publisher` gives the other key the
+/// json side may lack".
+#[test]
+fn migrate_takes_the_metamodel_from_the_flag() -> Result<(), Box<dyn std::error::Error>> {
+    let kerml = "https://www.omg.org/spec/KerML/20250201";
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    json_pair_with_metamodel(&cwd, None)?;
+
+    run_sysand_in(&cwd, ["migrate", "--metamodel", kerml], None)?
+        .assert()
+        .success();
+    let text = std::fs::read_to_string(cwd.join("model.toml"))?;
+    assert!(
+        text.contains(&format!("\nmetamodel = \"{kerml}\"\n")),
+        "{text}"
+    );
+    Ok(())
+}
+
+/// The flag is a value the user typed, so it is checked before the
+/// project is read at all.
+#[test]
+fn migrate_refuses_an_unrecognized_flag() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    json_pair_with_metamodel(&cwd, None)?;
+
+    run_sysand_in(&cwd, ["migrate", "--metamodel", "sysml"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "`--metamodel` is not a metamodel Sysand recognizes: `sysml`",
+        ));
+    assert!(!cwd.join("model.toml").exists(), "nothing was written");
+    Ok(())
+}
+
+/// A recognized declared value needs no flag, and is migrated as
+/// written.
+#[test]
+fn a_declared_metamodel_needs_no_flag() -> Result<(), Box<dyn std::error::Error>> {
+    let kerml = "https://www.omg.org/spec/KerML/20250201";
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    json_pair_with_metamodel(&cwd, Some(kerml))?;
+
+    run_sysand_in(&cwd, ["migrate"], None)?.assert().success();
+    let text = std::fs::read_to_string(cwd.join("model.toml"))?;
+    assert!(
+        text.contains(&format!("\nmetamodel = \"{kerml}\"\n")),
+        "{text}"
+    );
     Ok(())
 }

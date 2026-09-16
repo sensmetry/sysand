@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 
+use crate::manifest::inherit::MetaProperty;
 use crate::{
     env::{
         ReadEnvironment as _, WriteEnvironment as _,
@@ -20,14 +21,21 @@ fn new_env() -> MemoryStorageEnvironment<InMemoryProject> {
     MemoryStorageEnvironment::<InMemoryProject>::new()
 }
 
+/// Every project here is an OMG SysML one: which metamodel an
+/// environment holds is not what these tests are about, and a project
+/// without one is a file the reader refuses.
+fn sysml() -> MetaProperty<String> {
+    MetaProperty::Provided("https://www.omg.org/spec/SysML/20250201".to_owned())
+}
+
 #[test]
 fn write_environment() {
     let uri1 = "urn:kpar:first".to_owned();
     let uri2 = "urn:kpar:second".to_owned();
     let version = "0.0.1".to_owned();
-    let project1 = do_init_memory("First", "acme", &version, None).unwrap();
+    let project1 = do_init_memory("First", "acme", &version, None, Some(sysml())).unwrap();
     let c1 = project1.checksum_canonical_variant().unwrap();
-    let project2 = do_init_memory("Second", "bravo", &version, None).unwrap();
+    let project2 = do_init_memory("Second", "bravo", &version, None, Some(sysml())).unwrap();
     let c2 = project2.checksum_canonical_variant().unwrap();
     let mut env = new_env();
 
@@ -75,7 +83,7 @@ fn write_environment() {
 fn read_environment() {
     let iri = "urn:kpar:first".to_owned();
     let version = "0.0.1".to_owned();
-    let project = do_init_memory("First", "acme", &version, None).unwrap();
+    let project = do_init_memory("First", "acme", &version, None, Some(sysml())).unwrap();
     let env = MemoryStorageEnvironment {
         projects: HashMap::from([(
             iri.clone(),
@@ -109,9 +117,9 @@ fn from() {
     let version1 = "0.0.1".to_owned();
     let version2 = "0.1.0".to_owned();
     let version3 = "0.0.1".to_owned();
-    let project1 = do_init_memory("First 0.0.1", "acme", &version1, None).unwrap();
-    let project2 = do_init_memory("First 0.1.0", "acme", &version2, None).unwrap();
-    let project3 = do_init_memory("Second", "acme", &version3, None).unwrap();
+    let project1 = do_init_memory("First 0.0.1", "acme", &version1, None, Some(sysml())).unwrap();
+    let project2 = do_init_memory("First 0.1.0", "acme", &version2, None, Some(sysml())).unwrap();
+    let project3 = do_init_memory("Second", "acme", &version3, None, Some(sysml())).unwrap();
     let env = MemoryStorageEnvironment::<InMemoryProject>::from([
         ("urn:kpar:first".into(), version1.clone(), project1.clone()),
         ("urn:kpar:first".into(), version2.clone(), project2.clone()),
@@ -136,9 +144,9 @@ fn from() {
 
 #[test]
 fn try_from() {
-    let project1 = do_init_memory("First 0.0.1", "acme", "0.0.1", None).unwrap();
-    let project2 = do_init_memory("First 0.1.0", "acme", "0.1.0", None).unwrap();
-    let project3 = do_init_memory("Second", "acme", "0.0.1", None).unwrap();
+    let project1 = do_init_memory("First 0.0.1", "acme", "0.0.1", None, Some(sysml())).unwrap();
+    let project2 = do_init_memory("First 0.1.0", "acme", "0.1.0", None, Some(sysml())).unwrap();
+    let project3 = do_init_memory("Second", "acme", "0.0.1", None, Some(sysml())).unwrap();
     let env = MemoryStorageEnvironment::<InMemoryProject>::try_from([
         ("urn:kpar:first".into(), project1.clone()),
         ("urn:kpar:first".into(), project2.clone()),

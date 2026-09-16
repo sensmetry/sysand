@@ -13,6 +13,7 @@ from ._auth import AuthPolicy, Resolution
 def migrate(
     path: str | Path = ".",
     publisher: str | None = None,
+    metamodel: str | None = None,
     allow_dirty: bool = False,
     allow_no_vcs: bool = False,
     resolution: Resolution | None = None,
@@ -23,7 +24,10 @@ def migrate(
     Writes ``model.toml`` and then removes ``.project.json`` and
     ``.meta.json``, as ``sysand migrate`` does. A project whose
     ``.project.json`` declares no ``publisher`` needs one here, since
-    ``model.toml`` requires it.
+    ``model.toml`` requires it. So does a project whose ``.meta.json``
+    declares no ``metamodel``, or one Sysand does not recognize:
+    ``metamodel`` supplies it, and it is one of the four values a
+    ``model.toml`` holds.
 
     The working tree is checked first, because the json manifests are
     deleted: uncommitted changes and a directory outside any git
@@ -38,7 +42,7 @@ def migrate(
             working tree is dirty, or it is not inside a git work tree.
     """
     sysand_rs.do_migrate_py(
-        str(path), publisher, allow_dirty, allow_no_vcs, resolution, auth
+        str(path), publisher, metamodel, allow_dirty, allow_no_vcs, resolution, auth
     )
 
 
