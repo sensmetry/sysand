@@ -170,7 +170,29 @@ jobs:
           echo "CC_${target//-/_}=musl-gcc" >> "$GITHUB_ENV"
           echo "CARGO_BUILD_TARGET=$target" >> "$GITHUB_ENV"
 
+      # The stdlib equivalence test builds the standard-library workspace
+      # fixture and compares the archives with the release OMG
+      # published. The sources are deliberately not in this repository,
+      # so one entry checks the release out; everywhere else the test
+      # prints a skip notice.
+      - name: check out the SysML v2 release (for the stdlib equivalence test)
+        if: matrix.os == 'ubuntu-22.04' && matrix.libc == 'gnu'
+        uses: actions/checkout@v4
+        with:
+          repository: Systems-Modeling/SysML-v2-Release
+          # Not `2025-02`, although that is the tag named like this spec
+          # version: the library kept changing after February and 16 of
+          # the 58 checksummed files differ there. `2025-09` is the tag
+          # whose sources reproduce `stdlib_assets/20250201`. See the
+          # module comment on `core/tests/stdlib_equivalence.rs`.
+          ref: 2025-09
+          path: sysml-v2-release
+
       - name: cargo test ... (Rust library & CLI)
+        env:
+          # Read by `core/tests/stdlib_equivalence.rs`; unset elsewhere,
+          # which the test reports rather than passing silently.
+          SYSAND_STDLIB_SOURCES: ${{ (matrix.os == 'ubuntu-22.04' && matrix.libc == 'gnu') && format('{0}/sysml-v2-release', github.workspace) || '' }}
         run: >-
           cargo test --locked
           --package sysand-core
