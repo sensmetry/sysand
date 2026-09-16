@@ -927,12 +927,7 @@ pub(crate) fn handle_build_error(env: &mut Env<'_>, error: &KParBuildError<Local
                 format!("Workspace read error: {e}"),
             );
         }
-        KParBuildError::PathUsage(_)
-        | KParBuildError::WorkspaceMetamodelConflict {
-            workspace_metamodel: _,
-            project_metamodel: _,
-            project_path: _,
-        } => {
+        KParBuildError::PathUsage(_) => {
             env.throw_exception(ExceptionKind::SysandException, e);
         }
         KParBuildError::MissingIndexSymbol(_, _) => {

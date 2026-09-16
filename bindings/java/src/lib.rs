@@ -31,7 +31,7 @@ use sysand_core::{
     },
     resolve::{net_utils::create_reqwest_client, standard::standard_resolver},
     utils::format_err,
-    workspace::Workspace,
+    workspace::model_toml::{MemberChecks, Workspace},
 };
 
 use crate::{
@@ -353,17 +353,22 @@ fn workspace_project_paths<'local>(
     let Some(workspace_path) = env.get_str(&workspace_path, "workspacePath") else {
         ret_null!()
     };
-    let workspace = match Workspace::new(workspace_path.into()) {
+    let workspace = match Workspace::load_with(
+        Utf8PathBuf::from(workspace_path),
+        MemberChecks::SkipStrayState,
+    ) {
         Ok(w) => w,
         Err(e) => {
             env.throw_exception(ExceptionKind::InvalidWorkspace, format_err(e));
             ret_null!()
         }
     };
+    // Absolute and canonical, because the loader canonicalizes the root
+    // that every member directory hangs off.
     let paths: Vec<String> = workspace
-        .absolute_project_paths()
-        .into_iter()
-        .map(Utf8PathBuf::into_string)
+        .members()
+        .iter()
+        .map(|member| member.dir.clone().into_string())
         .collect();
     Ok(paths.to_jstring_array(env).unwrap_or_default())
 }
@@ -490,7 +495,10 @@ fn build_workspace<'local>(
     let Some(workspace_path) = env.get_str(&workspace_path, "workspacePath") else {
         ret!()
     };
-    let workspace = match Workspace::new(workspace_path.into()) {
+    let workspace = match Workspace::load_with(
+        Utf8PathBuf::from(workspace_path),
+        MemberChecks::SkipStrayState,
+    ) {
         Ok(w) => w,
         Err(e) => {
             env.throw_exception(ExceptionKind::InvalidWorkspace, format_err(e));

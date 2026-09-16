@@ -29,7 +29,7 @@ use crate::{
         ProvidedProjects, format_err, license_file_stems, sha256_lowercase_hex,
         to_pretty_json_string,
     },
-    workspace::{Workspace, WorkspaceReadError},
+    workspace::{WorkspaceReadError, model_toml},
 };
 
 #[derive(Default, Copy, Clone, Debug, PartialEq, Eq)]
@@ -224,16 +224,6 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
         which is unlikely to be available on other computers at the same path"
     )]
     PathUsage(String),
-    #[error(
-        "workspace sets metamodel `{workspace_metamodel}`, but project `{project_path}` \
-         sets a different metamodel `{project_metamodel}` in `.meta.json`;\n\
-         remove the metamodel from the project's `.meta.json` or from `.workspace.json`"
-    )]
-    WorkspaceMetamodelConflict {
-        workspace_metamodel: String,
-        project_metamodel: String,
-        project_path: String,
-    },
     #[error("file `{0}` is missing symbol `{1}` found in index")]
     MissingIndexSymbol(Box<str>, String),
 }
@@ -270,13 +260,19 @@ impl<ProjectReadError: ErrorBound> From<IncludeError<ProjectReadError>>
 /// project has its own.
 pub const DEFAULT_OUTPUT_NAME: &str = "output";
 
+/// `workspace_root` is the root of the workspace the project is a
+/// member of, if it is one: workspaces.md "Build output" gives a
+/// workspace **one** `output/`, at its root, so a member's archive goes
+/// there whether the build was run from the root or from the member.
+/// The root alone is what that needs -- a loaded [`model_toml::Workspace`]
+/// would mean reading the members to answer a question about a path.
 pub fn default_kpar_path<Pr: ProjectRead>(
     project: &Pr,
-    workspace: Option<&Workspace>,
+    workspace_root: Option<&Utf8Path>,
     project_path: &Utf8Path,
 ) -> Result<Utf8PathBuf, KParBuildError<Pr::Error>> {
-    let mut path = workspace
-        .map_or(project_path, Workspace::root_path)
+    let mut path = workspace_root
+        .unwrap_or(project_path)
         .join(DEFAULT_OUTPUT_NAME);
     path.push(default_kpar_file_name(project)?);
     Ok(path)
@@ -334,7 +330,7 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     compression: KparCompressionMethod,
     update_index: bool,
     allow_path_usage: bool,
-    workspace_metamodel: Option<&str>,
+    workspace: TargetWorkspace<'_>,
 ) -> Result<LocalKParProjectRaw, KParBuildError<Pr::Error>> {
     let building = "Building";
     let header = crate::style::get_style_config().header;
@@ -406,19 +402,18 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
                     let embedded = std_libs.get_or_insert_with(known_std_libs);
                     *raw = stdlib_index_usage(embedded, &located.usage, name, version_constraint)?;
                 }
-                Usage::SourcePath {
-                    dir,
-                    publisher: _,
-                    name: _,
-                } if !allow_path_usage => {
-                    *raw = local_target_usage(root, &located.usage, dir.as_str(), false)?;
+                Usage::SourcePath { dir, .. } if !allow_path_usage => {
+                    *raw =
+                        local_target_usage(root, &located.usage, dir.as_str(), false, workspace)?;
                 }
-                Usage::KparPath {
-                    kpar_path,
-                    publisher: _,
-                    name: _,
-                } if !allow_path_usage => {
-                    *raw = local_target_usage(root, &located.usage, kpar_path.as_str(), true)?;
+                Usage::KparPath { kpar_path, .. } if !allow_path_usage => {
+                    *raw = local_target_usage(
+                        root,
+                        &located.usage,
+                        kpar_path.as_str(),
+                        true,
+                        workspace,
+                    )?;
                 }
                 _ => {}
             }
@@ -478,20 +473,6 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
             );
         } else {
             return Err(KParBuildError::PathUsage(path_usage.clone()));
-        }
-    }
-
-    if let Some(ws_metamodel) = workspace_metamodel {
-        if let Some(proj_metamodel) = &meta.metamodel {
-            if proj_metamodel != ws_metamodel {
-                return Err(KParBuildError::WorkspaceMetamodelConflict {
-                    workspace_metamodel: ws_metamodel.to_owned(),
-                    project_metamodel: proj_metamodel.into(),
-                    project_path: path.as_ref().to_string(),
-                });
-            }
-        } else {
-            meta.metamodel = Some(ws_metamodel.to_owned());
         }
     }
 
@@ -657,11 +638,20 @@ fn read_optional_project_file(
 /// "`build` never resolves usages, so building needs neither network nor
 /// index; the target versions it needs come from the targets' manifests
 /// (members and local paths), never from built artifacts."
+/// The workspace a build is part of, for reading a `dir` target.
+///
+/// A member that inherits a key resolves its manifest only against the
+/// table, so a target read without one fails with "not a member of any
+/// workspace" -- about a project that is one.
+type TargetWorkspace<'a> =
+    Option<&'a std::sync::Arc<crate::manifest::workspace_table::WorkspaceTable>>;
+
 fn local_target_usage<E: ErrorBound>(
     root: Option<&Utf8Path>,
     usage: &Usage,
     relative: &str,
     is_kpar: bool,
+    workspace: TargetWorkspace<'_>,
 ) -> Result<InterchangeProjectUsageRaw, KParBuildError<E>> {
     let missing = || KParBuildError::TomlTargetMissing {
         usage: usage.to_string(),
@@ -699,7 +689,10 @@ fn local_target_usage<E: ErrorBound>(
             Err(error) => return Err(unreadable(&error)),
         }
     } else {
-        let source = LocalSrcProject::new_access(target, None);
+        let source = match workspace {
+            Some(table) => LocalSrcProject::new_member(target, None, table.clone()),
+            None => LocalSrcProject::new_access(target, None),
+        };
         // `manifest()` and not `version()`: the latter goes through
         // `get_info`, which for a toml target builds the whole KPAR
         // view -- reading, hashing and symbol-extracting every file the
@@ -829,14 +822,16 @@ fn caret<E: ErrorBound>(
 
 /// Every member, read once: a `LocalSrcProject` caches its own view, and
 /// two instances of the same member would read it twice.
-fn read_members(workspace: &Workspace) -> Vec<Member> {
-    let root = workspace.root_path();
+fn read_members(workspace: &model_toml::Workspace) -> Vec<Member> {
+    // Every member carries the workspace table: a member that inherits a
+    // key resolves its manifest only with the table in hand.
+    let table = std::sync::Arc::new(workspace.table().clone());
     workspace
-        .projects()
+        .members()
         .iter()
-        .map(|project_root| {
-            let dir = canonical_or(root.join(&project_root.path));
-            let project = LocalSrcProject::new_access(dir.clone(), None);
+        .map(|member| {
+            let dir = canonical_or(member.dir.clone());
+            let project = LocalSrcProject::new_member(dir.clone(), None, table.clone());
             Member { dir, project }
         })
         .collect()
@@ -854,9 +849,9 @@ fn read_members(workspace: &Workspace) -> Vec<Member> {
 /// failure report whose entries cannot be told apart is a count, not a
 /// report.
 pub fn workspace_publish_order(
-    workspace: &Workspace,
+    workspace: &model_toml::Workspace,
 ) -> Result<Vec<(Utf8PathBuf, Utf8PathBuf)>, MemberFailure> {
-    let root = workspace.root_path();
+    let root = workspace.root();
     let members = read_members(workspace);
 
     // workspaces.md "Build output": members are published in dependency
@@ -882,7 +877,7 @@ pub fn workspace_publish_order(
     for dir in graph.dependency_order() {
         for member in members.iter().filter(|member| &member.dir == dir) {
             let short = shorten(&member.dir, root);
-            let archive = default_kpar_path(&member.project, Some(workspace), &member.dir)
+            let archive = default_kpar_path(&member.project, Some(root), &member.dir)
                 .map_err(|error| MemberFailure::at(&short, error))?;
             archives.push((short, archive));
         }
@@ -898,14 +893,16 @@ pub fn workspace_publish_order(
 /// The error is every member that failed, together with the archives the
 /// others produced.
 pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
-    workspace: &Workspace,
+    workspace: &model_toml::Workspace,
     path: P,
     compression: KparCompressionMethod,
     update_index: bool,
     allow_path_usage: bool,
 ) -> Result<Vec<LocalKParProjectRaw>, WorkspaceBuildFailure> {
-    let ws_metamodel = workspace.metamodel().map(ToString::to_string);
-    let root = workspace.root_path();
+    let root = workspace.root();
+    // The same table the members were read with: a `dir` usage of a
+    // member that inherits a key needs it to read the target.
+    let table = std::sync::Arc::new(workspace.table().clone());
     let mut built = Vec::new();
     let mut failed = Vec::new();
     for member in read_members(workspace) {
@@ -915,7 +912,7 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
             compression,
             update_index,
             allow_path_usage,
-            ws_metamodel.as_deref(),
+            Some(&table),
         ) {
             Ok(kpar) => built.push(kpar),
             Err(error) => failed.push(MemberFailure::at(&shorten(&member.dir, root), error)),
@@ -936,7 +933,8 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
     failed.len() + built.len()
 )]
 pub struct WorkspaceBuildFailure {
-    /// Every member that failed, in `members` order.
+    /// Every member that failed, in `members` order, each named relative
+    /// to the workspace root -- the way the `members` entries name it.
     pub failed: Vec<MemberFailure>,
     /// The archives of the members that built, in `members` order.
     pub built: Vec<LocalKParProjectRaw>,
@@ -975,7 +973,7 @@ fn build_member(
     compression: KparCompressionMethod,
     update_index: bool,
     allow_path_usage: bool,
-    ws_metamodel: Option<&str>,
+    workspace: TargetWorkspace<'_>,
 ) -> Result<LocalKParProjectRaw, KParBuildError<LocalSrcError>> {
     let output_path = output.join(default_kpar_file_name(&member.project)?);
     do_build_kpar_inner(
@@ -984,7 +982,7 @@ fn build_member(
         compression,
         update_index,
         allow_path_usage,
-        ws_metamodel,
+        workspace,
     )
     .inspect_err(|_| {
         if let Err(error) = wrapfs::remove_file(&output_path) {

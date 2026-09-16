@@ -1031,11 +1031,6 @@ fn do_build_py(
                     reason: _,
                 }
                 | KParBuildError::Serialize(..)
-                | KParBuildError::WorkspaceMetamodelConflict {
-                    workspace_metamodel: _,
-                    project_metamodel: _,
-                    project_path: _,
-                }
                 | KParBuildError::MissingIndexSymbol(_, _) => PyValueError::new_err(e),
                 KParBuildError::PathUsage(_) => PyValueError::new_err(format!(
                     "{e}\nto build anyway, pass `allow_path_usage=True`"

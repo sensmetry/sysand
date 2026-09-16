@@ -7,7 +7,7 @@ use super::{
     KParBuildError, KparCompressionMethod, do_build_kpar, license_file_stems,
     read_optional_project_file,
 };
-use crate::project::utils::FsIoError;
+use crate::{manifest::MODEL_TOML_FILE, project::utils::FsIoError};
 
 #[test]
 fn returns_none_when_project_root_is_none() {
@@ -379,8 +379,8 @@ fn a_json_project_with_a_typed_local_usage_builds_under_the_flag()
 fn a_workspace_of_toml_members_records_the_build_time() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
     std::fs::write(
-        dir.path().join(".workspace.json"),
-        br#"{"projects": [{"path": "app", "iris": []}]}"#,
+        dir.path().join(MODEL_TOML_FILE),
+        "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\n",
     )?;
     std::fs::create_dir_all(dir.path().join("app"))?;
     std::fs::write(
@@ -390,7 +390,7 @@ fn a_workspace_of_toml_members_records_the_build_time() -> Result<(), Box<dyn st
     )?;
     std::fs::write(dir.path().join("app/a.sysml"), b"package A;\n")?;
 
-    let workspace = crate::workspace::Workspace::new(dir.path().to_owned())?;
+    let workspace = load_workspace(&dir);
     let out = dir.path().join("output");
     std::fs::create_dir_all(&out)?;
     let built = super::do_build_workspace_kpars(
@@ -766,16 +766,25 @@ fn usage_name(dep: &str) -> String {
     }
 }
 
-fn json_workspace(dir: &camino_tempfile::Utf8TempDir, members: &[&str]) {
-    let projects: Vec<String> = members
-        .iter()
-        .map(|m| format!(r#"{{"path": "{m}", "iris": []}}"#))
-        .collect();
+fn workspace_root(dir: &camino_tempfile::Utf8TempDir, members: &[&str]) {
+    let entries: Vec<String> = members.iter().map(|m| format!("\"{m}\"")).collect();
     std::fs::write(
-        dir.path().join(".workspace.json"),
-        format!(r#"{{"projects": [{}]}}"#, projects.join(", ")),
+        dir.path().join(MODEL_TOML_FILE),
+        format!(
+            "manifest-version = 1\n\n[workspace]\nmembers = [{}]\n",
+            entries.join(", ")
+        ),
     )
     .expect("a workspace file");
+}
+
+/// Loads the workspace with `MemberChecks::SkipStrayState`.
+fn load_workspace(dir: &camino_tempfile::Utf8TempDir) -> crate::workspace::model_toml::Workspace {
+    crate::workspace::model_toml::Workspace::load_with(
+        dir.path(),
+        crate::workspace::model_toml::MemberChecks::SkipStrayState,
+    )
+    .expect("the workspace loads")
 }
 
 /// A `model.toml` member. `stdlib` needs publisher `omg` and an OMG
@@ -820,8 +829,7 @@ fn build_workspace(dir: &camino_tempfile::Utf8TempDir) -> Vec<String> {
 fn build_workspace_result(
     dir: &camino_tempfile::Utf8TempDir,
 ) -> Result<Vec<super::LocalKParProjectRaw>, super::WorkspaceBuildFailure> {
-    let workspace =
-        crate::workspace::Workspace::new(dir.path().to_owned()).expect("the workspace file reads");
+    let workspace = load_workspace(dir);
     let out = dir.path().join("output");
     std::fs::create_dir_all(&out).expect("the output directory");
     super::do_build_workspace_kpars(
@@ -838,7 +846,7 @@ fn build_workspace_result(
 #[test]
 fn members_build_in_members_order() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
-    json_workspace(&dir, &["gamma", "beta", "alpha"]);
+    workspace_root(&dir, &["gamma", "beta", "alpha"]);
     toml_member(&dir, "alpha", &[], false);
     toml_member(&dir, "beta", &["../alpha"], false);
     toml_member(&dir, "gamma", &["../beta"], false);
@@ -851,7 +859,7 @@ fn members_build_in_members_order() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn independent_members_keep_their_declared_order() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
-    json_workspace(&dir, &["gamma", "beta", "alpha"]);
+    workspace_root(&dir, &["gamma", "beta", "alpha"]);
     for at in ["alpha", "beta", "gamma"] {
         toml_member(&dir, at, &[], false);
     }
@@ -864,7 +872,7 @@ fn independent_members_keep_their_declared_order() -> Result<(), Box<dyn std::er
 #[test]
 fn a_usage_of_a_non_member_is_not_an_edge() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
-    json_workspace(&dir, &["gamma", "beta"]);
+    workspace_root(&dir, &["gamma", "beta"]);
     toml_member(&dir, "outside", &[], false);
     toml_member(&dir, "beta", &["../outside"], false);
     toml_member(&dir, "gamma", &[], false);
@@ -874,10 +882,25 @@ fn a_usage_of_a_non_member_is_not_an_edge() -> Result<(), Box<dyn std::error::Er
 
 // ------------------------------ a failed member does not stop the others
 
-/// A member directory with no manifest at all: it fails, and it fails at
-/// `default_kpar_file_name` rather than inside the build.
+/// A member that loads and cannot be built: its manifest is valid, so
+/// the workspace loads, and the source it lists is not there, so
+/// `default_kpar_file_name` -- which reads the project -- is where it
+/// fails, before the build proper.
+///
+/// Not an empty directory: `load_member` refuses one ("defines no
+/// project"), which fails the whole load and makes the per-member
+/// reporting this section tests unreachable.
 fn broken_member(dir: &camino_tempfile::Utf8TempDir, at: &str) {
-    std::fs::create_dir_all(dir.path().join(at)).expect("the member directory");
+    let path = dir.path().join(at);
+    std::fs::create_dir_all(&path).expect("the member directory");
+    std::fs::write(
+        path.join(MODEL_TOML_FILE),
+        format!(
+            "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"{at}\"\n\
+             version = \"1.0.0\"\nsources = [\"missing.kerml\"]\n"
+        ),
+    )
+    .expect("a member manifest");
 }
 
 /// The project names of `archives`.
@@ -909,7 +932,7 @@ fn failed_members(failure: &super::WorkspaceBuildFailure) -> Vec<&str> {
 #[test]
 fn a_failed_member_does_not_stop_an_independent_one() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
-    json_workspace(&dir, &["alpha", "beta"]);
+    workspace_root(&dir, &["alpha", "beta"]);
     broken_member(&dir, "alpha");
     toml_member(&dir, "beta", &[], false);
 
@@ -928,7 +951,7 @@ fn a_failed_member_does_not_stop_an_independent_one() -> Result<(), Box<dyn std:
 #[test]
 fn a_failed_member_does_not_stop_its_dependents() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
-    json_workspace(&dir, &["beta", "alpha"]);
+    workspace_root(&dir, &["beta", "alpha"]);
     broken_member(&dir, "alpha");
     toml_member(&dir, "beta", &["../alpha"], false);
 
@@ -941,7 +964,7 @@ fn a_failed_member_does_not_stop_its_dependents() -> Result<(), Box<dyn std::err
 #[test]
 fn a_workspace_that_builds_reports_every_member_built() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
-    json_workspace(&dir, &["gamma", "beta", "alpha"]);
+    workspace_root(&dir, &["gamma", "beta", "alpha"]);
     toml_member(&dir, "alpha", &[], false);
     toml_member(&dir, "beta", &["../alpha"], false);
     toml_member(&dir, "gamma", &["../beta"], false);
@@ -950,12 +973,13 @@ fn a_workspace_that_builds_reports_every_member_built() -> Result<(), Box<dyn st
     Ok(())
 }
 
-/// `default_kpar_file_name` is the call that fails for a member with no
-/// manifest. Outside the per-member arm it would stop the workspace.
+/// `default_kpar_file_name` is the call that fails for a member whose
+/// project cannot be read. Outside the per-member arm it would stop the
+/// workspace.
 #[test]
-fn a_member_with_no_manifest_fails_as_itself() -> Result<(), Box<dyn std::error::Error>> {
+fn a_member_that_cannot_be_read_fails_as_itself() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
-    json_workspace(&dir, &["alpha"]);
+    workspace_root(&dir, &["alpha"]);
     broken_member(&dir, "alpha");
 
     let failure = build_workspace_failure(&dir);
@@ -964,7 +988,7 @@ fn a_member_with_no_manifest_fails_as_itself() -> Result<(), Box<dyn std::error:
     };
     assert_eq!(failed.member, "alpha");
     assert!(
-        matches!(*failed.error, KParBuildError::MissingInfo),
+        matches!(*failed.error, KParBuildError::ProjectRead(_)),
         "{}",
         failed.error
     );
@@ -976,12 +1000,12 @@ fn a_member_with_no_manifest_fails_as_itself() -> Result<(), Box<dyn std::error:
 #[test]
 fn publish_order_is_the_dependency_order() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
-    json_workspace(&dir, &["gamma", "beta", "alpha"]);
+    workspace_root(&dir, &["gamma", "beta", "alpha"]);
     toml_member(&dir, "alpha", &[], false);
     toml_member(&dir, "beta", &["../alpha"], false);
     toml_member(&dir, "gamma", &["../beta"], false);
 
-    let workspace = crate::workspace::Workspace::new(dir.path().to_owned())?;
+    let workspace = load_workspace(&dir);
     let order = super::workspace_publish_order(&workspace).map_err(|e| e.to_string())?;
 
     let root = crate::project::utils::wrapfs::canonicalize(dir.path())?;
@@ -1000,18 +1024,71 @@ fn publish_order_is_the_dependency_order() -> Result<(), Box<dyn std::error::Err
 /// Found while mapping members to archives, before the caller uploads
 /// anything -- and named, since `KParBuildError` carries no identity.
 #[test]
-fn publish_order_refuses_a_member_with_no_manifest() -> Result<(), Box<dyn std::error::Error>> {
+fn publish_order_refuses_a_member_that_cannot_be_read() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
-    json_workspace(&dir, &["alpha", "beta"]);
+    workspace_root(&dir, &["alpha", "beta"]);
     broken_member(&dir, "alpha");
     toml_member(&dir, "beta", &[], false);
 
-    let workspace = crate::workspace::Workspace::new(dir.path().to_owned())?;
-    let failure = super::workspace_publish_order(&workspace).expect_err("alpha has no manifest");
+    let workspace = load_workspace(&dir);
+    let failure = super::workspace_publish_order(&workspace).expect_err("alpha cannot be read");
     assert_eq!(failure.member, "alpha");
     assert!(
-        matches!(*failure.error, KParBuildError::MissingInfo),
+        matches!(*failure.error, KParBuildError::ProjectRead(_)),
         "{failure}"
     );
+    Ok(())
+}
+
+/// A member that inherits a key can be the *target* of another member's
+/// `dir` usage.
+///
+/// `local_target_usage` must open the target with the workspace table:
+/// opened without one, a marker on the target is unresolvable and the
+/// usage fails with "not a member of any workspace" -- about a project
+/// that is one.
+#[test]
+fn a_member_that_inherits_can_be_a_usage_target() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    workspace_root(&dir, &["app", "dep"]);
+    std::fs::write(
+        dir.path().join(MODEL_TOML_FILE),
+        "manifest-version = 1\n\n[workspace]\nmembers = [\"app\", \"dep\"]\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    )?;
+    for (at, extra) in [
+        ("dep", ""),
+        (
+            "app",
+            "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"../dep\"\n",
+        ),
+    ] {
+        let path = dir.path().join(at);
+        std::fs::create_dir_all(&path)?;
+        std::fs::write(
+            path.join(MODEL_TOML_FILE),
+            format!(
+                "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"{at}\"\n\
+                 version = \"1.0.0\"\nmetamodel.workspace = true\n\
+                 sources = [\"m.kerml\"]\n{extra}"
+            ),
+        )?;
+        std::fs::write(path.join("m.kerml"), b"package M;\n")?;
+    }
+
+    // `allow_path_usage: false`, as `sysand build` passes it: with it
+    // true, a local usage stays typed and the target is never read at all.
+    let workspace = load_workspace(&dir);
+    let out = dir.path().join("output");
+    std::fs::create_dir_all(&out)?;
+    if let Err(failure) = super::do_build_workspace_kpars(
+        &workspace,
+        &out,
+        KparCompressionMethod::default(),
+        true,
+        false,
+    ) {
+        panic!("an inheriting target is readable: {:?}", failure.failed);
+    }
     Ok(())
 }

@@ -21,7 +21,7 @@ import com.sensmetry.sysand.model.CompressionMethod;
 public class SysandBuildKParMojo extends AbstractMojo {
 
     /**
-     * Path to the workspace.json file. Can be configured as
+     * Path to the workspace root directory. Can be configured as
      * {@code <configuration><workspacePath>...</workspacePath></configuration>}
      * or via {@code -Dsysand.workspacePath=...}.
      */

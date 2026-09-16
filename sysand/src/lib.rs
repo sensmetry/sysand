@@ -45,7 +45,7 @@ use sysand_core::{
     stdlib::known_std_libs,
     workspace::{
         Workspace,
-        model_toml::{StartRegion, discover_table, start_region},
+        model_toml::{MemberChecks, StartRegion, discover_table, start_region},
     },
 };
 use url::Url;
@@ -947,12 +947,17 @@ fn run_cli_with(
         } => {
             if let Some(current_project) = ctx.current_project {
                 // Even if we are in a workspace, the project takes precedence.
+                //
+                // The workspace root still decides *where* the archive
+                // goes: a workspace has one `output/`, so building a
+                // member from inside it writes where building the whole
+                // workspace would have.
                 let path = if let Some(path) = path {
                     path
                 } else {
                     let path = sysand_core::build::default_kpar_path(
                         &current_project,
-                        ctx.current_workspace.as_ref(),
+                        model_workspace_root.as_deref(),
                         current_project.root_path(),
                     )?;
                     if let Some(output_dir) = path.parent()
@@ -973,21 +978,23 @@ fn run_cli_with(
                 // If the workspace is also missing, report an error about
                 // missing project because that is what the user is more likely
                 // to be looking for.
-                let current_workspace = ctx
-                    .current_workspace
-                    .ok_or(CliError::MissingProjectCurrentDir)?;
-                let output_dir = path.unwrap_or_else(|| {
-                    current_workspace
-                        .root_path()
-                        .join(sysand_core::build::DEFAULT_OUTPUT_NAME)
-                });
+                let root = model_workspace_root.ok_or(CliError::MissingProjectCurrentDir)?;
+                // `SkipStrayState`, as `lock` and `add` do: a member
+                // that a previous `sysand build` left an `output/` in
+                // is still a member.
+                let workspace = sysand_core::workspace::model_toml::Workspace::load_with(
+                    &root,
+                    MemberChecks::SkipStrayState,
+                )?;
+                let output_dir =
+                    path.unwrap_or_else(|| root.join(sysand_core::build::DEFAULT_OUTPUT_NAME));
                 if !wrapfs::is_dir(&output_dir)? {
                     wrapfs::create_dir(&output_dir)?;
                 }
                 command_build_for_workspace(
                     output_dir,
                     compression.into(),
-                    current_workspace,
+                    &workspace,
                     !keep_index,
                     allow_path_usage,
                 )
