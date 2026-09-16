@@ -12,6 +12,12 @@ use crate::{
     },
 };
 
+/// The lookup for tests that have no `file:` usages: reaching it is a
+/// test's own bug.
+fn no_targets(resource: &str) -> Result<crate::manifest::usage::Usage, String> {
+    panic!("no test fixture should resolve a target, but `{resource}` was looked up")
+}
+
 fn info(name: &str, publisher: Option<&str>, version: &str) -> InterchangeProjectInfoRaw {
     InterchangeProjectInfoRaw {
         name: name.to_owned(),
@@ -58,7 +64,7 @@ fn migrated(
     info: &InterchangeProjectInfoRaw,
     meta: &InterchangeProjectMetadataRaw,
 ) -> ProjectManifest {
-    let validated = migrate_project(info, meta, &MigrateOptions::default())
+    let validated = migrate_project(info, meta, &MigrateOptions::default(), &no_targets)
         .unwrap_or_else(|report| panic!("the conversion succeeds:\n{report}"));
     match validated.value {
         ModelToml::Project(project) => *project,
@@ -71,7 +77,7 @@ fn errors(
     meta: &InterchangeProjectMetadataRaw,
     options: &MigrateOptions,
 ) -> String {
-    migrate_project(info, meta, options)
+    migrate_project(info, meta, options, &no_targets)
         .expect_err("the conversion fails")
         .to_string()
 }
@@ -185,6 +191,7 @@ fn an_unrecognized_metamodel_warns_and_migrates() {
         &info("widgets", Some("acme"), "1.0.0"),
         &m,
         &MigrateOptions::default(),
+        &no_targets,
     )
     .expect("an unrecognized metamodel is a warning");
     assert!(
@@ -321,6 +328,7 @@ fn the_publisher_comes_from_options_when_the_file_has_none() {
         &MigrateOptions {
             publisher: Some("acme".to_owned()),
         },
+        &no_targets,
     )
     .expect("the option supplies it")
     .value
@@ -345,6 +353,7 @@ fn the_files_publisher_wins_over_the_option() {
         &MigrateOptions {
             publisher: Some("fromoption".to_owned()),
         },
+        &no_targets,
     )
     .expect("both are valid")
     .value
@@ -371,6 +380,7 @@ fn the_discarded_metadata_warns() {
         &info("widgets", Some("acme"), "1.0.0"),
         &m,
         &MigrateOptions::default(),
+        &no_targets,
     )
     .expect("the conversion succeeds");
     let text = validated
@@ -507,7 +517,6 @@ fn an_unconstrained_purl_usage_needs_the_index() {
 fn a_located_usage_needs_its_target_read() {
     for resource in [
         "https://example.com/dep.kpar",
-        "file:///srv/dep",
         "http://example.com/dep.kpar",
     ] {
         let rendered = usage_error(InterchangeProjectUsageRaw::Resource {
@@ -771,4 +780,86 @@ fn two_distinct_usages_are_kept() {
         dir_usage("../beta", "acme", "beta"),
     ];
     assert_eq!(migrated(&raw, &meta()).inline_usages.len(), 2);
+}
+
+// --------------------------------------------------- `file:` resources
+
+use crate::manifest::usage::Usage as TomlUsage;
+use crate::model::{IndexName, IndexPublisher};
+
+fn file_resource(resource: &str) -> InterchangeProjectUsageRaw {
+    InterchangeProjectUsageRaw::Resource {
+        resource: resource.to_owned(),
+        version_constraint: None,
+    }
+}
+
+/// A lookup that answers with a fixed usage, standing in for one that
+/// reads the target. The core stays fixtureless: no directory is read
+/// here.
+fn resolves_to(dir: &str, publisher: &str, name: &str) -> TomlUsage {
+    TomlUsage::SourcePath {
+        publisher: IndexPublisher::parse(publisher.to_owned()).expect("a publisher"),
+        name: IndexName::parse(name.to_owned()).expect("a name"),
+        dir: typed_path::Utf8UnixPathBuf::from(dir),
+    }
+}
+
+#[test]
+fn a_file_usage_resolves_from_the_target() {
+    let mut raw = info("widgets", Some("acme"), "1.0.0");
+    raw.usage = vec![file_resource("file:///srv/dep")];
+    let lookup = |_: &str| Ok(resolves_to("../dep", "acme", "dep"));
+
+    let validated = migrate_project(&raw, &meta(), &MigrateOptions::default(), &lookup)
+        .expect("the target resolves");
+    let ModelToml::Project(manifest) = validated.value else {
+        panic!("a project");
+    };
+    assert_eq!(manifest.inline_usages.len(), 1, "the usage is kept");
+}
+
+#[test]
+fn a_file_usage_whose_target_cannot_be_read_is_refused() {
+    let mut raw = info("widgets", Some("acme"), "1.0.0");
+    raw.usage = vec![file_resource("file:///srv/dep")];
+    let lookup = |_: &str| Err("`/srv/dep` declares no `publisher`".to_owned());
+
+    let rendered = migrate_project(&raw, &meta(), &MigrateOptions::default(), &lookup)
+        .expect_err("the target cannot be read")
+        .to_string();
+    assert!(rendered.contains("declares no `publisher`"), "{rendered}");
+}
+
+/// Two `file:` usages naming one target are a duplicate.
+#[test]
+fn two_file_usages_of_one_target_are_a_duplicate() {
+    let mut raw = info("widgets", Some("acme"), "1.0.0");
+    raw.usage = vec![
+        file_resource("file:///srv/dep"),
+        file_resource("file:///srv/other"),
+    ];
+    let lookup = |_: &str| Ok(resolves_to("../dep", "acme", "dep"));
+
+    let rendered = migrate_project(&raw, &meta(), &MigrateOptions::default(), &lookup)
+        .expect_err("both name `acme/dep`")
+        .to_string();
+    assert!(rendered.contains("name the same project"), "{rendered}");
+}
+
+/// model-toml.md: an `http(s)` usage's `versionConstraint` is discarded
+/// with a warning. The warning belongs in core: the target lookup is
+/// handed only the resource string and never sees the constraint.
+#[test]
+fn an_http_usage_discards_its_constraint_with_a_warning() {
+    let mut raw = info("widgets", Some("acme"), "1.0.0");
+    raw.usage = vec![InterchangeProjectUsageRaw::Resource {
+        resource: "https://example.com/dep.kpar".to_owned(),
+        version_constraint: Some("^1.0.0".to_owned()),
+    }];
+    let rendered = errors(&raw, &meta(), &MigrateOptions::default());
+    assert!(
+        rendered.contains("which is not migrated"),
+        "the discarded constraint is reported:\n{rendered}"
+    );
 }

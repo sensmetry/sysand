@@ -57,6 +57,10 @@ from ._init import (
     init,
 )
 
+from ._migrate import (
+    migrate,
+)
+
 from ._add import (
     add,
 )
@@ -148,6 +152,7 @@ __all__ = [
     "sync",
     ## Init
     "init",
+    "migrate",
     ## Build
     "build",
     ## Include

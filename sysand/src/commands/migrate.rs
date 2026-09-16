@@ -1,17 +1,33 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use anyhow::{Result, bail};
+use std::{
+    io::{IsTerminal as _, Write as _},
+    sync::Arc,
+};
+
+use anyhow::{Context as _, Result, bail};
 use camino::{Utf8Path, Utf8PathBuf};
 
 use sysand_core::{
     commands::migrate::{MigrateOptions, VcsState, check_vcs, migrate_project},
-    manifest::{MODEL_TOML_FILE, ModelToml, ModelTomlKind, edit::render_new},
-    model::{IndexName, META_JSON_FILE, PROJECT_JSON_FILE},
-    project::{
-        local_src::{ProjectFormat, detect_format},
-        utils::wrapfs,
+    manifest::usage::Usage,
+    manifest::{
+        MODEL_TOML_FILE, ModelToml, ModelTomlKind, edit::render_new,
+        workspace_table::WorkspaceTable,
     },
+    model::{
+        IndexName, IndexPublisher, InterchangeProjectInfoPartial,
+        InterchangeProjectMetadataPartial, META_JSON_FILE, PROJECT_JSON_FILE,
+    },
+    project::{
+        ProjectRead as _,
+        local_kpar::{KparInnerPath, LocalKParProject},
+        local_src::{LocalSrcProject, ProjectFormat, detect_format},
+        utils::{relativize_path, validate_manifest, wrapfs},
+    },
+    utils::format_err,
+    workspace::model_toml::{discover_table, member_index},
 };
 
 /// `sysand migrate`: a json project becomes a `model.toml` one.
@@ -79,14 +95,41 @@ pub fn command_migrate(
         return Ok(());
     }
 
-    let info = wrapfs::read_to_string(dir.join(PROJECT_JSON_FILE))?;
-    let info = serde_json::from_str(&info)
-        .map_err(|e| anyhow::anyhow!("failed to read `{PROJECT_JSON_FILE}`: {e}"))?;
-    let meta = wrapfs::read_to_string(dir.join(META_JSON_FILE))?;
-    let meta = serde_json::from_str(&meta)
+    // Through the `Partial` types and `validate_manifest`, so unknown
+    // keys are warned about rather than dropped silently (model-toml.md
+    // "JSON to TOML": "print a warning about unknown fields and
+    // discard").
+    //
+    // The metadata comes first because `validate` takes the metamodel,
+    // and the metamodel is in `.meta.json`.
+    let meta_text = wrapfs::read_to_string(dir.join(META_JSON_FILE))?;
+    let meta: InterchangeProjectMetadataPartial = serde_json::from_str(&meta_text)
         .map_err(|e| anyhow::anyhow!("failed to read `{META_JSON_FILE}`: {e}"))?;
+    let meta = validate_manifest(
+        dir.join(META_JSON_FILE),
+        meta.validate(META_JSON_FILE, None),
+    )?;
+    let info_text = wrapfs::read_to_string(dir.join(PROJECT_JSON_FILE))?;
+    let info: InterchangeProjectInfoPartial = serde_json::from_str(&info_text)
+        .map_err(|e| anyhow::anyhow!("failed to read `{PROJECT_JSON_FILE}`: {e}"))?;
+    let info = validate_manifest(
+        dir.join(PROJECT_JSON_FILE),
+        info.validate(PROJECT_JSON_FILE, meta.metamodel.as_deref()),
+    )?;
 
-    let validated = migrate_project(&info, &meta, &MigrateOptions { publisher })?;
+    let lookup = |resource: &str| resolve_file_target(resource, &dir);
+    // `plan-phase1.md`: "When stdin is a TTY and `--publisher` is
+    // absent, prompt". Only then -- piped and CI runs keep appendix A
+    // row 42 exactly as it is, which is what every existing test
+    // asserts.
+    let publisher = match publisher {
+        Some(publisher) => Some(publisher),
+        None if info.publisher.is_none() && std::io::stdin().is_terminal() => {
+            prompt_for_publisher()?
+        }
+        None => None,
+    };
+    let validated = migrate_project(&info, &meta, &MigrateOptions { publisher }, &lookup)?;
     for warning in &validated.warnings {
         log::warn!("{warning}");
     }
@@ -204,4 +247,156 @@ fn check_both_agree(dir: &Utf8Path) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// The filesystem half of a `file:` usage.
+///
+/// Every step here is a filesystem question, which is why
+/// `migrate_project` delegates the whole conversion rather than just
+/// the identity: `url::Url::to_file_path` is `cfg`'d off on the wasm
+/// target `bindings/js` builds, and `sysand` is never built for it.
+fn resolve_file_target(resource: &str, project: &Utf8Path) -> Result<Usage, String> {
+    let url = url::Url::parse(resource).map_err(|e| format!("`{resource}` is not a URL: {e}"))?;
+    let target = url
+        .to_file_path()
+        .map_err(|()| format!("`{resource}` is not a path this system can open"))?;
+    let target = Utf8PathBuf::from_path_buf(target)
+        .map_err(|p| format!("`{}` is not valid UTF-8", p.display()))?;
+
+    // Both project kinds are tried: a project's kind is not decided
+    // from its extension.
+    let (publisher, name, is_kpar) = read_identity(&target)?;
+
+    // `relativize_path` asserts that both paths are absolute and free
+    // of `.`/`..`, so a `sysand migrate ./proj` would abort the process
+    // rather than fail. Canonicalize first.
+    let project =
+        wrapfs::canonicalize(project).map_err(|e| format!("cannot resolve `{project}`: {e}"))?;
+    let target =
+        wrapfs::canonicalize(&target).map_err(|e| format!("cannot resolve `{target}`: {e}"))?;
+    let relative = relativize_path(&target, &project)
+        .map_err(|e| format!("`{target}` cannot be written relative to `{project}`: {e}"))?;
+
+    Ok(if is_kpar {
+        Usage::KparPath {
+            publisher,
+            name,
+            kpar_path: relative,
+        }
+    } else {
+        Usage::SourcePath {
+            publisher,
+            name,
+            dir: relative,
+        }
+    })
+}
+
+/// `(publisher, name, is_kpar)` read from the target.
+fn read_identity(target: &Utf8Path) -> Result<(IndexPublisher, IndexName, bool), String> {
+    let source = match member_table(target)? {
+        // A member resolves its inherited keys against the table, which
+        // `get_info` consults; without it, `publisher.workspace = true`
+        // is unresolvable and the target reads as broken.
+        Some(table) => LocalSrcProject::new_member(target.to_owned(), None, Arc::new(table)),
+        None => LocalSrcProject::new_access(target.to_owned(), None),
+    };
+    // Only "there is no source project here" sends us to the KPAR
+    // attempt. A source project that *is* there and cannot be read has
+    // its own error, and swallowing it would report a member with an
+    // inherited `publisher` as "no project here".
+    let info = match source.get_info() {
+        Ok(Some(info)) => Some((info, false)),
+        Err(error) => return Err(format!("usage target `{target}`: {error}")),
+        // Nothing to read as a source project: a project's kind is not
+        // decided from its extension, so try a KPAR.
+        Ok(None) => {
+            let kpar = LocalKParProject::new_access(target.to_owned(), KparInnerPath::Guess, None);
+            match kpar.get_info() {
+                Ok(Some(info)) => Some((info, true)),
+                Ok(None) | Err(_) => None,
+            }
+        }
+    };
+    let Some((info, is_kpar)) = info else {
+        return Err(format!(
+            "`{target}` does not contain a project that `sysand migrate` can read"
+        ));
+    };
+
+    // The target's own `publisher` is the only source for it, and
+    // `model.toml` requires one. The wording is adapted rather than
+    // reused from `TargetHasNoPublisher`, whose advice is to run
+    // `sysand migrate` on the target -- which is what is running.
+    let Some(publisher) = info.publisher else {
+        return Err(format!(
+            "usage target `{target}` declares no `publisher`, which `model.toml` requires;\n\
+             {SP:>8} add one to the target before migrating this project",
+            SP = ' '
+        ));
+    };
+    Ok((
+        IndexPublisher::parse(publisher).map_err(|e| format!("usage target `{target}`: {e}"))?,
+        IndexName::parse(info.name).map_err(|e| format!("usage target `{target}`: {e}"))?,
+        is_kpar,
+    ))
+}
+
+/// The workspace table `target` inherits from, if it is a **member** of
+/// one.
+///
+/// Not `discover_table` alone: that finds any enclosing workspace root
+/// without asking whether the target is listed in `members`, and
+/// `manifest::inherit` is explicit that "markers resolve only against
+/// the workspace the project is a member of. A project that is not a
+/// member is outside every workspace regardless of where its directory
+/// sits". That population -- an unlisted project under a workspace root
+/// -- is exactly the one `migrate` exists for.
+///
+/// Not `Workspace::load_with` either: it would refuse the whole
+/// workspace because some *other* member is broken.
+fn member_table(target: &Utf8Path) -> Result<Option<WorkspaceTable>, String> {
+    let Some((root, table)) = discover_table(target).map_err(|e| {
+        format!(
+            "cannot tell whether `{target}` is in a workspace: {}",
+            format_err(e)
+        )
+    })?
+    else {
+        return Ok(None);
+    };
+    // `member_index` and not `start_region`: the latter prefix-matches,
+    // so a project that merely *sits inside* a member would answer
+    // `Member` and be handed the table it is not entitled to. Every
+    // "not a member" answer -- unlisted, excluded, nested inside an
+    // entry, outside the root -- is an answer here rather than a
+    // failure: reporting it would fail the migration of an unrelated
+    // project because of a workspace the target merely sits near, and
+    // an unlisted project under a root is precisely what `migrate`
+    // exists for.
+    let index = member_index(&root, &table, target).map_err(|error| {
+        format!(
+            "cannot place `{target}` in the workspace at `{root}`: {}",
+            format_err(error)
+        )
+    })?;
+    Ok(index.map(|_| table))
+}
+
+/// Ask for the publisher `model.toml` requires and the json project does
+/// not have.
+///
+/// A plain read, not `rpassword`: that masks what is typed, which is
+/// right for a token and wrong for a publisher.
+fn prompt_for_publisher() -> Result<Option<String>> {
+    print!("Publisher for this project (leave empty to abort): ");
+    std::io::stdout()
+        .flush()
+        .context("could not write the prompt")?;
+    let mut answer = String::new();
+    std::io::stdin()
+        .read_line(&mut answer)
+        .context("could not read the publisher from the terminal")?;
+    let answer = answer.trim();
+    Ok((!answer.is_empty()).then(|| answer.to_owned()))
 }

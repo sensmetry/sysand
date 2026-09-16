@@ -129,6 +129,38 @@ fn render_long_help(prog: &str, args: Vec<String>) -> String {
     sysand::render_long_help(prog, args)
 }
 
+/// `sysand migrate`, as the CLI runs it.
+///
+/// Through `command_migrate` rather than the core pieces: this binding
+/// already depends on the `sysand` crate. The cost is that every
+/// failure arrives as one `anyhow::Error` and so as one
+/// `ProjectError` -- migrate's failures are a `Report` of diagnostics,
+/// which has no variant structure to map onto Python exceptions the way
+/// `init`'s do.
+#[pyfunction(name = "do_migrate_py")]
+#[pyo3(
+    signature = (path, publisher=None, allow_dirty=false, allow_no_vcs=false),
+)]
+fn do_migrate_py(
+    path: String,
+    publisher: Option<String>,
+    allow_dirty: bool,
+    allow_no_vcs: bool,
+) -> PyResult<()> {
+    common_init();
+
+    let path = Utf8PathBuf::from(path);
+    let cwd = wrapfs::current_dir().map_err(|e| ProjectError::new_err(format_err(e)))?;
+    sysand::commands::migrate::command_migrate(
+        Some(path),
+        publisher,
+        allow_dirty,
+        allow_no_vcs,
+        &cwd,
+    )
+    .map_err(|e| ProjectError::new_err(format!("{e:#}")))
+}
+
 #[pyfunction(name = "do_init_py_local_file")]
 #[pyo3(
     signature = (name, publisher, version, path, license=None, metamodel=None),
@@ -1702,6 +1734,7 @@ pub fn sysand_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_cli, m)?)?;
     m.add_function(wrap_pyfunction!(render_long_help, m)?)?;
     m.add_function(wrap_pyfunction!(do_init_py_local_file, m)?)?;
+    m.add_function(wrap_pyfunction!(do_migrate_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_env_py_local_dir, m)?)?;
     m.add_function(wrap_pyfunction!(do_info_py_path, m)?)?;
     m.add_function(wrap_pyfunction!(do_model_roundtrip_py, m)?)?;
