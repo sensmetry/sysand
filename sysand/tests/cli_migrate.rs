@@ -736,6 +736,18 @@ use mockito::Server;
 /// An index serving `versions.json` and a `.project.json` per version.
 /// Enough for `get_project_version`, which reads each candidate's info.
 fn index_with_versions(server: &mut Server, versions: &[&str]) -> Vec<mockito::Mock> {
+    index_with_versions_declaring(server, versions, "mock", "dep")
+}
+
+/// The same, with a target that spells its identity differently from
+/// the PURL that names it -- which is what a migrated usage has to
+/// carry (model-toml.md "Normalization").
+fn index_with_versions_declaring(
+    server: &mut Server,
+    versions: &[&str],
+    publisher: &str,
+    name: &str,
+) -> Vec<mockito::Mock> {
     let mut mocks = vec![
         server
             .mock("GET", "/sysand-index-config.json")
@@ -760,7 +772,7 @@ fn index_with_versions(server: &mut Server, versions: &[&str]) -> Vec<mockito::M
                 .with_status(200)
                 .with_header("content-type", "application/json")
                 .with_body(format!(
-                    r#"{{"name": "dep", "publisher": "mock", "version": "{version}", "usage": []}}"#
+                    r#"{{"name": "{name}", "publisher": "{publisher}", "version": "{version}", "usage": []}}"#
                 ))
                 .create(),
         );
@@ -830,17 +842,19 @@ fn an_unconstrained_purl_that_resolves_to_nothing_is_refused()
     Ok(())
 }
 
-/// A purl that already carries a constraint is written as-is and the
-/// index is never touched.
+/// A purl that already carries a constraint keeps it -- and still
+/// consults the index, because the pair a `model.toml` writes is the
+/// one the target declares and a PURL's is normalized by construction.
+/// model-toml.md: "Either way, migrating such a usage needs the index
+/// to be reachable."
 #[test]
-fn a_constrained_purl_consults_no_index() -> Result<(), Box<dyn std::error::Error>> {
+fn a_constrained_purl_takes_the_targets_spelling() -> Result<(), Box<dyn std::error::Error>> {
     let mut server = Server::new();
-    let versions = server
-        .mock("GET", "/mock/dep/versions.json")
-        .with_status(200)
-        .with_body("{}")
-        .expect(0)
-        .create();
+    // The target declares the same identity as the PURL and spells it
+    // differently: `Mock` normalizes to `mock`, `Dep` to `dep`. A
+    // target whose pair normalized to something else would not be the
+    // project the PURL names at all.
+    let _mocks = index_with_versions_declaring(&mut server, &["1.2.0"], "Mock", "Dep");
 
     let (_temp_dir, cwd) = new_temp_cwd()?;
     json_with_usages(
@@ -852,7 +866,13 @@ fn a_constrained_purl_consults_no_index() -> Result<(), Box<dyn std::error::Erro
     run_sysand_in(&cwd, ["migrate", "--default-index", &server.url()], None)?
         .assert()
         .success();
-    versions.assert();
+
+    let text = std::fs::read_to_string(cwd.join("model.toml"))?;
+    assert!(text.contains("publisher = \"Mock\""), "{text}");
+    assert!(text.contains("name = \"Dep\""), "{text}");
+    // The json project's constraint, not the version resolution found.
+    assert!(text.contains("^1.0.0"), "{text}");
+    assert!(!text.contains("^1.2.0"), "{text}");
     Ok(())
 }
 

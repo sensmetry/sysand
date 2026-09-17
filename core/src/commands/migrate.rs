@@ -504,7 +504,10 @@ fn migrate_resource(
 
     match scheme {
         Some("pkg") => {
-            let Ok(Some((publisher, name))) = parse_sysand_purl(resource) else {
+            // Parsed only to refuse a resource that is not a
+            // `pkg:sysand` PURL; the pair it carries is normalized, and
+            // the manifest takes the target's spelling instead.
+            let Ok(Some(_)) = parse_sysand_purl(resource) else {
                 report.push(Diagnostic::error(format!(
                     "usage `{resource}` is not a `pkg:sysand` package URL; `model.toml` \
                      declares index usages by publisher and name"
@@ -535,15 +538,34 @@ fn migrate_resource(
                         return None;
                     }
                 };
-                Some(Usage::Index {
-                    publisher: parse_or_report(
-                        IndexPublisher::parse(publisher.to_owned()),
-                        "publisher",
-                        report,
-                    )?,
-                    name: parse_or_report(IndexName::parse(name.to_owned()), "name", report)?,
-                    version_constraint: constraint,
-                })
+                // model-toml.md "Normalization": a `model.toml` never
+                // holds a normalized identity, and a PURL's halves are
+                // normalized by construction -- so the pair comes from
+                // the target, as the unconstrained arm's already does.
+                // Only the constraint is the json project's.
+                match target(resource) {
+                    Ok(Usage::Index {
+                        publisher, name, ..
+                    }) => Some(Usage::Index {
+                        publisher,
+                        name,
+                        version_constraint: constraint,
+                    }),
+                    // The resolver answered with something that is not
+                    // an index usage, which a `pkg:sysand` resource
+                    // cannot be.
+                    Ok(other) => {
+                        report.push(Diagnostic::error(format!(
+                            "usage `{resource}` resolved to `{other}`, which is not an index \
+                             usage"
+                        )));
+                        None
+                    }
+                    Err(reason) => {
+                        report.push(Diagnostic::error(reason));
+                        None
+                    }
+                }
             }
         }
         // model-toml.md: "if `file:`, translate into kpar/source path;

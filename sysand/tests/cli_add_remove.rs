@@ -3625,3 +3625,38 @@ fn adding_an_index_usage_with_a_constraint_writes_it() -> Result<(), Box<dyn std
     );
     Ok(())
 }
+
+/// As `add_normalized_index_usage_takes_the_resolved_spelling`, on a
+/// `model.toml` project: the shorthand is written as the locked project
+/// spells itself, through the manifest editor rather than a json rewrite.
+#[test]
+fn add_normalized_index_usage_takes_the_resolved_spelling_on_a_toml_project()
+-> Result<(), Box<dyn std::error::Error>> {
+    for (constraint, written) in [(Some("^1"), "^1"), (None, "^1.0.0")] {
+        let (_temp_dir, cwd) = new_temp_cwd()?;
+        init_toml_project(&cwd, "app")?;
+        install_in_env(&cwd, "Acme Labs", "My Lib", "1.0.0")?;
+
+        let mut args = vec!["add", "--no-sync", "--no-index", "acme-labs/my-lib"];
+        if let Some(constraint) = constraint {
+            args.extend(["--version-constraint", constraint]);
+        }
+        run_sysand_in(&cwd, args, None)?
+            .assert()
+            .success()
+            .stderr(contains(format!(
+                "Settled usage: `Acme Labs/My Lib` ({written})"
+            )));
+
+        let manifest = std::fs::read_to_string(cwd.join("model.toml"))?;
+        assert!(manifest.contains("publisher = \"Acme Labs\""), "{manifest}");
+        assert!(manifest.contains("name = \"My Lib\""), "{manifest}");
+        assert!(
+            manifest.contains(&format!("version = \"{written}\"")),
+            "{manifest}"
+        );
+        assert!(!manifest.contains("acme-labs"), "{manifest}");
+    }
+
+    Ok(())
+}

@@ -626,21 +626,39 @@ fn a_typed_usage_with_an_invalid_publisher_is_an_error() {
 
 #[test]
 fn a_constrained_purl_usage_becomes_an_index_usage() {
-    let usage = one_usage(InterchangeProjectUsageRaw::Resource {
+    let mut raw = info("widgets", Some("acme"), "1.0.0");
+    raw.usage = vec![InterchangeProjectUsageRaw::Resource {
         resource: "pkg:sysand/acme/dep".to_owned(),
         version_constraint: Some("^1.0.0".to_owned()),
-    });
-    assert!(
-        matches!(
-            usage,
-            crate::manifest::usage::Usage::Index {
-                publisher: _,
-                name: _,
-                version_constraint: _
-            }
-        ),
-        "{usage:?}"
-    );
+    }];
+    // The target is consulted for its *spelling* even though the
+    // constraint is the json project's: a PURL's halves are normalized
+    // by construction, and a `model.toml` never holds a normalized
+    // identity. The version the lookup resolves is not used.
+    let lookup = |resource: &str| {
+        assert_eq!(resource, "pkg:sysand/acme/dep");
+        Ok(TomlUsage::Index {
+            publisher: IndexPublisher::parse("Acme".to_owned()).expect("a publisher"),
+            name: IndexName::parse("Dep".to_owned()).expect("a name"),
+            version_constraint: semver::VersionReq::parse("^9.9.9").expect("a requirement"),
+        })
+    };
+    let validated = migrate_project(&raw, &meta(), &MigrateOptions::default(), &lookup)
+        .expect("the purl resolves");
+    let ModelToml::Project(manifest) = validated.value else {
+        panic!("a project");
+    };
+    let crate::manifest::usage::MemberUsage::Declared(TomlUsage::Index {
+        publisher,
+        name,
+        version_constraint,
+    }) = &manifest.inline_usages[0]
+    else {
+        panic!("an index usage");
+    };
+    assert_eq!(publisher.as_str(), "Acme");
+    assert_eq!(name.as_str(), "Dep");
+    assert_eq!(version_constraint.to_string(), "^1.0.0");
 }
 
 /// An unconstrained purl reaches the lookup, which resolves it: the

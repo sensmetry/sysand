@@ -582,7 +582,7 @@ fn adding_a_directory_usage_appends_a_dir_entry() {
                 dir: "../other".to_owned(),
                 publisher: "acme".to_owned(),
                 name: "other".to_owned(),
-            },
+            }
         )
         .expect("a dir usage")
     );
@@ -655,3 +655,5 @@ fn removing_an_iri_that_is_not_a_purl_is_refused() {
     )
     .expect_err("not a project name");
 }
+
+// ---------------------------- the spelling an index usage is written with
