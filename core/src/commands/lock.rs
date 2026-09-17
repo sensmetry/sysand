@@ -308,6 +308,18 @@ fn lock_projects<
             None => "<unknown input project>".to_owned(),
         };
 
+        // Which project declared the usages below, for the conflicts a
+        // failed solve reports. A workspace lock passes each member's PURL
+        // as its `identifiers` (`do_lock_workspace`), which is what makes
+        // "`a` requires ^1 and `b` requires ^2" sayable. An ordinary
+        // single-project lock passes `None` (`do_lock_local_editable`), so
+        // its conflicts stay anonymous -- naming a lone project to the person who just ran `lock` in it says
+        // nothing. Taken before `identifiers` is moved below.
+        let declarer = identifiers
+            .as_ref()
+            .and_then(|ids| ids.first())
+            .map(ToString::to_string);
+
         let origin = UsageOrigin::of_format(
             project
                 .format()
@@ -361,10 +373,9 @@ fn lock_projects<
 
         all_deps.extend(validated_info.usage.into_iter().map(|usage| {
             (
-                usage,
+                crate::resolve::ResolutionInfo::new_declared_in(usage, base_path.clone(), origin)
+                    .declared_by(declarer.clone()),
                 DeclaredBy::Input(named_project_label.clone()),
-                base_path.clone(),
-                origin,
             )
         }));
     }
@@ -403,9 +414,12 @@ pub fn do_lock_extend<
     let base_path = None;
     lock_extend(
         lock,
-        usages
-            .into_iter()
-            .map(|(usage, declared_by, origin)| (usage, declared_by, base_path.clone(), origin)),
+        usages.into_iter().map(|(usage, declared_by, origin)| {
+            (
+                crate::resolve::ResolutionInfo::new_declared_in(usage, base_path.clone(), origin),
+                declared_by,
+            )
+        }),
         resolver,
         provided_usages,
         ctx,
@@ -427,14 +441,7 @@ pub fn do_lock_extend<
 /// must still give one.
 pub fn do_lock_extend_with_bases<
     PD: ProjectRead + Debug,
-    I: IntoIterator<
-        Item = (
-            InterchangeProjectUsage,
-            DeclaredBy,
-            Option<camino::Utf8PathBuf>,
-            UsageOrigin,
-        ),
-    >,
+    I: IntoIterator<Item = (crate::resolve::ResolutionInfo, DeclaredBy)>,
     R: ResolveRead<ProjectStorage = PD> + Debug,
 >(
     lock: Lock,
@@ -450,14 +457,7 @@ pub fn do_lock_extend_with_bases<
 /// `respelled` among the inputs not checked (see [`check_typed_usages`])
 fn lock_extend<
     PD: ProjectRead + Debug,
-    I: IntoIterator<
-        Item = (
-            InterchangeProjectUsage,
-            DeclaredBy,
-            Option<camino::Utf8PathBuf>,
-            UsageOrigin,
-        ),
-    >,
+    I: IntoIterator<Item = (crate::resolve::ResolutionInfo, DeclaredBy)>,
     R: ResolveRead<ProjectStorage = PD> + Debug,
 >(
     mut lock: Lock,
@@ -467,15 +467,12 @@ fn lock_extend<
     ctx: &ProjectContext,
     respelled: Option<&Identifier>,
 ) -> Result<LockOutcome<PD>, LockError<PD, R>> {
-    let (inputs, declared_by): (Vec<_>, Vec<_>) = usages
-        .into_iter()
-        .map(|(usage, declared_by, base_path, origin)| ((usage, base_path, origin), declared_by))
-        .unzip();
+    let (inputs, declared_by): (Vec<_>, Vec<_>) = usages.into_iter().unzip();
     // Typed usages, to check against the projects they resolve to
     let mut typed_usages: Vec<(TypedSpelling, DeclaredBy)> = inputs
         .iter()
         .zip(declared_by)
-        .filter_map(|((usage, _, _), declared_by)| Some((TypedSpelling::of(usage)?, declared_by)))
+        .filter_map(|(info, declared_by)| Some((TypedSpelling::of(info.usage())?, declared_by)))
         .collect();
     // Publisher, name and version of each solved project
     let mut solved = HashMap::new();

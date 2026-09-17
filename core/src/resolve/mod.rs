@@ -103,6 +103,13 @@ pub struct ResolutionInfo {
     base_path: Option<Utf8PathBuf>,
     /// The manifest this usage was declared in.
     origin: UsageOrigin,
+    /// The identifier of the project that declared this usage, when the
+    /// request has more than one declaring project and so the answer is
+    /// worth reporting -- a workspace lock, where it is the member. `None`
+    /// for a single-project lock, whose one declarer the user already
+    /// knows. It reaches the user as `SolveConflict::required_by`, so it
+    /// is an `Identifier` string like every other value of that field.
+    declared_by: Option<String>,
 }
 
 /// Information needed to resolve a usage, which determines equivalency
@@ -120,6 +127,16 @@ impl CoalescingUsage {
         origin: UsageOrigin,
     ) -> Self {
         let usage = ResolutionInfo::new_declared_in(usage, base_path, origin);
+        Self {
+            id: usage.id(),
+            usage,
+        }
+    }
+
+    /// The same as [`Self::new_usage`], for a usage whose
+    /// [`ResolutionInfo`] the caller has already built -- which is how a
+    /// declarer reaches the solver.
+    pub fn from_info(usage: ResolutionInfo) -> Self {
         Self {
             id: usage.id(),
             usage,
@@ -199,7 +216,15 @@ impl ResolutionInfo {
             usage,
             base_path,
             origin,
+            declared_by: None,
         }
+    }
+
+    /// Records the project that declared this usage; see `declared_by`.
+    #[must_use]
+    pub fn declared_by(mut self, declarer: Option<String>) -> Self {
+        self.declared_by = declarer;
+        self
     }
 
     pub fn iri(iri: Iri<String>) -> Self {
@@ -223,6 +248,12 @@ impl ResolutionInfo {
     /// The manifest this usage was declared in.
     pub fn origin(&self) -> UsageOrigin {
         self.origin
+    }
+
+    /// The project that declared this usage, if it is worth reporting;
+    /// see the field.
+    pub fn declarer(&self) -> Option<&str> {
+        self.declared_by.as_deref()
     }
 
     /// Identifier of this usage, to be used in lock/env.

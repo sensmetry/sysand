@@ -743,6 +743,74 @@ fn typed_usage_invalid_version_fails_resolution() {
     assert!(msg.contains("InvalidResolvedVersion"), "got: {msg}");
 }
 
+/// Solve a single `acme/widget` directory usage and return the *rendered*
+/// resolution error, with its chain of causes: `SolverError`'s `Display`
+/// names the failing usage and `Error::source` carries the reason, which
+/// is how the CLI prints it. `directory_usage_solve_err` gives the `Debug`
+/// form, which is what tests about the error's shape want; these are
+/// about the sentences a user reads.
+fn directory_usage_solve_msg<R>(resolver: R) -> String
+where
+    R: ResolveRead + Debug + 'static,
+    R::ProjectStorage: Debug,
+{
+    let err = solve(
+        vec![InterchangeProjectUsage::Directory {
+            dir: "some/dir".into(),
+            publisher: crate::model::ProjectPublisher::parse("acme".to_owned()).unwrap(),
+            name: crate::model::ProjectName::parse("widget".to_owned()).unwrap(),
+        }],
+        None,
+        resolver,
+    )
+    .expect_err("typed usage must fail resolution");
+    crate::utils::format_err(err)
+}
+
+/// The message names the version string that is not
+/// semver. `semver::Error` describes the parse failure ("unexpected
+/// character '-' after major version number") without ever echoing its
+/// input, so without this the one thing a reader needs in order to go fix
+/// the manifest is the one thing missing.
+#[test]
+fn invalid_resolved_version_names_the_version() {
+    let widget = trivial_memory_project("widget", "2023-11", vec![]);
+    let resolver = memory_resolver(&[("pkg:sysand/acme/widget", &[widget])]);
+
+    let msg = directory_usage_solve_msg(resolver);
+    assert!(msg.contains("`2023-11`"), "got: {msg}");
+    assert!(msg.contains("not semver"), "got: {msg}");
+}
+
+/// The *immediate* dependent of an invalid version is named. The full
+/// chain from the resolving project is not.
+#[test]
+fn invalid_resolved_version_names_the_dependent() {
+    let util = trivial_memory_project("util", "2023-11", vec![]);
+    let lib = memory_project(
+        "lib",
+        "1.0.0",
+        vec![InterchangeProjectUsageRaw::Directory {
+            dir: "util".to_owned(),
+            publisher: "acme".to_owned(),
+            name: "util".to_owned(),
+        }],
+    );
+    let resolver = memory_resolver(&[("urn:kpar:lib", &[lib]), ("pkg:sysand/acme/util", &[util])]);
+
+    let err = solve(vec![root_usage("urn:kpar:lib", None)], None, resolver)
+        .expect_err("the dependency has an unparseable version");
+    // With the chain of causes, as the CLI prints it: the top line names
+    // the dependent and the cause names the version.
+    let msg = crate::utils::format_err(err);
+
+    assert!(msg.contains("urn:kpar:lib"), "got: {msg}");
+    assert!(msg.contains("`2023-11`"), "got: {msg}");
+    // `Display for ResolutionInfo` already brackets what it names, so the
+    // retrieval arm must not add a second pair around it.
+    assert!(!msg.contains("``"), "nested backticks in: {msg}");
+}
+
 /// Typed usage resolving to a project that does not expose a version
 /// fails resolution
 #[test]
@@ -1089,6 +1157,204 @@ fn conflicts_name_root_pins_that_contradict() {
             "missing root pin `{constraint}` in {conflicts:?}"
         );
     }
+}
+
+/// [`solve`], with a declaring project recorded against each usage --
+/// what a workspace lock passes, one entry per member.
+fn solve_declared<R: ResolveRead + Debug + 'static>(
+    requested: Vec<(InterchangeProjectUsage, Option<&str>)>,
+    resolver: R,
+) -> Result<super::Solution<R::ProjectStorage>, super::SolverError<R>> {
+    super::solve_with_bases(
+        requested
+            .into_iter()
+            .map(|(usage, declarer)| {
+                ResolutionInfo::new_declared_in(usage, None, UsageOrigin::Json)
+                    .declared_by(declarer.map(ToOwned::to_owned))
+            })
+            .collect(),
+        resolver,
+    )
+}
+
+/// Two candidate versions of one dependency, which the fixtures below
+/// disagree about.
+fn widget_v1_v2() -> MemoryResolver<AcceptAll, InMemoryProject> {
+    memory_resolver(&[(
+        "urn:kpar:widget",
+        &[
+            trivial_memory_project("widget", "1.0.0", vec![]),
+            trivial_memory_project("widget", "2.0.0", vec![]),
+        ],
+    )])
+}
+
+/// A workspace solve coalesces every member's usages into one root
+/// request, so without the declarer both sides of the conflict are
+/// anonymous and the sentence naming each requirer cannot be said.
+#[test]
+fn conflicts_name_the_declaring_project() {
+    let err = solve_declared(
+        vec![
+            (
+                root_usage("urn:kpar:widget", Some("=1.0.0")),
+                Some("pkg:sysand/acme/a"),
+            ),
+            (
+                root_usage("urn:kpar:widget", Some("=2.0.0")),
+                Some("pkg:sysand/acme/b"),
+            ),
+        ],
+        widget_v1_v2(),
+    )
+    .unwrap_err();
+
+    assert_eq!(err.kind(), "no_solution");
+    let conflicts = err.conflicts();
+    for (declarer, constraint) in [
+        ("pkg:sysand/acme/a", "=1.0.0"),
+        ("pkg:sysand/acme/b", "=2.0.0"),
+    ] {
+        assert!(
+            conflicts.contains(&SolveConflict::Constraint {
+                iri: "urn:kpar:widget".to_owned(),
+                constraint: constraint.to_owned(),
+                required_by: Some(declarer.to_owned()),
+            }),
+            "missing `{declarer}` pin `{constraint}` in {conflicts:?}"
+        );
+    }
+}
+
+/// A name that might be wrong is not given at all.
+///
+/// `=1.0.0` and `>=1.0.0, <2.0.0` select the same single candidate, so
+/// which of them accounts for a derivation node depends on the order the
+/// usages were declared in. `a` and `b` below are therefore both
+/// plausible requirers of that node and neither may be named; `c`, whose
+/// constraint selects a different candidate on its own, still is.
+#[test]
+fn ambiguous_constraints_are_not_attributed() {
+    let err = solve_declared(
+        vec![
+            (
+                root_usage("urn:kpar:widget", Some("=1.0.0")),
+                Some("pkg:sysand/acme/a"),
+            ),
+            (
+                root_usage("urn:kpar:widget", Some(">=1.0.0, <2.0.0")),
+                Some("pkg:sysand/acme/b"),
+            ),
+            (
+                root_usage("urn:kpar:widget", Some("=2.0.0")),
+                Some("pkg:sysand/acme/c"),
+            ),
+        ],
+        widget_v1_v2(),
+    )
+    .unwrap_err();
+
+    let conflicts = err.conflicts();
+    let named: Vec<&str> = conflicts
+        .iter()
+        .filter_map(|c| match c {
+            SolveConflict::Constraint { required_by, .. } => required_by.as_deref(),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        !named.contains(&"pkg:sysand/acme/a") && !named.contains(&"pkg:sysand/acme/b"),
+        "an ambiguous node was attributed: {conflicts:?}"
+    );
+    assert!(
+        named.contains(&"pkg:sysand/acme/c"),
+        "the unambiguous pin lost its name: {conflicts:?}"
+    );
+}
+
+/// The sentence naming each side's constraint, which pubgrub's own
+/// report cannot give: it shows both sides with the first interned
+/// usage's constraint.
+#[test]
+fn no_solution_summarises_contradicting_constraints() {
+    let err = solve_declared(
+        vec![
+            (
+                root_usage("urn:kpar:widget", Some("=1.0.0")),
+                Some("pkg:sysand/acme/a"),
+            ),
+            (
+                root_usage("urn:kpar:widget", Some("=2.0.0")),
+                Some("pkg:sysand/acme/b"),
+            ),
+        ],
+        widget_v1_v2(),
+    )
+    .unwrap_err();
+
+    let msg = err.to_string();
+    assert!(
+        msg.contains("`pkg:sysand/acme/a` requires `urn:kpar:widget` at `=1.0.0`"),
+        "got: {msg}"
+    );
+    assert!(
+        msg.contains("`pkg:sysand/acme/b` requires `urn:kpar:widget` at `=2.0.0`"),
+        "got: {msg}"
+    );
+    assert!(
+        msg.contains("only one version of each dependency can be used"),
+        "got: {msg}"
+    );
+}
+
+/// Without declarers the sentence is still said, and still true -- a
+/// single-project lock reaches this path.
+#[test]
+fn the_summary_survives_without_declarers() {
+    let err = solve(
+        vec![
+            root_usage("urn:kpar:widget", Some("=1.0.0")),
+            root_usage("urn:kpar:widget", Some("=2.0.0")),
+        ],
+        None,
+        widget_v1_v2(),
+    )
+    .unwrap_err();
+
+    let msg = err.to_string();
+    assert!(
+        msg.contains("the request requires `urn:kpar:widget` at `=1.0.0`"),
+        "got: {msg}"
+    );
+    assert!(
+        msg.contains("only one version of each dependency can be used"),
+        "got: {msg}"
+    );
+}
+
+/// The summary belongs to a constraint contradiction and must not leak
+/// into a failure that is not one: a typed usage whose candidate cannot
+/// be read is a retrieval failure.
+#[test]
+fn a_retrieval_failure_gets_no_contradiction_summary() {
+    let resolver = stub_resolver(StubProject {
+        version: Err("cannot read version".to_owned()),
+        usage: Ok(Some(vec![])),
+    });
+
+    let err = solve(
+        vec![InterchangeProjectUsage::Directory {
+            dir: "some/dir".into(),
+            publisher: crate::model::ProjectPublisher::parse("acme".to_owned()).unwrap(),
+            name: crate::model::ProjectName::parse("widget".to_owned()).unwrap(),
+        }],
+        None,
+        resolver,
+    )
+    .unwrap_err();
+
+    assert_eq!(err.kind(), "retrieval");
+    assert!(!err.to_string().contains("only one version"), "got: {err}");
 }
 
 #[test]
@@ -2425,12 +2691,12 @@ fn two_usages_resolve_against_their_own_bases() -> Result<(), Box<dyn std::error
 
     let solution = super::solve_with_bases(
         vec![
-            (
+            ResolutionInfo::new_declared_in(
                 dir_usage("dep", "one"),
                 Some(tmp.path().join("alpha")),
                 UsageOrigin::Json,
             ),
-            (
+            ResolutionInfo::new_declared_in(
                 dir_usage("dep", "two"),
                 Some(tmp.path().join("beta")),
                 UsageOrigin::Json,
@@ -2458,12 +2724,12 @@ fn a_usage_with_no_base_is_unresolvable_beside_one_that_has_it()
 
     let error = super::solve_with_bases(
         vec![
-            (
+            ResolutionInfo::new_declared_in(
                 dir_usage("dep", "one"),
                 Some(tmp.path().join("alpha")),
                 UsageOrigin::Json,
             ),
-            (dir_usage("other", "two"), None, UsageOrigin::Json),
+            ResolutionInfo::new_declared_in(dir_usage("other", "two"), None, UsageOrigin::Json),
         ],
         FileResolver {
             sandbox_roots: None,

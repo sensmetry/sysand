@@ -429,8 +429,12 @@ impl<R: ResolveRead> CandidateError<R> {
         }
         match self {
             Self::Resolved(source) => InternalSolverError::ResolvedError { usage, source },
-            Self::InvalidVersion { source, version: _ } => {
-                InternalSolverError::InvalidResolvedVersion { usage, source }
+            Self::InvalidVersion { source, version } => {
+                InternalSolverError::InvalidResolvedVersion {
+                    usage,
+                    version,
+                    source,
+                }
             }
             Self::MissingVersion => InternalSolverError::MissingVersion { usage },
             Self::VersionObtain(source) => InternalSolverError::VersionObtain { usage, source },
@@ -874,6 +878,79 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
         conflicts
     }
 
+    /// One sentence per dependency that two requirers disagree about,
+    /// naming each requirer and what it asked for.
+    ///
+    /// pubgrub's own report cannot say this. It interns a package once by
+    /// identifier, so both sides of a constraint conflict come out
+    /// rendered with whichever usage was seen first -- "depends on IRI
+    /// `x` (=1.0.0) ... and (=1.0.0)", which reads as a contradiction
+    /// between a thing and itself. `conflicts` reconstructs each side's
+    /// real constraint, so this renders both sides correctly.
+    fn contradictions(&self) -> Vec<String> {
+        // Bound, not inlined into the `for`: the borrows below outlive it.
+        let conflicts = self.conflicts();
+        let mut order: Vec<&str> = Vec::new();
+        let mut by_iri: HashMap<&str, Vec<(Option<&str>, &str)>> = HashMap::new();
+        for conflict in &conflicts {
+            let SolveConflict::Constraint {
+                iri,
+                constraint,
+                required_by,
+            } = conflict
+            else {
+                continue;
+            };
+            let entries = match by_iri.entry(iri.as_str()) {
+                Entry::Occupied(e) => e.into_mut(),
+                Entry::Vacant(e) => {
+                    order.push(iri.as_str());
+                    e.insert(Vec::new())
+                }
+            };
+            entries.push((required_by.as_deref(), constraint.as_str()));
+        }
+
+        order
+            .into_iter()
+            .filter_map(|iri| {
+                let mut entries = by_iri.remove(iri)?;
+                // Two requirers asking for the same thing are not in
+                // conflict; only differing constraints are worth a word.
+                if entries
+                    .iter()
+                    .map(|(_, c)| *c)
+                    .collect::<HashSet<_>>()
+                    .len()
+                    < 2
+                {
+                    return None;
+                }
+                // Sorted, so the sentence cannot vary between runs.
+                entries.sort_unstable();
+                entries.dedup();
+                let parts: Vec<String> = entries
+                    .into_iter()
+                    .map(|(who, constraint)| {
+                        let who = who.map_or_else(
+                            || "the request".to_owned(),
+                            |declarer| format!("`{declarer}`"),
+                        );
+                        format!("{who} requires `{iri}` at `{constraint}`")
+                    })
+                    .collect();
+                let joined = match parts.split_last() {
+                    Some((last, [])) => last.clone(),
+                    Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+                    None => return None,
+                };
+                Some(format!(
+                    "{joined}; only one version of each dependency can be used."
+                ))
+            })
+            .collect()
+    }
+
     fn walk(
         &self,
         tree: &DerivationTree<DependencyIdentifier, DiscreteHashSet, String>,
@@ -905,14 +982,18 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
                         id_of(dependency).map(|dependency| {
                             let iri = dependency.id().to_string();
                             let (required_by, constraint) = match dependent {
-                                DependencyIdentifier::Requested(usages) => (
-                                    None,
-                                    self.select_usage(
+                                // The root request has no identifier of its
+                                // own, so the requirer is whichever project
+                                // declared the usage -- known for a
+                                // workspace member, `None` otherwise.
+                                DependencyIdentifier::Requested(usages) => {
+                                    let (constraint, declarer) = self.select_usage(
                                         usages.iter().filter(|u| u.id() == dependency.id()),
                                         dependency.id(),
                                         dependency_set,
-                                    ),
-                                ),
+                                    );
+                                    (declarer, constraint)
+                                }
                                 DependencyIdentifier::Remote(usage) => (
                                     Some(usage.id().to_string()),
                                     self.select_usage(
@@ -922,7 +1003,8 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
                                             .filter(|u| u.id() == dependency.id()),
                                         dependency.id(),
                                         dependency_set,
-                                    ),
+                                    )
+                                    .0,
                                 ),
                             };
                             let usage = constraint.unwrap_or(dependency);
@@ -1009,13 +1091,29 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
     /// project may list the same resource twice), the one whose constraint
     /// selects exactly the candidates in `dependency_set`; otherwise the
     /// first.
+    /// The usage to read this node's constraint from -- the first whose
+    /// own constraint selects exactly the candidates the node is about,
+    /// else the first of them -- and, separately, the project that
+    /// declared it.
+    ///
+    /// The declarer is returned *only* when exactly one usage accounts for
+    /// the node, because a wrong name is worse than no name. Two things
+    /// make the selected usage an unsafe thing to attribute: the fallback
+    /// above returns a usage that does not account for the node at all
+    /// (every usage without a version constraint, and every `dir` usage,
+    /// fails the test), and two *different* constraints can select the
+    /// same candidates -- `=1.0.0` and `>=1.0.0, <2.0.0` over a single
+    /// matching candidate -- in which case which one is reported depends
+    /// on the order the usages were declared in. Reporting a constraint
+    /// that is off by a hair is survivable; sending a reader to edit a
+    /// manifest that is innocent is not.
     fn select_usage<'a>(
         &self,
-        mut usages: impl Iterator<Item = &'a CoalescingUsage>,
+        usages: impl Iterator<Item = &'a CoalescingUsage>,
         dependency: &Identifier,
         dependency_set: &DiscreteHashSet,
-    ) -> Option<&'a CoalescingUsage> {
-        let first = usages.next()?;
+    ) -> (Option<&'a CoalescingUsage>, Option<String>) {
+        let usages: Vec<&CoalescingUsage> = usages.collect();
         let candidates: &[CandidateSnapshot] =
             self.candidates.get(dependency).map_or(&[], Vec::as_slice);
         let selects_set = |usage: &CoalescingUsage| match usage.usage().usage() {
@@ -1036,10 +1134,19 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
             .selects_same(dependency_set, candidates.iter().map(|c| c.index)),
             _ => false,
         };
-        if selects_set(first) {
-            return Some(first);
-        }
-        Some(usages.find(|u| selects_set(u)).unwrap_or(first))
+        let selecting: Vec<&CoalescingUsage> =
+            usages.iter().copied().filter(|u| selects_set(u)).collect();
+        let declarer = match selecting.as_slice() {
+            [only] => only.usage().declarer().map(ToOwned::to_owned),
+            _ => None,
+        };
+        (
+            selecting
+                .first()
+                .copied()
+                .or_else(|| usages.first().copied()),
+            declarer,
+        )
     }
 
     /// Every version of `id` the resolver offered, whether or not anything
@@ -1099,7 +1206,11 @@ impl<R: ResolveRead + fmt::Debug + 'static> Display for SolverError<R> {
                     f,
                     "failed to satisfy usage constraints:\n{}",
                     DefaultStringReporter::report(derivation_tree)
-                )
+                )?;
+                for sentence in self.contradictions() {
+                    writeln!(f, "{sentence}")?;
+                }
+                Ok(())
             }
             pubgrub::PubGrubError::ErrorRetrievingDependencies {
                 package,
@@ -1161,8 +1272,10 @@ impl<R: ResolveRead + fmt::Debug + 'static> Display for SolverError<R> {
                     write!(f, "{source}")
                 }
                 DependencyIdentifier::Requested(_) => write!(f, "failed to retrieve project(s)"),
+                // No backticks around `{iri}`: its `Display` already
+                // brackets whatever it names, so a pair here nests them.
                 DependencyIdentifier::Remote(iri) => {
-                    write!(f, "failed to retrieve usages of `{iri}`")
+                    write!(f, "failed to retrieve usages of {iri}")
                 }
             },
             pubgrub::PubGrubError::ErrorChoosingVersion { package, source: _ } => match package {
@@ -1292,9 +1405,14 @@ pub enum InternalSolverError<R: ResolveRead> {
     MissingVersion { usage: ResolutionInfo },
     #[error("usage {usage} resolved to a project that does not expose its usages")]
     MissingUsage { usage: ResolutionInfo },
-    #[error("usage {usage} resolved to a project that has an invalid version")]
+    /// `version` is the string as the project declared it: `semver::Error`
+    /// describes the parse failure but never echoes its input, and that
+    /// string is the one thing a reader needs in order to go fix the
+    /// manifest.
+    #[error("usage {usage} declares version `{version}`, which is not semver")]
     InvalidResolvedVersion {
         usage: ResolutionInfo,
+        version: String,
         source: semver::Error,
     },
     #[error("failed to obtain version of resolved usage {usage}")]
@@ -1453,7 +1571,9 @@ pub fn solve<R: ResolveRead + fmt::Debug + 'static>(
     solve_with_bases(
         requested
             .into_iter()
-            .map(|(usage, origin)| (usage, base_path.clone(), origin))
+            .map(|(usage, origin)| {
+                ResolutionInfo::new_declared_in(usage, base_path.clone(), origin)
+            })
             .collect(),
         resolver,
     )
@@ -1471,14 +1591,14 @@ pub fn solve<R: ResolveRead + fmt::Debug + 'static>(
 /// caches by identity, so two usages naming the same publisher and name
 /// from different bases collapse onto whichever resolved first.
 pub fn solve_with_bases<R: ResolveRead + fmt::Debug + 'static>(
-    requested: Vec<(InterchangeProjectUsage, Option<Utf8PathBuf>, UsageOrigin)>,
+    requested: Vec<ResolutionInfo>,
     resolver: R,
 ) -> Result<Solution<R::ProjectStorage>, SolverError<R>> {
     let solver = ProjectSolver::new(resolver);
 
     let requested = requested
         .into_iter()
-        .map(|(u, base_path, origin)| CoalescingUsage::new_usage(u, base_path, origin))
+        .map(CoalescingUsage::from_info)
         .collect();
     let package = DependencyIdentifier::Requested(requested);
 

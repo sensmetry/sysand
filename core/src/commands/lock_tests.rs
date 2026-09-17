@@ -795,6 +795,122 @@ fn lock_workspace(
     .map(|outcome| outcome.lock)
 }
 
+/// Two members of one workspace that disagree about a dependency's version.
+///
+/// `lock_workspace` cannot express it. It resolves with `FileResolver`,
+/// which serves local paths only, and an intra-workspace `dir` usage
+/// carries no version constraint at all -- so the conflict needs an index
+/// usage and a resolver that can offer two versions of it.
+#[cfg(feature = "filesystem")]
+fn lock_workspace_with<R>(
+    dir: &camino_tempfile::Utf8TempDir,
+    resolver: R,
+) -> Result<
+    crate::lock::Lock,
+    LockProjectError<
+        crate::project::editable::EditableProject<crate::project::local_src::LocalSrcProject>,
+        R::ProjectStorage,
+        R,
+    >,
+>
+where
+    R: ResolveRead + std::fmt::Debug,
+    R::ProjectStorage: crate::project::ProjectRead + std::fmt::Debug,
+{
+    use crate::workspace::model_toml::{MemberChecks, Workspace};
+    let workspace =
+        Workspace::load_with(dir.path(), MemberChecks::All).expect("the workspace loads");
+    let ctx = workspace_ctx(workspace.root());
+    super::do_lock_workspace(&workspace, resolver, &HashMap::default(), &ctx)
+        .map(|outcome| outcome.lock)
+}
+
+/// A candidate `acme/lib` at `version`, for a resolver to offer.
+#[cfg(feature = "filesystem")]
+fn lib_at(version: &str) -> InMemoryProject {
+    let mut project = InMemoryProject::from_info_meta(
+        InterchangeProjectInfoRaw {
+            name: "lib".into(),
+            publisher: Some("acme".into()),
+            version: version.into(),
+            description: None,
+            license: None,
+            maintainer: vec![],
+            website: None,
+            topic: vec![],
+            usage: vec![],
+        },
+        InterchangeProjectMetadataRaw {
+            index: IndexMap::default(),
+            created: "2026-01-01T00:00:00Z".into(),
+            metamodel: None,
+            includes_derived: None,
+            includes_implied: None,
+            checksum: None,
+        },
+    );
+    project.nominal_sources = vec![Source::Editable {
+        editable: ".".into(),
+    }];
+    project
+}
+
+/// A workspace is solved as one root request, so every member's usage
+/// is in the same coalesced package; the conflict still names the
+/// member behind each side.
+#[cfg(feature = "filesystem")]
+#[test]
+fn a_workspace_lock_names_the_members_that_disagree() {
+    use crate::project::utils::Identifier;
+    use crate::resolve::memory::{AcceptAll, MemoryResolver};
+
+    let dir = workspace_tree(
+        &[
+            (
+                "app",
+                &member_toml(
+                    "app",
+                    "[[inline-usages]]\npublisher = \"acme\"\nname = \"lib\"\nversion = \"^1\"\n",
+                ),
+            ),
+            (
+                "tool",
+                &member_toml(
+                    "tool",
+                    "[[inline-usages]]\npublisher = \"acme\"\nname = \"lib\"\nversion = \"^2\"\n",
+                ),
+            ),
+        ],
+        "",
+    );
+
+    let resolver = MemoryResolver {
+        iri_predicate: AcceptAll {},
+        projects: [(
+            Identifier::from_iri_unchecked_str("pkg:sysand/acme/lib"),
+            vec![lib_at("1.0.0"), lib_at("2.0.0")],
+        )]
+        .into(),
+    };
+
+    let error = lock_workspace_with(&dir, resolver)
+        .expect_err("two members cannot agree on one version of `lib`");
+    let msg = error.to_string();
+
+    assert!(
+        msg.contains("`pkg:sysand/acme/app` requires `pkg:sysand/acme/lib` at `^1`"),
+        "got: {msg}"
+    );
+    assert!(
+        msg.contains("`pkg:sysand/acme/tool` requires `pkg:sysand/acme/lib` at `^2`"),
+        "got: {msg}"
+    );
+    assert!(
+        msg.contains("only one version of each dependency can be used"),
+        "got: {msg}"
+    );
+}
+
 #[cfg(feature = "filesystem")]
 fn editables(lock: &crate::lock::Lock) -> Vec<&str> {
     let mut paths: Vec<&str> = lock
