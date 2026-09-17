@@ -224,6 +224,20 @@ impl<HigherProject: ProjectRead, LowerProject: ProjectRead> ProjectRead
 }
 
 impl<Higher: ResolveRead, Lower: ResolveRead> ResolveRead for PriorityResolver<Higher, Lower> {
+    /// Both halves: either may be the one that reads local paths, and a
+    /// resolver that does not care has a default that ignores it.
+    #[cfg(feature = "filesystem")]
+    fn within_workspace(
+        self,
+        root: camino::Utf8PathBuf,
+        table: std::sync::Arc<crate::manifest::workspace_table::WorkspaceTable>,
+    ) -> Self {
+        Self {
+            higher: self.higher.within_workspace(root.clone(), table.clone()),
+            lower: self.lower.within_workspace(root, table),
+        }
+    }
+
     type Error = PriorityError<Higher::Error, Lower::Error>;
 
     type ProjectStorage = PriorityProject<Higher::ProjectStorage, Lower::ProjectStorage>;

@@ -31,6 +31,134 @@ use serde_json::Value;
 
 use crate::project::{ProjectRead as _, local_kpar::LocalKParProjectRaw, utils::wrapfs};
 
+/// Where each standard library's sources sit in a release checkout.
+///
+/// A second table beside the embedded assets, because those are keyed by
+/// KPAR stem and the release lays its libraries out by family and name.
+/// Here rather than in a test because more than one test needs it. The
+/// six domain libraries are spelled `<X>` in the release, not
+/// `<X> Domain Library` after the KPAR stem.
+pub fn release_paths() -> BTreeMap<&'static str, &'static str> {
+    BTreeMap::from([
+        (
+            "semantic-library",
+            "sysml.library/Kernel Libraries/Kernel Semantic Library",
+        ),
+        (
+            "data-type-library",
+            "sysml.library/Kernel Libraries/Kernel Data Type Library",
+        ),
+        (
+            "function-library",
+            "sysml.library/Kernel Libraries/Kernel Function Library",
+        ),
+        ("systems-library", "sysml.library/Systems Library"),
+        (
+            "analysis-library",
+            "sysml.library/Domain Libraries/Analysis",
+        ),
+        (
+            "cause-and-effect-library",
+            "sysml.library/Domain Libraries/Cause and Effect",
+        ),
+        (
+            "geometry-library",
+            "sysml.library/Domain Libraries/Geometry",
+        ),
+        (
+            "metadata-library",
+            "sysml.library/Domain Libraries/Metadata",
+        ),
+        (
+            "quantities-and-units-library",
+            "sysml.library/Domain Libraries/Quantities and Units",
+        ),
+        (
+            "requirement-derivation-library",
+            "sysml.library/Domain Libraries/Requirement Derivation",
+        ),
+    ])
+}
+
+/// Copy the standard-library workspace `fixture` into `into`, with each
+/// member's sources taken from the release checkout at `sources_root`.
+///
+/// Copied rather than referenced: a `sources` entry is a relative path
+/// that cannot escape its project root, so the files have to be *in* the
+/// member directory for a build to find them.
+///
+/// The file list is each member's own declared `sources`, so this stages
+/// exactly what the fixture says it publishes -- and a disagreement
+/// between that list and the release shows up here rather than as a
+/// comparison difference later.
+pub fn stage_release_workspace(
+    fixture: &Utf8Path,
+    sources_root: &Utf8Path,
+    into: &Utf8Path,
+) -> Result<(), String> {
+    let paths = release_paths();
+
+    // Every library's directory first, and all of them before any copy.
+    // A table that is wrong about the release layout should say so once,
+    // naming each entry, rather than as "one file is missing".
+    let absent: Vec<String> = paths
+        .iter()
+        .filter(|(_, relative)| !sources_root.join(relative).is_dir())
+        .map(|(asset, relative)| format!("`{asset}` expects `{relative}`"))
+        .collect();
+    if !absent.is_empty() {
+        return Err(format!(
+            "{} of {} libraries are not where `release_paths` says, under \
+             `{sources_root}` -- is it a checkout of the release?\n{}",
+            absent.len(),
+            paths.len(),
+            absent.join("\n")
+        ));
+    }
+
+    wrapfs::copy(fixture.join("model.toml"), into.join("model.toml"))
+        .map_err(|e| format!("copying the root manifest: {e}"))?;
+
+    for (asset, relative) in &paths {
+        let member = into.join(asset);
+        wrapfs::create_dir_all(&member).map_err(|e| e.to_string())?;
+        let manifest = fixture.join(asset).join("model.toml");
+        wrapfs::copy(&manifest, member.join("model.toml"))
+            .map_err(|e| format!("copying `{asset}`'s manifest: {e}"))?;
+
+        let from = sources_root.join(relative);
+        for name in declared_sources(&manifest)? {
+            let at = from.join(&name);
+            wrapfs::copy(&at, member.join(&name)).map_err(|e| format!("copying `{at}`: {e}"))?;
+        }
+    }
+    Ok(())
+}
+
+/// The `sources` a member's `model.toml` declares.
+///
+/// Read as text rather than through the manifest reader: a member of the
+/// standard-library workspace inherits its metamodel from the table, so
+/// reading it as a standalone project is an error by construction.
+fn declared_sources(manifest: &Utf8Path) -> Result<Vec<String>, String> {
+    let text =
+        wrapfs::read_to_string(manifest).map_err(|e| format!("reading `{manifest}`: {e}"))?;
+    let table: toml::Table = text
+        .parse()
+        .map_err(|e| format!("parsing `{manifest}`: {e}"))?;
+    Ok(table
+        .get("project")
+        .and_then(|project| project.get("sources"))
+        .and_then(toml::Value::as_array)
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(|entry| entry.as_str().map(ToOwned::to_owned))
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
 /// One way a built archive differs from the published release.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Difference {

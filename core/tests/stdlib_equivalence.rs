@@ -30,13 +30,13 @@
 //! is verified is which tag reproduces them.
 #![cfg(feature = "filesystem")]
 
-use std::collections::BTreeMap;
-
 use camino::{Utf8Path, Utf8PathBuf};
 use sysand_core::{
     build::KparCompressionMethod,
     commands::build::do_build_workspace_kpars,
-    stdlib_compare::{compare_to_published, published_sources},
+    stdlib_compare::{
+        compare_to_published, published_sources, release_paths, stage_release_workspace,
+    },
     workspace::model_toml::{MemberChecks, Workspace},
 };
 
@@ -50,105 +50,13 @@ fn assets() -> Utf8PathBuf {
     Utf8PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("src/stdlib_assets/{RELEASE}"))
 }
 
-/// Where each library's files sit in a release checkout.
-///
-/// A second table, because `known_std_libs` gives stems and the release
-/// lays its libraries out by family and name. Kept here so a new
-/// release changes one list.
-fn release_paths() -> BTreeMap<&'static str, &'static str> {
-    BTreeMap::from([
-        (
-            "semantic-library",
-            "sysml.library/Kernel Libraries/Kernel Semantic Library",
-        ),
-        (
-            "data-type-library",
-            "sysml.library/Kernel Libraries/Kernel Data Type Library",
-        ),
-        (
-            "function-library",
-            "sysml.library/Kernel Libraries/Kernel Function Library",
-        ),
-        ("systems-library", "sysml.library/Systems Library"),
-        (
-            "analysis-library",
-            "sysml.library/Domain Libraries/Analysis",
-        ),
-        (
-            "cause-and-effect-library",
-            "sysml.library/Domain Libraries/Cause and Effect",
-        ),
-        (
-            "geometry-library",
-            "sysml.library/Domain Libraries/Geometry",
-        ),
-        (
-            "metadata-library",
-            "sysml.library/Domain Libraries/Metadata",
-        ),
-        (
-            "quantities-and-units-library",
-            "sysml.library/Domain Libraries/Quantities and Units",
-        ),
-        (
-            "requirement-derivation-library",
-            "sysml.library/Domain Libraries/Requirement Derivation",
-        ),
-    ])
-}
-
 /// The fixture, with the release's sources copied beside each member's
-/// `model.toml`.
-///
-/// Copied, not referenced: a `sources` entry is a relative path that
-/// cannot escape its project root, so the files have to be *in* the
-/// member directory for the build to find them.
+/// `model.toml`. The layout table and the copying are library code
+/// (`stdlib_compare`), because the CLI suites stage the same fixture and
+/// a second copy of that table could drift from the first.
 fn staged(sources_root: &Utf8Path) -> Result<camino_tempfile::Utf8TempDir, String> {
     let staging = camino_tempfile::tempdir().map_err(|e| e.to_string())?;
-    let fixture = fixture();
-    let paths = release_paths();
-
-    // Every library's directory first, and all of them before any copy.
-    // The copy loop below reports the first file it cannot find, which
-    // names one library and hides the rest -- and for a table that is
-    // wrong about the release layout, "one file is missing" is the least
-    // useful way to say "six directories do not exist".
-    let absent: Vec<String> = paths
-        .iter()
-        .filter(|(_, relative)| !sources_root.join(relative).is_dir())
-        .map(|(asset, relative)| format!("`{asset}` expects `{relative}`"))
-        .collect();
-    if !absent.is_empty() {
-        return Err(format!(
-            "{} of {} libraries are not where `release_paths` says, under \
-             `{sources_root}` -- is it a checkout of the {RELEASE} release?\n{}",
-            absent.len(),
-            paths.len(),
-            absent.join("\n")
-        ));
-    }
-
-    std::fs::copy(
-        fixture.join("model.toml"),
-        staging.path().join("model.toml"),
-    )
-    .map_err(|e| format!("copying the root manifest: {e}"))?;
-
-    for (asset, relative) in &paths {
-        let member = staging.path().join(asset);
-        std::fs::create_dir_all(&member).map_err(|e| e.to_string())?;
-        std::fs::copy(
-            fixture.join(asset).join("model.toml"),
-            member.join("model.toml"),
-        )
-        .map_err(|e| format!("copying `{asset}`'s manifest: {e}"))?;
-
-        let from = sources_root.join(relative);
-        for name in source_names(asset)? {
-            let at = from.join(&name);
-            std::fs::copy(&at, member.join(&name)).map_err(|e| format!("copying `{at}`: {e}"))?;
-        }
-    }
+    stage_release_workspace(&fixture(), sources_root, staging.path())?;
     Ok(staging)
 }
 

@@ -57,11 +57,20 @@ impl<Policy: HTTPAuthentication> ResolveRead for StandardResolver<Policy> {
     ) -> Result<crate::resolve::ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         self.0.resolve_read(resolve)
     }
+
+    fn within_workspace(
+        self,
+        root: camino::Utf8PathBuf,
+        table: std::sync::Arc<crate::manifest::workspace_table::WorkspaceTable>,
+    ) -> Self {
+        Self(self.0.within_workspace(root, table))
+    }
 }
 
 pub fn standard_file_resolver() -> FileResolver {
     FileResolver {
         sandbox_roots: None,
+        workspace: None,
     }
 }
 
