@@ -16,6 +16,7 @@ use sysand_core::{
             LockOutcome, do_lock_local_editable, do_lock_local_editable_respelling,
             do_lock_workspace, do_lock_workspace_respelling,
         },
+        remove::do_remove,
         sync::SyncOutcome,
     },
     config::{
@@ -27,7 +28,7 @@ use sysand_core::{
     manifest::MODEL_TOML_FILE,
     model::{
         IndexName, IndexPublisher, InterchangeProjectUsage, InterchangeProjectUsageRaw,
-        ProjectName, ProjectPublisher,
+        ProjectName, ProjectPublisher, UsageRef,
     },
     project::{
         ProjectFormat, ProjectMut as _, ProjectRead as _,
@@ -684,6 +685,23 @@ fn settle_from_lock(
     let header = sysand_core::style::get_style_config().header;
     log::info!("{header}{settling:>12}{header:#} usage: {settled}");
     if settled == *placeholder {
+        return Ok(());
+    }
+    // A `model.toml` entry goes through the manifest editor: the
+    // placeholder out by its identity, the settled usage in. The spelling
+    // written is the one the locked project declares, which is what
+    // model-toml.md "Editing the manifest" asks of the shorthand.
+    if project.format()? == ProjectFormat::Toml {
+        let InterchangeProjectUsageRaw::Index {
+            publisher,
+            name,
+            version_constraint: _,
+        } = placeholder
+        else {
+            unreachable!("the placeholder is the index usage added above");
+        };
+        do_remove(project, UsageRef::Typed(publisher, name))?;
+        do_add(project, &settled)?;
         return Ok(());
     }
     let mut info = project
