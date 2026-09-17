@@ -53,6 +53,15 @@ SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
       <artifactId>sysand-maven-plugin</artifactId>
       <version>VERSION</version>
     </dependency>
+
+    <!-- Without this the smoke test cannot compile at all: it is a JUnit
+    test. Version kept in step with `java-test/pom.xml`. -->
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter-engine</artifactId>
+      <version>6.1.3</version>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
   <build>
     <plugins>

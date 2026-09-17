@@ -27,10 +27,9 @@ def lock(
     the enclosing project is found by walking up, and both the lockfile and
     the environment root are the project root.
 
-    .. note::
-       Unlike the CLI, this does not root a workspace member's lockfile
-       and environment at the workspace root. Locking a member locks that
-       member alone.
+    Inside a workspace this locks the *workspace*: the lockfile is written
+    at the workspace root and every member is a root of the solve, so a
+    member that nothing else depends on is still resolved.
 
     With ``write=True`` (the default, matching the CLI) ``sysand-lock.toml``
     is written at the project root; the returned ``text`` is exactly what

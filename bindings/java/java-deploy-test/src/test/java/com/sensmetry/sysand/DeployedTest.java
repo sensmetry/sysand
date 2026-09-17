@@ -7,27 +7,42 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import java.util.regex.Pattern;
+import java.nio.file.Files;
 
+/**
+ * A smoke test against the *deployed* artifact, run by
+ * {@code java-builder.py test-deployed} rather than by the library
+ * suite. It exists to prove the published jar loads its native library
+ * and that one end-to-end call works -- not to re-test behaviour the
+ * library suite covers. This file compiles only during a release.
+ */
 public class DeployedTest {
+
+    private static final String SYSML = "https://www.omg.org/spec/SysML/20250201";
 
     @Test
     public void testBasicInit() {
         try {
-            java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-init");
-            com.sensmetry.sysand.Sysand.init("test", "1.0.0", tempDir);
+            java.nio.file.Path tempDir = Files.createTempDirectory("sysand-test-init");
+            com.sensmetry.sysand.Sysand.init("test", "acme", "1.0.0", null, SYSML, tempDir);
 
-            assertTrue(java.nio.file.Files.exists(tempDir.resolve(".project.json")), "Project file should exist");
-            assertTrue(java.nio.file.Files.exists(tempDir.resolve(".meta.json")), "Metadata file should exist");
+            // `init` writes a `model.toml`; the two json documents are
+            // what a build produces and what a legacy project has.
+            assertTrue(Files.exists(tempDir.resolve("model.toml")), "Manifest should exist");
+            assertFalse(Files.exists(tempDir.resolve(".project.json")), "No json manifest");
+            assertFalse(Files.exists(tempDir.resolve(".meta.json")), "No json metadata");
 
-            String projectJson = java.nio.file.Files.readString(tempDir.resolve(".project.json"));
-            assertEquals("{\n  \"name\": \"test\",\n  \"version\": \"1.0.0\"\n}", projectJson);
-
-            String metaJson = java.nio.file.Files.readString(tempDir.resolve(".meta.json"));
-            Pattern regex = Pattern.compile(
-                    "\\{\\s*\"index\":\\s*\\{\\},\\s*\"created\":\\s*\"\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z\"\\s*\\}",
-                    Pattern.DOTALL);
-            assertTrue(regex.matcher(metaJson).matches(), "Metadata file content should match expected pattern");
+            String manifest = new String(Files.readAllBytes(tempDir.resolve("model.toml")));
+            assertEquals(
+                    "manifest-version = \"1.0.0\"\n"
+                            + "\n"
+                            + "[project]\n"
+                            + "publisher = \"acme\"\n"
+                            + "name = \"test\"\n"
+                            + "version = \"1.0.0\"\n"
+                            + "sources = []\n"
+                            + "metamodel = \"" + SYSML + "\"\n",
+                    manifest);
         } catch (java.io.IOException e) {
             fail("Failed during temporary directory operations or Sysand.init: " + e.getMessage());
         } catch (com.sensmetry.sysand.exceptions.SysandException e) {
