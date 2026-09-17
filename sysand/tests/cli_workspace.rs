@@ -17,6 +17,7 @@ use predicates::prelude::*;
 use sysand_core::{
     commands::lock::DEFAULT_LOCKFILE_NAME,
     config::{self, ConfigProject, OverrideSource},
+    env::DEFAULT_ENV_NAME,
     lock::Lockfile,
 };
 
@@ -779,5 +780,158 @@ fn add_in_a_member_keeps_every_member() -> Result<(), Box<dyn std::error::Error>
     let text = std::fs::read_to_string(dir.path().join(DEFAULT_LOCKFILE_NAME))?;
     assert!(text.contains("pkg:sysand/acme/gamma"), "{text}");
     assert!(!dir.path().join("app").join(DEFAULT_LOCKFILE_NAME).exists());
+    Ok(())
+}
+
+// ------------------- the selectors (Command scopes)
+
+/// workspaces.md "Command scopes": "`--workspace` forces all members".
+/// From a member directory the default is that member, so this is the
+/// only place the flag changes anything.
+#[test]
+fn build_workspace_from_a_member_dir_builds_all() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace()?;
+    run_sysand_discovering(&dir.path().join("app"), ["build", "--workspace"])?
+        .assert()
+        .success();
+
+    // One `output/`, at the root, holding both.
+    assert!(dir.path().join("output/alpha-1.0.0.kpar").exists());
+    assert!(dir.path().join("output/gamma-1.0.0.kpar").exists());
+    Ok(())
+}
+
+/// "`--member <path-or-name>` picks one" -- by its `members` entry as
+/// written.
+#[test]
+fn build_member_from_the_root_builds_one() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace()?;
+    run_sysand_discovering(dir.path(), ["build", "--member", "libs/gamma"])?
+        .assert()
+        .success();
+
+    assert!(dir.path().join("output/gamma-1.0.0.kpar").exists());
+    assert!(!dir.path().join("output/alpha-1.0.0.kpar").exists());
+    Ok(())
+}
+
+/// And by the project's name, which is in the member's own manifest
+/// rather than in the workspace table -- the reason a selector loads
+/// the workspace where the rest of the CLI only consults it.
+#[test]
+fn a_member_selector_matches_a_name_too() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace()?;
+    run_sysand_discovering(dir.path(), ["build", "--member", "gamma"])?
+        .assert()
+        .success();
+
+    assert!(dir.path().join("output/gamma-1.0.0.kpar").exists());
+    assert!(!dir.path().join("output/alpha-1.0.0.kpar").exists());
+    Ok(())
+}
+
+#[test]
+fn a_member_selector_that_matches_nothing_says_so() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace()?;
+    run_sysand_discovering(dir.path(), ["build", "--member", "nosuch"])?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("has no member `nosuch`"))
+        // The message lists what there is, so the next attempt is informed.
+        .stderr(predicate::str::contains("libs/gamma"));
+    Ok(())
+}
+
+/// Outside a workspace a selector has nothing to select from, and is
+/// refused rather than dropped: dropping it would edit the current
+/// project instead of the one named.
+#[test]
+fn a_member_selector_outside_a_workspace_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = camino_tempfile::tempdir()?;
+    std::fs::write(dir.path().join("model.toml"), MEMBER)?;
+    run_sysand_discovering(dir.path(), ["add", "--member", "app", "acme/widgets"])?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("`--member app` needs a workspace"));
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("model.toml"))?,
+        MEMBER
+    );
+    Ok(())
+}
+
+/// The contradictory pair, refused by clap: a `Selector` cannot
+/// express it.
+#[test]
+fn the_two_selectors_are_refused_together() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace()?;
+    run_sysand_discovering(dir.path(), ["build", "--workspace", "--member", "app"])?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "the argument '--workspace' cannot be used with '--member <PATH-OR-NAME>'",
+        ));
+    Ok(())
+}
+
+/// A writing command run at the workspace root, which has no project of
+/// its own, is refused with a message that names the remedy.
+#[test]
+fn a_writing_command_at_the_root_needs_a_member() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace()?;
+    for args in [
+        vec!["add", "acme/dep", "--version-constraint", "^1"],
+        vec!["remove", "acme/alpha"],
+        vec!["include", "a.sysml"],
+        vec!["exclude", "a.sysml"],
+    ] {
+        run_sysand_discovering(dir.path(), args.clone())?
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(
+                "this command needs a project; run it from a member directory or pass \
+                 `--member <path-or-name>`",
+            ));
+    }
+    Ok(())
+}
+
+/// And with the selector the message names, the same command reaches
+/// the member.
+#[test]
+fn a_writing_command_at_the_root_with_member_works() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace()?;
+    run_sysand_discovering(dir.path(), ["remove", "--member", "gamma", "acme/alpha"])?
+        .assert()
+        .success();
+
+    let manifest = std::fs::read_to_string(dir.path().join("libs/gamma/model.toml"))?;
+    assert!(!manifest.contains("inline-usages"), "{manifest}");
+    Ok(())
+}
+
+/// "`print-root` prints the workspace root ... `--member` the
+/// member's".
+#[test]
+fn print_root_member_prints_the_members_root() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace()?;
+    run_sysand_discovering(dir.path(), ["print-root", "--member", "gamma"])?
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("libs/gamma"));
+    Ok(())
+}
+
+/// "`env`: per workspace: the single `.sysand`". `sysand env` in a
+/// member must not create a second one beside the shared environment.
+#[test]
+fn env_in_a_member_uses_the_root_sysand() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace()?;
+    run_sysand_discovering(&dir.path().join("app"), ["env"])?
+        .assert()
+        .success();
+
+    assert!(dir.path().join(DEFAULT_ENV_NAME).is_dir());
+    assert!(!dir.path().join("app").join(DEFAULT_ENV_NAME).exists());
     Ok(())
 }

@@ -1082,8 +1082,10 @@ fn lock_refuses_a_target_that_spells_its_identity_differently()
     run_sysand_in(&app, ["lock"], None)?
         .assert()
         .failure()
+        // The lock's spelling check: a typed usage spells publisher and
+        // name as the target declares them
         .stderr(predicate::str::contains(
-            "a usage spells publisher and name as the target declares them",
+            "is rejected because its spelling does not match the project's",
         ));
     Ok(())
 }
