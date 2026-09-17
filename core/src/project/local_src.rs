@@ -566,7 +566,8 @@ pub enum LocalSrcError {
     /// two documents would point at the wrong fix.
     #[error("project is missing {missing}")]
     MissingInfoMeta { missing: &'static str },
-    /// model-toml.md "Mixed manifests".
+    /// model-toml.md "Mixed manifests". The message carries no
+    /// `sysand migrate` hint.
     #[error(
         "`{dir}` has both `model.toml` and `{json}`;\n\
         {SP:>8} it is unclear whether it is a non-zipped KPAR or a development project",
