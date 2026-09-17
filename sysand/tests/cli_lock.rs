@@ -1567,3 +1567,46 @@ fn lock_warns_on_a_metamodel_release_mismatch() -> Result<(), Box<dyn std::error
     );
     Ok(())
 }
+
+/// A dependency's unparseable version is named, through the command.
+///
+/// `InvalidResolvedVersion` carries the version string that failed to
+/// parse -- `semver::Error` describes the failure without ever echoing
+/// its input.
+///
+/// The target is a **json** project on purpose. A `model.toml` target
+/// with the same version never reaches the solver: the manifest reader
+/// rejects it first, with its own message naming the line and column
+/// ("`[project]` sets `version = \"2023-11\"`, which is not a valid
+/// version"). So this message belongs to the json targets a
+/// `model.toml` project can still depend on, which is where a version
+/// is not checked when it is read.
+#[test]
+fn lock_reports_a_non_semver_dependency_version() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    write_metamodel_member(
+        &cwd,
+        "app",
+        "alpha",
+        OMG_SYSML,
+        "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"beta\"\ndir = \"../lib\"\n",
+    )?;
+    let lib = cwd.join("lib");
+    std::fs::create_dir_all(&lib)?;
+    std::fs::write(
+        lib.join(".project.json"),
+        "{\"name\":\"beta\",\"publisher\":\"acme\",\"version\":\"2023-11\",\"usage\":[]}",
+    )?;
+    std::fs::write(
+        lib.join(".meta.json"),
+        "{\"index\":{},\"created\":\"2026-01-01T00:00:00Z\"}",
+    )?;
+
+    run_sysand_in(&cwd.join("app"), ["lock", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "declares version `2023-11`, which is not semver",
+        ));
+    Ok(())
+}
