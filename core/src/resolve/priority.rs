@@ -13,7 +13,7 @@ use crate::{
     env::utils::ErrorBound,
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{CanonicalizationError, ProjectRead},
+    project::{CanonicalizationError, ProjectFormat, ProjectRead},
     resolve::{ResolutionInfo, ResolveRead},
 };
 
@@ -141,6 +141,24 @@ impl<HigherProject: ProjectRead, LowerProject: ProjectRead> ProjectRead
                 Ok(v) => Ok(PriorityReader::LowerReader(v)),
                 Err(e) => Err(PriorityError::Lower(e)),
             },
+        }
+    }
+
+    /// Forwarded, which `ProjectRead::format`'s own documentation says
+    /// every wrapper must do.
+    ///
+    /// Taking the `ProjectFormat::Json` default would make this wrapper
+    /// claim json for whatever it holds, and a transitive usage's
+    /// [`crate::resolve::UsageOrigin`] is derived from this call. So
+    /// every usage declared by a *dependency* would be treated as
+    /// json-declared however it was written: the literal-spelling rule
+    /// would not apply to a toml project reached through another
+    /// project, and the same usage would give different answers
+    /// depending on whether it was locked directly or as a dependency.
+    fn format(&self) -> Result<ProjectFormat, Self::Error> {
+        match self {
+            Self::HigherProject(project) => project.format().map_err(PriorityError::Higher),
+            Self::LowerProject(project) => project.format().map_err(PriorityError::Lower),
         }
     }
 

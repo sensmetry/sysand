@@ -1235,6 +1235,70 @@ fn lock_reports_why_a_dir_usage_failed() -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
+/// A `kpar-url` naming a **local archive** still resolves.
+///
+/// The capability the `kpar-url` narrowing must not take: an archive is
+/// a KPAR however it is spelled, and `kpar-path` cannot express an
+/// absolute path (`model-toml.md`, "Relative as for `dir`"), so a
+/// `file:` URL is the only way to name one. A guard against the
+/// narrowing over-reaching.
+#[test]
+fn a_kpar_url_naming_a_local_archive_resolves() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--metamodel",
+            "https://www.omg.org/spec/SysML/20250201",
+            "--publisher",
+            "acme",
+            "--name",
+            "dep",
+            "--version",
+            "1.0.0",
+        ],
+        None,
+    )?;
+    out.assert().success();
+    run_sysand_in(&cwd, ["build", "dep.kpar"], None)?
+        .assert()
+        .success();
+
+    let app = cwd.join("app");
+    std::fs::create_dir_all(&app)?;
+    run_sysand_in(
+        &app,
+        [
+            "init",
+            "--metamodel",
+            "https://www.omg.org/spec/SysML/20250201",
+            "--publisher",
+            "acme",
+            "--name",
+            "app",
+            "--version",
+            "1.0.0",
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+    let manifest_path = app.join("model.toml");
+    let manifest = std::fs::read_to_string(&manifest_path)?;
+    std::fs::write(
+        &manifest_path,
+        format!(
+            "{manifest}\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\n\
+             kpar-url = \"file://{}\"\n",
+            cwd.join("dep.kpar")
+        ),
+    )?;
+
+    run_sysand_in(&app, ["lock", "--no-index"], None)?
+        .assert()
+        .success();
+    Ok(())
+}
+
 /// End to end. model-toml.md "Standard library": by default the
 /// standard library is "provided by the tooling" -- `lock` resolves the
 /// publisher-less `kpar-url` against the metadata Sysand embeds, without

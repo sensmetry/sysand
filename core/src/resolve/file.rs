@@ -22,6 +22,7 @@ use crate::{
         local_src::{LocalSrcError, LocalSrcProject},
         utils::{FsIoError, ProjectDeserializationError, RelativizePathError, wrapfs},
     },
+    resolve::UsageOrigin,
     resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead},
     utils::scheme::SCHEME_FILE,
     workspace::model_toml::PathRegion,
@@ -105,6 +106,13 @@ pub enum FileResolverError {
     /// usage give one sentence.
     #[error(transparent)]
     Workspace(crate::workspace::model_toml::DiscoverError),
+    /// A `kpar-url` whose `file:` target is a directory rather than an
+    /// archive. `kpar-path` is the key for a project directory, and a
+    /// built `.kpar` is the other answer.
+    #[error(
+        "`kpar-url` names `{0}`, which is a directory; a `kpar-url` usage takes a KPAR. Use `kpar-path` for a project directory, or point at its built `.kpar`"
+    )]
+    KparUrlNamesADirectory(Utf8PathBuf),
     #[error("failed to encode path `{0}` in UTF-8")]
     InvalidPath(PathBuf),
     #[error("IRI `{0}` is not a valid URL: {1}")]
@@ -458,7 +466,28 @@ impl ResolveRead for FileResolver {
                     // `kpar-url` was the one spelling of a usage that
                     // walked around the rule, and the unlisted project
                     // was written into the *workspace* lockfile.
+                    let origin = resolve.origin();
                     res.try_map(|path| {
+                        // `model-toml.md`: `kpar-url` "is used for
+                        // standard-compliant KPARs", so a directory-style
+                        // source tree is refused.
+                        //
+                        // The test is `origin`, because by this point a
+                        // toml `kpar-url` and a legacy json `resource`
+                        // usage are the same value: `kpar_view::usage`
+                        // turns `Usage::RemoteKpar` into exactly the
+                        // `Resource` a `.project.json` carries. A toml
+                        // manifest reaches *here* only through
+                        // `kpar-url` -- `dir` and `kpar-path` have
+                        // their own arms, and an index usage is a
+                        // `pkg:sysand` PURL, which left above at
+                        // `try_file_uri_to_path`. json keeps both
+                        // candidates: `resource` is legacy.
+                        if origin == UsageOrigin::Toml
+                            && crate::project::utils::wrapfs::is_dir(&path)?
+                        {
+                            return Err(FileResolverError::KparUrlNamesADirectory(path));
+                        }
                         if self.resource_is_unlisted(&path)? {
                             let (root, _) = self.workspace.as_ref().expect("checked above");
                             return Err(FileResolverError::Workspace(

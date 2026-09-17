@@ -487,6 +487,39 @@ fn a_file_usage_migrates_end_to_end() -> Result<(), Box<dyn std::error::Error>> 
     Ok(())
 }
 
+/// A `file:` usage naming a **KPAR archive** migrates to `kpar-path`.
+///
+/// Asking whether the target is in a workspace must not fail on a file:
+/// testing `<target>/model.toml` there gives `Not a directory (os error
+/// 20)`. The design maps a `file:` resource to "kpar/source path"
+/// (`model-toml.md`), and this is the archive half.
+///
+/// `kpar-url` does not accept a directory, so a json `resource` naming
+/// an archive is exactly what should become `kpar-path`.
+#[test]
+fn a_file_usage_to_an_archive_migrates_to_a_kpar_path() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, root) = new_temp_cwd()?;
+    let app = root.join("app");
+    let dep = root.join("dep");
+    std::fs::create_dir_all(&app)?;
+    std::fs::create_dir_all(&dep)?;
+    write_legacy_project(&dep, "acme", "dep", "1.0.0", None)?;
+    // Built rather than written, so the archive is a real KPAR.
+    run_sysand_in(&dep, ["build", "../dep.kpar"], None)?
+        .assert()
+        .success();
+    json_with_file_usage(&app, &root.join("dep.kpar"))?;
+    git_repo(&root, true)?;
+
+    run_sysand_in(&app, ["migrate"], None)?.assert().success();
+    let text = std::fs::read_to_string(app.join("model.toml"))?;
+    assert!(
+        text.contains("kpar-path = \"../dep.kpar\""),
+        "an archive is a `kpar-path`, not a `dir`:\n{text}"
+    );
+    Ok(())
+}
+
 /// `sysand migrate ./app`: `relativize_path` asserts on a path that is
 /// not canonical, so this aborts the process if the command does not
 /// canonicalize first.
@@ -1090,6 +1123,59 @@ fn lock_refuses_a_target_that_spells_its_identity_differently()
         .failure()
         // The lock's spelling check: a typed usage spells publisher and
         // name as the target declares them
+        .stderr(predicate::str::contains(
+            "is rejected because its spelling does not match the project's",
+        ));
+    Ok(())
+}
+
+/// The same rule, one level down.
+///
+/// A transitive usage's `UsageOrigin` comes from the resolved project's
+/// `format()`, so every wrapper the CLI resolves through has to forward
+/// it. If one fell back to the `ProjectFormat::Json` default, every
+/// usage declared by a *dependency* would be treated as json-declared:
+/// the literal-spelling rule would silently not apply, and the
+/// identical usage would give different answers depending on whether
+/// its project was locked directly or reached through another.
+#[test]
+fn lock_refuses_a_transitively_reached_spelling_difference()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, root) = new_temp_cwd()?;
+    let app = root.join("app");
+    let mid = root.join("mid");
+    let dep = root.join("dep");
+    for at in [&app, &mid, &dep] {
+        std::fs::create_dir_all(at)?;
+    }
+    std::fs::write(
+        dep.join("model.toml"),
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"Acme Corp\"\nname = \"dep\"\n\
+         version = \"1.0.0\"\nsources = []\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    )?;
+    // `mid` is the one with the wrongly-spelled usage, and it is reached
+    // through `app` rather than locked directly.
+    std::fs::write(
+        mid.join("model.toml"),
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"mid\"\n\
+         version = \"1.0.0\"\nsources = []\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
+         [[inline-usages]]\npublisher = \"acme-corp\"\nname = \"dep\"\ndir = \"../dep\"\n",
+    )?;
+    std::fs::write(
+        app.join("model.toml"),
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"app\"\n\
+         version = \"1.0.0\"\nsources = []\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
+         [[inline-usages]]\npublisher = \"acme\"\nname = \"mid\"\ndir = \"../mid\"\n",
+    )?;
+
+    run_sysand_in(&app, ["lock"], None)?
+        .assert()
+        .failure()
+        // The dependency is named, since the usage is not the user's to edit
+        .stderr(predicate::str::contains("in dependency `mid` 1.0.0"))
         .stderr(predicate::str::contains(
             "is rejected because its spelling does not match the project's",
         ));

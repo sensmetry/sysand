@@ -1161,50 +1161,149 @@ fn a_dir_usage_of_an_unlisted_project_is_refused() {
     );
 }
 
-/// The same rule, reached by the *other* spelling of a local usage.
+/// The unlisted-project rule, reached through the resolver's `Resource`
+/// arm.
 ///
-/// `FileResolver` classified the `Directory` arm and not the `Resource`
-/// one, so a member could reach an unlisted project by writing
-/// `kpar-url = "file://..."` instead of `dir = "..."`: the `dir` form
-/// was refused and the `file:` form resolved, writing the unlisted
-/// project into the **workspace** lockfile as an ordinary source. Two
-/// spellings of one usage, disagreeing.
+/// That arm serves two usages at once, and only one of them can still
+/// name a directory. A toml `kpar-url` cannot any more -- it takes a
+/// KPAR -- so the one route left is a **json** project's legacy
+/// `resource` usage, which keeps both candidates because json projects
+/// are read unchanged.
 ///
-/// An archive *file* under the root keeps resolving -- it is not a
-/// project directory, and `output/<name>.kpar` is where this
-/// workspace's own builds land -- which is why the check asks whether
-/// the path is a directory.
+/// The topology is forced by that: a json project cannot be a member,
+/// and the check only exists inside a workspace, so it is an `exclude`d
+/// json project reached by a `dir` usage from a member.
 #[cfg(feature = "filesystem")]
 #[test]
 fn a_file_url_usage_of_an_unlisted_project_is_refused() {
-    let dir = workspace_tree(&[("app", &member_toml("alpha", ""))], "");
+    let dir = workspace_tree(
+        &[(
+            "app",
+            &member_toml(
+                "alpha",
+                "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"ext\"\ndir = \"../ext\"\n",
+            ),
+        )],
+        "exclude = [\"ext\"]\n",
+    );
     std::fs::create_dir_all(dir.path().join("stray")).expect("the stray directory");
     std::fs::write(
         dir.path().join("stray/model.toml"),
         member_toml("stray", ""),
     )
     .expect("the stray manifest");
-    // Written after the tree exists, because the URL is absolute.
-    let url = format!("file://{}", dir.path().join("stray"));
+    // The `file:` URL is absolute, so it is written once the tree exists.
+    std::fs::create_dir_all(dir.path().join("ext")).expect("the excluded directory");
     std::fs::write(
-        dir.path().join("app/model.toml"),
-        member_toml(
-            "alpha",
-            &format!(
-                "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"stray\"\n\
-                 kpar-url = \"{url}\"\n"
-            ),
+        dir.path().join("ext/.project.json"),
+        format!(
+            r#"{{"name": "ext", "publisher": "acme", "version": "1.0.0",
+                "usage": [{{"resource": "file://{}"}}]}}"#,
+            dir.path().join("stray")
         ),
     )
-    .expect("the member manifest");
+    .expect("the excluded manifest");
+    std::fs::write(
+        dir.path().join("ext/.meta.json"),
+        "{\"index\": {}, \"created\": \"2025-05-30T12:34:24.977672Z\"}",
+    )
+    .expect("the excluded metadata");
 
-    let error =
-        lock_workspace(&dir).expect_err("a `file:` usage of an unlisted target is refused too");
+    let error = lock_workspace(&dir)
+        .expect_err("an unlisted target is refused however the usage is spelled");
     let message = crate::utils::format_err(error);
     assert!(
         message.contains("is neither listed in `workspace.members` nor under `workspace.exclude`"),
         "got: {message}"
     );
+}
+
+/// `kpar-url` "is used for standard-compliant KPARs", so a directory
+/// target is refused.
+///
+/// The narrowing is on `UsageOrigin`, because a toml `kpar-url` and a
+/// json `resource` usage are the same value by the time the resolver
+/// sees them -- see the arm's comment.
+///
+/// The target is **excluded**, so it is a legitimate standalone project
+/// under the root: that way the refusal can only be this rule, and not
+/// the unlisted-project error doing the work.
+#[cfg(feature = "filesystem")]
+#[test]
+fn a_kpar_url_naming_a_directory_is_refused() {
+    let dir = camino_tempfile::tempdir().expect("a temporary directory");
+    std::fs::create_dir_all(dir.path().join("dep")).expect("the target directory");
+    std::fs::write(dir.path().join("dep/model.toml"), member_toml("dep", ""))
+        .expect("the target manifest");
+    let usage = format!(
+        "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\nkpar-url = \"file://{}\"\n",
+        dir.path().join("dep")
+    );
+    std::fs::write(
+        dir.path().join("model.toml"),
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\"]\nexclude = [\"dep\"]\n",
+    )
+    .expect("the root manifest");
+    std::fs::create_dir_all(dir.path().join("app")).expect("the member directory");
+    std::fs::write(
+        dir.path().join("app/model.toml"),
+        member_toml("alpha", &usage),
+    )
+    .expect("the member manifest");
+
+    let error = lock_workspace(&dir).expect_err("a `kpar-url` takes a KPAR");
+    let message = crate::utils::format_err(error);
+    assert!(
+        message.contains("which is a directory; a `kpar-url` usage takes a KPAR"),
+        "got: {message}"
+    );
+}
+
+/// The other half: a **json** project's legacy `resource` usage still
+/// names a directory.
+///
+/// json projects are read unchanged, and `model-toml.md` says `resource` "is legacy and is not
+/// supported directly" -- it is not `kpar-url` under another name. This
+/// is why the narrowing tests `UsageOrigin` rather than the usage value,
+/// which by this point is identical for the two.
+#[cfg(feature = "filesystem")]
+#[test]
+fn a_json_resource_naming_a_directory_still_resolves() {
+    let dir = camino_tempfile::tempdir().expect("a temporary directory");
+    std::fs::create_dir_all(dir.path().join("dep")).expect("the target directory");
+    std::fs::write(dir.path().join("dep/model.toml"), member_toml("dep", ""))
+        .expect("the target manifest");
+    std::fs::write(
+        dir.path().join("model.toml"),
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\"]\nexclude = [\"dep\", \"ext\"]\n",
+    )
+    .expect("the root manifest");
+    std::fs::create_dir_all(dir.path().join("app")).expect("the member directory");
+    std::fs::write(
+        dir.path().join("app/model.toml"),
+        member_toml(
+            "alpha",
+            "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"ext\"\ndir = \"../ext\"\n",
+        ),
+    )
+    .expect("the member manifest");
+    std::fs::create_dir_all(dir.path().join("ext")).expect("the json directory");
+    std::fs::write(
+        dir.path().join("ext/.project.json"),
+        format!(
+            r#"{{"name": "ext", "publisher": "acme", "version": "1.0.0",
+                "usage": [{{"resource": "file://{}"}}]}}"#,
+            dir.path().join("dep")
+        ),
+    )
+    .expect("the json manifest");
+    std::fs::write(
+        dir.path().join("ext/.meta.json"),
+        "{\"index\": {}, \"created\": \"2025-05-30T12:34:24.977672Z\"}",
+    )
+    .expect("the json metadata");
+
+    lock_workspace(&dir).expect("a json `resource` usage still names a directory");
 }
 
 /// A metamodel direction error stops the lock, rather than being

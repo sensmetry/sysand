@@ -438,6 +438,26 @@ fn resolve_file_target(resource: &str, project: &Utf8Path) -> Result<Usage, Stri
 
 /// `(publisher, name, is_kpar)` read from the target.
 fn read_identity(target: &Utf8Path) -> Result<(IndexPublisher, IndexName, bool), String> {
+    // A target that is not a directory is not a source project, and
+    // asking a `LocalSrcProject` about one *fails* rather than
+    // answering "nothing here": it tests `<target>/model.toml`, which on
+    // a `.kpar` file is `Not a directory (os error 20)`, and the arm
+    // below turns any error into a failed migration. Without this an
+    // archive named by a `file:` usage could not be migrated at all.
+    let is_dir = wrapfs::is_dir(target).map_err(|e| {
+        format!(
+            "cannot tell whether usage target `{target}` is a directory: {}",
+            format_err(e)
+        )
+    })?;
+    if !is_dir {
+        let kpar = LocalKParProject::new_access(target.to_owned(), KparInnerPath::Guess, None);
+        let info = match kpar.get_info() {
+            Ok(Some(info)) => Some((info, true)),
+            Ok(None) | Err(_) => None,
+        };
+        return finish_identity(target, info);
+    }
     let source = match member_table(target)? {
         // A member resolves its inherited keys against the table, which
         // `get_info` consults; without it, `publisher.workspace = true`
@@ -462,6 +482,14 @@ fn read_identity(target: &Utf8Path) -> Result<(IndexPublisher, IndexName, bool),
             }
         }
     };
+    finish_identity(target, info)
+}
+
+/// The identity half, shared by the directory and archive paths.
+fn finish_identity(
+    target: &Utf8Path,
+    info: Option<(sysand_core::model::InterchangeProjectInfoRaw, bool)>,
+) -> Result<(IndexPublisher, IndexName, bool), String> {
     let Some((info, is_kpar)) = info else {
         return Err(format!(
             "`{target}` does not contain a project that `sysand migrate` can read"
@@ -500,6 +528,19 @@ fn read_identity(target: &Utf8Path) -> Result<(IndexPublisher, IndexName, bool),
 /// Not `Workspace::load_with` either: it would refuse the whole
 /// workspace because some *other* member is broken.
 fn member_table(target: &Utf8Path) -> Result<Option<WorkspaceTable>, String> {
+    // A target that is not a directory cannot be a member, and asking
+    // the question of one fails rather than answering: `discover_table`
+    // tests `<target>/model.toml`, which on a `.kpar` file is
+    // `Not a directory (os error 20)`, which would make a json
+    // `resource` naming an archive impossible to migrate at all.
+    if !wrapfs::is_dir(target).map_err(|e| {
+        format!(
+            "cannot tell whether `{target}` is a directory: {}",
+            format_err(e)
+        )
+    })? {
+        return Ok(None);
+    }
     let Some((root, table)) = discover_table(target).map_err(|e| {
         format!(
             "cannot tell whether `{target}` is in a workspace: {}",
