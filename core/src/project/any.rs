@@ -59,6 +59,10 @@ pub enum TryFromSourceError {
     UrlParse(String, #[source] url::ParseError),
     #[error(transparent)]
     RemoteGit(GixDownloadedError),
+    /// An `[override]` naming a project under a workspace root that is
+    /// in neither `members` nor `exclude`.
+    #[error(transparent)]
+    Workspace(#[from] crate::workspace::model_toml::DiscoverError),
 }
 
 // TODO: Find a better solution going from source to project.
@@ -72,10 +76,16 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
     ) -> Result<Self, TryFromSourceError> {
         match source {
             OverrideSource::Editable { editable } => {
-                let project = LocalSrcProject::new_access(
+                // A configured `[override]` may name a workspace member,
+                // whose manifest resolves only against its table: read it
+                // table-less and a member inheriting its `metamodel`
+                // fails with "the project is not a member of any
+                // workspace", about a project that is listed in
+                // `members`.
+                let project = crate::workspace::model_toml::project_at_path(
                     project_root.as_ref().join(editable.as_str()),
                     Some(editable.to_string().into()),
-                );
+                )?;
                 Ok(Self::Editable(EditableProject::<LocalSrcProject>::new(
                     editable.as_str().into(),
                     project,
@@ -89,11 +99,11 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
                 )))
             }
             OverrideSource::LocalSrc { src_path } => {
+                // As for `Editable` above.
                 let project_path = project_root.as_ref().join(src_path.as_str());
-                Ok(Self::LocalSrc(LocalSrcProject::new_access(
-                    project_path,
-                    Some(src_path),
-                )))
+                Ok(Self::LocalSrc(
+                    crate::workspace::model_toml::project_at_path(project_path, Some(src_path))?,
+                ))
             }
             // TODO: use expected size
             OverrideSource::RemoteKpar { remote_kpar } => Ok(Self::RemoteKpar(

@@ -178,6 +178,10 @@ pub enum EnvInstallPathError<InstallError> {
     MissingInfo(Utf8PathBuf),
     #[error(transparent)]
     ProjectRead(#[from] FileResolverProjectError),
+    /// `location` lies under a workspace root without being a member,
+    /// or the workspace it is in cannot be read
+    #[error(transparent)]
+    Workspace(crate::workspace::model_toml::DiscoverError),
     #[error(transparent)]
     Installation(InstallError),
 }
@@ -202,10 +206,10 @@ pub fn do_env_install_path<E: WriteEnvironment + ReadEnvironment>(
     } else if metadata.is_dir() {
         // Read as a member when `location` is one: a member that inherits
         // a key cannot be read without its workspace's table
-        FileResolverProject::LocalSrcProject(crate::workspace::model_toml::project_at_path(
-            location.to_owned(),
-            None,
-        ))
+        FileResolverProject::LocalSrcProject(
+            crate::workspace::model_toml::project_at_path(location.to_owned(), None)
+                .map_err(EnvInstallPathError::Workspace)?,
+        )
     } else {
         return Err(EnvInstallPathError::NotFound(location.to_owned()));
     };

@@ -37,6 +37,17 @@ pub fn is_project_file(path: &Utf8Path) -> Result<bool, Box<FsIoError>> {
     Ok(wrapfs::is_file(path.join(".project.json"))? || wrapfs::is_file(path.join(".meta.json"))?)
 }
 
+/// The project `working_directory` is in, **without a workspace table**.
+///
+/// The project it returns carries no table, so its manifest cannot
+/// resolve a `<key>.workspace` marker: reading one that inherits fails
+/// with "the project is not a member of any workspace", about a project
+/// that may well be listed in `members`.
+///
+/// **A caller that reads the manifest must rebuild the project with its
+/// table**, or use [`crate::workspace::model_toml::project_at_path`],
+/// which does it and additionally refuses a project that lies under a
+/// workspace root in neither `members` nor `exclude`.
 pub fn discover_project<P: AsRef<Utf8Path>>(
     working_directory: P,
 ) -> Result<Option<LocalSrcProject>, Box<FsIoError>> {
