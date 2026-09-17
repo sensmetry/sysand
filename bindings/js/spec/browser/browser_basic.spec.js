@@ -33,6 +33,9 @@ it("can initialise a project in browser local storage", async function () {
   // `acme`/`basic-init` rather than `a`/`basic_init`: a publisher and
   // name must normalize to a valid package-URL part, which rules out a
   // single character and an underscore.
+  // The seventh argument is the metamodel, which is mandatory: a
+  // project cannot be created without one, and it is not guessed.
+  // `tests/basic_browser.rs` is the same call in Rust.
   sysand.do_init_js_local_storage(
     "basic-init",
     "acme",
@@ -40,15 +43,17 @@ it("can initialise a project in browser local storage", async function () {
     "sysand_storage",
     "/",
     "MIT OR Apache-2.0",
+    "https://www.omg.org/spec/SysML/20250201",
   );
   expect(window.localStorage.getItem("sysand_storage/model.toml")).toBe(
     'manifest-version = "1.0.0"\n\n' +
-      '[project]\n' +
+      "[project]\n" +
       'publisher = "acme"\n' +
       'name = "basic-init"\n' +
       'version = "1.2.3"\n' +
       "sources = []\n" +
-      'license = "MIT OR Apache-2.0"\n',
+      'license = "MIT OR Apache-2.0"\n' +
+      'metamodel = "https://www.omg.org/spec/SysML/20250201"\n',
   );
   expect(window.localStorage.getItem("sysand_storage/.project.json")).toBe(
     null,

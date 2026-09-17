@@ -34,31 +34,39 @@ that a particular language is used; `model` is neutral in that respect.
 ## Manifest version
 
 Every `model.toml`, whether it defines a project or a workspace, carries
-a top-level integer key stating the manifest format version it was
-written for:
+a top-level key stating the manifest format version it was written for:
 
 ```toml
-manifest-version = 1
+manifest-version = "1.0.0"
 
 [project]
 # ...
 ```
+
+The value is a string holding a SemVer 2.0 version, not an integer, so
+that the format has room to say *how* it changed: additions bump the
+minor, an incompatible change the major, and a value like `"1.3.2"` is
+meaningful from the start rather than a migration away. Files written
+for v1 carry `"1.0.0"`.
 
 The key is mandatory and not inheritable: a member's file must be
 self-describing before the `[workspace]` table it inherits from is
 read. It is read before anything else, so that a file this Sysand
 cannot read is refused with the right message rather than with a schema
 error:
-- absent: an error naming the key
-- greater than the highest version this Sysand supports: the error
-  "`<file>` is written for manifest-version N; this Sysand supports up
-  to M; update Sysand"
+- absent, or not a semver string: an error naming the key
+- greater, in semver order, than the highest version this Sysand
+  supports: the error "`<file>` is written for manifest-version N; this
+  Sysand supports up to M; update Sysand"
 
 Additions to the common schema -- a new key on usage entries, say, such
-as an explicit `index` (see Usages) -- bump the version. Additions
-gated by `metamodel` (see Metamodel) do not: the metamodel value
-already tells a reader which schema applies. `sysand init`, `sysand
-new` and `sysand migrate` write the current value. The rationale for
+as an explicit `index` (see Usages) -- bump the minor version, and are
+refused by an older reader like any other version it does not know: a
+reader that ignored them would misread the file, which is the hole the
+key exists to close. Additions gated by `metamodel` (see Metamodel) do
+not bump anything: the metamodel value already tells a reader which
+schema applies. `sysand init`, `sysand new` and `sysand migrate` write
+the current value. The rationale for
 making the key mandatory is under workspaces.md, Unknown keys.
 
 ## Main project metadata
@@ -68,27 +76,37 @@ Main project metadata is in the `[project]` table of `model.toml`:
   - `publisher`: same requirements as sysand.com: `^[a-zA-Z0-9](?:[a-zA-Z0-9]|[- ](?=[a-zA-Z0-9])){1,48}[a-zA-Z0-9]$`
   - `name`: same requirements as sysand.com: `^[a-zA-Z0-9](?:[a-zA-Z0-9]|[-. ](?=[a-zA-Z0-9])){1,48}[a-zA-Z0-9]$`
   - `version`: SemVer 2.0
+  - `metamodel`: URL, one of four recognized values (OMG KerML, OMG
+    SysML, Syside KerML, Syside SysML). Besides being copied into the
+    KPAR, it selects the schema the rest of the manifest is validated
+    against and the language its source files may be written in; see
+    Metamodel. Inheritable, so a member may carry it as
+    `metamodel.workspace` instead (see workspaces.md)
   - `sources`: array of paths to the project's source files, relative to
     the project root (the directory containing `model.toml`). Always
     required for the OMG metamodel (see Metamodel): there is no implicit
     default set of source files, so a project that has none is written
-    as `sources = []`. Entries are relative and `/`-separated. On read
-    every entry is normalized: a leading `./` and inner `.`/`..`
-    components are resolved and repeated slashes are collapsed. The
-    normalized form is what the manifest is taken to say: it is what
-    the `checksum` and `index` maps of a built KPAR are keyed by, and
-    what every command that writes `sources` (`sysand include`, `sysand
-    migrate`) writes. An entry that escapes the project root once
-    resolved, or resolves to the root itself, is an error, so that every
-    listed file has a place in a KPAR. Every entry names a single file:
-    an entry with a trailing `/` names a directory and is an error;
-    directories and globs are postponed to after v1. Two entries that
-    normalize to the same file are a duplicate and rejected. Every entry
-    names a KerML (`.kerml`) or SysML (`.sysml`) file, the extension
-    compared case-insensitively as `sysand include` compares it today;
-    any other entry is an error. Files of other kinds are not listed in
-    `sources`: should a need arise, a later version adds a dedicated key
-    for them (a `sources_json`, say) rather than widening this one. Whether
+    as `sources = []`. Entries are relative and `/`-separated, and are
+    taken exactly as written: rather than normalize a path and then
+    check where it landed, the manifest admits only the one form Sysand
+    itself writes. An entry is an error if it is absolute, or contains a
+    `.` or `..` component (a leading `./` included), or a repeated,
+    leading or trailing slash. Nothing is resolved on read, so no entry
+    can escape the project root or name the root itself, and every
+    listed file has a place in a KPAR; what a path resolves to through a
+    symlink is out of scope and is not checked. The entry as written is
+    what the `checksum` and `index` maps of a built KPAR are keyed by.
+    The commands that write `sources` (`sysand include`, `sysand
+    migrate`) write this form, converting into it what they are given.
+    Every entry names a single file; directories and globs are postponed
+    to after v1. Two equal entries are a duplicate and rejected. Every
+    entry names a KerML (`.kerml`) or SysML (`.sysml`) file, the
+    extension compared case-insensitively as `sysand include` compares
+    it today, and the metamodel decides which of the two the project may
+    carry (see Metamodel); any other entry is an error. Files of other
+    kinds are not listed in `sources`: should a need arise, a later
+    version adds a dedicated key for them (a `sources_json`, say) rather
+    than widening this one. Whether
     the files exist is checked only for build/publish, as with the
     license file, so reading a manifest never touches them. Unlike the
     keys below, `sources` is per-project only: it cannot appear in
@@ -98,9 +116,12 @@ Main project metadata is in the `[project]` table of `model.toml`:
 - optional:
   - `license`: SPDX expression, with identifiers validated against a
     pinned SPDX License List version: the one carried by the `spdx`
-    crate version that Sysand's own lockfile resolves. Bumping that pin
-    is a deliberate change, as it can reject previously accepted
-    identifiers. No key names a license file: each identifier in the
+    crate, pinned exactly in Sysand's `Cargo.toml` as `spdx =
+    "=<version>"` rather than left to the lockfile. Which identifiers
+    are accepted is part of the manifest format, and a lockfile bump
+    must not be able to change it. Bumping the pin is a deliberate
+    change, as it can reject previously accepted identifiers. No key
+    names a license file: each identifier in the
     expression maps to `LICENSES/<id>.txt` by REUSE convention, and the
     presence of those files is only checked for build/publish
   - `urls`: table of URLs, currently allowed keys: website, repository,
@@ -108,8 +129,6 @@ Main project metadata is in the `[project]` table of `model.toml`:
     about, ignored, and dropped on build; see workspaces.md, Unknown keys)
   - `description`: string
   - `topics`: array of strings
-  - `metamodel`: URL. Besides being copied into the KPAR, it selects the
-    schema the rest of the manifest is validated against; see Metamodel
   - `maintainers`: array of strings, each of the form `name <email>`;
     both parts are mandatory. Kept as strings (rather than
     `{name, email}` tables) so that the round-trip to a KPAR's
@@ -135,18 +154,19 @@ problem it finds in one report, with the position of each. Consequences:
 - every error message is Sysand's, so it can name the metamodel (see
   Metamodel) and list all problems at once, instead of stopping at the
   first missing field with a generic parser message
-- required-key checks that depend on the metamodel (`sources`) run after
-  inheritance has been resolved, since `metamodel` may itself be
-  inherited from a workspace group. `manifest-version` (read first) and
-  the keys required by every metamodel (`publisher`, `name`, `version`)
-  are checked before that
+- `metamodel` is itself required but inheritable, so it and everything
+  that depends on it -- whether `sources` is required, and which file
+  types it may list -- are checked after inheritance has been resolved.
+  `manifest-version` (read first) and the keys required by every
+  metamodel (`publisher`, `name`, `version`) are checked before that
 - unknown keys are reported as workspaces.md, Unknown keys describes:
   a warning everywhere except inside a usage entry, where an unknown
   key is an error
 
 ## Metamodel
 
-`metamodel` is a URL. Two families are recognized:
+`metamodel` is a URL, and in a `model.toml` it is mandatory. Exactly
+four values are recognized -- two families, two spec kinds each:
 - the OMG metamodels, `https://www.omg.org/spec/<spec-kind>/<date>`,
   where `<spec-kind>` is `SysML` or `KerML` and `<date>` is the release
   date, e.g. `https://www.omg.org/spec/SysML/20250201`
@@ -155,14 +175,30 @@ problem it finds in one report, with the position of each. Consequences:
   `<date>` as the OMG metamodel a project would otherwise use, e.g.
   `https://www.sysand.com/spec/SysML/20250201`
 
-Any other value is a warning, not an error. A project without a
-`metamodel` is treated as an OMG-metamodel project, which is also what
-a `.meta.json` without the field means.
+The `<date>` is not checked against a list of known releases; it is only
+compared between projects (see below). A value matching none of the four
+shapes is an error naming the key and listing them.
 
-The metamodel selects the schema of the rest of the manifest. The
-common schema -- everything in Main project metadata apart from
-`sources` and `root`, plus `inline-usages` -- applies to every project.
-On top of it:
+The key is mandatory, and its value set closed, because too much is
+undecidable without it: which file types the project's `sources` may
+list, which of KerML and SysML the project speaks, and what the rest of
+the schema allows -- which in turn decides whether a command that edits
+the manifest can keep it valid. Leaving those open would mean specifying
+what a metamodel is allowed to change, which v1 does not do. No use for
+a custom metamodel is known, on our side or a client's; should one
+appear, widening the value set is an addition to the common schema and
+bumps `manifest-version`.
+
+Only `model.toml` is held to this. A `.meta.json` -- a json project's or
+a KPAR's -- is not written by Sysand: there, a value matching none of the
+four shapes stays a warning, and an absent one means an OMG-metamodel
+project, as today.
+
+The metamodel decides three things.
+
+First, the schema of the rest of the manifest. The common schema --
+everything in Main project metadata apart from `sources` and `root`,
+plus `inline-usages` -- applies to every project. On top of it:
 - an OMG-metamodel project lists its files in `sources`, and a build
   computes the `index` map of its KPAR from them (see TOML to KPAR).
   This is the schema v1 supports
@@ -171,24 +207,31 @@ On top of it:
   `index`, with `checksum` covering every file in the archive. That
   schema is specified after v1; v1 only reserves the key
 
-The rules a v1 reader follows so that a manifest written for a schema
-it does not know is reported as such rather than as a broken project:
-- (a) when a required key is missing, or an unknown key is present, in
-  a project whose `metamodel` is not recognized, the error (for a
-  missing key) or the warning (for an unknown key) says the problem may
-  be because the project uses a metamodel this version of Sysand does
-  not support, and prints the value
-- (b) a key that belongs to another metamodel's schema (`root` in an
+Two rules keep a manifest written for a schema this reader does not know
+from being reported as a broken project:
+- a key that belongs to another metamodel's schema (`root` in an
   OMG-metamodel project) is a warning naming the metamodel that
   supports it, followed by the recognized metamodel's own required-key
   check. An OMG-metamodel project that carries both `sources` and
   `root` therefore gets only the warning and is built from `sources`;
   that is the same cost every other unknown key has, and the warning
   names the fix
-- a project whose `metamodel` is a recognized Syside value is validated
-  against the OMG schema, the only one v1 knows, and the resulting
-  error for the missing `sources` names the Syside metamodel and says
-  this version of Sysand does not support its schema
+- a project whose `metamodel` is a Syside value is validated against the
+  OMG schema, the only one v1 knows, and the resulting error for the
+  missing `sources` names the Syside metamodel and says this version of
+  Sysand does not support its schema
+
+Second, the language of the source files. The spec kind bounds what
+`sources` may list: a `KerML` project admits `.kerml` files only, and a
+`SysML` project admits `.sysml` and `.kerml`, SysML being layered on
+KerML. An entry the metamodel does not admit is an error naming the
+entry and the metamodel; the fix is the metamodel that admits it, or a
+second project for the other language, which is how the standard library
+is split. Both families answer this the same way, the Syside metamodels
+mirroring the OMG spec kind they extend.
+
+Third, the release the project targets, which is compared across the
+dependency graph.
 
 Two checks run over pairs of projects, for every edge of the solved
 dependency graph, once before the lockfile is written and again when
@@ -237,29 +280,46 @@ A declared element must be a table containing one of these sets of
 properties (in the form of
 `source-kind: field1, field2 + optional-field1, optional-field2`, where
 the fields name the TOML keys). Which kind an entry declares is decided by
-its kind key -- `dir`, `kpar-path`, `git`, `url` -- of which at most one
+its kind key -- `dir`, `kpar-path`, `git`, `kpar-url` -- of which at most one
 may be present; an index usage is the entry that carries none. A version
 requirement, wherever a kind takes one, is always `version`.
 
-Every usage carries `publisher` and `name`: that pair is the identity a
-usage is resolved by (see Normalization), and it is what the lockfile
-records, as `pkg:sysand/<publisher>/<name>`. The target must declare the
-same publisher (compared after normalization). A target that declares
-none -- possible only for a json project or a KPAR, since `[project]`
-requires a publisher -- is an error when the usage resolves: "usage
-`<name>` targets `<location>`, whose `.project.json` has no `publisher`;
-add one to the target (or migrate it to `model.toml`, where `publisher`
-is required)". The one exception is the standard library: a
-publisher-less KPAR found at an OMG standard-library IRI counts as
-publisher `omg` (see Standard library). A standard-library KPAR built
-locally (in `output/`) is not at such an IRI and is not recognized, so
-as a `kpar-path` target it is the error above like any other
-publisher-less KPAR; the standard library's own projects reference each
-other by `dir`, which reads the sibling's `model.toml`. Nothing in the
-manifest can tell whether a
-target declares a publisher, so the check happens at resolution, and a
-target gaining or losing its publisher invalidates the usages that refer
-to it.
+Every usage carries `publisher` and `name` -- the one exception being
+the standard library, whose KPARs declare no publisher (see Standard
+library). That pair is the identity a usage is resolved by (see
+Normalization), and it is what the lockfile records, as
+`pkg:sysand/<publisher>/<name>`.
+
+A project *satisfies* a usage only if the `publisher` and `name` it
+declares are literally the ones the usage spells out. Nothing is
+normalized here: both spellings are at hand, so they are compared as
+written (see Normalization, where normalization is what resolution needs
+and nothing else). The one case that cannot work this way is a PURL,
+which carries normalized values and nothing else; that is a json
+project's usage, never a `model.toml` one.
+
+For index usages the match is not enforced in v1, because checking it
+would mean pulling metadata that resolving otherwise does not need. The
+rule still holds in principle, and no exception is made to how such a
+usage is written: `sysand` never records a normalized spelling in a
+`model.toml` (see Normalization), so an index usage names the target's
+real publisher and name just as every other kind does.
+
+A target that declares no publisher -- possible only for a json project
+or a KPAR, since `[project]` requires a publisher -- is an error when the
+usage resolves: "usage `<name>` targets `<location>`, whose
+`.project.json` has no `publisher`; add one to the target (or migrate it
+to `model.toml`, where `publisher` is required)". The one exception is
+the standard library: the KPARs OMG publishes at the standard-library
+IRIs are not required to carry a publisher, and a `kpar-url` usage of one
+of those IRIs declares none either (see Standard library). A
+standard-library KPAR built locally (in `output/`) is not at such an IRI
+and is not recognized, so as a `kpar-path` target it is the error above
+like any other publisher-less KPAR; the standard library's own projects
+reference each other by `dir`, which reads the sibling's `model.toml`.
+Nothing in the manifest can tell what a target declares, so the check
+happens at resolution, and a target gaining, losing or respelling its
+publisher invalidates the usages that refer to it.
 
 - index: publisher, name, version constraint. Index usages are implicit
   in v1: the entry names no index, and resolution looks the identity up
@@ -288,8 +348,11 @@ to it.
   (`git` names the repo, either by a remote URL or by a path to a
   local clone; nothing points inside the repo)
   Postponed to after v1: not declarable in v1
-- remote-kpar: url, publisher, name -- this is used for
-  standard-compliant KPARs; version constraint not supported
+- remote-kpar: kpar-url, publisher, name -- this is used for
+  standard-compliant KPARs; version constraint not supported. The key is
+  `kpar-url`, for symmetry with `kpar-path`. `publisher` is omitted only
+  for the standard library, whose KPARs declare none (see Standard
+  library)
 - `resource` (the KerML usage type carried by json projects, see
   `InterchangeProjectInfo`) is legacy and is not supported directly:
   it cannot be declared in `model.toml`. It only appears on the KPAR
@@ -347,15 +410,25 @@ so `Acme Corp` and `acme-corp` denote one project. Where this document
 says two spellings are compared *literally*, it is the spellings that
 are compared, not the identities.
 
-All projects are resolved by their *normalized* identity, regardless
-of how the usage is declared. This is to ensure consistent resolution
-for existing PURL usages in json projects. Resolution is the only place
-that normalizes -- index lookups, the lockfile identifier
-`pkg:sysand/<publisher>/<name>` and the PURLs built when packaging a
-KPAR included. Every other comparison is literal string equality,
-workspace group matching (see workspaces.md, Common usages) among them,
-so an opt-in entry has to spell publisher and name exactly as the group
-entry does.
+Normalization exists for the solver, and for nothing else. All projects
+are resolved by their *normalized* identity, regardless of how the usage
+is declared, so that the PURL usages of existing json projects resolve
+consistently with usages that spell publisher and name out. Resolution
+is the only place that normalizes -- index lookups, the lockfile
+identifier `pkg:sysand/<publisher>/<name>` and the PURLs built when
+packaging a KPAR included. Every other comparison is literal string
+equality: whether a project satisfies a usage (see Usages) and workspace
+group matching (see workspaces.md, Common usages) among them, so an
+opt-in entry has to spell publisher and name exactly as the group entry
+does.
+
+Put the other way round: a normalized value is used only where a
+non-normalized one does not exist. A PURL (`pkg:sysand/publisher/name`)
+carries normalized values and nothing else, so it can only be matched
+normalized. A usage that names `publisher` and `name` -- every usage in
+a `model.toml`, and a typed usage in a `.project.json` -- carries the
+spelling itself, and comparing it normalized would throw away what it
+says.
 
 The exception is duplicate detection within one array of usages: two
 entries whose identities normalize to the same value are the same project
@@ -363,54 +436,89 @@ declared twice and are rejected, whether or not the two entries agree on
 kind or constraint. The arrays are counted separately, since a workspace
 config holds several (see workspaces.md, Common usages).
 
-Normalization never rewrites a manifest: `[project]` and every usage keep
-the spelling as written. A usage that `sysand migrate` derives from a
-PURL is the one case where the spelling is already normalized, since a
-valid `.project.json` only carries normalized PURLs (see JSON to TOML).
+A `model.toml` therefore never contains a normalized identity, and no
+command writes one. `[project]` and every usage keep the spelling as
+written, and where a command has only a normalized spelling to go on, it
+looks the real one up at the target and writes that:
+- `sysand migrate`, converting a json project's PURL usage, resolves the
+  PURL, reads the `.project.json` of the most recent version it finds,
+  and writes the `publisher` and `name` declared there (see JSON to TOML)
+- `sysand add <publisher>/<name>`, the index shorthand, does the same:
+  the argument says what to look up, and the manifest gets what the
+  target declares
+In both cases a target that declares no publisher is the error of
+Usages.
 
 ## Standard library
 
-The standard library is published under the publisher `OMG`, which
-normalizes to `omg`. A project declares its standard-library usages
-like any other index usages:
+The standard library is the set of projects OMG publishes as KPARs at
+the IRIs `https://www.omg.org/spec/<KerML|SysML>/<date>/<stem>.kpar`.
+Those KPARs carry no publisher -- a spec-compliant KPAR is not required
+to -- and the release they belong to is the `<date>` in their IRI.
+
+A project declares a standard-library usage as a `kpar-url` usage naming
+one of those IRIs:
 
 ```toml
 [[inline-usages]]
-publisher = "OMG"
 name = "Kernel Semantic Library"
-version = "^1.0.0"
+kpar-url = "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar"
 ```
 
-Every release of the standard library gets a distinct version, so the
-version constraint is how a project picks a release; a version
-constraint on a standard-library usage is therefore allowed, in
-manifests and at publish time alike. Inside a workspace, projects that
-need different releases put their standard-library usages in different
-groups (see workspaces.md, Common usages).
+This is the only form. There is no index form of a standard-library
+usage, so nothing has to be kept in agreement between two spellings, and
+the form that stays is the one closest to the spec. It follows that:
+- `publisher` is absent, which is allowed here and nowhere else: a usage
+  must spell publisher and name as the target declares them (see
+  Usages), and the target declares no publisher. For the dependency
+  graph and the lockfile such a usage has the identity `(omg, <name>)`;
+  that is a name for the projects at these IRIs, not a claim about
+  everything OMG publishes
+- there is no version constraint, `kpar-url` taking none. The standard
+  library does not follow semver, so a constraint on it would be a guess
+  dressed as a requirement, and a project is in any case unlikely to
+  work with more than one release. Nor could Sysand decide which
+  releases are acceptable: it has no way of knowing which ones the
+  surrounding tooling provides. The IRI names exactly one release, and
+  the lockfile that records it can be read by any other tool to see what
+  the project expects
+- `name` must be the name the KPAR declares, compared literally like any
+  other usage. The `version` the KPAR declares is read like any other
+  project's, and is subject to Semver dependencies; what the IRI form
+  removes is the constraint, not the version
+
+Inside a workspace, projects that need different releases take their
+standard-library usages from different groups (see workspaces.md, Common
+usages).
 
 ### Provided by the tooling
 
-A usage is a standard-library usage iff its publisher normalizes to
-`omg`; a json project's usage of one of the OMG standard-library IRIs
-(`https://www.omg.org/spec/<KerML|SysML>/<date>/<stem>.kpar`) is the
-same project under its other spelling, and a publisher-less KPAR found
-at such an IRI counts as publisher `omg` (only there: see Usages for a
-locally built one). Sysand serves two kinds of
-clients with that identity, as it does today:
+A usage is a standard-library usage iff it is a `kpar-url` usage whose
+URL is one of the OMG standard-library IRIs. Publisher is deliberately
+not the test: OMG-produced KPARs are not required to have a publisher,
+but OMG may equally publish projects that are not the standard library,
+so what identifies one is the IRI. A json project's `resource` usage of
+such an IRI is the same usage under the same spelling. Sysand serves two
+kinds of clients with it, as it does today:
 - by default, the standard library is *provided by the tooling*: Sysand
-  embeds the metadata of the current release, `sysand lock` records the
+  embeds the metadata of the releases it knows, `sysand lock` records the
   standard-library entries with an empty source list, `sysand sync` does
-  not install them, and a lockfile that pins a release the tooling does
-  not provide is an error on `sync`
-- with `--include-std`, the standard library is resolved and installed
-  like any other dependency, from an index included
+  not install them, and a lockfile that pins a release sysand does
+  not know about is an error on `sync`
+- with `--include-std`, the KPAR at the IRI is fetched and installed like
+  any other `kpar-url` usage
 
 ### Developing the standard library
 
 The standard library itself is developed as a `model.toml` workspace.
 Its ten projects have publisher `OMG`, one group per language carrying
 the `metamodel` of that language's release, and each `[project]` table
-carries the key `stdlib`:
+carries the key `stdlib`. The publisher is declared even though the
+published KPARs carry none, and that is intentional: `[project]` requires
+it, a development manifest is allowed to be more explicit than the
+artifact it produces, and the build drops it again (see below). Between
+themselves the projects are ordinary `dir` usages carrying
+`publisher = "OMG"`, since there the target does declare one:
 
 ```toml
 [project]
@@ -482,7 +590,7 @@ name that is not alphanumeric replaced by `_`.
   - `sources` is what gets packaged as the project's model, and is also
     the input for the two maps that have no counterpart in `model.toml`,
     both computed at build time from the file contents and keyed by the
-    normalized `sources` entries:
+    `sources` entries as written:
     - `checksum`: an entry per source file, keyed by its path, holding
       the file's hash (SHA256, as `sysand include` already produces)
     - `index`: the top level symbols extracted from each source file,
@@ -517,10 +625,13 @@ name that is not alphanumeric replaced by `_`.
     portable. A typed usage carries `publisher` and `name` exactly as
     the manifest spells them, without normalization, because Sysand
     requires them to match the values found at the target
-  - an index, source path or kpar path usage whose target carries
-    `stdlib`: the OMG IRI instead of the PURL (see Standard library).
-    Under `--allow-path-usage` a local usage stays a typed path usage,
-    stdlib target or not; a remote-kpar usage is always its URL
+  - a source path or kpar path usage whose target carries `stdlib`: the
+    OMG IRI instead of the PURL (see Standard library). Only a local
+    usage can reach such a target, `stdlib` being a `model.toml` key that
+    no KPAR and no index carries. Under `--allow-path-usage` a local
+    usage stays a typed path usage, stdlib target or not; a remote-kpar
+    usage is always its URL, which for a standard-library usage is the
+    IRI it already names
   - git: cannot occur in v1, as git usages are not declarable there.
     When introduced: not supported, because the project may not be at
     repo root; proper support requires typed git usage in json project
@@ -552,7 +663,9 @@ the project of the current directory:
 - `--publisher <publisher>` supplies the one value the json side
   usually lacks (see non-spec fields below); when the command is
   interactive it may prompt for it instead. Without one the command
-  errors before writing, since `[project]` requires it
+  errors before writing, since `[project]` requires it. `--metamodel
+  <url>` does the same for `metamodel` when the json side has none or
+  one this Sysand does not recognize (see `.meta.json` below)
 - it writes `model.toml` with the current `manifest-version` in the
   generated-file layout (see Editing the manifest), then deletes the
   `.project.json` and `.meta.json` it replaced, so that the project is
@@ -574,25 +687,29 @@ Field by field:
   - `topic`: put as-is into `topics`
   - `usage`:
     - `resource`:
-      - if `http(s):`, use as-is for URL, discard `versionConstraint`
-        if present with a warning. The publisher and name come from the
-        target, which is fetched; a target without a publisher is an
-        error (see Usages)
+      - if `http(s):`, use as-is for `kpar-url`, discard
+        `versionConstraint` if present with a warning. The publisher and
+        name come from the target, which is fetched; a target without a
+        publisher is an error (see Usages), unless the URL is one of the
+        OMG standard-library IRIs, where a publisher-less target is
+        expected and the usage is written without one (see Standard
+        library)
       - if `ssh`/`git`/`git+`, error out: git usages are not
         declarable in v1 (see Usages)
       - if `file:`, translate into kpar/source path; the publisher and
         name come from the target, and a target without a publisher is
         an error
-      - if Sysand PURL, translate into an index usage. A valid
-        `.project.json` only carries normalized PURLs, so the migrated
-        usage spells publisher and name in normalized form; a workspace
-        group entry it is later made to opt into has to use that
-        spelling (see Normalization). `versionConstraint` is used
-        as-is. Index usages require a constraint (see Usages), so a PURL
-        that carries none is resolved at migration time and pinned to
-        `^<version>`, where `<version>` is the version that resolution
-        found; migration of such a usage therefore needs the index to
-        be reachable
+      - if Sysand PURL, translate into an index usage. A PURL carries
+        normalized values and nothing else, and a `model.toml` never
+        holds a normalized identity (see Normalization), so migration
+        resolves the PURL, reads the `.project.json` of the most recent
+        version it finds, and writes the `publisher` and `name` declared
+        there; a target that declares no publisher is the error of
+        Usages. `versionConstraint` is used as-is. Index usages require
+        a constraint (see Usages), so a PURL that carries none is pinned
+        to `^<version>`, where `<version>` is the version that
+        resolution found. Either way, migrating such a usage needs the
+        index to be reachable
       - (for all of these, may just use the resolver + `sources()`)
       - error out if any other type is encountered or if the missing
         data could not be populated due to any error
@@ -605,23 +722,36 @@ Field by field:
 - `.meta.json`:
   - `sources`: the union of the paths in `index` (its values, the
     symbol names being dropped) and in `checksum` (its keys, the
-    checksums themselves being dropped), each normalized as `[project]`
-    normalizes `sources` entries and then deduplicated. Both maps are
-    optional in a json project, so the union may be empty, which
-    becomes `sources = []`. The spec requires no relationship between
-    the two maps, hence the union rather than either one alone. A path
-    that `[project]` would not accept -- an absolute one, or one
-    escaping the project root -- errors out, as for any other json
+    checksums themselves being dropped), each rewritten into the strict
+    form `sources` requires -- a leading `./`, a `.` component and a
+    repeated or trailing slash dropped, a `..` resolved against what
+    precedes it -- and then deduplicated. A json manifest is not
+    Sysand's to dictate, which is why migration rewrites here while
+    reading a `model.toml` never does. Both maps are optional in a json
+    project, so the union may be empty, which becomes `sources = []`.
+    The spec requires no relationship between the two maps, hence the
+    union rather than either one alone. A path that `[project]` would
+    not accept -- an absolute one, or one that still escapes the project
+    root once resolved -- errors out, as for any other json
     value that does not fit the toml shape. So does a `checksum` key
-    naming a file that is neither `.kerml` nor `.sysml` (possible today
+    naming a file of type that does not match the metamodel (possible today
     through `sysand include --no-index-symbols`), since `sources` admits
-    only those: the error lists the entries, and the fix is `sysand
-    exclude` on the json project before migrating
+    only the types the metamodel admits (see Metamodel): the error lists
+    the entries, and the fix is `sysand exclude` on the json project
+    before migrating
   - discarded as irrelevant/impossible to keep up-to-date with a warning:
     - `created`
     - `checksum` (apart from its paths, see `sources` above)
     - `index` (apart from its paths, see `sources` above)
-  - `metamodel`: use as-is
+  - `metamodel`: use as-is when it is one of the four recognized values
+    (see Metamodel). A json project may carry none, or one this Sysand
+    does not recognize, and `model.toml` admits neither: the command
+    then errors before writing, unless `--metamodel <url>` supplies a
+    recognized value -- the same treatment `--publisher` gives the other
+    key the json side may lack, and when the command is interactive it
+    may prompt instead. The value decides which source file types the
+    migrated `sources` may list, so it is settled before that check
+    runs
   - `includesDerived`: discard, no purpose in development; a built
     KPAR omits it (see TOML to KPAR)
   - `includesImplied`: discard, likewise
@@ -682,17 +812,38 @@ order; a workspace file has `manifest-version` and then `[workspace]`.
 One code path serves generated and edited files, and the fixed order
 diffs cleanly.
 
+Two of the values a writer needs are not in front of it. `metamodel` is
+required of every project (see Metamodel), and nothing about a new
+project says which one it should be: neither the spec kind nor the
+release can be guessed, and a wrong guess is a manifest that validates
+and means the wrong thing. So `sysand init` and `sysand new` take it as
+a mandatory argument, erroring before writing anything if it is absent,
+with the message listing the four values. The one exception is a project
+created inside a workspace whose default group defines `metamodel`:
+there the argument is optional, and without it the generated file
+carries `metamodel.workspace = true`. A named group is not guessed at
+either -- to inherit from one, the member's marker is written
+afterwards. And `sysand add <publisher>/<name>`, the
+index shorthand, writes the publisher and name the target declares
+rather than the argument as typed, since a `model.toml` never holds a
+normalized identity (see Normalization).
+
 Every command accepts `model.toml` projects in v1. Two adjustments
 follow from `sources` being the only file list:
-- `sysand include <paths>` appends each path to `sources`, normalized
-  as on read, rejecting a duplicate; `sysand exclude <paths>` removes it.
-  Neither extracts symbols or hashes files, as both maps are computed at
-  build; `--compute-checksum` and `--no-index-symbols` are rejected on a
-  toml project with the message that the field is computed when the
-  KPAR is built. A path that does not exist gets a warning (existence
-  is only checked at build and publish, but including a missing file is
-  almost always a typo); paths that are not `.kerml`/`.sysml` are
-  allowed and get only a `checksum` entry at build
+- `sysand include <paths>` appends each path to `sources` in the strict
+  form the key requires (see Main project metadata), rejecting a path
+  that is not inside the project root and rejecting a duplicate; `sysand
+  exclude <paths>` removes it. Neither extracts symbols or hashes files,
+  as both maps are computed at build; `--compute-checksum` and
+  `--no-index-symbols` are rejected on a toml project with the message
+  that the field is computed when the KPAR is built. A path that does
+  not exist gets a warning (existence is only checked at build and
+  publish, but including a missing file is almost always a typo). A path
+  that is not `.kerml`/`.sysml`, or whose type the project's metamodel
+  does not admit, is refused with the error a manifest carrying it would
+  get: `sources` is the model, and a file the metamodel has no language
+  for is not part of it. The other files a build packages (`README.md`,
+  `CHANGELOG.md`, the licenses) are found by path and are never listed
 - the `sysand info` verbs on the fields a build computes -- `index`,
   `checksum`, `created`, `includesDerived`, `includesImplied` -- error
   on a toml project with the same message; `info index get` may compute

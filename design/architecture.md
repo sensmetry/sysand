@@ -64,14 +64,18 @@ Sysand works with [SysML v2] and [KerML] Interchange Projects, as defined in the
 Workspace (model.toml, [workspace] table)
  └─ lists member projects by path
  └─ carries metadata members may inherit (version, license, metamodel, ...)
+ └─ [workspace.group.<name>] holds a second set a member may inherit
+    instead, by writing `<key>.workspace = "<group>"` rather than `= true`
 
 Environment (storage backend)
  └─ stores projects indexed by IRI and version
  └─ implementations: local directory, remote index, git, in-memory
 
 Project (Interchange Project)
- └─ model.toml     — name, version, publisher, sources, usages; what
- │                   `sysand init` writes and every command reads
+ └─ model.toml     — name, version, publisher, metamodel, sources,
+ │                   usages; what `sysand init` writes and every
+ │                   command reads. `metamodel` is required, and is one
+ │                   of four values (OMG or Syside, KerML or SysML)
  └─ .project.json  — the legacy pair: read too, and what a built KPAR
  └─ .meta.json       carries. `sysand migrate` converts one to the other
  └─ source files   — the actual SysML/KerML model files
@@ -142,9 +146,9 @@ type aliases of a shared generic base struct (suffixed with `G` for "Generic"):
     └── From<Validated> ─── back to Raw
 ```
 
-This pattern appears in `InterchangeProjectUsageG`, `InterchangeProjectInfoG`,
-`InterchangeProjectMetadataG`, `WorkspaceInfoG`, `WorkspaceMetaG`, and
-`WorkspaceProjectInfoG`.
+This pattern appears in `InterchangeProjectUsageG`, `InterchangeProjectInfoG`
+and `InterchangeProjectMetadataG`. A workspace has no such pair: it is a
+`model.toml` table, read through `manifest::workspace_table`.
 
 **Trait boundaries mostly use Raw types.** For example, `ProjectRead::get_project()` returns
 `InterchangeProjectInfoRaw`, not the validated form. This is a deliberate
@@ -245,6 +249,7 @@ manifest-version = "1.0.0"
 publisher = "acme"
 name = "widgets"
 version = "1.2.3"
+metamodel = "https://www.omg.org/spec/SysML/20250201"
 sources = ["widgets.sysml"]
 
 [[inline-usages]]
@@ -293,11 +298,18 @@ Captures a project's resolved usages and their dependencies.
 
 The `sysand lock` command regenerates this file, recording each project's name,
 version, exported symbols, dependency usages, and sources (local paths, index
-URLs, git repos, etc.). Integrity metadata lives on each resolved source:
-source-directory entries carry `checksum`, while KPAR entries carry
-`kpar_size` and `kpar_digest`. The `sysand sync` command reads
-`sysand-lock.toml` to populate `.sysand`, and will run `lock` first if the file
-does not yet exist.
+URLs, git repos, etc.), plus the `metamodel` it declares — an optional field
+within lock version 0.5, so a lockfile without it still reads. Integrity
+metadata lives on each resolved source: source-directory entries carry
+`checksum`, while KPAR entries carry `kpar_size` and `kpar_digest`. The `sysand
+sync` command reads `sysand-lock.toml` to populate `.sysand`, and will run
+`lock` first if the file does not yet exist.
+
+A workspace has exactly one lockfile, in the workspace root, covering every
+member; a lockfile inside a member is an error. Locking also runs two checks
+over the solved graph that are errors wherever they appear: a dependency cycle,
+unless every project on it carries the `stdlib` key, and a project on an OMG
+metamodel depending on one on a Syside metamodel.
 
 ### Local environment (`.sysand`)
 
@@ -316,6 +328,9 @@ The local environment looks like this:
 ```
 
 `env.toml` contains an array of projects. Each project contains these fields:
+
+Where a field below says "taken from `.project.json`", a `model.toml` project
+supplies it from the manifest instead — the two are read through one view.
 
 - `publisher`. Taken from `.project.json`
 - `name`. Taken from `.project.json`

@@ -10,7 +10,7 @@ a file: they never appear together, as a workspace root must not contain
 a project (see below) and a member that was also a workspace root would
 be a nested workspace, which is rejected (see Non-goals for v1); and a
 `model.toml` with neither is an error (see model-toml.md). Like every
-`model.toml`, a workspace config starts with `manifest-version = 1` (see
+`model.toml`, a workspace config starts with `manifest-version = "1.0.0"` (see
 model-toml.md, Manifest version). A workspace config has no top-level
 `inline-usages`: that array belongs to a project, and a workspace's
 common usages are declared under `[workspace]` (see Common usages), so
@@ -51,7 +51,7 @@ in the future). Paths can go arbitrarily deep, but must not go above the
 workspace root.
 
 ```toml
-manifest-version = 1
+manifest-version = "1.0.0"
 
 [workspace]
 members = ["folder1", "folder2/subfolder1"]
@@ -156,8 +156,10 @@ The other `[project]` keys are deliberately absent:
 - `manifest-version` is not a `[project]` key at all: every file carries
   its own (see model-toml.md, Manifest version)
 
-`metamodel` doubles as a schema selector (see model-toml.md, Metamodel),
-and inheriting it is what lets a group stand for one metamodel release:
+`metamodel` is required in `[project]` (see model-toml.md, Metamodel), so
+every member either writes it out or inherits it; it is one of the keys a
+group is most worth having. It doubles as a schema selector, and
+inheriting it is what lets a group stand for one metamodel release:
 a group whose members inherit `metamodel` is single-metamodel by
 construction. There is no workspace-level metamodel. Members with
 different metamodels, OMG and Syside ones included, may share a
@@ -216,24 +218,25 @@ dir = "../own"
 The standard library is the motivating case for groups: projects that
 target different releases of it, or different languages, take their
 standard-library usages from different groups, each with its own
-`metamodel`:
+`metamodel`. A standard-library usage is a `kpar-url` naming the OMG
+IRI, and carries no publisher, the target declaring none (see
+model-toml.md, Standard library); an opt-in to such an entry likewise
+gives only `name` and the marker:
 
 ```toml
 [workspace.group.kerml]
 metamodel = "https://www.omg.org/spec/KerML/20250201"
 
 [[workspace.group.kerml.inline-usages]]
-publisher = "OMG"
 name = "Kernel Semantic Library"
-version = "^1.0.0"
+kpar-url = "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar"
 
 [workspace.group.sysml]
 metamodel = "https://www.omg.org/spec/SysML/20250201"
 
 [[workspace.group.sysml.inline-usages]]
-publisher = "OMG"
 name = "SysML Systems Library"
-version = "^2.0.0"
+kpar-url = "https://www.omg.org/spec/SysML/20250201/Systems-Library.kpar"
 ```
 
 A member whose standard-library release differs from the release its
@@ -253,7 +256,7 @@ no checksum, whether the usage resolves to a member, to a project outside
 the workspace root, or -- for a standalone project -- to any directory at
 all, so that editing a source project never churns the lockfile.
 Checksums stay with the kinds that name immutable artifacts: `kpar-path`,
-index and `url` usages. The `--as-local-src` behaviour remains available
+index and `kpar-url` usages. The `--as-local-src` behaviour remains available
 to json projects only; a toml `sysand add` needs no choice for `dir`.
 
 The lockfile is consistent with the workspace when it matches all
@@ -269,7 +272,7 @@ workspace.
 Always a single `.sysand` directory in workspace root. Standard-library
 entries are provided by the tooling unless `--include-std` is passed
 (see model-toml.md, Standard library): a lockfile that pins a
-standard-library release the tooling does not provide is an error on
+standard-library release sysand does not know about is an error on
 `sync`, and `--include-std` is the way out.
 
 
@@ -325,8 +328,8 @@ explicit and specified as relative path source usages (`dir`, relative
 to the member, or a group entry relative to the root). Such a usage
 resolves to the member itself, never to a copy of it from an index, and
 is recorded as editable (see Locking). A `dir` usage from a member to a
-project that lies under the root without being a member is the
-unlisted-project error of Included projects.
+project that lies under the root without being a member (and not covered in
+the `exclude` list) is the unlisted-project error of Included projects.
 
 ### Source overrides
 
@@ -372,11 +375,10 @@ In every project, to inherit a key from the default group,
 `<key>.workspace = "group-name"`. There is no "inherit nothing" marker:
 `<key>.workspace = false` is an error, since a key that is not inherited
 simply carries its own value. This form is allowed wherever the key
-itself would be, required keys included: `publisher.workspace = true`
-and `version.workspace = true` satisfy their requirement in `[project]`.
-The exceptions are `sources` and `stdlib`, which are not inheritable
-(see Common metadata): `sources` is always written out in full by every
-member.
+itself would be, required keys included: `publisher.workspace = true`,
+`version.workspace = true` and `metamodel.workspace = true` satisfy their
+requirement in `[project]`. The exceptions are the deliberately absent
+fields listed in Common metadata.
 
 Markers resolve only against the workspace the project is a *member* of.
 A project that is not a member is outside every workspace regardless of

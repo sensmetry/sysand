@@ -143,3 +143,31 @@ repos:
         args:
           - --fix=safe
           # - --fix=all # fix more things with a manual review
+
+  # Lint: the manifest format the design review left
+  #
+  # Last, because `fail_fast: true` at the top of this file means a
+  # failing hook stops every hook after it -- and a manifest-spelling
+  # violation must not stop the autoformatters from running.
+  #
+  # `pass_filenames: false` with `always_run: true`: the check is about
+  # the state of the whole tree ("the tree holds no ..."), so a commit
+  # that touches nothing relevant must still run it.
+  - repo: local
+    hooks:
+      - id: check-manifest-format
+        name: check manifest format
+        description: >-
+          An integer manifest version, a `url` usage key, or a
+          `[project]` without a `metamodel` -- none of the three.
+        language: system
+        entry: python3 scripts/check-manifest-format.py
+        pass_filenames: false
+        always_run: true
+      - id: check-manifest-format-self-test
+        name: check manifest format (self-test)
+        description: A broken checker must fail, not pass everything.
+        language: system
+        entry: python3 scripts/check-manifest-format.py --self-test
+        pass_filenames: false
+        always_run: true

@@ -459,9 +459,11 @@ fn peek_on_a_file_with_neither_table_is_none() {
 // ----------------------------------------------------------------------
 // The examples the specification gives
 //
-// Every example manifest in `model-toml.md` and `workspaces.md` parses.
-// The documents live outside this repository, so the blocks are copied
-// here with the section each came from named in a comment.
+// Every example manifest in `model-toml.md` and `workspaces.md` parses. Both
+// are in `design/`, copied byte-for-byte from where they are
+// maintained; the blocks are repeated here with the section each came
+// from named in a comment, because a test cannot read a fenced block
+// out of a document and still say which one it meant.
 //
 // Most are fragments rather than whole files. A fragment is completed
 // with the smallest frame that makes it one, and there are two frames:
@@ -494,20 +496,8 @@ fn every_example_in_model_toml_parses() {
          [project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\n",
     );
 
-    // "Standard library": the document still shows the index form, and
-    // that entry still parses -- as an ordinary index usage published by
-    // `OMG`, which is all it ever was to the reader.
-    accepted(&as_project_file(
-        "[[inline-usages]]\n\
-         publisher = \"OMG\"\n\
-         name = \"Kernel Semantic Library\"\n\
-         version = \"^1.0.0\"\n",
-    ));
-
-    // Ahead of the document, which WP-9 re-copies once WP-10 is done:
-    // the reviewed "Standard library" declares the usage as a
-    // publisher-less `kpar-url` naming an OMG IRI, and that is the form
-    // WP-10-f implements.
+    // "Standard library": a publisher-less `kpar-url` naming an OMG
+    // IRI. "This is the only form."
     accepted(&as_project_file(
         "[[inline-usages]]\n\
          name = \"Kernel Semantic Library\"\n\
@@ -528,10 +518,33 @@ fn every_example_in_model_toml_parses() {
     );
 }
 
-/// workspaces.md, "Config" and "Common usages".
+/// Not an example in either document, and that is the point: an index
+/// usage published by `OMG` is an *ordinary* usage, not a
+/// standard-library one. It parses, and nothing about it is special.
+///
+/// It lives outside the two fidelity tests because those assert that
+/// the documents' examples parse, and this is not one of them.
+#[test]
+fn an_index_usage_published_by_omg_is_an_ordinary_usage() {
+    accepted(&as_project_file(
+        "[[inline-usages]]\n\
+         publisher = \"OMG\"\n\
+         name = \"Kernel Semantic Library\"\n\
+         version = \"^1.0.0\"\n",
+    ));
+    accepted(&as_workspace_file(
+        "[workspace.group.kerml]\n\
+         metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n\n\
+         [[workspace.group.kerml.inline-usages]]\n\
+         publisher = \"OMG\"\nname = \"Kernel Semantic Library\"\nversion = \"^1.0.0\"\n",
+    ));
+}
+
+/// workspaces.md, "Included projects" and "Common usages".
 #[test]
 fn every_example_in_workspaces_md_parses() {
-    // "Config": the one example in either document that is a whole file.
+    // "Included projects": the one example in either document that is a
+    // whole file.
     let read = accepted(
         "manifest-version = \"1.0.0\"\n\n\
          [workspace]\n\
@@ -553,27 +566,8 @@ fn every_example_in_workspaces_md_parses() {
     ));
 
     // "Common usages": one group per language, each carrying the
-    // `metamodel` of that language's release.
-    let read = accepted(&as_workspace_file(
-        "[workspace.group.kerml]\n\
-         metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n\n\
-         [[workspace.group.kerml.inline-usages]]\n\
-         publisher = \"OMG\"\nname = \"Kernel Semantic Library\"\nversion = \"^1.0.0\"\n\n\
-         [workspace.group.sysml]\n\
-         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
-         [[workspace.group.sysml.inline-usages]]\n\
-         publisher = \"OMG\"\nname = \"SysML Systems Library\"\nversion = \"^2.0.0\"\n",
-    ))
-    .into_parts()
-    .0;
-    let workspace = read.as_workspace().expect("a workspace");
-    assert_eq!(workspace.groups.len(), 2);
-    assert_eq!(workspace.groups["kerml"].inline_usages.len(), 1);
-
-    // Ahead of the document, which WP-9 re-copies once WP-10 is done:
-    // the reviewed "Common usages" writes each group's standard-library
-    // entry as a publisher-less `kpar-url`, and says "an opt-in to such
-    // an entry likewise gives only `name` and the marker".
+    // `metamodel` of that language's release, and each carrying its
+    // standard-library usage as a publisher-less `kpar-url`.
     let read = accepted(&as_workspace_file(
         "[workspace.group.kerml]\n\
          metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n\n\
@@ -589,6 +583,8 @@ fn every_example_in_workspaces_md_parses() {
     .into_parts()
     .0;
     let workspace = read.as_workspace().expect("a workspace");
+    assert_eq!(workspace.groups.len(), 2);
+    assert_eq!(workspace.groups["kerml"].inline_usages.len(), 1);
     assert!(
         workspace.groups["kerml"].inline_usages[0].is_stdlib(),
         "{:?}",

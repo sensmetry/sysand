@@ -50,13 +50,20 @@ public class SetProjectInfoTest {
      * <p>{@code setProjectIndex} reaches the same refusal by a longer
      * route -- it reads the metadata the toml view synthesises and then
      * tries to write it back.
+     *
+     * <p>The manifest declares a {@code metamodel} because the key is
+     * mandatory. Without one this test would still pass -- but on the
+     * wrong refusal, the manifest not resolving, so it would not prove
+     * the thing it names.
      */
     @Test
     public void testSetProjectVerbsRefuseATomlProject() throws Exception {
         java.nio.file.Path tempDir = Files.createTempDirectory("sysand-test-set-info-toml");
         Files.write(tempDir.resolve("model.toml"),
                 ("manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\n"
-                        + "name = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n").getBytes());
+                        + "name = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n"
+                        + "metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n")
+                        .getBytes());
 
         com.sensmetry.sysand.model.InterchangeProjectInfo info =
                 new com.sensmetry.sysand.model.InterchangeProjectInfo(
