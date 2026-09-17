@@ -1139,3 +1139,35 @@ fn sync_refuses_a_lockfile_with_a_direction_error() -> Result<(), Box<dyn std::e
     );
     Ok(())
 }
+
+/// On the read side, a lockfile version that is not semver is a
+/// *warning*, and `sync` still runs.
+///
+/// The semver *error* is resolution-only, so it cannot fire from a
+/// lockfile read, but `Lock::validate_usages` logs a warning for every
+/// such version.
+#[test]
+fn sync_warns_on_a_non_semver_version() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    fs::write(
+        cwd.join("model.toml"),
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"app\"\n\
+         version = \"1.0.0\"\nsources = []\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    )?;
+    fs::write(
+        cwd.join("sysand-lock.toml"),
+        "lock_version = \"0.5\"\n\
+         \n[[project]]\npublisher = \"acme\"\nname = \"app\"\nversion = \"2023-11\"\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\
+         identifiers = [\"urn:app\"]\nsources = [{ editable = \".\" }]\n",
+    )?;
+
+    run_sysand_in(&cwd, ["sync"], None)?
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "invalid semantic version `2023-11` for project `app`",
+        ));
+    Ok(())
+}

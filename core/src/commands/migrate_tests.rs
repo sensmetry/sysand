@@ -225,6 +225,12 @@ fn an_unrecognized_metamodel_is_refused() {
         rendered.contains("declares `https://example.com/spec/SysML/20251201`"),
         "{rendered}"
     );
+    // The middle of the sentence: the two assertions above hold for the
+    // *absent* variant's message too.
+    assert!(
+        rendered.contains("which is not a metamodel `model.toml` recognizes"),
+        "{rendered}"
+    );
     assert!(rendered.contains("pass `--metamodel <url>`"), "{rendered}");
 }
 
