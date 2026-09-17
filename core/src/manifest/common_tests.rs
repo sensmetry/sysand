@@ -323,3 +323,28 @@ fn a_source_the_metamodel_does_not_admit_is_refused() {
     // metamodel to name.
     admitted_source(Utf8UnixPath::new("notes.txt"), &kerml).expect("no language to judge");
 }
+
+/// The two `sources` form errors, each on its whole text.
+///
+/// The other `sources` tests match a fragment, which is right for a
+/// table of cases but does not pin the whole message. These two do,
+/// and they are also where the *split* is recorded: a trailing
+/// slash is not a malformed spelling but a directory, and it gets the
+/// message that says so.
+#[test]
+fn the_two_sources_form_errors_read_in_full() {
+    let malformed = sources_error(&["a//b.sysml"]);
+    assert_eq!(
+        malformed.to_string(),
+        "`sources` entry `a//b.sysml` is not in the form `sources` takes: entries are \
+         relative, `/`-separated,\nand carry no `.` or `..` component and no repeated or \
+         leading slash"
+    );
+
+    let directory = sources_error(&["src/"]);
+    assert_eq!(
+        directory.to_string(),
+        "`sources` entry `src/` names a directory; every entry names a single file \
+         (directories and globs are postponed to after v1)"
+    );
+}
