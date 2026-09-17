@@ -1088,14 +1088,16 @@ fn do_sync_py(
         // The lockfile is read, or written, before the environment is
         // created, so a failure to lock leaves no environment behind.
         let (lock, wrote_lock) = match lock_text {
-            Some(text) => (
-                Lockfile::parse_text(&text).map_err(|e| lockfile_error(None, e))?,
-                false,
-            ),
+            Some(text) => {
+                let lock = Lockfile::parse_text(&text).map_err(|e| lockfile_error(None, e))?;
+                lock.warn_release_mismatches();
+                (lock, false)
+            }
             None => {
                 if let Some(lockfile) =
                     Lockfile::try_read(&project_root).map_err(lockfile_read_error)?
                 {
+                    lockfile.lock().warn_release_mismatches();
                     (lockfile.into_lock(), false)
                 } else {
                     // As the CLI: without a lockfile, lock first and write it.
