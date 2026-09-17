@@ -123,6 +123,27 @@ pub fn command_sources_workspace(
     };
 
     let workspace = Workspace::load_with(root, MemberChecks::All)?;
+
+    // A group entry's path is relative to the workspace root and nothing
+    // here carries that base, so resolving would look in the member's
+    // directory and report the path as not found, which describes the
+    // symptom rather than the cause.
+    for member in workspace.members() {
+        for located in &member.project.usages {
+            if located.base != sysand_core::manifest::usage::UsageBase::Project
+                && let Some(path) = located.usage.local_path()
+            {
+                bail!(
+                    "member `{}` inherits the usage `{}`, whose path `{path}` is relative to \
+                     the workspace root; listing the sources of a project that inherits a path \
+                     usage is not supported yet",
+                    member.path.raw,
+                    located.usage
+                );
+            }
+        }
+    }
+
     let table = Arc::new(workspace.table().clone());
 
     let mut seen = HashSet::new();

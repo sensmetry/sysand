@@ -11,6 +11,8 @@
 //! resolves standalone, so a member carrying `version.workspace = true`
 //! is otherwise refused *for being a member*.
 
+use std::collections::HashMap;
+
 use camino::{Utf8Path, Utf8PathBuf};
 use thiserror::Error;
 use typed_path::Utf8Component as _;
@@ -18,8 +20,10 @@ use typed_path::Utf8Component as _;
 use crate::commands::build::DEFAULT_OUTPUT_NAME;
 use crate::commands::lock::DEFAULT_LOCKFILE_NAME;
 use crate::env::DEFAULT_ENV_NAME;
+use crate::graph::DependencyGraph;
 use crate::manifest::diagnostics::{Diagnostic, Report};
 use crate::manifest::project::ResolvedProject;
+use crate::manifest::usage::Usage;
 use crate::manifest::workspace_table::{MemberPath, Region, WorkspaceTable};
 use crate::manifest::{MODEL_TOML_FILE, ModelToml, ModelTomlKind};
 use crate::project::ProjectFormat;
@@ -181,6 +185,18 @@ impl Workspace {
                 members.push(member);
             }
         }
+
+        // `design/model-toml.md`: the cycle check "runs over the
+        // dependency graph whenever it is built -- when a workspace is
+        // read, and when resolving or building". Checking at the read
+        // keeps a cyclic workspace from being locked and synced when it
+        // can never be built.
+        //
+        // Only over the members that loaded: a member that did not
+        // contributes no edges, so a cycle running through a broken one
+        // is invisible here and its own diagnostic is what the user
+        // acts on first.
+        report.extend(member_cycles(&members));
 
         if report.is_empty() && broken.is_empty() {
             return Ok(Self {
@@ -891,6 +907,77 @@ fn load_member(
 /// and saying so is the whole content of the rule. Excluded directories
 /// are not checked: "Standalone projects under an `exclude`d directory
 /// keep their state legitimately; the check applies to members only."
+/// The cycles among the members' `dir` usages.
+///
+/// The same edges `commands::build` takes the publish order from
+/// (`member_dependencies`): `dir` usages only, joined onto the member's own
+/// directory and canonicalized, so that a member's `dir = "../<itself>"`
+/// is the self-cycle it looks like. A `kpar-path` names a `.kpar` file rather than a
+/// member directory, so it is not an edge between members.
+///
+/// `located.base` is deliberately not consulted, matching `build`: an
+/// inherited path usage is refused outright by `lock` and by `build`
+/// before either reaches a graph.
+///
+/// `cycles()` and not `dependency_order()`: this reports rather than orders,
+/// and a workspace with two independent cycles should hear about both.
+fn member_cycles(members: &[Member]) -> Vec<Diagnostic> {
+    let mut graph = DependencyGraph::new();
+    for member in members {
+        graph.add_node(member.dir.clone());
+    }
+    for member in members {
+        for located in &member.project.usages {
+            if let Usage::SourcePath { dir, .. } = &located.usage {
+                let target = wrapfs::canonicalize(member.dir.join(dir.as_str()))
+                    .unwrap_or_else(|_| member.dir.join(dir.as_str()));
+                graph.add_edge(&member.dir, &target);
+            }
+        }
+    }
+
+    let by_dir: HashMap<&Utf8PathBuf, &Member> =
+        members.iter().map(|member| (&member.dir, member)).collect();
+    let stdlib = |dir: &Utf8PathBuf| {
+        by_dir
+            .get(dir)
+            .is_some_and(|member| member.project.stdlib.is_some())
+    };
+
+    let mut diagnostics = Vec::new();
+    for cycle in graph.cycles() {
+        // "unless every project on it carries the `stdlib` key".
+        if cycle.component.iter().all(stdlib) {
+            continue;
+        }
+        // `path` starts and ends at the same project, which is what
+        // reads as a cycle; `component` is the set the exemption asks
+        // about.
+        let named = cycle
+            .path
+            .iter()
+            .map(|dir| {
+                by_dir
+                    .get(dir)
+                    .map_or_else(|| dir.to_string(), |member| member.path.raw.clone())
+            })
+            .collect::<Vec<_>>()
+            .join("` -> `");
+        let at = cycle
+            .path
+            .first()
+            .and_then(|dir| by_dir.get(dir))
+            .and_then(|member| member.path.at.clone());
+        diagnostics.push(
+            Diagnostic::error(format!(
+                "dependency cycle: `{named}`; only projects that carry `stdlib` may form a cycle"
+            ))
+            .at_opt(at),
+        );
+    }
+    diagnostics
+}
+
 fn stray_state(
     root: &Utf8Path,
     path: &MemberPath,
