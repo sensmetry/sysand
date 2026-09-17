@@ -938,6 +938,28 @@ fn a_duplicate_is_normalized_not_literal() {
     assert!(rendered.contains("name the same project"), "{rendered}");
 }
 
+/// The write path says what the read path says, word for word.
+///
+/// `check_duplicate_usages` exists because `check_duplicates` cannot be
+/// called here -- it takes usage sites and a span index -- and its
+/// reason for existing is that a user who fixes the json and reads it
+/// back should not meet a second phrasing of one rule. Both use
+/// `duplicate_message`; the two substring assertions above would not
+/// notice the two wordings drifting apart.
+#[test]
+fn the_write_path_uses_the_read_paths_wording() {
+    let rendered = usage_errors(vec![
+        dir_usage("../dep", "acme", "dep"),
+        dir_usage("../other", "Acme", "Dep"),
+    ]);
+    assert!(
+        rendered.contains(&crate::manifest::usage::duplicate_message(
+            "acme/dep", "Acme/Dep"
+        )),
+        "{rendered}"
+    );
+}
+
 /// Pairwise, as the read path is: three colliding entries give two
 /// diagnostics, not one and not three.
 #[test]
