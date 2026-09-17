@@ -371,3 +371,51 @@ pub(crate) fn set_meta_or_bail<Project: ProjectMut>(
 
     Ok(())
 }
+
+/// `info` from a workspace root, or from a non-member directory under
+/// one: every member in `members` order. Without `--get` each member
+/// gets its full block, blank-line separated. With `--get` every line
+/// a member emits is prefixed with its name, so a list field stays
+/// attributable line by line.
+pub fn command_info_workspace(
+    root: &Utf8Path,
+    field: Option<InfoField>,
+    excluded_iris: &HashSet<Identifier>,
+) -> Result<()> {
+    use std::sync::Arc;
+    use sysand_core::{
+        project::local_src::LocalSrcProject,
+        workspace::model_toml::{MemberChecks, Workspace},
+    };
+
+    let workspace = Workspace::load_with(root, MemberChecks::SkipStrayState)?;
+    let table = Arc::new(workspace.table().clone());
+
+    for (at, member) in workspace.members().iter().enumerate() {
+        let project = LocalSrcProject::new_member(member.dir.clone(), None, table.clone());
+        match field {
+            Some(field) => {
+                let lines = field_lines(
+                    field,
+                    || get_info_or_bail(&project),
+                    || get_meta_or_bail(&project),
+                )?;
+                for line in lines {
+                    println!("{}: {line}", member.project.name);
+                }
+            }
+            None => {
+                if at > 0 {
+                    println!();
+                }
+                command_info_project(
+                    FileResolverProject::LocalSrcProject(project),
+                    &member.dir,
+                    excluded_iris,
+                )?;
+            }
+        }
+    }
+
+    Ok(())
+}

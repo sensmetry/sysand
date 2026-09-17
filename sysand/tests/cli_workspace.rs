@@ -935,3 +935,238 @@ fn env_in_a_member_uses_the_root_sysand() -> Result<(), Box<dyn std::error::Erro
     assert!(!dir.path().join("app").join(DEFAULT_ENV_NAME).exists());
     Ok(())
 }
+
+// ------------------- the root defaults for `sources` and `info`
+
+/// A workspace whose members have sources, and whose first member uses
+/// the second -- which workspaces.md calls the normal case and which
+/// makes the second member's files reachable twice.
+fn two_member_workspace_with_sources()
+-> Result<camino_tempfile::Utf8TempDir, Box<dyn std::error::Error>> {
+    let dir = camino_tempfile::tempdir()?;
+    std::fs::write(
+        dir.path().join("model.toml"),
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\", \"lib\"]\n",
+    )?;
+    for (at, name, extra) in [
+        (
+            "app",
+            "app",
+            "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"lib\"\ndir = \"../lib\"\n",
+        ),
+        ("lib", "lib", ""),
+    ] {
+        std::fs::create_dir_all(dir.path().join(at))?;
+        std::fs::write(
+            dir.path().join(at).join("model.toml"),
+            format!(
+                "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\n\
+                 name = \"{name}\"\nversion = \"1.0.0\"\nsources = [\"{at}.sysml\"]\n\
+                 topics = [\"{at}-one\", \"{at}-two\"]\n\
+                 metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n{extra}"
+            ),
+        )?;
+        // A distinct symbol per member: two members exporting the same
+        // one is a lockfile error, and a fixture should not be testing
+        // that here.
+        std::fs::write(
+            dir.path().join(at).join(format!("{at}.sysml")),
+            format!("package {};\n", name.to_uppercase()),
+        )?;
+    }
+    Ok(dir)
+}
+
+/// workspaces.md "Command scopes": all members, from the root.
+#[test]
+fn sources_at_the_root_lists_every_member() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace_with_sources()?;
+    let out = run_sysand_discovering(dir.path(), ["sources", "--deps", "none"])?
+        .assert()
+        .success();
+    let stdout = String::from_utf8(out.get_output().stdout.clone())?;
+
+    assert!(stdout.contains("app.sysml"), "{stdout}");
+    assert!(stdout.contains("lib.sysml"), "{stdout}");
+    Ok(())
+}
+
+/// The collision workspaces.md designs in: an intra-workspace usage
+/// "resolves to the member itself, never to a copy of it from an
+/// index", so `lib`'s own file is reached both as its own source and as
+/// `app`'s dependency. It is listed once.
+///
+/// No dependency *ordering* is asserted: that order is not stable.
+#[test]
+fn sources_at_the_root_lists_a_member_dependency_once() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace_with_sources()?;
+    run_sysand_discovering(dir.path(), ["lock", "--no-index"])?
+        .assert()
+        .success();
+    run_sysand_discovering(dir.path(), ["sync", "--no-index"])?
+        .assert()
+        .success();
+
+    let out = run_sysand_discovering(dir.path(), ["sources"])?
+        .assert()
+        .success();
+    let stdout = String::from_utf8(out.get_output().stdout.clone())?;
+
+    assert_eq!(
+        stdout.matches("lib.sysml").count(),
+        1,
+        "`lib`'s own source is also `app`'s dependency:\n{stdout}"
+    );
+    Ok(())
+}
+
+/// `--no-own` is "not the project's own sources". At a root one
+/// member's dependency is another member's tree, so the members' own
+/// sources come out of the union rather than being skipped per member.
+#[test]
+fn sources_no_own_at_the_root_excludes_member_sources() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace_with_sources()?;
+    run_sysand_discovering(dir.path(), ["lock", "--no-index"])?
+        .assert()
+        .success();
+    run_sysand_discovering(dir.path(), ["sync", "--no-index"])?
+        .assert()
+        .success();
+
+    let out = run_sysand_discovering(dir.path(), ["sources", "--no-own"])?
+        .assert()
+        .success();
+    let stdout = String::from_utf8(out.get_output().stdout.clone())?;
+    assert!(
+        stdout.trim().is_empty(),
+        "every source here is a member's own:\n{stdout}"
+    );
+    Ok(())
+}
+
+#[test]
+fn sources_workspace_from_a_member_dir() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace_with_sources()?;
+    let out = run_sysand_discovering(
+        &dir.path().join("app"),
+        ["sources", "--workspace", "--deps", "none"],
+    )?
+    .assert()
+    .success();
+    let stdout = String::from_utf8(out.get_output().stdout.clone())?;
+    assert!(stdout.contains("lib.sysml"), "{stdout}");
+    Ok(())
+}
+
+/// One block per member, in `members` order. The blank line between
+/// them is a visual separator and not a contract -- a `description` may
+/// contain one -- but a block carries no trailing blank of its own, so
+/// a one-member workspace prints what that member prints alone.
+#[test]
+fn info_at_the_root_prints_a_block_per_member() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace_with_sources()?;
+    let out = run_sysand_discovering(dir.path(), ["info"])?
+        .assert()
+        .success();
+    let stdout = String::from_utf8(out.get_output().stdout.clone())?;
+
+    let app = stdout.find("Name: app").expect("app's block");
+    let lib = stdout.find("Name: lib").expect("lib's block");
+    assert!(app < lib, "`members` order:\n{stdout}");
+    assert!(stdout.contains("\n\nName: lib"), "separated:\n{stdout}");
+    Ok(())
+}
+
+/// A bare value per member says nothing about whose it is.
+#[test]
+fn info_a_field_at_the_root_names_each_member() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace_with_sources()?;
+    let out = run_sysand_discovering(dir.path(), ["info", "--get", "version"])?
+        .assert()
+        .success();
+    let stdout = String::from_utf8(out.get_output().stdout.clone())?;
+    assert!(stdout.contains("app: 1.0.0"), "{stdout}");
+    assert!(stdout.contains("lib: 1.0.0"), "{stdout}");
+    Ok(())
+}
+
+/// The prefix is per *emitted line*, not per member: a list field
+/// prints several.
+#[test]
+fn info_a_list_field_prefixes_every_line() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace_with_sources()?;
+    let out = run_sysand_discovering(dir.path(), ["info", "--get", "topic"])?
+        .assert()
+        .success();
+    let stdout = String::from_utf8(out.get_output().stdout.clone())?;
+    for expected in ["app: app-one", "app: app-two", "lib: lib-one"] {
+        assert!(stdout.contains(expected), "{expected} missing:\n{stdout}");
+    }
+    Ok(())
+}
+
+/// The single-project format is untouched.
+#[test]
+fn info_a_field_from_a_member_dir_is_bare() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace_with_sources()?;
+    let out = run_sysand_discovering(&dir.path().join("app"), ["info", "--get", "version"])?
+        .assert()
+        .success();
+    let stdout = String::from_utf8(out.get_output().stdout.clone())?;
+    assert_eq!(stdout.trim(), "1.0.0");
+    Ok(())
+}
+
+/// "All members" is a *reading* behaviour. Writing is `edit`, which
+/// needs a project, so at the root it is refused like the other writing
+/// commands.
+#[test]
+fn edit_at_the_root_needs_a_member() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace_with_sources()?;
+    for args in [
+        vec!["edit", "--version", "2.0.0"],
+        vec!["edit", "--add-topic", "q"],
+        vec!["edit", "--clear-license"],
+    ] {
+        run_sysand_discovering(dir.path(), args.clone())?
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(
+                "this command needs a project; run it from a member directory or pass \
+                 `--member <path-or-name>`",
+            ));
+    }
+    // And nothing was written.
+    let manifest = std::fs::read_to_string(dir.path().join("app/model.toml"))?;
+    assert!(manifest.contains("version = \"1.0.0\""), "{manifest}");
+    Ok(())
+}
+
+/// A selector beside `--dir`/`--iri` is refused, not discarded in silence.
+#[test]
+fn a_selector_beside_an_explicit_target_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace_with_sources()?;
+    run_sysand_discovering(dir.path(), ["info", "--member", "lib", "--dir", "app"])?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("pass one or the other"));
+    Ok(())
+}
+
+/// "From the workspace root **or from a non-member directory under it
+/// that defines no project**, the whole workspace is the command's
+/// target."
+#[test]
+fn a_non_member_directory_under_the_root_is_the_workspace() -> Result<(), Box<dyn std::error::Error>>
+{
+    let dir = two_member_workspace_with_sources()?;
+    std::fs::create_dir_all(dir.path().join("scratch"))?;
+
+    let out = run_sysand_discovering(&dir.path().join("scratch"), ["info", "--get", "version"])?
+        .assert()
+        .success();
+    let stdout = String::from_utf8(out.get_output().stdout.clone())?;
+    assert!(stdout.contains("app: 1.0.0"), "{stdout}");
+    assert!(stdout.contains("lib: 1.0.0"), "{stdout}");
+    Ok(())
+}

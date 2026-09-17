@@ -71,7 +71,7 @@ use crate::{
         print_root::command_print_root,
         publish::command_publish,
         remove::command_remove,
-        sources::{command_sources_env, command_sources_project},
+        sources::{command_sources_env, command_sources_project, command_sources_workspace},
         sync::command_sync,
     },
 };
@@ -453,14 +453,16 @@ fn run_cli_with(
     // settled rather than inside each arm. `Current` for every command
     // that takes no selector, and for every invocation that gives none.
     let selector = match &command {
-        Command::Build { selector, .. } | Command::Publish { selector, .. } => selector.selector(),
+        Command::Build { selector, .. }
+        | Command::Publish { selector, .. }
+        | Command::Info { selector, .. }
+        | Command::Sources { selector, .. } => selector.selector(),
         Command::Add { selector, .. }
         | Command::Remove { selector, .. }
         | Command::Include { selector, .. }
         | Command::Exclude { selector, .. }
-        | Command::Info { selector, .. }
-        | Command::Sources { selector, .. }
-        | Command::PrintRoot { selector } => selector.selector(),
+        | Command::PrintRoot { selector }
+        | Command::Edit { selector, .. } => selector.selector(),
         _ => Selector::Current,
     };
     let selected = selected_member(&cwd, workspace_root.as_deref(), selector)?;
@@ -479,20 +481,19 @@ fn run_cli_with(
     let project_root = selected.clone().or(project_root);
 
     // workspaces.md "Command scopes", second row: these commands "need
-    // a project, so `--member` is required at the root" -- appendix A
-    // row 27. Checked once here rather than in each command, because
-    // the condition is one condition: in a workspace, with no member to
-    // act on.
+    // a project, so `--member` is required at the root". Checked once
+    // here rather than in each command, because the condition is one
+    // condition: in a workspace, with no member to act on.
     //
-    // `info` is not in this list even though its writing verbs belong
-    // to the same row: whether it needs a project depends on
-    // `--path`/`--iri`, which is decided inside its own arm.
+    // `edit --dir` names its project directly, so only a bare `edit`
+    // belongs to the row.
     let needs_a_member = matches!(
         &command,
         Command::Add { .. }
             | Command::Remove { .. }
             | Command::Include { .. }
             | Command::Exclude { .. }
+            | Command::Edit { dir: None, .. }
     );
     if needs_a_member && current_project.is_none() && workspace_root.is_some() {
         return Err(DiscoverError::NeedsProject.into());
@@ -837,7 +838,7 @@ fn run_cli_with(
             ),
         },
         Command::Info {
-            selector: _,
+            selector,
             locator,
             get,
             // no_normalise,
@@ -919,27 +920,44 @@ fn run_cli_with(
                 _ => unreachable!(),
             };
 
+            // `--dir`/`--kpar-path`/`--iri` name their own target, so a
+            // workspace selector alongside one is a contradiction rather
+            // than a precedence question.
+            if !matches!(location, Location::WorkDir) && selector.selector() != Selector::Current {
+                bail!(
+                    "`--workspace` and `--member` select a member of the current workspace, \
+                     which `--dir`, `--kpar-path` and `--iri` already answer; pass one or the other"
+                );
+            }
+
             match (location, get) {
                 (Location::WorkDir, get) => {
-                    let Some(current_project) = ctx.current_project else {
+                    if let Some(current_project) = ctx.current_project {
+                        if let Some(field) = get {
+                            command_info_field(&current_project, field)
+                        } else {
+                            // The project is the one `run_cli`
+                            // discovered, which carries the workspace
+                            // table a member needs; `command_info_path`
+                            // would re-open the directory and throw it
+                            // away. The root is copied out before the
+                            // project moves.
+                            let root = current_project.root_path().to_owned();
+                            command_info_project(
+                                FileResolverProject::LocalSrcProject(current_project),
+                                &root,
+                                &excluded_usages,
+                            )
+                        }
+                    } else if let Some(root) = ctx.model_workspace_root.clone() {
+                        // workspaces.md "Command scopes": `info` takes
+                        // all members from the root or a non-member
+                        // directory under it. Reading is all it does,
+                        // so there is no writing verb to refuse here.
+                        crate::commands::info::command_info_workspace(&root, get, &excluded_usages)
+                    } else {
                         bail!(
                             "run outside of an active project, did you mean to use `--dir`, `--kpar-path` or `--iri`?"
-                        )
-                    };
-                    if let Some(field) = get {
-                        command_info_field(&current_project, field)
-                    } else {
-                        // The project is the one `run_cli`
-                        // discovered, which carries the workspace
-                        // table a member needs; `command_info_path`
-                        // would re-open the directory and throw it
-                        // away. The root is copied out before the
-                        // project moves.
-                        let root = current_project.root_path().to_owned();
-                        command_info_project(
-                            FileResolverProject::LocalSrcProject(current_project),
-                            &root,
-                            &excluded_usages,
                         )
                     }
                 }
@@ -974,7 +992,11 @@ fn run_cli_with(
                 }
             }
         }
-        Command::Edit { dir, edits } => {
+        Command::Edit {
+            dir,
+            edits,
+            selector: _,
+        } => {
             let project = match dir {
                 Some(dir) => {
                     if !wrapfs::metadata(&dir)?.is_dir() {
@@ -1153,7 +1175,15 @@ fn run_cli_with(
         Command::Sources {
             selector: _,
             sources_opts,
-        } => command_sources_project(sources_opts.no_own, sources_opts.deps, ctx),
+        } => match (&ctx.current_project, ctx.model_workspace_root.clone()) {
+            // workspaces.md "Command scopes": all members from the root
+            // or from a non-member directory under it, which is exactly
+            // "a workspace, and no member the directory implies".
+            (None, Some(root)) => {
+                command_sources_workspace(&root, sources_opts.no_own, sources_opts.deps, ctx)
+            }
+            _ => command_sources_project(sources_opts.no_own, sources_opts.deps, ctx),
+        },
         Command::Clone {
             locator,
             version_constraint,

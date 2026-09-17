@@ -314,12 +314,12 @@ pub enum Command {
     /// IRI/URL. Use `sysand edit` to modify a local project
     #[clap(verbatim_doc_comment)]
     Info {
-        // `MemberOnlySelector` and not `MemberSelector`: `info` has no
-        // all-members behaviour yet, so offering `--workspace` would be
-        // offering a flag with nothing behind it. The `--dir` form takes
-        // no selector into account either.
+        // workspaces.md "Command scopes": from a workspace root, or with
+        // `--workspace`, `info` reads every member. `--dir`, `--kpar-path`
+        // and `--iri` name their own target, so a selector beside one
+        // is refused.
         #[command(flatten)]
-        selector: MemberOnlySelector,
+        selector: MemberSelector,
         #[clap(flatten)]
         locator: InfoProjectLocatorArgs,
         /// Print only the value of the given field (a list field one entry
@@ -344,6 +344,11 @@ pub enum Command {
         /// project
         #[arg(long, verbatim_doc_comment)]
         dir: Option<Utf8PathBuf>,
+        // `edit` writes, so from a workspace root it needs a member like
+        // `add` and `remove` do; `--dir` names a project directly and is
+        // left alone.
+        #[command(flatten)]
+        selector: MemberOnlySelector,
         #[command(flatten)]
         edits: Box<EditArgs>,
     },
@@ -353,10 +358,8 @@ pub enum Command {
     /// `sysand sync` prior to this
     #[clap(verbatim_doc_comment)]
     Sources {
-        // As for `info`: `--workspace` waits for the all-members
-        // behaviour that 73b builds.
         #[command(flatten)]
-        selector: MemberOnlySelector,
+        selector: MemberSelector,
         #[command(flatten)]
         sources_opts: SourcesOptions,
     },

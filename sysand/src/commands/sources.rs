@@ -91,3 +91,91 @@ pub fn command_sources_project(
 
     Ok(())
 }
+
+/// `sysand sources` over every member of a workspace.
+///
+/// workspaces.md "Command scopes": from the root, or from a non-member
+/// directory under it, "all members" is the target.
+///
+/// Deduplicated across members, and across own sources and
+/// dependencies alike. Two members sharing an external dependency
+/// resolve the same installed files; and an *intra-workspace* usage
+/// "resolves to the member itself, never to a copy of it from an
+/// index", so a member that another member depends on has its own
+/// sources reached twice. The second is the case workspaces.md calls
+/// normal.
+///
+/// Order-preserving, because own-source order is deterministic and a
+/// plain `HashSet` would randomise it. Dependency order is not
+/// deterministic, which is a property of the solver rather than of this
+/// loop.
+pub fn command_sources_workspace(
+    root: &camino::Utf8Path,
+    no_own: bool,
+    dependencies: Dependencies,
+    ctx: ProjectContext,
+) -> Result<()> {
+    use std::collections::HashSet;
+    use std::sync::Arc;
+    use sysand_core::{
+        project::local_src::LocalSrcProject,
+        workspace::model_toml::{MemberChecks, Workspace},
+    };
+
+    let workspace = Workspace::load_with(root, MemberChecks::SkipStrayState)?;
+    let table = Arc::new(workspace.table().clone());
+
+    let mut seen = HashSet::new();
+    let mut listed: Vec<String> = Vec::new();
+    // `--only-deps` is "not the project's own sources", and at a root
+    // one member's dependency is another member's tree -- so the
+    // members' own sources are taken out of the union rather than
+    // skipped per member, which would let them back in sideways.
+    let mut own: HashSet<String> = HashSet::new();
+
+    for member in workspace.members() {
+        let project = LocalSrcProject::new_member(member.dir.clone(), None, table.clone());
+
+        for src_path in do_sources_local_src_project_no_deps(&project, true)? {
+            let rendered = src_path.to_string();
+            own.insert(rendered.clone());
+            if seen.insert(rendered.clone()) {
+                listed.push(rendered);
+            }
+        }
+
+        if dependencies != Dependencies::None {
+            let Some(info) = project.get_info()? else {
+                bail!("member `{}` is missing project information", member.dir)
+            };
+            let info = info.validate()?;
+            let deps = match &ctx.env {
+                // Cloned per member: `resolve_dependencies` takes the
+                // environment by value. One `.sysand` for the whole
+                // workspace, so every member resolves against the same
+                // installed set.
+                Some(env) => resolve_dependencies(info.usage, env.clone(), dependencies.into())?,
+                None => {
+                    resolve_dependencies(info.usage, NullEnvironment::new(), dependencies.into())?
+                }
+            };
+            for dep in deps {
+                for src_path in do_sources_local_src_project_no_deps(&dep, true)? {
+                    let rendered = src_path.to_string();
+                    if seen.insert(rendered.clone()) {
+                        listed.push(rendered);
+                    }
+                }
+            }
+        }
+    }
+
+    for src_path in listed {
+        if no_own && own.contains(&src_path) {
+            continue;
+        }
+        println!("{src_path}");
+    }
+
+    Ok(())
+}
