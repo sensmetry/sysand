@@ -10,8 +10,6 @@
 use std::fs;
 
 use assert_cmd::prelude::*;
-use indexmap::IndexMap;
-use sysand_core::model::InterchangeProjectMetadataRaw;
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
 mod common;
@@ -35,16 +33,21 @@ fn include_expands_glob_pattern() -> Result<(), Box<dyn std::error::Error>> {
 
     out.assert().success();
 
-    let meta: InterchangeProjectMetadataRaw =
-        serde_json::from_reader(fs::File::open(cwd.join(".meta.json"))?)?;
+    // `init` writes a `model.toml`, so the glob's result is in
+    // `sources` and there is no `.meta.json` symbol index. This file is
+    // `cfg`'d to Windows, so only a Windows CI run compiles it.
+    let manifest = fs::read_to_string(cwd.join("model.toml"))?;
+    assert!(!cwd.join(".meta.json").exists(), "`init` writes no json");
 
-    assert_eq!(
-        meta.index,
-        IndexMap::from([
-            ("P1".to_owned(), "p1.sysml".to_owned()),
-            ("P2".to_owned(), "p2.sysml".to_owned()),
-            ("P3".to_owned(), "p3.sysml".to_owned()),
-        ])
+    for expected in ["\"p1.sysml\"", "\"p2.sysml\"", "\"p3.sysml\""] {
+        assert!(
+            manifest.contains(expected),
+            "the glob expanded to {expected}:\n{manifest}"
+        );
+    }
+    assert!(
+        !manifest.contains("readme.txt"),
+        "`*.sysml` does not match a `.txt`:\n{manifest}"
     );
 
     Ok(())

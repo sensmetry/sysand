@@ -312,6 +312,21 @@ fn check_both_agree(dir: &Utf8Path) -> Result<()> {
         }
         Err(_) => sysand_core::model::InterchangeProjectMetadataRaw::default(),
     };
+    // A `model.toml` beside a lone `.meta.json` is `Both` -- and it is
+    // the state `migrate` itself leaves if it is interrupted between
+    // the two deletes, `delete_json_pair` removing `.project.json`
+    // first. Nothing readable is lost by finishing the job: a
+    // `.meta.json` alone is not a project, and it holds only the fields
+    // `warn_discarded` already says a `model.toml` cannot keep. The
+    // mirror case -- a lone `.project.json` -- is deleted without
+    // comment, and two opposite answers to one shape would be worse than
+    // either.
+    if !wrapfs::is_file(dir.join(PROJECT_JSON_FILE))? {
+        // Nothing to compare against, and nothing to lose: the caller's
+        // `delete_json_pair` removes the stray and reports the
+        // migration as it does for the mirror case.
+        return Ok(());
+    }
     let json_text = wrapfs::read_to_string(dir.join(PROJECT_JSON_FILE))?;
     let partial: InterchangeProjectInfoPartial = serde_json::from_str(&json_text)
         .map_err(|e| anyhow::anyhow!("failed to read `{PROJECT_JSON_FILE}`: {e}"))?;

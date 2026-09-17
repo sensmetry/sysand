@@ -1295,41 +1295,22 @@ pub type Overrides<Policy> = Vec<(Identifier, Vec<OverrideProject<Policy>>)>;
 /// identifier, which is looked up in the indexes.
 fn reads_configuration(command: &cli::Command) -> bool {
     match command {
-        cli::Command::Lock { resolution_opts: _ }
-        | cli::Command::Sync {
-            resolution_opts: _,
-            no_prune: _,
-        }
-        | cli::Command::Add {
-            locator: _,
-            version_constraint: _,
-            sync: _,
-            resolution_opts: _,
-            source_opts: _,
-        }
-        | cli::Command::Remove {
-            locator: _,
-            sync: _,
-            resolution_opts: _,
-        }
-        | cli::Command::Clone {
-            locator: _,
-            target: _,
-            version_constraint: _,
-            no_deps: _,
-            resolution_opts: _,
-        }
-        | cli::Command::Env { command: _ }
-        | cli::Command::Publish {
-            path: _,
-            index: _,
-            trusted_publishing: _,
-        } => true,
-        cli::Command::Info {
-            locator,
-            get: _,
-            resolution_opts: _,
-        } => locator.iri.is_some() || locator.identifier.is_some(),
+        cli::Command::Lock { .. }
+        | cli::Command::Sync { .. }
+        | cli::Command::Add { .. }
+        | cli::Command::Remove { .. }
+        | cli::Command::Clone { .. }
+        | cli::Command::Env { .. }
+        | cli::Command::Publish { .. }
+        // `plan-phase1.md:682` enumerates this list and leaves `migrate`
+        // out, while the same sentence gives the principle -- "the
+        // operations that build a resolver or read `[[index]]`" -- and
+        // WP-7 has `migrate` resolving `http(s)` and `pkg:sysand` usages
+        // through an index. The enumeration and the principle disagree;
+        // the principle wins, and a one-time conversion is a bad place
+        // to be quiet about configuration that is no longer read.
+        | cli::Command::Migrate { .. } => true,
+        cli::Command::Info { locator, .. } => locator.iri.is_some() || locator.identifier.is_some(),
         _ => false,
     }
 }

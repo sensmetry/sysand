@@ -832,7 +832,8 @@ fn load_member(
             report.push(
                 Diagnostic::error(format!(
                     "member `{raw}` has both `model.toml` and `{json}`; it is unclear whether it \
-                     is a non-zipped KPAR or a development project"
+                     is a non-zipped KPAR or a development project (`sysand migrate {raw}` keeps \
+                     the `model.toml` and removes the json)"
                 ))
                 .at_opt(path.at.clone()),
             );

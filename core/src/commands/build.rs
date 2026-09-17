@@ -197,6 +197,24 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
         path: String,
         reason: String,
     },
+    /// A member inheriting a group usage whose path is relative to the
+    /// workspace root.
+    ///
+    /// workspaces.md "Common usages": a group entry's `dir`/`kpar-path`
+    /// "is relative to the directory of the `model.toml` that defines
+    /// the workspace [...] whichever member opts into it". The KPAR
+    /// view has no way to carry that base -- `kpar_view::info` sees a
+    /// usage, not where it came from -- so the path here would resolve
+    /// against the *member*, which is a different directory.
+    ///
+    /// Refused rather than resolved against the wrong directory.
+    #[error(
+        "usage `{usage}` is inherited from the workspace, and its path `{path}` is relative \n\
+        {SP:>8} to the workspace root; building a project that inherits a path usage is not \n\
+        {SP:>8} supported yet",
+        SP = ' '
+    )]
+    InheritedLocalUsage { usage: String, path: String },
     #[error("missing project info file `.project.json` and metadata file `.meta.json`")]
     MissingInfoMeta,
     #[error("missing project info file `.project.json`")]
@@ -371,13 +389,17 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         let root = project.project_root();
         for (located, raw) in manifest.usages.iter().zip(info.usage.iter_mut()) {
             // An inherited usage's paths are relative to the workspace
-            // root, not the project's, and the arms below resolve
-            // against the project root: a workspace-based usage reaching
-            // them would silently resolve against the wrong base.
-            debug_assert!(
-                matches!(located.base, UsageBase::Project),
-                "a workspace-based usage needs `resolve_local_path`"
-            );
+            // root, not the project's, and nothing here carries that
+            // base, so such a usage is refused rather than resolved
+            // against the wrong directory.
+            if located.base != UsageBase::Project
+                && let Some(path) = located.usage.local_path()
+            {
+                return Err(KParBuildError::InheritedLocalUsage {
+                    usage: located.usage.to_string(),
+                    path: path.to_string(),
+                });
+            }
             match &located.usage {
                 Usage::SourcePath {
                     dir,

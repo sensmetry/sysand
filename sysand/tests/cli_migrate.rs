@@ -1292,3 +1292,36 @@ fn both_reads_json_the_way_the_rest_of_migrate_does() -> Result<(), Box<dyn std:
         .stderr(predicate::str::contains("totallyUnknownKey"));
     Ok(())
 }
+
+/// `detect_format` calls a `model.toml` beside a lone `.meta.json`
+/// `Both`, so every command refuses it and `migrate`, which resolves a
+/// `Both` directory, must not fail with a raw "No such file or
+/// directory" -- or the directory could not be fixed by any command.
+///
+/// It is also the state `migrate` leaves if it is interrupted between
+/// its two deletes, so finishing the job is the natural remedy. Nothing
+/// readable is lost: a `.meta.json` alone is not a project.
+#[test]
+fn a_lone_meta_json_beside_a_toml_is_finished_off() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    std::fs::write(cwd.join("model.toml"), AGREEING_TOML)?;
+    std::fs::write(
+        cwd.join(".meta.json"),
+        br#"{"created": "2001-02-03T04:05:06Z", "index": {},
+            "metamodel": "https://www.omg.org/spec/SysML/20250201"}"#,
+    )?;
+    git_repo(&cwd, true)?;
+
+    run_sysand_in(&cwd, ["migrate"], None)?
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("No such file or directory").not());
+
+    assert!(!cwd.join(".meta.json").exists(), "the stray is gone");
+    assert_eq!(
+        std::fs::read_to_string(cwd.join("model.toml"))?,
+        AGREEING_TOML,
+        "the manifest is untouched"
+    );
+    Ok(())
+}

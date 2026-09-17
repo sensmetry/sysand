@@ -1270,3 +1270,89 @@ fn build_workspace_refuses_an_output_path_inside_a_member() -> Result<(), Box<dy
     assert!(dir.path().join("output").is_dir());
     Ok(())
 }
+
+// ------------------- an inherited path usage
+
+/// workspaces.md "Common usages": a group entry's `dir` "is relative to
+/// the directory of the `model.toml` that defines the workspace [...]
+/// whichever member opts into it". The KPAR view cannot carry that
+/// base, and resolving against the member directory would silently pick
+/// a different directory, so `build` refuses it, as `lock` does.
+#[test]
+fn build_refuses_a_member_inheriting_a_local_usage() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = camino_tempfile::tempdir()?;
+    std::fs::write(
+        dir.path().join("model.toml"),
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\"]\n\n\
+         [[workspace.inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"dep\"\n",
+    )?;
+    for (at, name) in [("app", "app"), ("dep", "dep")] {
+        std::fs::create_dir_all(dir.path().join(at))?;
+        std::fs::write(
+            dir.path().join(at).join("model.toml"),
+            format!(
+                "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\n\
+                 name = \"{name}\"\nversion = \"1.0.0\"\nsources = []\n\
+                 metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n"
+            ),
+        )?;
+    }
+    // `app` opts into the group's `dir` usage.
+    let app = dir.path().join("app").join("model.toml");
+    let text = std::fs::read_to_string(&app)?;
+    std::fs::write(
+        &app,
+        format!(
+            "{text}\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\nworkspace = true\n"
+        ),
+    )?;
+
+    // From the member.
+    run_sysand_discovering(&dir.path().join("app"), ["build"])?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "is inherited from the workspace, and its path `dep` is relative",
+        ))
+        .stderr(predicate::str::contains("panicked").not());
+
+    // And from the root, where the workspace build reports it per member.
+    run_sysand_discovering(dir.path(), ["build"])?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("panicked").not());
+    Ok(())
+}
+
+/// The operations that build a resolver or read `[[index]]` warn about
+/// a stray config, and `migrate` resolves through an index: a one-time
+/// conversion is a bad place to be quiet about configuration that is
+/// not read.
+#[test]
+fn migrate_warns_about_a_stray_config() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace(ROOT)?;
+    let member = dir.path().join("app");
+    write_config(&member, "local-dep")?;
+
+    // A json project inside the member, so `migrate` has something to
+    // convert and reaches the warning rather than an earlier refusal.
+    let legacy = member.join("legacy");
+    std::fs::create_dir_all(&legacy)?;
+    std::fs::write(
+        legacy.join(".project.json"),
+        br#"{"name": "legacy", "publisher": "acme", "version": "1.0.0"}"#,
+    )?;
+    std::fs::write(
+        legacy.join(".meta.json"),
+        br#"{"created": "2001-02-03T04:05:06Z", "index": {},
+            "metamodel": "https://www.omg.org/spec/SysML/20250201"}"#,
+    )?;
+
+    run_sysand_discovering(&member, ["migrate", "legacy", "--allow-no-vcs"])?
+        .assert()
+        .stderr(predicate::str::contains(format!(
+            "`{}` {ROW_26}",
+            member.join(config::local_fs::CONFIG_FILE)
+        )));
+    Ok(())
+}
