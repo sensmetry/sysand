@@ -1019,3 +1019,56 @@ fn stray_state(
 #[cfg(test)]
 #[path = "./model_toml_tests.rs"]
 mod tests;
+
+/// A [`crate::project::local_src::LocalSrcProject`] for a path a caller *gave*, rather than for a
+/// directory that was walked to.
+///
+/// A member's manifest resolves only against its workspace's table, so
+/// reading one without it fails with "`metamodel` inherits from group
+/// `<g>`, but the project is not a member of any workspace" -- about a
+/// project that is listed in `members`. Commands and bindings that take
+/// a path read it directly, where the ones that use a working directory
+/// discover the workspace first and get a table; that asymmetry has
+/// produced the same defect three times, in the solver, in the CLI and
+/// in both bindings.
+///
+/// Here rather than in the CLI so that all three share one answer:
+/// `bindings/java` cannot see the `sysand` crate at all.
+///
+/// [`discover_table`] and [`member_index`], deliberately, and not
+/// [`Workspace::load_with`] with [`Workspace::classify`]:
+///
+/// * `load_with` parses and validates *every* member, so one broken
+///   sibling would make this fall back to a table-less read, which
+///   fails for a member that inherits -- and on the standard library
+///   it would read the whole tree on every call.
+/// * `classify` answers from [`WorkspaceTable::region`], which
+///   prefix-matches, so a project that merely *sits inside* a member
+///   directory would be handed a table it is not entitled to.
+///   `member_index` adds the equality that `migrate` already relies on.
+///
+/// Anything that is not a listed member -- unlisted, excluded, nested
+/// inside an entry, outside any root, or a path whose workspace cannot
+/// be established at all -- reads table-less, which is what every
+/// caller did before there was a table to have.
+pub fn project_at_path(
+    path: impl Into<Utf8PathBuf>,
+    nominal_path: Option<typed_path::Utf8UnixPathBuf>,
+) -> crate::project::local_src::LocalSrcProject {
+    let path = path.into();
+    match member_table_at(&path) {
+        Some(table) => crate::project::local_src::LocalSrcProject::new_member(
+            path,
+            nominal_path,
+            std::sync::Arc::new(table),
+        ),
+        None => crate::project::local_src::LocalSrcProject::new_access(path, nominal_path),
+    }
+}
+
+/// The table `path` resolves against, if `path` is a listed member.
+fn member_table_at(path: &Utf8Path) -> Option<WorkspaceTable> {
+    let (root, table) = discover_table(path).ok().flatten()?;
+    member_index(&root, &table, path).ok().flatten()?;
+    Some(table)
+}

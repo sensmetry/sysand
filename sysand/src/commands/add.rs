@@ -185,7 +185,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
             assert_eq!(version_constraint, None);
             let abs_path = wrapfs::canonicalize(dir)?;
             let relative = relativize_path(&abs_path, current_project.root_path())?;
-            let project = crate::project_at_path(abs_path, None);
+            let project = sysand_core::workspace::model_toml::project_at_path(abs_path, None);
             let info = project
                 .get_info()?
                 .ok_or_else(|| CliError::MissingProject(project.root_path().to_string()))?;

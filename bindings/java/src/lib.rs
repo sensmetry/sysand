@@ -242,7 +242,8 @@ fn info_path<'local>(
     let Some(path) = env.get_str(&path, "path") else {
         ret_null!()
     };
-    let project = LocalSrcProject::new_access(Utf8PathBuf::from(&path), None);
+    let project =
+        sysand_core::workspace::model_toml::project_at_path(Utf8PathBuf::from(&path), None);
 
     let command_result = commands::info::do_info_project(&project);
     match command_result {
@@ -463,7 +464,8 @@ fn build_project<'local>(
     let Some(project_path) = env.get_str(&project_path, "projectPath") else {
         ret!()
     };
-    let project = LocalSrcProject::new_access(Utf8PathBuf::from(project_path), None);
+    let project =
+        sysand_core::workspace::model_toml::project_at_path(Utf8PathBuf::from(project_path), None);
     let Some(compression) = env.get_str(&compression, "compression") else {
         ret!()
     };

@@ -1738,3 +1738,92 @@ fn discover_with_skips_stray_state_too() {
         .expect("a workspace");
     assert_eq!(workspace.members().len(), 1);
 }
+
+// ----------------------------------------------------------------------
+// `project_at_path`: reading a project at a path a caller gave
+
+use crate::project::ProjectRead as _;
+
+/// The body of a member that inherits its metamodel from the default
+/// group, so that reading it needs the table.
+const INHERITS_METAMODEL: &str = "manifest-version = \"1.0.0\"\n\n[project]\n\
+     publisher = \"acme\"\nname = \"member\"\nversion = \"1.0.0\"\nsources = []\n\
+     metamodel.workspace = true\n";
+
+/// The point of the helper: a listed member resolves.
+#[test]
+fn a_listed_member_is_read_with_the_table() {
+    let fixture = Fixture::new(
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\"]\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    );
+    fixture.write("app/model.toml", INHERITS_METAMODEL);
+
+    let project = super::project_at_path(fixture.under("app"), None);
+    assert!(
+        project.get_info().is_ok(),
+        "a listed member resolves against its workspace's table"
+    );
+}
+
+/// A project that merely *sits inside* a member is not one.
+///
+/// `WorkspaceTable::region` prefix-matches, so asking it alone hands
+/// the table to `app/sub`. `member_index` adds the equality, and
+/// without it the two ways of reaching a project disagree: `--path`
+/// would succeed where running in the directory fails.
+#[test]
+fn a_project_nested_in_a_member_is_not_given_the_table() {
+    let fixture = Fixture::new(
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\"]\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    );
+    fixture.write("app/model.toml", INHERITS_METAMODEL);
+    fixture.write("app/sub/model.toml", INHERITS_METAMODEL);
+
+    let project = super::project_at_path(fixture.under("app/sub"), None);
+    assert!(
+        project.get_info().is_err(),
+        "a project inside a member is outside every workspace"
+    );
+}
+
+/// One broken member does not stop another being read.
+///
+/// `Workspace::load_with` parses and validates every member, so a
+/// sibling that does not parse would make the helper fall back to a
+/// table-less read. Reading only the root manifest is what avoids that.
+#[test]
+fn a_broken_sibling_does_not_stop_a_member_being_read() {
+    let fixture = Fixture::new(
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\", \"bad\"]\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    );
+    fixture.write("app/model.toml", INHERITS_METAMODEL);
+    fixture.write("bad/model.toml", "this is not a manifest\n");
+
+    let project = super::project_at_path(fixture.under("app"), None);
+    assert!(
+        project.get_info().is_ok(),
+        "a sibling that does not parse is not this project's problem"
+    );
+}
+
+/// A path outside any workspace is unchanged.
+#[test]
+fn a_project_outside_a_workspace_reads_table_less() {
+    let fixture = Fixture::new("manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = []\n");
+    Fixture::write_at(
+        &fixture.base().join("outside/model.toml"),
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"outside\"\n\
+         version = \"1.0.0\"\nsources = []\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    );
+
+    let project = super::project_at_path(fixture.base().join("outside"), None);
+    assert!(
+        project.get_info().is_ok(),
+        "a plain project still reads: {:?}",
+        project.get_info().err()
+    );
+}

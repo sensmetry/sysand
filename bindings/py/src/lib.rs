@@ -302,7 +302,7 @@ fn do_info_py_path(
 ) -> PyResult<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)> {
     common_init();
 
-    let project = LocalSrcProject::new_access(path, None);
+    let project = sysand_core::workspace::model_toml::project_at_path(path, None);
 
     match do_info_project(&project) {
         Ok((info, meta)) => Ok((info, meta)),
@@ -529,18 +529,21 @@ fn cli_resolver_for(
     let cwd = wrapfs::canonicalize(".").map_err(|e| project_error(format_err(e)))?;
     let current_project = discover_project(&cwd).map_err(|e| project_error(format_err(e)))?;
     // The environment is the workspace's when the path is inside one, as
-    // `run_cli` roots it; an unlisted or excluded project keeps its own
-    let model_workspace_root = match sysand_core::workspace::model_toml::discover_table(&cwd) {
-        Ok(Some((root, table))) => {
-            match sysand_core::workspace::model_toml::start_region(&root, &table, &cwd) {
-                Ok(
-                    sysand_core::workspace::model_toml::StartRegion::Member(_)
-                    | sysand_core::workspace::model_toml::StartRegion::Workspace,
-                ) => Some(root),
-                _ => None,
+    // `run_cli` roots it; an excluded project keeps its own, and an
+    // unlisted one is an error
+    let model_workspace_root = match sysand_core::workspace::model_toml::discover_table(&cwd)
+        .map_err(|e| project_error(format_err(e)))?
+    {
+        Some((root, table)) => {
+            match sysand_core::workspace::model_toml::start_region(&root, &table, &cwd)
+                .map_err(|e| project_error(format_err(e)))?
+            {
+                sysand_core::workspace::model_toml::StartRegion::Member(_)
+                | sysand_core::workspace::model_toml::StartRegion::Workspace => Some(root),
+                sysand_core::workspace::model_toml::StartRegion::Standalone(_) => None,
             }
         }
-        _ => None,
+        None => None,
     };
     let env_root = model_workspace_root
         .as_deref()
@@ -690,28 +693,32 @@ fn project_context(start: &Utf8Path, scope: Scope) -> PyResult<Context> {
     // Where a lockfile belongs when the path is not in a workspace.
     let project_root = current_project.as_ref().map(|p| p.root_path().to_owned());
 
-    // `discover_table` and not `Workspace::discover`, and a discovery
-    // error is not fatal, for the reasons `run_cli`'s own `config_root`
-    // gives.
-    let discovered = match sysand_core::workspace::model_toml::discover_table(&cwd) {
-        Ok(found) => found,
-        Err(error) => {
+    // `discover_table` and not `Workspace::discover`. As in `run_cli`, a
+    // discovery error is fatal only for a call that consults the
+    // workspace.
+    let discovered = match (
+        sysand_core::workspace::model_toml::discover_table(&cwd),
+        scope,
+    ) {
+        (Ok(found), _) => found,
+        (Err(error), Scope::Workspace) => return Err(project_error(format_err(error))),
+        (Err(error), Scope::Project) => {
             log::debug!("not reading configuration from a workspace root: {error}");
             None
         }
     };
 
-    // Only a member or the root itself is *in* the workspace. An
-    // unlisted or excluded project is not, and that is an answer here
-    // rather than a failure: such a project is locked on its own.
+    // Only a member or the root itself is *in* the workspace. An excluded
+    // project is not, and is locked on its own; an unlisted one is an
+    // error, as it is for the CLI.
     let model_workspace_root = match (&discovered, scope) {
         (Some((root, table)), Scope::Workspace) => {
-            match sysand_core::workspace::model_toml::start_region(root, table, &cwd) {
-                Ok(
-                    sysand_core::workspace::model_toml::StartRegion::Member(_)
-                    | sysand_core::workspace::model_toml::StartRegion::Workspace,
-                ) => Some(root.clone()),
-                _ => None,
+            match sysand_core::workspace::model_toml::start_region(root, table, &cwd)
+                .map_err(|e| project_error(format_err(e)))?
+            {
+                sysand_core::workspace::model_toml::StartRegion::Member(_)
+                | sysand_core::workspace::model_toml::StartRegion::Workspace => Some(root.clone()),
+                sysand_core::workspace::model_toml::StartRegion::Standalone(_) => None,
             }
         }
         _ => None,
@@ -1172,7 +1179,7 @@ fn do_build_py(
     let Some(current_project_path) = project_path else {
         return Err(pyo3::exceptions::PyNotImplementedError::new_err("TODO"));
     };
-    let project = LocalSrcProject::new_access(current_project_path, None);
+    let project = sysand_core::workspace::model_toml::project_at_path(current_project_path, None);
 
     let compression = match compression {
         Some(compression) => match KparCompressionMethod::try_from(compression) {
@@ -1311,7 +1318,7 @@ pub fn do_sources_project_py(
 
     let mut result = vec![];
 
-    let current_project = LocalSrcProject::new_access(path.clone(), None);
+    let current_project = sysand_core::workspace::model_toml::project_at_path(path.clone(), None);
 
     if include_own {
         for src_path in do_sources_local_src_project_no_deps(&current_project, true)
