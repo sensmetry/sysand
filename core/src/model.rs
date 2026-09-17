@@ -369,6 +369,44 @@ pub const LICENSE_EXPRESSION_HELP: &str = "\
     for the syntax and https://spdx.org/licenses/ for the list of license identifiers;\n\
     for custom licenses, use `LicenseRef-My-custom-license`";
 
+/// Whether an IRI is an OMG standard-library KPAR IRI.
+///
+/// model-toml.md "Standard library": the standard libraries "are
+/// published at `https://www.omg.org/spec/<KerML|SysML>/<date>/<stem>.kpar`".
+/// A usage naming one of those IRIs may omit its `publisher`, and no
+/// other usage may, so the shape is pinned rather than approximated:
+/// exactly one eight-digit date segment, exactly one non-empty stem
+/// ending in `.kpar`, and nothing after it. A query or a fragment lands
+/// in the stem and so fails the suffix, which is the intent -- the
+/// exemption is granted to the IRI as written.
+///
+/// The `sysand.com` spec family is deliberately not matched: those IRIs
+/// name a *metamodel*, never a library.
+///
+/// This is the manifest's shape rule. `commands::publish`'s
+/// `check_std_libs` answers a narrower question -- whether an IRI is one
+/// of the ten releases this Sysand embeds -- and stays as it is.
+pub fn is_omg_stdlib_iri(iri: &str) -> bool {
+    omg_stdlib_stem(iri).is_some()
+}
+
+/// The `<stem>` of an OMG standard-library KPAR IRI, or `None` if the
+/// IRI is not one. See [`is_omg_stdlib_iri`] for the shape.
+///
+/// The stem is *not* the library's declared name -- `SysML Quantities
+/// and Units Library` is published at
+/// `.../Quantities-and-Units-Domain-Library.kpar` -- so it is a fallback
+/// for a caller that has nothing else, never a lookup.
+pub fn omg_stdlib_stem(iri: &str) -> Option<&str> {
+    let rest = iri
+        .strip_prefix(KERML_SPEC_PREFIX)
+        .or_else(|| iri.strip_prefix(SYSML_SPEC_PREFIX))?;
+    let (date, file) = rest.split_once('/')?;
+    (date.len() == 8 && date.bytes().all(|b| b.is_ascii_digit())).then_some(())?;
+    let stem = file.strip_suffix(".kpar")?;
+    (!stem.is_empty() && !stem.contains('/')).then_some(stem)
+}
+
 /// A dependency on another interchange project. In the dependency solver,
 /// usages are treated as referring to the same project iff they derive the
 /// same `Identifier`. A project declares each dependency once: two of its

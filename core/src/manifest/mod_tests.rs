@@ -494,13 +494,24 @@ fn every_example_in_model_toml_parses() {
          [project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\n",
     );
 
-    // "Standard library": a standard-library usage is an index usage
-    // like any other.
+    // "Standard library": the document still shows the index form, and
+    // that entry still parses -- as an ordinary index usage published by
+    // `OMG`, which is all it ever was to the reader.
     accepted(&as_project_file(
         "[[inline-usages]]\n\
          publisher = \"OMG\"\n\
          name = \"Kernel Semantic Library\"\n\
          version = \"^1.0.0\"\n",
+    ));
+
+    // Ahead of the document, which WP-9 re-copies once WP-10 is done:
+    // the reviewed "Standard library" declares the usage as a
+    // publisher-less `kpar-url` naming an OMG IRI, and that is the form
+    // WP-10-f implements.
+    accepted(&as_project_file(
+        "[[inline-usages]]\n\
+         name = \"Semantic-Library\"\n\
+         kpar-url = \"https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar\"\n",
     ));
 
     // "Developing the standard library": the `[project]` of one of the

@@ -12,10 +12,9 @@ use crate::{
     env::utils::ErrorBound,
     graph::DependencyGraph,
     include::{IncludeError, extract_symbols, read_project_file_to_string},
-    manifest::common::normalized_identity,
     manifest::usage::{Usage, UsageBase},
     model::{
-        IndexName, InterchangeProjectChecksumRaw, InterchangeProjectUsageRaw,
+        InterchangeProjectChecksumRaw, InterchangeProjectUsageRaw,
         InterchangeProjectValidationError, KerMlChecksumAlg, format_created,
     },
     project::{
@@ -24,11 +23,7 @@ use crate::{
         local_src::{LocalSrcError, LocalSrcProject},
         utils::{FsIoError, ZipArchiveError, wrapfs},
     },
-    stdlib::known_std_libs,
-    utils::{
-        ProvidedProjects, format_err, license_file_stems, sha256_lowercase_hex,
-        to_pretty_json_string,
-    },
+    utils::{format_err, license_file_stems, sha256_lowercase_hex, to_pretty_json_string},
     workspace::model_toml,
 };
 
@@ -202,26 +197,6 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
         path: String,
         reason: String,
     },
-    /// model-toml.md "Standard library": the standard library is
-    /// "provided by the tooling", and "Sysand embeds the metadata of the
-    /// current release". So the IRI a standard-library usage is written
-    /// as comes from `known_std_libs()` and from nowhere else -- "build
-    /// never resolves usages, so building needs neither network nor
-    /// index".
-    ///
-    /// Two ways to get here: the name matches embedded releases but no
-    /// version satisfies the constraint, and the name matches nothing at
-    /// all. `embedded` carries whichever the reader needs.
-    #[error(
-        "standard-library usage `{usage} {constraint}` matches no release this Sysand \n\
-        {SP:>8} embeds ({embedded}), so its IRI cannot be written",
-        SP = ' '
-    )]
-    TomlStdlibUnmatched {
-        usage: String,
-        constraint: String,
-        embedded: String,
-    },
     #[error("missing project info file `.project.json` and metadata file `.meta.json`")]
     MissingInfoMeta,
     #[error("missing project info file `.project.json`")]
@@ -394,10 +369,6 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         // unfiltered, so the two are the same usages in the same order
         // -- and a zip cannot go out of step where a counter can.
         let root = project.project_root();
-        // `known_std_libs` parses twenty embedded documents, so it is
-        // built on the first standard-library usage and reused: a
-        // project with none pays nothing.
-        let mut std_libs = None;
         for (located, raw) in manifest.usages.iter().zip(info.usage.iter_mut()) {
             // An inherited usage's paths are relative to the workspace
             // root, not the project's, and the arms below resolve
@@ -408,19 +379,7 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
                 "a workspace-based usage needs `resolve_local_path`"
             );
             match &located.usage {
-                Usage::Index {
-                    name,
-                    version_constraint,
-                    publisher,
-                } if publisher.is_stdlib_publisher() => {
-                    let embedded = std_libs.get_or_insert_with(known_std_libs);
-                    *raw = stdlib_index_usage(embedded, &located.usage, name, version_constraint)?;
-                }
-                Usage::SourcePath {
-                    dir,
-                    publisher: _,
-                    name: _,
-                } if !allow_path_usage => {
+                Usage::SourcePath { dir, .. } if !allow_path_usage => {
                     *raw =
                         local_target_usage(root, &located.usage, dir.as_str(), false, workspace)?;
                 }
@@ -684,15 +643,16 @@ fn local_target_usage<E: ErrorBound>(
     // Checked here as well as in the resolver, because a build reads
     // its targets itself and never asks one.
     let spelled = |declared_publisher: Option<&str>, declared_name: &str| {
-        // A target that declares no publisher at all is appendix A row
-        // 21's case, and a built standard-library archive is the
-        // ordinary example of it -- the build drops the publisher on
-        // purpose. The name is still compared; whether a
-        // publisher-less target may be used at all is the resolver's
-        // question, where row 21 lives.
-        let publisher_agrees = match declared_publisher {
-            Some(declared) => declared == usage.publisher().as_str(),
-            None => true,
+        // A built standard-library archive is the ordinary example of a
+        // target that declares no publisher at all -- the build drops
+        // the publisher on purpose. The name is still compared; whether
+        // a publisher-less target may be used at all is the resolver's
+        // question.
+        let publisher_agrees = match (declared_publisher, usage.publisher()) {
+            (Some(declared), Some(spelled)) => declared == spelled.as_str(),
+            // Either side declaring none compares on the name alone: a
+            // publisher-less target, or a standard-library usage.
+            _ => true,
         };
         if publisher_agrees && declared_name == usage.name().as_str() {
             Ok(())
@@ -794,58 +754,8 @@ fn local_target_usage<E: ErrorBound>(
     };
 
     Ok(InterchangeProjectUsageRaw::Resource {
-        resource: normalized_identity(usage.publisher(), usage.name()).lock_identifier(),
+        resource: usage.identity().lock_identifier(),
         version_constraint: Some(caret(&version, usage, relative)?),
-    })
-}
-
-/// model-toml.md "Standard library": the IRI an `omg` index usage is
-/// written as.
-///
-/// Matched by *name*, and the resource is the map key of whatever
-/// matched. The stem is not derivable from the usage: `SysML Quantities
-/// and Units Library` is published at
-/// `.../Quantities-and-Units-Domain-Library.kpar`, and "Domain" appears
-/// in one and not the other.
-fn stdlib_index_usage<E: ErrorBound>(
-    embedded: &ProvidedProjects,
-    usage: &Usage,
-    name: &IndexName,
-    constraint: &semver::VersionReq,
-) -> Result<InterchangeProjectUsageRaw, KParBuildError<E>> {
-    let wanted = name.normalized();
-    let mut versions = Vec::new();
-    for (iri, projects) in embedded {
-        for project in projects {
-            let Some(info) = &project.info else { continue };
-            if crate::model::normalize_typed_name(&info.name) != wanted {
-                continue;
-            }
-            let Ok(version) = semver::Version::parse(&info.version) else {
-                continue;
-            };
-            if constraint.matches(&version) {
-                return Ok(InterchangeProjectUsageRaw::Resource {
-                    resource: iri.as_str().to_owned(),
-                    // "with its version constraint" -- as declared.
-                    version_constraint: Some(constraint.to_string()),
-                });
-            }
-            versions.push(info.version.clone());
-        }
-    }
-
-    // Sorted: `known_std_libs` is a `HashMap`, and a message whose order
-    // varies between runs is a message nobody can quote.
-    versions.sort();
-    Err(KParBuildError::TomlStdlibUnmatched {
-        usage: usage.to_string(),
-        constraint: constraint.to_string(),
-        embedded: if versions.is_empty() {
-            "no release of that name".to_owned()
-        } else {
-            format!("embedded: {}", versions.join(", "))
-        },
     })
 }
 

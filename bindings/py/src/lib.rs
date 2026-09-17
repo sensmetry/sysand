@@ -1191,11 +1191,6 @@ fn do_build_py(
                 | KParBuildError::MissingInfo
                 | KParBuildError::MissingMeta
                 | KParBuildError::MissingInfoMeta
-                | KParBuildError::TomlStdlibUnmatched {
-                    usage: _,
-                    constraint: _,
-                    embedded: _,
-                }
                 | KParBuildError::TomlTargetMissing { .. }
                 | KParBuildError::TomlTargetVersion { .. }
                 | KParBuildError::TomlTargetSpelling { .. }

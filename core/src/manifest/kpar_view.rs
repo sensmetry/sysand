@@ -20,6 +20,7 @@
 //! project needs, and it is free of Cargo features so that the bindings
 //! without a filesystem can produce it too.
 
+use fluent_uri::Iri;
 use indexmap::IndexMap;
 use thiserror::Error;
 use typed_path::Utf8UnixPath;
@@ -102,6 +103,14 @@ pub enum NoManifestForm {
         SP = ' '
     )]
     UntypedIri(String),
+    /// A `kpar-url` usage takes no version constraint, and a
+    /// standard-library usage is written as one.
+    #[error(
+        "`{0}` cannot be written into a `model.toml` with a version constraint:\n\
+        {SP:>8} it is a standard-library IRI, and a `kpar-url` usage takes no version constraint",
+        SP = ' '
+    )]
+    StdlibConstraint(String),
     /// The target declares a publisher or name a manifest cannot hold.
     #[error(
         "`{file}` declares {problem};\n\
@@ -142,6 +151,29 @@ pub fn usage_of_raw(raw: &InterchangeProjectUsageRaw, file: &str) -> Result<Usag
             resource,
             version_constraint,
         } => {
+            // model-toml.md "Standard library": "A json project's
+            // `resource` usage of such an IRI is the same usage under
+            // the same spelling" -- the publisher-less `kpar-url` form.
+            if let Some(stem) = crate::model::omg_stdlib_stem(resource) {
+                if version_constraint.is_some() {
+                    return Err(NoManifestForm::StdlibConstraint(resource.clone()));
+                }
+                let name = IndexName::parse(stem).map_err(|e| NoManifestForm::Identifier {
+                    file: file.to_owned(),
+                    problem: format!("`{}`: {e}", e.value),
+                })?;
+                let url = Iri::parse(resource.to_owned()).map_err(|(e, _)| {
+                    NoManifestForm::Identifier {
+                        file: file.to_owned(),
+                        problem: format!("`{resource}`: {e}"),
+                    }
+                })?;
+                return Ok(Usage::RemoteKpar {
+                    publisher: None,
+                    name,
+                    url,
+                });
+            }
             let Ok(Some((publisher, name))) = crate::purl::parse_sysand_purl(resource) else {
                 return Err(NoManifestForm::UntypedIri(resource.clone()));
             };

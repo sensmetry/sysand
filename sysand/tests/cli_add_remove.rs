@@ -3660,3 +3660,31 @@ fn add_normalized_index_usage_takes_the_resolved_spelling_on_a_toml_project()
 
     Ok(())
 }
+
+/// A standard-library usage declares no `publisher`, and is
+/// reached by the identity `(omg, <name>)` -- so `sysand remove
+/// omg/<name>` removes it. Without `entry_identity` knowing the form,
+/// the entry would be invisible to every editor.
+#[test]
+fn a_stdlib_usage_is_removed_by_its_omg_identity() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    init_toml_project(&cwd, "app")?;
+
+    let manifest_path = cwd.join("model.toml");
+    let manifest = std::fs::read_to_string(&manifest_path)?;
+    std::fs::write(
+        &manifest_path,
+        format!(
+            "{manifest}\n[[inline-usages]]\nname = \"Semantic-Library\"\n\
+             kpar-url = \"https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar\"\n"
+        ),
+    )?;
+
+    run_sysand_in(&cwd, ["remove", "--no-index", "omg/semantic-library"], None)?
+        .assert()
+        .success();
+    let after = std::fs::read_to_string(&manifest_path)?;
+    assert!(!after.contains("kpar-url"), "manifest: {after}");
+
+    Ok(())
+}

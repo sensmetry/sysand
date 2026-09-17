@@ -1127,7 +1127,8 @@ fn build_toml_project_with_a_missing_target() -> Result<(), Box<dyn std::error::
     Ok(())
 }
 
-/// A standard-library usage becomes the IRI Sysand embeds.
+/// A standard-library usage is a publisher-less `kpar-url`, and
+/// reaches the archive as the IRI it already names.
 #[test]
 fn build_toml_project_with_a_stdlib_usage() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
@@ -1135,8 +1136,8 @@ fn build_toml_project_with_a_stdlib_usage() -> Result<(), Box<dyn std::error::Er
         cwd.join("model.toml"),
         "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
          version = \"1.0.0\"\nsources = [\"a.sysml\"]\nmetamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
-         [[inline-usages]]\npublisher = \"OMG\"\nname = \"Kernel Semantic Library\"\n\
-         version = \"^1.0.0\"\n",
+         [[inline-usages]]\nname = \"Semantic-Library\"\n\
+         kpar-url = \"https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar\"\n",
     )?;
     std::fs::write(cwd.join("a.sysml"), b"package A;\n")?;
 

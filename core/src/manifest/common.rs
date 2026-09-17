@@ -18,9 +18,20 @@ use crate::model::{IndexName, IndexPublisher, KnownMetamodel};
 use crate::purl::PKG_SYSAND_PREFIX;
 use crate::symbols::Language;
 
+/// The publisher a standard-library usage is resolved under.
+///
+/// model-toml.md "Standard library": such a usage declares no
+/// `publisher`, and "for the dependency graph and the lockfile [it] has
+/// the identity `(omg, <name>)`".
+pub static OMG_PUBLISHER: std::sync::LazyLock<IndexPublisher> =
+    std::sync::LazyLock::new(|| IndexPublisher::parse("omg").expect("`omg` is a valid publisher"));
+
 impl IndexPublisher {
-    /// model-toml.md "Standard library": "A usage is a standard-library
-    /// usage iff its publisher normalizes to `omg`".
+    /// Whether this publisher normalizes to `omg`.
+    ///
+    /// The `stdlib` key's own check. It is not what makes a usage a
+    /// standard-library usage: that is the `kpar-url`, and an index
+    /// usage published by `omg` is an ordinary usage.
     pub fn is_stdlib_publisher(&self) -> bool {
         self.normalized() == "omg"
     }
@@ -30,7 +41,10 @@ impl IndexPublisher {
 /// "Normalization"), and the pair the lockfile records as
 /// `pkg:sysand/<publisher>/<name>`.
 ///
-/// Unlike a json project's identity, this one always has a publisher.
+/// A `model.toml` usage that declares no publisher is a standard-library
+/// usage, whose identity is `(omg, <name>)`, so this pair always has a
+/// publisher; a publisher-less json *target* is an error when a toml
+/// usage resolves to it.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct NormalizedIdentity {
     pub publisher: String,

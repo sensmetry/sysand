@@ -117,7 +117,7 @@ fn maximal() -> ModelToml {
                 kpar_path: "vendor/packed.kpar".into(),
             }),
             MemberUsage::Declared(Usage::RemoteKpar {
-                publisher: publisher("acme"),
+                publisher: Some(publisher("acme")),
                 name: name("remote"),
                 url: iri("https://example.com/remote.kpar"),
             }),
@@ -1402,6 +1402,96 @@ fn excluding_a_file_that_is_no_source_says_so() {
     assert!(
         matches!(&error, EditError::Sources(SourcesError::NotModelFile(path)) if path == "README.md"),
         "unexpected error: {error}"
+    );
+}
+
+// ------------------- the standard-library entry
+
+const STD_IRI: &str = "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar";
+
+fn stdlib_usage() -> MemberUsage {
+    MemberUsage::Declared(Usage::RemoteKpar {
+        publisher: None,
+        name: name("Semantic-Library"),
+        url: iri(STD_IRI),
+    })
+}
+
+/// model-toml.md "Standard library": `publisher` "is absent", so the
+/// entry the editors write has no `publisher` key -- and still reads
+/// back as a manifest.
+#[test]
+fn a_stdlib_usage_is_written_without_a_publisher_key() {
+    let mut doc = opened(&with_sources("[]"));
+    push_usage(&mut doc, &stdlib_usage()).expect("a new usage");
+
+    let text = doc.to_string();
+    assert!(
+        text.contains(&format!(
+            "[[inline-usages]]\nname = \"Semantic-Library\"\nkpar-url = \"{STD_IRI}\"\n"
+        )),
+        "{text}"
+    );
+    assert!(!text.contains("publisher = \"omg\""), "{text}");
+    ModelToml::parse("model.toml", &text).expect("still a manifest");
+}
+
+/// "such a usage has the identity `(omg, <name>)`" -- which is how the
+/// editors reach it. Without this `sysand remove` could never remove a
+/// standard-library usage.
+#[test]
+fn a_stdlib_usage_is_reached_by_its_omg_identity() {
+    let mut doc = opened(&with_sources("[]"));
+    push_usage(&mut doc, &stdlib_usage()).expect("a new usage");
+
+    remove_usage(&mut doc, &identity("omg", "Semantic-Library")).expect("the entry is there");
+    assert!(!doc.to_string().contains("inline-usages"), "{doc}");
+}
+
+/// And how the duplicate guard sees it: a second entry for the same
+/// library would make the file unreadable on the next parse, so it is
+/// refused here instead.
+#[test]
+fn a_second_stdlib_usage_for_the_same_library_is_refused() {
+    let mut doc = opened(&with_sources("[]"));
+    push_usage(&mut doc, &stdlib_usage()).expect("a new usage");
+
+    assert_eq!(
+        push_usage(&mut doc, &stdlib_usage()),
+        Err(EditError::DuplicateUsage(identity(
+            "omg",
+            "Semantic-Library"
+        )))
+    );
+    // And by the spelling `sysand add omg/Semantic-Library` would give.
+    assert_eq!(
+        push_usage(
+            &mut doc,
+            &MemberUsage::Declared(Usage::Index {
+                publisher: publisher("OMG"),
+                name: name("semantic-library"),
+                version_constraint: VersionReq::parse("^1").expect("a constraint"),
+            })
+        ),
+        Err(EditError::DuplicateUsage(identity(
+            "omg",
+            "Semantic-Library"
+        )))
+    );
+}
+
+/// A publisher-less entry whose `kpar-url` is *not* a standard-library
+/// IRI declares no project the editors can name -- it is not a valid
+/// usage either, and a manifest never holds one.
+#[test]
+fn a_publisher_less_entry_elsewhere_is_not_matched() {
+    let mut doc = opened(&format!(
+        "{}\n[[inline-usages]]\nname = \"lib\"\nkpar-url = \"https://example.com/lib.kpar\"\n",
+        with_sources("[]")
+    ));
+    assert_eq!(
+        remove_usage(&mut doc, &identity("omg", "lib")),
+        Err(EditError::UsageNotFound(identity("omg", "lib")))
     );
 }
 

@@ -40,7 +40,7 @@ pub use toml_edit::{Array, DocumentMut, Value};
 use typed_path::Utf8UnixPathBuf;
 
 use crate::manifest::common::{
-    InheritFrom, NormalizedIdentity, Sources, SourcesError, normalized_identity,
+    InheritFrom, NormalizedIdentity, OMG_PUBLISHER, Sources, SourcesError, normalized_identity,
 };
 use crate::manifest::diagnostics::Diagnostic;
 use crate::manifest::inherit::{Inherited, MetaProperty};
@@ -49,7 +49,7 @@ use crate::manifest::spans::Source;
 use crate::manifest::usage::{MemberUsage, UsageRaw};
 use crate::manifest::workspace_table::{GROUP_KEYS, GroupProperties, WorkspaceTable};
 use crate::manifest::{ModelToml, SUPPORTED_MANIFEST_VERSION};
-use crate::model::{IndexName, IndexPublisher};
+use crate::model::{IndexName, IndexPublisher, is_omg_stdlib_iri};
 use crate::project::utils::ProjectDeserializationError;
 
 /// Render a manifest as a freshly generated file.
@@ -1160,10 +1160,19 @@ fn find_usage(doc: &DocumentMut, wanted: &NormalizedIdentity) -> Option<usize> {
         .position(|entry| entry_identity(entry).as_ref() == Some(wanted))
 }
 
+/// A standard-library entry declares no `publisher`, and resolves under
+/// `omg` -- so it is reached by `(omg, <name>)` like any other identity.
+/// Without this the editors would be blind to it: `sysand remove` could
+/// not remove one, and `sysand add omg/<name>` would append a second
+/// entry for the same library, which the next read refuses.
 fn entry_identity(entry: &Table) -> Option<NormalizedIdentity> {
     let field = |key| entry.get(key).and_then(Item::as_str);
-    let publisher = IndexPublisher::parse(field("publisher")?).ok()?;
     let name = IndexName::parse(field("name")?).ok()?;
+    let publisher = match field("publisher") {
+        Some(raw) => IndexPublisher::parse(raw).ok()?,
+        None if field("kpar-url").is_some_and(is_omg_stdlib_iri) => OMG_PUBLISHER.clone(),
+        None => return None,
+    };
     Some(normalized_identity(&publisher, &name))
 }
 

@@ -63,6 +63,16 @@ fn member(body: &str) -> MemberUsage {
         .expect("the entry validates")
 }
 
+/// One entry that validates, as the declared usage it is.
+fn accepted(body: &str) -> Usage {
+    match member(body) {
+        MemberUsage::Declared(usage) => usage,
+        other @ MemberUsage::Inherited { .. } => {
+            panic!("expected a declared usage, got `{other:?}`")
+        }
+    }
+}
+
 fn rejected(body: &str) -> Report {
     members(&one(body))
         .pop()
@@ -342,7 +352,10 @@ fn only_index_usages_take_a_version_constraint() {
         ));
         assert_eq!(
             texts(&report),
-            ["usage `acme/lib` sets `version`, which only an index usage takes"],
+            [
+                "usage `acme/lib` sets `version`, which a `dir`, `kpar-path` or `kpar-url` usage \
+             does not take"
+            ],
             "for {kind}"
         );
         assert_eq!(places(&report), [(4, 1)], "for {kind}");
@@ -384,16 +397,131 @@ fn a_usage_carrying_two_kind_keys_is_rejected() {
     }
 }
 
-/// model-toml.md: "Every usage carries `publisher` and
-/// `name`: that pair is the identity a usage is resolved by".
+/// Every usage carries a publisher except a standard-library usage,
+/// which is the one entry model-toml.md says `publisher` "is absent
+/// [for], which is allowed here and nowhere else".
 #[test]
 fn every_usage_names_its_publisher() {
     let report = rejected("name = \"lib\"\nversion = \"^1\"\n");
     assert_eq!(
         texts(&report),
-        ["usage `lib` has no `publisher`; every usage names its publisher"]
+        [
+            "usage `lib` has no `publisher`; only a standard-library usage, whose \
+             `kpar-url` is an OMG standard-library IRI, may omit it"
+        ]
     );
     assert_eq!(places(&report), [(1, 1)]);
+}
+
+/// The exemption is the IRI's, not the kind's: a `kpar-url` anywhere
+/// else still names its publisher.
+#[test]
+fn a_publisher_less_kpar_url_elsewhere_is_refused() {
+    let report = rejected("name = \"lib\"\nkpar-url = \"https://example.com/lib.kpar\"\n");
+    assert_eq!(
+        texts(&report),
+        [
+            "usage `lib` has no `publisher`; only a standard-library usage, whose \
+             `kpar-url` is an OMG standard-library IRI, may omit it"
+        ]
+    );
+}
+
+/// And it is the `kpar-url` kind's alone: a `dir` usage at no IRI at all
+/// cannot claim it.
+#[test]
+fn a_publisher_less_dir_usage_is_refused() {
+    let report = rejected("name = \"lib\"\ndir = \"../lib\"\n");
+    assert_eq!(
+        texts(&report),
+        [
+            "usage `lib` has no `publisher`; only a standard-library usage, whose \
+             `kpar-url` is an OMG standard-library IRI, may omit it"
+        ]
+    );
+}
+
+/// model-toml.md "Standard library": such a usage declares no
+/// `publisher`, and "for the dependency graph and the lockfile [it] has
+/// the identity `(omg, <name>)`".
+#[test]
+fn a_publisher_less_kpar_url_at_an_omg_iri_is_accepted() {
+    let usage = accepted(
+        "name = \"Semantic-Library\"\n\
+         kpar-url = \"https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar\"\n",
+    );
+    assert!(usage.is_stdlib(), "{usage:?}");
+    assert!(usage.publisher().is_none(), "{usage:?}");
+    assert_eq!(usage.identity().publisher, "omg");
+    assert_eq!(usage.identity().name, "semantic-library");
+    // Such a usage is spelled by its name alone.
+    assert_eq!(usage.to_string(), "Semantic-Library");
+}
+
+/// The IRI *permits* an absent publisher; it does not override a
+/// present one. An author who writes `OMG` gets `OMG`.
+#[test]
+fn a_declared_publisher_is_kept_at_an_omg_iri() {
+    let usage = accepted(
+        "publisher = \"OMG\"\nname = \"Semantic-Library\"\n\
+         kpar-url = \"https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar\"\n",
+    );
+    assert!(!usage.is_stdlib(), "{usage:?}");
+    assert_eq!(usage.publisher().expect("a publisher").as_str(), "OMG");
+    assert_eq!(usage.to_string(), "OMG/Semantic-Library");
+}
+
+/// The version-constraint rule, on the entry that runs into it: a
+/// standard-library usage is a `kpar-url`, and a `kpar-url` takes no
+/// version constraint. The usage is labelled by its name alone --
+/// `<none>/Semantic-Library` would name a publisher nobody wrote.
+#[test]
+fn an_omg_iri_with_a_version_is_refused() {
+    let report = rejected(
+        "name = \"Semantic-Library\"\nversion = \"^1\"\n\
+         kpar-url = \"https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar\"\n",
+    );
+    assert_eq!(
+        texts(&report),
+        [
+            "usage `Semantic-Library` sets `version`, which a `dir`, `kpar-path` or `kpar-url` \
+          usage does not take"
+        ]
+    );
+}
+
+/// The shape decides whether an entry may omit its publisher, so it is
+/// pinned rather than approximated.
+#[test]
+fn the_omg_stdlib_iri_shape() {
+    use crate::model::is_omg_stdlib_iri;
+    for accepted in [
+        "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar",
+        "https://www.omg.org/spec/SysML/20250201/Quantities-and-Units-Domain-Library.kpar",
+        "https://www.omg.org/spec/KerML/19700101/a.kpar",
+    ] {
+        assert!(is_omg_stdlib_iri(accepted), "{accepted}");
+    }
+    for refused in [
+        // Not `https`, not that host, and not the metamodel family --
+        // a `sysand.com` IRI names a metamodel, never a library.
+        "http://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar",
+        "https://example.com/spec/KerML/20250201/Semantic-Library.kpar",
+        "https://sysand.com/spec/KerML/20250201/Semantic-Library.kpar",
+        // Not a standard library at all: the metamodel IRI itself.
+        "https://www.omg.org/spec/KerML/20250201",
+        // The date is eight digits, no more and no less.
+        "https://www.omg.org/spec/KerML/2025/Semantic-Library.kpar",
+        "https://www.omg.org/spec/KerML/202502011/Semantic-Library.kpar",
+        // One non-empty stem, ending in `.kpar`, and nothing after it.
+        "https://www.omg.org/spec/KerML/20250201/.kpar",
+        "https://www.omg.org/spec/KerML/20250201/Semantic-Library.zip",
+        "https://www.omg.org/spec/KerML/20250201/nested/Semantic-Library.kpar",
+        "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar?v=1",
+        "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar#frag",
+    ] {
+        assert!(!is_omg_stdlib_iri(refused), "{refused}");
+    }
 }
 
 /// With no name there is nothing to call the entry, so
@@ -493,8 +621,9 @@ fn a_usage_reports_every_problem_at_once() {
     assert_eq!(
         texts(&report),
         [
-            "usage `lib` has no `publisher`; every usage names its publisher",
-            "unknown key `colour` in usage `<none>/lib`; a usage entry accepts only \
+            "usage `lib` has no `publisher`; only a standard-library usage, whose \
+             `kpar-url` is an OMG standard-library IRI, may omit it",
+            "unknown key `colour` in usage `lib`; a usage entry accepts only \
              `publisher`, `name`, `version`, `dir`, `kpar-path`, `kpar-url`, `workspace`",
         ]
     );
