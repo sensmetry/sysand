@@ -1097,3 +1097,24 @@ fn an_unresolved_metamodel_skips_the_language_check() {
     assert!(rendered.contains("declares no `metamodel`"), "{rendered}");
     assert!(!rendered.contains("does not admit"), "{rendered}");
 }
+
+/// A json usage's spellings only had to match after normalization, so a
+/// migrated manifest has to take the target's. The CLI does the
+/// rewriting -- it has the filesystem -- and this pins what it is for:
+/// without it `migrate` writes a `model.toml` that `sysand lock`
+/// refuses, after deleting the json pair it was converted from.
+#[test]
+fn a_typed_usage_keeps_the_json_spelling_here() {
+    let mut raw = info("widgets", Some("acme"), "1.0.0");
+    raw.usage = vec![InterchangeProjectUsageRaw::Directory {
+        dir: "../dep".to_owned(),
+        publisher: "acme-corp".to_owned(),
+        name: "dep".to_owned(),
+    }];
+    let manifest = migrated(&raw, &meta());
+    let usage = &manifest.inline_usages[0];
+    let crate::manifest::usage::MemberUsage::Declared(usage) = usage else {
+        panic!("a declared usage");
+    };
+    assert_eq!(usage.publisher().as_str(), "acme-corp");
+}

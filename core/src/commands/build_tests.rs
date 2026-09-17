@@ -452,11 +452,25 @@ fn a_non_stdlib_project_keeps_its_publisher() -> Result<(), Box<dyn std::error::
 
 /// A legacy json project at `at`, inside the fixture.
 fn json_target(dir: &camino_tempfile::Utf8TempDir, at: &str, version: &str) {
+    json_target_named(dir, at, "acme", "dep", version);
+}
+
+/// A json target that declares a pair of its own, for the tests about
+/// which spelling a usage has to carry.
+fn json_target_named(
+    dir: &camino_tempfile::Utf8TempDir,
+    at: &str,
+    publisher: &str,
+    name: &str,
+    version: &str,
+) {
     let path = dir.path().join(at);
     std::fs::create_dir_all(&path).expect("the target directory");
     std::fs::write(
         path.join(".project.json"),
-        format!(r#"{{"name": "dep", "publisher": "acme", "version": "{version}", "usage": []}}"#),
+        format!(
+            r#"{{"name": "{name}", "publisher": "{publisher}", "version": "{version}", "usage": []}}"#
+        ),
     )
     .expect("a target manifest");
     std::fs::write(
@@ -543,15 +557,35 @@ fn a_dir_usage_reads_a_toml_target() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// The PURL form normalizes; the typed form does not. That asymmetry is
-/// the specification's.
+/// the specification's -- but the usage still has to name the project
+/// the target declares, which is what it is normalized *from*.
 #[test]
 fn a_dir_usage_normalizes_the_purl() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = toml_project(
+        "\n[[inline-usages]]\npublisher = \"Acme Labs\"\nname = \"Wid Gets\"\ndir = \"dep\"\n",
+    )?;
+    json_target_named(&dir, "dep", "Acme Labs", "Wid Gets", "1.0.0");
+    let (info, _) = built(&dir, false)?;
+    assert_eq!(resource(&info.usage[0]).0, "pkg:sysand/acme-labs/wid-gets");
+    Ok(())
+}
+
+/// model-toml.md "Normalization", at build time: a build reads its
+/// targets itself, and a usage saying `ACME`/`Wid Gets` is not
+/// satisfied by a target declaring `acme`/`dep`.
+#[test]
+fn a_target_that_declares_another_project_is_refused() -> Result<(), Box<dyn std::error::Error>> {
     let dir = toml_project(
         "\n[[inline-usages]]\npublisher = \"ACME\"\nname = \"Wid Gets\"\ndir = \"dep\"\n",
     )?;
     json_target(&dir, "dep", "1.0.0");
-    let (info, _) = built(&dir, false)?;
-    assert_eq!(resource(&info.usage[0]).0, "pkg:sysand/acme/wid-gets");
+    let error = built(&dir, false).expect_err("the target declares `acme`/`dep`");
+    let text = error.to_string();
+    assert!(
+        matches!(error, KParBuildError::TomlTargetSpelling { .. }),
+        "{text}"
+    );
+    assert!(text.contains("which declares `acme/dep`"), "{text}");
     Ok(())
 }
 
@@ -696,7 +730,7 @@ fn the_typed_and_raw_usage_lists_correspond() -> Result<(), Box<dyn std::error::
 #[test]
 fn a_kpar_path_usage_becomes_a_caret_purl() -> Result<(), Box<dyn std::error::Error>> {
     let dir = toml_project(
-        "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\nkpar-path = \"dep.kpar\"\n",
+        "\n[[inline-usages]]\npublisher = \"omg\"\nname = \"dep\"\nkpar-path = \"dep.kpar\"\n",
     )?;
     // Build the target archive first.
     let target_dir = tempdir()?;
@@ -719,7 +753,7 @@ fn a_kpar_path_usage_becomes_a_caret_purl() -> Result<(), Box<dyn std::error::Er
     let (info, _) = built(&dir, false)?;
     assert_eq!(
         resource(&info.usage[0]),
-        ("pkg:sysand/acme/dep".to_owned(), Some("^7.8.9".to_owned()))
+        ("pkg:sysand/omg/dep".to_owned(), Some("^7.8.9".to_owned()))
     );
     Ok(())
 }

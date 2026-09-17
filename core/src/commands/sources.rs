@@ -172,8 +172,12 @@ fn solve_dependencies<Env: ReadEnvironment + Debug + 'static>(
     // from, but `find_project_dependencies` is public and reached from the
     // bindings, so the origin is not threaded through it yet. A toml
     // project's own usages therefore resolve as json here, which decides
-    // only whether a publisher-less target is an `IdentityMismatch::NoPublisher`
-    // or an ordinary `IdentityMismatch::Publisher`.
+    // not only which error a publisher-less target gets, but whether the
+    // pair is compared literally (model-toml.md "Normalization") or
+    // normalized. Nothing changes
+    // in practice, because this entry point resolves against the
+    // environment, which checks no identity at all -- but the day it
+    // resolves a path usage, the origin has to come with it.
     let requested = requested
         .into_iter()
         .map(|u| (u, UsageOrigin::Json))

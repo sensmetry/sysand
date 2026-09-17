@@ -160,6 +160,21 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
     /// side those are the same sentence.
     #[error("usage `{usage}` targets `{path}`, which defines no project")]
     TomlTargetMissing { usage: String, path: String },
+    /// model-toml.md "Normalization", at build time: a project satisfies
+    /// a usage only if it declares the pair the usage spells. A build
+    /// reads its targets directly rather than through a resolver, so
+    /// without this a usage could name one project and be built against
+    /// another.
+    #[error(
+        "usage `{usage}` targets `{path}`, which declares `{declared}`;\n\
+        {SP:>8} a usage spells publisher and name as the target declares them",
+        SP = ' '
+    )]
+    TomlTargetSpelling {
+        usage: String,
+        path: String,
+        declared: String,
+    },
     /// Reachable only for a json target: a `model.toml` constrains its
     /// own `version` to semver, so a toml target has one by
     /// construction.
@@ -664,6 +679,31 @@ fn local_target_usage<E: ErrorBound>(
         usage: usage.to_string(),
         path: relative.to_owned(),
     };
+    // model-toml.md "Normalization": a `model.toml` usage is satisfied
+    // by a target that declares the pair as the usage spells it.
+    // Checked here as well as in the resolver, because a build reads
+    // its targets itself and never asks one.
+    let spelled = |declared_publisher: Option<&str>, declared_name: &str| {
+        // A target that declares no publisher at all is appendix A row
+        // 21's case, and a built standard-library archive is the
+        // ordinary example of it -- the build drops the publisher on
+        // purpose. The name is still compared; whether a
+        // publisher-less target may be used at all is the resolver's
+        // question, where row 21 lives.
+        let publisher_agrees = match declared_publisher {
+            Some(declared) => declared == usage.publisher().as_str(),
+            None => true,
+        };
+        if publisher_agrees && declared_name == usage.name().as_str() {
+            Ok(())
+        } else {
+            Err(KParBuildError::TomlTargetSpelling {
+                usage: usage.to_string(),
+                path: relative.to_owned(),
+                declared: crate::project::utils::pair(declared_publisher, declared_name),
+            })
+        }
+    };
     let unreadable = |error: &dyn std::fmt::Display| KParBuildError::TomlTargetRead {
         usage: usage.to_string(),
         path: relative.to_owned(),
@@ -689,10 +729,13 @@ fn local_target_usage<E: ErrorBound>(
     let version = if is_kpar {
         // `Root` is what the resolver uses for a `kpar-path` usage.
         let kpar = LocalKParProject::new_access(target, KparInnerPath::Root, None);
-        match kpar.version() {
-            Ok(Some(version)) => version,
+        match kpar.get_project() {
+            Ok((Some(info), _)) => {
+                spelled(info.publisher.as_deref(), &info.name)?;
+                info.version
+            }
             // An archive with no `.project.json` defines no project.
-            Ok(None) => return Err(missing()),
+            Ok((None, _)) => return Err(missing()),
             Err(error) => return Err(unreadable(&error)),
         }
     } else {
@@ -707,6 +750,7 @@ fn local_target_usage<E: ErrorBound>(
         // would fail *this* project's build.
         match source.manifest() {
             Ok(manifest) => {
+                spelled(Some(manifest.publisher.as_str()), manifest.name.as_str())?;
                 // model-toml.md "Standard library": "a usage whose
                 // target carries `stdlib` is written as `resource =
                 // \"<target's metamodel>/<target's stdlib>.kpar\"` --
@@ -737,9 +781,12 @@ fn local_target_usage<E: ErrorBound>(
             // A json target, the one `TomlTargetVersion` is for:
             // "possible for a json target, since `model.toml` constrains
             // only its own version".
-            Err(ManifestError::NoTomlManifest) => match source.version() {
-                Ok(Some(version)) => version,
-                Ok(None) => return Err(missing()),
+            Err(ManifestError::NoTomlManifest) => match source.get_project() {
+                Ok((Some(info), _)) => {
+                    spelled(info.publisher.as_deref(), &info.name)?;
+                    info.version
+                }
+                Ok((None, _)) => return Err(missing()),
                 Err(error) => return Err(unreadable(&error)),
             },
             Err(ManifestError::Project(error)) => return Err(unreadable(&error)),

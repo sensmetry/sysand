@@ -15,7 +15,7 @@ use sysand_core::{
     commands::migrate::{MigrateOptions, VcsState, check_vcs, migrate_project},
     config::Config,
     context::ProjectContext,
-    manifest::usage::Usage,
+    manifest::usage::{MemberUsage, Usage},
     manifest::{
         MODEL_TOML_FILE, ModelToml, ModelTomlKind, edit::render_new,
         workspace_table::WorkspaceTable,
@@ -204,12 +204,18 @@ pub fn command_migrate<Policy: HTTPAuthentication>(
         log::warn!("{warning}");
     }
 
+    // model-toml.md "Normalization": a `model.toml` usage is satisfied
+    // only by a target that declares the pair as the usage spells it,
+    // and a json usage's spellings only ever had to match after
+    // normalization. Without this a migrated manifest could be one
+    // `sysand lock` refuses -- after the json pair it was converted
+    // from has been deleted.
+    let mut manifest = validated.value;
+    spell_path_usages_as_targets(&mut manifest, &dir);
+
     // Write first, then delete: a failed write must not leave a project
     // with no manifest at all.
-    wrapfs::write(
-        dir.join(MODEL_TOML_FILE),
-        render_new(&validated.value).to_string(),
-    )?;
+    wrapfs::write(dir.join(MODEL_TOML_FILE), render_new(&manifest).to_string())?;
     delete_json_pair(&dir)?;
 
     let header = sysand_core::style::get_style_config().header;
@@ -524,4 +530,68 @@ fn resolve_remote_target<Policy: HTTPAuthentication>(
         url: fluent_uri::Iri::parse(resource.to_owned())
             .map_err(|(e, _)| format!("`{resource}` is not a valid IRI: {e}"))?,
     })
+}
+
+/// Rewrite each typed `dir`/`kpar-path` usage's publisher and name to
+/// the spelling its target declares.
+///
+/// The json spellings only had to match after normalization, so
+/// `acme-corp` at a target declaring `Acme Corp` was a valid json
+/// project and is not a valid `model.toml` one. The target is on disk
+/// and readable here, which is why this lives in the CLI rather than in
+/// `migrate_project`: `core` has no filesystem.
+fn spell_path_usages_as_targets(manifest: &mut ModelToml, dir: &Utf8Path) {
+    let ModelToml::Project(project) = manifest else {
+        return;
+    };
+    for entry in &mut project.inline_usages {
+        let MemberUsage::Declared(usage) = entry else {
+            continue;
+        };
+        let relative = match usage {
+            Usage::SourcePath { dir, .. } => dir.clone(),
+            Usage::KparPath { kpar_path, .. } => kpar_path.clone(),
+            _ => continue,
+        };
+        let target = dir.join(
+            relative
+                .as_str()
+                .replace('/', std::path::MAIN_SEPARATOR_STR),
+        );
+        // A target that cannot be read leaves the json spelling alone.
+        // A json project may name a path that is not checked out, and
+        // refusing to migrate it would be a worse answer than a usage
+        // `sysand lock` will refuse for the same reason the json one
+        // would have: the target is not there.
+        let (publisher, name, _) = match read_identity(&target) {
+            Ok(identity) => identity,
+            Err(error) => {
+                log::warn!(
+                    "`{relative}` cannot be read, so its usage keeps the spelling the json \
+                     project gave it: {error}"
+                );
+                continue;
+            }
+        };
+        match usage {
+            Usage::SourcePath {
+                publisher: p,
+                name: n,
+                ..
+            }
+            | Usage::KparPath {
+                publisher: p,
+                name: n,
+                ..
+            } if *p != publisher || *n != name => {
+                log::info!(
+                    "usage `{p}/{n}` is written as `{publisher}/{name}`, which is how its \
+                     target declares it"
+                );
+                *p = publisher;
+                *n = name;
+            }
+            _ => {}
+        }
+    }
 }
