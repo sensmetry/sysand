@@ -895,3 +895,33 @@ fn another_untyped_iri_is_still_refused() {
         "{error}"
     );
 }
+
+/// The view's `checksum` is `Some(map)`, never `None` -- a project with
+/// no sources gets an *empty* map.
+///
+/// `kpar_view::meta` writes it unconditionally, and that is deliberate:
+/// a `model.toml` project always knows which files it lists, so "no
+/// checksums recorded" and "no sources" are the same statement, where a
+/// json project's absent `checksum` means neither.
+///
+/// Pinned because the distinction is invisible from Rust and visible
+/// from the bindings, where `Some(empty)` becomes an empty map and
+/// `None` becomes null.
+#[test]
+fn a_source_project_view_carries_an_empty_checksum_map() {
+    let text = "manifest-version = \"1.0.0\"\n\n\
+                [project]\n\
+                publisher = \"acme\"\n\
+                name = \"widgets\"\n\
+                version = \"1.0.0\"\n\
+                sources = []\n\
+                metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n";
+    let (_info, meta) = super::of_model_toml_in(text, None, |_path| {
+        Err::<String, _>("no source is read: the project lists none")
+    })
+    .expect("the view is built");
+
+    let checksum = meta.checksum.expect("a view always records a checksum map");
+    assert!(checksum.is_empty(), "{checksum:?}");
+    assert!(meta.index.is_empty(), "{:?}", meta.index);
+}

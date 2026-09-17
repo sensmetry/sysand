@@ -102,7 +102,19 @@ public class BasicTest {
         }
     }
 
+    /// The two callers differ in exactly one field, so it is a
+    /// parameter rather than a value: a `model.toml` project's view
+    /// synthesizes an empty checksum map (`kpar_view::meta` writes
+    /// `Some(map)` unconditionally, and a project with no sources has
+    /// nothing to put in it), while a legacy `.meta.json` that never
+    /// wrote a `checksum` key has none at all.
     private void assertExpectedProject(com.sensmetry.sysand.model.InterchangeProject project) {
+        assertExpectedProject(project, null);
+    }
+
+    private void assertExpectedProject(
+            com.sensmetry.sysand.model.InterchangeProject project,
+            java.util.Map<String, Object> expectedChecksum) {
         assertNotNull(project);
         assertNotNull(project.info);
         assertNotNull(project.metadata);
@@ -124,7 +136,7 @@ public class BasicTest {
         assertEquals(project.metadata.getMetamodel(), SYSML);
         assertEquals(project.metadata.getIncludesDerived(), null);
         assertEquals(project.metadata.getIncludesImplied(), null);
-        assertEquals(project.metadata.getChecksum(), null);
+        assertEquals(project.metadata.getChecksum(), expectedChecksum);
     }
 
     @Test
@@ -133,12 +145,17 @@ public class BasicTest {
             java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-info");
             com.sensmetry.sysand.Sysand.init("test-basic-info", "acme", "1.2.3", "MIT", SYSML, tempDir);
 
+            // `init` wrote a `model.toml`, so both routes read the
+            // synthesized view, whose checksum map is empty rather than
+            // absent.
+            java.util.Map<String, Object> empty = new java.util.HashMap<String, Object>();
+
             com.sensmetry.sysand.model.InterchangeProject project = com.sensmetry.sysand.Sysand.infoPath(tempDir);
-            assertExpectedProject(project);
+            assertExpectedProject(project, empty);
 
             java.net.URI fileUri = tempDir.toUri();
             com.sensmetry.sysand.model.InterchangeProject project2 = com.sensmetry.sysand.Sysand.info(fileUri);
-            assertExpectedProject(project2);
+            assertExpectedProject(project2, empty);
         } catch (java.io.IOException e) {
             fail("Failed during temporary directory operations or Sysand.info: " + e.getMessage());
         } catch (com.sensmetry.sysand.exceptions.SysandException e) {
