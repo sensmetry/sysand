@@ -242,7 +242,7 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
             // Provide an empty nominal path to satisfy lock. It won't be used for actual
             // syncing, as the project is installed manually
             Some(Utf8UnixPathBuf::new()),
-        ))
+        )?)
     } else if metadata.is_file() {
         FileResolverProject::LocalKParProject(LocalKParProject::new_access(
             &path,

@@ -243,7 +243,13 @@ fn info_path<'local>(
         ret_null!()
     };
     let project =
-        sysand_core::workspace::model_toml::project_at_path(Utf8PathBuf::from(&path), None);
+        match sysand_core::workspace::model_toml::project_at_path(Utf8PathBuf::from(&path), None) {
+            Ok(project) => project,
+            Err(e) => {
+                env.throw_exception(ExceptionKind::SysandException, format_err(e));
+                ret_null!()
+            }
+        };
 
     let command_result = commands::info::do_info_project(&project);
     match command_result {
@@ -464,8 +470,16 @@ fn build_project<'local>(
     let Some(project_path) = env.get_str(&project_path, "projectPath") else {
         ret!()
     };
-    let project =
-        sysand_core::workspace::model_toml::project_at_path(Utf8PathBuf::from(project_path), None);
+    let project = match sysand_core::workspace::model_toml::project_at_path(
+        Utf8PathBuf::from(project_path),
+        None,
+    ) {
+        Ok(project) => project,
+        Err(e) => {
+            env.throw_exception(ExceptionKind::SysandException, format_err(e));
+            ret!()
+        }
+    };
     let Some(compression) = env.get_str(&compression, "compression") else {
         ret!()
     };

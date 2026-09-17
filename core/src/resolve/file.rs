@@ -14,7 +14,7 @@ use thiserror::Error;
 use crate::{
     context::ProjectContext,
     lock::Source,
-    manifest::workspace_table::{Region, WorkspaceTable},
+    manifest::workspace_table::WorkspaceTable,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsage},
     project::{
         self, ProjectFormat, ProjectRead,
@@ -24,6 +24,7 @@ use crate::{
     },
     resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead},
     utils::scheme::SCHEME_FILE,
+    workspace::model_toml::PathRegion,
 };
 
 /// Resolver for resolving `file://` URIs.
@@ -50,41 +51,49 @@ impl FileResolver {
         let Some((root, table)) = &self.workspace else {
             return Ok(project);
         };
-        let Ok(relative) = crate::project::utils::relativize_path(project.path(), root) else {
-            return Ok(project);
-        };
-        if relative
-            .components()
-            .any(|c| matches!(c, typed_path::Utf8UnixComponent::ParentDir))
-        {
-            // Outside the workspace altogether, which is an ordinary
-            // dependency on an ordinary project.
-            return Ok(project);
-        }
-        match table.region(&relative) {
-            // The entry itself, not merely something under it:
-            // `region` prefix-matches, and a project inside a member is
-            // not a member.
-            Region::Member(_, member) if member.path == relative => {
-                Ok(project.in_workspace(table.clone()))
-            }
-            Region::Excluded(_) => Ok(project),
+        match crate::workspace::model_toml::region_of(root, table, project.path()) {
+            PathRegion::Member => Ok(project.in_workspace(table.clone())),
+            PathRegion::Standalone => Ok(project),
             // `workspaces.md`, Intra-workspace usages: "A `dir` usage
             // from a member to a project that lies under the root
             // without being a member (and not covered in the `exclude`
             // list) is the unlisted-project error of Included
-            // projects." Without this the usage resolved silently and
-            // the lockfile recorded it exactly as it records an
-            // excluded project -- so nothing downstream could tell
-            // which workspace owned it, which is the decidability the
-            // rule exists to give.
-            Region::Member(..) | Region::Unlisted => Err(FileResolverError::Workspace(
+            // projects." Resolved, it would be recorded in the
+            // lockfile exactly as an excluded project is -- so nothing
+            // downstream could tell which workspace owned it, which is
+            // the decidability the rule exists to give.
+            PathRegion::Unlisted => Err(FileResolverError::Workspace(
                 crate::workspace::model_toml::DiscoverError::Unlisted {
                     project: project.path().to_owned(),
                     root: root.clone(),
                 },
             )),
         }
+    }
+
+    /// The same rule for a path a `kpar-url` names.
+    ///
+    /// A `file:` resource is two candidates at once -- an unpacked
+    /// directory and an archive -- and only the directory one is a
+    /// project under the root that the rule is about. An archive *file*
+    /// under the root is not a project directory and must keep
+    /// resolving: `output/<name>.kpar` is where this workspace's own
+    /// builds land.
+    fn resource_is_unlisted(&self, path: &Utf8Path) -> Result<bool, FileResolverError> {
+        let Some((root, table)) = &self.workspace else {
+            return Ok(false);
+        };
+        if !crate::project::utils::wrapfs::is_dir(path)? {
+            return Ok(false);
+        }
+        // `region_of` compares against the canonical root, and a URL's
+        // path is as written: through a symlink, or `/var` for
+        // `/private/var` on macOS, it would read as outside the root
+        let path = wrapfs::canonicalize(path)?;
+        Ok(matches!(
+            crate::workspace::model_toml::region_of(root, table, &path),
+            PathRegion::Unlisted
+        ))
     }
 }
 
@@ -443,16 +452,31 @@ impl ResolveRead for FileResolver {
             } => match try_file_uri_to_path(url)? {
                 Some(path) => {
                     let res = self.check_sandbox(path)?;
-                    Ok(res.map(|path| {
-                        vec![
+                    // Before the outcome is built, for the reason the
+                    // `Directory` arm classifies early: an unlisted
+                    // target is an error, not a resolution. Without it a
+                    // `kpar-url` was the one spelling of a usage that
+                    // walked around the rule, and the unlisted project
+                    // was written into the *workspace* lockfile.
+                    res.try_map(|path| {
+                        if self.resource_is_unlisted(&path)? {
+                            let (root, _) = self.workspace.as_ref().expect("checked above");
+                            return Err(FileResolverError::Workspace(
+                                crate::workspace::model_toml::DiscoverError::Unlisted {
+                                    project: path,
+                                    root: root.clone(),
+                                },
+                            ));
+                        }
+                        Ok(vec![
                             Ok(FileResolverProject::LocalSrcProject(
                                 LocalSrcProject::new_access(path.clone(), None),
                             )),
                             Ok(FileResolverProject::LocalKParProject(
                                 LocalKParProject::new_access(path, KparInnerPath::Guess, None),
                             )),
-                        ]
-                    }))
+                        ])
+                    })
                 }
                 None => Ok(ResolutionOutcome::UnsupportedUsageType {
                     reason: String::from("resource is not a file URL"),

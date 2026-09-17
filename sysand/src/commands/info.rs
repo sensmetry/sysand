@@ -137,7 +137,7 @@ fn interpret_project_path<P: AsRef<Utf8Path>>(
                 );
             }
             FileResolverProject::LocalSrcProject(
-                sysand_core::workspace::model_toml::project_at_path(path, None),
+                sysand_core::workspace::model_toml::project_at_path(path, None)?,
             )
         }
         LocalProjectKind::Kpar => {

@@ -1161,8 +1161,54 @@ fn a_dir_usage_of_an_unlisted_project_is_refused() {
     );
 }
 
+/// The same rule, reached by the *other* spelling of a local usage.
+///
+/// `FileResolver` classified the `Directory` arm and not the `Resource`
+/// one, so a member could reach an unlisted project by writing
+/// `kpar-url = "file://..."` instead of `dir = "..."`: the `dir` form
+/// was refused and the `file:` form resolved, writing the unlisted
+/// project into the **workspace** lockfile as an ordinary source. Two
+/// spellings of one usage, disagreeing.
+///
+/// An archive *file* under the root keeps resolving -- it is not a
+/// project directory, and `output/<name>.kpar` is where this
+/// workspace's own builds land -- which is why the check asks whether
+/// the path is a directory.
+#[cfg(feature = "filesystem")]
+#[test]
+fn a_file_url_usage_of_an_unlisted_project_is_refused() {
+    let dir = workspace_tree(&[("app", &member_toml("alpha", ""))], "");
+    std::fs::create_dir_all(dir.path().join("stray")).expect("the stray directory");
+    std::fs::write(
+        dir.path().join("stray/model.toml"),
+        member_toml("stray", ""),
+    )
+    .expect("the stray manifest");
+    // Written after the tree exists, because the URL is absolute.
+    let url = format!("file://{}", dir.path().join("stray"));
+    std::fs::write(
+        dir.path().join("app/model.toml"),
+        member_toml(
+            "alpha",
+            &format!(
+                "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"stray\"\n\
+                 kpar-url = \"{url}\"\n"
+            ),
+        ),
+    )
+    .expect("the member manifest");
+
+    let error =
+        lock_workspace(&dir).expect_err("a `file:` usage of an unlisted target is refused too");
+    let message = crate::utils::format_err(error);
+    assert!(
+        message.contains("is neither listed in `workspace.members` nor under `workspace.exclude`"),
+        "got: {message}"
+    );
+}
+
 /// A metamodel direction error stops the lock, rather than being
-/// written into the lockfile.
+/// written into the lockfile.""
 ///
 /// `design/model-toml.md`: the two edge checks run "once **before the
 /// lockfile is written** and again when the lockfile is validated on

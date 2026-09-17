@@ -133,6 +133,21 @@ impl Fixture {
     }
 }
 
+/// The diagnostics raised while parsing the root's `[workspace]` table.
+///
+/// These come back as [`LoadError::Root`], not [`LoadError::Invalid`]:
+/// the table never became a table, so there are no members to report
+/// against.
+fn table_diagnostics(fixture: &Fixture) -> Vec<Diagnostic> {
+    match fixture.load() {
+        Err(LoadError::Root(ProjectDeserializationError::Invalid { report, .. })) => {
+            report.diagnostics().to_vec()
+        }
+        Err(other) => panic!("expected root-table diagnostics, got `{other}`"),
+        Ok(_) => panic!("expected the load to fail"),
+    }
+}
+
 /// The diagnostics raised against the *root* manifest.
 fn root_diagnostics(failure: &LoadFailure) -> &[Diagnostic] {
     match failure.root.as_ref().expect("root diagnostics") {
@@ -504,11 +519,11 @@ fn a_member_whose_markers_do_not_resolve_is_named_by_its_own_file() {
 fn classified() -> (Fixture, Workspace) {
     let fixture = Fixture::new(
         "manifest-version = \"1.0.0\"\n\n[workspace]\n\
-         members = [\"app\", \"vendor/kept\"]\n\
-         exclude = [\"vendor\", \"app\"]\n",
+         members = [\"app\"]\n\
+         exclude = [\"vendor\"]\n",
     );
     fixture.project("app");
-    fixture.project("vendor/kept");
+    fixture.write("vendor/dep/model.toml", PROJECT);
     let workspace = fixture.loaded();
     (fixture, workspace)
 }
@@ -560,28 +575,60 @@ fn a_directory_under_an_excluded_one_is_excluded() {
 /// A tie goes to `members`: nothing refuses a path written in both
 /// lists, so the precedence has to be decided here.
 #[test]
-fn a_directory_in_both_lists_is_a_member() {
-    let (_fixture, workspace) = classified();
-    assert!(matches!(
-        workspace
-            .classify(&at(&workspace, "app"))
-            .expect("classifies"),
-        Classification::Member(_)
-    ));
+fn a_directory_in_both_lists_is_refused() {
+    let fixture = Fixture::new(
+        "manifest-version = \"1.0.0\"\n\n[workspace]\n\
+         members = [\"app\"]\n\
+         exclude = [\"app\"]\n",
+    );
+    fixture.project("app");
+    let diagnostics = table_diagnostics(&fixture);
+    assert!(
+        diagnostics.iter().any(|d| d
+            .message
+            .contains("`members` path `app` is also in `exclude`")),
+        "the two lists say opposite things about one directory: {diagnostics:?}"
+    );
 }
 
-/// The longest match wins, so a member listed *inside* an excluded
-/// directory is still a member -- and so is everything under it.
+/// A member listed *inside* an excluded directory is refused.
+///
+/// `workspaces.md` says of `exclude`: "Anything under one of them is
+/// outside the workspace", with no carve-out, so the two lists make
+/// contradictory claims about one directory, and a conflict is an error
+/// rather than something a depth comparison silently picks a winner for.
 #[test]
-fn a_member_under_an_excluded_directory_wins() {
-    let (_fixture, workspace) = classified();
-    match workspace
-        .classify(&at(&workspace, "vendor/kept/src"))
-        .expect("classifies")
-    {
-        Classification::Member(member) => assert_eq!(member.path.raw, "vendor/kept"),
-        other => panic!("expected a member, got `{other:?}`"),
-    }
+fn a_member_under_an_excluded_directory_is_refused() {
+    let fixture = Fixture::new(
+        "manifest-version = \"1.0.0\"\n\n[workspace]\n\
+         members = [\"vendor/kept\"]\n\
+         exclude = [\"vendor\"]\n",
+    );
+    fixture.project("vendor/kept");
+    let diagnostics = table_diagnostics(&fixture);
+    assert!(
+        diagnostics.iter().any(|d| d
+            .message
+            .contains("`members` path `vendor/kept` lies under `exclude` path `vendor`")),
+        "everything under an excluded directory is outside the workspace: {diagnostics:?}"
+    );
+}
+
+/// The reverse nesting is *not* a conflict and must keep loading: a
+/// member is one project directory, and a project nested inside it is
+/// not a member in any case, so excluding a vendored subtree inside a
+/// member contradicts nothing.
+#[test]
+fn an_excluded_directory_inside_a_member_still_loads() {
+    let fixture = Fixture::new(
+        "manifest-version = \"1.0.0\"\n\n[workspace]\n\
+         members = [\"app\"]\n\
+         exclude = [\"app/sub\"]\n",
+    );
+    fixture.project("app");
+    fixture.write("app/sub/model.toml", PROJECT);
+    let workspace = fixture.loaded();
+    assert_eq!(workspace.members().len(), 1);
 }
 
 /// workspaces.md: under an excluded directory "a workspace root there is
@@ -1406,22 +1453,25 @@ fn select_member_in_an_excluded_project_is_standalone() {
 use crate::manifest::workspace_table::{Region, WorkspaceTable};
 use typed_path::Utf8UnixPath;
 
-/// A table with all four shapes: a plain member, a plain exclusion, a
-/// member inside an exclusion, an exclusion inside a member, and a path
-/// written in both lists.
+/// A table with every shape a valid table can hold: a plain member, a
+/// plain exclusion, an exclusion inside a member, and an exclusion that
+/// covers nothing.
+///
+/// A member inside an exclusion and a path written in both lists are
+/// refused by the cross-list check, so they cannot appear here.
+/// [`WorkspaceTable::region`] weighs member against exclusion by depth,
+/// which the `app`/`app/gen` pair exercises.
 const SHAPES: &str = "\
 manifest-version = \"1.0.0\"
 
 [workspace]
-members = [\"app\", \"vendor/kept\", \"both\"]
-exclude = [\"vendor\", \"app/gen\", \"both\", \"deep/a/b\"]
+members = [\"app\"]
+exclude = [\"vendor\", \"app/gen\", \"deep/a/b\"]
 ";
 
 fn shapes() -> WorkspaceTable {
     let fixture = Fixture::new(SHAPES);
     fixture.project_named("app", "alpha");
-    fixture.project_named("vendor/kept", "beta");
-    fixture.project_named("both", "gamma");
     let (_root, table) = super::discover_table(fixture.root())
         .expect("readable")
         .expect("a workspace");
@@ -1460,26 +1510,16 @@ fn an_unknown_path_is_unlisted() {
     assert!(matches!(region_of(&table, "deep/a"), Region::Unlisted));
 }
 
-/// The three combinations nothing refuses: a path in both lists, an
-/// `exclude` inside a member, and a member inside an `exclude`.
+/// The one combination that survives the cross-list check: an
+/// `exclude` inside a member, which carves that subtree back out.
 #[test]
 fn a_region_is_decided_by_the_most_specific_entry() {
     let table = shapes();
 
-    // An exact tie goes to `members`.
-    assert!(matches!(region_of(&table, "both"), Region::Member(2, _)));
-    // An `exclude` inside a member carves that subtree back out.
+    assert!(matches!(region_of(&table, "app/src"), Region::Member(0, _)));
     match region_of(&table, "app/gen/out") {
         Region::Excluded(entry) => assert_eq!(entry.raw, "app/gen"),
         other => panic!("expected excluded, got `{other:?}`"),
-    }
-    // A member inside an `exclude` is still a member.
-    match region_of(&table, "vendor/kept/src") {
-        Region::Member(index, entry) => {
-            assert_eq!(index, 1);
-            assert_eq!(entry.raw, "vendor/kept");
-        }
-        other => panic!("expected a member, got `{other:?}`"),
     }
 }
 
@@ -1489,8 +1529,6 @@ fn a_region_is_decided_by_the_most_specific_entry() {
 fn classify_agrees_with_region_everywhere() {
     let fixture = Fixture::new(SHAPES);
     fixture.project_named("app", "alpha");
-    fixture.project_named("vendor/kept", "beta");
-    fixture.project_named("both", "gamma");
     let workspace = fixture.loaded();
 
     for path in [
@@ -1500,10 +1538,6 @@ fn classify_agrees_with_region_everywhere() {
         "app/gen/out",
         "vendor",
         "vendor/other",
-        "vendor/kept",
-        "vendor/kept/src",
-        "both",
-        "both/inner",
         "deep",
         "deep/a",
         "deep/a/b",
@@ -1638,10 +1672,17 @@ fn member_index_refuses_a_project_nested_inside_a_member() {
         None,
         "`app/dep` is inside the entry, which is not the same thing"
     );
-    // And the prefix match that made the difference invisible.
-    assert_eq!(
-        super::start_region(&root, &table, fixture.under("app/dep")).expect("classifies"),
-        super::StartRegion::Member(0)
+    // A prefix match would answer `Member(0)` here, so a command run
+    // inside `app/dep` would behave as though it were `app` while
+    // `--path app/dep` is refused. Both are refused, which is what
+    // `workspaces.md` says of a project under the root that is neither
+    // listed nor excluded.
+    assert!(
+        matches!(
+            super::start_region(&root, &table, fixture.under("app/dep")),
+            Err(super::DiscoverError::Unlisted { .. })
+        ),
+        "a project inside a member is not that member"
     );
 }
 
@@ -1759,7 +1800,8 @@ fn a_listed_member_is_read_with_the_table() {
     );
     fixture.write("app/model.toml", INHERITS_METAMODEL);
 
-    let project = super::project_at_path(fixture.under("app"), None);
+    let project = super::project_at_path(fixture.under("app"), None)
+        .expect("a listed member is not an unlisted one");
     assert!(
         project.get_info().is_ok(),
         "a listed member resolves against its workspace's table"
@@ -1781,10 +1823,11 @@ fn a_project_nested_in_a_member_is_not_given_the_table() {
     fixture.write("app/model.toml", INHERITS_METAMODEL);
     fixture.write("app/sub/model.toml", INHERITS_METAMODEL);
 
-    let project = super::project_at_path(fixture.under("app/sub"), None);
+    let error = super::project_at_path(fixture.under("app/sub"), None)
+        .expect_err("a project inside a member is not a member");
     assert!(
-        project.get_info().is_err(),
-        "a project inside a member is outside every workspace"
+        matches!(error, super::DiscoverError::Unlisted { .. }),
+        "and it is under the root in neither list, which is row 25: {error:?}"
     );
 }
 
@@ -1802,7 +1845,8 @@ fn a_broken_sibling_does_not_stop_a_member_being_read() {
     fixture.write("app/model.toml", INHERITS_METAMODEL);
     fixture.write("bad/model.toml", "this is not a manifest\n");
 
-    let project = super::project_at_path(fixture.under("app"), None);
+    let project = super::project_at_path(fixture.under("app"), None)
+        .expect("a sibling that does not parse is not this project's problem");
     assert!(
         project.get_info().is_ok(),
         "a sibling that does not parse is not this project's problem"
@@ -1812,7 +1856,13 @@ fn a_broken_sibling_does_not_stop_a_member_being_read() {
 /// A path outside any workspace is unchanged.
 #[test]
 fn a_project_outside_a_workspace_reads_table_less() {
-    let fixture = Fixture::new("manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = []\n");
+    // `Fixture::at` puts the root in a subdirectory, so `outside/` is
+    // genuinely above it. With `Fixture::new` the root *is* the base and
+    // `outside/` would be an unlisted project under it.
+    let fixture = Fixture::at(
+        "ws",
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = []\n",
+    );
     Fixture::write_at(
         &fixture.base().join("outside/model.toml"),
         "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"outside\"\n\
@@ -1820,10 +1870,57 @@ fn a_project_outside_a_workspace_reads_table_less() {
          metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
     );
 
-    let project = super::project_at_path(fixture.base().join("outside"), None);
+    let project = super::project_at_path(fixture.base().join("outside"), None)
+        .expect("a project outside any workspace is not unlisted");
     assert!(
         project.get_info().is_ok(),
         "a plain project still reads: {:?}",
+        project.get_info().err()
+    );
+}
+
+/// A project under the root that is in neither list is refused, the
+/// same answer walking up from inside it gives, so `sysand info --path`
+/// on it fails as `cd` into it does.
+#[test]
+fn an_unlisted_project_at_a_path_is_refused() {
+    let fixture = Fixture::new(
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\"]\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    );
+    fixture.write("app/model.toml", INHERITS_METAMODEL);
+    fixture.write("stray/model.toml", INHERITS_METAMODEL);
+
+    let error = super::project_at_path(fixture.under("stray"), None)
+        .expect_err("a project under the root in neither list is refused");
+    assert!(
+        matches!(error, super::DiscoverError::Unlisted { .. }),
+        "with row 25 and not some other failure: {error:?}"
+    );
+}
+
+/// An excluded project is *deliberately* standalone, so it reads
+/// table-less: the guard against refusing more than unlisted projects.
+#[test]
+fn an_excluded_project_at_a_path_still_reads() {
+    let fixture = Fixture::new(
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\"]\n\
+         exclude = [\"vendor\"]\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    );
+    fixture.write("app/model.toml", INHERITS_METAMODEL);
+    fixture.write(
+        "vendor/dep/model.toml",
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"dep\"\n\
+         version = \"1.0.0\"\nsources = []\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    );
+
+    let project = super::project_at_path(fixture.under("vendor/dep"), None)
+        .expect("an excluded project is standalone, not unlisted");
+    assert!(
+        project.get_info().is_ok(),
+        "and it still reads: {:?}",
         project.get_info().err()
     );
 }

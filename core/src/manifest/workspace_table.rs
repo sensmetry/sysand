@@ -211,6 +211,7 @@ impl WorkspaceTable {
 
         let members = member_paths(&reader, "members", true, &mut report);
         let exclude = member_paths(&reader, "exclude", false, &mut report);
+        let members = cross_list_conflicts(members, &exclude, &mut report);
 
         let mut known: Vec<&str> = GROUP_KEYS.to_vec();
         known.extend_from_slice(WORKSPACE_KEYS);
@@ -444,6 +445,55 @@ fn member_paths(
         });
     }
     paths
+}
+
+/// workspaces.md "Included projects": a `members` entry at or under an
+/// `exclude` entry is refused.
+///
+/// The two lists say opposite things about the same directory --
+/// "Anything under one of them is outside the workspace" against a list
+/// of what is in it -- and neither document gives one list precedence
+/// over the other, so the combination is a conflict to report rather
+/// than something [`WorkspaceTable::region`]'s depth comparison may
+/// decide silently.
+///
+/// The offending entries are dropped from `members` so that the rest of
+/// the load sees a table it can reason about; the report is what stops
+/// it being used.
+///
+/// Both lists hold normalized entries only, so a member that names an
+/// excluded directory spells it as `exclude` does.
+fn cross_list_conflicts(
+    members: Vec<MemberPath>,
+    exclude: &[MemberPath],
+    report: &mut Report,
+) -> Vec<MemberPath> {
+    members
+        .into_iter()
+        .filter(|member| {
+            let Some(excluded) = exclude
+                .iter()
+                .find(|excluded| member.path.starts_with(&excluded.path))
+            else {
+                return true;
+            };
+            let message = if member.path == excluded.path {
+                format!(
+                    "`members` path `{}` is also in `exclude`; a directory is either a member \
+                     or outside the workspace",
+                    member.raw
+                )
+            } else {
+                format!(
+                    "`members` path `{}` lies under `exclude` path `{}`; everything under an \
+                     excluded directory is outside the workspace",
+                    member.raw, excluded.raw
+                )
+            };
+            report.push(Diagnostic::error(message).at_opt(member.at.clone()));
+            false
+        })
+        .collect()
 }
 
 /// How many segments of `entry` `path` is under, or `None` if it is not.

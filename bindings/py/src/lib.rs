@@ -302,7 +302,8 @@ fn do_info_py_path(
 ) -> PyResult<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)> {
     common_init();
 
-    let project = sysand_core::workspace::model_toml::project_at_path(path, None);
+    let project = sysand_core::workspace::model_toml::project_at_path(path, None)
+        .map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
 
     match do_info_project(&project) {
         Ok((info, meta)) => Ok((info, meta)),
@@ -1179,7 +1180,8 @@ fn do_build_py(
     let Some(current_project_path) = project_path else {
         return Err(pyo3::exceptions::PyNotImplementedError::new_err("TODO"));
     };
-    let project = sysand_core::workspace::model_toml::project_at_path(current_project_path, None);
+    let project = sysand_core::workspace::model_toml::project_at_path(current_project_path, None)
+        .map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
 
     let compression = match compression {
         Some(compression) => match KparCompressionMethod::try_from(compression) {
@@ -1318,7 +1320,8 @@ pub fn do_sources_project_py(
 
     let mut result = vec![];
 
-    let current_project = sysand_core::workspace::model_toml::project_at_path(path.clone(), None);
+    let current_project = sysand_core::workspace::model_toml::project_at_path(path.clone(), None)
+        .map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
 
     if include_own {
         for src_path in do_sources_local_src_project_no_deps(&current_project, true)
@@ -1851,6 +1854,7 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
             | EnvInstallPathError::NotFound(_)
             | EnvInstallPathError::MissingInfo(_)
             | EnvInstallPathError::ProjectRead(_)
+            | EnvInstallPathError::Workspace(_)
             | EnvInstallPathError::Installation(
                 EnvInstallError::ProjectRead(_)
                 | EnvInstallError::Installation(PutProjectError::Callback(

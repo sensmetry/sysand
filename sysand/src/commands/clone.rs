@@ -272,7 +272,13 @@ fn obtain_project<Policy: HTTPAuthentication>(
     let cloned = "Cloned";
     let header = sysand_core::style::get_style_config().header;
 
-    let mut local_project = sysand_core::workspace::model_toml::project_at_path(project_path, None);
+    // The *destination*, which is created rather than read: it holds no
+    // manifest to resolve against a table, and classifying it would
+    // refuse a clone into a directory under a workspace root -- which
+    // `design/workspaces.md` says is exactly where a clone may land,
+    // since "`clone` creates a project outside any scope". Only the
+    // source below is classified.
+    let mut local_project = LocalSrcProject::new_access(project_path, None);
 
     let std_resolver = standard_resolver(
         None,
@@ -326,7 +332,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
                     {USAGE}hint:{USAGE:#} to clone from a KPAR, use `--kpar-path`"
                 );
             }
-            let remote_project = sysand_core::workspace::model_toml::project_at_path(path, None);
+            let remote_project = sysand_core::workspace::model_toml::project_at_path(path, None)?;
             clone_local(
                 version_constraint,
                 cloning,

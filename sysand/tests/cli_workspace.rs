@@ -46,7 +46,14 @@ fn workspace(root_text: &str) -> Result<camino_tempfile::Utf8TempDir, Box<dyn st
     Ok(dir)
 }
 
-const ROOT: &str = "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\"]\n";
+/// `local-dep` and `src-proj` are excluded because
+/// `dependency` writes them *under the root*: a project there that is
+/// in neither list is refused, and a fixture that relies on
+/// one being read is relying on the rule not being enforced. `stray` is
+/// deliberately *not* excluded: the tests that use it are about what an
+/// unlisted project does.
+const ROOT: &str = "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\"]\n\
+     exclude = [\"local-dep\", \"src-proj\"]\n";
 
 /// A `sysand.toml` whose one override points `urn:kpar:local-dep` at
 /// `src_path`, written at `at`.
@@ -489,6 +496,106 @@ fn an_unlisted_project_is_refused() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// The same project, reached by `--dir` instead of by being in it.
+///
+/// A path given on the command line meets the same refusal as the
+/// upward walk from the current directory: `sysand info --dir <stray>`
+/// and `cd <stray> && sysand info` are two routes to one project and
+/// must agree.
+#[test]
+fn info_at_an_unlisted_path_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace(ROOT)?;
+    dependency(dir.path(), "stray")?;
+    run_sysand_in(dir.path(), ["info", "--dir", "stray"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(UNLISTED_TEXT));
+    Ok(())
+}
+
+#[test]
+fn cloning_from_an_unlisted_path_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace(ROOT)?;
+    dependency(dir.path(), "stray")?;
+    run_sysand_in(
+        dir.path(),
+        ["clone", "--dir", "stray", "--target", "out"],
+        None,
+    )?
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains(UNLISTED_TEXT));
+    Ok(())
+}
+
+/// `add` **writes**, so it must refuse before recording the usage in the
+/// member's manifest: otherwise the `lock` that follows refuses the file
+/// `add` has just written, leaving no way forward that does not involve
+/// editing the manifest by hand.
+#[test]
+fn adding_a_dir_usage_to_an_unlisted_project_is_refused() -> Result<(), Box<dyn std::error::Error>>
+{
+    let dir = workspace(ROOT)?;
+    dependency(dir.path(), "stray")?;
+    let member = dir.path().join("app");
+    let before = std::fs::read_to_string(member.join("model.toml"))?;
+    run_sysand_discovering(&member, ["add", "--dir", "../stray", "--no-lock"])?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(UNLISTED_TEXT));
+    assert_eq!(
+        std::fs::read_to_string(member.join("model.toml"))?,
+        before,
+        "and the manifest is untouched, which is what `--no-lock` hid"
+    );
+    Ok(())
+}
+
+/// A configured `[override]` reaching an unlisted project.
+///
+/// The overridden project is read with the workspace table, so an
+/// override naming a **member** resolves rather than failing with "the
+/// project is not a member of any workspace" about a project that is
+/// listed in `members`, and an override naming an unlisted project under
+/// the root is refused.
+#[test]
+fn an_override_naming_a_member_resolves() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace(ROOT)?;
+    // `app` inherits nothing here, so this is the plain case; the
+    // inheriting one is covered in core, where a fixture can be built
+    // without a solve.
+    write_config(dir.path(), "app")?;
+    run_sysand_discovering(&dir.path().join("app"), ["lock"])?
+        .assert()
+        .success();
+    Ok(())
+}
+
+#[test]
+fn an_override_naming_an_unlisted_project_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace(ROOT)?;
+    dependency(dir.path(), "stray")?;
+    write_config(dir.path(), "stray")?;
+    run_sysand_discovering(&dir.path().join("app"), ["lock"])?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(UNLISTED_TEXT));
+    Ok(())
+}
+
+/// An **excluded** project is the case the refusal must not catch:
+/// `workspaces.md` calls it "the only kind of non-member project that
+/// may sit under a workspace root", so both routes read it.
+#[test]
+fn an_excluded_path_still_reads() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace(ROOT)?;
+    dependency(dir.path(), "local-dep")?;
+    run_sysand_in(dir.path(), ["info", "--dir", "local-dep"], None)?
+        .assert()
+        .success();
+    Ok(())
+}
+
 #[test]
 fn index_init_runs_in_an_unlisted_project() -> Result<(), Box<dyn std::error::Error>> {
     let dir = workspace(ROOT)?;
@@ -649,7 +756,8 @@ fn two_member_workspace() -> Result<camino_tempfile::Utf8TempDir, Box<dyn std::e
     let dir = camino_tempfile::tempdir()?;
     std::fs::write(
         dir.path().join("model.toml"),
-        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\", \"libs/gamma\"]\n",
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\", \"libs/gamma\"]\n\
+         exclude = [\"local-dep\"]\n",
     )?;
     std::fs::create_dir_all(dir.path().join("app"))?;
     std::fs::write(dir.path().join("app/model.toml"), MEMBER)?;

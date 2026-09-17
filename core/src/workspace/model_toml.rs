@@ -605,9 +605,20 @@ pub fn start_region(
                 });
             }
             return match table.region(&relative) {
-                Region::Member(index, _) => Ok(StartRegion::Member(index)),
+                // The entry itself, not merely something under it.
+                // `region` prefix-matches, so without the equality a
+                // project *nested inside* a member would answer `Member`
+                // and the command would run as though it were that
+                // member, disagreeing with `--path` to the same
+                // directory. `workspaces.md`: a project under the root
+                // that is "neither a member nor under an excluded
+                // directory is a hard error", and a project inside a
+                // member is neither.
+                Region::Member(index, member) if member.path == relative => {
+                    Ok(StartRegion::Member(index))
+                }
                 Region::Excluded(_) => Ok(StartRegion::Standalone(current.to_owned())),
-                Region::Unlisted => Err(DiscoverError::Unlisted {
+                Region::Member(..) | Region::Unlisted => Err(DiscoverError::Unlisted {
                     project: current.to_owned(),
                     root: root.to_owned(),
                 }),
@@ -1026,16 +1037,14 @@ mod tests;
 /// A member's manifest resolves only against its workspace's table, so
 /// reading one without it fails with "`metamodel` inherits from group
 /// `<g>`, but the project is not a member of any workspace" -- about a
-/// project that is listed in `members`. Commands and bindings that take
-/// a path read it directly, where the ones that use a working directory
-/// discover the workspace first and get a table; that asymmetry has
-/// produced the same defect three times, in the solver, in the CLI and
-/// in both bindings.
+/// project that is listed in `members`. A command that uses a working
+/// directory discovers the workspace first and gets a table; this gives
+/// one that takes a path the same table.
 ///
-/// Here rather than in the CLI so that all three share one answer:
-/// `bindings/java` cannot see the `sysand` crate at all.
+/// In `core` rather than in the CLI so that the CLI and both bindings
+/// can share it.
 ///
-/// [`discover_table`] and [`member_index`], deliberately, and not
+/// [`discover_table`] and [`region_of`], deliberately, and not
 /// [`Workspace::load_with`] with [`Workspace::classify`]:
 ///
 /// * `load_with` parses and validates *every* member, so one broken
@@ -1045,30 +1054,94 @@ mod tests;
 /// * `classify` answers from [`WorkspaceTable::region`], which
 ///   prefix-matches, so a project that merely *sits inside* a member
 ///   directory would be handed a table it is not entitled to.
-///   `member_index` adds the equality that `migrate` already relies on.
+///   [`region_of`] adds the equality.
 ///
-/// Anything that is not a listed member -- unlisted, excluded, nested
-/// inside an entry, outside any root, or a path whose workspace cannot
-/// be established at all -- reads table-less, which is what every
-/// caller did before there was a table to have.
+/// An **excluded** project, and one outside any workspace, read
+/// table-less: they are standalone. An **unlisted** one is refused, the
+/// same as walking up from inside it -- see [`PathRegion`] for why the
+/// two are not the same answer.
 pub fn project_at_path(
     path: impl Into<Utf8PathBuf>,
     nominal_path: Option<typed_path::Utf8UnixPathBuf>,
-) -> crate::project::local_src::LocalSrcProject {
+) -> Result<crate::project::local_src::LocalSrcProject, DiscoverError> {
     let path = path.into();
-    match member_table_at(&path) {
-        Some(table) => crate::project::local_src::LocalSrcProject::new_member(
+    // Only a workspace that can be *established* refuses anything. A
+    // path that does not exist yet, or an ancestor that cannot be read,
+    // falls back to the table-less read, so the error the caller
+    // reports stays the one about the project --
+    // `add`'s "missing project", not "failed to canonicalize path"
+    // about a walk the caller never asked for.
+    let Ok(Some((root, table))) = discover_table(&path) else {
+        return Ok(crate::project::local_src::LocalSrcProject::new_access(
+            path,
+            nominal_path,
+        ));
+    };
+    // `region_of` compares against a canonical root, and `discover_table`
+    // returns one.
+    let Ok(canonical) = wrapfs::canonicalize(&path) else {
+        return Ok(crate::project::local_src::LocalSrcProject::new_access(
+            path,
+            nominal_path,
+        ));
+    };
+    match region_of(&root, &table, &canonical) {
+        PathRegion::Member => Ok(crate::project::local_src::LocalSrcProject::new_member(
             path,
             nominal_path,
             std::sync::Arc::new(table),
-        ),
-        None => crate::project::local_src::LocalSrcProject::new_access(path, nominal_path),
+        )),
+        PathRegion::Standalone => Ok(crate::project::local_src::LocalSrcProject::new_access(
+            path,
+            nominal_path,
+        )),
+        PathRegion::Unlisted => Err(DiscoverError::Unlisted {
+            project: canonical,
+            root,
+        }),
     }
 }
 
-/// The table `path` resolves against, if `path` is a listed member.
-fn member_table_at(path: &Utf8Path) -> Option<WorkspaceTable> {
-    let (root, table) = discover_table(path).ok().flatten()?;
-    member_index(&root, &table, path).ok().flatten()?;
-    Some(table)
+/// Where a path sits relative to a workspace, for a caller that holds
+/// the path rather than having walked to it.
+///
+/// Three answers and not two, because "not a member" hides the
+/// distinction that matters: an excluded project is *deliberately*
+/// standalone -- `workspaces.md` calls it "the only kind of non-member
+/// project that may sit under a workspace root" -- while an unlisted one
+/// "is a hard error". Reading both table-less would make `sysand info
+/// --path <unlisted>` succeed where `cd <unlisted> && sysand info`
+/// fails.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PathRegion {
+    /// A listed member: resolve its manifest against the table.
+    Member,
+    /// Outside the workspace, or under an `exclude` entry: read it as
+    /// the standalone project it is.
+    Standalone,
+    /// Under the root and in neither list: a hard error.
+    Unlisted,
+}
+
+/// [`PathRegion`] for `path` against the workspace rooted at `root`.
+///
+/// `path` must be canonical when `root` is, since the two are compared.
+pub fn region_of(root: &Utf8Path, table: &WorkspaceTable, path: &Utf8Path) -> PathRegion {
+    let Ok(relative) = relativize_path(path, root) else {
+        return PathRegion::Standalone;
+    };
+    if relative
+        .components()
+        .any(|c| matches!(c, typed_path::Utf8UnixComponent::ParentDir))
+    {
+        // Above the root, so outside the workspace altogether.
+        return PathRegion::Standalone;
+    }
+    match table.region(&relative) {
+        // The entry itself, not merely something under it: `region`
+        // prefix-matches, and a project inside a member is not a member.
+        Region::Member(_, member) if member.path == relative => PathRegion::Member,
+        Region::Excluded(_) => PathRegion::Standalone,
+        Region::Member(..) | Region::Unlisted => PathRegion::Unlisted,
+    }
 }
