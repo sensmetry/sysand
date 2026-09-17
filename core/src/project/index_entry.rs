@@ -186,6 +186,19 @@ impl<Policy: HTTPAuthentication> IndexEntryProject<Policy> {
                             IdentityMismatch::Name { expected, actual } => {
                                 IndexEntryProjectError::NameMismatch { expected, actual }
                             }
+                            // Unreachable: an index usage is exempt from
+                            // the literal rule in v1, so no
+                            // expectation an index resolver builds
+                            // carries a toml origin. Reported as the
+                            // publisher mismatch rather than with a
+                            // panic, since the arm is about a case that
+                            // cannot arise rather than one to crash on.
+                            IdentityMismatch::Spelling { expected, actual } => {
+                                IndexEntryProjectError::PublisherMismatch {
+                                    expected: expected.0,
+                                    actual: actual.0,
+                                }
+                            }
                         })?;
                 }
 

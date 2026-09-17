@@ -1196,17 +1196,10 @@ fn do_build_py(
                     constraint: _,
                     embedded: _,
                 }
-                | KParBuildError::TomlTargetMissing { usage: _, path: _ }
-                | KParBuildError::TomlTargetVersion {
-                    usage: _,
-                    path: _,
-                    version: _,
-                }
-                | KParBuildError::TomlTargetRead {
-                    usage: _,
-                    path: _,
-                    reason: _,
-                }
+                | KParBuildError::TomlTargetMissing { .. }
+                | KParBuildError::TomlTargetVersion { .. }
+                | KParBuildError::TomlTargetSpelling { .. }
+                | KParBuildError::TomlTargetRead { .. }
                 | KParBuildError::Serialize(..)
                 | KParBuildError::MissingIndexSymbol(_, _) => PyValueError::new_err(e),
                 KParBuildError::PathUsage(_) => PyValueError::new_err(format!(

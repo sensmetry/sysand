@@ -997,3 +997,73 @@ fn a_declared_metamodel_needs_no_flag() -> Result<(), Box<dyn std::error::Error>
     );
     Ok(())
 }
+
+/// The other half of `a_typed_usage_keeps_the_json_spelling_here`
+/// (core): the CLI reads the target and writes the spelling it
+/// declares, so the migrated manifest is one `sysand lock` accepts.
+#[test]
+fn migrate_writes_the_spelling_the_target_declares() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, root) = new_temp_cwd()?;
+    let app = root.join("app");
+    let dep = root.join("dep");
+    std::fs::create_dir_all(&app)?;
+    std::fs::create_dir_all(&dep)?;
+    std::fs::write(
+        dep.join("model.toml"),
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"Acme Corp\"\nname = \"dep\"\n\
+         version = \"1.0.0\"\nsources = []\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    )?;
+    // The json usage spells the pair normalized, which is all json ever
+    // required of it.
+    std::fs::write(
+        app.join(".project.json"),
+        br#"{"name": "app", "publisher": "acme", "version": "1.0.0",
+             "usage": [{"dir": "../dep", "publisher": "acme-corp", "name": "dep"}]}"#,
+    )?;
+    std::fs::write(
+        app.join(".meta.json"),
+        br#"{"created": "2001-02-03T04:05:06Z", "index": {}, "metamodel": "https://www.omg.org/spec/SysML/20250201"}"#,
+    )?;
+    git_repo(&root, true)?;
+
+    run_sysand_in(&app, ["migrate"], None)?.assert().success();
+    let text = std::fs::read_to_string(app.join("model.toml"))?;
+    assert!(text.contains("publisher = \"Acme Corp\""), "{text}");
+    assert!(!text.contains("acme-corp"), "{text}");
+    Ok(())
+}
+
+/// End to end: `lock` refuses a `dir` usage that
+/// spells its target's identity differently. `build` has its own check;
+/// this is the resolver's.
+#[test]
+fn lock_refuses_a_target_that_spells_its_identity_differently()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, root) = new_temp_cwd()?;
+    let app = root.join("app");
+    let dep = root.join("dep");
+    std::fs::create_dir_all(&app)?;
+    std::fs::create_dir_all(&dep)?;
+    std::fs::write(
+        dep.join("model.toml"),
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"Acme Corp\"\nname = \"dep\"\n\
+         version = \"1.0.0\"\nsources = []\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    )?;
+    std::fs::write(
+        app.join("model.toml"),
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"app\"\n\
+         version = \"1.0.0\"\nsources = []\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
+         [[inline-usages]]\npublisher = \"acme-corp\"\nname = \"dep\"\ndir = \"../dep\"\n",
+    )?;
+
+    run_sysand_in(&app, ["lock"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "a usage spells publisher and name as the target declares them",
+        ));
+    Ok(())
+}

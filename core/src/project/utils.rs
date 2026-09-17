@@ -866,6 +866,24 @@ pub struct ExpectedIdentity {
     origin: UsageOrigin,
 }
 
+/// How a [`IdentityMismatch::Spelling`] spells one side of the
+/// comparison: `<publisher>/<name>`, with `<none>` for a target that
+/// declares no publisher -- which a toml usage only reaches when it
+/// expects none either.
+#[cfg_attr(
+    not(feature = "filesystem"),
+    expect(
+        dead_code,
+        reason = "the readers that render a spelling mismatch are behind `filesystem`"
+    )
+)]
+pub(crate) fn pair(publisher: Option<&str>, name: &str) -> String {
+    match publisher {
+        Some(publisher) => format!("{publisher}/{name}"),
+        None => format!("<none>/{name}"),
+    }
+}
+
 /// How the identity a target declares differs from the expected one.
 #[derive(Clone, Debug)]
 pub enum IdentityMismatch {
@@ -883,6 +901,14 @@ pub enum IdentityMismatch {
     Name {
         expected: String,
         actual: String,
+    },
+    /// A usage written in a `model.toml`, where the target must declare
+    /// the pair as the usage spells it. One case carrying both halves,
+    /// because one message names both -- a publisher that differs and a
+    /// name that differs are the same mistake, made once.
+    Spelling {
+        expected: (Option<String>, String),
+        actual: (Option<String>, String),
     },
 }
 
@@ -908,13 +934,27 @@ impl ExpectedIdentity {
         }
     }
 
-    /// The manifest the usage was written in, which decides only
-    /// whether a publisher-less target is an
-    /// [`IdentityMismatch::NoPublisher`] or an
-    /// [`IdentityMismatch::Publisher`].
+    /// The manifest the usage was written in, which decides how the
+    /// pair is compared and what a mismatch is called.
+    ///
+    /// model-toml.md "Normalization": normalization is the solver's, and
+    /// a `model.toml` never holds a normalized identity -- so a usage
+    /// written there is satisfied only by a target that declares the
+    /// pair as the usage spells it. A json usage keeps the normalized
+    /// comparison the json format has always meant, and the origin also
+    /// decides whether a publisher-less target is
+    /// [`IdentityMismatch::NoPublisher`] or [`IdentityMismatch::Publisher`].
     #[must_use]
     pub fn declared_in(self, origin: UsageOrigin) -> Self {
-        Self { origin, ..self }
+        let matching = match origin {
+            UsageOrigin::Toml => IdentityMatch::Literal,
+            UsageOrigin::Json => self.matching,
+        };
+        Self {
+            matching,
+            origin,
+            ..self
+        }
     }
 
     pub fn publisher(&self) -> Option<&str> {
@@ -936,6 +976,34 @@ impl ExpectedIdentity {
             IdentityMatch::Normalized => normalize(expected) == normalize(actual),
             IdentityMatch::Literal => expected == actual,
         };
+
+        // A toml usage's mismatch is one message naming both halves,
+        // so both are compared before anything is returned -- where the
+        // json arms below stop at the publisher. A target declaring no
+        // publisher at all is `NoPublisher` even here: it says what to
+        // do, where `Spelling` would only say the two differ.
+        if self.origin == UsageOrigin::Toml {
+            if self.publisher.is_some() && actual_publisher.is_none() {
+                return Err(IdentityMismatch::NoPublisher {
+                    name: self.name.clone(),
+                });
+            }
+            let publisher_same = match (&self.publisher, actual_publisher) {
+                (Some(expected), Some(actual)) => same(expected, actual, normalize_typed_publisher),
+                (None, None) => true,
+                _ => false,
+            };
+            if publisher_same && same(&self.name, actual_name, normalize_typed_name) {
+                return Ok(());
+            }
+            return Err(IdentityMismatch::Spelling {
+                expected: (self.publisher.clone(), self.name.clone()),
+                actual: (
+                    actual_publisher.map(ToOwned::to_owned),
+                    actual_name.to_owned(),
+                ),
+            });
+        }
 
         match (&self.publisher, actual_publisher) {
             (Some(expected), Some(actual)) if same(expected, actual, normalize_typed_publisher) => {

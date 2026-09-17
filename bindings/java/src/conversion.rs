@@ -890,17 +890,10 @@ pub(crate) fn handle_build_error(env: &mut Env<'_>, error: &KParBuildError<Local
             constraint: _,
             embedded: _,
         }
-        | KParBuildError::TomlTargetMissing { usage: _, path: _ }
-        | KParBuildError::TomlTargetVersion {
-            usage: _,
-            path: _,
-            version: _,
-        }
-        | KParBuildError::TomlTargetRead {
-            usage: _,
-            path: _,
-            reason: _,
-        } => {
+        | KParBuildError::TomlTargetMissing { .. }
+        | KParBuildError::TomlTargetVersion { .. }
+        | KParBuildError::TomlTargetSpelling { .. }
+        | KParBuildError::TomlTargetRead { .. } => {
             env.throw_exception(ExceptionKind::SysandException, error.to_string());
         }
         KParBuildError::MissingInfoMeta => {
