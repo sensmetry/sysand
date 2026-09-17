@@ -11,7 +11,7 @@
 //! resolves standalone, so a member carrying `version.workspace = true`
 //! is otherwise refused *for being a member*.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, hash_map::Entry};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use thiserror::Error;
@@ -196,6 +196,7 @@ impl Workspace {
         // contributes no edges, so a cycle running through a broken one
         // is invisible here and its own diagnostic is what the user
         // acts on first.
+        report.extend(duplicate_identities(&members));
         report.extend(member_cycles(&members));
 
         if report.is_empty() && broken.is_empty() {
@@ -918,17 +919,55 @@ fn load_member(
 /// and saying so is the whole content of the rule. Excluded directories
 /// are not checked: "Standalone projects under an `exclude`d directory
 /// keep their state legitimately; the check applies to members only."
+/// Two members that are the same project.
+///
+/// The lockfile holds one entry per identity, so two members claiming
+/// one identity cannot be locked, and building them would produce two
+/// archives that claim to be the same project. This is a malformed
+/// workspace, and the load is where a malformed workspace is refused,
+/// which puts the error in front of every command.
+///
+/// Normalized, as `model-toml.md` says of duplicate usages: "two entries
+/// whose identities normalize to the same value are the same project".
+/// `Acme Corp` and `acme-corp` are one publisher.
+fn duplicate_identities(members: &[Member]) -> Vec<Diagnostic> {
+    let mut seen: HashMap<_, &Member> = HashMap::new();
+    let mut found = Vec::new();
+    for member in members {
+        match seen.entry(member.project.identity()) {
+            Entry::Vacant(slot) => {
+                slot.insert(member);
+            }
+            Entry::Occupied(first) => {
+                let identity = member.project.identity();
+                found.push(
+                    Diagnostic::error(format!(
+                        "members `{}` and `{}` name the same project `{}/{}`; two members \
+                         whose publisher and name normalize to the same value are a duplicate",
+                        first.get().path.raw,
+                        member.path.raw,
+                        identity.publisher,
+                        identity.name
+                    ))
+                    // The second entry, as the within-list duplicate
+                    // check positions its own.
+                    .at_opt(member.path.at.clone()),
+                );
+            }
+        }
+    }
+    found
+}
+
 /// The cycles among the members' `dir` usages.
 ///
-/// The same edges `commands::build` takes the publish order from
-/// (`member_dependencies`): `dir` usages only, joined onto the member's own
-/// directory and canonicalized, so that a member's `dir = "../<itself>"`
-/// is the self-cycle it looks like. A `kpar-path` names a `.kpar` file rather than a
-/// member directory, so it is not an edge between members.
+/// `dir` usages only, joined onto the member's own directory and
+/// canonicalized, so that a member's `dir = "../<itself>"` is the
+/// self-cycle it looks like. A `kpar-path` names a `.kpar` file rather
+/// than a member directory, so it is not an edge between members.
 ///
-/// `located.base` is deliberately not consulted, matching `build`: an
-/// inherited path usage is refused outright by `lock` and by `build`
-/// before either reaches a graph.
+/// `located.base` is deliberately not consulted: an inherited path
+/// usage is not an edge between members.
 ///
 /// `cycles()` and not `dependency_order()`: this reports rather than orders,
 /// and a workspace with two independent cycles should hear about both.
