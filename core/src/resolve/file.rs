@@ -14,7 +14,7 @@ use thiserror::Error;
 use crate::{
     context::ProjectContext,
     lock::Source,
-    manifest::workspace_table::WorkspaceTable,
+    manifest::workspace_table::{Region, WorkspaceTable},
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsage},
     project::{
         self, ProjectFormat, ProjectRead,
@@ -46,18 +46,56 @@ impl FileResolver {
     /// The same project, read as a member when it sits inside the
     /// workspace this resolver was given. A target outside it, or a
     /// resolver with no workspace, is unchanged.
-    fn as_member(&self, project: LocalSrcProject) -> LocalSrcProject {
-        match &self.workspace {
-            Some((root, table)) if project.path().starts_with(root) => {
-                project.in_workspace(table.clone())
+    fn as_member(&self, project: LocalSrcProject) -> Result<LocalSrcProject, FileResolverError> {
+        let Some((root, table)) = &self.workspace else {
+            return Ok(project);
+        };
+        let Ok(relative) = crate::project::utils::relativize_path(project.path(), root) else {
+            return Ok(project);
+        };
+        if relative
+            .components()
+            .any(|c| matches!(c, typed_path::Utf8UnixComponent::ParentDir))
+        {
+            // Outside the workspace altogether, which is an ordinary
+            // dependency on an ordinary project.
+            return Ok(project);
+        }
+        match table.region(&relative) {
+            // The entry itself, not merely something under it:
+            // `region` prefix-matches, and a project inside a member is
+            // not a member.
+            Region::Member(_, member) if member.path == relative => {
+                Ok(project.in_workspace(table.clone()))
             }
-            _ => project,
+            Region::Excluded(_) => Ok(project),
+            // `workspaces.md`, Intra-workspace usages: "A `dir` usage
+            // from a member to a project that lies under the root
+            // without being a member (and not covered in the `exclude`
+            // list) is the unlisted-project error of Included
+            // projects." Without this the usage resolved silently and
+            // the lockfile recorded it exactly as it records an
+            // excluded project -- so nothing downstream could tell
+            // which workspace owned it, which is the decidability the
+            // rule exists to give.
+            Region::Member(..) | Region::Unlisted => Err(FileResolverError::Workspace(
+                crate::workspace::model_toml::DiscoverError::Unlisted {
+                    project: project.path().to_owned(),
+                    root: root.clone(),
+                },
+            )),
         }
     }
 }
 
 #[derive(Error, Debug)]
 pub enum FileResolverError {
+    /// A target that lies under the workspace root without being a
+    /// member. Carries [`crate::workspace::model_toml::DiscoverError`]
+    /// rather than restating its refusal, so that the upward walk and a
+    /// usage give one sentence.
+    #[error(transparent)]
+    Workspace(crate::workspace::model_toml::DiscoverError),
     #[error("failed to encode path `{0}` in UTF-8")]
     InvalidPath(PathBuf),
     #[error("IRI `{0}` is not a valid URL: {1}")]
@@ -428,19 +466,20 @@ impl ResolveRead for FileResolver {
                 // TODO: should absolute paths be supported here? Cargo does.
                 if let Some(base) = resolve.base_path() {
                     let res = self.resolve_relative_path(base, dir.as_str())?;
-                    Ok(res.map(|path| {
-                        vec![Ok(FileResolverProject::LocalSrcProject(
-                            // The lock checks that the project is
-                            // `publisher`/`name`, as for every typed usage
-                            self.as_member(LocalSrcProject::new_access(
-                                path,
-                                // Can't use `dir` here, since `FileResolver` is used for env projects,
-                                // and in that case using `dir` would resolve relative to the project
-                                // inside `.sysand`, and the dependency would not be found
-                                None,
-                            )),
-                        ))]
-                    }))
+                    // Classified before the outcome is built, because an
+                    // unlisted target is an error rather than a resolution.
+                    res.try_map(|path| {
+                        // The lock checks that the project is
+                        // `publisher`/`name`, as for every typed usage
+                        let project = self.as_member(LocalSrcProject::new_access(
+                            path,
+                            // Can't use `dir` here, since `FileResolver` is used for env projects,
+                            // and in that case using `dir` would resolve relative to the project
+                            // inside `.sysand`, and the dependency would not be found
+                            None,
+                        ))?;
+                        Ok(vec![Ok(FileResolverProject::LocalSrcProject(project))])
+                    })
                 } else {
                     // TODO: return Err?
                     Ok(ResolutionOutcome::Unresolvable {

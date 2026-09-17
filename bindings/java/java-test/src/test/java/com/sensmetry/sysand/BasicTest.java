@@ -249,6 +249,48 @@ public class BasicTest {
         Files.write(dir.resolve("model.toml"), manifest.getBytes());
     }
 
+    /** A member that inherits its {@code metamodel} from the workspace. */
+    private void writeInheritingMember(java.nio.file.Path dir, String publisher, String name, String version)
+            throws java.io.IOException {
+        String manifest = "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"" + publisher
+                + "\"\nname = \"" + name + "\"\nversion = \"" + version + "\"\nsources = []\n"
+                + "metamodel.workspace = \"sysml\"\n";
+        Files.write(dir.resolve("model.toml"), manifest.getBytes());
+    }
+
+    /**
+     * A member's manifest resolves only against its workspace's table.
+     * {@code infoPath} and {@code buildProject} read a project at the path
+     * they are given, and must give a member that table: read without it,
+     * a member carrying {@code metamodel.workspace} comes back as "not a
+     * member of any workspace", about a project the root lists.
+     */
+    @Test
+    public void testReadsAMemberThatInheritsItsMetamodel() {
+        try {
+            java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-inherit");
+            java.nio.file.Path member = tempDir.resolve("app");
+            Files.createDirectories(member);
+
+            Files.write(
+                    tempDir.resolve("model.toml"),
+                    ("manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\"]\n\n"
+                            + "[workspace.group.sysml]\nmetamodel = \"" + SYSML + "\"\n").getBytes());
+            writeInheritingMember(member, "acme", "member", "1.0.0");
+
+            com.sensmetry.sysand.model.InterchangeProject project =
+                    com.sensmetry.sysand.Sysand.infoPath(member);
+            assertEquals("member", project.info.getName());
+            assertEquals(SYSML, project.metadata.getMetamodel());
+
+            java.nio.file.Path kpar = tempDir.resolve("member.kpar");
+            com.sensmetry.sysand.Sysand.buildProject(kpar, member, CompressionMethod.DEFLATED);
+            assertTrue(Files.exists(kpar), "a member builds from its own path");
+        } catch (Exception e) {
+            fail("reading an inheriting member should not fail: " + e);
+        }
+    }
+
     @Test
     public void testWorkspaceProjectPaths() {
         try {
