@@ -130,6 +130,25 @@ pub struct ResolutionInfo {
     /// knows. It reaches the user as `SolveConflict::required_by`, so it
     /// is an `Identifier` string like every other value of that field.
     declared_by: Option<String>,
+    /// The `(publisher, name)` a **toml** `kpar-url` usage declared, for
+    /// the identity check at the target.
+    ///
+    /// `InterchangeProjectUsage::Resource` cannot carry it: that variant
+    /// is KerML 1.0's untyped usage, where the IRI *is* the identity, so
+    /// a `.project.json` has no field to put a publisher in. A
+    /// `model.toml` `kpar-url` usage does declare both -- every usage
+    /// but a standard-library one has a publisher -- and
+    /// `kpar_view::usage` drops them on the way to the view, faithfully,
+    /// because json cannot express them.
+    ///
+    /// So it travels here instead, beside [`Self::origin`]. `None` for
+    /// every other usage:
+    /// they either carry the pair in the usage itself or, for a
+    /// standard-library `kpar-url`, declare no publisher at all.
+    /// Boxed: two `String`s inline grow `ResolutionInfo` enough to
+    /// trip `clippy::large_enum_variant` on `DependencyIdentifier`,
+    /// and this is `None` for every usage but one kind.
+    declared_identity: Option<Box<(String, String)>>,
 }
 
 /// Information needed to resolve a usage, which determines equivalency
@@ -237,6 +256,7 @@ impl ResolutionInfo {
             base_path,
             origin,
             declared_by: None,
+            declared_identity: None,
         }
     }
 
@@ -245,6 +265,22 @@ impl ResolutionInfo {
     pub fn declared_by(mut self, declarer: Option<String>) -> Self {
         self.declared_by = declarer;
         self
+    }
+
+    /// Records the identity a toml `kpar-url` usage declared; see the
+    /// field.
+    #[must_use]
+    pub fn declaring_identity(mut self, identity: Option<(String, String)>) -> Self {
+        self.declared_identity = identity.map(Box::new);
+        self
+    }
+
+    /// The identity this usage declared, for a resolver that can check
+    /// it at the target.
+    pub fn declared_identity(&self) -> Option<(&str, &str)> {
+        self.declared_identity
+            .as_deref()
+            .map(|(publisher, name)| (publisher.as_str(), name.as_str()))
     }
 
     pub fn iri(iri: Iri<String>) -> Self {
