@@ -777,7 +777,10 @@ fn run_cli_with(
                 .or(project_root)
                 .unwrap_or_else(|| ctx.current_directory.clone());
             let lock = match Lockfile::try_read(&project_root)? {
-                Some(lockfile) => lockfile.into_lock(),
+                Some(lockfile) => {
+                    lockfile.lock().warn_release_mismatches();
+                    lockfile.into_lock()
+                }
                 // The same branch as `Command::Lock`: locking a workspace
                 // one member at a time would write a single-member solve
                 // over the shared file.
@@ -1085,7 +1088,9 @@ fn run_cli_with(
             });
             if let Some(root) = lock_root {
                 // Parsing is the validation
-                Lockfile::try_read(&root)?;
+                if let Some(lockfile) = Lockfile::try_read(&root)? {
+                    lockfile.lock().warn_release_mismatches();
+                }
             }
             if let Some(current_project) = ctx.current_project {
                 // Even if we are in a workspace, the project takes precedence.

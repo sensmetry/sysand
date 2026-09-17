@@ -1465,3 +1465,105 @@ fn lock_from_inside_a_member_writes_at_the_root() -> Result<(), Box<dyn std::err
     );
     Ok(())
 }
+
+/// A `model.toml` project at `cwd/at`, with `extra` appended.
+fn write_metamodel_member(
+    cwd: &camino::Utf8Path,
+    at: &str,
+    name: &str,
+    metamodel: &str,
+    extra: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = cwd.join(at);
+    std::fs::create_dir_all(&path)?;
+    std::fs::write(
+        path.join("model.toml"),
+        format!(
+            "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"{name}\"\n\
+             version = \"1.0.0\"\nsources = []\nmetamodel = \"{metamodel}\"\n{extra}"
+        ),
+    )?;
+    Ok(())
+}
+
+const OMG_SYSML: &str = "https://www.omg.org/spec/SysML/20250201";
+const SYSIDE_SYSML: &str = "https://www.sysand.com/spec/SysML/20250201";
+
+/// The metamodel direction check runs before the lockfile is written,
+/// not only when one is read.
+///
+/// `design/model-toml.md` puts the two edge checks "once before the
+/// lockfile is written and again when the lockfile is validated on
+/// `sync` and `build`". This asserts on the message, not merely on
+/// failure, so that a failure for some other reason does not pass.
+#[test]
+fn lock_refuses_a_metamodel_direction_error() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    std::fs::write(
+        cwd.join("model.toml"),
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\", \"lib\"]\n",
+    )?;
+    write_metamodel_member(
+        &cwd,
+        "app",
+        "alpha",
+        OMG_SYSML,
+        "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"beta\"\ndir = \"../lib\"\n",
+    )?;
+    write_metamodel_member(&cwd, "lib", "beta", SYSIDE_SYSML, "")?;
+
+    run_sysand_in(&cwd, ["lock", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "only Syside-metamodel projects may depend on Syside-metamodel projects",
+        ))
+        .stderr(predicate::str::contains("acme/alpha"))
+        .stderr(predicate::str::contains("acme/beta"));
+
+    assert!(
+        !cwd.join("sysand-lock.toml").exists(),
+        "no lockfile is written for a graph that cannot be built"
+    );
+    Ok(())
+}
+
+/// The release mismatch is a warning: locking succeeds and says so.
+///
+/// A characterisation test. The warning must reach stderr in a release
+/// build as well as a debug one; nothing in the suite can see that
+/// difference, so the check must not be left to a `debug_assert!`.
+#[test]
+fn lock_warns_on_a_metamodel_release_mismatch() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    std::fs::write(
+        cwd.join("model.toml"),
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\", \"lib\"]\n",
+    )?;
+    write_metamodel_member(
+        &cwd,
+        "app",
+        "alpha",
+        OMG_SYSML,
+        "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"beta\"\ndir = \"../lib\"\n",
+    )?;
+    write_metamodel_member(
+        &cwd,
+        "lib",
+        "beta",
+        "https://www.omg.org/spec/SysML/20230201",
+        "",
+    )?;
+
+    run_sysand_in(&cwd, ["lock", "--no-index"], None)?
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("20250201"))
+        .stderr(predicate::str::contains("20230201"));
+
+    assert!(
+        cwd.join("sysand-lock.toml").exists(),
+        "a release mismatch is a warning, so the lockfile is still written"
+    );
+    Ok(())
+}

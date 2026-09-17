@@ -1910,14 +1910,22 @@ fn validate_accepts_a_syside_project_using_an_omg_one() {
     Lock::parse(&text).expect("a Syside project may use an OMG one");
 }
 
-/// A release mismatch is a warning: differing release dates validate.
+/// A release mismatch is a warning: differing release dates validate,
+/// and the edge check returns the mismatch for the caller to report.
 #[test]
-fn validate_warns_on_a_release_mismatch() {
+fn a_release_mismatch_validates_and_is_returned() {
     let text = edge_pair(
         "https://www.omg.org/spec/SysML/20250201",
         "https://www.omg.org/spec/SysML/20230201",
     );
-    Lock::parse(&text).expect("a release mismatch is a warning, not an error");
+    let lock = Lock::parse(&text).expect("a release mismatch is a warning, not an error");
+    let mismatches = lock.check_metamodel_edges().expect("no direction error");
+    assert_eq!(mismatches.len(), 1);
+    assert_eq!(
+        mismatches[0].to_string(),
+        "`acme/app` targets metamodel release `20250201` but its dependency `acme/lib` \
+         targets `20230201`"
+    );
 }
 
 /// The standard libraries are mutually dependent, so a lockfile

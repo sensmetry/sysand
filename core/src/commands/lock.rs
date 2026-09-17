@@ -186,6 +186,17 @@ pub enum LockError<PD: ProjectRead, R: ResolveRead + Debug + 'static> {
         /// `canonical digest`.
         field: IncompleteField,
     },
+    /// The metamodel direction rule, over the graph the solve produced.
+    ///
+    /// `design/model-toml.md` runs the edge checks "once before the
+    /// lockfile is written and again when the lockfile is validated on
+    /// `sync` and `build`"; this is the first of the two.
+    ///
+    /// Carries the direction error rather than `lock::ValidationError`:
+    /// every message of that type ends "in lockfile", and at this point
+    /// there is no lockfile yet.
+    #[error(transparent)]
+    MetamodelDirection(Box<crate::graph::MetamodelDirectionError<String>>),
     #[error("project {identifier} has invalid metadata")]
     InvalidProject {
         /// Human-readable label for the project, already quoted
@@ -605,6 +616,21 @@ fn lock_extend<
     }
 
     check_typed_usages(typed_usages, &solved, respelled).map_err(LockError::TypedUsageMismatch)?;
+
+    // "once before the lockfile is written" (`design/model-toml.md`,
+    // Metamodel). Here rather than in the callers so that no caller can
+    // skip it, and rather than a full
+    // `Lock::validate` because a lock at this point legitimately fails
+    // the other rules: an input project may carry no identifier, and
+    // `sysand env install --path` records a source outside the project
+    // root. Release mismatches are warnings, reported here rather than by
+    // a lockfile's validation, which runs on every read.
+    for mismatch in lock
+        .check_metamodel_edges()
+        .map_err(LockError::MetamodelDirection)?
+    {
+        log::warn!("{mismatch}");
+    }
 
     Ok(LockOutcome { lock, dependencies })
 }

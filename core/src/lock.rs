@@ -27,7 +27,7 @@ use crate::{
     config::OverrideSource,
     env::ReadEnvironment,
     format_migrate::{self, IdentifiedEntry, Migration},
-    graph::check_metamodel_pair,
+    graph::{MetamodelDirectionError, MetamodelReleaseMismatch, check_metamodel_pair},
     model::{InterchangeProjectUsage, Metamodel},
     project::{
         ProjectChecksum,
@@ -285,7 +285,31 @@ impl Lock {
     /// on it carries `stdlib`, and a lockfile entry cannot say that --
     /// the embedded standard libraries are mutually dependent and carry
     /// no publisher, so the exception has no expression in a lockfile.
+    ///
+    /// Release mismatches are warnings and are dropped here: a lockfile
+    /// is validated on every parse, so each command reports them once
+    /// through [`Self::warn_release_mismatches`] instead.
     fn validate_metamodel_edges(&self) -> Result<(), ValidationError> {
+        self.check_metamodel_edges()
+            .map(drop)
+            .map_err(ValidationError::MetamodelDirection)
+    }
+
+    /// The edge checks alone, for a lock that is not a lockfile yet.
+    ///
+    /// `design/model-toml.md` runs these "once before the lockfile is
+    /// written and again when the lockfile is validated on `sync` and
+    /// `build`". The second half is [`Self::validate`]; the first is a
+    /// lock the solver has just produced, which is *not* yet valid by
+    /// the other rules -- an input project may carry no identifier, and
+    /// a source may lie outside the project root on purpose. So the
+    /// writer's check is this subset, not all of `validate`.
+    ///
+    /// The release mismatches, which are warnings, are returned for the
+    /// caller to report; the direction error is the error.
+    pub fn check_metamodel_edges(
+        &self,
+    ) -> Result<Vec<MetamodelReleaseMismatch<String>>, Box<MetamodelDirectionError<String>>> {
         let by_first_identifier: HashMap<&str, &Project> = self
             .projects
             .iter()
@@ -293,6 +317,7 @@ impl Lock {
             .collect();
         let metamodel_of = |project: &Project| Metamodel::parse(project.metamodel.as_deref()?).ok();
 
+        let mut mismatches = Vec::new();
         for project in &self.projects {
             let metamodel = metamodel_of(project);
             for usage in &project.usages {
@@ -302,14 +327,22 @@ impl Lock {
                 if let Some(mismatch) = check_metamodel_pair(
                     (&project.label(), metamodel.as_ref()),
                     (&dependency.label(), metamodel_of(dependency).as_ref()),
-                )
-                .map_err(ValidationError::MetamodelDirection)?
-                {
-                    log::warn!("{mismatch}");
+                )? {
+                    mismatches.push(mismatch);
                 }
             }
         }
-        Ok(())
+        Ok(mismatches)
+    }
+
+    /// Log the release mismatches of [`Self::check_metamodel_edges`] as
+    /// warnings. Called once per lock a command produces or reads; a
+    /// direction error is not reported here, since a lock that has one
+    /// does not validate.
+    pub fn warn_release_mismatches(&self) {
+        for mismatch in self.check_metamodel_edges().unwrap_or_default() {
+            log::warn!("{mismatch}");
+        }
     }
 
     /// Remove usage from the root project identified by `root_publisher` and `root_name`,

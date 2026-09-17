@@ -1102,3 +1102,40 @@ fn a_non_stdlib_entry_without_sources_gets_no_include_std_hint()
 
     Ok(())
 }
+
+/// `sync` refuses a lockfile carrying a metamodel direction error.
+///
+/// A characterisation test: `Lock::from_str` validates, so `sync`
+/// refuses such a lockfile before it resolves or installs anything.
+#[test]
+fn sync_refuses_a_lockfile_with_a_direction_error() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    fs::write(
+        cwd.join("model.toml"),
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"app\"\n\
+         version = \"1.0.0\"\nsources = []\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    )?;
+    fs::write(
+        cwd.join("sysand-lock.toml"),
+        "lock_version = \"0.5\"\n\
+         \n[[project]]\npublisher = \"acme\"\nname = \"app\"\nversion = \"1.0.0\"\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\
+         identifiers = [\"urn:app\"]\nusages = [\"urn:lib\"]\n\
+         \n[[project]]\npublisher = \"acme\"\nname = \"lib\"\nversion = \"1.0.0\"\n\
+         metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\n\
+         identifiers = [\"urn:lib\"]\n",
+    )?;
+
+    run_sysand_in(&cwd, ["sync"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "only Syside-metamodel projects may depend on Syside-metamodel projects",
+        ));
+    assert!(
+        !cwd.join(".sysand").exists(),
+        "the check runs before anything is installed"
+    );
+    Ok(())
+}

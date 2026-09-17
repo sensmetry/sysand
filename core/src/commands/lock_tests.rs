@@ -1115,6 +1115,47 @@ fn an_inheriting_member_locks_with_the_tables_value() -> Result<(), Box<dyn std:
     Ok(())
 }
 
+/// A metamodel direction error stops the lock, rather than being
+/// written into the lockfile.
+///
+/// `design/model-toml.md`: the two edge checks run "once **before the
+/// lockfile is written** and again when the lockfile is validated on
+/// `sync` and `build`", and `design/workspaces.md` says the same of all
+/// three.
+#[cfg(feature = "filesystem")]
+#[test]
+fn a_direction_error_fails_the_lock() {
+    let dir = workspace_tree(
+        &[
+            (
+                "app",
+                &member_toml(
+                    "alpha",
+                    "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"beta\"\ndir = \"../lib\"\n",
+                ),
+            ),
+            (
+                "lib",
+                "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"beta\"\n\
+                 version = \"1.0.0\"\nsources = []\n\
+                 metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\n",
+            ),
+        ],
+        "",
+    );
+
+    let error = lock_workspace(&dir).expect_err("an OMG project may not depend on a Syside one");
+    let message = error.to_string();
+    assert!(
+        message.contains("only Syside-metamodel projects may depend on Syside-metamodel projects"),
+        "got: {message}"
+    );
+    assert!(
+        message.contains("acme/alpha") && message.contains("acme/beta"),
+        "both projects must be named: {message}"
+    );
+}
+
 /// A member's `dir` usage of another member resolves even when the
 /// target inherits a key from the table.
 ///
