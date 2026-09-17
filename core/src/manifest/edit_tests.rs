@@ -864,8 +864,11 @@ fn including_a_path_appends_it_to_sources() {
     );
 }
 
+/// model-toml.md `sources`: "The commands that write `sources` [...]
+/// write this form, converting into it what they are given." Reading
+/// does not normalize; writing converts.
 #[test]
-fn including_normalizes_the_path_as_reading_does() {
+fn including_converts_what_it_is_given() {
     let mut doc = opened(&with_sources("[]"));
     let added = include_source(&mut doc, "./src/../Parts.sysml").expect("a new source");
 
@@ -881,10 +884,7 @@ fn including_a_path_that_is_already_listed_is_refused() {
     let error = include_source(&mut doc, "./Base.kerml").expect_err("a duplicate");
     assert!(matches!(
         error,
-        EditError::Sources(SourcesError::Duplicate {
-            first: _,
-            second: _
-        })
+        EditError::Sources(SourcesError::Duplicate(_))
     ));
 }
 
@@ -1367,6 +1367,42 @@ fn a_list_key_that_is_not_there_is_created() {
     push_list_entry(&mut doc, ListKey::Topics, "widgets").expect("a list key");
 
     assert!(doc.to_string().contains("topics = [\"widgets\"]"));
+}
+
+/// No conversion brings a path outside the project into `sources`, and
+/// the message says so in `sources`' words rather than `push_member`'s.
+#[test]
+fn including_a_path_outside_the_project_is_refused() {
+    let mut doc = opened(&with_sources("[]"));
+    let error = include_source(&mut doc, "../Parts.sysml").expect_err("outside the project");
+    assert!(
+        matches!(&error, EditError::SourceOutsideProject(path) if path == "../Parts.sysml"),
+        "unexpected error: {error}"
+    );
+    assert!(sources_of(&doc).contains("[]"), "nothing was written");
+}
+
+/// Entries are matched by equality, so `exclude` converts its argument
+/// the same way `include` does, which is where two spellings of one
+/// entry meet.
+#[test]
+fn excluding_converts_what_it_is_given() {
+    let mut doc = opened(&with_sources("[\n    \"src/Parts.sysml\",\n]"));
+    let removed = exclude_source(&mut doc, "./src/Parts.sysml").expect("the entry is listed");
+    assert_eq!(removed, Utf8UnixPathBuf::from("src/Parts.sysml"));
+    assert!(!sources_of(&doc).contains("Parts.sysml"));
+}
+
+/// And a non-model argument still says what is wrong with it, rather
+/// than that it is not listed.
+#[test]
+fn excluding_a_file_that_is_no_source_says_so() {
+    let mut doc = opened(&with_sources("[]"));
+    let error = exclude_source(&mut doc, "README.md").expect_err("not a model file");
+    assert!(
+        matches!(&error, EditError::Sources(SourcesError::NotModelFile(path)) if path == "README.md"),
+        "unexpected error: {error}"
+    );
 }
 
 fn metamodel(value: &str) -> KnownMetamodel {

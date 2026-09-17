@@ -426,10 +426,10 @@ fn a_stdlib_project_omits_its_publisher() -> Result<(), Box<dyn std::error::Erro
     std::fs::write(
         dir.path().join("model.toml"),
         "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"omg\"\nname = \"kerml\"\n\
-         version = \"1.0.0\"\nsources = [\"a.sysml\"]\nstdlib = \"KerML\"\n\
+         version = \"1.0.0\"\nsources = [\"a.kerml\"]\nstdlib = \"KerML\"\n\
          metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n",
     )?;
-    std::fs::write(dir.path().join("a.sysml"), b"package A;\n")?;
+    std::fs::write(dir.path().join("a.kerml"), b"package A;\n")?;
 
     let (info, _) = built(&dir, false)?;
     assert_eq!(

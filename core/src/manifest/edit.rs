@@ -436,6 +436,12 @@ pub enum EditError {
     Sources(#[from] SourcesError),
     #[error("`{0}` is not listed in `sources`")]
     SourceNotListed(Utf8UnixPathBuf),
+    /// model-toml.md `sources`: entries are "relative to the project
+    /// root", and `include` converts what it is given into the form
+    /// `sources` takes -- which cannot be done for a path that leaves
+    /// the project.
+    #[error("`{0}` is outside the project, so it cannot be listed in `sources`")]
+    SourceOutsideProject(String),
     #[error("`{0}` is already declared")]
     DuplicateUsage(NormalizedIdentity),
     #[error("`{0}` is not declared")]
@@ -766,24 +772,51 @@ pub fn set_inherit_marker(
 /// invalid therefore fails naming an entry the caller did not touch,
 /// which is one honest message rather than two readings of the rule.
 pub fn include_source(doc: &mut DocumentMut, path: &str) -> Result<Utf8UnixPathBuf, EditError> {
+    let wanted = strict_entry(path)?;
     let array = sources_mut(doc)?;
     let mut candidate = entries(array);
-    candidate.push(Utf8UnixPathBuf::from(path));
-    let normalized = Sources::new(candidate)?;
-    let added = normalized
-        .as_slice()
-        .last()
-        .expect("a path was just pushed")
-        .clone();
+    candidate.push(wanted.clone());
+    Sources::new(candidate)?;
 
-    push_entry(array, added.as_str());
-    Ok(added)
+    push_entry(array, wanted.as_str());
+    Ok(wanted)
+}
+
+/// model-toml.md `sources`: "The commands that write `sources` (`sysand
+/// include`, `sysand migrate`) write this form, converting into it what
+/// they are given."
+///
+/// So `./a.sysml` becomes `a.sysml` here rather than being refused, and
+/// `../a.sysml` -- which no conversion can bring inside the project --
+/// is [`EditError::SourceOutsideProject`] rather than
+/// `normalize_relative`'s "points above the root it is relative to",
+/// which is about workspace members and says nothing about `sources`.
+fn strict_entry(path: &str) -> Result<Utf8UnixPathBuf, EditError> {
+    crate::utils::normalize_relative(path).map_err(|error| match error {
+        crate::utils::NormalizeRelativeError::EscapesRoot { .. }
+        | crate::utils::NormalizeRelativeError::IsRoot { .. } => {
+            EditError::SourceOutsideProject(path.to_owned())
+        }
+        crate::utils::NormalizeRelativeError::Absolute { .. } => {
+            EditError::Sources(SourcesError::NotRelative(path.to_owned()))
+        }
+        crate::utils::NormalizeRelativeError::ContainsBackslash { .. } => {
+            EditError::Sources(SourcesError::ContainsBackslash(path.to_owned()))
+        }
+        crate::utils::NormalizeRelativeError::ContainsNull { .. } => {
+            EditError::Sources(SourcesError::ContainsNull(path.to_owned()))
+        }
+    })
 }
 
 /// "`sysand exclude <paths>` removes it." Matching is by normalized
 /// path, so `./a.sysml` removes an entry written as `a.sysml`.
 pub fn exclude_source(doc: &mut DocumentMut, path: &str) -> Result<Utf8UnixPathBuf, EditError> {
-    let wanted = Sources::new(vec![Utf8UnixPathBuf::from(path)])?
+    // Converted like an `include` argument, and then held to the same
+    // rules -- so that `sysand exclude README.md` still says the entry
+    // is not a model file rather than that it is not listed.
+    let wanted = strict_entry(path)?;
+    let wanted = Sources::new(vec![wanted])?
         .as_slice()
         .first()
         .expect("one path in, one path out")
@@ -792,12 +825,7 @@ pub fn exclude_source(doc: &mut DocumentMut, path: &str) -> Result<Utf8UnixPathB
     let array = sources_mut(doc)?;
     let at = entries(array)
         .iter()
-        .position(|entry| {
-            crate::utils::normalize_relative(entry.as_str())
-                .ok()
-                .as_ref()
-                == Some(&wanted)
-        })
+        .position(|entry| *entry == wanted)
         .ok_or_else(|| EditError::SourceNotListed(wanted.clone()))?;
 
     remove_entry(array, at);

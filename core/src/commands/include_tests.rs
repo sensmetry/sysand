@@ -13,7 +13,8 @@ const MANIFEST: &str = "manifest-version = \"1.0.0\"\n\n\
                         name = \"widgets\"\n\
                         version = \"1.0.0\"\n\
                         # the files this project is made of\n\
-                        sources = [\n    \"Base.kerml\",\n]\n";
+                        sources = [\n    \"Base.kerml\",\n]\n\
+                        metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n";
 
 /// A `model.toml` project holding `Base.kerml` and one more file, so a
 /// `sources` entry can name something that is really there.
@@ -276,5 +277,39 @@ fn a_json_project_hashes_and_indexes() {
             .as_ref()
             .expect("checksums")
             .contains_key("Parts.sysml")
+    );
+}
+
+/// Before the manifest is touched, `include`
+/// refuses a file the project's metamodel does not admit, rather than
+/// writing an entry the next read would report.
+#[test]
+fn including_a_language_the_metamodel_does_not_admit_is_refused() {
+    let mut project = InMemoryProject {
+        model_toml: Some(MANIFEST.replace(
+            "https://www.omg.org/spec/SysML/20250201",
+            "https://www.omg.org/spec/KerML/20250201",
+        )),
+        ..Default::default()
+    };
+    let error = do_include(
+        &mut project,
+        [typed_path::Utf8UnixPathBuf::from("Parts.sysml")].into_iter(),
+        false,
+        true,
+        None,
+    )
+    .expect_err("a SysML file in a KerML project");
+    assert!(
+        matches!(&error, IncludeError::NotAdmitted(message) if message.contains("does not admit")),
+        "unexpected error: {error}"
+    );
+    assert!(
+        !project
+            .model_toml
+            .as_deref()
+            .expect("a manifest")
+            .contains("Parts.sysml"),
+        "nothing was written"
     );
 }

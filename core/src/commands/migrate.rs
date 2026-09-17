@@ -20,7 +20,7 @@ use typed_path::Utf8UnixPathBuf;
 use crate::{
     manifest::{
         ModelToml,
-        common::{Maintainer, Sources},
+        common::{Maintainer, Sources, admitted_source},
         diagnostics::{Diagnostic, ReadWarning, Report, Validated},
         inherit::MetaProperty,
         project::{ProjectManifest, ProjectTable, Urls},
@@ -87,7 +87,11 @@ pub fn migrate_project(
         }
     };
 
-    let sources = migrate_sources(meta, &mut report);
+    // model-toml.md "JSON to TOML": the metamodel "decides which source
+    // file types the migrated `sources` may list, so it is settled
+    // before that check runs".
+    let metamodel = migrate_metamodel(meta, options, &mut report);
+    let sources = migrate_sources(meta, metamodel.as_ref(), &mut report);
     let usages = migrate_usages(info, target, &mut report);
     check_duplicate_usages(&usages, &mut report);
     let license = info
@@ -127,8 +131,6 @@ pub fn migrate_project(
                 None
             }
         });
-    let metamodel = migrate_metamodel(meta, options, &mut report);
-
     warn_discarded(meta, &mut report);
 
     // Every value is built before this point, so the report holds every
@@ -186,9 +188,14 @@ fn migrate_publisher(
 /// refuses duplicates, and this union duplicates by construction --
 /// `index` maps *symbol* to path, so a file exporting ten symbols
 /// appears ten times.
-fn migrate_sources(meta: &InterchangeProjectMetadataRaw, report: &mut Report) -> Option<Sources> {
+fn migrate_sources(
+    meta: &InterchangeProjectMetadataRaw,
+    metamodel: Option<&KnownMetamodel>,
+    report: &mut Report,
+) -> Option<Sources> {
     let mut paths: IndexSet<Utf8UnixPathBuf> = IndexSet::new();
     let mut bad_checksum_keys: Vec<String> = Vec::new();
+    let mut unadmitted_checksum_keys: Vec<String> = Vec::new();
 
     let mut add = |raw: &str, from_checksum: bool, report: &mut Report| {
         let path = match normalize_relative(raw) {
@@ -213,6 +220,19 @@ fn migrate_sources(meta: &InterchangeProjectMetadataRaw, report: &mut Report) ->
             }
             return;
         }
+        // A model file of the language the metamodel does not admit.
+        // Skipped when the metamodel did not resolve, which has already
+        // been reported.
+        if let Some(kind) = metamodel
+            && admitted_source(&path, kind).is_err()
+        {
+            if from_checksum {
+                unadmitted_checksum_keys.push(raw.to_owned());
+            } else if let Err(problem) = admitted_source(&path, kind) {
+                report.push(problem);
+            }
+            return;
+        }
         paths.insert(path);
     };
 
@@ -226,14 +246,24 @@ fn migrate_sources(meta: &InterchangeProjectMetadataRaw, report: &mut Report) ->
     // One diagnostic naming every offending key, so a project with five
     // of them is told about five.
     if !bad_checksum_keys.is_empty() {
-        let names = bad_checksum_keys
-            .iter()
-            .map(|key| format!("`{key}`"))
-            .collect::<Vec<_>>()
-            .join(", ");
         report.push(Diagnostic::error(format!(
-            "`checksum` lists {names}, which are not KerML or SysML files and cannot be \
-             listed in `sources`; run `sysand exclude` on them before migrating"
+            "`checksum` lists {}, which are not KerML or SysML files and cannot be \
+             listed in `sources`; run `sysand exclude` on them before migrating",
+            listed(&bad_checksum_keys)
+        )));
+    }
+    // The same shape for the keys that *are* model files, of the
+    // language this project's metamodel does not admit.
+    // Two messages rather than one, because the first has no metamodel
+    // to name.
+    if let Some(kind) = metamodel
+        && !unadmitted_checksum_keys.is_empty()
+    {
+        report.push(Diagnostic::error(format!(
+            "`checksum` lists {}, whose type the metamodel `{}` does not admit; run \
+             `sysand exclude` on them before migrating",
+            listed(&unadmitted_checksum_keys),
+            kind
         )));
     }
 
@@ -246,8 +276,15 @@ fn migrate_sources(meta: &InterchangeProjectMetadataRaw, report: &mut Report) ->
     }
 }
 
-/// Appendix A2 row 52.
-///
+/// The keys of one aggregated `checksum` complaint, in the order the
+/// json manifest wrote them.
+fn listed(keys: &[String]) -> String {
+    keys.iter()
+        .map(|key| format!("`{key}`"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// model-toml.md "JSON to TOML": "`metamodel`: use as-is when it is one
 /// of the four recognized values. A json project may carry none, or one
 /// this Sysand does not recognize, and `model.toml` admits neither: the

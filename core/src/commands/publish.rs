@@ -771,13 +771,18 @@ pub enum PublishError {
     MissingFile { path: Box<str> },
     #[error("project metadata does not include a checksum for source file `{path}`")]
     MissingChecksumForFile { path: Box<str> },
-    #[error("project includes source file `{path}`, which does not have expected\n\
-        file extension `{}`; project metamodel `{metamodel_iri}`\n\
-        requires all source files to be {}", metamodel.file_ext(), metamodel.lang())]
+    /// model-toml.md "Metamodel": "a `KerML` project admits `.kerml`
+    /// files only, and a `SysML` project admits `.sysml` and `.kerml`".
+    /// A KPAR built from a json project never went through `Sources`,
+    /// so this is where such a file is refused.
+    #[error(
+        "project includes source file `{path}`, whose type the project metamodel\n\
+        `{metamodel_iri}` does not admit; a KerML project carries `.kerml` files,\n\
+        a SysML project `.sysml` and `.kerml` files"
+    )]
     IncorrectFileFormat {
         path: Box<str>,
         metamodel_iri: Box<str>,
-        metamodel: SpecKind,
     },
     #[error(
         "archive does not include license file `{path}`, required because\n\
@@ -1245,11 +1250,13 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
     }
 
     for (src_file, file_checksum) in file_checksums {
-        if !src_file.as_str().ends_with(metamodel_kind.file_ext()) {
+        // `admits`, not one extension per project: the rule is the
+        // manifest's (model-toml.md "Metamodel"), and a file that is no
+        // model file at all fails it too.
+        if !Language::guess_from_path(&src_file).is_some_and(|lang| metamodel_kind.admits(lang)) {
             return Err(PublishError::IncorrectFileFormat {
                 path: src_file.as_str().into(),
                 metamodel_iri: metamodel.to_string().into(),
-                metamodel: metamodel_kind,
             });
         }
 
@@ -1286,9 +1293,11 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
                     });
                 }
 
-                let actual_symbols =
-                    extract_symbols(&src_file, &source, Some(language(metamodel_kind)))
-                        .map_err(|e| PublishError::IndexFail { source: e })?;
+                // Guessed from the path, not forced: a SysML project may
+                // carry `.kerml` files, and the two have different
+                // extractors.
+                let actual_symbols = extract_symbols(&src_file, &source, None)
+                    .map_err(|e| PublishError::IndexFail { source: e })?;
                 // Actual symbols must be a superset of recorded
                 if let Some(symbols) = symbols_for_files.get(&src_file) {
                     for s in symbols {
@@ -1602,13 +1611,6 @@ fn check_std_libs(
             name: _,
             version_constraint: _,
         } => Ok(false),
-    }
-}
-
-fn language(spec: SpecKind) -> Language {
-    match spec {
-        SpecKind::SysMl => Language::SysML,
-        SpecKind::KerMl => Language::KerML,
     }
 }
 

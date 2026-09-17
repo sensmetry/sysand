@@ -23,8 +23,8 @@ use semver::Version;
 use spdx::Expression;
 
 use crate::manifest::common::{
-    InheritFrom, Maintainer, NormalizedIdentity, ResolvedUrls, Sources, SourcesError, StdlibStem,
-    normalized_identity,
+    InheritFrom, Maintainer, NormalizedIdentity, ResolvedUrls, Sources, StdlibStem,
+    admitted_source, normalized_identity,
 };
 use crate::manifest::diagnostics::{
     Diagnostic, KeyLocation, Position, ReadWarning, Report, Validated, missing_key,
@@ -105,6 +105,11 @@ pub struct ProjectTable {
     /// Syside metamodel, so v1 keeps only the fact, to warn about it.
     pub root: bool,
     pub urls: Option<MetaProperty<Urls>>,
+    /// Where each `sources` entry is, in the order they were written,
+    /// for the check of each entry against the metamodel -- which
+    /// likewise waits for the metamodel, by which time the reader that could point at an entry
+    /// is long gone.
+    sources_at: Vec<Option<Position>>,
     /// Where `stdlib` is, for the refusal that can only be decided once
     /// the metamodel is known.
     stdlib_at: Option<Position>,
@@ -191,6 +196,7 @@ impl ProjectTable {
             stdlib: None,
             root: false,
             urls: None,
+            sources_at: Vec::new(),
             stdlib_at: None,
             table_at: None,
         }
@@ -259,6 +265,10 @@ impl ProjectTable {
             &mut report,
             |report| sources(&reader, report),
         );
+        let (sources, sources_at) = match sources {
+            Some((sources, at)) => (Some(sources), at),
+            None => (None, Vec::new()),
+        };
         let license = inheritable(&reader, "license", &mut report, |report| {
             let raw = reader.string("license", report)?;
             checked(
@@ -359,6 +369,7 @@ impl ProjectTable {
                 stdlib,
                 root,
                 urls,
+                sources_at,
                 stdlib_at: reader.at("stdlib"),
                 table_at: reader.here(),
             }),
@@ -369,52 +380,32 @@ impl ProjectTable {
 
 /// model-toml.md `sources`. The rules are [`Sources::new`]'s; what is
 /// added here is where each complaint points.
-fn sources(reader: &TableReader<'_>, report: &mut Report) -> Option<Sources> {
+fn sources(
+    reader: &TableReader<'_>,
+    report: &mut Report,
+) -> Option<(Sources, Vec<Option<Position>>)> {
     let raw = reader.strings("sources", report)?;
     let paths = raw
         .iter()
         .map(|entry| typed_path::Utf8UnixPathBuf::from(*entry))
         .collect();
-    match Sources::new(paths) {
-        Ok(sources) => Some(sources),
-        Err(error) => {
-            report.push(
-                Diagnostic::error(error.to_string()).at_opt(sources_position(reader, &raw, &error)),
-            );
+    match Sources::check(paths) {
+        Ok(sources) => {
+            let at = (0..raw.len())
+                .map(|index| reader.at_element("sources", index))
+                .collect();
+            Some((sources, at))
+        }
+        Err(problems) => {
+            for (index, error) in problems {
+                report.push(
+                    Diagnostic::error(error.to_string())
+                        .at_opt(reader.at_element("sources", index)),
+                );
+            }
             None
         }
     }
-}
-
-/// Which entry of `sources` a complaint is about.
-///
-/// A duplicate names both spellings, and when they are identical a
-/// first-match search would point at the entry that is fine; the entry a
-/// reader would delete is the later one, which is also where
-/// `check_duplicates` points for usages.
-fn sources_position(
-    reader: &TableReader<'_>,
-    raw: &[&str],
-    error: &SourcesError,
-) -> Option<Position> {
-    let (entry, last) = match error {
-        SourcesError::Duplicate { second, first: _ } => (second.as_str(), true),
-        SourcesError::NotRelative(entry)
-        | SourcesError::ContainsBackslash(entry)
-        | SourcesError::ContainsNull(entry)
-        | SourcesError::EscapesRoot(entry)
-        | SourcesError::IsRoot(entry)
-        | SourcesError::IsDirectory(entry)
-        | SourcesError::NotModelFile(entry) => (entry.as_str(), false),
-    };
-    let index = if last {
-        raw.iter().rposition(|written| *written == entry)
-    } else {
-        raw.iter().position(|written| *written == entry)
-    };
-    index
-        .and_then(|index| reader.at_element("sources", index))
-        .or_else(|| reader.at("sources"))
 }
 
 fn urls(reader: &TableReader<'_>, report: &mut Report) -> Option<Urls> {
@@ -582,6 +573,7 @@ impl ProjectManifest {
             stdlib,
             root: _,
             urls,
+            sources_at,
             stdlib_at,
             table_at,
         } = project;
@@ -702,9 +694,30 @@ impl ProjectManifest {
         // plain missing-key text is right without a metamodel to name,
         // and one report holds both problems.
         let sources = sources.or_else(|| {
-            report.push(missing_sources(metamodel.as_ref()).at_opt(table_at));
+            report.push(missing_sources(metamodel.as_ref()).at_opt(table_at.clone()));
             None
         });
+
+        // model-toml.md "Metamodel": "The spec kind
+        // bounds what `sources` may list". Here and not in
+        // `Sources::new`, because the metamodel may itself be inherited
+        // and a table reader cannot know it; the entry's position was
+        // kept for exactly this.
+        if let (Some(sources), Some(kind)) = (sources.as_ref(), metamodel.as_ref()) {
+            for (index, entry) in sources.iter().enumerate() {
+                if let Err(problem) = admitted_source(entry, kind) {
+                    report.push(
+                        problem.at_opt(
+                            sources_at
+                                .get(index)
+                                .cloned()
+                                .flatten()
+                                .or_else(|| table_at.clone()),
+                        ),
+                    );
+                }
+            }
+        }
 
         // model-toml.md "Standard library": the key "is refused unless
         // the project's publisher normalizes to `omg` and its metamodel,

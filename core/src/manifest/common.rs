@@ -11,12 +11,12 @@ use std::fmt::Display;
 use fluent_uri::Iri;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
-use typed_path::Utf8UnixPathBuf;
+use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
-use crate::model::{IndexName, IndexPublisher};
+use crate::manifest::diagnostics::Diagnostic;
+use crate::model::{IndexName, IndexPublisher, KnownMetamodel};
 use crate::purl::PKG_SYSAND_PREFIX;
 use crate::symbols::Language;
-use crate::utils::{NormalizeRelativeError, normalize_relative};
 
 impl IndexPublisher {
     /// model-toml.md "Standard library": "A usage is a standard-library
@@ -269,13 +269,19 @@ pub enum SourcesError {
     ContainsBackslash(String),
     #[error("`sources` entry `{0}` contains a NULL character")]
     ContainsNull(String),
-    /// "An entry that escapes the project root once resolved ... is an
-    /// error, so that every listed file has a place in a KPAR."
-    #[error("`sources` entry `{0}` escapes the project root, so it has no place in a KPAR")]
-    EscapesRoot(String),
-    /// The entry resolves to the project root itself, so it names no file.
-    #[error("`sources` entry `{0}` is the project root, not a source file")]
-    IsRoot(String),
+    /// model-toml.md `sources`: "Entries are relative and `/`-separated,
+    /// and are taken exactly as written: rather than normalize a path and
+    /// then check where it landed, the manifest admits only the one form
+    /// Sysand itself writes."
+    ///
+    /// Nothing is resolved, which is why there is no "escapes the
+    /// project root" and no "is the project root": an entry that would
+    /// have escaped carries a `..`, and the root is the empty entry.
+    #[error(
+        "`sources` entry `{0}` is not in the form `sources` takes: entries are relative, \
+         `/`-separated,\nand carry no `.` or `..` component and no repeated or leading slash"
+    )]
+    NotStrict(String),
     /// "an entry with a trailing `/` names a directory and is an error;
     /// directories and globs are postponed to after v1".
     #[error(
@@ -283,13 +289,19 @@ pub enum SourcesError {
          (directories and globs are postponed to after v1)"
     )]
     IsDirectory(String),
-    /// "Two entries that normalize to the same file are a duplicate and
-    /// rejected." Both spellings are reported, since they may differ.
-    #[error("{}", duplicate_message(first, second))]
-    Duplicate { first: String, second: String },
+    /// "Two equal entries are a duplicate and rejected." Equal, not
+    /// equivalent: nothing is resolved, so there is one spelling to
+    /// report rather than two.
+    #[error("`sources` entry `{0}` is listed more than once")]
+    Duplicate(String),
     /// "Every entry names a KerML (`.kerml`) or SysML (`.sysml`) file, the
     /// extension compared case-insensitively ...; any other entry is an
     /// error. Files of other kinds are not listed in `sources`".
+    ///
+    /// The half of the language rule that needs no metamodel. Which of
+    /// the two languages a project may carry is [`admitted_source`],
+    /// raised where the metamodel is known --
+    /// `a.txt` has no language to name, which is why the two are apart.
     #[error(
         "`sources` entry `{0}` is not a KerML (`.kerml`) or SysML (`.sysml`) file; \
          `sources` lists model files only"
@@ -303,10 +315,10 @@ pub enum SourcesError {
 /// of source files, so a project that has none is written as
 /// `sources = []`."
 ///
-/// Entries are stored *normalized*: "The normalized form is what the
-/// manifest is taken to say: it is what the `checksum` and `index` maps of
-/// a built KPAR are keyed by, and what every command that writes `sources`
-/// writes."
+/// Entries are stored **as written**: "The entry as written is what the
+/// `checksum` and `index` maps of a built KPAR are keyed by. The commands
+/// that write `sources` (`sysand include`, `sysand migrate`) write this
+/// form, converting into it what they are given."
 ///
 /// `sources` "is per-project only: it cannot appear in `[workspace]` and
 /// cannot be inherited by a member ..., since the file layout of one
@@ -319,50 +331,61 @@ pub enum SourcesError {
 pub struct Sources(Vec<Utf8UnixPathBuf>);
 
 impl Sources {
-    /// Normalizes every entry and checks it against the rules of
-    /// [`SourcesError`]. Whether the files exist "is checked only for
-    /// build/publish, as with the license file, so reading a manifest
-    /// never touches them".
+    /// Checks every entry against the rules of [`SourcesError`] and
+    /// keeps it **as written**. Whether the files exist "is checked only
+    /// for build/publish, as with the license file, so reading a
+    /// manifest never touches them".
+    ///
+    /// Nothing is resolved: a `..` is an error rather than a step, so no
+    /// entry can escape the project root and none can name it.
     pub fn new(paths: Vec<Utf8UnixPathBuf>) -> Result<Self, SourcesError> {
-        let mut normalized: Vec<(Utf8UnixPathBuf, String)> = Vec::with_capacity(paths.len());
+        Self::check(paths).map_err(|mut problems| problems.swap_remove(0).1)
+    }
+
+    /// [`Self::new`], refusing with every entry that breaks a rule, with
+    /// its index, in list order; there is at least one. An entry is a
+    /// [`SourcesError::Duplicate`] when it repeats an earlier valid one, so
+    /// each repeat is reported where it is written; one that is also
+    /// invalid is reported as that.
+    pub fn check(paths: Vec<Utf8UnixPathBuf>) -> Result<Self, Vec<(usize, SourcesError)>> {
         let mut seen = BTreeSet::new();
-        for path in &paths {
-            let raw = path.as_str();
-            if raw.ends_with('/') {
-                return Err(SourcesError::IsDirectory(raw.to_owned()));
-            }
-            let path = normalize_relative(raw).map_err(|e| match e {
-                NormalizeRelativeError::Absolute { path: _ } => {
-                    SourcesError::NotRelative(raw.to_owned())
-                }
-                NormalizeRelativeError::ContainsBackslash { path: _ } => {
+        let problems: Vec<_> = paths
+            .iter()
+            .enumerate()
+            .filter_map(|(index, path)| {
+                let raw = path.as_str();
+                let error = if raw.ends_with('/') {
+                    SourcesError::IsDirectory(raw.to_owned())
+                } else if raw.contains('\\') {
                     SourcesError::ContainsBackslash(raw.to_owned())
-                }
-                NormalizeRelativeError::ContainsNull { path: _ } => {
+                } else if raw.contains('\0') {
                     SourcesError::ContainsNull(raw.to_owned())
-                }
-                NormalizeRelativeError::EscapesRoot { path: _ } => {
-                    SourcesError::EscapesRoot(raw.to_owned())
-                }
-                NormalizeRelativeError::IsRoot { path: _ } => SourcesError::IsRoot(raw.to_owned()),
-            })?;
-            if !seen.insert(path.clone()) {
-                let first = normalized
-                    .iter()
-                    .find(|(seen, _)| *seen == path)
-                    .map(|(_, first)| first.clone())
-                    .unwrap_or_default();
-                return Err(SourcesError::Duplicate {
-                    first,
-                    second: raw.to_owned(),
-                });
-            }
-            if Language::guess_from_path(&path).is_none() {
-                return Err(SourcesError::NotModelFile(raw.to_owned()));
-            }
-            normalized.push((path, raw.to_owned()));
+                } else if raw.starts_with('/')
+                    || typed_path::Utf8WindowsPath::new(raw).is_absolute()
+                {
+                    // A Windows drive letter is absolute too, and a test
+                    // for a leading `/` alone would take `C:/main.sysml`
+                    // for a relative path.
+                    SourcesError::NotRelative(raw.to_owned())
+                } else if raw.is_empty()
+                    || raw.split('/').any(|part| matches!(part, "" | "." | ".."))
+                {
+                    SourcesError::NotStrict(raw.to_owned())
+                } else if Language::guess_from_path(path).is_none() {
+                    SourcesError::NotModelFile(raw.to_owned())
+                } else if !seen.insert(raw) {
+                    SourcesError::Duplicate(raw.to_owned())
+                } else {
+                    return None;
+                };
+                Some((index, error))
+            })
+            .collect();
+        if problems.is_empty() {
+            Ok(Self(paths))
+        } else {
+            Err(problems)
         }
-        Ok(Self(normalized.into_iter().map(|(path, _)| path).collect()))
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &Utf8UnixPathBuf> {
@@ -384,12 +407,28 @@ impl Serialize for Sources {
     }
 }
 
-fn duplicate_message(first: &str, second: &str) -> String {
-    if first == second {
-        format!("`sources` entry `{first}` is listed more than once")
-    } else {
-        format!("`sources` entries `{first}` and `{second}` name the same file")
+/// The half of the language rule the metamodel decides.
+///
+/// model-toml.md "Metamodel": "The spec kind bounds what `sources` may
+/// list [...] An entry the metamodel does not admit is an error naming
+/// the entry and the metamodel; the fix is the metamodel that admits it,
+/// or a second project for the other language, which is how the standard
+/// library is split."
+///
+/// `Ok(())` for an entry that is not a model file at all: that is
+/// [`SourcesError::NotModelFile`]'s, and it needs no metamodel.
+pub fn admitted_source(entry: &Utf8UnixPath, metamodel: &KnownMetamodel) -> Result<(), Diagnostic> {
+    let Some(language) = Language::guess_from_path(entry) else {
+        return Ok(());
+    };
+    if metamodel.spec.admits(language) {
+        return Ok(());
     }
+    Err(Diagnostic::error(format!(
+        "`sources` entry `{entry}` is a {language} file, which the metamodel `{metamodel}` does \
+         not admit;\na KerML project lists `.kerml` files, a SysML project `.sysml` and \
+         `.kerml` files"
+    )))
 }
 
 #[cfg(test)]
