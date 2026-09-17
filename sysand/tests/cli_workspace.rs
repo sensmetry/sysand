@@ -1356,3 +1356,83 @@ fn migrate_warns_about_a_stray_config() -> Result<(), Box<dyn std::error::Error>
         )));
     Ok(())
 }
+
+/// `design/model-toml.md`: the cycle check "runs over the dependency
+/// graph whenever it is built — when a workspace is read, and when
+/// resolving or building". A cyclic workspace that locked would get a
+/// lockfile written for a graph with no build order.
+#[test]
+fn lock_refuses_a_cyclic_workspace() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = camino_tempfile::tempdir()?;
+    std::fs::write(
+        dir.path().join("model.toml"),
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"alpha\", \"beta\"]\n",
+    )?;
+    for (this, other) in [("alpha", "beta"), ("beta", "alpha")] {
+        std::fs::create_dir_all(dir.path().join(this))?;
+        std::fs::write(
+            dir.path().join(this).join("model.toml"),
+            format!(
+                "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\n\
+                 name = \"{this}\"\nversion = \"1.0.0\"\nsources = []\n\
+                 metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
+                 [[inline-usages]]\npublisher = \"acme\"\nname = \"{other}\"\n\
+                 dir = \"../{other}\"\n"
+            ),
+        )?;
+    }
+
+    run_sysand_discovering(dir.path(), ["lock", "--no-index"])?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "dependency cycle: `alpha` -> `beta` -> `alpha`; only projects that carry `stdlib` \
+             may form a cycle",
+        ));
+
+    assert!(
+        !dir.path().join(DEFAULT_LOCKFILE_NAME).exists(),
+        "no lockfile is written for a workspace that cannot be built"
+    );
+    Ok(())
+}
+
+/// `sources` names the cause, as `build` and `lock` do, rather than
+/// the symptom "(base path unknown) not found".
+#[test]
+fn sources_refuses_a_member_inheriting_a_local_usage() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = camino_tempfile::tempdir()?;
+    std::fs::write(
+        dir.path().join("model.toml"),
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\"]\n\n\
+         [[workspace.inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"dep\"\n",
+    )?;
+    for at in ["app", "dep"] {
+        std::fs::create_dir_all(dir.path().join(at))?;
+        std::fs::write(
+            dir.path().join(at).join("model.toml"),
+            format!(
+                "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\n\
+                 name = \"{at}\"\nversion = \"1.0.0\"\nsources = []\n\
+                 metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n"
+            ),
+        )?;
+    }
+    let app = dir.path().join("app").join("model.toml");
+    let text = std::fs::read_to_string(&app)?;
+    std::fs::write(
+        &app,
+        format!(
+            "{text}\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\nworkspace = true\n"
+        ),
+    )?;
+
+    run_sysand_discovering(dir.path(), ["sources"])?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "inherits the usage `acme/dep`, whose path `dep` is relative to the workspace root",
+        ))
+        .stderr(predicate::str::contains("base path unknown").not());
+    Ok(())
+}

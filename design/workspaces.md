@@ -291,7 +291,8 @@ another's. `sysand publish` takes the members in dependency order
 instead: a topological sort of the members' `dir` usages of each other,
 with the projects of an allowed cycle in `members` order. A dependency
 cycle is a hard error listing the cycle, unless every project on it
-carries the `stdlib` key (see model-toml.md, Circular dependencies).
+carries the `stdlib` key (see model-toml.md, Circular dependencies); it
+is reported when the workspace is read, so every command refuses it.
 `sysand build --allow-path-usage` applies to every member built.
 
 

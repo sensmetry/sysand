@@ -839,6 +839,8 @@ pub fn workspace_publish_order(
 
     // workspaces.md "Build output": members are published in dependency
     // order, a topological sort of their `dir` usages of each other.
+    // Loading the workspace refused every cycle the specification
+    // forbids, so the order has none left to report.
     //
     // Every member is a node, whether or not its directory resolves: a
     // member that cannot be read must fail with its own message, not

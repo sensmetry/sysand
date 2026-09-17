@@ -57,7 +57,7 @@ fn every_member_is_a_standard_library() {
 /// Semantic, Data-Type and Function are mutually dependent, and the
 /// release ships them that way. Every project on the cycle carries
 /// `stdlib`, so the exception in model-toml.md "Circular dependencies"
-/// applies.
+/// applies and the workspace loads.
 #[test]
 fn the_kernel_cycle_is_accepted() {
     let workspace = load();

@@ -773,6 +773,48 @@ fn toml_member(dir: &camino_tempfile::Utf8TempDir, at: &str, deps: &[&str], stdl
     std::fs::write(path.join("m.kerml"), b"package M;\n").expect("a member source");
 }
 
+/// A legacy json member: a json manifest has no `stdlib` key.
+fn json_member(dir: &camino_tempfile::Utf8TempDir, at: &str, deps: &[&str]) {
+    let path = dir.path().join(at);
+    std::fs::create_dir_all(&path).expect("the member directory");
+    let usages: Vec<String> = deps
+        .iter()
+        .map(|d| {
+            let name = usage_name(d);
+            format!(r#"{{"dir": "{d}", "publisher": "acme", "name": "{name}"}}"#)
+        })
+        .collect();
+    std::fs::write(
+        path.join(".project.json"),
+        format!(
+            r#"{{"name": "{at}", "publisher": "acme", "version": "1.0.0", "usage": [{}]}}"#,
+            usages.join(", ")
+        ),
+    )
+    .expect("a member manifest");
+    std::fs::write(
+        path.join(".meta.json"),
+        br#"{"created": "2001-02-03T04:05:06Z", "index": {}, "checksum": {}}"#,
+    )
+    .expect("a member metadata");
+}
+
+/// The refusal to load the workspace in `dir`.
+///
+/// A cycle among members is refused when the workspace is *read* --
+/// `design/model-toml.md` says the check runs "when a workspace is
+/// read, and when resolving or building" -- so a `Workspace` carrying
+/// one cannot be constructed, and these tests assert the refusal where
+/// it happens.
+fn load_workspace_err(dir: &camino_tempfile::Utf8TempDir) -> String {
+    crate::workspace::model_toml::Workspace::load_with(
+        dir.path(),
+        crate::workspace::model_toml::MemberChecks::All,
+    )
+    .expect_err("the workspace is refused")
+    .to_string()
+}
+
 /// The names of the archives, in the order they were built, of a
 /// workspace in which every member builds.
 fn build_workspace(dir: &camino_tempfile::Utf8TempDir) -> Vec<String> {
@@ -833,6 +875,73 @@ fn a_usage_of_a_non_member_is_not_an_edge() -> Result<(), Box<dyn std::error::Er
     toml_member(&dir, "beta", &["../outside"], false);
     toml_member(&dir, "gamma", &[], false);
     assert_eq!(build_workspace(&dir), vec!["gamma", "beta"]);
+    Ok(())
+}
+
+#[test]
+fn a_cycle_between_members_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    workspace_root(&dir, &["alpha", "beta"]);
+    toml_member(&dir, "alpha", &["../beta"], false);
+    toml_member(&dir, "beta", &["../alpha"], false);
+    let text = load_workspace_err(&dir);
+    assert!(text.contains("dependency cycle"), "{text}");
+    assert!(text.contains("alpha"), "{text}");
+    assert!(text.contains("beta"), "{text}");
+    // Named as the workspace names them, not as absolute paths.
+    assert!(!text.contains(dir.path().as_str()), "{text}");
+    Ok(())
+}
+
+#[test]
+fn a_member_that_depends_on_itself_is_a_cycle() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    workspace_root(&dir, &["alpha"]);
+    toml_member(&dir, "alpha", &["../alpha"], false);
+    let text = load_workspace_err(&dir);
+    assert!(text.contains("dependency cycle"), "{text}");
+    Ok(())
+}
+
+/// "unless every project on it carries the `stdlib` key ... such a cycle
+/// is built in `members` order".
+#[test]
+fn a_cycle_of_stdlib_members_is_allowed() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    workspace_root(&dir, &["beta", "alpha"]);
+    toml_member(&dir, "alpha", &["../beta"], true);
+    toml_member(&dir, "beta", &["../alpha"], true);
+    assert_eq!(build_workspace(&dir), vec!["beta", "alpha"]);
+    Ok(())
+}
+
+#[test]
+fn a_cycle_with_one_non_stdlib_member_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    workspace_root(&dir, &["alpha", "beta"]);
+    toml_member(&dir, "alpha", &["../beta"], true);
+    toml_member(&dir, "beta", &["../alpha"], false);
+    let text = load_workspace_err(&dir);
+    assert!(text.contains("dependency cycle"), "{text}");
+    assert!(text.contains("beta"), "{text}");
+    Ok(())
+}
+
+/// A json member's `dir` usages are read from `.project.json`.
+///
+/// Through `member_dependencies` directly rather than through a
+/// workspace: a json member is refused at load (`load_member`), so the
+/// arm this pins is not reachable that way. It is the arm every json
+/// *project* takes.
+#[test]
+fn a_json_project_s_dir_usages_are_its_dependencies() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    json_member(&dir, "alpha", &["../beta"]);
+
+    let dependencies = super::member_dependencies(
+        &crate::project::local_src::LocalSrcProject::new_access(dir.path().join("alpha"), None),
+    );
+    assert_eq!(dependencies, vec!["../beta".to_owned()]);
     Ok(())
 }
 
@@ -974,6 +1083,20 @@ fn publish_order_is_the_dependency_order() -> Result<(), Box<dyn std::error::Err
         ],
         "the full archive path matters: a member-directory `output/` is also under the root"
     );
+    Ok(())
+}
+
+#[test]
+fn publish_order_refuses_a_cycle() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    workspace_root(&dir, &["alpha", "beta"]);
+    toml_member(&dir, "alpha", &["../beta"], false);
+    toml_member(&dir, "beta", &["../alpha"], false);
+
+    // A cycle is refused when the workspace is read, before a publish
+    // order can be asked of it.
+    let text = load_workspace_err(&dir);
+    assert!(text.contains("dependency cycle"), "{text}");
     Ok(())
 }
 

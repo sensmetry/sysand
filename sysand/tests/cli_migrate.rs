@@ -9,7 +9,7 @@
 mod common;
 
 use assert_cmd::prelude::*;
-use camino::Utf8Path;
+use camino::{Utf8Path, Utf8PathBuf};
 use predicates::prelude::*;
 
 use common::{git_commit_files, new_temp_cwd, run_sysand_in, write_legacy_project};
@@ -1324,4 +1324,87 @@ fn a_lone_meta_json_beside_a_toml_is_finished_off() -> Result<(), Box<dyn std::e
         "the manifest is untouched"
     );
     Ok(())
+}
+
+/// `sysand migrate` on the `sysand/tests/data/test_lib` fixture (copied
+/// into a git repository) yields the expected `model.toml`, and the
+/// project then locks, syncs and builds.
+///
+/// The point is that a migrated project is a *working* project, not a
+/// well-formed file.
+///
+/// Offline: the fixture's `usage` is empty, so migrate needs no index
+/// and lock has nothing to resolve. It carries neither a publisher nor
+/// a metamodel, so both are supplied — which is itself worth pinning,
+/// a legacy json project having had neither.
+#[test]
+fn the_test_lib_fixture_migrates_then_locks_syncs_and_builds()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    let fixture = Utf8PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data/test_lib");
+    for entry in walk(&fixture)? {
+        let relative = entry.strip_prefix(&fixture)?;
+        let target = cwd.join(relative);
+        if entry.is_dir() {
+            std::fs::create_dir_all(&target)?;
+        } else {
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::copy(&entry, &target)?;
+        }
+    }
+    git_repo(&cwd, true)?;
+
+    run_sysand_in(
+        &cwd,
+        [
+            "migrate",
+            "--publisher",
+            "acme",
+            "--metamodel",
+            "https://www.omg.org/spec/SysML/20250201",
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+
+    let manifest = std::fs::read_to_string(cwd.join("model.toml"))?;
+    assert!(manifest.contains("name = \"Lib test\""), "{manifest}");
+    assert!(manifest.contains("publisher = \"acme\""), "{manifest}");
+    assert!(!cwd.join(".project.json").exists());
+
+    // The three that make it a working project rather than a file.
+    run_sysand_in(&cwd, ["lock", "--no-index"], None)?
+        .assert()
+        .success();
+    run_sysand_in(&cwd, ["sync", "--no-index"], None)?
+        .assert()
+        .success();
+    run_sysand_in(&cwd, ["build"], None)?.assert().success();
+
+    // `Lib test` is the one name in the flow that normalizes, and it
+    // normalizes only for the archive.
+    assert!(
+        cwd.join("output/Lib_test-0.0.1.kpar").is_file(),
+        "{:?}",
+        std::fs::read_dir(cwd.join("output"))?.collect::<Vec<_>>()
+    );
+    Ok(())
+}
+
+/// Every file under `dir`, directories included.
+fn walk(dir: &Utf8Path) -> Result<Vec<Utf8PathBuf>, Box<dyn std::error::Error>> {
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(dir)? {
+        let path = Utf8PathBuf::try_from(entry?.path())?;
+        if path.is_dir() {
+            found.push(path.clone());
+            found.extend(walk(&path)?);
+        } else {
+            found.push(path);
+        }
+    }
+    Ok(found)
 }
