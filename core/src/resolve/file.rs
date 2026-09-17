@@ -462,11 +462,13 @@ impl ResolveRead for FileResolver {
                     let res = self.check_sandbox(path)?;
                     // Before the outcome is built, for the reason the
                     // `Directory` arm classifies early: an unlisted
-                    // target is an error, not a resolution. Without it a
-                    // `kpar-url` was the one spelling of a usage that
-                    // walked around the rule, and the unlisted project
-                    // was written into the *workspace* lockfile.
+                    // target is an error, not a resolution, and would
+                    // otherwise be written into the *workspace* lockfile.
                     let origin = resolve.origin();
+                    // Whether a toml `kpar-url` usage declared a publisher
+                    // and name. The lock checks the target against them;
+                    // here it decides the candidates.
+                    let declares_identity = resolve.declared_identity().is_some();
                     res.try_map(|path| {
                         // `model-toml.md`: `kpar-url` "is used for
                         // standard-compliant KPARs", so a directory-style
@@ -497,14 +499,33 @@ impl ResolveRead for FileResolver {
                                 },
                             ));
                         }
-                        Ok(vec![
-                            Ok(FileResolverProject::LocalSrcProject(
-                                LocalSrcProject::new_access(path.clone(), None),
-                            )),
-                            Ok(FileResolverProject::LocalKParProject(
+                        // `None` for a json `resource` usage, whose
+                        // identity *is* the IRI, and for a
+                        // standard-library `kpar-url`, which declares no
+                        // publisher.
+                        Ok(if declares_identity {
+                            // One candidate, not two: a toml `kpar-url`
+                            // names a KPAR, so the unpacked-directory
+                            // candidate cannot succeed -- the check
+                            // above refuses a directory target outright.
+                            // Offering it anyway would cost the error
+                            // message, since two failing candidates are
+                            // reported as "no valid candidates found"
+                            // and the identity mismatch would never
+                            // reach the user.
+                            vec![Ok(FileResolverProject::LocalKParProject(
                                 LocalKParProject::new_access(path, KparInnerPath::Guess, None),
-                            )),
-                        ])
+                            ))]
+                        } else {
+                            vec![
+                                Ok(FileResolverProject::LocalSrcProject(
+                                    LocalSrcProject::new_access(path.clone(), None),
+                                )),
+                                Ok(FileResolverProject::LocalKParProject(
+                                    LocalKParProject::new_access(path, KparInnerPath::Guess, None),
+                                )),
+                            ]
+                        })
                     })
                 }
                 None => Ok(ResolutionOutcome::UnsupportedUsageType {

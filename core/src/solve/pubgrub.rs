@@ -309,9 +309,21 @@ enum OnBrokenCandidate<'a> {
 }
 
 impl<'a> OnBrokenCandidate<'a> {
-    fn of(usage: &'a InterchangeProjectUsage) -> Self {
+    fn of(info: &'a ResolutionInfo) -> Self {
         // Candidates from env don't change the logic here
-        match usage {
+        match info.usage() {
+            // A toml `kpar-url` that declared an identity counts as typed,
+            // which is what `model.rs` means by the word: "Typed usages
+            // separate the two roles: identity is always publisher+name,
+            // and the source is explicit". It carries the pair and offers
+            // one candidate, so a failure is *the* answer rather than one
+            // alternative not working out -- and demoting it to a debug
+            // line is what would hide the lock's spelling check behind
+            // "no valid candidates found".
+            InterchangeProjectUsage::Resource {
+                resource: _,
+                version_constraint: _,
+            } if info.declared_identity().is_some() => Self::Fail,
             // Resource usages may produce invalid candidates that should not fail
             // the whole resolution (e.g. both src and kpar variants for paths and http)
             InterchangeProjectUsage::Resource {
@@ -508,7 +520,7 @@ fn resolve_candidates<R: ResolveRead + fmt::Debug>(
     resolve: &CoalescingUsage,
     cache: &mut CandidateMap<R>,
 ) -> Result<Vec<CandidateSummary>, InternalSolverError<R>> {
-    let on_broken = OnBrokenCandidate::of(resolve.usage().usage());
+    let on_broken = OnBrokenCandidate::of(resolve.usage());
     let entry = cache.entry(resolve.to_id());
 
     // TODO: decide on a resolution policy. Currently the cache is keyed by Identifier,

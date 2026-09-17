@@ -1306,6 +1306,56 @@ fn a_json_resource_naming_a_directory_still_resolves() {
     lock_workspace(&dir).expect("a json `resource` usage still names a directory");
 }
 
+/// The same check from a workspace member, which is the other lock
+/// entry point.
+///
+/// Both funnel through `do_lock_projects_with_bases`, which is where
+/// the declared pair is read off the manifest -- so covering one covers
+/// the other, and this is what says so.
+#[cfg(feature = "filesystem")]
+#[test]
+fn a_member_kpar_url_that_misnames_its_target_is_refused() {
+    let dir = camino_tempfile::tempdir().expect("a temporary directory");
+    std::fs::create_dir_all(dir.path().join("dep")).expect("the target directory");
+    std::fs::write(dir.path().join("dep/model.toml"), member_toml("dep", ""))
+        .expect("the target manifest");
+    // Built rather than written: a `kpar-url` names a KPAR.
+    let archive = dir.path().join("dep.kpar");
+    crate::commands::build::do_build_kpar(
+        &crate::project::local_src::LocalSrcProject::new_access(dir.path().join("dep"), None),
+        &archive,
+        crate::commands::build::KparCompressionMethod::Stored,
+        true,
+        false,
+    )
+    .expect("the target builds");
+
+    std::fs::write(
+        dir.path().join("model.toml"),
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\"]\nexclude = [\"dep\"]\n",
+    )
+    .expect("the root manifest");
+    std::fs::create_dir_all(dir.path().join("app")).expect("the member directory");
+    std::fs::write(
+        dir.path().join("app/model.toml"),
+        member_toml(
+            "alpha",
+            &format!(
+                "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"wrongname\"\n\
+                 kpar-url = \"file://{archive}\"\n"
+            ),
+        ),
+    )
+    .expect("the member manifest");
+
+    let error = lock_workspace(&dir).expect_err("a member's usage names its target too");
+    let message = crate::utils::format_err(error);
+    assert!(
+        message.contains("is rejected because its spelling does not match the project's"),
+        "got: {message}"
+    );
+}
+
 /// A metamodel direction error stops the lock, rather than being
 /// written into the lockfile.""
 ///

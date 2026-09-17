@@ -382,10 +382,52 @@ fn lock_projects<
             usages: validated_info.usage.iter().map(Usage::from).collect(),
         });
 
+        // What a toml `kpar-url` usage declared, by IRI. The view this
+        // loop iterates cannot carry it -- `InterchangeProjectUsage::Resource`
+        // is KerML's untyped usage, where the IRI *is* the identity --
+        // so it is read from the manifest here and travels on the
+        // `ResolutionInfo`, which is what lets `FileResolver` check the
+        // target the same way it checks a `dir` or `kpar-path` one.
+        //
+        // Read here, where the usages are resolved, so that the check
+        // applies to whatever resolves through this function rather than
+        // to `lock` alone.
+        //
+        // A project with no `model.toml` answers `Err(NoTomlManifest)`,
+        // which is not an error: a json project declares no `kpar-url`
+        // usages at all.
+        let declared_identities: HashMap<String, (String, String)> = project
+            .manifest()
+            .map(|manifest| {
+                manifest
+                    .usages
+                    .iter()
+                    .filter_map(|located| match &located.usage {
+                        crate::manifest::usage::Usage::RemoteKpar {
+                            publisher: Some(publisher),
+                            name,
+                            url,
+                        } => Some((url.to_string(), (publisher.to_string(), name.to_string()))),
+                        // A standard-library usage declares no
+                        // publisher, so there is nothing to check it
+                        // against.
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
         all_deps.extend(validated_info.usage.into_iter().map(|usage| {
+            let declared_identity = match &usage {
+                crate::model::InterchangeProjectUsage::Resource { resource, .. } => {
+                    declared_identities.get(&resource.to_string()).cloned()
+                }
+                _ => None,
+            };
             (
                 crate::resolve::ResolutionInfo::new_declared_in(usage, base_path.clone(), origin)
-                    .declared_by(declarer.clone()),
+                    .declared_by(declarer.clone())
+                    .declaring_identity(declared_identity),
                 DeclaredBy::Input(named_project_label.clone()),
             )
         }));
@@ -483,7 +525,7 @@ fn lock_extend<
     let mut typed_usages: Vec<(TypedSpelling, DeclaredBy)> = inputs
         .iter()
         .zip(declared_by)
-        .filter_map(|(info, declared_by)| Some((TypedSpelling::of(info.usage())?, declared_by)))
+        .filter_map(|(info, declared_by)| Some((TypedSpelling::of_info(info)?, declared_by)))
         .collect();
     // Publisher, name and version of each solved project
     let mut solved = HashMap::new();
@@ -642,6 +684,9 @@ struct TypedSpelling {
     kind: &'static str,
     publisher: String,
     name: String,
+    /// What the usage resolves under: the publisher and name for a typed
+    /// usage, the IRI for a `kpar-url` usage that declares them
+    identifier: Identifier,
 }
 
 impl TypedSpelling {
@@ -652,6 +697,26 @@ impl TypedSpelling {
             kind: usage.kind_with_article(),
             publisher: publisher.to_owned(),
             name: name.to_owned(),
+            identifier: Identifier::from_pub_name(publisher, name),
+        })
+    }
+
+    /// [`Self::of`], and also a toml `kpar-url` usage that declares a
+    /// publisher and name: the view cannot carry them (the resource usage
+    /// is KerML's untyped one, where the IRI is the identity), so they
+    /// travel on the [`crate::resolve::ResolutionInfo`] instead, read off
+    /// the manifest in [`do_lock_projects_with_bases`]. The target is then
+    /// checked exactly as a `dir` or `kpar-path` target is.
+    fn of_info(info: &crate::resolve::ResolutionInfo) -> Option<Self> {
+        if let Some(spelling) = Self::of(info.usage()) {
+            return Some(spelling);
+        }
+        let (publisher, name) = info.declared_identity()?;
+        Some(Self {
+            kind: "a `kpar-url`",
+            publisher: publisher.to_owned(),
+            name: name.to_owned(),
+            identifier: info.id(),
         })
     }
 }
@@ -670,13 +735,12 @@ fn check_typed_usages(
     respelled: Option<&Identifier>,
 ) -> Result<(), Box<TypedUsageMismatchError>> {
     for (usage, declared_by) in typed_usages {
-        let identifier = Identifier::from_pub_name(&usage.publisher, &usage.name);
-        if matches!(declared_by, DeclaredBy::Input(_)) && respelled == Some(&identifier) {
+        if matches!(declared_by, DeclaredBy::Input(_)) && respelled == Some(&usage.identifier) {
             continue;
         }
         // Not being in the solution is not a mismatch: e.g. a project the
         // caller provides, or one already in the lock
-        let Some((publisher, name, version)) = solved.get(&identifier) else {
+        let Some((publisher, name, version)) = solved.get(&usage.identifier) else {
             continue;
         };
         if publisher.as_deref() != Some(usage.publisher.as_str()) || *name != usage.name {

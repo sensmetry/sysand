@@ -1299,6 +1299,171 @@ fn a_kpar_url_naming_a_local_archive_resolves() -> Result<(), Box<dyn std::error
     Ok(())
 }
 
+/// A `kpar-url` usage names its target, and the target is checked.
+///
+/// Unchecked, the usage could declare anything and `lock` would write a
+/// lockfile that silently disagreed with the manifest that produced it.
+/// `InterchangeProjectUsage::Resource` cannot carry the
+/// declared pair -- it is KerML's untyped usage, where the IRI *is* the
+/// identity -- so the pair travels on the `ResolutionInfo` instead and
+/// the lock checks the target against it exactly as it checks a `dir` or
+/// `kpar-path` target.
+///
+/// The comparison is **literal**, as it is for those two, so `Acme`
+/// against `acme` is refused.
+fn kpar_url_identity_case(
+    publisher: &str,
+    name: &str,
+) -> Result<(camino_tempfile::Utf8TempDir, camino::Utf8PathBuf), Box<dyn std::error::Error>> {
+    let (temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--metamodel",
+            "https://www.omg.org/spec/SysML/20250201",
+            "--publisher",
+            "acme",
+            "--name",
+            "dep",
+            "--version",
+            "1.0.0",
+        ],
+        None,
+    )?;
+    out.assert().success();
+    run_sysand_in(&cwd, ["build", "dep.kpar"], None)?
+        .assert()
+        .success();
+
+    let app = cwd.join("app");
+    std::fs::create_dir_all(&app)?;
+    run_sysand_in(
+        &app,
+        [
+            "init",
+            "--metamodel",
+            "https://www.omg.org/spec/SysML/20250201",
+            "--publisher",
+            "acme",
+            "--name",
+            "app",
+            "--version",
+            "1.0.0",
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+    let manifest_path = app.join("model.toml");
+    let manifest = std::fs::read_to_string(&manifest_path)?;
+    std::fs::write(
+        &manifest_path,
+        format!(
+            "{manifest}\n[[inline-usages]]\npublisher = \"{publisher}\"\nname = \"{name}\"\n\
+             kpar-url = \"file://{}\"\n",
+            cwd.join("dep.kpar")
+        ),
+    )?;
+    Ok((temp_dir, app))
+}
+
+const SPELLS_AS_DECLARED: &str = "is rejected because its spelling does not match the project's";
+
+#[test]
+fn a_kpar_url_usage_with_the_wrong_name_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, app) = kpar_url_identity_case("acme", "wrongname")?;
+    run_sysand_in(&app, ["lock", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(SPELLS_AS_DECLARED));
+    Ok(())
+}
+
+#[test]
+fn a_kpar_url_usage_with_the_wrong_publisher_is_refused() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_temp_dir, app) = kpar_url_identity_case("wrongpub", "dep")?;
+    run_sysand_in(&app, ["lock", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(SPELLS_AS_DECLARED));
+    Ok(())
+}
+
+/// A difference only normalization would erase is still a difference,
+/// which is what the `dir` and `kpar-path` rules say too.
+#[test]
+fn a_kpar_url_usage_that_differs_only_by_normalization_is_refused()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, app) = kpar_url_identity_case("Acme", "dep")?;
+    run_sysand_in(&app, ["lock", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(SPELLS_AS_DECLARED));
+    Ok(())
+}
+
+#[test]
+fn a_kpar_url_usage_that_names_its_target_locks() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, app) = kpar_url_identity_case("acme", "dep")?;
+    run_sysand_in(&app, ["lock", "--no-index"], None)?
+        .assert()
+        .success();
+    Ok(())
+}
+
+/// `sync` with no lockfile resolves and writes one, and `clone`
+/// resolves through its own call -- neither goes through `lock`.
+///
+/// These two are why the check is attached to the usage rather than
+/// applied to a finished lockfile: a post-lock comparison would cover
+/// `lock` alone, and `clone`'s destination is a json project,
+/// where there is no `model.toml` to compare against at all.
+#[test]
+fn sync_without_a_lockfile_refuses_the_same_mismatch() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, app) = kpar_url_identity_case("acme", "wrongname")?;
+    run_sysand_in(&app, ["sync", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(SPELLS_AS_DECLARED));
+    Ok(())
+}
+
+/// `clone` does **not** refuse the mismatch.
+///
+/// It locks its *destination*, and cloning a `model.toml` project
+/// writes a `.project.json` pair there (pinned by
+/// `clone_of_a_toml_project_writes_a_json_pair`). By the time the lock
+/// runs there is no `model.toml` to read the declared pair from, and
+/// json has no field to carry it -- so a mismatch `lock` refuses in the
+/// source project is accepted in a clone of it.
+///
+/// A characterisation test: if `clone` comes to preserve the toml
+/// project, this test fails and says so.
+#[test]
+fn cloning_does_not_carry_the_identity_check() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, app) = kpar_url_identity_case("acme", "wrongname")?;
+    let target = app.join("cloned");
+    run_sysand_in(
+        &app,
+        [
+            "clone",
+            "--dir",
+            app.as_str(),
+            "--target",
+            target.as_str(),
+            "--no-index",
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+    assert!(
+        target.join(".project.json").is_file(),
+        "the destination is json, which is why the check cannot apply"
+    );
+    Ok(())
+}
+
 /// End to end. model-toml.md "Standard library": by default the
 /// standard library is "provided by the tooling" -- `lock` resolves the
 /// publisher-less `kpar-url` against the metadata Sysand embeds, without
