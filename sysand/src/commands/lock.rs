@@ -119,10 +119,10 @@ pub fn command_lock_workspace<Policy: HTTPAuthentication>(
     auth_policy: Arc<Policy>,
     ctx: &ProjectContext,
 ) -> Result<sysand_core::lock::Lock> {
-    // `SkipStrayState`: a member may hold an `output/` or a lockfile of
-    // its own from an earlier run, and is still a member.
-    // `do_lock_workspace`'s own contract asks for it.
-    let workspace = Workspace::load_with(root, MemberChecks::SkipStrayState)?;
+    // `MemberChecks::All`: the lockfile, `.sysand` and `output` live at
+    // the workspace root, so a member holds no state of its own and a
+    // member that does is refused.
+    let workspace = Workspace::load_with(root, MemberChecks::All)?;
 
     let provided_iris = if resolution_opts.include_std {
         HashMap::default()

@@ -122,7 +122,7 @@ pub fn command_sources_workspace(
         workspace::model_toml::{MemberChecks, Workspace},
     };
 
-    let workspace = Workspace::load_with(root, MemberChecks::SkipStrayState)?;
+    let workspace = Workspace::load_with(root, MemberChecks::All)?;
     let table = Arc::new(workspace.table().clone());
 
     let mut seen = HashSet::new();

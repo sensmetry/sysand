@@ -781,8 +781,8 @@ fn lock_workspace(
     >,
 > {
     use crate::workspace::model_toml::{MemberChecks, Workspace};
-    let workspace = Workspace::load_with(dir.path(), MemberChecks::SkipStrayState)
-        .expect("the workspace loads");
+    let workspace =
+        Workspace::load_with(dir.path(), MemberChecks::All).expect("the workspace loads");
     let ctx = workspace_ctx(workspace.root());
     super::do_lock_workspace(
         &workspace,
