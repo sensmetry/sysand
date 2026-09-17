@@ -525,7 +525,10 @@ fn resolve_remote_target<Policy: HTTPAuthentication>(
     // at an `http(s)` URL are written this way -- the specification's
     // rule is unconditional, and the resolver accepts either.
     Ok(Usage::RemoteKpar {
-        publisher,
+        // A publisher is always written here: a json `resource` usage of
+        // an OMG standard-library IRI migrating to the publisher-less
+        // form is iteration 69's work (`plans/68` §2).
+        publisher: Some(publisher),
         name,
         url: fluent_uri::Iri::parse(resource.to_owned())
             .map_err(|(e, _)| format!("`{resource}` is not a valid IRI: {e}"))?,

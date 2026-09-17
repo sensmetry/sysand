@@ -1234,3 +1234,59 @@ fn lock_reports_why_a_dir_usage_failed() -> Result<(), Box<dyn std::error::Error
 
     Ok(())
 }
+
+/// End to end. model-toml.md "Standard library": by default the
+/// standard library is "provided by the tooling" -- `lock` resolves the
+/// publisher-less `kpar-url` against the metadata Sysand embeds, without
+/// network or index, and `sync` installs nothing.
+///
+/// The lockfile records the **IRI**, not `(omg, <name>)`: resolution is
+/// by IRI, and every embedded asset declares no publisher.
+#[test]
+fn a_toml_stdlib_usage_locks_and_syncs_offline() -> Result<(), Box<dyn std::error::Error>> {
+    const IRI: &str = "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar";
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--metamodel",
+            "https://www.omg.org/spec/KerML/20250201",
+            "--publisher",
+            "acme",
+            "--name",
+            "app",
+            "--version",
+            "1.0.0",
+        ],
+        None,
+    )?;
+    out.assert().success();
+
+    let manifest_path = cwd.join("model.toml");
+    let manifest = std::fs::read_to_string(&manifest_path)?;
+    std::fs::write(
+        &manifest_path,
+        format!(
+            "{manifest}\n[[inline-usages]]\nname = \"Semantic-Library\"\nkpar-url = \"{IRI}\"\n"
+        ),
+    )?;
+
+    run_sysand_in(&cwd, ["lock", "--no-index"], None)?
+        .assert()
+        .success();
+
+    let lockfile = std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?;
+    assert!(lockfile.contains(IRI), "{lockfile}");
+    assert!(
+        lockfile.contains("name = \"Kernel Semantic Library\""),
+        "{lockfile}"
+    );
+    // "provided by the tooling": no source list to install from.
+    assert!(!lockfile.contains("publisher = \"omg\""), "{lockfile}");
+
+    run_sysand_in(&cwd, ["sync", "--no-index"], None)?
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("nothing to do"));
+
+    Ok(())
+}

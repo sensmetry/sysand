@@ -17,13 +17,15 @@ use serde::Serialize;
 use typed_path::Utf8UnixPathBuf;
 
 use crate::manifest::common::InheritMarker;
-use crate::manifest::common::{InheritFrom, NormalizedIdentity, normalized_identity};
+use crate::manifest::common::{
+    InheritFrom, NormalizedIdentity, OMG_PUBLISHER, normalized_identity,
+};
 use crate::manifest::diagnostics::{
     Diagnostic, KeyLocation, Position, Report, UnknownKeys, missing_key,
 };
 use crate::manifest::reader::describe;
 use crate::manifest::spans::Positions;
-use crate::model::{IndexName, IndexPublisher};
+use crate::model::{IndexName, IndexPublisher, is_omg_stdlib_iri};
 
 /// The keys a usage entry accepts, quoted as the
 /// message lists them. One constant, so that the message and the fields
@@ -71,36 +73,33 @@ pub enum Usage {
     },
     /// `remote-kpar: kpar-url, publisher, name`; "version constraint not
     /// supported".
+    ///
+    /// The publisher is optional, and absent exactly for a
+    /// standard-library usage: model-toml.md "Standard library" says
+    /// `publisher` "is absent, which is allowed here and nowhere else".
+    /// Such a usage's identity is `(omg, <name>)`.
     RemoteKpar {
-        publisher: IndexPublisher,
+        publisher: Option<IndexPublisher>,
         name: IndexName,
         url: Iri<String>,
     },
 }
 
 impl Usage {
-    pub fn publisher(&self) -> &IndexPublisher {
+    /// The publisher as *written*, which a standard-library usage does
+    /// not write.
+    ///
+    /// Deliberately not `(omg, ...)`'s `omg`: that is the identity this
+    /// usage resolves under, not a word its author typed, and a
+    /// workspace group opt-in, which matches literally, or a label, which
+    /// quotes the entry back, would be wrong to see it.
+    /// [`Self::identity`] is where the fallback belongs.
+    pub fn publisher(&self) -> Option<&IndexPublisher> {
         match self {
-            Self::SourcePath {
-                publisher,
-                name: _,
-                dir: _,
-            }
-            | Self::KparPath {
-                publisher,
-                name: _,
-                kpar_path: _,
-            }
-            | Self::Index {
-                publisher,
-                name: _,
-                version_constraint: _,
-            }
-            | Self::RemoteKpar {
-                publisher,
-                name: _,
-                url: _,
-            } => publisher,
+            Self::SourcePath { publisher, .. }
+            | Self::KparPath { publisher, .. }
+            | Self::Index { publisher, .. } => Some(publisher),
+            Self::RemoteKpar { publisher, .. } => publisher.as_ref(),
         }
     }
 
@@ -131,8 +130,22 @@ impl Usage {
 
     /// model-toml.md "Normalization": "All projects are resolved by their
     /// *normalized* identity, regardless of how the usage is declared."
+    /// model-toml.md "Standard library": a usage that declares no
+    /// publisher "has the identity `(omg, <name>)`".
     pub fn identity(&self) -> NormalizedIdentity {
-        normalized_identity(self.publisher(), self.name())
+        normalized_identity(self.publisher().unwrap_or(&OMG_PUBLISHER), self.name())
+    }
+
+    /// Whether this is a standard-library usage: a `kpar-url` at an OMG
+    /// standard-library IRI that declares no publisher.
+    pub fn is_stdlib(&self) -> bool {
+        matches!(
+            self,
+            Self::RemoteKpar {
+                publisher: None,
+                ..
+            }
+        )
     }
 
     /// The `dir`/`kpar-path` of a local usage, as written.
@@ -282,7 +295,7 @@ impl UsageEntry for Usage {
     }
 
     fn label(&self) -> String {
-        format!("{}/{}", self.publisher(), self.name())
+        self.to_string()
     }
 }
 
@@ -472,11 +485,15 @@ impl UsageRaw {
     /// The entry as the messages name it: `<publisher>/<name>` as
     /// written, with `<none>` for a half that is missing.
     pub fn label(&self) -> String {
-        format!(
-            "{}/{}",
-            self.publisher.as_deref().unwrap_or(MISSING),
-            self.name.as_deref().unwrap_or(MISSING)
-        )
+        let name = self.name.as_deref().unwrap_or(MISSING);
+        match self.publisher.as_deref() {
+            Some(publisher) => format!("{publisher}/{name}"),
+            // A standard-library usage declares no publisher and is
+            // spelled by its name alone; an entry that *should* have one
+            // is told so separately, and `<none>/lib` would only make
+            // every other message about it harder to read.
+            None => name.to_owned(),
+        }
     }
 
     /// Validate one entry of a *workspace group's* array, which has
@@ -567,7 +584,22 @@ impl UsageRaw {
         }
 
         let name = self.checked_name(site, positions, &mut report);
-        let publisher = self.checked_publisher(site, positions, &mut report, name.as_ref());
+
+        // The kind is settled before the publisher, because it decides
+        // whether an absent `publisher` is allowed: model-toml.md
+        // "Standard library" exempts a `kpar-url` naming an OMG
+        // standard-library IRI, and nothing else.
+        let declared_kind =
+            if self.wrong_typed.is_empty() && self.workspace.is_none() && git_keys.is_empty() {
+                self.checked_kind(site, positions, &mut report, &label)
+            } else {
+                None
+            };
+        let exempt = matches!(
+            &declared_kind,
+            Some(Kind::RemoteKpar(url)) if is_omg_stdlib_iri(url.as_str())
+        );
+        let publisher = self.checked_publisher(site, positions, &mut report, name.as_ref(), exempt);
 
         // What an entry *is* decides which further checks apply. An entry
         // carrying a `workspace` key is an opt-in even when the marker
@@ -583,6 +615,7 @@ impl UsageRaw {
             from.and_then(|from| {
                 self.check_opt_in_is_bare(site, positions, &mut report, &label, &from);
                 publisher
+                    .flatten()
                     .zip(name)
                     .map(|(publisher, name)| MemberUsage::Inherited {
                         publisher,
@@ -592,10 +625,10 @@ impl UsageRaw {
                     })
             })
         } else if git_keys.is_empty() {
-            self.checked_kind(site, positions, &mut report, &label)
+            declared_kind
                 .zip(publisher.zip(name))
-                .map(|(kind, (publisher, name))| {
-                    MemberUsage::Declared(kind.into_usage(publisher, name))
+                .and_then(|(kind, (publisher, name))| {
+                    kind.into_usage(publisher, name).map(MemberUsage::Declared)
                 })
         } else {
             None
@@ -640,22 +673,32 @@ impl UsageRaw {
         }
     }
 
+    /// The publisher an entry declares.
+    ///
+    /// `None` is an error already reported; `Some(None)` is an entry
+    /// that is *allowed* to declare none -- `exempt`, which the caller
+    /// sets only for a `kpar-url` at an OMG standard-library IRI.
     fn checked_publisher(
         &self,
         site: &UsageSite<'_>,
         positions: &Positions<'_>,
         report: &mut Report,
         name: Option<&IndexName>,
-    ) -> Option<IndexPublisher> {
+        exempt: bool,
+    ) -> Option<Option<IndexPublisher>> {
         let Some(raw) = self.publisher.as_deref() else {
             if self.wrong_typed.contains_key("publisher") {
                 return None;
+            }
+            if exempt {
+                return Some(None);
             }
             // The message names the usage by its name, so with no
             // name there is nothing to say but that the key is missing.
             report.push(match name {
                 Some(name) => Diagnostic::error(format!(
-                    "usage `{name}` has no `publisher`; every usage names its publisher"
+                    "usage `{name}` has no `publisher`; only a standard-library usage, whose \
+                     `kpar-url` is an OMG standard-library IRI, may omit it"
                 ))
                 .at_opt(site.position(positions)),
                 None => missing_key(
@@ -668,7 +711,7 @@ impl UsageRaw {
             return None;
         };
         match IndexPublisher::parse(raw) {
-            Ok(publisher) => Some(publisher),
+            Ok(publisher) => Some(Some(publisher)),
             Err(error) => {
                 report.push(
                     Diagnostic::error(error.to_string()).at_opt(site.key("publisher", positions)),
@@ -766,11 +809,14 @@ impl UsageRaw {
         }
 
         // Only the index kind's field set carries a version requirement.
+        // Appendix A2 row 55: "`kpar-url` takes no version constraint",
+        // which is what a standard-library usage runs into.
         let reject_version = |report: &mut Report| {
             if self.version.is_some() {
                 report.push(
                     Diagnostic::error(format!(
-                        "usage `{label}` sets `version`, which only an index usage takes"
+                        "usage `{label}` sets `version`, which a `dir`, `kpar-path` or \
+                         `kpar-url` usage does not take"
                     ))
                     .at_opt(site.key("version", positions)),
                 );
@@ -847,29 +893,32 @@ enum Kind {
 }
 
 impl Kind {
-    fn into_usage(self, publisher: IndexPublisher, name: IndexName) -> Usage {
-        match self {
-            Self::SourcePath(dir) => Usage::SourcePath {
-                publisher,
-                name,
-                dir,
-            },
-            Self::KparPath(kpar_path) => Usage::KparPath {
-                publisher,
-                name,
-                kpar_path,
-            },
-            Self::Index(version_constraint) => Usage::Index {
-                publisher,
-                name,
-                version_constraint,
-            },
+    /// `None` only if a kind that requires a publisher reached here
+    /// without one, which `checked_publisher` exempts no kind but
+    /// `RemoteKpar` from -- so it is a bug, not an input.
+    fn into_usage(self, publisher: Option<IndexPublisher>, name: IndexName) -> Option<Usage> {
+        Some(match self {
             Self::RemoteKpar(url) => Usage::RemoteKpar {
                 publisher,
                 name,
                 url,
             },
-        }
+            Self::SourcePath(dir) => Usage::SourcePath {
+                publisher: publisher?,
+                name,
+                dir,
+            },
+            Self::KparPath(kpar_path) => Usage::KparPath {
+                publisher: publisher?,
+                name,
+                kpar_path,
+            },
+            Self::Index(version_constraint) => Usage::Index {
+                publisher: publisher?,
+                name,
+                version_constraint,
+            },
+        })
     }
 }
 
@@ -911,7 +960,8 @@ pub fn check_duplicates<E: UsageEntry>(
 impl From<Usage> for UsageRaw {
     fn from(usage: Usage) -> Self {
         let mut raw = Self {
-            publisher: Some(usage.publisher().to_string()),
+            // A standard-library usage writes no `publisher` key.
+            publisher: usage.publisher().map(ToString::to_string),
             name: Some(usage.name().to_string()),
             ..Self::default()
         };
@@ -961,8 +1011,13 @@ impl From<MemberUsage> for UsageRaw {
 }
 
 impl Display for Usage {
+    /// A standard-library usage writes no publisher, so it is spelled by
+    /// its name alone.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}/{}", self.publisher(), self.name())
+        match self.publisher() {
+            Some(publisher) => write!(f, "{}/{}", publisher, self.name()),
+            None => write!(f, "{}", self.name()),
+        }
     }
 }
 

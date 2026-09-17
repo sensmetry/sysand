@@ -222,129 +222,34 @@ fn a_local_usage_builds_under_allow_path_usage() -> Result<(), Box<dyn std::erro
     Ok(())
 }
 
-/// model-toml.md "Standard library": the IRI comes from the metadata
-/// Sysand embeds, "provided by the tooling".
+/// model-toml.md "Standard library": the standard library is declared as
+/// a publisher-less `kpar-url`, and "build never resolves usages", so it
+/// reaches the KPAR view as the IRI it already names -- with no
+/// publisher and no version constraint to invent.
 #[test]
-fn a_stdlib_index_usage_becomes_its_embedded_iri() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = toml_project(
-        "\n[[inline-usages]]\npublisher = \"OMG\"\nname = \"Kernel Semantic Library\"\n\
-         version = \"^1.0.0\"\n",
-    )?;
+fn a_stdlib_kpar_url_usage_reaches_the_kpar_view_unchanged()
+-> Result<(), Box<dyn std::error::Error>> {
+    let iri = "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar";
+    let dir = toml_project(&format!(
+        "\n[[inline-usages]]\nname = \"Semantic-Library\"\nkpar-url = \"{iri}\"\n"
+    ))?;
     let (info, _) = built(&dir, false)?;
-    assert_eq!(
-        resource(&info.usage[0]).0,
-        "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar"
-    );
+    assert_eq!(resource(&info.usage[0]), (iri.to_owned(), None));
     Ok(())
 }
 
-/// "with its version constraint" -- as declared, not as the embedded
-/// release spells its version.
-#[test]
-fn a_stdlib_index_usage_keeps_its_declared_constraint() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = toml_project(
-        "\n[[inline-usages]]\npublisher = \"OMG\"\nname = \"Kernel Semantic Library\"\n\
-         version = \"^1\"\n",
-    )?;
-    let (info, _) = built(&dir, false)?;
-    assert_eq!(resource(&info.usage[0]).1, Some("^1".to_owned()));
-    Ok(())
-}
-
-/// The stem is not derivable from the name: this one is published at
-/// `Quantities-and-Units-Domain-Library.kpar`, and "Domain" appears in
-/// the IRI and not in the name. So the resource is the map key.
-#[test]
-fn a_stdlib_name_whose_iri_differs_is_still_found() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = toml_project(
-        "\n[[inline-usages]]\npublisher = \"OMG\"\n\
-         name = \"SysML Quantities and Units Library\"\nversion = \"^2.0.0\"\n",
-    )?;
-    let (info, _) = built(&dir, false)?;
-    assert_eq!(
-        resource(&info.usage[0]).0,
-        "https://www.omg.org/spec/SysML/20250201/Quantities-and-Units-Domain-Library.kpar"
-    );
-    Ok(())
-}
-
-/// "A usage is a standard-library usage iff its publisher normalizes to
-/// `omg`", and the name is matched normalized too.
-#[test]
-fn a_stdlib_usage_matches_case_insensitively() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = toml_project(
-        "\n[[inline-usages]]\npublisher = \"omg\"\nname = \"kernel semantic library\"\n\
-         version = \"^1.0.0\"\n",
-    )?;
-    let (info, _) = built(&dir, false)?;
-    assert_eq!(
-        resource(&info.usage[0]).0,
-        "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar"
-    );
-    Ok(())
-}
-
-/// The flag is about path usages: an index usage is rewritten either
+/// The flag is about path usages; a `kpar-url` usage is copied either
 /// way.
 #[test]
-fn a_stdlib_index_usage_is_rewritten_under_the_flag_too() -> Result<(), Box<dyn std::error::Error>>
+fn a_stdlib_kpar_url_usage_is_copied_under_the_flag_too() -> Result<(), Box<dyn std::error::Error>>
 {
-    let dir = toml_project(
-        "\n[[inline-usages]]\npublisher = \"OMG\"\nname = \"Kernel Semantic Library\"\n\
-         version = \"^1.0.0\"\n",
-    )?;
+    let iri = "https://www.omg.org/spec/SysML/20250201/Quantities-and-Units-Domain-Library.kpar";
+    let dir = toml_project(&format!(
+        "\n[[inline-usages]]\nname = \"Quantities-and-Units-Domain-Library\"\n\
+         kpar-url = \"{iri}\"\n"
+    ))?;
     let (info, _) = built(&dir, true)?;
-    assert_eq!(
-        resource(&info.usage[0]).0,
-        "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar"
-    );
-    Ok(())
-}
-
-/// A standard-library usage no embedded release satisfies, reached with
-/// a name that matches.
-#[test]
-fn an_unsatisfiable_stdlib_constraint_is_refused() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = toml_project(
-        "\n[[inline-usages]]\npublisher = \"OMG\"\nname = \"Kernel Semantic Library\"\n\
-         version = \"^9\"\n",
-    )?;
-    let error = built(&dir, false).expect_err("no embedded release satisfies `^9`");
-    assert!(matches!(
-        error,
-        KParBuildError::TomlStdlibUnmatched {
-            usage: _,
-            constraint: _,
-            embedded: _
-        }
-    ));
-    let text = error.to_string();
-    assert!(text.contains("^9"), "{text}");
-    assert!(text.contains("1.0.0"), "{text}");
-    Ok(())
-}
-
-/// And with a name that does not. There is no embedded version to
-/// quote, so the parenthesis says so instead.
-#[test]
-fn an_unknown_stdlib_name_is_refused() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = toml_project(
-        "\n[[inline-usages]]\npublisher = \"OMG\"\nname = \"Not A Library\"\n\
-         version = \"^1\"\n",
-    )?;
-    let error = built(&dir, false).expect_err("no such library is embedded");
-    assert!(matches!(
-        error,
-        KParBuildError::TomlStdlibUnmatched {
-            usage: _,
-            constraint: _,
-            embedded: _
-        }
-    ));
-    assert!(
-        error.to_string().contains("no release of that name"),
-        "{error}"
-    );
+    assert_eq!(resource(&info.usage[0]), (iri.to_owned(), None));
     Ok(())
 }
 

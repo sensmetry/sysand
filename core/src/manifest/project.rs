@@ -846,7 +846,15 @@ fn from_group_usage(
         .inline_usages
         .iter()
         .find(|usage| {
-            usage.publisher().as_str() == publisher.as_str()
+            // A group entry that declares no publisher is a
+            // standard-library usage, and an opt-in cannot name it:
+            // `MemberUsage::Inherited` requires a publisher. Opting into
+            // a standard-library group entry is not supported yet --
+            // recorded in `plans/68` as iteration 69's work -- and the
+            // `is_some_and` is where it will be made possible.
+            usage
+                .publisher()
+                .is_some_and(|declared| declared.as_str() == publisher.as_str())
                 && usage.name().as_str() == name.as_str()
         })
         .cloned()

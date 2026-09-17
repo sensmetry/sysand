@@ -1134,5 +1134,8 @@ fn a_typed_usage_keeps_the_json_spelling_here() {
     let crate::manifest::usage::MemberUsage::Declared(usage) = usage else {
         panic!("a declared usage");
     };
-    assert_eq!(usage.publisher().as_str(), "acme-corp");
+    assert_eq!(
+        usage.publisher().expect("a publisher").as_str(),
+        "acme-corp"
+    );
 }
