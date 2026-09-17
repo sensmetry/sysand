@@ -16,6 +16,7 @@ use sysand_core::{
         MetamodelFamily, MetamodelRelease, ProjectFieldError, ProjectName, ProjectPublisher,
         SYSML_SPEC_PREFIX, SpecKind,
     },
+    workspace::model_toml::Selector,
 };
 
 use crate::{env_vars, style::USAGE};
@@ -114,6 +115,9 @@ pub enum Command {
     },
     /// Add usage to project information
     Add {
+        #[command(flatten)]
+        selector: MemberOnlySelector,
+
         #[clap(flatten)]
         locator: AddProjectLocatorArgs,
         /// A constraint on the allowed versions of a used project.
@@ -134,6 +138,9 @@ pub enum Command {
     /// Remove usage from project information
     #[clap(alias = "rm")]
     Remove {
+        #[command(flatten)]
+        selector: MemberOnlySelector,
+
         #[clap(flatten)]
         locator: RemoveProjectLocatorArgs,
 
@@ -172,6 +179,9 @@ pub enum Command {
     /// as the metadata will not be updated automatically
     #[clap(verbatim_doc_comment)]
     Include {
+        #[command(flatten)]
+        selector: MemberOnlySelector,
+
         /// File(s) to include in the project.
         #[arg(num_args = 1..)]
         paths: Vec<Utf8PathBuf>,
@@ -186,6 +196,9 @@ pub enum Command {
     },
     /// Exclude model interchange file from project metadata
     Exclude {
+        #[command(flatten)]
+        selector: MemberOnlySelector,
+
         /// File(s) to exclude from the project
         #[arg(num_args = 1..)]
         paths: Vec<Utf8PathBuf>,
@@ -194,6 +207,8 @@ pub enum Command {
     /// outside of a project, builds all projects in the workspace.
     #[clap(verbatim_doc_comment)]
     Build {
+        #[command(flatten)]
+        selector: MemberSelector,
         /// Path for the finished KPAR or KPARs. When building a
         /// workspace, it is a path to the folder to write the KPARs to
         /// (default: `<current-workspace>/output`). When building a single
@@ -241,6 +256,8 @@ pub enum Command {
     },
     /// Publish a KPAR to a sysand package index
     Publish {
+        #[command(flatten)]
+        selector: MemberSelector,
         /// Path to the KPAR file to publish. If not provided, will look
         /// for a KPAR in the output directory with the current project's
         /// name and version; from a workspace root, every member's, in
@@ -297,6 +314,12 @@ pub enum Command {
     /// IRI/URL. Use `sysand edit` to modify a local project
     #[clap(verbatim_doc_comment)]
     Info {
+        // `MemberOnlySelector` and not `MemberSelector`: `info` has no
+        // all-members behaviour yet, so offering `--workspace` would be
+        // offering a flag with nothing behind it. The `--dir` form takes
+        // no selector into account either.
+        #[command(flatten)]
+        selector: MemberOnlySelector,
         #[clap(flatten)]
         locator: InfoProjectLocatorArgs,
         /// Print only the value of the given field (a list field one entry
@@ -330,11 +353,18 @@ pub enum Command {
     /// `sysand sync` prior to this
     #[clap(verbatim_doc_comment)]
     Sources {
+        // As for `info`: `--workspace` waits for the all-members
+        // behaviour that 73b builds.
+        #[command(flatten)]
+        selector: MemberOnlySelector,
         #[command(flatten)]
         sources_opts: SourcesOptions,
     },
     /// Prints the root directory of the current project
-    PrintRoot,
+    PrintRoot {
+        #[command(flatten)]
+        selector: MemberOnlySelector,
+    },
     /// Experimental commands. Likely to change in incompatible ways or be
     /// removed in the future. Currently no experimental commands are included
     #[clap(hide = true, verbatim_doc_comment)]
@@ -1228,6 +1258,65 @@ pub struct ResolutionOptions {
     /// Don't ignore KerML/SysML v2 standard libraries if specified as dependencies
     #[arg(long, global = true, help_heading = "Resolution options")]
     pub include_std: bool,
+}
+
+/// Which member of a workspace a command acts on.
+///
+/// workspaces.md "Command scopes": `build`, `sources`, `info` and
+/// `publish` take "all members" from the root and "that member" from a
+/// member directory; `--workspace` forces all members, `--member
+/// <path-or-name>` picks one. Outside a workspace `--workspace` is
+/// inert and `--member` is an error.
+#[derive(clap::Args, Debug, Clone, Default)]
+pub struct MemberSelector {
+    /// Act on every member of the workspace, rather than on the member
+    /// the working directory is in
+    #[arg(long, conflicts_with = "member", help_heading = "Workspace selection")]
+    pub workspace: bool,
+    /// Act on one member, named by its `members` entry as written or by
+    /// its project name
+    #[arg(
+        long,
+        value_name = "PATH-OR-NAME",
+        help_heading = "Workspace selection"
+    )]
+    pub member: Option<String>,
+}
+
+impl MemberSelector {
+    pub fn selector(&self) -> Selector<'_> {
+        match (&self.member, self.workspace) {
+            (Some(member), _) => Selector::Member(member),
+            (None, true) => Selector::Workspace,
+            (None, false) => Selector::Current,
+        }
+    }
+}
+
+/// Which member a command that *needs a project* acts on.
+///
+/// The second row of the Command scopes table: `add`, `remove`,
+/// `include`, `exclude` and the writing `info` verbs cannot act on a
+/// whole workspace, so they take no `--workspace`, and from the root
+/// with no `--member` they are refused.
+#[derive(clap::Args, Debug, Clone, Default)]
+pub struct MemberOnlySelector {
+    /// Act on one member, named by its `members` entry as written or by
+    /// its project name
+    #[arg(
+        long,
+        value_name = "PATH-OR-NAME",
+        help_heading = "Workspace selection"
+    )]
+    pub member: Option<String>,
+}
+
+impl MemberOnlySelector {
+    pub fn selector(&self) -> Selector<'_> {
+        self.member
+            .as_deref()
+            .map_or(Selector::Current, Selector::Member)
+    }
 }
 
 #[derive(clap::Args, Debug, Clone, Default)]

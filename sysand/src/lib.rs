@@ -44,7 +44,8 @@ use sysand_core::{
     resolve::{ResolutionInfo, file::FileResolverProject, net_utils::create_reqwest_client},
     stdlib::known_std_libs,
     workspace::model_toml::{
-        MemberChecks, StartRegion, Workspace, discover_table, member_index, start_region,
+        DiscoverError, MemberChecks, Selector, StartRegion, Workspace, discover_table,
+        member_index, start_region,
     },
 };
 use url::Url;
@@ -447,6 +448,56 @@ fn run_cli_with(
     // which is not one. `None` as the nominal path is what makes
     // `sources` relativize against the workspace root -- the directory the shared lockfile's
     // `src_path`s are relative to.
+    // workspaces.md "Command scopes": a selector replaces which member
+    // the command acts on, so it is applied before `current_project` is
+    // settled rather than inside each arm. `Current` for every command
+    // that takes no selector, and for every invocation that gives none.
+    let selector = match &command {
+        Command::Build { selector, .. } | Command::Publish { selector, .. } => selector.selector(),
+        Command::Add { selector, .. }
+        | Command::Remove { selector, .. }
+        | Command::Include { selector, .. }
+        | Command::Exclude { selector, .. }
+        | Command::Info { selector, .. }
+        | Command::Sources { selector, .. }
+        | Command::PrintRoot { selector } => selector.selector(),
+        _ => Selector::Current,
+    };
+    let selected = selected_member(&cwd, workspace_root.as_deref(), selector)?;
+    let current_project = match (&selected, &workspace_table) {
+        (Some(dir), Some((_, table))) => Some(LocalSrcProject::new_member(
+            dir.clone(),
+            None,
+            table.clone(),
+        )),
+        // "`--workspace` forces all members": the commands that have an
+        // all-members path take it when there is no current project, so
+        // forcing it is dropping the one the working directory implies.
+        _ if selector == Selector::Workspace && workspace_root.is_some() => None,
+        _ => current_project,
+    };
+    let project_root = selected.clone().or(project_root);
+
+    // workspaces.md "Command scopes", second row: these commands "need
+    // a project, so `--member` is required at the root" -- appendix A
+    // row 27. Checked once here rather than in each command, because
+    // the condition is one condition: in a workspace, with no member to
+    // act on.
+    //
+    // `info` is not in this list even though its writing verbs belong
+    // to the same row: whether it needs a project depends on
+    // `--path`/`--iri`, which is decided inside its own arm.
+    let needs_a_member = matches!(
+        &command,
+        Command::Add { .. }
+            | Command::Remove { .. }
+            | Command::Include { .. }
+            | Command::Exclude { .. }
+    );
+    if needs_a_member && current_project.is_none() && workspace_root.is_some() {
+        return Err(DiscoverError::NeedsProject.into());
+    }
+
     let current_project = match (current_project, &workspace_table) {
         (Some(project), Some((root, table)))
             if member_index(root, table, project.root_path())?.is_some() =>
@@ -507,7 +558,7 @@ fn run_cli_with(
 
     let mut config = match &global_opts.config_file {
         // `add` creates the file to write the source to.
-        Some(config_file) if matches!(&command, Command::Add { source_opts, locator: _, version_constraint: _, sync: _, resolution_opts: _ } if source_opts.is_given()) => {
+        Some(config_file) if matches!(&command, Command::Add { selector: _, source_opts, locator: _, version_constraint: _, sync: _, resolution_opts: _ } if source_opts.is_given()) => {
             get_config(config_file)?
         }
         Some(config_file) => read_config(config_file)?,
@@ -574,7 +625,14 @@ fn run_cli_with(
         Command::Env { command } => match command {
             None => {
                 let env_dir = {
-                    let mut p = project_root.unwrap_or(ctx.current_directory);
+                    // workspaces.md "Command scopes": `env` is "per
+                    // workspace: the single `.sysand`". The workspace
+                    // root first, or a member's `sysand env` would make
+                    // a second environment beside the one every other
+                    // command shares.
+                    let mut p = model_workspace_root
+                        .or(project_root)
+                        .unwrap_or(ctx.current_directory);
                     p.push(DEFAULT_ENV_NAME);
                     p
                 };
@@ -766,11 +824,20 @@ fn run_cli_with(
         Command::Auth { command: _ } => {
             unreachable!("`auth` is dispatched before the auth policy is built")
         }
-        Command::PrintRoot => command_print_root(
-            &ctx.current_directory,
-            scope.as_ref().map(|(root, start)| (root.as_path(), start)),
-        ),
+        // workspaces.md "Command scopes": `print-root` prints the
+        // workspace root, and `--member` "prints the member's".
+        Command::PrintRoot { selector: _ } => match &selected {
+            Some(dir) => {
+                println!("{dir}");
+                Ok(())
+            }
+            None => command_print_root(
+                &ctx.current_directory,
+                scope.as_ref().map(|(root, start)| (root.as_path(), start)),
+            ),
+        },
         Command::Info {
+            selector: _,
             locator,
             get,
             // no_normalise,
@@ -922,6 +989,7 @@ fn run_cli_with(
             command_edit(project, *edits)
         }
         Command::Add {
+            selector: _,
             locator,
             version_constraint,
             resolution_opts,
@@ -945,6 +1013,7 @@ fn run_cli_with(
         )
         .map(|_added| ()),
         Command::Remove {
+            selector: _,
             locator,
             sync,
             resolution_opts,
@@ -963,12 +1032,14 @@ fn run_cli_with(
             auth_policy,
         ),
         Command::Include {
+            selector: _,
             paths,
             compute_checksum: add_checksum,
             no_index_symbols,
         } => command_include(paths, add_checksum, !no_index_symbols, ctx),
-        Command::Exclude { paths } => command_exclude(paths, ctx),
+        Command::Exclude { selector: _, paths } => command_exclude(paths, ctx),
         Command::Build {
+            selector: _,
             path,
             compression,
             allow_path_usage,
@@ -1066,6 +1137,7 @@ fn run_cli_with(
             auth_policy,
         ),
         Command::Publish {
+            selector: _,
             path,
             index,
             trusted_publishing,
@@ -1078,9 +1150,10 @@ fn run_cli_with(
             client,
             runtime,
         ),
-        Command::Sources { sources_opts } => {
-            command_sources_project(sources_opts.no_own, sources_opts.deps, ctx)
-        }
+        Command::Sources {
+            selector: _,
+            sources_opts,
+        } => command_sources_project(sources_opts.no_own, sources_opts.deps, ctx),
         Command::Clone {
             locator,
             version_constraint,
@@ -1239,51 +1312,21 @@ fn reads_configuration(command: &cli::Command) -> bool {
 /// extending the check to commands that have no scope.
 fn consults_the_workspace(command: &cli::Command) -> bool {
     match command {
-        cli::Command::Build {
-            path: _,
-            compression: _,
-            allow_path_usage: _,
-            keep_index: _,
-        }
-        | cli::Command::Sources { sources_opts: _ }
-        | cli::Command::Info {
-            locator: _,
-            get: _,
-            resolution_opts: _,
-        }
-        | cli::Command::Edit { dir: _, edits: _ }
-        | cli::Command::Publish {
-            path: _,
-            index: _,
-            trusted_publishing: _,
-        }
-        | cli::Command::Add {
-            locator: _,
-            version_constraint: _,
-            sync: _,
-            resolution_opts: _,
-            source_opts: _,
-        }
-        | cli::Command::Remove {
-            locator: _,
-            sync: _,
-            resolution_opts: _,
-        }
-        | cli::Command::Include {
-            paths: _,
-            compute_checksum: _,
-            no_index_symbols: _,
-        }
-        | cli::Command::Exclude { paths: _ }
-        | cli::Command::Experimental {}
-        | cli::Command::Lock { resolution_opts: _ }
-        | cli::Command::Sync {
-            resolution_opts: _,
-            no_prune: _,
-        }
-        | cli::Command::Env { command: _ }
-        | cli::Command::PrintRoot => true,
-        cli::Command::Init { path: _, name: _, publisher: _, version: _, license: _, metamodel: _, metamodel_release: _ }
+        cli::Command::Build { .. }
+        | cli::Command::Sources { .. }
+        | cli::Command::Info { .. }
+        | cli::Command::Edit { .. }
+        | cli::Command::Publish { .. }
+        | cli::Command::Add { .. }
+        | cli::Command::Remove { .. }
+        | cli::Command::Include { .. }
+        | cli::Command::Exclude { .. }
+        | cli::Command::Experimental { .. }
+        | cli::Command::Lock { .. }
+        | cli::Command::Sync { .. }
+        | cli::Command::Env { .. }
+        | cli::Command::PrintRoot { .. } => true,
+        cli::Command::Init { .. }
         // Deliberately not: a discovery error would be fatal, and an
         // unlisted json project under a workspace root is exactly the
         // one a user wants to migrate. A bare `migrate` at a workspace
@@ -1318,6 +1361,44 @@ fn stray_configs(cwd: &Utf8Path, root: &Utf8Path) -> Result<Vec<Utf8PathBuf>> {
     // `root` was not an ancestor of `cwd`, so there is no workspace
     // above this directory and nothing is being ignored.
     Ok(Vec::new())
+}
+
+/// The member directory `--member` names, if it names one.
+///
+/// workspaces.md "Command scopes": `--member <path-or-name>` picks one
+/// member, matched against its `members` entry **as written** or against
+/// its project name. The rule itself is
+/// [`Workspace::member`](sysand_core::workspace::model_toml::Workspace::member)
+/// -- a union over both halves, refusing anything but a single answer --
+/// and this only supplies it with a loaded workspace.
+///
+/// Loading, not consulting: a project's name is in its own manifest, so
+/// a name selector cannot be answered from the table. The load is
+/// therefore gated on the flag being given, and a command run without
+/// it costs exactly what it did before.
+///
+/// A selector with no workspace around `cwd` is an error: dropping it
+/// would act on the current project instead.
+///
+/// `MemberChecks::SkipStrayState` matches every other load in this
+/// binary. Whether they all become `MemberChecks::All` is an open
+/// question with no migration path behind it, and a selector is not the
+/// place to settle it.
+fn selected_member(
+    cwd: &Utf8Path,
+    workspace_root: Option<&Utf8Path>,
+    selector: Selector<'_>,
+) -> Result<Option<Utf8PathBuf>> {
+    let Selector::Member(selector) = selector else {
+        return Ok(None);
+    };
+    // Dropping the selector would act on the current project instead of
+    // the one the user named
+    let Some(root) = workspace_root else {
+        bail!("`--member {selector}` needs a workspace, but `{cwd}` is not in one");
+    };
+    let workspace = Workspace::load_with(root, MemberChecks::SkipStrayState)?;
+    Ok(Some(workspace.member(selector)?.dir.clone()))
 }
 
 /// Where `sysand.toml` is read and written for a command run in `cwd`.
