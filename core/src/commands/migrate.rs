@@ -24,7 +24,7 @@ use crate::{
         diagnostics::{Diagnostic, ReadWarning, Report, Validated},
         inherit::MetaProperty,
         project::{ProjectManifest, ProjectTable, Urls},
-        usage::{MemberUsage, Usage, UsageEntry as _},
+        usage::{MemberUsage, Usage, UsageEntry as _, duplicate_message, duplicate_pairs},
     },
     model::{
         IndexName, IndexPublisher, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
@@ -385,31 +385,24 @@ fn warn_discarded(meta: &InterchangeProjectMetadataRaw, report: &mut Report) {
 /// The rule `check_duplicates` (`manifest::usage`) applies on the read
 /// path, applied here on the write path.
 ///
-/// It cannot be called: its signature takes usage *sites* and a span
-/// index, and a manifest built from values has neither. So the rule and
-/// its wording are reused rather than the function -- a user who fixes
-/// the json and re-runs should not meet a second phrasing of one rule.
+/// That function cannot be called: its signature takes usage *sites*
+/// and a span index, and a manifest built from values has neither. The
+/// two pieces that do not depend on positions are shared -- the scan
+/// (`duplicate_pairs`) and the wording (`duplicate_message`) -- so a
+/// user who fixes the json and reads it back meets one phrasing of one
+/// rule, which is what this function is for.
 ///
-/// Pairwise, as `check_duplicates` is: three colliding entries produce
-/// two diagnostics, the same as reading such a file back.
+/// Pairwise, as the read path is: three colliding entries produce two
+/// diagnostics, the same as reading such a file back.
 ///
 /// Without this, `migrate` writes a `model.toml` that `sysand` itself
 /// refuses to read -- after deleting the json manifests that were the
 /// only readable copy.
 fn check_duplicate_usages(usages: &[MemberUsage], report: &mut Report) {
-    for (index, usage) in usages.iter().enumerate() {
-        let identity = usage.identity();
-        let Some(first) = usages[..index]
-            .iter()
-            .find(|earlier| earlier.identity() == identity)
-        else {
-            continue;
-        };
-        report.push(Diagnostic::error(format!(
-            "usages `{}` and `{}` name the same project; two entries whose publisher and \
-             name normalize to the same value are a duplicate",
-            first.label(),
-            usage.label()
+    for (first, later) in duplicate_pairs(usages, MemberUsage::identity) {
+        report.push(Diagnostic::error(duplicate_message(
+            &usages[first].label(),
+            &usages[later].label(),
         )));
     }
 }

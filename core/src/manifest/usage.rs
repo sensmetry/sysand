@@ -978,26 +978,56 @@ pub fn check_duplicates<E: UsageEntry>(
     entries: &[(UsageSite<'_>, E)],
     positions: &Positions<'_>,
 ) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
-    for (index, (site, entry)) in entries.iter().enumerate() {
-        let identity = entry.normalized_identity();
-        let Some((_, first)) = entries[..index]
+    duplicate_pairs(entries, |(_, entry)| entry.normalized_identity())
+        .into_iter()
+        .map(|(first, later)| {
+            let (site, entry) = &entries[later];
+            Diagnostic::error(duplicate_message(&entries[first].1.label(), &entry.label()))
+                .at_opt(site.position(positions))
+        })
+        .collect()
+}
+
+/// The one wording of the duplicate rule.
+///
+/// For a write path that applies the same rule and cannot call
+/// [`check_duplicates`] -- that takes usage *sites* and a span index,
+/// which a manifest built from values does not have -- so that a user
+/// who fixes the json and reads it back does not meet a second phrasing
+/// of one rule.
+///
+/// `sysand add` refusing to append an entry the file already has is a
+/// *different* rule -- one entry against a file, not a file against
+/// itself -- and "already declared" is what a person running `add`
+/// needs to hear; it is deliberately not this.
+pub fn duplicate_message(first: &str, later: &str) -> String {
+    format!(
+        "usages `{first}` and `{later}` name the same project; two entries whose publisher and \
+         name normalize to the same value are a duplicate"
+    )
+}
+
+/// The pairs of entries whose identities are equal, as `(earlier,
+/// later)` indices.
+///
+/// Every colliding pair, not just the first, so that one edit round
+/// fixes the file; the later index is the entry a reader would delete.
+/// Positions are the caller's business; this sees only the items.
+pub fn duplicate_pairs<T, I: PartialEq>(
+    items: &[T],
+    identity: impl Fn(&T) -> I,
+) -> Vec<(usize, usize)> {
+    let mut pairs = Vec::new();
+    for (index, item) in items.iter().enumerate() {
+        let wanted = identity(item);
+        if let Some(first) = items[..index]
             .iter()
-            .find(|(_, earlier)| earlier.normalized_identity() == identity)
-        else {
-            continue;
-        };
-        diagnostics.push(
-            Diagnostic::error(format!(
-                "usages `{}` and `{}` name the same project; two entries whose publisher and \
-                 name normalize to the same value are a duplicate",
-                first.label(),
-                entry.label()
-            ))
-            .at_opt(site.position(positions)),
-        );
+            .position(|earlier| identity(earlier) == wanted)
+        {
+            pairs.push((first, index));
+        }
     }
-    diagnostics
+    pairs
 }
 
 impl From<Usage> for UsageRaw {

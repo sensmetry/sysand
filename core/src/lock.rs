@@ -614,8 +614,20 @@ impl Lock {
     pub fn canonicalize(mut self) -> Self {
         self.sort();
         self.canonicalize_checksums();
-        // Check that we aren't generating invalid lockfiles
-        debug_assert!(self.validate().map(|()| true).unwrap());
+        // Check that we aren't generating invalid lockfiles.
+        //
+        // This checks all of `validate`'s rules *after* sorting and
+        // digest canonicalization -- the form that reaches a file.
+        //
+        // An assertion rather than an error because `canonicalize`
+        // returns `Self` and a caller producing an invalid lock here has
+        // a bug, not a condition to handle. It is reachable from outside
+        // the crate -- `Lock`'s fields are public -- so the panic says
+        // what went wrong.
+        #[cfg(debug_assertions)]
+        if let Err(error) = self.validate() {
+            panic!("canonicalizing produced a lock that does not validate: {error}");
+        }
         self
     }
 
