@@ -733,7 +733,7 @@ fn lock_project<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     // single-member solve written over the shared file would drop every
     // other member
     if let Some(root) = &ctx.model_workspace_root {
-        let workspace = Workspace::load_with(root, MemberChecks::SkipStrayState)?;
+        let workspace = Workspace::load_with(root, MemberChecks::All)?;
         let LockOutcome {
             lock,
             dependencies: _,

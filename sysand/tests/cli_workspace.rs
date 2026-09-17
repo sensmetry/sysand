@@ -1170,3 +1170,103 @@ fn a_non_member_directory_under_the_root_is_the_workspace() -> Result<(), Box<dy
     assert!(stdout.contains("lib: 1.0.0"), "{stdout}");
     Ok(())
 }
+
+// ------------------- stray per-member state
+
+/// workspaces.md "Stray per-member state": "A member never has state of
+/// its own: the lockfile, the `.sysand` directory and the `output`
+/// directory all belong to the workspace root."
+///
+/// Enforced only where a workspace is *loaded*: the invariant is one the
+/// commands that load members rely on.
+#[test]
+fn lock_refuses_a_member_holding_a_lockfile() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace()?;
+    std::fs::write(dir.path().join("app").join(DEFAULT_LOCKFILE_NAME), "")?;
+
+    run_sysand_discovering(dir.path(), ["lock", "--no-index"])?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "member `app` has its own `sysand-lock.toml`; a workspace has one lockfile at",
+        ))
+        .stderr(predicate::str::contains("remove the member's copy"));
+    Ok(())
+}
+
+/// All three kinds, across two members, in one run: the load reports
+/// every broken member rather than stopping at the first.
+#[test]
+fn the_refusal_names_every_member_with_stray_state() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace()?;
+    std::fs::write(dir.path().join("app").join(DEFAULT_LOCKFILE_NAME), "")?;
+    std::fs::create_dir_all(dir.path().join("app").join(DEFAULT_ENV_NAME))?;
+    std::fs::create_dir_all(dir.path().join("libs/gamma").join("output"))?;
+
+    run_sysand_discovering(dir.path(), ["lock", "--no-index"])?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "member `app` has its own `sysand-lock.toml`",
+        ))
+        .stderr(predicate::str::contains(
+            "member `app` has its own `.sysand`",
+        ))
+        .stderr(predicate::str::contains(
+            "member `libs/gamma` has its own `output`",
+        ));
+    Ok(())
+}
+
+/// The negative, which is what catches an over-eager check: a workspace
+/// whose state is all at the root locks, syncs and builds repeatedly.
+/// The commands write the very files a member may not hold -- at the
+/// root -- so this is also the test that the second run of a command is
+/// not an error.
+#[test]
+fn a_workspace_without_stray_state_is_unaffected() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace()?;
+    for _ in 0..2 {
+        run_sysand_discovering(dir.path(), ["lock", "--no-index"])?
+            .assert()
+            .success();
+        run_sysand_discovering(dir.path(), ["sync", "--no-index"])?
+            .assert()
+            .success();
+        run_sysand_discovering(dir.path(), ["build"])?
+            .assert()
+            .success();
+    }
+    // And from inside a member, where `build` must not leave an
+    // `output/` behind.
+    run_sysand_discovering(&dir.path().join("app"), ["build"])?
+        .assert()
+        .success();
+    assert!(!dir.path().join("app").join("output").exists());
+    assert!(!dir.path().join("app").join(DEFAULT_LOCKFILE_NAME).exists());
+    Ok(())
+}
+
+/// The one way for a command to create stray per-member state: a
+/// `--workspace` build whose output path lands inside a member would
+/// write the state the next `lock` refuses. Refused before the
+/// directory is created.
+#[test]
+fn build_workspace_refuses_an_output_path_inside_a_member() -> Result<(), Box<dyn std::error::Error>>
+{
+    let dir = two_member_workspace()?;
+    run_sysand_discovering(dir.path(), ["build", "--workspace", "app/output"])?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "is inside the member `app`; a workspace has one build output directory",
+        ));
+
+    assert!(!dir.path().join("app").join("output").exists());
+    // And the default is unaffected.
+    run_sysand_discovering(dir.path(), ["build", "--workspace"])?
+        .assert()
+        .success();
+    assert!(dir.path().join("output").is_dir());
+    Ok(())
+}

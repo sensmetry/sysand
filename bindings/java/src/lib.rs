@@ -363,10 +363,8 @@ fn workspace_project_paths<'local>(
     let Some(workspace_path) = env.get_str(&workspace_path, "workspacePath") else {
         ret_null!()
     };
-    let workspace = match Workspace::load_with(
-        Utf8PathBuf::from(workspace_path),
-        MemberChecks::SkipStrayState,
-    ) {
+    let workspace = match Workspace::load_with(Utf8PathBuf::from(workspace_path), MemberChecks::All)
+    {
         Ok(w) => w,
         Err(e) => {
             env.throw_exception(ExceptionKind::InvalidWorkspace, format_err(e));
@@ -505,10 +503,8 @@ fn build_workspace<'local>(
     let Some(workspace_path) = env.get_str(&workspace_path, "workspacePath") else {
         ret!()
     };
-    let workspace = match Workspace::load_with(
-        Utf8PathBuf::from(workspace_path),
-        MemberChecks::SkipStrayState,
-    ) {
+    let workspace = match Workspace::load_with(Utf8PathBuf::from(workspace_path), MemberChecks::All)
+    {
         Ok(w) => w,
         Err(e) => {
             env.throw_exception(ExceptionKind::InvalidWorkspace, format_err(e));

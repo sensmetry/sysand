@@ -738,7 +738,7 @@ fn workspace_root(dir: &camino_tempfile::Utf8TempDir, members: &[&str]) {
 fn load_workspace(dir: &camino_tempfile::Utf8TempDir) -> crate::workspace::model_toml::Workspace {
     crate::workspace::model_toml::Workspace::load_with(
         dir.path(),
-        crate::workspace::model_toml::MemberChecks::SkipStrayState,
+        crate::workspace::model_toml::MemberChecks::All,
     )
     .expect("the workspace loads")
 }

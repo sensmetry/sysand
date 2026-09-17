@@ -125,12 +125,16 @@ pub struct Workspace {
 
 /// What a load checks beyond reading the members.
 ///
-/// `workspaces.md` "Member requirements" states four. The fourth --
-/// "Must have no lockfile, `.sysand` or `output` of its own" -- is the
-/// one a caller can skip: a member may hold such state from an earlier
-/// run of a command that wrote it there, and a caller that must not
-/// refuse that workspace says so, at the call site, in one greppable
-/// word: [`MemberChecks::SkipStrayState`].
+/// `workspaces.md` "Member requirements" states four, and three of them
+/// cost nothing to enforce. The fourth -- "Must have no lockfile,
+/// `.sysand` or `output` of its own" -- is checked unless the caller
+/// passes [`MemberChecks::SkipStrayState`].
+///
+/// Note that the check runs where a workspace is *loaded*. A command
+/// that takes its current project directly -- `build`, `info`,
+/// `sources` and `publish` from inside a member -- never loads the
+/// members and so never looks, which is deliberate: the invariant
+/// matters to the commands that rely on it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MemberChecks {
     /// Every requirement the specification states.

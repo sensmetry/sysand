@@ -202,7 +202,7 @@ fn resolve_publish_archives(
                 releases. For the status of this feature, see\n\
                 https://github.com/sensmetry/sysand/issues/101."
             );
-            let workspace = Workspace::load_with(root, MemberChecks::SkipStrayState)?;
+            let workspace = Workspace::load_with(root, MemberChecks::All)?;
             Ok(workspace_publish_order(&workspace)
                 .map_err(|failure| anyhow::anyhow!("{failure}"))?
                 .into_iter()

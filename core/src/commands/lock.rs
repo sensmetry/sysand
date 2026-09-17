@@ -719,9 +719,10 @@ pub fn do_lock_local_editable_respelling<
 /// solved graph by the identifier `pkg:sysand/<publisher>/<name>`,
 /// members included."
 ///
-/// `workspace` must have been loaded with
-/// [`crate::workspace::model_toml::MemberChecks::SkipStrayState`]; see
-/// that type's documentation.
+/// `workspace` is loaded with
+/// [`crate::workspace::model_toml::MemberChecks::All`]: the lockfile and
+/// `.sysand` live at the workspace root, not in the members; see that
+/// type's documentation.
 ///
 /// **`ctx.sources_root()` must be the workspace root.** Every solved
 /// local dependency's `src_path` is relativized against it, and one

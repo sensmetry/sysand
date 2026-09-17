@@ -388,7 +388,7 @@ pub fn command_info_workspace(
         workspace::model_toml::{MemberChecks, Workspace},
     };
 
-    let workspace = Workspace::load_with(root, MemberChecks::SkipStrayState)?;
+    let workspace = Workspace::load_with(root, MemberChecks::All)?;
     let table = Arc::new(workspace.table().clone());
 
     for (at, member) in workspace.members().iter().enumerate() {

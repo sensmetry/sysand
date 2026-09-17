@@ -1121,11 +1121,31 @@ fn run_cli_with(
                 // missing project because that is what the user is more likely
                 // to be looking for.
                 let root = model_workspace_root.ok_or(CliError::MissingProjectCurrentDir)?;
-                // `SkipStrayState`: a member that an earlier `sysand
-                // build` left an `output/` in is still a member.
-                let workspace = Workspace::load_with(&root, MemberChecks::SkipStrayState)?;
+                let workspace = Workspace::load_with(&root, MemberChecks::All)?;
                 let output_dir =
                     path.unwrap_or_else(|| root.join(sysand_core::build::DEFAULT_OUTPUT_NAME));
+
+                // workspaces.md "Stray per-member state": a member has
+                // no `output` of its own. Refused before the directory
+                // is created, or this command would itself write the
+                // stray state that section refuses.
+                let absolute = if output_dir.is_absolute() {
+                    output_dir.clone()
+                } else {
+                    ctx.current_directory.join(&output_dir)
+                };
+                if let Some(member) = workspace
+                    .members()
+                    .iter()
+                    .find(|member| absolute.starts_with(&member.dir))
+                {
+                    bail!(
+                        "`{output_dir}` is inside the member `{}`; a workspace has one build \
+                         output directory, at `{root}`",
+                        member.path.raw
+                    );
+                }
+
                 if !wrapfs::is_dir(&output_dir)? {
                     wrapfs::create_dir(&output_dir)?;
                 }
@@ -1405,15 +1425,14 @@ fn stray_configs(cwd: &Utf8Path, root: &Utf8Path) -> Result<Vec<Utf8PathBuf>> {
 /// Loading, not consulting: a project's name is in its own manifest, so
 /// a name selector cannot be answered from the table. The load is
 /// therefore gated on the flag being given, and a command run without
-/// it costs exactly what it did before.
+/// it does not load the workspace.
 ///
 /// A selector with no workspace around `cwd` is an error: dropping it
 /// would act on the current project instead.
 ///
-/// `MemberChecks::SkipStrayState` matches every other load in this
-/// binary. Whether they all become `MemberChecks::All` is an open
-/// question with no migration path behind it, and a selector is not the
-/// place to settle it.
+/// `MemberChecks::All`: a member holding its own lockfile, `.sysand` or
+/// `output` is refused (workspaces.md "Stray per-member state"), and a
+/// selector resolves against a workspace like anything else.
 fn selected_member(
     cwd: &Utf8Path,
     workspace_root: Option<&Utf8Path>,
@@ -1427,7 +1446,7 @@ fn selected_member(
     let Some(root) = workspace_root else {
         bail!("`--member {selector}` needs a workspace, but `{cwd}` is not in one");
     };
-    let workspace = Workspace::load_with(root, MemberChecks::SkipStrayState)?;
+    let workspace = Workspace::load_with(root, MemberChecks::All)?;
     Ok(Some(workspace.member(selector)?.dir.clone()))
 }
 

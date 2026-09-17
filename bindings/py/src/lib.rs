@@ -966,7 +966,7 @@ fn do_lock_py(
                 let workspace = sysand_core::workspace::model_toml::Workspace::load_with(
                     workspace_root,
                     // As `do_lock_workspace` asks for.
-                    sysand_core::workspace::model_toml::MemberChecks::SkipStrayState,
+                    sysand_core::workspace::model_toml::MemberChecks::All,
                 )
                 .map_err(|e| Failure::Py(ProjectError::new_err(format_err(e))))?;
                 let resolver = create_resolver(
