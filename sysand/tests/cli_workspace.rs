@@ -1436,3 +1436,122 @@ fn sources_refuses_a_member_inheriting_a_local_usage() -> Result<(), Box<dyn std
         .stderr(predicate::str::contains("base path unknown").not());
     Ok(())
 }
+
+/// workspaces.md "Command scopes", middle column: `sources` from a
+/// member directory is that member.
+///
+/// The workspace has a *sibling* member, so a scope leak would show.
+///
+/// `--deps none` is load-bearing: `app` uses `lib`, so a plain
+/// `sources` lists `lib.sysml` too -- as a dependency, not as a scope
+/// leak. Without the flag this test would fail for a reason that has
+/// nothing to do with scope.
+#[test]
+fn sources_from_a_member_dir_lists_that_member() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace_with_sources()?;
+    let out = run_sysand_in(&dir.path().join("app"), ["sources", "--deps", "none"], None)?;
+    out.clone().assert().success();
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    assert!(stdout.contains("app.sysml"), "got: {stdout}");
+    assert!(
+        !stdout.contains("lib.sysml"),
+        "the sibling is out of scope: {stdout}"
+    );
+    Ok(())
+}
+
+/// The writing commands `remove`, `include` and `exclude` from a member
+/// directory.
+///
+/// Each asserts its own effect, because the invariants differ: only
+/// `remove` re-locks, and none of them writes the root `model.toml`, so
+/// "the members list is intact" would be vacuous for all three.
+#[test]
+fn writing_commands_in_a_member_act_on_that_member() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace()?;
+    let member = dir.path().join("libs/gamma");
+    let manifest = member.join("model.toml");
+
+    // `include` first: `exclude` needs a source to remove, and this
+    // member's `sources` is empty.
+    std::fs::write(member.join("a.sysml"), "package A;\n")?;
+    run_sysand_in(&member, ["include", "a.sysml"], None)?
+        .assert()
+        .success();
+    assert!(
+        std::fs::read_to_string(&manifest)?.contains("a.sysml"),
+        "include writes the member's own manifest"
+    );
+
+    run_sysand_in(&member, ["exclude", "a.sysml"], None)?
+        .assert()
+        .success();
+    assert!(
+        !std::fs::read_to_string(&manifest)?.contains("a.sysml"),
+        "exclude writes the member's own manifest"
+    );
+
+    // `remove` drops the usage and re-locks, at the workspace root.
+    run_sysand_in(&member, ["remove", "acme/alpha", "--no-sync"], None)?
+        .assert()
+        .success();
+    assert!(
+        !std::fs::read_to_string(&manifest)?.contains("alpha"),
+        "remove writes the member's own manifest"
+    );
+    assert!(
+        !member.join("model.toml.bak").exists(),
+        "no stray state in the member"
+    );
+    Ok(())
+}
+
+/// `edit` from a member directory writes that member.
+/// `edit_at_the_root_needs_a_member` is the root half.
+#[test]
+fn edit_in_a_member_writes_that_member() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace()?;
+    let member = dir.path().join("libs/gamma");
+
+    run_sysand_in(&member, ["edit", "--version", "2.0.0"], None)?
+        .assert()
+        .success();
+
+    assert!(
+        std::fs::read_to_string(member.join("model.toml"))?.contains("2.0.0"),
+        "the member's own manifest is rewritten"
+    );
+    assert!(
+        std::fs::read_to_string(dir.path().join("app/model.toml"))?.contains("1.0.0"),
+        "the sibling is untouched"
+    );
+    Ok(())
+}
+
+/// `build` from a member directory builds that member, into the *root*
+/// `output`.
+///
+/// The root `output` starts empty, so this tells "one" from "all", and
+/// checks the table's "KPARs always land in the root `output`" for the
+/// default scope.
+#[test]
+fn build_from_a_member_dir_builds_one_into_the_root() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace_with_sources()?;
+    run_sysand_in(&dir.path().join("app"), ["build"], None)?
+        .assert()
+        .success();
+
+    let built: Vec<String> = glob::glob(dir.path().join("output/*.kpar").as_str())?
+        .filter_map(|p| {
+            p.ok()
+                .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+        })
+        .collect();
+    assert_eq!(built.len(), 1, "exactly one member is built: {built:?}");
+    assert!(built[0].starts_with("app-"), "and it is `app`: {built:?}");
+    assert!(
+        !dir.path().join("app/output").exists(),
+        "the KPAR lands in the root `output`, not the member's"
+    );
+    Ok(())
+}

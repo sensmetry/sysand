@@ -3692,3 +3692,70 @@ fn a_stdlib_usage_is_removed_by_its_omg_identity() -> Result<(), Box<dyn std::er
 
     Ok(())
 }
+
+/// A hand-commented `model.toml` survives `add` and `remove` with
+/// comments and key order intact, end to end.
+///
+/// The file above is mostly about the json path, so this one builds a
+/// toml project explicitly.
+#[test]
+fn add_and_remove_keep_the_comments_and_key_order() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, _) = cli_init_project(None, "acme", Some("widgets"), Some("1.0.0"), None)?;
+    // Without locking, an index usage's spelling is checked against what
+    // is installed, so the project is installed first.
+    install_in_env(&cwd, "acme", "other", "1.0.0")?;
+    let path = cwd.join("model.toml");
+    let commented = fs::read_to_string(&path)?
+        .replace("[project]", "# who ships it\n[project]")
+        .replace("sources = []", "sources = []  # the files\n");
+    fs::write(&path, &commented)?;
+
+    let key_names = |text: &str| -> Vec<String> {
+        text.lines()
+            .filter_map(|line| {
+                let line = line.trim();
+                (!line.starts_with('#') && line.contains(" = "))
+                    .then(|| line.split(" = ").next().unwrap_or_default().to_owned())
+            })
+            .collect()
+    };
+    let before = key_names(&commented);
+
+    run_sysand_in(
+        &cwd,
+        [
+            "add",
+            "--no-lock",
+            "acme/other",
+            "--version-constraint",
+            "^1.0.0",
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+    let added = fs::read_to_string(&path)?;
+    assert!(
+        added.contains("# who ships it"),
+        "add keeps comments:\n{added}"
+    );
+    assert!(
+        added.contains("# the files"),
+        "add keeps comments:\n{added}"
+    );
+
+    run_sysand_in(&cwd, ["remove", "acme/other"], None)?
+        .assert()
+        .success();
+    let removed = fs::read_to_string(&path)?;
+    assert!(
+        removed.contains("# who ships it") && removed.contains("# the files"),
+        "remove keeps comments:\n{removed}"
+    );
+    assert_eq!(
+        before,
+        key_names(&removed),
+        "add then remove must leave the key order as it was"
+    );
+    Ok(())
+}

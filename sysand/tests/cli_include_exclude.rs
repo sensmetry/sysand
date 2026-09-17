@@ -636,3 +636,48 @@ fn include_refuses_a_language_the_metamodel_does_not_admit()
     assert!(manifest(&cwd)?.contains("test.kerml"));
     Ok(())
 }
+
+/// `exclude` leaves a hand-commented manifest's comments and key order
+/// intact.
+#[test]
+fn exclude_keeps_the_comments_and_key_order() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = toml_project()?;
+    let commented = manifest(&cwd)?.replace(
+        "sources = []",
+        "# the files this project is made of\nsources = []",
+    );
+    fs::write(cwd.join("model.toml"), &commented)?;
+    fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+    run_sysand_in(&cwd, ["include", "test.sysml"], None)?
+        .assert()
+        .success();
+
+    let before = manifest(&cwd)?;
+    run_sysand_in(&cwd, ["exclude", "test.sysml"], None)?
+        .assert()
+        .success();
+    let after = manifest(&cwd)?;
+
+    assert!(
+        after.contains("# the files this project is made of"),
+        "the comment survives exclude:\n{after}"
+    );
+    assert_eq!(
+        keys(&before),
+        keys(&after),
+        "exclude must not reorder the keys"
+    );
+    Ok(())
+}
+
+/// The top-level key names, in the order the file writes them.
+fn keys(manifest: &str) -> Vec<String> {
+    manifest
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            (!line.starts_with('#') && line.contains(" = "))
+                .then(|| line.split(" = ").next().unwrap_or_default().to_owned())
+        })
+        .collect()
+}
