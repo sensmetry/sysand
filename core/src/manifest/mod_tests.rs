@@ -489,6 +489,7 @@ fn as_workspace_file(fragment: &str) -> String {
 /// model-toml.md, "Manifest version" and "Standard library".
 #[test]
 fn every_example_in_model_toml_parses() {
+    // design: model-toml.md #1
     // "Manifest version". A `[project]` with only a comment in it, so
     // the required keys complete it rather than frame it.
     accepted(
@@ -496,6 +497,7 @@ fn every_example_in_model_toml_parses() {
          [project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\n",
     );
 
+    // design: model-toml.md #2
     // "Standard library": a publisher-less `kpar-url` naming an OMG
     // IRI. "This is the only form."
     accepted(&as_project_file(
@@ -504,6 +506,7 @@ fn every_example_in_model_toml_parses() {
          kpar-url = \"https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar\"\n",
     ));
 
+    // design: model-toml.md #3
     // "Developing the standard library": the `[project]` of one of the
     // ten projects, which inherits its metamodel from a group.
     accepted(
@@ -543,6 +546,7 @@ fn an_index_usage_published_by_omg_is_an_ordinary_usage() {
 /// workspaces.md, "Included projects" and "Common usages".
 #[test]
 fn every_example_in_workspaces_md_parses() {
+    // design: workspaces.md #1
     // "Included projects": the one example in either document that is a
     // whole file.
     let read = accepted(
@@ -557,6 +561,7 @@ fn every_example_in_workspaces_md_parses() {
     assert_eq!(workspace.members.len(), 2);
     assert_eq!(workspace.exclude.len(), 1);
 
+    // design: workspaces.md #2
     // "Common usages": a member opting in to two group entries and
     // declaring one of its own.
     accepted(&as_project_file(
@@ -565,6 +570,7 @@ fn every_example_in_workspaces_md_parses() {
          [[inline-usages]]\npublisher = \"acme\"\nname = \"own\"\ndir = \"../own\"\n",
     ));
 
+    // design: workspaces.md #3
     // "Common usages": one group per language, each carrying the
     // `metamodel` of that language's release, and each carrying its
     // standard-library usage as a publisher-less `kpar-url`.
@@ -607,6 +613,7 @@ fn every_example_in_workspaces_md_parses() {
 /// document is showing what not to write, not a file to parse.
 #[test]
 fn the_overlap_counter_example_is_refused() {
+    // design: workspaces.md #4
     let report = rejected(&as_project_file(
         "urls.workspace = true\nurls.website.workspace = true # invalid\n",
     ));
@@ -619,6 +626,7 @@ fn the_overlap_counter_example_is_refused() {
         ]
     );
 
+    // design: workspaces.md #4
     let report = rejected(&as_project_file(
         "urls.workspace = true\n\
          urls.website.workspace = true # invalid\n\
