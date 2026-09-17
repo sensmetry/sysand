@@ -18,7 +18,6 @@ use crate::{
 use crate::{
     project::{
         local_kpar::{KparInnerPath, LocalKParProject},
-        local_src::LocalSrcProject,
         utils::{FsIoError, Identifier, wrapfs},
     },
     resolve::file::{FileResolverProject, FileResolverProjectError},
@@ -201,7 +200,12 @@ pub fn do_env_install_path<E: WriteEnvironment + ReadEnvironment>(
             None,
         ))
     } else if metadata.is_dir() {
-        FileResolverProject::LocalSrcProject(LocalSrcProject::new_access(location, None))
+        // Read as a member when `location` is one: a member that inherits
+        // a key cannot be read without its workspace's table
+        FileResolverProject::LocalSrcProject(crate::workspace::model_toml::project_at_path(
+            location.to_owned(),
+            None,
+        ))
     } else {
         return Err(EnvInstallPathError::NotFound(location.to_owned()));
     };

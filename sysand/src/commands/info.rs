@@ -136,7 +136,9 @@ fn interpret_project_path<P: AsRef<Utf8Path>>(
                     {USAGE}hint:{USAGE:#} to use a KPAR, use `--kpar-path`"
                 );
             }
-            FileResolverProject::LocalSrcProject(crate::project_at_path(path, None))
+            FileResolverProject::LocalSrcProject(
+                sysand_core::workspace::model_toml::project_at_path(path, None),
+            )
         }
         LocalProjectKind::Kpar => {
             if !metadata.is_file() {

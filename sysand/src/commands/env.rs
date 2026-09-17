@@ -237,7 +237,7 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
 
     let metadata = wrapfs::metadata(&path)?;
     let project = if metadata.is_dir() {
-        FileResolverProject::LocalSrcProject(crate::project_at_path(
+        FileResolverProject::LocalSrcProject(sysand_core::workspace::model_toml::project_at_path(
             path.as_str(),
             // Provide an empty nominal path to satisfy lock. It won't be used for actual
             // syncing, as the project is installed manually
