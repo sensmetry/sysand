@@ -1075,7 +1075,12 @@ fn a_dependency_src_path_is_relative_to_the_workspace_root()
                 "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"../vendor/dep\"\n",
             ),
         )],
-        "",
+        // `exclude`d, because `workspaces.md` makes a `dir` usage of a
+        // project that lies under the root in neither list the
+        // unlisted-project error. This test is about the *shape* of the
+        // recorded path, so the target is put in the list that lets it
+        // be a dependency at all.
+        "exclude = [\"vendor\"]\n",
     );
     project_dir(&dir.path().join("vendor/dep"), "dep");
 
@@ -1113,6 +1118,47 @@ fn an_inheriting_member_locks_with_the_tables_value() -> Result<(), Box<dyn std:
     let lock = lock_workspace(&dir).map_err(|e| e.to_string())?;
     assert_eq!(lock.projects[0].version, "9.9.9");
     Ok(())
+}
+
+/// `design/workspaces.md`, Intra-workspace usages: "A `dir` usage from
+/// a member to a project that lies under the root without being a
+/// member (and not covered in the `exclude` list) is the
+/// unlisted-project error of Included projects."
+///
+/// Resolving it would write a lockfile entry indistinguishable from a
+/// properly `exclude`d project's, so nothing downstream could tell the
+/// two apart -- which is the decidability the rule exists to protect.
+/// The rule applies through a usage as well as on the upward walk from
+/// the stray project's own directory.
+#[cfg(feature = "filesystem")]
+#[test]
+fn a_dir_usage_of_an_unlisted_project_is_refused() {
+    let dir = workspace_tree(
+        &[(
+            "app",
+            &member_toml(
+                "alpha",
+                "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"stray\"\ndir = \"../stray\"\n",
+            ),
+        )],
+        "",
+    );
+    // Under the root, in neither list.
+    std::fs::create_dir_all(dir.path().join("stray")).expect("the stray directory");
+    std::fs::write(
+        dir.path().join("stray/model.toml"),
+        member_toml("stray", ""),
+    )
+    .expect("the stray manifest");
+
+    let error = lock_workspace(&dir).expect_err("an unlisted target is the unlisted-project error");
+    // With its chain of causes, as the CLI prints it: the solver names the
+    // failing project and the cause says why.
+    let message = crate::utils::format_err(error);
+    assert!(
+        message.contains("is neither listed in `workspace.members` nor under `workspace.exclude`"),
+        "got: {message}"
+    );
 }
 
 /// A metamodel direction error stops the lock, rather than being

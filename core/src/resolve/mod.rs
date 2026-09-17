@@ -61,6 +61,26 @@ impl<T> ResolutionOutcome<T> {
             Self::Unresolvable { reason } => ResolutionOutcome::Unresolvable { reason },
         }
     }
+
+    /// [`Self::map`] where deciding what was resolved can fail.
+    ///
+    /// A resolver that refuses a target -- one under a workspace root
+    /// that is in neither of its lists -- is reporting an error, not a
+    /// non-resolution: `Unresolvable` would let the solve continue and
+    /// report something else later.
+    pub fn try_map<U, E, F: FnOnce(T) -> Result<U, E>>(
+        self,
+        op: F,
+    ) -> Result<ResolutionOutcome<U>, E> {
+        Ok(match self {
+            Self::Resolved(t) => ResolutionOutcome::Resolved(op(t)?),
+            Self::UnsupportedUsageType { reason } => {
+                ResolutionOutcome::UnsupportedUsageType { reason }
+            }
+            Self::NotFound { reason } => ResolutionOutcome::NotFound { reason },
+            Self::Unresolvable { reason } => ResolutionOutcome::Unresolvable { reason },
+        })
+    }
 }
 
 /// The manifest a usage was written in.
