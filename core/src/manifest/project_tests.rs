@@ -1429,3 +1429,77 @@ fn an_inherited_metamodel_decides_the_language() {
         texts(&report)
     );
 }
+
+// ------------------- opting into a standard-library group entry
+
+/// A workspace whose default group carries the standard library in the
+/// form workspaces.md shows: a publisher-less `kpar-url`.
+const STDLIB_WORKSPACE: &str = "manifest-version = \"1.0.0\"
+
+[workspace]
+members = []
+metamodel = \"https://www.omg.org/spec/KerML/20250201\"
+
+[[workspace.inline-usages]]
+name = \"Kernel Semantic Library\"
+kpar-url = \"https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar\"
+";
+
+fn in_stdlib_workspace(body: &str) -> Result<Validated<ResolvedProject>, Report> {
+    manifest(body).resolve(Some(&workspace(STDLIB_WORKSPACE)))
+}
+
+/// workspaces.md "Common usages": "an opt-in to such an entry likewise
+/// gives only `name` and the marker", and takes the group entry whole.
+#[test]
+fn an_opt_in_takes_a_publisher_less_group_entry() {
+    let project = in_stdlib_workspace(
+        "publisher = \"acme\"\nname = \"member\"\nversion = \"1.0.0\"\nsources = []\n\
+         metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n\n\
+         [[inline-usages]]\nname = \"Kernel Semantic Library\"\nworkspace = true\n",
+    )
+    .expect("the project resolves")
+    .into_parts()
+    .0;
+    let usage = &project.usages[0].usage;
+    assert!(usage.is_stdlib(), "{usage:?}");
+    assert_eq!(usage.identity().name, "kernel-semantic-library");
+}
+
+/// "Entries are matched by publisher and name, compared literally", and
+/// absence is part of the spelling: an opt-in that names a publisher
+/// does not match an entry that declares none.
+#[test]
+fn an_opt_in_naming_a_publisher_misses_a_stdlib_entry() {
+    let report = in_stdlib_workspace(
+        "publisher = \"acme\"\nname = \"member\"\nversion = \"1.0.0\"\nsources = []\n\
+         metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n\n\
+         [[inline-usages]]\npublisher = \"OMG\"\nname = \"Kernel Semantic Library\"\n\
+         workspace = true\n",
+    )
+    .expect_err("the opt-in matches nothing");
+    assert!(
+        report.diagnostics().iter().any(|diagnostic| diagnostic
+            .message
+            .contains("has no entry with that publisher and name")),
+        "{report:?}"
+    );
+}
+
+/// And the other way: a publisher-less opt-in against a group that has
+/// only ordinary entries.
+#[test]
+fn a_publisher_less_opt_in_misses_an_ordinary_entry() {
+    let report = member(
+        "publisher = \"acme\"\nname = \"member\"\nversion = \"1.0.0\"\nsources = []\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
+         [[inline-usages]]\nname = \"shared-dep\"\nworkspace = true\n",
+    )
+    .expect_err("the opt-in matches nothing");
+    assert!(
+        report.diagnostics().iter().any(|diagnostic| diagnostic
+            .message
+            .contains("has no entry with that publisher and name")),
+        "{report:?}"
+    );
+}

@@ -3675,14 +3675,18 @@ fn a_stdlib_usage_is_removed_by_its_omg_identity() -> Result<(), Box<dyn std::er
     std::fs::write(
         &manifest_path,
         format!(
-            "{manifest}\n[[inline-usages]]\nname = \"Semantic-Library\"\n\
+            "{manifest}\n[[inline-usages]]\nname = \"Kernel Semantic Library\"\n\
              kpar-url = \"https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar\"\n"
         ),
     )?;
 
-    run_sysand_in(&cwd, ["remove", "--no-index", "omg/semantic-library"], None)?
-        .assert()
-        .success();
+    run_sysand_in(
+        &cwd,
+        ["remove", "--no-index", "omg/kernel-semantic-library"],
+        None,
+    )?
+    .assert()
+    .success();
     let after = std::fs::read_to_string(&manifest_path)?;
     assert!(!after.contains("kpar-url"), "manifest: {after}");
 

@@ -584,6 +584,22 @@ fn migrate_resource(
         // resource string and never sees the constraint.
         Some("http" | "https") => {
             if let Some(constraint) = version_constraint {
+                // A standard-library IRI is the one URL whose meaning is
+                // known here, so the constraint is refused rather than
+                // dropped: the IRI names one release, and silently
+                // discarding the constraint would throw away the only
+                // statement the author made about which one they wanted.
+                // `kpar_view::usage_of_raw` refuses the same document
+                // with `NoManifestForm::StdlibConstraint`; one document,
+                // one answer.
+                if crate::model::is_omg_stdlib_iri(resource) {
+                    report.push(Diagnostic::error(format!(
+                        "usage `{resource}` carries `version` `{constraint}`, which a `kpar-url` \
+                         usage does not take; the IRI names one release, so remove the \
+                         constraint and migrate again"
+                    )));
+                    return None;
+                }
                 report.push(Diagnostic::warning(format!(
                     "usage `{resource}` has version constraint `{constraint}`, which is not \
                      migrated: a `kpar-url` usage carries no version constraint"

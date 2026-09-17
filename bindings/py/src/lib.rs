@@ -1027,7 +1027,7 @@ fn sync_failure(err: CommandSyncError, outcome: SyncOutcome, wrote_lock: bool) -
     match err {
         CommandSyncError::Sync(CliSyncError::EnvRead(_) | CliSyncError::EnvWrite(_))
         | CommandSyncError::WriteMetadata(_) => Failure::Env { message, wrote },
-        CommandSyncError::Sync(_) => Failure::Sync {
+        CommandSyncError::Sync(_) | CommandSyncError::IncludeStd(_) => Failure::Sync {
             message,
             wrote,
             partial: outcome,

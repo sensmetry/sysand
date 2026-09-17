@@ -395,8 +395,10 @@ pub fn is_omg_stdlib_iri(iri: &str) -> bool {
 ///
 /// The stem is *not* the library's declared name -- `SysML Quantities
 /// and Units Library` is published at
-/// `.../Quantities-and-Units-Domain-Library.kpar` -- so it is a fallback
-/// for a caller that has nothing else, never a lookup.
+/// `.../Quantities-and-Units-Domain-Library.kpar`, and seven of the ten
+/// differ by more than punctuation. A caller that wants the name asks
+/// [`crate::stdlib::std_lib_name`]; the stem is what is left when this
+/// Sysand embeds no release at that IRI.
 pub fn omg_stdlib_stem(iri: &str) -> Option<&str> {
     let rest = iri
         .strip_prefix(KERML_SPEC_PREFIX)

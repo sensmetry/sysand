@@ -231,7 +231,7 @@ fn a_stdlib_kpar_url_usage_reaches_the_kpar_view_unchanged()
 -> Result<(), Box<dyn std::error::Error>> {
     let iri = "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar";
     let dir = toml_project(&format!(
-        "\n[[inline-usages]]\nname = \"Semantic-Library\"\nkpar-url = \"{iri}\"\n"
+        "\n[[inline-usages]]\nname = \"Kernel Semantic Library\"\nkpar-url = \"{iri}\"\n"
     ))?;
     let (info, _) = built(&dir, false)?;
     assert_eq!(resource(&info.usage[0]), (iri.to_owned(), None));
@@ -245,7 +245,7 @@ fn a_stdlib_kpar_url_usage_is_copied_under_the_flag_too() -> Result<(), Box<dyn 
 {
     let iri = "https://www.omg.org/spec/SysML/20250201/Quantities-and-Units-Domain-Library.kpar";
     let dir = toml_project(&format!(
-        "\n[[inline-usages]]\nname = \"Quantities-and-Units-Domain-Library\"\n\
+        "\n[[inline-usages]]\nname = \"SysML Quantities and Units Library\"\n\
          kpar-url = \"{iri}\"\n"
     ))?;
     let (info, _) = built(&dir, true)?;

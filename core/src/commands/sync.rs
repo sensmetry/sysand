@@ -39,6 +39,20 @@ pub enum SyncError<
     ProjectMismatch(Box<ProjectMismatchError>),
     #[error("project with identifiers {0:?} has no known sources in lockfile")]
     MissingSource(Box<[String]>),
+    /// model-toml.md "Provided by the tooling": `sysand lock` "records
+    /// the standard-library entries with an empty source list", and "a
+    /// lockfile that pins a release Sysand does not know about is an
+    /// error on `sync`". An entry with no sources whose identifiers are
+    /// OMG standard-library IRIs is exactly that; one that is not a
+    /// standard library and has no sources is a malformed lockfile, and
+    /// keeps [`Self::MissingSource`].
+    ///
+    /// The `--include-std` hint is the CLI's to append: the bindings
+    /// reach this error too and have no such flag to pass.
+    #[error(
+        "the lockfile pins standard library `{name}` at `{version}`, which this Sysand does not know about"
+    )]
+    UnknownStdLib { name: String, version: String },
     #[error("no IRI given for project with src_path = `{0}` in lockfile")]
     MissingIriSrcPath(Box<str>),
     #[error("no IRI given for project with remote_src = `{0}` in lockfile")]
@@ -245,6 +259,16 @@ where
         }
 
         if project.sources.is_empty() {
+            if project
+                .identifiers
+                .iter()
+                .any(|iri| crate::model::is_omg_stdlib_iri(iri.as_str()))
+            {
+                return Err(SyncError::UnknownStdLib {
+                    name: project.name.clone(),
+                    version: project.version.clone(),
+                });
+            }
             return Err(SyncError::MissingSource(
                 project.identifiers.as_slice().into(),
             ));

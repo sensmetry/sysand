@@ -169,6 +169,13 @@ pub fn command_migrate<Policy: HTTPAuthentication>(
         if resource.starts_with("file:") {
             return resolve_file_target(resource, &dir);
         }
+        // Before the resolver is built, so that "a standard-library
+        // usage needs no network" is structural rather than incidental:
+        // the IRI names the release and there is no publisher to ask a
+        // target for.
+        if sysand_core::model::is_omg_stdlib_iri(resource) {
+            return stdlib_target(resource);
+        }
         build_resolver()?;
         let borrowed = resolver.borrow();
         let resolver = borrowed.as_ref().expect("just built");
@@ -477,6 +484,26 @@ fn prompt_for_publisher() -> Result<Option<String>> {
     Ok((!answer.is_empty()).then(|| answer.to_owned()))
 }
 
+/// A usage of an OMG standard-library IRI, without touching the network.
+///
+/// model-toml.md "Standard library": such a usage is a `kpar-url` that
+/// declares no `publisher`, and its name is "the name the KPAR
+/// declares" -- which Sysand embeds for every release it knows, and
+/// which is not the IRI's stem.
+fn stdlib_target(resource: &str) -> Result<Usage, String> {
+    let url = fluent_uri::Iri::parse(resource.to_owned())
+        .map_err(|(e, _)| format!("`{resource}` is not a valid IRI: {e}"))?;
+    let declared = sysand_core::stdlib::std_lib_name(resource)
+        .or_else(|| sysand_core::model::omg_stdlib_stem(resource))
+        .ok_or_else(|| format!("`{resource}` names no standard library"))?;
+    let name = IndexName::parse(declared).map_err(|e| format!("`{resource}`: {e}"))?;
+    Ok(Usage::RemoteKpar {
+        publisher: None,
+        name,
+        url,
+    })
+}
+
 /// An `http(s)` or unconstrained-`pkg:sysand` usage, through the index.
 fn resolve_remote_target<Policy: HTTPAuthentication>(
     resource: &str,
@@ -525,9 +552,9 @@ fn resolve_remote_target<Policy: HTTPAuthentication>(
     // at an `http(s)` URL are written this way -- the specification's
     // rule is unconditional, and the resolver accepts either.
     Ok(Usage::RemoteKpar {
-        // A publisher is always written here: a json `resource` usage of
-        // an OMG standard-library IRI migrating to the publisher-less
-        // form is iteration 69's work (`plans/68` §2).
+        // A publisher is always written here: a standard-library IRI
+        // never reaches this function, `lookup` having answered it
+        // offline.
         publisher: Some(publisher),
         name,
         url: fluent_uri::Iri::parse(resource.to_owned())

@@ -677,7 +677,7 @@ impl ProjectManifest {
                     name,
                     from,
                     at,
-                } => match from_group_usage(workspace, &publisher, &name, &from, at) {
+                } => match from_group_usage(workspace, publisher.as_ref(), &name, &from, at) {
                     Ok(usage) => usages.push(LocatedUsage::inherited(usage)),
                     Err(problem) => report.push(problem),
                 },
@@ -821,15 +821,21 @@ fn resolve_urls(
 /// workspaces.md "Common usages": an entry that gives only the identity
 /// plus a marker "takes the matching group entry whole". Entries "are
 /// matched by publisher and name, compared literally", so an opt-in has
-/// to spell both exactly as the group entry does.
+/// to spell both exactly as the group entry does -- including declaring
+/// no publisher, which for a standard-library entry is the spelling:
+/// "an opt-in to such an entry likewise gives only `name` and the
+/// marker".
 fn from_group_usage(
     workspace: Option<&WorkspaceTable>,
-    publisher: &IndexPublisher,
+    publisher: Option<&IndexPublisher>,
     name: &IndexName,
     from: &InheritFrom,
     at: Option<Position>,
 ) -> Result<Usage, Diagnostic> {
-    let label = format!("usage `{publisher}/{name}`");
+    let label = match publisher {
+        Some(publisher) => format!("usage `{publisher}/{name}`"),
+        None => format!("usage `{name}`"),
+    };
     let Some(workspace) = workspace else {
         return Err(Diagnostic::error(format!(
             "{label} inherits from {from}, but the project is not a member of any workspace"
@@ -846,16 +852,18 @@ fn from_group_usage(
         .inline_usages
         .iter()
         .find(|usage| {
-            // A group entry that declares no publisher is a
-            // standard-library usage, and an opt-in cannot name it:
-            // `MemberUsage::Inherited` requires a publisher. Opting into
-            // a standard-library group entry is not supported yet --
-            // recorded in `plans/68` as iteration 69's work -- and the
-            // `is_some_and` is where it will be made possible.
-            usage
-                .publisher()
-                .is_some_and(|declared| declared.as_str() == publisher.as_str())
-                && usage.name().as_str() == name.as_str()
+            // Compared literally, and absence is part of the spelling:
+            // a group entry that declares no publisher is a
+            // standard-library usage, and only an opt-in that likewise
+            // declares none names it. The two mismatched cases fall
+            // through to "no entry with that publisher and name", which
+            // is the truth.
+            let publisher_matches = match (publisher, usage.publisher()) {
+                (Some(wanted), Some(declared)) => wanted.as_str() == declared.as_str(),
+                (None, None) => true,
+                _ => false,
+            };
+            publisher_matches && usage.name().as_str() == name.as_str()
         })
         .cloned()
         .ok_or_else(|| {

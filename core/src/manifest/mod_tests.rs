@@ -510,7 +510,7 @@ fn every_example_in_model_toml_parses() {
     // WP-10-f implements.
     accepted(&as_project_file(
         "[[inline-usages]]\n\
-         name = \"Semantic-Library\"\n\
+         name = \"Kernel Semantic Library\"\n\
          kpar-url = \"https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar\"\n",
     ));
 
@@ -569,6 +569,35 @@ fn every_example_in_workspaces_md_parses() {
     let workspace = read.as_workspace().expect("a workspace");
     assert_eq!(workspace.groups.len(), 2);
     assert_eq!(workspace.groups["kerml"].inline_usages.len(), 1);
+
+    // Ahead of the document, which WP-9 re-copies once WP-10 is done:
+    // the reviewed "Common usages" writes each group's standard-library
+    // entry as a publisher-less `kpar-url`, and says "an opt-in to such
+    // an entry likewise gives only `name` and the marker".
+    let read = accepted(&as_workspace_file(
+        "[workspace.group.kerml]\n\
+         metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n\n\
+         [[workspace.group.kerml.inline-usages]]\n\
+         name = \"Kernel Semantic Library\"\n\
+         kpar-url = \"https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar\"\n\n\
+         [workspace.group.sysml]\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
+         [[workspace.group.sysml.inline-usages]]\n\
+         name = \"SysML Systems Library\"\n\
+         kpar-url = \"https://www.omg.org/spec/SysML/20250201/Systems-Library.kpar\"\n",
+    ))
+    .into_parts()
+    .0;
+    let workspace = read.as_workspace().expect("a workspace");
+    assert!(
+        workspace.groups["kerml"].inline_usages[0].is_stdlib(),
+        "{:?}",
+        workspace.groups["kerml"].inline_usages[0]
+    );
+
+    accepted(&as_project_file(
+        "[[inline-usages]]\nname = \"Kernel Semantic Library\"\nworkspace = \"kerml\"\n",
+    ));
 }
 
 /// workspaces.md "Explicit inheritance" gives one block that is *not* a

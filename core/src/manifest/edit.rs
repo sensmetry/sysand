@@ -1165,12 +1165,22 @@ fn find_usage(doc: &DocumentMut, wanted: &NormalizedIdentity) -> Option<usize> {
 /// Without this the editors would be blind to it: `sysand remove` could
 /// not remove one, and `sysand add omg/<name>` would append a second
 /// entry for the same library, which the next read refuses.
+///
+/// Two spellings reach `omg`: the `kpar-url` at a standard-library IRI,
+/// and an opt-in to a group entry that is one -- which carries a
+/// `workspace` marker, a `name`, and nothing else. The marker's *value*
+/// is not read here: an entry whose marker is invalid is still an entry
+/// declaring that project, and is still in the way of a second one.
 fn entry_identity(entry: &Table) -> Option<NormalizedIdentity> {
     let field = |key| entry.get(key).and_then(Item::as_str);
     let name = IndexName::parse(field("name")?).ok()?;
     let publisher = match field("publisher") {
         Some(raw) => IndexPublisher::parse(raw).ok()?,
-        None if field("kpar-url").is_some_and(is_omg_stdlib_iri) => OMG_PUBLISHER.clone(),
+        None if field("kpar-url").is_some_and(is_omg_stdlib_iri)
+            || entry.get("workspace").is_some() =>
+        {
+            OMG_PUBLISHER.clone()
+        }
         None => return None,
     };
     Some(normalized_identity(&publisher, &name))

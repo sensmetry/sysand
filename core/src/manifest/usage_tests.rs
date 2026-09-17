@@ -256,9 +256,6 @@ fn an_invalid_kpar_url_is_reported() {
     assert_eq!(places(&report), [(4, 1)]);
 }
 
-/// model-toml.md gives a version requirement only to the index kind;
-/// "remote-kpar: url, publisher, name -- ... version constraint not
-/// supported".
 /// model-toml.md "Usages": a local path is taken exactly as written, so
 /// only the normal form is admitted -- `..` may lead, since such a path
 /// may leave the directory it is relative to, and an absolute path keeps
@@ -273,11 +270,9 @@ fn a_local_path_in_normal_form_is_accepted() {
         "../../libs/lib",
         "/opt/libs/lib",
     ] {
-        let MemberUsage::Declared(usage) = member(&format!(
+        let usage = accepted(&format!(
             "publisher = \"acme\"\nname = \"lib\"\ndir = \"{path}\"\n"
-        )) else {
-            panic!("`{path}` is a declared usage");
-        };
+        ));
         assert_eq!(
             usage.local_path().map(|p| p.as_str()),
             Some(path),
@@ -340,22 +335,32 @@ fn a_local_path_is_normalized_into_the_form_a_manifest_admits() {
     }
 }
 
+/// model-toml.md gives a version requirement only to the index kind;
+/// "remote-kpar: url, publisher, name -- ... version constraint not
+/// supported". The `kpar-url` text says why, so the three kinds do not
+/// share one sentence: a `dir` usage's author is not helped by being
+/// told that an IRI names one release.
 #[test]
 fn only_index_usages_take_a_version_constraint() {
-    for kind in [
-        "dir = \"../lib\"",
-        "kpar-path = \"../lib.kpar\"",
-        "kpar-url = \"https://example.com/lib.kpar\"",
+    for (kind, rendered) in [
+        ("dir = \"../lib\"", "a `dir` usage does not take"),
+        (
+            "kpar-path = \"../lib.kpar\"",
+            "a `kpar-path` usage does not take",
+        ),
+        (
+            "kpar-url = \"https://example.com/lib.kpar\"",
+            "a `kpar-url` usage does not take; the IRI names one release",
+        ),
     ] {
         let report = rejected(&format!(
             "publisher = \"acme\"\nname = \"lib\"\nversion = \"^1\"\n{kind}\n"
         ));
         assert_eq!(
             texts(&report),
-            [
-                "usage `acme/lib` sets `version`, which a `dir`, `kpar-path` or `kpar-url` usage \
-             does not take"
-            ],
+            [format!(
+                "usage `acme/lib` carries `version`, which {rendered}"
+            )],
             "for {kind}"
         );
         assert_eq!(places(&report), [(4, 1)], "for {kind}");
@@ -484,8 +489,8 @@ fn an_omg_iri_with_a_version_is_refused() {
     assert_eq!(
         texts(&report),
         [
-            "usage `Semantic-Library` sets `version`, which a `dir`, `kpar-path` or `kpar-url` \
-          usage does not take"
+            "usage `Semantic-Library` carries `version`, which a `kpar-url` usage does not take; \
+             the IRI names one release"
         ]
     );
 }
@@ -673,8 +678,8 @@ fn a_workspace_marker_makes_an_entry_an_opt_in() {
             publisher: p,
             name: n,
             from: InheritFrom::DefaultGroup,
-            at: _
-        } if p == publisher("acme") && n == name("lib")
+            ..
+        } if p == Some(publisher("acme")) && n == name("lib")
     ));
     assert!(matches!(
         member("publisher = \"acme\"\nname = \"lib\"\nworkspace = \"legacy\"\n"),
@@ -682,8 +687,8 @@ fn a_workspace_marker_makes_an_entry_an_opt_in() {
             publisher: p,
             name: n,
             from: InheritFrom::Group(group),
-            at: _
-        } if p == publisher("acme") && n == name("lib") && group == "legacy"
+            ..
+        } if p == Some(publisher("acme")) && n == name("lib") && group == "legacy"
     ));
 }
 
@@ -1014,5 +1019,44 @@ fn a_url_key_is_unknown() {
                 && text.contains("`kpar-path`, `kpar-url`, `workspace`")
         }),
         "unexpected report: {report}"
+    );
+}
+
+// ------------------- the standard-library opt-in
+
+/// workspaces.md "Common usages": a standard-library group entry
+/// "carries no publisher, the target declaring none [...] an opt-in to
+/// such an entry likewise gives only `name` and the marker".
+#[test]
+fn a_publisher_less_opt_in_is_accepted() {
+    let member = member("name = \"Kernel Semantic Library\"\nworkspace = true\n");
+    let MemberUsage::Inherited {
+        publisher, name, ..
+    } = &member
+    else {
+        panic!("expected an opt-in, got `{member:?}`")
+    };
+    assert!(publisher.is_none(), "{member:?}");
+    assert_eq!(name.as_str(), "Kernel Semantic Library");
+    // The same `(omg, <name>)` a declared standard-library usage has --
+    // so the two collide in one array, which workspaces.md requires.
+    assert_eq!(member.identity().publisher, "omg");
+    assert_eq!(member.identity().name, "kernel-semantic-library");
+}
+
+/// "gives only `name` and the marker" is *fewer* keys, not more: an
+/// opt-in still takes no kind key of its own.
+#[test]
+fn a_publisher_less_opt_in_is_still_bare() {
+    let report = rejected(
+        "name = \"Kernel Semantic Library\"\nworkspace = true\n\
+         kpar-url = \"https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar\"\n",
+    );
+    assert_eq!(
+        texts(&report),
+        [
+            "usage `Kernel Semantic Library` inherits from the default group, so it \
+          may set only `publisher`, `name` and `workspace`"
+        ]
     );
 }

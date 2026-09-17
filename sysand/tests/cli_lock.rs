@@ -1266,7 +1266,7 @@ fn a_toml_stdlib_usage_locks_and_syncs_offline() -> Result<(), Box<dyn std::erro
     std::fs::write(
         &manifest_path,
         format!(
-            "{manifest}\n[[inline-usages]]\nname = \"Semantic-Library\"\nkpar-url = \"{IRI}\"\n"
+            "{manifest}\n[[inline-usages]]\nname = \"Kernel Semantic Library\"\nkpar-url = \"{IRI}\"\n"
         ),
     )?;
 
@@ -1287,6 +1287,92 @@ fn a_toml_stdlib_usage_locks_and_syncs_offline() -> Result<(), Box<dyn std::erro
         .assert()
         .success()
         .stderr(predicate::str::contains("nothing to do"));
+
+    Ok(())
+}
+
+/// `--include-std` stops treating the standard library as
+/// provided by the tooling and resolves it like any other `kpar-url`.
+///
+/// No mock server can answer for `www.omg.org`, and none is needed: a
+/// `[[project]]` override maps the IRI to a local KPAR, and the
+/// override resolver has priority over the standard one. So the flag's
+/// effect is asserted for real — the lockfile entry gains a source —
+/// rather than by watching a request go out.
+#[test]
+fn include_std_resolves_the_library_at_its_iri() -> Result<(), Box<dyn std::error::Error>> {
+    const IRI: &str = "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar";
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--metamodel",
+            "https://www.omg.org/spec/KerML/20250201",
+            "--publisher",
+            "acme",
+            "--name",
+            "app",
+            "--version",
+            "1.0.0",
+        ],
+        None,
+    )?;
+    out.assert().success();
+
+    // A stand-in for the published KPAR, built here so the test needs
+    // no fixture binary.
+    let lib = cwd.join("lib");
+    std::fs::create_dir_all(&lib)?;
+    std::fs::write(
+        lib.join("model.toml"),
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"OMG\"\n\
+         name = \"Kernel Semantic Library\"\nversion = \"1.0.0\"\nsources = [\"a.kerml\"]\n\
+         metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n",
+    )?;
+    std::fs::write(lib.join("a.kerml"), b"package A;\n")?;
+    run_sysand_in(&lib, ["build"], None)?.assert().success();
+
+    let manifest_path = cwd.join("model.toml");
+    let manifest = std::fs::read_to_string(&manifest_path)?;
+    std::fs::write(
+        &manifest_path,
+        format!(
+            "{manifest}\n[[inline-usages]]\nname = \"Kernel Semantic Library\"\n\
+             kpar-url = \"{IRI}\"\n"
+        ),
+    )?;
+
+    let config = cwd.join("override.toml");
+    std::fs::write(
+        &config,
+        format!(
+            "[[project]]\nidentifiers = [\"{IRI}\"]\n\
+             sources = [{{ kpar_path = \"lib/output/Kernel_Semantic_Library-1.0.0.kpar\" }}]\n"
+        ),
+    )?;
+
+    // Without the flag the library is provided: no source is recorded.
+    run_sysand_in(&cwd, ["lock", "--no-index"], None)?
+        .assert()
+        .success();
+    let provided = std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?;
+    assert!(!provided.contains("kpar_path"), "{provided}");
+
+    // With it, the same usage is resolved at its IRI like any other.
+    run_sysand_in(
+        &cwd,
+        [
+            "lock",
+            "--no-index",
+            "--include-std",
+            "--config-file",
+            config.as_str(),
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+    let fetched = std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?;
+    assert!(fetched.contains("kpar_path"), "{fetched}");
 
     Ok(())
 }

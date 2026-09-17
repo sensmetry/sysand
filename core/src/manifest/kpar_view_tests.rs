@@ -847,8 +847,23 @@ fn a_json_resource_at_an_omg_iri_becomes_a_publisher_less_kpar_url() {
     };
     let usage = usage_of_raw(&raw, ".project.json").expect("a standard-library usage");
     assert!(usage.is_stdlib(), "{usage:?}");
-    assert_eq!(usage.name().as_str(), "Semantic-Library");
+    // "the name the KPAR declares" -- which is not the IRI's stem.
+    assert_eq!(usage.name().as_str(), "Kernel Semantic Library");
     assert_eq!(usage.identity().publisher, "omg");
+    assert_eq!(usage.identity().name, "kernel-semantic-library");
+}
+
+/// A well-formed standard-library IRI of a release this Sysand does not
+/// embed has no declared name to take, so the stem is what is left --
+/// and such an IRI is what `--include-std` exists for.
+#[test]
+fn an_unembedded_omg_iri_falls_back_to_the_stem() {
+    let raw = crate::model::InterchangeProjectUsageRaw::Resource {
+        resource: "https://www.omg.org/spec/KerML/20301231/Semantic-Library.kpar".to_owned(),
+        version_constraint: None,
+    };
+    let usage = usage_of_raw(&raw, ".project.json").expect("a standard-library usage");
+    assert_eq!(usage.name().as_str(), "Semantic-Library");
 }
 
 /// A `kpar-url` usage takes no version constraint,

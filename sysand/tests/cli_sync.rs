@@ -945,6 +945,59 @@ fn sync_fails_on_a_renamed_directory_dependency() -> Result<(), Box<dyn std::err
     Ok(())
 }
 
+/// model-toml.md "Provided by the
+/// tooling": `lock` "records the standard-library entries with an empty
+/// source list", and "a lockfile that pins a release Sysand does not
+/// know about is an error on `sync`".
+///
+/// The lockfile is written by hand: `sync` does not re-lock when one is
+/// present, which is the whole point — this is the state a repository
+/// reaches by locking with a newer Sysand and syncing with an older.
+#[test]
+fn sync_names_the_unknown_stdlib_release_the_lockfile_pins()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--metamodel",
+            "https://www.omg.org/spec/KerML/20250201",
+            "--publisher",
+            "acme",
+            "--name",
+            "app",
+            "--version",
+            "1.0.0",
+        ],
+        None,
+    )?;
+    out.assert().success();
+
+    fs::write(
+        cwd.join(DEFAULT_LOCKFILE_NAME),
+        "lock_version = \"0.5\"\n\n\
+         [[project]]\n\
+         name = \"Kernel Semantic Library\"\n\
+         version = \"9.9.9\"\n\
+         metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n\
+         identifiers = [\n\
+         \x20   \"https://www.omg.org/spec/KerML/20301231/Semantic-Library.kpar\",\n\
+         ]\n",
+    )?;
+
+    run_sysand_in(&cwd, ["sync"], None)?
+        .assert()
+        .failure()
+        // The core half: the library and the version it pins.
+        .stderr(predicate::str::contains(
+            "the lockfile pins standard library `Kernel Semantic Library` at `9.9.9`, \
+             which this Sysand does not know about",
+        ))
+        // And the CLI half, which is the CLI's to append.
+        .stderr(predicate::str::contains("--include-std"));
+
+    Ok(())
+}
+
 /// A locked KPAR dependency rebuilt as another project fails the sync: the
 /// archive no longer has the size and digest the lockfile pins, which is
 /// checked before anything in it is read
@@ -1004,6 +1057,48 @@ fn sync_fails_on_a_lockfile_with_another_version() -> Result<(), Box<dyn std::er
         .stderr(predicate::str::contains(
             "has version `1.0.0`,\nbut the lockfile records version `1.0.1`",
         ));
+
+    Ok(())
+}
+
+/// The other half of the split: an entry with no sources that is *not* a
+/// standard library is a malformed lockfile, and its message carries no
+/// `--include-std` hint, which would not help it.
+#[test]
+fn a_non_stdlib_entry_without_sources_gets_no_include_std_hint()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--metamodel",
+            "https://www.omg.org/spec/KerML/20250201",
+            "--publisher",
+            "acme",
+            "--name",
+            "app",
+            "--version",
+            "1.0.0",
+        ],
+        None,
+    )?;
+    out.assert().success();
+
+    fs::write(
+        cwd.join(DEFAULT_LOCKFILE_NAME),
+        "lock_version = \"0.5\"\n\n\
+         [[project]]\n\
+         publisher = \"acme\"\n\
+         name = \"lib\"\n\
+         version = \"1.0.0\"\n\
+         metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n\
+         identifiers = [\"pkg:sysand/acme/lib\"]\n",
+    )?;
+
+    run_sysand_in(&cwd, ["sync"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("has no known sources in lockfile"))
+        .stderr(predicate::str::contains("--include-std").not());
 
     Ok(())
 }

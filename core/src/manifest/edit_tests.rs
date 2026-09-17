@@ -122,7 +122,7 @@ fn maximal() -> ModelToml {
                 url: iri("https://example.com/remote.kpar"),
             }),
             MemberUsage::Inherited {
-                publisher: publisher("acme"),
+                publisher: Some(publisher("acme")),
                 name: name("common"),
                 from: InheritFrom::DefaultGroup,
                 at: None::<Position>,
@@ -1412,7 +1412,8 @@ const STD_IRI: &str = "https://www.omg.org/spec/KerML/20250201/Semantic-Library.
 fn stdlib_usage() -> MemberUsage {
     MemberUsage::Declared(Usage::RemoteKpar {
         publisher: None,
-        name: name("Semantic-Library"),
+        // The name the KPAR declares.
+        name: name("Kernel Semantic Library"),
         url: iri(STD_IRI),
     })
 }
@@ -1428,7 +1429,8 @@ fn a_stdlib_usage_is_written_without_a_publisher_key() {
     let text = doc.to_string();
     assert!(
         text.contains(&format!(
-            "[[inline-usages]]\nname = \"Semantic-Library\"\nkpar-url = \"{STD_IRI}\"\n"
+            "[[inline-usages]]\nname = \"Kernel Semantic Library\"\n\
+             kpar-url = \"{STD_IRI}\"\n"
         )),
         "{text}"
     );
@@ -1444,7 +1446,8 @@ fn a_stdlib_usage_is_reached_by_its_omg_identity() {
     let mut doc = opened(&with_sources("[]"));
     push_usage(&mut doc, &stdlib_usage()).expect("a new usage");
 
-    remove_usage(&mut doc, &identity("omg", "Semantic-Library")).expect("the entry is there");
+    remove_usage(&mut doc, &identity("omg", "Kernel Semantic Library"))
+        .expect("the entry is there");
     assert!(!doc.to_string().contains("inline-usages"), "{doc}");
 }
 
@@ -1460,7 +1463,7 @@ fn a_second_stdlib_usage_for_the_same_library_is_refused() {
         push_usage(&mut doc, &stdlib_usage()),
         Err(EditError::DuplicateUsage(identity(
             "omg",
-            "Semantic-Library"
+            "Kernel Semantic Library"
         )))
     );
     // And by the spelling `sysand add omg/Semantic-Library` would give.
@@ -1469,13 +1472,13 @@ fn a_second_stdlib_usage_for_the_same_library_is_refused() {
             &mut doc,
             &MemberUsage::Declared(Usage::Index {
                 publisher: publisher("OMG"),
-                name: name("semantic-library"),
+                name: name("kernel semantic library"),
                 version_constraint: VersionReq::parse("^1").expect("a constraint"),
             })
         ),
         Err(EditError::DuplicateUsage(identity(
             "omg",
-            "Semantic-Library"
+            "Kernel Semantic Library"
         )))
     );
 }
@@ -1493,6 +1496,47 @@ fn a_publisher_less_entry_elsewhere_is_not_matched() {
         remove_usage(&mut doc, &identity("omg", "lib")),
         Err(EditError::UsageNotFound(identity("omg", "lib")))
     );
+}
+
+/// An opt-in to a standard-library group entry declares no publisher
+/// either, and resolves under `omg` like the entry it names -- so the
+/// editors reach it by `(omg, <name>)`. Without this `sysand remove`
+/// could not remove one, and `sysand add` would append a second entry
+/// for a library the member already has.
+#[test]
+fn a_stdlib_opt_in_is_reached_by_its_omg_identity() {
+    let text = format!(
+        "{}\n[[inline-usages]]\nname = \"Kernel Semantic Library\"\nworkspace = true\n",
+        with_sources("[]")
+    );
+    let mut doc = opened(&text);
+
+    assert_eq!(
+        push_usage(&mut doc, &stdlib_usage()),
+        Err(EditError::DuplicateUsage(identity(
+            "omg",
+            "Kernel Semantic Library"
+        )))
+    );
+    remove_usage(&mut doc, &identity("omg", "kernel semantic library"))
+        .expect("the opt-in is there");
+    assert!(!doc.to_string().contains("workspace = true"), "{doc}");
+}
+
+/// An opt-in whose marker is invalid still declares that project, and
+/// is still in the way of a second entry for it: the marker's value is
+/// the reader's problem, not the editor's.
+#[test]
+fn an_opt_in_with_a_broken_marker_still_holds_its_place() {
+    let text = format!(
+        "{}\n[[inline-usages]]\nname = \"Kernel Semantic Library\"\nworkspace = 3\n",
+        with_sources("[]")
+    );
+    let mut doc = opened(&text);
+    assert!(matches!(
+        push_usage(&mut doc, &stdlib_usage()),
+        Err(EditError::DuplicateUsage(_))
+    ));
 }
 
 fn metamodel(value: &str) -> KnownMetamodel {
