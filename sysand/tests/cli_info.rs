@@ -2385,3 +2385,50 @@ fn edit_dir_validates_a_version_too() -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
+
+/// A hand-commented `model.toml` survives `edit` of a scalar field with
+/// comments and key order intact.
+#[test]
+fn edit_keeps_the_comments_and_key_order() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, _) = cli_init_project(None, "acme", Some("widgets"), Some("1.0.0"), None)?;
+    let path = cwd.join("model.toml");
+    let commented = wrapfs::read_to_string(&path)?
+        .replace("[project]", "# who ships it\n[project]")
+        .replace("sources = []", "sources = []  # the files\n");
+    wrapfs::write(&path, &commented)?;
+
+    let key_names = |text: &str| -> Vec<String> {
+        text.lines()
+            .filter_map(|line| {
+                let line = line.trim();
+                (!line.starts_with('#') && line.contains(" = "))
+                    .then(|| line.split(" = ").next().unwrap_or_default().to_owned())
+            })
+            .collect()
+    };
+    let before = key_names(&commented);
+
+    run_sysand_in(&cwd, ["edit", "--description", "A widget."], None)?
+        .assert()
+        .success();
+
+    let after = wrapfs::read_to_string(&path)?;
+    assert!(
+        after.contains("# who ships it") && after.contains("# the files"),
+        "`edit` keeps comments:\n{after}"
+    );
+    assert!(
+        after.contains("A widget."),
+        "the value is written:\n{after}"
+    );
+    // `description` is new, so it may appear; every key that was there
+    // must still be there, in the order it was written.
+    let after_keys = key_names(&after);
+    let kept: Vec<String> = after_keys
+        .iter()
+        .filter(|k| before.contains(k))
+        .cloned()
+        .collect();
+    assert_eq!(before, kept, "`edit` must not reorder the keys");
+    Ok(())
+}

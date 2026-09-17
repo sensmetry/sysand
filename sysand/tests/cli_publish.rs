@@ -1267,3 +1267,98 @@ fn publish_from_a_member_directory_publishes_only_that_member() -> TestResult {
     upload_mock.assert();
     Ok(())
 }
+
+/// `--member <name>` from the root publishes exactly that member.
+///
+/// This is the `--member` selector of the `publish` row of
+/// `workspaces.md`'s Command scopes table -- on the one command that
+/// uploads, where publishing the wrong scope cannot be undone by
+/// deleting a local artifact.
+///
+/// The negative assertions use the qualified `example-pub1/<name>`, not
+/// the bare directory name: a member directory is called `alpha`, so a
+/// bare `alpha` would also match a path in any future error line.
+#[test]
+fn publish_member_from_the_root_publishes_one() -> TestResult {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    workspace_of(&cwd, &["gamma", "beta", "alpha"])?;
+    workspace_member(&cwd, "alpha", &[])?;
+    workspace_member(&cwd, "beta", &["../alpha"])?;
+    workspace_member(&cwd, "gamma", &["../beta"])?;
+    run_sysand_ok(&cwd, &["build"], None)?;
+
+    let mut server = Server::new();
+    let config_mock = mock_index_config_api_at_api(&mut server);
+    let upload_mock = mock_publish_with_bearer_times(&mut server, "test-token", 1);
+    let env = bearer_env_for_url(server.url().as_str());
+
+    let out = run_sysand_in_with(
+        &cwd,
+        [
+            "publish",
+            "--member",
+            "beta",
+            "--index",
+            server.url().as_str(),
+        ],
+        None,
+        &env,
+    )?;
+    out.clone().assert().success();
+    config_mock.assert();
+    upload_mock.assert();
+
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(
+        stderr.contains("Published example-pub1/beta"),
+        "`beta` must be the one published:\n{stderr}"
+    );
+    for other in ["example-pub1/alpha", "example-pub1/gamma"] {
+        assert!(
+            !stderr.contains(other),
+            "`{other}` must not be published:\n{stderr}"
+        );
+    }
+    Ok(())
+}
+
+/// `--workspace` from a member directory publishes every member, in
+/// dependency order -- "forces all members", against the one the
+/// working directory would otherwise imply.
+#[test]
+fn publish_workspace_from_a_member_dir_publishes_every_member() -> TestResult {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    workspace_of(&cwd, &["gamma", "beta", "alpha"])?;
+    workspace_member(&cwd, "alpha", &[])?;
+    workspace_member(&cwd, "beta", &["../alpha"])?;
+    workspace_member(&cwd, "gamma", &["../beta"])?;
+    run_sysand_ok(&cwd, &["build"], None)?;
+
+    let mut server = Server::new();
+    let config_mock = mock_index_config_api_at_api(&mut server);
+    let upload_mock = mock_publish_with_bearer_times(&mut server, "test-token", 3);
+    let env = bearer_env_for_url(server.url().as_str());
+
+    let out = run_sysand_in_with(
+        &cwd.join("beta"),
+        ["publish", "--workspace", "--index", server.url().as_str()],
+        None,
+        &env,
+    )?;
+    out.clone().assert().success();
+    config_mock.assert();
+    upload_mock.assert();
+
+    // `contains` is order-blind, so the order is the byte offsets.
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    let at = |name: &str| {
+        stderr
+            .find(&format!("Published example-pub1/{name}"))
+            .unwrap_or_else(|| panic!("`{name}` was not published:\n{stderr}"))
+    };
+    assert!(
+        at("alpha") < at("beta") && at("beta") < at("gamma"),
+        "members must publish dependency-first:\n{stderr}"
+    );
+    Ok(())
+}
