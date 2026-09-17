@@ -272,7 +272,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
     let cloned = "Cloned";
     let header = sysand_core::style::get_style_config().header;
 
-    let mut local_project = LocalSrcProject::new_access(project_path, None);
+    let mut local_project = crate::project_at_path(project_path, None);
 
     let std_resolver = standard_resolver(
         None,
@@ -326,7 +326,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
                     {USAGE}hint:{USAGE:#} to clone from a KPAR, use `--kpar-path`"
                 );
             }
-            let remote_project = LocalSrcProject::new_access(path, None);
+            let remote_project = crate::project_at_path(path, None);
             clone_local(
                 version_constraint,
                 cloning,
