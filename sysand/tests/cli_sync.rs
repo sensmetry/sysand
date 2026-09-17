@@ -1171,3 +1171,46 @@ fn sync_warns_on_a_non_semver_version() -> Result<(), Box<dyn std::error::Error>
         ));
     Ok(())
 }
+
+/// On the read side, a metamodel release mismatch is a warning, and
+/// `sync` still runs.
+///
+/// The counterpart of
+/// `cli_lock.rs::lock_warns_on_a_metamodel_release_mismatch`.
+#[test]
+fn sync_warns_on_a_metamodel_release_mismatch() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    fs::write(
+        cwd.join("model.toml"),
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"app\"\n\
+         version = \"1.0.0\"\nsources = []\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    )?;
+    fs::write(
+        cwd.join("sysand-lock.toml"),
+        "lock_version = \"0.5\"\n\
+         \n[[project]]\npublisher = \"acme\"\nname = \"app\"\nversion = \"1.0.0\"\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\
+         identifiers = [\"urn:app\"]\nusages = [\"urn:lib\"]\n\
+         sources = [{ editable = \".\" }]\n\
+         \n[[project]]\npublisher = \"acme\"\nname = \"lib\"\nversion = \"1.0.0\"\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20230201\"\n\
+         identifiers = [\"urn:lib\"]\nsources = [{ editable = \".\" }]\n",
+    )?;
+
+    let output = run_sysand_in(&cwd, ["sync"], None)?;
+    output
+        .clone()
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("20250201"))
+        .stderr(predicate::str::contains("20230201"));
+    // Once, however many times the lockfile is validated
+    let stderr = String::from_utf8(output.stderr)?;
+    assert_eq!(
+        stderr.matches("targets metamodel release").count(),
+        1,
+        "{stderr}"
+    );
+    Ok(())
+}

@@ -221,9 +221,11 @@ pub enum Command {
         /// Method to compress the files in the KPAR
         #[arg(long, default_value_t, value_enum)]
         compression: KparCompressionMethodCli,
-        /// Allow usages of local paths (`file://`).
-        /// Warning: using this makes the project not portable between different
-        /// computers, as `file://` URL always contains an absolute path.
+        /// Allow usages that name a local path: a `model.toml` `dir` or
+        /// `kpar-path` usage, or a `file://` URL.
+        /// Warning: using this makes the project not portable. A `file://`
+        /// URL always contains an absolute path, and a relative `dir` or
+        /// `kpar-path` only resolves from a checkout laid out as yours is.
         /// For multiple related projects, consider using a workspace instead
         #[arg(long, verbatim_doc_comment)]
         allow_path_usage: bool,

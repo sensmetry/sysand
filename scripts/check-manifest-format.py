@@ -233,6 +233,25 @@ def check_project_tables(path: str, text: str, offset: int = 0) -> list[str]:
     return [problem]
 
 
+# A json manifest tracked at the repository root. Sysand's own checkout
+# is not a project, and a manifest there makes it look like one: the
+# upward walk every command does stops at the repository root and
+# reports whatever it finds, so an empty `.meta.json` there breaks
+# `info`, `sources` and `lock` from every subdirectory. The three rules
+# above are toml rules and none of them parses json.
+STRAY_ROOT_MANIFESTS = (".project.json", ".meta.json", "model.toml")
+
+
+def check_root_manifests() -> list[str]:
+    return [
+        f"{name}:1: a manifest at the repository root makes the checkout "
+        "look like a project to every command that walks upward; "
+        "Sysand's own repository is not a Sysand project"
+        for name in STRAY_ROOT_MANIFESTS
+        if (ROOT / name).is_file()
+    ]
+
+
 def check_tree() -> list[str]:
     problems = []
     for path in tracked_files():
