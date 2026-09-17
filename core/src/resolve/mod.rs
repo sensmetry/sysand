@@ -327,6 +327,30 @@ pub trait ResolveRead {
     {
         AsAsyncResolve { inner: self }
     }
+
+    /// Read local targets under `root` as members of the workspace whose
+    /// table this is.
+    ///
+    /// A member that inherits a key resolves its manifest only against
+    /// the table, so a target read without one fails with "not a member
+    /// of any workspace" -- about a project that is one. A solve
+    /// reaches the target through a resolver, so the table has to
+    /// travel with the resolver.
+    ///
+    /// A default that returns `self` unchanged, because most resolvers
+    /// do not read local paths and none of them has to care.
+    #[cfg(feature = "filesystem")]
+    #[must_use]
+    fn within_workspace(
+        self,
+        _root: Utf8PathBuf,
+        _table: std::sync::Arc<crate::manifest::workspace_table::WorkspaceTable>,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        self
+    }
 }
 
 pub trait ResolveReadAsync {

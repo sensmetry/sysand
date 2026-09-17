@@ -14,6 +14,7 @@ use thiserror::Error;
 use crate::{
     context::ProjectContext,
     lock::Source,
+    manifest::workspace_table::WorkspaceTable,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsage},
     project::{
         self, ProjectFormat, ProjectRead,
@@ -26,11 +27,33 @@ use crate::{
 };
 
 /// Resolver for resolving `file://` URIs.
-#[derive(Debug)]
+///
+/// `Default` is the plain one: no sandbox, no workspace.
+#[derive(Debug, Default)]
 pub struct FileResolver {
     /// This field enables sandboxing the resolved path. If field is not `None`,
     /// the resolved path must be inside at least one of these directories.
     pub sandbox_roots: Option<Vec<Utf8PathBuf>>,
+    /// The workspace a resolved target may be a member of: its root and
+    /// the table its members are read against. A target under the root
+    /// is read as a member, so one that inherits a key can be read at
+    /// all. Set by [`crate::resolve::ResolveRead::within_workspace`];
+    /// `None` otherwise.
+    pub workspace: Option<(Utf8PathBuf, std::sync::Arc<WorkspaceTable>)>,
+}
+
+impl FileResolver {
+    /// The same project, read as a member when it sits inside the
+    /// workspace this resolver was given. A target outside it, or a
+    /// resolver with no workspace, is unchanged.
+    fn as_member(&self, project: LocalSrcProject) -> LocalSrcProject {
+        match &self.workspace {
+            Some((root, table)) if project.path().starts_with(root) => {
+                project.in_workspace(table.clone())
+            }
+            _ => project,
+        }
+    }
 }
 
 #[derive(Error, Debug)]
@@ -355,6 +378,15 @@ impl ProjectRead for FileResolverProject {
 }
 
 impl ResolveRead for FileResolver {
+    fn within_workspace(
+        mut self,
+        root: Utf8PathBuf,
+        table: std::sync::Arc<WorkspaceTable>,
+    ) -> Self {
+        self.workspace = Some((root, table));
+        self
+    }
+
     type Error = FileResolverError;
 
     type ProjectStorage = FileResolverProject;
@@ -400,13 +432,13 @@ impl ResolveRead for FileResolver {
                         vec![Ok(FileResolverProject::LocalSrcProject(
                             // The lock checks that the project is
                             // `publisher`/`name`, as for every typed usage
-                            LocalSrcProject::new_access(
+                            self.as_member(LocalSrcProject::new_access(
                                 path,
                                 // Can't use `dir` here, since `FileResolver` is used for env projects,
                                 // and in that case using `dir` would resolve relative to the project
                                 // inside `.sysand`, and the dependency would not be found
                                 None,
-                            ),
+                            )),
                         ))]
                     }))
                 } else {

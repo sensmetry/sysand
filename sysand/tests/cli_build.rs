@@ -1321,3 +1321,41 @@ fn build_without_a_lockfile_proceeds() -> Result<(), Box<dyn std::error::Error>>
     assert!(cwd.join("output/widgets-1.0.0.kpar").is_file());
     Ok(())
 }
+
+/// The standard-library workspace fixture builds, and the members inside
+/// the Kernel cycle are built in `members` order.
+///
+/// The fixture's ten members are the release's libraries, so this needs
+/// the release sources and skips with a notice without them. A cycle's
+/// members are built in `members` order; this pins that rule on the
+/// fixture the rule exists for.
+#[test]
+fn the_stdlib_workspace_builds_in_members_order() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(sources) = stdlib_sources() else {
+        return Ok(());
+    };
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    sysand_core::stdlib_compare::stage_release_workspace(&stdlib_fixture(), &sources, &cwd)?;
+
+    let out = run_sysand_in(&cwd, ["build"], None)?;
+    out.clone().assert().success();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+
+    let at = |name: &str| {
+        stderr
+            .find(name)
+            .unwrap_or_else(|| panic!("`{name}` was not built:\n{stderr}"))
+    };
+    // The Kernel cycle: semantic <-> data-type, semantic <-> function.
+    // `members` is alphabetical by directory, so inside the cycle that
+    // is data-type, then function, then semantic.
+    assert!(
+        at("Kernel_Data_Type_Library") < at("Kernel_Function_Library")
+            && at("Kernel_Function_Library") < at("Kernel_Semantic_Library"),
+        "the cycle must be built in `members` order:\n{stderr}"
+    );
+
+    let built = glob::glob(cwd.join("output/*.kpar").as_str())?.count();
+    assert_eq!(built, 10, "every member is built:\n{stderr}");
+    Ok(())
+}

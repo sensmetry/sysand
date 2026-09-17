@@ -343,9 +343,7 @@ fn directory_usage_missing_path_falls_back_to_env_resolver() {
     )]);
 
     let resolver = CombinedResolver {
-        file_resolver: Some(FileResolver {
-            sandbox_roots: None,
-        }),
+        file_resolver: Some(FileResolver::default()),
         local_resolver: Some(EnvResolver { env }),
         remote_resolver: NO_RESOLVER,
         index_resolver: NO_RESOLVER,

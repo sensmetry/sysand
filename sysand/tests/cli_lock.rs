@@ -1376,3 +1376,92 @@ fn include_std_resolves_the_library_at_its_iri() -> Result<(), Box<dyn std::erro
 
     Ok(())
 }
+
+/// The standard-library workspace fixture locks, with the Kernel cycle
+/// accepted.
+///
+/// All ten members inherit their `metamodel` from a group, and a member
+/// that inherits cannot be read as a standalone project, so the resolver
+/// has to read a `dir` target inside the workspace as a member. The
+/// cycle itself is accepted by the *loader*; this checks that the whole
+/// command succeeds end to end.
+#[test]
+fn the_stdlib_workspace_locks() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(sources) = stdlib_sources() else {
+        return Ok(());
+    };
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    sysand_core::stdlib_compare::stage_release_workspace(&stdlib_fixture(), &sources, &cwd)?;
+
+    run_sysand_in(&cwd, ["lock", "--no-index"], None)?
+        .assert()
+        .success();
+
+    let lock = std::fs::read_to_string(cwd.join("sysand-lock.toml"))?;
+    assert_eq!(
+        lock.matches("[[project]]").count(),
+        10,
+        "every member is in the lockfile:\n{lock}"
+    );
+    // Each member is recorded at its own directory, not the root's.
+    for member in ["semantic-library", "systems-library", "geometry-library"] {
+        assert!(
+            lock.contains(&format!("editable = \"{member}\"")),
+            "`{member}` must be editable at its own path:\n{lock}"
+        );
+    }
+    Ok(())
+}
+
+/// `lock` from inside a member locks the whole workspace, into the
+/// workspace root.
+///
+/// The CLI's discovery walks up and hands the table down, and this pins
+/// it, so a change to discovery cannot take it away silently. The target
+/// here inherits its `metamodel`, which the resolver can only read with
+/// the table.
+#[test]
+fn lock_from_inside_a_member_writes_at_the_root() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    std::fs::write(
+        cwd.join("model.toml"),
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\", \"lib\"]\n\n\
+         [workspace.group.fam]\nmetamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    )?;
+    for (at, body) in [
+        (
+            "app",
+            "publisher = \"acme\"\nname = \"alpha\"\nversion = \"1.0.0\"\nsources = []\n\
+             metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\
+             \n[[inline-usages]]\npublisher = \"acme\"\nname = \"beta\"\ndir = \"../lib\"\n",
+        ),
+        (
+            "lib",
+            "publisher = \"acme\"\nname = \"beta\"\nversion = \"1.0.0\"\nsources = []\n\
+             metamodel.workspace = \"fam\"\n",
+        ),
+    ] {
+        let path = cwd.join(at);
+        std::fs::create_dir_all(&path)?;
+        std::fs::write(
+            path.join("model.toml"),
+            format!("manifest-version = \"1.0.0\"\n\n[project]\n{body}"),
+        )?;
+    }
+
+    run_sysand_in(&cwd.join("app"), ["lock", "--no-index"], None)?
+        .assert()
+        .success();
+
+    assert!(
+        !cwd.join("app/sysand-lock.toml").exists(),
+        "the lockfile belongs to the workspace, not the member it was run from"
+    );
+    let lock = std::fs::read_to_string(cwd.join("sysand-lock.toml"))?;
+    assert_eq!(
+        lock.matches("[[project]]").count(),
+        2,
+        "both members:\n{lock}"
+    );
+    Ok(())
+}

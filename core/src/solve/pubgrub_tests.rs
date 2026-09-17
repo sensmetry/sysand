@@ -2702,9 +2702,7 @@ fn two_usages_resolve_against_their_own_bases() -> Result<(), Box<dyn std::error
                 UsageOrigin::Json,
             ),
         ],
-        FileResolver {
-            sandbox_roots: None,
-        },
+        FileResolver::default(),
     )?;
 
     assert_eq!(solution.len(), 2, "both usages resolve: {solution:?}");
@@ -2731,9 +2729,7 @@ fn a_usage_with_no_base_is_unresolvable_beside_one_that_has_it()
             ),
             ResolutionInfo::new_declared_in(dir_usage("other", "two"), None, UsageOrigin::Json),
         ],
-        FileResolver {
-            sandbox_roots: None,
-        },
+        FileResolver::default(),
     )
     .expect_err("the second usage has no base");
 
@@ -2759,9 +2755,7 @@ fn solve_still_applies_one_base_to_every_usage() -> Result<(), Box<dyn std::erro
     let solution = solve(
         vec![dir_usage("dep", "one"), dir_usage("other", "two")],
         Some(tmp.path().join("alpha")),
-        FileResolver {
-            sandbox_roots: None,
-        },
+        FileResolver::default(),
     )?;
 
     assert_eq!(solution.len(), 2, "{solution:?}");

@@ -785,6 +785,12 @@ fn lock_workspace<PD: ProjectRead + Debug, R: ResolveRead<ProjectStorage = PD> +
     }
 
     let table = std::sync::Arc::new(workspace.table().clone());
+    // The resolver reads a member's `dir` target as a project of its
+    // own, and a member that inherits a key cannot be read without the
+    // table. Applied here rather than by the caller: a caller that
+    // forgot would see nothing wrong until some member inherited
+    // something.
+    let resolver = resolver.within_workspace(workspace.root().to_owned(), table.clone());
     let members: Vec<EditableLocalSrcProject> = workspace
         .members()
         .iter()

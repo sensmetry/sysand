@@ -247,6 +247,19 @@ impl<
     IndexResolver: ResolveRead,
 > ResolveRead for CombinedResolver<FileResolver, LocalResolver, RemoteResolver, IndexResolver>
 {
+    /// Only the file resolver reads local paths, so only it is told.
+    #[cfg(feature = "filesystem")]
+    fn within_workspace(
+        mut self,
+        root: camino::Utf8PathBuf,
+        table: std::sync::Arc<crate::manifest::workspace_table::WorkspaceTable>,
+    ) -> Self {
+        self.file_resolver = self
+            .file_resolver
+            .map(|resolver| resolver.within_workspace(root, table));
+        self
+    }
+
     type Error = CombinedResolverError<
         FileResolver::Error,
         LocalResolver::Error,

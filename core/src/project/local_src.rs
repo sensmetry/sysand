@@ -149,6 +149,25 @@ impl LocalSrcProject {
         }
     }
 
+    /// The directory this project is read from.
+    pub fn path(&self) -> &camino::Utf8Path {
+        &self.project_path
+    }
+
+    /// The same project, resolving its manifest against `table`.
+    ///
+    /// For a resolver that has discovered its target is a member of the
+    /// workspace it was given -- the table still arrives from outside,
+    /// so the invariant above holds: nothing here goes looking for one.
+    #[must_use]
+    pub fn in_workspace(
+        mut self,
+        table: std::sync::Arc<crate::manifest::workspace_table::WorkspaceTable>,
+    ) -> Self {
+        self.workspace = Some(table);
+        self
+    }
+
     /// [`LocalSrcProject::new_access`] for a workspace member, whose
     /// manifest resolves against `table`.
     pub fn new_member(

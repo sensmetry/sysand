@@ -590,9 +590,7 @@ fn two_input_projects_resolve_against_their_own_bases() -> Result<(), Box<dyn st
             (None, &alpha, Some(tmp.path().join("alpha"))),
             (None, &beta, Some(tmp.path().join("beta"))),
         ],
-        FileResolver {
-            sandbox_roots: None,
-        },
+        FileResolver::default(),
         &HashMap::default(),
         &ctx_rooted_at(tmp.path()),
     )
@@ -675,9 +673,7 @@ fn do_lock_projects_still_derives_one_base() -> Result<(), Box<dyn std::error::E
 
     let outcome = do_lock_projects(
         vec![(None, &app)],
-        FileResolver {
-            sandbox_roots: None,
-        },
+        FileResolver::default(),
         &HashMap::default(),
         &ctx_rooted_at(tmp.path()),
     )
@@ -709,9 +705,7 @@ fn do_lock_extend_still_derives_one_base() -> Result<(), Box<dyn std::error::Err
             crate::commands::lock::DeclaredBy::Input("the test".to_owned()),
             UsageOrigin::Json,
         )],
-        FileResolver {
-            sandbox_roots: None,
-        },
+        FileResolver::default(),
         &HashMap::default(),
         &ctx_rooted_at(tmp.path()),
     )
@@ -786,9 +780,7 @@ fn lock_workspace(
     let ctx = workspace_ctx(workspace.root());
     super::do_lock_workspace(
         &workspace,
-        crate::resolve::file::FileResolver {
-            sandbox_roots: None,
-        },
+        crate::resolve::file::FileResolver::default(),
         &HashMap::default(),
         &ctx,
     )
@@ -1120,6 +1112,40 @@ fn an_inheriting_member_locks_with_the_tables_value() -> Result<(), Box<dyn std:
     );
     let lock = lock_workspace(&dir).map_err(|e| e.to_string())?;
     assert_eq!(lock.projects[0].version, "9.9.9");
+    Ok(())
+}
+
+/// A member's `dir` usage of another member resolves even when the
+/// target inherits a key from the table.
+///
+/// `members_at_different_depths_resolve_their_own_bases` above already
+/// locks a member-to-member `dir` usage, and passes because
+/// `member_toml` writes a literal `metamodel` into every member. Here
+/// the target *inherits*, and a manifest with an inheritance marker
+/// cannot be read without the table, so the solver's read of the target
+/// has to carry it.
+#[cfg(feature = "filesystem")]
+#[test]
+fn a_dir_usage_of_an_inheriting_member_resolves() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace_tree(
+        &[
+            (
+                "app",
+                &member_toml(
+                    "alpha",
+                    "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"beta\"\ndir = \"../lib\"\n",
+                ),
+            ),
+            (
+                "lib",
+                "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"beta\"\n\
+                 version = \"1.0.0\"\nsources = []\nmetamodel.workspace = \"fam\"\n",
+            ),
+        ],
+        "[workspace.group.fam]\nmetamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    );
+    let lock = lock_workspace(&dir).map_err(|e| e.to_string())?;
+    assert_eq!(editables(&lock), vec!["app", "lib"]);
     Ok(())
 }
 

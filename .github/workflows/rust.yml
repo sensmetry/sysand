@@ -190,8 +190,11 @@ jobs:
 
       - name: cargo test ... (Rust library & CLI)
         env:
-          # Read by `core/tests/stdlib_equivalence.rs`; unset elsewhere,
-          # which the test reports rather than passing silently.
+          # Read by `core/tests/stdlib_equivalence.rs` and by the
+          # standard-library cases in `sysand/tests/cli_lock.rs` and
+          # `cli_build.rs`, which is why both packages are tested in one
+          # step; unset elsewhere, which each of them reports rather
+          # than passing silently.
           SYSAND_STDLIB_SOURCES: ${{ (matrix.os == 'ubuntu-22.04' && matrix.libc == 'gnu') && format('{0}/sysml-v2-release', github.workspace) || '' }}
         run: >-
           cargo test --locked

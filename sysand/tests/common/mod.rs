@@ -27,6 +27,32 @@ version = \"0.2\"
 /// test that is not about the metamodel means this one.
 pub const SYSML: &str = "https://www.omg.org/spec/SysML/20250201";
 
+/// The standard-library workspace fixture, which lives in the core
+/// crate's test data.
+pub fn stdlib_fixture() -> Utf8PathBuf {
+    Utf8PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../core/tests/data/stdlib-workspace")
+}
+
+/// A checkout of the SysML v2 release, or `None` with a printed notice.
+///
+/// The release sources are deliberately not in this repository, so the
+/// suites that need them skip without `SYSAND_STDLIB_SOURCES`: a skip
+/// that says so beats a pass that does not. Empty
+/// counts as unset, because the CI expression that selects one matrix
+/// entry sets the variable to `''` everywhere else.
+pub fn stdlib_sources() -> Option<Utf8PathBuf> {
+    let root = std::env::var("SYSAND_STDLIB_SOURCES")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    if root.is_none() {
+        println!(
+            "skipping: set SYSAND_STDLIB_SOURCES to a checkout of the \
+             SysML v2 release to run the standard-library workspace tests"
+        );
+    }
+    root.map(Utf8PathBuf::from)
+}
+
 /// Writes `files` (relative path, content) into `dir`, makes `dir` a git
 /// repository and commits them, leaving an index that matches the commit.
 ///
