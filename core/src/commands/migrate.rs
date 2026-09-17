@@ -188,7 +188,12 @@ fn migrate_publisher(
 /// refuses duplicates, and this union duplicates by construction --
 /// `index` maps *symbol* to path, so a file exporting ten symbols
 /// appears ten times.
-fn migrate_sources(
+/// Public so that comparing a json project's file list against a
+/// `model.toml`'s can apply the same normalization:
+/// `design/model-toml.md` has migration rewrite json paths into the
+/// strict form `sources` takes, so a comparison that skipped this would
+/// report differences the rewrite erases.
+pub fn migrate_sources(
     meta: &InterchangeProjectMetadataRaw,
     metamodel: Option<&KnownMetamodel>,
     report: &mut Report,

@@ -338,8 +338,13 @@ fn both_fixture(
     git_repo(cwd, true)
 }
 
+/// The `metamodel` is not decoration: the `Both` check resolves rather
+/// than only parsing, so a `model.toml` without one is refused.
+/// Migrating to it would leave a manifest every command refuses and
+/// delete the only readable pair.
 const AGREEING_TOML: &str = "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\n\
-     name = \"widgets\"\nversion = \"1.2.3\"\nsources = []\n";
+     name = \"widgets\"\nversion = \"1.2.3\"\nsources = []\n\
+     metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n";
 
 #[test]
 fn migrate_keeps_an_existing_model_toml() -> Result<(), Box<dyn std::error::Error>> {
@@ -381,7 +386,8 @@ fn migrate_refuses_a_disagreeing_pair() -> Result<(), Box<dyn std::error::Error>
 fn the_both_comparison_normalizes() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
     let toml = "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\n\
-                name = \"lib-test\"\nversion = \"1.2.3\"\nsources = []\n";
+                name = \"lib-test\"\nversion = \"1.2.3\"\nsources = []\n\
+                metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n";
     both_fixture(&cwd, toml, "Lib test", "1.2.3")?;
 
     run_sysand_in(&cwd, ["migrate"], None)?.assert().success();
@@ -1148,5 +1154,141 @@ fn a_constrained_stdlib_resource_is_refused() -> Result<(), Box<dyn std::error::
     // And nothing was written: the json pair is still the project.
     assert!(!cwd.join("model.toml").exists());
     assert!(cwd.join(".project.json").is_file());
+    Ok(())
+}
+
+// ------------------- what the `Both` case deletes
+
+/// The gate that has to come first: `migrate` must not keep a
+/// `model.toml` that does not *resolve* -- the mandatory `metamodel`
+/// lives in resolve, so parsing alone is not enough. Keeping it would
+/// delete the only readable manifest and leave a project every command
+/// refuses, with nothing to recover from.
+#[test]
+fn both_refuses_a_model_toml_that_will_not_resolve() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    let no_metamodel = "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\n\
+                        name = \"widgets\"\nversion = \"1.2.3\"\nsources = []\n";
+    both_fixture(&cwd, no_metamodel, "widgets", "1.2.3")?;
+
+    run_sysand_in(&cwd, ["migrate"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("would not be readable on its own"))
+        .stderr(predicate::str::contains("missing key `metamodel`"))
+        .stderr(predicate::str::contains(
+            "the json manifests beside it are left in place",
+        ));
+
+    assert!(cwd.join(".project.json").is_file(), "the pair survives");
+    assert!(cwd.join(".meta.json").is_file(), "the pair survives");
+    Ok(())
+}
+
+/// A json project holds seven things a `model.toml` can also hold, and
+/// deleting the pair takes whatever the toml lacks. The command says so
+/// rather than succeeding in silence.
+#[test]
+fn both_warns_about_what_only_the_json_has() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    std::fs::write(cwd.join("model.toml"), AGREEING_TOML)?;
+    std::fs::write(
+        cwd.join(".project.json"),
+        br#"{"name": "widgets", "publisher": "acme", "version": "1.2.3",
+            "description": "The widget model", "license": "MIT",
+            "maintainer": ["Ada <ada@example.com>"], "website": "https://example.com/w",
+            "topic": ["widgets", "demo"],
+            "usage": [{"resource": "urn:kpar:dep"}]}"#,
+    )?;
+    std::fs::write(
+        cwd.join(".meta.json"),
+        br#"{"created": "2001-02-03T04:05:06Z",
+            "index": {"A": "./model/a.sysml"},
+            "metamodel": "https://www.omg.org/spec/SysML/20250201",
+            "checksum": {"model//a.sysml": {"value": "x", "algorithm": "SHA256"}}}"#,
+    )?;
+    std::fs::create_dir_all(cwd.join("model"))?;
+    std::fs::write(cwd.join("model/a.sysml"), b"package A;\n")?;
+    git_repo(&cwd, true)?;
+
+    run_sysand_in(&cwd, ["migrate"], None)?
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("are about to be deleted"))
+        .stderr(predicate::str::contains("usage IRI `urn:kpar:dep`"))
+        // The json paths are normalized before comparison, so the two
+        // spellings of one file are one entry -- which is what
+        // migration would have written.
+        .stderr(predicate::str::contains(
+            "1 source file listed in `.meta.json`: model/a.sysml",
+        ))
+        .stderr(predicate::str::contains(
+            "`description` (`The widget model`)",
+        ))
+        .stderr(predicate::str::contains("`license` (`MIT`)"))
+        .stderr(predicate::str::contains(
+            "`website` (`https://example.com/w`)",
+        ))
+        .stderr(predicate::str::contains("1 `maintainer` entry"))
+        .stderr(predicate::str::contains("2 `topic` entries"));
+    Ok(())
+}
+
+/// The disqualifying test: migrate a json project, put the pair back,
+/// migrate again. `migrate`'s own output must warn about nothing, or
+/// the warning is one nobody reads.
+///
+/// This is what ruled the `.meta.json` symbol index and checksums out
+/// of the comparison: a `model.toml` can never hold either, so warning
+/// about them would fire on every `Both` migration including this one.
+#[test]
+fn both_warns_about_nothing_on_migrates_own_output() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    let json = br#"{"name": "widgets", "publisher": "acme", "version": "1.2.3",
+        "description": "d", "license": "MIT", "maintainer": ["Ada <a@e.com>"],
+        "website": "https://example.com", "topic": ["t"]}"#;
+    let meta = br#"{"created": "2001-02-03T04:05:06Z", "index": {"A": "model/a.sysml"},
+        "metamodel": "https://www.omg.org/spec/SysML/20250201"}"#;
+    std::fs::write(cwd.join(".project.json"), json)?;
+    std::fs::write(cwd.join(".meta.json"), meta)?;
+    std::fs::create_dir_all(cwd.join("model"))?;
+    std::fs::write(cwd.join("model/a.sysml"), b"package A;\n")?;
+    git_repo(&cwd, true)?;
+
+    run_sysand_in(&cwd, ["migrate"], None)?.assert().success();
+    // Put the pair back beside what migrate wrote.
+    std::fs::write(cwd.join(".project.json"), json)?;
+    std::fs::write(cwd.join(".meta.json"), meta)?;
+
+    run_sysand_in(&cwd, ["migrate", "--allow-dirty"], None)?
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("about to be deleted").not());
+    Ok(())
+}
+
+/// The `Both` path reads json the way the `Json` path does, rather than
+/// deserializing straight into the strict json types, so it does not
+/// silently accept what the `Json` path warns about.
+#[test]
+fn both_reads_json_the_way_the_rest_of_migrate_does() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    std::fs::write(cwd.join("model.toml"), AGREEING_TOML)?;
+    std::fs::write(
+        cwd.join(".project.json"),
+        br#"{"name": "widgets", "publisher": "acme", "version": "1.2.3",
+            "totallyUnknownKey": 42}"#,
+    )?;
+    std::fs::write(
+        cwd.join(".meta.json"),
+        br#"{"created": "2001-02-03T04:05:06Z", "index": {},
+            "metamodel": "https://www.omg.org/spec/SysML/20250201"}"#,
+    )?;
+    git_repo(&cwd, true)?;
+
+    run_sysand_in(&cwd, ["migrate"], None)?
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("totallyUnknownKey"));
     Ok(())
 }
