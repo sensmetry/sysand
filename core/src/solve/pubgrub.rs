@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 use pubgrub::{
     DefaultStringReporter, DependencyConstraints, DependencyProvider, DerivationTree, External,
     Reporter as _, VersionSet,
@@ -257,16 +257,23 @@ impl VersionSet for DiscreteHashSet {
 
 type CandidateMap<R> = HashMap<Identifier, CandidateEntry<R>>;
 
-/// The candidates resolved for one identifier, and those that were skipped as
-/// broken while resolving them.
+/// The candidates resolved for one identifier, those that were skipped as
+/// broken while resolving them, and the local place they came from.
 ///
 /// The faults are kept because the entry is shared by every usage with that
 /// identifier, but not every usage may skip the same broken candidates (see
 /// [`OnBrokenCandidate`]): a usage fails with the first one it may not skip
 /// when it reads the entry, whichever usage happened to fill the entry first.
+///
+/// `where_from` is `Some` only for a usage that names a location on
+/// this filesystem -- `dir` or `kpar-path`. It is kept so that a *second*
+/// usage of the same identity can be compared against it: the two must
+/// name one place, because the lockfile holds one source per identity
+/// and the loser is simply dropped.
 struct CandidateEntry<R: ResolveRead> {
     candidates: Vec<Candidate<R::ProjectStorage>>,
     skipped: Vec<CandidateError<R>>,
+    where_from: Option<Utf8PathBuf>,
 }
 
 /// One resolved alternative for a given IRI: the summary the solver scores
@@ -523,16 +530,33 @@ fn resolve_candidates<R: ResolveRead + fmt::Debug>(
     let on_broken = OnBrokenCandidate::of(resolve.usage());
     let entry = cache.entry(resolve.to_id());
 
-    // TODO: decide on a resolution policy. Currently the cache is keyed by Identifier,
-    // which may be encountered multiple times with different sources in the dependency
-    // graph; only the first such encounter will be cached, all others will reuse the cached
-    // one. SysML spec does not allow multiple instances of the same project to be present
-    // in the dependency graph (AFAIK), so they should be coalesced to a single one (like is
-    // currently done), but how exactly? Most specific (Directory > Resource)? Priority to
-    // direct dependencies of the root project? Either way, the policy has to be explicitly
-    // documented
+    // The cache is keyed by identity, so one identity reached twice
+    // from different sources keeps whichever resolved first. The open
+    // policy question -- "Most specific (Directory > Resource)? Priority
+    // to direct dependencies of the root project?" -- is only about a
+    // *local* usage meeting a non-local one, which is the deliberate
+    // "use my checkout instead of the index" override and stays
+    // first-wins.
+    //
+    // Two **local** usages naming two different places are refused:
+    // `design/workspaces.md` says "the lockfile, the `.sysand`
+    // environment and the symbol namespace all hold one version per
+    // identity", so the loser would be dropped -- its version, its
+    // sources and its exported symbols -- and whichever usage came first
+    // would decide what everything was built against. Reordering
+    // `members` would be enough to change it, with nothing printed.
     match entry {
         Entry::Occupied(mut occupied_entry) => {
+            if let (Some(first), Some(second)) =
+                (&occupied_entry.get().where_from, local_target(resolve))
+                && first != &second
+            {
+                return Err(InternalSolverError::ConflictingLocalSources {
+                    usage: resolve.to_usage(),
+                    first: first.clone(),
+                    second,
+                });
+            }
             // The strictest usage decides, whichever came first
             let skipped = &mut occupied_entry.get_mut().skipped;
             if let Some(position) = skipped.iter().position(|fault| !on_broken.may_skip(fault)) {
@@ -593,11 +617,57 @@ fn resolve_candidates<R: ResolveRead + fmt::Debug>(
             vacant_entry.insert(CandidateEntry {
                 candidates: found,
                 skipped,
+                where_from: local_target(resolve),
             });
 
             Ok(result)
         }
     }
+}
+
+/// The place on this filesystem a usage names, if it names one.
+///
+/// `dir` and `kpar-path` are relative to the declaring project, so the
+/// base is needed to compare two of them; a `file:` resource carries an
+/// absolute path already. An index or `http(s)` usage names no local
+/// place and answers `None`, which is what keeps the "use my checkout
+/// instead of the index" override working: only two *local* usages are
+/// compared.
+///
+/// Lexical, not canonicalized: a canonicalizing comparison would touch
+/// the filesystem for every cache hit, and two spellings of one
+/// directory that differ lexically are worth reporting anyway -- the
+/// lockfile records one of them.
+fn local_target(resolve: &CoalescingUsage) -> Option<Utf8PathBuf> {
+    let info = resolve.usage();
+    let relative = match info.usage() {
+        InterchangeProjectUsage::Directory { dir, .. } => dir.as_str(),
+        InterchangeProjectUsage::KparPath { kpar_path, .. } => kpar_path.as_str(),
+        // A `file:` resource names a place too, but comparing one
+        // against a path usage needs the URL-to-path conversion that
+        // lives in `resolve::file` and is private to it. Left out
+        // deliberately: the two cases this reports are the two that were
+        // measured silently wrong. An index usage names no local place.
+        InterchangeProjectUsage::Resource { .. } | InterchangeProjectUsage::Index { .. } => {
+            return None;
+        }
+    };
+    let mut joined = info.base_path()?.to_path_buf();
+    // Lexical, because canonicalizing on every cache hit would touch the
+    // filesystem, and because `..` is the only thing that makes two
+    // spellings of one directory differ in practice: `dir = "../v1"`
+    // from two members at different depths is the case that must not be
+    // reported.
+    for component in Utf8Path::new(relative).components() {
+        match component {
+            camino::Utf8Component::ParentDir => {
+                joined.pop();
+            }
+            camino::Utf8Component::CurDir => {}
+            other => joined.push(other.as_str()),
+        }
+    }
+    Some(joined)
 }
 
 #[expect(clippy::result_large_err)]
@@ -871,10 +941,14 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
                 }
                 | InternalSolverError::MissingVersion { usage }
                 | InternalSolverError::MissingUsage { usage }
-                | InternalSolverError::InvalidResolvedVersion { usage, source: _ }
-                | InternalSolverError::VersionObtain { usage, source: _ }
-                | InternalSolverError::UsageObtain { usage, source: _ }
-                | InternalSolverError::FormatObtain { usage, source: _ } => {
+                | InternalSolverError::InvalidResolvedVersion { usage, .. }
+                | InternalSolverError::VersionObtain { usage, .. }
+                | InternalSolverError::UsageObtain { usage, .. }
+                | InternalSolverError::FormatObtain { usage, .. }
+                // Two local sources for one identity: the usage is
+                // what the reader has to look at, and the message
+                // carries both paths.
+                | InternalSolverError::ConflictingLocalSources { usage, .. } => {
                     conflicts.push(SolveConflict::NotFound {
                         iri: usage.id().to_string(),
                         reason: format_err(source),
@@ -1366,6 +1440,22 @@ pub enum InternalSolverError<R: ResolveRead> {
     /// Value is the formatted error message
     #[error("project {0} not found: {1}")]
     NotFound(ResolutionInfo, String),
+    /// One identity named at two different places on this filesystem.
+    ///
+    /// The lockfile holds one source per identity, so the second would
+    /// be dropped along with its version, its sources and its exported
+    /// symbols -- silently, and decided by whichever usage the solver
+    /// reached first.
+    #[error(
+        "{usage} is named at two places: `{first}` and `{second}`;\n\
+         {SP:>8} one project has one source, so the two cannot both be used",
+        SP = ' '
+    )]
+    ConflictingLocalSources {
+        usage: ResolutionInfo,
+        first: Utf8PathBuf,
+        second: Utf8PathBuf,
+    },
     /// Project candidates were found, but none of them were
     /// valid.
     /// Value is the formatted error message

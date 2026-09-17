@@ -1356,8 +1356,177 @@ fn a_member_kpar_url_that_misnames_its_target_is_refused() {
     );
 }
 
+// ------------------- one identity named at two places
+
+/// Two members whose `dir` usages name **different** directories that
+/// declare one identity.
+///
+/// Recording only one of them would drop the other's version, sources
+/// and exported symbols, and which one lost would be decided by
+/// `members` order -- reordering that array would silently change what
+/// the whole workspace is built against.
+#[cfg(feature = "filesystem")]
+#[test]
+fn one_identity_at_two_directories_is_refused() {
+    let dir = workspace_tree(
+        &[
+            (
+                "one",
+                &member_toml(
+                    "alpha",
+                    "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"../deps/v1\"\n",
+                ),
+            ),
+            (
+                "two",
+                &member_toml(
+                    "beta",
+                    "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"../deps/v2\"\n",
+                ),
+            ),
+        ],
+        "exclude = [\"deps\"]\n",
+    );
+    for at in ["deps/v1", "deps/v2"] {
+        std::fs::create_dir_all(dir.path().join(at)).expect("the target directory");
+        std::fs::write(
+            dir.path().join(at).join("model.toml"),
+            member_toml("dep", ""),
+        )
+        .expect("the target manifest");
+    }
+
+    let error = lock_workspace(&dir).expect_err("one identity cannot come from two places");
+    let message = crate::utils::format_err(error);
+    assert!(
+        message.contains("is named at two places"),
+        "and it names both: {message}"
+    );
+    assert!(
+        message.contains("deps/v1") && message.contains("deps/v2"),
+        "both paths are in the message: {message}"
+    );
+}
+
+/// The same collision reached through a `kpar-path` on one side.
+///
+/// The cache keys on identity alone, so the two usages need not be the
+/// same *kind* -- a `dir` meeting a `kpar-path` collides exactly as two
+/// `dir`s do.
+#[cfg(feature = "filesystem")]
+#[test]
+fn one_identity_at_a_directory_and_an_archive_is_refused() {
+    let dir = workspace_tree(
+        &[
+            (
+                "one",
+                &member_toml(
+                    "alpha",
+                    "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"../deps/v1\"\n",
+                ),
+            ),
+            (
+                "two",
+                &member_toml(
+                    "beta",
+                    "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\n\
+                     kpar-path = \"../deps/dep.kpar\"\n",
+                ),
+            ),
+        ],
+        "exclude = [\"deps\"]\n",
+    );
+    std::fs::create_dir_all(dir.path().join("deps/v1")).expect("the target directory");
+    std::fs::write(
+        dir.path().join("deps/v1/model.toml"),
+        member_toml("dep", ""),
+    )
+    .expect("the target manifest");
+    crate::commands::build::do_build_kpar(
+        &crate::project::local_src::LocalSrcProject::new_access(dir.path().join("deps/v1"), None),
+        dir.path().join("deps/dep.kpar"),
+        crate::commands::build::KparCompressionMethod::Stored,
+        true,
+        false,
+    )
+    .expect("the archive builds");
+
+    let error = lock_workspace(&dir).expect_err("a directory and an archive are still two places");
+    let message = crate::utils::format_err(error);
+    assert!(message.contains("is named at two places"), "got: {message}");
+}
+
+/// The guard against refusing the ordinary case: two members depending
+/// on **one** directory is what unifying by identity is for.
+#[cfg(feature = "filesystem")]
+#[test]
+fn one_identity_at_one_directory_still_locks() {
+    let dir = workspace_tree(
+        &[
+            (
+                "one",
+                &member_toml(
+                    "alpha",
+                    "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"../deps/v1\"\n",
+                ),
+            ),
+            (
+                "two",
+                &member_toml(
+                    "beta",
+                    "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"../deps/v1\"\n",
+                ),
+            ),
+        ],
+        "exclude = [\"deps\"]\n",
+    );
+    std::fs::create_dir_all(dir.path().join("deps/v1")).expect("the target directory");
+    std::fs::write(
+        dir.path().join("deps/v1/model.toml"),
+        member_toml("dep", ""),
+    )
+    .expect("the target manifest");
+
+    lock_workspace(&dir).expect("one place is not a collision");
+}
+
+/// And the same directory spelled differently from two depths, which is
+/// why the comparison normalizes `..` rather than comparing strings.
+#[cfg(feature = "filesystem")]
+#[test]
+fn one_directory_spelled_two_ways_still_locks() {
+    let dir = workspace_tree(
+        &[
+            (
+                "one",
+                &member_toml(
+                    "alpha",
+                    "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"../deps/v1\"\n",
+                ),
+            ),
+            (
+                "nest/two",
+                &member_toml(
+                    "beta",
+                    "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\n\
+                     dir = \"../../deps/v1\"\n",
+                ),
+            ),
+        ],
+        "exclude = [\"deps\"]\n",
+    );
+    std::fs::create_dir_all(dir.path().join("deps/v1")).expect("the target directory");
+    std::fs::write(
+        dir.path().join("deps/v1/model.toml"),
+        member_toml("dep", ""),
+    )
+    .expect("the target manifest");
+
+    lock_workspace(&dir).expect("two spellings of one directory are one place");
+}
+
 /// A metamodel direction error stops the lock, rather than being
-/// written into the lockfile.""
+/// written into the lockfile.
 ///
 /// `design/model-toml.md`: the two edge checks run "once **before the
 /// lockfile is written** and again when the lockfile is validated on
