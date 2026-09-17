@@ -564,7 +564,7 @@ fn migrate_resource(
             if let Some(constraint) = version_constraint {
                 report.push(Diagnostic::warning(format!(
                     "usage `{resource}` has version constraint `{constraint}`, which is not \
-                     migrated: a `url` usage carries no version constraint"
+                     migrated: a `kpar-url` usage carries no version constraint"
                 )));
             }
             // model-toml.md: "use as-is for URL … the publisher and

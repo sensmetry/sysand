@@ -1523,7 +1523,6 @@ mod prepare_publish {
         assert_matches!(err, PublishError::EmptyChecksum);
     }
 
-    #[test]
     /// model-toml.md "Metamodel": "a `SysML` project admits `.sysml`
     /// and `.kerml`, SysML being layered on KerML".
     #[test]

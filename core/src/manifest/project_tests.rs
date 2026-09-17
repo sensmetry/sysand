@@ -141,7 +141,7 @@ kpar-path = \"deps/kpar-dep.kpar\"
 [[inline-usages]]
 publisher = \"acme\"
 name = \"remote-kpar-dep\"
-url = \"https://example.com/remote.kpar\"
+kpar-url = \"https://example.com/remote.kpar\"
 ";
 
 fn provided<T>(property: &MetaProperty<T>) -> &T {
