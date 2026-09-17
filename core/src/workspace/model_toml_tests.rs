@@ -133,6 +133,75 @@ impl Fixture {
     }
 }
 
+// ----------------------------- two members that are one project
+
+/// The lockfile holds one entry per identity, so two members claiming
+/// one identity cannot be locked, and building them would make two
+/// archives that claim to be the same project.
+#[test]
+fn two_members_that_name_one_project_are_refused() {
+    let fixture = Fixture::new(&workspace_with("\"a\", \"b\""));
+    fixture.project_named("a", "shared");
+    fixture.project_named("b", "shared");
+
+    let diagnostics = root_diagnostics(&fixture.failure()).to_vec();
+    assert!(
+        diagnostics.iter().any(|d| d
+            .message
+            .contains("members `a` and `b` name the same project `acme/shared`")),
+        "{diagnostics:?}"
+    );
+}
+
+/// Normalized, as `model-toml.md` says of duplicate usages: "two entries
+/// whose identities normalize to the same value are the same project".
+#[test]
+fn two_members_whose_identities_only_normalize_alike_are_refused() {
+    let fixture = Fixture::new(&workspace_with("\"a\", \"b\""));
+    fixture.write("a/model.toml", &PROJECT.replace("acme", "Acme Corp"));
+    fixture.write("b/model.toml", &PROJECT.replace("acme", "acme-corp"));
+
+    let diagnostics = root_diagnostics(&fixture.failure()).to_vec();
+    assert!(
+        diagnostics.iter().any(|d| d
+            .message
+            .contains("name the same project `acme-corp/widgets`")),
+        "the normalized identity is what collides: {diagnostics:?}"
+    );
+}
+
+/// Three members, one collision: the diagnostic names the two that
+/// collide and not the one that does not.
+#[test]
+fn only_the_colliding_members_are_named() {
+    let fixture = Fixture::new(&workspace_with("\"a\", \"b\", \"c\""));
+    fixture.project_named("a", "shared");
+    fixture.project_named("b", "distinct");
+    fixture.project_named("c", "shared");
+
+    let diagnostics = root_diagnostics(&fixture.failure()).to_vec();
+    let collisions: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.message.contains("name the same project"))
+        .collect();
+    assert_eq!(collisions.len(), 1, "{diagnostics:?}");
+    assert!(
+        collisions[0].message.contains("`a` and `c`"),
+        "{:?}",
+        collisions[0]
+    );
+}
+
+/// The guard against a check that fires on everything.
+#[test]
+fn members_that_are_different_projects_still_load() {
+    let fixture = Fixture::new(&workspace_with("\"a\", \"b\""));
+    fixture.project_named("a", "first");
+    fixture.project_named("b", "second");
+
+    assert_eq!(fixture.loaded().members().len(), 2);
+}
+
 /// The diagnostics raised while parsing the root's `[workspace]` table.
 ///
 /// These come back as [`LoadError::Root`], not [`LoadError::Invalid`]:
@@ -177,8 +246,12 @@ fn workspace_with(members: &str) -> String {
 #[test]
 fn a_workspace_loads_its_members() {
     let fixture = Fixture::new(&workspace_with("\"app\", \"lib\""));
-    fixture.project("app");
-    fixture.project("lib");
+    // Distinct projects: `Fixture::project` names them all `widgets`,
+    // and two members that are one project are refused --
+    // `design/workspaces.md`, "the same project listed twice is
+    // rejected".
+    fixture.project_named("app", "app-project");
+    fixture.project_named("lib", "lib-project");
 
     let workspace = fixture.loaded();
     assert_eq!(workspace.root(), fixture.root());
@@ -1179,8 +1252,19 @@ fn a_value_that_is_one_members_path_and_anothers_name_is_ambiguous() {
 #[test]
 fn two_members_with_the_same_name_are_ambiguous() {
     let fixture = Fixture::new(&workspace_with("\"app\", \"lib\""));
-    fixture.project_named("app", "alpha");
-    fixture.project_named("lib", "alpha");
+    // Two members may share a *name* while being different projects,
+    // which is what makes the selector ambiguous. They may not share an
+    // identity, so the two have different publishers.
+    fixture.write(
+        "app/model.toml",
+        &PROJECT.replace("widgets", "alpha").replace("acme", "first"),
+    );
+    fixture.write(
+        "lib/model.toml",
+        &PROJECT
+            .replace("widgets", "alpha")
+            .replace("acme", "second"),
+    );
     let workspace = fixture.loaded();
 
     assert!(matches!(
