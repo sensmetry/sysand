@@ -158,10 +158,23 @@ pub fn usage_of_raw(raw: &InterchangeProjectUsageRaw, file: &str) -> Result<Usag
                 if version_constraint.is_some() {
                     return Err(NoManifestForm::StdlibConstraint(resource.clone()));
                 }
-                let name = IndexName::parse(stem).map_err(|e| NoManifestForm::Identifier {
-                    file: file.to_owned(),
-                    problem: format!("`{}`: {e}", e.value),
-                })?;
+                // The name is the one the KPAR declares, not the IRI's
+                // stem -- `Kernel Semantic Library`, not
+                // `Semantic-Library`. The stem is the fallback for a
+                // release this Sysand does not embed, where there is
+                // nothing else to go on and `--include-std` is the
+                // point; it is also the fallback for an embedded name
+                // that is somehow not a valid `IndexName`, which no current
+                // release is.
+                let declared = crate::stdlib::std_lib_name(resource)
+                    .and_then(|declared| IndexName::parse(declared).ok());
+                let name = match declared {
+                    Some(name) => name,
+                    None => IndexName::parse(stem).map_err(|e| NoManifestForm::Identifier {
+                        file: file.to_owned(),
+                        problem: format!("`{}`: {e}", e.value),
+                    })?,
+                };
                 let url = Iri::parse(resource.to_owned()).map_err(|(e, _)| {
                     NoManifestForm::Identifier {
                         file: file.to_owned(),

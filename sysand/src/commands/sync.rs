@@ -37,6 +37,11 @@ pub enum CommandSyncError {
     /// The sync itself, see `SyncError`.
     #[error(transparent)]
     Sync(#[from] CliSyncError),
+    /// The sync itself, where the remedy names a flag only the CLI has.
+    /// The hint is part of the message so that every printer of this
+    /// error carries it.
+    #[error("{0}\n       (hint: pass `--include-std` to fetch it from its IRI)")]
+    IncludeStd(CliSyncError),
     /// Writing the environment metadata after a completed sync.
     #[error(transparent)]
     WriteMetadata(#[from] Box<FsIoError>),
@@ -148,7 +153,16 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         provided_usages,
         no_prune,
         outcome,
-    )?;
+    )
+    // Appendix A2 row 39's second half. `plan-phase1.md`: "where a hint
+    // names a command, the CLI appends it" -- the bindings reach the
+    // same error and have no `--include-std` to pass.
+    .map_err(|error| match &error {
+        SyncError::UnknownStdLib { .. } | SyncError::InvalidProvidedVersion { .. } => {
+            CommandSyncError::IncludeStd(error)
+        }
+        _ => CommandSyncError::Sync(error),
+    })?;
 
     env.merge_lock(lock);
     env.write()?;

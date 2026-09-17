@@ -252,7 +252,12 @@ impl LocatedUsage {
 pub enum MemberUsage {
     Declared(Usage),
     Inherited {
-        publisher: IndexPublisher,
+        /// Absent exactly when the entry opts into a *standard-library*
+        /// group entry. workspaces.md "Common usages": such an entry
+        /// "carries no publisher, the target declaring none [...] an
+        /// opt-in to such an entry likewise gives only `name` and the
+        /// marker".
+        publisher: Option<IndexPublisher>,
         name: IndexName,
         from: InheritFrom,
         /// Where the `workspace` key that made this an opt-in is.
@@ -270,12 +275,13 @@ impl MemberUsage {
     pub fn identity(&self) -> NormalizedIdentity {
         match self {
             Self::Declared(usage) => usage.identity(),
+            // The same fallback `Usage::identity` makes: an opt-in
+            // that omits its publisher opts into the standard library,
+            // and must therefore collide with a `kpar-url` entry for the
+            // same library, which workspaces.md requires.
             Self::Inherited {
-                publisher,
-                name,
-                from: _,
-                at: _,
-            } => normalized_identity(publisher, name),
+                publisher, name, ..
+            } => normalized_identity(publisher.as_ref().unwrap_or(&OMG_PUBLISHER), name),
         }
     }
 }
@@ -307,12 +313,17 @@ impl UsageEntry for MemberUsage {
     fn label(&self) -> String {
         match self {
             Self::Declared(usage) => usage.label(),
+            // Spelled as the entry is written, like every other label.
             Self::Inherited {
-                publisher,
+                publisher: Some(publisher),
                 name,
-                from: _,
-                at: _,
+                ..
             } => format!("{publisher}/{name}"),
+            Self::Inherited {
+                publisher: None,
+                name,
+                ..
+            } => name.to_string(),
         }
     }
 }
@@ -595,10 +606,16 @@ impl UsageRaw {
             } else {
                 None
             };
-        let exempt = matches!(
-            &declared_kind,
-            Some(Kind::RemoteKpar(url)) if is_omg_stdlib_iri(url.as_str())
-        );
+        // Two exemptions: a `kpar-url` at an OMG standard-library IRI,
+        // and an opt-in, which takes its publisher -- or its absence --
+        // from the group entry it names. Keyed on the raw `workspace`
+        // key rather than on a validated marker, because `checked_marker`
+        // runs later, after this has already reported.
+        let exempt = self.workspace.is_some()
+            || matches!(
+                &declared_kind,
+                Some(Kind::RemoteKpar(url)) if is_omg_stdlib_iri(url.as_str())
+            );
         let publisher = self.checked_publisher(site, positions, &mut report, name.as_ref(), exempt);
 
         // What an entry *is* decides which further checks apply. An entry
@@ -615,7 +632,6 @@ impl UsageRaw {
             from.and_then(|from| {
                 self.check_opt_in_is_bare(site, positions, &mut report, &label, &from);
                 publisher
-                    .flatten()
                     .zip(name)
                     .map(|(publisher, name)| MemberUsage::Inherited {
                         publisher,
@@ -809,17 +825,22 @@ impl UsageRaw {
         }
 
         // Only the index kind's field set carries a version requirement.
-        // Appendix A2 row 55: "`kpar-url` takes no version constraint",
-        // which is what a standard-library usage runs into.
-        let reject_version = |report: &mut Report| {
+        // The `kpar-url` text is about `kpar-url` specifically, and
+        // says why: the IRI names one release. A `dir` usage's author is not
+        // helped by being told about IRIs, so the two texts differ.
+        let reject_version = |report: &mut Report, kind: &str| {
             if self.version.is_some() {
-                report.push(
-                    Diagnostic::error(format!(
-                        "usage `{label}` sets `version`, which a `dir`, `kpar-path` or \
-                         `kpar-url` usage does not take"
-                    ))
-                    .at_opt(site.key("version", positions)),
-                );
+                let message = if kind == "kpar-url" {
+                    format!(
+                        "usage `{label}` carries `version`, which a `kpar-url` usage does not \
+                         take; the IRI names one release"
+                    )
+                } else {
+                    format!(
+                        "usage `{label}` carries `version`, which a `{kind}` usage does not take"
+                    )
+                };
+                report.push(Diagnostic::error(message).at_opt(site.key("version", positions)));
             }
         };
 
@@ -839,15 +860,15 @@ impl UsageRaw {
         };
 
         if let Some(dir) = self.dir.as_deref() {
-            reject_version(report);
+            reject_version(report, "dir");
             return local_path(report, "dir", dir).map(Kind::SourcePath);
         }
         if let Some(kpar_path) = self.kpar_path.as_deref() {
-            reject_version(report);
+            reject_version(report, "kpar-path");
             return local_path(report, "kpar-path", kpar_path).map(Kind::KparPath);
         }
         if let Some(url) = self.url.as_deref() {
-            reject_version(report);
+            reject_version(report, "kpar-url");
             let Ok(parsed) = Iri::parse(url.to_owned()) else {
                 report.push(
                     Diagnostic::error(format!(
@@ -1001,7 +1022,9 @@ impl From<MemberUsage> for UsageRaw {
                 from,
                 at: _,
             } => Self {
-                publisher: Some(publisher.to_string()),
+                // An opt-in to a standard-library entry writes no
+                // `publisher` key either.
+                publisher: publisher.map(|publisher| publisher.to_string()),
                 name: Some(name.to_string()),
                 workspace: Some(InheritMarker::from(from)),
                 ..Self::default()

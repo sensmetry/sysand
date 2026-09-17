@@ -1087,3 +1087,64 @@ fn lock_refuses_a_target_that_spells_its_identity_differently()
         ));
     Ok(())
 }
+
+// ------------------------------------------- standard-library usages
+
+/// model-toml.md "Standard library": a json project's `resource` usage
+/// of an OMG standard-library IRI "is the same usage under the same
+/// spelling" — the publisher-less `kpar-url`.
+///
+/// `--no-index` is the assertion, not a convenience: the metadata is
+/// embedded and the IRI names the release, so migrating such a usage
+/// must not need a network or an index, and the usage must not be
+/// refused for the publisher every OMG KPAR leaves undeclared.
+#[test]
+fn a_stdlib_resource_migrates_offline() -> Result<(), Box<dyn std::error::Error>> {
+    const IRI: &str = "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar";
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    json_with_usages(&cwd, &format!(r#"{{"resource": "{IRI}"}}"#))?;
+    git_repo(&cwd, true)?;
+
+    run_sysand_in(&cwd, ["migrate", "--no-index"], None)?
+        .assert()
+        .success();
+
+    let manifest = std::fs::read_to_string(cwd.join("model.toml"))?;
+    assert!(
+        manifest.contains(&format!("kpar-url = \"{IRI}\"")),
+        "{manifest}"
+    );
+    // The name the KPAR declares, not the IRI's stem: one library, one
+    // identity, however it was written.
+    assert!(
+        manifest.contains("name = \"Kernel Semantic Library\""),
+        "{manifest}"
+    );
+    assert!(!manifest.contains("publisher = \"omg\""), "{manifest}");
+    Ok(())
+}
+
+/// From the json side: the IRI names one release, so a constraint on it
+/// is refused rather than dropped, the answer a `model.toml` usage with
+/// the same constraint gets.
+#[test]
+fn a_constrained_stdlib_resource_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    const IRI: &str = "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar";
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    json_with_usages(
+        &cwd,
+        &format!(r#"{{"resource": "{IRI}", "versionConstraint": "^1.0.0"}}"#),
+    )?;
+    git_repo(&cwd, true)?;
+
+    run_sysand_in(&cwd, ["migrate", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "which a `kpar-url` usage does not take; the IRI names one release",
+        ));
+    // And nothing was written: the json pair is still the project.
+    assert!(!cwd.join("model.toml").exists());
+    assert!(cwd.join(".project.json").is_file());
+    Ok(())
+}
