@@ -30,8 +30,8 @@ use anyhow::{Result, bail};
 use std::{collections::HashSet, sync::Arc};
 use sysand_core::{
     info::{do_info_project, do_info_usage},
+    project::local_kpar::LocalKParProject,
     project::utils::wrapfs,
-    project::{local_kpar::LocalKParProject, local_src::LocalSrcProject},
 };
 
 pub fn pprint_interchange_project(
@@ -136,7 +136,7 @@ fn interpret_project_path<P: AsRef<Utf8Path>>(
                     {USAGE}hint:{USAGE:#} to use a KPAR, use `--kpar-path`"
                 );
             }
-            FileResolverProject::LocalSrcProject(LocalSrcProject::new_access(path, None))
+            FileResolverProject::LocalSrcProject(crate::project_at_path(path, None))
         }
         LocalProjectKind::Kpar => {
             if !metadata.is_file() {

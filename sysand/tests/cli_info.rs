@@ -2432,3 +2432,32 @@ fn edit_keeps_the_comments_and_key_order() -> Result<(), Box<dyn std::error::Err
     assert_eq!(before, kept, "`edit` must not reorder the keys");
     Ok(())
 }
+
+/// `info --dir` on a member that inherits its `metamodel`.
+///
+/// A project read at a path the command was *given* is read with the
+/// workspace table, so a member is not refused as "not a member of any
+/// workspace". Running `info` from *inside* the member is the other
+/// route to the same read.
+#[test]
+fn info_at_a_member_path_reads_the_inherited_metamodel() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    wrapfs::write(
+        cwd.join("model.toml"),
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\"]\n\n\
+         [workspace.group.sysml]\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    )?;
+    wrapfs::create_dir_all(cwd.join("app"))?;
+    wrapfs::write(
+        cwd.join("app/model.toml"),
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"member\"\n\
+         version = \"1.0.0\"\nsources = []\nmetamodel.workspace = \"sysml\"\n",
+    )?;
+
+    run_sysand_in(&cwd, ["info", "--dir", cwd.join("app").as_str()], None)?
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("member"));
+    Ok(())
+}

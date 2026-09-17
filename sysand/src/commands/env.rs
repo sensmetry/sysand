@@ -24,7 +24,6 @@ use sysand_core::{
     project::{
         ProjectRead as _,
         local_kpar::{KparInnerPath, LocalKParProject},
-        local_src::LocalSrcProject,
         utils::wrapfs,
     },
     resolve::{
@@ -238,7 +237,7 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
 
     let metadata = wrapfs::metadata(&path)?;
     let project = if metadata.is_dir() {
-        FileResolverProject::LocalSrcProject(LocalSrcProject::new_access(
+        FileResolverProject::LocalSrcProject(crate::project_at_path(
             path.as_str(),
             // Provide an empty nominal path to satisfy lock. It won't be used for actual
             // syncing, as the project is installed manually
