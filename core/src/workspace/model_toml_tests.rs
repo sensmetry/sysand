@@ -281,6 +281,16 @@ fn a_member_holding_both_manifests_is_refused() {
     .to_string();
     // The owned message wraps and indents its second clause; compare
     // the words, which is what has to stay in step.
+    //
+    // The member's message appends a remedy the owned one cannot give
+    // -- `AmbiguousFormat` is raised for standalone projects too, where
+    // there is no member to name -- so the hint is stripped before the
+    // comparison and asserted on its own. The *shared* clause is what
+    // the coupling is about.
+    let hint = " (`sysand migrate app` keeps the `model.toml` and removes the json)";
+    let shared = message
+        .strip_suffix(hint)
+        .expect("the member's message ends with its remedy");
     let words = |text: &str| {
         text.split_once(';')
             .expect("the ambiguity message has two clauses")
@@ -289,7 +299,7 @@ fn a_member_holding_both_manifests_is_refused() {
             .collect::<Vec<_>>()
             .join(" ")
     };
-    assert_eq!(words(&message), words(&owned));
+    assert_eq!(words(shared), words(&owned));
     assert!(message.starts_with("member `app` has both `model.toml` and `.project.json`;"));
 }
 
