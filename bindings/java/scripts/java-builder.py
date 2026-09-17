@@ -343,8 +343,20 @@ def test(version: str, release_jar_version: bool) -> None:
         raise FileNotFoundError(f"JAR file not found: {jar_path}")
     else:
         print("Installing the Java library...")
+        # `-DpomFile`: the jar carries no `META-INF/maven` descriptor, so
+        # `install-file` has nowhere to read the coordinates from unless
+        # it is handed the pom. Plugin prefix resolution picks
+        # maven-install-plugin 2.4 in some environments, which cannot
+        # infer them from the project and fails with "'groupId' is
+        # missing"; passing the pom this build already wrote works with
+        # either plugin version.
         execute(
-            [mvn_executable(), "install:install-file", f"-Dfile={jar_path}"],
+            [
+                mvn_executable(),
+                "install:install-file",
+                f"-Dfile={jar_path}",
+                "-DpomFile=pom.xml",
+            ],
             cwd=BUILD_DIR,
         )
 

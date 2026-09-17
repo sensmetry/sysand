@@ -1555,3 +1555,39 @@ fn build_from_a_member_dir_builds_one_into_the_root() -> Result<(), Box<dyn std:
     );
     Ok(())
 }
+
+/// An edit to any member's `model.toml` changes the root lockfile on the
+/// next `lock`: the lockfile *follows* a member, which is the property
+/// that makes one shared lockfile correct rather than merely tidy.
+#[test]
+fn editing_a_member_changes_the_root_lockfile() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = two_member_workspace()?;
+    let lockfile = dir.path().join("sysand-lock.toml");
+
+    run_sysand_in(dir.path(), ["lock", "--no-index"], None)?
+        .assert()
+        .success();
+    let before = std::fs::read_to_string(&lockfile)?;
+    assert!(before.contains("1.0.0"), "the member's version is in it");
+
+    // The edit is a member's own manifest, not the root's.
+    let member = dir.path().join("libs/gamma/model.toml");
+    // `\nversion`, not `version`: a bare replace also hits
+    // `manifest-version`, and the file then claims to be written for a
+    // manifest version this Sysand does not support.
+    let edited =
+        std::fs::read_to_string(&member)?.replace("\nversion = \"1.0.0\"", "\nversion = \"2.5.0\"");
+    std::fs::write(&member, edited)?;
+
+    run_sysand_in(dir.path(), ["lock", "--no-index"], None)?
+        .assert()
+        .success();
+    let after = std::fs::read_to_string(&lockfile)?;
+
+    assert_ne!(before, after, "the root lockfile follows the member");
+    assert!(
+        after.contains("2.5.0"),
+        "the member's new version reaches the root lockfile:\n{after}"
+    );
+    Ok(())
+}
