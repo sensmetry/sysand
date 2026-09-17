@@ -190,10 +190,10 @@ fn a_toml_index_usage_becomes_a_purl() -> Result<(), Box<dyn std::error::Error>>
 }
 
 #[test]
-fn a_toml_url_usage_is_kept() -> Result<(), Box<dyn std::error::Error>> {
+fn a_toml_kpar_url_usage_is_kept() -> Result<(), Box<dyn std::error::Error>> {
     let dir = toml_project(
         "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\n\
-         url = \"https://example.com/dep.kpar\"\n",
+         kpar-url = \"https://example.com/dep.kpar\"\n",
     )?;
     let (info, _) = built(&dir, false)?;
     assert!(
@@ -667,7 +667,7 @@ fn the_typed_and_raw_usage_lists_correspond() -> Result<(), Box<dyn std::error::
     let dir = toml_project(
         "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"idx\"\nversion = \"^2\"\n\
          \n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"dep\"\n\
-         \n[[inline-usages]]\npublisher = \"acme\"\nname = \"rem\"\nurl = \"https://example.com/r.kpar\"\n",
+         \n[[inline-usages]]\npublisher = \"acme\"\nname = \"rem\"\nkpar-url = \"https://example.com/r.kpar\"\n",
     )?;
     json_target(&dir, "dep", "1.2.3");
     let (info, _) = built(&dir, false)?;

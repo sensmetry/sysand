@@ -172,7 +172,7 @@ kpar-path = "vendor/packed.kpar"
 [[inline-usages]]
 publisher = "acme"
 name = "remote"
-url = "https://example.com/remote.kpar"
+kpar-url = "https://example.com/remote.kpar"
 
 [[inline-usages]]
 publisher = "acme"
@@ -241,7 +241,7 @@ fn every_usage_kind_is_written_as_it_is_read() {
     assert!(entries[0].contains("version = \"^1.2\""));
     assert!(entries[1].contains("dir = \"../local\""));
     assert!(entries[2].contains("kpar-path = \"vendor/packed.kpar\""));
-    assert!(entries[3].contains("url = \"https://example.com/remote.kpar\""));
+    assert!(entries[3].contains("kpar-url = \"https://example.com/remote.kpar\""));
     assert!(entries[4].contains("workspace = true"));
     // An index usage carries no kind key at all.
     for absent in ["dir =", "kpar-path =", "url ="] {

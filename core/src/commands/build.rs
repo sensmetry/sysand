@@ -371,7 +371,7 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
 
         // Over the *typed* usages, not `info.usage`: at the raw level an
         // index usage and a remote-kpar usage are both `Resource`, and a
-        // remote-kpar `url` that happens to be a `pkg:sysand` IRI would
+        // remote-kpar `kpar-url` that happens to be a `pkg:sysand` IRI would
         // be misread as the first.
         //
         // `zip` and not an index range: `kpar_view::info` builds the raw

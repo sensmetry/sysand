@@ -29,7 +29,7 @@ use crate::model::{IndexName, IndexPublisher};
 /// message lists them. One constant, so that the message and the fields
 /// of [`UsageRaw`] cannot drift apart.
 const ACCEPTED_KEYS: &str =
-    "`publisher`, `name`, `version`, `dir`, `kpar-path`, `url`, `workspace`";
+    "`publisher`, `name`, `version`, `dir`, `kpar-path`, `kpar-url`, `workspace`";
 
 /// How a missing half of an identity is spelled, as the publisher
 /// mismatch of a json target already spells it.
@@ -38,7 +38,7 @@ const MISSING: &str = "<none>";
 /// One project a manifest uses, with the kind it is resolved by.
 ///
 /// model-toml.md: "Which kind an entry declares is decided by its kind key
-/// -- `dir`, `kpar-path`, `git`, `url` -- of which at most one may be
+/// -- `dir`, `kpar-path`, `git`, `kpar-url` -- of which at most one may be
 /// present; an index usage is the entry that carries none." The `git`
 /// kind is "postponed to after v1: not declarable in v1" and so has no
 /// variant here; `resource`, the KerML usage type json projects carry,
@@ -69,7 +69,7 @@ pub enum Usage {
         name: IndexName,
         version_constraint: semver::VersionReq,
     },
-    /// `remote-kpar: url, publisher, name`; "version constraint not
+    /// `remote-kpar: kpar-url, publisher, name`; "version constraint not
     /// supported".
     RemoteKpar {
         publisher: IndexPublisher,
@@ -380,7 +380,9 @@ pub struct UsageRaw {
     pub dir: Option<String>,
     #[serde(rename = "kpar-path", skip_serializing_if = "Option::is_none")]
     pub kpar_path: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// The field keeps the name the types use; what a file spells is
+    /// `kpar-url` (model-toml.md "Usages").
+    #[serde(rename = "kpar-url", skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub git: Option<String>,
@@ -425,8 +427,8 @@ impl UsageRaw {
 
         for (key, value) in table {
             match key.as_str() {
-                "publisher" | "name" | "version" | "dir" | "kpar-path" | "url" | "git" | "rev"
-                | "tag" | "branch" => match value.as_str() {
+                "publisher" | "name" | "version" | "dir" | "kpar-path" | "kpar-url" | "git"
+                | "rev" | "tag" | "branch" => match value.as_str() {
                     Some(text) => {
                         strings.insert(key.as_str(), text.to_owned());
                     }
@@ -458,7 +460,7 @@ impl UsageRaw {
         raw.version = strings.remove("version");
         raw.dir = strings.remove("dir");
         raw.kpar_path = strings.remove("kpar-path");
-        raw.url = strings.remove("url");
+        raw.url = strings.remove("kpar-url");
         raw.git = strings.remove("git");
         raw.rev = strings.remove("rev");
         raw.tag = strings.remove("tag");
@@ -723,7 +725,7 @@ impl UsageRaw {
             ("version", self.version.is_some()),
             ("dir", self.dir.is_some()),
             ("kpar-path", self.kpar_path.is_some()),
-            ("url", self.url.is_some()),
+            ("kpar-url", self.url.is_some()),
         ]
         .into_iter()
         .find_map(|(key, present)| present.then_some(key));
@@ -756,7 +758,7 @@ impl UsageRaw {
         if kinds > 1 {
             report.push(
                 Diagnostic::error(format!(
-                    "usage `{label}` carries more than one of `dir`, `kpar-path`, `url`"
+                    "usage `{label}` carries more than one of `dir`, `kpar-path`, `kpar-url`"
                 ))
                 .at_opt(site.position(positions)),
             );
@@ -803,9 +805,9 @@ impl UsageRaw {
             let Ok(parsed) = Iri::parse(url.to_owned()) else {
                 report.push(
                     Diagnostic::error(format!(
-                        "usage `{label}` sets `url = \"{url}\"`, which is not a valid IRI"
+                        "usage `{label}` sets `kpar-url = \"{url}\"`, which is not a valid IRI"
                     ))
-                    .at_opt(site.key("url", positions)),
+                    .at_opt(site.key("kpar-url", positions)),
                 );
                 return None;
             };
@@ -815,7 +817,7 @@ impl UsageRaw {
         let Some(version) = self.version.as_deref() else {
             report.push(
                 Diagnostic::error(format!(
-                    "usage `{label}` names no `dir`, `kpar-path` or `url`, so it is an index \
+                    "usage `{label}` names no `dir`, `kpar-path` or `kpar-url`, so it is an index \
                      usage; an index usage requires a `version` constraint"
                 ))
                 .at_opt(site.position(positions)),

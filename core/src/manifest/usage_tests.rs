@@ -111,7 +111,7 @@ fn a_usage_entry_deserializes_every_recognized_key() {
         "version = \"^1.2\"\n",
         "dir = \"../lib\"\n",
         "kpar-path = \"../lib.kpar\"\n",
-        "url = \"https://example.com/lib.kpar\"\n",
+        "kpar-url = \"https://example.com/lib.kpar\"\n",
         "git = \"https://example.com/lib.git\"\n",
         "rev = \"abc123\"\n",
         "tag = \"v1\"\n",
@@ -171,7 +171,7 @@ fn a_usage_raw_round_trips_through_toml() {
         "publisher = \"acme\"\nname = \"lib\"\nversion = \"^1.2\"\n",
         "publisher = \"acme\"\nname = \"lib\"\ndir = \"../lib\"\n",
         "publisher = \"acme\"\nname = \"lib\"\nkpar-path = \"../lib.kpar\"\n",
-        "publisher = \"acme\"\nname = \"lib\"\nurl = \"https://example.com/l.kpar\"\n",
+        "publisher = \"acme\"\nname = \"lib\"\nkpar-url = \"https://example.com/l.kpar\"\n",
         "publisher = \"acme\"\nname = \"lib\"\nworkspace = \"legacy\"\n",
     ] {
         let (raws, _) = read(&one(body));
@@ -237,11 +237,11 @@ fn an_invalid_version_requirement_is_reported() {
 }
 
 #[test]
-fn an_invalid_url_is_reported() {
-    let report = rejected("publisher = \"acme\"\nname = \"lib\"\nurl = \"not an iri\"\n");
+fn an_invalid_kpar_url_is_reported() {
+    let report = rejected("publisher = \"acme\"\nname = \"lib\"\nkpar-url = \"not an iri\"\n");
     assert_eq!(
         texts(&report),
-        ["usage `acme/lib` sets `url = \"not an iri\"`, which is not a valid IRI"]
+        ["usage `acme/lib` sets `kpar-url = \"not an iri\"`, which is not a valid IRI"]
     );
     assert_eq!(places(&report), [(4, 1)]);
 }
@@ -335,7 +335,7 @@ fn only_index_usages_take_a_version_constraint() {
     for kind in [
         "dir = \"../lib\"",
         "kpar-path = \"../lib.kpar\"",
-        "url = \"https://example.com/lib.kpar\"",
+        "kpar-url = \"https://example.com/lib.kpar\"",
     ] {
         let report = rejected(&format!(
             "publisher = \"acme\"\nname = \"lib\"\nversion = \"^1\"\n{kind}\n"
@@ -358,7 +358,7 @@ fn an_index_usage_requires_a_version() {
     assert_eq!(
         texts(&report),
         [
-            "usage `acme/lib` names no `dir`, `kpar-path` or `url`, so it is an index usage; \
+            "usage `acme/lib` names no `dir`, `kpar-path` or `kpar-url`, so it is an index usage; \
              an index usage requires a `version` constraint"
         ]
     );
@@ -370,14 +370,14 @@ fn an_index_usage_requires_a_version() {
 #[test]
 fn a_usage_carrying_two_kind_keys_is_rejected() {
     for kinds in [
-        "dir = \"../lib\"\nurl = \"https://example.com/l.kpar\"",
+        "dir = \"../lib\"\nkpar-url = \"https://example.com/l.kpar\"",
         "dir = \"../lib\"\nkpar-path = \"../lib.kpar\"",
-        "dir = \"../lib\"\nkpar-path = \"../lib.kpar\"\nurl = \"https://example.com/l.kpar\"",
+        "dir = \"../lib\"\nkpar-path = \"../lib.kpar\"\nkpar-url = \"https://example.com/l.kpar\"",
     ] {
         let report = rejected(&format!("publisher = \"acme\"\nname = \"lib\"\n{kinds}\n"));
         assert_eq!(
             texts(&report),
-            ["usage `acme/lib` carries more than one of `dir`, `kpar-path`, `url`"],
+            ["usage `acme/lib` carries more than one of `dir`, `kpar-path`, `kpar-url`"],
             "for {kinds}"
         );
         assert_eq!(places(&report), [(1, 1)], "for {kinds}");
@@ -471,9 +471,9 @@ fn unknown_keys_in_a_usage_are_errors_not_warnings() {
         texts(&report),
         [
             "unknown key `colour` in usage `acme/lib`; a usage entry accepts only `publisher`, \
-             `name`, `version`, `dir`, `kpar-path`, `url`, `workspace`",
+             `name`, `version`, `dir`, `kpar-path`, `kpar-url`, `workspace`",
             "unknown key `shape` in usage `acme/lib`; a usage entry accepts only `publisher`, \
-             `name`, `version`, `dir`, `kpar-path`, `url`, `workspace`",
+             `name`, `version`, `dir`, `kpar-path`, `kpar-url`, `workspace`",
         ]
     );
     assert_eq!(places(&report), [(5, 1), (6, 1)]);
@@ -495,7 +495,7 @@ fn a_usage_reports_every_problem_at_once() {
         [
             "usage `lib` has no `publisher`; every usage names its publisher",
             "unknown key `colour` in usage `<none>/lib`; a usage entry accepts only \
-             `publisher`, `name`, `version`, `dir`, `kpar-path`, `url`, `workspace`",
+             `publisher`, `name`, `version`, `dir`, `kpar-path`, `kpar-url`, `workspace`",
         ]
     );
 }
@@ -762,7 +762,7 @@ fn every_usage_kind_round_trips_through_its_raw_form() {
         "publisher = \"acme\"\nname = \"lib\"\nversion = \"^1.2\"\n",
         "publisher = \"acme\"\nname = \"lib\"\ndir = \"../lib\"\n",
         "publisher = \"acme\"\nname = \"lib\"\nkpar-path = \"../lib.kpar\"\n",
-        "publisher = \"acme\"\nname = \"lib\"\nurl = \"https://example.com/l.kpar\"\n",
+        "publisher = \"acme\"\nname = \"lib\"\nkpar-url = \"https://example.com/l.kpar\"\n",
     ] {
         let MemberUsage::Declared(usage) = member(body) else {
             panic!("{body:?} declares a usage");
@@ -809,7 +809,7 @@ fn a_usage_entry_reads_from_a_table() {
         "version = \"^1\"\n",
         "dir = \"../lib\"\n",
         "kpar-path = \"../lib.kpar\"\n",
-        "url = \"https://example.com/l.kpar\"\n",
+        "kpar-url = \"https://example.com/l.kpar\"\n",
         "git = \"https://example.com/l.git\"\n",
         "rev = \"abc\"\n",
         "tag = \"v1\"\n",
@@ -869,5 +869,21 @@ fn a_wrong_typed_name_is_not_also_a_missing_name() {
     assert_eq!(
         texts(&report),
         ["`name` in usage `acme/<none>` must be a string, but it is an integer"]
+    );
+}
+
+/// `url` is not an alias of `kpar-url`: a usage that writes it gets an
+/// unknown-key error listing the keys that do exist. An entry silently
+/// read as an index usage would be worse than an error.
+#[test]
+fn a_url_key_is_unknown() {
+    let report =
+        rejected("publisher = \"acme\"\nname = \"lib\"\nurl = \"https://example.com/lib.kpar\"\n");
+    assert!(
+        texts(&report).iter().any(|text| {
+            text.starts_with("unknown key `url` in usage `acme/lib`")
+                && text.contains("`kpar-path`, `kpar-url`, `workspace`")
+        }),
+        "unexpected report: {report}"
     );
 }

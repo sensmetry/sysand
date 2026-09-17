@@ -1025,7 +1025,10 @@ fn an_http_usage_discards_its_constraint_with_a_warning() {
         .map(|w| w.message.clone())
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(text.contains("which is not migrated"), "{text}");
+    assert!(
+        text.contains("a `kpar-url` usage carries no version constraint"),
+        "{text}"
+    );
 }
 
 // ------------------------------------ the language the metamodel admits

@@ -115,9 +115,9 @@ pub enum NoManifestForm {
 ///
 /// The reverse of [`usage`], and deliberately not its inverse: the
 /// forward map writes an index usage as the *normalized* PURL, so a
-/// publisher written `ACME` comes back `acme`; and it turns a `url`
+/// publisher written `ACME` comes back `acme`; and it turns a `kpar-url`
 /// usage into a bare IRI, dropping the publisher and name a manifest
-/// needs. Nothing can therefore produce a `url` entry from json, which
+/// needs. Nothing can therefore produce a `kpar-url` entry from json, which
 /// is a gap in v1 rather than in this function.
 ///
 /// `file` names the document the raw usage came from, for the one

@@ -44,7 +44,11 @@ semver = { version = "1.0.27", default-features = false }
 serde = { version = "1.0.228", default-features = false }
 serde_json = { version = "1.0.149", default-features = false }
 sha2 = { version = "0.11", default-features = false }
-spdx = { version = "0.13.4", default-features = false, features = ["std"] }
+# Pinned exactly: which SPDX identifiers a manifest may use is part of the
+# manifest format (model-toml.md, `license`), so the License List version is
+# not the lockfile's to choose. Bumping it can reject identifiers a published
+# project already uses; see RELEASE.md.
+spdx = { version = "=0.13.6", default-features = false, features = ["std"] }
 sysand-core = { path = "core" }
 thiserror = { version = "2.0.18", default-features = false, features = ["std"] }
 tokio = { version = "1.50.0", default-features = false }

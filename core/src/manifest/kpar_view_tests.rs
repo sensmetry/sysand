@@ -79,7 +79,7 @@ fn a_purl_resource_is_built_from_the_normalized_pair() {
 /// model-toml.md "TOML to KPAR": "remote-kpar: use the URL as-is"; the
 /// kind takes no version constraint (Usages).
 #[test]
-fn a_url_usage_becomes_a_resource_with_no_constraint() {
+fn a_kpar_url_usage_becomes_a_resource_with_no_constraint() {
     let target = "https://example.com/a/b.kpar?v=2#frag";
     assert_eq!(
         usage(&url("acme", "widgets", target)),
@@ -339,7 +339,7 @@ fn usages_are_mapped_in_manifest_order() {
          [[inline-usages]]\n\
          publisher = \"acme\"\n\
          name = \"third\"\n\
-         url = \"https://example.com/third.kpar\"\n"
+         kpar-url = \"https://example.com/third.kpar\"\n"
     )));
     assert_eq!(
         info.usage,

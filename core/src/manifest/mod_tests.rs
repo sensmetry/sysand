@@ -396,7 +396,7 @@ name = \"lib\"
         "model.toml:2:1: unknown top-level key `colour`\n\
          model.toml:7:1: `version` in `[project]` must be a string, but it is an integer\n\
          model.toml:8:1: unknown key `shape` in `[project]`\n\
-         model.toml:11:1: usage `acme/lib` names no `dir`, `kpar-path` or `url`, so it is an \
+         model.toml:11:1: usage `acme/lib` names no `dir`, `kpar-path` or `kpar-url`, so it is an \
          index usage; an index usage requires a `version` constraint"
     );
 }

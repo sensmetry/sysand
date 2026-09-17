@@ -1068,7 +1068,7 @@ pub fn remove_usage(doc: &mut DocumentMut, wanted: &NormalizedIdentity) -> Resul
 /// The constraint of the entry declaring `wanted`, if it is there.
 ///
 /// `Some(None)` is an entry with no `version` key -- a `dir`,
-/// `kpar-path`, `url` or opt-in usage. `None` is no entry at all. A
+/// `kpar-path`, `kpar-url` or opt-in usage. `None` is no entry at all. A
 /// caller that means to add a usage has to tell the two apart.
 pub fn usage_constraint(doc: &DocumentMut, wanted: &NormalizedIdentity) -> Option<Option<String>> {
     let at = find_usage(doc, wanted)?;
@@ -1083,7 +1083,7 @@ pub fn usage_constraint(doc: &DocumentMut, wanted: &NormalizedIdentity) -> Optio
 
 /// Set the version constraint of an index usage.
 ///
-/// Only an index usage has one: a `dir`, `kpar-path` or `url` entry
+/// Only an index usage has one: a `dir`, `kpar-path` or `kpar-url` entry
 /// names its target directly, and an entry that opts into a workspace
 /// group takes that group's entry whole. Both are refused, and the
 /// command that owns the verb decides how to say which it met.
@@ -1099,7 +1099,7 @@ pub fn set_usage_version(
         .and_then(|usages| usages.get_mut(at))
         .expect("the entry was just found");
 
-    if ["dir", "kpar-path", "url", "git", MARKER]
+    if ["dir", "kpar-path", "kpar-url", "git", MARKER]
         .iter()
         .any(|key| entry.contains_key(key))
     {
