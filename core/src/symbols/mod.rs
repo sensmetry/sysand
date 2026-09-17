@@ -25,6 +25,19 @@ pub enum Language {
     KerML,
 }
 
+impl std::fmt::Display for Language {
+    /// How a diagnostic names the language: the spelling `SpecKind` uses
+    /// for the same two, so that a `sources` message and a metamodel
+    /// message read alike. `commands::publish` says "SysMLv2" in its own
+    /// texts and keeps doing so.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::SysML => "SysML",
+            Self::KerML => "KerML",
+        })
+    }
+}
+
 impl Language {
     pub fn from_suffix<S: AsRef<str>>(suffix: S) -> Option<Self> {
         let suffix = suffix.as_ref();

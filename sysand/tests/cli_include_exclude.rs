@@ -16,6 +16,7 @@ use std::{fs, io::Write as _};
 
 use assert_cmd::prelude::*;
 use indexmap::IndexMap;
+use predicates::prelude::*;
 use sysand_core::model::{
     InterchangeProjectChecksumRaw, InterchangeProjectMetadataRaw, KerMlChecksumAlg,
 };
@@ -592,5 +593,46 @@ fn exclude_refuses_a_path_that_is_not_listed() -> Result<(), Box<dyn std::error:
         .stderr(predicates::str::contains(
             "could not find file `test.sysml`",
         ));
+    Ok(())
+}
+
+/// Through the CLI: a file the project's metamodel
+/// does not admit is refused before `sources` is touched.
+#[test]
+fn include_refuses_a_language_the_metamodel_does_not_admit()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--metamodel",
+            "https://www.omg.org/spec/KerML/20250201",
+            "--publisher",
+            "acme",
+            "--name",
+            "widgets",
+        ],
+        None,
+    )?;
+    out.assert().success();
+    fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+
+    run_sysand_in(&cwd, ["include", "test.sysml"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "is a SysML file, which the metamodel `https://www.omg.org/spec/KerML/20250201` \
+             does not admit",
+        ));
+    assert!(
+        !manifest(&cwd)?.contains("test.sysml"),
+        "nothing was written"
+    );
+
+    // A KerML file in the same project is included.
+    fs::write(cwd.join("test.kerml"), b"package P;\n")?;
+    run_sysand_in(&cwd, ["include", "test.kerml"], None)?
+        .assert()
+        .success();
+    assert!(manifest(&cwd)?.contains("test.kerml"));
     Ok(())
 }

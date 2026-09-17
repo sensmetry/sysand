@@ -308,7 +308,11 @@ fn a_missing_key_does_not_name_the_metamodel() {
 #[test]
 fn sources_entries_are_checked_and_positioned() {
     for (entries, fragment, column) in [
-        ("[\"../escape.sysml\"]", "escapes the project root", 12),
+        (
+            "[\"../escape.sysml\"]",
+            "is not in the form `sources` takes",
+            12,
+        ),
         ("[\"src/\"]", "names a directory", 12),
         ("[\"notes.md\"]", "is not a KerML", 12),
         ("[\"a.sysml\", \"a.sysml\"]", "listed more than once", 23),
@@ -325,6 +329,21 @@ fn sources_entries_are_checked_and_positioned() {
         // entry a reader would delete.
         assert_eq!(places(&report), [(5, column)], "{entries}");
     }
+}
+
+/// model-toml.md "Reading and validating": every problem is listed at
+/// once, so each bad entry is reported at itself -- and each repeat of an
+/// entry is a duplicate of its own, not one complaint at the last copy.
+#[test]
+fn every_bad_sources_entry_is_reported_at_itself() {
+    let report = rejected(&format!(
+        "{REQUIRED}sources = [\"a.sysml\", \"notes.md\", \"a.sysml\", \"a.sysml\"]\n"
+    ));
+    assert_eq!(texts(&report).len(), 3, "unexpected report: {report}");
+    assert!(texts(&report)[0].contains("`notes.md` is not a KerML"));
+    assert!(texts(&report)[1].contains("`a.sysml` is listed more than once"));
+    assert!(texts(&report)[2].contains("`a.sysml` is listed more than once"));
+    assert_eq!(places(&report), [(5, 23), (5, 35), (5, 46)]);
 }
 
 /// model-toml.md: `sources` "cannot be inherited by a member ..., since
@@ -1363,5 +1382,50 @@ fn an_inherited_metamodel_satisfies_the_requirement() {
     assert_eq!(
         project.metamodel.to_string(),
         "https://www.omg.org/spec/SysML/20250201"
+    );
+}
+
+/// The metamodel's language rule through `resolve`, positioned at the
+/// entry -- which is why the table keeps each entry's position: the
+/// reader that could point at one is gone by the time the metamodel is
+/// known.
+#[test]
+fn a_source_the_metamodel_does_not_admit_is_refused() {
+    let report = unresolved(
+        "name = \"member\"\npublisher = \"acme\"\nversion = \"1.0.0\"\n\
+         sources = [\"a.kerml\", \"b.sysml\"]\n\
+         metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n",
+    );
+    assert_eq!(
+        texts(&report),
+        [
+            "`sources` entry `b.sysml` is a SysML file, which the metamodel \
+             `https://www.omg.org/spec/KerML/20250201` does not admit;\n\
+             a KerML project lists `.kerml` files, a SysML project `.sysml` and `.kerml` files"
+        ]
+    );
+    // The second entry, not the array and not the first.
+    assert_eq!(places(&report), [(5, 23)]);
+}
+
+/// The check waits for inheritance, like the required-key one: a member
+/// that inherits KerML may not list a `.sysml` file either.
+#[test]
+fn an_inherited_metamodel_decides_the_language() {
+    let kerml = workspace(
+        "[workspace]\nmembers = []\nmetamodel = \"https://www.omg.org/spec/KerML/20250201\"\n",
+    );
+    let report = manifest(
+        "name = \"member\"\npublisher = \"acme\"\nversion = \"1.0.0\"\n\
+         sources = [\"a.sysml\"]\nmetamodel.workspace = true\n",
+    )
+    .resolve(Some(&kerml))
+    .expect_err("a SysML file under an inherited KerML metamodel");
+    assert!(
+        texts(&report)[0].contains(
+            "which the metamodel `https://www.omg.org/spec/KerML/20250201` does not admit"
+        ),
+        "{:?}",
+        texts(&report)
     );
 }

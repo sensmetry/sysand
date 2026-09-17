@@ -2,13 +2,13 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use serde::{Deserialize, Serialize};
-use typed_path::Utf8UnixPathBuf;
+use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
 use crate::manifest::common::{
-    InheritFrom, InheritMarker, Maintainer, Sources, SourcesError, StdlibStem, is_valid_group_name,
-    normalized_identity,
+    InheritFrom, InheritMarker, Maintainer, Sources, SourcesError, StdlibStem, admitted_source,
+    is_valid_group_name, normalized_identity,
 };
-use crate::model::{IndexName, IndexPublisher};
+use crate::model::{IndexName, IndexPublisher, KnownMetamodel};
 
 fn sources(entries: &[&str]) -> Result<Sources, SourcesError> {
     Sources::new(
@@ -191,23 +191,32 @@ fn group_names_are_bare_toml_keys() {
     }
 }
 
-/// model-toml.md `sources`: entries are relative, `/`-separated, and are
-/// stored normalized, which is what the KPAR maps are keyed by.
+/// model-toml.md `sources`: entries "are taken
+/// exactly as written: rather than normalize a path and then check where
+/// it landed, the manifest admits only the one form Sysand itself
+/// writes".
 #[test]
-fn sources_entries_are_normalized_and_stay_inside_the_project_root() {
+fn sources_entries_are_taken_exactly_as_written() {
     for (entries, expected) in [
         (&["/abs/main.sysml"][..], "is absolute"),
-        (&["../outside.sysml"], "escapes the project root"),
-        (&["src/../../outside.sysml"], "escapes the project root"),
-        (&["."], "is the project root, not a source file"),
+        // Nothing is resolved, so a `..` is a form error rather than an
+        // escape -- and no entry can leave the project root at all.
+        (&["../outside.sysml"], "is not in the form `sources` takes"),
+        (
+            &["src/../../outside.sysml"],
+            "is not in the form `sources` takes",
+        ),
+        (&["./main.sysml"], "is not in the form `sources` takes"),
+        (&["src/./main.sysml"], "is not in the form `sources` takes"),
+        (&["src//main.sysml"], "is not in the form `sources` takes"),
+        (&["."], "is not in the form `sources` takes"),
+        (&[".."], "is not in the form `sources` takes"),
+        (&[""], "is not in the form `sources` takes"),
         (&["src/"], "names a directory"),
         (
             &["src/main.sysml", "src/main.sysml"],
             "is listed more than once",
         ),
-        // Two spellings of one file are one file, and therefore a duplicate.
-        (&["./main.sysml", "main.sysml"], "name the same file"),
-        (&["src//main.sysml", "src/main.sysml"], "name the same file"),
     ] {
         let error = sources_error(entries);
         assert!(
@@ -216,20 +225,27 @@ fn sources_entries_are_normalized_and_stay_inside_the_project_root() {
         );
     }
 
-    let stored = sources(&["./main.sysml", "src/../parts.kerml", "lib//util.kerml"])
-        .expect("all three are inside the project root");
+    let stored =
+        sources(&["main.sysml", "src/parts.kerml", "lib/util.kerml"]).expect("the strict form");
     assert_eq!(
         stored.as_slice(),
         [
             Utf8UnixPathBuf::from("main.sysml"),
-            Utf8UnixPathBuf::from("parts.kerml"),
+            Utf8UnixPathBuf::from("src/parts.kerml"),
             Utf8UnixPathBuf::from("lib/util.kerml"),
         ]
     );
+
+    // Equality is exact, so two spellings of one file on a
+    // case-insensitive filesystem are two entries. The manifest is
+    // saying two things; it is not this reader's to decide which.
+    sources(&["a.sysml", "A.sysml"]).expect("equality is exact");
 }
 
 /// A manifest is read the same way on every platform, so a Windows path
-/// is not a source path (see `utils::normalize_relative`).
+/// is not a source path. The drive letter is what makes `C:/main.sysml`
+/// absolute; a test for a leading `/` alone would take it for a relative
+/// path.
 #[test]
 fn sources_rejects_windows_paths() {
     assert!(
@@ -264,18 +280,46 @@ fn sources_entries_must_be_model_files() {
     );
 }
 
+/// "The entry as written is what the `checksum` and `index` maps of a
+/// built KPAR are keyed by."
 #[test]
-fn sources_serializes_the_normalized_form() {
+fn sources_serializes_what_was_written() {
     #[derive(Debug, Serialize)]
     struct Wrapper {
         sources: Sources,
     }
 
     let wrapper = Wrapper {
-        sources: sources(&["./a.sysml", "src/../b.kerml"]).expect("valid sources"),
+        sources: sources(&["a.sysml", "src/b.kerml"]).expect("valid sources"),
     };
     assert_eq!(
         toml_edit::ser::to_string(&wrapper).expect("serializes"),
-        "sources = [\"a.sysml\", \"b.kerml\"]\n"
+        "sources = [\"a.sysml\", \"src/b.kerml\"]\n"
     );
+}
+
+/// The half of the language rule the metamodel decides, which
+/// `Sources` cannot answer because the value may be inherited.
+#[test]
+fn a_source_the_metamodel_does_not_admit_is_refused() {
+    let kerml =
+        KnownMetamodel::recognize("https://www.omg.org/spec/KerML/20250201").expect("a kind");
+    let sysml =
+        KnownMetamodel::recognize("https://www.omg.org/spec/SysML/20250201").expect("a kind");
+
+    let entry = Utf8UnixPath::new("a.sysml");
+    let error = admitted_source(entry, &kerml).expect_err("a SysML file in a KerML project");
+    assert_eq!(
+        error.message,
+        "`sources` entry `a.sysml` is a SysML file, which the metamodel \
+         `https://www.omg.org/spec/KerML/20250201` does not admit;\n\
+         a KerML project lists `.kerml` files, a SysML project `.sysml` and `.kerml` files"
+    );
+    admitted_source(entry, &sysml).expect("a SysML file in a SysML project");
+    admitted_source(Utf8UnixPath::new("a.kerml"), &kerml).expect("KerML in KerML");
+    admitted_source(Utf8UnixPath::new("a.kerml"), &sysml).expect("KerML in SysML");
+
+    // Not a model file at all: `SourcesError::NotModelFile`'s, and no
+    // metamodel to name.
+    admitted_source(Utf8UnixPath::new("notes.txt"), &kerml).expect("no language to judge");
 }

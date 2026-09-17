@@ -1524,11 +1524,13 @@ mod prepare_publish {
     }
 
     #[test]
-    fn incorrect_file_format() {
-        // checksum references a .kerml file but metamodel is SysML.
+    /// model-toml.md "Metamodel": "a `SysML` project admits `.sysml`
+    /// and `.kerml`, SysML being layered on KerML".
+    #[test]
+    fn a_kerml_file_in_a_sysml_project_publishes() {
         let cksum = sha256_lowercase_hex(b"content");
         let meta = format!(
-            r#"{{"index":{{"Sym":"f.sysml"}},"created":"2025-01-01T00:00:00Z","metamodel":"https://www.omg.org/spec/SysML/20250201","checksum":{{"f.kerml":{{"value":"{cksum}","algorithm":"SHA256"}},"f.sysml":{{"value":"{cksum}","algorithm":"SHA256"}}}}}}"#
+            r#"{{"index":{{}},"created":"2025-01-01T00:00:00Z","metamodel":"https://www.omg.org/spec/SysML/20250201","checksum":{{"f.kerml":{{"value":"{cksum}","algorithm":"SHA256"}},"f.sysml":{{"value":"{cksum}","algorithm":"SHA256"}}}}}}"#
         );
         let (_tmp, path) = write_zip(&[
             (".project.json", base_project().as_slice(), deflate()),
@@ -1537,15 +1539,31 @@ mod prepare_publish {
             ("f.sysml", b"content", deflate()),
             ("f.kerml", b"content", deflate()),
         ]);
-        let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert_matches!(
-            err,
-            PublishError::IncorrectFileFormat {
-                path: _,
-                metamodel_iri: _,
-                metamodel: _
-            }
-        );
+        prepare_publish_payload(&path).expect("a SysML project may carry KerML files");
+    }
+
+    /// The other way round is refused, and so is a file that is
+    /// no model file at all: a KPAR built from a json project never went
+    /// through `Sources`, so this is the only check it meets.
+    #[test]
+    fn incorrect_file_format() {
+        let cksum = sha256_lowercase_hex(b"content");
+        for (metamodel, file) in [
+            ("https://www.omg.org/spec/KerML/20250201", "f.sysml"),
+            ("https://www.omg.org/spec/SysML/20250201", "notes.txt"),
+        ] {
+            let meta = format!(
+                r#"{{"index":{{}},"created":"2025-01-01T00:00:00Z","metamodel":"{metamodel}","checksum":{{"{file}":{{"value":"{cksum}","algorithm":"SHA256"}}}}}}"#
+            );
+            let (_tmp, path) = write_zip(&[
+                (".project.json", base_project().as_slice(), deflate()),
+                (".meta.json", meta.as_bytes(), deflate()),
+                ("LICENSES/MIT.txt", b"MIT License", deflate()),
+                (file, b"content", deflate()),
+            ]);
+            let err = prepare_publish_payload(&path).expect_err("expected Err");
+            assert_matches!(err, PublishError::IncorrectFileFormat { .. }, "{file}");
+        }
     }
 
     #[test]

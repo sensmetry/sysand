@@ -1027,3 +1027,70 @@ fn an_http_usage_discards_its_constraint_with_a_warning() {
         .join("\n");
     assert!(text.contains("which is not migrated"), "{text}");
 }
+
+// ------------------------------------ the language the metamodel admits
+
+/// `checksum` keys that *are* model files, of the language this
+/// project's metamodel does not admit. A second message,
+/// not a second kind of entry in the first: "not a KerML or SysML file"
+/// has no metamodel to name.
+#[test]
+fn a_checksum_key_the_metamodel_does_not_admit_names_the_metamodel() {
+    let mut m = with_metamodel(Some("https://www.omg.org/spec/KerML/20250201"));
+    m.checksum = Some(checksum_of(&["a.kerml", "b.sysml", "c.sysml"]));
+    let rendered = errors(
+        &info("widgets", Some("acme"), "1.0.0"),
+        &m,
+        &MigrateOptions::default(),
+    );
+    assert!(rendered.contains("`b.sysml`, `c.sysml`"), "{rendered}");
+    assert!(
+        rendered.contains(
+            "whose type the metamodel `https://www.omg.org/spec/KerML/20250201` \
+                           does not admit"
+        ),
+        "{rendered}"
+    );
+    assert!(!rendered.contains("`a.kerml`"), "{rendered}");
+    assert_eq!(
+        rendered.matches("run `sysand exclude`").count(),
+        1,
+        "one diagnostic for the set:\n{rendered}"
+    );
+}
+
+/// An `index` value of the wrong language is reported per entry, as an
+/// `index` value that is no model file is.
+#[test]
+fn an_index_value_the_metamodel_does_not_admit_is_reported_per_entry() {
+    let mut m = with_metamodel(Some("https://www.omg.org/spec/KerML/20250201"));
+    m.index = IndexMap::from([("Sym".to_owned(), "b.sysml".to_owned())]);
+    let rendered = errors(
+        &info("widgets", Some("acme"), "1.0.0"),
+        &m,
+        &MigrateOptions::default(),
+    );
+    assert!(
+        rendered.contains(
+            "`sources` entry `b.sysml` is a SysML file, which the metamodel \
+             `https://www.omg.org/spec/KerML/20250201` does not admit"
+        ),
+        "{rendered}"
+    );
+}
+
+/// The checks are skipped when the metamodel did not resolve: that has
+/// been reported already, and a second complaint about a language nobody knows
+/// would only crowd the report.
+#[test]
+fn an_unresolved_metamodel_skips_the_language_check() {
+    let mut m = with_metamodel(None);
+    m.checksum = Some(checksum_of(&["b.sysml"]));
+    let rendered = errors(
+        &info("widgets", Some("acme"), "1.0.0"),
+        &m,
+        &MigrateOptions::default(),
+    );
+    assert!(rendered.contains("declares no `metamodel`"), "{rendered}");
+    assert!(!rendered.contains("does not admit"), "{rendered}");
+}

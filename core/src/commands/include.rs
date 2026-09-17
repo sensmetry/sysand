@@ -40,6 +40,11 @@ pub enum IncludeError<ProjectError> {
         "`force_format` has no effect on a `model.toml` project, whose symbols are computed when the KPAR is built"
     )]
     ForceFormat,
+    /// Checked before the manifest is touched: a file the
+    /// project's metamodel does not admit would be written into
+    /// `sources` and refused by the next read.
+    #[error("{0}")]
+    NotAdmitted(Box<str>),
     /// The manifest could not be read, or the edit was refused.
     #[error(transparent)]
     Edit(crate::manifest::edit::EditError),
@@ -163,11 +168,24 @@ fn include_toml<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
     }
 
     let mut document = project.manifest_document().map_err(manifest_error)?;
+    // The metamodel comes from the resolved
+    // manifest when the project resolves, and from the document's own
+    // literal value otherwise; a member read without its workspace has
+    // neither, and the check is skipped rather than the command
+    // refusing over something that is not about the path it was given.
+    // The next read of the manifest refuses such a file anyway.
+    let metamodel = project_metamodel(project, &document);
 
     for path in paths {
         let including = "Including";
         let header = crate::style::get_style_config().header;
         log::info!("{header}{including:>12}{header:#} file `{path}`");
+
+        if let Some(kind) = &metamodel
+            && let Err(problem) = crate::manifest::common::admitted_source(&path, kind)
+        {
+            return Err(IncludeError::NotAdmitted(problem.message.into()));
+        }
 
         crate::manifest::edit::include_source(&mut document, path.as_str())
             .map_err(IncludeError::Edit)?;
@@ -229,3 +247,26 @@ pub fn read_project_file_to_string<Pr: ProjectRead, P: AsRef<Utf8UnixPath>>(
 #[cfg(test)]
 #[path = "./include_tests.rs"]
 mod tests;
+
+/// The metamodel `include` judges a path against, or `None` when the
+/// project cannot say: a member whose `metamodel.workspace = true`
+/// cannot be resolved without the workspace table, and the bindings
+/// build such a project without one.
+fn project_metamodel<Pr: ProjectRead>(
+    project: &Pr,
+    document: &crate::manifest::edit::DocumentMut,
+) -> Option<crate::model::KnownMetamodel> {
+    if let Ok(manifest) = project.manifest() {
+        return Some(manifest.metamodel);
+    }
+    let declared = document
+        .get("project")?
+        .as_table_like()?
+        .get("metamodel")?
+        .as_str()?;
+    let kind = crate::model::KnownMetamodel::recognize(declared);
+    if kind.is_none() {
+        log::debug!("`{declared}` is not a metamodel this Sysand knows; not checking the language");
+    }
+    kind
+}
