@@ -100,8 +100,13 @@ class Baseline:
         }
 
     def cli(self, *args: str) -> bool:
-        return run_cli_in(
-            self.root, *args, "--no-config", "--default-index", self.index.url
+        # Whether the command succeeded, not its code: the callers of this
+        # helper only ever ask that, and two of them assert a failure.
+        return (
+            run_cli_in(
+                self.root, *args, "--no-config", "--default-index", self.index.url
+            )
+            == 0
         )
 
 

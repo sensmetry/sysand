@@ -291,8 +291,11 @@ class MockIndex:
         return Response(body, status=200, content_type=content_type)
 
 
-def run_cli_in(root: str | Path, *args: str) -> bool:
+def run_cli_in(root: str | Path, *args: str) -> int:
     """Run the in-process CLI with ``root`` as its working directory.
+
+    Returns the exit code: 0 on success, 1 for a runtime failure, 2 for a
+    usage error, as the native binary reports them.
 
     ``run_cli`` discovers the project from the process cwd, so the cwd is
     switched for the duration of the call (process-global, visible to Rust).
@@ -300,6 +303,6 @@ def run_cli_in(root: str | Path, *args: str) -> bool:
     previous = os.getcwd()
     os.chdir(root)
     try:
-        return bool(_run_cli(["sysand", *args]))
+        return int(_run_cli(["sysand", *args]))
     finally:
         os.chdir(previous)

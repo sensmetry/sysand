@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{iter, process::ExitCode, str::FromStr as _, sync::Arc};
+use std::{iter, str::FromStr as _, sync::Arc};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use fluent_uri::Iri;
@@ -82,14 +82,14 @@ use sysand_core::{
 use typed_path::Utf8UnixPathBuf;
 
 #[pyfunction(name = "_run_cli")]
-fn run_cli(py: Python<'_>, args: Vec<String>) -> bool {
+fn run_cli(py: Python<'_>, args: Vec<String>) -> u8 {
     // The CLI can run for seconds and talk to the network; holding the GIL
     // would block every other Python thread meanwhile — including an HTTP
     // server the CLI is talking to (the Python test suite's mock index).
     py.detach(|| run_cli_blocking(args))
 }
 
-fn run_cli_blocking(args: Vec<String>) -> bool {
+fn run_cli_blocking(args: Vec<String>) -> u8 {
     let exit_code;
     // Expand glob arguments, CMD/PowerShell don't do it
     #[cfg(windows)]
@@ -139,7 +139,7 @@ fn run_cli_blocking(args: Vec<String>) -> bool {
     {
         exit_code = sysand::lib_main(args);
     }
-    exit_code == ExitCode::SUCCESS
+    exit_code
 }
 
 #[pyfunction(name = "do_init_py_local_file")]

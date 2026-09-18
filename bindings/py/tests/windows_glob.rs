@@ -29,7 +29,7 @@ fn run_cli_expands_glob_pattern() -> Result<(), Box<dyn std::error::Error>> {
     pyo3::append_to_inittab!(sysand_py);
     Python::initialize();
 
-    let success: bool = Python::attach(|py| -> PyResult<bool> {
+    let exit_code: u8 = Python::attach(|py| -> PyResult<u8> {
         let core = py.import("_sysand_core")?;
 
         core.getattr("do_init_py_local_file")?.call1((
@@ -49,7 +49,7 @@ fn run_cli_expands_glob_pattern() -> Result<(), Box<dyn std::error::Error>> {
     let meta = std::fs::read_to_string(proj_dir_path.join(".meta.json"))?;
 
     if cfg!(target_os = "windows") {
-        assert!(success);
+        assert_eq!(exit_code, 0);
         assert!(meta.contains(r#""P1": "p1.sysml""#), "meta.json: {meta}");
         assert!(meta.contains(r#""P2": "p2.sysml""#), "meta.json: {meta}");
         assert!(meta.contains(r#""P3": "p3.sysml""#), "meta.json: {meta}");
@@ -57,7 +57,7 @@ fn run_cli_expands_glob_pattern() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         // `_run_cli` only expands globs on Windows, so `include` sees a
         // literal `*.sysml` path, which doesn't exist.
-        assert!(!success);
+        assert_ne!(exit_code, 0);
         assert!(meta.contains(r#""index": {}"#), "meta.json: {meta}");
     }
 
