@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import List
 from pathlib import Path
 
-from sysand._model import Dependencies
-import sysand._sysand_core as sysand_rs  # type: ignore
+from .._model import Dependencies
+from .. import _sysand_core as sysand_rs
 
 
 def sources(

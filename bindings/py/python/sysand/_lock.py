@@ -6,7 +6,7 @@ from __future__ import annotations
 import typing
 from pathlib import Path
 
-import sysand._sysand_core as sysand_rs  # type: ignore
+from . import _sysand_core as sysand_rs
 
 from ._auth import AuthPolicy, Resolution
 from ._model import LockResult, ProvidedProject

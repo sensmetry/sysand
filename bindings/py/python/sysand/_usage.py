@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import sysand._sysand_core as sysand_rs  # type: ignore
+from . import _sysand_core as sysand_rs
 
 from ._errors import ProjectError
 from ._model import UsageConstraintChange

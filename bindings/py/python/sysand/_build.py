@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 
-from sysand._model import CompressionMethod
-import sysand._sysand_core as sysand_rs  # type: ignore
+from ._model import CompressionMethod
+from . import _sysand_core as sysand_rs
 
 from pathlib import Path
 
