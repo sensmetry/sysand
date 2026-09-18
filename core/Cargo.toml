@@ -27,7 +27,17 @@ lenient_checks = []
 python = ["dep:pyo3"]
 js = ["jiff/js"]  # ["dep:wasm-bindgen"]
 filesystem = ["dep:camino-tempfile", "dep:dirs", "dep:zip"]
-networking = ["dep:reqwest", "dep:gix"]  # "dep:reqwest-middleware", "dep:partialzip"
+networking = [
+  "dep:reqwest",
+  "dep:gix",
+  "dep:rustls"
+]  # "dep:reqwest-middleware", "dep:partialzip"
+# TLS providers. Enabling both is not an error: `--all-features` does it, and
+# `tls-aws-lc-rs` wins, because that is what Sysand ships. With neither, a
+# consumer that enables `networking` must install a provider itself before the
+# first HTTP client is built or the first git fetch runs.
+tls-aws-lc-rs = ["rustls?/aws-lc-rs"]
+tls-ring = ["rustls?/ring"]
 # OS-keyring-backed credential store (not for wasm; the js binding must not
 # enable it)
 keyring = ["dep:keyring", "dep:dirs"]
@@ -84,7 +94,21 @@ tokio = { version = "1.50.0", default-features = false, features = ["rt", "io-ut
 bytes = { version = "1.11.1", default-features = false }
 toml_edit = { version = "0.25.4", features = ["serde"] }
 globset = { version = "0.4.18", default-features = false }
-reqwest = { version = "0.13.2", optional = true, features = ["rustls", "stream", "multipart"] }
+# It would be preferable to enable aws-lc-rs/ring on here directly, but no
+# feature for `ring` is provided, so we choose `rustls-no-provider` and
+# install the chosen provider at runtime ourselves
+reqwest = { version = "0.13.2", default-features = false, optional = true, features = [
+  "rustls-no-provider",
+  "charset",
+  "http2",
+  "system-proxy",
+  "stream",
+  "multipart"
+] }
+# Only to select the crypto provider. reqwest already takes rustls with
+# `default-features = false, features = ["std", "tls12"]`, so this adds the
+# provider and nothing else.
+rustls = { version = "0.23.43", default-features = false, optional = true }
 dunce = "1.0.5"
 icu_normalizer = { version = "2.1.1", default-features = false, features = ["compiled_data"] }
 icu_casemap = "2.1.1"

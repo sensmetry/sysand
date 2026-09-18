@@ -12,9 +12,11 @@ documentation.workspace = true
 homepage.workspace = true
 
 [features]
-default = ["extension-module", "abi3"]
+default = ["extension-module", "abi3", "tls-aws-lc-rs"]
 extension-module = ["pyo3/extension-module"]
 abi3 = ["pyo3/abi3", "pyo3/abi3-py310"]
+tls-aws-lc-rs = ["sysand-core/tls-aws-lc-rs", "sysand/tls-aws-lc-rs"]
+tls-ring = ["sysand-core/tls-ring", "sysand/tls-ring"]
 kpar-bzip2 = ["sysand-core/kpar-bzip2", "sysand/kpar-bzip2"]
 kpar-zstd = ["sysand-core/kpar-zstd", "sysand/kpar-zstd"]
 kpar-xz = ["sysand-core/kpar-xz", "sysand/kpar-xz"]
@@ -22,7 +24,7 @@ kpar-ppmd = ["sysand-core/kpar-ppmd", "sysand/kpar-ppmd"]
 
 [dependencies]
 sysand-core = { path = "../../core", features = ["python", "filesystem", "networking"] }
-sysand = { path = "../../sysand" }
+sysand = { path = "../../sysand", default-features = false, features = ["std"] }
 anyhow = "1.0.102"
 camino.workspace = true
 fluent-uri.workspace = true

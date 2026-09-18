@@ -613,6 +613,8 @@ struct ProbeOutcome {
 /// a cross-host redirect strips the Authorization header, misreading
 /// "rejected") and a timeout so a hung probe cannot hang `auth login`.
 fn probe_client() -> Result<reqwest::Client, reqwest::Error> {
+    crate::resolve::net_utils::install_default_crypto_provider();
+
     reqwest::Client::builder()
         .user_agent(crate::resolve::net_utils::USER_AGENT)
         .redirect(reqwest::redirect::Policy::none())

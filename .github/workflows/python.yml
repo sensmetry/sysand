@@ -115,7 +115,7 @@ jobs:
       - name: cargo test ... (Python bindings)
         run: |
           cd bindings/py
-          cargo test --locked --package sysand-py --no-default-features --target ${{ matrix.platform.rust_target }}
+          cargo test --locked --package sysand-py --no-default-features --features tls-aws-lc-rs --target ${{ matrix.platform.rust_target }}
 
       - name: Build wheels
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
@@ -163,7 +163,7 @@ jobs:
           key: ${{ matrix.platform.runner }}
 
       - name: cargo test ... (Python bindings)
-        run: cargo test --locked --package sysand-py --no-default-features
+        run: cargo test --locked --package sysand-py --no-default-features --features tls-aws-lc-rs
 
       - name: Build wheels (manylinux)
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
@@ -238,7 +238,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: cargo test ... (Python bindings)
-        run: cargo test --locked --package sysand-py --no-default-features
+        run: cargo test --locked --package sysand-py --no-default-features --features tls-aws-lc-rs
 
       - name: Build wheels
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0

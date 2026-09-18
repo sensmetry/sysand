@@ -89,7 +89,48 @@ pub(crate) const USER_AGENT: &str = concat!("sysand/", env!("CARGO_PKG_VERSION")
 /// on the index URL discovery fetch and on every index resource.
 pub fn create_reqwest_client()
 -> Result<reqwest_middleware::ClientWithMiddleware, ReqwestClientBuildError> {
+    install_default_crypto_provider();
+
     let client = reqwest::Client::builder().user_agent(USER_AGENT).build()?;
 
     Ok(reqwest_middleware::ClientBuilder::new(client).build())
 }
+
+/// Install the crypto provider selected by this crate's `tls-*` features as
+/// the process-wide rustls default.
+///
+/// `reqwest` is taken with `rustls-no-provider` so that no consumer is forced
+/// onto a particular provider. Every path that can reach a TLS handshake
+/// must therefore call this first.
+///
+/// Only the first call installs the provider, subsequent ones are a no-op.
+///
+/// With neither `tls-aws-lc-rs` nor `tls-ring` enabled this is a no-op, and
+/// installing a provider is the application's job.
+pub fn install_default_crypto_provider() {
+    #[cfg(feature = "tls-aws-lc-rs")]
+    {
+        _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    }
+    // `not(tls-aws-lc-rs)` because the two features are additive and
+    // `--all-features` enables both; aws-lc-rs wins as the shipped default.
+    #[cfg(all(feature = "tls-ring", not(feature = "tls-aws-lc-rs")))]
+    {
+        _ = rustls::crypto::ring::default_provider().install_default();
+    }
+    #[cfg(not(any(feature = "tls-aws-lc-rs", feature = "tls-ring")))]
+    {
+        log::debug!(
+            "sysand-core was built with no `tls-*` feature; the application \
+             must install a rustls crypto provider itself, or building an \
+             HTTPS client will fail"
+        );
+    }
+}
+
+// Both tests assert that a provider is installed, so they only make sense
+// when a `tls-*` feature selected one. Gating on `networking` alone would
+// assert it in `--features std,networking`, which deliberately has none.
+#[cfg(all(test, any(feature = "tls-aws-lc-rs", feature = "tls-ring")))]
+#[path = "./net_utils_tests.rs"]
+mod tests;

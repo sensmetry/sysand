@@ -160,7 +160,9 @@ compiled in:
 | `python`         | PyO3 dependency; enables `FromPyObject`/`IntoPyObject` derives on core types |
 | `js`             | `wasm-bindgen` dependency for WASM/JavaScript support                        |
 | `filesystem`     | Local file I/O, KPAR reading/writing (`zip`, `camino-tempfile`, `dirs`)      |
-| `networking`     | HTTP requests and git cloning (`reqwest`, `gix`)                             |
+| `networking`     | HTTP requests and git cloning (`reqwest`, `gix`, `rustls`)                   |
+| `tls-aws-lc-rs`  | Installs the `aws-lc-rs` rustls crypto provider (see below)                  |
+| `tls-ring`       | Installs the `ring` rustls crypto provider instead                           |
 | `lenient_checks` | More lenient validation where the KerML spec is vague                        |
 | `kpar-*`         | Additional KPAR compression methods (bzip2, zstd, xz, ppmd)                  |
 
@@ -173,6 +175,15 @@ Each binding crate enables different features on `sysand-core` (all also get
 | `sysand-py`    | `python`, `filesystem`, `networking`                      |
 | `sysand-java`  | `filesystem`, `networking`                                |
 | `sysand-js`    | `js` only (no filesystem or networking — runs in browser) |
+
+`sysand-core` takes `reqwest` with `rustls-no-provider` and names **no**
+crypto provider itself, because Cargo features are additive: one named in a
+library could only be added to downstream, never swapped out. So each crate
+that ships an artefact names a provider in its own `default` —
+`tls-aws-lc-rs` for `sysand`, `sysand-py` and `sysand-java` — and
+`sysand_core::resolve::net_utils::install_default_crypto_provider` installs it
+before the first HTTP client or git fetch. A consumer wanting `ring` enables
+`tls-ring` instead; one wanting neither installs a provider itself.
 
 ## Bindings architecture
 

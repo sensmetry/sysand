@@ -83,7 +83,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
              -> Result<AsSyncProjectTokio<ReqwestSrcProjectAsync<Policy>>, ParseError> {
                 Ok(ReqwestSrcProjectAsync {
                     client: client.clone(),
-                    url: reqwest::Url::parse(&remote_src)?,
+                    url: url::Url::parse(&remote_src)?,
                     auth_policy: auth_policy.clone(),
                     expected_checksum: Some(checksum),
                 }
@@ -120,7 +120,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
                 ParseError,
             > {
                 let project = ReqwestRemoteKparDownloadedProject::new_guess_root(
-                    reqwest::Url::parse(&index_kpar)?,
+                    url::Url::parse(&index_kpar)?,
                     client.clone(),
                     auth_policy.clone(),
                     Some(KparMeta {
@@ -141,7 +141,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
                 ParseError,
             > {
                 let project = ReqwestIndexKparDownloadedProject::new(
-                    reqwest::Url::parse(&index_kpar)?,
+                    url::Url::parse(&index_kpar)?,
                     client.clone(),
                     auth_policy.clone(),
                     index_kpar_size,
