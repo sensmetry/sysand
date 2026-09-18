@@ -9,6 +9,7 @@ use std::{
     ffi::OsString,
     fs,
     io::ErrorKind,
+    iter,
     str::FromStr as _,
     sync::Arc,
 };
@@ -18,7 +19,7 @@ use anyhow::{Result, anyhow, bail};
 use fluent_uri::Iri;
 
 use camino::{Utf8Path, Utf8PathBuf};
-use clap::Parser as _;
+use clap::{CommandFactory as _, Parser as _};
 use sysand_core::{
     auth::{
         HTTPAuthentication, StandardHTTPAuthentication, StandardHTTPAuthenticationBuilder,
@@ -132,6 +133,68 @@ where
         }
     }
     0
+}
+
+/// Render, as a string, the long help clap would print for the command
+/// `args` names, invoked as `prog`.
+///
+/// `prog` is the program name to spell in usage lines, passed separately
+/// rather than as `args[0]`, because callers hold the two apart: an external
+/// command is handed the arguments after its own name.
+///
+/// `args` may name a subcommand path (`["env", "install"]`), and the help
+/// returned is that subcommand's. When the arguments are not a valid command
+/// line the result is clap's own error text, complete with its usage hint,
+/// rather than an empty string — the same thing a user would have seen.
+///
+/// The text is unstyled. The caller prints it through a writer we know
+/// nothing about, so emitting ANSI escapes here would put them into pipes
+/// and files. The binary's own `--help` is unaffected.
+pub fn render_long_help<I, T>(prog: &str, args: I) -> String
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString> + Clone,
+{
+    /// `Ok` is the rendered help (clap reports it as an error), `Err` means
+    /// the command line parsed and produced no help at all.
+    fn rendered(argv: Vec<OsString>) -> Result<String, clap::ArgMatches> {
+        match Args::command().try_get_matches_from(argv) {
+            Err(err) => Ok(err.render().to_string()),
+            Ok(matches) => Err(matches),
+        }
+    }
+
+    // `--help` is a global argument with `ArgAction::HelpLong`, so appending
+    // it reaches whatever subcommand the arguments name.
+    let argv = iter::once(OsString::from(prog))
+        .chain(args.into_iter().map(Into::into))
+        .chain(iter::once(OsString::from("--help")))
+        .collect();
+
+    match rendered(argv) {
+        Ok(help) => help,
+        // The appended `--help` was consumed as a value rather than acted
+        // on — `new` takes `trailing_var_arg`, and anything after `--` is
+        // positional too. Ask again through clap's `help` subcommand, which
+        // takes a path of subcommand names and no flags to swallow.
+        Err(matches) => {
+            let mut argv = vec![OsString::from(prog), OsString::from("help")];
+            let mut current = &matches;
+            while let Some((name, sub)) = current.subcommand() {
+                argv.push(OsString::from(name));
+                current = sub;
+            }
+            rendered(argv).unwrap_or_else(|_| {
+                // Not reachable through any command line we know of; a root
+                // help labelled with the caller's program name beats a panic
+                // in a library.
+                Args::command()
+                    .bin_name(prog)
+                    .render_long_help()
+                    .to_string()
+            })
+        }
+    }
 }
 
 // Clutters panic output, so disabled in debug builds
