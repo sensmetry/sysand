@@ -7,10 +7,18 @@
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
   extends: [
     "config:best-practices",
-    ":preserveSemverRanges",
     "schedule:earlyMondays",
     "helpers:pinGitHubActionDigestsToSemver",
   ],
+  // `rangeStrategy` is left at its default, `auto`, which each manager resolves
+  // for itself: `update-lockfile` for cargo and npm, `replace` for maven,
+  // github-actions and docker. We previously extended `:preserveSemverRanges`,
+  // which forced `replace` everywhere; since Cargo versions are caret ranges
+  // (`"1.0.228"` == `^1.0.228`) and `replace` only acts when the new version
+  // falls *outside* the range, that left every 1.x crate frozen and never
+  // touched Cargo.lock. Under `auto`, in-range bumps become Cargo.lock-only
+  // updates while Cargo.toml keeps its minimum. The only downside is that
+  // `minimumReleaseAge` does not apply to lockfile bumps
   minimumReleaseAge: "7 days",
   abandonmentThreshold: "3 years",
   packageRules: [
