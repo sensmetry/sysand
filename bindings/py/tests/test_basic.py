@@ -274,8 +274,8 @@ def _project_with_dir_usage(tmp_path: Path) -> tuple[Path, Path]:
     manifest = json.loads((root / ".project.json").read_text())
     manifest["usage"] = [{"dir": "../dir-dep", "publisher": "acme", "name": "dir-dep"}]
     (root / ".project.json").write_text(json.dumps(manifest, indent=2) + "\n")
-    assert run_cli_in(root, "lock", "--no-config", "--no-index")
-    assert run_cli_in(root, "sync", "--no-config", "--no-index")
+    assert run_cli_in(root, "lock", "--no-config", "--no-index") == 0
+    assert run_cli_in(root, "sync", "--no-config", "--no-index") == 0
     env_dir = root / sysand.env.DEFAULT_ENV_NAME
     # After `sync`, which prunes anything not in the lockfile.
     sysand.env.install_path(env_dir, "urn:kpar:dep", kpar_dep)

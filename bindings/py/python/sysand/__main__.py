@@ -7,8 +7,10 @@ from sysand._sysand_core import _run_cli  # type: ignore
 
 
 def main() -> int:
-    is_success = _run_cli(["sysand"] + sys.argv[1:])
-    return 0 if is_success else 1
+    # Annotated rather than returned directly: `_run_cli` is untyped, and
+    # `mypy --strict` rejects returning `Any` from an `int` function.
+    code: int = _run_cli(["sysand"] + sys.argv[1:])
+    return code
 
 
 if __name__ == "__main__":

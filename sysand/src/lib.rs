@@ -9,7 +9,6 @@ use std::{
     ffi::OsString,
     fs,
     io::ErrorKind,
-    process::ExitCode,
     str::FromStr as _,
     sync::Arc,
 };
@@ -92,7 +91,12 @@ pub mod style;
 mod error;
 pub use error::CliError;
 
-pub fn lib_main<I, T>(args: I) -> ExitCode
+/// Run the CLI and return the exit code the process should report.
+///
+/// A number rather than a [`std::process::ExitCode`], which can be returned
+/// from `main` but not inspected: the Python binding has to pass the code on
+/// to a caller of its own. `main.rs` is what wraps it.
+pub fn lib_main<I, T>(args: I) -> u8
 where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
@@ -117,17 +121,17 @@ where
                         "\n{note_style}note{note_style:#}: pass `-v`/`--verbose` to output additional logs"
                     );
                 }
-                return ExitCode::FAILURE;
+                return 1;
             }
         }
         Err(err) => {
             err.print().expect("failed to write Clap error");
             // `exit_code()` is non-negative and within u8
             #[expect(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-            return ExitCode::from(err.exit_code() as u8);
+            return err.exit_code() as u8;
         }
     }
-    ExitCode::SUCCESS
+    0
 }
 
 // Clutters panic output, so disabled in debug builds

@@ -176,5 +176,5 @@ def test_fail_next(mock_index: MockIndex) -> None:
 
 def test_run_cli_in_restores_cwd(tmp_path) -> None:
     before = os.getcwd()
-    assert run_cli_in(tmp_path, "--version") is True
+    assert run_cli_in(tmp_path, "--version") == 0
     assert os.getcwd() == before
