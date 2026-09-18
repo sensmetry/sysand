@@ -16,6 +16,13 @@ name = "sysand"
 crate-type = ["cdylib"]
 
 [features]
+# `default` exists only to name the crypto provider this cdylib ships:
+# `scripts/java-builder.py` builds with no `--features`, so without it every
+# Java build would get `networking` with no provider and fail on the first
+# request. See `sysand-core`'s `tls-*` features.
+default = ["tls-aws-lc-rs"]
+tls-aws-lc-rs = ["sysand-core/tls-aws-lc-rs"]
+tls-ring = ["sysand-core/tls-ring"]
 kpar-bzip2 = ["sysand-core/kpar-bzip2"]
 kpar-zstd = ["sysand-core/kpar-zstd"]
 kpar-xz = ["sysand-core/kpar-xz"]

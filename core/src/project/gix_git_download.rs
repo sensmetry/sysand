@@ -115,6 +115,13 @@ impl GixDownloadedProject {
 
     fn ensure_downloaded(&self) -> Result<(), GixDownloadedError> {
         if !self.tmp_dir.path().join(".git").is_dir() {
+            // `gix-transport` builds a `reqwest` client of its own, on a
+            // spawned thread, so this path needs the process-wide rustls
+            // provider even though it never touches `create_reqwest_client`.
+            // Without it an https clone fails inside that thread, surfacing
+            // as an opaque transport error rather than a TLS one.
+            crate::resolve::net_utils::install_default_crypto_provider();
+
             let prepared_clone = prepare_clone(self.url.clone(), self.tmp_dir.path())
                 .map_err(|e| GixDownloadedError::Clone(self.url.to_string(), Box::new(e)))?;
 

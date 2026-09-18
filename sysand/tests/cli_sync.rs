@@ -7,7 +7,7 @@ use assert_cmd::prelude::*;
 use indexmap::IndexMap;
 use mockito::Matcher;
 use predicates::prelude::*;
-use reqwest::header;
+use reqwest_middleware::reqwest::header;
 use sysand_core::{
     commands::lock::DEFAULT_LOCKFILE_NAME,
     env::{

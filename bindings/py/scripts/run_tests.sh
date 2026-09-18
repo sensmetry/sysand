@@ -19,6 +19,8 @@ unset CONDA_PREFIX CONDA_DEFAULT_ENV CONDA_PROMPT_MODIFIER CONDA_SHLVL
 uv run maturin develop
 
 source ../../scripts/py_path.sh
-cargo test --no-default-features
+# `--no-default-features` drops `extension-module` so the test binary
+# links, but it also drops the crypto provider, which the tests need.
+cargo test --no-default-features --features tls-aws-lc-rs
 
 uv run pytest
