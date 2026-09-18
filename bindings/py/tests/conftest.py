@@ -28,8 +28,9 @@ def _claim_logger(tmp_path_factory: pytest.TempPathFactory) -> None:
     # binding functions install `pyo3_log` (records reach `caplog`), while
     # `_run_cli` tries `env_logger`. Make one cheap binding call before any
     # test so `_run_cli` can never steal the logger from the tests that
-    # assert on log records; `run_cli` then only prints a "failed to set up
-    # logger" warning and continues.
+    # assert on log records; `run_cli` then keeps the level it was asked for
+    # and continues, quietly, because `_run_cli` runs it as
+    # `ProcessOwnership::Embedded` (see `test_cli_logger.py`).
     sysand.env.env(tmp_path_factory.mktemp("logger") / sysand.env.DEFAULT_ENV_NAME)
 
 

@@ -133,11 +133,11 @@ fn run_cli_blocking(args: Vec<String>) -> u8 {
 
             vec![arg.into()]
         });
-        exit_code = sysand::lib_main(args);
+        exit_code = sysand::lib_main_with(args, sysand::ProcessOwnership::Embedded);
     }
     #[cfg(not(windows))]
     {
-        exit_code = sysand::lib_main(args);
+        exit_code = sysand::lib_main_with(args, sysand::ProcessOwnership::Embedded);
     }
     exit_code
 }
@@ -156,7 +156,11 @@ fn do_init_py_local_file(
     // Initialize logger in each function independently to avoid setting up a
     // logger before `run_cli()` is called (CLI sets up its own logger). This
     // can't be put into pymodule definition, since importing any part of the
-    // library from python runs it
+    // library from python runs it -- and an embedder whose CLI is a Python
+    // entry point imports this module before it can reach `_run_cli` at all,
+    // so at import the CLI would never get its own logger. When the order
+    // does go the other way, `_run_cli` passes `ProcessOwnership::Embedded`
+    // and the CLI keeps the level without complaining about the formatting.
     common_init();
 
     do_init_local_file(name, publisher, version, license, Utf8PathBuf::from(path)).map_err(
