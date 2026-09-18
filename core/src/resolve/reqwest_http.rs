@@ -144,6 +144,13 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for HTTPProjectAsync<Policy> {
         }
     }
 
+    fn source_may_offer_multiple_versions(&self) -> bool {
+        match self {
+            Self::HTTPSrcProject(proj) => proj.source_may_offer_multiple_versions(),
+            Self::HTTPKParProjectDownloaded(proj) => proj.source_may_offer_multiple_versions(),
+        }
+    }
+
     async fn get_info_async(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
         match self {
             Self::HTTPSrcProject(proj) => proj

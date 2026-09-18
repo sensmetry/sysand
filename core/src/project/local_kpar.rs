@@ -348,6 +348,11 @@ impl ProjectRead for LocalKParProject {
         }
     }
 
+    fn source_may_offer_multiple_versions(&self) -> bool {
+        // A path names one archive.
+        false
+    }
+
     fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
         match self.ensure_initialized() {
             Ok((_, meta)) => Ok(ProjectChecksum::Kpar(meta.sha256_hex.clone())),
@@ -610,6 +615,11 @@ impl ProjectRead for LocalKParProjectRaw {
     /// This always panics. Wrapper is responsible for providing an appropriate source
     fn sources(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         panic!()
+    }
+
+    fn source_may_offer_multiple_versions(&self) -> bool {
+        // A single archive, however the wrapper ends up naming it.
+        false
     }
 
     /// This always panics. Wrapper is responsible for providing the checksum

@@ -42,10 +42,13 @@ class SolveError(SysandError):
     Attributes:
         conflicts: machine-readable participants in the failure, one dict per
             conflict with a ``"kind"`` key (``"Constraint"``, ``"NoVersions"``,
-            ``"NotFound"``) and the variant's fields.
+            ``"NotFound"``) and the variant's fields. ``"NoVersions"`` carries
+            ``"defaulted"``: whether its ``"constraint"`` was defaulted rather
+            than written in the usage.
         report: the human-readable report, identical to the CLI's output.
-        kind: ``"no_solution"`` (the constraints contradict each other),
-            ``"retrieval"`` (a project or version could not be obtained) or
+        kind: ``"no_solution"`` (no set of versions satisfies the usages --
+            including a constraint no published version matches),
+            ``"retrieval"`` (a project could not be obtained at all) or
             ``"choosing_version"``.
     """
 

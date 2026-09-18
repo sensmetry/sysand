@@ -40,6 +40,7 @@ fn project(version: &str) -> InMemoryProject {
         }),
         files: HashMap::new(),
         nominal_sources: vec![],
+        source_may_offer_multiple_versions: false,
     }
 }
 

@@ -6,6 +6,7 @@ use pubgrub::{
     DefaultStringReporter, DependencyConstraints, DependencyProvider, DerivationTree, External,
     Reporter as _, VersionSet,
 };
+use semver::{Version, VersionReq};
 
 use std::{
     cell::RefCell,
@@ -136,21 +137,47 @@ fn numbered<T>(candidates: &[T]) -> impl Iterator<Item = (ProjectIndex, &T)> {
     candidates.iter().enumerate()
 }
 
-/// The set of `candidates` that a usage with `constraint` selects: those
-/// whose version matches, or every candidate when there is no constraint.
+/// What an unconstrained usage of a project requires where there is a version
+/// choice to make: like cargo, `*` selects every release but no prerelease, so
+/// a prerelease is only ever selected by a constraint that names one.
+pub const DEFAULT_INDEX_CONSTRAINT: VersionReq = VersionReq::STAR;
+
+/// What an unconstrained usage resolving to `candidates` requires, if
+/// anything.
+///
+/// A source that can offer several versions of a project - an index or its local
+/// cache - poses a choice. A source that names one project outright - a path,
+/// a URL, a source override to one of those - poses no choice and it does not make
+/// sense to constrain the version.
+///
+/// This decision can only be made when the candidates are known due to source
+/// overrides and also any IRI can resolve to an index, regardless of its shape.
+fn default_constraint(candidates: &[CandidateSummary]) -> Option<VersionReq> {
+    candidates
+        .iter()
+        // TODO: what to do when some candidates have `source_may_offer_multiple_versions`
+        // true and some false?
+        .any(|candidate| candidate.source_may_offer_multiple_versions)
+        .then_some(DEFAULT_INDEX_CONSTRAINT)
+}
+
+/// The set of `candidates` that a usage selects: those whose version matches
+/// `constraint`, or `default` when the usage states no constraint of its own.
+/// With neither, every candidate is selected.
 fn selected_by<'a>(
-    candidates: impl IntoIterator<Item = (ProjectIndex, &'a semver::Version)>,
-    constraint: Option<&semver::VersionReq>,
+    candidates: impl IntoIterator<Item = (ProjectIndex, &'a Version)>,
+    constraint: Option<&VersionReq>,
+    default: Option<&VersionReq>,
 ) -> DiscreteHashSet {
-    match constraint {
-        Some(constraint) => DiscreteHashSet::Finite(
+    match (constraint, default) {
+        (Some(constraint), _) | (None, Some(constraint)) => DiscreteHashSet::Finite(
             candidates
                 .into_iter()
                 .filter(|(_, version)| constraint.matches(version))
                 .map(|(index, _)| index)
                 .collect(),
         ),
-        None => DiscreteHashSet::empty().complement(),
+        (None, None) => DiscreteHashSet::empty().complement(),
     }
 }
 
@@ -241,10 +268,12 @@ struct Candidate<ProjectStorage> {
 /// The fields of a candidate project that the solver needs:
 /// - `version` (for range matching)
 /// - `usage` (for recursive dependency discovery)
+/// - `source_may_offer_multiple_versions` (whether a default constraint applies)
 #[derive(Clone, Debug)]
 struct CandidateSummary {
-    version: semver::Version,
+    version: Version,
     usage: Vec<CoalescingUsage>,
+    source_may_offer_multiple_versions: bool,
 }
 
 pub struct ProjectSolver<R: ResolveRead> {
@@ -322,7 +351,7 @@ fn resolve_candidates<R: ResolveRead>(
                         };
 
                         let version = match project.version() {
-                            Ok(Some(version)) => match semver::Version::parse(&version) {
+                            Ok(Some(version)) => match Version::parse(&version) {
                                 Ok(version) => version,
                                 Err(e) => {
                                     if typed {
@@ -424,7 +453,12 @@ fn resolve_candidates<R: ResolveRead>(
                             .collect();
 
                         found.push(Candidate {
-                            summary: CandidateSummary { version, usage },
+                            summary: CandidateSummary {
+                                version,
+                                usage,
+                                source_may_offer_multiple_versions: project
+                                    .source_may_offer_multiple_versions(),
+                            },
                             project,
                         });
                     }
@@ -468,22 +502,18 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
 
         match usage.usage().usage() {
             InterchangeProjectUsage::Resource {
-                resource,
-                version_constraint,
+                version_constraint, ..
             } => {
+                // A constraint that selects nothing is neither an error nor a
+                // `Dependencies::Unavailable`, since the dependencies are known.
+                // Handing pubgrub the empty set states exactly that -- this
+                // candidate requires something no published version provides
+                // -- so this candidate is ruled out, but the solve is not aborted
                 let selected = selected_by(
                     numbered(&candidates).map(|(index, c)| (index, &c.version)),
                     version_constraint.as_ref(),
+                    default_constraint(&candidates).as_ref(),
                 );
-                if let Some(constraint) = version_constraint
-                    && selected.is_empty()
-                {
-                    return Err(InternalSolverError::VersionNotAvailable {
-                        resource: resource.to_string(),
-                        constraint: constraint.clone(),
-                        found: candidates.iter().map(|c| c.version.clone()).collect(),
-                    });
-                }
 
                 deps.push((DependencyIdentifier::Remote(usage.to_owned()), selected));
             }
@@ -508,15 +538,15 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
 /// Candidates come in resolver order, and two sources offering the same
 /// release put that version in the list twice, so sort (by semver, not
 /// by string) before removing neighbours.
-fn version_strings<'a>(versions: impl IntoIterator<Item = &'a semver::Version>) -> Vec<String> {
-    let mut versions: Vec<&semver::Version> = versions.into_iter().collect();
+fn version_strings<'a>(versions: impl IntoIterator<Item = &'a Version>) -> Vec<String> {
+    let mut versions: Vec<&Version> = versions.into_iter().collect();
     versions.sort_unstable();
     versions.dedup();
     versions.into_iter().map(ToString::to_string).collect()
 }
 
 /// Render `found` as `` `v1`, `v2` `` — the shape the CLI has always shown.
-fn format_found_versions(found: &[semver::Version]) -> String {
+fn format_found_versions(found: &[String]) -> String {
     let mut versions = String::new();
     for (i, v) in found.iter().enumerate() {
         if i > 0 {
@@ -534,8 +564,12 @@ fn format_found_versions(found: &[semver::Version]) -> String {
 pub struct CandidateSnapshot {
     /// The position pubgrub knows this candidate by.
     pub index: ProjectIndex,
-    pub version: semver::Version,
+    pub version: Version,
     pub usages: Vec<CoalescingUsage>,
+    /// What [`default_constraint`] reads: whether this candidate's source
+    /// posed a version choice, and so whether an unconstrained usage of it
+    /// took the default.
+    pub source_may_offer_multiple_versions: bool,
 }
 
 /// One machine-readable participant in a failed solve.
@@ -553,6 +587,10 @@ pub enum SolveConflict {
     NoVersions {
         iri: String,
         constraint: String,
+        /// Whether `constraint` is [`DEFAULT_INDEX_CONSTRAINT`], applied
+        /// because the usage states none, rather than none at all. Useful
+        /// to report, as otherwise it's unclear why constraint `*` is used
+        defaulted: bool,
         found: Vec<String>,
         required_by: Option<String>,
     },
@@ -612,9 +650,10 @@ fn id_of(package: &DependencyIdentifier) -> Option<&CoalescingUsage> {
 }
 
 impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
-    /// Which way the solve failed: `no_solution` (the constraints
-    /// contradict each other), `retrieval` (a project or version could not
-    /// be obtained), or `choosing_version`.
+    /// Which way the solve failed: `no_solution` (no set of versions
+    /// satisfies the usages, a constraint no published version matches
+    /// included), `retrieval` (a project could not be obtained at all), or
+    /// `choosing_version`.
     pub fn kind(&self) -> &'static str {
         match self.inner.as_ref() {
             pubgrub::PubGrubError::NoSolution(_) => "no_solution",
@@ -650,40 +689,24 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
             pubgrub::PubGrubError::NoSolution(derivation_tree) => {
                 self.walk(derivation_tree, &mut conflicts);
             }
-            pubgrub::PubGrubError::ErrorRetrievingDependencies {
-                package, source, ..
-            } => {
-                let required_by = id_of(package).map(|u| u.id().to_string());
-                match source {
-                    InternalSolverError::VersionNotAvailable {
-                        resource,
-                        constraint,
-                        found,
-                    } => conflicts.push(SolveConflict::NoVersions {
-                        iri: resource.clone(),
-                        constraint: constraint.to_string(),
-                        found: version_strings(found),
-                        required_by,
-                    }),
-                    InternalSolverError::Resolution(_)
-                    | InternalSolverError::ResolvedError { .. } => {}
-                    InternalSolverError::NotFound(usage, _)
-                    | InternalSolverError::NoValidCandidates(usage)
-                    | InternalSolverError::UnsupportedUsageType { usage, .. }
-                    | InternalSolverError::Unresolvable { usage, .. }
-                    | InternalSolverError::InvalidProject { usage, .. }
-                    | InternalSolverError::MissingVersion { usage }
-                    | InternalSolverError::MissingUsage { usage }
-                    | InternalSolverError::InvalidResolvedVersion { usage, .. }
-                    | InternalSolverError::VersionObtain { usage, .. }
-                    | InternalSolverError::UsageObtain { usage, .. } => {
-                        conflicts.push(SolveConflict::NotFound {
-                            iri: usage.id().to_string(),
-                            reason: format_err(source),
-                        });
-                    }
+            pubgrub::PubGrubError::ErrorRetrievingDependencies { source, .. } => match source {
+                InternalSolverError::Resolution(_) | InternalSolverError::ResolvedError { .. } => {}
+                InternalSolverError::NotFound(usage, _)
+                | InternalSolverError::NoValidCandidates(usage)
+                | InternalSolverError::UnsupportedUsageType { usage, .. }
+                | InternalSolverError::Unresolvable { usage, .. }
+                | InternalSolverError::InvalidProject { usage, .. }
+                | InternalSolverError::MissingVersion { usage }
+                | InternalSolverError::MissingUsage { usage }
+                | InternalSolverError::InvalidResolvedVersion { usage, .. }
+                | InternalSolverError::VersionObtain { usage, .. }
+                | InternalSolverError::UsageObtain { usage, .. } => {
+                    conflicts.push(SolveConflict::NotFound {
+                        iri: usage.id().to_string(),
+                        reason: format_err(source),
+                    });
                 }
-            }
+            },
             pubgrub::PubGrubError::ErrorChoosingVersion { .. }
             | pubgrub::PubGrubError::ErrorInShouldCancel(_) => {}
         }
@@ -741,9 +764,22 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
                                     ),
                                 ),
                             };
+                            let usage = constraint.unwrap_or(dependency);
+                            // An empty set is how `compute_deps` says that
+                            // nothing the resolver offered matches. `found` comes from
+                            // the resolver cache for this identifier
+                            if dependency_set.is_empty() {
+                                return SolveConflict::NoVersions {
+                                    iri,
+                                    constraint: constraint_of(usage),
+                                    defaulted: self.is_defaulted(usage),
+                                    found: self.every_version_of(dependency.id()),
+                                    required_by,
+                                };
+                            }
                             SolveConflict::Constraint {
                                 iri,
-                                constraint: constraint_of(constraint.unwrap_or(dependency)),
+                                constraint: constraint_of(usage),
                                 required_by,
                             }
                         })
@@ -752,7 +788,12 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
                         id_of(package).map(|usage| SolveConflict::NoVersions {
                             iri: usage.id().to_string(),
                             constraint: constraint_of(usage),
-                            found: self.versions_of(usage.id(), set),
+                            defaulted: self.is_defaulted(usage),
+                            found: if set.is_empty() {
+                                self.every_version_of(usage.id())
+                            } else {
+                                self.versions_of(usage.id(), set)
+                            },
                             required_by: None,
                         })
                     }
@@ -770,6 +811,27 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
                 }
             }
         }
+    }
+
+    /// Whether the version of `usage` was left to
+    /// [`DEFAULT_INDEX_CONSTRAINT`]. Usage shape alone does not say: a usage
+    /// that states no constraint takes the default only where the source
+    /// posed a version choice, so this repeats the test
+    /// [`default_constraint`] made when the set was built. Against a source
+    /// that names one project outright there is no default and no constraint
+    /// at all.
+    fn is_defaulted(&self, usage: &CoalescingUsage) -> bool {
+        matches!(
+            usage.usage().usage(),
+            InterchangeProjectUsage::Resource {
+                version_constraint: None,
+                ..
+            }
+        ) && self.candidates.get(usage.id()).is_some_and(|candidates| {
+            candidates
+                .iter()
+                .any(|c| c.source_may_offer_multiple_versions)
+        })
     }
 
     /// The candidates of `id` selected by `set`.
@@ -802,6 +864,8 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
             } => selected_by(
                 candidates.iter().map(|c| (c.index, &c.version)),
                 Some(constraint),
+                // No default needed
+                None,
             )
             .selects_same(dependency_set, candidates.iter().map(|c| c.index)),
             _ => false,
@@ -810,6 +874,18 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
             return Some(first);
         }
         Some(usages.find(|u| selects_set(u)).unwrap_or(first))
+    }
+
+    /// Every version of `id` the resolver offered, whether or not anything
+    /// selected it.
+    fn every_version_of(&self, id: &Identifier) -> Vec<String> {
+        version_strings(
+            self.candidates
+                .get(id)
+                .into_iter()
+                .flatten()
+                .map(|c| &c.version),
+        )
     }
 
     fn versions_of(&self, id: &Identifier, set: &DiscreteHashSet) -> Vec<String> {
@@ -821,6 +897,38 @@ impl<R: ResolveRead + fmt::Debug + 'static> Display for SolverError<R> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.inner.as_ref() {
             pubgrub::PubGrubError::NoSolution(derivation_tree) => {
+                // Nice message for the impossible-constraint failure,
+                // since generic solver error message is not user-friendly
+                if let [
+                    SolveConflict::NoVersions {
+                        iri,
+                        constraint,
+                        defaulted,
+                        found,
+                        ..
+                    },
+                ] = self.conflicts().as_slice()
+                {
+                    let (headline, constraint) = if *defaulted {
+                        (
+                            "no usable version",
+                            format!("default version constraint `{constraint}`"),
+                        )
+                    } else {
+                        (
+                            "requested version unavailable",
+                            format!("requested version constraint `{constraint}`"),
+                        )
+                    };
+                    return write!(
+                        f,
+                        "{headline}: project `{iri}`\n\
+                         was found, but the {constraint}\n\
+                         was not satisfied by any of the found versions:\n\
+                         {}",
+                        format_found_versions(found)
+                    );
+                }
                 writeln!(
                     f,
                     "failed to satisfy usage constraints:\n{}",
@@ -880,20 +988,6 @@ pub enum InternalSolverError<R: ResolveRead> {
     UnsupportedUsageType {
         usage: ResolutionInfo,
         reason: String,
-    },
-    /// Project is found, but the requested version is not
-    #[error(
-        "requested version unavailable: project `{resource}`\n\
-         was found, but the requested version constraint `{constraint}`\n\
-         was not satisfied by any of the found versions:\n\
-         {}",
-        format_found_versions(found)
-    )]
-    VersionNotAvailable {
-        resource: String,
-        constraint: semver::VersionReq,
-        /// Every version the resolver offered, in resolver order.
-        found: Vec<semver::Version>,
     },
     /// Resolution failed due to an invalid usage that is in principle supported
     #[error("usage {usage} is not resolvable: {reason}")]
@@ -992,7 +1086,7 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
                             usage,
                             &mut self.resolved_candidates.borrow_mut(),
                         )?;
-                        let mut versions_indexes: Vec<(ProjectIndex, semver::Version)> =
+                        let mut versions_indexes: Vec<(ProjectIndex, Version)> =
                             numbered(&candidate_versions)
                                 .map(|(index, c)| (index, c.version.clone()))
                                 .collect();
@@ -1039,13 +1133,11 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
                         &mut self.resolved_candidates.borrow_mut(),
                     )?;
 
-                    if *version >= candidates.len() {
-                        return Ok(pubgrub::Dependencies::Unavailable(format!(
-                            "cannot resolve IRI `{iri}` to valid project"
-                        )));
-                    } else {
-                        candidates[*version].clone()
-                    }
+                    // The same candidate list for the same identifier is returned for every
+                    // `resolve_candidates` call, since the first call for that identifier
+                    // caches what it returns and subsequent ones just read from cache.
+                    // So candidate indices don't change and remain valid during the solve
+                    candidates[*version].clone()
                 };
 
                 compute_deps(
@@ -1091,6 +1183,9 @@ pub fn solve<R: ResolveRead + fmt::Debug + 'static>(
                                 index,
                                 version: c.summary.version.clone(),
                                 usages: c.summary.usage.clone(),
+                                source_may_offer_multiple_versions: c
+                                    .summary
+                                    .source_may_offer_multiple_versions,
                             })
                             .collect(),
                     )

@@ -274,3 +274,42 @@ pub fn await_exit(p: PtySession) -> Result<std::process::ExitStatus, Box<dyn Err
         Err("Failed to get exit status code".into())
     }
 }
+
+/// Build a minimal valid kpar with `.project.json` and `.meta.json`.
+///
+/// The fixture has no `meta.checksum` entries, so its canonical project
+/// digest is `project_hash_raw(info, meta)`.
+pub fn build_index_kpar_bytes(
+    name: &str,
+    version: &str,
+) -> (
+    Vec<u8>,
+    sysand_core::model::InterchangeProjectInfoRaw,
+    sysand_core::model::InterchangeProjectMetadataRaw,
+) {
+    use std::io::Write as _;
+
+    let info_json = format!(r#"{{"name":"{name}","version":"{version}"}}"#);
+    // Fixed created-timestamp so the digest is reproducible.
+    let meta_json = r#"{"index":{},"created":"2026-01-01T00:00:00.000000000Z"}"#;
+
+    let mut buf: Vec<u8> = Vec::new();
+    {
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut buf));
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored)
+            .unix_permissions(0o755);
+        zip.start_file(".project.json", options).unwrap();
+        zip.write_all(info_json.as_bytes()).unwrap();
+        zip.start_file(".meta.json", options).unwrap();
+        zip.write_all(meta_json.as_bytes()).unwrap();
+        zip.finish().unwrap();
+    }
+
+    let info: sysand_core::model::InterchangeProjectInfoRaw =
+        serde_json::from_str(&info_json).expect("hand-written info JSON must parse");
+    let meta: sysand_core::model::InterchangeProjectMetadataRaw =
+        serde_json::from_str(meta_json).expect("hand-written meta JSON must parse");
+
+    (buf, info, meta)
+}

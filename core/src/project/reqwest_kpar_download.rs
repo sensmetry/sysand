@@ -367,6 +367,11 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestRemoteKparDownloade
         }])
     }
 
+    fn source_may_offer_multiple_versions(&self) -> bool {
+        // A URL names one archive.
+        false
+    }
+
     async fn is_definitely_invalid_async(&self) -> bool {
         // FIXME: error should be returned
         match self.ensure_downloaded_verified().await {
@@ -577,6 +582,11 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestIndexKparDownloaded
             kpar_size: self.expected_size,
             kpar_digest: self.expected_kpar_sha256.clone(),
         }])
+    }
+
+    fn source_may_offer_multiple_versions(&self) -> bool {
+        // An index advertises every version of a project it holds.
+        true
     }
 
     async fn is_definitely_invalid_async(&self) -> bool {

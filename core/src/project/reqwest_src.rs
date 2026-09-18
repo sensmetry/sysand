@@ -193,6 +193,11 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Pol
         }])
     }
 
+    fn source_may_offer_multiple_versions(&self) -> bool {
+        // A URL names one project.
+        false
+    }
+
     async fn checksum_canonical_variant_async(&self) -> Result<ProjectChecksum, Self::Error> {
         let checksum = self
             .checksum_canonical_hex_async()

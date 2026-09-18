@@ -238,6 +238,7 @@ fn malformed_documents_are_rejected() {
 #[cfg(feature = "filesystem")]
 mod filesystem {
     use camino_tempfile::tempdir;
+    use std::assert_matches;
 
     use super::{LEGACY, LIBRARY, MANIFEST, TARGET, one_line_diff};
     use crate::{
@@ -277,7 +278,7 @@ mod filesystem {
         let (_, change) =
             do_set_usage_constraint_local(&mut project, LIBRARY, Some(LEGACY)).unwrap();
 
-        assert!(matches!(change, ConstraintChange::Unchanged { .. }));
+        assert_matches!(change, ConstraintChange::Unchanged { .. });
         assert_eq!(filetime_of(&path), old_mtime);
         assert_eq!(std::fs::read_to_string(&path).unwrap(), MANIFEST);
     }
@@ -322,10 +323,10 @@ mod filesystem {
         let err =
             do_set_usage_constraint_local(&mut project, LIBRARY, Some("nonsense")).unwrap_err();
 
-        assert!(matches!(
+        assert_matches!(
             err,
             EditInfoError::Edit(SetConstraintError::InvalidConstraint(..))
-        ));
+        );
         assert_eq!(std::fs::read_to_string(&path).unwrap(), MANIFEST);
     }
 
@@ -336,7 +337,7 @@ mod filesystem {
 
         let err = do_set_usage_constraint_local(&mut project, LIBRARY, None).unwrap_err();
 
-        assert!(matches!(err, EditInfoError::Project(_)));
+        assert_matches!(err, EditInfoError::Project(_));
     }
 
     fn filetime_of(path: &camino::Utf8Path) -> std::time::SystemTime {

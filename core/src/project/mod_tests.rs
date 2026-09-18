@@ -61,6 +61,7 @@ fn canonicalization_no_checksums() -> Result<(), Box<dyn std::error::Error>> {
             "FooBarBaz".to_owned(),
         )]),
         nominal_sources: vec![],
+        source_may_offer_multiple_versions: false,
     };
 
     let Some(canonical_info) = project.canonical_meta()? else {

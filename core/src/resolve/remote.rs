@@ -119,6 +119,13 @@ impl<HTTPProject: ProjectRead, GitProject: ProjectRead> ProjectRead
         }
     }
 
+    fn source_may_offer_multiple_versions(&self) -> bool {
+        match self {
+            Self::HTTPProject(project) => project.source_may_offer_multiple_versions(),
+            Self::GitProject(project) => project.source_may_offer_multiple_versions(),
+        }
+    }
+
     fn is_definitely_invalid(&self) -> bool {
         match self {
             Self::HTTPProject(project) => project.is_definitely_invalid(),

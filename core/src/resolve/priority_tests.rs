@@ -44,6 +44,7 @@ fn mock_project<S: AsRef<str>, T: AsRef<str>, V: AsRef<str>>(
             }),
             files: HashMap::default(),
             nominal_sources: vec![],
+            source_may_offer_multiple_versions: false,
         },
     )
 }

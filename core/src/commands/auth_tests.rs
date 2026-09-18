@@ -1590,7 +1590,7 @@ mod login {
     }
 
     #[test]
-    fn validated_login_accepts_whoami_with_an_unparseable_body() {
+    fn validated_login_accepts_whoami_with_an_unparsable_body() {
         // The 200 status is the acceptance verdict; a body this client
         // cannot parse only loses the identity fields.
         let mut server = mockito::Server::new();
@@ -1947,7 +1947,7 @@ mod login {
     }
 
     #[test]
-    fn validated_login_falls_back_when_the_forced_document_is_unparseable() {
+    fn validated_login_falls_back_when_the_forced_document_is_unparsable() {
         // The forced retry accepted the request but the body is not a
         // discovery document: no topology was learned, fall back with a
         // notice; the read probe still exercises the credential.

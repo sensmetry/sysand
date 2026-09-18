@@ -10,6 +10,7 @@ use predicates::prelude::*;
 use sysand_core::{
     env::{DEFAULT_ENV_NAME, local_directory::METADATA_PATH},
     project::utils::relativize_path,
+    utils::sha256_lowercase_hex,
 };
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
@@ -612,6 +613,277 @@ sources = [
         env_toml.contains("env-install-survives-dep"),
         "the project must still be registered in env.toml once `env install` returns: {env_toml}"
     );
+
+    Ok(())
+}
+
+/// `sysand env install --no-deps <PURL>` with no version given must install
+/// the same version the dependency-solving path would: an unconstrained
+/// `pkg:sysand` usage defaults to `*`, which excludes pre-releases
+#[test]
+fn env_install_no_deps_purl_ignores_prereleases() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, _) = run_sysand(["env"], None)?;
+
+    let mut server = Server::new();
+
+    let (kpar_bytes, info, meta) = build_index_kpar_bytes("widget", "2.0.0");
+    let kpar_digest_hex = sha256_lowercase_hex(&kpar_bytes);
+
+    let config_mock = server
+        .mock("GET", "/sysand-index-config.json")
+        .with_status(404)
+        .expect_at_least(1)
+        .create();
+
+    // Descending order, as the index protocol requires.
+    let versions_mock = server
+        .mock("GET", "/acme/widget/versions.json")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(versions_json_body(&[
+            versions_json_entry_body(
+                "3.0.0-beta.1",
+                42,
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            ),
+            versions_json_entry_body("2.0.0", kpar_bytes.len(), &kpar_digest_hex),
+        ]))
+        .expect_at_least(1)
+        .create();
+
+    let (_, prerelease_info, prerelease_meta) = build_index_kpar_bytes("widget", "3.0.0-beta.1");
+    for (version, version_info, version_meta) in [
+        ("3.0.0-beta.1", &prerelease_info, &prerelease_meta),
+        ("2.0.0", &info, &meta),
+    ] {
+        server
+            .mock(
+                "GET",
+                format!("/acme/widget/{version}/.project.json").as_str(),
+            )
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(serde_json::to_string(version_info)?)
+            .create();
+        server
+            .mock("GET", format!("/acme/widget/{version}/.meta.json").as_str())
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(serde_json::to_string(version_meta)?)
+            .create();
+    }
+
+    let kpar_mock = server
+        .mock("GET", "/acme/widget/2.0.0/project.kpar")
+        .with_status(200)
+        .with_header("content-type", "application/zip")
+        .with_body(&kpar_bytes)
+        .expect_at_least(1)
+        .create();
+
+    // The whole point: the prerelease archive is never fetched.
+    let prerelease_kpar_mock = server
+        .mock("GET", "/acme/widget/3.0.0-beta.1/project.kpar")
+        .with_status(200)
+        .with_header("content-type", "application/zip")
+        .expect(0)
+        .create();
+
+    let out = run_sysand_in(
+        &cwd,
+        [
+            "env",
+            "install",
+            "pkg:sysand/acme/widget",
+            "--no-deps",
+            "--default-index",
+            &server.url(),
+        ],
+        None,
+    )?;
+    out.assert().success();
+
+    let env_toml = std::fs::read_to_string(
+        cwd.join(Utf8Path::new(DEFAULT_ENV_NAME))
+            .join(METADATA_PATH),
+    )?;
+    assert!(
+        env_toml.contains(r#"version = "2.0.0""#),
+        "expected 2.0.0 to be installed; env.toml:\n{env_toml}"
+    );
+    assert!(
+        !env_toml.contains("3.0.0-beta.1"),
+        "prerelease must not be installed; env.toml:\n{env_toml}"
+    );
+
+    config_mock.assert();
+    versions_mock.assert();
+    kpar_mock.assert();
+    prerelease_kpar_mock.assert();
+
+    Ok(())
+}
+
+/// A PURL project with nothing but prereleases published fails and the
+/// error names the versions found
+#[test]
+fn env_install_no_deps_purl_with_only_prereleases_fails() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_temp_dir, cwd, _) = run_sysand(["env"], None)?;
+
+    let mut server = Server::new();
+
+    let config_mock = server
+        .mock("GET", "/sysand-index-config.json")
+        .with_status(404)
+        .expect_at_least(1)
+        .create();
+
+    let versions_mock = server
+        .mock("GET", "/acme/widget/versions.json")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(versions_json_body(&[
+            versions_json_entry_body(
+                "1.0.0-beta.1",
+                42,
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            ),
+            versions_json_entry_body(
+                "1.0.0-alpha.1",
+                42,
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            ),
+        ]))
+        .expect_at_least(1)
+        .create();
+
+    for version in ["1.0.0-beta.1", "1.0.0-alpha.1"] {
+        let (_, info, meta) = build_index_kpar_bytes("widget", version);
+        server
+            .mock(
+                "GET",
+                format!("/acme/widget/{version}/.project.json").as_str(),
+            )
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(serde_json::to_string(&info)?)
+            .create();
+        server
+            .mock("GET", format!("/acme/widget/{version}/.meta.json").as_str())
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(serde_json::to_string(&meta)?)
+            .create();
+    }
+
+    let out = run_sysand_in(
+        &cwd,
+        [
+            "env",
+            "install",
+            "pkg:sysand/acme/widget",
+            "--no-deps",
+            "--default-index",
+            &server.url(),
+        ],
+        None,
+    )?;
+
+    out.assert().failure().stderr(
+        predicate::str::contains("only pre-releases (1.0.0-beta.1, 1.0.0-alpha.1)").and(
+            predicate::str::contains("pass the version to use one of them"),
+        ),
+    );
+
+    config_mock.assert();
+    versions_mock.assert();
+
+    Ok(())
+}
+
+/// `sysand env install <PURL> <version>` installs exactly the given version
+#[test]
+fn env_install_no_deps_purl_named_prerelease_is_installed() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_temp_dir, cwd, _) = run_sysand(["env"], None)?;
+
+    let mut server = Server::new();
+
+    let (kpar_bytes, info, meta) = build_index_kpar_bytes("widget", "3.0.0-beta.1");
+    let kpar_digest_hex = sha256_lowercase_hex(&kpar_bytes);
+
+    let config_mock = server
+        .mock("GET", "/sysand-index-config.json")
+        .with_status(404)
+        .expect_at_least(1)
+        .create();
+
+    let versions_mock = server
+        .mock("GET", "/acme/widget/versions.json")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(versions_json_body(&[versions_json_entry_body(
+            "3.0.0-beta.1",
+            kpar_bytes.len(),
+            &kpar_digest_hex,
+        )]))
+        .expect_at_least(1)
+        .create();
+
+    let project_json_mock = server
+        .mock("GET", "/acme/widget/3.0.0-beta.1/.project.json")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(serde_json::to_string(&info)?)
+        .expect_at_least(1)
+        .create();
+
+    let meta_json_mock = server
+        .mock("GET", "/acme/widget/3.0.0-beta.1/.meta.json")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(serde_json::to_string(&meta)?)
+        .expect_at_least(1)
+        .create();
+
+    let kpar_mock = server
+        .mock("GET", "/acme/widget/3.0.0-beta.1/project.kpar")
+        .with_status(200)
+        .with_header("content-type", "application/zip")
+        .with_body(&kpar_bytes)
+        .expect_at_least(1)
+        .create();
+
+    let out = run_sysand_in(
+        &cwd,
+        [
+            "env",
+            "install",
+            "pkg:sysand/acme/widget",
+            "3.0.0-beta.1",
+            "--no-deps",
+            "--default-index",
+            &server.url(),
+        ],
+        None,
+    )?;
+    out.assert().success();
+
+    let env_toml = std::fs::read_to_string(
+        cwd.join(Utf8Path::new(DEFAULT_ENV_NAME))
+            .join(METADATA_PATH),
+    )?;
+    assert!(
+        env_toml.contains(r#"version = "3.0.0-beta.1""#),
+        "expected the named prerelease to be installed; env.toml:\n{env_toml}"
+    );
+
+    config_mock.assert();
+    versions_mock.assert();
+    project_json_mock.assert();
+    meta_json_mock.assert();
+    kpar_mock.assert();
 
     Ok(())
 }

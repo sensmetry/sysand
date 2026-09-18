@@ -151,6 +151,13 @@ impl<HigherProject: ProjectRead, LowerProject: ProjectRead> ProjectRead
         }
     }
 
+    fn source_may_offer_multiple_versions(&self) -> bool {
+        match self {
+            Self::HigherProject(project) => project.source_may_offer_multiple_versions(),
+            Self::LowerProject(project) => project.source_may_offer_multiple_versions(),
+        }
+    }
+
     fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
         match self {
             Self::HigherProject(project) => project.get_info().map_err(PriorityError::Higher),

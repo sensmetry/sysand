@@ -92,6 +92,160 @@ fn lock_local_source() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// A local project is depended on by location, so no default constraint should apply
+#[test]
+fn lock_local_source_with_a_prerelease_version() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "app", "1.2.3")?;
+    out.assert().success().stdout(predicate::str::is_empty());
+
+    let out = cli_init_project_in(
+        &cwd,
+        Some("local_dep"),
+        "a",
+        None,
+        Some("1.0.0-alpha.1"),
+        None,
+    )?;
+    out.assert().success().stdout(predicate::str::is_empty());
+
+    // No version constraint: the usage says which project, the override says
+    // where it lives.
+    let out = run_sysand_in(&cwd, ["add", "urn:kpar:local_dep", "--no-lock"], None)?;
+    out.assert().success().stdout(predicate::str::is_empty());
+
+    let cfg = toml::to_string(&config::Config {
+        indexes: vec![],
+        projects: vec![ConfigProject {
+            identifiers: vec!["urn:kpar:local_dep".to_owned()],
+            sources: vec![OverrideSource::LocalSrc {
+                src_path: "local_dep".into(),
+            }],
+        }],
+    })?;
+    let cfg_path = cwd.join(config::local_fs::CONFIG_FILE);
+    std::fs::write(&cfg_path, cfg)?;
+
+    let out = run_sysand_in(&cwd, ["lock"], Some(cfg_path.as_str()))?;
+    out.assert().success().stdout(predicate::str::is_empty());
+
+    let lock_file: Lock =
+        toml::from_str(&std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?)?;
+    let projects = lock_file.projects;
+
+    assert_eq!(projects.len(), 2, "got: {projects:#?}");
+    let dep = projects
+        .iter()
+        .find(|p| p.name == "local_dep")
+        .unwrap_or_else(|| panic!("`local_dep` missing from lockfile: {projects:#?}"));
+    assert_eq!(dep.version, "1.0.0-alpha.1");
+
+    Ok(())
+}
+
+/// Default version constraint must not apply if a PURL usage has an override pointing
+/// to a project location
+#[test]
+fn lock_purl_local_source_override_with_a_prerelease_version()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "app", "1.2.3")?;
+    out.assert().success().stdout(predicate::str::is_empty());
+
+    cli_init_project_in(
+        &cwd,
+        Some("local_dep"),
+        "acme",
+        Some("widget"),
+        Some("1.0.0-alpha.1"),
+        None,
+    )?
+    .assert()
+    .success()
+    .stdout(predicate::str::is_empty());
+
+    // No version constraint: the usage says which project, the override says
+    // where it lives.
+    run_sysand_in(
+        &cwd,
+        ["add", "pkg:sysand/acme/widget", "--no-lock", "--no-index"],
+        None,
+    )?
+    .assert()
+    .success()
+    .stdout(predicate::str::is_empty());
+
+    let cfg = toml::to_string(&config::Config {
+        indexes: vec![],
+        projects: vec![ConfigProject {
+            identifiers: vec!["pkg:sysand/acme/widget".to_owned()],
+            sources: vec![OverrideSource::LocalSrc {
+                src_path: "local_dep".into(),
+            }],
+        }],
+    })?;
+    let cfg_path = cwd.join(config::local_fs::CONFIG_FILE);
+    std::fs::write(&cfg_path, cfg)?;
+
+    let out = run_sysand_in(&cwd, ["lock", "--no-index"], Some(cfg_path.as_str()))?;
+    out.assert().success().stdout(predicate::str::is_empty());
+
+    let lock_file: Lock =
+        toml::from_str(&std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?)?;
+    let projects = lock_file.projects;
+
+    assert_eq!(projects.len(), 2, "got: {projects:#?}");
+    let dep = projects
+        .iter()
+        .find(|p| p.name == "widget")
+        .unwrap_or_else(|| panic!("`widget` missing from lockfile: {projects:#?}"));
+    assert_eq!(dep.version, "1.0.0-alpha.1");
+
+    Ok(())
+}
+
+/// The same for a directory usage, which names a location outright and never
+/// carries a version constraint at all.
+#[test]
+fn lock_directory_usage_with_a_prerelease_version() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "app", "1.2.3")?;
+    out.assert().success().stdout(predicate::str::is_empty());
+
+    let widget_dir = cwd.join("deps").join("widget");
+    std::fs::create_dir_all(&widget_dir)?;
+    cli_init_project_in(
+        &widget_dir,
+        None,
+        "b",
+        Some("widget"),
+        Some("2.0.0-beta.3"),
+        None,
+    )?
+    .assert()
+    .success();
+
+    run_sysand_in(
+        &cwd,
+        ["experimental", "add", "--no-lock", "--dir", "deps/widget"],
+        None,
+    )?
+    .assert()
+    .success();
+
+    let out = run_sysand_in(&cwd, ["lock"], None)?;
+    out.assert().success();
+
+    let lock_file: Lock =
+        toml::from_str(&std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?)?;
+    let projects = lock_file.projects;
+
+    let widget = projects
+        .iter()
+        .find(|p| p.name == "widget")
+        .unwrap_or_else(|| panic!("`widget` missing from lockfile: {projects:#?}"));
+    assert_eq!(widget.version, "2.0.0-beta.3");
+
+    Ok(())
+}
+
 #[test]
 fn lock_std_lib() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = cli_init_project_basic("a", "lock_std_lib", "1.2.3")?;
@@ -330,45 +484,6 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
-}
-
-/// Build a minimal valid kpar with `.project.json` and `.meta.json`.
-///
-/// The fixture has no `meta.checksum` entries, so its canonical project
-/// digest is `project_hash_raw(info, meta)`.
-fn build_index_kpar_bytes(
-    name: &str,
-    version: &str,
-) -> (
-    Vec<u8>,
-    sysand_core::model::InterchangeProjectInfoRaw,
-    sysand_core::model::InterchangeProjectMetadataRaw,
-) {
-    use std::io::Write as _;
-
-    let info_json = format!(r#"{{"name":"{name}","version":"{version}"}}"#);
-    // Fixed created-timestamp so the digest is reproducible.
-    let meta_json = r#"{"index":{},"created":"2026-01-01T00:00:00.000000000Z"}"#;
-
-    let mut buf: Vec<u8> = Vec::new();
-    {
-        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut buf));
-        let options = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Stored)
-            .unix_permissions(0o755);
-        zip.start_file(".project.json", options).unwrap();
-        zip.write_all(info_json.as_bytes()).unwrap();
-        zip.start_file(".meta.json", options).unwrap();
-        zip.write_all(meta_json.as_bytes()).unwrap();
-        zip.finish().unwrap();
-    }
-
-    let info: sysand_core::model::InterchangeProjectInfoRaw =
-        serde_json::from_str(&info_json).expect("hand-written info JSON must parse");
-    let meta: sysand_core::model::InterchangeProjectMetadataRaw =
-        serde_json::from_str(meta_json).expect("hand-written meta JSON must parse");
-
-    (buf, info, meta)
 }
 
 #[test]

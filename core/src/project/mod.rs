@@ -202,6 +202,20 @@ pub trait ProjectRead {
     /// Must not return an empty list; should panic if no sources are available.
     fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error>;
 
+    /// Whether the source this project came from can offer several versions
+    /// of the same project, so that obtaining it involved a version *choice*.
+    ///
+    /// True for an index, and for anything else that answers by listing what
+    /// it holds. False for a source that names one project outright: a path,
+    /// a URL, a git checkout, a source override.
+    ///
+    /// This is what an unconstrained usage defaults a version constraint on.
+    /// Where there is a choice to make, `*` is how it is made -- like cargo,
+    /// it selects every release but no prerelease, so a prerelease is only
+    /// ever selected by a constraint that names one. Where there is no choice,
+    /// defaulting a constraint could only reject the one project on offer.
+    fn source_may_offer_multiple_versions(&self) -> bool;
+
     // Optional and helpers
 
     /// Returns the local filesystem root path of this project, if available.
@@ -320,6 +334,10 @@ pub trait ProjectRead {
 }
 
 impl<T: ProjectRead> ProjectRead for &T {
+    fn source_may_offer_multiple_versions(&self) -> bool {
+        (*self).source_may_offer_multiple_versions()
+    }
+
     type Error = T::Error;
 
     fn get_project(
@@ -404,6 +422,10 @@ impl<T: ProjectRead> ProjectRead for &T {
 }
 
 impl<T: ProjectRead> ProjectRead for &mut T {
+    fn source_may_offer_multiple_versions(&self) -> bool {
+        (**self).source_may_offer_multiple_versions()
+    }
+
     type Error = T::Error;
 
     fn get_project(
@@ -528,6 +550,20 @@ pub trait ProjectReadAsync {
         &self,
         ctx: &ProjectContext,
     ) -> impl Future<Output = Result<Vec<Source>, Self::Error>>;
+
+    /// Whether the source this project came from can offer several versions
+    /// of the same project, so that obtaining it involved a version *choice*.
+    ///
+    /// True for an index, and for anything else that answers by listing what
+    /// it holds. False for a source that names one project outright: a path,
+    /// a URL, a git checkout, a source override.
+    ///
+    /// This is what an unconstrained usage defaults a version constraint on.
+    /// Where there is a choice to make, `*` is how it is made -- like cargo,
+    /// it selects every release but no prerelease, so a prerelease is only
+    /// ever selected by a constraint that names one. Where there is no choice,
+    /// defaulting a constraint could only reject the one project on offer.
+    fn source_may_offer_multiple_versions(&self) -> bool;
 
     // Optional and helpers
 
@@ -674,6 +710,10 @@ pub trait ProjectReadAsync {
 }
 
 impl<T: ProjectReadAsync> ProjectReadAsync for &T {
+    fn source_may_offer_multiple_versions(&self) -> bool {
+        (*self).source_may_offer_multiple_versions()
+    }
+
     type Error = T::Error;
 
     fn get_project_async(
@@ -778,6 +818,10 @@ impl<T: ProjectReadAsync> ProjectReadAsync for &T {
 }
 
 impl<T: ProjectReadAsync> ProjectReadAsync for &mut T {
+    fn source_may_offer_multiple_versions(&self) -> bool {
+        (**self).source_may_offer_multiple_versions()
+    }
+
     type Error = T::Error;
 
     fn get_project_async(
@@ -991,6 +1035,10 @@ impl<T: ProjectRead> ProjectReadAsync for AsAsyncProject<T>
 where
     for<'a> <T as ProjectRead>::SourceReader<'a>: Unpin,
 {
+    fn source_may_offer_multiple_versions(&self) -> bool {
+        self.inner.source_may_offer_multiple_versions()
+    }
+
     type Error = <T as ProjectRead>::Error;
 
     async fn get_project_async(
@@ -1086,6 +1134,10 @@ impl<T: AsyncRead + Unpin> Read for AsSyncReaderTokio<T> {
 }
 
 impl<T: ProjectReadAsync> ProjectRead for AsSyncProjectTokio<T> {
+    fn source_may_offer_multiple_versions(&self) -> bool {
+        self.inner.source_may_offer_multiple_versions()
+    }
+
     type Error = <T as ProjectReadAsync>::Error;
 
     fn get_project(

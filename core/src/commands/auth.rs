@@ -525,7 +525,7 @@ pub struct WhoamiIdentity {
 }
 
 /// Wire shape of a `v1/whoami` 200 body (design/index-api-protocol.md,
-/// Token Identity). Parsed leniently: an unparseable body keeps the 200
+/// Token Identity). Parsed leniently: an unparsable body keeps the 200
 /// verdict (accepted) and merely loses the identity fields.
 #[derive(Deserialize)]
 struct WhoamiBody {

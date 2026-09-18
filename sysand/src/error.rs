@@ -22,6 +22,11 @@ pub enum CliError {
     MissingProject(String),
     #[error("unable to find interchange project `{0}` version {1}")]
     MissingProjectVersion(String, String),
+    #[error(
+        "interchange project `{0}` has no released version,\n\
+        only pre-releases ({1}); pass the version to use one of them"
+    )]
+    OnlyPrereleaseVersions(String, String),
     #[error("unable to find interchange project in current directory")]
     MissingProjectCurrentDir,
     #[error(

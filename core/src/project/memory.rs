@@ -26,6 +26,10 @@ pub struct InMemoryProject {
     pub meta: Option<InterchangeProjectMetadataRaw>,
     pub files: HashMap<Utf8UnixPathBuf, String>,
     pub nominal_sources: Vec<Source>,
+    /// What [`ProjectRead::source_may_offer_multiple_versions`] answers. An
+    /// in-memory project stands in for whatever source put it there, so this
+    /// is left for the caller to decide
+    pub source_may_offer_multiple_versions: bool,
 }
 
 impl InMemoryProject {
@@ -42,6 +46,7 @@ impl InMemoryProject {
             meta: Some(meta),
             files: HashMap::default(),
             nominal_sources: vec![],
+            source_may_offer_multiple_versions: false,
         }
     }
 
@@ -53,6 +58,7 @@ impl InMemoryProject {
             meta: None,
             files: std::collections::HashMap::new(),
             nominal_sources: vec![],
+            source_may_offer_multiple_versions: false,
         };
 
         clone_project(from, &mut to, true)?;
@@ -162,6 +168,10 @@ impl ProjectRead for InMemoryProject {
     fn sources(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         debug_assert_ne!(self.nominal_sources, []);
         Ok(self.nominal_sources.clone())
+    }
+
+    fn source_may_offer_multiple_versions(&self) -> bool {
+        self.source_may_offer_multiple_versions
     }
 
     fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {

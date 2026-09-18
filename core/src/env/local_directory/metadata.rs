@@ -310,6 +310,16 @@ impl From<ProjectChecksum> for EnvProjectChecksum {
 }
 
 impl EnvProject {
+    /// The canonical project checksum of the source this was installed from,
+    /// when that is the form that was recorded. A `kpar_cksum` digests the
+    /// archive rather than the project, so it is not one.
+    pub fn src_checksum(&self) -> Option<&str> {
+        match &self.checksum {
+            Some(EnvProjectChecksum::Project { src_cksum }) => Some(src_cksum),
+            Some(EnvProjectChecksum::Kpar { .. }) | None => None,
+        }
+    }
+
     pub(super) fn to_toml(&self) -> Table {
         let mut table = Table::new();
         if let Some(publisher) = &self.publisher {

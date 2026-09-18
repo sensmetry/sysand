@@ -47,6 +47,7 @@ fn minimal_project<S: AsRef<str>, T: AsRef<str>>(name: S, version: T) -> InMemor
         }),
         files: HashMap::new(),
         nominal_sources: vec![],
+        source_may_offer_multiple_versions: false,
     }
 }
 
@@ -434,6 +435,10 @@ impl ProjectRead for CountingProject {
 
     fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         self.inner.sources(ctx)
+    }
+
+    fn source_may_offer_multiple_versions(&self) -> bool {
+        self.inner.source_may_offer_multiple_versions()
     }
 
     fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {

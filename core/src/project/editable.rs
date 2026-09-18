@@ -83,6 +83,10 @@ impl<P: ProjectRead> ProjectRead for EditableProject<P> {
         Ok(inner_sources)
     }
 
+    fn source_may_offer_multiple_versions(&self) -> bool {
+        self.inner.source_may_offer_multiple_versions()
+    }
+
     fn checksum_canonical_variant(&self) -> Result<super::ProjectChecksum, Self::Error> {
         self.inner.checksum_canonical_variant()
     }
