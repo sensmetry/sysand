@@ -142,6 +142,26 @@ fn run_cli_blocking(args: Vec<String>) -> u8 {
     exit_code
 }
 
+/// Clap's long help for the command `args` names, as a string.
+///
+/// For an embedding CLI that must *return* help text rather than let it be
+/// printed: clap writes to the process's file descriptors, which a Python
+/// stream redirect never sees. `prog` is the program name to spell in usage
+/// lines.
+///
+/// Unparseable arguments give clap's error text, not an exception: a caller
+/// asking for help has nowhere useful to put a failure.
+///
+/// No `py.detach`, unlike `_run_cli`: this is string formatting, with no I/O
+/// and no network.
+#[pyfunction(name = "_render_long_help")]
+#[pyo3(
+    signature = (prog, args),
+)]
+fn render_long_help(prog: &str, args: Vec<String>) -> String {
+    sysand::render_long_help(prog, args)
+}
+
 #[pyfunction(name = "do_init_py_local_file")]
 #[pyo3(
     signature = (name, publisher, version, path, license=None),
@@ -1340,6 +1360,7 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
 #[pymodule(name = "_sysand_core")]
 pub fn sysand_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_cli, m)?)?;
+    m.add_function(wrap_pyfunction!(render_long_help, m)?)?;
     m.add_function(wrap_pyfunction!(do_init_py_local_file, m)?)?;
     m.add_function(wrap_pyfunction!(do_env_py_local_dir, m)?)?;
     m.add_function(wrap_pyfunction!(do_info_py_path, m)?)?;
