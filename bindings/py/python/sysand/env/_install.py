@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-import sysand._sysand_core as sysand_rs  # type: ignore
+from .. import _sysand_core as sysand_rs
 
 from pathlib import Path
 

@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 
-import sysand._sysand_core as sysand_rs  # type: ignore
-from sysand._sysand_core import DEFAULT_ENV_NAME
+from .. import _sysand_core as sysand_rs
+from .._sysand_core import DEFAULT_ENV_NAME  # type: ignore
 
 from ._install import (
     install_path,

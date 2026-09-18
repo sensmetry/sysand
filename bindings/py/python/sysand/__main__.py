@@ -3,7 +3,7 @@
 
 import sys
 
-from sysand._sysand_core import _run_cli  # type: ignore
+from ._sysand_core import _run_cli  # type: ignore
 
 
 def main() -> int:
