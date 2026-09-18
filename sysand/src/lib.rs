@@ -91,12 +91,45 @@ pub mod style;
 mod error;
 pub use error::CliError;
 
+/// Whether this invocation owns the process it runs in.
+///
+/// Only the global logger cares. `log` allows one logger per process, and the
+/// CLI installs its own; what differs is whether finding the slot already
+/// taken is worth telling the user about.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ProcessOwnership {
+    /// The CLI owns the process, as in the `sysand` binary. Nothing else runs
+    /// there, so a logger it could not install is a surprise, and the loss of
+    /// its formatting is reported on standard error.
+    #[default]
+    Owned,
+    /// A host owns the process and may have installed a logger before the
+    /// first command ran — for the Python bindings, the `pyo3-log` bridge
+    /// every API entry point installs. That is the embedder's arrangement
+    /// rather than an accident, so it is not reported; the level
+    /// `--verbose`/`--quiet` select still applies to the host's logger, and
+    /// only the formatting and the `RUST_LOG` filters are lost.
+    Embedded,
+}
+
 /// Run the CLI and return the exit code the process should report.
 ///
 /// A number rather than a [`std::process::ExitCode`], which can be returned
 /// from `main` but not inspected: the Python binding has to pass the code on
 /// to a caller of its own. `main.rs` is what wraps it.
+///
+/// For the process's own binary. An embedder wants [`lib_main_with`].
 pub fn lib_main<I, T>(args: I) -> u8
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString> + Clone,
+{
+    lib_main_with(args, ProcessOwnership::Owned)
+}
+
+/// [`lib_main`], told whether the CLI owns the process. See
+/// [`ProcessOwnership`].
+pub fn lib_main_with<I, T>(args: I, ownership: ProcessOwnership) -> u8
 where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
@@ -106,7 +139,7 @@ where
 
     match Args::try_parse_from(args) {
         Ok(args) => {
-            if let Err(err) = run_cli(args) {
+            if let Err(err) = run_cli_with(args, ownership) {
                 let style = style::ERROR;
                 eprintln!("{style}error{style:#}: {err}");
                 let mut causes = err.chain();
@@ -209,19 +242,43 @@ pub fn standard_auth_policy(use_credential_store: bool) -> Result<CliAuthPolicy>
     })
 }
 
+/// For the process's own binary. An embedder wants [`run_cli_with`].
 pub fn run_cli(args: cli::Args) -> Result<()> {
+    run_cli_with(args, ProcessOwnership::Owned)
+}
+
+/// [`run_cli`], told whether the CLI owns the process. See
+/// [`ProcessOwnership`].
+pub fn run_cli_with(args: cli::Args, ownership: ProcessOwnership) -> Result<()> {
     sysand_core::style::set_style_config(crate::style::CONFIG);
 
     let cwd = wrapfs::current_dir()?;
     let log_level = get_log_level(args.global_opts.verbose, args.global_opts.quiet);
     if logger::init(log_level).is_err() {
-        let warn = style::WARN;
-        eprintln!(
-            "{warn}warning{warn:#}: failed to set up logger because it has already been set up;\n\
-            {:>8} log messages may not be formatted properly",
-            ' '
-        );
+        // Someone else owns the one global logger. The level still reaches it
+        // — `set_max_level` is not the logger's to keep — so `--verbose` and
+        // `--quiet` work either way, and what is actually lost is this
+        // crate's formatting and the `RUST_LOG` filters `logger::init`
+        // parses. Set the level first, so the note below can pass it.
         log::set_max_level(log_level);
+        match ownership {
+            ProcessOwnership::Owned => {
+                let warn = style::WARN;
+                eprintln!(
+                    "{warn}warning{warn:#}: failed to set up logger because it has already been set up;\n\
+                    {:>8} log messages may not be formatted properly",
+                    ' '
+                );
+            }
+            // Every invocation in the host's process would say this, about a
+            // situation the host arranged on purpose. Left discoverable under
+            // `-v` rather than printed, because it does explain why the
+            // output looks unlike the binary's.
+            ProcessOwnership::Embedded => log::debug!(
+                "the host installed the global logger first; sysand's own formatting and \
+                 `RUST_LOG` filters do not apply"
+            ),
+        }
     }
     log::debug!("sysand v{}", env!("CARGO_PKG_VERSION"));
 
