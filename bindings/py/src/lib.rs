@@ -6,10 +6,9 @@ use std::{iter, str::FromStr as _, sync::Arc};
 use camino::{Utf8Path, Utf8PathBuf};
 use fluent_uri::Iri;
 use pyo3::{
-    PyTypeInfo as _,
     exceptions::{PyFileExistsError, PyFileNotFoundError, PyIOError, PyRuntimeError, PyValueError},
     prelude::*,
-    types::{PyAny, PyDict, PyType},
+    types::{PyAny, PyDict},
 };
 use semver::{Version, VersionReq};
 use sysand::{
@@ -634,17 +633,6 @@ impl From<PyErr> for Failure {
     }
 }
 
-fn raise_with_kwargs(
-    class: &Bound<'_, PyType>,
-    message: String,
-    kwargs: &Bound<'_, PyDict>,
-) -> PyErr {
-    match class.call((message,), Some(kwargs)) {
-        Ok(exception) => PyErr::from_value(exception),
-        Err(err) => err,
-    }
-}
-
 fn conflict_to_dict<'py>(
     py: Python<'py>,
     conflict: &SolveConflict,
@@ -702,14 +690,14 @@ impl Failure {
                     .and_then(|()| kwargs.set_item("report", report))
                     .and_then(|()| kwargs.set_item("kind", kind));
                 match result {
-                    Ok(()) => raise_with_kwargs(&PySolveError::type_object(py), message, &kwargs),
+                    Ok(()) => PySolveError::new_err_with(py, message, &kwargs),
                     Err(err) => err,
                 }
             }
             Self::Wrote(message) => {
                 let kwargs = PyDict::new(py);
                 match kwargs.set_item("wrote", true) {
-                    Ok(()) => raise_with_kwargs(&ProjectError::type_object(py), message, &kwargs),
+                    Ok(()) => ProjectError::new_err_with(py, message, &kwargs),
                     Err(err) => err,
                 }
             }
@@ -723,14 +711,14 @@ impl Failure {
                     .set_item("partial", partial)
                     .and_then(|()| kwargs.set_item("wrote", wrote));
                 match result {
-                    Ok(()) => raise_with_kwargs(&PySyncError::type_object(py), message, &kwargs),
+                    Ok(()) => PySyncError::new_err_with(py, message, &kwargs),
                     Err(err) => err,
                 }
             }
             Self::Env { message, wrote } => {
                 let kwargs = PyDict::new(py);
                 match kwargs.set_item("wrote", wrote) {
-                    Ok(()) => raise_with_kwargs(&PyEnvError::type_object(py), message, &kwargs),
+                    Ok(()) => PyEnvError::new_err_with(py, message, &kwargs),
                     Err(err) => err,
                 }
             }
@@ -1170,33 +1158,125 @@ fn do_add_py(path: String, iri: String, version: Option<String>) -> PyResult<boo
     do_add_guess(&mut project, iri, version).map_err(|e| PyRuntimeError::new_err(format_err(e)))
 }
 
-/// The exception classes live in Python (`sysand/_errors.py`) so that `mypy`
-/// sees their attributes; the Rust side only needs to raise them.
+/// The exception classes live in Python (`_errors.py`) so that `mypy` sees
+/// their attributes; the Rust side only needs to raise them, and is handed
+/// them by `_register_errors` rather than importing them by module path.
+#[expect(
+    dead_code,
+    reason = "the macro gives every class both constructors, and most classes \
+              are only ever raised one of the two ways"
+)]
 mod py_errors {
-    // `import_exception!` generates an inherent `new_err` next to the
-    // `PyTypeInfo` trait method of the same name.
-    #![allow(clippy::same_name_method)]
-    pyo3::import_exception!(sysand._errors, ProjectError);
-    pyo3::import_exception!(sysand._errors, EnvError);
-    pyo3::import_exception!(sysand._errors, ResolutionError);
-    pyo3::import_exception!(sysand._errors, NotFoundError);
-    pyo3::import_exception!(sysand._errors, AuthError);
-    pyo3::import_exception!(sysand._errors, IndexProtocolError);
-    pyo3::import_exception!(sysand._errors, SolveError);
-    pyo3::import_exception!(sysand._errors, SyncError);
+    use pyo3::{
+        Bound, Py, PyErr, PyResult, Python,
+        exceptions::PyRuntimeError,
+        pyfunction,
+        sync::PyOnceLock,
+        types::{PyAnyMethods as _, PyDict, PyType},
+    };
+
+    /// Raised in place of the intended class when nothing registered one.
+    ///
+    /// Reachable only by importing this extension without the Python package
+    /// that owns it, so the message names that missing import rather than
+    /// leaving an embedder with a class it has never heard of.
+    fn unregistered(message: &str) -> PyErr {
+        PyRuntimeError::new_err(format!(
+            "{message}\n\nnote: sysand's exception classes have not been\n\
+             registered with this extension module. Import the Python\n\
+             package that owns it before calling into the bindings."
+        ))
+    }
+
+    macro_rules! registered_exceptions {
+        ($($field:ident => $name:ident),+ $(,)?) => {
+            struct ErrorTypes {
+                $($field: Py<PyType>,)+
+            }
+
+            static ERROR_TYPES: PyOnceLock<ErrorTypes> = PyOnceLock::new();
+
+            /// Hand this extension the exception classes it should raise.
+            ///
+            /// Called by `_errors.py` when the package is imported.
+            ///
+            /// The first registration wins. All subsequent ones are ignored, since
+            /// the calling module may be initialized multiple times (e.g. `importlib.reload`)
+            #[pyfunction(name = "_register_errors")]
+            #[pyo3(signature = (*, $($field),+))]
+            pub fn register_errors(
+                py: Python<'_>,
+                $($field: Py<PyType>,)+
+            ) -> PyResult<()> {
+                if ERROR_TYPES.set(py, ErrorTypes { $($field,)+ }).is_err() {
+                    log::debug!(
+                        "sysand's exception classes are already registered; \
+                         keeping the ones registered first"
+                    );
+                }
+                Ok(())
+            }
+
+            $(
+                pub struct $name;
+
+                impl $name {
+                    /// Raise the registered class with `message` alone.
+                    pub fn new_err(message: impl Into<String>) -> PyErr {
+                        Python::attach(|py| Self::raise(py, message.into(), None))
+                    }
+
+                    /// Raise it with keyword arguments as well (`wrote`,
+                    /// `conflicts`, `partial`, ...).
+                    pub fn new_err_with<'py>(
+                        py: Python<'py>,
+                        message: String,
+                        kwargs: &Bound<'py, PyDict>,
+                    ) -> PyErr {
+                        Self::raise(py, message, Some(kwargs))
+                    }
+
+                    fn raise<'py>(
+                        py: Python<'py>,
+                        message: String,
+                        kwargs: Option<&Bound<'py, PyDict>>,
+                    ) -> PyErr {
+                        let Some(types) = ERROR_TYPES.get(py) else {
+                            return unregistered(&message);
+                        };
+                        match types.$field.bind(py).call((message,), kwargs) {
+                            Ok(exception) => PyErr::from_value(exception),
+                            Err(err) => err,
+                        }
+                    }
+                }
+            )+
+        };
+    }
+
+    registered_exceptions! {
+        project => ProjectError,
+        env => EnvError,
+        resolution => ResolutionError,
+        not_found => NotFoundError,
+        auth => AuthError,
+        index_protocol => IndexProtocolError,
+        solve => SolveError,
+        sync => SyncError,
+    }
 }
 // `sysand_core::commands::env::EnvError` is already in scope under that name.
 use py_errors::{
     AuthError as PyAuthError, EnvError as PyEnvError, IndexProtocolError as PyIndexProtocolError,
     NotFoundError as PyNotFoundError, ProjectError, ResolutionError as PyResolutionError,
-    SolveError as PySolveError, SyncError as PySyncError,
+    SolveError as PySolveError, SyncError as PySyncError, register_errors,
 };
 
 /// Returns `(matched_resource, found, changed, old_constraint, new_constraint)`.
 ///
 /// Invalid input (a malformed shorthand or an invalid version requirement)
 /// raises `ValueError`; a missing, unreadable or malformed manifest and an
-/// ambiguous declaration raise `sysand.ProjectError` (`wrote` stays `False`:
+/// ambiguous declaration raise `ProjectError` (`wrote` stays `False`:
 /// nothing is written unless the edit succeeds). A missing usage is *not* an
 /// error here — `found` is `False` and the Python side decides.
 #[pyfunction(name = "do_set_usage_constraint_py")]
@@ -1359,6 +1439,7 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
 
 #[pymodule(name = "_sysand_core")]
 pub fn sysand_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(register_errors, m)?)?;
     m.add_function(wrap_pyfunction!(run_cli, m)?)?;
     m.add_function(wrap_pyfunction!(render_long_help, m)?)?;
     m.add_function(wrap_pyfunction!(do_init_py_local_file, m)?)?;

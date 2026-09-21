@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import sysand._sysand_core as sysand_rs  # type: ignore
+from . import _sysand_core as sysand_rs
 
 
 def root(path: str | Path = ".") -> Path | None:

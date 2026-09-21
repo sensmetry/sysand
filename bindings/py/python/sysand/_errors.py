@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import typing
 
+from . import _sysand_core as _sysand_rs
+
 
 class SysandError(RuntimeError):
     """Base class of every error raised by the ``sysand`` package.
@@ -110,6 +112,23 @@ class SyncError(SysandError):
 
 class EnvError(SysandError):
     """The ``.sysand`` environment is missing, unreadable or malformed."""
+
+
+# Hand the classes to the extension, which raises them but does not import
+# them: this tree is vendored under other parent packages, where an absolute
+# `sysand._errors` import would either fail or — with a standalone sysand
+# also installed — pick up a *different* copy of these classes, so `except
+# ProjectError` would silently miss.
+_sysand_rs._register_errors(
+    project=ProjectError,
+    env=EnvError,
+    resolution=ResolutionError,
+    not_found=NotFoundError,
+    auth=AuthError,
+    index_protocol=IndexProtocolError,
+    solve=SolveError,
+    sync=SyncError,
+)
 
 
 __all__ = [

@@ -5,9 +5,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import sysand._sysand_core as sysand_rs  # type: ignore
+from .. import _sysand_core as sysand_rs
 
-from sysand._model import EnvProject
+from .._model import EnvProject
 
 
 def projects(env_path: str | Path) -> list[EnvProject]:
