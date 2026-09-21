@@ -10,8 +10,8 @@ from ._model import VersionListing
 
 
 def versions(
-    iri: str,
     *,
+    iri: str,
     resolution: Resolution | None = None,
     auth: AuthPolicy | None = None,
 ) -> VersionListing:
@@ -25,6 +25,15 @@ def versions(
     behaviour: configuration files plus the default index. Pass an explicit
     :class:`Resolution` to control which indexes are consulted. ``auth``
     defaults to :meth:`AuthPolicy.none`.
+
+    Args:
+        iri: The project's IRI.
+        resolution: Where to look for the project.
+        auth: How to authenticate to indexes.
+
+    Returns:
+        The versions found, highest first, and the version strings that
+        were ignored for not being semver.
 
     Raises:
         NotFoundError: no configured source knows ``iri``.

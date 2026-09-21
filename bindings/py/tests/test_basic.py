@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 import os
 import re
-from typing import List, Union
+from typing import Callable, List, Union
 
 import pytest
 from pytest_httpserver import HTTPServer
@@ -22,7 +22,12 @@ def test_basic_init(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(level)
 
     with tempfile.TemporaryDirectory() as tmpdirname:
-        sysand.init("test_basic_init", "a", "1.2.3", tmpdirname)
+        sysand.init(
+            project_dir=tmpdirname,
+            name="test_basic_init",
+            publisher="a",
+            version="1.2.3",
+        )
 
         assert caplog.record_tuples == [
             (
@@ -46,7 +51,7 @@ def test_basic_init(caplog: pytest.LogCaptureFixture) -> None:
 def test_basic_env() -> None:
     with tempfile.TemporaryDirectory() as tmpdirname:
         env_path = Path(tmpdirname) / sysand.env.DEFAULT_ENV_NAME
-        sysand.env.env(env_path)
+        sysand.env.env(path=env_path)
         assert env_path.is_dir()
         content = (env_path / "env.toml").read_text()
         assert (
@@ -55,29 +60,72 @@ def test_basic_env() -> None:
         )
 
 
-def test_add_accepts_sysand_shorthand() -> None:
+def test_add_by_publisher_and_name() -> None:
     with tempfile.TemporaryDirectory() as tmpdirname:
-        sysand.init("test_add_accepts_sysand_shorthand", "a", "1.2.3", tmpdirname)
+        sysand.init(
+            project_dir=tmpdirname,
+            name="test_add_by_publisher_and_name",
+            publisher="a",
+            version="1.2.3",
+        )
 
-        sysand.add(tmpdirname, "acme-labs/my.project")
+        sysand.add(
+            project_dir=tmpdirname,
+            publisher="acme-labs",
+            name="my.project",
+            version_constraint="*",
+        )
 
         assert (
             (Path(tmpdirname) / ".project.json").read_text()
-            == '{\n  "name": "test_add_accepts_sysand_shorthand",\n  "publisher": "a",\n  "version": "1.2.3",\n  "usage": [\n    {\n      "resource": "pkg:sysand/acme-labs/my.project"\n    }\n  ]\n}\n'
+            == '{\n  "name": "test_add_by_publisher_and_name",\n  "publisher": "a",\n  "version": "1.2.3",\n  "usage": [\n    {\n      "resource": "pkg:sysand/acme-labs/my.project",\n      "versionConstraint": "*"\n    }\n  ]\n}\n'
         )
 
 
-def test_remove_accepts_sysand_shorthand() -> None:
+def test_remove_by_publisher_and_name() -> None:
     with tempfile.TemporaryDirectory() as tmpdirname:
-        sysand.init("test_remove_accepts_sysand_shorthand", "a", "1.2.3", tmpdirname)
+        sysand.init(
+            project_dir=tmpdirname,
+            name="test_remove_by_publisher_and_name",
+            publisher="a",
+            version="1.2.3",
+        )
 
-        sysand.add(tmpdirname, "acme-labs/my.project")
-        sysand.remove(tmpdirname, "acme-labs/my.project")
+        sysand.add(
+            project_dir=tmpdirname,
+            iri="pkg:sysand/acme-labs/my.project",
+            version_constraint="*",
+        )
+        sysand.remove(project_dir=tmpdirname, publisher="acme-labs", name="my.project")
 
         assert (
             (Path(tmpdirname) / ".project.json").read_text()
-            == '{\n  "name": "test_remove_accepts_sysand_shorthand",\n  "publisher": "a",\n  "version": "1.2.3"\n}\n'
+            == '{\n  "name": "test_remove_by_publisher_and_name",\n  "publisher": "a",\n  "version": "1.2.3"\n}\n'
         )
+
+
+def test_the_shorthand_is_not_an_iri(tmp_path: Path) -> None:
+    # `publisher/name` used to be expanded; now it is refused as the relative
+    # reference it is, rather than silently written, or reported "not found".
+    manifest = tmp_path / ".project.json"
+    manifest.write_text(SYSAND_FORMATTED_MANIFEST)
+
+    with pytest.raises(sysand.ProjectError):
+        sysand.add(
+            project_dir=tmp_path, iri="acme-labs/my.project", version_constraint="*"
+        )
+    with pytest.raises(sysand.ProjectError):
+        sysand.remove(project_dir=tmp_path, iri="mock/library")
+    with pytest.raises(sysand.ProjectError) as excinfo:
+        sysand.set_usage_constraint(
+            project_dir=tmp_path,
+            iri="mock/library",
+            version_constraint="1.0.0",
+            must_exist=False,
+        )
+    assert "not declared" not in str(excinfo.value)
+
+    assert manifest.read_text() == SYSAND_FORMATTED_MANIFEST
 
 
 SYSAND_FORMATTED_MANIFEST = """{
@@ -116,45 +164,66 @@ def test_set_usage_constraint_preserves_document(tmp_path: Path) -> None:
     manifest = tmp_path / ".project.json"
     manifest.write_text(SYSAND_FORMATTED_MANIFEST)
 
-    change = sysand.set_usage_constraint(tmp_path, "mock/library", ">=0.11.0, <0.12.0")
+    change = sysand.set_usage_constraint(
+        project_dir=tmp_path,
+        publisher="mock",
+        name="library",
+        version_constraint=">=0.11.0, <0.12.0",
+    )
 
     assert change == {
-        "resource": "pkg:sysand/mock/library",
         "found": True,
         "changed": True,
-        "old_constraint": ">=0.10.0, <0.11.0",
-        "new_constraint": ">=0.11.0, <0.12.0",
+        "old_version_constraint": ">=0.10.0, <0.11.0",
+        "new_version_constraint": ">=0.11.0, <0.12.0",
     }
     old_line, new_line = _one_line_diff(SYSAND_FORMATTED_MANIFEST, manifest.read_text())
     assert old_line == '      "versionConstraint": ">=0.10.0, <0.11.0"\n'
     assert new_line == '      "versionConstraint": ">=0.11.0, <0.12.0"\n'
 
 
-def test_set_usage_constraint_purl_matches_shorthand_declaration(
+def test_set_usage_constraint_iri_matches_publisher_and_name(
     tmp_path: Path,
 ) -> None:
     (tmp_path / ".project.json").write_text(SYSAND_FORMATTED_MANIFEST)
-    change = sysand.set_usage_constraint(tmp_path, "pkg:sysand/mock/library", "0.11.0")
+    change = sysand.set_usage_constraint(
+        project_dir=tmp_path, iri="pkg:sysand/mock/library", version_constraint="0.11.0"
+    )
     assert change["found"] and change["changed"]
-    assert change["new_constraint"] == "0.11.0"
+    assert change["new_version_constraint"] == "0.11.0"
 
 
-def test_set_usage_constraint_clear(tmp_path: Path) -> None:
+def test_set_usage_constraint_cannot_clear(tmp_path: Path) -> None:
     manifest = tmp_path / ".project.json"
     manifest.write_text(SYSAND_FORMATTED_MANIFEST)
 
-    change = sysand.set_usage_constraint(tmp_path, "mock/library", None)
+    with pytest.raises(TypeError):
+        sysand.set_usage_constraint(
+            project_dir=tmp_path,
+            publisher="mock",
+            name="library",
+            version_constraint=None,  # type: ignore[call-overload]
+        )
+    assert manifest.read_text() == SYSAND_FORMATTED_MANIFEST
 
-    assert change["changed"] is True
-    assert change["old_constraint"] == ">=0.10.0, <0.11.0"
-    assert change["new_constraint"] is None
-    expected = SYSAND_FORMATTED_MANIFEST.replace(
-        ',\n      "versionConstraint": ">=0.10.0, <0.11.0"', ""
+
+def test_set_usage_constraint_appends_a_missing_constraint(tmp_path: Path) -> None:
+    manifest = tmp_path / ".project.json"
+    manifest.write_text(
+        SYSAND_FORMATTED_MANIFEST.replace(
+            ',\n      "versionConstraint": ">=0.10.0, <0.11.0"', ""
+        )
     )
-    assert manifest.read_text() == expected
 
     # Setting a constraint on a usage without one appends it as the last key.
-    sysand.set_usage_constraint(tmp_path, "mock/library", "^0.11")
+    change = sysand.set_usage_constraint(
+        project_dir=tmp_path,
+        publisher="mock",
+        name="library",
+        version_constraint="^0.11",
+    )
+    assert change["old_version_constraint"] is None
+    assert change["new_version_constraint"] == "^0.11"
     assert manifest.read_text() == SYSAND_FORMATTED_MANIFEST.replace(
         ">=0.10.0, <0.11.0", "^0.11"
     )
@@ -166,11 +235,20 @@ def test_set_usage_constraint_unchanged_does_not_touch_file(tmp_path: Path) -> N
     os.utime(manifest, ns=(1_000_000_000_000_000_000, 1_000_000_000_000_000_000))
     before = manifest.stat()
 
-    change = sysand.set_usage_constraint(tmp_path, "mock/library", ">=0.10.0, <0.11.0")
+    change = sysand.set_usage_constraint(
+        project_dir=tmp_path,
+        publisher="mock",
+        name="library",
+        version_constraint=">=0.10.0, <0.11.0",
+    )
 
     assert change["found"] is True
     assert change["changed"] is False
-    assert change["old_constraint"] == change["new_constraint"] == ">=0.10.0, <0.11.0"
+    assert (
+        change["old_version_constraint"]
+        == change["new_version_constraint"]
+        == ">=0.10.0, <0.11.0"
+    )
     after = manifest.stat()
     assert after.st_mtime_ns == before.st_mtime_ns
     assert manifest.read_text() == SYSAND_FORMATTED_MANIFEST
@@ -181,27 +259,39 @@ def test_set_usage_constraint_not_found(tmp_path: Path) -> None:
     manifest.write_text(SYSAND_FORMATTED_MANIFEST)
 
     with pytest.raises(sysand.ProjectError) as excinfo:
-        sysand.set_usage_constraint(tmp_path, "acme/absent", "1.0.0")
+        sysand.set_usage_constraint(
+            project_dir=tmp_path,
+            publisher="acme",
+            name="absent",
+            version_constraint="1.0.0",
+        )
     assert excinfo.value.wrote is False
     assert isinstance(excinfo.value, RuntimeError)
     assert "pkg:sysand/acme/absent" in str(excinfo.value)
 
     change = sysand.set_usage_constraint(
-        tmp_path, "acme/absent", "1.0.0", must_exist=False
+        project_dir=tmp_path,
+        publisher="acme",
+        name="absent",
+        version_constraint="1.0.0",
+        must_exist=False,
     )
     assert change == {
-        "resource": "pkg:sysand/acme/absent",
         "found": False,
         "changed": False,
-        "old_constraint": None,
-        "new_constraint": None,
+        "old_version_constraint": None,
+        "new_version_constraint": None,
     }
     assert manifest.read_text() == SYSAND_FORMATTED_MANIFEST
 
     # A missing manifest is an error even with must_exist=False.
     with pytest.raises(sysand.ProjectError):
         sysand.set_usage_constraint(
-            tmp_path / "nowhere", "acme/absent", "1.0.0", must_exist=False
+            project_dir=tmp_path / "nowhere",
+            publisher="acme",
+            name="absent",
+            version_constraint="1.0.0",
+            must_exist=False,
         )
 
 
@@ -209,10 +299,21 @@ def test_set_usage_constraint_rejects_bad_input(tmp_path: Path) -> None:
     manifest = tmp_path / ".project.json"
     manifest.write_text(SYSAND_FORMATTED_MANIFEST)
 
-    with pytest.raises(ValueError):
-        sysand.set_usage_constraint(tmp_path, "mock/library", "nonsense")
-    with pytest.raises(ValueError):
-        sysand.set_usage_constraint(tmp_path, "ab/proj0", "1.0.0")
+    # The same faults `add` and `remove` reject, rejected the same way.
+    with pytest.raises(sysand.ProjectError):
+        sysand.set_usage_constraint(
+            project_dir=tmp_path,
+            publisher="mock",
+            name="library",
+            version_constraint="nonsense",
+        )
+    with pytest.raises(sysand.ProjectError):
+        sysand.set_usage_constraint(
+            project_dir=tmp_path,
+            publisher="ab",
+            name="proj0",
+            version_constraint="1.0.0",
+        )
     assert manifest.read_text() == SYSAND_FORMATTED_MANIFEST
 
     manifest.write_text(
@@ -221,7 +322,12 @@ def test_set_usage_constraint_rejects_bad_input(tmp_path: Path) -> None:
         )
     )
     with pytest.raises(sysand.ProjectError) as excinfo:
-        sysand.set_usage_constraint(tmp_path, "mock/library", "1.0.0")
+        sysand.set_usage_constraint(
+            project_dir=tmp_path,
+            publisher="mock",
+            name="library",
+            version_constraint="1.0.0",
+        )
     assert "2 times" in str(excinfo.value)
     assert excinfo.value.wrote is False
 
@@ -233,7 +339,9 @@ def test_set_usage_constraint_normalizes_hand_formatted_whitespace(
     manifest.write_text(
         '{"name":"hand","version":"1.0.0","usage":[{"resource":"a:b","versionConstraint":"1.0.0"}],"z":1}'
     )
-    sysand.set_usage_constraint(tmp_path, "a:b", "2.0.0")
+    sysand.set_usage_constraint(
+        project_dir=tmp_path, iri="a:b", version_constraint="2.0.0"
+    )
     # Same keys, same order, sysand's whitespace.
     assert (
         manifest.read_text()
@@ -253,11 +361,303 @@ def test_set_usage_constraint_normalizes_hand_formatted_whitespace(
 
 
 def test_add_returns_whether_a_usage_was_added(tmp_path: Path) -> None:
-    sysand.init("test_add_returns", "a", "1.2.3", tmp_path)
+    sysand.init(
+        project_dir=tmp_path, name="test_add_returns", publisher="a", version="1.2.3"
+    )
 
-    assert sysand.add(tmp_path, "acme-labs/my.project", ">=1.0.0") is True
-    assert sysand.add(tmp_path, "acme-labs/my.project", ">=1.0.0") is False
-    assert sysand.add(tmp_path, "acme-labs/other") is True
+    def add_mine() -> bool:
+        return sysand.add(
+            project_dir=tmp_path,
+            publisher="acme-labs",
+            name="my.project",
+            version_constraint=">=1.0.0",
+        )
+
+    assert add_mine() is True
+    assert add_mine() is False
+    assert (
+        sysand.add(
+            project_dir=tmp_path,
+            iri="pkg:sysand/acme-labs/other",
+            version_constraint="*",
+        )
+        is True
+    )
+
+
+def test_set_usage_constraint_refuses_a_usage_that_cannot_hold_one(
+    tmp_path: Path,
+) -> None:
+    # The directory usage in the fixture *is* the project `local-pub/local-lib`.
+    # Reporting it as "not declared" would be false, and setting a constraint
+    # on it is meaningless: a directory holds one version.
+    manifest = tmp_path / ".project.json"
+    manifest.write_text(SYSAND_FORMATTED_MANIFEST)
+
+    with pytest.raises(sysand.ProjectError) as excinfo:
+        sysand.set_usage_constraint(
+            project_dir=tmp_path,
+            publisher="local-pub",
+            name="local-lib",
+            version_constraint="1.0.0",
+        )
+    assert "directory usage" in str(excinfo.value)
+    assert excinfo.value.wrote is False
+
+    # `must_exist=False` means "absent is fine". This usage is not absent.
+    with pytest.raises(sysand.ProjectError):
+        sysand.set_usage_constraint(
+            project_dir=tmp_path,
+            publisher="local-pub",
+            name="local-lib",
+            version_constraint="1.0.0",
+            must_exist=False,
+        )
+
+    assert manifest.read_text() == SYSAND_FORMATTED_MANIFEST
+
+
+def test_remove_returns_the_removed_usages(tmp_path: Path) -> None:
+    sysand.init(
+        project_dir=tmp_path, name="test_remove_returns", publisher="a", version="1.2.3"
+    )
+    sysand.add(
+        project_dir=tmp_path,
+        publisher="acme-labs",
+        name="my.project",
+        version_constraint=">=1.0.0",
+    )
+
+    removed = sysand.remove(project_dir=tmp_path, iri="pkg:sysand/acme-labs/my.project")
+
+    assert removed == [
+        {
+            "publisher": "acme-labs",
+            "name": "my.project",
+            "version_constraint": ">=1.0.0",
+        }
+    ]
+
+
+def test_usages_read_back_by_how_they_are_found(tmp_path: Path) -> None:
+    sysand.init(project_dir=tmp_path, name="proj", publisher="acme", version="1.0.0")
+    sysand.add(
+        project_dir=tmp_path,
+        publisher="acme-labs",
+        name="by.index",
+        version_constraint="*",
+    )
+    # A `pkg:sysand` IRI is the same index usage, however it was added.
+    sysand.add(
+        project_dir=tmp_path,
+        iri="pkg:sysand/acme-labs/by.iri",
+        version_constraint="^1.0",
+    )
+    sysand.add(
+        project_dir=tmp_path,
+        iri="https://example.com/by-url.kpar",
+        version_constraint="*",
+    )
+
+    info, _ = sysand.info_path(project_dir=tmp_path)
+
+    assert info["usage"] == [
+        {"publisher": "acme-labs", "name": "by.index", "version_constraint": "*"},
+        {"publisher": "acme-labs", "name": "by.iri", "version_constraint": "^1.0"},
+        {"resource": "https://example.com/by-url.kpar", "version_constraint": "*"},
+    ]
+    # The manifest itself is unchanged: an index usage is still stored as
+    # the resource usage of its PURL.
+    manifest = json.loads((tmp_path / ".project.json").read_text())
+    assert manifest["usage"][0] == {
+        "resource": "pkg:sysand/acme-labs/by.index",
+        "versionConstraint": "*",
+    }
+
+
+def _declare_dir_usage(root: Path) -> None:
+    """Declare `acme-labs/my.project` in `../dep` in the project at `root`,
+    by editing the manifest: the Python API cannot add a directory usage."""
+    manifest_path = root / ".project.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["usage"] = [
+        {"dir": "../dep", "publisher": "acme-labs", "name": "my.project"}
+    ]
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+
+
+def test_remove_refuses_a_usage_of_another_kind(tmp_path: Path) -> None:
+    root = tmp_path / "proj"
+    sysand.init(project_dir=root, name="proj", publisher="acme", version="1.0.0")
+    _declare_dir_usage(root)
+
+    with pytest.raises(sysand.ProjectError) as excinfo:
+        sysand.remove(project_dir=root, publisher="acme-labs", name="my.project")
+    message = str(excinfo.value)
+    assert "declared as a directory usage" in message
+    assert "Python API cannot remove directory and KPAR usages yet" in message
+    assert "could not find" not in message
+    assert "sysand experimental" not in message
+
+    # Still declared.
+    info, _ = sysand.info_path(project_dir=root)
+    assert len(info["usage"]) == 1
+
+
+def test_remove_still_reports_an_absent_usage(tmp_path: Path) -> None:
+    sysand.init(project_dir=tmp_path, name="proj", publisher="acme", version="1.0.0")
+
+    with pytest.raises(sysand.ProjectError) as excinfo:
+        sysand.remove(project_dir=tmp_path, publisher="acme-labs", name="absent")
+    assert "could not find usage" in str(excinfo.value)
+
+
+def test_add_refuses_a_project_already_declared_as_another_kind(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "proj"
+    sysand.init(project_dir=root, name="proj", publisher="acme", version="1.0.0")
+    _declare_dir_usage(root)
+
+    with pytest.raises(sysand.ProjectError) as excinfo:
+        sysand.add(
+            project_dir=root,
+            publisher="acme-labs",
+            name="my.project",
+            version_constraint="*",
+        )
+    message = str(excinfo.value)
+    assert "already declared as a directory usage" in message
+    # The core message says to remove it first, which Python cannot do.
+    assert "Python API cannot remove directory and KPAR usages yet" in message
+
+    info, _ = sysand.info_path(project_dir=root)
+    assert len(info["usage"]) == 1
+
+
+def test_publisher_and_name_are_taken_unnormalized(tmp_path: Path) -> None:
+    # The values a typed index usage will keep as given; until then the PURL
+    # holds them normalized, and so does what is read back.
+    sysand.init(project_dir=tmp_path, name="proj", publisher="acme", version="1.0.0")
+    manifest = tmp_path / ".project.json"
+
+    sysand.add(
+        project_dir=tmp_path,
+        publisher="Acme Labs",
+        name="My.Project",
+        version_constraint="*",
+    )
+    assert '"resource": "pkg:sysand/acme-labs/my.project"' in manifest.read_text()
+
+    change = sysand.set_usage_constraint(
+        project_dir=tmp_path,
+        publisher="Acme Labs",
+        name="My.Project",
+        version_constraint="^1",
+    )
+    assert change["found"] and change["changed"]
+
+    # The normalized spelling names the same usage.
+    assert not sysand.add(
+        project_dir=tmp_path,
+        publisher="acme-labs",
+        name="my.project",
+        version_constraint="^1",
+    )
+
+    removed = sysand.remove(
+        project_dir=tmp_path, publisher="Acme Labs", name="My.Project"
+    )
+    assert removed == [
+        {"publisher": "acme-labs", "name": "my.project", "version_constraint": "^1"}
+    ]
+
+
+def test_add_refuses_an_invalid_publisher_or_name(tmp_path: Path) -> None:
+    sysand.init(project_dir=tmp_path, name="proj", publisher="acme", version="1.0.0")
+
+    for publisher, name in [
+        ("ab", "proj0"),  # publisher too short
+        ("acme/labs", "proj"),  # would be a third PURL segment
+        ("acme", "my..project"),  # two separators in a row
+    ]:
+        with pytest.raises(sysand.ProjectError):
+            sysand.add(
+                project_dir=tmp_path,
+                publisher=publisher,
+                name=name,
+                version_constraint="*",
+            )
+
+    info, _ = sysand.info_path(project_dir=tmp_path)
+    assert info["usage"] == []
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        pytest.param(
+            lambda p, **kw: sysand.add(project_dir=p, version_constraint="*", **kw),
+            id="add",
+        ),
+        pytest.param(lambda p, **kw: sysand.remove(project_dir=p, **kw), id="remove"),
+        pytest.param(
+            lambda p, **kw: sysand.set_usage_constraint(
+                project_dir=p, version_constraint="1.0.0", **kw
+            ),
+            id="set_usage_constraint",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        pytest.param({}, id="neither"),
+        pytest.param(
+            {"iri": "pkg:sysand/acme/lib", "publisher": "acme", "name": "lib"},
+            id="both",
+        ),
+        pytest.param({"publisher": "acme"}, id="publisher-only"),
+        pytest.param({"iri": "pkg:sysand/acme/lib", "name": "lib"}, id="iri-and-name"),
+    ],
+)
+def test_the_dependency_is_named_exactly_once(
+    tmp_path: Path,
+    call: Callable[..., object],
+    kwargs: dict[str, str],
+) -> None:
+    # Overloads make each of these a type error too; this pins the runtime
+    # behaviour for callers who are not type-checked.
+    sysand.init(project_dir=tmp_path, name="proj", publisher="acme", version="1.0.0")
+    before = (tmp_path / ".project.json").read_text()
+
+    with pytest.raises(TypeError):
+        call(tmp_path, **kwargs)
+
+    assert (tmp_path / ".project.json").read_text() == before
+
+
+def test_add_needs_a_version_constraint(tmp_path: Path) -> None:
+    sysand.init(project_dir=tmp_path, name="proj", publisher="acme", version="1.0.0")
+
+    for kwargs in [
+        {"publisher": "acme", "name": "lib"},
+        {"iri": "pkg:sysand/acme/lib"},
+        {"iri": "https://example.com/lib.kpar"},
+    ]:
+        with pytest.raises(TypeError):
+            sysand.add(project_dir=tmp_path, **kwargs)
+        with pytest.raises(TypeError, match='"\\*"'):
+            sysand.add(project_dir=tmp_path, version_constraint=None, **kwargs)  # type: ignore[call-overload]
+    # Directory and KPAR usages are not reachable yet.
+    with pytest.raises(TypeError):
+        sysand.add(  # type: ignore[call-overload]
+            project_dir=tmp_path,
+            usage={"dir": "../dep", "publisher": "acme", "name": "dep"},
+        )
+
+    info, _ = sysand.info_path(project_dir=tmp_path)
+    assert info["usage"] == []
 
 
 def _project_with_dir_usage(tmp_path: Path) -> tuple[Path, Path]:
@@ -268,9 +668,9 @@ def _project_with_dir_usage(tmp_path: Path) -> tuple[Path, Path]:
     kpar_dep = tmp_path / "kpar-dep"
     for name, path in [("proj", root), ("dir-dep", dep), ("kpar-dep", kpar_dep)]:
         path.mkdir()
-        sysand.init(name, "acme", "1.0.0", path)
+        sysand.init(project_dir=path, name=name, publisher="acme", version="1.0.0")
         (path / f"{name}.sysml").write_text(f"package P_{name.replace('-', '_')};")
-        sysand.include(path, f"{name}.sysml")
+        sysand.include(project_dir=path, src_path=f"{name}.sysml")
     manifest = json.loads((root / ".project.json").read_text())
     manifest["usage"] = [{"dir": "../dir-dep", "publisher": "acme", "name": "dir-dep"}]
     (root / ".project.json").write_text(json.dumps(manifest, indent=2) + "\n")
@@ -278,14 +678,14 @@ def _project_with_dir_usage(tmp_path: Path) -> tuple[Path, Path]:
     assert run_cli_in(root, "sync", "--no-config", "--no-index") == 0
     env_dir = root / sysand.env.DEFAULT_ENV_NAME
     # After `sync`, which prunes anything not in the lockfile.
-    sysand.env.install_path(env_dir, "urn:kpar:dep", kpar_dep)
+    sysand.env.install_path(env_path=env_dir, iri="urn:kpar:dep", location=kpar_dep)
     return root, env_dir
 
 
 def test_env_projects_lists_installed_and_editable(tmp_path: Path) -> None:
     root, env_dir = _project_with_dir_usage(tmp_path)
 
-    projects = {p["name"]: p for p in sysand.env.projects(env_dir)}
+    projects = {p["name"]: p for p in sysand.env.projects(env_path=env_dir)}
     assert set(projects) == {"proj", "dir-dep", "kpar-dep"}
     for project in projects.values():
         assert set(project) == set(sysand.EnvProject.__annotations__)
@@ -321,9 +721,11 @@ def test_env_projects_lists_installed_and_editable(tmp_path: Path) -> None:
 
 def test_env_sources_is_exported(tmp_path: Path) -> None:
     root, env_dir = _project_with_dir_usage(tmp_path)
-    [kpar_dep] = [p for p in sysand.env.projects(env_dir) if p["name"] == "kpar-dep"]
+    [kpar_dep] = [
+        p for p in sysand.env.projects(env_path=env_dir) if p["name"] == "kpar-dep"
+    ]
 
-    [source] = sysand.env.sources(env_dir, "urn:kpar:dep")
+    [source] = sysand.env.sources(env_path=env_dir, iri="urn:kpar:dep")
 
     assert os.path.samefile(source, env_dir / kpar_dep["path"] / "kpar-dep.sysml")
     assert "sources" in sysand.env.__all__
@@ -331,43 +733,48 @@ def test_env_sources_is_exported(tmp_path: Path) -> None:
 
 def test_env_projects_missing_env(tmp_path: Path) -> None:
     with pytest.raises(sysand.EnvError) as excinfo:
-        sysand.env.projects(tmp_path / "nope")
+        sysand.env.projects(env_path=tmp_path / "nope")
     assert excinfo.value.wrote is False
     assert isinstance(excinfo.value, RuntimeError)
     assert isinstance(excinfo.value, sysand.SysandError)
 
     # The same failure raises the same class from `install_path`.
     with pytest.raises(sysand.EnvError):
-        sysand.env.install_path(tmp_path / "nope", "urn:kpar:x", tmp_path)
+        sysand.env.install_path(
+            env_path=tmp_path / "nope", iri="urn:kpar:x", location=tmp_path
+        )
 
 
 def test_discover(tmp_path: Path) -> None:
-    assert sysand.discover(tmp_path) == {"project_root": None, "workspace_root": None}
+    assert sysand.discover(path=tmp_path) == {
+        "project_root": None,
+        "workspace_root": None,
+    }
 
     root = tmp_path / "ws" / "proj"
     root.mkdir(parents=True)
-    sysand.init("discover", "acme", "1.0.0", root)
+    sysand.init(project_dir=root, name="discover", publisher="acme", version="1.0.0")
     nested = root / "src" / "deep"
     nested.mkdir(parents=True)
 
     for start in (root, nested):
-        found = sysand.discover(start)
+        found = sysand.discover(path=start)
         assert found["project_root"] is not None
         assert os.path.samefile(found["project_root"], root)
         assert found["workspace_root"] is None
-    assert sysand.discover(root)["project_root"] == str(sysand.root(root))
+    assert sysand.discover(path=root)["project_root"] == str(sysand.root(path=root))
 
     (tmp_path / "ws" / ".workspace.json").write_text('{"projects": []}\n')
-    found = sysand.discover(nested)
+    found = sysand.discover(path=nested)
     assert found["workspace_root"] is not None
     assert os.path.samefile(found["workspace_root"], tmp_path / "ws")
     assert found["project_root"] is not None
     assert os.path.samefile(found["project_root"], root)
-    assert sysand.discover(tmp_path / "ws")["project_root"] is None
+    assert sysand.discover(path=tmp_path / "ws")["project_root"] is None
 
     (tmp_path / "ws" / ".workspace.json").write_text("not json")
     with pytest.raises(sysand.ProjectError) as excinfo:
-        sysand.discover(root)
+        sysand.discover(path=root)
     assert excinfo.value.wrote is False
 
 
@@ -377,9 +784,14 @@ def test_basic_info(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(level)
 
     with tempfile.TemporaryDirectory() as tmpdirname:
-        sysand.init("test_basic_info", "a", "1.2.3", tmpdirname)
+        sysand.init(
+            project_dir=tmpdirname,
+            name="test_basic_info",
+            publisher="a",
+            version="1.2.3",
+        )
 
-        info_meta = sysand.info_path(tmpdirname)
+        info_meta = sysand.info_path(project_dir=tmpdirname)
         assert info_meta is not None
 
         info, meta = info_meta
@@ -406,7 +818,7 @@ def test_basic_info(caplog: pytest.LogCaptureFixture) -> None:
 
         file_uri = Path(tmpdirname).resolve().as_uri()
 
-        info_meta2 = sysand.info(file_uri)
+        info_meta2 = sysand.info(iri=file_uri)
         assert info_meta2 == info_meta
 
 
@@ -422,7 +834,7 @@ def test_http_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) -> 
         {"index": {}, "created": "0000-00-00T00:00:00.123456789Z"}
     )
 
-    info, meta = sysand.info(httpserver.url_for(""))
+    info, meta = sysand.info(iri=httpserver.url_for(""))
 
     assert info == {
         "name": "test_http_info",
@@ -454,7 +866,10 @@ def test_index_info(caplog: pytest.LogCaptureFixture, mock_index: MockIndex) -> 
     # the discovery root).
     mock_index.publish("urn:kpar:test_index_info", "1.2.3")
 
-    info, meta = sysand.info("urn:kpar:test_index_info", index_urls=mock_index.url)
+    info, meta = sysand.info(
+        iri="urn:kpar:test_index_info",
+        resolution=sysand.Resolution(default_index=[mock_index.url], use_config=False),
+    )
 
     assert info["name"] == "test_index_info"
     assert info["version"] == "1.2.3"
@@ -489,8 +904,13 @@ def test_model_roundtrip() -> None:
         "topic": ["sysml", "bindings"],
         "usage": [
             sysand.InterchangeProjectUsageResource(
-                resource="pkg:sysand/acme/remote-lib",
+                resource="https://example.com/remote-lib.kpar",
                 version_constraint=">=1.0.0",
+            ),
+            sysand.InterchangeProjectUsageIndex(
+                publisher="acme",
+                name="index-lib",
+                version_constraint="^2.0",
             ),
             sysand.InterchangeProjectUsageDirectory(
                 dir="../local-lib", publisher="local-pub", name="local-lib"
@@ -525,6 +945,50 @@ def test_model_roundtrip() -> None:
     assert roundtripped_metadata == metadata
 
 
+def test_a_pkg_sysand_resource_is_accepted_and_read_back_as_an_index_usage() -> None:
+    from sysand._sysand_core import _do_model_roundtrip_py  # type: ignore
+
+    info: sysand.InterchangeProjectInfo = {
+        "name": "proj",
+        "publisher": "acme",
+        "description": None,
+        "version": "1.0.0",
+        "license": None,
+        "maintainer": [],
+        "website": None,
+        "topic": [],
+        "usage": [
+            sysand.InterchangeProjectUsageResource(
+                resource="pkg:sysand/acme/index-lib", version_constraint=None
+            ),
+            # Not a valid `pkg:sysand` PURL, so no index could resolve it.
+            sysand.InterchangeProjectUsageResource(
+                resource="pkg:sysand/Acme/Index-Lib", version_constraint=None
+            ),
+            # Normalized on the way in, as `add` normalizes it.
+            sysand.InterchangeProjectUsageIndex(
+                publisher="Acme Labs", name="Other Lib", version_constraint="^1"
+            ),
+        ],
+    }
+    metadata: sysand.InterchangeProjectMetadata = {
+        "index": {},
+        "created": "2026-01-02T03:04:05Z",
+        "metamodel": None,
+        "includes_derived": None,
+        "includes_implied": None,
+        "checksum": None,
+    }
+
+    roundtripped_info, _ = _do_model_roundtrip_py(info, metadata)
+
+    assert roundtripped_info["usage"] == [
+        {"publisher": "acme", "name": "index-lib", "version_constraint": None},
+        {"resource": "pkg:sysand/Acme/Index-Lib", "version_constraint": None},
+        {"publisher": "acme-labs", "name": "other-lib", "version_constraint": "^1"},
+    ]
+
+
 def compare_sources(
     sources: Union[List[Path], List[str]],
     expected_sources: Union[List[Path], List[str]],
@@ -551,36 +1015,57 @@ def test_end_to_end_install_sources() -> None:
         tmp_main = Path(tmp_main).resolve()
         tmp_dep = Path(tmp_dep).resolve()
         tmp_std = Path(tmp_std).resolve()
-        sysand.init("test_end_to_end_install_sources", "a", "1.2.3", tmp_main)
-        sysand.init("test_end_to_end_install_sources_dep", "a", "1.2.3", tmp_dep)
-        sysand.init("Kernel Function Library", "a", std_version, tmp_std)
+        sysand.init(
+            project_dir=tmp_main,
+            name="test_end_to_end_install_sources",
+            publisher="a",
+            version="1.2.3",
+        )
+        sysand.init(
+            project_dir=tmp_dep,
+            name="test_end_to_end_install_sources_dep",
+            publisher="a",
+            version="1.2.3",
+        )
+        sysand.init(
+            project_dir=tmp_std,
+            name="Kernel Function Library",
+            publisher="a",
+            version=std_version,
+        )
 
         with open(Path(tmp_main) / "src.sysml", "w") as f:
             f.write("package Src;")
 
-        sysand.include(tmp_main, "src.sysml")
+        sysand.include(project_dir=tmp_main, src_path="src.sysml")
 
         with open(Path(tmp_dep) / "src_dep.sysml", "w") as f:
             f.write("package SrcDep;")
 
-        sysand.include(tmp_dep, "src_dep.sysml")
+        sysand.include(project_dir=tmp_dep, src_path="src_dep.sysml")
 
         with open(Path(tmp_std) / "src_std.sysml", "w") as f:
             f.write("package SrcStd;")
 
-        sysand.include(tmp_std, "src_std.sysml")
+        sysand.include(project_dir=tmp_std, src_path="src_std.sysml")
 
         env_path = Path(tmp_main) / sysand.env.DEFAULT_ENV_NAME
 
-        sysand.env.env(env_path)
+        sysand.env.env(path=env_path)
 
         sysand.env.install_path(
-            env_path, "urn:kpar:test_end_to_end_install_sources_dep", tmp_dep
+            env_path=env_path,
+            iri="urn:kpar:test_end_to_end_install_sources_dep",
+            location=tmp_dep,
         )
-        sysand.env.install_path(env_path, std_iri, tmp_std)
+        sysand.env.install_path(env_path=env_path, iri=std_iri, location=tmp_std)
 
-        sysand.add(tmp_main, "urn:kpar:test_end_to_end_install_sources_dep", "1.2.3")
-        sysand.add(tmp_main, std_iri, std_version)
+        sysand.add(
+            project_dir=tmp_main,
+            iri="urn:kpar:test_end_to_end_install_sources_dep",
+            version_constraint="1.2.3",
+        )
+        sysand.add(project_dir=tmp_main, iri=std_iri, version_constraint=std_version)
 
         dep_src = (
             env_path
@@ -593,24 +1078,26 @@ def test_end_to_end_install_sources() -> None:
 
         # By default only the project's own sources are listed.
         compare_sources(
-            sysand.sources(tmp_main),
+            sysand.sources(project_dir=tmp_main),
             [str(Path(tmp_main) / "src.sysml")],
         )
         compare_sources(
-            sysand.sources(tmp_dep),
+            sysand.sources(project_dir=tmp_dep),
             [str(Path(tmp_dep) / "src_dep.sysml")],
         )
         # Own sources together with dependency sources, excluding std libs.
         compare_sources(
             sysand.sources(
-                tmp_main, dependencies=sysand.Dependencies.DEPS, env_path=env_path
+                project_dir=tmp_main,
+                dependencies=sysand.Dependencies.DEPS,
+                env_path=env_path,
             ),
             [str(Path(tmp_main) / "src.sysml"), str(dep_src)],
         )
         # Only dependency sources.
         compare_sources(
             sysand.sources(
-                tmp_main,
+                project_dir=tmp_main,
                 no_own=True,
                 dependencies=sysand.Dependencies.DEPS,
                 env_path=env_path,
@@ -618,13 +1105,13 @@ def test_end_to_end_install_sources() -> None:
             [str(dep_src)],
         )
         # no_own without dependencies yields nothing.
-        compare_sources(sysand.sources(tmp_main, no_own=True), [])
+        compare_sources(sysand.sources(project_dir=tmp_main, no_own=True), [])
 
         # DEPS_STD includes both the dependency and the std lib.
         compare_sources(
             sorted(
                 sysand.sources(
-                    tmp_main,
+                    project_dir=tmp_main,
                     no_own=True,
                     dependencies=sysand.Dependencies.DEPS_STD,
                     env_path=env_path,
@@ -636,7 +1123,7 @@ def test_end_to_end_install_sources() -> None:
         # STD includes only the std lib.
         compare_sources(
             sysand.sources(
-                tmp_main,
+                project_dir=tmp_main,
                 no_own=True,
                 dependencies=sysand.Dependencies.STD,
                 env_path=env_path,
@@ -644,17 +1131,19 @@ def test_end_to_end_install_sources() -> None:
             [str(std_src)],
         )
 
-        sysand.exclude(tmp_main, "src.sysml")
+        sysand.exclude(project_dir=tmp_main, src_path="src.sysml")
 
         compare_sources(
             sysand.sources(
-                tmp_main, dependencies=sysand.Dependencies.DEPS, env_path=env_path
+                project_dir=tmp_main,
+                dependencies=sysand.Dependencies.DEPS,
+                env_path=env_path,
             ),
             [str(dep_src)],
         )
         compare_sources(
             sysand.sources(
-                tmp_main,
+                project_dir=tmp_main,
                 no_own=True,
                 dependencies=sysand.Dependencies.DEPS,
                 env_path=env_path,
@@ -666,13 +1155,15 @@ def test_end_to_end_install_sources() -> None:
 def test_root() -> None:
     with tempfile.TemporaryDirectory() as tmpdirname:
         tmpdirname = Path(tmpdirname).resolve()
-        sysand.init("test_root", "a", "1.2.3", tmpdirname)
+        sysand.init(
+            project_dir=tmpdirname, name="test_root", publisher="a", version="1.2.3"
+        )
 
         subdir = tmpdirname / "sub" / "nested"
         subdir.mkdir(parents=True)
 
-        root_from_top = sysand.root(tmpdirname)
-        root_from_sub = sysand.root(subdir)
+        root_from_top = sysand.root(path=tmpdirname)
+        root_from_sub = sysand.root(path=subdir)
 
         assert root_from_top is not None
         assert root_from_sub is not None
@@ -682,7 +1173,7 @@ def test_root() -> None:
 
 def test_root_not_in_project() -> None:
     with tempfile.TemporaryDirectory() as tmpdirname:
-        assert sysand.root(tmpdirname) is None
+        assert sysand.root(path=tmpdirname) is None
 
 
 @pytest.mark.parametrize(
@@ -692,15 +1183,17 @@ def test_root_not_in_project() -> None:
 def test_build(compression: Union[sysand.CompressionMethod, None]) -> None:
     with tempfile.TemporaryDirectory() as tmp_main:
         tmp_main = Path(tmp_main).resolve()
-        sysand.init("test_build", "a", "1.2.3", tmp_main)
+        sysand.init(
+            project_dir=tmp_main, name="test_build", publisher="a", version="1.2.3"
+        )
 
         with open(tmp_main / "src.sysml", "w") as f:
             f.write("package Src;")
 
-        sysand.include(tmp_main, "src.sysml")
+        sysand.include(project_dir=tmp_main, src_path="src.sysml")
 
         sysand.build(
             output_path=tmp_main / "test_build.kpar",
-            project_path=tmp_main,
+            project_dir=tmp_main,
             compression=compression,
         )

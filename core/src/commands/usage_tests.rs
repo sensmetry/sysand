@@ -6,6 +6,8 @@ use std::assert_matches;
 use super::{ConstraintChange, SetConstraintError, do_set_usage_constraint};
 
 const LIBRARY: &str = "pkg:sysand/mock/library";
+/// The project the manifest's directory usage points at.
+const LOCAL_LIB: &str = "pkg:sysand/local-pub/local-lib";
 const LEGACY: &str = ">=0.10.0, <0.11.0";
 const TARGET: &str = ">=0.11.0, <0.12.0";
 
@@ -66,14 +68,13 @@ fn one_line_diff<'a>(before: &'a str, after: &'a str) -> (&'a str, &'a str) {
 fn replace_touches_exactly_one_line() {
     let mut d = doc(MANIFEST);
 
-    let (resource, change) = do_set_usage_constraint(&mut d, LIBRARY, Some(TARGET)).unwrap();
+    let change = do_set_usage_constraint(&mut d, LIBRARY, TARGET).unwrap();
 
-    assert_eq!(resource, LIBRARY);
     assert_eq!(
         change,
         ConstraintChange::Replaced {
             old: Some(LEGACY.to_owned()),
-            new: Some(TARGET.to_owned()),
+            new: TARGET.to_owned(),
         }
     );
     let after = render(&d);
@@ -89,68 +90,59 @@ fn replace_touches_exactly_one_line() {
 }
 
 #[test]
-fn shorthand_matches_purl_declaration() {
+fn the_shorthand_is_not_expanded() {
+    // `publisher/name` is not an IRI; it matches nothing, not even the
+    // `pkg:sysand` usage it abbreviates.
     let mut d = doc(MANIFEST);
 
-    let (resource, change) = do_set_usage_constraint(&mut d, "mock/library", Some(TARGET)).unwrap();
+    let change = do_set_usage_constraint(&mut d, "mock/library", TARGET).unwrap();
 
-    assert_eq!(resource, LIBRARY);
-    assert_matches!(change, ConstraintChange::Replaced { .. });
-    assert_eq!(render(&d), MANIFEST.replace(LEGACY, TARGET));
-}
-
-#[test]
-fn clear_removes_the_key_and_keeps_order() {
-    let mut d = doc(MANIFEST);
-
-    let (_, change) = do_set_usage_constraint(&mut d, LIBRARY, None).unwrap();
-
-    assert_eq!(
-        change,
-        ConstraintChange::Replaced {
-            old: Some(LEGACY.to_owned()),
-            new: None,
-        }
-    );
-    let expected = MANIFEST.replace(",\n      \"versionConstraint\": \">=0.10.0, <0.11.0\"", "");
-    assert_eq!(render(&d), expected);
+    assert_eq!(change, ConstraintChange::NotFound);
+    assert_eq!(render(&d), MANIFEST);
 }
 
 #[test]
 fn set_when_absent_appends_the_key() {
     let mut d = doc(&MANIFEST.replace(",\n      \"versionConstraint\": \">=0.10.0, <0.11.0\"", ""));
 
-    let (_, change) = do_set_usage_constraint(&mut d, LIBRARY, Some("^0.11")).unwrap();
+    let change = do_set_usage_constraint(&mut d, LIBRARY, "^0.11").unwrap();
 
     assert_eq!(
         change,
         ConstraintChange::Replaced {
             old: None,
-            new: Some("^0.11".to_owned()),
+            new: "^0.11".to_owned(),
         }
     );
     assert_eq!(render(&d), MANIFEST.replace(LEGACY, "^0.11"));
 }
 
 #[test]
-fn null_constraint_counts_as_absent() {
+fn null_constraint_counts_as_absent_and_keeps_its_position() {
     let mut d = doc(&MANIFEST.replace(&format!("\"{LEGACY}\""), "null"));
 
-    let (_, change) = do_set_usage_constraint(&mut d, LIBRARY, None).unwrap();
+    let change = do_set_usage_constraint(&mut d, LIBRARY, TARGET).unwrap();
 
-    assert_eq!(change, ConstraintChange::Unchanged { constraint: None });
+    assert_eq!(
+        change,
+        ConstraintChange::Replaced {
+            old: None,
+            new: TARGET.to_owned(),
+        }
+    );
+    assert_eq!(render(&d), MANIFEST.replace(LEGACY, TARGET));
 }
 
 #[test]
 fn unchanged_leaves_the_document_alone() {
     let mut d = doc(MANIFEST);
 
-    let (_, change) = do_set_usage_constraint(&mut d, LIBRARY, Some(LEGACY)).unwrap();
+    let change = do_set_usage_constraint(&mut d, LIBRARY, LEGACY).unwrap();
 
     assert_eq!(
         change,
         ConstraintChange::Unchanged {
-            constraint: Some(LEGACY.to_owned()),
+            constraint: LEGACY.to_owned(),
         }
     );
     assert_eq!(render(&d), MANIFEST);
@@ -159,30 +151,29 @@ fn unchanged_leaves_the_document_alone() {
 #[test]
 fn not_found_without_usage_key_and_without_match() {
     let mut d = doc(r#"{"name": "n", "version": "1.0.0"}"#);
-    let (resource, change) = do_set_usage_constraint(&mut d, "acme/absent", Some("1")).unwrap();
-    assert_eq!(resource, "pkg:sysand/acme/absent");
+    let change = do_set_usage_constraint(&mut d, "pkg:sysand/acme/absent", "1").unwrap();
     assert_eq!(change, ConstraintChange::NotFound);
     assert_eq!(d, doc(r#"{"name": "n", "version": "1.0.0"}"#));
 
     let mut d = doc(MANIFEST);
-    let (_, change) = do_set_usage_constraint(&mut d, "acme/absent", Some("1")).unwrap();
+    let change = do_set_usage_constraint(&mut d, "pkg:sysand/acme/absent", "1").unwrap();
     assert_eq!(change, ConstraintChange::NotFound);
     assert_eq!(render(&d), MANIFEST);
 }
 
 #[test]
 fn directory_usage_is_refused_rather_than_reported_missing() {
-    // The directory usage is the same project the shorthand names, so
+    // The directory usage is the same project the PURL names, so
     // "not declared" would be false; it just cannot carry a constraint.
     let mut d = doc(MANIFEST);
-    let err = do_set_usage_constraint(&mut d, "local-pub/local-lib", Some("1")).unwrap_err();
+    let err = do_set_usage_constraint(&mut d, LOCAL_LIB, "1").unwrap_err();
 
     assert_matches!(
         err,
         SetConstraintError::UsageCannotHoldConstraint {
             identifier,
             kind: "directory",
-        } if identifier == "pkg:sysand/local-pub/local-lib"
+        } if identifier == LOCAL_LIB
     );
     assert_eq!(render(&d), MANIFEST);
 }
@@ -200,7 +191,7 @@ fn directory_usage_matches_through_the_normalized_identifier() {
     });
     let before = d.clone();
 
-    let err = do_set_usage_constraint(&mut d, "local-pub/local-lib", Some("1")).unwrap_err();
+    let err = do_set_usage_constraint(&mut d, LOCAL_LIB, "1").unwrap_err();
 
     assert_matches!(err, SetConstraintError::UsageCannotHoldConstraint { .. });
     assert_eq!(d, before);
@@ -215,7 +206,7 @@ fn kpar_path_usage_is_refused_by_its_identifier() {
         "name": "local-lib",
     });
 
-    let err = do_set_usage_constraint(&mut d, "local-pub/local-lib", Some("1")).unwrap_err();
+    let err = do_set_usage_constraint(&mut d, LOCAL_LIB, "1").unwrap_err();
 
     assert_matches!(
         err,
@@ -237,7 +228,7 @@ fn a_resource_and_a_typed_usage_of_one_project_are_ambiguous() {
     });
     let before = d.clone();
 
-    let err = do_set_usage_constraint(&mut d, LIBRARY, Some(TARGET)).unwrap_err();
+    let err = do_set_usage_constraint(&mut d, LIBRARY, TARGET).unwrap_err();
 
     assert_matches!(
         err,
@@ -255,7 +246,7 @@ fn an_unrecognized_usage_shape_is_left_alone() {
     let mut d = doc(MANIFEST);
     d["usage"][0] = serde_json::json!({ "x-future-kind": "somewhere" });
 
-    let (_, change) = do_set_usage_constraint(&mut d, "local-pub/local-lib", Some("1")).unwrap();
+    let change = do_set_usage_constraint(&mut d, LOCAL_LIB, "1").unwrap();
 
     assert_eq!(change, ConstraintChange::NotFound);
 }
@@ -267,7 +258,7 @@ fn ambiguous_is_refused_before_editing() {
     d["usage"][0] = serde_json::json!({ "resource": LIBRARY });
     let before = d.clone();
 
-    let err = do_set_usage_constraint(&mut d, LIBRARY, Some(TARGET)).unwrap_err();
+    let err = do_set_usage_constraint(&mut d, LIBRARY, TARGET).unwrap_err();
 
     assert_matches!(
         err,
@@ -283,24 +274,9 @@ fn ambiguous_is_refused_before_editing() {
 fn invalid_constraint_is_rejected_before_editing() {
     let mut d = doc(MANIFEST);
 
-    let err = do_set_usage_constraint(&mut d, LIBRARY, Some("nonsense")).unwrap_err();
+    let err = do_set_usage_constraint(&mut d, LIBRARY, "nonsense").unwrap_err();
 
     assert_matches!(err, SetConstraintError::InvalidConstraint(c, _) if c == "nonsense");
-    assert_eq!(render(&d), MANIFEST);
-}
-
-#[test]
-fn malformed_shorthand_is_rejected_like_add() {
-    let mut d = doc(MANIFEST);
-
-    let err = do_set_usage_constraint(&mut d, "ab/proj0", Some("1")).unwrap_err();
-
-    assert_matches!(
-        err,
-        SetConstraintError::MalformedUsage(
-            crate::model::InterchangeProjectValidationError::MalformedUsageSysandPurl { .. }
-        )
-    );
     assert_eq!(render(&d), MANIFEST);
 }
 
@@ -308,13 +284,13 @@ fn malformed_shorthand_is_rejected_like_add() {
 fn malformed_documents_are_rejected() {
     let mut d = doc("[]");
     assert_matches!(
-        do_set_usage_constraint(&mut d, LIBRARY, None).unwrap_err(),
+        do_set_usage_constraint(&mut d, LIBRARY, "1").unwrap_err(),
         SetConstraintError::NotAnObject
     );
 
     let mut d = doc(r#"{"usage": {"resource": "x"}}"#);
     assert_matches!(
-        do_set_usage_constraint(&mut d, LIBRARY, None).unwrap_err(),
+        do_set_usage_constraint(&mut d, LIBRARY, "1").unwrap_err(),
         SetConstraintError::UsageNotAnArray
     );
 }
@@ -337,14 +313,13 @@ mod filesystem {
         std::fs::write(&path, MANIFEST).unwrap();
         let mut project = LocalSrcProject::new_access(dir.path(), None);
 
-        let (_, change) =
-            do_set_usage_constraint_local(&mut project, LIBRARY, Some(TARGET)).unwrap();
+        let change = do_set_usage_constraint_local(&mut project, LIBRARY, TARGET).unwrap();
 
         assert_eq!(
             change,
             ConstraintChange::Replaced {
                 old: Some(LEGACY.to_owned()),
-                new: Some(TARGET.to_owned()),
+                new: TARGET.to_owned(),
             }
         );
         let after = std::fs::read_to_string(&path).unwrap();
@@ -359,8 +334,7 @@ mod filesystem {
         let old_mtime = filetime_of(&path);
         let mut project = LocalSrcProject::new_access(dir.path(), None);
 
-        let (_, change) =
-            do_set_usage_constraint_local(&mut project, LIBRARY, Some(LEGACY)).unwrap();
+        let change = do_set_usage_constraint_local(&mut project, LIBRARY, LEGACY).unwrap();
 
         assert_matches!(change, ConstraintChange::Unchanged { .. });
         assert_eq!(filetime_of(&path), old_mtime);
@@ -378,7 +352,7 @@ mod filesystem {
         .unwrap();
         let mut project = LocalSrcProject::new_access(dir.path(), None);
 
-        do_set_usage_constraint_local(&mut project, "a:b", Some("2.0.0")).unwrap();
+        do_set_usage_constraint_local(&mut project, "a:b", "2.0.0").unwrap();
 
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
@@ -404,8 +378,7 @@ mod filesystem {
         std::fs::write(&path, MANIFEST).unwrap();
         let mut project = LocalSrcProject::new_access(dir.path(), None);
 
-        let err =
-            do_set_usage_constraint_local(&mut project, LIBRARY, Some("nonsense")).unwrap_err();
+        let err = do_set_usage_constraint_local(&mut project, LIBRARY, "nonsense").unwrap_err();
 
         assert_matches!(
             err,
@@ -419,7 +392,7 @@ mod filesystem {
         let dir = tempdir().unwrap();
         let mut project = LocalSrcProject::new_access(dir.path(), None);
 
-        let err = do_set_usage_constraint_local(&mut project, LIBRARY, None).unwrap_err();
+        let err = do_set_usage_constraint_local(&mut project, LIBRARY, "1").unwrap_err();
 
         assert_matches!(err, EditInfoError::Project(_));
     }

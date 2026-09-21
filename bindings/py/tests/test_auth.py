@@ -23,9 +23,13 @@ def test_auth_policy_repr_hides_secrets() -> None:
         sysand.AuthPolicy.none(),
         sysand.AuthPolicy.from_env(),
         sysand.AuthPolicy.from_env(keyring=False),
-        sysand.AuthPolicy.bearer("https://example.org/**", "s3cret"),
-        sysand.AuthPolicy.bearer("https://example.org/**", "s3cret", label="ci"),
-        sysand.AuthPolicy.basic("https://example.org/**", "alice", "s3cret"),
+        sysand.AuthPolicy.bearer(url_glob="https://example.org/**", token="s3cret"),
+        sysand.AuthPolicy.bearer(
+            url_glob="https://example.org/**", token="s3cret", label="ci"
+        ),
+        sysand.AuthPolicy.basic(
+            url_glob="https://example.org/**", username="alice", password="s3cret"
+        ),
     ]
     for policy in policies:
         assert "s3cret" not in repr(policy)
@@ -36,7 +40,7 @@ def test_auth_policy_repr_hides_secrets() -> None:
     assert "https://example.org/**" in repr(policies[3])
     assert "label='ci'" in repr(policies[4])
     assert "alice" in repr(policies[5])
-    assert sysand.AuthPolicy.bearer("g", "t").kind == "bearer"
+    assert sysand.AuthPolicy.bearer(url_glob="g", token="t").kind == "bearer"
 
 
 def test_resolution_defaults_and_validation() -> None:
@@ -85,21 +89,14 @@ def test_info_through_resolution(mock_index: MockIndex) -> None:
     mock_index.publish(IRI, "1.0.0")
     mock_index.publish(IRI, "1.1.0")
 
-    info, _meta = sysand.info(IRI, resolution=resolution(mock_index))
+    info, _meta = sysand.info(iri=IRI, resolution=resolution(mock_index))
     assert info["name"] == "auth_probe"
     assert info["version"] == "1.1.0"
-
-    # The older spelling still works and means the same thing.
-    info, _meta = sysand.info(IRI, index_urls=mock_index.url)
-    assert info["version"] == "1.1.0"
-
-    with pytest.raises(ValueError):
-        sysand.info(IRI, index_urls=mock_index.url, resolution=resolution(mock_index))
 
 
 def test_info_not_found(mock_index: MockIndex) -> None:
     with pytest.raises(sysand.NotFoundError) as excinfo:
-        sysand.info("urn:kpar:absent", resolution=resolution(mock_index))
+        sysand.info(iri="urn:kpar:absent", resolution=resolution(mock_index))
     assert isinstance(excinfo.value, sysand.ResolutionError)
     assert excinfo.value.wrote is False
     assert "urn:kpar:absent" in str(excinfo.value)
@@ -116,27 +113,37 @@ def test_info_auth_matrix(
     # No credentials: the very first request (the discovery document) is
     # refused, and the error says so without naming any secret.
     with pytest.raises(sysand.AuthError) as excinfo:
-        sysand.info(IRI, resolution=res)
+        sysand.info(iri=IRI, resolution=res)
     assert excinfo.value.wrote is False
     assert "401" in str(excinfo.value)
     assert mock_index.url in str(excinfo.value)
     assert "AuthPolicy" in str(excinfo.value)
 
     with pytest.raises(sysand.AuthError):
-        sysand.info(IRI, resolution=res, auth=sysand.AuthPolicy.none())
+        sysand.info(iri=IRI, resolution=res, auth=sysand.AuthPolicy.none())
 
     with pytest.raises(sysand.AuthError) as excinfo:
-        sysand.info(IRI, resolution=res, auth=sysand.AuthPolicy.bearer(glob, "wrong"))
+        sysand.info(
+            iri=IRI,
+            resolution=res,
+            auth=sysand.AuthPolicy.bearer(url_glob=glob, token="wrong"),
+        )
     assert glob in str(excinfo.value)
     assert "wrong" not in str(excinfo.value)
 
     with pytest.raises(sysand.AuthError):
         sysand.info(
-            IRI, resolution=res, auth=sysand.AuthPolicy.basic(glob, "alice", "s3cret")
+            iri=IRI,
+            resolution=res,
+            auth=sysand.AuthPolicy.basic(
+                url_glob=glob, username="alice", password="s3cret"
+            ),
         )
 
     info, _meta = sysand.info(
-        IRI, resolution=res, auth=sysand.AuthPolicy.bearer(glob, "s3cret")
+        iri=IRI,
+        resolution=res,
+        auth=sysand.AuthPolicy.bearer(url_glob=glob, token="s3cret"),
     )
     assert info["version"] == "1.0.0"
     # An unauthenticated first attempt followed by the bearer retry.
@@ -150,13 +157,15 @@ def test_info_auth_matrix(
         sysand.AuthPolicy.from_env(keyring=False),
         sysand.AuthPolicy.from_env(),
     ):
-        info, _meta = sysand.info(IRI, resolution=res, auth=policy)
+        info, _meta = sysand.info(iri=IRI, resolution=res, auth=policy)
         assert info["version"] == "1.0.0"
 
     # A wrong env token: the error names the variable, never the token.
     monkeypatch.setenv("SYSAND_CRED_TEST_BEARER_TOKEN", "wrong")
     with pytest.raises(sysand.AuthError) as excinfo:
-        sysand.info(IRI, resolution=res, auth=sysand.AuthPolicy.from_env(keyring=False))
+        sysand.info(
+            iri=IRI, resolution=res, auth=sysand.AuthPolicy.from_env(keyring=False)
+        )
     assert "SYSAND_CRED_TEST" in str(excinfo.value)
     assert "wrong" not in str(excinfo.value)
 
@@ -171,7 +180,7 @@ def test_from_env_rejects_malformed_groups(
     policy = sysand.AuthPolicy.from_env(keyring=False)
 
     with pytest.raises(sysand.AuthError) as excinfo:
-        sysand.info(IRI, resolution=resolution(mock_index), auth=policy)
+        sysand.info(iri=IRI, resolution=resolution(mock_index), auth=policy)
     assert "SYSAND_CRED_TEST" in str(excinfo.value)
     assert excinfo.value.wrote is False
     assert mock_index.requests() == [], "a malformed credential set makes no request"

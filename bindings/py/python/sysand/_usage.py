@@ -3,23 +3,53 @@
 
 from __future__ import annotations
 
+import typing
+
 from pathlib import Path
 
 from . import _sysand_core as sysand_rs
 
 from ._errors import ProjectError
+from ._identify import project_iri
 from ._model import UsageConstraintChange
 
 
+@typing.overload
 def set_usage_constraint(
-    path: str | Path,
-    resource: str,
-    constraint: str | None,
     *,
+    project_dir: str | Path,
+    iri: str,
+    version_constraint: str,
+    must_exist: bool = True,
+) -> UsageConstraintChange: ...
+
+
+@typing.overload
+def set_usage_constraint(
+    *,
+    project_dir: str | Path,
+    publisher: str,
+    name: str,
+    version_constraint: str,
+    must_exist: bool = True,
+) -> UsageConstraintChange: ...
+
+
+def set_usage_constraint(
+    *,
+    project_dir: str | Path,
+    iri: str | None = None,
+    publisher: str | None = None,
+    name: str | None = None,
+    version_constraint: str,
     must_exist: bool = True,
 ) -> UsageConstraintChange:
-    """Set (or, with ``None``, clear) the version constraint of the usage
-    naming ``resource`` in the project at ``path``.
+    """Set the version constraint of a dependency of the project in
+    ``project_dir``.
+
+    The dependency is named as :func:`add` names it: by ``iri``, taken as
+    given, or by ``publisher`` and ``name``. A constraint can be replaced but
+    not removed; pass ``"*"`` to accept any version.
 
     Only that one ``versionConstraint`` value is touched: every other key,
     including keys sysand does not know, and the document's key order are
@@ -27,38 +57,51 @@ def set_usage_constraint(
     written by sysand changes in exactly one line. An unchanged constraint
     does not touch the file at all.
 
-    ``resource`` may be an IRI or the ``publisher/name`` shorthand, matched
-    the way ``add`` matches.
-
     Args:
-        path: The project directory.
-        resource: The usage's resource IRI or shorthand.
-        constraint: A semver requirement such as ``">=0.11.0, <0.12.0"``, or
-            ``None`` to remove the constraint.
+        project_dir: The project directory, the one holding ``.project.json``.
+        iri: The dependency's IRI.
+        publisher: The dependency's publisher, given together with ``name``.
+        name: The dependency's name, given together with ``publisher``.
+        version_constraint: A semver requirement such as ``">=0.11.0, <0.12.0"``.
         must_exist: Raise :class:`ProjectError` when no usage matches. With
             ``False`` a missing usage is reported as ``found=False`` instead;
-            a missing or unreadable ``.project.json`` still raises.
+            a missing or unreadable ``.project.json`` still raises. It does
+            not apply to a usage that is declared but cannot hold a
+            constraint: that one is not missing.
+
+    Returns:
+        Whether the usage was found and whether its constraint changed, with
+        the constraint before and after the call.
 
     Raises:
-        ValueError: ``constraint`` is not a valid semver requirement, or
-            ``resource`` is a malformed shorthand.
-        ProjectError: the manifest is missing or malformed, ``resource`` is
-            declared more than once, or (with ``must_exist``) not at all.
-            ``wrote`` is always ``False``.
+        TypeError: neither form was given, both were, only one of
+            ``publisher`` and ``name`` was, or ``version_constraint`` is ``None``.
+        ProjectError: ``version_constraint`` is not a valid semver requirement,
+            ``iri`` is not an IRI, ``publisher`` or ``name`` is not
+            valid, the manifest is missing or malformed, the dependency is
+            declared more than once, is declared as a kind that carries no
+            version constraint, or (with ``must_exist``) is not declared at
+            all. ``wrote`` is always ``False``.
     """
-    matched, found, changed, old, new = sysand_rs.do_set_usage_constraint_py(
-        str(path), resource, constraint
+    # A constraint cannot be cleared, so that a usage `add` gave a
+    # constraint keeps one.
+    if version_constraint is None:
+        raise TypeError(
+            'set_usage_constraint() cannot clear a constraint; pass "*" to accept any version'
+        )
+    resolved = project_iri("set_usage_constraint", iri, publisher, name)
+    found, changed, old, new = sysand_rs.do_set_usage_constraint_py(
+        str(project_dir), resolved, version_constraint
     )
     change = UsageConstraintChange(
-        resource=matched,
         found=found,
         changed=changed,
-        old_constraint=old,
-        new_constraint=new,
+        old_version_constraint=old,
+        new_version_constraint=new,
     )
     if must_exist and not found:
         raise ProjectError(
-            f"usage `{matched}` is not declared in `{Path(path) / '.project.json'}`",
+            f"usage `{resolved}` is not declared in `{Path(project_dir) / '.project.json'}`",
             wrote=False,
         )
     return change

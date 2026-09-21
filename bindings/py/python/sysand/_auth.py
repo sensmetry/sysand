@@ -29,8 +29,8 @@ class AuthPolicy:
 
     def __init__(
         self,
-        kind: str,
         *,
+        kind: str,
         keyring: bool = False,
         url_glob: str | None = None,
         secret: str | None = None,
@@ -47,7 +47,7 @@ class AuthPolicy:
     @staticmethod
     def none() -> AuthPolicy:
         """No credentials at all; a 401/403 raises :class:`AuthError`."""
-        return AuthPolicy("none")
+        return AuthPolicy(kind="none")
 
     @staticmethod
     def from_env(*, keyring: bool = True) -> AuthPolicy:
@@ -57,20 +57,20 @@ class AuthPolicy:
         with the OS credential store ``sysand auth login`` writes unless
         ``keyring=False``. Environment variables alone can never prompt.
         The variables are read when a call is made, not here."""
-        return AuthPolicy("env", keyring=keyring)
+        return AuthPolicy(kind="env", keyring=keyring)
 
     @staticmethod
-    def bearer(url_glob: str, token: str, *, label: str = "python") -> AuthPolicy:
+    def bearer(*, url_glob: str, token: str, label: str = "python") -> AuthPolicy:
         """A bearer token for every URL matching ``url_glob``. Globs do not
         cross ``/``: use ``https://index.example/**`` for a whole host.
         ``label`` is the name error messages use for this credential."""
-        return AuthPolicy("bearer", url_glob=url_glob, secret=token, label=label)
+        return AuthPolicy(kind="bearer", url_glob=url_glob, secret=token, label=label)
 
     @staticmethod
-    def basic(url_glob: str, username: str, password: str) -> AuthPolicy:
+    def basic(*, url_glob: str, username: str, password: str) -> AuthPolicy:
         """HTTP basic credentials for every URL matching ``url_glob``."""
         return AuthPolicy(
-            "basic", url_glob=url_glob, username=username, secret=password
+            kind="basic", url_glob=url_glob, username=username, secret=password
         )
 
     @property
@@ -94,10 +94,13 @@ class AuthPolicy:
             return f"AuthPolicy.from_env(keyring={self._keyring!r})"
         if self._kind == "bearer":
             return (
-                f"AuthPolicy.bearer({self._url_glob!r}, {_REDACTED}, "
-                f"label={self._label!r})"
+                f"AuthPolicy.bearer(url_glob={self._url_glob!r}, "
+                f"token={_REDACTED}, label={self._label!r})"
             )
-        return f"AuthPolicy.basic({self._url_glob!r}, {self._username!r}, {_REDACTED})"
+        return (
+            f"AuthPolicy.basic(url_glob={self._url_glob!r}, "
+            f"username={self._username!r}, password={_REDACTED})"
+        )
 
 
 class Resolution:

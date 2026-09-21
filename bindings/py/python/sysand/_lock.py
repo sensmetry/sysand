@@ -13,8 +13,8 @@ from ._model import LockResult, ProvidedProject
 
 
 def lock(
-    path: str | Path = ".",
     *,
+    path: str | Path = ".",
     resolution: Resolution | None = None,
     auth: AuthPolicy | None = None,
     provided: typing.Sequence[ProvidedProject] | None = None,
@@ -37,6 +37,16 @@ def lock(
     ``resolution`` defaults to :class:`Resolution` ``()`` (the CLI's
     semantics); ``auth`` defaults to :meth:`AuthPolicy.none`. ``provided``
     projects are treated as already present, like the standard libraries.
+
+    Args:
+        path: Where to start discovery. Defaults to the current directory.
+        resolution: Where to look for dependencies.
+        auth: How to authenticate to indexes.
+        provided: Projects that are already present and never installed.
+        write: Write ``sysand-lock.toml``.
+
+    Returns:
+        The resolved projects and the lockfile text.
 
     Raises:
         SolveError: no compatible set of versions exists. ``conflicts`` names

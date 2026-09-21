@@ -8,7 +8,7 @@ from pathlib import Path
 from . import _sysand_core as sysand_rs
 
 
-def root(path: str | Path = ".") -> Path | None:
+def root(*, path: str | Path = ".") -> Path | None:
     """Find the root directory of the project containing ``path``.
 
     Args:

@@ -27,13 +27,12 @@ def _with_paths(
 
 
 def sync(
-    path: str | Path = ".",
     *,
+    path: str | Path = ".",
     lock: LockResult | str | None = None,
     resolution: Resolution | None = None,
     auth: AuthPolicy | None = None,
     provided: typing.Sequence[ProvidedProject] | None = None,
-    no_prune: bool = False,
 ) -> SyncOutcome:
     """Install what the lockfile says into the project's ``.sysand``
     environment, as ``sysand sync`` does, and report every change.
@@ -45,8 +44,19 @@ def sync(
     used) or lockfile text; by default ``sysand-lock.toml`` is read from the
     project or workspace root.
 
-    Projects no longer in the lockfile are removed from the environment
-    unless ``no_prune`` is set.
+    Projects no longer in the lockfile are removed from the environment.
+
+    Args:
+        path: Where to start discovery. Defaults to the current directory.
+        lock: The lockfile to install: a :class:`LockResult` or lockfile
+            text. Defaults to the project's or workspace's
+            ``sysand-lock.toml``.
+        resolution: Where to fetch projects from.
+        auth: How to authenticate to indexes.
+        provided: Projects that are already present and never installed.
+
+    Returns:
+        The projects that were installed, pruned and kept.
 
     Raises:
         ProjectError: not inside a project, or no lockfile.
@@ -70,7 +80,6 @@ def sync(
         resolution._spec(),
         auth._spec() if auth is not None else None,
         list(provided or ()),
-        no_prune,
     )
     # The environment's entries after the sync, under every identifier; a
     # pruned entry is gone from them, so its path is ``None``.

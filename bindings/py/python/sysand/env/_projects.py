@@ -10,13 +10,19 @@ from .. import _sysand_core as sysand_rs
 from .._model import EnvProject
 
 
-def projects(env_path: str | Path) -> list[EnvProject]:
+def projects(*, env_path: str | Path) -> list[EnvProject]:
     """List the projects recorded in the environment at ``env_path``.
 
     This reads ``env.toml``; install paths are returned verbatim (see
     :class:`~sysand.EnvProject`), so a caller re-reading the file set after a
     ``sync`` joins ``path`` onto the environment directory itself (or onto the
     workspace/project root for ``editable`` entries).
+
+    Args:
+        env_path: The environment directory, the one holding ``env.toml``.
+
+    Returns:
+        Every project recorded in the environment.
 
     Raises:
         EnvError: the environment is missing, unreadable or malformed.

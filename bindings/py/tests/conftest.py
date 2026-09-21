@@ -31,7 +31,7 @@ def _claim_logger(tmp_path_factory: pytest.TempPathFactory) -> None:
     # assert on log records; `run_cli` then keeps the level it was asked for
     # and continues, quietly, because `_run_cli` runs it as
     # `ProcessOwnership::Embedded` (see `test_cli_logger.py`).
-    sysand.env.env(tmp_path_factory.mktemp("logger") / sysand.env.DEFAULT_ENV_NAME)
+    sysand.env.env(path=tmp_path_factory.mktemp("logger") / sysand.env.DEFAULT_ENV_NAME)
 
 
 def isolate_sysand_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -138,7 +138,9 @@ def make_baseline(tmp_path: Path, mock_index: MockIndex) -> MakeBaseline:
 
         root = tmp_path / "migrating"
         root.mkdir()
-        sysand.init("migrating", "acme", "1.0.0", root)
+        sysand.init(
+            project_dir=root, name="migrating", publisher="acme", version="1.0.0"
+        )
 
         usages: list[dict] = []
         if include_library:

@@ -10,10 +10,10 @@ from .. import _sysand_core as sysand_rs
 
 
 def sources(
+    *,
     env_path: str | Path,
     iri: str,
     version: str | None = None,
-    *,
     no_own: bool = False,
     dependencies: Dependencies = Dependencies.NONE,
 ) -> List[Path]:

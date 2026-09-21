@@ -13,42 +13,51 @@ from pathlib import Path
 
 
 def info_path(
-    path: str | Path = ".",
+    *,
+    project_dir: str | Path = ".",
 ) -> typing.Tuple[InterchangeProjectInfo, InterchangeProjectMetadata]:
-    return sysand_rs.do_info_py_path(str(path))  # type: ignore
+    """Read the ``.project.json`` and ``.meta.json`` of the project in
+    ``project_dir``.
+
+    Args:
+        project_dir: The project directory, the one holding ``.project.json``
+            and ``.meta.json``. Defaults to the current directory. It is not
+            searched upwards; see :func:`root` for that.
+
+    Returns:
+        The project's information and metadata.
+    """
+    return sysand_rs.do_info_py_path(str(project_dir))  # type: ignore
 
 
 def info(
-    uri: str,
     *,
-    index_urls: str | typing.List[str] | None = None,
+    iri: str,
     resolution: Resolution | None = None,
     auth: AuthPolicy | None = None,
 ) -> typing.Tuple[InterchangeProjectInfo, InterchangeProjectMetadata]:
     """Fetch the best-matching version's ``.project.json`` and ``.meta.json``
-    for ``uri``.
+    for ``iri``.
 
-    Without ``resolution`` and ``index_urls`` no index is consulted at all
-    (only local files and URLs). ``index_urls`` is the older way to name
-    exactly the indexes to use; ``resolution`` is the general one, shared
-    with every other call that reaches an index. Passing both is an error.
-    ``auth`` defaults to :meth:`AuthPolicy.none`.
+    Without ``resolution`` no index is consulted at all (only local files
+    and URLs). ``auth`` defaults to :meth:`AuthPolicy.none`.
+
+    Args:
+        iri: The project's IRI.
+        resolution: Where to look for the project.
+        auth: How to authenticate to indexes.
+
+    Returns:
+        The best-matching version's information and metadata.
 
     Raises:
-        NotFoundError: no source knows ``uri``.
+        NotFoundError: no source knows ``iri``.
         AuthError: an index refused the request (HTTP 401/403).
         IndexProtocolError: an index answered with something malformed.
         ResolutionError: any other resolution failure.
     """
-    if isinstance(index_urls, str):
-        index_urls = [index_urls]
-    if index_urls is not None:
-        if resolution is not None:
-            raise ValueError("pass either index_urls or resolution, not both")
-        resolution = Resolution(default_index=index_urls, use_config=False)
-
     return sysand_rs.do_info_py(  # type: ignore
-        uri,
+        iri,
         resolution._spec() if resolution is not None else None,
         auth._spec() if auth is not None else None,
     )
