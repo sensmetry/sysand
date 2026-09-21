@@ -10,8 +10,8 @@ from . import _sysand_core as sysand_rs
 
 
 def sources(
-    path: str | Path,
     *,
+    path: str | Path,
     no_own: bool = False,
     dependencies: Dependencies = Dependencies.NONE,
     env_path: str | Path | None = None,

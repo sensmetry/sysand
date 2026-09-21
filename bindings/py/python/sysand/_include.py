@@ -10,9 +10,9 @@ from typing import Literal
 
 
 def include(
+    *,
     path: str | Path,
     src_path: str | Path,
-    *,
     compute_checksum: bool = False,
     index_symbols: bool = True,
     force_format: Literal["sysml", "kerml"] | None = None,

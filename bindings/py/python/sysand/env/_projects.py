@@ -10,7 +10,7 @@ from .. import _sysand_core as sysand_rs
 from .._model import EnvProject
 
 
-def projects(env_path: str | Path) -> list[EnvProject]:
+def projects(*, env_path: str | Path) -> list[EnvProject]:
     """List the projects recorded in the environment at ``env_path``.
 
     This reads ``env.toml``; install paths are returned verbatim (see

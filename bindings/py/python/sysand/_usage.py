@@ -12,14 +12,14 @@ from ._model import UsageConstraintChange
 
 
 def set_usage_constraint(
-    path: str | Path,
-    resource: str,
-    constraint: str | None,
     *,
+    path: str | Path,
+    identifier: str,
+    constraint: str | None,
     must_exist: bool = True,
 ) -> UsageConstraintChange:
     """Set (or, with ``None``, clear) the version constraint of the usage
-    naming ``resource`` in the project at ``path``.
+    identified by ``identifier`` in the project at ``path``.
 
     Only that one ``versionConstraint`` value is touched: every other key,
     including keys sysand does not know, and the document's key order are
@@ -27,30 +27,33 @@ def set_usage_constraint(
     written by sysand changes in exactly one line. An unchanged constraint
     does not touch the file at all.
 
-    ``resource`` may be an IRI or the ``publisher/name`` shorthand, matched
+    ``identifier`` may be an IRI or the ``publisher/name`` shorthand, matched
     the way ``add`` matches.
 
     Args:
         path: The project directory.
-        resource: The usage's resource IRI or shorthand.
+        identifier: The project's IRI or ``publisher/name`` shorthand.
         constraint: A semver requirement such as ``">=0.11.0, <0.12.0"``, or
             ``None`` to remove the constraint.
         must_exist: Raise :class:`ProjectError` when no usage matches. With
             ``False`` a missing usage is reported as ``found=False`` instead;
-            a missing or unreadable ``.project.json`` still raises.
+            a missing or unreadable ``.project.json`` still raises. It does
+            not apply to a usage that is declared but cannot hold a
+            constraint: that one is not missing.
 
     Raises:
-        ValueError: ``constraint`` is not a valid semver requirement, or
-            ``resource`` is a malformed shorthand.
-        ProjectError: the manifest is missing or malformed, ``resource`` is
-            declared more than once, or (with ``must_exist``) not at all.
-            ``wrote`` is always ``False``.
+        ProjectError: ``constraint`` is not a valid semver requirement,
+            ``identifier`` is a malformed shorthand, the manifest is missing
+            or malformed, ``identifier`` is declared more than once, is
+            declared as a kind that carries no version constraint, or (with
+            ``must_exist``) is not declared at all. ``wrote`` is always
+            ``False``.
     """
     matched, found, changed, old, new = sysand_rs.do_set_usage_constraint_py(
-        str(path), resource, constraint
+        str(path), identifier, constraint
     )
     change = UsageConstraintChange(
-        resource=matched,
+        identifier=matched,
         found=found,
         changed=changed,
         old_constraint=old,

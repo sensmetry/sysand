@@ -27,8 +27,8 @@ def _with_paths(
 
 
 def sync(
-    path: str | Path = ".",
     *,
+    path: str | Path = ".",
     lock: LockResult | str | None = None,
     resolution: Resolution | None = None,
     auth: AuthPolicy | None = None,

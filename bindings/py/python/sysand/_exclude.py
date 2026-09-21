@@ -9,6 +9,7 @@ from pathlib import Path
 
 
 def exclude(
+    *,
     path: Path | str,
     src_path: str | Path,
 ) -> None:

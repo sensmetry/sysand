@@ -10,7 +10,7 @@ from . import _sysand_core as sysand_rs
 from ._model import Discovery
 
 
-def discover(path: str | Path = ".") -> Discovery:
+def discover(*, path: str | Path = ".") -> Discovery:
     """Find the project and the workspace enclosing ``path``.
 
     This is the same lookup every CLI command performs first: walk up from

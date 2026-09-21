@@ -11,18 +11,35 @@ import typing
 # to/from Rust `*Raw` model type variants
 
 
-class InterchangeProjectUsageResource(typing.TypedDict):
+class _InterchangeProjectUsageResourceRequired(typing.TypedDict):
     resource: str
+
+
+class InterchangeProjectUsageResource(
+    _InterchangeProjectUsageResourceRequired, total=False
+):
+    """The untyped usage: a project named by an IRI, optionally constrained
+    to a range of versions. The only kind that carries a version constraint.
+    """
+
     version_constraint: typing.Optional[str]
 
 
 class InterchangeProjectUsageDirectory(typing.TypedDict):
+    """A typed usage: the project in the directory ``dir``, relative to the
+    root of the project declaring the usage. It carries no version
+    constraint -- the directory holds a single version."""
+
     dir: str
     publisher: str
     name: str
 
 
 class InterchangeProjectUsageKparPath(typing.TypedDict):
+    """A typed usage: the project in the KPAR at ``kpar_path``, relative to
+    the root of the project declaring the usage. It carries no version
+    constraint -- the archive holds a single version."""
+
     kpar_path: str
     publisher: str
     name: str
@@ -38,9 +55,9 @@ InterchangeProjectUsage = typing.Union[
 class UsageConstraintChange(typing.TypedDict):
     """Result of :func:`sysand.set_usage_constraint`."""
 
-    resource: str
-    """The resource actually matched, with the ``publisher/name`` shorthand
-    expanded to its ``pkg:sysand/`` IRI."""
+    identifier: str
+    """The project identifier actually matched, with the ``publisher/name``
+    shorthand expanded to its ``pkg:sysand/`` IRI."""
     found: bool
     changed: bool
     old_constraint: typing.Optional[str]

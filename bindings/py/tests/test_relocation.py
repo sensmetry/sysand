@@ -73,7 +73,7 @@ assert (
 # A call that fails, to pin the error classes to *this* copy of the tree.
 try:
     project.set_usage_constraint(
-        path=sys.argv[2], resource="pkg:sysand/example", constraint="1.0.0"
+        path=sys.argv[2], identifier="pkg:sysand/example", constraint="1.0.0"
     )
 except project.ProjectError:
     pass

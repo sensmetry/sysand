@@ -13,8 +13,8 @@ from ._model import LockResult, ProvidedProject
 
 
 def lock(
-    path: str | Path = ".",
     *,
+    path: str | Path = ".",
     resolution: Resolution | None = None,
     auth: AuthPolicy | None = None,
     provided: typing.Sequence[ProvidedProject] | None = None,
