@@ -21,7 +21,13 @@ from ._sources import (
 from pathlib import Path
 
 
-def env(path: str | Path = DEFAULT_ENV_NAME) -> None:
+def env(*, path: str | Path = DEFAULT_ENV_NAME) -> None:
+    """Create an empty environment.
+
+    Args:
+        path: The environment directory to create. Defaults to
+            :data:`DEFAULT_ENV_NAME` in the current directory.
+    """
     sysand_rs.do_env_py_local_dir(str(path))
 
 

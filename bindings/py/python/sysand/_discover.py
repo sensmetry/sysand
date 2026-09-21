@@ -10,7 +10,7 @@ from . import _sysand_core as sysand_rs
 from ._model import Discovery
 
 
-def discover(path: str | Path = ".") -> Discovery:
+def discover(*, path: str | Path = ".") -> Discovery:
     """Find the project and the workspace enclosing ``path``.
 
     This is the same lookup every CLI command performs first: walk up from
@@ -19,6 +19,13 @@ def discover(path: str | Path = ".") -> Discovery:
     ``.workspace.json``. Paths are canonicalized, as :func:`sysand.root` does.
     A tool that must not operate inside a workspace checks
     ``workspace_root`` before doing anything else.
+
+    Args:
+        path: Where to start searching. Defaults to the current directory.
+
+    Returns:
+        The project root and the workspace root, each ``None`` when there is
+        none.
 
     Raises:
         ProjectError: a directory could not be read, or ``.workspace.json`` is

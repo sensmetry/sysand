@@ -3,13 +3,67 @@
 
 from __future__ import annotations
 
+import typing
+
 from . import _sysand_core as sysand_rs
+
+from ._identify import project_iri
+from ._model import InterchangeProjectUsage
 
 from pathlib import Path
 
 
-def remove(path: Path | str, iri: str) -> None:
-    sysand_rs.do_remove_py(str(path), iri)
+@typing.overload
+def remove(
+    *, project_dir: Path | str, iri: str
+) -> typing.List[InterchangeProjectUsage]: ...
+
+
+@typing.overload
+def remove(
+    *, project_dir: Path | str, publisher: str, name: str
+) -> typing.List[InterchangeProjectUsage]: ...
+
+
+def remove(
+    *,
+    project_dir: Path | str,
+    iri: str | None = None,
+    publisher: str | None = None,
+    name: str | None = None,
+) -> typing.List[InterchangeProjectUsage]:
+    """Remove a dependency from the project in ``project_dir``.
+
+    The dependency is named as :func:`add` names it: by ``iri``, taken as
+    given, or by ``publisher`` and ``name``.
+
+    Only resource and index usages are removed. A directory or KPAR usage of the same
+    project is *not* removed, and is not reported as missing either: that
+    raises :class:`ProjectError`, since the project is declared, just as a
+    kind the Python API cannot remove yet.
+
+    Args:
+        project_dir: The project directory, the one holding ``.project.json``.
+        iri: The dependency's IRI.
+        publisher: The dependency's publisher, given together with ``name``.
+        name: The dependency's name, given together with ``publisher``.
+
+    Returns:
+        The usages that were removed, in declaration order, in the shape
+        :func:`info_path` returns them. Normally one: sysand never adds the
+        same resource twice, but it tolerates a manifest that declares it
+        more than once.
+
+    Raises:
+        TypeError: neither form was given, both were, or only one of
+            ``publisher`` and ``name`` was.
+        ProjectError: the project is missing or malformed, ``iri`` is not an
+            IRI, ``publisher`` or ``name`` is not valid, no usage
+            of the dependency is declared, or it is declared only as a
+            directory or KPAR usage.
+    """
+    resolved = project_iri("remove", iri, publisher, name)
+    return sysand_rs.do_remove_py(str(project_dir), resolved)  # type: ignore
 
 
 __all__ = ["remove"]

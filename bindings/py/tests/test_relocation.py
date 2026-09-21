@@ -64,7 +64,7 @@ import vendor.project as project
 
 # A call that reaches the extension and succeeds.
 project.init(
-    name="relocated", publisher="a", version="1.0.0", path=sys.argv[1]
+    name="relocated", publisher="a", version="1.0.0", project_dir=sys.argv[1]
 )
 assert (
     pathlib.Path(sys.argv[1]) / ".project.json"
@@ -73,7 +73,7 @@ assert (
 # A call that fails, to pin the error classes to *this* copy of the tree.
 try:
     project.set_usage_constraint(
-        path=sys.argv[2], resource="pkg:sysand/example", constraint="1.0.0"
+        project_dir=sys.argv[2], iri="pkg:sysand/example", version_constraint="1.0.0"
     )
 except project.ProjectError:
     pass

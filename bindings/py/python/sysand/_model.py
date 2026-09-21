@@ -8,43 +8,86 @@ import typing
 # Keep the types here in sync with Rust types from sysand-core.
 #
 # Use raw types for components, as these classes are converted
-# to/from Rust `*Raw` model type variants
+# to/from Rust `*Raw` model type variants. The exception is
+# `InterchangeProjectUsageIndex`, which core does not have yet: the binding
+# (`bindings/py/src/model.rs`) converts it to and from a `pkg:sysand`
+# resource usage.
 
 
-class InterchangeProjectUsageResource(typing.TypedDict):
+class _InterchangeProjectUsageResourceRequired(typing.TypedDict):
     resource: str
+
+
+class InterchangeProjectUsageResource(
+    _InterchangeProjectUsageResourceRequired, total=False
+):
+    """The untyped usage KerML specifies: a project named by an IRI,
+    optionally constrained to a range of versions.
+
+    Legacy: typed usages will replace it. A ``pkg:sysand`` IRI is never
+    returned as one, but as :class:`InterchangeProjectUsageIndex`.
+    """
+
     version_constraint: typing.Optional[str]
 
 
 class InterchangeProjectUsageDirectory(typing.TypedDict):
+    """A typed usage: the project in the directory ``dir``, relative to the
+    root of the project declaring the usage. It carries no version
+    constraint -- the directory holds a single version."""
+
     dir: str
     publisher: str
     name: str
 
 
 class InterchangeProjectUsageKparPath(typing.TypedDict):
+    """A typed usage: the project in the KPAR at ``kpar_path``, relative to
+    the root of the project declaring the usage. It carries no version
+    constraint -- the archive holds a single version."""
+
     kpar_path: str
     publisher: str
     name: str
+
+
+class _InterchangeProjectUsageIndexRequired(typing.TypedDict):
+    publisher: str
+    name: str
+
+
+class InterchangeProjectUsageIndex(_InterchangeProjectUsageIndexRequired, total=False):
+    """A typed usage: the project ``publisher``/``name``, resolved from the
+    index, optionally constrained to a range of versions.
+
+    The manifest stores it as the resource usage of
+    ``pkg:sysand/<publisher>/<name>``, and is read back as this. Until core
+    has an index usage of its own, that PURL keeps ``publisher`` and ``name``
+    only normalized: a usage added as ``"Acme Labs"`` is read back as
+    ``"acme-labs"``.
+    """
+
+    version_constraint: typing.Optional[str]
+    """``None`` when the manifest declares no constraint. :func:`sysand.add`
+    always writes one."""
 
 
 InterchangeProjectUsage = typing.Union[
     InterchangeProjectUsageResource,
     InterchangeProjectUsageDirectory,
     InterchangeProjectUsageKparPath,
+    InterchangeProjectUsageIndex,
 ]
 
 
 class UsageConstraintChange(typing.TypedDict):
     """Result of :func:`sysand.set_usage_constraint`."""
 
-    resource: str
-    """The resource actually matched, with the ``publisher/name`` shorthand
-    expanded to its ``pkg:sysand/`` IRI."""
     found: bool
     changed: bool
-    old_constraint: typing.Optional[str]
-    new_constraint: typing.Optional[str]
+    old_version_constraint: typing.Optional[str]
+    new_version_constraint: typing.Optional[str]
+    """The constraint now declared; ``None`` only when nothing was found."""
 
 
 class EnvProjectChecksumKpar(typing.TypedDict):
@@ -207,6 +250,7 @@ __all__ = [
     "InterchangeProjectUsageResource",
     "InterchangeProjectUsageDirectory",
     "InterchangeProjectUsageKparPath",
+    "InterchangeProjectUsageIndex",
     "InterchangeProjectUsage",
     "InterchangeProjectInfo",
     "InterchangeProjectChecksum",
