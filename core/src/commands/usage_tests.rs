@@ -171,11 +171,92 @@ fn not_found_without_usage_key_and_without_match() {
 }
 
 #[test]
-fn directory_usage_never_matches() {
-    // A directory usage whose `name` equals the looked-up shorthand's name
-    // is not a resource usage.
+fn directory_usage_is_refused_rather_than_reported_missing() {
+    // The directory usage is the same project the shorthand names, so
+    // "not declared" would be false; it just cannot carry a constraint.
     let mut d = doc(MANIFEST);
+    let err = do_set_usage_constraint(&mut d, "local-pub/local-lib", Some("1")).unwrap_err();
+
+    assert_matches!(
+        err,
+        SetConstraintError::UsageCannotHoldConstraint {
+            identifier,
+            kind: "directory",
+        } if identifier == "pkg:sysand/local-pub/local-lib"
+    );
+    assert_eq!(render(&d), MANIFEST);
+}
+
+#[test]
+fn directory_usage_matches_through_the_normalized_identifier() {
+    // `Directory` stores `publisher`/`name` unnormalized, while the
+    // identifier lowercases them and turns spaces into hyphens. Comparing
+    // the raw strings would miss this.
+    let mut d = doc(MANIFEST);
+    d["usage"][0] = serde_json::json!({
+        "dir": "../local-lib",
+        "publisher": "Local Pub",
+        "name": "Local-Lib",
+    });
+    let before = d.clone();
+
+    let err = do_set_usage_constraint(&mut d, "local-pub/local-lib", Some("1")).unwrap_err();
+
+    assert_matches!(err, SetConstraintError::UsageCannotHoldConstraint { .. });
+    assert_eq!(d, before);
+}
+
+#[test]
+fn kpar_path_usage_is_refused_by_its_identifier() {
+    let mut d = doc(MANIFEST);
+    d["usage"][0] = serde_json::json!({
+        "kparPath": "../local-lib.kpar",
+        "publisher": "local-pub",
+        "name": "local-lib",
+    });
+
+    let err = do_set_usage_constraint(&mut d, "local-pub/local-lib", Some("1")).unwrap_err();
+
+    assert_matches!(
+        err,
+        SetConstraintError::UsageCannotHoldConstraint {
+            kind: "KPAR path",
+            ..
+        }
+    );
+}
+
+#[test]
+fn a_resource_and_a_typed_usage_of_one_project_are_ambiguous() {
+    // Declared twice, once per kind. Editing either would be a guess.
+    let mut d = doc(MANIFEST);
+    d["usage"][0] = serde_json::json!({
+        "dir": "../mock-library",
+        "publisher": "mock",
+        "name": "library",
+    });
+    let before = d.clone();
+
+    let err = do_set_usage_constraint(&mut d, LIBRARY, Some(TARGET)).unwrap_err();
+
+    assert_matches!(
+        err,
+        SetConstraintError::Ambiguous {
+            resource,
+            count: 2,
+        } if resource == LIBRARY
+    );
+    assert_eq!(d, before);
+}
+
+#[test]
+fn an_unrecognized_usage_shape_is_left_alone() {
+    // Neither a resource nor a kind sysand knows: not matched, not refused.
+    let mut d = doc(MANIFEST);
+    d["usage"][0] = serde_json::json!({ "x-future-kind": "somewhere" });
+
     let (_, change) = do_set_usage_constraint(&mut d, "local-pub/local-lib", Some("1")).unwrap();
+
     assert_eq!(change, ConstraintChange::NotFound);
 }
 
@@ -190,7 +271,10 @@ fn ambiguous_is_refused_before_editing() {
 
     assert_matches!(
         err,
-        SetConstraintError::Ambiguous { resource, count: 2 } if resource == LIBRARY
+        SetConstraintError::Ambiguous {
+            resource,
+            count: 2,
+        } if resource == LIBRARY
     );
     assert_eq!(d, before);
 }

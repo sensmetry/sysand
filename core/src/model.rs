@@ -175,6 +175,15 @@ impl<Iri, VersionReq, Path> InterchangeProjectUsageG<Iri, VersionReq, Path> {
     pub fn is_typed(&self) -> bool {
         !matches!(self, Self::Resource { .. })
     }
+
+    /// A short noun naming this usage's kind, for error messages.
+    pub fn kind_noun(&self) -> &'static str {
+        match self {
+            Self::Resource { .. } => "resource",
+            Self::Directory { .. } => "directory",
+            Self::KparPath { .. } => "KPAR path",
+        }
+    }
 }
 
 impl From<InterchangeProjectUsage> for InterchangeProjectUsageRaw {
