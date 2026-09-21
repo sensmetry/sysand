@@ -90,6 +90,22 @@ fn program_name_does_not_change_the_footer() {
 }
 
 #[test]
+fn an_aliased_subcommand_still_renders_its_own_help() {
+    // `new` is a visible alias of `init`, so an appended `--help` reaches
+    // `init` and clap renders it under its canonical name. Falling back to
+    // the root help here would be silently wrong.
+    for args in [vec!["new"], vec!["new", "somewhere"]] {
+        let help = render_long_help("sysand", args.clone());
+
+        assert!(help.contains("Usage: sysand init"), "{args:?}: {help}");
+        assert!(
+            !help.contains("A package manager for SysML v2 and KerML"),
+            "{args:?} fell back to the root help: {help}"
+        );
+    }
+}
+
+#[test]
 fn unknown_subcommand_returns_claps_error() {
     let help = render_long_help("sysand", ["definitely-not-a-subcommand"]);
 

@@ -264,9 +264,10 @@ where
     match rendered(argv) {
         Ok(help) => help,
         // The appended `--help` was consumed as a value rather than acted
-        // on — `new` takes `trailing_var_arg`, and anything after `--` is
-        // positional too. Ask again through clap's `help` subcommand, which
-        // takes a path of subcommand names and no flags to swallow.
+        // on — anything after `--`, or after a `trailing_var_arg`
+        // positional, is positional too. Ask again through clap's `help`
+        // subcommand, which takes a path of subcommand names and no flags
+        // to swallow.
         Err(matches) => {
             let mut argv = vec![OsString::from(prog), OsString::from("help")];
             let mut current = &matches;

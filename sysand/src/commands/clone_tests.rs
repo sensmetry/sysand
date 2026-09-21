@@ -43,6 +43,8 @@ fn project(version: &str) -> InMemoryProject {
             includes_implied: None,
             checksum: None,
         }),
+        // A `.project.json`/`.meta.json` project: these fixtures stand in
+        // for what an index serves.
         model_toml: None,
         files: HashMap::new(),
         nominal_sources: vec![],
