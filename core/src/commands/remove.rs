@@ -6,7 +6,7 @@ use thiserror::Error;
 use crate::{
     add::expand_sysand_purl_shorthand,
     model::{InterchangeProjectUsageRaw, InterchangeProjectValidationError},
-    project::ProjectMut,
+    project::{ProjectMut, utils::Identifier},
 };
 
 #[derive(Error, Debug)]
@@ -19,6 +19,18 @@ pub enum RemoveError<ProjectError> {
     UsageNotFound(Box<str>),
     #[error("could not find usage for `{publisher}/{name}`")]
     ExpUsageNotFound { publisher: String, name: String },
+    /// No `Resource` usage of the IRI exists, but a typed usage of the *same
+    /// project* does. Reserved as an error rather than reported as "not
+    /// found", which would be untrue, so that removing by identifier can
+    /// later be relaxed into removing the typed usage instead.
+    #[error(
+        "`{identifier}` is declared as a {kind} usage, not as a resource usage;\n\
+        remove it with `sysand experimental remove <publisher> <name>`"
+    )]
+    UsageIsTyped {
+        identifier: String,
+        kind: &'static str,
+    },
     #[error("project is missing project information")]
     MissingInfo,
 }
@@ -44,6 +56,11 @@ pub fn do_remove_guess<P: ProjectMut>(
     do_remove(project, iri)
 }
 
+/// Remove the `Resource` usage naming `iri`.
+///
+/// Typed usages are not removed, even when they identify the same project:
+/// that case is refused with [`RemoveError::UsageIsTyped`] rather than
+/// reported as missing.
 pub fn do_remove<P: ProjectMut>(
     project: &mut P,
     iri: String,
@@ -56,6 +73,20 @@ pub fn do_remove<P: ProjectMut>(
         let popped = info.pop_usage(&iri);
 
         if popped.is_empty() {
+            // The same project may be declared as a typed usage, which has the
+            // same `Identifier` but is not a resource usage. Saying "not found"
+            // there would be false.
+            if let Some(kind) = info.usage.iter().find_map(|usage| {
+                (usage.is_typed()
+                    && Identifier::from_unvalidated_usage(usage)
+                        .is_some_and(|id| id.as_str() == iri))
+                .then(|| usage.kind_noun())
+            }) {
+                return Err(RemoveError::UsageIsTyped {
+                    identifier: iri,
+                    kind,
+                });
+            }
             Err(RemoveError::UsageNotFound(iri.into_boxed_str()))
         } else {
             project

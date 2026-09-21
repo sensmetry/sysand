@@ -6,7 +6,7 @@ use crate::{
     model::{
         InterchangeProjectUsageG, InterchangeProjectUsageRaw, InterchangeProjectValidationError,
     },
-    project::ProjectMut,
+    project::{ProjectMut, utils::Identifier},
     purl::{PKG_SYSAND_PREFIX, SysandPurlError, parse_sysand_purl},
     utils::SP,
 };
@@ -19,6 +19,21 @@ pub enum AddError<ProjectError> {
     Validation(#[from] InterchangeProjectValidationError),
     #[error("missing project information: {0}")]
     MissingInfo(&'static str),
+    /// The project is already declared by a usage of a *different* kind with
+    /// the same [`Identifier`]. Merging the two would mean choosing which
+    /// source wins, so it is refused, and we don't allow multiple usages
+    /// of the same project.
+    ///
+    /// [`Identifier`]: crate::project::utils::Identifier
+    #[error(
+        "`{identifier}` is already declared as a {existing} usage;\n\
+        remove it before adding it as a {new} usage"
+    )]
+    DuplicateIdentifier {
+        identifier: String,
+        existing: &'static str,
+        new: &'static str,
+    },
 }
 
 /// If `resource` is of shape `publisher/name`, and both satisfy Sysand PURL
@@ -105,6 +120,11 @@ fn try_merge_path_usage(
 
 /// Ok(true) => usage added to project info
 /// Ok(false) => usage already present in project info
+///
+/// Accepts any usage kind. A usage of the same kind is merged (its path or
+/// version constraint is updated); a usage of a *different* kind that
+/// identifies the same project is refused with
+/// [`AddError::DuplicateIdentifier`].
 pub fn do_add<P: ProjectMut>(
     project: &mut P,
     usage_raw: &InterchangeProjectUsageRaw,
@@ -237,6 +257,20 @@ pub fn do_add<P: ProjectMut>(
             }
         }
         if !dont_add {
+            // Every same-kind match has been merged above, so anything left
+            // sharing this usage's identity is a usage of a different kind:
+            // the same project declared twice, from two sources.
+            if let Some(identifier) = Identifier::from_unvalidated_usage(&usage)
+                && let Some(existing) = info.usage.iter().find(|u| {
+                    Identifier::from_unvalidated_usage(u).is_some_and(|id| id == identifier)
+                })
+            {
+                return Err(AddError::DuplicateIdentifier {
+                    identifier: identifier.into_string(),
+                    existing: existing.kind_noun(),
+                    new: usage.kind_noun(),
+                });
+            }
             info.usage.push(usage);
         }
         project.put_info(info, true).map_err(AddError::Project)?;

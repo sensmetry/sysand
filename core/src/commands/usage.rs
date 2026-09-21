@@ -11,7 +11,11 @@
 
 use thiserror::Error;
 
-use crate::{add::expand_sysand_purl_shorthand, model::InterchangeProjectValidationError};
+use crate::{
+    add::expand_sysand_purl_shorthand,
+    model::{InterchangeProjectUsageRaw, InterchangeProjectValidationError},
+    project::utils::Identifier,
+};
 
 /// Outcome of a constraint edit, so callers can report precisely.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,6 +44,16 @@ pub enum SetConstraintError {
     UsageNotAnArray,
     #[error("`{resource}` is declared {count} times in `.project.json`; refusing to guess")]
     Ambiguous { resource: String, count: usize },
+    /// The identifier names a usage that exists but cannot carry a version
+    /// constraint, because its kind pins a single version by construction
+    #[error(
+        "`{identifier}` is declared as a {kind} usage, which carries no\n\
+        version constraint: it always resolves to the single version found there"
+    )]
+    UsageCannotHoldConstraint {
+        identifier: String,
+        kind: &'static str,
+    },
 }
 
 const USAGE_KEY: &str = "usage";
@@ -62,17 +76,47 @@ fn expand_resource(resource: &str) -> Result<String, SetConstraintError> {
     }
 }
 
-/// Set (or clear, with `None`) the `versionConstraint` of the `resource`
-/// usage naming `resource`, editing `doc` in place.
+/// The kind of a usage that a lookup matched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MatchedKind {
+    /// A `Resource` usage: the one kind that can carry a version constraint.
+    Resource,
+    /// A typed usage (`Directory`, `KparPath`, ...) whose [`Identifier`] is
+    /// the looked-up one. It is the same project, but cannot hold a
+    /// constraint.
+    Typed(&'static str),
+}
+
+/// Find a usage identified by `identifier`. Matches by `Identifier` and considers all usage types.
+/// Returns `None` if `usage` fails to parse.
+fn match_usage(usage: &serde_json::Value, identifier: &str) -> Option<MatchedKind> {
+    // Cheap path first: a `Resource` usage is identified by its `resource`
+    // string verbatim, and no deserialization is needed to compare it.
+    if let serde_json::Value::Object(object) = usage
+        && let Some(resource) = object.get(RESOURCE_KEY).and_then(serde_json::Value::as_str)
+    {
+        return (resource == identifier).then_some(MatchedKind::Resource);
+    }
+
+    let usage: InterchangeProjectUsageRaw = serde_json::from_value(usage.clone()).ok()?;
+    (Identifier::from_unvalidated_usage(&usage)?.as_str() == identifier)
+        .then(|| MatchedKind::Typed(usage.kind_noun()))
+}
+
+/// Set (or clear, with `None`) the `versionConstraint` of the usage naming
+/// `resource`, editing `doc` in place.
 ///
 /// Only the one `versionConstraint` value is touched: every other key, every
 /// unknown key, and the document's key order are preserved verbatim. When a
 /// constraint is added to a usage that had none, the key is appended after
 /// the usage's existing keys.
 ///
-/// `resource` is matched as `add` matches it: the `publisher/name` shorthand
-/// is expanded and then compared as a plain string. Returns the expanded
-/// resource alongside the change so callers can report what was matched.
+/// `resource` is matched as `add` matches it: the `publisher/name` shorthand is
+/// expanded, and the result is compared against each usage's [`Identifier`].
+/// Only a `Resource` usage can carry a constraint, so a matched typed usage is
+/// refused with [`SetConstraintError::UsageCannotHoldConstraint`]. Returns the
+/// expanded identifier alongside the change so callers can report what was
+/// matched.
 ///
 /// The constraint is validated as a semver requirement, and a resource
 /// declared more than once is refused, before anything is modified.
@@ -96,23 +140,44 @@ pub fn do_set_usage_constraint(
         Some(_) => return Err(SetConstraintError::UsageNotAnArray),
     };
 
-    // Only `Resource` usages carry a `resource` key, so directory and kpar
-    // path usages never match.
-    let mut matches = usages.iter_mut().filter_map(|usage| match usage {
-        serde_json::Value::Object(usage)
-            if usage.get(RESOURCE_KEY).and_then(serde_json::Value::as_str) == Some(&resource) =>
-        {
-            Some(usage)
+    let matches: Vec<(usize, MatchedKind)> = usages
+        .iter()
+        .enumerate()
+        .filter_map(|(index, usage)| Some((index, match_usage(usage, &resource)?)))
+        .collect();
+
+    let resource_matches = matches
+        .iter()
+        .filter(|(_, kind)| *kind == MatchedKind::Resource)
+        .count();
+
+    let index = match (resource_matches, matches.len()) {
+        (0, 0) => return Ok((resource, ConstraintChange::NotFound)),
+        // Declared only as a typed usage: the same project, but no kind that
+        // can hold a constraint.
+        (0, _) => {
+            let kind = matches
+                .iter()
+                .find_map(|(_, kind)| match kind {
+                    MatchedKind::Typed(kind) => Some(*kind),
+                    MatchedKind::Resource => None,
+                })
+                .expect("a non-resource match is typed");
+            return Err(SetConstraintError::UsageCannotHoldConstraint {
+                identifier: resource,
+                kind,
+            });
         }
-        _ => None,
-    });
-    let Some(usage) = matches.next() else {
-        return Ok((resource, ConstraintChange::NotFound));
+        // Exactly one resource usage and nothing else of that identity.
+        (1, 1) => matches[0].0,
+        // Either the resource is declared twice, or it is declared both as a
+        // resource and as a typed usage.
+        (_, count) => return Err(SetConstraintError::Ambiguous { resource, count }),
     };
-    let count = 1 + matches.count();
-    if count > 1 {
-        return Err(SetConstraintError::Ambiguous { resource, count });
-    }
+
+    let serde_json::Value::Object(usage) = &mut usages[index] else {
+        unreachable!("only object usages can match")
+    };
 
     let old = match usage.get(VERSION_CONSTRAINT_KEY) {
         None | Some(serde_json::Value::Null) => None,

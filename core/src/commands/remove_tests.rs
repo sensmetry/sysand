@@ -81,3 +81,61 @@ fn remove_rejects_non_normalized_sysand_shorthand() {
     assert!(err.contains("`pkg:sysand/acme-labs/my.project`"), "{err}");
     assert_eq!(project.info.unwrap().usage.len(), 1);
 }
+
+fn project_with_directory_usage(publisher: &str, name: &str) -> InMemoryProject {
+    let mut project = project();
+    project.info.as_mut().unwrap().usage = vec![InterchangeProjectUsageRaw::Directory {
+        dir: "../local-lib".to_owned(),
+        publisher: publisher.to_owned(),
+        name: name.to_owned(),
+    }];
+    project
+}
+
+#[test]
+fn remove_refuses_a_typed_usage_rather_than_reporting_it_missing() {
+    let mut project = project_with_directory_usage("acme-labs", "my.project");
+
+    let err = do_remove_guess(&mut project, "acme-labs/my.project".to_owned()).unwrap_err();
+
+    let message = format_err(err);
+    assert!(
+        message.contains("declared as a directory usage"),
+        "{message}"
+    );
+    assert!(!message.contains("could not find"), "{message}");
+    // Nothing was removed.
+    assert_eq!(project.info.unwrap().usage.len(), 1);
+}
+
+#[test]
+fn remove_matches_a_typed_usage_through_the_normalized_identifier() {
+    // `Directory` stores `publisher`/`name` unnormalized; the identifier does
+    // not. Comparing the raw strings would report "not found" instead.
+    let mut project = project_with_directory_usage("Acme Labs", "My.Project");
+
+    let err = do_remove_guess(&mut project, "acme-labs/my.project".to_owned()).unwrap_err();
+
+    let message = format_err(err);
+    assert!(
+        message.contains("`pkg:sysand/acme-labs/my.project`"),
+        "{message}"
+    );
+    assert!(
+        message.contains("declared as a directory usage"),
+        "{message}"
+    );
+}
+
+#[test]
+fn remove_still_reports_a_genuinely_absent_usage_as_missing() {
+    let mut project = project_with_directory_usage("acme-labs", "my.project");
+
+    let err = do_remove_guess(&mut project, "acme-labs/other".to_owned()).unwrap_err();
+
+    let message = format_err(err);
+    assert!(
+        message.contains("could not find usage for `pkg:sysand/acme-labs/other`"),
+        "{message}"
+    );
+}

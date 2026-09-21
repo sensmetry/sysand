@@ -583,6 +583,34 @@ impl Identifier {
         Self::make_identifier_iri(publisher, name)
     }
 
+    /// The (possibly not well-formed) identifier of a usage that has *not*
+    /// been validated, e.g. one read straight out of a `.project.json` document.
+    /// Never persist in files! Can only be used for comparison with other
+    /// identifiers.
+    ///
+    /// Returns `None` for a typed usage with an empty `publisher` or `name`,
+    /// which has no well-formed identifier (and which
+    /// [`Self::from_interchange_usage_unchecked`] rejects with a debug
+    /// assertion). Callers use this to compare usages of *any* kind by
+    /// identity without having to trust the manifest first.
+    pub fn from_unvalidated_usage(usage: &InterchangeProjectUsageRaw) -> Option<Self> {
+        match usage {
+            InterchangeProjectUsageRaw::Resource { resource, .. } => Some(Self(resource.clone())),
+            InterchangeProjectUsageRaw::Directory {
+                publisher, name, ..
+            }
+            | InterchangeProjectUsageRaw::KparPath {
+                publisher, name, ..
+            } => {
+                if publisher.is_empty() || name.is_empty() {
+                    None
+                } else {
+                    Some(Self::make_identifier_iri(publisher, name))
+                }
+            }
+        }
+    }
+
     pub fn from_interchange_usage_unchecked(usage: &InterchangeProjectUsageRaw) -> Self {
         let (publisher, name) = match usage {
             InterchangeProjectUsageRaw::Resource { resource, .. } => {

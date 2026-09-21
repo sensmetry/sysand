@@ -391,11 +391,16 @@ pub struct AddProjectLocatorArgs {
         verbatim_doc_comment
     )]
     pub iri: Option<Iri<String>>,
-    /// Path to the project to be added. Since every usage is identified
-    /// by an IRI, `file://` URL will be used to refer to the project.
-    /// Warning: using this makes the project not portable between different
-    /// computers, as `file://` URL always contains an absolute path.
-    /// For multiple related projects, consider using a workspace instead
+    /// Path to the project to be added. Since every usage is identified by an
+    /// IRI, `file://` URL will be used to refer to the project.
+    ///
+    /// Deprecation notice: using this flag makes the project not portable
+    /// between different computers, as `file://` URL always contains an
+    /// absolute path. `sysand experimental add --dir` records a relative path
+    /// and, therefore, will replace this flag as soon as it gets stable.
+    /// Currently, this flag is still necessary when the usage is on another
+    /// drive (on Windows only) because this flag allows pointing to it, unlike
+    /// `sysand experimental add`, which currently forbids absolute paths
     #[arg(
         long,
         short = 'p',
@@ -435,7 +440,7 @@ pub struct CloneProjectLocatorArgs {
     /// IRI/URI/URL and otherwise falling back to using it as a path
     #[clap(
         default_value = None,
-        value_name = "LOCATOR", 
+        value_name = "LOCATOR",
         verbatim_doc_comment
     )]
     pub auto_location: Option<String>,
