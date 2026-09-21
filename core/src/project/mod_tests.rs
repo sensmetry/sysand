@@ -112,6 +112,7 @@ struct Silent;
 impl ProjectRead for Silent {
     type Error = InMemoryError;
 
+    /// These stubs stand in for a single project, not an index listing.
     fn source_may_offer_multiple_versions(&self) -> bool {
         false
     }
@@ -167,6 +168,7 @@ struct Toml;
 impl ProjectRead for Toml {
     type Error = InMemoryError;
 
+    /// These stubs stand in for a single project, not an index listing.
     fn source_may_offer_multiple_versions(&self) -> bool {
         false
     }
