@@ -118,6 +118,58 @@ based on the following rules:
 
 [semver 2]: https://semver.org/
 
+#### What the version number covers
+
+Note: "release" in this section means an official release. This excludes
+nightly releases and pre-releases.
+
+A change is breaking if it breaks one of these two surfaces:
+
+- **The CLI.** Command names, their arguments and their exit codes. The
+  wording of human-readable output is not part of the promise: a message may
+  be reworded in any release, as long as the command still succeeds or fails
+  under the same conditions.
+- **The Python API.** The public names exported from the `sysand` package on
+  PyPI, and the keyword parameter names of its functions.
+
+Everything else is outside it:
+
+- **`sysand experimental`.** Every subcommand under it, and everything named
+  with an `Exp`/`exp_` prefix, may change incompatibly or disappear in any
+  release, including a patch release. This is the same disclaimer that
+  `sysand experimental --help` prints, and it is what lets new usage kinds be
+  developed in the open before their commands are committed to.
+- **Rust crates.** `sysand-core`, `sysand`, `sysand-macros` are not on
+  crates.io. Their library APIs are internal to this repository and any changes
+  can be made at any time.
+- **Java bindings.** Published to Maven, but with a single known user
+  ([SysML v2 Pilot](https://github.com/Systems-Modeling/SysML-v2-Pilot-Implementation))
+  whose interaction with sysand we maintain. API carries no compatibility
+  promise yet.
+- **JavaScript bindings.** Essentially a placeholder, not published and no known
+  users. API carries no compatibility promise yet.
+
+#### File formats
+
+`.project.json`, `.meta.json`, `sysand-lock.toml` and `env.toml` are versioned
+separately:
+
+- `sysand-lock.toml` carries `lock_version` and `env.toml` has `version`.
+  Sysand currently supports only the latest version it knows about, any
+  unsupported versions always produce an error on read.
+  Any change to the shape (or semantics) of either file needs its version
+  bumped before a release is made.
+- `.project.json` and `.meta.json` mostly follow the KerML interchange
+  format (with some Sysand additions) and carry no version of their own.
+  Unknown fields in them are and must continue to be ignored (they may
+  produce a warning, however), so adding a new optional field is always
+  safe.
+- A new `usage` kind in `.project.json` is the one change these rules do not
+  make safe: the usage list deserializes through an untagged enum with no
+  catch-all, so a manifest declaring a kind a build does not know fails to
+  parse in full. Therefore, once a usage kind has been added (and can be
+  populated with a non-experimental command), it must never be removed.
+
 ### Bump version entries
 
 We look to bump our own declared versions, and do a last minute security audit
