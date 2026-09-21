@@ -9,12 +9,12 @@
     "test:serve": "npm run build:browser && npx webpack -c webpack-browser-test.config.cjs && npx jasmine-browser-runner serve"
   },
   "devDependencies": {
-    "@wasm-tool/wasm-pack-plugin": "^1.7.0",
-    "copy-webpack-plugin": "^14.0.0",
-    "glob": "^13.0.0",
+    "@wasm-tool/wasm-pack-plugin": "1.7.0",
+    "copy-webpack-plugin": "14.0.0",
+    "glob": "13.0.6",
     "jasmine-browser-runner": "^4.0.0",
     "jasmine-core": "^6.0.0",
-    "webpack": "^5.105.4",
-    "webpack-cli": "^7.0.0"
+    "webpack": "5.106.1",
+    "webpack-cli": "7.0.2"
   }
 }
