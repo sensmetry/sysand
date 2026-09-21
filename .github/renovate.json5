@@ -19,12 +19,18 @@
   // in-range bumps are Cargo.lock-only updates. The only downside is that
   // `minimumReleaseAge` does not apply to lockfile bumps
   minimumReleaseAge: "7 days",
-  abandonmentThreshold: "3 years",
   packageRules: [
     // `config:best-practices` pulls in `:pinDevDependencies`, which we don't want
     {
       matchDepTypes: ["devDependencies", "dev-dependencies", "dev"],
       rangeStrategy: "auto",
+    },
+    // `abandonments:recommended` (via `config:best-practices`) is 1 year, but
+    // specified in a packageRule, which beats a top-level setting. Scope to
+    // crates to avoid touching default npm overrides
+    {
+      matchDatasources: ["crate"],
+      abandonmentThreshold: "3 years",
     },
     // Group bumps of all non-major dependencies by using two rules, one for
     // situations like 1.2.3, and one for situations like 0.1.2.
