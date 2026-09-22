@@ -80,6 +80,7 @@ pub enum InterchangeProjectUsageG<Iri, VersionReq, Path> {
     /// The project KPAR at `kpar_path`, relative to the root of
     /// the project declaring the usage.
     /// Project must be at the archive root
+    #[serde(rename_all = "camelCase")]
     #[cfg_attr(feature = "python", pyo3(from_item_all))]
     KparPath {
         kpar_path: Path,

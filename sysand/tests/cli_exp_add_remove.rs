@@ -298,7 +298,7 @@ fn exp_add_and_remove_kpar_path_without_lock() -> Result<(), Box<dyn std::error:
   "version": "1.2.3",
   "usage": [
     {
-      "kpar_path": "dep.kpar",
+      "kparPath": "dep.kpar",
       "publisher": "b",
       "name": "my-dep"
     }
@@ -458,7 +458,7 @@ fn exp_add_kpar_path_already_present_is_ignored() -> Result<(), Box<dyn std::err
   "version": "1.2.3",
   "usage": [
     {
-      "kpar_path": "dep.kpar",
+      "kparPath": "dep.kpar",
       "publisher": "b",
       "name": "my-dep"
     }
