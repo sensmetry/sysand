@@ -521,6 +521,109 @@ fn every_example_in_model_toml_parses() {
     );
 }
 
+/// syside-metamodel.md, "`root`" and "Reading and validating". Its
+/// examples are about resolution as much as parsing -- the first must
+/// resolve with no warning, the second against a group, the third with
+/// exactly the foreign-key warning -- so unlike the two tests above this
+/// one resolves what it parses.
+#[test]
+fn every_example_in_syside_metamodel_md_parses_and_resolves() {
+    // design: syside-metamodel.md #1
+    // "`root`": a Syside project naming one of its sources as its root.
+    let project = accepted(
+        "manifest-version = \"1.0.0\"\n\n\
+         [project]\n\
+         publisher = \"acme\"\n\
+         name = \"widgets\"\n\
+         version = \"1.0.0\"\n\
+         sources = [\"Widgets.sysml\", \"Parts.sysml\", \"Ports.sysml\"]\n\
+         metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\n\
+         root = \"Widgets.sysml\"\n",
+    );
+    assert!(
+        project.warnings.is_empty(),
+        "{:?}",
+        messages(&project.warnings)
+    );
+    let resolved = project
+        .value
+        .into_project("model.toml")
+        .expect("a project")
+        .resolve(None)
+        .expect("a well-formed Syside project resolves");
+    assert!(
+        resolved.warnings.is_empty(),
+        "{:?}",
+        messages(&resolved.warnings)
+    );
+    assert_eq!(
+        resolved.value.root.as_ref().map(|root| root.as_str()),
+        Some("Widgets.sysml")
+    );
+
+    // design: syside-metamodel.md #2
+    // "Reading and validating": a member inheriting a Syside metamodel
+    // from a group, with its own `root`. The group is not in the
+    // document; it is what the group `syside` supplying the three
+    // inherited keys looks like.
+    let group = accepted(&as_workspace_file(
+        "[workspace]\nmembers = [\"ports\"]\n\n\
+         [workspace.group.syside]\npublisher = \"acme\"\nversion = \"1.0.0\"\n\
+         metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\n",
+    ))
+    .value
+    .into_workspace("model.toml")
+    .expect("a workspace");
+    let member = accepted(
+        "manifest-version = \"1.0.0\"\n\n\
+         [project]\n\
+         name = \"ports\"\n\
+         publisher.workspace = \"syside\"\n\
+         version.workspace = \"syside\"\n\
+         sources = [\"Ports.sysml\"]\n\
+         metamodel.workspace = \"syside\"\n\
+         root = \"Ports.sysml\"\n",
+    )
+    .value
+    .into_project("model.toml")
+    .expect("a project")
+    .resolve(Some(&group))
+    .expect("the member resolves against its group");
+    assert!(
+        member.warnings.is_empty(),
+        "{:?}",
+        messages(&member.warnings)
+    );
+    assert_eq!(
+        member.value.root.as_ref().map(|root| root.as_str()),
+        Some("Ports.sysml")
+    );
+
+    // design: syside-metamodel.md #3
+    // "Reading and validating": an OMG project carrying `root` is a
+    // valid OMG project with one warning, and no `root`.
+    let legacy = accepted(
+        "manifest-version = \"1.0.0\"\n\n\
+         [project]\n\
+         publisher = \"acme\"\n\
+         name = \"legacy\"\n\
+         version = \"1.0.0\"\n\
+         sources = [\"Legacy.sysml\"]\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\
+         root = \"Legacy.sysml\"\n",
+    )
+    .value
+    .into_project("model.toml")
+    .expect("a project")
+    .resolve(None)
+    .expect("an OMG project with `root` resolves");
+    assert_eq!(
+        messages(&legacy.warnings),
+        ["`root` in `[project]` is only supported by the Syside metamodel and is ignored here"]
+    );
+    assert!(legacy.value.root.is_none());
+}
+
 /// Not an example in either document, and that is the point: an index
 /// usage published by `OMG` is an *ordinary* usage, not a
 /// standard-library one. It parses, and nothing about it is special.

@@ -104,7 +104,7 @@ pub struct ProjectTable {
     /// value.
     pub stdlib: Option<StdlibStem>,
     /// `root`, **exactly as written and unjudged**. It belongs to the
-    /// Syside schema (plan-phase2.md WP-A1, `phase2-a0a-memo.md` A-1(b)):
+    /// Syside schema (design/syside-metamodel.md, `root`):
     /// under that family it is a required key naming one of the
     /// `sources` entries, and under any other it is a foreign key that
     /// costs a warning and nothing else, whatever its value. Which of the
@@ -681,10 +681,11 @@ impl ProjectManifest {
             }
         }
 
-        // `root`, judged now that the family is known (plan-phase2.md
-        // WP-A1; `phase2-a0a-memo.md` A-1(b)). Phase 1 judged it against
-        // the *declared* metamodel and so warned a member whose Syside
-        // metamodel arrived by marker about its own `root`.
+        // `root`, judged now that the family is known
+        // (design/syside-metamodel.md, Reading and validating): judged
+        // against the *declared* metamodel, a member whose Syside
+        // metamodel arrives by marker would be warned about its own
+        // `root`.
         let location = KeyLocation::Table(TABLE.to_owned());
         let family = metamodel.as_ref().map(|known| known.family);
         let root_written = root.is_some();
@@ -734,10 +735,9 @@ impl ProjectManifest {
         };
 
         // model-toml.md: `sources` is "always required for the OMG
-        // metamodel", and under `phase2-a0a-memo.md` A-1(b) it is the
+        // metamodel", and under syside-metamodel.md, `sources`, it is the
         // Syside family's membership list too; what differs is the text
-        // (phase 1's appendix A row 18 for OMG, appendix B row P2-23 for
-        // Syside).
+        // (`missing_sources`).
         //
         // A project whose `metamodel` is missing entirely still gets
         // this: every one of the four requires `sources`, so the plain
@@ -958,11 +958,9 @@ fn from_group_usage(
         })
 }
 
-/// Phase 1's appendix A row 18 and its siblings, one per family. The
-/// Syside text is plan-phase2.md appendix B row P2-23, which supersedes
-/// row 18's "whose schema this version of Sysand does not support": the
-/// schema is supported, and needs `sources` like the OMG one
-/// (`phase2-a0a-memo.md` A-1(b)).
+/// The missing-`sources` error, one text per family. The Syside text
+/// says where `root` fits: the schema needs `sources` like the OMG one
+/// (design/syside-metamodel.md, `sources`).
 fn missing_sources(metamodel: Option<&KnownMetamodel>) -> Diagnostic {
     let location = KeyLocation::Table(TABLE.to_owned());
     match metamodel {

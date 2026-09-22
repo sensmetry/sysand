@@ -84,7 +84,8 @@ Main project metadata is in the `[project]` table of `model.toml`:
     `metamodel.workspace` instead (see workspaces.md)
   - `sources`: array of paths to the project's source files, relative to
     the project root (the directory containing `model.toml`). Always
-    required for the OMG metamodel (see Metamodel): there is no implicit
+    required, for both families (see Metamodel, and syside-metamodel.md
+    for what the Syside family adds): there is no implicit
     default set of source files, so a project that has none is written
     as `sources = []`. Entries are relative and `/`-separated, and are
     taken exactly as written: rather than normalize a path and then
@@ -95,7 +96,8 @@ Main project metadata is in the `[project]` table of `model.toml`:
     can escape the project root or name the root itself, and every
     listed file has a place in a KPAR; what a path resolves to through a
     symlink is out of scope and is not checked. The entry as written is
-    what the `checksum` and `index` maps of a built KPAR are keyed by.
+    what the `checksum` map of a built KPAR -- and, for the OMG family,
+    its `index` map -- is keyed by.
     The commands that write `sources` (`sysand include`, `sysand
     migrate`) write this form, converting into it what they are given.
     Every entry names a single file; directories and globs are postponed
@@ -135,13 +137,14 @@ Main project metadata is in the `[project]` table of `model.toml`:
     `.project.json` `maintainer` array is the identity
   - `stdlib`: string, only for the projects that make up the standard
     library; see Standard library. Not inheritable
-- reserved:
-  - `root`: belongs to the schema of the Syside metamodel (see
-    Metamodel), which is specified after v1. A v1 reader that meets it
-    warns that `root` is only supported by the Syside metamodel and then
-    applies the recognized metamodel's own required-key check, so `root`
-    without `sources` in an OMG-metamodel project still errors on the
-    missing `sources`
+- Syside schema (see Metamodel; specified in syside-metamodel.md):
+  - `root`: required of a Syside-metamodel project, naming one of its
+    `sources` entries as its entry point. In an OMG-metamodel project it
+    is a key of another schema: a warning that `root` is only supported
+    by the Syside metamodel, followed by the OMG schema's own
+    required-key check, so `root` without `sources` in an OMG-metamodel
+    project still errors on the missing `sources`, and `root` beside
+    `sources` costs the warning alone, whatever its value
 
 ## Reading and validating
 
@@ -155,8 +158,9 @@ problem it finds in one report, with the position of each. Consequences:
   Metamodel) and list all problems at once, instead of stopping at the
   first missing field with a generic parser message
 - `metamodel` is itself required but inheritable, so it and everything
-  that depends on it -- whether `sources` is required, and which file
-  types it may list -- are checked after inheritance has been resolved.
+  that depends on it -- whether `root` is required and what it may be,
+  and which file types `sources` may list -- are checked after
+  inheritance has been resolved.
   `manifest-version` (read first) and the keys required by every
   metamodel (`publisher`, `name`, `version`) are checked before that
 - unknown keys are reported as workspaces.md, Unknown keys describes:
@@ -197,15 +201,15 @@ project, as today.
 The metamodel decides three things.
 
 First, the schema of the rest of the manifest. The common schema --
-everything in Main project metadata apart from `sources` and `root`,
-plus `inline-usages` -- applies to every project. On top of it:
+everything in Main project metadata apart from `root`, plus
+`inline-usages` -- applies to every project. On top of it:
 - an OMG-metamodel project lists its files in `sources`, and a build
-  computes the `index` map of its KPAR from them (see TOML to KPAR).
-  This is the schema v1 supports
-- a Syside-metamodel project names a single `root` file instead of
-  `sources`, and its KPAR carries `root` in `.meta.json` in place of
-  `index`, with `checksum` covering every file in the archive. That
-  schema is specified after v1; v1 only reserves the key
+  computes the `index` map of its KPAR from them (see TOML to KPAR)
+- a Syside-metamodel project lists its files in `sources` too and names
+  one of them as `root`, its entry point; its KPAR carries `root` and
+  `exports` in `.meta.json` in place of `index`, with `checksum`
+  covering every file in the archive. That schema is
+  syside-metamodel.md's
 
 Two rules keep a manifest written for a schema this reader does not know
 from being reported as a broken project:
@@ -217,9 +221,11 @@ from being reported as a broken project:
   that is the same cost every other unknown key has, and the warning
   names the fix
 - a project whose `metamodel` is a Syside value is validated against the
-  OMG schema, the only one v1 knows, and the resulting error for the
-  missing `sources` names the Syside metamodel and says this version of
-  Sysand does not support its schema
+  Syside schema (see syside-metamodel.md). A reader that predates that
+  schema validated it against the OMG one, and reported the missing
+  `sources` as naming a metamodel whose schema that version did not
+  support -- which is what a reader meeting a schema it does not know
+  is meant to say
 
 Second, the language of the source files. The spec kind bounds what
 `sources` may list: a `KerML` project admits `.kerml` files only, and a
@@ -599,7 +605,10 @@ name that is not alphanumeric replaced by `_`.
       one of the two
     This is why `sources` itself is not written to the KPAR: the paths
     it lists are recoverable from these two maps, which is exactly the
-    union the reverse direction takes (see JSON to TOML)
+    union the reverse direction takes (see JSON to TOML). A Syside
+    KPAR's `.meta.json` differs -- `root` and `exports` in place of
+    `index`, `checksum` over the whole archive -- as syside-metamodel.md,
+    The Syside KPAR, specifies
   - a build packages conventional files besides the sources: `README.md`,
     `CHANGELOG.md`, and the `LICENSES/<id>.txt` named by the license
     expression. These are found by path and cannot be listed in
@@ -738,7 +747,10 @@ Field by field:
     through `sysand include --no-index-symbols`), since `sources` admits
     only the types the metamodel admits (see Metamodel): the error lists
     the entries, and the fix is `sysand exclude` on the json project
-    before migrating
+    before migrating. This is the OMG family's recovery; a json project
+    whose `.meta.json` declares a Syside metamodel has no `index` and
+    checksums every file, and recovers `sources` and `root` as
+    syside-metamodel.md, JSON to TOML, says
   - discarded as irrelevant/impossible to keep up-to-date with a warning:
     - `created`
     - `checksum` (apart from its paths, see `sources` above)
@@ -845,7 +857,7 @@ follow from `sources` being the only file list:
   for is not part of it. The other files a build packages (`README.md`,
   `CHANGELOG.md`, the licenses) are found by path and are never listed
 - the `sysand info` verbs on the fields a build computes -- `index`,
-  `checksum`, `created`, `includesDerived`, `includesImplied` -- error
+  `exports`, `checksum`, `created`, `includesDerived`, `includesImplied` -- error
   on a toml project with the same message; `info index get` may compute
   the map on the fly
 
