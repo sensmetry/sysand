@@ -266,7 +266,10 @@ fn a_model_toml_projects_sources_are_indexed_and_hashed() {
         .get_meta()
         .expect("readable")
         .expect("`.meta.json`");
-    assert_eq!(meta.index["A"], "a.sysml");
+    assert_eq!(
+        meta.index.as_ref().expect("an OMG document")["A"],
+        "a.sysml"
+    );
     let checksum = &meta.checksum.expect("checksums")["a.sysml"];
     assert_eq!(
         checksum.value,

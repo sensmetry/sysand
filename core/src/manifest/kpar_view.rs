@@ -382,8 +382,23 @@ pub fn meta(
     index: SymbolIndex,
     checksum: ChecksumMap,
 ) -> InterchangeProjectMetadataRaw {
+    // design/syside-metamodel.md, "The Syside KPAR": a project with a
+    // `root` writes the Syside shape -- `root` and the flat `exports`
+    // array, no `index`. The array is the map's keys in `sources` order,
+    // each name once at its first appearance, which is what the map
+    // already holds.
+    let (index, root, exports) = match &project.root {
+        Some(root) => (
+            None,
+            Some(root.as_str().to_owned()),
+            Some(index.into_keys().collect()),
+        ),
+        None => (Some(index), None, None),
+    };
     InterchangeProjectMetadataRaw {
         index,
+        root,
+        exports,
         created: format_created(created),
         // Always written: a resolved project declares one of the
         // four (model-toml.md "Metamodel").

@@ -241,7 +241,7 @@ pub fn migrate_sources(
         paths.insert(path);
     };
 
-    for value in meta.index.values() {
+    for value in meta.index.iter().flat_map(indexmap::IndexMap::values) {
         add(value, false, report);
     }
     for key in meta.checksum.iter().flat_map(indexmap::IndexMap::keys) {
@@ -358,7 +358,7 @@ fn warn_discarded(meta: &InterchangeProjectMetadataRaw, report: &mut Report) {
          `sysand build` records the build's own",
         meta.created
     )));
-    if !meta.index.is_empty() {
+    if meta.index.as_ref().is_some_and(|index| !index.is_empty()) {
         report.push(Diagnostic::warning(
             "`index` is not migrated apart from its paths, which become `sources`: the symbol \
              index is computed when the project is built",

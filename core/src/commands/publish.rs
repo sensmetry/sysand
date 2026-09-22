@@ -1214,7 +1214,12 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
     if file_checksums.is_empty() {
         return Err(PublishError::EmptyChecksum);
     }
-    if validated_meta.index.is_empty() {
+    // WP-A2b splits these checks by family (design/syside-metamodel.md,
+    // "Publish"): a root-shaped document has `exports`, not `index`, and
+    // until then its symbols are not checked here and it gets the
+    // warning below.
+    let index = validated_meta.index.unwrap_or_default();
+    if index.is_empty() {
         log::warn!(
             "project doesn't list any symbols as exported (empty `index`
             {0:>8} field in `.meta.json`);\n\
@@ -1227,7 +1232,7 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
     // Reverse of `meta.index`: instead of symbol -> file, this is file -> symbols
     let mut symbols_for_files: HashMap<_, Vec<String>> = HashMap::new();
 
-    for (symbol, src_file) in validated_meta.index {
+    for (symbol, src_file) in index {
         // `meta.checksum` must reference a superset of files mentioned by `meta.index`
         // TODO: what about detecting duplicate exports? With our current design this is by
         // construction impossible.

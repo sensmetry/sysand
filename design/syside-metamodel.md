@@ -210,11 +210,15 @@ tests'.
 
 ## The Syside KPAR
 
-*This section specifies what `sysand build` and `sysand publish` will do
-for a Syside project. As of the iteration that vendored this document,
-`build` still emits the OMG shape for a Syside project; the packages that
-change that are `plan-phase2.md` WP-A2a and WP-A2b, and until they land
-a Syside KPAR does not exist.*
+*This section specifies what `sysand build` and `sysand publish` do
+for a Syside project. Where the code stands: `build` writes the shape
+below -- `root`, `exports`, no `index` -- and every reader accepts it;
+`build --keep-index` is refused on such a project. Not yet: `checksum`
+still covers the source files only, `publish` still runs the OMG
+rules over a Syside archive (it warns about the empty `index` it does
+not have and checks no symbols), `include --no-index-symbols` is not
+refused, and format detection of the extracted form is open. Those are
+`plan-phase2.md` WP-A2b's, and this preamble goes when they land.*
 
 A KPAR built from a Syside-metamodel project carries `.project.json` and
 `.meta.json` as any KPAR does (model-toml.md, TOML to KPAR), and never
@@ -240,16 +244,23 @@ OMG KPAR's in three ways:
   the map is ignored**, on the same rule as a foreign key in a
   `model.toml` -- everywhere it is read, `publish` included, so that
   there is one rule for the key and not a reader that warns and a
-  publisher that refuses. A Syside `.meta.json` with `index` and no
-  `root` -- which a reader predating this schema built -- gets that
-  warning *and* the missing-`root` error (P2-11): the `index` does not
-  stand in for the key.
+  publisher that refuses. A Syside `.meta.json` with `index` and
+  neither `root` nor `exports` -- the OMG shape under a Syside
+  metamodel -- gets that warning _and_ both missing-key errors: the
+  `index` does not stand in for the keys.
 
 The `.meta.json` reader judges `root` as the `model.toml` reader does:
-present (P2-11), a string, in the form a `sources` entry takes (P2-02's
-texts, with the file as the location). Whether the file it names is in
-the archive is `publish`'s question (P2-08), as the existence of every
-other file is.
+present, in the form a `sources` entry takes (the `model.toml`
+reader's texts, with the file as the location); and `exports` present.
+Whether the file `root` names is in the archive is `publish`'s
+question, as the existence of every other file is. One difference from
+the `model.toml` reader: a `.meta.json` is parsed into typed fields
+before Sysand judges it, so a `root` that is not a string is the
+parser's error naming the file, as it is for every other key of the
+document -- under a Syside _or_ an OMG metamodel. The `model.toml`
+reader keeps the value unjudged under OMG because it may be inherited
+into a family later; a `.meta.json` has no inheritance, and that is
+the one place the json side is stricter than the toml side.
 
 And in one way that is not a difference in shape:
 
@@ -298,7 +309,9 @@ core that knows this shape before any Syside KPAR is published.
 | P2-09 | publish: `checksum` misses a file | `checksum` does not cover `<path>`; a Syside KPAR checksums every file in the archive but `.project.json` and `.meta.json` |
 | P2-10 | a Syside `.meta.json` carrying `index` | `index` in `<file>` is not used by the Syside metamodel and is ignored; a Syside KPAR carries `root` and `exports` *(warning, wherever the file is read)* |
 | P2-11 | `.meta.json` with no `root` under a Syside metamodel; with no `index` under any other | missing key `root` in `<file>`; the Syside metamodel requires it *-- and under any other family, the existing* missing key `index` in `<file>` *unchanged* |
-| P2-22 | `.meta.json` carrying `root` under an OMG or absent metamodel | `root` in `<file>` is only supported by the Syside metamodel and is ignored here *(warning; P2-05's text with the file as the location)* |
+| P2-22 | `.meta.json` carrying `root` or `exports` under an OMG or absent metamodel | `<key>` in `<file>` is only supported by the Syside metamodel and is ignored here *(warning, one per key; P2-05's text with the file as the location)* |
+| P2-24 | `.meta.json` with no `exports` under a Syside metamodel | missing key `exports` in `<file>`; the Syside metamodel requires it |
+| P2-25 | `info index` on a project whose `.meta.json` has the Syside shape | the project has no `index`; a Syside KPAR carries `root` and `exports` *(warning on stderr; stdout prints the empty list)* |
 
 ### Build
 
@@ -412,10 +425,11 @@ all of them are sources -- would list `README.md` as a source.
   for every other scalar. The `sysand info` verb that exposes it on the
   command line does not exist yet (**open**; `info` today gets and sets
   the common keys and `metamodel`). The build-computed fields keep
-  their refusal on a toml project: `index` -- and for a Syside project
-  there is none to compute, so `info index get` says so -- `exports`,
-  which `info exports get` may compute on the fly as `info index get`
-  may compute the map, `checksum`, `created`.
+  their refusal on a toml project: `index`, `exports`, `checksum`,
+  `created`. `info index` on a project with the Syside shape prints an
+  empty list and says on stderr that there is no `index` (P2-25), so
+  that what a script reads from stdout stays a list of symbols; an
+  `info exports` verb does not exist yet (**open**).
 - **`sysand init --metamodel <syside value>`** is accepted. What it
   writes for a Syside project -- a `root`, and whether a manifest may
   name a file that does not exist yet -- is **open**

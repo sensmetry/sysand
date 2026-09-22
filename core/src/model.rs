@@ -1492,7 +1492,30 @@ pub struct InterchangeProjectChecksumRaw {
 )]
 #[serde(rename_all = "camelCase")]
 pub struct InterchangeProjectMetadataG<MM, Path: Eq + Hash, DateTime, IPC> {
-    pub index: IndexMap<String, Path>,
+    /// The OMG shape's symbol map: every top-level symbol mapped to the
+    /// file declaring it. `None` for the Syside shape, which carries
+    /// [`root`](Self::root) and [`exports`](Self::exports) instead
+    /// (design/syside-metamodel.md, "The Syside KPAR"). Which shape a
+    /// document may have is the family's rule, enforced where the
+    /// document is read ([`InterchangeProjectMetadataPartial::validate`]),
+    /// not by this type: the type is mirrored by hand in two bindings,
+    /// and three optional fields mirror as three optional fields.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "python", pyo3(default))]
+    pub index: Option<IndexMap<String, Path>>,
+
+    /// The Syside shape's entry point: one of the `checksum` keys, as
+    /// the manifest wrote it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "python", pyo3(default))]
+    pub root: Option<Path>,
+
+    /// The Syside shape's exported names, a flat array computed at build
+    /// time from every model file, each name once at its first
+    /// appearance in `sources` order.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "python", pyo3(default))]
+    pub exports: Option<Vec<String>>,
 
     pub created: DateTime,
 
@@ -1560,6 +1583,8 @@ impl PartialManifest for InterchangeProjectMetadataPartial {
 #[serde(rename_all = "camelCase")]
 pub struct InterchangeProjectMetadataPartial {
     pub index: Option<IndexMap<String, String>>,
+    pub root: Option<String>,
+    pub exports: Option<Vec<String>>,
     pub created: Option<String>,
     pub metamodel: Option<String>,
     pub includes_derived: Option<bool>,
@@ -1584,7 +1609,73 @@ impl InterchangeProjectMetadataPartial {
         let unsupported = unsupported_metamodel(declared);
         let mut report = Report::new();
 
-        let index = require(&mut report, self.index, "index", &location, unsupported);
+        // design/syside-metamodel.md, "The Syside KPAR": the family
+        // decides the shape. An absent or unrecognized metamodel is the
+        // OMG family, as it always was for a json document.
+        let family = Metamodel::schema_family(
+            declared
+                .and_then(|value| Metamodel::parse(value).ok())
+                .as_ref(),
+        );
+        let foreign = |key: &str| {
+            Diagnostic::from(ReadWarning::ForeignSchemaKey {
+                location: location.clone(),
+                key: key.to_owned(),
+                supported_by: MetamodelFamily::Syside,
+            })
+        };
+        let (index, root, exports, shape_ok) = match family {
+            MetamodelFamily::Omg => {
+                // The json side of the foreign-key rule (model-toml.md
+                // "Metamodel", rule (b)). Warned about and dropped,
+                // whatever the values.
+                let index = require(&mut report, self.index, "index", &location, unsupported);
+                if self.root.is_some() {
+                    report.push(foreign("root"));
+                }
+                if self.exports.is_some() {
+                    report.push(foreign("exports"));
+                }
+                let ok = index.is_some();
+                (index, None, None, ok)
+            }
+            MetamodelFamily::Syside => {
+                // An `index` is not used and does
+                // not stand in for the two keys the shape requires.
+                if self.index.is_some() {
+                    report.push(Diagnostic::warning(format!(
+                        "`index` in {location} is not used by the Syside metamodel and is \
+                         ignored; a Syside KPAR carries `root` and `exports`"
+                    )));
+                }
+                // `root` is required, and held to the checks a `sources`
+                // entry is held to.
+                let root_written = self.root.is_some();
+                let root = match self.root {
+                    None => {
+                        report.push(Diagnostic::error(format!(
+                            "missing key `root` in {location}; the Syside metamodel requires it"
+                        )));
+                        None
+                    }
+                    Some(raw) => match crate::manifest::common::root_path(&raw) {
+                        Ok(path) => Some(path.into_string()),
+                        Err(problem) => {
+                            report.push(Diagnostic::error(problem.to_string()));
+                            None
+                        }
+                    },
+                };
+                // `exports` is required.
+                if self.exports.is_none() {
+                    report.push(Diagnostic::error(format!(
+                        "missing key `exports` in {location}; the Syside metamodel requires it"
+                    )));
+                }
+                let ok = root_written && root.is_some() && self.exports.is_some();
+                (None, root, self.exports, ok)
+            }
+        };
         let created = require(&mut report, self.created, "created", &location, unsupported);
         report.extend(
             self.unknown
@@ -1593,11 +1684,13 @@ impl InterchangeProjectMetadataPartial {
                 .map(Diagnostic::from),
         );
 
-        let (Some(index), Some(created)) = (index, created) else {
+        let (true, Some(created)) = (shape_ok, created) else {
             return Err(report);
         };
         report.into_result(InterchangeProjectMetadataRaw {
             index,
+            root,
+            exports,
             created,
             metamodel: self.metamodel,
             includes_derived: self.includes_derived,
@@ -1634,11 +1727,14 @@ pub fn format_created_now() -> String {
 impl From<InterchangeProjectMetadata> for InterchangeProjectMetadataRaw {
     fn from(value: InterchangeProjectMetadata) -> Self {
         InterchangeProjectMetadataRaw {
-            index: value
-                .index
-                .into_iter()
-                .map(|(k, v)| (k, v.into_string()))
-                .collect(),
+            index: value.index.map(|index| {
+                index
+                    .into_iter()
+                    .map(|(k, v)| (k, v.into_string()))
+                    .collect()
+            }),
+            root: value.root.map(Utf8UnixPathBuf::into_string),
+            exports: value.exports,
             created: format_created(&value.created),
             metamodel: value.metamodel.map(String::from),
             includes_derived: value.includes_derived,
@@ -1672,6 +1768,11 @@ pub enum InterchangeProjectValidationError {
     DuplicateUsage(String),
     #[error("invalid metamodel (`metamodel` field in `.meta.json`)")]
     InvalidMetamodel(#[source] MetamodelParseError),
+    /// The typed form's only check on `root`: a binding that constructs
+    /// the raw document directly bypasses the reader's texts
+    /// (design/syside-metamodel.md, "The Syside KPAR").
+    #[error("invalid path in `root` (field in `.meta.json`)")]
+    InvalidPathInRoot(#[source] RelativeUnixPathError),
     #[error("project has an invalid Semantic Version `{0}`")]
     InvalidProjectVersion(Box<str>, #[source] semver::Error),
     #[error("project has an invalid name `{0}`")]
@@ -1773,7 +1874,9 @@ pub enum InterchangeProjectValidationError {
 impl Default for InterchangeProjectMetadataRaw {
     fn default() -> Self {
         InterchangeProjectMetadataRaw {
-            index: IndexMap::default(),
+            index: Some(IndexMap::default()),
+            root: None,
+            exports: None,
             created: format_created_now(),
             metamodel: None,
             includes_derived: None,
@@ -1790,14 +1893,28 @@ impl InterchangeProjectMetadataRaw {
     pub fn validate(
         &self,
     ) -> Result<InterchangeProjectMetadata, InterchangeProjectValidationError> {
-        let mut index = IndexMap::with_capacity(self.index.len());
         // Spec does not require any specific relationship between `index`
         // and `checksum` files
-        for (symbol, path) in &self.index {
-            let path = parse_relative_unix_path(path, RelativePathKind::SubFile)
-                .map_err(InterchangeProjectValidationError::InvalidPathInIndex)?;
-            index.insert(symbol.to_owned(), path.to_owned());
-        }
+        let index = match &self.index {
+            Some(raw) => {
+                let mut index = IndexMap::with_capacity(raw.len());
+                for (symbol, path) in raw {
+                    let path = parse_relative_unix_path(path, RelativePathKind::SubFile)
+                        .map_err(InterchangeProjectValidationError::InvalidPathInIndex)?;
+                    index.insert(symbol.to_owned(), path.to_owned());
+                }
+                Some(index)
+            }
+            None => None,
+        };
+        let root = match &self.root {
+            Some(raw) => Some(
+                parse_relative_unix_path(raw, RelativePathKind::SubFile)
+                    .map_err(InterchangeProjectValidationError::InvalidPathInRoot)?
+                    .to_path_buf(),
+            ),
+            None => None,
+        };
         let checksum = if let Some(checksum) = &self.checksum {
             let mut res = IndexMap::with_capacity(checksum.len());
             for (k, v) in checksum {
@@ -1854,6 +1971,8 @@ impl InterchangeProjectMetadataRaw {
 
         Ok(InterchangeProjectMetadata {
             index,
+            root,
+            exports: self.exports.clone(),
             // TODO: this is not strictly correct, as RFC3339 only partially overlaps with ISO8601
             created: self.created.parse::<jiff::Timestamp>().map_err(|e| {
                 InterchangeProjectValidationError::InvalidCreatedTime(
@@ -1868,10 +1987,12 @@ impl InterchangeProjectMetadataRaw {
         })
     }
 
-    /// Get symbols recorded in `index` for file at `path`
+    /// Get symbols recorded in `index` for file at `path`. Empty for the
+    /// Syside shape, which has no per-file map.
     pub fn file_index_symbols<P: AsRef<str>>(&self, path: P) -> HashSet<String> {
         self.index
             .iter()
+            .flatten()
             .filter_map(|(k, v)| {
                 if v == path.as_ref() {
                     Some(k.clone())
@@ -1931,10 +2052,13 @@ impl InterchangeProjectMetadataRaw {
     pub fn remove_index<P: AsRef<Utf8UnixPath>>(&mut self, path: &P) -> Vec<String> {
         let remove_path = path.as_ref().as_str();
 
-        self.index
-            .extract_if(.., |_, v| v == remove_path)
-            .map(|x| x.0)
-            .collect()
+        match self.index.as_mut() {
+            Some(index) => index
+                .extract_if(.., |_, v| v == remove_path)
+                .map(|x| x.0)
+                .collect(),
+            None => Vec::new(),
+        }
     }
 }
 
@@ -1943,7 +2067,9 @@ impl<Iri, Path: Eq + Hash + Clone, DateTime, IPC>
 {
     pub fn minimal(created: DateTime) -> Self {
         Self {
-            index: IndexMap::default(),
+            index: Some(IndexMap::default()),
+            root: None,
+            exports: None,
             created,
             metamodel: None,
             includes_derived: None,
@@ -1964,11 +2090,34 @@ impl<Iri, Path: Eq + Hash + Clone, DateTime, IPC>
 
         if include_index {
             result.extend(
-                self.index.values().cloned(), //.map(|s| Utf8UnixPath::new(&s).to_path_buf()),
+                self.index.iter().flat_map(IndexMap::values).cloned(), //.map(|s| Utf8UnixPath::new(&s).to_path_buf()),
             );
+            // A Syside document's entry point is one of its `checksum`
+            // keys by the specification's rule; listed here so that a
+            // document that breaks the rule still packages its root.
+            result.extend(self.root.iter().cloned());
         }
 
         result
+    }
+
+    /// What the project exports, whichever shape the document has: the
+    /// `exports` array of the Syside shape, else the keys of the OMG
+    /// shape's `index`. The one question the lockfile's collision check
+    /// asks, and the one place it should ask it (design/syside-metamodel.md,
+    /// "Dependencies"): a consumer that read `index` alone would find a
+    /// Syside dependency exporting nothing.
+    ///
+    /// A document with both -- only constructible programmatically, since
+    /// the reader drops the `index` of a Syside document -- answers with
+    /// `exports`.
+    pub fn exported_symbols(&self) -> impl Iterator<Item = &String> {
+        let from_exports = self.exports.iter().flatten();
+        let from_index = match &self.exports {
+            Some(_) => None,
+            None => self.index.as_ref(),
+        };
+        from_exports.chain(from_index.into_iter().flat_map(IndexMap::keys))
     }
 }
 

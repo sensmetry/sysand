@@ -35,7 +35,9 @@ fn mock_project<S: AsRef<str>, T: AsRef<str>, V: AsRef<str>>(
                 usage: vec![],
             }),
             meta: Some(InterchangeProjectMetadataRaw {
-                index: IndexMap::default(),
+                index: Some(IndexMap::default()),
+                root: None,
+                exports: None,
                 created: crate::model::format_created_now(),
                 metamodel: None,
                 includes_derived: None,

@@ -271,7 +271,11 @@ fn a_json_project_hashes_and_indexes() {
     .expect("a json project hashes and indexes");
 
     let meta = project.meta.as_ref().expect("metadata");
-    assert!(meta.index.contains_key("Parts"));
+    assert!(
+        meta.index
+            .as_ref()
+            .is_some_and(|index| index.contains_key("Parts"))
+    );
     assert!(
         meta.checksum
             .as_ref()

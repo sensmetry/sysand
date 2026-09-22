@@ -75,7 +75,9 @@ fn lock_preserves_project_publisher() {
             usage: vec![],
         },
         InterchangeProjectMetadataRaw {
-            index: IndexMap::default(),
+            index: Some(IndexMap::default()),
+            root: None,
+            exports: None,
             created: "2026-01-01T00:00:00Z".into(),
             metamodel: None,
             includes_derived: None,
@@ -136,7 +138,9 @@ fn lock_reports_which_dependent_pins_a_conflicting_version() {
                     .collect(),
             },
             InterchangeProjectMetadataRaw {
-                index: IndexMap::default(),
+                index: Some(IndexMap::default()),
+                root: None,
+                exports: None,
                 created: "2026-01-01T00:00:00Z".into(),
                 metamodel: None,
                 includes_derived: None,
@@ -233,7 +237,9 @@ mod typed_usage_spelling {
                 usage,
             },
             InterchangeProjectMetadataRaw {
-                index: IndexMap::default(),
+                index: Some(IndexMap::default()),
+                root: None,
+                exports: None,
                 created: "2026-01-01T00:00:00Z".into(),
                 metamodel: None,
                 includes_derived: None,
@@ -833,7 +839,9 @@ fn lib_at(version: &str) -> InMemoryProject {
             usage: vec![],
         },
         InterchangeProjectMetadataRaw {
-            index: IndexMap::default(),
+            index: Some(IndexMap::default()),
+            root: None,
+            exports: None,
             created: "2026-01-01T00:00:00Z".into(),
             metamodel: None,
             includes_derived: None,
@@ -1630,5 +1638,56 @@ fn a_members_own_entry_records_its_metamodel() -> Result<(), Box<dyn std::error:
         member.metamodel.as_deref(),
         Some("https://www.sysand.com/spec/SysML/20250201")
     );
+    Ok(())
+}
+
+/// A Syside dependency's `exports` come from its `.meta.json`'s
+/// `exports` array, and a Syside member's from the symbols of its
+/// sources -- the same input to the collision check as an OMG project's
+/// `index` keys.
+#[cfg(feature = "filesystem")]
+#[test]
+fn a_syside_json_dependency_locks_with_its_exports() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = workspace_tree(
+        &[(
+            "app",
+            "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"alpha\"\n\
+             version = \"1.0.0\"\nsources = [\"main.sysml\"]\n\
+             metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\nroot = \"main.sysml\"\n\
+             \n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"../dep\"\n",
+        )],
+        // A json project cannot be a member (appendix A row 22), and an
+        // unlisted directory under the root is row 25: excluded, it is
+        // the standalone dependency this is about.
+        "exclude = [\"dep\"]\n",
+    );
+    std::fs::write(dir.path().join("app/main.sysml"), "package Alpha;\n")?;
+    let dep = dir.path().join("dep");
+    std::fs::create_dir_all(&dep)?;
+    std::fs::write(
+        dep.join(".project.json"),
+        r#"{"name": "dep", "publisher": "acme", "version": "1.0.0", "usage": []}"#,
+    )?;
+    std::fs::write(
+        dep.join(".meta.json"),
+        r#"{"root": "lib.sysml", "exports": ["A", "B"], "created": "2001-02-03T04:05:06Z",
+            "metamodel": "https://www.sysand.com/spec/SysML/20250201",
+            "checksum": {"lib.sysml": {"value": "0000000000000000000000000000000000000000000000000000000000000000", "algorithm": "SHA256"}}}"#,
+    )?;
+    std::fs::write(dep.join("lib.sysml"), "package A; package B;\n")?;
+
+    let lock = lock_workspace(&dir).map_err(crate::utils::format_err)?;
+    let dep = lock
+        .projects
+        .iter()
+        .find(|p| p.name == "dep")
+        .expect("the dependency is in the lockfile");
+    assert_eq!(dep.exports, ["A".to_owned(), "B".to_owned()]);
+    let app = lock
+        .projects
+        .iter()
+        .find(|p| p.name == "alpha")
+        .expect("the member is in the lockfile");
+    assert_eq!(app.exports, ["Alpha".to_owned()]);
     Ok(())
 }

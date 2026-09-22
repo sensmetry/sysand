@@ -40,7 +40,9 @@ fn storage_example() -> InMemoryProject {
             }
             .into(),
             &InterchangeProjectMetadata {
-                index: IndexMap::new(),
+                index: Some(IndexMap::new()),
+                root: None,
+                exports: None,
                 created: jiff::Timestamp::new(1, 2).unwrap(),
                 metamodel: None,
                 includes_derived: None,

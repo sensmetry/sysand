@@ -61,6 +61,48 @@ public class ModelRoundtripTest {
         assertMetadataEquals(metadata, roundtripped.metadata);
     }
 
+    /**
+     * The Syside shape of {@code .meta.json} -- {@code root} and
+     * {@code exports} in place of {@code index} -- round-trips through the
+     * native layer, with {@code index} null.
+     */
+    @Test
+    void sysideMetadataRoundTrips() {
+        InterchangeProjectInfo info = new InterchangeProjectInfo(
+                "widgets", "acme", null, "1.0.0", null,
+                new String[0], null, new String[0], new InterchangeProjectUsage[0]);
+
+        LinkedHashMap<String, InterchangeProjectChecksum> checksum = new LinkedHashMap<>();
+        checksum.put("main.sysml", new InterchangeProjectChecksum("0123456789abcdef", "SHA256"));
+
+        InterchangeProjectMetadata metadata = new InterchangeProjectMetadata(
+                null,
+                "2026-01-02T03:04:05Z",
+                "https://www.sysand.com/spec/SysML/20250201",
+                null,
+                null,
+                checksum,
+                "main.sysml",
+                new String[] {"Main", "Helper"});
+
+        InterchangeProject roundtripped = SysandTestHooks.modelRoundtrip(info, metadata);
+
+        assertNull(roundtripped.metadata.getIndex());
+        assertEquals("main.sysml", roundtripped.metadata.getRoot());
+        assertArrayEquals(new String[] {"Main", "Helper"}, roundtripped.metadata.getExports());
+        assertEquals(metadata.getCreated(), roundtripped.metadata.getCreated());
+        assertEquals(metadata.getMetamodel(), roundtripped.metadata.getMetamodel());
+    }
+
+    /** The six-argument constructor constructs an OMG-shaped document. */
+    @Test
+    void theShortConstructorBuildsTheOmgShape() {
+        InterchangeProjectMetadata metadata = new InterchangeProjectMetadata(
+                new LinkedHashMap<>(), "2026-01-02T03:04:05Z", null, null, null, null);
+        assertNull(metadata.getRoot());
+        assertNull(metadata.getExports());
+    }
+
     private static void assertInfoEquals(InterchangeProjectInfo expected, InterchangeProjectInfo actual) {
         assertEquals(expected.getName(), actual.getName());
         assertEquals(expected.getPublisher(), actual.getPublisher());

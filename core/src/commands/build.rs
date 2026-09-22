@@ -141,6 +141,13 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
     },
     #[error("{0}")]
     Extract(String),
+    /// A Syside project's KPAR has no `index` to keep
+    /// (design/syside-metamodel.md, "Build").
+    #[error(
+        "`--keep-index` applies to projects with a computed index; a Syside project's KPAR \
+         carries `root` and `exports` instead"
+    )]
+    KeepIndexOnRoot,
     #[error(
         "unknown file format of `{0}`, only SysML v2 (.sysml) and KerML (.kerml) files are supported"
     )]
@@ -500,8 +507,16 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         IndexMap::new()
     };
     let len = source_paths.len();
+    // design/syside-metamodel.md, "The Syside KPAR": a root-shaped
+    // document has `exports`, not `index`, and `--keep-index` has
+    // nothing to keep.
+    let root_shape = meta.root.is_some();
+    if root_shape && !update_index {
+        return Err(KParBuildError::KeepIndexOnRoot);
+    }
     if update_index {
-        meta.index.clear();
+        let mut index = IndexMap::new();
+        let mut exports: Vec<String> = Vec::new();
         for (i, p) in source_paths.into_iter().enumerate() {
             // `log` always appends a newline, so `\r` does not work with it
             eprint!("\rupdating file metadata ({}/{len})", i + 1);
@@ -516,7 +531,14 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
                 .map_err(|e| FsIoError::WriteFile(path.as_ref().into(), e))?;
 
             for s in symbols {
-                meta.index.insert(s, p.clone());
+                if root_shape {
+                    // Each name once, at its first appearance.
+                    if !exports.contains(&s) {
+                        exports.push(s);
+                    }
+                } else {
+                    index.insert(s, p.clone());
+                }
             }
             checksums.insert(
                 p,
@@ -525,6 +547,11 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
                     algorithm: KerMlChecksumAlg::Sha256.into(),
                 },
             );
+        }
+        if root_shape {
+            meta.exports = Some(exports);
+        } else {
+            meta.index = Some(index);
         }
     } else {
         for (i, p) in source_paths.into_iter().enumerate() {

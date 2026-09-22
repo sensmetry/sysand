@@ -36,7 +36,9 @@ fn project(version: &str) -> InMemoryProject {
             usage: vec![],
         }),
         meta: Some(InterchangeProjectMetadataRaw {
-            index: IndexMap::new(),
+            index: Some(IndexMap::new()),
+            root: None,
+            exports: None,
             created: "2026-01-01T00:00:00Z".to_owned(),
             metamodel: None,
             includes_derived: None,

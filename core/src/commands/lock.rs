@@ -374,7 +374,7 @@ fn lock_projects<
             // Syside root with a Syside dependency is a false direction
             // error.
             metamodel: meta.metamodel.clone(),
-            exports: meta.index.into_keys().collect(),
+            exports: meta.exported_symbols().cloned().collect(),
             identifiers: identifiers
                 .map(|ids| ids.into_iter().map(Into::into).collect())
                 .unwrap_or_default(),
@@ -611,7 +611,7 @@ fn lock_extend<
             publisher: info.publisher,
             version: info.version.clone(),
             metamodel: meta.metamodel.clone(),
-            exports: meta.index.into_keys().collect(),
+            exports: meta.exported_symbols().cloned().collect(),
             identifiers: vec![identifier.to_string()],
             sources,
             // TODO: into_iter

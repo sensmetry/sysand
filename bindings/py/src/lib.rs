@@ -1220,7 +1220,8 @@ fn do_build_py(
                     reason: _,
                 }
                 | KParBuildError::Serialize(..)
-                | KParBuildError::MissingIndexSymbol(_, _) => PyValueError::new_err(e),
+                | KParBuildError::MissingIndexSymbol(_, _)
+                | KParBuildError::KeepIndexOnRoot => PyValueError::new_err(e),
                 KParBuildError::PathUsage(_) => PyValueError::new_err(format!(
                     "{e}\nto build anyway, pass `allow_path_usage=True`"
                 )),
@@ -2036,6 +2037,8 @@ fn info_and_metadata_fields_guard(
 
     let InterchangeProjectMetadataRaw {
         index,
+        root,
+        exports,
         created,
         metamodel,
         includes_derived,

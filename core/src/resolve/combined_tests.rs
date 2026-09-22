@@ -38,7 +38,9 @@ fn minimal_project<S: AsRef<str>, T: AsRef<str>>(name: S, version: T) -> InMemor
             usage: vec![],
         }),
         meta: Some(InterchangeProjectMetadataRaw {
-            index: IndexMap::new(),
+            index: Some(IndexMap::new()),
+            root: None,
+            exports: None,
             created: "1970-01-01T00:00:00.000000000Z".to_owned(),
             metamodel: None,
             includes_derived: None,

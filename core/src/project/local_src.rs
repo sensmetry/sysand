@@ -301,7 +301,7 @@ impl LocalSrcProject {
 
     pub fn set_index(&mut self, new_index: IndexMap<String, String>) -> Result<(), LocalSrcError> {
         let mut meta = self.get_meta()?.ok_or(LocalSrcError::MissingMeta)?;
-        meta.index = new_index;
+        meta.index = Some(new_index);
         self.put_meta(&meta, true)?;
         Ok(())
     }

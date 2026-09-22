@@ -1239,6 +1239,10 @@ def test_model_roundtrip() -> None:
         "metamodel": "https://www.omg.org/spec/SysML/20250201",
         "includes_derived": True,
         "includes_implied": False,
+        # The OMG shape: no `root`, no `exports`. A dict read from Sysand
+        # carries the keys as None (see `test_syside_metadata_shapes`).
+        "root": None,
+        "exports": None,
         "checksum": {
             "src/Alpha.sysml": sysand.InterchangeProjectChecksum(
                 value="0123456789abcdef", algorithm="MD5"
@@ -1528,3 +1532,84 @@ def test_build(compression: Union[sysand.CompressionMethod, None]) -> None:
             project_dir=tmp_main,
             compression=compression,
         )
+
+
+def test_syside_metadata_shapes() -> None:
+    """A Syside-metamodel ``.meta.json`` carries ``root`` and
+    ``exports`` and no ``index``; the dict a caller passes in may leave
+    the three keys out."""
+    from sysand._sysand_core import _do_model_roundtrip_py  # type: ignore
+
+    syside = "https://www.sysand.com/spec/SysML/20250201"
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        root = Path(tmpdirname)
+        (root / ".project.json").write_text(
+            json.dumps(
+                {
+                    "name": "widgets",
+                    "publisher": "acme",
+                    "version": "1.0.0",
+                    "usage": [],
+                }
+            )
+        )
+        (root / ".meta.json").write_text(
+            json.dumps(
+                {
+                    "root": "main.sysml",
+                    "exports": ["Widgets"],
+                    "created": "2026-01-01T00:00:00Z",
+                    "metamodel": syside,
+                    "checksum": {
+                        "main.sysml": {"value": "0" * 64, "algorithm": "SHA256"}
+                    },
+                }
+            )
+        )
+        (root / "main.sysml").write_text("package Widgets;\n")
+
+        info_meta = sysand.info(iri=root.resolve().as_uri())
+        assert info_meta is not None
+        _, meta = info_meta
+        assert meta["index"] is None
+        assert meta["root"] == "main.sysml"
+        assert meta["exports"] == ["Widgets"]
+
+    # A dict without the three keys is accepted, and comes back with them.
+    info: sysand.InterchangeProjectInfo = {
+        "name": "widgets",
+        "publisher": "acme",
+        "description": None,
+        "version": "1.0.0",
+        "license": None,
+        "maintainer": [],
+        "website": None,
+        "topic": [],
+        "usage": [],
+    }
+    metadata = {
+        "created": "2026-01-02T03:04:05Z",
+        "metamodel": None,
+        "includes_derived": None,
+        "includes_implied": None,
+        "checksum": None,
+    }
+    _, roundtripped = _do_model_roundtrip_py(info, metadata)
+    assert roundtripped["index"] is None
+    assert roundtripped["root"] is None
+    assert roundtripped["exports"] is None
+
+    # And the Syside shape round-trips.
+    metadata = {
+        "root": "main.sysml",
+        "exports": ["Widgets", "Parts"],
+        "created": "2026-01-02T03:04:05Z",
+        "metamodel": syside,
+        "includes_derived": None,
+        "includes_implied": None,
+        "checksum": None,
+    }
+    _, roundtripped = _do_model_roundtrip_py(info, metadata)
+    assert roundtripped["index"] is None
+    assert roundtripped["root"] == "main.sysml"
+    assert roundtripped["exports"] == ["Widgets", "Parts"]
