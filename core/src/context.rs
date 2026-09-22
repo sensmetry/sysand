@@ -51,6 +51,11 @@ pub struct ProjectContext {
     /// environment metadata file exists.
     #[cfg(feature = "filesystem")]
     pub env: Option<LocalDirectoryEnvironment>,
+    /// The advisory lock the command holds on the workspace, acquired
+    /// once at command top and handed to every environment the command
+    /// writes; `None` for readers.
+    #[cfg(feature = "filesystem")]
+    pub workspace_lock: Option<std::sync::Arc<crate::workspace_lock::WorkspaceLock>>,
 }
 
 impl ProjectContext {

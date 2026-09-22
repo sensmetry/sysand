@@ -34,3 +34,7 @@ pub const SYSAND_HTTP_CONNECT_TIMEOUT: &str = "SYSAND_HTTP_CONNECT_TIMEOUT";
 /// How many times to retry an idempotent HTTP request after a transient
 /// failure. A whole number; `0` disables retries.
 pub const SYSAND_HTTP_RETRIES: &str = "SYSAND_HTTP_RETRIES";
+
+/// Corresponds to the `--lock-wait` command line argument: seconds to
+/// wait for another process to release the workspace lock.
+pub const SYSAND_LOCK_WAIT: &str = "SYSAND_LOCK_WAIT";

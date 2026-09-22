@@ -17,6 +17,7 @@ from ._errors import (
     AuthError,
     EnvError,
     IndexProtocolError,
+    LockHeldError,
     NotFoundError,
     ProjectError,
     ResolutionError,
@@ -111,6 +112,7 @@ __all__ = [  # ruff: ignore[RUF022]
     "IndexProtocolError",
     "SyncError",
     "EnvError",
+    "LockHeldError",
     ## Auth and index configuration
     "AuthPolicy",
     "Resolution",

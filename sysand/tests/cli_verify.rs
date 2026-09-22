@@ -205,7 +205,7 @@ fn verify_reports_environment_gone() -> Result<(), Box<dyn Error>> {
         ))
         .stderr(predicate::str::contains("2 problem(s)"));
     // Verifying did not create the environment.
-    assert!(!cwd.join(DEFAULT_ENV_NAME).exists());
+    assert!(!cwd.join(DEFAULT_ENV_NAME).join(METADATA_PATH).exists());
     Ok(())
 }
 

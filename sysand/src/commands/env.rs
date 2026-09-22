@@ -67,6 +67,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
         ctx.model_workspace_root.as_deref(),
         ctx.current_project.as_ref(),
         &ctx.current_directory,
+        ctx.workspace_lock.as_ref(),
     )?;
     ctx.env = Some(env);
 
@@ -220,6 +221,7 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
         ctx.model_workspace_root.as_deref(),
         ctx.current_project.as_ref(),
         &ctx.current_directory,
+        ctx.workspace_lock.as_ref(),
     )?;
     ctx.env = Some(env);
 

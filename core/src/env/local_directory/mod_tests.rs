@@ -24,6 +24,7 @@ identifiers = ["{iri}"]
         .unwrap();
     }
     LocalDirectoryEnvironment {
+        lock: None,
         root_dir: Utf8PathBuf::from("/env"),
         metadata: EnvMetadata::from_str(&toml).unwrap(),
     }
@@ -94,6 +95,7 @@ identifiers = ["urn:kpar:example"]
     );
 
     let env = LocalDirectoryEnvironment {
+        lock: None,
         root_dir: env_dir,
         metadata: EnvMetadata::from_str(&toml).unwrap(),
     };
@@ -189,6 +191,7 @@ identifiers = ["urn:kpar:example"]
 "#
         );
         let mut env = LocalDirectoryEnvironment {
+            lock: None,
             root_dir: Utf8PathBuf::from("/env"),
             metadata: EnvMetadata::from_str(&toml).unwrap(),
         };

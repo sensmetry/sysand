@@ -27,7 +27,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 use std::time::{Duration, Instant};
 
 use super::{CredentialBlob, CredentialRecord, CredentialStoreError, parse_blob, serialize_blob};
-use crate::project::utils::FsIoError;
+use crate::project::utils::{FsIoError, LockMode};
 
 /// Keyring service name of the single sysand credential entry.
 #[cfg(all(
@@ -260,11 +260,7 @@ impl<B: BlobBackend> LockedBlobStore<B> {
         let file = self.open_lock_file()?;
         let deadline = Instant::now() + self.lock_timeout;
         loop {
-            let attempt = match mode {
-                LockMode::Shared => file.try_lock_shared(),
-                LockMode::Exclusive => file.try_lock(),
-            };
-            match attempt {
+            match mode.try_lock(&file) {
                 Ok(()) => {
                     let result = body(&self.backend);
                     // Release explicitly (it would also unlock on `file` drop)
@@ -287,14 +283,6 @@ impl<B: BlobBackend> LockedBlobStore<B> {
             }
         }
     }
-}
-
-/// Which cross-process lock [`LockedBlobStore::with_lock`] takes: shared
-/// for read-only operations, exclusive for read-modify-write.
-#[derive(Clone, Copy)]
-enum LockMode {
-    Shared,
-    Exclusive,
 }
 
 /// Create a directory chain, with the final directory private (0700) on
