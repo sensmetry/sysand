@@ -930,7 +930,8 @@ pub enum Source {
 }
 
 impl Source {
-    pub(crate) fn to_toml(&self) -> InlineTable {
+    /// The inline table the lockfile writes for this source
+    pub fn to_toml(&self) -> InlineTable {
         let mut table = InlineTable::new();
         match self {
             Self::Editable { editable } => {

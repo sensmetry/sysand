@@ -380,6 +380,14 @@ pub enum Command {
         #[command(flatten)]
         sources_opts: SourcesOptions,
     },
+    /// List the versions of a project an index (or another source) offers,
+    /// highest first
+    Versions {
+        /// Project IRI, e.g. `pkg:sysand/<publisher>/<name>`
+        iri: fluent_uri::Iri<String>,
+        #[command(flatten)]
+        resolution_opts: ResolutionOptions,
+    },
     /// Prints the root directory of the current project
     PrintRoot {
         #[command(flatten)]
@@ -618,6 +626,17 @@ pub struct EnvProjectLocatorArgs {
     /// IRI identifying the installed project
     #[arg(long, default_value = None)]
     pub iri: Option<Iri<String>>,
+}
+
+/// How a run reports.
+#[derive(clap::ValueEnum, Default, Copy, Clone, Debug, PartialEq, Eq)]
+#[clap(rename_all = "lowercase")]
+pub enum OutputFormat {
+    /// Human-readable text
+    #[default]
+    Text,
+    /// One JSON document on stdout
+    Json,
 }
 
 #[derive(clap::ValueEnum, Default, Copy, Clone, Debug)]
@@ -1518,6 +1537,20 @@ pub struct GlobalOptions {
         verbatim_doc_comment
     )]
     pub lock_wait: Option<u64>,
+    /// Output format: `text` (the default) or `json`, one document on
+    /// stdout carrying `schemaVersion`, `complete`, `skipped` and
+    /// `escapeHatch`; warnings and progress stay on stderr
+    #[arg(
+        long,
+        global = true,
+        value_enum,
+        default_value_t = OutputFormat::Text,
+        value_name = "FORMAT",
+        help_heading = "Global options",
+        env = env_vars::SYSAND_FORMAT,
+        verbatim_doc_comment
+    )]
+    pub format: OutputFormat,
     /// Print help
     #[arg(long, global = true, action = clap::ArgAction::HelpLong, help_heading = "Global options")]
     pub help: Option<bool>,

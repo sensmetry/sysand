@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "complete": true,
+  "skipped": [],
+  "escapeHatch": null,
+  "installed": [],
+  "pruned": [],
+  "kept": [{ "iri": "urn:dep", "version": "1.0.0" }],
+  "verified": [],
+  "repaired": [],
+  "mismatched": [],
+  "unrecorded": [],
+  "stale": []
+}

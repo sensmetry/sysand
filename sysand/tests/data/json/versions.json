@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "complete": true,
+  "skipped": [],
+  "escapeHatch": null,
+  "iri": "pkg:sysand/mock/dep",
+  "versions": ["0.2.0", "0.1.0"],
+  "ignored": []
+}

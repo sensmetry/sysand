@@ -39,3 +39,4 @@ pub fn check_metamodel(value: &str) -> anyhow::Result<KnownMetamodel> {
         )
     })
 }
+pub mod versions;

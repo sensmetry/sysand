@@ -187,7 +187,12 @@ pub fn command_migrate<Policy: HTTPAuthentication>(
     // missing-publisher error.
     let publisher = match publisher {
         Some(publisher) => Some(publisher),
-        None if info.publisher.is_none() && std::io::stdin().is_terminal() => {
+        // Under `--format json` stdout is the document, so there is no
+        // prompt: the run is non-interactive.
+        None if info.publisher.is_none()
+            && std::io::stdin().is_terminal()
+            && !crate::output::is_json() =>
+        {
             prompt_for_publisher()?
         }
         None => None,

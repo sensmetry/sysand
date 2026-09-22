@@ -22,3 +22,6 @@ pub const SYSAND_NO_CONFIG: &str = "SYSAND_NO_CONFIG";
 /// Corresponds to the `--lock-wait` command line argument: seconds to
 /// wait for another process to release the workspace lock.
 pub const SYSAND_LOCK_WAIT: &str = "SYSAND_LOCK_WAIT";
+
+/// Corresponds to the `--format` command line argument: `text` or `json`.
+pub const SYSAND_FORMAT: &str = "SYSAND_FORMAT";

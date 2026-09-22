@@ -388,7 +388,9 @@ pub fn command_auth_logout(index_url: Option<IndexKey>, config: &Config) -> Resu
     // default cannot be targeted silently.
     let header = sysand_core::style::get_style_config().header;
     // Print to ignore log levels
-    println!("{header}{:>12}{header:#} from index `{key}`", "Logging out");
+    crate::output::text(|| {
+        println!("{header}{:>12}{header:#} from index `{key}`", "Logging out");
+    });
 
     let mut store = open_cli_credential_store().context("could not open the credential store")?;
     match do_auth_logout(&mut store, &key) {

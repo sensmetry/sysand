@@ -364,6 +364,27 @@ Each `package_ID` is derived from the project's canonical identifier, and
 `sysand_core::env::iri_normalize::iri_to_filename_part()` and
 `sysand_core::env::iri_normalize::normalize_version()`, respectively.
 
+### Structured output
+
+`sysand/src/output.rs` is `--format json`: one JSON document on stdout
+per run, pretty-printed, camelCase, carrying the envelope
+`schemaVersion` (1), `complete`, `skipped` and `escapeHatch` -- the
+partiality fields, on every document so that no reader has to know
+which can be partial.
+Document commands fill the payload at their print sites (`info` its two
+manifests, `info <get>` the `values` per member, `sources` a sorted
+list, `env list`, `print-root`, `versions`, `lock` the lockfile's
+projects, `sync` its `SyncOutcome` plus `verify`); any other command
+prints a result document (`command`, `changed`: the paths it writes by
+kind, computed at dispatch -- `clone`, `migrate` and `publish` decide
+inside themselves and report none); a failing run prints a failure
+document (`complete: false`, `error: {kind, message}`; `kind` is
+`cancelled`, `lock-held`, `verify` or `error`) and keeps its exit code.
+`auth` refuses the flag except `logout`. The
+state is per run, reset at the start, because the embedded CLI runs
+many times in one process; text-mode printing goes through
+`output::text` where a document replaces it.
+
 ### Cancellation
 
 `cancel.rs` re-exports `tokio_util::sync::CancellationToken` and defines

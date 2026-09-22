@@ -77,6 +77,7 @@ use crate::{
         sources::{command_sources_env, command_sources_project, command_sources_workspace},
         sync::{VerifyStatus, command_sync, command_sync_verify},
     },
+    output::RunReport,
 };
 
 const DEFAULT_INDEX_URL: &str = "https://sysand.com";
@@ -100,6 +101,7 @@ pub(crate) mod cred_env;
 pub mod credential_store;
 pub mod env_vars;
 pub mod logger;
+pub mod output;
 pub mod style;
 
 mod error;
@@ -201,16 +203,24 @@ pub fn run_parsed(
     if matches!(ownership, ProcessOwnership::Owned) {
         install_ctrl_c(cancellation.clone());
     }
-    let Err(err) = run_cli_with(global_opts, command, ownership, cancellation.clone()) else {
-        return 0;
+    // The run's output format, per run.
+    output::begin(global_opts.format);
+    let err = match run_cli_with(global_opts, command, ownership, cancellation.clone()) {
+        Ok(report) => {
+            output::finish_ok(&report);
+            return 0;
+        }
+        Err(err) => err,
     };
     let style = style::ERROR;
     if cancellation.is_cancelled() {
         // Whatever error the cancelled step surfaced, the run was
         // cancelled; 130 is the conventional exit code.
+        output::finish_err("cancelled", "cancelled");
         eprintln!("{style}error{style:#}: cancelled");
         return 130;
     }
+    output::finish_err(&failure_kind(&err), &format!("{err:#}"));
     eprintln!("{style}error{style:#}: {err}");
     let mut causes = err.chain();
     // The first cause is the error itself which is printed already
@@ -377,6 +387,117 @@ pub fn standard_auth_policy(use_credential_store: bool) -> Result<CliAuthPolicy>
     })
 }
 
+/// The manifest a project's writing commands touch.
+fn manifest_path(project: &LocalSrcProject) -> Utf8PathBuf {
+    match sysand_core::project::ProjectRead::format(project) {
+        Ok(sysand_core::project::ProjectFormat::Toml) => project
+            .root_path()
+            .join(sysand_core::manifest::MODEL_TOML_FILE),
+        _ => project.info_path(),
+    }
+}
+
+/// The result document of a mutating command: its name and the paths it
+/// writes, by kind. A command that fills a document of its own (`info`,
+/// `sources`, `env list`, `print-root`, `versions`, `lock`, `sync`)
+/// overrides this with it.
+fn run_report(
+    command: &cli::Command,
+    lock_root: &Utf8Path,
+    project_root: Option<&Utf8Path>,
+    manifest: Option<Utf8PathBuf>,
+    cwd: &Utf8Path,
+) -> RunReport {
+    let lockfile = lock_root.join(DEFAULT_LOCKFILE_NAME);
+    let env_dir = lock_root.join(DEFAULT_ENV_NAME);
+    let manifest_or_root = || {
+        manifest
+            .clone()
+            .or_else(|| project_root.map(Utf8Path::to_path_buf))
+    };
+    match command {
+        cli::Command::Init { path, .. } => RunReport::new("init").changed(
+            path.as_deref()
+                .map_or_else(|| cwd.to_path_buf(), |p| cwd.join(p)),
+        ),
+        cli::Command::Add { .. } => RunReport::new("add")
+            .changed_all(manifest_or_root())
+            .changed(&lockfile)
+            .changed(&env_dir),
+        cli::Command::Remove { .. } => RunReport::new("remove")
+            .changed_all(manifest_or_root())
+            .changed(&lockfile)
+            .changed(&env_dir),
+        cli::Command::Include { .. } => RunReport::new("include").changed_all(manifest_or_root()),
+        cli::Command::Exclude { .. } => RunReport::new("exclude").changed_all(manifest_or_root()),
+        // `migrate`, `clone` and `publish` decide what they write inside
+        // themselves (a deleted json pair, an installed dependency set,
+        // the archives found); the report names the command only.
+        cli::Command::Migrate { .. } => RunReport::new("migrate"),
+        // `info` reads (a `--get` fills the `values` document); `edit`
+        // changes the manifest.
+        cli::Command::Info { .. } => RunReport::new("info"),
+        cli::Command::Edit { .. } => RunReport::new("edit").changed_all(manifest_or_root()),
+        cli::Command::Build { .. } => RunReport::new("build")
+            .changed(lock_root.join(sysand_core::commands::build::DEFAULT_OUTPUT_NAME)),
+        cli::Command::Publish { .. } => RunReport::new("publish"),
+        cli::Command::Lock { .. } => RunReport::new("lock").changed(&lockfile),
+        cli::Command::Sync { .. } => RunReport::new("sync").changed(&env_dir),
+        cli::Command::Env { command } => match command {
+            None => RunReport::new("env").changed(&env_dir),
+            Some(cli::EnvCommand::List) => RunReport::new("env list"),
+            Some(cli::EnvCommand::Sources { .. }) => RunReport::new("env sources"),
+        },
+        cli::Command::Index { command } => {
+            let (name, root) = match command {
+                cli::IndexCommand::Init { index_root } => ("index init", index_root),
+                cli::IndexCommand::Add { index_root, .. } => ("index add", index_root),
+                cli::IndexCommand::Yank { index_root, .. } => ("index yank", index_root),
+                cli::IndexCommand::Remove { index_root, .. } => ("index remove", index_root),
+            };
+            RunReport::new(name).changed(root.clone().unwrap_or_else(|| cwd.to_path_buf()))
+        }
+        cli::Command::Clone { .. } => RunReport::new("clone"),
+        cli::Command::Sources { .. } => RunReport::new("sources"),
+        cli::Command::PrintRoot { .. } => RunReport::new("print-root"),
+        cli::Command::Versions { .. } => RunReport::new("versions"),
+        cli::Command::Auth { .. } => RunReport::new("auth"),
+        cli::Command::Experimental {} => RunReport::new("experimental"),
+    }
+}
+
+/// The failure document's `kind`: what a reader such as a retry loop
+/// needs to tell apart. Anything else is `error`.
+fn failure_kind(err: &anyhow::Error) -> String {
+    if err.chain().any(|cause| {
+        matches!(
+            cause.downcast_ref::<sysand_core::workspace_lock::LockError>(),
+            Some(sysand_core::workspace_lock::LockError::Held { .. })
+        )
+    }) {
+        return "lock-held".to_owned();
+    }
+    if err
+        .chain()
+        .any(|cause| cause.downcast_ref::<VerifyFailed>().is_some())
+    {
+        return "verify".to_owned();
+    }
+    "error".to_owned()
+}
+
+/// `sync --verify` found problems: a typed failure so the JSON kind is
+/// `verify` and the text is the one message.
+#[derive(Debug, thiserror::Error)]
+#[error("`.sysand` does not match `sysand-lock.toml`{after}: {count} problem(s){remain}",
+    after = .repaired.map_or_else(String::new, |n| format!(" after repairing {n} project(s)")),
+    remain = if .repaired.is_some() { " remain" } else { "" })]
+pub struct VerifyFailed {
+    pub count: usize,
+    /// How many projects `--repair` reinstalled; `None` for `--verify`.
+    pub repaired: Option<usize>,
+}
+
 /// Cancel `token` on the first Ctrl-C and exit with 130 on the second.
 ///
 /// On its own thread with its own small runtime: the command's runtime is
@@ -420,7 +541,7 @@ fn run_cli_with(
     command: cli::Command,
     ownership: ProcessOwnership,
     cancellation: CancellationToken,
-) -> Result<()> {
+) -> Result<RunReport> {
     sysand_core::style::set_style_config(crate::style::CONFIG);
 
     let cwd = wrapfs::current_dir()?;
@@ -734,16 +855,35 @@ fn run_cli_with(
     // no ambient auth policy is needed.
     let command = match command {
         Command::Auth { command } => {
+            // Appendix B row P2-16: `login` prompts and `status` has no
+            // document designed yet; the others report a result.
+            // `whoami` too, until its identity document is designed
+            // (its text form is the only output it has): a deviation
+            // from the memo's list, recorded in plans/111.
+            if output::is_json() && !matches!(command, AuthCommand::Logout { .. }) {
+                let name = match command {
+                    AuthCommand::Login { .. } => "auth login",
+                    AuthCommand::Whoami { .. } => "auth whoami",
+                    _ => "auth status",
+                };
+                bail!("{}", output::not_supported(name));
+            }
             return match command {
-                AuthCommand::Status => command_auth_status(&config),
+                AuthCommand::Status => {
+                    command_auth_status(&config).map(|()| RunReport::new("auth status"))
+                }
                 AuthCommand::Login {
                     index_url,
                     token_stdin,
-                } => command_auth_login(index_url, token_stdin, &config, &client, runtime),
+                } => command_auth_login(index_url, token_stdin, &config, &client, runtime)
+                    .map(|()| RunReport::new("auth login")),
                 AuthCommand::Whoami { index_url } => {
                     command_auth_whoami(index_url, &config, &client, &runtime)
+                        .map(|()| RunReport::new("auth whoami"))
                 }
-                AuthCommand::Logout { index_url } => command_auth_logout(index_url, &config),
+                AuthCommand::Logout { index_url } => {
+                    command_auth_logout(index_url, &config).map(|()| RunReport::new("auth logout"))
+                }
             };
         }
         command => command,
@@ -751,7 +891,17 @@ fn run_cli_with(
 
     let auth_policy = Arc::new(standard_auth_policy(true)?);
 
-    match command {
+    // What a mutating command reports having changed, by kind, computed
+    // before the arguments move into the arms.
+    let report = run_report(
+        &command,
+        &lock_root,
+        project_root.as_deref(),
+        ctx.current_project.as_ref().map(manifest_path),
+        &ctx.current_directory,
+    );
+
+    let outcome: Result<()> = match command {
         Command::Init {
             path,
             name,
@@ -875,7 +1025,7 @@ fn run_cli_with(
             // `workspaces.md` "Locking": one lockfile for the whole
             // workspace, at its root, from anywhere under it.
             if let Some(root) = &model_workspace_root {
-                command_lock_workspace(
+                let lock = command_lock_workspace(
                     root,
                     resolution_opts,
                     &config,
@@ -883,20 +1033,22 @@ fn run_cli_with(
                     runtime,
                     auth_policy,
                     &ctx,
-                )
-                .map(|_| ())
+                )?;
+                output::lock_document(&lock, &root.join(DEFAULT_LOCKFILE_NAME));
+                Ok(())
             } else if let Some(project_root) = project_root {
-                command_lock(
+                let lock = command_lock(
                     ".",
                     resolution_opts,
                     &config,
-                    project_root,
+                    &project_root,
                     client,
                     runtime,
                     auth_policy,
                     &ctx,
-                )
-                .map(|_| ())
+                )?;
+                output::lock_document(&lock, &project_root.join(DEFAULT_LOCKFILE_NAME));
+                Ok(())
             } else {
                 bail!(
                     "not inside a project - neither current nor any of the parent directories contain a SysML v2 or KerML project"
@@ -973,15 +1125,25 @@ fn run_cli_with(
                     ctx.cancellation.clone(),
                     &mut outcome,
                 )?;
+                output::document(
+                    "verify",
+                    match status {
+                        VerifyStatus::Clean { verified, .. } => {
+                            serde_json::json!({ "clean": true, "problems": 0, "verified": verified })
+                        }
+                        VerifyStatus::Problems { count, .. } => {
+                            serde_json::json!({ "clean": false, "problems": count, "verified": outcome.verified.len() })
+                        }
+                    },
+                );
+                output::sync_document(&outcome);
                 return match status {
-                    VerifyStatus::Clean { .. } => Ok(()),
-                    VerifyStatus::Problems { count, repaired } if repair => bail!(
-                        "`.sysand` does not match `sysand-lock.toml` after repairing {repaired} \
-                         project(s): {count} problem(s) remain"
-                    ),
-                    VerifyStatus::Problems { count, .. } => {
-                        bail!("`.sysand` does not match `sysand-lock.toml`: {count} problem(s)")
+                    VerifyStatus::Clean { .. } => Ok(report),
+                    VerifyStatus::Problems { count, repaired } => Err(VerifyFailed {
+                        count,
+                        repaired: repair.then_some(repaired),
                     }
+                    .into()),
                 };
             }
             let mut local_environment = get_or_create_env(
@@ -991,6 +1153,7 @@ fn run_cli_with(
                 &ctx.current_directory,
                 ctx.workspace_lock.as_ref(),
             )?;
+            let mut outcome = SyncOutcome::default();
             command_sync(
                 &lock,
                 project_root,
@@ -1001,8 +1164,9 @@ fn run_cli_with(
                 auth_policy,
                 no_prune,
                 ctx.cancellation.clone(),
-                &mut SyncOutcome::default(),
+                &mut outcome,
             )?;
+            output::sync_document(&outcome);
             Ok(())
         }
         Command::Auth { command: _ } => {
@@ -1012,7 +1176,8 @@ fn run_cli_with(
         // workspace root, and `--member` "prints the member's".
         Command::PrintRoot { selector: _ } => match &selected {
             Some(dir) => {
-                println!("{dir}");
+                output::document("root", dir.as_str());
+                output::text(|| println!("{dir}"));
                 Ok(())
             }
             None => command_print_root(
@@ -1377,6 +1542,30 @@ fn run_cli_with(
             client,
             runtime,
         ),
+        Command::Versions {
+            iri,
+            resolution_opts,
+        } => {
+            let cli::ResolutionOptions {
+                index,
+                default_index,
+                no_index,
+                include_std: _,
+            } = resolution_opts;
+            let index_urls = if no_index {
+                None
+            } else {
+                Some(config.index_urls(index, vec![default_index_location()], default_index))
+            };
+            crate::commands::versions::command_versions(
+                iri,
+                client,
+                index_urls,
+                runtime,
+                auth_policy,
+                ctx,
+            )
+        }
         Command::Sources {
             selector: _,
             sources_opts,
@@ -1410,7 +1599,9 @@ fn run_cli_with(
         Command::Experimental {} => {
             bail!("No experimental commands are available");
         }
-    }
+    };
+    outcome?;
+    Ok(report)
 }
 
 pub fn iri_or_path_to_iri(
@@ -1512,13 +1703,14 @@ pub type Overrides<Policy> = Vec<(Identifier, Vec<OverrideProject<Policy>>)>;
 /// identifier, which is looked up in the indexes.
 fn reads_configuration(command: &cli::Command) -> bool {
     match command {
-        cli::Command::Lock { resolution_opts: _ }
-        | cli::Command::Sync { resolution_opts: _, no_prune: _ }
-        | cli::Command::Add { selector: _, locator: _, version_constraint: _, sync: _, resolution_opts: _, source_opts: _ }
-        | cli::Command::Remove { selector: _, locator: _, sync: _, resolution_opts: _ }
-        | cli::Command::Clone { locator: _, target: _, version_constraint: _, no_deps: _, resolution_opts: _ }
-        | cli::Command::Env { command: _ }
-        | cli::Command::Publish { selector: _, path: _, index: _, trusted_publishing: _ }
+        cli::Command::Lock { .. }
+        | cli::Command::Sync { .. }
+        | cli::Command::Versions { .. }
+        | cli::Command::Add { .. }
+        | cli::Command::Remove { .. }
+        | cli::Command::Clone { .. }
+        | cli::Command::Env { .. }
+        | cli::Command::Publish { .. }
         // `migrate` builds a resolver: it resolves `http(s)` and
         // `pkg:sysand` usages through an index. A one-time conversion is
         // also a bad place to be quiet about configuration that is not
@@ -1557,21 +1749,22 @@ fn reads_configuration(command: &cli::Command) -> bool {
 /// extending the check to commands that have no scope.
 fn consults_the_workspace(command: &cli::Command) -> bool {
     match command {
-        cli::Command::Build { selector: _, path: _, compression: _, allow_path_usage: _, keep_index: _ }
-        | cli::Command::Sources { selector: _, sources_opts: _ }
-        | cli::Command::Info { selector: _, locator: _, get: _, resolution_opts: _ }
-        | cli::Command::Edit { dir: _, selector: _, edits: _ }
-        | cli::Command::Publish { selector: _, path: _, index: _, trusted_publishing: _ }
-        | cli::Command::Add { selector: _, locator: _, version_constraint: _, sync: _, resolution_opts: _, source_opts: _ }
-        | cli::Command::Remove { selector: _, locator: _, sync: _, resolution_opts: _ }
-        | cli::Command::Include { selector: _, paths: _, compute_checksum: _, no_index_symbols: _ }
-        | cli::Command::Exclude { selector: _, paths: _ }
-        | cli::Command::Experimental {  }
-        | cli::Command::Lock { resolution_opts: _ }
-        | cli::Command::Sync { resolution_opts: _, no_prune: _ }
-        | cli::Command::Env { command: _ }
-        | cli::Command::PrintRoot { selector: _ } => true,
-        cli::Command::Init { path: _, name: _, publisher: _, version: _, license: _, metamodel: _, metamodel_release: _ }
+        cli::Command::Build { .. }
+        | cli::Command::Sources { .. }
+        | cli::Command::Info { .. }
+        | cli::Command::Edit { .. }
+        | cli::Command::Publish { .. }
+        | cli::Command::Add { .. }
+        | cli::Command::Remove { .. }
+        | cli::Command::Include { .. }
+        | cli::Command::Exclude { .. }
+        | cli::Command::Experimental { .. }
+        | cli::Command::Lock { .. }
+        | cli::Command::Sync { .. }
+        | cli::Command::Versions { .. }
+        | cli::Command::Env { .. }
+        | cli::Command::PrintRoot { .. } => true,
+        cli::Command::Init { .. }
         // Deliberately not: a discovery error would be fatal, and an
         // unlisted json project under a workspace root is exactly the
         // one a user wants to migrate. A bare `migrate` at a workspace
