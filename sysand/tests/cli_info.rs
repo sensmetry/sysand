@@ -77,7 +77,7 @@ fn info_prints_all_usage_types() -> Result<(), Box<dyn Error>> {
       "name": "dir_dep"
     },
     {
-      "kpar_path": "deps/kpar_dep.kpar",
+      "kparPath": "deps/kpar_dep.kpar",
       "publisher": "acme",
       "name": "kpar_dep"
     }
