@@ -1362,3 +1362,44 @@ fn publish_workspace_from_a_member_dir_publishes_every_member() -> TestResult {
     );
     Ok(())
 }
+
+/// A built Syside KPAR passes publish's validation and is uploaded. The
+/// manifest is written by hand.
+#[test]
+fn publish_accepts_a_built_syside_kpar() -> TestResult {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    fs::create_dir_all(cwd.join("LICENSES"))?;
+    fs::write(
+        cwd.join("model.toml"),
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
+         version = \"1.0.0\"\nsources = [\"main.sysml\"]\nlicense = \"MIT\"\n\
+         metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\nroot = \"main.sysml\"\n",
+    )?;
+    fs::write(cwd.join("main.sysml"), "package Widgets;\n")?;
+    fs::write(cwd.join("README.md"), "# widgets\n")?;
+    fs::write(cwd.join("LICENSES/MIT.txt"), "MIT\n")?;
+    run_sysand_ok(&cwd, &["build"], None)?;
+
+    let mut server = Server::new();
+    let config_mock = mock_index_config_api_at_api(&mut server);
+    let publish_mock = server
+        .mock("POST", "/api/v1/upload")
+        .match_header("authorization", "Bearer test-token")
+        .with_status(201)
+        .with_body("created")
+        .expect(1)
+        .create();
+
+    let env = bearer_env_for_url(server.url().as_str());
+    run_sysand_in_with(
+        &cwd,
+        ["publish", "--index", server.url().as_str()],
+        None,
+        &env,
+    )?
+    .assert()
+    .success();
+    publish_mock.assert();
+    config_mock.assert();
+    Ok(())
+}

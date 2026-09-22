@@ -1656,9 +1656,8 @@ fn a_syside_json_dependency_locks_with_its_exports() -> Result<(), Box<dyn std::
              metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\nroot = \"main.sysml\"\n\
              \n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"../dep\"\n",
         )],
-        // A json project cannot be a member (appendix A row 22), and an
-        // unlisted directory under the root is row 25: excluded, it is
-        // the standalone dependency this is about.
+        // The dependency sits under the workspace root, so it is
+        // excluded rather than a stray (workspaces.md, Included projects).
         "exclude = [\"dep\"]\n",
     );
     std::fs::write(dir.path().join("app/main.sysml"), "package Alpha;\n")?;
@@ -1689,5 +1688,53 @@ fn a_syside_json_dependency_locks_with_its_exports() -> Result<(), Box<dyn std::
         .find(|p| p.name == "alpha")
         .expect("the member is in the lockfile");
     assert_eq!(app.exports, ["Alpha".to_owned()]);
+    Ok(())
+}
+
+/// design/syside-metamodel.md, "The Syside KPAR": a Syside archive is a
+/// usable `kpar-path` target, and the lockfile takes its `exports` from
+/// the archive's array.
+#[cfg(feature = "filesystem")]
+#[test]
+fn a_syside_kpar_is_a_usable_kpar_path_target() -> Result<(), Box<dyn std::error::Error>> {
+    use crate::commands::build::{KparCompressionMethod, do_build_kpar};
+    use crate::project::local_src::LocalSrcProject;
+
+    let dir = workspace_tree(
+        &[(
+            "app",
+            "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"alpha\"\n\
+             version = \"1.0.0\"\nsources = [\"main.sysml\"]\n\
+             metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\nroot = \"main.sysml\"\n\
+             \n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\nkpar-path = \"../dep.kpar\"\n",
+        )],
+        "",
+    );
+    std::fs::write(dir.path().join("app/main.sysml"), "package Alpha;\n")?;
+
+    let target = camino_tempfile::tempdir()?;
+    std::fs::write(
+        target.path().join("model.toml"),
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"dep\"\n\
+         version = \"2.0.0\"\nsources = [\"lib.sysml\"]\n\
+         metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\nroot = \"lib.sysml\"\n",
+    )?;
+    std::fs::write(target.path().join("lib.sysml"), "package A; package B;\n")?;
+    do_build_kpar(
+        &LocalSrcProject::new_access(target.path(), None),
+        dir.path().join("dep.kpar"),
+        KparCompressionMethod::default(),
+        true,
+        false,
+    )?;
+
+    let lock = lock_workspace(&dir).map_err(|e| e.to_string())?;
+    let dep = lock
+        .projects
+        .iter()
+        .find(|p| p.name == "dep")
+        .expect("the archive is in the lockfile");
+    assert_eq!(dep.exports, ["A".to_owned(), "B".to_owned()]);
+    assert_eq!(dep.version.clone(), "2.0.0");
     Ok(())
 }

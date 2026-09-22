@@ -384,15 +384,15 @@ pub fn meta(
 ) -> InterchangeProjectMetadataRaw {
     // design/syside-metamodel.md, "The Syside KPAR": a project with a
     // `root` writes the Syside shape -- `root` and the flat `exports`
-    // array, no `index`. The array is the map's keys in `sources` order,
-    // each name once at its first appearance, which is what the map
-    // already holds.
+    // array, no `index`. The array is the map's keys -- each name once,
+    // which the map guarantees -- sorted, so that the view and a build
+    // agree on the order whatever order the files were read in.
     let (index, root, exports) = match &project.root {
-        Some(root) => (
-            None,
-            Some(root.as_str().to_owned()),
-            Some(index.into_keys().collect()),
-        ),
+        Some(root) => {
+            let mut exports: Vec<String> = index.into_keys().collect();
+            exports.sort();
+            (None, Some(root.as_str().to_owned()), Some(exports))
+        }
         None => (Some(index), None, None),
     };
     InterchangeProjectMetadataRaw {

@@ -1415,3 +1415,260 @@ fn build_keep_index_is_refused_on_a_syside_project() -> Result<(), Box<dyn std::
     assert!(!cwd.join("widgets.kpar").exists());
     Ok(())
 }
+
+/// A Syside project with the conventional files beside its sources.
+fn write_syside_project_with_extras(
+    dir: &camino::Utf8Path,
+    name: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    std::fs::create_dir_all(dir.join("LICENSES"))?;
+    std::fs::write(
+        dir.join("model.toml"),
+        format!(
+            "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"{name}\"\n\
+             version = \"1.0.0\"\nsources = [\"a.sysml\", \"b.sysml\"]\nlicense = \"MIT\"\n\
+             metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\nroot = \"a.sysml\"\n"
+        ),
+    )?;
+    std::fs::write(dir.join("a.sysml"), b"package A;\n")?;
+    std::fs::write(dir.join("b.sysml"), b"package B; package A;\n")?;
+    std::fs::write(dir.join("README.md"), b"# widgets\n")?;
+    std::fs::write(dir.join("CHANGELOG.md"), b"# changes\n")?;
+    std::fs::write(dir.join("LICENSES/MIT.txt"), b"MIT\n")?;
+    Ok(())
+}
+
+fn archive_names(path: &camino::Utf8Path) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let mut zip = zip::ZipArchive::new(std::fs::File::open(path)?)?;
+    let mut names: Vec<String> = (0..zip.len())
+        .map(|i| {
+            let f = zip.by_index(i)?;
+            f.name().map(std::borrow::Cow::into_owned)
+        })
+        .collect::<Result<_, _>>()?;
+    names.sort();
+    Ok(names)
+}
+
+/// The golden Syside KPAR (design/syside-metamodel.md, "The Syside
+/// KPAR"): `root`, `exports` with every name once at its first
+/// appearance, no `index`, and `checksum` over every file in the archive
+/// but the two manifests. An OMG sibling built from the same files
+/// checksums its sources only.
+#[test]
+fn a_syside_kpar_checksums_every_file_but_the_manifests() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    write_syside_project_with_extras(&cwd, "widgets")?;
+    run_sysand_in(&cwd, ["build", "./widgets.kpar"], None)?
+        .assert()
+        .success();
+
+    let names = archive_names(&cwd.join("widgets.kpar"))?;
+    assert_eq!(
+        names,
+        [
+            ".meta.json",
+            ".project.json",
+            "CHANGELOG.md",
+            "LICENSES/MIT.txt",
+            "README.md",
+            "a.sysml",
+            "b.sysml"
+        ]
+    );
+    let kpar = LocalKParProjectRaw::new_guess_root(cwd.join("widgets.kpar"))?;
+    let (Some(info), Some(meta)) = kpar.get_project()? else {
+        panic!("info and meta");
+    };
+    assert_eq!(info.name, "widgets");
+    assert_eq!(meta.root.as_deref(), Some("a.sysml"));
+    assert_eq!(meta.exports, Some(vec!["A".to_owned(), "B".to_owned()]));
+    assert_eq!(meta.index, None);
+    let mut keys: Vec<&String> = meta.checksum.as_ref().expect("checksum").keys().collect();
+    keys.sort();
+    assert_eq!(
+        keys,
+        [
+            "CHANGELOG.md",
+            "LICENSES/MIT.txt",
+            "README.md",
+            "a.sysml",
+            "b.sysml"
+        ]
+    );
+
+    // The OMG sibling.
+    let omg = cwd.join("omg");
+    std::fs::create_dir_all(&omg)?;
+    write_syside_project_with_extras(&omg, "gadgets")?;
+    let manifest = std::fs::read_to_string(omg.join("model.toml"))?
+        .replace(
+            "https://www.sysand.com/spec/SysML/20250201",
+            "https://www.omg.org/spec/SysML/20250201",
+        )
+        .replace("root = \"a.sysml\"\n", "");
+    std::fs::write(omg.join("model.toml"), manifest)?;
+    run_sysand_in(&omg, ["build", "./gadgets.kpar"], None)?
+        .assert()
+        .success();
+    let kpar = LocalKParProjectRaw::new_guess_root(omg.join("gadgets.kpar"))?;
+    let (Some(_), Some(meta)) = kpar.get_project()? else {
+        panic!("info and meta");
+    };
+    assert!(meta.root.is_none() && meta.exports.is_none());
+    let mut keys: Vec<&String> = meta.checksum.as_ref().expect("checksum").keys().collect();
+    keys.sort();
+    assert_eq!(keys, ["a.sysml", "b.sysml"]);
+    Ok(())
+}
+
+/// design/syside-metamodel.md, "Build": a mixed-family workspace builds
+/// each member to its own shape, into one `output/`.
+#[test]
+fn a_mixed_family_workspace_builds_both_shapes_into_one_output()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    write_workspace_with(&cwd, &["omg", "syside"], "")?;
+    write_toml_member(&cwd.join("omg"), "omg-member", "1.0.0", "")?;
+    write_toml_member(
+        &cwd.join("syside"),
+        "syside-member",
+        "1.0.0",
+        "metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\nroot = \"test.sysml\"\n",
+    )?;
+
+    run_sysand_in(&cwd, ["build"], None)?.assert().success();
+
+    let omg =
+        LocalKParProjectRaw::new_guess_root(cwd.join("output").join("omg_member-1.0.0.kpar"))?;
+    let (Some(_), Some(meta)) = omg.get_project()? else {
+        panic!("omg meta");
+    };
+    assert!(meta.index.is_some() && meta.root.is_none());
+
+    let syside =
+        LocalKParProjectRaw::new_guess_root(cwd.join("output").join("syside_member-1.0.0.kpar"))?;
+    let (Some(_), Some(meta)) = syside.get_project()? else {
+        panic!("syside meta");
+    };
+    assert_eq!(meta.root.as_deref(), Some("test.sysml"));
+    assert_eq!(meta.exports, Some(vec!["P".to_owned()]));
+    assert!(meta.index.is_none());
+    Ok(())
+}
+
+/// Every file under `dir`, as `(relative path, bytes)`.
+fn files_under(
+    dir: &camino::Utf8Path,
+) -> Result<Vec<(String, Vec<u8>)>, Box<dyn std::error::Error>> {
+    fn walk(
+        root: &camino::Utf8Path,
+        dir: &camino::Utf8Path,
+        out: &mut Vec<(String, Vec<u8>)>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        for entry in dir.read_dir_utf8()? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() {
+                walk(root, path, out)?;
+            } else {
+                let relative = path.strip_prefix(root)?.as_str().replace('\\', "/");
+                out.push((relative, std::fs::read(path)?));
+            }
+        }
+        Ok(())
+    }
+    let mut out = Vec::new();
+    walk(dir, dir, &mut out)?;
+    Ok(out)
+}
+
+/// A built Syside archive end to end: the archive reads back through
+/// `info`, a local index accepts it, and -- the index's files served the
+/// way an index serves them -- a usage resolves from it and records the
+/// archive's `exports`.
+#[test]
+fn a_syside_kpar_round_trips_through_info_and_a_local_index()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    write_syside_project_with_extras(&cwd, "widgets")?;
+    run_sysand_in(&cwd, ["build", "./widgets.kpar"], None)?
+        .assert()
+        .success();
+
+    run_sysand_in(&cwd, ["info", "--kpar-path", "widgets.kpar"], None)?
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("widgets"));
+
+    run_sysand_in(&cwd, ["index", "init", "--index-root", "idx"], None)?
+        .assert()
+        .success();
+    run_sysand_in(
+        &cwd,
+        [
+            "index",
+            "add",
+            "--kpar-path",
+            "widgets.kpar",
+            "--index-root",
+            "idx",
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+    let files = files_under(&cwd.join("idx"))?;
+    let versions = files
+        .iter()
+        .find(|(name, _)| name.ends_with("versions.json"))
+        .expect("index add writes a versions.json");
+    assert!(
+        String::from_utf8_lossy(&versions.1).contains("1.0.0"),
+        "the version is listed"
+    );
+
+    // Serve the index's files as an index serves them, and resolve.
+    let mut server = mockito::Server::new();
+    let _config = server
+        .mock("GET", "/sysand-index-config.json")
+        .with_status(404)
+        .create();
+    let mocks: Vec<mockito::Mock> = files
+        .iter()
+        .map(|(name, bytes)| {
+            server
+                .mock("GET", format!("/{name}").as_str())
+                .with_status(200)
+                .with_body(bytes.clone())
+                .create()
+        })
+        .collect();
+    drop(mocks);
+
+    let app = cwd.join("app");
+    std::fs::create_dir_all(&app)?;
+    std::fs::write(
+        app.join("model.toml"),
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"app\"\n\
+         version = \"1.0.0\"\nsources = [\"main.sysml\"]\n\
+         metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\nroot = \"main.sysml\"\n\
+         \n[[inline-usages]]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"^1\"\n",
+    )?;
+    std::fs::write(app.join("main.sysml"), b"package App;\n")?;
+    run_sysand_in(
+        &app,
+        ["lock", "--default-index", server.url().as_str()],
+        None,
+    )?
+    .assert()
+    .success();
+    let lock = std::fs::read_to_string(app.join("sysand-lock.toml"))?;
+    assert!(lock.contains("name = \"widgets\""), "{lock}");
+    assert!(
+        lock.contains("exports = [\n    \"A\",\n    \"B\",\n]"),
+        "{lock}"
+    );
+    Ok(())
+}

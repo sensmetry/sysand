@@ -1511,8 +1511,7 @@ pub struct InterchangeProjectMetadataG<MM, Path: Eq + Hash, DateTime, IPC> {
     pub root: Option<Path>,
 
     /// The Syside shape's exported names, a flat array computed at build
-    /// time from every model file, each name once at its first
-    /// appearance in `sources` order.
+    /// time from every model file, each name once, sorted.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "python", pyo3(default))]
     pub exports: Option<Vec<String>>,
@@ -2078,13 +2077,32 @@ impl<Iri, Path: Eq + Hash + Clone, DateTime, IPC>
         }
     }
 
-    pub fn source_paths(&self, include_index: bool) -> HashSet<Path> {
+    /// The project's model files: what a build packages as sources, what
+    /// `sysand sources` lists, what an environment copies.
+    ///
+    /// For the OMG shape every `checksum` key is a source (plus the
+    /// `index` values when asked). For the Syside shape `checksum`
+    /// covers the whole archive -- the readme, the changelog, the
+    /// license files -- so the sources are "the `checksum` keys that are
+    /// model files" (design/syside-metamodel.md, "Dependencies"), which
+    /// equals the manifest's `sources` by construction.
+    pub fn source_paths(&self, include_index: bool) -> HashSet<Path>
+    where
+        Path: AsRef<str>,
+    {
         let mut result: HashSet<Path> = HashSet::new();
 
         // TODO: Should these be normalised?
         if let Some(checksum) = &self.checksum {
+            let root_shape = self.root.is_some();
             result.extend(
-                checksum.keys().cloned(), //.map(|s| Utf8UnixPath::new(&s).to_path_buf()),
+                checksum
+                    .keys()
+                    .filter(|key| {
+                        !root_shape
+                            || Language::guess_from_path(Utf8UnixPath::new(key.as_ref())).is_some()
+                    })
+                    .cloned(), //.map(|s| Utf8UnixPath::new(&s).to_path_buf()),
             );
         }
 

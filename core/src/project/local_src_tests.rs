@@ -884,3 +884,25 @@ fn a_member_project_prefers_its_own_values() {
         .expect("a member reads");
     assert_eq!(info.expect("an info").version, "1.2.3");
 }
+
+/// design/syside-metamodel.md, "The Syside KPAR": the extracted form of
+/// a Syside archive is a json project like any other. Detection looks
+/// at which files are there, not at their shape; how a `model.toml`
+/// beside a lone `.meta.json` is classified is a different question.
+#[test]
+fn a_root_shaped_json_pair_is_detected_as_a_json_project() {
+    let dir = tempdir().expect("a temporary directory");
+    write_project_json(
+        dir.path(),
+        r#"{"name": "widgets", "publisher": "acme", "version": "1.0.0"}"#,
+    );
+    write_meta_json(
+        dir.path(),
+        r#"{"root": "main.sysml", "exports": [], "created": "2026-01-01T00:00:00Z",
+            "metamodel": "https://www.sysand.com/spec/SysML/20250201"}"#,
+    );
+    assert_eq!(
+        detect_format(dir.path()).expect("readable"),
+        ProjectFormat::Json
+    );
+}

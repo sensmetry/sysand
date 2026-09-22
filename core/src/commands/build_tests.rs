@@ -1171,3 +1171,82 @@ fn a_member_that_inherits_can_be_a_usage_target() -> Result<(), Box<dyn std::err
     }
     Ok(())
 }
+
+/// A Syside project with the conventional files, ready to build.
+fn syside_project_with_extras() -> Result<camino_tempfile::Utf8TempDir, Box<dyn std::error::Error>>
+{
+    let dir = tempdir()?;
+    std::fs::write(
+        dir.path().join("model.toml"),
+        "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
+         version = \"1.0.0\"\nsources = [\"a.sysml\", \"b.sysml\"]\nlicense = \"MIT\"\n\
+         metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\nroot = \"a.sysml\"\n",
+    )?;
+    std::fs::write(dir.path().join("a.sysml"), b"package A;\n")?;
+    std::fs::write(dir.path().join("b.sysml"), b"package B;\n")?;
+    std::fs::write(dir.path().join("README.md"), b"# widgets\n")?;
+    std::fs::create_dir_all(dir.path().join("LICENSES"))?;
+    std::fs::write(dir.path().join("LICENSES/MIT.txt"), b"MIT\n")?;
+    Ok(dir)
+}
+
+fn archive_names(path: &camino::Utf8Path) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let mut zip = zip::ZipArchive::new(std::fs::File::open(path)?)?;
+    let mut names: Vec<String> = (0..zip.len())
+        .map(|i| {
+            let f = zip.by_index(i)?;
+            f.name().map(std::borrow::Cow::into_owned)
+        })
+        .collect::<Result<_, _>>()?;
+    names.sort();
+    Ok(names)
+}
+
+/// design/syside-metamodel.md, "The Syside KPAR": the extracted form of
+/// a Syside archive is a json project that builds again. With `checksum`
+/// covering the readme and the license file, the build must not lex
+/// them as sources or package them twice; and `sysand sources` on the
+/// extracted form lists the model files only.
+#[test]
+fn the_extracted_form_of_a_syside_kpar_builds_again() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = syside_project_with_extras()?;
+    let (_, meta) = built(&dir, false)?;
+    let first = dir.path().join("out.kpar");
+    let mut keys: Vec<&String> = meta.checksum.as_ref().expect("checksum").keys().collect();
+    keys.sort();
+    assert_eq!(
+        keys,
+        ["LICENSES/MIT.txt", "README.md", "a.sysml", "b.sysml"]
+    );
+
+    let extracted = tempdir()?;
+    zip::ZipArchive::new(std::fs::File::open(&first)?)?.extract(extracted.path())?;
+    let json = LocalSrcProject::new_access(extracted.path(), None);
+    let sources = crate::commands::sources::do_sources_project_no_deps(&json, true)?;
+    let mut sources: Vec<String> = sources.into_iter().map(|p| p.as_str().to_owned()).collect();
+    sources.sort();
+    assert_eq!(sources, ["a.sysml", "b.sysml"]);
+
+    let second = extracted.path().join("again.kpar");
+    do_build_kpar(
+        &json,
+        &second,
+        KparCompressionMethod::default(),
+        true,
+        false,
+    )?;
+    assert_eq!(archive_names(&second)?, archive_names(&first)?);
+    let again = crate::project::local_kpar::LocalKParProjectRaw::new_guess_root(&second)?;
+    let (_, again_meta) = crate::project::ProjectRead::get_project(&again)?;
+    let again_meta = again_meta.expect("meta");
+    assert_eq!(again_meta.root, meta.root);
+    assert_eq!(again_meta.exports, meta.exports);
+    assert_eq!(
+        again_meta
+            .checksum
+            .map(|c| c.into_keys().collect::<std::collections::BTreeSet<_>>()),
+        meta.checksum
+            .map(|c| c.into_keys().collect::<std::collections::BTreeSet<_>>())
+    );
+    Ok(())
+}

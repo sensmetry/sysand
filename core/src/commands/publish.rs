@@ -18,7 +18,10 @@ use thiserror::Error;
 use url::Url;
 use zip::result::ZipError;
 
+use indexmap::IndexMap;
 use jiff::{SignedDuration, Timestamp};
+use std::collections::HashSet;
+use typed_path::Utf8UnixPathBuf;
 
 use crate::{
     auth::{
@@ -29,9 +32,9 @@ use crate::{
     include::{IncludeError, extract_symbols},
     index_location::IndexLocation,
     model::{
-        IndexName, IndexPublisher, InterchangeProjectUsageRaw, InterchangeProjectValidationError,
-        KERML_SPEC_PREFIX, KerMlChecksumAlg, Metamodel, MetamodelFamily, MetamodelRelease,
-        SYSML_SPEC_PREFIX, SpecKind,
+        IndexName, IndexPublisher, InterchangeProjectChecksum, InterchangeProjectUsageRaw,
+        InterchangeProjectValidationError, KERML_SPEC_PREFIX, KerMlChecksumAlg, META_JSON_FILE,
+        Metamodel, MetamodelRelease, PROJECT_JSON_FILE, SYSML_SPEC_PREFIX, SpecKind,
     },
     project::{
         ProjectRead as _,
@@ -771,6 +774,29 @@ pub enum PublishError {
     MissingFile { path: Box<str> },
     #[error("project metadata does not include a checksum for source file `{path}`")]
     MissingChecksumForFile { path: Box<str> },
+    #[error("the archive does not contain `root` `{path}`")]
+    RootNotInArchive { path: Box<str> },
+    /// The Syside shape's rule in place of "checksum is a superset of the
+    /// `index` files".
+    #[error(
+        "`checksum` does not cover `{path}`; a Syside KPAR checksums every file in the archive \
+         but `.project.json` and `.meta.json`"
+    )]
+    ChecksumMissesFile { path: Box<str> },
+    /// The two manifests are the exception to "every file", and would
+    /// otherwise be hashed and accepted since neither is a model file.
+    #[error("`checksum` covers `{path}`, which a Syside KPAR does not checksum")]
+    ChecksumCoversManifest { path: Box<str> },
+    /// The symbol check in the OMG family's direction, restated for a flat
+    /// array.
+    #[error(
+        "metadata claims the project exports `{symbol}`, but no file in the archive declares \
+         it; the archive declares {declared}"
+    )]
+    ExportNotDeclared {
+        symbol: Box<str>,
+        declared: Box<str>,
+    },
     /// model-toml.md "Metamodel": "a `KerML` project admits `.kerml`
     /// files only, and a `SysML` project admits `.sysml` and `.kerml`".
     /// A KPAR built from a json project never went through `Sources`,
@@ -798,7 +824,7 @@ pub enum PublishError {
         license: Box<spdx::Expression>,
     },
     #[error(
-        "metamodel `{metamodel}` cannot be used; only OMG SysML/KerML\n\
+        "metamodel `{metamodel}` cannot be used; only SysML/KerML\n\
         metamodels are currently allowed in the index"
     )]
     UnsupportedMetamodel { metamodel: String },
@@ -1214,120 +1240,133 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
     if file_checksums.is_empty() {
         return Err(PublishError::EmptyChecksum);
     }
-    // WP-A2b splits these checks by family (design/syside-metamodel.md,
-    // "Publish"): a root-shaped document has `exports`, not `index`, and
-    // until then its symbols are not checked here and it gets the
-    // warning below.
-    let index = validated_meta.index.unwrap_or_default();
-    if index.is_empty() {
-        log::warn!(
-            "project doesn't list any symbols as exported (empty `index`
+    // design/syside-metamodel.md, "Publish": the checks split by shape.
+    // A root-shaped document checksums every file and exports a flat
+    // array; the OMG path below is untouched.
+    if let Some(root) = validated_meta.root.as_ref() {
+        publish_root_shape(
+            root.as_str(),
+            validated_meta.exports.as_deref().unwrap_or(&[]),
+            &file_checksums,
+            &mut kpar_files,
+            &mut archive,
+            metamodel_kind,
+            metamodel,
+        )?;
+    } else {
+        // Always `Some` on this path: the reader requires `index` of the OMG
+        // shape (`InterchangeProjectMetadataPartial::validate`).
+        let index = validated_meta.index.unwrap_or_default();
+        if index.is_empty() {
+            log::warn!(
+                "project doesn't list any symbols as exported (empty `index`
             {0:>8} field in `.meta.json`);\n\
             {0:>8} it's unlikely to be useful if no symbols are exported\n\
             {0:>8} (did you forget to include source files?)",
-            ' '
-        );
-    }
-
-    // Reverse of `meta.index`: instead of symbol -> file, this is file -> symbols
-    let mut symbols_for_files: HashMap<_, Vec<String>> = HashMap::new();
-
-    for (symbol, src_file) in index {
-        // `meta.checksum` must reference a superset of files mentioned by `meta.index`
-        // TODO: what about detecting duplicate exports? With our current design this is by
-        // construction impossible.
-        // Should probably change InterchangeProjectMetadataRaw to have Vec for checksum and
-        // index, instead of HashMap, which will silently discard duplicates; and then fail
-        // on `validate()`, as such metadata is always incorrect
-        if !file_checksums.contains_key(&src_file) {
-            return Err(PublishError::MissingChecksumForFile {
-                path: src_file.as_str().into(),
-            });
+                ' '
+            );
         }
-        match symbols_for_files.entry(src_file) {
-            Entry::Occupied(mut entry) => {
-                entry.get_mut().push(symbol);
+
+        // Reverse of `meta.index`: instead of symbol -> file, this is file -> symbols
+        let mut symbols_for_files: HashMap<_, Vec<String>> = HashMap::new();
+
+        for (symbol, src_file) in index {
+            // `meta.checksum` must reference a superset of files mentioned by `meta.index`
+            // TODO: what about detecting duplicate exports? With our current design this is by
+            // construction impossible.
+            // Should probably change InterchangeProjectMetadataRaw to have Vec for checksum and
+            // index, instead of HashMap, which will silently discard duplicates; and then fail
+            // on `validate()`, as such metadata is always incorrect
+            if !file_checksums.contains_key(&src_file) {
+                return Err(PublishError::MissingChecksumForFile {
+                    path: src_file.as_str().into(),
+                });
             }
-            Entry::Vacant(entry) => {
-                entry.insert(vec![symbol]);
+            match symbols_for_files.entry(src_file) {
+                Entry::Occupied(mut entry) => {
+                    entry.get_mut().push(symbol);
+                }
+                Entry::Vacant(entry) => {
+                    entry.insert(vec![symbol]);
+                }
             }
         }
-    }
 
-    for (src_file, file_checksum) in file_checksums {
-        // `admits`, not one extension per project: the rule is the
-        // manifest's (model-toml.md "Metamodel"), and a file that is no
-        // model file at all fails it too.
-        if !Language::guess_from_path(&src_file).is_some_and(|lang| metamodel_kind.admits(lang)) {
-            return Err(PublishError::IncorrectFileFormat {
-                path: src_file.as_str().into(),
-                metamodel_iri: metamodel.to_string().into(),
-            });
-        }
+        for (src_file, file_checksum) in file_checksums {
+            // `admits`, not one extension per project: the rule is the
+            // manifest's (model-toml.md "Metamodel"), and a file that is no
+            // model file at all fails it too.
+            if !Language::guess_from_path(&src_file).is_some_and(|lang| metamodel_kind.admits(lang))
+            {
+                return Err(PublishError::IncorrectFileFormat {
+                    path: src_file.as_str().into(),
+                    metamodel_iri: metamodel.to_string().into(),
+                });
+            }
 
-        if file_checksum.algorithm != KerMlChecksumAlg::Sha256 {
-            return Err(PublishError::UnsupportedFileChecksumType {
-                path: src_file.as_str().into(),
-                alg: file_checksum.algorithm,
-            });
-        }
+            if file_checksum.algorithm != KerMlChecksumAlg::Sha256 {
+                return Err(PublishError::UnsupportedFileChecksumType {
+                    path: src_file.as_str().into(),
+                    alg: file_checksum.algorithm,
+                });
+            }
 
-        match kpar_files.get_mut(src_file.as_str()) {
-            Some(v) => {
-                *v = true;
+            match kpar_files.get_mut(src_file.as_str()) {
+                Some(v) => {
+                    *v = true;
 
-                let mut file =
-                    archive
-                        .by_path(src_file.as_str())
-                        .map_err(|e| PublishError::KparFileRead {
+                    let mut file = archive.by_path(src_file.as_str()).map_err(|e| {
+                        PublishError::KparFileRead {
+                            path: src_file.as_str().into(),
+                            source: e,
+                        }
+                    })?;
+                    let mut source = String::new();
+                    file.read_to_string(&mut source)
+                        .map_err(|e| PublishError::KparFileReadIo {
                             path: src_file.as_str().into(),
                             source: e,
                         })?;
-                let mut source = String::new();
-                file.read_to_string(&mut source)
-                    .map_err(|e| PublishError::KparFileReadIo {
-                        path: src_file.as_str().into(),
-                        source: e,
-                    })?;
-                let actual_checksum = sha256_lowercase_hex(&source);
-                if !actual_checksum.eq_ignore_ascii_case(&file_checksum.value) {
-                    return Err(PublishError::IncorrectFileChecksum {
-                        path: src_file.as_str().into(),
-                        expected: file_checksum.value.into_boxed_str(),
-                        actual: actual_checksum.into_boxed_str(),
-                    });
-                }
-
-                // Guessed from the path, not forced: a SysML project may
-                // carry `.kerml` files, and the two have different
-                // extractors.
-                let actual_symbols = extract_symbols(&src_file, &source, None)
-                    .map_err(|e| PublishError::IndexFail { source: e })?;
-                // Actual symbols must be a superset of recorded
-                if let Some(symbols) = symbols_for_files.get(&src_file) {
-                    for s in symbols {
-                        if !actual_symbols.contains(s) {
-                            return Err(PublishError::NonexistentSymbolExported {
-                                path: src_file.as_str().into(),
-                                symbol: s.as_str().into(),
-                                actual_symbols: actual_symbols.into_boxed_slice(),
-                            });
-                        }
+                    let actual_checksum = sha256_lowercase_hex(&source);
+                    if !actual_checksum.eq_ignore_ascii_case(&file_checksum.value) {
+                        return Err(PublishError::IncorrectFileChecksum {
+                            path: src_file.as_str().into(),
+                            expected: file_checksum.value.into_boxed_str(),
+                            actual: actual_checksum.into_boxed_str(),
+                        });
                     }
-                } else if !actual_symbols.is_empty() {
-                    // It is valid for a file to not export any symbols
-                    log::warn!(
-                        "project file `{src_file}` exports symbols {actual_symbols:?},\n\
+
+                    // Guessed from the path, not forced: a SysML project may
+                    // carry `.kerml` files, and the two have different
+                    // extractors.
+                    let actual_symbols = extract_symbols(&src_file, &source, None)
+                        .map_err(|e| PublishError::IndexFail { source: e })?;
+                    // Actual symbols must be a superset of recorded
+                    if let Some(symbols) = symbols_for_files.get(&src_file) {
+                        for s in symbols {
+                            if !actual_symbols.contains(s) {
+                                return Err(PublishError::NonexistentSymbolExported {
+                                    path: src_file.as_str().into(),
+                                    symbol: s.as_str().into(),
+                                    actual_symbols: actual_symbols.into_boxed_slice(),
+                                });
+                            }
+                        }
+                    } else if !actual_symbols.is_empty() {
+                        // It is valid for a file to not export any symbols
+                        log::warn!(
+                            "project file `{src_file}` exports symbols {actual_symbols:?},\n\
                     {0:>8} but they are not mentioned in `.meta.json`; this is valid,\n\
                     {0:>8} but likely to be an error",
-                        ' '
-                    );
+                            ' '
+                        );
+                    }
                 }
-            }
-            None => {
-                return Err(PublishError::MissingFile {
-                    path: src_file.as_str().into(),
-                });
+                None => {
+                    return Err(PublishError::MissingFile {
+                        path: src_file.as_str().into(),
+                    });
+                }
             }
         }
     }
@@ -1378,11 +1417,136 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
     })
 }
 
-/// The index only holds projects of the OMG SysML/KerML metamodels.
+/// The Syside shape's file and symbol checks (design/syside-metamodel.md,
+/// "Publish"). `root` names a file in the archive; every archive file
+/// but the two manifests is a `checksum` key, and neither manifest is
+/// one; every key is hashed; the extension rule and the extractor run
+/// over the keys that are model files only; every name in `exports` is
+/// declared by some model file, and a declared name `exports` lacks is
+/// a warning.
+fn publish_root_shape(
+    root: &str,
+    exports: &[String],
+    file_checksums: &IndexMap<Utf8UnixPathBuf, InterchangeProjectChecksum>,
+    kpar_files: &mut HashMap<String, bool>,
+    archive: &mut zip::ZipArchive<std::fs::File>,
+    metamodel_kind: SpecKind,
+    metamodel: &Metamodel,
+) -> Result<(), PublishError> {
+    if !kpar_files.contains_key(root) {
+        return Err(PublishError::RootNotInArchive { path: root.into() });
+    }
+    let checksummed: HashSet<&str> = file_checksums.keys().map(|key| key.as_str()).collect();
+    for manifest in [PROJECT_JSON_FILE, META_JSON_FILE] {
+        if checksummed.contains(manifest) {
+            return Err(PublishError::ChecksumCoversManifest {
+                path: manifest.into(),
+            });
+        }
+    }
+    // Sorted, so that the first uncovered file named is the same on
+    // every run.
+    let mut names: Vec<&String> = kpar_files.keys().collect();
+    names.sort();
+    for name in names {
+        if name != PROJECT_JSON_FILE
+            && name != META_JSON_FILE
+            && !checksummed.contains(name.as_str())
+        {
+            return Err(PublishError::ChecksumMissesFile {
+                path: name.as_str().into(),
+            });
+        }
+    }
+
+    let mut declared: Vec<String> = Vec::new();
+    for (src_file, file_checksum) in file_checksums {
+        let is_model_file = Language::guess_from_path(src_file).is_some();
+        if is_model_file
+            && !Language::guess_from_path(src_file).is_some_and(|lang| metamodel_kind.admits(lang))
+        {
+            return Err(PublishError::IncorrectFileFormat {
+                path: src_file.as_str().into(),
+                metamodel_iri: metamodel.to_string().into(),
+            });
+        }
+        if file_checksum.algorithm != KerMlChecksumAlg::Sha256 {
+            return Err(PublishError::UnsupportedFileChecksumType {
+                path: src_file.as_str().into(),
+                alg: file_checksum.algorithm,
+            });
+        }
+        let Some(expected) = kpar_files.get_mut(src_file.as_str()) else {
+            return Err(PublishError::MissingFile {
+                path: src_file.as_str().into(),
+            });
+        };
+        *expected = true;
+
+        let mut file =
+            archive
+                .by_path(src_file.as_str())
+                .map_err(|e| PublishError::KparFileRead {
+                    path: src_file.as_str().into(),
+                    source: e,
+                })?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)
+            .map_err(|e| PublishError::KparFileReadIo {
+                path: src_file.as_str().into(),
+                source: e,
+            })?;
+        let actual_checksum = sha256_lowercase_hex(&contents);
+        if !actual_checksum.eq_ignore_ascii_case(&file_checksum.value) {
+            return Err(PublishError::IncorrectFileChecksum {
+                path: src_file.as_str().into(),
+                expected: file_checksum.value.clone().into_boxed_str(),
+                actual: actual_checksum.into_boxed_str(),
+            });
+        }
+        if is_model_file {
+            declared.extend(
+                extract_symbols(src_file, &contents, None)
+                    .map_err(|e| PublishError::IndexFail { source: e })?,
+            );
+        }
+    }
+
+    for symbol in exports {
+        if !declared.contains(symbol) {
+            let list = if declared.is_empty() {
+                "nothing".to_owned()
+            } else {
+                declared
+                    .iter()
+                    .map(|name| format!("`{name}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            return Err(PublishError::ExportNotDeclared {
+                symbol: symbol.as_str().into(),
+                declared: list.into_boxed_str(),
+            });
+        }
+    }
+    for name in &declared {
+        if !exports.contains(name) {
+            log::warn!(
+                "the archive declares `{name}`, which `exports` in `.meta.json` does not list;\n\
+                {0:>8} this is valid, but likely to be an error",
+                ' '
+            );
+        }
+    }
+    Ok(())
+}
+
+/// The index holds projects of the SysML/KerML metamodels, of either
+/// family.
 fn check_metamodel(metamodel: &Metamodel) -> Result<SpecKind, PublishError> {
     match metamodel.known() {
-        Some(known) if known.family == MetamodelFamily::Omg => Ok(known.spec),
-        Some(_) | None => Err(PublishError::UnsupportedMetamodel {
+        Some(known) => Ok(known.spec),
+        None => Err(PublishError::UnsupportedMetamodel {
             metamodel: metamodel.to_string(),
         }),
     }

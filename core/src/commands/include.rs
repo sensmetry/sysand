@@ -34,6 +34,13 @@ pub enum IncludeError<ProjectError> {
     /// one frontend makes is not a refusal.
     #[error("`{0}` is computed when the KPAR is built and cannot be set on a `model.toml` project")]
     ComputedField(&'static str),
+    /// A Syside project's KPAR has no `index`, so the flag has nothing to
+    /// apply to (design/syside-metamodel.md, "Build").
+    #[error(
+        "`--no-index-symbols` applies to projects with a computed index; a Syside project's \
+         KPAR carries `root` and `exports` instead"
+    )]
+    NoIndexSymbolsOnRoot,
     /// `--force-format` selects a parser for symbol extraction, and a
     /// `model.toml` project extracts none.
     #[error(
@@ -109,6 +116,10 @@ pub fn do_include<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
         .get_meta()
         .map_err(IncludeError::Project)?
         .unwrap_or_default();
+    // The Syside refusal of `--no-index-symbols`, on the extracted form.
+    if meta.root.is_some() && !index_symbols {
+        return Err(IncludeError::NoIndexSymbolsOnRoot);
+    }
     for path in paths {
         let including = "Including";
         let header = crate::style::get_style_config().header;
@@ -160,6 +171,26 @@ fn include_toml<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
     index_symbols: bool,
     force_format: Option<Language>,
 ) -> Result<(), IncludeError<Pr::Error>> {
+    let mut document = project.manifest_document().map_err(manifest_error)?;
+    // The file must be of a type the metamodel admits. The metamodel
+    // comes from the resolved manifest when the project resolves, and
+    // from the document's own literal value otherwise; a member read
+    // without its workspace has neither, and the check is skipped rather
+    // than the command refusing over something that is not about the
+    // path it was given.
+    // The next read of the manifest raises the same complaint anyway.
+    let metamodel = project_metamodel(project, &document);
+
+    // On a Syside project the flag names an `index` its KPAR does not
+    // have, which is a different complaint from "computed at build" --
+    // nothing is computed.
+    if !index_symbols
+        && metamodel
+            .as_ref()
+            .is_some_and(|kind| kind.family == crate::model::MetamodelFamily::Syside)
+    {
+        return Err(IncludeError::NoIndexSymbolsOnRoot);
+    }
     if compute_checksum {
         return Err(IncludeError::ComputedField("checksum"));
     }
@@ -169,15 +200,6 @@ fn include_toml<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
     if force_format.is_some() {
         return Err(IncludeError::ForceFormat);
     }
-
-    let mut document = project.manifest_document().map_err(manifest_error)?;
-    // The metamodel comes from the resolved
-    // manifest when the project resolves, and from the document's own
-    // literal value otherwise; a member read without its workspace has
-    // neither, and the check is skipped rather than the command
-    // refusing over something that is not about the path it was given.
-    // The next read of the manifest refuses such a file anyway.
-    let metamodel = project_metamodel(project, &document);
 
     for path in paths {
         let including = "Including";

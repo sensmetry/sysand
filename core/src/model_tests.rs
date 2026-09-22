@@ -1484,3 +1484,28 @@ fn source_paths_of_a_syside_document_include_its_root() {
     assert!(paths.contains("main.sysml"));
     assert_eq!(paths.len(), 1);
 }
+
+/// design/syside-metamodel.md, "Dependencies": a Syside project's source
+/// list is "the `checksum` keys that are model files". Once `checksum`
+/// covers the whole archive, the readme and the license are keys too,
+/// and a consumer that took every key would lex `README.md`.
+#[test]
+fn source_paths_of_a_root_shaped_document_are_its_model_files() {
+    let raw = syside_meta(
+        r#"{"root": "main.sysml", "exports": ["Main"], "created": "2026-01-01T00:00:00Z",
+            "metamodel": "https://www.sysand.com/spec/SysML/20250201",
+            "checksum": {
+                "main.sysml": {"value": "0000000000000000000000000000000000000000000000000000000000000000", "algorithm": "SHA256"},
+                "README.md": {"value": "0000000000000000000000000000000000000000000000000000000000000000", "algorithm": "SHA256"},
+                "LICENSES/MIT.txt": {"value": "0000000000000000000000000000000000000000000000000000000000000000", "algorithm": "SHA256"}}}"#,
+    )
+    .expect("validates")
+    .value;
+    let mut paths: Vec<String> = raw.source_paths(true).into_iter().collect();
+    paths.sort();
+    assert_eq!(paths, ["main.sysml"]);
+
+    // An OMG document's keys are all sources, as they always were.
+    let omg = syside_meta(COMPLETE_META).expect("validates").value;
+    assert_eq!(omg.source_paths(true).len(), 1);
+}
