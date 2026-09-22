@@ -296,11 +296,11 @@ pub enum SourcesError {
          `/`-separated,\nand carry no `.` or `..` component and no repeated or leading slash"
     )]
     NotStrict(String),
-    /// "an entry with a trailing `/` names a directory and is an error;
-    /// directories and globs are postponed to after v1".
+    /// "Every entry names a single file, listed explicitly; directories are
+    /// not admitted and globs never will be" (`design/model-toml.md`).
     #[error(
-        "`sources` entry `{0}` names a directory; every entry names a single file \
-         (directories and globs are postponed to after v1)"
+        "`sources` entry `{0}` names a directory; every entry names a single file, \
+         listed explicitly (directories and globs are not admitted)"
     )]
     IsDirectory(String),
     /// "Two equal entries are a duplicate and rejected." Equal, not

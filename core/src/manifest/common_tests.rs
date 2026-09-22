@@ -344,8 +344,8 @@ fn the_two_sources_form_errors_read_in_full() {
     let directory = sources_error(&["src/"]);
     assert_eq!(
         directory.to_string(),
-        "`sources` entry `src/` names a directory; every entry names a single file \
-         (directories and globs are postponed to after v1)"
+        "`sources` entry `src/` names a directory; every entry names a single file, \
+         listed explicitly (directories and globs are not admitted)"
     );
 }
 
@@ -381,8 +381,8 @@ fn sources_and_root_share_their_checks() {
         (
             "src/",
             PathProblem::Directory,
-            "`sources` entry `src/` names a directory; every entry names a single file \
-             (directories and globs are postponed to after v1)",
+            "`sources` entry `src/` names a directory; every entry names a single file, \
+             listed explicitly (directories and globs are not admitted)",
         ),
         (
             "notes.txt",
