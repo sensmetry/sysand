@@ -61,6 +61,19 @@ pub fn clone_project<P: ProjectRead, Q: ProjectMut>(
                 to.write_source(source_path, &mut source, overwrite)
                     .map_err(CloneError::EnvWrite)?;
             }
+            // design/syside-metamodel.md, "The Syside KPAR": a root-shaped
+            // document checksums every file in the archive, so the
+            // installed copy carries every one of them -- not only the
+            // model files, the readme and the licenses -- or it would
+            // not match its own `checksum`.
+            if meta.root.is_some() {
+                let sources = meta.source_paths(true);
+                for key in meta.checksum.iter().flat_map(|checksum| checksum.keys()) {
+                    if !sources.contains(key) {
+                        copy_optional_file(from, to, overwrite, key.as_str())?;
+                    }
+                }
+            }
             copy_optional_file(from, to, overwrite, "README.md")?;
 
             if let Some(l) = info.license.as_deref() {
