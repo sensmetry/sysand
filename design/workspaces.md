@@ -153,6 +153,9 @@ The other `[project]` keys are deliberately absent:
 - `stdlib` (see model-toml.md, Standard library) is a per-project
   identifier; in `[workspace]` or a group it is an unknown key like any
   other (a warning)
+- `root` (see syside-metamodel.md) names one of a Syside-metamodel
+  project's own `sources` entries, so it cannot be inherited for the
+  same reason `sources` cannot; a marker on it is an error that says so
 - `manifest-version` is not a `[project]` key at all: every file carries
   its own (see model-toml.md, Manifest version)
 

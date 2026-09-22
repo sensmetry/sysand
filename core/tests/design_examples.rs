@@ -33,6 +33,7 @@
 
 const MODEL_TOML: &str = include_str!("../../design/model-toml.md");
 const WORKSPACES_MD: &str = include_str!("../../design/workspaces.md");
+const SYSIDE_METAMODEL_MD: &str = include_str!("../../design/syside-metamodel.md");
 const COPIES: &str = include_str!("../src/manifest/mod_tests.rs");
 
 /// The fenced `toml` blocks of a document, in order, each with the line
@@ -133,6 +134,7 @@ fn every_documented_example_is_copied_under_its_marker() {
     for (name, document) in [
         ("model-toml.md", MODEL_TOML),
         ("workspaces.md", WORKSPACES_MD),
+        ("syside-metamodel.md", SYSIDE_METAMODEL_MD),
     ] {
         let blocks = toml_blocks(document);
         assert!(!blocks.is_empty(), "no fenced toml blocks in {name}");
@@ -171,5 +173,69 @@ fn every_documented_example_is_copied_under_its_marker() {
         "the specification's examples have moved away from the tests that \
          copy them -- update core/src/manifest/mod_tests.rs:\n{}",
         missing.join("\n")
+    );
+}
+
+/// plan-phase2.md D7: "one test per row, named for the row id, plus a
+/// CI check that every row id appears in a test name". This is that
+/// check, for the rows `syside-metamodel.md`'s message tables list.
+///
+/// Rows whose package has not landed are reported, not failed: a row
+/// drafted for the KPAR has no test until the KPAR exists. Which rows
+/// have landed is the list below, kept by hand as packages land. What
+/// the test asserts about the text is the row's own test's business:
+/// the code's strings carry placeholders and line continuations, so
+/// byte equality is checked there, not here.
+#[test]
+fn every_message_row_in_the_specification_has_a_test() {
+    const LANDED: &[&str] = &[
+        "P2-01", "P2-02", "P2-03", "P2-04", "P2-05", "P2-06", "P2-23",
+    ];
+
+    let mut rows = Vec::new();
+    for line in SYSIDE_METAMODEL_MD.lines() {
+        if let Some(rest) = line.strip_prefix("| P2-") {
+            let number = rest.split(" | ").next().unwrap_or("").trim();
+            let row = format!("P2-{number}");
+            if !rows.contains(&row) {
+                rows.push(row);
+            }
+        }
+    }
+    assert!(!rows.is_empty(), "no message rows in syside-metamodel.md");
+
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let mut sources = String::new();
+    for dir in ["core/src/manifest", "sysand/tests"] {
+        for entry in std::fs::read_dir(root.join(dir)).expect("a source directory") {
+            let path = entry.expect("an entry").path();
+            if path.extension().is_some_and(|ext| ext == "rs") {
+                sources.push_str(&std::fs::read_to_string(&path).expect("a source file"));
+                sources.push('\n');
+            }
+        }
+    }
+
+    let mut missing = Vec::new();
+    let mut pending = Vec::new();
+    for row in rows {
+        let prefix = format!("fn {}_", row.to_lowercase().replace('-', "_"));
+        let has_test = sources.contains(&prefix);
+        if LANDED.contains(&row.as_str()) {
+            if !has_test {
+                missing.push(row);
+            }
+        } else if !has_test {
+            pending.push(row);
+        }
+    }
+    eprintln!(
+        "rows without a test yet, whose package has not landed: {}",
+        pending.join(", ")
+    );
+    assert!(
+        missing.is_empty(),
+        "landed rows of syside-metamodel.md with no `fn p2_nn_*` test: {}",
+        missing.join(", ")
     );
 }
