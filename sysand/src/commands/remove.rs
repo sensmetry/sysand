@@ -208,6 +208,7 @@ fn lock_sync<Policy: HTTPAuthentication>(
                 runtime,
                 auth_policy,
                 no_prune,
+                ctx.cancellation.clone(),
                 &mut SyncOutcome::default(),
             )?;
         }

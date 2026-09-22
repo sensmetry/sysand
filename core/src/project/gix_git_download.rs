@@ -9,6 +9,7 @@ use gix::{prepare_clone, remote::fetch::Shallow};
 use thiserror::Error;
 
 use crate::{
+    cancel::CancellationToken,
     context::ProjectContext,
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
@@ -26,12 +27,18 @@ pub struct GixDownloadedProject {
     pub url: gix::Url,
     tmp_dir: camino_tempfile::Utf8TempDir,
     inner: LocalSrcProject,
+    /// Observed by the clone through [`crate::cancel::GitInterrupt`].
+    token: CancellationToken,
 }
 
 #[derive(Error, Debug)]
 pub enum GixDownloadedError {
     #[error("git clone from `{0}` failed: {1}")]
     Clone(String, Box<gix::Error>),
+    /// The clone was cancelled, before it began or while gix was
+    /// fetching or checking out.
+    #[error("cancelled")]
+    Cancelled,
     #[error("failed to parse git URL `{0}`: {1}")]
     UrlParse(Box<str>, Box<gix::Error>),
     #[error(transparent)]
@@ -98,11 +105,30 @@ impl GixDownloadedProject {
                 .map_err(|e| GixDownloadedError::UrlParse(url.as_ref().into(), Box::new(e)))?,
             inner: LocalSrcProject::new_access(wrapfs::canonicalize(tmp_dir.path())?, None),
             tmp_dir,
+            token: CancellationToken::new(),
         })
+    }
+
+    /// Observe `token` during the clone.
+    #[must_use]
+    pub fn with_cancellation(mut self, token: CancellationToken) -> Self {
+        self.token = token;
+        self
     }
 
     fn ensure_downloaded(&self) -> Result<(), GixDownloadedError> {
         if !self.tmp_dir.path().join(".git").is_dir() {
+            // One clone at a time per process: gix's interrupt flag is
+            // process-global, and the guard makes it this clone's.
+            let interrupt = crate::cancel::GitInterrupt::begin(&self.token)
+                .map_err(|_cancelled| GixDownloadedError::Cancelled)?;
+            let cancelled = |error: GixDownloadedError| {
+                if interrupt.is_cancelled() {
+                    GixDownloadedError::Cancelled
+                } else {
+                    error
+                }
+            };
             // `gix-transport` builds a `reqwest` client of its own, on a
             // spawned thread, so this path needs the process-wide rustls
             // provider even though it never touches `create_reqwest_client`.
@@ -116,11 +142,16 @@ impl GixDownloadedProject {
             let (mut prepare_checkout, _) = prepared_clone
                 .with_shallow(Shallow::DepthAtRemote(NonZero::new(1).unwrap()))
                 .fetch_then_checkout(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)
-                .map_err(|e| GixDownloadedError::Fetch(self.url.to_string(), Box::new(e)))?;
+                .map_err(|e| {
+                    cancelled(GixDownloadedError::Fetch(self.url.to_string(), Box::new(e)))
+                })?;
             let (_repo, _) = prepare_checkout
                 .main_worktree(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)
                 .map_err(|e| {
-                    GixDownloadedError::Checkout(self.tmp_dir.to_path_buf(), Box::new(e))
+                    cancelled(GixDownloadedError::Checkout(
+                        self.tmp_dir.to_path_buf(),
+                        Box::new(e),
+                    ))
                 })?;
         }
 
@@ -188,4 +219,4 @@ impl ProjectRead for GixDownloadedProject {
 
 #[cfg(test)]
 #[path = "./gix_git_download_tests.rs"]
-mod tests;
+pub(crate) mod tests;

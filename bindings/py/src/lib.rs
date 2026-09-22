@@ -28,6 +28,7 @@ use sysand::{
 use sysand_core::{
     auth::{GlobMapResult, StandardHTTPAuthenticationBuilder},
     build::{KParBuildError, KparCompressionMethod, do_build_kpar},
+    cancel::{Cancellable, CancellationToken},
     commands::{
         env::{
             EnvError, EnvInstallError, EnvInstallPathError, do_env_install_path_parse,
@@ -506,16 +507,19 @@ fn info_error_to_pyerr<OverrideError: ErrorBound>(
 }
 
 fn combined_error_to_pyerr<F, L, R>(
-    err: &CombinedResolverError<F, L, R, AnyIndexError>,
+    err: &CombinedResolverError<F, L, R, Cancellable<AnyIndexError>>,
     message: String,
     auth: &AuthSpec,
     policy: &CliAuthPolicy,
 ) -> PyErr {
     match err {
-        CombinedResolverError::Index(AnyIndexError::Remote(
+        // The binding hands out no token, so a cancelled bridge cannot
+        // happen here; mapped rather than left unmatched.
+        CombinedResolverError::Index(Cancellable::Cancelled) => PyResolutionError::new_err(message),
+        CombinedResolverError::Index(Cancellable::Inner(AnyIndexError::Remote(
             IndexEnvironmentError::Discovery(DiscoveryError::Fetch(fetch))
             | IndexEnvironmentError::Fetch(fetch),
-        )) => match fetch {
+        ))) => match fetch {
             HttpFetchError::BadHttpStatus { url, status }
                 if matches!(status.as_u16(), 401 | 403) =>
             {
@@ -529,11 +533,11 @@ fn combined_error_to_pyerr<F, L, R>(
         // at all is the caller's configuration, like a refused
         // connection; a directory that is an index but breaks the
         // protocol's rules is malformed, like a bad `versions.json`.
-        CombinedResolverError::Index(AnyIndexError::Filesystem(
+        CombinedResolverError::Index(Cancellable::Inner(AnyIndexError::Filesystem(
             LocalIndexError::NeitherIndexNorFolder { .. }
             | LocalIndexError::NotADirectory { .. }
             | LocalIndexError::Io(_),
-        )) => PyResolutionError::new_err(message),
+        ))) => PyResolutionError::new_err(message),
         CombinedResolverError::Index(_) => PyIndexProtocolError::new_err(message),
         _ => PyResolutionError::new_err(message),
     }
@@ -601,8 +605,15 @@ fn cli_resolver_for(
         auth_policy.clone(),
     )
     .map_err(|e| project_error(format_err(&*e)))?;
-    let resolver = standard_resolver(env, Some(client), index_urls, runtime, auth_policy.clone())
-        .map_err(|err| PyValueError::new_err(format_err(err)))?;
+    let resolver = standard_resolver(
+        env,
+        Some(client),
+        index_urls,
+        runtime,
+        auth_policy.clone(),
+        CancellationToken::new(),
+    )
+    .map_err(|err| PyValueError::new_err(format_err(err)))?;
     Ok((
         PriorityResolver::new(MemoryResolver::from(overrides), resolver),
         auth_policy,
@@ -797,6 +808,7 @@ fn project_context(start: &Utf8Path, scope: Scope, lock: Option<LockMode>) -> Py
             model_workspace_root,
             env,
             workspace_lock,
+            cancellation: CancellationToken::new(),
             current_project,
             current_directory: cwd,
             config_root,
@@ -1221,6 +1233,7 @@ fn do_sync_py(
                 // Always prune: `no_prune` is not exposed.
                 false,
                 repair,
+                CancellationToken::new(),
                 &mut outcome,
             ) {
                 return Err(sync_failure(err, outcome, wrote_lock));
@@ -1257,6 +1270,7 @@ fn do_sync_py(
             auth_policy,
             // Always prune: `no_prune` is not exposed.
             false,
+            CancellationToken::new(),
             &mut outcome,
         ) {
             return Err(sync_failure(err, outcome, wrote_lock));

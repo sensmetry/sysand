@@ -18,6 +18,7 @@ use std::{
 use thiserror::Error;
 
 use crate::{
+    cancel::CancellationToken,
     model::{InterchangeProjectUsage, InterchangeProjectValidationError},
     project::{ProjectRead, utils::Identifier},
     resolve::{CoalescingUsage, ResolutionInfo, ResolutionOutcome, ResolveRead, UsageOrigin},
@@ -300,6 +301,10 @@ pub struct ProjectSolver<R: ResolveRead> {
     resolved_candidates: RefCell<CandidateMap<R>>,
     // dependency_provider: OfflineDependencyProvider<DependencyIdentifier, DiscreteHashSet>,
     resolver: R,
+    /// Observed between candidates: a cancelled
+    /// token stops the solve at the next version choice or dependency
+    /// lookup with [`InternalSolverError::Cancelled`].
+    token: CancellationToken,
 }
 
 /// What resolving a usage does with a candidate that is not a valid project
@@ -886,7 +891,7 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
     /// Which way the solve failed: `no_solution` (no set of versions
     /// satisfies the usages, a constraint no published version matches
     /// included), `retrieval` (a project could not be obtained at all), or
-    /// `choosing_version`.
+    /// `choosing_version`; or `cancelled`.
     pub fn kind(&self) -> &'static str {
         match self.inner.as_ref() {
             pubgrub::PubGrubError::NoSolution(_) => "no_solution",
@@ -898,8 +903,8 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
             pubgrub::PubGrubError::ErrorChoosingVersion {
                 package: _,
                 source: _,
-            }
-            | pubgrub::PubGrubError::ErrorInShouldCancel(_) => "choosing_version",
+            } => "choosing_version",
+            pubgrub::PubGrubError::ErrorInShouldCancel(_) => "cancelled",
         }
     }
 
@@ -940,7 +945,8 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
                 | InternalSolverError::ResolvedError {
                     usage: _,
                     source: _,
-                } => {}
+                }
+                | InternalSolverError::Cancelled => {}
                 InternalSolverError::NotFound(usage, _)
                 | InternalSolverError::NoValidCandidates(usage)
                 | InternalSolverError::UnsupportedUsageType { usage, reason: _ }
@@ -1380,19 +1386,22 @@ impl<R: ResolveRead + fmt::Debug + 'static> Display for SolverError<R> {
                     write!(f, "failed to retrieve usages of {iri}")
                 }
             },
-            pubgrub::PubGrubError::ErrorChoosingVersion { package, source: _ } => match package {
+            pubgrub::PubGrubError::ErrorChoosingVersion { package, source } => match package {
+                // `fn choose_version()` never fails for the requested set
+                // today; rendered rather than asserted, so a future error
+                // path cannot panic inside a `Display`.
                 DependencyIdentifier::Requested(_) => {
-                    // `fn choose_version()` is infallible in this path
-                    unreachable!();
+                    write!(
+                        f,
+                        "unable to select versions for the requested projects: {source}"
+                    )
                 }
                 DependencyIdentifier::Remote(iri) => {
                     write!(f, "unable to select version of `{iri}`")
                 }
             },
-            pubgrub::PubGrubError::ErrorInShouldCancel(_) => {
-                // ProjectSolver doesn't implement this and default impl does nothing
-                unreachable!();
-            }
+            // `should_cancel` fails only with `Cancelled`.
+            pubgrub::PubGrubError::ErrorInShouldCancel(source) => write!(f, "{source}"),
         }
     }
 }
@@ -1452,6 +1461,9 @@ type StorageError<R> = <<R as ResolveRead>::ProjectStorage as ProjectRead>::Erro
 pub enum InternalSolverError<R: ResolveRead> {
     #[error("resolution error: {0}")]
     Resolution(R::Error),
+    /// The solve was cancelled between candidates.
+    #[error("cancelled")]
+    Cancelled,
     /// Project not found by current resolver
     /// Value is the formatted error message
     #[error("project {0} not found: {1}")]
@@ -1556,6 +1568,23 @@ impl<R: ResolveRead> ProjectSolver<R> {
             resolved_candidates: RefCell::new(HashMap::new()),
             //dependency_provider: OfflineDependencyProvider::<DependencyIdentifier, DiscreteHashSet>::new(),
             resolver,
+            token: CancellationToken::new(),
+        }
+    }
+
+    /// Observe `token` between candidates.
+    #[must_use]
+    pub fn with_cancellation(mut self, token: CancellationToken) -> Self {
+        self.token = token;
+        self
+    }
+
+    #[expect(clippy::result_large_err)]
+    fn checkpoint(&self) -> Result<(), InternalSolverError<R>> {
+        if self.token.is_cancelled() {
+            Err(InternalSolverError::Cancelled)
+        } else {
+            Ok(())
         }
     }
 
@@ -1574,6 +1603,11 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
     type M = String;
 
     type Err = InternalSolverError<R>;
+
+    /// pubgrub asks at the top of every iteration -- between candidates.
+    fn should_cancel(&self) -> Result<(), Self::Err> {
+        self.checkpoint()
+    }
 
     fn prioritize(
         &self,
@@ -1712,7 +1746,16 @@ pub fn solve_with_bases<R: ResolveRead + fmt::Debug + 'static>(
     requested: Vec<ResolutionInfo>,
     resolver: R,
 ) -> Result<Solution<R::ProjectStorage>, SolverError<R>> {
-    let solver = ProjectSolver::new(resolver);
+    solve_with_bases_cancellable(requested, resolver, CancellationToken::new())
+}
+
+/// [`solve_with_bases`] observing `token` between candidates.
+pub fn solve_with_bases_cancellable<R: ResolveRead + fmt::Debug + 'static>(
+    requested: Vec<ResolutionInfo>,
+    resolver: R,
+    token: CancellationToken,
+) -> Result<Solution<R::ProjectStorage>, SolverError<R>> {
+    let solver = ProjectSolver::new(resolver).with_cancellation(token);
 
     let requested = requested
         .into_iter()

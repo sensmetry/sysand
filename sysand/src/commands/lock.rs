@@ -243,6 +243,7 @@ pub fn create_resolver<Policy: HTTPAuthentication>(
             index_urls,
             runtime,
             auth_policy,
+            ctx.cancellation.clone(),
         )?,
     );
 

@@ -20,6 +20,7 @@ use sysand_core::{
         HTTPAuthentication, StandardHTTPAuthentication, StandardHTTPAuthenticationBuilder,
         StandardLazyHTTPAuthentication,
     },
+    cancel::CancellationToken,
     commands::{lock::DEFAULT_LOCKFILE_NAME, sync::SyncOutcome, verify::ManifestUsages},
     config::{
         Config,
@@ -192,10 +193,24 @@ pub fn run_parsed(
     command: cli::Command,
     ownership: ProcessOwnership,
 ) -> u8 {
-    let Err(err) = run_cli_with(global_opts, command, ownership) else {
+    // One token per run, cancelled by Ctrl-C when this process is ours
+    // to receive it. An embedder that runs the CLI in its process gets
+    // no signal hook (the hook is never unregistered) and cancels
+    // nothing this way.
+    let cancellation = CancellationToken::new();
+    if matches!(ownership, ProcessOwnership::Owned) {
+        install_ctrl_c(cancellation.clone());
+    }
+    let Err(err) = run_cli_with(global_opts, command, ownership, cancellation.clone()) else {
         return 0;
     };
     let style = style::ERROR;
+    if cancellation.is_cancelled() {
+        // Whatever error the cancelled step surfaced, the run was
+        // cancelled; 130 is the conventional exit code.
+        eprintln!("{style}error{style:#}: cancelled");
+        return 130;
+    }
     eprintln!("{style}error{style:#}: {err}");
     let mut causes = err.chain();
     // The first cause is the error itself which is printed already
@@ -362,10 +377,49 @@ pub fn standard_auth_policy(use_credential_store: bool) -> Result<CliAuthPolicy>
     })
 }
 
+/// Cancel `token` on the first Ctrl-C and exit with 130 on the second.
+///
+/// On its own thread with its own small runtime: the command's runtime is
+/// current-thread and polls only inside `block_on`, so a handler spawned
+/// there would sleep through every synchronous step (an extraction, a
+/// clone) and could never offer the second, immediate exit.
+#[expect(
+    clippy::exit,
+    reason = "the second Ctrl-C is the user's demand to stop now, whatever step is in flight"
+)]
+fn install_ctrl_c(token: CancellationToken) {
+    let spawned = std::thread::Builder::new()
+        .name("sysand-ctrl-c".to_owned())
+        .spawn(move || {
+            let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            else {
+                return;
+            };
+            runtime.block_on(async move {
+                if tokio::signal::ctrl_c().await.is_err() {
+                    return;
+                }
+                eprintln!(
+                    "cancelling; the step in flight finishes first (press again to exit now)"
+                );
+                token.cancel();
+                if tokio::signal::ctrl_c().await.is_ok() {
+                    std::process::exit(130);
+                }
+            });
+        });
+    if let Err(err) = spawned {
+        log::debug!("no Ctrl-C handler: {err}");
+    }
+}
+
 fn run_cli_with(
     global_opts: cli::GlobalOptions,
     command: cli::Command,
     ownership: ProcessOwnership,
+    cancellation: CancellationToken,
 ) -> Result<()> {
     sysand_core::style::set_style_config(crate::style::CONFIG);
 
@@ -619,6 +673,7 @@ fn run_cli_with(
     let ctx = ProjectContext {
         env,
         workspace_lock,
+        cancellation,
         model_workspace_root: model_workspace_root.clone(),
         current_project,
         current_directory: cwd,
@@ -915,6 +970,7 @@ fn run_cli_with(
                     auth_policy,
                     no_prune,
                     repair,
+                    ctx.cancellation.clone(),
                     &mut outcome,
                 )?;
                 return match status {
@@ -944,6 +1000,7 @@ fn run_cli_with(
                 runtime,
                 auth_policy,
                 no_prune,
+                ctx.cancellation.clone(),
                 &mut SyncOutcome::default(),
             )?;
             Ok(())

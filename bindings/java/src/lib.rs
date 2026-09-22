@@ -327,6 +327,7 @@ fn info<'local>(
         runtime,
         // FIXME: Add Java support for authentication
         Arc::new(Unauthenticated {}),
+        sysand_core::cancel::CancellationToken::new(),
     ) {
         Ok(resolver) => resolver,
         Err(error) => {

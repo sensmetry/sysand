@@ -2767,3 +2767,22 @@ fn solve_still_applies_one_base_to_every_usage() -> Result<(), Box<dyn std::erro
     assert_eq!(solution.len(), 2, "{solution:?}");
     Ok(())
 }
+
+/// The solver observes the token between candidates (pubgrub's `should_cancel`, at the top of every iteration), and the
+/// failure renders without panicking.
+#[test]
+fn solve_stops_between_candidates() {
+    let resolver = memory_resolver(&[("urn:a", &[single_project_source("a", "1.0.0", [])])]);
+    let token = crate::cancel::CancellationToken::new();
+    token.cancel();
+    let requested = vec![ResolutionInfo::iri(
+        fluent_uri::Iri::parse("urn:a").unwrap().into(),
+    )];
+    let error = super::solve_with_bases_cancellable(requested, resolver, token).unwrap_err();
+    assert_eq!(error.kind(), "cancelled");
+    assert_eq!(error.to_string(), "cancelled");
+    assert_eq!(
+        error.conflicts(),
+        [] as [crate::solve::pubgrub::SolveConflict; 0]
+    );
+}

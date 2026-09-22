@@ -26,7 +26,7 @@ use crate::{
         utils::{FsIoError, Identifier},
     },
     resolve::{ResolveRead, UsageOrigin},
-    solve::pubgrub::{SolverError, solve_with_bases},
+    solve::pubgrub::{SolverError, solve_with_bases_cancellable},
     utils::ProvidedProjects,
 };
 
@@ -531,7 +531,8 @@ fn lock_extend<
     // Publisher, name and version of each solved project
     let mut solved = HashMap::new();
     let mut dependencies = vec![];
-    let solution = solve_with_bases(inputs, resolver).map_err(LockError::Solver)?;
+    let solution = solve_with_bases_cancellable(inputs, resolver, ctx.cancellation.clone())
+        .map_err(LockError::Solver)?;
     let mut lock_projects = HashSet::new();
     let mut lock_symbols = HashMap::new();
     for (i, p) in lock.projects.iter().enumerate() {

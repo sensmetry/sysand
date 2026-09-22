@@ -5,7 +5,6 @@
 
 use std::io::Read as _;
 
-#[cfg(feature = "alltests")]
 use camino::Utf8Path;
 use camino_tempfile::tempdir;
 
@@ -23,8 +22,7 @@ use crate::{
 /// system, user or environment git configuration is read, so nothing on
 /// the machine running the tests (commit signing, hooks, a default branch)
 /// changes the repository.
-#[cfg(feature = "alltests")]
-fn git_commit_files(
+pub(crate) fn git_commit_files(
     dir: &Utf8Path,
     files: &[(&str, &str)],
 ) -> Result<(), Box<dyn std::error::Error>> {

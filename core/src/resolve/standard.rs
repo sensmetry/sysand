@@ -7,6 +7,7 @@ use reqwest_middleware::ClientWithMiddleware;
 
 use crate::{
     auth::HTTPAuthentication,
+    cancel::CancellationToken,
     env::{
         any_index::AnyIndexEnvironment, discovery::DiscoveryError, index::IndexEnvironmentAsync,
         local_directory::LocalDirectoryEnvironment, local_index::LocalIndexEnvironment,
@@ -79,6 +80,7 @@ pub fn standard_remote_resolver<Policy: HTTPAuthentication>(
     client: ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
+    token: CancellationToken,
 ) -> RemoteResolver<AsSyncResolveTokio<HTTPResolverAsync<Policy>>, GitResolver> {
     RemoteResolver {
         http_resolver: Some(
@@ -87,9 +89,9 @@ pub fn standard_remote_resolver<Policy: HTTPAuthentication>(
                 lax: true,
                 auth_policy, //prefer_ranged: true,
             }
-            .to_tokio_sync(runtime),
+            .to_tokio_sync_with(runtime, token.clone()),
         ),
-        git_resolver: Some(GitResolver {}),
+        git_resolver: Some(GitResolver { token }),
         priority: RemotePriority::PreferHTTP,
     }
 }
@@ -103,6 +105,7 @@ pub fn standard_index_resolver<Policy: HTTPAuthentication>(
     sources: Vec<IndexSource>,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
+    token: CancellationToken,
 ) -> Result<AsSyncResolveTokio<IndexResolver<Policy>>, DiscoveryError> {
     // Each user-configured URL is a discovery root. Do not fetch
     // `sysand-index-config.json` here: resolver construction happens for
@@ -128,7 +131,7 @@ pub fn standard_index_resolver<Policy: HTTPAuthentication>(
             EnvResolver { env }
         })
         .collect();
-    Ok(SequentialResolver::new(envs).to_tokio_sync(runtime))
+    Ok(SequentialResolver::new(envs).to_tokio_sync_with(runtime, token))
 }
 
 // TODO: Replace most of these arguments by some general CLIOptions object
@@ -138,15 +141,16 @@ pub fn standard_resolver<Policy: HTTPAuthentication>(
     index_urls: Option<Vec<IndexSource>>,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
+    token: CancellationToken,
 ) -> Result<StandardResolver<Policy>, DiscoveryError> {
     let file_resolver = standard_file_resolver();
     let local_resolver = local_env.map(standard_local_resolver);
     let remote_resolver = client
         .clone()
-        .map(|x| standard_remote_resolver(x, runtime.clone(), auth_policy.clone()));
+        .map(|x| standard_remote_resolver(x, runtime.clone(), auth_policy.clone(), token.clone()));
     let index_resolver = client
         .zip(index_urls)
-        .map(|(client, urls)| standard_index_resolver(client, urls, runtime, auth_policy))
+        .map(|(client, urls)| standard_index_resolver(client, urls, runtime, auth_policy, token))
         .transpose()?;
 
     Ok(StandardResolver(CombinedResolver {

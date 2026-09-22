@@ -489,6 +489,7 @@ fn process_overrides<Policy: HTTPAuthentication>(
             index_urls,
             runtime.clone(),
             auth_policy.clone(),
+            ctx.cancellation.clone(),
         )?;
         let resolve = ResolutionInfo::iri(url);
         let outcome = std_resolver.resolve_read(&resolve)?;
@@ -810,6 +811,7 @@ fn write_lock_and_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
             runtime,
             auth_policy,
             no_prune,
+            ctx.cancellation,
             &mut SyncOutcome::default(),
         )?;
     }

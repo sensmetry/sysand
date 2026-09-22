@@ -216,7 +216,14 @@ pub fn command_info_resolve<Policy: HTTPAuthentication>(
 
     let combined_resolver = PriorityResolver::new(
         MemoryResolver::resources_only(overrides),
-        standard_resolver(ctx.env, Some(client), index_urls, runtime, auth_policy)?,
+        standard_resolver(
+            ctx.env,
+            Some(client),
+            index_urls,
+            runtime,
+            auth_policy,
+            ctx.cancellation,
+        )?,
     );
 
     let (info, _) = do_info_usage(resolve, &combined_resolver)?;
@@ -268,7 +275,14 @@ pub fn command_info_field_resolve<Policy: HTTPAuthentication>(
 ) -> Result<()> {
     let combined_resolver = PriorityResolver::new(
         MemoryResolver::resources_only(overrides),
-        standard_resolver(ctx.env, Some(client), index_urls, runtime, auth_policy)?,
+        standard_resolver(
+            ctx.env,
+            Some(client),
+            index_urls,
+            runtime,
+            auth_policy,
+            ctx.cancellation,
+        )?,
     );
     let (info, meta) = do_info_usage(resolve, &combined_resolver)?;
     print_lines(field_lines(field, || Ok(info), || Ok(meta))?);

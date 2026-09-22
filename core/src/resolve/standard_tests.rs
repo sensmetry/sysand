@@ -73,6 +73,7 @@ fn standard_index_resolver_unions_remote_and_filesystem() {
         ],
         runtime,
         Arc::new(Unauthenticated {}),
+        crate::cancel::CancellationToken::new(),
     )
     .unwrap();
 
@@ -123,6 +124,7 @@ fn filesystem_only_resolution_needs_no_network() {
         vec![IndexSource::Filesystem(folder)],
         runtime.clone(),
         Arc::new(Unauthenticated {}),
+        crate::cancel::CancellationToken::new(),
     )
     .unwrap();
     let ResolutionOutcome::Resolved(projects) = resolver.resolve_read(&resolution).unwrap() else {
@@ -137,6 +139,7 @@ fn filesystem_only_resolution_needs_no_network() {
         vec![IndexSource::parse(&server.url()).unwrap()],
         runtime,
         Arc::new(Unauthenticated {}),
+        crate::cancel::CancellationToken::new(),
     )
     .unwrap();
     resolver
