@@ -1,0 +1,7 @@
+# Fixture sources and manifests carry per-file SHA256s in committed
+# metadata and goldens; a checkout that converted their line endings
+# would be red on Windows and green everywhere else.
+*.sysml text eol=lf
+*.kerml text eol=lf
+*.toml  text eol=lf
+*.json  text eol=lf

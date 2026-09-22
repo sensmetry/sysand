@@ -367,6 +367,8 @@ fn add_toml<P: ProjectMut>(
             log::warn!("ignoring usage `{identity}`, since it is already present");
             return Ok(false);
         }
+        // A `dir`/`kpar-path`/`kpar-url`/opt-in entry has no constraint
+        // to set; this is the editor's text.
         edit::set_usage_version(&mut document, &identity, &new).map_err(AddError::Edit)?;
         write_manifest(project, &document)?;
         return Ok(true);
