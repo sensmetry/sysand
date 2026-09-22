@@ -77,7 +77,10 @@ Project (Interchange Project)
  │                   command reads. `metamodel` is required, and is one
  │                   of four values (OMG or Syside, KerML or SysML)
  └─ .project.json  — the legacy pair: read too, and what a built KPAR
- └─ .meta.json       carries. `sysand migrate` converts one to the other
+ └─ .meta.json       carries, in one of two shapes: `index` for an OMG
+ │                   project, `root` + `exports` for a Syside one
+ │                   (design/syside-metamodel.md). `sysand migrate`
+ │                   converts either shape to a `model.toml`
  └─ source files   — the actual SysML/KerML model files
 
 Lock file (sysand-lock.toml)
@@ -260,8 +263,8 @@ dir = "../dep"
 
 A member of a workspace may inherit a key from it by writing
 `<key>.workspace = true`, or `<key>.workspace = "<group>"` for a named
-group. `sysand migrate` converts a `.project.json`/`.meta.json` pair
-into this form.
+group. `sysand migrate` converts a `.project.json`/`.meta.json` pair --
+of either shape -- into this form.
 
 ### `model.toml` with a `[workspace]` table
 

@@ -58,16 +58,20 @@ def set_usage_constraint(
     does not touch the file at all.
 
     Args:
-        project_dir: The project directory, the one holding ``.project.json``.
+        project_dir: The project directory, the one holding the manifest.
         iri: The dependency's IRI.
         publisher: The dependency's publisher, given together with ``name``.
         name: The dependency's name, given together with ``publisher``.
         version_constraint: A semver requirement such as ``">=0.11.0, <0.12.0"``.
         must_exist: Raise :class:`ProjectError` when no usage matches. With
             ``False`` a missing usage is reported as ``found=False`` instead;
-            a missing or unreadable ``.project.json`` still raises. It does
-            not apply to a usage that is declared but cannot hold a
+            a missing or unreadable manifest still raises. It does not
+            apply to a usage that is declared but cannot hold a
             constraint: that one is not missing.
+
+    On a ``model.toml`` project the usage is addressed by identity
+    (``publisher/name`` or its ``pkg:sysand`` PURL) and only an index usage
+    has a constraint; each of those refusals is a :class:`ProjectError`.
 
     Returns:
         Whether the usage was found and whether its constraint changed, with
@@ -100,8 +104,13 @@ def set_usage_constraint(
         new_version_constraint=new,
     )
     if must_exist and not found:
+        manifest = (
+            "model.toml"
+            if (Path(project_dir) / "model.toml").is_file()
+            else ".project.json"
+        )
         raise ProjectError(
-            f"usage `{iri if iri is not None else f'{publisher}/{name}'}` is not declared in `{Path(project_dir) / '.project.json'}`",
+            f"usage `{iri if iri is not None else f'{publisher}/{name}'}` is not declared in `{Path(project_dir) / manifest}`",
             wrote=False,
         )
     return change

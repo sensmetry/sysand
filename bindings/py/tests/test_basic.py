@@ -1613,3 +1613,71 @@ def test_syside_metadata_shapes() -> None:
     assert roundtripped["index"] is None
     assert roundtripped["root"] == "main.sysml"
     assert roundtripped["exports"] == ["Widgets", "Parts"]
+
+
+def test_set_usage_constraint_on_a_toml_project() -> None:
+    """The verb has a `model.toml` arm. One line changes; a missing usage
+    is reported or refused as on a json project, naming `model.toml`; a
+    usage that is not an index usage has no constraint to set."""
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        root = Path(tmpdirname)
+        manifest = root / "model.toml"
+        manifest.write_text(
+            'manifest-version = "1.0.0"\n\n[project]\npublisher = "acme"\nname = "app"\n'
+            'version = "1.0.0"\nsources = []\n'
+            'metamodel = "https://www.omg.org/spec/SysML/20250201"\n\n'
+            '[[inline-usages]]\npublisher = "acme"\nname = "lib"\nversion = "^1"\n\n'
+            '[[inline-usages]]\npublisher = "acme"\nname = "local"\ndir = "../local"\n'
+        )
+        before = manifest.read_text().splitlines()
+
+        change = sysand.set_usage_constraint(
+            project_dir=root, publisher="acme", name="lib", version_constraint="^2"
+        )
+        assert change["found"] is True
+        assert change["changed"] is True
+        assert change["old_version_constraint"] == "^1"
+        assert change["new_version_constraint"] == "^2"
+        after = manifest.read_text().splitlines()
+        assert len(before) == len(after)
+        assert sum(1 for b, a in zip(before, after) if b != a) == 1
+        assert 'version = "^2"' in after
+
+        # The PURL names the same entry.
+        change = sysand.set_usage_constraint(
+            project_dir=root, iri="pkg:sysand/acme/lib", version_constraint="^2"
+        )
+        assert change["found"] is True
+        assert change["changed"] is False
+
+        change = sysand.set_usage_constraint(
+            project_dir=root,
+            publisher="acme",
+            name="missing",
+            version_constraint="^1",
+            must_exist=False,
+        )
+        assert change["found"] is False
+        with pytest.raises(sysand.ProjectError) as excinfo:
+            sysand.set_usage_constraint(
+                project_dir=root,
+                publisher="acme",
+                name="missing",
+                version_constraint="^1",
+            )
+        assert "model.toml" in str(excinfo.value)
+
+        with pytest.raises(sysand.ProjectError) as excinfo:
+            sysand.set_usage_constraint(
+                project_dir=root,
+                publisher="acme",
+                name="local",
+                version_constraint="^1",
+            )
+        assert "not an index usage" in str(excinfo.value)
+        # A `model.toml` usage is addressed by identity, not by an IRI.
+        with pytest.raises(sysand.ProjectError) as excinfo:
+            sysand.set_usage_constraint(
+                project_dir=root, iri="urn:kpar:lib", version_constraint="^1"
+            )
+        assert "pkg:sysand" in str(excinfo.value)

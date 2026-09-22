@@ -308,8 +308,11 @@ mod filesystem {
 
     use super::{LEGACY, LIBRARY, MANIFEST, TARGET, one_line_diff};
     use crate::{
-        project::local_src::{EditInfoError, LocalSrcProject},
-        usage::{ConstraintChange, SetConstraintError, do_set_usage_constraint_local},
+        project::local_src::LocalSrcProject,
+        usage::{
+            ConstraintChange, SetConstraintError, SetConstraintLocalError,
+            do_set_usage_constraint_local,
+        },
     };
 
     #[test]
@@ -388,7 +391,7 @@ mod filesystem {
 
         assert_matches!(
             err,
-            EditInfoError::Edit(SetConstraintError::InvalidConstraint(..))
+            SetConstraintLocalError::Edit(SetConstraintError::InvalidConstraint(..))
         );
         assert_eq!(std::fs::read_to_string(&path).unwrap(), MANIFEST);
     }
@@ -400,7 +403,7 @@ mod filesystem {
 
         let err = do_set_usage_constraint_local(&mut project, LIBRARY, "1").unwrap_err();
 
-        assert_matches!(err, EditInfoError::Project(_));
+        assert_matches!(err, SetConstraintLocalError::Project(_));
     }
 
     fn filetime_of(path: &camino::Utf8Path) -> std::time::SystemTime {
@@ -532,4 +535,156 @@ mod index_usage {
                 if publisher == "Acme Labs" && name == "My Lib"
         );
     }
+}
+
+// ---------------------------------------------------------------------
+// The `model.toml` arm.
+
+use super::{do_set_index_usage_constraint_toml, do_set_usage_constraint_toml};
+use crate::model::{IndexName, IndexPublisher};
+
+const TOML: &str = "manifest-version = \"1.0.0\"\n\n\
+                    [project]\n\
+                    publisher = \"acme\"\n\
+                    name = \"app\"\n\
+                    version = \"1.0.0\"\n\
+                    sources = []\n\
+                    metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
+                    [[inline-usages]]\n\
+                    publisher = \"acme\"\n\
+                    name = \"lib\"\n\
+                    # pinned for the demo\n\
+                    version = \"^1\"\n\n\
+                    [[inline-usages]]\n\
+                    publisher = \"acme\"\n\
+                    name = \"other\"\n\
+                    version = \"^3\"\n\n\
+                    [[inline-usages]]\n\
+                    publisher = \"acme\"\n\
+                    name = \"local\"\n\
+                    dir = \"../local\"\n";
+
+fn toml_doc(text: &str) -> toml_edit::DocumentMut {
+    text.parse().expect("test manifest must parse")
+}
+
+/// The identity form, as the bindings reach it for `publisher`/`name`.
+fn by_identity(
+    doc: &mut toml_edit::DocumentMut,
+    publisher: &str,
+    name: &str,
+    constraint: &str,
+) -> Result<ConstraintChange, SetConstraintError> {
+    do_set_index_usage_constraint_toml(
+        doc,
+        &IndexPublisher::parse(publisher.to_owned()).unwrap(),
+        &IndexName::parse(name.to_owned()).unwrap(),
+        constraint,
+    )
+}
+
+#[test]
+fn toml_replace_touches_exactly_one_line() {
+    let mut doc = toml_doc(TOML);
+    let change = do_set_usage_constraint_toml(&mut doc, "pkg:sysand/acme/lib", "^2").expect("ok");
+    assert_eq!(
+        change,
+        ConstraintChange::Replaced {
+            old: Some("^1".to_owned()),
+            new: "^2".to_owned(),
+        }
+    );
+    let rendered = doc.to_string();
+    let (before, after) = one_line_diff(TOML, &rendered);
+    assert_eq!(before, "version = \"^1\"");
+    assert_eq!(after, "version = \"^2\"");
+    assert!(doc.to_string().contains("# pinned for the demo"));
+}
+
+#[test]
+fn toml_identity_matches_the_declaration() {
+    let mut doc = toml_doc(TOML);
+    let change = by_identity(&mut doc, "acme", "other", ">=3, <5").expect("ok");
+    assert_matches!(change, ConstraintChange::Replaced { .. });
+    assert!(doc.to_string().contains("version = \">=3, <5\""));
+}
+
+#[test]
+fn toml_unchanged_and_not_found_leave_the_document_alone() {
+    let mut doc = toml_doc(TOML);
+    let change = by_identity(&mut doc, "acme", "lib", "^1").expect("ok");
+    assert_eq!(
+        change,
+        ConstraintChange::Unchanged {
+            constraint: "^1".to_owned()
+        }
+    );
+    let change = by_identity(&mut doc, "acme", "missing", "^1").expect("ok");
+    assert_eq!(change, ConstraintChange::NotFound);
+    assert_eq!(doc.to_string(), TOML);
+}
+
+/// An index usage requires a `version`, so the
+/// constraint cannot be cleared. The verb takes a constraint rather than
+/// an `Option` on either manifest, so there is no clearing arm to
+/// refuse; what is pinned is that the widest constraint is still one,
+/// written in place of the old.
+#[test]
+fn a_toml_index_usage_keeps_a_constraint() {
+    let mut doc = toml_doc(TOML);
+    let change = by_identity(&mut doc, "acme", "lib", "*").expect("ok");
+    assert_matches!(change, ConstraintChange::Replaced { .. });
+    let rendered = doc.to_string();
+    let (before, after) = one_line_diff(TOML, &rendered);
+    assert_eq!(before, "version = \"^1\"");
+    assert_eq!(after, "version = \"*\"");
+}
+
+/// Pins the editor's text: a `dir` usage has no constraint to set.
+#[test]
+fn a_dir_usage_has_no_constraint_to_set() {
+    let mut doc = toml_doc(TOML);
+    let error = by_identity(&mut doc, "acme", "local", "^1").expect_err("refused");
+    assert_eq!(
+        error.to_string(),
+        "`acme/local` is not an index usage and has no version"
+    );
+    assert_matches!(error, SetConstraintError::TomlUsageHasNoConstraint(_));
+    assert_eq!(doc.to_string(), TOML);
+}
+
+/// A `model.toml` usage is addressed by identity.
+#[test]
+fn a_toml_usage_is_addressed_by_identity() {
+    let mut doc = toml_doc(TOML);
+    let error =
+        do_set_usage_constraint_toml(&mut doc, "urn:kpar:lib", "^1").expect_err("not an identity");
+    assert_eq!(
+        error.to_string(),
+        "`urn:kpar:lib` is not a `pkg:sysand` PURL; a `model.toml` usage is named `publisher/name`"
+    );
+    // A PURL whose parts are not normalized is malformed, as in the json arm.
+    let error =
+        do_set_usage_constraint_toml(&mut doc, "pkg:sysand/Acme/Lib", "^1").expect_err("malformed");
+    assert_matches!(error, SetConstraintError::MalformedPurl { .. });
+    assert_eq!(doc.to_string(), TOML);
+}
+
+/// A standard-library entry declares no `publisher` and is reached under
+/// `omg`; as a `kpar-url` usage it has no constraint, while an
+/// index entry published by `OMG` does.
+#[test]
+fn a_stdlib_usage_is_reached_under_omg() {
+    let text = TOML.replace(
+        "[[inline-usages]]\npublisher = \"acme\"\nname = \"local\"\ndir = \"../local\"\n",
+        "[[inline-usages]]\nname = \"Kernel Semantic Library\"\n\
+         kpar-url = \"https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar\"\n\n\
+         [[inline-usages]]\npublisher = \"OMG\"\nname = \"Widgets\"\nversion = \"^1\"\n",
+    );
+    let mut doc = toml_doc(&text);
+    let error = by_identity(&mut doc, "omg", "kernel-semantic-library", "^1")
+        .expect_err("a kpar-url usage has no constraint");
+    assert_matches!(error, SetConstraintError::TomlUsageHasNoConstraint(_));
+    let change = by_identity(&mut doc, "omg", "widgets", "^2").expect("ok");
+    assert_matches!(change, ConstraintChange::Replaced { .. });
 }

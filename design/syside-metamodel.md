@@ -479,6 +479,20 @@ whatever it was -- a path, or a value the OMG family ignores. A writer
 that normalized or retyped a key it does not judge would change a file
 it has no opinion about.
 
+### Editor messages
+
+Three messages of the `model.toml` _editor_ -- not of this schema, but
+listed here because the verb that meets them (`set_usage_constraint`,
+in the bindings) has a `model.toml` arm. A `model.toml` usage is
+addressed by identity; only an index usage has a constraint; and an
+index usage requires one.
+
+| situation                                                                         | text                                                                                                                 |
+| --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| clearing the constraint of a `model.toml` index usage                             | a `model.toml` index usage needs a version constraint                                                                |
+| setting the constraint of a `dir`, `kpar-path`, `kpar-url`, `git` or opt-in usage | `<publisher/name>` is not an index usage and has no version _(the editor's text, also reached through `sysand add`)_ |
+| addressing a `model.toml` usage by an IRI that is not a `pkg:sysand` PURL         | `<iri>` is not a `pkg:sysand` PURL; a `model.toml` usage is named `publisher/name`                                   |
+
 ## Non-goals
 
 - Computing reachability from `root`. Stated as a commitment above;
