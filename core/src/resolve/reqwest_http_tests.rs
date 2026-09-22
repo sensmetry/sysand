@@ -109,8 +109,10 @@ fn template_basic_http_url_lax(
     let ResolutionOutcome::Resolved(projects) = resolve(&resolver, url)? else {
         panic!()
     };
-    let projects: Vec<super::HTTPProjectAsync<Unauthenticated>> =
-        projects.into_iter().map(|x| x.unwrap().inner).collect();
+    let projects: Vec<super::HTTPProjectAsync<Unauthenticated>> = projects
+        .into_iter()
+        .map(|x| x.unwrap().into_inner())
+        .collect();
 
     assert_eq!(projects.len(), 2);
 

@@ -11,6 +11,7 @@ pub mod model;
 
 #[cfg(feature = "networking")]
 pub mod auth;
+pub mod cancel;
 pub mod config;
 pub mod context;
 pub mod credential_store;

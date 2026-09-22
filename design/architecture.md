@@ -364,6 +364,37 @@ Each `package_ID` is derived from the project's canonical identifier, and
 `sysand_core::env::iri_normalize::iri_to_filename_part()` and
 `sysand_core::env::iri_normalize::normalize_version()`, respectively.
 
+### Cancellation
+
+`cancel.rs` re-exports `tokio_util::sync::CancellationToken` and defines
+`Cancellable<E>`: the outcome of every _bridge_ -- the five adapters
+that run async code synchronously (`AsSyncProjectTokio`,
+`AsSyncReaderTokio`, `AsSyncEnvironmentTokio`, `AsSyncResolveTokio`,
+`SyncStreamIter`) -- so a cancelled token is observed at the next
+`block_on` and the operation returns `Cancelled`. The adapters carry a
+token (`new(runtime, inner)`, `with_cancellation(token)`,
+`to_tokio_sync_with`) and are `#[non_exhaustive]`, which ends
+construction by struct literal outside the crate. The solver observes
+the token between candidates through pubgrub's `should_cancel`
+(`SolverError::kind() == "cancelled"`). A git clone observes it through
+`GitInterrupt`: gix's `IS_INTERRUPTED` flag is process-global, so one
+clone runs at a time per process under a mutex, and a watcher thread
+raises the flag for the clone that owns it; gix polls the flag only in
+its pack and checkout loops, so a stalled handshake is not observably
+cancellable. Whatever synchronous step is in flight -- an extraction, a
+lockfile write, a `put_project` move -- completes atomically first;
+none of those crosses a bridge. The ad-hoc `block_on`s in
+`commands::publish` (one upload, received whole or not at all) and
+`commands::auth` (short probes) are not cancellable.
+
+The CLI creates one token per run (`ProjectContext::cancellation`,
+handed to `standard_resolver` and `command_sync`) and, when it owns the
+process, a thread with its own small runtime that cancels the token on
+the first Ctrl-C and exits with 130 on the second; a cancelled run
+prints "cancelled" and exits 130. The bindings hand out never-cancelled
+tokens. `AsSyncReaderTokio::read` returns an `io::Error` of kind
+`Other`, not `Interrupted`, which std readers would retry forever.
+
 ### The advisory lock
 
 `workspace_lock.rs` (`WorkspaceLock`, `LockMode::{Shared, Exclusive}`,

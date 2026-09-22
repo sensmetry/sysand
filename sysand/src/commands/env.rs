@@ -125,6 +125,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
             index_urls,
             runtime.clone(),
             auth_policy.clone(),
+            ctx.cancellation.clone(),
         )?,
     );
 
@@ -194,6 +195,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
             auth_policy,
             // Since this explicitly installs into env, it would not make sense to prune
             true,
+            ctx.cancellation,
             &mut SyncOutcome::default(),
         )?;
     }
@@ -319,6 +321,7 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
                 index_urls,
                 runtime.clone(),
                 auth_policy.clone(),
+                ctx.cancellation.clone(),
             )?,
         );
         let LockOutcome {
@@ -344,6 +347,7 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
             auth_policy,
             // Since this explicitly installs into env, it would not make sense to prune
             true,
+            ctx.cancellation.clone(),
             &mut SyncOutcome::default(),
         )?;
     }

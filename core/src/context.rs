@@ -56,6 +56,10 @@ pub struct ProjectContext {
     /// writes; `None` for readers.
     #[cfg(feature = "filesystem")]
     pub workspace_lock: Option<std::sync::Arc<crate::workspace_lock::WorkspaceLock>>,
+    /// The command's cancellation token, observed at every bridge the
+    /// command's resolvers and storages cross and by the solver between
+    /// candidates. Never cancelled by default.
+    pub cancellation: crate::cancel::CancellationToken,
 }
 
 impl ProjectContext {

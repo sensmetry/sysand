@@ -7,6 +7,7 @@ use std::{
 };
 
 use crate::{
+    cancel::{Cancellable, CancellationToken, bridge},
     env::{SyncStreamIter, utils::ErrorBound},
     model::InterchangeProjectUsage,
     project::{
@@ -427,10 +428,19 @@ pub trait ResolveReadAsync {
     where
         Self: Sized,
     {
-        AsSyncResolveTokio {
-            runtime,
-            inner: self,
-        }
+        AsSyncResolveTokio::new(runtime, self)
+    }
+
+    /// [`Self::to_tokio_sync`] observing `token` at every bridge.
+    fn to_tokio_sync_with(
+        self,
+        runtime: Arc<tokio::runtime::Runtime>,
+        token: CancellationToken,
+    ) -> AsSyncResolveTokio<Self>
+    where
+        Self: Sized,
+    {
+        AsSyncResolveTokio::new(runtime, self).with_cancellation(token)
     }
 }
 
@@ -487,18 +497,37 @@ where
 }
 
 /// Wrapper intended to wrap `ResolveReadAsync`, indicating that it should be treated as a
-/// `ResolveRead`, using a provided tokio runtime.
+/// `ResolveRead`, using a provided tokio runtime; every bridge observes
+/// the cancellation token (`crate::cancel`).
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct AsSyncResolveTokio<T> {
     runtime: Arc<tokio::runtime::Runtime>,
     inner: T,
+    token: CancellationToken,
+}
+
+impl<T> AsSyncResolveTokio<T> {
+    pub fn new(runtime: Arc<tokio::runtime::Runtime>, inner: T) -> Self {
+        Self {
+            runtime,
+            inner,
+            token: CancellationToken::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_cancellation(mut self, token: CancellationToken) -> Self {
+        self.token = token;
+        self
+    }
 }
 
 impl<T: ResolveReadAsync> ResolveRead for AsSyncResolveTokio<T>
 where
     <T as ResolveReadAsync>::ResolvedStorages: Unpin,
 {
-    type Error = <T as ResolveReadAsync>::Error;
+    type Error = Cancellable<<T as ResolveReadAsync>::Error>;
 
     type ProjectStorage = AsSyncProjectTokio<<T as ResolveReadAsync>::ProjectStorage>;
 
@@ -522,25 +551,25 @@ where
         resolve: &ResolutionInfo,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         Ok(
-            match self
-                .runtime
-                .block_on(self.inner.resolve_read_async(resolve))?
-            {
+            match bridge(
+                &self.runtime,
+                &self.token,
+                self.inner.resolve_read_async(resolve),
+            )? {
                 ResolutionOutcome::Resolved(storages) => {
                     let runtime_clone = self.runtime.clone();
+                    let token_clone = self.token.clone();
 
                     let inner: futures::stream::Map<_, Box<dyn Fn(_) -> _>> =
                         storages.map(Box::new(move |project| {
-                            Ok(AsSyncProjectTokio {
-                                runtime: runtime_clone.clone(),
-                                inner: project?,
-                            })
+                            Ok(AsSyncProjectTokio::new(runtime_clone.clone(), project?)
+                                .with_cancellation(token_clone.clone()))
                         }));
 
-                    ResolutionOutcome::Resolved(SyncStreamIter {
-                        runtime: self.runtime.clone(),
-                        inner,
-                    })
+                    ResolutionOutcome::Resolved(
+                        SyncStreamIter::new(self.runtime.clone(), inner)
+                            .with_cancellation(self.token.clone()),
+                    )
                 }
                 ResolutionOutcome::UnsupportedUsageType { reason } => {
                     ResolutionOutcome::UnsupportedUsageType { reason }

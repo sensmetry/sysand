@@ -10,6 +10,7 @@ use std::{collections::HashMap, fs, io::ErrorKind, sync::Arc};
 
 use sysand_core::{
     auth::HTTPAuthentication,
+    cancel::CancellationToken,
     commands::{lock::LockOutcome, sync::SyncOutcome},
     config::Config,
     context::ProjectContext,
@@ -97,6 +98,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         &runtime,
         auth_policy.clone(),
         project_path,
+        ctx.cancellation.clone(),
     ) {
         Ok(ret) => ret,
         Err(e) => {
@@ -124,6 +126,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         // `clone` populates a fresh directory; no advisory lock (see
         // `lock_mode` in `lib.rs`).
         workspace_lock: None,
+        cancellation: ctx.cancellation,
     };
 
     if !no_deps {
@@ -194,6 +197,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
             runtime,
             auth_policy,
             false,
+            ctx.cancellation,
             &mut SyncOutcome::default(),
         )?;
     }
@@ -210,6 +214,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
     runtime: &Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
     project_path: Utf8PathBuf,
+    cancellation: CancellationToken,
 ) -> Result<
     (
         bool,
@@ -290,6 +295,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
         index_urls,
         runtime.clone(),
         auth_policy,
+        cancellation,
     )?;
     match &locator {
         ProjectLocator::Iri(iri) => {

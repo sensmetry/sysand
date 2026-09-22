@@ -10,6 +10,7 @@ use url::ParseError;
 
 use sysand_core::{
     auth::HTTPAuthentication,
+    cancel::CancellationToken,
     commands::{
         sync::{MismatchKind, SyncError, SyncOutcome},
         verify::{ManifestUsages, VerifyError, VerifyReport, do_verify},
@@ -122,6 +123,7 @@ pub fn command_sync_verify<Policy: HTTPAuthentication>(
     auth_policy: Arc<Policy>,
     no_prune: bool,
     repair: bool,
+    token: CancellationToken,
     outcome: &mut SyncOutcome,
 ) -> Result<VerifyStatus, CommandSyncError> {
     let report = do_verify(lock, env.as_ref(), manifests, provided_usages)?;
@@ -194,6 +196,7 @@ pub fn command_sync_verify<Policy: HTTPAuthentication>(
         runtime,
         auth_policy,
         no_prune,
+        token,
         &mut sync_outcome,
     )?;
     outcome.repaired = sync_outcome.installed;
@@ -232,6 +235,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
     no_prune: bool,
+    token: CancellationToken,
     outcome: &mut SyncOutcome,
 ) -> Result<(), CommandSyncError> {
     // `project_root` is the root the lockfile's `src_path`s are relative
@@ -259,7 +263,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
                     auth_policy: auth_policy.clone(),
                     expected_checksum: Some(checksum),
                 }
-                .to_tokio_sync(runtime.clone()))
+                .to_tokio_sync_with(runtime.clone(), token.clone()))
             },
         ),
         Some(
@@ -297,7 +301,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
                     }),
                 )
                 .unwrap();
-                Ok(project.to_tokio_sync(runtime.clone()))
+                Ok(project.to_tokio_sync_with(runtime.clone(), token.clone()))
             },
         ),
         Some(
@@ -316,12 +320,13 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
                     index_kpar_digest,
                 )
                 .unwrap();
-                Ok(project.to_tokio_sync(runtime.clone()))
+                Ok(project.to_tokio_sync_with(runtime.clone(), token.clone()))
             },
         ),
         Some(
             |remote_git: String| -> Result<GixDownloadedProject, GixDownloadedError> {
                 GixDownloadedProject::new(remote_git)
+                    .map(|project| project.with_cancellation(token.clone()))
             },
         ),
         provided_usages,

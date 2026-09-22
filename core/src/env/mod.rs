@@ -7,6 +7,7 @@ use futures::{Stream, StreamExt as _, TryStreamExt as _};
 use thiserror::Error;
 
 use crate::{
+    cancel::{Cancellable, CancellationToken, bridge},
     env::utils::ErrorBound,
     project::{
         AsAsyncProject, AsSyncProjectTokio, ProjectChecksum, ProjectMut, ProjectRead,
@@ -207,10 +208,19 @@ pub trait ReadEnvironmentAsync {
     where
         Self: Sized,
     {
-        AsSyncEnvironmentTokio {
-            runtime,
-            inner: self,
-        }
+        AsSyncEnvironmentTokio::new(runtime, self)
+    }
+
+    /// [`Self::to_tokio_sync`] observing `token` at every bridge.
+    fn to_tokio_sync_with(
+        self,
+        runtime: Arc<tokio::runtime::Runtime>,
+        token: CancellationToken,
+    ) -> AsSyncEnvironmentTokio<Self>
+    where
+        Self: Sized,
+    {
+        AsSyncEnvironmentTokio::new(runtime, self).with_cancellation(token)
     }
 }
 
@@ -268,24 +278,88 @@ where
 }
 
 /// Wrapper intended to wrap an `ReadEnvironmentAsync` as a `ReadEnvironment`
-/// using a provided tokio runtime.
+/// using a provided tokio runtime; every bridge observes the cancellation
+/// token (`crate::cancel`).
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct AsSyncEnvironmentTokio<T> {
     runtime: Arc<tokio::runtime::Runtime>,
     inner: T,
+    token: CancellationToken,
 }
 
+impl<T> AsSyncEnvironmentTokio<T> {
+    pub fn new(runtime: Arc<tokio::runtime::Runtime>, inner: T) -> Self {
+        Self {
+            runtime,
+            inner,
+            token: CancellationToken::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_cancellation(mut self, token: CancellationToken) -> Self {
+        self.token = token;
+        self
+    }
+}
+
+/// A `Stream` of results driven synchronously on a tokio runtime. A
+/// cancellation is yielded once, as `Err(Cancelled)`, and the iteration
+/// then ends.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct SyncStreamIter<S> {
     pub runtime: Arc<tokio::runtime::Runtime>,
     pub inner: S,
+    pub token: CancellationToken,
+    done: bool,
 }
 
-impl<S: Stream + Unpin> Iterator for SyncStreamIter<S> {
-    type Item = <S as Stream>::Item;
+impl<S> SyncStreamIter<S> {
+    pub fn new(runtime: Arc<tokio::runtime::Runtime>, inner: S) -> Self {
+        Self {
+            runtime,
+            inner,
+            token: CancellationToken::new(),
+            done: false,
+        }
+    }
+
+    #[must_use]
+    pub fn with_cancellation(mut self, token: CancellationToken) -> Self {
+        self.token = token;
+        self
+    }
+}
+
+impl<S, T, E> Iterator for SyncStreamIter<S>
+where
+    S: Stream<Item = Result<T, E>> + Unpin,
+{
+    type Item = Result<T, Cancellable<E>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.runtime.block_on(self.inner.next())
+        if self.done {
+            return None;
+        }
+        let Self {
+            runtime,
+            inner,
+            token,
+            done,
+        } = self;
+        match runtime.block_on(token.run_until_cancelled(inner.next())) {
+            Some(Some(item)) => Some(item.map_err(Cancellable::Inner)),
+            Some(None) => {
+                *done = true;
+                None
+            }
+            None => {
+                *done = true;
+                Some(Err(Cancellable::Cancelled))
+            }
+        }
     }
 }
 
@@ -294,28 +368,20 @@ where
     <T as ReadEnvironmentAsync>::UriStream: Unpin,
     <T as ReadEnvironmentAsync>::VersionStream: Unpin,
 {
-    type ReadError = <T as ReadEnvironmentAsync>::ReadError;
+    type ReadError = Cancellable<<T as ReadEnvironmentAsync>::ReadError>;
 
     type UriIter = SyncStreamIter<<T as ReadEnvironmentAsync>::UriStream>;
 
     fn uris(&self) -> Result<Self::UriIter, Self::ReadError> {
-        let stream = self.runtime.block_on(self.inner.uris_async())?;
-
-        Ok(SyncStreamIter {
-            runtime: self.runtime.clone(),
-            inner: stream,
-        })
+        let stream = bridge(&self.runtime, &self.token, self.inner.uris_async())?;
+        Ok(SyncStreamIter::new(self.runtime.clone(), stream).with_cancellation(self.token.clone()))
     }
 
     type VersionIter = SyncStreamIter<<T as ReadEnvironmentAsync>::VersionStream>;
 
     fn versions<S: AsRef<str>>(&self, uri: S) -> Result<Self::VersionIter, Self::ReadError> {
-        let stream = self.runtime.block_on(self.inner.versions_async(uri))?;
-
-        Ok(SyncStreamIter {
-            runtime: self.runtime.clone(),
-            inner: stream,
-        })
+        let stream = bridge(&self.runtime, &self.token, self.inner.versions_async(uri))?;
+        Ok(SyncStreamIter::new(self.runtime.clone(), stream).with_cancellation(self.token.clone()))
     }
 
     type InterchangeProjectRead =
@@ -326,12 +392,13 @@ where
         uri: S,
         version: V,
     ) -> Result<Self::InterchangeProjectRead, Self::ReadError> {
-        Ok(AsSyncProjectTokio {
-            runtime: self.runtime.clone(),
-            inner: self
-                .runtime
-                .block_on(self.inner.get_project_async(uri, version))?,
-        })
+        let project = bridge(
+            &self.runtime,
+            &self.token,
+            self.inner.get_project_async(uri, version),
+        )?;
+        Ok(AsSyncProjectTokio::new(self.runtime.clone(), project)
+            .with_cancellation(self.token.clone()))
     }
 
     fn has_version_verified<S: AsRef<str>, V: AsRef<str>>(
@@ -340,7 +407,9 @@ where
         version: V,
         checksum: &ProjectChecksum,
     ) -> Result<ProjectChecksumResult, Self::ReadError> {
-        self.runtime.block_on(
+        bridge(
+            &self.runtime,
+            &self.token,
             self.inner
                 .has_version_verified_async(uri, version, checksum),
         )
