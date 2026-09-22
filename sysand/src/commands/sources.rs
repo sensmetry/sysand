@@ -42,7 +42,7 @@ pub fn command_sources_env(
 
     let sources = do_sources_env(env, project, version.as_ref(), no_own, dependencies.into())?;
     for src_path in sources {
-        println!("{src_path}");
+        emit_source(&src_path);
     }
 
     Ok(())
@@ -69,7 +69,7 @@ pub fn command_sources_project(
 
     if !no_own {
         for src_path in do_sources_local_src_project_no_deps(&current_project, true)? {
-            println!("{}", src_path);
+            emit_source(&src_path);
         }
     }
 
@@ -84,7 +84,7 @@ pub fn command_sources_project(
 
         for dep in deps {
             for src_path in do_sources_local_src_project_no_deps(&dep, true)? {
-                println!("{}", src_path);
+                emit_source(&src_path);
             }
         }
     }
@@ -195,8 +195,18 @@ pub fn command_sources_workspace(
         if no_own && own.contains(&src_path) {
             continue;
         }
-        println!("{src_path}");
+        emit_source(&src_path);
     }
 
     Ok(())
+}
+
+/// One source path: a line in text mode, an entry of the `sources`
+/// document under `--format json`, in the same order.
+fn emit_source(path: &impl std::fmt::Display) {
+    if crate::output::is_json() {
+        crate::output::push("sources", path.to_string());
+    } else {
+        println!("{path}");
+    }
 }

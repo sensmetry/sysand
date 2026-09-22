@@ -371,8 +371,24 @@ pub fn command_env_list(env: Option<LocalDirectoryEnvironment>) -> Result<()> {
         bail!("unable to identify environment to list");
     };
 
-    for (uri, version) in sysand_core::commands::env::do_env_list(&env)? {
-        println!("`{uri}` {}", version.unwrap_or_default());
+    let mut listed: Vec<(String, String)> = sysand_core::commands::env::do_env_list(&env)?
+        .into_iter()
+        .map(|(uri, version)| (uri, version.unwrap_or_default()))
+        .collect();
+    if crate::output::is_json() {
+        // A defined order for the document; the text form keeps the
+        // environment's.
+        listed.sort();
+        for (iri, version) in &listed {
+            crate::output::push(
+                "projects",
+                serde_json::json!({ "iri": iri, "version": version }),
+            );
+        }
+        return Ok(());
+    }
+    for (uri, version) in listed {
+        println!("`{uri}` {version}");
     }
     Ok(())
 }

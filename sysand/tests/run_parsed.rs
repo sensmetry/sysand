@@ -24,6 +24,7 @@ fn global_opts() -> GlobalOptions {
         no_config: true,
         config_file: None,
         lock_wait: None,
+        format: OutputFormat::default(),
         help: None,
     }
 }

@@ -29,12 +29,14 @@ pub fn command_print_root(
             StartRegion::Standalone(project) => project.as_path(),
             StartRegion::Member(_) | StartRegion::Workspace => root,
         };
-        println!("{root}");
+        crate::output::document("root", root.as_str());
+        crate::output::text(|| println!("{root}"));
         return Ok(());
     }
     match do_root(path)? {
         Some(root) => {
-            println!("{root}");
+            crate::output::document("root", root.as_str());
+            crate::output::text(|| println!("{root}"));
             Ok(())
         }
         None => Err(anyhow!(CliError::InvalidDirectory(

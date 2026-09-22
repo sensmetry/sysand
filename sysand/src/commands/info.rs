@@ -34,6 +34,27 @@ use sysand_core::{
     project::utils::wrapfs,
 };
 
+/// Report a project: its two manifests as the `info` document under
+/// `--format json`, the text summary otherwise.
+pub fn report_interchange_project(
+    info: &InterchangeProjectInfoRaw,
+    meta: &InterchangeProjectMetadataRaw,
+    excluded_iris: &ProvidedIdentifiers,
+) {
+    if crate::output::is_json() {
+        crate::output::document(
+            "project",
+            serde_json::to_value(info).expect("a manifest serializes"),
+        );
+        crate::output::document(
+            "metadata",
+            serde_json::to_value(meta).expect("a manifest serializes"),
+        );
+        return;
+    }
+    pprint_interchange_project(info, excluded_iris);
+}
+
 pub fn pprint_interchange_project(
     info: &InterchangeProjectInfoRaw,
     excluded_iris: &ProvidedIdentifiers,
@@ -185,8 +206,8 @@ pub fn command_info_project(
     excluded_iris: &HashSet<Identifier>,
 ) -> Result<()> {
     match do_info_project(&project) {
-        Ok((info, _)) => {
-            pprint_interchange_project(&info, excluded_iris);
+        Ok((info, meta)) => {
+            report_interchange_project(&info, &meta, excluded_iris);
 
             Ok(())
         }
@@ -226,8 +247,8 @@ pub fn command_info_resolve<Policy: HTTPAuthentication>(
         )?,
     );
 
-    let (info, _) = do_info_usage(resolve, &combined_resolver)?;
-    pprint_interchange_project(&info, excluded_iris);
+    let (info, meta) = do_info_usage(resolve, &combined_resolver)?;
+    report_interchange_project(&info, &meta, excluded_iris);
     Ok(())
 }
 
@@ -289,9 +310,23 @@ pub fn command_info_field_resolve<Policy: HTTPAuthentication>(
     Ok(())
 }
 
+/// The lines of one `--get`: one per line in text mode, the `values`
+/// document under `--format json`, where `member` names the workspace
+/// member they came from, `None` for a single project.
 fn print_lines(lines: Vec<String>) {
+    print_member_lines(None, lines);
+}
+
+fn print_member_lines(member: Option<&str>, lines: Vec<String>) {
+    if crate::output::is_json() {
+        crate::output::values(member, &lines);
+        return;
+    }
     for line in lines {
-        println!("{line}");
+        match member {
+            Some(member) => println!("{member}: {line}"),
+            None => println!("{line}"),
+        }
     }
 }
 
@@ -435,12 +470,10 @@ pub fn command_info_workspace(
                 || get_info_or_bail(&project),
                 || get_meta_or_bail(&project),
             )?;
-            for line in lines {
-                println!("{}: {line}", member.project.name);
-            }
+            print_member_lines(Some(member.project.name.as_str()), lines);
         } else {
             if at > 0 {
-                println!();
+                crate::output::text(|| println!());
             }
             command_info_project(
                 FileResolverProject::LocalSrcProject(project),
