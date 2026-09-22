@@ -1547,12 +1547,13 @@ fn a_direction_error_fails_the_lock() {
             (
                 "lib",
                 "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"beta\"\n\
-                 version = \"1.0.0\"\nsources = []\n\
-                 metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\n",
+                 version = \"1.0.0\"\nsources = [\"main.sysml\"]\n\
+                 metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\nroot = \"main.sysml\"\n",
             ),
         ],
         "",
     );
+    std::fs::write(dir.path().join("lib/main.sysml"), "package Beta;\n").expect("a source file");
 
     let error = lock_workspace(&dir).expect_err("an OMG project may not depend on a Syside one");
     let message = error.to_string();
@@ -1613,11 +1614,12 @@ fn a_members_own_entry_records_its_metamodel() -> Result<(), Box<dyn std::error:
         &[(
             "app",
             "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"alpha\"\n\
-             version = \"1.0.0\"\nsources = []\n\
-             metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\n",
+             version = \"1.0.0\"\nsources = [\"main.sysml\"]\n\
+             metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\nroot = \"main.sysml\"\n",
         )],
         "",
     );
+    std::fs::write(dir.path().join("app/main.sysml"), "package Alpha;\n")?;
     let lock = lock_workspace(&dir).map_err(|e| e.to_string())?;
     let member = lock
         .projects

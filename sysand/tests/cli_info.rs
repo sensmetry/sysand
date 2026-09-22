@@ -2461,3 +2461,65 @@ fn info_at_a_member_path_reads_the_inherited_metamodel() -> Result<(), Box<dyn s
         .stdout(predicate::str::contains("member"));
     Ok(())
 }
+
+const SYSIDE_SYSML: &str = "https://www.sysand.com/spec/SysML/20250201";
+
+/// Appendix B row P2-01, from the CLI, and the phase 2 interim it pins:
+/// `init` accepts a Syside metamodel and writes what it writes for any
+/// project -- `sources = []`, no `root` -- and the next read refuses
+/// the file for want of `root`. What `init` should write for a Syside
+/// project is plan-phase2.md A-9 (WP-A4), gated on phase 1's open row
+/// 32; until then this is the recorded behaviour, not an accident.
+#[test]
+fn p2_01_init_with_a_syside_metamodel_then_info_is_refused_for_want_of_root()
+-> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    run_sysand_in(
+        &cwd,
+        [
+            "init",
+            "--publisher",
+            "acme",
+            "--name",
+            "widgets",
+            "--version",
+            "1.0.0",
+            "--metamodel",
+            SYSIDE_SYSML,
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+
+    run_sysand_in(&cwd, ["info"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "missing key `root` in `[project]`; the Syside metamodel requires it",
+        ));
+    Ok(())
+}
+
+/// From outside: a hand-written Syside `model.toml` reads with no
+/// warning.
+#[test]
+fn a_syside_project_reads_with_no_warning_from_the_cli() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    std::fs::write(
+        cwd.join("model.toml"),
+        format!(
+            "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
+             version = \"1.0.0\"\nsources = [\"main.sysml\"]\nmetamodel = \"{SYSIDE_SYSML}\"\n\
+             root = \"main.sysml\"\n"
+        ),
+    )?;
+    std::fs::write(cwd.join("main.sysml"), "package Widgets;\n")?;
+
+    run_sysand_in(&cwd, ["info"], None)?
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("warning").not())
+        .stdout(predicate::str::contains("widgets"));
+    Ok(())
+}

@@ -25,6 +25,7 @@
 //!
 //! Like the rest of `manifest/`, this module is free of Cargo features.
 
+use serde::Serialize as _;
 use thiserror::Error;
 use toml_edit::{ArrayOfTables, Decor, Item, Table, value};
 
@@ -132,13 +133,15 @@ fn project_table(project: &ProjectTable) -> Table {
                     table[key] = value(stdlib.to_string());
                 }
             }
-            // model-toml.md reserves `root` for the Syside metamodel, so
-            // nothing in v1 sets it -- but a manifest that was read
-            // carries it, and a writer that dropped it would lose the
-            // key on every rewrite.
+            // `root` is kept exactly as it was written and judged, if at
+            // all, when the project resolves; so it is written back
+            // exactly as it was.
             "root" => {
-                if project.root {
-                    table[key] = value(true);
+                if let Some(root) = &project.root {
+                    table[key] = Item::Value(
+                        root.serialize(toml_edit::ser::ValueSerializer::new())
+                            .expect("a TOML value serializes as a TOML value"),
+                    );
                 }
             }
             "urls" => urls(&mut table, key, project.urls.as_ref()),
@@ -621,9 +624,10 @@ pub fn clear_project_key(doc: &mut DocumentMut, key: ProjectKey) -> Result<bool,
 /// edit as a whole value.
 ///
 /// `sources` has rules of its own and goes through [`include_source`];
-/// `urls` is a table and goes through [`set_url_key`]; `root` belongs to
-/// a schema v1 does not implement. Whether a value is one the project
-/// accepts is the reader's question, as it is for every other key here.
+/// `urls` is a table and goes through [`set_url_key`]. `root` is
+/// author-written and settable like `version`; whether a value is one
+/// the project accepts is the reader's question, as it is for every
+/// other key here.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProjectKey {
     Publisher,
@@ -635,6 +639,7 @@ pub enum ProjectKey {
     Metamodel,
     Maintainers,
     Stdlib,
+    Root,
 }
 
 impl ProjectKey {
@@ -649,6 +654,7 @@ impl ProjectKey {
             Self::Metamodel => "metamodel",
             Self::Maintainers => "maintainers",
             Self::Stdlib => "stdlib",
+            Self::Root => "root",
         }
     }
 }

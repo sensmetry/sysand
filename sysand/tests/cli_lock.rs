@@ -1705,11 +1705,17 @@ fn write_metamodel_member(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let path = cwd.join(at);
     std::fs::create_dir_all(&path)?;
+    // A test that is about the file list writes `sources` into `extra`.
+    let sources = if extra.contains("sources") {
+        ""
+    } else {
+        "sources = []\n"
+    };
     std::fs::write(
         path.join("model.toml"),
         format!(
             "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"{name}\"\n\
-             version = \"1.0.0\"\nsources = []\nmetamodel = \"{metamodel}\"\n{extra}"
+             version = \"1.0.0\"\n{sources}metamodel = \"{metamodel}\"\n{extra}"
         ),
     )?;
     Ok(())
@@ -1739,7 +1745,16 @@ fn lock_refuses_a_metamodel_direction_error() -> Result<(), Box<dyn std::error::
         OMG_SYSML,
         "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"beta\"\ndir = \"../lib\"\n",
     )?;
-    write_metamodel_member(&cwd, "lib", "beta", SYSIDE_SYSML, "")?;
+    // A Syside project names its `root` among its `sources`; the
+    // helper's `sources = []` is for OMG members.
+    write_metamodel_member(
+        &cwd,
+        "lib",
+        "beta",
+        SYSIDE_SYSML,
+        "root = \"main.sysml\"\nsources = [\"main.sysml\"]\n",
+    )?;
+    std::fs::write(cwd.join("lib/main.sysml"), "package Beta;\n")?;
 
     run_sysand_in(&cwd, ["lock", "--no-index"], None)?
         .assert()

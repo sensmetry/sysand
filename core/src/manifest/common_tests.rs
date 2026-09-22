@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
 use crate::manifest::common::{
-    InheritFrom, InheritMarker, Maintainer, Sources, SourcesError, StdlibStem, admitted_source,
-    is_valid_group_name, normalized_identity,
+    InheritFrom, InheritMarker, Maintainer, PathProblem, RootError, Sources, SourcesError,
+    StdlibStem, admitted_source, is_valid_group_name, normalized_identity, path_problem, root_path,
 };
 use crate::model::{IndexName, IndexPublisher, KnownMetamodel};
 
@@ -346,5 +346,60 @@ fn the_two_sources_form_errors_read_in_full() {
         directory.to_string(),
         "`sources` entry `src/` names a directory; every entry names a single file \
          (directories and globs are postponed to after v1)"
+    );
+}
+
+/// `root` is held to a `sources` entry's syntax, and there is one rule
+/// set. Every problem the shared check finds maps to its `SourcesError`
+/// and to a `RootError` worded for one key.
+#[test]
+fn sources_and_root_share_their_checks() {
+    for (path, problem, sources_text) in [
+        (
+            "/abs.sysml",
+            PathProblem::Absolute,
+            "`sources` entry `/abs.sysml` is absolute; entries are relative to the project root",
+        ),
+        (
+            "a\\b.sysml",
+            PathProblem::Backslash,
+            "`sources` entry `a\\b.sysml` contains a backslash `\\`;\nentries are `/`-separated, so \
+             that a manifest reads the same way\non every operating system",
+        ),
+        (
+            "a\0.sysml",
+            PathProblem::Null,
+            "`sources` entry `a\0.sysml` contains a NULL character",
+        ),
+        (
+            "../up.sysml",
+            PathProblem::NotStrict,
+            "`sources` entry `../up.sysml` is not in the form `sources` takes: entries are \
+             relative, `/`-separated,\nand carry no `.` or `..` component and no repeated or \
+             leading slash",
+        ),
+        (
+            "src/",
+            PathProblem::Directory,
+            "`sources` entry `src/` names a directory; every entry names a single file \
+             (directories and globs are postponed to after v1)",
+        ),
+        (
+            "notes.txt",
+            PathProblem::NotModelFile,
+            "`sources` entry `notes.txt` is not a KerML (`.kerml`) or SysML (`.sysml`) file; \
+             `sources` lists model files only",
+        ),
+    ] {
+        assert_eq!(path_problem(path), Some(problem), "{path}");
+        assert_eq!(sources_error(&[path]).to_string(), sources_text, "{path}");
+        let root = root_path(path).expect_err(path);
+        assert!(root.to_string().starts_with("`root` `"), "{path}: {root}");
+        assert_eq!(RootError::new(problem, path), root, "{path}");
+    }
+    assert_eq!(path_problem("src/a.sysml"), None);
+    assert_eq!(
+        root_path("src/a.sysml").map(|p| p.as_str().to_owned()),
+        Ok("src/a.sysml".to_owned())
     );
 }

@@ -91,7 +91,7 @@ fn maximal() -> ModelToml {
         Maintainer::parse("Ada Lovelace <ada@example.com>").expect("a valid maintainer"),
     ]));
     table.stdlib = Some(StdlibStem::parse("KerML").expect("a valid stdlib stem"));
-    table.root = true;
+    table.root = Some(toml::Value::from("Base.kerml"));
     table.urls = Some(MetaProperty::Provided(Urls {
         website: Some(MetaProperty::Provided(iri("https://example.com"))),
         documentation: Some(MetaProperty::Provided(iri("https://example.com/docs"))),
@@ -147,7 +147,7 @@ topics = ["widgets", "parts"]
 metamodel = "https://www.omg.org/spec/SysML/20250201"
 maintainers = ["Ada Lovelace <ada@example.com>"]
 stdlib = "KerML"
-root = true
+root = "Base.kerml"
 
 [project.urls]
 website = "https://example.com"
@@ -295,12 +295,73 @@ fn an_inherited_url_key_is_dotted_inside_the_urls_table() {
 }
 
 #[test]
-fn root_is_written_when_it_is_set() {
+fn root_is_written_as_the_path_it_holds() {
     let mut table = built();
-    table.root = true;
-    assert!(render(&project(table)).contains("\nroot = true\n"));
+    table.root = Some(toml::Value::from("main.sysml"));
+    assert!(render(&project(table)).contains("\nroot = \"main.sysml\"\n"));
 
     assert!(!render(&project(built())).contains("root"));
+}
+
+/// The `render_new` golden for a Syside project:
+/// every key such a project writes, byte for byte, and the text reads
+/// back and resolves to what was rendered.
+#[test]
+fn a_syside_manifest_renders_and_reads_back() {
+    let mut table = built();
+    table.sources = Some(sources(&["main.sysml", "lib.sysml"]));
+    table.metamodel = Some(MetaProperty::Provided(metamodel(
+        "https://www.sysand.com/spec/SysML/20250201",
+    )));
+    table.root = Some(toml::Value::from("main.sysml"));
+    let text = render(&project(table));
+    assert_eq!(
+        text,
+        format!(
+            "manifest-version = \"{SUPPORTED_MANIFEST_VERSION}\"\n\n[project]\n\
+             publisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\n\
+             sources = [\n    \"main.sysml\",\n    \"lib.sysml\",\n]\n\
+             metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\n\
+             root = \"main.sysml\"\n"
+        )
+    );
+
+    let read = ModelToml::parse("model.toml", &text)
+        .expect("what was rendered reads")
+        .into_parts()
+        .0
+        .into_project("model.toml")
+        .expect("a project")
+        .resolve(None)
+        .expect("and resolves")
+        .into_parts()
+        .0;
+    assert_eq!(
+        read.root.as_ref().map(|root| root.as_str()),
+        Some("main.sysml")
+    );
+}
+
+/// A `root` that was read is written back exactly as it was written --
+/// whatever it was.
+#[test]
+fn a_read_root_survives_a_rewrite_as_written() {
+    for written in ["root = \"main.sysml\"", "root = true"] {
+        let text = format!(
+            "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
+             version = \"1.0.0\"\nsources = []\n\
+             metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n{written}\n"
+        );
+        let model = ModelToml::parse("model.toml", &text)
+            .expect("the fixture reads")
+            .into_parts()
+            .0;
+        assert!(
+            render(&model).contains(&format!("\n{written}\n")),
+            "{written}: {}",
+            render(&model)
+        );
+    }
 }
 
 #[test]
@@ -387,7 +448,7 @@ fn a_generated_project_file_parses_back_into_itself() {
         table.stdlib.as_ref().map(ToString::to_string),
         Some("KerML".to_owned())
     );
-    assert!(table.root);
+    assert_eq!(table.root, Some(toml::Value::from("Base.kerml")));
     assert!(
         table
             .urls
@@ -666,6 +727,19 @@ fn setting_a_key_twice_is_the_same_as_setting_it_once() {
     set_project_key(&mut twice, ProjectKey::Publisher, Value::from("other")).expect("settable");
 
     assert_eq!(twice.to_string(), once.to_string());
+}
+
+/// `root` is author-written, so it is settable like `version`.
+#[test]
+fn root_can_be_set_and_cleared_like_version() {
+    let mut doc = open_commented();
+
+    set_project_key(&mut doc, ProjectKey::Root, Value::from("main.sysml"))
+        .expect("`root` is settable");
+    assert!(doc.to_string().contains("root = \"main.sysml\""));
+    assert_eq!(clear_project_key(&mut doc, ProjectKey::Root), Ok(true));
+    assert_eq!(clear_project_key(&mut doc, ProjectKey::Root), Ok(false));
+    assert!(!doc.to_string().contains("root"));
 }
 
 #[test]

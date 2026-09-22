@@ -516,7 +516,7 @@ fn a_member_that_does_not_inherit_declares_its_own() -> Result<(), Box<dyn std::
         &cwd.join("project1"),
         "project1",
         "1.0.0",
-        "metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\n",
+        "metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\nroot = \"test.sysml\"\n",
     )?;
 
     run_sysand_in(&cwd, ["build"], None)?.assert().success();
@@ -583,7 +583,7 @@ fn a_member_declares_its_own_metamodel() -> Result<(), Box<dyn std::error::Error
         &cwd.join("project1"),
         "project1",
         "1.0.0",
-        "metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\n",
+        "metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\nroot = \"test.sysml\"\n",
     )?;
 
     run_sysand_in(&cwd, ["build"], None)?.assert().success();

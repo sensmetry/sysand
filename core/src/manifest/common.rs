@@ -344,6 +344,122 @@ pub enum SourcesError {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Sources(Vec<Utf8UnixPathBuf>);
 
+/// What is wrong with one path that should name a model file relative to
+/// the project root: the checks a `sources` entry and a Syside project's
+/// `root` share.
+///
+/// `root` is held to a `sources` entry's syntax, so that there is one
+/// path rule in a manifest (design/syside-metamodel.md, "`root`"). The
+/// checks are one function so that there is one rule; the *texts* are
+/// each key's own ([`SourcesError`], [`RootError`]), because a message
+/// about one key cannot speak of "entries".
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PathProblem {
+    /// Ends in `/`.
+    Directory,
+    /// Contains `\`.
+    Backslash,
+    /// Contains a NUL.
+    Null,
+    /// Absolute on either family of operating system.
+    Absolute,
+    /// Empty, or carrying a `.` or `..` component, or a repeated or
+    /// leading slash: not the one form Sysand itself writes.
+    NotStrict,
+    /// Neither `.kerml` nor `.sysml`.
+    NotModelFile,
+}
+
+/// The shared checks, in the order [`Sources::new`] has always applied
+/// them. `None` for a path that passes all six.
+pub fn path_problem(raw: &str) -> Option<PathProblem> {
+    if raw.ends_with('/') {
+        return Some(PathProblem::Directory);
+    }
+    if raw.contains('\\') {
+        return Some(PathProblem::Backslash);
+    }
+    if raw.contains('\0') {
+        return Some(PathProblem::Null);
+    }
+    // A Windows drive letter is absolute too, and a test for a leading
+    // `/` alone would take `C:/main.sysml` for a relative path.
+    if raw.starts_with('/') || typed_path::Utf8WindowsPath::new(raw).is_absolute() {
+        return Some(PathProblem::Absolute);
+    }
+    if raw.is_empty() || raw.split('/').any(|part| matches!(part, "" | "." | "..")) {
+        return Some(PathProblem::NotStrict);
+    }
+    if Language::guess_from_path(Utf8UnixPath::new(raw)).is_none() {
+        return Some(PathProblem::NotModelFile);
+    }
+    None
+}
+
+impl SourcesError {
+    fn from_problem(problem: PathProblem, raw: &str) -> Self {
+        let raw = raw.to_owned();
+        match problem {
+            PathProblem::Directory => Self::IsDirectory(raw),
+            PathProblem::Backslash => Self::ContainsBackslash(raw),
+            PathProblem::Null => Self::ContainsNull(raw),
+            PathProblem::Absolute => Self::NotRelative(raw),
+            PathProblem::NotStrict => Self::NotStrict(raw),
+            PathProblem::NotModelFile => Self::NotModelFile(raw),
+        }
+    }
+}
+
+/// Why a Syside project's `root` is not a path a `sources` entry could
+/// be: the [`PathProblem`]s, worded for one key.
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
+pub enum RootError {
+    #[error(
+        "`root` `{0}` is absolute; `root` is relative to the project root, like a `sources` entry"
+    )]
+    Absolute(String),
+    #[error(
+        "`root` `{0}` contains a backslash `\\`;\n\
+         it is `/`-separated, so that a manifest reads the same way on every operating system"
+    )]
+    Backslash(String),
+    #[error("`root` `{0}` contains a NULL character")]
+    Null(String),
+    #[error(
+        "`root` `{0}` is not in the form a `sources` entry takes: relative, `/`-separated,\n\
+         with no `.` or `..` component and no repeated or leading slash"
+    )]
+    NotStrict(String),
+    #[error("`root` `{0}` names a directory; `root` names a single model file")]
+    Directory(String),
+    #[error("`root` `{0}` is not a KerML (`.kerml`) or SysML (`.sysml`) file")]
+    NotModelFile(String),
+}
+
+impl RootError {
+    pub fn new(problem: PathProblem, raw: &str) -> Self {
+        let raw = raw.to_owned();
+        match problem {
+            PathProblem::Directory => Self::Directory(raw),
+            PathProblem::Backslash => Self::Backslash(raw),
+            PathProblem::Null => Self::Null(raw),
+            PathProblem::Absolute => Self::Absolute(raw),
+            PathProblem::NotStrict => Self::NotStrict(raw),
+            PathProblem::NotModelFile => Self::NotModelFile(raw),
+        }
+    }
+}
+
+/// A Syside project's `root`, checked as a `sources` entry is and kept
+/// **as written**. Whether it is one of the `sources` entries is the
+/// resolver's question, since only a resolved project knows its family.
+pub fn root_path(raw: &str) -> Result<Utf8UnixPathBuf, RootError> {
+    match path_problem(raw) {
+        Some(problem) => Err(RootError::new(problem, raw)),
+        None => Ok(Utf8UnixPathBuf::from(raw)),
+    }
+}
+
 impl Sources {
     /// Checks every entry against the rules of [`SourcesError`] and
     /// keeps it **as written**. Whether the files exist "is checked only
@@ -368,29 +484,10 @@ impl Sources {
             .enumerate()
             .filter_map(|(index, path)| {
                 let raw = path.as_str();
-                let error = if raw.ends_with('/') {
-                    SourcesError::IsDirectory(raw.to_owned())
-                } else if raw.contains('\\') {
-                    SourcesError::ContainsBackslash(raw.to_owned())
-                } else if raw.contains('\0') {
-                    SourcesError::ContainsNull(raw.to_owned())
-                } else if raw.starts_with('/')
-                    || typed_path::Utf8WindowsPath::new(raw).is_absolute()
-                {
-                    // A Windows drive letter is absolute too, and a test
-                    // for a leading `/` alone would take `C:/main.sysml`
-                    // for a relative path.
-                    SourcesError::NotRelative(raw.to_owned())
-                } else if raw.is_empty()
-                    || raw.split('/').any(|part| matches!(part, "" | "." | ".."))
-                {
-                    SourcesError::NotStrict(raw.to_owned())
-                } else if Language::guess_from_path(path).is_none() {
-                    SourcesError::NotModelFile(raw.to_owned())
-                } else if !seen.insert(raw) {
-                    SourcesError::Duplicate(raw.to_owned())
-                } else {
-                    return None;
+                let error = match path_problem(raw) {
+                    Some(problem) => SourcesError::from_problem(problem, raw),
+                    None if !seen.insert(raw) => SourcesError::Duplicate(raw.to_owned()),
+                    None => return None,
                 };
                 Some((index, error))
             })
