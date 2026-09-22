@@ -22,9 +22,11 @@ use fluent_uri::Iri;
 use semver::Version;
 use spdx::Expression;
 
+use typed_path::Utf8UnixPathBuf;
+
 use crate::manifest::common::{
     InheritFrom, Maintainer, NormalizedIdentity, ResolvedUrls, Sources, StdlibStem,
-    admitted_source, normalized_identity,
+    admitted_source, normalized_identity, root_path,
 };
 use crate::manifest::diagnostics::{
     Diagnostic, KeyLocation, Position, ReadWarning, Report, Validated, missing_key,
@@ -33,7 +35,7 @@ use crate::manifest::inherit::{
     MetaProperty, from_group, inheritable, inheritable_table, own, resolve_optional,
     resolve_property,
 };
-use crate::manifest::reader::{self, TableReader, checked, maintainers, parsed};
+use crate::manifest::reader::{self, TableReader, checked, describe, maintainers, parsed};
 use crate::manifest::spans::Positions;
 use crate::manifest::usage::{
     LocatedUsage, MemberUsage, Usage, UsageRaw, UsageSite, check_duplicates,
@@ -101,9 +103,16 @@ pub struct ProjectTable {
     /// model-toml.md "Standard library": not inheritable, so a plain
     /// value.
     pub stdlib: Option<StdlibStem>,
-    /// Whether `root` was written. model-toml.md reserves the key for the
-    /// Syside metamodel, so v1 keeps only the fact, to warn about it.
-    pub root: bool,
+    /// `root`, **exactly as written and unjudged**. It belongs to the
+    /// Syside schema (plan-phase2.md WP-A1, `phase2-a0a-memo.md` A-1(b)):
+    /// under that family it is a required key naming one of the
+    /// `sources` entries, and under any other it is a foreign key that
+    /// costs a warning and nothing else, whatever its value. Which of the
+    /// two applies depends on the family, and the family may arrive by
+    /// marker, so the reader keeps the value and
+    /// [`ProjectManifest::resolve`] judges it -- and a writer writes it
+    /// back as it was.
+    pub root: Option<toml::Value>,
     pub urls: Option<MetaProperty<Urls>>,
     /// Where each `sources` entry is, in the order they were written,
     /// for the check of each entry against the metamodel -- which
@@ -116,6 +125,9 @@ pub struct ProjectTable {
     /// Where the table itself is, for the missing-`sources` error, which
     /// likewise waits for the metamodel.
     table_at: Option<Position>,
+    /// Where `root` is, for every judgement of it, all of which wait for
+    /// the metamodel.
+    root_at: Option<Position>,
 }
 
 /// A `model.toml` that defines a project: the `[project]` table plus the
@@ -144,6 +156,11 @@ pub struct ResolvedProject {
     pub metamodel: KnownMetamodel,
     pub maintainers: Vec<Maintainer>,
     pub stdlib: Option<StdlibStem>,
+    /// The Syside family's entry point: one of the `sources` entries, as
+    /// written. Always `Some` for a Syside project, which requires it,
+    /// and always `None` for an OMG one, which "is built from `sources`"
+    /// whether or not the key was written.
+    pub root: Option<Utf8UnixPathBuf>,
     pub urls: ResolvedUrls,
     /// Each usage with the directory its paths are relative to: the
     /// project's own entries against the project, inherited ones against
@@ -194,11 +211,12 @@ impl ProjectTable {
             metamodel: None,
             maintainers: None,
             stdlib: None,
-            root: false,
+            root: None,
             urls: None,
             sources_at: Vec::new(),
             stdlib_at: None,
             table_at: None,
+            root_at: None,
         }
     }
 
@@ -224,15 +242,6 @@ impl ProjectTable {
         let metamodel = inheritable(&reader, "metamodel", &mut report, |report| {
             reader::metamodel(&reader, report)
         });
-        // A `metamodel` that is written but could not be read says
-        // nothing about the schema, so neither judgement that depends on
-        // it runs: treating it as "no metamodel" would mean an OMG
-        // schema, and a rule-(b) warning aimed at a project that may
-        // well have declared a Syside one. Reachable although an
-        // unrecognized value is an error: `metamodel = 3` is neither.
-        let unreadable_metamodel = reader.has("metamodel") && metamodel.is_none();
-        let declared = metamodel.as_ref().and_then(MetaProperty::provided);
-
         let name = own(
             &reader,
             "name",
@@ -305,33 +314,19 @@ impl ProjectTable {
                 parsed(StdlibStem::parse(raw), &reader, "stdlib", report)
             },
         );
+        // Read for the marker only (a marker is an error); the value is
+        // kept as it is and judged in `resolve`, where the family is
+        // known. Nothing about `root` -- not its type, not its shape --
+        // can be said before then: under an OMG family it is a foreign
+        // key that is ignored whatever it holds.
         let root = own(
             &reader,
             "root",
-            "it is reserved for the Syside metamodel",
+            "it is a per-project entry point",
             &mut report,
-            |_| reader.has("root").then_some(()),
-        )
-        .is_some();
+            |_| reader.raw().get("root").cloned(),
+        );
         let urls = inheritable_table(&reader, "urls", &mut report, |report| urls(&reader, report));
-
-        // Rule (b): "a key that belongs to another metamodel's schema
-        // (`root` in an OMG-metamodel project) is a warning naming the
-        // metamodel that supports it". A project that declares a Syside
-        // metamodel is using its own schema, and gets the missing
-        // `sources` error that names it from `resolve` instead.
-        let declares_syside =
-            declared.is_some_and(|metamodel| metamodel.family == MetamodelFamily::Syside);
-        if root && !declares_syside && !unreadable_metamodel {
-            report.push(
-                Diagnostic::from(ReadWarning::ForeignSchemaKey {
-                    location: reader.location().clone(),
-                    key: "root".to_owned(),
-                    supported_by: MetamodelFamily::Syside,
-                })
-                .at_opt(reader.at("root")),
-            );
-        }
 
         for (key, present) in [
             ("publisher", publisher.is_some()),
@@ -372,6 +367,7 @@ impl ProjectTable {
                 sources_at,
                 stdlib_at: reader.at("stdlib"),
                 table_at: reader.here(),
+                root_at: reader.at("root"),
             }),
             _ => Err(report),
         }
@@ -571,11 +567,12 @@ impl ProjectManifest {
             metamodel,
             maintainers,
             stdlib,
-            root: _,
+            root,
             urls,
             sources_at,
             stdlib_at,
             table_at,
+            root_at,
         } = project;
 
         let publisher = collect(
@@ -684,25 +681,111 @@ impl ProjectManifest {
             }
         }
 
+        // `root`, judged now that the family is known (plan-phase2.md
+        // WP-A1; `phase2-a0a-memo.md` A-1(b)). Phase 1 judged it against
+        // the *declared* metamodel and so warned a member whose Syside
+        // metamodel arrived by marker about its own `root`.
+        let location = KeyLocation::Table(TABLE.to_owned());
+        let family = metamodel.as_ref().map(|known| known.family);
+        let root_written = root.is_some();
+        let root = match (root, family) {
+            (None, _) => None,
+            // The key's own family: a string, in the form a `sources`
+            // entry takes.
+            (Some(toml::Value::String(raw)), Some(MetamodelFamily::Syside)) => {
+                match root_path(&raw) {
+                    Ok(path) => Some(path),
+                    Err(problem) => {
+                        report.push(Diagnostic::error(problem.to_string()).at_opt(root_at.clone()));
+                        None
+                    }
+                }
+            }
+            (Some(other), Some(MetamodelFamily::Syside)) => {
+                report.push(
+                    Diagnostic::error(format!(
+                        "`root` in {location} must be a string, but it is {}",
+                        describe(&other)
+                    ))
+                    .at_opt(root_at.clone()),
+                );
+                None
+            }
+            // model-toml.md "Metamodel", rule (b): an OMG project that
+            // carries both `sources` and `root` gets only the warning and
+            // is built from `sources`, whatever the value
+            // (design/syside-metamodel.md, Reading and validating).
+            (Some(_), Some(MetamodelFamily::Omg)) => {
+                report.push(
+                    Diagnostic::from(ReadWarning::ForeignSchemaKey {
+                        location: location.clone(),
+                        key: "root".to_owned(),
+                        supported_by: MetamodelFamily::Syside,
+                    })
+                    .at_opt(root_at.clone()),
+                );
+                None
+            }
+            // No family to judge against: the metamodel is missing or
+            // failed to resolve, and that is already in the report. A
+            // metamodel that says nothing about the schema decides
+            // nothing about `root`.
+            (Some(_), None) => None,
+        };
+
         // model-toml.md: `sources` is "always required for the OMG
-        // metamodel", and v1 knows only the OMG schema, so a
-        // Syside-metamodel project fails here too -- with a message
-        // naming its metamodel as unsupported.
+        // metamodel", and under `phase2-a0a-memo.md` A-1(b) it is the
+        // Syside family's membership list too; what differs is the text
+        // (phase 1's appendix A row 18 for OMG, appendix B row P2-23 for
+        // Syside).
         //
         // A project whose `metamodel` is missing entirely still gets
-        // this: every one of the four requires `sources` in v1, so the
-        // plain missing-key text is right without a metamodel to name,
-        // and one report holds both problems.
+        // this: every one of the four requires `sources`, so the plain
+        // missing-key text is right without a metamodel to name, and one
+        // report holds both problems.
         let sources = sources.or_else(|| {
             report.push(missing_sources(metamodel.as_ref()).at_opt(table_at.clone()));
             None
         });
+
+        let syside = family == Some(MetamodelFamily::Syside);
+        // `root` is required of every Syside project. A `root` that was
+        // written and refused above is not also missing.
+        if syside && !root_written {
+            report.push(
+                Diagnostic::error(format!(
+                    "missing key `root` in {location}; the Syside metamodel requires it"
+                ))
+                .at_opt(table_at.clone()),
+            );
+        }
+        // `root` names one of the `sources` entries, compared as written
+        // -- the entries themselves are literal (model-toml.md `sources`:
+        // "Two equal entries are a duplicate", equal, not equivalent).
+        // With no `sources` at all there is no list to be absent from,
+        // and the missing `sources` has been reported.
+        if syside
+            && let (Some(root), Some(sources)) = (root.as_ref(), sources.as_ref())
+            && !sources.iter().any(|entry| entry == root)
+        {
+            report.push(
+                Diagnostic::error(format!(
+                    "`root` is `{root}`, which is not listed in `sources`"
+                ))
+                .at_opt(root_at),
+            );
+        }
 
         // model-toml.md "Metamodel": "The spec kind
         // bounds what `sources` may list". Here and not in
         // `Sources::new`, because the metamodel may itself be inherited
         // and a table reader cannot know it; the entry's position was
         // kept for exactly this.
+        //
+        // This is also where a Syside `root` with an extension the
+        // metamodel does not admit is refused: `root` is one of these
+        // entries, so this check covers it and `root` raises nothing of
+        // its own for the extension -- one file, one complaint.
         if let (Some(sources), Some(kind)) = (sources.as_ref(), metamodel.as_ref()) {
             for (index, entry) in sources.iter().enumerate() {
                 if let Err(problem) = admitted_source(entry, kind) {
@@ -753,6 +836,7 @@ impl ProjectManifest {
                     metamodel,
                     maintainers,
                     stdlib,
+                    root,
                     urls,
                     usages,
                 }),
@@ -874,15 +958,17 @@ fn from_group_usage(
         })
 }
 
-/// The error for a missing `sources`. A Syside-metamodel project is
-/// named as such; an unrecognized metamodel gets rule (a)'s suffix, as
-/// every other missing key does.
+/// Phase 1's appendix A row 18 and its siblings, one per family. The
+/// Syside text is plan-phase2.md appendix B row P2-23, which supersedes
+/// row 18's "whose schema this version of Sysand does not support": the
+/// schema is supported, and needs `sources` like the OMG one
+/// (`phase2-a0a-memo.md` A-1(b)).
 fn missing_sources(metamodel: Option<&KnownMetamodel>) -> Diagnostic {
     let location = KeyLocation::Table(TABLE.to_owned());
     match metamodel {
         Some(kind) if kind.family == MetamodelFamily::Syside => Diagnostic::error(format!(
-            "missing key `sources` in {location}; the project declares the Syside metamodel \
-             `{kind}`,\nwhose schema this version of Sysand does not support"
+            "missing key `sources` in {location}; the Syside metamodel requires it\n\
+             (`root` names one of its entries)"
         )),
         // No metamodel to name -- it is missing too, and said so -- but
         // every one of the four requires `sources` in v1, so the key is
