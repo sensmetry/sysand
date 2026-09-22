@@ -500,4 +500,5 @@ index usage requires one.
 - Per-usage aliases and two coexisting majors of one identity: they
   wait on a language change, and no rule here depends on them.
 - A second packaging format (model-toml.md, Non-goals).
-- Directories or globs in `sources` (model-toml.md).
+- Directories or globs in `sources`: closed, not deferred (model-toml.md:
+  every file is listed explicitly).

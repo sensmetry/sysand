@@ -46,9 +46,15 @@ Explicit. A list of directories, each containing a single project.
 
 Projects included in the workspace are called workspace members.
 Membership is never declared by the member: workspace config defines it
-by the array `members` containing explicit paths (globs will be supported
-in the future). Paths can go arbitrarily deep, but must not go above the
-workspace root.
+by the array `members` containing explicit paths; globs are not
+expanded, now or later. Paths can go arbitrarily deep, but must not go above the
+workspace root. Entries are taken exactly as written, as `sources`
+entries are (see model-toml.md): an entry is relative and `/`-separated,
+and carries no `.` or `..` component and no repeated, leading or
+trailing slash. Any other spelling (`./app`, `app/`, `libs//a`) is an
+error rather than normalized, so an entry's spelling is the directory it
+names. The commands that write `members` write this form, converting
+into it what they are given.
 
 ```toml
 manifest-version = "1.0.0"
@@ -519,4 +525,5 @@ version bump.
 - Cargo's `default-members` (see Command scopes)
 - Several versions of one dependency in one workspace (see Dependency
   resolution)
-- Globs in `members`, `exclude` and `sources`
+- Globs in `members`, `exclude` and `sources` -- permanently: every path
+  is listed explicitly (decided 2026-09-22)

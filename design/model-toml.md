@@ -100,8 +100,8 @@ Main project metadata is in the `[project]` table of `model.toml`:
     its `index` map -- is keyed by.
     The commands that write `sources` (`sysand include`, `sysand
     migrate`) write this form, converting into it what they are given.
-    Every entry names a single file; directories and globs are postponed
-    to after v1. Two equal entries are a duplicate and rejected. Every
+    Every entry names a single file, listed explicitly; directories are
+    not admitted and globs never will be (decided 2026-09-22). Two equal entries are a duplicate and rejected. Every
     entry names a KerML (`.kerml`) or SysML (`.sysml`) file, the
     extension compared case-insensitively as `sysand include` compares
     it today, and the metamodel decides which of the two the project may
