@@ -11,6 +11,7 @@ use sysand_core::{
     build::KparCompressionMethod,
     commands::{auth::IndexKey, sources::Dependencies as CoreDependencies},
     index_location::IndexLocation,
+    manifest::common::root_path,
     model::{
         IndexName, IndexPublisher, KERML_SPEC_PREFIX, KnownMetamodel, LICENSE_EXPRESSION_HELP,
         MetamodelFamily, MetamodelRelease, ProjectFieldError, ProjectName, ProjectPublisher,
@@ -18,6 +19,8 @@ use sysand_core::{
     },
     workspace::model_toml::Selector,
 };
+
+use typed_path::Utf8UnixPathBuf;
 
 use crate::{env_vars, style::USAGE};
 
@@ -859,6 +862,10 @@ pub enum InfoField {
     IncludesImplied,
     /// Checksums of the project source files, one per line
     Checksum,
+    /// Entry point of a Syside project: one of its sources
+    Root,
+    /// Names a Syside project's KPAR exports, one per line
+    Exports,
 }
 
 /// Edits of a local project. Edits of different fields can be combined;
@@ -998,6 +1005,20 @@ pub struct EditArgs {
         help_heading = "Project metadata"
     )]
     pub clear_metamodel: bool,
+    /// Set `root`, the Syside metamodel's entry point, to one of the
+    /// project's sources
+    #[arg(
+        long,
+        value_name = "PATH",
+        conflicts_with = "clear_root",
+        value_parser = root_path,
+        verbatim_doc_comment,
+        help_heading = "Project metadata"
+    )]
+    pub root: Option<Utf8UnixPathBuf>,
+    /// Remove `root`
+    #[arg(long, help_heading = "Project metadata")]
+    pub clear_root: bool,
     /// Set whether the project includes derived properties
     #[arg(
         long,

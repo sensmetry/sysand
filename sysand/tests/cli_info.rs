@@ -2464,15 +2464,9 @@ fn info_at_a_member_path_reads_the_inherited_metamodel() -> Result<(), Box<dyn s
 
 const SYSIDE_SYSML: &str = "https://www.sysand.com/spec/SysML/20250201";
 
-/// Appendix B row P2-01, from the CLI, and the phase 2 interim it pins:
-/// `init` accepts a Syside metamodel and writes what it writes for any
-/// project -- `sources = []`, no `root` -- and the next read refuses
-/// the file for want of `root`. What `init` should write for a Syside
-/// project is plan-phase2.md A-9 (WP-A4), gated on phase 1's open row
-/// 32; until then this is the recorded behaviour, not an accident.
+/// `init` with a Syside metamodel writes a project the same binary reads.
 #[test]
-fn p2_01_init_with_a_syside_metamodel_then_info_is_refused_for_want_of_root()
--> Result<(), Box<dyn Error>> {
+fn init_with_a_syside_metamodel_writes_a_readable_project() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
     run_sysand_in(
         &cwd,
@@ -2494,10 +2488,8 @@ fn p2_01_init_with_a_syside_metamodel_then_info_is_refused_for_want_of_root()
 
     run_sysand_in(&cwd, ["info"], None)?
         .assert()
-        .failure()
-        .stderr(predicate::str::contains(
-            "missing key `root` in `[project]`; the Syside metamodel requires it",
-        ));
+        .success()
+        .stderr(predicate::str::contains("warning").not());
     Ok(())
 }
 
@@ -2553,5 +2545,188 @@ fn info_index_get_on_a_root_shaped_project_prints_nothing_and_warns() -> Result<
         .stderr(predicate::str::contains(
             "the project has no `index`; a Syside KPAR carries `root` and `exports`",
         ));
+    Ok(())
+}
+
+/// A Syside `model.toml` project with two sources and a root, for the
+/// `root`, `exports` and metamodel-switch tests.
+fn syside_toml_project_cwd() -> Result<(Utf8TempDir, Utf8PathBuf), Box<dyn Error>> {
+    let (temp_dir, cwd) = new_temp_cwd()?;
+    wrapfs::write(
+        cwd.join("model.toml"),
+        format!(
+            "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
+             version = \"1.0.0\"\nsources = [\"main.sysml\", \"lib.sysml\"]\n\
+             metamodel = \"{SYSIDE_SYSML}\"\nroot = \"main.sysml\"\n"
+        ),
+    )?;
+    wrapfs::write(cwd.join("main.sysml"), "package Main;\n")?;
+    wrapfs::write(cwd.join("lib.sysml"), "package Lib;\n")?;
+    Ok((temp_dir, cwd))
+}
+
+/// `root` is author-written, so `info --get root` reads it and
+/// `edit --root`/`--clear-root` set and clear it on a `model.toml`
+/// project.
+#[test]
+fn info_root_gets_sets_and_clears_on_a_toml_project() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = syside_toml_project_cwd()?;
+
+    run_sysand_in(&cwd, ["info", "--get", "root"], None)?
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("main.sysml"));
+    run_sysand_in(&cwd, ["edit", "--root", "lib.sysml"], None)?
+        .assert()
+        .success();
+    assert!(std::fs::read_to_string(cwd.join("model.toml"))?.contains("root = \"lib.sysml\""));
+    run_sysand_in(&cwd, ["info", "--get", "root"], None)?
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("lib.sysml"));
+    run_sysand_in(&cwd, ["edit", "--clear-root"], None)?
+        .assert()
+        .success();
+    assert!(!std::fs::read_to_string(cwd.join("model.toml"))?.contains("root"));
+    Ok(())
+}
+
+/// `edit --root` refuses a value every later read would refuse, and
+/// leaves the manifest as it was.
+#[test]
+fn edit_root_refuses_an_invalid_path() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = syside_toml_project_cwd()?;
+    let before = std::fs::read_to_string(cwd.join("model.toml"))?;
+    for (root, problem) in [
+        ("/abs/main.sysml", "is absolute"),
+        (
+            "../main.sysml",
+            "is not in the form a `sources` entry takes",
+        ),
+        ("dir/", "names a directory"),
+        ("a\\b.sysml", "contains a backslash"),
+        (
+            "main.txt",
+            "is not a KerML (`.kerml`) or SysML (`.sysml`) file",
+        ),
+    ] {
+        run_sysand_in(&cwd, ["edit", "--root", root], None)?
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(problem));
+    }
+    assert_eq!(std::fs::read_to_string(cwd.join("model.toml"))?, before);
+    Ok(())
+}
+
+/// On a json project `root` lives in `.meta.json`, and `edit` edits it
+/// as it edits `metamodel`.
+#[test]
+fn info_root_gets_and_sets_on_a_json_project() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    std::fs::write(
+        cwd.join(".project.json"),
+        r#"{"name": "widgets", "publisher": "acme", "version": "1.0.0", "usage": []}"#,
+    )?;
+    std::fs::write(
+        cwd.join(".meta.json"),
+        format!(
+            r#"{{"root": "main.sysml", "exports": ["Main"], "created": "2026-01-01T00:00:00Z", "metamodel": "{SYSIDE_SYSML}"}}"#
+        ),
+    )?;
+    run_sysand_in(&cwd, ["info", "--get", "root"], None)?
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("main.sysml"));
+    run_sysand_in(&cwd, ["edit", "--root", "other.sysml"], None)?
+        .assert()
+        .success();
+    assert!(std::fs::read_to_string(cwd.join(".meta.json"))?.contains("\"root\": \"other.sysml\""));
+    Ok(())
+}
+
+/// `info --get exports` lists what a Syside project's KPAR exports --
+/// computed for a `model.toml` project, read for a json one -- and says
+/// on stderr that an OMG project has none.
+#[test]
+fn info_exports_lists_a_syside_projects_exports() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = syside_toml_project_cwd()?;
+    run_sysand_in(&cwd, ["info", "--get", "exports"], None)?
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Lib"))
+        .stdout(predicate::str::contains("Main"))
+        .stderr(predicate::str::contains("warning").not());
+    Ok(())
+}
+
+#[test]
+fn info_exports_on_an_omg_project_prints_nothing_and_warns() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = toml_project_cwd()?;
+    run_sysand_in(&cwd, ["info", "--get", "exports"], None)?
+        .assert()
+        .success()
+        .stdout(predicate::str::is_match(r"^\s*$")?)
+        .stderr(predicate::str::contains(
+            "the project has no `exports`; an OMG KPAR carries `index`",
+        ));
+    Ok(())
+}
+
+/// Switching to a Syside metamodel needs `root`; once `root` is set the
+/// switch goes through.
+#[test]
+fn switching_to_a_syside_metamodel_needs_root() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = toml_project_cwd()?;
+    let before = std::fs::read_to_string(cwd.join("model.toml"))?;
+    run_sysand_in(
+        &cwd,
+        ["edit", "--custom-metamodel", SYSIDE_SYSML],
+        None,
+    )?
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains(format!(
+        "changing the metamodel to `{SYSIDE_SYSML}` requires `root`; `model.toml` does not have it"
+    )));
+    assert_eq!(before, std::fs::read_to_string(cwd.join("model.toml"))?);
+
+    wrapfs::write(cwd.join("main.sysml"), "package Main;\n")?;
+    run_sysand_in(&cwd, ["include", "main.sysml"], None)?
+        .assert()
+        .success();
+    run_sysand_in(&cwd, ["edit", "--root", "main.sysml"], None)?
+        .assert()
+        .success();
+    run_sysand_in(&cwd, ["edit", "--custom-metamodel", SYSIDE_SYSML], None)?
+        .assert()
+        .success();
+    run_sysand_in(&cwd, ["info"], None)?
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("warning").not());
+    Ok(())
+}
+
+/// Switching to an OMG metamodel leaves `root` behind as a foreign key; the
+/// switch happens and says so.
+#[test]
+fn switching_to_an_omg_metamodel_leaves_root_behind_with_a_warning() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = syside_toml_project_cwd()?;
+    run_sysand_in(&cwd, ["edit", "--metamodel", "sysml"], None)?
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "`root` is only supported by the Syside metamodel and will be ignored under",
+        ))
+        .stderr(predicate::str::contains(
+            "`sysand edit --clear-root` removes it",
+        ));
+    let manifest = std::fs::read_to_string(cwd.join("model.toml"))?;
+    assert!(
+        manifest.contains("https://www.omg.org/spec/SysML/"),
+        "{manifest}"
+    );
+    assert!(manifest.contains("root = \"main.sysml\""), "{manifest}");
     Ok(())
 }

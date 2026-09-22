@@ -1170,40 +1170,111 @@ fn a_typed_usage_keeps_the_json_spelling_here() {
     );
 }
 
-/// The interim WP-A2a leaves and WP-A4 replaces: a Syside json project
-/// migrates as if it were an OMG one -- `sources` from the `checksum`
-/// keys, no `root` written -- and the manifest it produces then fails
-/// the Syside schema's missing-`root` check. Pinned so that WP-A4
-/// changes a recorded behaviour.
+/// design/syside-metamodel.md, "JSON to TOML": a Syside json project --
+/// the extracted form of a Syside archive -- migrates with its `root`
+/// and with `sources` taken from the model-file `checksum` keys; the
+/// conventional files are silent, a stray non-model key is a warning,
+/// and the result resolves.
 #[test]
-fn a_syside_json_project_migrates_to_a_manifest_that_lacks_root() {
+fn a_syside_json_project_migrates_with_its_root_and_model_files() {
     let mut meta = meta();
     meta.index = None;
     meta.root = Some("main.sysml".to_owned());
     meta.exports = Some(vec!["Main".to_owned()]);
     meta.metamodel = Some("https://www.sysand.com/spec/SysML/20250201".to_owned());
-    meta.checksum = Some(checksum_of(&["main.sysml"]));
+    meta.checksum = Some(checksum_of(&[
+        "main.sysml",
+        "lib.sysml",
+        "README.md",
+        "CHANGELOG.md",
+        "LICENSES/MIT.txt",
+        "notes.txt",
+    ]));
 
-    let manifest = migrated(&info("widgets", Some("acme"), "1.0.0"), &meta);
+    let validated = migrate_project(
+        &info("widgets", Some("acme"), "1.0.0"),
+        &meta,
+        &MigrateOptions::default(),
+        &no_targets,
+    )
+    .unwrap_or_else(|report| panic!("the conversion succeeds:\n{report}"));
+    let warnings: Vec<&str> = validated
+        .warnings
+        .iter()
+        .map(|w| w.message.as_str())
+        .collect();
+    assert!(
+        warnings.contains(
+            &"`notes.txt` is not a model file and is not migrated: `sources` lists model files only"
+        ),
+        "{warnings:?}"
+    );
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.starts_with("`exports` is not migrated")),
+        "{warnings:?}"
+    );
+    assert!(
+        !warnings
+            .iter()
+            .any(|w| w.contains("README.md") || w.contains("LICENSES")),
+        "the conventional files are silent: {warnings:?}"
+    );
+    let ModelToml::Project(manifest) = validated.value else {
+        panic!("a project");
+    };
     assert_eq!(
         manifest
             .project
             .sources
             .as_ref()
             .map(|s| s.iter().map(|p| p.as_str()).collect::<Vec<_>>()),
-        Some(vec!["main.sysml"])
+        Some(vec!["main.sysml", "lib.sysml"])
     );
-    assert!(
-        manifest.project.root.is_none(),
-        "`root` is not migrated yet (WP-A4)"
-    );
-    let report = manifest
+    assert_eq!(manifest.project.root, Some(toml::Value::from("main.sysml")));
+    let resolved = manifest
         .resolve(None)
-        .expect_err("the Syside schema wants `root`");
+        .expect("the migrated manifest resolves");
+    assert_eq!(
+        resolved.value.root.as_ref().map(|r| r.as_str()),
+        Some("main.sysml")
+    );
+}
+
+/// At migration, a `root` that is not among the recovered sources is
+/// refused here, where the cause is.
+#[test]
+fn a_migrated_root_not_among_the_sources_is_refused() {
+    let mut meta = meta();
+    meta.index = None;
+    meta.root = Some("gone.sysml".to_owned());
+    meta.exports = Some(vec![]);
+    meta.metamodel = Some("https://www.sysand.com/spec/SysML/20250201".to_owned());
+    meta.checksum = Some(checksum_of(&["main.sysml"]));
+    let rendered = errors(
+        &info("widgets", Some("acme"), "1.0.0"),
+        &meta,
+        &MigrateOptions::default(),
+    );
     assert!(
-        report
-            .to_string()
-            .contains("missing key `root` in `[project]`; the Syside metamodel requires it"),
-        "{report}"
+        rendered.contains("`root` is `gone.sysml`, which is not listed in `sources`"),
+        "{rendered}"
+    );
+}
+
+/// On the OMG path a non-model `checksum` key is an error.
+#[test]
+fn an_omg_json_project_refuses_a_non_model_checksum_key() {
+    let mut meta = meta();
+    meta.checksum = Some(checksum_of(&["main.sysml", "README.md"]));
+    let rendered = errors(
+        &info("widgets", Some("acme"), "1.0.0"),
+        &meta,
+        &MigrateOptions::default(),
+    );
+    assert!(
+        rendered.contains("run `sysand exclude` on them before migrating"),
+        "{rendered}"
     );
 }

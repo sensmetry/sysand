@@ -1099,3 +1099,184 @@ fn init_prefers_the_argument_to_the_group() -> Result<(), Box<dyn std::error::Er
     );
     Ok(())
 }
+
+// ---------------------------------------------------------------------
+// `init` with a Syside metamodel (design/syside-metamodel.md,
+// "Commands").
+
+const SYSIDE_SYSML: &str = "https://www.sysand.com/spec/SysML/20250201";
+const SYSIDE_KERML: &str = "https://www.sysand.com/spec/KerML/20250201";
+
+/// The Syside layout, byte for byte: `sources` listing one file, `root`
+/// naming it, and the file itself with a package declaration. The
+/// project then reads without a warning and builds -- the whole strand
+/// from `init`.
+#[test]
+fn init_with_a_syside_metamodel_writes_the_syside_layout() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    run_sysand_in(
+        &cwd,
+        [
+            "init",
+            "--metamodel",
+            SYSIDE_SYSML,
+            "--publisher",
+            "acme",
+            "--name",
+            "widgets",
+            "--version",
+            "1.2.3",
+            "project",
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+
+    let project = cwd.join("project");
+    assert_eq!(
+        std::fs::read_to_string(project.join("model.toml"))?,
+        format!(
+            "manifest-version = \"1.0.0\"\n\n\
+             [project]\n\
+             publisher = \"acme\"\n\
+             name = \"widgets\"\n\
+             version = \"1.2.3\"\n\
+             sources = [\n    \"widgets.sysml\",\n]\n\
+             metamodel = \"{SYSIDE_SYSML}\"\n\
+             root = \"widgets.sysml\"\n"
+        )
+    );
+    assert_eq!(
+        std::fs::read_to_string(project.join("widgets.sysml"))?,
+        "package widgets;\n"
+    );
+
+    run_sysand_in(&project, ["info"], None)?
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("warning").not());
+    run_sysand_in(&project, ["build", "./widgets.kpar"], None)?
+        .assert()
+        .success();
+    Ok(())
+}
+
+#[test]
+fn init_with_a_syside_kerml_metamodel_writes_a_kerml_root() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    run_sysand_in(
+        &cwd,
+        [
+            "init",
+            "--metamodel",
+            SYSIDE_KERML,
+            "--publisher",
+            "acme",
+            "--name",
+            "kernel",
+            "project",
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+    let manifest = std::fs::read_to_string(cwd.join("project/model.toml"))?;
+    assert!(manifest.contains("root = \"kernel.kerml\""), "{manifest}");
+    assert!(cwd.join("project/kernel.kerml").is_file());
+    Ok(())
+}
+
+/// An existing root file is left alone.
+#[test]
+fn init_does_not_overwrite_an_existing_root_file() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    std::fs::create_dir_all(cwd.join("project"))?;
+    std::fs::write(cwd.join("project/widgets.sysml"), "package Widgets { }\n")?;
+    run_sysand_in(
+        &cwd,
+        [
+            "init",
+            "--metamodel",
+            SYSIDE_SYSML,
+            "--publisher",
+            "acme",
+            "--name",
+            "widgets",
+            "project",
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+    assert_eq!(
+        std::fs::read_to_string(cwd.join("project/widgets.sysml"))?,
+        "package Widgets { }\n"
+    );
+    Ok(())
+}
+
+/// Inside a workspace whose default group declares a Syside metamodel,
+/// the member inherits it by marker and still gets the Syside layout.
+#[test]
+fn init_in_a_workspace_with_a_syside_default_group_writes_the_layout_and_the_marker()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    std::fs::write(
+        cwd.join("model.toml"),
+        format!(
+            "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = []\nmetamodel = \"{SYSIDE_SYSML}\"\n"
+        ),
+    )?;
+    run_sysand_in(
+        &cwd,
+        ["init", "--publisher", "acme", "--name", "widgets", "app"],
+        None,
+    )?
+    .assert()
+    .success();
+    let manifest = std::fs::read_to_string(cwd.join("app/model.toml"))?;
+    assert!(
+        manifest.contains("metamodel.workspace = true"),
+        "{manifest}"
+    );
+    assert!(manifest.contains("root = \"widgets.sysml\""), "{manifest}");
+    assert!(cwd.join("app/widgets.sysml").is_file());
+    run_sysand_in(&cwd, ["lock", "--no-index"], None)?
+        .assert()
+        .success();
+    Ok(())
+}
+
+/// A name that is not a KerML/SysML identifier is a quoted package name.
+#[test]
+fn init_with_a_name_that_is_not_an_identifier_quotes_the_package()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    run_sysand_in(
+        &cwd,
+        [
+            "init",
+            "--metamodel",
+            SYSIDE_SYSML,
+            "--publisher",
+            "acme",
+            "--name",
+            "3D Models",
+            "project",
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+    assert_eq!(
+        std::fs::read_to_string(cwd.join("project/3d-models.sysml"))?,
+        "package '3d-models';\n"
+    );
+    run_sysand_in(&cwd.join("project"), ["build", "./out.kpar"], None)?
+        .assert()
+        .success();
+    Ok(())
+}

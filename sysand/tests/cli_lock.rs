@@ -2009,7 +2009,7 @@ fn a_syside_project_may_depend_on_omg_and_syside_projects_and_archives()
     run_sysand_in(&cwd, ["lock", "--no-index"], None)?
         .assert()
         .success();
-    let lock: Lock = toml::from_str(&std::fs::read_to_string(cwd.join("sysand-lock.toml"))?)?;
+    let lock = Lockfile::read(&cwd)?.into_lock();
     let by_name = |name: &str| {
         lock.projects
             .iter()

@@ -30,6 +30,11 @@ pub enum ExcludeError<ProjectError> {
     Edit(crate::manifest::edit::EditError),
     #[error("failed to read the project's `model.toml`: {0}")]
     Manifest(Box<str>),
+    /// The `root` is one of the `sources` by the Syside schema's rule, so
+    /// removing it from `sources` would leave a manifest the next read
+    /// refuses.
+    #[error("`{0}` is the project's `root`; set another `root` before excluding it")]
+    RootExcluded(Box<str>),
 }
 
 impl<ProjectError> From<ProjectOrIOError<ProjectError>> for ExcludeError<ProjectError> {
@@ -104,6 +109,15 @@ fn exclude_toml<Pr: ProjectMut, P: AsRef<Utf8UnixPath>, I: Iterator<Item = P>>(
         let header = crate::style::get_style_config().header;
         log::info!("{header}{excluding:>12}{header:#} file: `{path}`");
 
+        let root = document
+            .get("project")
+            .and_then(|project| project.get("root"))
+            .and_then(|root| root.as_str());
+        let normalized = crate::utils::normalize_relative(path.as_str())
+            .map_or_else(|_| path.as_str().to_owned(), |p| p.as_str().to_owned());
+        if root.is_some_and(|root| root == path.as_str() || root == normalized) {
+            return Err(ExcludeError::RootExcluded(path.as_str().into()));
+        }
         crate::manifest::edit::exclude_source(&mut document, path.as_str()).map_err(|e| {
             match e {
                 // The one failure whose text the json arm already has.
@@ -135,3 +149,7 @@ pub struct SourceExclusionOutcome {
     pub removed_checksum: Option<InterchangeProjectChecksumRaw>,
     pub removed_symbols: Vec<String>,
 }
+
+#[cfg(test)]
+#[path = "./exclude_tests.rs"]
+mod tests;
