@@ -288,3 +288,16 @@ fn metamodel_pair_ignores_the_spec_kind() {
         Ok(None)
     );
 }
+
+/// Two Syside projects of one release: neither direction nor date has
+/// anything to say.
+#[test]
+fn metamodel_pair_allows_a_syside_dependency_of_a_syside_project() {
+    assert_eq!(
+        check_metamodel_pair(
+            (&"acme/a", Some(&metamodel(SYSIDE_SYSML_2025))),
+            (&"acme/b", Some(&metamodel(SYSIDE_SYSML_2025))),
+        ),
+        Ok(None)
+    );
+}

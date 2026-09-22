@@ -1854,3 +1854,287 @@ fn lock_reports_a_non_semver_dependency_version() -> Result<(), Box<dyn std::err
         ));
     Ok(())
 }
+
+// ---------------------------------------------------------------------
+// Syside projects as dependencies, end to end.
+
+/// A Syside `model.toml` project at `dir` declaring one package.
+fn write_syside_project(
+    dir: &camino::Utf8Path,
+    name: &str,
+    version: &str,
+    package: &str,
+    extra: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    std::fs::create_dir_all(dir)?;
+    std::fs::write(
+        dir.join("model.toml"),
+        format!(
+            "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"{name}\"\n\
+             version = \"{version}\"\nsources = [\"main.sysml\"]\nmetamodel = \"{SYSIDE_SYSML}\"\n\
+             root = \"main.sysml\"\n{extra}"
+        ),
+    )?;
+    std::fs::write(dir.join("main.sysml"), format!("package {package};\n"))?;
+    Ok(())
+}
+
+/// An OMG `model.toml` project at `dir` declaring one package.
+fn write_omg_project(
+    dir: &camino::Utf8Path,
+    name: &str,
+    version: &str,
+    package: &str,
+    metamodel: &str,
+    extra: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    std::fs::create_dir_all(dir)?;
+    std::fs::write(
+        dir.join("model.toml"),
+        format!(
+            "manifest-version = \"1.0.0\"\n\n[project]\npublisher = \"acme\"\nname = \"{name}\"\n\
+             version = \"{version}\"\nsources = [\"main.sysml\"]\nmetamodel = \"{metamodel}\"\n{extra}"
+        ),
+    )?;
+    std::fs::write(dir.join("main.sysml"), format!("package {package};\n"))?;
+    Ok(())
+}
+
+const DIRECTION_TEXT: &str =
+    "only Syside-metamodel projects may depend on Syside-metamodel projects";
+
+/// The direction rule in archive form: an OMG project with a `kpar-path`
+/// usage of a built Syside KPAR.
+#[test]
+fn an_omg_project_cannot_depend_on_a_syside_kpar() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    write_syside_project(&cwd.join("leaf-src"), "leaf", "1.0.0", "Leaf", "")?;
+    run_sysand_in(&cwd.join("leaf-src"), ["build", "../leaf.kpar"], None)?
+        .assert()
+        .success();
+    let app = cwd.join("app");
+    write_omg_project(
+        &app,
+        "app",
+        "1.0.0",
+        "App",
+        OMG_SYSML,
+        "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"leaf\"\nkpar-path = \"../leaf.kpar\"\n",
+    )?;
+
+    run_sysand_in(&app, ["lock", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(DIRECTION_TEXT))
+        .stderr(predicate::str::contains("acme/app"))
+        .stderr(predicate::str::contains("acme/leaf"));
+    assert!(!app.join("sysand-lock.toml").exists());
+    Ok(())
+}
+
+/// Every edge is checked, so the rule is transitive without
+/// bookkeeping: an OMG project reaching a Syside leaf through an OMG
+/// intermediate is refused at the intermediate's edge.
+#[test]
+fn the_direction_rule_reaches_a_syside_leaf_through_an_omg_intermediate()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    write_omg_project(
+        &cwd.join("app"),
+        "app",
+        "1.0.0",
+        "App",
+        OMG_SYSML,
+        "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"mid\"\ndir = \"../mid\"\n",
+    )?;
+    write_omg_project(
+        &cwd.join("mid"),
+        "mid",
+        "1.0.0",
+        "Mid",
+        OMG_SYSML,
+        "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"leaf\"\ndir = \"../leaf\"\n",
+    )?;
+    write_syside_project(&cwd.join("leaf"), "leaf", "1.0.0", "Leaf", "")?;
+
+    run_sysand_in(&cwd.join("app"), ["lock", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(DIRECTION_TEXT))
+        .stderr(predicate::str::contains("acme/mid"))
+        .stderr(predicate::str::contains("acme/leaf"));
+    Ok(())
+}
+
+/// The accepted directions, in both forms: a Syside project depending
+/// on an OMG project and a Syside project by `dir`, and on an OMG
+/// archive by `kpar-path`. Each lockfile entry carries its metamodel
+/// and the Syside entries export their files' names.
+#[test]
+fn a_syside_project_may_depend_on_omg_and_syside_projects_and_archives()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    std::fs::write(
+        cwd.join("model.toml"),
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\", \"omg\", \"lib\"]\n\
+         exclude = [\"deps\"]\n",
+    )?;
+    write_syside_project(
+        &cwd.join("app"),
+        "app",
+        "1.0.0",
+        "App",
+        "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"omg\"\ndir = \"../omg\"\n\
+         \n[[inline-usages]]\npublisher = \"acme\"\nname = \"lib\"\ndir = \"../lib\"\n\
+         \n[[inline-usages]]\npublisher = \"acme\"\nname = \"gadget\"\nkpar-path = \"../deps/gadget.kpar\"\n",
+    )?;
+    write_omg_project(&cwd.join("omg"), "omg", "1.0.0", "Omg", OMG_SYSML, "")?;
+    write_syside_project(&cwd.join("lib"), "lib", "1.0.0", "Lib", "")?;
+    write_omg_project(
+        &cwd.join("deps/gadget-src"),
+        "gadget",
+        "2.0.0",
+        "Gadget",
+        OMG_SYSML,
+        "",
+    )?;
+    run_sysand_in(
+        &cwd.join("deps/gadget-src"),
+        ["build", "../gadget.kpar"],
+        None,
+    )?
+    .assert()
+    .success();
+
+    run_sysand_in(&cwd, ["lock", "--no-index"], None)?
+        .assert()
+        .success();
+    let lock: Lock = toml::from_str(&std::fs::read_to_string(cwd.join("sysand-lock.toml"))?)?;
+    let by_name = |name: &str| {
+        lock.projects
+            .iter()
+            .find(|p| p.name == name)
+            .unwrap_or_else(|| panic!("`{name}` is in the lockfile"))
+    };
+    assert_eq!(by_name("app").metamodel.as_deref(), Some(SYSIDE_SYSML));
+    assert_eq!(by_name("lib").metamodel.as_deref(), Some(SYSIDE_SYSML));
+    assert_eq!(by_name("omg").metamodel.as_deref(), Some(OMG_SYSML));
+    assert_eq!(by_name("gadget").metamodel.as_deref(), Some(OMG_SYSML));
+    assert_eq!(by_name("app").exports, ["App".to_owned()]);
+    assert_eq!(by_name("lib").exports, ["Lib".to_owned()]);
+    assert_eq!(by_name("gadget").exports, ["Gadget".to_owned()]);
+    Ok(())
+}
+
+/// The standard library stays an OMG project, and a Syside project
+/// depending on it is legal and normal. The staged release workspace gains
+/// a Syside member depending on the Kernel Semantic Library.
+#[test]
+fn a_syside_project_may_depend_on_the_standard_library() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(sources) = stdlib_sources() else {
+        return Ok(());
+    };
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    sysand_core::stdlib_compare::stage_release_workspace(&stdlib_fixture(), &sources, &cwd)?;
+
+    // The staged copy of the root is edited, not the shared fixture.
+    let root = std::fs::read_to_string(cwd.join("model.toml"))?;
+    let root = root.replacen("members = [", "members = [\"syside-app\", ", 1);
+    assert!(root.contains("\"syside-app\""), "{root}");
+    std::fs::write(cwd.join("model.toml"), root)?;
+    write_syside_project(
+        &cwd.join("syside-app"),
+        "app",
+        "1.0.0",
+        "App",
+        "\n[[inline-usages]]\npublisher = \"OMG\"\nname = \"Kernel Semantic Library\"\n\
+         dir = \"../semantic-library\"\n",
+    )?;
+
+    run_sysand_in(&cwd, ["lock", "--no-index"], None)?
+        .assert()
+        .success();
+    let lock = std::fs::read_to_string(cwd.join("sysand-lock.toml"))?;
+    assert_eq!(
+        lock.matches("[[project]]").count(),
+        11,
+        "ten library members and the Syside app:\n{lock}"
+    );
+    Ok(())
+}
+
+/// The release warning runs across families: only the date is compared.
+#[test]
+fn a_release_mismatch_warns_across_families() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    std::fs::write(
+        cwd.join("model.toml"),
+        "manifest-version = \"1.0.0\"\n\n[workspace]\nmembers = [\"app\", \"lib\"]\n",
+    )?;
+    write_syside_project(
+        &cwd.join("app"),
+        "app",
+        "1.0.0",
+        "App",
+        "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"lib\"\ndir = \"../lib\"\n",
+    )?;
+    write_omg_project(
+        &cwd.join("lib"),
+        "lib",
+        "1.0.0",
+        "Lib",
+        "https://www.omg.org/spec/SysML/20230201",
+        "",
+    )?;
+
+    run_sysand_in(&cwd, ["lock", "--no-index"], None)?
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("20250201"))
+        .stderr(predicate::str::contains("20230201"));
+    assert!(cwd.join("sysand-lock.toml").exists());
+    Ok(())
+}
+
+/// The collision check's input is what a project exports, and a Syside
+/// archive's `exports` array feeds it. Two Syside archives declaring one
+/// name collide; the same two declaring different names lock.
+#[test]
+fn two_syside_archives_exporting_one_name_collide() -> Result<(), Box<dyn std::error::Error>> {
+    for (second_package, collides) in [("Shared", true), ("Other", false)] {
+        let (_temp_dir, cwd) = new_temp_cwd()?;
+        write_syside_project(&cwd.join("one-src"), "one", "1.0.0", "Shared", "")?;
+        write_syside_project(&cwd.join("two-src"), "two", "1.0.0", second_package, "")?;
+        for name in ["one", "two"] {
+            run_sysand_in(
+                &cwd.join(format!("{name}-src")),
+                ["build", &format!("../{name}.kpar")],
+                None,
+            )?
+            .assert()
+            .success();
+        }
+        // A Syside depender, so that the control is not refused on the
+        // direction rule instead.
+        write_syside_project(
+            &cwd.join("app"),
+            "app",
+            "1.0.0",
+            "App",
+            "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"one\"\nkpar-path = \"../one.kpar\"\n\
+             \n[[inline-usages]]\npublisher = \"acme\"\nname = \"two\"\nkpar-path = \"../two.kpar\"\n",
+        )?;
+
+        let out = run_sysand_in(&cwd.join("app"), ["lock", "--no-index"], None)?;
+        if collides {
+            out.assert()
+                .failure()
+                .stderr(predicate::str::contains("Shared"))
+                .stderr(predicate::str::contains("one"))
+                .stderr(predicate::str::contains("two"));
+        } else {
+            out.assert().success();
+        }
+    }
+    Ok(())
+}
