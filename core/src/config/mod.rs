@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use toml_edit::{InlineTable, Value};
 use typed_path::Utf8UnixPathBuf;
 
-use crate::index_location::IndexLocation;
+use crate::index_location::IndexSource;
 use crate::project::utils::{deserialize_unix_path, serialize_unix_path};
 
 #[cfg(feature = "filesystem")]
@@ -120,10 +120,10 @@ impl Config {
 
     pub fn index_urls(
         &self,
-        index_urls: Vec<IndexLocation>,
-        default_urls: Vec<IndexLocation>,
-        default_override_urls: Vec<IndexLocation>,
-    ) -> Vec<IndexLocation> {
+        index_urls: Vec<IndexSource>,
+        default_urls: Vec<IndexSource>,
+        default_override_urls: Vec<IndexSource>,
+    ) -> Vec<IndexSource> {
         if default_override_urls.is_empty() {
             self.index_urls_no_default_override(index_urls, default_urls)
         } else {
@@ -133,7 +133,7 @@ impl Config {
 
     /// Locations of the indexes marked `default = true`, in configuration
     /// order
-    pub fn default_index_locations(&self) -> Vec<IndexLocation> {
+    pub fn default_index_locations(&self) -> Vec<IndexSource> {
         self.indexes
             .iter()
             .filter(|i| i.default.unwrap_or(false))
@@ -143,9 +143,9 @@ impl Config {
 
     fn index_urls_no_default_override(
         &self,
-        index_urls: Vec<IndexLocation>,
-        default_urls: Vec<IndexLocation>,
-    ) -> Vec<IndexLocation> {
+        index_urls: Vec<IndexSource>,
+        default_urls: Vec<IndexSource>,
+    ) -> Vec<IndexSource> {
         let mut indexes = self.indexes.clone();
 
         indexes.sort_by_key(|i| i.default.unwrap_or(false));
@@ -166,9 +166,9 @@ impl Config {
 
     fn index_urls_with_default_override(
         &self,
-        index_urls: Vec<IndexLocation>,
-        default_urls: Vec<IndexLocation>,
-    ) -> Vec<IndexLocation> {
+        index_urls: Vec<IndexSource>,
+        default_urls: Vec<IndexSource>,
+    ) -> Vec<IndexSource> {
         index_urls
             .into_iter()
             .chain(
@@ -185,13 +185,13 @@ impl Config {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Index {
     name: Option<String>,
-    url: IndexLocation,
+    url: IndexSource,
     // explicit: Option<bool>,
     default: Option<bool>,
 }
 
 impl Index {
-    pub fn new_url(url: IndexLocation) -> Self {
+    pub fn new_url(url: IndexSource) -> Self {
         Self {
             name: None,
             url,

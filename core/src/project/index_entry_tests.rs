@@ -19,8 +19,7 @@ use std::sync::Arc;
 use crate::{
     auth::Unauthenticated,
     context::ProjectContext,
-    env::index::{AdvertisedVersion, Sha256HexDigest},
-    index::model::VersionStatus,
+    index::model::{AdvertisedVersion, Sha256HexDigest, VersionStatus},
     index_location::IndexLocation,
     model::InterchangeProjectUsageRaw,
     project::{ProjectChecksum, ProjectReadAsync as _, index_entry::IndexEntryProject},

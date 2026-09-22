@@ -308,7 +308,7 @@ fn info<'local>(
         let Some(index_url) = env.get_str(&index_url, "indexUrl") else {
             ret_null!()
         };
-        match sysand_core::index_location::IndexLocation::parse(&index_url) {
+        match sysand_core::index_location::IndexSource::parse(&index_url) {
             Ok(location) => Some(location),
             Err(error) => {
                 env.throw_stdlib_exception(

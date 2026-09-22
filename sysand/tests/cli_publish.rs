@@ -248,6 +248,22 @@ fn publish_requires_index_argument() -> TestResult {
     Ok(())
 }
 
+/// A directory has no upload endpoint: the refusal names the write path
+/// that does exist.
+#[test]
+fn publish_refuses_filesystem_index() -> TestResult {
+    let (_temp_dir, cwd) = setup_built_project("test-publish")?;
+    std::fs::create_dir_all(cwd.join("mirror"))?;
+    let out = run_sysand_in(&cwd, ["publish", "--index", "./mirror"], None)?;
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "publishing to a filesystem index is not supported",
+        ))
+        .stderr(predicate::str::contains("`sysand index add`"));
+    Ok(())
+}
+
 #[test]
 fn publish_requires_index_value() -> TestResult {
     let (_temp_dir, cwd) = setup_built_project("test-publish")?;

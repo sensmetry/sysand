@@ -60,7 +60,7 @@ pub mod reference;
 
 pub mod utils;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct KparMeta {
     pub size_bytes: NonZeroU64,
     pub sha256_hex: String,

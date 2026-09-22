@@ -10,7 +10,7 @@ use semver::{Version, VersionReq};
 use sysand_core::{
     build::KparCompressionMethod,
     commands::{auth::IndexKey, sources::Dependencies as CoreDependencies},
-    index_location::IndexLocation,
+    index_location::{IndexLocation, IndexSource},
     manifest::common::root_path,
     model::{
         IndexName, IndexPublisher, KERML_SPEC_PREFIX, KnownMetamodel, LICENSE_EXPRESSION_HELP,
@@ -273,9 +273,10 @@ pub enum Command {
 
         /// Configured index URL to publish to (e.g. https://sysand.com)
         /// The index must advertise a publish endpoint: its
-        /// sysand-index-config.json must set `api_root`
-        #[arg(long, value_name = "URL", verbatim_doc_comment, value_parser = IndexLocationParser)]
-        index: IndexLocation,
+        /// sysand-index-config.json must set `api_root`. A filesystem
+        /// index takes archives through `sysand index add` instead
+        #[arg(long, value_name = "URL", verbatim_doc_comment)]
+        index: IndexSource,
 
         /// How to use CI trusted publishing for acquiring publish credentials
         #[arg(
@@ -772,6 +773,33 @@ impl clap::builder::TypedValueParser for IndexLocationParser {
     }
 }
 
+/// Parses an [`IndexSource`], see [`parse_index_value`].
+#[derive(Clone, Debug)]
+pub struct IndexSourceParser;
+
+impl clap::builder::TypedValueParser for IndexSourceParser {
+    type Value = IndexSource;
+
+    fn parse_ref(
+        &self,
+        cmd: &clap::Command,
+        arg: Option<&clap::Arg>,
+        value: &OsStr,
+    ) -> Result<Self::Value, clap::Error> {
+        self.parse_ref_(cmd, arg, value, ValueSource::CommandLine)
+    }
+
+    fn parse_ref_(
+        &self,
+        cmd: &clap::Command,
+        arg: Option<&clap::Arg>,
+        value: &OsStr,
+        source: ValueSource,
+    ) -> Result<Self::Value, clap::Error> {
+        parse_index_value(cmd, arg, value, source, IndexSource::parse)
+    }
+}
+
 /// Parses an [`IndexKey`] (with the credential-specific errors of
 /// [`IndexKey::validate`]), see [`parse_index_value`]
 #[derive(Clone, Debug)]
@@ -1255,10 +1283,10 @@ pub struct ResolutionOptions {
         help_heading = "Resolution options",
         env = env_vars::SYSAND_INDEX,
         value_delimiter = ',',
-        value_parser = IndexLocationParser,
+        value_parser = IndexSourceParser,
         verbatim_doc_comment
     )]
-    pub index: Vec<IndexLocation>,
+    pub index: Vec<IndexSource>,
     /// Comma-delimited list of URLs to use as default index
     /// URLs. Default indexes are tried after other indexes
     /// (default `https://sysand.com`). Accepts URL templates like --index.
@@ -1269,10 +1297,10 @@ pub struct ResolutionOptions {
         help_heading = "Resolution options",
         env = env_vars::SYSAND_DEFAULT_INDEX,
         value_delimiter = ',',
-        value_parser = IndexLocationParser,
+        value_parser = IndexSourceParser,
         verbatim_doc_comment
     )]
-    pub default_index: Vec<IndexLocation>,
+    pub default_index: Vec<IndexSource>,
     /// Do not use any index when resolving project(s) and/or their dependencies
     // TODO: document somewhere which sources are supported:
     // - file:// (sometimes also regular paths)

@@ -383,3 +383,108 @@ fn display_round_trips_templates_and_normalizes_roots() {
         "https://example.org/index/?ref=main"
     );
 }
+
+// --- `IndexSource`: the filesystem spelling next to the HTTP one ---
+// (design/index-protocol.md "Filesystem indexes": the refusals of a
+// directory are the environment's, these pin the parser.)
+
+fn parse_source(s: &str) -> IndexSource {
+    IndexSource::parse(s).unwrap_or_else(|e| panic!("`{s}` should parse as an index source: {e}"))
+}
+
+#[test]
+fn index_source_classifies_paths() {
+    for spelling in [
+        "./mirror",
+        ".\\mirror",
+        "/srv/mirror",
+        "\\\\server\\share",
+        "../m",
+        "..\\m",
+        ".",
+        "..",
+        "C:\\mirror",
+        "c:/mirror",
+        "D:",
+    ] {
+        assert_eq!(
+            parse_source(spelling),
+            IndexSource::Filesystem(camino::Utf8PathBuf::from(spelling)),
+            "`{spelling}` is a path spelling"
+        );
+    }
+    assert_matches!(
+        parse_source("https://example.org/i"),
+        IndexSource::Remote(IndexLocation::Root(_))
+    );
+    assert_matches!(
+        parse_source(GITLAB_TEMPLATE),
+        IndexSource::Remote(IndexLocation::Template(_))
+    );
+    // A bare name is neither: no scheme, no path marker.
+    assert_matches!(
+        IndexSource::parse("mirror"),
+        Err(IndexLocationError::RelativeUrl { .. })
+    );
+    // Braces in a path are a path's business, not a template's.
+    assert_eq!(
+        parse_source("./dir{x}"),
+        IndexSource::Filesystem(camino::Utf8PathBuf::from("./dir{x}"))
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn index_source_file_url() {
+    assert_eq!(
+        parse_source("file:///srv/mirror"),
+        IndexSource::Filesystem(camino::Utf8PathBuf::from("/srv/mirror"))
+    );
+    // Percent-encoding is undone; the scheme is matched case-insensitively.
+    assert_eq!(
+        parse_source("FILE:///srv/my%20mirror"),
+        IndexSource::Filesystem(camino::Utf8PathBuf::from("/srv/my mirror"))
+    );
+    // A `file://` URL with a host names no local path.
+    assert_matches!(
+        IndexSource::parse("file://host/share"),
+        Err(IndexLocationError::FileUrlNotPath { .. })
+    );
+}
+
+#[test]
+#[cfg(windows)]
+fn index_source_file_url_windows() {
+    assert_eq!(
+        parse_source("file:///C:/mirror"),
+        IndexSource::Filesystem(camino::Utf8PathBuf::from("C:\\mirror"))
+    );
+}
+
+#[test]
+fn p2_b1_index_source_relative_hint() {
+    // The historical refusal stands (`relative_url_is_rejected`), and the
+    // message now says how a filesystem index is spelled.
+    let error = IndexSource::parse("example.org/index").unwrap_err();
+    assert_matches!(error, IndexLocationError::RelativeUrl { .. });
+    let text = error.to_string();
+    assert!(text.contains("./<dir>"), "{text}");
+    assert!(text.contains("file:///"), "{text}");
+}
+
+#[test]
+fn index_source_display_round_trips() {
+    for spelling in [
+        "./mirror",
+        "/srv/mirror",
+        "C:\\mirror",
+        "https://example.org/i",
+        GITLAB_TEMPLATE,
+    ] {
+        let parsed = parse_source(spelling);
+        assert_eq!(parse_source(&parsed.to_string()), parsed, "`{spelling}`");
+    }
+    // The path is printed as written, so a relative spelling stays
+    // relative until the environment absolutizes it.
+    assert_eq!(parse_source("./mirror").to_string(), "./mirror");
+}
