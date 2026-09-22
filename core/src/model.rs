@@ -829,6 +829,32 @@ impl<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName>
             } => "an index",
         }
     }
+
+    /// The version constraint, if this usage's kind carries one and it
+    /// is given
+    pub fn version_constraint(&self) -> Option<&VersionReq> {
+        match self {
+            Self::Resource {
+                resource: _,
+                version_constraint,
+            } => version_constraint.as_ref(),
+            Self::Index {
+                publisher: _,
+                name: _,
+                version_constraint,
+            } => Some(version_constraint),
+            Self::Directory {
+                dir: _,
+                publisher: _,
+                name: _,
+            }
+            | Self::KparPath {
+                kpar_path: _,
+                publisher: _,
+                name: _,
+            } => None,
+        }
+    }
 }
 
 impl From<InterchangeProjectUsage> for InterchangeProjectUsageRaw {

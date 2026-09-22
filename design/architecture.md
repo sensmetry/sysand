@@ -363,6 +363,26 @@ Each `package_ID` is derived from the project's canonical identifier, and
 `sysand_core::env::iri_normalize::iri_to_filename_part()` and
 `sysand_core::env::iri_normalize::normalize_version()`, respectively.
 
+### Verifying an environment
+
+`do_sync` trusts `env.toml`: a lockfile entry whose recorded checksum
+matches the lockfile's is kept without a file under `lib/` being read.
+`commands/verify.rs` (`do_verify`, behind `sysand sync --verify`) reads
+the installation back: the canonical project digest from the manifests
+on disk for a source-installed entry, and every file `.meta.json`'s
+`checksum` names hashed against its recorded value (which is what an
+archive's digest transitively covers; a json project whose author wrote
+no `checksum` map has only its manifests verified, and an
+archive-installed entry's manifests edited in place under `lib/` are
+not detected). It also lists `lib/` directories `env.toml` does not
+record, and compares each manifest's usages with the lockfile's entry
+for that project (identifiers and version constraints). The findings
+travel in `SyncOutcome` (`verified`, `mismatched`, `unrecorded`,
+`repaired`, `stale`); their texts name no command, the CLI appends the
+hints. `sysand sync --repair` removes what mismatches and what is
+unrecorded, runs a plain sync, and verifies again; a stale lockfile is
+reported, never re-solved.
+
 ### Index environment
 
 An index environment is sysand's client-side reader for sysand index

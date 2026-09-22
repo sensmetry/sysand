@@ -33,6 +33,8 @@ def sync(
     resolution: Resolution | None = None,
     auth: AuthPolicy | None = None,
     provided: typing.Sequence[ProvidedProject] | None = None,
+    verify: bool = False,
+    repair: bool = False,
 ) -> SyncOutcome:
     """Install what the lockfile says into the project's ``.sysand``
     environment, as ``sysand sync`` does, and report every change.
@@ -57,6 +59,16 @@ def sync(
 
     Returns:
         The projects that were installed, pruned and kept.
+
+    With ``verify`` the environment is read back from disk and checked
+    against the lockfile, and the lockfile against the manifests; nothing
+    is installed or removed, and the findings are returned in
+    ``mismatched``, ``unrecorded`` and ``stale`` (``verified`` lists what
+    matched). With ``repair`` (which implies ``verify``) what mismatches
+    is reinstalled and what ``env.toml`` does not record is removed, then
+    the environment is verified again; ``repaired`` lists the reinstalled
+    projects. A stale lockfile is reported, never re-solved: call
+    :func:`lock`. Findings are data, not exceptions.
 
     Raises:
         ProjectError: not inside a project, the lockfile is invalid or could
@@ -86,6 +98,8 @@ def sync(
         resolution._spec(),
         auth._spec() if auth is not None else None,
         list(provided or ()),
+        verify,
+        repair,
     )
     # The environment's entries after the sync, under every identifier; a
     # pruned entry is gone from them, so its path is ``None``.
@@ -99,6 +113,11 @@ def sync(
         installed=_with_paths(outcome["installed"], paths),
         pruned=_with_paths(outcome["pruned"], paths),
         kept=_with_paths(outcome["kept"], paths),
+        verified=_with_paths(outcome["verified"], paths),
+        mismatched=list(outcome["mismatched"]),
+        unrecorded=list(outcome["unrecorded"]),
+        repaired=_with_paths(outcome["repaired"], paths),
+        stale=list(outcome["stale"]),
     )
 
 

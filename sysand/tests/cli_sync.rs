@@ -1287,7 +1287,7 @@ fn a_mixed_family_workspace_locks_and_syncs_in_one_pass() -> Result<(), Box<dyn 
         assert!(installed.join(file).is_file(), "`{file}` is installed");
     }
 
-    let out = run_sysand_in(&cwd, ["sources", "--only-deps"], None)?;
+    let out = run_sysand_in(&cwd, ["sources", "--no-own"], None)?;
     let listed = String::from_utf8(out.assert().success().get_output().stdout.clone())?;
     assert!(listed.contains("lib.sysml"), "{listed}");
     assert!(

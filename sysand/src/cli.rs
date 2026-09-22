@@ -314,6 +314,17 @@ pub enum Command {
         /// Don't remove projects that are no longer needed from `.sysand`
         #[arg(long)]
         no_prune: bool,
+        /// Check `.sysand` against the lockfile by reading what is
+        /// installed (not what `env.toml` records) and the lockfile
+        /// against the manifests; report every mismatch, change
+        /// nothing, and exit non-zero if there is one
+        #[arg(long, verbatim_doc_comment)]
+        verify: bool,
+        /// Verify, then reinstall what does not match and remove what
+        /// `env.toml` does not record; a lockfile that no longer matches
+        /// the manifests is reported, not re-solved (run `sysand lock`)
+        #[arg(long, verbatim_doc_comment)]
+        repair: bool,
     },
     /// Describe a local project (either the current one or one at a
     /// given path) or resolve and describe a project at a specified

@@ -17,6 +17,7 @@ use semver::Version;
 use sysand::{
     CliAuthPolicy,
     cli::{AddProjectLocatorArgs, ResolutionOptions},
+    commands::sync::command_sync_verify,
     commands::{
         add::command_add,
         lock::{CliLockError, create_resolver, resolve_lock},
@@ -35,6 +36,7 @@ use sysand_core::{
         init::do_init_local_file,
         lock::{LockError, LockProjectError},
         sync::SyncOutcome,
+        verify::ManifestUsages,
     },
     config::{
         Config,
@@ -1045,7 +1047,11 @@ fn sync_failure(err: CommandSyncError, outcome: SyncOutcome, wrote_lock: bool) -
     let wrote = wrote_lock || outcome.wrote();
     match err {
         CommandSyncError::Sync(CliSyncError::EnvRead(_) | CliSyncError::EnvWrite(_))
-        | CommandSyncError::WriteMetadata(_) => Failure::Env { message, wrote },
+        | CommandSyncError::WriteMetadata(_)
+        // `--verify` reading the environment, or `--repair` removing a
+        // mismatched installation from it.
+        | CommandSyncError::Verify(_)
+        | CommandSyncError::Remove { .. } => Failure::Env { message, wrote },
         CommandSyncError::Sync(_) | CommandSyncError::IncludeStd(_) => Failure::Sync {
             message,
             wrote,
@@ -1059,7 +1065,7 @@ fn sync_failure(err: CommandSyncError, outcome: SyncOutcome, wrote_lock: bool) -
 /// install path.
 #[pyfunction(name = "do_sync_py")]
 #[pyo3(
-    signature = (path, lock_text, resolution, auth, provided),
+    signature = (path, lock_text, resolution, auth, provided, verify=false, repair=false),
 )]
 fn do_sync_py(
     py: Python,
@@ -1068,6 +1074,8 @@ fn do_sync_py(
     resolution: ResolutionSpec,
     auth: Option<AuthSpec>,
     provided: Vec<ProvidedSpec>,
+    verify: bool,
+    repair: bool,
 ) -> PyResult<(SyncOutcome, Vec<EnvProject>)> {
     common_init();
 
@@ -1134,6 +1142,54 @@ fn do_sync_py(
         };
         provided.extend(extra_provided);
 
+        let client = create_reqwest_client().map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
+        let runtime = Arc::new(
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(PyErr::from)?,
+        );
+        let auth_policy = build_auth_policy(&auth)?;
+
+        let mut outcome = SyncOutcome::default();
+        if verify || repair {
+            // Findings are data here: the outcome carries them and the
+            // caller decides; only reading or repairing failing is an
+            // error.
+            let manifests = ManifestUsages::for_context(&ctx)
+                .map_err(|e| ProjectError::new_err(format_err(e)))?;
+            let env_dir = project_root.join(DEFAULT_ENV_NAME);
+            let env = ctx.env.take();
+            let env_dir_for_listing = env
+                .as_ref()
+                .map_or_else(|| env_dir.clone(), |env| env.root_path().to_path_buf());
+            if let Err(err) = command_sync_verify(
+                &lock,
+                &project_root,
+                env,
+                &env_dir,
+                &manifests,
+                client,
+                &provided,
+                runtime,
+                auth_policy,
+                // Always prune: `no_prune` is not exposed.
+                false,
+                repair,
+                &mut outcome,
+            ) {
+                return Err(sync_failure(err, outcome, wrote_lock));
+            }
+            let projects = LocalDirectoryEnvironment::try_read(&env_dir_for_listing)
+                .map_err(|e| Failure::Env {
+                    message: format_err(e),
+                    wrote: repair,
+                })?
+                .map(|env| env.projects().to_vec())
+                .unwrap_or_default();
+            return Ok((outcome, projects));
+        }
+
         let mut env = get_or_create_env(
             ctx.env.take(),
             ctx.model_workspace_root.as_deref(),
@@ -1145,7 +1201,6 @@ fn do_sync_py(
             wrote: wrote_lock,
         })?;
 
-        let mut outcome = SyncOutcome::default();
         if let Err(err) = command_sync(
             &lock,
             &project_root,

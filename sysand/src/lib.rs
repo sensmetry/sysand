@@ -19,7 +19,7 @@ use sysand_core::{
         HTTPAuthentication, StandardHTTPAuthentication, StandardHTTPAuthenticationBuilder,
         StandardLazyHTTPAuthentication,
     },
-    commands::sync::SyncOutcome,
+    commands::{sync::SyncOutcome, verify::ManifestUsages},
     config::{
         Config,
         local_fs::{CONFIG_FILE, get_config, load_configs, read_config},
@@ -72,7 +72,7 @@ use crate::{
         publish::command_publish,
         remove::command_remove,
         sources::{command_sources_env, command_sources_project, command_sources_workspace},
-        sync::command_sync,
+        sync::{VerifyStatus, command_sync, command_sync_verify},
     },
 };
 
@@ -823,6 +823,8 @@ fn run_cli_with(
         Command::Sync {
             resolution_opts,
             no_prune,
+            verify,
+            repair,
         } => {
             let provided_iris = if resolution_opts.include_std {
                 HashMap::default()
@@ -866,6 +868,38 @@ fn run_cli_with(
                     )?,
                 },
             };
+            if verify || repair {
+                // `--verify` reads; it must not create a `.sysand` that
+                // was not there (with the directory gone every locked
+                // project is reported as not installed).
+                let manifests = ManifestUsages::for_context(&ctx)?;
+                let env_dir = project_root.join(DEFAULT_ENV_NAME);
+                let mut outcome = SyncOutcome::default();
+                let status = command_sync_verify(
+                    &lock,
+                    &project_root,
+                    ctx.env,
+                    &env_dir,
+                    &manifests,
+                    client,
+                    &provided_iris,
+                    runtime,
+                    auth_policy,
+                    no_prune,
+                    repair,
+                    &mut outcome,
+                )?;
+                return match status {
+                    VerifyStatus::Clean { .. } => Ok(()),
+                    VerifyStatus::Problems { count, repaired } if repair => bail!(
+                        "`.sysand` does not match `sysand-lock.toml` after repairing {repaired} \
+                         project(s): {count} problem(s) remain"
+                    ),
+                    VerifyStatus::Problems { count, .. } => {
+                        bail!("`.sysand` does not match `sysand-lock.toml`: {count} problem(s)")
+                    }
+                };
+            }
             let mut local_environment = get_or_create_env(
                 ctx.env,
                 ctx.model_workspace_root.as_deref(),

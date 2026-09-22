@@ -145,6 +145,34 @@ class SyncedProject(typing.TypedDict):
     once the project has been pruned."""
 
 
+class Mismatch(typing.TypedDict):
+    """One installed project ``sync(verify=True)`` found not to match the
+    lockfile."""
+
+    iri: str
+    version: str
+    kind: str
+    """``"checksum"`` (files or manifests differ), ``"missing"`` (recorded
+    in ``env.toml`` but not on disk) or ``"not-recorded"`` (in the lockfile
+    but not in ``env.toml``)."""
+    file: typing.Optional[str]
+    """The first file whose digest differs, when the kind is ``checksum``
+    and a file is known."""
+    message: str
+    """The finding as the CLI prints it."""
+
+
+class StaleUsage(typing.TypedDict):
+    """A manifest usage the lockfile does not reflect; the repair is
+    :func:`sysand.lock`."""
+
+    manifest: str
+    usage: str
+    kind: str
+    """``"constraint"``, ``"added"``, ``"removed"`` or ``"manifest-missing"``."""
+    message: str
+
+
 class SyncOutcome(typing.TypedDict):
     """Result of :func:`sysand.sync`: every change it made, and what it left
     alone. Also carried by :class:`SyncError` as ``partial`` when a sync
@@ -154,6 +182,17 @@ class SyncOutcome(typing.TypedDict):
     pruned: typing.List[SyncedProject]
     kept: typing.List[SyncedProject]
     """Lockfile entries that were already installed and verified."""
+    verified: typing.List[SyncedProject]
+    """``verify``: entries read back from disk that match."""
+    mismatched: typing.List[Mismatch]
+    """``verify``: entries that do not."""
+    unrecorded: typing.List[str]
+    """``verify``: directories under ``lib/`` that ``env.toml`` does not
+    record, relative to the environment."""
+    repaired: typing.List[SyncedProject]
+    """``repair``: entries reinstalled."""
+    stale: typing.List[StaleUsage]
+    """``verify``: manifest usages the lockfile does not reflect."""
 
 
 class LockedProject(typing.TypedDict):
