@@ -17,6 +17,7 @@ use indexmap::IndexSet;
 use semver::{Version, VersionReq};
 use typed_path::Utf8UnixPathBuf;
 
+use crate::model::MetamodelFamily;
 use crate::{
     manifest::{
         ModelToml,
@@ -140,6 +141,20 @@ pub fn migrate_project(
     };
 
     let mut project = ProjectTable::new(publisher, name, version);
+    // design/syside-metamodel.md, "JSON to TOML": `root` comes from
+    // `.meta.json` and must be among the recovered sources; said here,
+    // where the cause is, rather than on the next read.
+    if let Some(root) = &meta.root {
+        if !sources
+            .as_ref()
+            .is_some_and(|sources| sources.iter().any(|entry| entry.as_str() == root))
+        {
+            report.push(Diagnostic::error(format!(
+                "`root` is `{root}`, which is not listed in `sources`"
+            )));
+        }
+        project.root = Some(toml::Value::from(root.as_str()));
+    }
     project.sources = Some(sources.unwrap_or_default());
     project.description = info.description.clone();
     project.license = license.map(MetaProperty::Provided);
@@ -201,6 +216,10 @@ pub fn migrate_sources(
     let mut paths: IndexSet<Utf8UnixPathBuf> = IndexSet::new();
     let mut bad_checksum_keys: Vec<String> = Vec::new();
     let mut unadmitted_checksum_keys: Vec<String> = Vec::new();
+    // design/syside-metamodel.md, "JSON to TOML": a Syside `.meta.json`
+    // checksums the whole archive, so a non-model key is a conventional
+    // file (silent) or a stray one (a warning), not an error.
+    let syside = metamodel.is_some_and(|kind| kind.family == MetamodelFamily::Syside);
 
     let mut add = |raw: &str, from_checksum: bool, report: &mut Report| {
         let path = match normalize_relative(raw) {
@@ -213,7 +232,17 @@ pub fn migrate_sources(
             }
         };
         if Language::guess_from_path(&path).is_none() {
-            if from_checksum {
+            if from_checksum && syside {
+                let conventional = raw == "README.md"
+                    || raw == "CHANGELOG.md"
+                    || (raw.starts_with("LICENSES/") && raw.to_ascii_lowercase().ends_with(".txt"));
+                if !conventional {
+                    report.push(Diagnostic::warning(format!(
+                        "`{raw}` is not a model file and is not migrated: `sources` lists \
+                         model files only"
+                    )));
+                }
+            } else if from_checksum {
                 bad_checksum_keys.push(raw.to_owned());
             } else {
                 // One diagnostic per entry: `index` has no plural rule
@@ -368,6 +397,16 @@ fn warn_discarded(meta: &InterchangeProjectMetadataRaw, report: &mut Report) {
         report.push(Diagnostic::warning(
             "`checksum` is not migrated apart from its paths, which become `sources`: \
              checksums are computed when the project is built",
+        ));
+    }
+    if meta
+        .exports
+        .as_ref()
+        .is_some_and(|exports| !exports.is_empty())
+    {
+        report.push(Diagnostic::warning(
+            "`exports` is not migrated: the exported names are computed when the project is \
+             built",
         ));
     }
     if meta.includes_derived.is_some() {

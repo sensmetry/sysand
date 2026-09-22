@@ -314,6 +314,16 @@ fn field_lines(
                 .collect()
         }
         InfoField::Created => vec![meta()?.created],
+        InfoField::Root => meta()?.root.into_iter().collect(),
+        InfoField::Exports => {
+            let meta = meta()?;
+            // The mirror of `info index` on a root-shaped document: an
+            // OMG-shaped one has no `exports`.
+            if meta.exports.is_none() {
+                log::warn!("the project has no `exports`; an OMG KPAR carries `index`");
+            }
+            meta.exports.unwrap_or_default()
+        }
         InfoField::Metamodel => meta()?.metamodel.into_iter().collect(),
         InfoField::IncludesDerived => meta()?
             .includes_derived

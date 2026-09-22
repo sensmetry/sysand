@@ -75,6 +75,8 @@ fn edits_info(edits: &EditArgs) -> bool {
         metamodel_release_custom: _,
         custom_metamodel: _,
         clear_metamodel: _,
+        root: _,
+        clear_root: _,
         includes_derived: _,
         clear_includes_derived: _,
         includes_implied: _,
@@ -102,6 +104,8 @@ fn edits_meta(edits: &EditArgs) -> bool {
         metamodel,
         custom_metamodel,
         clear_metamodel,
+        root,
+        clear_root,
         includes_derived,
         clear_includes_derived,
         includes_implied,
@@ -127,6 +131,8 @@ fn edits_meta(edits: &EditArgs) -> bool {
     metamodel.is_some()
         || custom_metamodel.is_some()
         || *clear_metamodel
+        || root.is_some()
+        || *clear_root
         || includes_derived.is_some()
         || *clear_includes_derived
         || includes_implied.is_some()
@@ -251,6 +257,11 @@ fn edit_meta(edits: &EditArgs, meta: &mut InterchangeProjectMetadataRaw) {
     } else if edits.clear_metamodel {
         meta.metamodel = None;
     }
+    if let Some(root) = &edits.root {
+        meta.root = Some(root.to_string());
+    } else if edits.clear_root {
+        meta.root = None;
+    }
     if let Some(includes_derived) = edits.includes_derived {
         meta.includes_derived = Some(includes_derived);
     } else if edits.clear_includes_derived {
@@ -367,22 +378,51 @@ fn edit_toml(project: &mut LocalSrcProject, edits: &EditArgs) -> Result<()> {
         &edits.remove_topic,
         &edits.add_topic,
     )?;
-    if let Some(kind) = edits.metamodel {
-        let metamodel: String = match edits.metamodel_release_custom {
+    // `root` first, so that a metamodel switch in the same edit sees it
+    if let Some(root) = &edits.root {
+        edit::set_project_key(&mut document, ProjectKey::Root, root.as_str().into())?;
+    } else if edits.clear_root {
+        edit::clear_project_key(&mut document, ProjectKey::Root)?;
+    }
+    let metamodel: Option<String> = match (edits.metamodel, &edits.custom_metamodel) {
+        (Some(kind), _) => Some(match edits.metamodel_release_custom {
             Some(release) => format!("{kind}{release}"),
             None => Metamodel(kind, edits.metamodel_release).into(),
-        };
+        }),
+        (None, Some(metamodel)) => Some(metamodel.clone()),
+        (None, None) => None,
+    };
+    if let Some(value) = metamodel {
         // model-toml.md "Metamodel": a `model.toml` holds one of four
         // values, and a custom release can spell anything
-        crate::commands::check_metamodel(&metamodel)?;
-        edit::set_project_key(&mut document, ProjectKey::Metamodel, metamodel.into())?;
-    } else if let Some(metamodel) = &edits.custom_metamodel {
-        crate::commands::check_metamodel(metamodel)?;
-        edit::set_project_key(
-            &mut document,
-            ProjectKey::Metamodel,
-            metamodel.as_str().into(),
-        )?;
+        crate::commands::check_metamodel(&value)?;
+        // design/syside-metamodel.md, "Commands": a switch that changes
+        // the required keys is refused when the target schema's key is
+        // missing, and warns when it leaves a key behind that the target
+        // schema does not use.
+        let has_root = document
+            .get("project")
+            .and_then(|project| project.get("root"))
+            .is_some();
+        let target = sysand_core::model::KnownMetamodel::recognize(&value).map(|kind| kind.family);
+        match target {
+            Some(sysand_core::model::MetamodelFamily::Syside) if !has_root => {
+                bail!(
+                    "changing the metamodel to `{value}` requires `root`; `model.toml` does not \
+                     have it\n\
+                    {SP:>8} pass `--root <PATH>` with it",
+                    SP = ' ',
+                );
+            }
+            Some(sysand_core::model::MetamodelFamily::Omg) if has_root => {
+                log::warn!(
+                    "`root` is only supported by the Syside metamodel and will be ignored under \
+                     `{value}`; `sysand edit --clear-root` removes it"
+                );
+            }
+            _ => {}
+        }
+        edit::set_project_key(&mut document, ProjectKey::Metamodel, value.into())?;
     } else if edits.clear_metamodel {
         // Every project declares one (model-toml.md "Metamodel": "in a
         // `model.toml` it is mandatory"), so clearing it writes a file

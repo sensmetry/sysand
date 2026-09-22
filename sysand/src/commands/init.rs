@@ -70,12 +70,16 @@ pub fn command_init(
     };
 
     let has_license = license.is_some();
-    sysand_core::init::do_init(
+    let inherited_kind = member
+        .as_ref()
+        .and_then(|member| member.group_metamodel.clone());
+    sysand_core::init::do_init_ext(
         name.into_string(),
         publisher.into_string(),
         version.to_string(),
         license.map(|l| l.to_string()),
         Some(metamodel),
+        inherited_kind,
         &mut LocalSrcProject::new_access(target, None),
     )
     .map_err(|error| match &error {
@@ -126,7 +130,7 @@ fn metamodel_for(
     }
     // Only the default group, and only for a project that is becoming a
     // member: "a named group is not guessed at either".
-    if member.is_some_and(|member| member.group_metamodel) {
+    if member.is_some_and(|member| member.group_metamodel.is_some()) {
         return Ok(MetaProperty::Inherited(Inherited {
             from: InheritFrom::DefaultGroup,
             at: None,
@@ -148,7 +152,10 @@ fn metamodel_for(
 struct Member {
     root: Utf8PathBuf,
     path: String,
-    group_metamodel: bool,
+    /// The default group's `metamodel` value, when it declares one: what
+    /// a marker will resolve to, and what decides the layout `init`
+    /// writes (design/syside-metamodel.md, "Commands").
+    group_metamodel: Option<KnownMetamodel>,
 }
 
 /// workspaces.md "Command scopes": `init` "create[s] the project and
@@ -209,7 +216,7 @@ fn workspace_member(target: &Utf8Path) -> Result<Option<Member>> {
                 );
             }
             Ok(Some(Member {
-                group_metamodel: table.default_group.metamodel.is_some(),
+                group_metamodel: table.default_group.metamodel.clone(),
                 root,
                 path: relative.to_string(),
             }))

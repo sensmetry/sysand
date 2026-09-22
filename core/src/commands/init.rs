@@ -15,9 +15,12 @@ use crate::{
         inherit::MetaProperty,
         project::{ProjectManifest, ProjectTable},
     },
-    model::{IdentifierError, IndexName, IndexPublisher, KnownMetamodel},
-    project::{ManifestWriteError, ProjectMut, memory::InMemoryProject},
+    model::{
+        IdentifierError, IndexName, IndexPublisher, KnownMetamodel, MetamodelFamily, SpecKind,
+    },
+    project::{ManifestWriteError, ProjectMut, ProjectRead as _, memory::InMemoryProject},
 };
+use typed_path::Utf8UnixPathBuf;
 
 #[cfg(feature = "filesystem")]
 use crate::project::local_src::{LocalSrcError, LocalSrcProject};
@@ -71,6 +74,31 @@ pub fn do_init<P: ProjectMut>(
     metamodel: Option<MetaProperty<String>>,
     storage: &mut P,
 ) -> Result<(), InitError<P::Error>> {
+    do_init_ext(name, publisher, version, license, metamodel, None, storage)
+}
+
+/// [`do_init`], told which metamodel an inherited marker resolves to.
+///
+/// design/syside-metamodel.md, "Commands": a project created with a
+/// Syside metamodel gets the Syside layout -- `sources` listing one
+/// file, `root` naming it, and the file itself, created with a package
+/// declaration when it does not exist. A marker names a group, not a
+/// metamodel, so the family behind it is the caller's to supply
+/// (`inherited_kind`); without it, the layout is the OMG one.
+///
+/// The file is created rather than merely named so that a generated project
+/// never lists a file that is not there. Order: the file's existence is
+/// checked, the manifest is written (and refused, before anything else,
+/// when one exists), then the file.
+pub fn do_init_ext<P: ProjectMut>(
+    name: String,
+    publisher: String,
+    version: String,
+    license: Option<String>,
+    metamodel: Option<MetaProperty<String>>,
+    inherited_kind: Option<KnownMetamodel>,
+    storage: &mut P,
+) -> Result<(), InitError<P::Error>> {
     let version =
         Version::parse(&version).map_err(|e| InitError::SemVerParse(version.as_str().into(), e))?;
     let publisher = IndexPublisher::parse(publisher).map_err(InitError::Identifier)?;
@@ -97,10 +125,37 @@ pub fn do_init<P: ProjectMut>(
     let header = crate::style::get_style_config().header;
     log::info!("{header}{creating:>12}{header:#} interchange project `{name}`");
 
-    let mut project = ProjectTable::new(publisher, name, version);
-    // model-toml.md: "a project that has none is written as `sources =
-    // []`" -- an absent key is a manifest that does not resolve.
-    project.sources = Some(Sources::default());
+    let kind = match &metamodel {
+        Some(MetaProperty::Provided(value)) => Some(value.clone()),
+        Some(MetaProperty::Inherited(_)) => inherited_kind,
+        None => None,
+    };
+    let syside_root = kind
+        .filter(|kind| kind.family == MetamodelFamily::Syside)
+        .map(|kind| {
+            let extension = match kind.spec {
+                SpecKind::KerMl => "kerml",
+                SpecKind::SysMl => "sysml",
+            };
+            Utf8UnixPathBuf::from(format!("{}.{extension}", name.normalized()))
+        });
+    let root_exists = syside_root
+        .as_ref()
+        .is_some_and(|root| storage.read_source(root).is_ok());
+
+    let mut project = ProjectTable::new(publisher, name.clone(), version);
+    match &syside_root {
+        Some(root) => {
+            project.sources = Some(
+                Sources::new(vec![root.clone()])
+                    .expect("a normalized name with a model extension is a `sources` entry"),
+            );
+            project.root = Some(toml::Value::from(root.as_str()));
+        }
+        // model-toml.md: "a project that has none is written as `sources =
+        // []`" -- an absent key is a manifest that does not resolve.
+        None => project.sources = Some(Sources::default()),
+    }
     project.license = license.map(MetaProperty::Provided);
     project.metamodel = metamodel;
 
@@ -111,7 +166,34 @@ pub fn do_init<P: ProjectMut>(
 
     storage
         .put_manifest_document(&render_new(&manifest), false)
-        .map_err(InitError::Write)
+        .map_err(InitError::Write)?;
+
+    if let Some(root) = syside_root
+        && !root_exists
+    {
+        let declaration = format!("package {};\n", package_name(&name.normalized()));
+        storage
+            .write_source(&root, &mut declaration.as_bytes(), false)
+            .map_err(InitError::Project)?;
+    }
+    Ok(())
+}
+
+/// The name as a KerML/SysML package declaration writes it: bare when it
+/// is an identifier, quoted (`'my-widgets'`) when the normalized name
+/// carries a `-` or `.` or starts with a digit -- all of which the
+/// language allows in a quoted name and none of which in a bare one.
+fn package_name(stem: &str) -> String {
+    let bare = stem
+        .chars()
+        .next()
+        .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+        && stem.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    if bare {
+        stem.to_owned()
+    } else {
+        format!("'{stem}'")
+    }
 }
 
 pub fn do_init_memory<N: AsRef<str>, P: AsRef<str>, V: AsRef<str>>(
