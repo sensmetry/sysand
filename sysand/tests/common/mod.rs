@@ -312,10 +312,9 @@ pub fn install_in_env_with_usage(
         std::fs::write(info_path, with_usage)?;
     }
     let env_path = root.join(DEFAULT_ENV_NAME);
-    let mut env = if env_path.exists() {
-        LocalDirectoryEnvironment::read(&env_path)?
-    } else {
-        do_env_local_dir(&env_path)?
+    let mut env = match LocalDirectoryEnvironment::try_read(&env_path)? {
+        Some(env) => env,
+        None => do_env_local_dir(&env_path)?,
     };
     let project = LocalSrcProject::new_access(source, None);
     do_env_install_project(

@@ -6,6 +6,7 @@ use std::{
     ffi::OsString,
     iter,
     sync::{Arc, LazyLock},
+    time::Duration,
 };
 
 use anstream::eprintln;
@@ -19,7 +20,7 @@ use sysand_core::{
         HTTPAuthentication, StandardHTTPAuthentication, StandardHTTPAuthenticationBuilder,
         StandardLazyHTTPAuthentication,
     },
-    commands::{sync::SyncOutcome, verify::ManifestUsages},
+    commands::{lock::DEFAULT_LOCKFILE_NAME, sync::SyncOutcome, verify::ManifestUsages},
     config::{
         Config,
         local_fs::{CONFIG_FILE, get_config, load_configs, read_config},
@@ -47,6 +48,7 @@ use sysand_core::{
         DiscoverError, MemberChecks, Selector, StartRegion, Workspace, discover_table,
         member_index, start_region,
     },
+    workspace_lock::{ExclusiveLock, LockMode, WorkspaceLock},
 };
 use url::Url;
 
@@ -581,6 +583,22 @@ fn run_cli_with(
         matches!(start, StartRegion::Member(_) | StartRegion::Workspace).then(|| root.clone())
     });
 
+    // A mutating command holds the workspace's advisory lock for the
+    // whole invocation, taken here -- once, before the environment is
+    // read -- and handed to every environment it writes. `lock_root` is where `sysand-lock.toml` and `.sysand` live.
+    let lock_root = model_workspace_root
+        .clone()
+        .or_else(|| project_root.clone())
+        .unwrap_or_else(|| cwd.clone());
+    let workspace_lock = match lock_mode(&command, &lock_root) {
+        Some(mode) => Some(Arc::new(WorkspaceLock::acquire(
+            &lock_root,
+            mode,
+            global_opts.lock_wait.map(Duration::from_secs),
+        )?)),
+        None => None,
+    };
+
     let env = match (&model_workspace_root, &current_project) {
         (Some(root), _) => get_env(root)?,
         (None, Some(pr)) => get_env(pr.root_path())?,
@@ -588,9 +606,19 @@ fn run_cli_with(
         // when index and env are different?
         (None, None) => get_env(&cwd)?,
     };
+    // A shared lock is not handed on: the environment writes under an
+    // exclusive one only
+    let env = match (env, workspace_lock.clone().and_then(ExclusiveLock::new)) {
+        (Some(mut env), Some(lock)) => {
+            env.hold(lock)?;
+            Some(env)
+        }
+        (env, _) => env,
+    };
     let config_root = config_root(&cwd, project_root.as_deref(), workspace_root.as_deref());
     let ctx = ProjectContext {
         env,
+        workspace_lock,
         model_workspace_root: model_workspace_root.clone(),
         current_project,
         current_directory: cwd,
@@ -905,6 +933,7 @@ fn run_cli_with(
                 ctx.model_workspace_root.as_deref(),
                 ctx.current_project.as_ref(),
                 &ctx.current_directory,
+                ctx.workspace_lock.as_ref(),
             )?;
             command_sync(
                 &lock,
@@ -1356,6 +1385,7 @@ pub fn get_or_create_env(
     model_workspace_root: Option<&Utf8Path>,
     project: Option<&LocalSrcProject>,
     cwd: impl AsRef<Utf8Path>,
+    lock: Option<&Arc<WorkspaceLock>>,
 ) -> Result<LocalDirectoryEnvironment> {
     if let Some(env) = env {
         return Ok(env);
@@ -1366,7 +1396,38 @@ pub fn get_or_create_env(
         (None, Some(pr)) => pr.root_path(),
         (None, None) => cwd.as_ref(),
     };
-    command_env(base_path.join(DEFAULT_ENV_NAME))
+    let mut env = command_env(base_path.join(DEFAULT_ENV_NAME))?;
+    if let Some(lock) = lock.cloned().and_then(ExclusiveLock::new) {
+        env.hold(lock)?;
+    }
+    Ok(env)
+}
+
+/// Which advisory lock a command takes: exclusive for the commands that
+/// write `sysand-lock.toml` or `.sysand`, shared for `sync --verify`
+/// (which must not read a torn state), none for commands that write only
+/// a manifest or read. `clone` populates a directory that must be empty
+/// or absent and takes none.
+fn lock_mode(command: &cli::Command, lock_root: &Utf8Path) -> Option<LockMode> {
+    match command {
+        // `sync` with no lockfile locks first (writes), so the shared
+        // mode is only for a verification that has one to read.
+        cli::Command::Sync {
+            verify: true,
+            repair: false,
+            ..
+        } if lock_root.join(DEFAULT_LOCKFILE_NAME).is_file() => Some(LockMode::Shared),
+        cli::Command::Lock { .. }
+        | cli::Command::Sync { .. }
+        | cli::Command::Add { .. }
+        | cli::Command::Remove { .. } => Some(LockMode::Exclusive),
+        // A bare `env` creates the environment; the subcommands read it
+        cli::Command::Env { command } => match command {
+            None => Some(LockMode::Exclusive),
+            Some(_) => None,
+        },
+        _ => None,
+    }
 }
 
 fn get_log_level(verbose: bool, quiet: bool) -> log::LevelFilter {

@@ -151,6 +151,25 @@ pub enum FsIoError {
     Seek(Utf8PathBuf, u64, io::Error),
 }
 
+/// Which advisory lock to take on a file: shared for readers, exclusive
+/// for writers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LockMode {
+    Shared,
+    Exclusive,
+}
+
+impl LockMode {
+    /// Take this lock on `file` if no conflicting lock is held, without
+    /// waiting.
+    pub fn try_lock(self, file: &std::fs::File) -> Result<(), std::fs::TryLockError> {
+        match self {
+            Self::Shared => file.try_lock_shared(),
+            Self::Exclusive => file.try_lock(),
+        }
+    }
+}
+
 /// Wrappers for filesystem I/O functions to return `FsIoError`.
 /// Copies the `std` interface 1 to 1, except for the error type.
 pub mod wrapfs {

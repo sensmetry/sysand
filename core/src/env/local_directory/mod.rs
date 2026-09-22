@@ -33,6 +33,7 @@ use crate::{
             RelativizePathError, wrapfs,
         },
     },
+    workspace_lock::ExclusiveLock,
 };
 
 pub mod metadata;
@@ -48,6 +49,9 @@ pub struct LocalDirectoryEnvironment {
     /// Path of the env, including `.sysand` part. Must be canonical
     root_dir: Utf8PathBuf,
     metadata: EnvMetadata,
+    /// The advisory lock the writer holds, handed in by [`Self::hold`];
+    /// `None` for a reader, or for an embedder that did not take one.
+    lock: Option<ExclusiveLock>,
 }
 
 pub const METADATA_PATH: &str = "env.toml";
@@ -61,7 +65,11 @@ impl LocalDirectoryEnvironment {
         Self::warn_if_old_sysand_env_present(&root_dir);
 
         let metadata = load_env_metadata(root_dir.join(METADATA_PATH))?;
-        Ok(Self { root_dir, metadata })
+        Ok(Self {
+            root_dir,
+            metadata,
+            lock: None,
+        })
     }
 
     /// `root_dir` can be any cwd-relative/absolute path. `env.toml` must not exist
@@ -76,7 +84,11 @@ impl LocalDirectoryEnvironment {
         file.write_all(metadata.to_string().as_bytes())
             .map_err(|e| FsIoError::WriteFile(path, e))?;
 
-        Ok(Self { root_dir, metadata })
+        Ok(Self {
+            root_dir,
+            metadata,
+            lock: None,
+        })
     }
 
     /// Try reading the environment metadata. If it does not exist,
@@ -93,7 +105,11 @@ impl LocalDirectoryEnvironment {
                 let metadata = parse_env_metadata(meta_path, s)?;
 
                 let root_dir = wrapfs::canonicalize(root_dir)?;
-                Ok(Some(Self { root_dir, metadata }))
+                Ok(Some(Self {
+                    root_dir,
+                    metadata,
+                    lock: None,
+                }))
             }
             Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
             Err(e) => Err(EnvMetadataError::Io(
@@ -161,12 +177,42 @@ impl LocalDirectoryEnvironment {
         &self.metadata.projects
     }
 
-    /// Parent directory of the env, i.e. the directory in which `.sysand` resides.
-    /// It is assumed to be the workspace (if present) or project root, which in turn is
-    /// the root of relative paths of `editable`/`workspace` projects
-    // TODO: is it correct to assume that `.sysand` is always at workspace/project root?
-    /// Directories directly under `lib/` that no recorded project owns
-    /// (appendix B row P2-14), relative to the environment root, sorted.
+    /// Hand the environment the workspace lock its writer holds, so its
+    /// writes run under it. The lock is acquired once at the top of a
+    /// mutating command (or by the embedder) and threaded here; nothing
+    /// is re-acquired per write.
+    ///
+    /// Fails when the lock is on a different root from the one this
+    /// environment is in.
+    pub fn hold(&mut self, lock: ExclusiveLock) -> Result<(), ForeignLockError> {
+        if lock.root() != self.parent_dir() {
+            return Err(ForeignLockError {
+                lock_root: lock.root().to_owned(),
+                env: self.root_dir.clone(),
+            });
+        }
+        self.lock = Some(lock);
+        Ok(())
+    }
+
+    /// The lock this environment writes under, if one was handed in.
+    pub fn lock(&self) -> Option<&ExclusiveLock> {
+        self.lock.as_ref()
+    }
+
+    /// Note a write that runs without an exclusive workspace lock. Not a
+    /// refusal: an embedder may serialize writers its own way.
+    fn note_unlocked_write(&self, what: &str) {
+        if self.lock.is_none() {
+            log::debug!(
+                "{what} on `{}` without an exclusive workspace lock",
+                self.root_dir
+            );
+        }
+    }
+
+    /// Directories directly under `lib/` that no recorded project owns,
+    /// relative to the environment root, sorted.
     /// Editable and workspace entries live outside `lib/` and are not
     /// consulted.
     pub fn unrecorded_paths(&self) -> Result<Vec<Utf8UnixPathBuf>, Box<FsIoError>> {
@@ -192,6 +238,10 @@ impl LocalDirectoryEnvironment {
         Ok(unrecorded)
     }
 
+    /// Parent directory of the env, i.e. the directory in which `.sysand` resides.
+    /// It is assumed to be the workspace (if present) or project root, which in turn is
+    /// the root of relative paths of `editable`/`workspace` projects
+    // TODO: is it correct to assume that `.sysand` is always at workspace/project root?
     fn parent_dir(&self) -> &Utf8Path {
         // Will fail only if env is at root, i.e. `self.root_dir == /`
         self.root_dir.parent().unwrap()
@@ -312,6 +362,15 @@ impl LocalDirectoryEnvironment {
     //         self.root_dir.join(project.path.as_str())
     //     }
     // }
+}
+
+/// A lock handed to [`LocalDirectoryEnvironment::hold`] guards another
+/// directory, so writes under it would not be serialized.
+#[derive(Error, Debug)]
+#[error("the workspace lock on `{lock_root}` does not guard the environment at `{env}`")]
+pub struct ForeignLockError {
+    pub lock_root: Utf8PathBuf,
+    pub env: Utf8PathBuf,
 }
 
 #[derive(Error, Debug)]
@@ -508,6 +567,7 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
     {
         let identifier = uri.as_ref();
         let version = version.as_ref();
+        self.note_unlocked_write("put_project");
 
         let project_temp = camino_tempfile::tempdir()
             .map_err(|e| LocalWriteError::from(FsIoError::MkTempDir(e)))?;
@@ -599,6 +659,7 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
     ) -> Result<(), Self::WriteError> {
         let identifier = uri.as_ref();
         let version = version.as_ref();
+        self.note_unlocked_write("del_project_version");
         if let Some((idx, project)) = self.metadata.find_project_version_idx(identifier, version) {
             // Doesn't make sense to remove workspace projects
             assert!(!project.workspace);
@@ -625,6 +686,7 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
     }
 
     fn del_uri<S: AsRef<str>>(&mut self, uri: S) -> Result<(), Self::WriteError> {
+        self.note_unlocked_write("del_uri");
         let mut project_versions = self
             .metadata
             .find_project_versions_idxs(uri.as_ref())

@@ -114,6 +114,15 @@ class EnvError(SysandError):
     """The ``.sysand`` environment is missing, unreadable or malformed."""
 
 
+class LockHeldError(SysandError):
+    """Another process holds the workspace's advisory lock
+    (``.sysand/.lock`` at the workspace root), so a mutating call --
+    :func:`sysand.lock`, :func:`sysand.sync`, :func:`sysand.env.env` --
+    did not run. The message is ``another process is using `<root>```.
+    Nothing was written; retry when the other process is done.
+    """
+
+
 # Hand the classes to the extension, which raises them but does not import
 # them: this tree is vendored under other parent packages, where an absolute
 # `sysand._errors` import would either fail or — with a standalone sysand
@@ -128,6 +137,7 @@ _sysand_rs._register_errors(
     index_protocol=IndexProtocolError,
     solve=SolveError,
     sync=SyncError,
+    lock_held=LockHeldError,
 )
 
 
@@ -141,4 +151,5 @@ __all__ = [
     "IndexProtocolError",
     "SyncError",
     "EnvError",
+    "LockHeldError",
 ]

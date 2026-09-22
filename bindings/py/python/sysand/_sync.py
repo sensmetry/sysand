@@ -82,6 +82,9 @@ def sync(
             installed and pruned before the failure and ``wrote`` says
             whether anything was, the lockfile included.
         EnvError: the environment could not be read or written.
+        LockHeldError: another process holds the workspace's advisory lock
+            (``verify`` alone takes it shared, everything else exclusive);
+            nothing was written.
     """
     if resolution is None:
         resolution = Resolution()

@@ -60,6 +60,8 @@ def lock(
             written after a successful solve.
         AuthError, IndexProtocolError, ResolutionError: an index could not be
             used.
+        LockHeldError: with ``write=True``, another process holds the
+            workspace's advisory lock; nothing was written.
     """
     if resolution is None:
         resolution = Resolution()

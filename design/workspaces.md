@@ -115,8 +115,9 @@ Consequences:
 A member never has state of its own: the lockfile, the `.sysand`
 directory and the `output` directory all belong to the workspace root
 (see Locking, Syncing, Build output). A member directory that still
-contains a `sysand-lock.toml`, a `.sysand/` or an `output/` -- typically
-a standalone project that has just been listed in `members` -- is an
+contains a `sysand-lock.toml`, a `.sysand/` or an `output/` --
+typically a standalone project that has just been listed in
+`members` -- is an
 error: "member `<path>` has its own `sysand-lock.toml`; a workspace has
 one lockfile at `<root>`; remove the member's copy". The check runs
 whenever members are loaded from the root, or the starting project is
@@ -277,6 +278,27 @@ entries are provided by the tooling unless `--include-std` is passed
 (see model-toml.md, Standard library): a lockfile that pins a
 standard-library release sysand does not know about is an error on
 `sync`, and `--include-std` is the way out.
+
+### The advisory lock
+
+A command that writes `sysand-lock.toml` or `.sysand` -- `lock`,
+`sync`, `add`, `remove`, `env`, `env install`, `env uninstall` -- holds
+an exclusive advisory lock on the workspace for the whole invocation;
+`sync --verify` holds it shared, so it never reads a torn state. The
+lock is one file, `.sysand/.lock`, in the environment directory at the
+workspace root (the project root for a standalone project). Taking the
+lock creates `.sysand/` when it is absent; an environment exists only
+once `.sysand/env.toml` does, so a `.sysand/` holding just the lock
+file is no environment, and `sysand env` creates one there. Deleting
+`.sysand/` while a command holds the lock is not guarded against. The
+file is empty, created on first use and never removed; the operating
+system releases the lock when its holder exits, so it is never stale. A
+second writer fails at once with "another process is using `<root>`",
+or waits under `--lock-wait <secs>` ("another process is using
+`<root>`; waiting up to `<n>` seconds", then the same failure at the
+deadline). The lock is cross-process only; an embedder acquires it
+itself and serializes its own operations. `clone` takes none: it
+populates a directory that must be empty or absent.
 
 
 ## Build output

@@ -35,6 +35,8 @@ pub mod utils;
 
 #[cfg(feature = "filesystem")]
 pub mod workspace;
+#[cfg(feature = "filesystem")]
+pub mod workspace_lock;
 
 #[cfg(feature = "filesystem")]
 pub mod discover;

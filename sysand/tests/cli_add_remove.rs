@@ -1396,8 +1396,8 @@ fn add_no_sync_skips_env_sync() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     assert!(
-        !cwd.join(DEFAULT_ENV_NAME).exists(),
-        "`add --no-sync` must not create `.sysand`"
+        !cwd.join(DEFAULT_ENV_NAME).join(METADATA_PATH).exists(),
+        "`add --no-sync` must not create the environment"
     );
 
     Ok(())

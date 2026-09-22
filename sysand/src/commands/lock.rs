@@ -160,6 +160,7 @@ pub fn command_lock<P: AsRef<Utf8UnixPath>, Policy: HTTPAuthentication, R: AsRef
     auth_policy: Arc<Policy>,
     ctx: &ProjectContext,
 ) -> Result<sysand_core::lock::Lock> {
+    let lock_root = project_root.as_ref().to_owned();
     let canonical = resolve_lock(
         &path,
         resolution_opts,
@@ -171,7 +172,11 @@ pub fn command_lock<P: AsRef<Utf8UnixPath>, Policy: HTTPAuthentication, R: AsRef
         auth_policy,
         ctx,
     )?;
-    let lockfile = Lockfile::new(Utf8Path::new(path.as_ref().as_str()), canonical);
+    // The lockfile lives at the project root, where `sync` reads it and
+    // where the advisory lock covers it; written relative to the working
+    // directory it would land in a subdirectory when `lock` runs from
+    // one.
+    let lockfile = Lockfile::new(&lock_root, canonical);
     lockfile.write()?;
 
     Ok(lockfile.into_lock())

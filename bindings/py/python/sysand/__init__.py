@@ -36,6 +36,7 @@ from ._errors import (
     IndexProtocolError,
     SyncError,
     EnvError,
+    LockHeldError,
 )
 
 from ._auth import (
@@ -130,6 +131,7 @@ __all__ = [
     "IndexProtocolError",
     "SyncError",
     "EnvError",
+    "LockHeldError",
     ## Auth and index configuration
     "AuthPolicy",
     "Resolution",

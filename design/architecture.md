@@ -325,6 +325,7 @@ The local environment looks like this:
 
 ```text
 .sysand
+ ├──.lock
  ├──env.toml
  └──lib
     ├──package_ID1_version
@@ -362,6 +363,24 @@ Each `package_ID` is derived from the project's canonical identifier, and
 `package_ID` and `version` is constructed from their corresponding values, see
 `sysand_core::env::iri_normalize::iri_to_filename_part()` and
 `sysand_core::env::iri_normalize::normalize_version()`, respectively.
+
+### The advisory lock
+
+`workspace_lock.rs` (`WorkspaceLock`, `LockMode::{Shared, Exclusive}`,
+`LOCK_FILE_NAME = ".lock"`, inside `.sysand/`) is the cross-process lock
+`workspaces.md` "The advisory lock" describes, over
+`std::fs::File::try_lock`/`try_lock_shared`; no crate. The CLI acquires
+it once at the top of a mutating command (`lock_mode` in `sysand/src/lib.rs`
+decides which, and `sync --verify` takes it shared only when a
+lockfile exists to read; without one `sync` resolves first and writes),
+stores it in `ProjectContext::workspace_lock`, and hands it to every
+`LocalDirectoryEnvironment` it writes through `hold`; a write through
+an environment that holds no exclusive lock is logged at debug, not
+refused, so an embedder may serialize its writers its own way.
+`LockError::Held` is the text `workspaces.md` gives; `--lock-wait` polls
+every 100 ms until its deadline. The Python binding takes the lock
+inside `project_context` for `lock` (when writing), `sync` and
+`env.env`, fail-fast, raising `LockHeldError`.
 
 ### Verifying an environment
 

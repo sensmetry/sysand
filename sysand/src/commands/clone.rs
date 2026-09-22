@@ -121,6 +121,9 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         // its own; workspaces.md calls `clone` scope-free.
         config_root: local_project.root_path().to_owned(),
         env: None,
+        // `clone` populates a fresh directory; no advisory lock (see
+        // `lock_mode` in `lib.rs`).
+        workspace_lock: None,
     };
 
     if !no_deps {
@@ -180,6 +183,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
             ctx.model_workspace_root.as_deref(),
             ctx.current_project.as_ref(),
             ctx.current_directory,
+            ctx.workspace_lock.as_ref(),
         )?;
         command_sync(
             lockfile.lock(),

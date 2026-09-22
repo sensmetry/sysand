@@ -799,6 +799,7 @@ fn write_lock_and_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
             ctx.model_workspace_root.as_deref(),
             ctx.current_project.as_ref(),
             ctx.current_directory,
+            ctx.workspace_lock.as_ref(),
         )?;
         command_sync(
             lockfile.lock(),

@@ -1,126 +1,77 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-"""`sysand.lock` inside a workspace.
-
-Locking a member locks the whole workspace at its root, as `sysand
-lock` does: a member has no lockfile of its own.
-"""
+"""The advisory lock from the binding: a mutating
+call fails fast with `LockHeldError` while another process holds
+`.sysand/.lock`; the binding never waits."""
 
 from __future__ import annotations
 
+import json
+import sys
 from pathlib import Path
 
 import pytest
 
 import sysand
 
-# `sysand.init` takes a metamodel: a project declares one and it
-# cannot be guessed.
-SYSML = "https://www.omg.org/spec/SysML/20250201"
-
-OFFLINE = sysand.Resolution(no_index=True)
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="fcntl.flock")
 
 
-def workspace(root: Path, members: dict[str, str]) -> None:
-    """A `model.toml` workspace. `members` maps a directory to the extra
-    manifest body its project carries."""
-    listed = ", ".join(f'"{name}"' for name in members)
-    (root / "model.toml").write_text(
-        f'manifest-version = "1.0.0"\n\n[workspace]\nmembers = [{listed}]\n'
+def app(tmp_path: Path) -> Path:
+    root = tmp_path / "app"
+    root.mkdir()
+    (root / ".project.json").write_text(
+        json.dumps({"name": "app", "publisher": "acme", "version": "0.1.0"})
     )
-    for name, extra in members.items():
-        member = root / name
-        member.mkdir(parents=True, exist_ok=True)
-        (member / "model.toml").write_text(
-            'manifest-version = "1.0.0"\n\n[project]\n'
-            f'publisher = "acme"\nname = "{name}"\nversion = "1.0.0"\n'
-            f'sources = []\nmetamodel = "{SYSML}"\n{extra}'
-        )
+    (root / ".meta.json").write_text('{"index":{},"created":"2026-01-01T00:00:00Z"}')
+    return root
 
 
-def uses(name: str) -> str:
-    return (
-        f'\n[[inline-usages]]\npublisher = "acme"\nname = "{name}"\ndir = "../{name}"\n'
-    )
+def hold(root: Path, shared: bool = False):
+    import fcntl
+
+    (root / ".sysand").mkdir(exist_ok=True)
+    handle = open(root / ".sysand" / ".lock", "a+")
+    fcntl.flock(handle, (fcntl.LOCK_SH if shared else fcntl.LOCK_EX) | fcntl.LOCK_NB)
+    return handle
 
 
-def test_a_member_lock_writes_at_the_workspace_root(tmp_path: Path) -> None:
-    workspace(tmp_path, {"app": uses("dep"), "dep": ""})
-
-    sysand.lock(tmp_path / "app", resolution=OFFLINE)
-
-    assert (tmp_path / "sysand-lock.toml").is_file()
-    assert not (tmp_path / "app" / "sysand-lock.toml").exists()
-
-
-def test_a_member_lock_solves_every_member(tmp_path: Path) -> None:
-    """The location is not enough: locking a member alone into the right
-    file would still be the wrong solve.
-
-    `other` is the discriminator -- it is a member but *not* a
-    dependency of `app`, so a member-only solve cannot reach it. A
-    fixture where every member is a dependency proves nothing.
-    """
-    workspace(tmp_path, {"app": uses("dep"), "dep": "", "other": ""})
-
-    result = sysand.lock(tmp_path / "app", resolution=OFFLINE)
-
-    assert {p["name"] for p in result["projects"]} == {"app", "dep", "other"}
-
-
-def test_a_workspace_root_can_be_locked(tmp_path: Path) -> None:
-    """A workspace root is not a project, but it can be locked."""
-    workspace(tmp_path, {"app": uses("dep"), "dep": ""})
-
-    result = sysand.lock(tmp_path, resolution=OFFLINE)
-
-    assert (tmp_path / "sysand-lock.toml").is_file()
-    assert {p["name"] for p in result["projects"]} == {"app", "dep"}
+def test_mutating_calls_fail_fast(tmp_path: Path) -> None:
+    root = app(tmp_path)
+    resolution = sysand.Resolution(use_index=False)
+    sysand.lock(path=str(root), resolution=resolution)
+    holder = hold(root)
+    try:
+        with pytest.raises(sysand.LockHeldError, match="another process is using"):
+            sysand.lock(path=str(root), resolution=resolution)
+        with pytest.raises(sysand.LockHeldError):
+            sysand.sync(path=str(root), resolution=resolution)
+        with pytest.raises(sysand.LockHeldError):
+            sysand.sync(path=str(root), resolution=resolution, verify=True)
+        with pytest.raises(sysand.LockHeldError):
+            sysand.env.env(path=root / ".sysand")
+        assert not (root / ".sysand" / "env.toml").exists()
+        # Reading does not take the lock.
+        assert sysand.info_path(project_dir=str(root))[0]["name"] == "app"
+        # Neither does a solve that does not write.
+        sysand.lock(path=str(root), resolution=resolution, write=False)
+    finally:
+        holder.close()
+    sysand.sync(path=str(root), resolution=resolution)
+    assert (root / ".sysand" / "env.toml").is_file()
 
 
-def test_a_standalone_project_locks_at_its_own_root(tmp_path: Path) -> None:
-    """The workspace is used when there is one, not always."""
-    sysand.init("standalone", "acme", "1.0.0", tmp_path, metamodel=SYSML)
-
-    sysand.lock(tmp_path, resolution=OFFLINE)
-
-    assert (tmp_path / "sysand-lock.toml").is_file()
-
-
-def test_an_unlisted_project_locks_at_its_own_root(tmp_path: Path) -> None:
-    """A project under a workspace root but absent from `members` is not
-    in the workspace -- and that is an answer, not an error: the project
-    is locked on its own."""
-    workspace(tmp_path, {"app": ""})
-    unlisted = tmp_path / "vendored"
-    unlisted.mkdir()
-    sysand.init("vendored", "acme", "1.0.0", unlisted, metamodel=SYSML)
-
-    sysand.lock(unlisted, resolution=OFFLINE)
-
-    assert (unlisted / "sysand-lock.toml").is_file()
-    assert not (tmp_path / "sysand-lock.toml").exists()
-
-
-def test_an_unlisted_project_reads_the_workspace_configuration(tmp_path: Path) -> None:
-    """Configuration is read at the *config* root, which is the
-    discovered workspace root even for a project that is not a member.
-
-    The member case cannot show this: a member's lockfile is at the
-    workspace root, so the two roots coincide there. An unlisted project
-    is where they part -- its lockfile is its own, its configuration is
-    the workspace's -- since the config root comes from discovery and
-    not from membership.
-    """
-    workspace(tmp_path, {"app": ""})
-    unlisted = tmp_path / "vendored"
-    unlisted.mkdir()
-    sysand.init("vendored", "acme", "1.0.0", unlisted, metamodel=SYSML)
-    # An index URL the config parser refuses, so reading it is visible.
-    (tmp_path / "sysand.toml").write_text(
-        '[[index]]\nurl = "https://example.com/#frag"\n'
-    )
-
-    with pytest.raises(sysand.ProjectError):
-        sysand.lock(unlisted, resolution=sysand.Resolution())
+def test_verify_shares_the_lock(tmp_path: Path) -> None:
+    root = app(tmp_path)
+    resolution = sysand.Resolution(use_index=False)
+    sysand.lock(path=str(root), resolution=resolution)
+    sysand.sync(path=str(root), resolution=resolution)
+    holder = hold(root, shared=True)
+    try:
+        outcome = sysand.sync(path=str(root), resolution=resolution, verify=True)
+        assert outcome["mismatched"] == []
+        with pytest.raises(sysand.LockHeldError):
+            sysand.sync(path=str(root), resolution=resolution)
+    finally:
+        holder.close()

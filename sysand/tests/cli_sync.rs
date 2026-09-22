@@ -15,6 +15,7 @@ use sysand_core::{
         local_directory::{LocalDirectoryEnvironment, METADATA_PATH},
     },
     lock::{Lockfile, Source},
+    workspace_lock::LOCK_FILE_NAME,
 };
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
@@ -67,7 +68,7 @@ editable = true
 
     entry_names.sort();
 
-    assert_eq!(entry_names, [METADATA_PATH]);
+    assert_eq!(entry_names, [LOCK_FILE_NAME, METADATA_PATH]);
 
     Ok(())
 }
@@ -1134,7 +1135,7 @@ fn sync_refuses_a_lockfile_with_a_direction_error() -> Result<(), Box<dyn std::e
             "only Syside-metamodel projects may depend on Syside-metamodel projects",
         ));
     assert!(
-        !cwd.join(".sysand").exists(),
+        !cwd.join(".sysand/env.toml").exists(),
         "the check runs before anything is installed"
     );
     Ok(())

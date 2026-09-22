@@ -3,7 +3,7 @@
 
 #[cfg(feature = "filesystem")]
 use crate::{
-    env::local_directory::{LocalDirectoryEnvironment, LocalWriteError},
+    env::local_directory::{LocalDirectoryEnvironment, LocalWriteError, METADATA_PATH},
     project::utils::{ToPathBuf as _, wrapfs},
 };
 use crate::{
@@ -47,7 +47,9 @@ pub fn do_env_memory()
 pub fn do_env_local_dir<P: AsRef<Utf8Path>>(
     path: P,
 ) -> Result<LocalDirectoryEnvironment, EnvError<LocalWriteError>> {
-    if path.as_ref().exists() {
+    // A `.sysand/` holding only the workspace lock file is not an
+    // environment yet; `env.toml` is what makes one.
+    if path.as_ref().join(METADATA_PATH).exists() {
         return Err(EnvError::AlreadyExists(path.to_path_buf()));
     }
 
@@ -55,7 +57,9 @@ pub fn do_env_local_dir<P: AsRef<Utf8Path>>(
     let header = crate::style::get_style_config().header;
     log::info!("{header}{creating:>12}{header:#} env");
 
-    wrapfs::create_dir(&path).map_err(LocalWriteError::from)?;
+    if !path.as_ref().is_dir() {
+        wrapfs::create_dir(&path).map_err(LocalWriteError::from)?;
+    }
 
     LocalDirectoryEnvironment::create(path).map_err(|e| EnvError::Write(LocalWriteError::from(e)))
 }

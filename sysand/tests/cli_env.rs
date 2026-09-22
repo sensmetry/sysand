@@ -5,7 +5,10 @@ use std::path::Path;
 
 use assert_cmd::prelude::*;
 use predicates::prelude::*;
-use sysand_core::env::{DEFAULT_ENV_NAME, local_directory::METADATA_PATH};
+use sysand_core::{
+    env::{DEFAULT_ENV_NAME, local_directory::METADATA_PATH},
+    workspace_lock::LOCK_FILE_NAME,
+};
 // Only used by the `env install`/`env uninstall` tests commented out below.
 // use camino::Utf8Path;
 // use mockito::Server;
@@ -27,9 +30,13 @@ fn env_init_empty_env() -> Result<(), Box<dyn std::error::Error>> {
 
     for entry in std::fs::read_dir(&cwd)? {
         let path = entry?.path();
-        assert!(path.is_dir());
         assert_eq!(path.strip_prefix(&cwd)?, env_path);
     }
+
+    // Inside the environment, the advisory lock `env` held while creating
+    // it: an empty file, kept.
+    let lock_path = cwd.join(DEFAULT_ENV_NAME).join(LOCK_FILE_NAME);
+    assert_eq!(std::fs::metadata(&lock_path)?.len(), 0);
 
     assert_eq!(
         std::fs::File::open(cwd.join(DEFAULT_ENV_NAME).join(METADATA_PATH))?
@@ -134,7 +141,7 @@ src_cksum = "c83ef78e3b8d52d622dea6db2e7c6c326801500ae1e99f6a54c39a1f473367b3"
 
     entry_names.sort();
 
-    assert_eq!(entry_names, [METADATA_PATH, "lib"]);
+    assert_eq!(entry_names, [LOCK_FILE_NAME, METADATA_PATH, "lib"]);
 
     assert_eq!(
         std::fs::read_to_string(entries[metadata_path_index].path())?,

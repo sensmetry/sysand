@@ -95,6 +95,7 @@ use sysand_core::{
     utils::ProvidedProjects,
     utils::format_err,
     versions::do_versions,
+    workspace_lock::{ExclusiveLock, LockError as WorkspaceLockError, LockMode, WorkspaceLock},
 };
 use typed_path::Utf8UnixPathBuf;
 
@@ -172,7 +173,7 @@ fn do_migrate_py(
         let path = Utf8PathBuf::from(path);
         // `Scope::Project`: an unlisted json project under a workspace
         // root is the one a user most wants to migrate.
-        let context = project_context(&path, Scope::Project)?;
+        let context = project_context(&path, Scope::Project, None)?;
         let (ctx, project_root) = (context.ctx, context.root);
         let config = config_for(&resolution, &project_root)?;
         let client = create_reqwest_client().map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
@@ -266,7 +267,18 @@ fn do_init_py_local_file(
 fn do_env_py_local_dir(path: String) -> PyResult<()> {
     common_init();
 
-    do_env_local_dir(Utf8Path::new(&path)).map_err(|err| {
+    // `path` is the `.sysand` directory itself; the workspace it belongs
+    // to is its parent, and creating it is a write under that lock.
+    let path = Utf8Path::new(&path);
+    let root = path
+        .parent()
+        .map_or_else(|| Utf8PathBuf::from("."), Utf8Path::to_path_buf);
+    let _lock =
+        WorkspaceLock::try_acquire(&root, LockMode::Exclusive).map_err(|err| match err {
+            WorkspaceLockError::Held { .. } => PyLockHeldError::new_err(format_err(err)),
+            WorkspaceLockError::Io(_) => PyIOError::new_err(format_err(err)),
+        })?;
+    do_env_local_dir(path).map_err(|err| {
         let e = format_err(&err);
         match err {
             EnvError::AlreadyExists(_) => PyFileExistsError::new_err(e),
@@ -700,7 +712,7 @@ struct Context {
 ///
 /// Fails when `start` is not inside a project *and* is not a workspace
 /// root under [`Scope::Workspace`].
-fn project_context(start: &Utf8Path, scope: Scope) -> PyResult<Context> {
+fn project_context(start: &Utf8Path, scope: Scope, lock: Option<LockMode>) -> PyResult<Context> {
     let project_error = |e: String| ProjectError::new_err(e);
     let cwd = wrapfs::canonicalize(start).map_err(|e| project_error(format_err(e)))?;
     let current_project = discover_project(&cwd).map_err(|e| project_error(format_err(e)))?;
@@ -752,7 +764,27 @@ fn project_context(start: &Utf8Path, scope: Scope) -> PyResult<Context> {
     // a half-moved context would leave `sources_root()` at the workspace
     // and `ctx.env` at the member, which `do_lock_workspace` asserts
     // against.
-    let env = get_env(&root).map_err(|e| project_error(format_err(e)))?;
+    // A mutating call holds the workspace's advisory lock, taken before
+    // the environment is read. Fail-fast only: an embedder retries
+    // itself.
+    let workspace_lock = match lock {
+        Some(mode) => Some(Arc::new(WorkspaceLock::try_acquire(&root, mode).map_err(
+            |err| match err {
+                WorkspaceLockError::Held { .. } => PyLockHeldError::new_err(format_err(err)),
+                WorkspaceLockError::Io(_) => PyIOError::new_err(format_err(err)),
+            },
+        )?)),
+        None => None,
+    };
+    let mut env = get_env(&root).map_err(|e| project_error(format_err(e)))?;
+    // A shared lock is not handed on: the environment writes under an
+    // exclusive one only
+    if let (Some(env), Some(lock)) = (
+        &mut env,
+        workspace_lock.clone().and_then(ExclusiveLock::new),
+    ) {
+        env.hold(lock).map_err(|e| project_error(format_err(e)))?;
+    }
     let config_root = match (&discovered, scope) {
         // workspaces.md "Source overrides": a project-local
         // `sysand.toml` belongs at the workspace root.
@@ -764,6 +796,7 @@ fn project_context(start: &Utf8Path, scope: Scope) -> PyResult<Context> {
         ctx: ProjectContext {
             model_workspace_root,
             env,
+            workspace_lock,
             current_project,
             current_directory: cwd,
             config_root,
@@ -959,7 +992,11 @@ fn do_lock_py(
     let provided = provided_projects(provided)?;
     let outcome: Result<(String, Vec<LockedProject>), Failure> = py.detach(|| {
         let auth = auth.unwrap_or_default();
-        let context = project_context(Utf8Path::new(&path), Scope::Workspace)?;
+        let context = project_context(
+            Utf8Path::new(&path),
+            Scope::Workspace,
+            write.then_some(LockMode::Exclusive),
+        )?;
         let Context { ctx, root } = context;
         // At the root the workspace's configuration is read: a
         // member-local `sysand.toml` is not the workspace's.
@@ -1083,7 +1120,15 @@ fn do_sync_py(
     let outcome: Result<_, Failure> = py.detach(|| {
         let auth = auth.unwrap_or_default();
         // As `lock`: the lockfile and the environment are the workspace's
-        let context = project_context(Utf8Path::new(&path), Scope::Workspace)?;
+        let context = project_context(
+            Utf8Path::new(&path),
+            Scope::Workspace,
+            Some(if verify && !repair {
+                LockMode::Shared
+            } else {
+                LockMode::Exclusive
+            }),
+        )?;
         let (mut ctx, project_root) = (context.ctx, context.root);
 
         let client = create_reqwest_client().map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
@@ -1195,6 +1240,7 @@ fn do_sync_py(
             ctx.model_workspace_root.as_deref(),
             ctx.current_project.as_ref(),
             &ctx.current_directory,
+            ctx.workspace_lock.as_ref(),
         )
         .map_err(|e| Failure::Env {
             message: format_err(&*e),
@@ -1610,8 +1656,13 @@ fn do_add_py(
 
     let outcome: Result<bool, Failure> = py.detach(|| {
         let auth = auth.unwrap_or_default();
-        // `add` re-locks the workspace the project is in
-        let context = project_context(Utf8Path::new(&path), Scope::Workspace)?;
+        // As the CLI: `add` re-locks the workspace the project is in, and
+        // holds its advisory lock while it does
+        let context = project_context(
+            Utf8Path::new(&path),
+            Scope::Workspace,
+            Some(LockMode::Exclusive),
+        )?;
         let (ctx, project_root) = (context.ctx, context.root);
         let config = config_for(&resolution, &project_root)?;
         let client = create_reqwest_client().map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
@@ -1771,13 +1822,15 @@ mod py_errors {
         index_protocol => IndexProtocolError,
         solve => SolveError,
         sync => SyncError,
+        lock_held => LockHeldError,
     }
 }
 // `sysand_core::commands::env::EnvError` is already in scope under that name.
 use py_errors::{
     AuthError as PyAuthError, EnvError as PyEnvError, IndexProtocolError as PyIndexProtocolError,
-    NotFoundError as PyNotFoundError, ProjectError, ResolutionError as PyResolutionError,
-    SolveError as PySolveError, SyncError as PySyncError, register_errors,
+    LockHeldError as PyLockHeldError, NotFoundError as PyNotFoundError, ProjectError,
+    ResolutionError as PyResolutionError, SolveError as PySolveError, SyncError as PySyncError,
+    register_errors,
 };
 
 /// Returns `(found, changed, old_version_constraint, new_version_constraint)`

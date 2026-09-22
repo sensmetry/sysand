@@ -1505,6 +1505,19 @@ pub struct GlobalOptions {
     /// Give path to `sysand.toml` to use for configuration
     #[arg(long, global = true, help_heading = "Global options", env = env_vars::SYSAND_CONFIG_FILE)]
     pub config_file: Option<Utf8PathBuf>,
+    /// Seconds to wait for another process to release the workspace
+    /// (`lock`, `sync`, `add`, `remove` and `env` hold `.sysand/.lock`
+    /// at the workspace root while they write). By default a held lock
+    /// fails at once
+    #[arg(
+        long,
+        global = true,
+        value_name = "SECS",
+        help_heading = "Global options",
+        env = env_vars::SYSAND_LOCK_WAIT,
+        verbatim_doc_comment
+    )]
+    pub lock_wait: Option<u64>,
     /// Print help
     #[arg(long, global = true, action = clap::ArgAction::HelpLong, help_heading = "Global options")]
     pub help: Option<bool>,
