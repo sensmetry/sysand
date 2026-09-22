@@ -661,23 +661,30 @@ fn metamodel(value: &str) -> Metamodel {
     Metamodel::parse(value).expect("a well-formed metamodel")
 }
 
+/// A Syside metamodel mirrors the OMG value it extends, so it publishes
+/// as the same specification kind.
 #[test]
-fn check_metamodel_accepts_omg_metamodels() {
+fn check_metamodel_accepts_both_families() {
     for (value, spec) in [
         ("https://www.omg.org/spec/SysML/20250201", SpecKind::SysMl),
         ("https://www.omg.org/spec/KerML/20250201", SpecKind::KerMl),
+        (
+            "https://www.sysand.com/spec/SysML/20250201",
+            SpecKind::SysMl,
+        ),
+        (
+            "https://www.sysand.com/spec/KerML/20250201",
+            SpecKind::KerMl,
+        ),
     ] {
         assert_eq!(check_metamodel(&metamodel(value)).unwrap(), spec);
     }
 }
 
-/// The index holds OMG-metamodel projects only: neither a Syside metamodel
-/// nor any other one can be published.
+/// A metamodel of neither family cannot be published.
 #[test]
 fn check_metamodel_rejects_other_metamodels() {
     for value in [
-        "https://www.sysand.com/spec/SysML/20250201",
-        "https://www.sysand.com/spec/KerML/20250201",
         "https://example.com/some-meta",
         "https://www.omg.org/spec/UML/20250201",
         "https://www.omg.org/spec/SysML",
@@ -1827,5 +1834,255 @@ mod prepare_publish {
             ("test.sysml", content, deflate()),
         ]);
         prepare_publish_payload(&path).expect("fully valid kpar should succeed");
+    }
+
+    // ------------------------------------------------------------------
+    // The Syside shape (design/syside-metamodel.md, "Publish").
+
+    const SYSIDE_SYSML: &str = "https://www.sysand.com/spec/SysML/20250201";
+    const SYSIDE_KERML: &str = "https://www.sysand.com/spec/KerML/20250201";
+
+    /// A root-shaped `.meta.json` whose `checksum` covers `entries`.
+    fn syside_meta(
+        entries: &[(&str, &[u8])],
+        root: &str,
+        exports: &[&str],
+        metamodel: &str,
+    ) -> Vec<u8> {
+        let checksum: Vec<String> = entries
+            .iter()
+            .map(|(name, content)| {
+                format!(
+                    r#""{name}":{{"value":"{}","algorithm":"SHA256"}}"#,
+                    sha256_lowercase_hex(content)
+                )
+            })
+            .collect();
+        let exports: Vec<String> = exports.iter().map(|e| format!("\"{e}\"")).collect();
+        format!(
+            r#"{{"root":"{root}","exports":[{}],"created":"2025-01-01T00:00:00Z","metamodel":"{metamodel}","checksum":{{{}}}}}"#,
+            exports.join(","),
+            checksum.join(",")
+        )
+        .into_bytes()
+    }
+
+    const MAIN: &[u8] = b"package Main;\n";
+    const README: &[u8] = b"# widgets\n";
+    const LICENSE: &[u8] = b"MIT License";
+
+    /// The entries of a valid Syside archive: one source, a readme, the
+    /// license file, all three checksummed.
+    fn syside_entries(exports: &[&str], metamodel: &str) -> Vec<u8> {
+        syside_meta(
+            &[
+                ("main.sysml", MAIN),
+                ("README.md", README),
+                ("LICENSES/MIT.txt", LICENSE),
+            ],
+            "main.sysml",
+            exports,
+            metamodel,
+        )
+    }
+
+    fn syside_zip(meta: &[u8], extra: &[(&str, &[u8])]) -> (NamedUtf8TempFile, Utf8PathBuf) {
+        let project = base_project();
+        let mut entries: Vec<(&str, &[u8], SimpleFileOptions)> = vec![
+            (".project.json", project.as_slice(), deflate()),
+            (".meta.json", meta, deflate()),
+            ("main.sysml", MAIN, deflate()),
+            ("README.md", README, deflate()),
+            ("LICENSES/MIT.txt", LICENSE, deflate()),
+        ];
+        for (name, content) in extra {
+            entries.push((name, content, deflate()));
+        }
+        write_zip(&entries)
+    }
+
+    #[test]
+    fn a_syside_kpar_is_accepted() {
+        let meta = syside_entries(&["Main"], SYSIDE_SYSML);
+        let (_tmp, path) = syside_zip(&meta, &[]);
+        prepare_publish_payload(&path).expect("a valid Syside archive publishes");
+    }
+
+    #[test]
+    fn publish_refuses_a_root_that_is_not_in_the_archive() {
+        let meta = syside_meta(
+            &[
+                ("main.sysml", MAIN),
+                ("README.md", README),
+                ("LICENSES/MIT.txt", LICENSE),
+            ],
+            "gone.sysml",
+            &["Main"],
+            SYSIDE_SYSML,
+        );
+        let (_tmp, path) = syside_zip(&meta, &[]);
+        let err = prepare_publish_payload(&path).expect_err("root is not in the archive");
+        assert_eq!(
+            err.to_string(),
+            "the archive does not contain `root` `gone.sysml`"
+        );
+    }
+
+    /// Every archive file but the two manifests is a `checksum` key -- a
+    /// stray file, a readme, a license file alike.
+    #[test]
+    fn publish_refuses_an_archive_file_the_checksum_misses() {
+        let meta = syside_entries(&["Main"], SYSIDE_SYSML);
+        let (_tmp, path) = syside_zip(&meta, &[("notes.txt", b"n")]);
+        let err = prepare_publish_payload(&path).expect_err("a file the checksum misses");
+        assert_eq!(
+            err.to_string(),
+            "`checksum` does not cover `notes.txt`; a Syside KPAR checksums every file in the \
+             archive but `.project.json` and `.meta.json`"
+        );
+
+        // The readme and the license file are archive files like any other.
+        for (missing, keep) in [
+            (
+                "README.md",
+                [("main.sysml", MAIN), ("LICENSES/MIT.txt", LICENSE)],
+            ),
+            (
+                "LICENSES/MIT.txt",
+                [("main.sysml", MAIN), ("README.md", README)],
+            ),
+        ] {
+            let meta = syside_meta(&keep, "main.sysml", &["Main"], SYSIDE_SYSML);
+            let (_tmp, path) = syside_zip(&meta, &[]);
+            let err = prepare_publish_payload(&path).expect_err(missing);
+            assert!(
+                matches!(&err, PublishError::ChecksumMissesFile { path } if &**path == missing),
+                "{missing}: {err}"
+            );
+        }
+    }
+
+    /// `root` in the archive but not in `checksum` is a file the checksum
+    /// misses, not a `root` missing from the archive.
+    #[test]
+    fn a_root_in_the_archive_but_not_in_checksum_is_a_file_the_checksum_misses() {
+        let meta = syside_meta(
+            &[("README.md", README), ("LICENSES/MIT.txt", LICENSE)],
+            "main.sysml",
+            &["Main"],
+            SYSIDE_SYSML,
+        );
+        let (_tmp, path) = syside_zip(&meta, &[]);
+        let err = prepare_publish_payload(&path).expect_err("root not checksummed");
+        assert!(
+            matches!(&err, PublishError::ChecksumMissesFile { path } if &**path == "main.sysml"),
+            "{err}"
+        );
+    }
+
+    /// The two manifests are the exception to
+    /// "every file", and a `checksum` that lists one is wrong.
+    #[test]
+    fn publish_refuses_a_manifest_as_a_checksum_key() {
+        let project = base_project();
+        let meta = syside_meta(
+            &[
+                ("main.sysml", MAIN),
+                ("README.md", README),
+                ("LICENSES/MIT.txt", LICENSE),
+                (".project.json", project.as_slice()),
+            ],
+            "main.sysml",
+            &["Main"],
+            SYSIDE_SYSML,
+        );
+        let (_tmp, path) = syside_zip(&meta, &[]);
+        let err = prepare_publish_payload(&path).expect_err("a manifest as a key");
+        assert_eq!(
+            err.to_string(),
+            "`checksum` covers `.project.json`, which a Syside KPAR does not checksum"
+        );
+    }
+
+    /// The symbol check, restated for an array.
+    #[test]
+    fn publish_refuses_an_export_no_file_declares() {
+        let meta = syside_entries(&["Main", "Ghost"], SYSIDE_SYSML);
+        let (_tmp, path) = syside_zip(&meta, &[]);
+        let err = prepare_publish_payload(&path).expect_err("an undeclared export");
+        assert_eq!(
+            err.to_string(),
+            "metadata claims the project exports `Ghost`, but no file in the archive declares \
+             it; the archive declares `Main`"
+        );
+    }
+
+    /// A non-model `checksum` key is hashed (a wrong hash is refused) but
+    /// neither held to the extension rule nor lexed.
+    #[test]
+    fn a_non_model_checksum_key_is_hashed_but_not_lexed() {
+        let meta = syside_meta(
+            &[
+                ("main.sysml", MAIN),
+                ("README.md", b"not what the archive holds"),
+                ("LICENSES/MIT.txt", LICENSE),
+            ],
+            "main.sysml",
+            &["Main"],
+            SYSIDE_SYSML,
+        );
+        let (_tmp, path) = syside_zip(&meta, &[]);
+        let err = prepare_publish_payload(&path).expect_err("a wrong readme hash");
+        assert_matches!(err, PublishError::IncorrectFileChecksum { .. });
+    }
+
+    #[test]
+    fn an_inadmissible_model_file_in_a_syside_kpar_is_refused() {
+        let meta = syside_entries(&["Main"], SYSIDE_KERML);
+        let (_tmp, path) = syside_zip(&meta, &[]);
+        let err = prepare_publish_payload(&path).expect_err("a .sysml file in a KerML project");
+        assert_matches!(err, PublishError::IncorrectFileFormat { .. });
+    }
+
+    /// The reader's rule holds at publish: an `index` beside the shape is
+    /// a warning, and the archive is accepted.
+    #[test]
+    fn an_index_in_a_syside_kpar_is_a_warning_at_publish_too() {
+        let meta = String::from_utf8(syside_entries(&["Main"], SYSIDE_SYSML)).unwrap();
+        let meta = meta.replacen('{', r#"{"index":{"Main":"main.sysml"},"#, 1);
+        let (_tmp, path) = syside_zip(meta.as_bytes(), &[]);
+        prepare_publish_payload(&path).expect("accepted with a warning");
+    }
+
+    /// Directory entries never enter the file list, so they cannot be a
+    /// file the checksum misses.
+    #[test]
+    fn a_directory_entry_in_a_syside_kpar_is_ignored() {
+        let meta = syside_entries(&["Main"], SYSIDE_SYSML);
+        let project = base_project();
+        let (_tmp, path) = write_zip(&[
+            (".project.json", project.as_slice(), deflate()),
+            (".meta.json", meta.as_slice(), deflate()),
+            ("LICENSES/", b"", stored()),
+            ("main.sysml", MAIN, deflate()),
+            ("README.md", README, deflate()),
+            ("LICENSES/MIT.txt", LICENSE, deflate()),
+        ]);
+        prepare_publish_payload(&path).expect("a directory entry is not a file");
+    }
+
+    /// An OMG KPAR checksums its sources only; the Syside rule that
+    /// `checksum` covers every file does not apply to it.
+    #[test]
+    fn an_omg_kpar_need_not_checksum_its_license_file() {
+        let content = b"package Test;";
+        let (proj, meta) = valid_entries(content);
+        let (_tmp, path) = write_zip(&[
+            (".project.json", proj.as_slice(), deflate()),
+            (".meta.json", meta.as_slice(), deflate()),
+            ("LICENSES/MIT.txt", b"MIT License", deflate()),
+            ("test.sysml", content, deflate()),
+        ]);
+        prepare_publish_payload(&path).expect("an OMG archive publishes");
     }
 }

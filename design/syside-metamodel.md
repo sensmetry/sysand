@@ -210,15 +210,9 @@ tests'.
 
 ## The Syside KPAR
 
-*This section specifies what `sysand build` and `sysand publish` do
-for a Syside project. Where the code stands: `build` writes the shape
-below -- `root`, `exports`, no `index` -- and every reader accepts it;
-`build --keep-index` is refused on such a project. Not yet: `checksum`
-still covers the source files only, `publish` still runs the OMG
-rules over a Syside archive (it warns about the empty `index` it does
-not have and checks no symbols), `include --no-index-symbols` is not
-refused, and format detection of the extracted form is open. Those are
-`plan-phase2.md` WP-A2b's, and this preamble goes when they land.*
+_One question in this section is open: how format detection classifies
+the extracted form beside a `model.toml`. Detection by file presence
+treats it as the json project it is._
 
 A KPAR built from a Syside-metamodel project carries `.project.json` and
 `.meta.json` as any KPAR does (model-toml.md, TOML to KPAR), and never
@@ -229,11 +223,13 @@ OMG KPAR's in three ways:
   that keys its `checksum` entry.
 - **`exports`** replaces `index`: a flat array of the top-level symbols
   declared by every model file in the archive, computed at build time
-  by the same extractor that fills an OMG KPAR's `index` map, in
-  `sources` order, each name once at its first appearance. It is an array of names, not a map of
-  name to file: the map is what the Oxide asks (`constraints.md` C1)
-  wanted collapsed, and the file for every symbol is `root`, by
-  construction, for a consumer resolving through it. Sysand needs the
+  by the same extractor that fills an OMG KPAR's `index` map, each name
+  once, sorted -- so that two builds of the same files write the same
+  array whatever order the files were read in, which `sources` order
+  cannot promise for the extracted form, where there is no `sources`.
+  It is an array of names, not a map of name to file: the map is what
+  the Oxide consumers need collapsed, and the file for every symbol is
+  `root`, by construction, for a consumer resolving through it. Sysand needs the
   names for one thing: the cross-project symbol-collision check the
   lockfile runs, whose only input is what a project exports and which
   would otherwise stop covering this family (see Dependencies).
@@ -293,25 +289,24 @@ presence is checked as for an archive.
 ### What a reader of the OMG shape says
 
 A reader that predates this schema fails on a Syside `.meta.json` with
-a missing-`index` error: Sysand 0.2.x inside its parser, with serde's
-"missing field `index`"; the reader that made every field optional at
-parse with its own "missing key `index` in `<file>`" and no metamodel
-named, because the suffix naming the metamodel is appended only when
-the value fails to parse. A reader that knows this schema names the
-Syside metamodel (P2-11), as the `model.toml` reader names it. Every
-consumer that embeds `sysand-core` and reads `.meta.json` must ship a
-core that knows this shape before any Syside KPAR is published.
+a missing-`index` error that names no metamodel. A reader that knows
+this schema names the Syside metamodel, as the `model.toml` reader
+names it. Every consumer that embeds `sysand-core` and reads
+`.meta.json` must ship a core that knows this shape before any Syside
+KPAR is published.
 
-| row | situation | text |
-|---|---|---|
-| P2-07 | `build --keep-index`, or `include --no-index-symbols`, on a Syside project | `<flag>` applies to projects with a computed index; a Syside project's KPAR carries `root` and `exports` instead |
-| P2-08 | publish: `root` names a file that is not in the archive | the archive does not contain `root` `<path>` |
-| P2-09 | publish: `checksum` misses a file | `checksum` does not cover `<path>`; a Syside KPAR checksums every file in the archive but `.project.json` and `.meta.json` |
-| P2-10 | a Syside `.meta.json` carrying `index` | `index` in `<file>` is not used by the Syside metamodel and is ignored; a Syside KPAR carries `root` and `exports` *(warning, wherever the file is read)* |
-| P2-11 | `.meta.json` with no `root` under a Syside metamodel; with no `index` under any other | missing key `root` in `<file>`; the Syside metamodel requires it *-- and under any other family, the existing* missing key `index` in `<file>` *unchanged* |
-| P2-22 | `.meta.json` carrying `root` or `exports` under an OMG or absent metamodel | `<key>` in `<file>` is only supported by the Syside metamodel and is ignored here *(warning, one per key; P2-05's text with the file as the location)* |
-| P2-24 | `.meta.json` with no `exports` under a Syside metamodel | missing key `exports` in `<file>`; the Syside metamodel requires it |
-| P2-25 | `info index` on a project whose `.meta.json` has the Syside shape | the project has no `index`; a Syside KPAR carries `root` and `exports` *(warning on stderr; stdout prints the empty list)* |
+| situation                                                                             | text                                                                                                                                                            |
+| ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `build --keep-index`, or `include --no-index-symbols`, on a Syside project            | `<flag>` applies to projects with a computed index; a Syside project's KPAR carries `root` and `exports` instead                                                |
+| publish: `root` names a file that is not in the archive                               | the archive does not contain `root` `<path>`                                                                                                                    |
+| publish: `checksum` misses a file                                                     | `checksum` does not cover `<path>`; a Syside KPAR checksums every file in the archive but `.project.json` and `.meta.json`                                      |
+| a Syside `.meta.json` carrying `index`                                                | `index` in `<file>` is not used by the Syside metamodel and is ignored; a Syside KPAR carries `root` and `exports` _(warning, wherever the file is read)_       |
+| `.meta.json` with no `root` under a Syside metamodel; with no `index` under any other | missing key `root` in `<file>`; the Syside metamodel requires it _-- and under any other family:_ missing key `index` in `<file>`                               |
+| `.meta.json` carrying `root` or `exports` under an OMG or absent metamodel            | `<key>` in `<file>` is only supported by the Syside metamodel and is ignored here _(warning, one per key; the `model.toml` text with the file as the location)_ |
+| `.meta.json` with no `exports` under a Syside metamodel                               | missing key `exports` in `<file>`; the Syside metamodel requires it                                                                                             |
+| `info index` on a project whose `.meta.json` has the Syside shape                     | the project has no `index`; a Syside KPAR carries `root` and `exports` _(warning on stderr; stdout prints the empty list)_                                      |
+| publish: `exports` names a symbol no model file in the archive declares               | metadata claims the project exports `<symbol>`, but no file in the archive declares it; the archive declares `<names>` _(or "nothing")_                         |
+| publish: `.project.json` or `.meta.json` is a `checksum` key                          | `checksum` covers `<path>`, which a Syside KPAR does not checksum                                                                                               |
 
 ### Build
 
@@ -327,30 +322,36 @@ mixed-family workspace builds each member to its own shape, in one
 
 ### Publish
 
-`sysand publish` accepts a Syside KPAR under these rules (review.md
-Q-33's three, and four unchanged from the OMG family):
+`sysand publish` accepts a Syside KPAR under these rules:
 
-- `root` is present in `.meta.json` and names a file in the archive
-  (P2-08);
-- `checksum` covers every file in the archive but the two manifests
-  (P2-09), replacing the OMG rule that `checksum` is a superset of the
-  `index` files; the empty-`checksum` refusal applies as today;
-- `index`, if present, is warned about and ignored (P2-10) -- the same
-  rule the reader applies, so that publish does not refuse what every
-  other command accepts;
-- the checks that today run over every `checksum` key **split by file
-  kind**, because the keys now include files that are not model files:
-  hash verification runs over every key (a wrong hash, a listed file
-  that is missing, an unlisted file that is present -- all as today);
-  the source-extension rule (a model file the metamodel does not admit)
-  and symbol extraction run over the keys that are model files only. As
-  today the rules run over one map; what changes is that `README.md` is
-  hashed and not lexed;
-- the symbol check keeps its present *direction*, restated for an
+- `root` is present in `.meta.json` and names a file in the archive;
+- `checksum` covers every file in the archive but the two manifests,
+  in place of the OMG rule that `checksum` is a superset of the `index`
+  files; the empty-`checksum` refusal applies as for an OMG KPAR;
+- `index`, if present, is warned about and ignored -- the same rule the
+  reader applies, so that publish does not refuse what every other
+  command accepts;
+- the checks over the `checksum` keys **split by file kind**, because
+  the keys include files that are not model files: hash verification
+  runs over every key (a wrong hash, a listed file that is missing, an
+  unlisted file that is present -- all as for an OMG KPAR); the
+  source-extension rule (a model file the metamodel does not admit) and
+  symbol extraction run over the keys that are model files only. The
+  rules run over one map; `README.md` is hashed and not lexed;
+- neither manifest is a `checksum` key: they are the exception to
+  "every file", and since neither is a model file the extension rule
+  would not catch a document that listed them;
+- the symbol check has the OMG family's _direction_, restated for an
   array: every name in `exports` is declared at the top level of some
-  model file in the archive, or publish refuses (the
-  `NonexistentSymbolExported` refusal, naming the name); a name a file
-  declares that `exports` lacks is a warning;
+  model file in the archive, or publish refuses (naming the name and
+  what the archive does declare); a name a file declares that
+  `exports` lacks is a warning. There is no empty-`exports` warning: a
+  Syside project has at least one source, since `root` is one, and the
+  empty-`checksum` refusal already guards an archive with no files;
+- order, for an archive with more than one thing wrong: `root` absent
+  from the archive is the missing-`root` refusal whether or not
+  `checksum` lists it; `root` present but not listed is the
+  uncovered-file refusal, like any other file;
 - unchanged: the standard-library checks, and the metamodel
   release-date check.
 
@@ -443,10 +444,14 @@ all of them are sources -- would list `README.md` as a source.
 - **`sysand sources`**, with and without `--deps`, reports `sources` for
   a Syside project and for a Syside dependency as for any other: the
   file list is `sources` for both families (Dependencies above).
-- **`sysand include` / `exclude`** are unchanged. Excluding the `root`
-  file leaves a `root` that is not an entry, which the next read
-  refuses with P2-04; whether `exclude` should refuse to remove the
-  `root` instead is **open**.
+- **`sysand include` / `exclude`** are unchanged, but for the flag
+  P2-07 names: `include --no-index-symbols` on a Syside project -- the
+  authored `model.toml` or the extracted form alike -- is refused with
+  P2-07's text, which says the project has no `index`, where an OMG
+  `model.toml` project is refused with the older "`index` is computed
+  when the KPAR is built". Excluding the `root` file leaves a `root`
+  that is not an entry, which the next read refuses with P2-04; whether
+  `exclude` should refuse to remove the `root` instead is **open**.
 
 ## Editing the manifest
 

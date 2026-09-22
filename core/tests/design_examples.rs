@@ -189,8 +189,8 @@ fn every_documented_example_is_copied_under_its_marker() {
 #[test]
 fn every_message_row_in_the_specification_has_a_test() {
     const LANDED: &[&str] = &[
-        "P2-01", "P2-02", "P2-03", "P2-04", "P2-05", "P2-06", "P2-07", "P2-10", "P2-11", "P2-22",
-        "P2-23", "P2-24", "P2-25",
+        "P2-01", "P2-02", "P2-03", "P2-04", "P2-05", "P2-06", "P2-07", "P2-08", "P2-09", "P2-10",
+        "P2-11", "P2-22", "P2-23", "P2-24", "P2-25", "P2-26", "P2-27",
     ];
 
     let mut rows = Vec::new();

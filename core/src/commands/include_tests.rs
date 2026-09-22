@@ -317,3 +317,58 @@ fn including_a_language_the_metamodel_does_not_admit_is_refused() {
         "nothing was written"
     );
 }
+
+/// `--no-index-symbols` applies to a project whose KPAR has an `index`.
+/// A Syside project's has none, whichever form it takes -- the authored
+/// `model.toml`, or the extracted archive.
+#[test]
+fn include_no_index_symbols_is_refused_on_a_syside_project() {
+    const NO_INDEX_SYMBOLS_ON_SYSIDE: &str = "`--no-index-symbols` applies to projects with a computed index; a Syside \
+                         project's KPAR carries `root` and `exports` instead";
+
+    let mut toml = InMemoryProject::default();
+    toml.put_manifest_document(
+        &MANIFEST
+            .replace(
+                "https://www.omg.org/spec/SysML/20250201",
+                "https://www.sysand.com/spec/SysML/20250201",
+            )
+            .replace("\nmetamodel", "\nroot = \"Base.kerml\"\nmetamodel")
+            .parse()
+            .expect("a manifest"),
+        false,
+    )
+    .expect("stores a manifest");
+    toml.files
+        .insert("Parts.sysml".into(), "package Parts;\n".to_owned());
+    let error = do_include(
+        &mut toml,
+        [Utf8UnixPathBuf::from("Parts.sysml")].into_iter(),
+        false,
+        false,
+        None,
+    )
+    .expect_err("refused on the toml form");
+    assert_eq!(error.to_string(), NO_INDEX_SYMBOLS_ON_SYSIDE);
+
+    let mut json = InMemoryProject::from_info_meta(
+        serde_json::from_str(r#"{"name": "widgets", "publisher": "acme", "version": "1.0.0"}"#)
+            .expect("info"),
+        serde_json::from_str(
+            r#"{"root": "main.sysml", "exports": ["Main"], "created": "2026-01-01T00:00:00Z",
+                "metamodel": "https://www.sysand.com/spec/SysML/20250201"}"#,
+        )
+        .expect("meta"),
+    );
+    json.files
+        .insert("Parts.sysml".into(), "package Parts;\n".to_owned());
+    let error = do_include(
+        &mut json,
+        [Utf8UnixPathBuf::from("Parts.sysml")].into_iter(),
+        false,
+        false,
+        None,
+    )
+    .expect_err("refused on the extracted form");
+    assert_eq!(error.to_string(), NO_INDEX_SYMBOLS_ON_SYSIDE);
+}

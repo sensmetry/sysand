@@ -261,6 +261,7 @@ impl<ProjectReadError: ErrorBound> From<IncludeError<ProjectReadError>>
             // exist because the match is exhaustive, not because they
             // are reachable.
             IncludeError::ComputedField(_)
+            | IncludeError::NoIndexSymbolsOnRoot
             | IncludeError::ForceFormat
             | IncludeError::NotAdmitted(_)
             | IncludeError::Edit(_)
@@ -499,7 +500,11 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         .system(zip::System::Unix)
         .last_modified_time(zip::DateTime::try_from(time).unwrap());
 
-    let source_paths = meta.source_paths(true);
+    // Sorted, so that two builds of the same files write the same
+    // `.meta.json`: the set has no order of its own, and `exports` and
+    // `checksum` are read back in the order they were written.
+    let mut source_paths: Vec<_> = meta.source_paths(true).into_iter().collect();
+    source_paths.sort();
     let mut checksums = if let Some(mut checksum) = meta.checksum.take() {
         checksum.clear();
         checksum
@@ -532,7 +537,7 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
 
             for s in symbols {
                 if root_shape {
-                    // Each name once, at its first appearance.
+                    // Each name once; sorted below.
                     if !exports.contains(&s) {
                         exports.push(s);
                     }
@@ -549,6 +554,8 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
             );
         }
         if root_shape {
+            // design/syside-metamodel.md: each name once, sorted.
+            exports.sort();
             meta.exports = Some(exports);
         } else {
             meta.index = Some(index);
@@ -593,7 +600,6 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         }
     }
     eprintln!();
-    meta.checksum = Some(checksums);
 
     let project_root = project.project_root();
     let mut extra_files: Vec<(String, String)> = Vec::new();
@@ -615,6 +621,24 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
             }
         }
     }
+    // design/syside-metamodel.md, "The Syside KPAR": for the root shape
+    // `checksum` covers every file in the archive but the two json
+    // manifests, the conventional files included, so that a consumer
+    // that trusts `checksum` trusts every byte it will read. An OMG
+    // archive checksums its sources only.
+    if root_shape {
+        for (archive_path, content) in &extra_files {
+            checksums.insert(
+                archive_path.clone(),
+                InterchangeProjectChecksumRaw {
+                    value: sha256_lowercase_hex(content),
+                    algorithm: KerMlChecksumAlg::Sha256.into(),
+                },
+            );
+        }
+    }
+    meta.checksum = Some(checksums);
+
     for (archive_path, content) in extra_files {
         zip.start_file(&archive_path, options)
             .map_err(|e| ZipArchiveError::Write(Utf8Path::new(&archive_path).into(), e))?;
