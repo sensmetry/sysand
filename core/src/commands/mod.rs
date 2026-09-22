@@ -23,4 +23,6 @@ pub mod root;
 pub mod sources;
 pub mod sync;
 pub mod usage;
+#[cfg(feature = "filesystem")]
+pub mod verify;
 pub mod versions;

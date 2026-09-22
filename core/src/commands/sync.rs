@@ -3,9 +3,11 @@
 
 use std::{
     collections::{HashMap, hash_map::Entry},
+    fmt,
     num::NonZeroU64,
 };
 
+use camino::Utf8PathBuf;
 #[cfg(feature = "python")]
 use pyo3::IntoPyObject;
 use thiserror::Error;
@@ -141,6 +143,140 @@ pub struct SyncedProject {
     pub version: String,
 }
 
+/// Why an installed project does not match the lockfile.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MismatchKind {
+    /// The files on disk do not hash to what the lockfile (or, for an
+    /// archive, its manifest) records. `file` names
+    /// the first offending file when the digest is per file.
+    Checksum { file: Option<Utf8UnixPathBuf> },
+    /// `env.toml` records the project but its directory or manifest is
+    /// gone.
+    MissingFromDisk,
+    /// The lockfile has the project, `env.toml` does not (the CLI
+    /// appends "run `sysand sync`").
+    NotRecorded,
+}
+
+impl MismatchKind {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Checksum { .. } => "checksum",
+            Self::MissingFromDisk => "missing",
+            Self::NotRecorded => "not-recorded",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Mismatch {
+    pub iri: String,
+    pub version: String,
+    pub kind: MismatchKind,
+}
+
+impl Mismatch {
+    pub fn synced(&self) -> SyncedProject {
+        SyncedProject {
+            iri: self.iri.clone(),
+            version: self.version.clone(),
+        }
+    }
+}
+
+impl fmt::Display for Mismatch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self { iri, version, kind } = self;
+        match kind {
+            MismatchKind::Checksum { file: None } => {
+                write!(
+                    f,
+                    "installed project `{iri}` does not match the lockfile checksum"
+                )
+            }
+            MismatchKind::Checksum { file: Some(file) } => write!(
+                f,
+                "installed project `{iri}` does not match the lockfile checksum;\n\
+                {SP:>8} `{file}` differs from what its `.meta.json` records",
+                SP = ' '
+            ),
+            MismatchKind::MissingFromDisk => {
+                write!(f, "`env.toml` records `{iri}`, which is not installed")
+            }
+            MismatchKind::NotRecorded => {
+                write!(
+                    f,
+                    "`{iri}` {version} is in `sysand-lock.toml` but not installed"
+                )
+            }
+        }
+    }
+}
+
+/// How a manifest and the lockfile disagree (the CLI appends "run
+/// `sysand lock`", which core does not name).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StaleKind {
+    /// The usage's constraint no longer accepts the locked version.
+    Constraint { constraint: String, locked: String },
+    /// The manifest has a usage the lockfile does not record.
+    Added,
+    /// The lockfile records a usage the manifest no longer has.
+    Removed,
+    /// The manifest's project has no lockfile entry at all.
+    ManifestMissing,
+}
+
+impl StaleKind {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Constraint { .. } => "constraint",
+            Self::Added => "added",
+            Self::Removed => "removed",
+            Self::ManifestMissing => "manifest-missing",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StaleUsage {
+    pub manifest: Utf8PathBuf,
+    /// The usage identifier; the project's own for `ManifestMissing`.
+    pub usage: String,
+    pub kind: StaleKind,
+}
+
+impl fmt::Display for StaleUsage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            manifest,
+            usage,
+            kind,
+        } = self;
+        write!(f, "the lockfile does not match the manifests: ")?;
+        match kind {
+            StaleKind::Constraint { constraint, locked } => write!(
+                f,
+                "`{usage}` is `{constraint}` in `{manifest}` and `{locked}` in `sysand-lock.toml`"
+            )?,
+            StaleKind::Added => {
+                write!(
+                    f,
+                    "`{usage}` is in `{manifest}` and not in `sysand-lock.toml`"
+                )?;
+            }
+            StaleKind::Removed => write!(
+                f,
+                "`{usage}` is in `sysand-lock.toml` and no longer in `{manifest}`"
+            )?,
+            StaleKind::ManifestMissing => {
+                write!(f, "`{manifest}` (`{usage}`) is not in `sysand-lock.toml`")?;
+            }
+        }
+        Ok(())
+    }
+}
+
 /// What a sync did and, on failure, what it had done so far.
 ///
 /// Filled in progressively, so a caller that passes `&mut outcome` and gets
@@ -157,12 +293,87 @@ pub struct SyncOutcome {
     /// Lockfile entries that were already installed and verified, or
     /// editable; provided projects are not recorded.
     pub kept: Vec<SyncedProject>,
+    /// `--verify`: lockfile entries whose installation was read back
+    /// from disk and matches. Empty for a plain
+    /// sync, which trusts `env.toml`.
+    pub verified: Vec<SyncedProject>,
+    /// `--verify`: entries that do not match.
+    pub mismatched: Vec<Mismatch>,
+    /// `--verify`: directories under `lib/` that `env.toml` does not
+    /// record, relative to the environment root.
+    #[cfg_attr(feature = "python", pyo3(into_py_with = unix_paths_to_py))]
+    pub unrecorded: Vec<Utf8UnixPathBuf>,
+    /// `--repair`: entries reinstalled because they mismatched or were
+    /// missing.
+    pub repaired: Vec<SyncedProject>,
+    /// `--verify`: manifest usages the lockfile does not reflect;
+    /// reported, never repaired (`lock` is the repair).
+    pub stale: Vec<StaleUsage>,
 }
 
 impl SyncOutcome {
     /// Whether anything on disk changed.
     pub fn wrote(&self) -> bool {
-        !self.installed.is_empty() || !self.pruned.is_empty()
+        !self.installed.is_empty() || !self.pruned.is_empty() || !self.repaired.is_empty()
+    }
+}
+
+#[cfg(feature = "python")]
+// The `Cow<'_, Vec<_>>` signature is dictated by `into_py_with`.
+#[expect(clippy::owned_cow)]
+fn unix_paths_to_py<'py>(
+    paths: std::borrow::Cow<'_, Vec<Utf8UnixPathBuf>>,
+    py: pyo3::Python<'py>,
+) -> pyo3::PyResult<pyo3::Bound<'py, pyo3::PyAny>> {
+    use pyo3::IntoPyObjectExt as _;
+    paths
+        .iter()
+        .map(|path| path.as_str().to_owned())
+        .collect::<Vec<_>>()
+        .into_bound_py_any(py)
+}
+
+#[cfg(feature = "python")]
+impl<'py> pyo3::IntoPyObject<'py> for Mismatch {
+    type Target = pyo3::types::PyDict;
+    type Output = pyo3::Bound<'py, Self::Target>;
+    type Error = pyo3::PyErr;
+
+    /// `{iri, version, kind, file, message}`: the text under `message`,
+    /// the kind as its name.
+    fn into_pyobject(self, py: pyo3::Python<'py>) -> Result<Self::Output, Self::Error> {
+        use pyo3::types::PyDictMethods as _;
+        let dict = pyo3::types::PyDict::new(py);
+        dict.set_item("message", self.to_string())?;
+        dict.set_item("iri", &self.iri)?;
+        dict.set_item("version", &self.version)?;
+        dict.set_item("kind", self.kind.name())?;
+        dict.set_item(
+            "file",
+            match &self.kind {
+                MismatchKind::Checksum { file: Some(file) } => Some(file.as_str()),
+                _ => None,
+            },
+        )?;
+        Ok(dict)
+    }
+}
+
+#[cfg(feature = "python")]
+impl<'py> pyo3::IntoPyObject<'py> for StaleUsage {
+    type Target = pyo3::types::PyDict;
+    type Output = pyo3::Bound<'py, Self::Target>;
+    type Error = pyo3::PyErr;
+
+    /// `{manifest, usage, kind, message}`: the text under `message`.
+    fn into_pyobject(self, py: pyo3::Python<'py>) -> Result<Self::Output, Self::Error> {
+        use pyo3::types::PyDictMethods as _;
+        let dict = pyo3::types::PyDict::new(py);
+        dict.set_item("message", self.to_string())?;
+        dict.set_item("manifest", self.manifest.as_str())?;
+        dict.set_item("usage", &self.usage)?;
+        dict.set_item("kind", self.kind.name())?;
+        Ok(dict)
     }
 }
 

@@ -165,6 +165,33 @@ impl LocalDirectoryEnvironment {
     /// It is assumed to be the workspace (if present) or project root, which in turn is
     /// the root of relative paths of `editable`/`workspace` projects
     // TODO: is it correct to assume that `.sysand` is always at workspace/project root?
+    /// Directories directly under `lib/` that no recorded project owns
+    /// (appendix B row P2-14), relative to the environment root, sorted.
+    /// Editable and workspace entries live outside `lib/` and are not
+    /// consulted.
+    pub fn unrecorded_paths(&self) -> Result<Vec<Utf8UnixPathBuf>, Box<FsIoError>> {
+        let lib_dir = self.root_dir.join(PROJECT_PATH_PREFIX);
+        if !wrapfs::is_dir(&lib_dir)? {
+            return Ok(vec![]);
+        }
+        let mut unrecorded = Vec::new();
+        for entry in wrapfs::read_dir(&lib_dir)? {
+            let entry = entry.map_err(|e| Box::new(FsIoError::ReadDir(lib_dir.clone(), e)))?;
+            let relative =
+                Utf8UnixPathBuf::from(format!("{PROJECT_PATH_PREFIX}{}", entry.file_name()));
+            if !self
+                .metadata
+                .projects
+                .iter()
+                .any(|project| project.path == relative)
+            {
+                unrecorded.push(relative);
+            }
+        }
+        unrecorded.sort();
+        Ok(unrecorded)
+    }
+
     fn parent_dir(&self) -> &Utf8Path {
         // Will fail only if env is at root, i.e. `self.root_dir == /`
         self.root_dir.parent().unwrap()
