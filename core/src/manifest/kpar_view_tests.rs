@@ -923,5 +923,5 @@ fn a_source_project_view_carries_an_empty_checksum_map() {
 
     let checksum = meta.checksum.expect("a view always records a checksum map");
     assert!(checksum.is_empty(), "{checksum:?}");
-    assert!(meta.index.is_empty(), "{:?}", meta.index);
+    assert_eq!(meta.index, Some(indexmap::IndexMap::new()));
 }

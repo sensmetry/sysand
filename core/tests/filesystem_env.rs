@@ -115,7 +115,9 @@ version = \"0.2\"
             index.insert("Pkg".to_owned(), String::from("Pkg.sysml"));
 
             let meta = InterchangeProjectMetadataRaw {
-                index,
+                index: Some(index),
+                root: None,
+                exports: None,
                 created: format_created_now(),
                 metamodel: None,
                 includes_derived: None,
@@ -203,7 +205,9 @@ version = \"0.2\"
             let mut index = IndexMap::new();
             index.insert("Other".to_owned(), String::from("Other.sysml"));
             let meta = InterchangeProjectMetadataRaw {
-                index,
+                index: Some(index),
+                root: None,
+                exports: None,
                 created: format_created_now(),
                 metamodel: None,
                 includes_derived: None,
@@ -312,7 +316,9 @@ version = \"0.2\"
         index.insert("SomePackage".to_owned(), String::from("SomePackage.sysml"));
 
         let meta = InterchangeProjectMetadataRaw {
-            index,
+            index: Some(index),
+            root: None,
+            exports: None,
             created: format_created_now(),
             metamodel: None,
             includes_derived: None,

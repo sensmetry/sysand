@@ -52,7 +52,9 @@ pub(crate) const INTERCHANGE_PROJECT_METADATA_CLASS_CONSTRUCTOR: MethodSignature
     java.lang.String,
     java.lang.Boolean,
     java.lang.Boolean,
-    java.util.LinkedHashMap
+    java.util.LinkedHashMap,
+    java.lang.String,
+    java.lang.String[]
 ));
 pub(crate) const INTERCHANGE_PROJECT_CLASS: FieldSignature =
     jni_sig!(com.sensmetry.sysand.model.InterchangeProject);
@@ -339,7 +341,20 @@ pub(crate) fn java_metadata_to_raw<'local>(
     meta: &JObject<'local>,
 ) -> Option<InterchangeProjectMetadataRaw> {
     let index_obj = get_field_object(env, meta, jni_str!("index"), LINKED_HASH_MAP)?;
-    let index = java_map_to_index_map(env, index_obj)?;
+    // Null for the Syside shape (design/syside-metamodel.md).
+    let index = if index_obj.is_null() {
+        None
+    } else {
+        Some(java_map_to_index_map(env, index_obj)?)
+    };
+    let root = get_nullable_string_field(env, meta, jni_str!("root"))?;
+    let exports_obj =
+        get_field_object(env, meta, jni_str!("exports"), jni_sig!(java.lang.String[]))?;
+    let exports = if exports_obj.is_null() {
+        None
+    } else {
+        Some(get_string_array_field(env, meta, jni_str!("exports"))?)
+    };
     let created = get_string_field(env, meta, jni_str!("created"))?;
     let metamodel = get_nullable_string_field(env, meta, jni_str!("metamodel"))?;
     let includes_derived = get_nullable_boolean_field(env, meta, jni_str!("includesDerived"))?;
@@ -401,6 +416,8 @@ pub(crate) fn java_metadata_to_raw<'local>(
     };
     Some(InterchangeProjectMetadataRaw {
         index,
+        root,
+        exports,
         created,
         metamodel,
         includes_derived,
@@ -754,6 +771,11 @@ impl ToJObject for InterchangeProjectMetadataRaw {
         let includes_derived = self.includes_derived.to_jobject(env)?;
         let includes_implied = self.includes_implied.to_jobject(env)?;
         let checksum = self.checksum.to_jobject(env)?;
+        let root = self.root.to_jstring(env)?;
+        let exports = match &self.exports {
+            Some(exports) => exports.to_jstring_array(env)?.into(),
+            None => JObject::null(),
+        };
         let obj = unwrap_throw!(
             env,
             env.new_object(
@@ -766,6 +788,8 @@ impl ToJObject for InterchangeProjectMetadataRaw {
                     JValue::from(&includes_derived),
                     JValue::from(&includes_implied),
                     JValue::from(&checksum),
+                    JValue::from(&root),
+                    JValue::from(&exports),
                 ],
             ),
             "Failed to create InterchangeProjectMetadata"
@@ -885,7 +909,8 @@ pub(crate) fn handle_build_error(env: &mut Env<'_>, error: &KParBuildError<Local
         KParBuildError::MissingMeta => {
             env.throw_exception(ExceptionKind::SysandException, "Missing project metadata");
         }
-        KParBuildError::InheritedLocalUsage { usage: _, path: _ }
+        KParBuildError::InheritedLocalUsage { .. }
+        | KParBuildError::KeepIndexOnRoot
         | KParBuildError::TomlTargetMissing { usage: _, path: _ }
         | KParBuildError::TomlTargetVersion {
             usage: _,

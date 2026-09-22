@@ -122,9 +122,12 @@ pub fn do_include<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
             meta.add_checksum(&path, KerMlChecksumAlg::None, "", true);
         }
 
-        if index_symbols {
+        // A root-shaped document has no per-file map to update; its
+        // `exports` are recomputed by `build`, and the flag is refused
+        // on such a project.
+        if index_symbols && let Some(index) = meta.index.as_mut() {
             // Remove if present any existing symbols from the same file
-            meta.index.retain(|s, v| {
+            index.retain(|s, v| {
                 if *v == path {
                     log::debug!("meta.index: removing obsolete symbol `{s}` (file `{v}`)");
                     false
@@ -134,7 +137,7 @@ pub fn do_include<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
             });
 
             for s in extract_symbols(&path, &source, force_format)? {
-                meta.index.insert(s, path.to_string());
+                index.insert(s, path.to_string());
             }
         }
     }

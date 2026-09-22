@@ -298,11 +298,21 @@ fn field_lines(
         InfoField::Website => info()?.website.into_iter().collect(),
         InfoField::Topic => info()?.topic,
         InfoField::Usage => info()?.usage.iter().map(ToString::to_string).collect(),
-        InfoField::Index => meta()?
-            .index
-            .into_iter()
-            .map(|(symbol, path)| format!("`{symbol}` in `{path}`"))
-            .collect(),
+        InfoField::Index => {
+            let meta = meta()?;
+            // A root-shaped document has no `index`; the list stays the
+            // list a script reads, and the explanation goes to stderr.
+            if meta.index.is_none() {
+                log::warn!(
+                    "the project has no `index`; a Syside KPAR carries `root` and `exports`"
+                );
+            }
+            meta.index
+                .into_iter()
+                .flatten()
+                .map(|(symbol, path)| format!("`{symbol}` in `{path}`"))
+                .collect()
+        }
         InfoField::Created => vec![meta()?.created],
         InfoField::Metamodel => meta()?.metamodel.into_iter().collect(),
         InfoField::IncludesDerived => meta()?

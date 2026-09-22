@@ -42,7 +42,7 @@ fn include_and_exclude_simple() -> Result<(), Box<dyn std::error::Error>> {
 
     assert_eq!(
         meta.index,
-        IndexMap::from([("P".to_owned(), "test.sysml".to_owned()),])
+        Some(IndexMap::from([("P".to_owned(), "test.sysml".to_owned()),]))
     );
 
     assert_eq!(
@@ -66,7 +66,7 @@ fn include_and_exclude_simple() -> Result<(), Box<dyn std::error::Error>> {
 
     // let meta = meta.validate()?;
 
-    assert!(meta.index.is_empty());
+    assert_eq!(meta.index, Some(IndexMap::new()));
     assert!(meta.checksum.is_none_or(|x| x.is_empty()));
 
     Ok(())
@@ -88,7 +88,7 @@ fn include_no_checksum() -> Result<(), Box<dyn std::error::Error>> {
 
     assert_eq!(
         meta.index,
-        IndexMap::from([("P".to_owned(), "test.sysml".to_owned()),])
+        Some(IndexMap::from([("P".to_owned(), "test.sysml".to_owned()),]))
     );
 
     assert_eq!(
@@ -128,7 +128,7 @@ fn include_no_index() -> Result<(), Box<dyn std::error::Error>> {
     let meta: InterchangeProjectMetadataRaw =
         serde_json::from_reader(fs::File::open(cwd.join(".meta.json"))?)?;
 
-    assert!(meta.index.is_empty());
+    assert_eq!(meta.index, Some(IndexMap::new()));
 
     assert_eq!(
         meta.checksum.unwrap(),
@@ -160,7 +160,7 @@ fn include_empty_and_update() -> Result<(), Box<dyn std::error::Error>> {
     let meta: InterchangeProjectMetadataRaw =
         serde_json::from_reader(fs::File::open(cwd.join(".meta.json"))?)?;
 
-    assert!(meta.index.is_empty());
+    assert_eq!(meta.index, Some(IndexMap::new()));
 
     assert_eq!(
         meta.checksum.unwrap(),
@@ -186,7 +186,7 @@ fn include_empty_and_update() -> Result<(), Box<dyn std::error::Error>> {
 
     assert_eq!(
         meta.index,
-        IndexMap::from([("P".to_owned(), "test.sysml".to_owned()),])
+        Some(IndexMap::from([("P".to_owned(), "test.sysml".to_owned()),]))
     );
 
     assert_eq!(
@@ -225,10 +225,10 @@ fn include_same_file_replaces_old_symbols() -> Result<(), Box<dyn std::error::Er
 
     assert_eq!(
         meta.index,
-        IndexMap::from([
+        Some(IndexMap::from([
             ("A".to_owned(), "test.sysml".to_owned()),
             ("B".to_owned(), "test.sysml".to_owned()),
-        ])
+        ]))
     );
 
     fs::write(cwd.join("test.sysml"), b"package C;\n")?;
@@ -242,7 +242,7 @@ fn include_same_file_replaces_old_symbols() -> Result<(), Box<dyn std::error::Er
 
     assert_eq!(
         meta.index,
-        IndexMap::from([("C".to_owned(), "test.sysml".to_owned()),])
+        Some(IndexMap::from([("C".to_owned(), "test.sysml".to_owned()),]))
     );
 
     Ok(())
@@ -277,10 +277,10 @@ fn include_and_exclude_both_nested() -> Result<(), Box<dyn std::error::Error>> {
 
     assert_eq!(
         meta.index,
-        IndexMap::from([
+        Some(IndexMap::from([
             ("Extra".to_owned(), "extra/test.sysml".to_owned()),
             ("P".to_owned(), "test.sysml".to_owned()),
-        ])
+        ]))
     );
 
     assert_eq!(
@@ -314,7 +314,7 @@ fn include_and_exclude_both_nested() -> Result<(), Box<dyn std::error::Error>> {
 
     // let meta = meta.validate()?;
 
-    assert!(meta.index.is_empty());
+    assert_eq!(meta.index, Some(IndexMap::new()));
     assert!(meta.checksum.is_none_or(|x| x.is_empty()));
 
     Ok(())
@@ -356,10 +356,10 @@ fn include_and_exclude_single_nested() -> Result<(), Box<dyn std::error::Error>>
 
     assert_eq!(
         meta.index,
-        IndexMap::from([
+        Some(IndexMap::from([
             ("Extra".to_owned(), "extra/test.sysml".to_owned()),
             ("P".to_owned(), "test.sysml".to_owned()),
-        ])
+        ]))
     );
 
     assert_eq!(
@@ -395,7 +395,10 @@ fn include_and_exclude_single_nested() -> Result<(), Box<dyn std::error::Error>>
 
     assert_eq!(
         meta.index,
-        IndexMap::from([("Extra".to_owned(), "extra/test.sysml".to_owned()),])
+        Some(IndexMap::from([(
+            "Extra".to_owned(),
+            "extra/test.sysml".to_owned()
+        ),]))
     );
 
     assert_eq!(
@@ -429,7 +432,7 @@ fn include_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
 
     // let meta = meta.validate()?;
 
-    assert!(meta.index.is_empty());
+    assert_eq!(meta.index, Some(IndexMap::new()));
     assert!(meta.checksum.is_none_or(|x| x.is_empty()));
 
     Ok(())
@@ -451,7 +454,7 @@ fn exclude_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
 
     // let meta = meta.validate()?;
 
-    assert!(meta.index.is_empty());
+    assert_eq!(meta.index, Some(IndexMap::new()));
     assert!(meta.checksum.is_none_or(|x| x.is_empty()));
 
     Ok(())

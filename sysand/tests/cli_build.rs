@@ -137,7 +137,7 @@ fn project_build() -> Result<(), Box<dyn std::error::Error>> {
     // File hash should be updated
     assert_eq!(meta.checksum, expected_checksum);
 
-    assert_eq!(meta.index, expected_index());
+    assert_eq!(meta.index, Some(expected_index()));
 
     // Ensure no changes were made to the original project
     let new_info_contents = fs::read_to_string(&orig_info_path)?;
@@ -449,7 +449,7 @@ fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
         assert_eq!(info.name, name);
         assert_eq!(info.version, "1.2.3");
         assert_eq!(meta.checksum, expected_checksum());
-        assert_eq!(meta.index, expected_index());
+        assert_eq!(meta.index, Some(expected_index()));
     }
 
     // The build reads the members; it must not write to them.
@@ -1030,7 +1030,7 @@ fn compression_method(compression: Option<&str>) -> Result<(), Box<dyn std::erro
     assert_eq!(info.version, "1.2.3");
 
     assert_eq!(meta.checksum, expected_checksum());
-    assert_eq!(meta.index, expected_index());
+    assert_eq!(meta.index, Some(expected_index()));
     let mut src = String::new();
     kpar_project
         .read_source("test.sysml")?
@@ -1357,5 +1357,61 @@ fn the_stdlib_workspace_builds_in_members_order() -> Result<(), Box<dyn std::err
 
     let built = glob::glob(cwd.join("output/*.kpar").as_str())?.count();
     assert_eq!(built, 10, "every member is built:\n{stderr}");
+    Ok(())
+}
+
+/// A Syside project builds the Syside `.meta.json` -- `root`, `exports`
+/// from the sources' symbols, no `index` -- and the same binary reads
+/// the archive back.
+#[test]
+fn a_syside_project_builds_the_root_shape() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    write_toml_member(
+        &cwd,
+        "widgets",
+        "1.0.0",
+        "metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\nroot = \"test.sysml\"\n",
+    )?;
+
+    run_sysand_in(&cwd, ["build", "./widgets.kpar"], None)?
+        .assert()
+        .success();
+
+    let kpar_project = LocalKParProjectRaw::new_guess_root(cwd.join("widgets.kpar"))?;
+    let (Some(_), Some(meta)) = kpar_project.get_project()? else {
+        panic!("failed to get built project info/meta");
+    };
+    assert_eq!(meta.root.as_deref(), Some("test.sysml"));
+    assert_eq!(meta.exports, Some(vec!["P".to_owned()]));
+    assert_eq!(meta.index, None);
+    assert_eq!(
+        meta.checksum
+            .as_ref()
+            .map(|c| c.keys().cloned().collect::<Vec<_>>()),
+        Some(vec!["test.sysml".to_owned()])
+    );
+    Ok(())
+}
+
+/// `--keep-index` keeps a hand-maintained `index` a Syside project's
+/// KPAR does not have, so it is refused.
+#[test]
+fn build_keep_index_is_refused_on_a_syside_project() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    write_toml_member(
+        &cwd,
+        "widgets",
+        "1.0.0",
+        "metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\nroot = \"test.sysml\"\n",
+    )?;
+
+    run_sysand_in(&cwd, ["build", "./widgets.kpar", "--keep-index"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "`--keep-index` applies to projects with a computed index; a Syside project's KPAR \
+             carries `root` and `exports` instead",
+        ));
+    assert!(!cwd.join("widgets.kpar").exists());
     Ok(())
 }

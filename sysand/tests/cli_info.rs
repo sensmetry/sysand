@@ -2523,3 +2523,35 @@ fn a_syside_project_reads_with_no_warning_from_the_cli() -> Result<(), Box<dyn E
         .stdout(predicate::str::contains("widgets"));
     Ok(())
 }
+
+/// `info index` on a project whose `.meta.json` has the Syside shape prints
+/// no symbols -- there is no `index` -- and says why on stderr, where
+/// explanations go.
+#[test]
+fn info_index_get_on_a_root_shaped_project_prints_nothing_and_warns() -> Result<(), Box<dyn Error>>
+{
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    std::fs::write(
+        cwd.join(".project.json"),
+        r#"{"name": "widgets", "publisher": "acme", "version": "1.0.0", "usage": []}"#,
+    )?;
+    std::fs::write(
+        cwd.join(".meta.json"),
+        format!(
+            r#"{{"root": "main.sysml", "exports": ["Widgets"], "created": "2026-01-01T00:00:00Z",
+                "metamodel": "{SYSIDE_SYSML}",
+                "checksum": {{"main.sysml": {{"value": "{}", "algorithm": "SHA256"}}}}}}"#,
+            "0".repeat(64)
+        ),
+    )?;
+    std::fs::write(cwd.join("main.sysml"), "package Widgets;\n")?;
+
+    run_sysand_in(&cwd, ["info", "--get", "index"], None)?
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty().or(predicate::str::is_match(r"^\s*$")?))
+        .stderr(predicate::str::contains(
+            "the project has no `index`; a Syside KPAR carries `root` and `exports`",
+        ));
+    Ok(())
+}

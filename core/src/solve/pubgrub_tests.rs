@@ -77,7 +77,9 @@ fn memory_project(
             usage,
         }),
         meta: Some(InterchangeProjectMetadataRaw {
-            index: IndexMap::default(),
+            index: Some(IndexMap::default()),
+            root: None,
+            exports: None,
             created: "123".to_owned(),
             metamodel: None,
             includes_derived: None,

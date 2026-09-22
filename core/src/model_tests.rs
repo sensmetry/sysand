@@ -9,12 +9,13 @@ use indexmap::IndexMap;
 use crate::symbols::Language;
 
 use crate::{
+    manifest::diagnostics::{Report, Validated},
     model::{
         InterchangeProjectInfoPartial, InterchangeProjectInfoRaw,
         InterchangeProjectMetadataPartial, InterchangeProjectMetadataRaw,
         InterchangeProjectValidationError, KERML_SPEC_PREFIX, KnownMetamodel, Metamodel,
         MetamodelFamily, MetamodelParseError, MetamodelRelease, PROJECT_FIELD_MAX_LEN, ProjectName,
-        ProjectPublisher, SYSML_SPEC_PREFIX, SpecKind,
+        ProjectPublisher, SYSML_SPEC_PREFIX, SpecKind, project_hash_hex,
     },
     utils::lowercase_hex,
 };
@@ -45,7 +46,9 @@ fn json_hash_agrees_with_shell() {
     };
 
     let meta = InterchangeProjectMetadataRaw {
-        index: IndexMap::new(),
+        index: Some(IndexMap::new()),
+        root: None,
+        exports: None,
         created: "0000-00-00T00:00:00.123456789Z".to_owned(),
         metamodel: None,
         includes_derived: None,
@@ -897,7 +900,9 @@ fn metamodel_schema_family_of_a_project() {
 #[test]
 fn validate_parses_the_metamodel() {
     let raw = |value: &str| InterchangeProjectMetadataRaw {
-        index: IndexMap::new(),
+        index: Some(IndexMap::new()),
+        root: None,
+        exports: None,
         created: "2026-01-01T00:00:00Z".to_owned(),
         metamodel: Some(value.to_owned()),
         includes_derived: None,
@@ -1183,4 +1188,299 @@ fn the_two_families_admit_the_same_languages() {
             );
         }
     }
+}
+
+// ---------------------------------------------------------------------
+// The two shapes of `.meta.json` (design/syside-metamodel.md, "The
+// Syside KPAR").
+
+const SYSIDE_SYSML_URL: &str = "https://www.sysand.com/spec/SysML/20250201";
+
+const SYSIDE_META: &str = r#"{
+    "root": "main.sysml",
+    "exports": ["Main", "Helper"],
+    "created": "2026-01-01T00:00:00Z",
+    "metamodel": "https://www.sysand.com/spec/SysML/20250201",
+    "checksum": {"main.sysml": {"value": "0000000000000000000000000000000000000000000000000000000000000000", "algorithm": "SHA256"}}
+}"#;
+
+const INDEX_IGNORED: &str = "`index` in `.meta.json` is not used by the Syside metamodel and is ignored; \
+                     a Syside KPAR carries `root` and `exports`";
+const ROOT_MISSING: &str = "missing key `root` in `.meta.json`; the Syside metamodel requires it";
+const EXPORTS_MISSING: &str =
+    "missing key `exports` in `.meta.json`; the Syside metamodel requires it";
+
+fn meta_texts(report: &Report) -> Vec<&str> {
+    report
+        .diagnostics()
+        .iter()
+        .map(|diagnostic| diagnostic.message.as_str())
+        .collect()
+}
+
+fn syside_meta(json: &str) -> Result<Validated<InterchangeProjectMetadataRaw>, Report> {
+    meta_partial(json).validate(".meta.json", None)
+}
+
+/// The Syside shape reads, types, and round-trips: `root` and `exports`
+/// carried, no `index`.
+#[test]
+fn a_syside_meta_json_reads_with_no_warning() {
+    let validated = syside_meta(SYSIDE_META).expect("a Syside document validates");
+    assert!(validated.warnings.is_empty(), "{:?}", validated.warnings);
+    let raw = validated.value;
+    assert_eq!(raw.index, None);
+    assert_eq!(raw.root.as_deref(), Some("main.sysml"));
+    assert_eq!(
+        raw.exports,
+        Some(vec!["Main".to_owned(), "Helper".to_owned()])
+    );
+
+    let typed = raw.validate().expect("the typed form");
+    assert_eq!(
+        typed.root.as_ref().map(|root| root.as_str()),
+        Some("main.sysml")
+    );
+    assert_eq!(typed.index, None);
+    let back: InterchangeProjectMetadataRaw = typed.into();
+    assert_eq!(back, raw);
+}
+
+#[test]
+fn an_omg_meta_json_reads_as_before() {
+    let validated = syside_meta(COMPLETE_META).expect("an OMG document validates");
+    assert_eq!(
+        validated.warnings,
+        [] as [crate::manifest::diagnostics::Diagnostic; 0]
+    );
+    assert!(validated.value.root.is_none());
+    assert!(validated.value.exports.is_none());
+    assert_eq!(validated.value.index.as_ref().map(IndexMap::len), Some(1));
+}
+
+/// Under a Syside metamodel the missing key is `root` and the message
+/// names the family; under any other, `index` is missing with the plain
+/// missing-key text.
+#[test]
+fn a_syside_meta_json_without_root_is_missing_the_key() {
+    let report = syside_meta(&format!(
+        r#"{{"exports": ["Main"], "created": "2026-01-01T00:00:00Z", "metamodel": "{SYSIDE_SYSML_URL}"}}"#
+    ))
+    .expect_err("no root");
+    assert_eq!(meta_texts(&report), [ROOT_MISSING]);
+
+    let report = syside_meta(r#"{"created": "2026-01-01T00:00:00Z"}"#).expect_err("no index");
+    assert_eq!(meta_texts(&report), ["missing key `index` in `.meta.json`"]);
+}
+
+/// `exports` is the Syside shape's second key.
+#[test]
+fn a_syside_meta_json_without_exports_is_missing_the_key() {
+    let report = syside_meta(&format!(
+        r#"{{"root": "main.sysml", "created": "2026-01-01T00:00:00Z", "metamodel": "{SYSIDE_SYSML_URL}"}}"#
+    ))
+    .expect_err("no exports");
+    assert_eq!(meta_texts(&report), [EXPORTS_MISSING]);
+}
+
+/// An `index` beside `root` and `exports` is a warning and is dropped; an
+/// `index` *instead of* them does not stand in for them, so the document
+/// gets the warning and both errors.
+#[test]
+fn an_index_in_a_syside_meta_json_is_warned_about_and_dropped() {
+    let validated = syside_meta(&format!(
+        r#"{{"index": {{"Main": "main.sysml"}}, "root": "main.sysml", "exports": ["Main"],
+            "created": "2026-01-01T00:00:00Z", "metamodel": "{SYSIDE_SYSML_URL}"}}"#
+    ))
+    .expect("the document validates with a warning");
+    assert_eq!(
+        validated
+            .warnings
+            .iter()
+            .map(|w| w.message.as_str())
+            .collect::<Vec<_>>(),
+        [INDEX_IGNORED]
+    );
+    assert_eq!(validated.value.index, None);
+
+    // The OMG shape under a Syside metamodel: an `index`, nothing else.
+    let report = syside_meta(&format!(
+        r#"{{"index": {{"Main": "main.sysml"}}, "created": "2026-01-01T00:00:00Z",
+            "metamodel": "{SYSIDE_SYSML_URL}"}}"#
+    ))
+    .expect_err("index does not stand in for root and exports");
+    assert_eq!(
+        meta_texts(&report),
+        [INDEX_IGNORED, ROOT_MISSING, EXPORTS_MISSING]
+    );
+}
+
+#[test]
+fn an_empty_index_in_a_syside_document_is_warned_about_too() {
+    let validated = syside_meta(&format!(
+        r#"{{"index": {{}}, "root": "main.sysml", "exports": [],
+            "created": "2026-01-01T00:00:00Z", "metamodel": "{SYSIDE_SYSML_URL}"}}"#
+    ))
+    .expect("validates with a warning");
+    assert_eq!(validated.warnings.len(), 1);
+    assert_eq!(validated.value.index, None);
+}
+
+/// The json side of the foreign-key rule -- `root` or `exports` under an
+/// OMG or absent metamodel is a warning naming the key, and the value is
+/// dropped.
+#[test]
+fn root_or_exports_in_an_omg_meta_json_is_a_warning() {
+    for (extra, expected) in [
+        (
+            r#""root": "main.sysml","#,
+            vec![
+                "`root` in `.meta.json` is only supported by the Syside metamodel and is ignored here",
+            ],
+        ),
+        (
+            r#""exports": ["Main"],"#,
+            vec![
+                "`exports` in `.meta.json` is only supported by the Syside metamodel and is ignored here",
+            ],
+        ),
+        (
+            r#""root": "main.sysml", "exports": ["Main"],"#,
+            vec![
+                "`root` in `.meta.json` is only supported by the Syside metamodel and is ignored here",
+                "`exports` in `.meta.json` is only supported by the Syside metamodel and is ignored here",
+            ],
+        ),
+    ] {
+        for metamodel in [
+            r#""metamodel": "https://www.omg.org/spec/SysML/20250201","#,
+            "",
+        ] {
+            let validated = syside_meta(&format!(
+                r#"{{"index": {{}}, {extra} {metamodel} "created": "2026-01-01T00:00:00Z"}}"#
+            ))
+            .unwrap_or_else(|report| panic!("{extra} {metamodel}: {report}"));
+            assert_eq!(
+                validated
+                    .warnings
+                    .iter()
+                    .map(|w| w.message.as_str())
+                    .collect::<Vec<_>>(),
+                expected,
+                "{extra} {metamodel}"
+            );
+            assert!(validated.value.root.is_none() && validated.value.exports.is_none());
+            assert_eq!(validated.value.index, Some(IndexMap::new()));
+        }
+    }
+}
+
+/// On the json side too, `root` is held to the checks a `sources` entry
+/// is held to, and a `root` that fails them is not also
+/// reported missing.
+#[test]
+fn a_syside_meta_json_root_is_held_to_the_sources_entry_checks() {
+    let report = syside_meta(&format!(
+        r#"{{"root": "../up.sysml", "exports": [], "created": "2026-01-01T00:00:00Z",
+            "metamodel": "{SYSIDE_SYSML_URL}"}}"#
+    ))
+    .expect_err("an escaping root");
+    assert_eq!(
+        meta_texts(&report),
+        [
+            "`root` `../up.sysml` is not in the form a `sources` entry takes: relative, \
+             `/`-separated,\nwith no `.` or `..` component and no repeated or leading slash"
+        ]
+    );
+}
+
+/// An unrecognized metamodel selects the OMG shape, as it always has:
+/// `index` is required with the suffix naming the value, and `root` is a
+/// foreign key.
+#[test]
+fn an_unrecognized_metamodel_reads_as_the_omg_shape() {
+    let report = syside_meta(
+        r#"{"root": "main.sysml", "created": "2026-01-01T00:00:00Z", "metamodel": "https://example.com/x"}"#,
+    )
+    .expect_err("no index");
+    let texts = meta_texts(&report);
+    assert_eq!(texts.len(), 2, "{texts:?}");
+    assert!(texts[0].starts_with("missing key `index` in `.meta.json`; this may be because"));
+    assert!(texts[0].contains("`https://example.com/x`"));
+    assert_eq!(
+        texts[1],
+        "`root` in `.meta.json` is only supported by the Syside metamodel and is ignored here"
+    );
+}
+
+/// The caller's metamodel, when it gives one, decides the family.
+#[test]
+fn the_callers_metamodel_overrides_the_documents() {
+    let validated =
+        meta_partial(r#"{"root": "main.sysml", "exports": [], "created": "2026-01-01T00:00:00Z"}"#)
+            .validate(".meta.json", Some(SYSIDE_SYSML_URL))
+            .expect("the caller says Syside");
+    assert_eq!(
+        validated.warnings,
+        [] as [crate::manifest::diagnostics::Diagnostic; 0]
+    );
+    assert_eq!(validated.value.root.as_deref(), Some("main.sysml"));
+}
+
+/// An OMG document keeps its meaning and its bytes. `"index": {}` is
+/// `Some(empty)`, never `None`; it serializes to the bytes it was read
+/// from; and the project hash is computed over those bytes.
+#[test]
+fn an_omg_document_with_an_empty_index_round_trips_and_hashes_the_same() {
+    let meta_text = r#"{"index":{},"created":"2026-01-01T00:00:00Z"}"#;
+    let raw = syside_meta(meta_text).expect("validates").value;
+    assert_eq!(raw.index, Some(IndexMap::new()));
+    assert_eq!(serde_json::to_string(&raw).expect("serializes"), meta_text);
+
+    let info_text = r#"{"name":"widgets","version":"1.0.0"}"#;
+    let info: InterchangeProjectInfoRaw = serde_json::from_str(info_text).expect("info");
+    assert_eq!(
+        project_hash_hex(&info, &raw),
+        lowercase_hex(super::project_hash_str(
+            serde_json::to_string(&info).expect("info"),
+            meta_text
+        ))
+    );
+}
+
+/// Neither shape serializes the other shape's keys.
+#[test]
+fn both_shapes_serialize_without_the_other_shapes_keys() {
+    let syside = syside_meta(SYSIDE_META).expect("validates").value;
+    let text = serde_json::to_string_pretty(&syside).expect("serializes");
+    assert!(!text.contains("\"index\""), "{text}");
+    assert!(text.contains("\"root\": \"main.sysml\""), "{text}");
+    assert!(text.contains("\"exports\""), "{text}");
+
+    let omg = syside_meta(COMPLETE_META).expect("validates").value;
+    let text = serde_json::to_string_pretty(&omg).expect("serializes");
+    assert!(
+        !text.contains("\"root\"") && !text.contains("\"exports\""),
+        "{text}"
+    );
+}
+
+/// The one question a consumer asks of either shape.
+#[test]
+fn exported_symbols_reads_whichever_shape_the_document_has() {
+    let syside = syside_meta(SYSIDE_META).expect("validates").value;
+    assert_eq!(
+        syside.exported_symbols().collect::<Vec<_>>(),
+        ["Main", "Helper"]
+    );
+    let omg = syside_meta(COMPLETE_META).expect("validates").value;
+    assert_eq!(omg.exported_symbols().collect::<Vec<_>>(), ["P"]);
+}
+
+#[test]
+fn source_paths_of_a_syside_document_include_its_root() {
+    let syside = syside_meta(SYSIDE_META).expect("validates").value;
+    let paths = syside.source_paths(true);
+    assert!(paths.contains("main.sysml"));
+    assert_eq!(paths.len(), 1);
 }

@@ -39,7 +39,9 @@ const SYSML: &str = "https://www.omg.org/spec/SysML/20250201";
 
 fn meta() -> InterchangeProjectMetadataRaw {
     InterchangeProjectMetadataRaw {
-        index: IndexMap::new(),
+        index: Some(IndexMap::new()),
+        root: None,
+        exports: None,
         created: "2001-02-03T04:05:06Z".to_owned(),
         metamodel: Some(SYSML.to_owned()),
         includes_derived: None,
@@ -351,7 +353,7 @@ fn sources_of(meta: &InterchangeProjectMetadataRaw) -> Vec<String> {
 #[test]
 fn sources_come_from_the_index_values() {
     let mut m = meta();
-    m.index = IndexMap::from([("A".to_owned(), "a.sysml".to_owned())]);
+    m.index = Some(IndexMap::from([("A".to_owned(), "a.sysml".to_owned())]));
     assert_eq!(sources_of(&m), vec!["a.sysml".to_owned()]);
 }
 
@@ -368,11 +370,11 @@ fn sources_come_from_the_checksum_keys() {
 #[test]
 fn the_union_is_deduplicated() {
     let mut m = meta();
-    m.index = IndexMap::from([
+    m.index = Some(IndexMap::from([
         ("A".to_owned(), "a.sysml".to_owned()),
         ("B".to_owned(), "a.sysml".to_owned()),
         ("C".to_owned(), "b.kerml".to_owned()),
-    ]);
+    ]));
     m.checksum = Some(checksum_of(&["a.sysml", "b.kerml"]));
     assert_eq!(
         sources_of(&m),
@@ -410,7 +412,7 @@ fn every_bad_checksum_key_is_listed_in_one_diagnostic() {
 #[test]
 fn a_non_model_index_value_is_an_error() {
     let mut m = meta();
-    m.index = IndexMap::from([("A".to_owned(), "README.md".to_owned())]);
+    m.index = Some(IndexMap::from([("A".to_owned(), "README.md".to_owned())]));
     let rendered = errors(
         &info("widgets", Some("acme"), "1.0.0"),
         &m,
@@ -491,7 +493,7 @@ fn the_files_publisher_wins_over_the_option() {
 #[test]
 fn the_discarded_metadata_warns() {
     let mut m = meta();
-    m.index = IndexMap::from([("A".to_owned(), "a.sysml".to_owned())]);
+    m.index = Some(IndexMap::from([("A".to_owned(), "a.sysml".to_owned())]));
     m.checksum = Some(checksum_of(&["a.sysml"]));
     m.includes_derived = Some(true);
     m.includes_implied = Some(false);
@@ -1113,7 +1115,7 @@ fn a_checksum_key_the_metamodel_does_not_admit_names_the_metamodel() {
 #[test]
 fn an_index_value_the_metamodel_does_not_admit_is_reported_per_entry() {
     let mut m = with_metamodel(Some("https://www.omg.org/spec/KerML/20250201"));
-    m.index = IndexMap::from([("Sym".to_owned(), "b.sysml".to_owned())]);
+    m.index = Some(IndexMap::from([("Sym".to_owned(), "b.sysml".to_owned())]));
     let rendered = errors(
         &info("widgets", Some("acme"), "1.0.0"),
         &m,
@@ -1165,5 +1167,43 @@ fn a_typed_usage_keeps_the_json_spelling_here() {
     assert_eq!(
         usage.publisher().expect("a publisher").as_str(),
         "acme-corp"
+    );
+}
+
+/// The interim WP-A2a leaves and WP-A4 replaces: a Syside json project
+/// migrates as if it were an OMG one -- `sources` from the `checksum`
+/// keys, no `root` written -- and the manifest it produces then fails
+/// the Syside schema's missing-`root` check. Pinned so that WP-A4
+/// changes a recorded behaviour.
+#[test]
+fn a_syside_json_project_migrates_to_a_manifest_that_lacks_root() {
+    let mut meta = meta();
+    meta.index = None;
+    meta.root = Some("main.sysml".to_owned());
+    meta.exports = Some(vec!["Main".to_owned()]);
+    meta.metamodel = Some("https://www.sysand.com/spec/SysML/20250201".to_owned());
+    meta.checksum = Some(checksum_of(&["main.sysml"]));
+
+    let manifest = migrated(&info("widgets", Some("acme"), "1.0.0"), &meta);
+    assert_eq!(
+        manifest
+            .project
+            .sources
+            .as_ref()
+            .map(|s| s.iter().map(|p| p.as_str()).collect::<Vec<_>>()),
+        Some(vec!["main.sysml"])
+    );
+    assert!(
+        manifest.project.root.is_none(),
+        "`root` is not migrated yet (WP-A4)"
+    );
+    let report = manifest
+        .resolve(None)
+        .expect_err("the Syside schema wants `root`");
+    assert!(
+        report
+            .to_string()
+            .contains("missing key `root` in `[project]`; the Syside metamodel requires it"),
+        "{report}"
     );
 }

@@ -203,7 +203,15 @@ class InterchangeProjectChecksum(typing.TypedDict):
 
 
 class InterchangeProjectMetadata(typing.TypedDict):
-    index: dict[str, str]
+    """A ``.meta.json``, in one of two shapes. An OMG-metamodel project
+    carries ``index`` (symbol to file); a Syside-metamodel project carries
+    ``root`` and ``exports`` instead and no ``index``. A dict read from
+    Sysand has all three keys, the absent shape's as ``None``; a dict
+    passed to Sysand may leave them out."""
+
+    index: dict[str, str] | None
+    root: str | None
+    exports: list[str] | None
     created: str
     metamodel: str | None
     includes_derived: bool | None

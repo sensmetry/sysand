@@ -68,7 +68,9 @@ fn macro_get_project() {
         usage: vec![],
     };
     let meta = InterchangeProjectMetadataRaw {
-        index: indexmap::IndexMap::new(),
+        index: Some(indexmap::IndexMap::new()),
+        root: None,
+        exports: None,
         created: "0000-00-00T00:00:00.123456789Z".to_owned(),
         metamodel: None,
         includes_derived: None,
@@ -146,7 +148,9 @@ fn macro_put_info() {
 #[test]
 fn macro_put_meta() {
     let meta = InterchangeProjectMetadataRaw {
-        index: indexmap::IndexMap::new(),
+        index: Some(indexmap::IndexMap::new()),
+        root: None,
+        exports: None,
         created: "0000-00-00T00:00:00.123456789Z".to_owned(),
         metamodel: None,
         includes_derived: None,
