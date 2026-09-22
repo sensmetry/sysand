@@ -506,7 +506,7 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
             existing.usages = info
                 .usage
                 .into_iter()
-                .map(|u| Identifier::from_interchange_usage_unchecked(&u).into_string())
+                .filter_map(|u| Identifier::from_unvalidated_usage(&u).map(Identifier::into_string))
                 .collect();
             existing.checksum = checksum.map(Into::into);
         } else {

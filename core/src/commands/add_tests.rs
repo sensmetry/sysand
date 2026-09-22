@@ -184,3 +184,25 @@ fn add_allows_a_directory_usage_of_a_different_project() {
 
     assert_eq!(project.info.unwrap().usage.len(), 2);
 }
+
+#[test]
+fn add_leaves_a_usage_it_cannot_interpret_alone() {
+    // A manifest written by a newer sysand: one usage kind this build knows,
+    // one it does not.
+    let future_usage: InterchangeProjectUsageRaw = serde_json::from_value(serde_json::json!({
+        "registry": "https://example.com/i",
+        "publisher": "acme",
+        "name": "future"
+    }))
+    .unwrap();
+    let mut project = project_with_usage(future_usage.clone());
+
+    let added = do_add_guess(&mut project, "acme/widget".to_owned(), None).unwrap();
+
+    assert!(added);
+    let usages = &project.info.unwrap().usage;
+    // The entry sysand cannot interpret is still there, untouched, and it did
+    // not stop an unrelated dependency from being added.
+    assert_eq!(usages.len(), 2);
+    assert_eq!(usages[0], future_usage);
+}

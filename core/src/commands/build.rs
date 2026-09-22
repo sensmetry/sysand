@@ -298,6 +298,21 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
                 }
             });
 
+    // Deciding whether this project is portable means reading every usage,
+    // so a usage this build cannot interpret has to stop the build rather
+    // than be assumed harmless.
+    if let Some(unknown) = info.usage.iter().find_map(|usage| match usage {
+        InterchangeProjectUsageRaw::Unknown(unknown) => Some(unknown),
+        _ => None,
+    }) {
+        return Err(KParBuildError::Validation {
+            name: "project",
+            source: InterchangeProjectValidationError::UnknownUsageKind {
+                keys: unknown.quoted_keys(),
+            },
+        });
+    }
+
     if let Some(path_usage) = info.usage.iter().find_map(|x| {
         match x {
             InterchangeProjectUsageRaw::Resource { resource, .. } => {
@@ -320,6 +335,8 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
                 publisher: _,
                 name: _,
             } => Some(kpar_path),
+            // Refused above.
+            InterchangeProjectUsageRaw::Unknown(_) => None,
         }
     }) {
         if allow_path_usage {

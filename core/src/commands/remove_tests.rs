@@ -139,3 +139,27 @@ fn remove_still_reports_a_genuinely_absent_usage_as_missing() {
         "{message}"
     );
 }
+
+#[test]
+fn remove_leaves_a_usage_it_cannot_interpret_alone() {
+    let future_usage: InterchangeProjectUsageRaw = serde_json::from_value(serde_json::json!({
+        "registry": "https://example.com/i",
+        "publisher": "acme",
+        "name": "future"
+    }))
+    .unwrap();
+    let mut project = project_with_usage("pkg:sysand/acme/widget");
+    project
+        .info
+        .as_mut()
+        .unwrap()
+        .usage
+        .insert(0, future_usage.clone());
+
+    let removed = do_remove_guess(&mut project, "acme/widget".to_owned()).unwrap();
+
+    assert_eq!(removed.len(), 1);
+    // Rewriting the manifest to remove one usage must not drop the one this
+    // build cannot interpret.
+    assert_eq!(project.info.unwrap().usage, vec![future_usage]);
+}

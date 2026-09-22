@@ -517,6 +517,16 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
 
                 deps.push((DependencyIdentifier::Remote(usage.to_owned()), selected));
             }
+            // `validate` refuses a usage this build cannot interpret, so one
+            // never reaches the solver. Selecting nothing is the safe answer
+            // if that ever changes: it rules this candidate out rather than
+            // resolving a dependency sysand does not understand.
+            InterchangeProjectUsage::Unknown(_) => {
+                deps.push((
+                    DependencyIdentifier::Remote(usage.to_owned()),
+                    DiscreteHashSet::empty(),
+                ));
+            }
             InterchangeProjectUsage::Directory { .. }
             | InterchangeProjectUsage::KparPath { .. } => {
                 // Usually `candidates` will contain a single candidate for these types,

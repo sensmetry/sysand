@@ -178,6 +178,10 @@ impl ResolutionInfo {
 impl Display for ResolutionInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.usage {
+            // Unreachable in practice -- `validate` refuses an
+            // uninterpretable usage long before one is resolved -- but there
+            // is a truthful thing to print, so print it.
+            InterchangeProjectUsage::Unknown(unknown) => write!(f, "{unknown}")?,
             InterchangeProjectUsage::Resource {
                 resource,
                 version_constraint,

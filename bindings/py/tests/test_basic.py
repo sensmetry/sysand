@@ -950,3 +950,56 @@ def test_build(compression: Union[sysand.CompressionMethod, None]) -> None:
             project_path=tmp_main,
             compression=compression,
         )
+
+
+FUTURE_USAGE = {
+    "registry": "https://example.com/i",
+    "publisher": "acme",
+    "name": "future",
+}
+
+MANIFEST_FROM_A_NEWER_SYSAND = json.dumps(
+    {
+        "name": "probe",
+        "publisher": "acme",
+        "version": "0.0.1",
+        "usage": [
+            {"resource": "pkg:sysand/acme/lib", "versionConstraint": "^1"},
+            FUTURE_USAGE,
+        ],
+    },
+    indent=2,
+)
+
+
+def test_a_usage_kind_from_a_newer_sysand_is_readable(tmp_path: Path) -> None:
+    (tmp_path / ".project.json").write_text(MANIFEST_FROM_A_NEWER_SYSAND)
+    (tmp_path / ".meta.json").write_text(
+        '{"index": {}, "created": "2026-09-22T08:00:00Z"}'
+    )
+
+    info, _meta = sysand.info_path(path=tmp_path)
+
+    # Reading the project does not fail, and the entry this sysand cannot
+    # interpret comes back exactly as the document spells it.
+    assert info["usage"][1] == FUTURE_USAGE
+
+
+def test_a_usage_kind_from_a_newer_sysand_survives_an_edit(tmp_path: Path) -> None:
+    (tmp_path / ".project.json").write_text(MANIFEST_FROM_A_NEWER_SYSAND)
+
+    assert sysand.add(path=tmp_path, iri="acme/widget")
+
+    # Rewriting the manifest to add an unrelated dependency must not drop the
+    # one this sysand does not understand.
+    usages = json.loads((tmp_path / ".project.json").read_text())["usage"]
+    assert FUTURE_USAGE in usages
+
+
+def test_a_usage_kind_from_a_newer_sysand_cannot_be_written(tmp_path: Path) -> None:
+    sysand.init(path=tmp_path, name="probe", publisher="acme", version="0.0.1")
+
+    # Readable is not the same as writable: sysand refuses to declare a usage
+    # it could not act on itself.
+    with pytest.raises(sysand.ProjectError):
+        sysand.add(path=tmp_path, usage=FUTURE_USAGE)  # type: ignore[arg-type]

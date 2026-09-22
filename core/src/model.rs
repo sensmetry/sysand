@@ -47,6 +47,14 @@ pub const KERML_SPEC_PREFIX: &str = "https://www.omg.org/spec/KerML/";
     pyo3(from_item_all)
 )]
 #[serde(untagged)]
+// The catch-all `Unknown` variant is what keeps `.project.json` readable
+// across versions: a manifest declaring a usage kind only a newer sysand
+// knows still parses, so every command that does not have to interpret that
+// usage keeps working and rewrites it untouched. Interpreting one is refused
+// in `validate`, so an unknown dependency can never be silently dropped.
+//
+// It must stay the last variant: `untagged` tries variants in order and this
+// one matches any JSON object.
 pub enum InterchangeProjectUsageG<Iri, VersionReq, Path> {
     /// Untyped usage, the only shape KerML 1.0 specifies. Kept for
     /// compatibility with the spec. `resource` serves two roles at once: it is
@@ -87,6 +95,210 @@ pub enum InterchangeProjectUsageG<Iri, VersionReq, Path> {
         publisher: String,
         name: String,
     },
+    /// A usage entry this build cannot interpret, kept verbatim. See
+    /// [`UnknownUsage`]. Must stay last: `untagged` tries variants in order
+    /// and this one matches any JSON object.
+    Unknown(UnknownUsage),
+}
+
+/// The verbatim JSON of a `usage` entry whose shape this build does not
+/// recognize -- most often a usage kind introduced by a newer sysand, but
+/// also any entry too malformed to match a known kind.
+///
+/// Keeping it, instead of failing to parse the whole manifest, is what lets
+/// an older sysand still read and edit such a project: the entry survives a
+/// `get_info`/`put_info` round trip byte for byte, and only operations that
+/// would have to understand it refuse
+/// (see [`InterchangeProjectUsageG::validate`]).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct UnknownUsage(serde_json::Map<String, serde_json::Value>);
+
+impl UnknownUsage {
+    /// The entry's keys, in document order, quoted for an error message.
+    pub fn quoted_keys(&self) -> String {
+        if self.0.is_empty() {
+            return String::from("no keys");
+        }
+        self.0
+            .keys()
+            .map(|key| format!("`{key}`"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
+    /// The entry exactly as it appeared in the document.
+    pub fn as_object(&self) -> &serde_json::Map<String, serde_json::Value> {
+        &self.0
+    }
+}
+
+// `serde_json::Value` is `PartialEq` but neither `Eq` nor `Hash`, because a
+// JSON number is backed by an `f64`. It can never be a NaN -- `serde_json`
+// refuses to build one -- so equality here is reflexive and `Eq` holds.
+impl PartialEq for UnknownUsage {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl Eq for UnknownUsage {}
+
+impl Hash for UnknownUsage {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // Serializing is the cheapest way to hash consistently with the
+        // `PartialEq` above: `serde_json` is built with `preserve_order`, so
+        // two equal objects have the same keys in the same order and
+        // therefore the same serialization.
+        serde_json::to_string(&self.0)
+            .unwrap_or_default()
+            .hash(state);
+    }
+}
+
+impl Display for UnknownUsage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "unrecognized usage with {}", self.quoted_keys())
+    }
+}
+
+/// Python sees an unrecognized usage as the plain `dict` it is in the
+/// document, which is the only honest shape for it: sysand cannot name the
+/// fields of a kind it does not know.
+#[cfg(feature = "python")]
+mod unknown_usage_python {
+    use pyo3::exceptions::{PyTypeError, PyValueError};
+    use pyo3::types::{
+        PyAnyMethods as _, PyBool, PyBoolMethods as _, PyDict, PyDictMethods as _, PyFloat, PyInt,
+        PyList, PyListMethods as _, PyString, PyStringMethods as _,
+    };
+    use pyo3::{
+        Borrowed, Bound, FromPyObject, IntoPyObject, IntoPyObjectExt as _, PyAny, PyErr, PyResult,
+        Python,
+    };
+
+    use super::UnknownUsage;
+
+    fn to_py<'py>(py: Python<'py>, value: &serde_json::Value) -> PyResult<Bound<'py, PyAny>> {
+        Ok(match value {
+            serde_json::Value::Null => py.None().into_bound(py),
+            serde_json::Value::Bool(value) => value.into_bound_py_any(py)?,
+            serde_json::Value::Number(number) => {
+                if let Some(value) = number.as_i64() {
+                    value.into_bound_py_any(py)?
+                } else if let Some(value) = number.as_u64() {
+                    value.into_bound_py_any(py)?
+                } else {
+                    number
+                        .as_f64()
+                        .ok_or_else(|| PyValueError::new_err("unrepresentable JSON number"))?
+                        .into_bound_py_any(py)?
+                }
+            }
+            serde_json::Value::String(value) => value.into_bound_py_any(py)?,
+            serde_json::Value::Array(items) => {
+                let list = PyList::empty(py);
+                for item in items {
+                    list.append(to_py(py, item)?)?;
+                }
+                list.into_any()
+            }
+            serde_json::Value::Object(entries) => to_dict(py, entries)?.into_any(),
+        })
+    }
+
+    fn to_dict<'py>(
+        py: Python<'py>,
+        entries: &serde_json::Map<String, serde_json::Value>,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let dict = PyDict::new(py);
+        for (key, value) in entries {
+            dict.set_item(key, to_py(py, value)?)?;
+        }
+        Ok(dict)
+    }
+
+    fn from_py(object: &Bound<'_, PyAny>) -> PyResult<serde_json::Value> {
+        if object.is_none() {
+            return Ok(serde_json::Value::Null);
+        }
+        // Before the `PyInt` check: in Python, `bool` is a subclass of `int`.
+        if let Ok(value) = object.cast::<PyBool>() {
+            return Ok(serde_json::Value::Bool(value.is_true()));
+        }
+        if let Ok(value) = object.cast::<PyString>() {
+            return Ok(serde_json::Value::String(value.to_cow()?.into_owned()));
+        }
+        if object.cast::<PyInt>().is_ok() {
+            return Ok(serde_json::Value::Number(object.extract::<i64>()?.into()));
+        }
+        if object.cast::<PyFloat>().is_ok() {
+            let value = object.extract::<f64>()?;
+            return serde_json::Number::from_f64(value)
+                .map(serde_json::Value::Number)
+                .ok_or_else(|| PyValueError::new_err(format!("`{value}` is not valid JSON")));
+        }
+        if let Ok(entries) = object.cast::<PyDict>() {
+            return Ok(serde_json::Value::Object(from_dict(entries)?));
+        }
+        if let Ok(items) = object.cast::<PyList>() {
+            return Ok(serde_json::Value::Array(
+                items
+                    .iter()
+                    .map(|item| from_py(&item))
+                    .collect::<PyResult<Vec<_>>>()?,
+            ));
+        }
+        Err(PyTypeError::new_err(format!(
+            "`{}` cannot appear in a usage: expected a value JSON can hold",
+            object.get_type()
+        )))
+    }
+
+    fn from_dict(
+        entries: &Bound<'_, PyDict>,
+    ) -> PyResult<serde_json::Map<String, serde_json::Value>> {
+        let mut object = serde_json::Map::new();
+        for (key, value) in entries.iter() {
+            let key = key.cast::<PyString>().map_err(|_not_a_string| {
+                PyTypeError::new_err("a usage's keys must be strings, as JSON requires")
+            })?;
+            object.insert(key.to_cow()?.into_owned(), from_py(&value)?);
+        }
+        Ok(object)
+    }
+
+    impl<'py> IntoPyObject<'py> for UnknownUsage {
+        type Target = PyDict;
+        type Output = Bound<'py, PyDict>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            to_dict(py, &self.0)
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for &UnknownUsage {
+        type Target = PyDict;
+        type Output = Bound<'py, PyDict>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            to_dict(py, &self.0)
+        }
+    }
+
+    impl<'a, 'py> FromPyObject<'a, 'py> for UnknownUsage {
+        type Error = PyErr;
+
+        fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+            let object = obj.to_owned();
+            let entries = object.cast::<PyDict>().map_err(|_not_a_dict| {
+                PyTypeError::new_err("a usage must be a dict, as `.project.json` requires")
+            })?;
+            Ok(Self(from_dict(entries)?))
+        }
+    }
 }
 
 pub type InterchangeProjectUsageRaw = InterchangeProjectUsageG<String, String, String>;
@@ -149,6 +361,9 @@ impl InterchangeProjectUsageRaw {
                     source: e,
                 }),
             },
+            Self::Unknown(unknown) => Err(InterchangeProjectValidationError::UnknownUsageKind {
+                keys: unknown.quoted_keys(),
+            }),
             Self::KparPath {
                 kpar_path,
                 publisher,
@@ -182,6 +397,7 @@ impl<Iri, VersionReq, Path> InterchangeProjectUsageG<Iri, VersionReq, Path> {
             Self::Resource { .. } => "resource",
             Self::Directory { .. } => "directory",
             Self::KparPath { .. } => "KPAR path",
+            Self::Unknown(_) => "unrecognized",
         }
     }
 }
@@ -214,6 +430,7 @@ impl From<InterchangeProjectUsage> for InterchangeProjectUsageRaw {
                 publisher,
                 name,
             },
+            InterchangeProjectUsage::Unknown(unknown) => Self::Unknown(unknown),
         }
     }
 }
@@ -254,6 +471,7 @@ impl From<InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq, 
                 publisher,
                 name,
             },
+            InterchangeProjectUsageG::Unknown(unknown) => Self::Unknown(unknown),
         }
     }
 }
@@ -285,6 +503,9 @@ impl<Iri: Display, VersionReq: Display, Path: Display> Display
                 name,
             } => {
                 write!(f, "`{publisher}/{name}` in `{kpar_path}`")?;
+            }
+            Self::Unknown(unknown) => {
+                write!(f, "{unknown}")?;
             }
         }
         Ok(())
@@ -407,6 +628,9 @@ impl<Iri: PartialEq + Clone, Version, VersionReq: Clone, Path>
                     publisher: p,
                     name: n,
                 } => p == publisher && n == name,
+                // No publisher or name to compare: an entry this build
+                // cannot interpret is never removed by one.
+                InterchangeProjectUsageG::Unknown(_) => false,
             })
             .collect()
     }
@@ -703,6 +927,15 @@ impl From<InterchangeProjectMetadata> for InterchangeProjectMetadataRaw {
 
 #[derive(Error, Debug)]
 pub enum InterchangeProjectValidationError {
+    /// A `usage` entry matched no known kind. It is kept verbatim so the
+    /// manifest stays readable and editable, and refused here, where a
+    /// caller is about to act on it as a dependency.
+    #[error(
+        "`.project.json` declares a usage this sysand cannot interpret, with keys {keys};\n\
+        it is either a usage kind from a newer sysand, in which case upgrading\n\
+        sysand will resolve it, or a malformed entry"
+    )]
+    UnknownUsageKind { keys: String },
     #[error("invalid website (`website` field in `.project.json`) `{0}`")]
     InvalidWebsite(String, #[source] fluent_uri::ParseError),
     #[error("invalid usage resource `{0}`")]

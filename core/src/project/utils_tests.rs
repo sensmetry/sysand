@@ -247,26 +247,26 @@ fn identifier_from_kpar_path_usage_purl_safe() {
 }
 
 #[test]
-fn identifier_from_interchange_usage_unchecked_resource() {
+fn identifier_from_an_unvalidated_resource_usage() {
     let usage = InterchangeProjectUsageRaw::Resource {
         resource: "urn:kpar:test".to_owned(),
         version_constraint: None,
     };
     assert_eq!(
-        Identifier::from_interchange_usage_unchecked(&usage).as_str(),
+        Identifier::from_unvalidated_usage(&usage).unwrap().as_str(),
         "urn:kpar:test"
     );
 }
 
 #[test]
-fn identifier_from_interchange_usage_unchecked_directory() {
+fn identifier_from_an_unvalidated_directory_usage() {
     let usage = InterchangeProjectUsageRaw::Directory {
         dir: "dep".to_owned(),
         publisher: "acme-corp".to_owned(),
         name: "my-lib".to_owned(),
     };
     assert_eq!(
-        Identifier::from_interchange_usage_unchecked(&usage).as_str(),
+        Identifier::from_unvalidated_usage(&usage).unwrap().as_str(),
         "pkg:sysand/acme-corp/my-lib"
     );
 }

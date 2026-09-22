@@ -357,6 +357,7 @@ pub fn get_project_version<R: ResolveRead>(
                     None,
                     InterchangeProjectUsage::Directory { .. }
                     | InterchangeProjectUsage::KparPath { .. }
+                    | InterchangeProjectUsage::Unknown(_)
                     | InterchangeProjectUsage::Resource {
                         version_constraint: Some(_),
                         ..

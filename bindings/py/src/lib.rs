@@ -1583,6 +1583,7 @@ fn info_and_metadata_fields_guard(
                 publisher,
                 name,
             } => {}
+            InterchangeProjectUsageRaw::Unknown(unknown) => {}
         }
     }
 

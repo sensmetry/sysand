@@ -162,11 +162,14 @@ What already protects them, and must keep working:
   adding a new optional field is always safe. Do not add
   `#[serde(deny_unknown_fields)]` to any type that either file deserializes
   into.
-- A new `usage` kind in `.project.json` is the one change these rules do not
-  make safe: the usage list deserializes through an untagged enum with no
-  catch-all, so a manifest declaring a kind a build does not know fails to
-  parse in full. Every command on that project stops working, not just the
-  ones that resolve it.
+- A `usage` entry matching no kind a build knows deserializes into
+  `InterchangeProjectUsageG::Unknown`, which holds its JSON verbatim. Such a
+  project can still be read and edited, and rewriting the manifest puts the
+  entry back untouched; only an operation that would act on it as a
+  dependency refuses. Keep it that way, so that introducing a fourth usage
+  kind never costs older sysands the ability to read a manifest. Builds
+  released before this one fail to parse one outright, which is what sets
+  the floor for when a new kind can be introduced.
 
 [semver 2]: https://semver.org/
 
