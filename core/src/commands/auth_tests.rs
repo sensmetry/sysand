@@ -683,6 +683,24 @@ mod login {
     /// The motivating GitLab-shaped target: the key is the template's
     /// canonical `Display` text, with the literal prefix normalized at
     /// parse time.
+    /// A filesystem index has nothing to authenticate to; both spellings
+    /// are refused here rather than inherited from `IndexLocation`.
+    #[test]
+    fn auth_refuses_filesystem_index() {
+        assert_matches!(
+            IndexKey::validate("file:///srv/mirror"),
+            Err(AuthCommandError::NotHttpIndex { .. })
+        );
+        assert_matches!(
+            IndexKey::validate("./mirror"),
+            Err(AuthCommandError::InvalidIndexUrl(_))
+        );
+        assert_matches!(
+            IndexKey::validate("/srv/mirror"),
+            Err(AuthCommandError::InvalidIndexUrl(_))
+        );
+    }
+
     #[test]
     fn template_key_is_the_template_with_a_normalized_prefix() {
         let gitlab =

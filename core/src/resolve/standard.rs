@@ -8,10 +8,10 @@ use reqwest_middleware::ClientWithMiddleware;
 use crate::{
     auth::HTTPAuthentication,
     env::{
-        discovery::DiscoveryError, index::IndexEnvironmentAsync,
-        local_directory::LocalDirectoryEnvironment,
+        any_index::AnyIndexEnvironment, discovery::DiscoveryError, index::IndexEnvironmentAsync,
+        local_directory::LocalDirectoryEnvironment, local_index::LocalIndexEnvironment,
     },
-    index_location::IndexLocation,
+    index_location::IndexSource,
     resolve::{
         AsSyncResolveTokio, ResolutionInfo, ResolveRead, ResolveReadAsync as _,
         combined::CombinedResolver,
@@ -26,14 +26,15 @@ use crate::{
 
 pub type LocalEnvResolver = EnvResolver<LocalDirectoryEnvironment>;
 
-pub type RemoteIndexResolver<Policy> =
-    SequentialResolver<EnvResolver<IndexEnvironmentAsync<Policy>>>;
+/// The configured indexes in order, HTTP and filesystem alike
+/// (`design/index-protocol.md` "Filesystem indexes").
+pub type IndexResolver<Policy> = SequentialResolver<EnvResolver<AnyIndexEnvironment<Policy>>>;
 
 type StandardResolverInner<Policy> = CombinedResolver<
     FileResolver,
     LocalEnvResolver,
     RemoteResolver<AsSyncResolveTokio<HTTPResolverAsync<Policy>>, GitResolver>,
-    AsSyncResolveTokio<RemoteIndexResolver<Policy>>,
+    AsSyncResolveTokio<IndexResolver<Policy>>,
 >;
 
 pub struct StandardResolver<Policy: HTTPAuthentication>(StandardResolverInner<Policy>);
@@ -99,22 +100,31 @@ pub fn standard_local_resolver(local_env: LocalDirectoryEnvironment) -> LocalEnv
 
 pub fn standard_index_resolver<Policy: HTTPAuthentication>(
     client: ClientWithMiddleware,
-    urls: Vec<IndexLocation>,
+    sources: Vec<IndexSource>,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
-) -> Result<AsSyncResolveTokio<RemoteIndexResolver<Policy>>, DiscoveryError> {
+) -> Result<AsSyncResolveTokio<IndexResolver<Policy>>, DiscoveryError> {
     // Each user-configured URL is a discovery root. Do not fetch
     // `sysand-index-config.json` here: resolver construction happens for
     // commands and bindings before we know whether an index dependency is
     // needed at all. The env resolves discovery lazily on first index use.
-    let envs: Vec<EnvResolver<IndexEnvironmentAsync<Policy>>> = urls
+    // A filesystem index has no discovery step at all; its directory is
+    // read on first use the same way.
+    let envs: Vec<EnvResolver<AnyIndexEnvironment<Policy>>> = sources
         .into_iter()
-        .map(|discovery_root| {
-            let env = IndexEnvironmentAsync::from_discovery_root(
-                client.clone(),
-                auth_policy.clone(),
-                discovery_root,
-            );
+        .map(|source| {
+            let env = match source {
+                IndexSource::Remote(discovery_root) => {
+                    AnyIndexEnvironment::Remote(IndexEnvironmentAsync::from_discovery_root(
+                        client.clone(),
+                        auth_policy.clone(),
+                        discovery_root,
+                    ))
+                }
+                IndexSource::Filesystem(path) => {
+                    AnyIndexEnvironment::Filesystem(LocalIndexEnvironment::new(path))
+                }
+            };
             EnvResolver { env }
         })
         .collect();
@@ -125,7 +135,7 @@ pub fn standard_index_resolver<Policy: HTTPAuthentication>(
 pub fn standard_resolver<Policy: HTTPAuthentication>(
     local_env: Option<LocalDirectoryEnvironment>,
     client: Option<ClientWithMiddleware>,
-    index_urls: Option<Vec<IndexLocation>>,
+    index_urls: Option<Vec<IndexSource>>,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
 ) -> Result<StandardResolver<Policy>, DiscoveryError> {
@@ -146,3 +156,7 @@ pub fn standard_resolver<Policy: HTTPAuthentication>(
         index_resolver,
     }))
 }
+
+#[cfg(test)]
+#[path = "./standard_tests.rs"]
+mod tests;

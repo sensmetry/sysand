@@ -24,6 +24,9 @@ use thiserror::Error;
 use crate::project::utils::FsIoError;
 
 pub const INDEX_FILE_NAME: &str = "index.json";
+/// The discovery document `sysand index init` writes; the wire contract
+/// is `design/index-protocol.md` §3 (`env::discovery` reads it).
+pub const INDEX_CONFIG_FILE_NAME: &str = "sysand-index-config.json";
 pub const VERSIONS_FILE_NAME: &str = "versions.json";
 pub const KPAR_FILE_NAME: &str = "project.kpar";
 pub const INFO_FILE_NAME: &str = ".project.json";

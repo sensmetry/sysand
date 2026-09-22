@@ -179,6 +179,15 @@ impl LocalKParProject {
         }
     }
 
+    /// Require the archive to have exactly this size and digest; an
+    /// index entry's advertised values, verified when the archive is
+    /// first opened (see `ensure_initialized`).
+    #[must_use]
+    pub fn expecting(mut self, expected: KparMeta) -> Self {
+        self.expected = Some(expected);
+        self
+    }
+
     /// Like [`Self::new_access`], but the archive must have the size and
     /// digest `expected`, e.g. those a lockfile records
     pub fn new_with_expected(

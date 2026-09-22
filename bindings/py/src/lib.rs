@@ -44,18 +44,20 @@ use sysand_core::{
     discover::discover_project,
     env::{
         DEFAULT_ENV_NAME, PutProjectError, ReadEnvironment,
+        any_index::AnyIndexError,
         discovery::DiscoveryError,
         index::{HttpFetchError, IndexEnvironmentError},
         local_directory::{
             LocalDirectoryEnvironment, LocalWriteError,
             metadata::{EnvMetadataError, EnvProject, EnvProjectChecksum},
         },
+        local_index::LocalIndexError,
         null::NullEnvironment,
         utils::{CloneError, ErrorBound},
     },
     exclude::do_exclude,
     include::do_include,
-    index_location::IndexLocation,
+    index_location::IndexSource,
     info::{InfoError, InfoProjectError, do_info, do_info_project},
     init::InitError,
     lock::{Lock, Lockfile, Project as LockedProject},
@@ -408,7 +410,7 @@ fn build_auth_policy(spec: &AuthSpec) -> PyResult<Arc<CliAuthPolicy>> {
 /// The index URLs a call resolves against: `None` means "no index" (the
 /// `use_index=False`), otherwise the CLI's merge of explicit indexes,
 /// configuration files, and the default index.
-fn index_locations(spec: &ResolutionSpec, config: &Config) -> PyResult<Option<Vec<IndexLocation>>> {
+fn index_locations(spec: &ResolutionSpec, config: &Config) -> PyResult<Option<Vec<IndexSource>>> {
     if !spec.use_index {
         return Ok(None);
     }
@@ -420,9 +422,9 @@ fn index_locations(spec: &ResolutionSpec, config: &Config) -> PyResult<Option<Ve
     Ok(Some(locations))
 }
 
-fn parse_index_locations(urls: &[String]) -> PyResult<Vec<IndexLocation>> {
+fn parse_index_locations(urls: &[String]) -> PyResult<Vec<IndexSource>> {
     urls.iter()
-        .map(|url| IndexLocation::parse(url).map_err(|e| PyValueError::new_err(format_err(e))))
+        .map(|url| IndexSource::parse(url).map_err(|e| PyValueError::new_err(format_err(e))))
         .collect()
 }
 
@@ -490,16 +492,16 @@ fn info_error_to_pyerr<OverrideError: ErrorBound>(
 }
 
 fn combined_error_to_pyerr<F, L, R>(
-    err: &CombinedResolverError<F, L, R, IndexEnvironmentError>,
+    err: &CombinedResolverError<F, L, R, AnyIndexError>,
     message: String,
     auth: &AuthSpec,
     policy: &CliAuthPolicy,
 ) -> PyErr {
     match err {
-        CombinedResolverError::Index(
+        CombinedResolverError::Index(AnyIndexError::Remote(
             IndexEnvironmentError::Discovery(DiscoveryError::Fetch(fetch))
             | IndexEnvironmentError::Fetch(fetch),
-        ) => match fetch {
+        )) => match fetch {
             HttpFetchError::BadHttpStatus { url, status }
                 if matches!(status.as_u16(), 401 | 403) =>
             {
@@ -509,7 +511,16 @@ fn combined_error_to_pyerr<F, L, R>(
             HttpFetchError::Request { url: _, source: _ } => PyResolutionError::new_err(message),
             _ => PyIndexProtocolError::new_err(message),
         },
-        CombinedResolverError::Index { 0: _ } => PyIndexProtocolError::new_err(message),
+        // A filesystem index that cannot be reached or is not an index
+        // at all is the caller's configuration, like a refused
+        // connection; a directory that is an index but breaks the
+        // protocol's rules is malformed, like a bad `versions.json`.
+        CombinedResolverError::Index(AnyIndexError::Filesystem(
+            LocalIndexError::NeitherIndexNorFolder { .. }
+            | LocalIndexError::NotADirectory { .. }
+            | LocalIndexError::Io(_),
+        )) => PyResolutionError::new_err(message),
+        CombinedResolverError::Index(_) => PyIndexProtocolError::new_err(message),
         _ => PyResolutionError::new_err(message),
     }
 }

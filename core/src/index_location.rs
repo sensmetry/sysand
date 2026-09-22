@@ -67,9 +67,15 @@ pub enum IndexLocationError {
     },
     #[error(
         "index URL `{url}` is relative;\n\
-         index locations must be absolute HTTP(S) URLs"
+         index locations must be absolute HTTP(S) URLs,\n\
+         or a filesystem index spelled `./<dir>`, `/<dir>` or `file:///<dir>`"
     )]
     RelativeUrl { url: Box<str> },
+    #[error(
+        "index URL `{url}` does not name a local path;\n\
+         a `file://` index must be a local absolute path such as `file:///<dir>`"
+    )]
+    FileUrlNotPath { url: Box<str> },
     #[error(
         "index URL `{url}` contains `%7B`/`%7D` (percent-encoded braces);\n\
          did you mean a `{{path}}` template? Placeholders must be written\n\
@@ -423,6 +429,127 @@ impl<'de> serde::Deserialize<'de> for IndexLocation {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let s = Cow::deserialize(deserializer)?;
         Self::parse(&s).map_err(serde::de::Error::custom)
+    }
+}
+
+/// Serialized as its `Display` text, like [`IndexLocation`]
+impl serde::Serialize for IndexSource {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(self)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for IndexSource {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = Cow::deserialize(deserializer)?;
+        Self::parse(&s).map_err(serde::de::Error::custom)
+    }
+}
+
+/// Where an index is read from: an HTTP(S) [`IndexLocation`], or a
+/// directory on this machine. Both modes of a filesystem index (a
+/// structured mirror written by `sysand index`, or a bare folder of
+/// `.kpar` files) share the one spelling; the environment tells them
+/// apart when it first reads the directory (`env::local_index`).
+///
+/// The filesystem spelling is a path (`./<dir>`, `/<dir>`, `C:\<dir>`,
+/// `\\server\share`) or a `file://` URL naming a local path. A URL
+/// template never names a path. A relative path is kept as written and
+/// resolved against the current directory when the environment is built,
+/// so `Display` round-trips the user's spelling.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IndexSource {
+    Remote(IndexLocation),
+    Filesystem(camino::Utf8PathBuf),
+}
+
+impl IndexSource {
+    /// Parse a user-supplied index spelling. Template syntax and `http(s)`
+    /// URLs go to [`IndexLocation::parse`]; `file:` URLs and path syntax
+    /// become [`Self::Filesystem`]. Anything else is judged by
+    /// `IndexLocation::parse`, whose relative-URL refusal names the path
+    /// spellings.
+    pub fn parse(s: &str) -> Result<Self, IndexLocationError> {
+        // A path may legitimately contain braces, so path syntax is judged
+        // before template syntax; a template never has path syntax.
+        if is_path_syntax(s) {
+            return Ok(Self::Filesystem(camino::Utf8PathBuf::from(s)));
+        }
+        if has_file_scheme(s) {
+            let url = url::Url::parse(s).map_err(|source| IndexLocationError::InvalidUrl {
+                url: redact_userinfo(s),
+                source,
+            })?;
+            let path =
+                file_url_to_path(&url).ok_or_else(|| IndexLocationError::FileUrlNotPath {
+                    url: redact_userinfo(s),
+                })?;
+            return Ok(Self::Filesystem(path));
+        }
+        Ok(Self::Remote(IndexLocation::parse(s)?))
+    }
+
+    /// The HTTP(S) location, if this is not a filesystem index.
+    pub fn as_remote(&self) -> Option<&IndexLocation> {
+        match self {
+            Self::Remote(location) => Some(location),
+            Self::Filesystem(_) => None,
+        }
+    }
+}
+
+impl fmt::Display for IndexSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Remote(location) => write!(f, "{location}"),
+            Self::Filesystem(path) => f.write_str(path.as_str()),
+        }
+    }
+}
+
+impl FromStr for IndexSource {
+    type Err = IndexLocationError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s)
+    }
+}
+
+/// The local path a `file:` URL names, when it names one. `url`'s own
+/// conversion exists only on hosts with a filesystem, and the crate also
+/// builds for wasm, where no `file:` index can be read anyway.
+#[cfg(any(unix, windows))]
+fn file_url_to_path(url: &url::Url) -> Option<camino::Utf8PathBuf> {
+    let path = url.to_file_path().ok()?;
+    camino::Utf8PathBuf::from_path_buf(path).ok()
+}
+
+#[cfg(not(any(unix, windows)))]
+fn file_url_to_path(_url: &url::Url) -> Option<camino::Utf8PathBuf> {
+    None
+}
+
+/// `file:` scheme, matched case-insensitively as RFC 3986 requires.
+fn has_file_scheme(s: &str) -> bool {
+    s.len() > 5 && s.as_bytes()[4] == b':' && s[..4].eq_ignore_ascii_case("file")
+}
+
+/// Path syntax: a rooted path (`/`, `\`), a dot-relative path (`.`,
+/// `..`, `./`, `.\`, `../`, `..\`) or a Windows drive (`C:`, `C:\`,
+/// `C:/`). Anything else -- a bare name, a URL -- is not a path spelling,
+/// so `example.org/index` is refused as a relative URL.
+fn is_path_syntax(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    let is_sep = |b: u8| b == b'/' || b == b'\\';
+    match bytes {
+        [] => false,
+        [b'.'] | [b'.', b'.'] => true,
+        [first, ..] if is_sep(*first) => true,
+        [b'.', second, ..] if is_sep(*second) => true,
+        [b'.', b'.', third, ..] if is_sep(*third) => true,
+        [drive, b':'] if drive.is_ascii_alphabetic() => true,
+        [drive, b':', third, ..] if drive.is_ascii_alphabetic() && is_sep(*third) => true,
+        _ => false,
     }
 }
 

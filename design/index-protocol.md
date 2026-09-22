@@ -526,6 +526,62 @@ only supported path for creating and mutating an index tree.
 version spelled differently from the project's existing versions, and any
 version at all of a project whose existing versions already disagree.
 
+`sysand index init` writes `index.json` and a `sysand-index-config.json`
+holding `{}`: the discovery document whose every field defaults ([§3]),
+so the same directory reads as an index from disk ([§16]) and, once
+served over HTTP, is discovered as the index it already was.
+
+## 16. Filesystem indexes
+
+An index MAY be read from a directory on the client's own machine, in
+either of two shapes. The user spells it as a path (`./mirror`,
+`/srv/mirror`, `C:\mirror`) or as a `file://` URL naming a local path,
+wherever an index URL is accepted: `--index`, `--default-index`,
+`sysand.toml` `[[index]]`. A relative path is resolved against the
+process's current directory. URL templates ([§3.1]) never name a
+directory, and `sysand auth` refuses a filesystem location: there is
+nothing to authenticate to.
+
+- **Structured** -- the tree of [§4] as `sysand index` writes it. The
+  client reads `index.json`, `<segments>/versions.json` and
+  `<segments>/<version>/project.kpar` with the rules of [§7]-[§9] and
+  [§12] applied unchanged: entries are validated at ingest, retired
+  entries are excluded from new resolutions, an absent `versions.json`
+  means the project is not in this index, and the archive is verified
+  against the entry's `kpar_size` and `kpar_digest` when opened.
+- **Folder** -- a bare directory of `*.kpar` files (the extension
+  compared case-insensitively, not recursive) with no metadata. Each
+  archive's `.project.json` supplies `publisher`, `name` and `version`,
+  and the client synthesizes the `versions.json` view an index would have
+  advertised: the IRI is `pkg:sysand/<publisher>/<name>`, versions are
+  ordered by semver precedence, and every entry is available. An archive
+  with no `publisher`, a non-semver `version`, or a second archive with
+  an identity and version already seen is an error naming the archive.
+
+The shape is detected once per run when the directory is first read:
+`index.json` present means structured; otherwise any `*.kpar` means
+folder; otherwise the directory is refused (it is neither a Sysand index
+nor a folder of KPARs). Neither shape is a fallback for the other and
+the client emits no warning about either choice.
+
+There is no discovery step ([§3]) -- the directory is `index_root`, and
+a directory has no `api_root`, so `sysand publish` refuses it (archives
+enter through `sysand index add`). Every path the index names -- an
+archive under a version directory, a `versions.json`, an enumerated
+`*.kpar` -- is canonicalized (symlinks resolved) and MUST stay under
+the canonicalized root; an entry that escapes it is refused. A
+directory a user was handed is trusted less than a server, not more.
+
+Indexes are consulted as a union in the user's configured order, over
+either transport: a folder next to an HTTP index adds candidates and
+the HTTP index is still contacted. A resolution that must make no
+network request configures the filesystem index as the only index
+(`--default-index <dir>` replaces the built-in default). A project
+resolved from a filesystem index is recorded in the lockfile as a local
+archive (`kpar_path` relative to the workspace root, with the archive's
+size and digest), so `sync` installs it as it installs any local KPAR;
+the same dependency resolved over HTTP records an `index_kpar` URL.
+
 [§1]: #1-scope
 [§2]: #2-implementability
 [§3]: #3-discovery-and-configuration
@@ -542,6 +598,7 @@ version at all of a project whose existing versions already disagree.
 [§13]: #13-immutability-and-lockfile-reproducibility
 [§14]: #14-forward-compatibility
 [§15]: #15-sysand-index-cli-preview
+[§16]: #16-filesystem-indexes
 [rfc2119]: https://www.rfc-editor.org/rfc/rfc2119.html
 [rfc3986-2]: https://www.rfc-editor.org/rfc/rfc3986.html#section-2
 [rfc3986-43]: https://www.rfc-editor.org/rfc/rfc3986.html#section-4.3

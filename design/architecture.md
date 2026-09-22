@@ -121,9 +121,11 @@ environment can handle allocation and cleanup), `del_project_version`, and
 `del_uri`.
 
 Notable implementations include `LocalDirectoryEnvironment` (filesystem),
-`MemoryStorageEnvironment<Project>` (in-memory), and
+`MemoryStorageEnvironment<Project>` (in-memory),
 `IndexEnvironmentAsync<Policy>` (remote sysand index; see
-"Index environment" below).
+"Index environment" below) and `LocalIndexEnvironment` (the same index
+read from a directory, in either of the two shapes
+`index-protocol.md` §16 names).
 
 ### Async variants
 
@@ -390,3 +392,14 @@ Sysand-core specifics that aren't part of the protocol:
   populates source-level `kpar_size` and `kpar_digest` directly from
   `versions.json`, so lockfile writing records archive metadata without a HEAD
   round-trip.
+- `LocalIndexEnvironment` (`env/local_index.rs`) reads the same index
+  from a directory, structured or as a bare folder of archives, with
+  blocking `std::fs` calls inside the async trait methods; its
+  per-version leaf is a `LocalKParProject` whose `sources` is
+  `Source::LocalKpar` relative to the workspace root. `ReadEnvironmentAsync`
+  is not dyn-compatible, so `AnyIndexEnvironment<Policy>`
+  (`env/any_index.rs`) dispatches between the two transports by enum,
+  and `standard_index_resolver` builds one arm per configured
+  `IndexSource` (`index_location.rs`: an HTTP(S) `IndexLocation` or a
+  filesystem path). The environment builds with the `filesystem`
+  feature alone; the resolver and the CLI still require `networking`.

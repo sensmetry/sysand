@@ -82,6 +82,8 @@ pub fn resolve_default_index(config: &Config) -> Result<IndexKey, DefaultIndexEr
         config
             .default_index_locations()
             .into_iter()
+            // A filesystem index takes no credentials
+            .filter_map(|source| source.as_remote().cloned())
             .map(IndexKey::from)
             .collect()
     } else {
@@ -98,7 +100,11 @@ pub fn resolve_default_index(config: &Config) -> Result<IndexKey, DefaultIndexEr
     }
     match candidates.pop() {
         Some(key) => Ok(key),
-        None => Ok(default_index_location().into()),
+        None => Ok(default_index_location()
+            .as_remote()
+            .cloned()
+            .expect("BUG: the built-in default index is an HTTP(S) index")
+            .into()),
     }
 }
 

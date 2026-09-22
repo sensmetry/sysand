@@ -18,11 +18,8 @@
 //!   does not use `#[serde(deny_unknown_fields)]` so new optional fields are
 //!   ignored by default.
 
-#![expect(clippy::field_scoped_visibility_modifiers)]
-
 use std::{
     collections::{HashMap, hash_map::Entry},
-    num::NonZeroU64,
     rc::Rc,
     sync::Arc,
 };
@@ -40,10 +37,9 @@ use crate::{
     },
     index::{
         iri::ParseIriError,
-        model::{IndexJson, ProjectStatus, VersionStatus, VersionsJson},
+        model::{IndexJson, ProjectStatus, VersionStatus, VersionsJson, VersionsJsonError},
     },
     index_location::IndexLocation,
-    model::InterchangeProjectUsageRaw,
     project::{
         index_entry::{IndexEntryProject, IndexEntryProjectError},
         utils::ExpectedIdentity,
@@ -148,51 +144,7 @@ impl<Policy> IndexEnvironmentAsync<Policy> {
 /// cached.
 pub(crate) type VersionsCacheEntry = Rc<[AdvertisedVersion]>;
 
-/// A validated sha256 hex digest — 64 lowercase hex characters, with the
-/// `"sha256:"` prefix already stripped. Constructed via `TryFrom<&str>`
-/// which performs the only digest validation pass in this module: both
-/// ingest (`validate_versions`) and every downstream site use the
-/// result of that parse, so there is no second "is this hex?" check hiding
-/// at the point of use. Uppercase hex is rejected rather than normalized —
-/// the wire format is lowercase-only.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Sha256HexDigest(String);
-
-impl Sha256HexDigest {
-    pub(crate) fn as_hex(&self) -> &str {
-        &self.0
-    }
-}
-
-impl TryFrom<&str> for Sha256HexDigest {
-    type Error = ();
-
-    fn try_from(raw: &str) -> Result<Self, Self::Error> {
-        let hex = raw.strip_prefix("sha256:").ok_or(())?;
-        if hex.len() != 64
-            || !hex
-                .bytes()
-                .all(|c| c.is_ascii_digit() || matches!(c, b'a'..=b'f'))
-        {
-            return Err(());
-        }
-        Ok(Self(hex.to_owned()))
-    }
-}
-
-/// A `versions.json` entry after ingest-time validation: `version` is parsed
-/// into `semver::Version`, digests are validated lowercase hex without the
-/// wire prefix, and `usage`/non-zero `kpar_size` are carried through. This
-/// is the representation the cache stores and the rest of the crate sees —
-/// the raw [`VersionEntry`] is only alive briefly during deserialization.
-#[derive(Debug, Clone)]
-pub(crate) struct AdvertisedVersion {
-    pub(crate) version: semver::Version,
-    pub(crate) usage: Vec<InterchangeProjectUsageRaw>,
-    pub(crate) kpar_size: NonZeroU64,
-    pub(crate) kpar_digest: Sha256HexDigest,
-    pub(crate) status: VersionStatus,
-}
+pub(crate) use crate::index::model::AdvertisedVersion;
 
 #[derive(Error, Debug)]
 pub enum IndexEnvironmentError {
@@ -200,37 +152,10 @@ pub enum IndexEnvironmentError {
     Discovery(#[from] DiscoveryError),
     #[error(transparent)]
     Fetch(#[from] HttpFetchError),
-    #[error(
-        "versions.json at `{url}` has entry for version `{version}` with \
-         malformed `{field}` = `{value}` (expected `sha256:<64-hex>`)"
-    )]
-    InvalidVersionEntry {
-        url: Box<str>,
-        version: String,
-        field: &'static str,
-        value: String,
-    },
-    #[error("versions.json at `{url}` has entry with non-semver version `{value}`")]
-    InvalidSemverVersion {
-        url: Box<str>,
-        value: String,
-        #[source]
-        source: semver::Error,
-    },
-    #[error(
-        "versions.json at `{url}` has entry with version `{value}` carrying build metadata; \
-         build metadata is not permitted in index-advertised versions"
-    )]
-    VersionHasBuildMetadata { url: Box<str>, value: String },
-    #[error(
-        "versions.json at `{url}` is not in descending semver precedence: \
-         `{prev}` precedes `{curr}` in wire order"
-    )]
-    VersionsOutOfOrder {
-        url: Box<str>,
-        prev: String,
-        curr: String,
-    },
+    /// The `versions.json` shape rules (`design/index-protocol.md` §8),
+    /// shared with the filesystem index.
+    #[error(transparent)]
+    Versions(#[from] VersionsJsonError),
     #[error("versions.json at `{url}` does not list version `{version}`")]
     VersionNotInIndex { url: Box<str>, version: String },
     #[error("project `{iri}` is not in this index (versions.json at `{url}` returned 404)")]
@@ -243,8 +168,6 @@ pub enum IndexEnvironmentError {
         iri: String,
         version: String,
     },
-    #[error("versions.json at `{url}` lists version `{version}` more than once")]
-    DuplicateVersion { url: Box<str>, version: String },
     #[error(transparent)]
     MalformedIri(#[from] ParseIriError),
     #[error(transparent)]
@@ -428,75 +351,14 @@ impl<Policy: HTTPAuthentication> IndexEnvironmentAsync<Policy> {
 ///
 /// Ordering is checked at ingest on the parsed `semver::Version`, not
 /// lexically — violations surface as
-/// [`IndexEnvironmentError::VersionsOutOfOrder`]. pubgrub's internal
+/// [`VersionsJsonError::VersionsOutOfOrder`]. pubgrub's internal
 /// sorting during solving does not mask the bug at the protocol
 /// boundary.
 fn validate_versions(
     url: &url::Url,
     vs: VersionsJson,
 ) -> Result<Rc<[AdvertisedVersion]>, IndexEnvironmentError> {
-    let validated: Rc<[AdvertisedVersion]> = vs
-        .versions
-        .into_iter()
-        .map(|entry| {
-            let version = Version::parse(&entry.version).map_err(|source| {
-                IndexEnvironmentError::InvalidSemverVersion {
-                    url: url.as_str().into(),
-                    value: entry.version.clone(),
-                    source,
-                }
-            })?;
-            // `semver::Version::parse` is lenient on the `+build…`
-            // suffix; the wire-format rejection lives here.
-            if !version.build.is_empty() {
-                return Err(IndexEnvironmentError::VersionHasBuildMetadata {
-                    url: url.as_str().into(),
-                    value: entry.version,
-                });
-            }
-            let kpar_digest =
-                Sha256HexDigest::try_from(entry.kpar_digest.as_str()).map_err(|()| {
-                    IndexEnvironmentError::InvalidVersionEntry {
-                        url: url.as_str().into(),
-                        version: entry.version.clone(),
-                        field: "kpar_digest",
-                        value: entry.kpar_digest.clone(),
-                    }
-                })?;
-            Ok::<_, IndexEnvironmentError>(AdvertisedVersion {
-                version,
-                usage: entry.usage,
-                kpar_size: entry.kpar_size,
-                kpar_digest,
-                status: entry.status,
-            })
-        })
-        .collect::<Result<_, _>>()?;
-    // "Pick the best duplicate" has no principled answer — two entries
-    // with the same semver may carry different digests. Letting them
-    // reach `resolve_candidates` would leak non-determinism into
-    // pubgrub, so reject here.
-    let mut seen = std::collections::HashSet::new();
-    for v in validated.iter() {
-        if !seen.insert(v.version.clone()) {
-            return Err(IndexEnvironmentError::DuplicateVersion {
-                url: url.as_str().into(),
-                version: v.version.to_string(),
-            });
-        }
-    }
-    // Parsed-semver ordering check — catches `10.0.0-beta.1` before
-    // `10.0.0`, which lexical order would miss.
-    for [v1, v2] in validated.array_windows() {
-        if v1.version <= v2.version {
-            return Err(IndexEnvironmentError::VersionsOutOfOrder {
-                url: url.as_str().into(),
-                prev: v1.version.to_string(),
-                curr: v2.version.to_string(),
-            });
-        }
-    }
-    Ok(validated)
+    Ok(crate::index::model::validate_versions(url.as_str(), vs)?.into())
 }
 
 type ResultStream<T> = futures::stream::Iter<std::vec::IntoIter<Result<T, IndexEnvironmentError>>>;

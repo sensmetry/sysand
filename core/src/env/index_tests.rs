@@ -50,6 +50,7 @@ use crate::{
 // Re-exports so that `super::X` paths inside sub-modules (which refer to this
 // `tests` module) continue to resolve to names from the parent `index` module.
 use super::{HttpFetchError, IndexEnvironmentError};
+use crate::index::model::VersionsJsonError;
 
 /// Placeholder sha256 value acceptable by `parse_sha256_digest` — used in
 /// tests that exercise flow but don't care about the specific digest bytes.
@@ -695,7 +696,11 @@ mod versions {
             .versions(purl("admin/proj0"))
             .expect_err("ascending order must be rejected as a protocol violation");
         match err {
-            super::IndexEnvironmentError::VersionsOutOfOrder { prev, curr, url: _ } => {
+            super::IndexEnvironmentError::Versions(VersionsJsonError::VersionsOutOfOrder {
+                prev,
+                curr,
+                ..
+            }) => {
                 assert_eq!(prev, "1.0.0");
                 assert_eq!(curr, "2.0.0");
             }
@@ -727,7 +732,11 @@ mod versions {
             .versions(purl("admin/proj0"))
             .expect_err("prerelease before release must be rejected");
         match err {
-            super::IndexEnvironmentError::VersionsOutOfOrder { prev, curr, url: _ } => {
+            super::IndexEnvironmentError::Versions(VersionsJsonError::VersionsOutOfOrder {
+                prev,
+                curr,
+                ..
+            }) => {
                 assert_eq!(prev, "10.0.0-beta.1");
                 assert_eq!(curr, "10.0.0");
             }
@@ -757,7 +766,9 @@ mod versions {
             .versions(purl("admin/proj0"))
             .expect_err("build metadata must be rejected as a protocol violation");
         match err {
-            super::IndexEnvironmentError::VersionHasBuildMetadata { value, url: _ } => {
+            super::IndexEnvironmentError::Versions(
+                VersionsJsonError::VersionHasBuildMetadata { value, .. },
+            ) => {
                 assert_eq!(value, "1.2.3+build.42");
             }
             other => panic!("expected VersionHasBuildMetadata, got {other:?}"),
@@ -810,11 +821,10 @@ mod versions {
             .versions(purl("admin/proj0"))
             .expect_err("non-semver version must surface as a protocol error");
         match err {
-            super::IndexEnvironmentError::InvalidSemverVersion {
+            super::IndexEnvironmentError::Versions(VersionsJsonError::InvalidSemverVersion {
                 value,
-                url: _,
-                source: _,
-            } => {
+                ..
+            }) => {
                 assert_eq!(value, "not-a-version");
             }
             other => panic!("expected InvalidSemverVersion, got {other:?}"),
@@ -941,7 +951,10 @@ mod versions {
             .versions(purl("admin/proj0"))
             .expect_err("duplicate versions must reject the document");
         match err {
-            super::IndexEnvironmentError::DuplicateVersion { version, url: _ } => {
+            super::IndexEnvironmentError::Versions(VersionsJsonError::DuplicateVersion {
+                version,
+                ..
+            }) => {
                 assert_eq!(version, "1.0.0");
             }
             other => panic!("expected DuplicateVersion, got {other:?}"),
@@ -1962,12 +1975,12 @@ mod digest {
             .get_project(purl("admin/proj0"), "0.3.0")
             .expect_err("malformed kpar_digest must surface as a protocol error");
         match err {
-            super::IndexEnvironmentError::InvalidVersionEntry {
+            super::IndexEnvironmentError::Versions(VersionsJsonError::InvalidVersionEntry {
                 version,
                 field,
                 value,
-                url: _,
-            } => {
+                ..
+            }) => {
                 assert_eq!(version, "0.3.0");
                 assert_eq!(field, "kpar_digest");
                 assert_eq!(value, "md5:abc");
@@ -2003,12 +2016,12 @@ mod digest {
             .versions(purl("admin/proj0"))
             .expect_err("malformed kpar_digest must reject the document at parse time");
         match err {
-            super::IndexEnvironmentError::InvalidVersionEntry {
+            super::IndexEnvironmentError::Versions(VersionsJsonError::InvalidVersionEntry {
                 version,
                 field,
                 value,
-                url: _,
-            } => {
+                ..
+            }) => {
                 assert_eq!(version, "0.3.0");
                 assert_eq!(field, "kpar_digest");
                 assert_eq!(value, "md5:abc");

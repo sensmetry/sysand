@@ -31,7 +31,7 @@ use sysand_core::{
         local_directory::{LocalDirectoryEnvironment, metadata::EnvMetadataError},
     },
     index::RemoveTarget,
-    index_location::IndexLocation,
+    index_location::IndexSource,
     lock::Lockfile,
     manifest::{diagnostics::ReadWarning, workspace_table::WorkspaceTable},
     model::InterchangeProjectUsage,
@@ -79,10 +79,9 @@ use crate::{
 const DEFAULT_INDEX_URL: &str = "https://sysand.com";
 
 /// [`DEFAULT_INDEX_URL`], parsed once
-pub fn default_index_location() -> IndexLocation {
-    static LOCATION: LazyLock<IndexLocation> = LazyLock::new(|| {
-        IndexLocation::parse(DEFAULT_INDEX_URL)
-            .expect("BUG: DEFAULT_INDEX_URL is a valid index URL")
+pub fn default_index_location() -> IndexSource {
+    static LOCATION: LazyLock<IndexSource> = LazyLock::new(|| {
+        IndexSource::parse(DEFAULT_INDEX_URL).expect("BUG: DEFAULT_INDEX_URL is a valid index URL")
     });
     LOCATION.clone()
 }

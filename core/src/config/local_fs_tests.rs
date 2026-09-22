@@ -8,7 +8,7 @@ use fluent_uri::Iri;
 
 use crate::{
     config::{Config, ConfigProject, Index, OverrideSource, local_fs},
-    index_location::IndexLocation,
+    index_location::IndexSource,
     project::utils::wrapfs,
 };
 
@@ -23,7 +23,7 @@ fn load_configs() -> Result<(), Box<dyn Error>> {
     let mut config_file = wrapfs::File::create(config_path)?;
     let config = Config {
         indexes: vec![Index::new_url(
-            IndexLocation::parse("http://www.example.com").unwrap(),
+            IndexSource::parse("http://www.example.com").unwrap(),
         )],
         projects: vec![],
         // auth: None,
@@ -46,7 +46,7 @@ fn load_configs_merges_user_config_before_working_dir() -> Result<(), Box<dyn Er
     let user_path = user_dir.path().join(local_fs::CONFIG_FILE);
     let user_config = Config {
         indexes: vec![Index::new_url(
-            IndexLocation::parse("http://user.example.com").unwrap(),
+            IndexSource::parse("http://user.example.com").unwrap(),
         )],
         projects: vec![],
     };
@@ -55,7 +55,7 @@ fn load_configs_merges_user_config_before_working_dir() -> Result<(), Box<dyn Er
     let working_dir = tempdir()?;
     let working_config = Config {
         indexes: vec![Index::new_url(
-            IndexLocation::parse("http://working.example.com").unwrap(),
+            IndexSource::parse("http://working.example.com").unwrap(),
         )],
         projects: vec![],
     };

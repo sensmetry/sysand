@@ -9,7 +9,7 @@ use camino::Utf8Path;
 use sysand_core::{
     auth::HTTPAuthentication,
     context::ProjectContext,
-    index_location::IndexLocation,
+    index_location::IndexSource,
     model::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
         InterchangeProjectUsageRaw,
@@ -201,7 +201,7 @@ pub fn command_info_resolve<Policy: HTTPAuthentication>(
     resolve: ResolutionInfo,
     _normalise: bool,
     client: reqwest_middleware::ClientWithMiddleware,
-    index_urls: Option<Vec<IndexLocation>>,
+    index_urls: Option<Vec<IndexSource>>,
     excluded_iris: &ProvidedIdentifiers,
     overrides: Vec<(Identifier, Vec<OverrideProject<Policy>>)>,
     runtime: Arc<tokio::runtime::Runtime>,
@@ -260,7 +260,7 @@ pub fn command_info_field_resolve<Policy: HTTPAuthentication>(
     resolve: ResolutionInfo,
     field: InfoField,
     client: reqwest_middleware::ClientWithMiddleware,
-    index_urls: Option<Vec<IndexLocation>>,
+    index_urls: Option<Vec<IndexSource>>,
     overrides: Vec<(Identifier, Vec<OverrideProject<Policy>>)>,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,

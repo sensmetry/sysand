@@ -13,7 +13,7 @@ use sysand_core::{
     },
     context::ProjectContext,
     env::discovery::{ResolvedEndpoints, fetch_index_config},
-    index_location::IndexLocation,
+    index_location::IndexSource,
     project::utils::wrapfs,
     workspace::model_toml::{MemberChecks, Workspace},
 };
@@ -22,13 +22,23 @@ use crate::{CliAuthPolicy, CliError, cli::TrustedPublishingMode};
 
 pub fn command_publish(
     path: Option<Utf8PathBuf>,
-    index: IndexLocation,
+    index: IndexSource,
     trusted_publishing: TrustedPublishingMode,
     ctx: &ProjectContext,
     auth_policy: Arc<CliAuthPolicy>,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
+    // A directory has no upload endpoint; `sysand index add` is how an
+    // archive enters a filesystem index. Refused before any archive is
+    // touched, so the message is the first and only one.
+    let index = match index {
+        IndexSource::Remote(index) => index,
+        IndexSource::Filesystem(path) => bail!(
+            "publishing to a filesystem index is not supported;\n\
+             add archives to `{path}` with `sysand index add`"
+        ),
+    };
     let archives = resolve_publish_archives(path, ctx)?;
     // Validate and prepare every payload before any network work, so
     // kpar-content errors surface before discovery or credential

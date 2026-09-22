@@ -16,11 +16,15 @@ use crate::{
 
 // Implementations
 #[cfg(all(feature = "filesystem", feature = "networking"))]
+pub mod any_index;
+#[cfg(all(feature = "filesystem", feature = "networking"))]
 pub mod discovery;
 #[cfg(all(feature = "filesystem", feature = "networking"))]
 pub mod index;
 #[cfg(feature = "filesystem")]
 pub mod local_directory;
+#[cfg(feature = "filesystem")]
+pub mod local_index;
 pub mod memory;
 pub mod null;
 
