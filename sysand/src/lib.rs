@@ -94,14 +94,19 @@ pub use error::CliError;
 
 /// Whether this invocation owns the process it runs in.
 ///
-/// Only the global logger cares. `log` allows one logger per process, and the
-/// CLI installs its own; what differs is whether finding the slot already
-/// taken is worth telling the user about.
+/// Two process-wide things care:
+///
+/// - The global logger. `log` allows one logger per process, and the CLI
+///   installs its own; what differs is whether finding the slot already taken
+///   is worth telling the user about.
+/// - The crash hook, which in release builds asks for a Sysand bug report on
+///   any panic. It is installed only when the CLI owns the process.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ProcessOwnership {
     /// The CLI owns the process, as in the `sysand` binary. Nothing else runs
     /// there, so a logger it could not install is a surprise, and the loss of
-    /// its formatting is reported on standard error.
+    /// its formatting is reported on standard error. Any panic is Sysand's,
+    /// so the crash hook is installed.
     #[default]
     Owned,
     /// A host owns the process and may have installed a logger before the
@@ -109,7 +114,8 @@ pub enum ProcessOwnership {
     /// every API entry point installs. That is the embedder's arrangement
     /// rather than an accident, so it is not reported; the level
     /// `--verbose`/`--quiet` select still applies to the host's logger, and
-    /// only the formatting and the `RUST_LOG` filters are lost.
+    /// only the formatting and the `RUST_LOG` filters are lost. Sysand panic
+    /// hook is not installed.
     Embedded,
 }
 
@@ -135,8 +141,12 @@ where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
+    // The hook is process-wide and blames any panic on Sysand, which is only
+    // fair when no other Rust code runs in the process.
     #[cfg(not(debug_assertions))]
-    set_panic_hook();
+    if ownership == ProcessOwnership::Owned {
+        set_panic_hook();
+    }
 
     match Args::try_parse_from(args) {
         Ok(args) => {
@@ -233,6 +243,16 @@ where
 // Clutters panic output, so disabled in debug builds
 #[cfg(not(debug_assertions))]
 fn set_panic_hook() {
+    use std::sync::Once;
+
+    // Each call wraps the hook in place, so a second call would print the
+    // banner twice.
+    static INSTALLED: Once = Once::new();
+    INSTALLED.call_once(install_panic_hook);
+}
+
+#[cfg(not(debug_assertions))]
+fn install_panic_hook() {
     use std::panic;
     // TODO: use `panic::update_hook()` once it's stable
     //       also set backtrace style once it's stable, but take

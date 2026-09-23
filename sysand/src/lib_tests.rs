@@ -173,3 +173,69 @@ mod windows {
         assert_eq!(quote_for_shell("héllo→世界"), "\"héllo→世界\"");
     }
 }
+
+/// The crash hook belongs to whoever owns the process.
+///
+/// A panic hook is process-wide, so the one test that installs it runs in a
+/// child process: the test binary, re-executed to run only that test, with
+/// [`CHILD`] set to tell it to be the child. The parent reads what the child
+/// printed.
+mod panic_hook {
+    use std::process::Command;
+
+    use crate::{ProcessOwnership, lib_main_with};
+
+    const CHILD: &str = "SYSAND_TEST_PANIC_HOOK_CHILD";
+    const BANNER: &str = "Sysand crashed";
+    const HOST_PANIC: &str = "the host panicked";
+
+    /// Run the CLI twice as `ownership` would, then panic as the host.
+    ///
+    /// `--version` is answered during parsing, so neither run touches the file
+    /// system or the logger; what is left is whatever the entry point does to
+    /// the process before parsing.
+    fn be_the_child(ownership: ProcessOwnership) {
+        for _ in 0..2 {
+            assert_eq!(lib_main_with(["sysand", "--version"], ownership), 0);
+        }
+        panic!("{HOST_PANIC}");
+    }
+
+    /// Re-run the test `name` in a child process and return its stderr.
+    fn stderr_of_child(name: &str) -> String {
+        let out = Command::new(std::env::current_exe().expect("test binary path"))
+            .args(["--exact", name, "--nocapture", "--test-threads=1"])
+            .env(CHILD, "1")
+            .output()
+            .expect("failed to run the test binary");
+        let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+        assert!(!out.status.success(), "the child did not panic: {stderr}");
+        assert!(stderr.contains(HOST_PANIC), "{stderr}");
+        stderr
+    }
+
+    #[test]
+    fn an_embedded_run_leaves_the_hosts_panics_alone() {
+        if std::env::var_os(CHILD).is_some() {
+            be_the_child(ProcessOwnership::Embedded);
+        }
+        let stderr =
+            stderr_of_child("tests::panic_hook::an_embedded_run_leaves_the_hosts_panics_alone");
+        // A panic in the host's own code is the host's to report, not a
+        // Sysand bug.
+        assert!(!stderr.contains(BANNER), "{stderr}");
+    }
+
+    // The hook is not installed in debug builds
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn an_owning_run_reports_a_crash_once() {
+        if std::env::var_os(CHILD).is_some() {
+            be_the_child(ProcessOwnership::Owned);
+        }
+        let stderr = stderr_of_child("tests::panic_hook::an_owning_run_reports_a_crash_once");
+        // Two runs, one banner: running the CLI again does not stack another
+        // copy of the hook on top of the first.
+        assert_eq!(stderr.matches(BANNER).count(), 1, "{stderr}");
+    }
+}
