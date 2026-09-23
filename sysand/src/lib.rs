@@ -419,12 +419,8 @@ fn run_cli_with(args: cli::Args, ownership: ProcessOwnership) -> Result<()> {
             name,
             publisher,
             version,
-            no_semver,
             license,
-            no_spdx,
-        } => command_init(
-            name, publisher, version, no_semver, license, no_spdx, path, ctx,
-        ),
+        } => command_init(name, publisher, version, false, license, false, path, ctx),
         Command::New { .. } => bail!("use `init` instead of `new`"),
         Command::Env { command } => match command {
             None => {
