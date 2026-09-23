@@ -79,16 +79,10 @@ pub enum Command {
         /// Set the version in SemVer 2.0 format. Defaults to `0.0.1`
         #[arg(long)]
         version: Option<String>,
-        /// Don't require version to conform to SemVer
-        #[arg(long, requires = "version")]
-        no_semver: bool,
         /// Set the license in the form of an SPDX license identifier
         /// Defaults to omitting the license field
         #[arg(long, alias = "licence", verbatim_doc_comment)]
         license: Option<String>,
-        /// Don't require license to be an SPDX expression
-        #[arg(long, requires = "license")]
-        no_spdx: bool,
     },
     // Only for better error messages
     #[command(hide = true)]
