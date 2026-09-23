@@ -103,13 +103,14 @@ pub use globs::expand_globs;
 ///   installs its own; what differs is whether finding the slot already taken
 ///   is worth telling the user about.
 /// - The crash hook, which in release builds asks for a Sysand bug report on
-///   any panic. It is installed only when the CLI owns the process.
+///   any panic. [`lib_main_with`] installs it only when the CLI owns the
+///   process; [`run_parsed`] never does.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ProcessOwnership {
     /// The CLI owns the process, as in the `sysand` binary. Nothing else runs
     /// there, so a logger it could not install is a surprise, and the loss of
     /// its formatting is reported on standard error. Any panic is Sysand's,
-    /// so the crash hook is installed.
+    /// so [`lib_main_with`] installs the crash hook.
     #[default]
     Owned,
     /// A host owns the process and may have installed a logger before the
@@ -145,7 +146,6 @@ where
     T: Into<OsString> + Clone,
 {
     // Before parsing, so the crash hook also covers a panic inside clap.
-    // `run_parsed` claims again, which does nothing the second time.
     claim_process(ownership);
 
     match Args::try_parse_from(args) {
@@ -168,13 +168,15 @@ where
 /// Sysand an argument list. Everything after parsing is as in
 /// [`lib_main_with`]: the error, if any, is printed to standard error and the
 /// code is 1; otherwise it is 0.
+///
+/// Unlike [`lib_main_with`], it installs no crash hook, whatever `ownership`
+/// says: a caller that parses its own command line runs Rust code of its own,
+/// and its panics are its own to report.
 pub fn run_parsed(
     global_opts: cli::GlobalOptions,
     command: cli::Command,
     ownership: ProcessOwnership,
 ) -> u8 {
-    claim_process(ownership);
-
     let Err(err) = run_cli_with(global_opts, command, ownership) else {
         return 0;
     };
@@ -202,7 +204,12 @@ fn claim_process(ownership: ProcessOwnership) {
     // fair when no other Rust code runs in the process. Not in debug builds,
     // where it clutters panic output.
     if cfg!(not(debug_assertions)) && ownership == ProcessOwnership::Owned {
-        set_panic_hook();
+        use std::sync::Once;
+
+        // Each installation wraps the hook in place, so a second one would
+        // print the banner twice.
+        static INSTALLED: Once = Once::new();
+        INSTALLED.call_once(install_panic_hook);
     }
 }
 
@@ -266,15 +273,6 @@ where
             })
         }
     }
-}
-
-fn set_panic_hook() {
-    use std::sync::Once;
-
-    // Each call wraps the hook in place, so a second call would print the
-    // banner twice.
-    static INSTALLED: Once = Once::new();
-    INSTALLED.call_once(install_panic_hook);
 }
 
 fn install_panic_hook() {
