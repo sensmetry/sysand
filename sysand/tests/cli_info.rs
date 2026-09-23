@@ -738,7 +738,7 @@ fn info_basic_local_kpar() -> Result<(), Box<dyn Error>> {
         zip.finish().unwrap();
     }
 
-    let (_, _, out) = run_sysand(["info", "--path", zip_path.as_str(), "-v"], None)?;
+    let (_, _, out) = run_sysand(["info", "--path", zip_path.as_str()], None)?;
     out.assert()
         .success()
         .stdout(predicate::str::contains("Name: info_basic_local_kpar"))
@@ -910,7 +910,6 @@ fn info_basic_index_url() -> Result<(), Box<dyn Error>> {
             "info",
             "--iri",
             "urn:kpar:other",
-            "-v",
             "--default-index",
             &server.url(),
         ],
