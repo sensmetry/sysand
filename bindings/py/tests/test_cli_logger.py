@@ -65,7 +65,7 @@ def test_verbosity_still_reaches_the_host_logger(
     # logger the host installed. The records arrive as Python logging records,
     # because the bridge is what is installed.
     with caplog.at_level(logging.DEBUG):
-        assert run_cli_in(tmp_path, "-v", "info", "--no-config") == 1
+        assert run_cli_in(tmp_path, "--verbose", "info", "--no-config") == 1
 
     assert any(record.levelno == logging.DEBUG for record in caplog.records), (
         f"no debug records reached the host logger: {caplog.records}"

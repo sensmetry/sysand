@@ -154,12 +154,12 @@ pub enum Command {
         locator: CloneProjectLocatorArgs,
         /// Path to clone the project into. If already exists, must
         /// be an empty directory. Defaults to current directory
-        #[arg(long, short, default_value = None, verbatim_doc_comment)]
+        #[arg(long, default_value = None, verbatim_doc_comment)]
         target: Option<Utf8PathBuf>,
         /// Version of the project to clone. Defaults to the latest
         /// version according to SemVer 2.0; for `pkg:sysand` projects
         /// pre-releases are ignored unless this names one
-        #[arg(long, short = 'V', verbatim_doc_comment)]
+        #[arg(long, verbatim_doc_comment)]
         version: Option<String>,
 
         /// Don't resolve or install dependencies
@@ -205,13 +205,13 @@ pub enum Command {
         #[clap(verbatim_doc_comment)]
         path: Option<Utf8PathBuf>,
         /// Method to compress the files in the KPAR
-        #[arg(short = 'c', long, default_value_t, value_enum)]
+        #[arg(long, default_value_t, value_enum)]
         compression: KparCompressionMethodCli,
         /// Allow usages of local paths (`file://`).
         /// Warning: using this makes the project not portable between different
         /// computers, as `file://` URL always contains an absolute path.
         /// For multiple related projects, consider using a workspace instead
-        #[arg(long, short, verbatim_doc_comment)]
+        #[arg(long, verbatim_doc_comment)]
         allow_path_usage: bool,
         /// Don't update exported symbols index in the built KPAR metadata
         #[arg(long)]
@@ -275,26 +275,14 @@ pub enum Command {
     #[clap(verbatim_doc_comment)]
     Info {
         /// Use the project at the given path instead of the current project
-        #[arg(short = 'p', long, group = "location")]
+        #[arg(long, group = "location")]
         path: Option<Utf8PathBuf>,
         /// Use the project with the given IRI/URI/URL instead of the current project
-        #[arg(
-            short = 'i',
-            long,
-            visible_alias = "uri",
-            visible_alias = "url",
-            group = "location"
-        )]
+        #[arg(long, visible_alias = "uri", visible_alias = "url", group = "location")]
         iri: Option<fluent_uri::Iri<String>>,
         /// Use the project with the given locator, trying to parse it as
         /// an IRI/URI/URL and otherwise falling back to using it as a path
-        #[arg(
-            short = 'a',
-            long,
-            value_name = "LOCATOR",
-            group = "location",
-            verbatim_doc_comment
-        )]
+        #[arg(long, value_name = "LOCATOR", group = "location", verbatim_doc_comment)]
         auto_location: Option<String>,
         /// Do not try to normalise the IRI/URI when resolving
         #[arg(long, visible_alias = "no-normalize")]
@@ -403,7 +391,6 @@ pub struct AddProjectLocatorArgs {
     /// `sysand experimental add`, which currently forbids absolute paths
     #[arg(
         long,
-        short = 'p',
         default_value = None,
         verbatim_doc_comment
     )]
@@ -426,7 +413,6 @@ pub struct RemoveProjectLocatorArgs {
     /// identified by an IRI, the path will be transformed into a `file://` URL
     #[arg(
         long,
-        short = 'p',
         default_value = None,
         verbatim_doc_comment
     )]
@@ -445,14 +431,13 @@ pub struct CloneProjectLocatorArgs {
     )]
     pub auto_location: Option<String>,
     /// IRI/URI/URL identifying the project to be cloned
-    #[arg(short = 'i', long, visible_alias = "uri", visible_alias = "url")]
+    #[arg(long, visible_alias = "uri", visible_alias = "url")]
     pub iri: Option<fluent_uri::Iri<String>>,
     /// Path to clone the project from. If version is also
     /// given, verifies that the project has the given version
     // TODO: allow somehow requiring to use git here
     #[arg(
         long,
-        short = 's',
         default_value = None,
         verbatim_doc_comment
     )]
@@ -1799,7 +1784,6 @@ pub struct GlobalOptions {
     /// Use verbose output
     #[arg(
         long,
-        short,
         group = "log-level",
         global = true,
         help_heading = "Global options"
@@ -1808,7 +1792,6 @@ pub struct GlobalOptions {
     /// Do not output log messages
     #[arg(
         long,
-        short,
         group = "log-level",
         global = true,
         help_heading = "Global options"
@@ -1821,7 +1804,7 @@ pub struct GlobalOptions {
     #[arg(long, global = true, help_heading = "Global options", env = env_vars::SYSAND_CONFIG_FILE)]
     pub config_file: Option<String>,
     /// Print help
-    #[arg(long, short, global = true, action = clap::ArgAction::HelpLong, help_heading = "Global options")]
+    #[arg(long, global = true, action = clap::ArgAction::HelpLong, help_heading = "Global options")]
     pub help: Option<bool>,
 }
 
