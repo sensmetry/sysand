@@ -92,6 +92,9 @@ pub mod style;
 mod error;
 pub use error::CliError;
 
+mod globs;
+pub use globs::expand_globs;
+
 /// Whether this invocation owns the process it runs in.
 ///
 /// Two process-wide things care:

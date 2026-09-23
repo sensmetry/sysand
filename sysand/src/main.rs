@@ -9,9 +9,9 @@ compile_error!("one of `tls-aws-lc-rs` and `tls-ring` must be enabled in release
 
 use std::process::ExitCode;
 
-use sysand::lib_main;
+use sysand::{expand_globs, lib_main};
 
 fn main() -> ExitCode {
     // `args_os()` does not panic on invalid Unicode, and clap gives a nice error
-    ExitCode::from(lib_main(wild::args_os()))
+    ExitCode::from(lib_main(expand_globs(std::env::args_os())))
 }
