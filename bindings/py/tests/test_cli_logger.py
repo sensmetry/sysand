@@ -22,7 +22,9 @@ to file descriptor 2 without passing through `sys.stderr`.
 
 from __future__ import annotations
 
-import logging
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -57,16 +59,48 @@ def test_the_command_still_reports_its_own_failure(
     assert WARNING not in captured
 
 
-def test_verbosity_still_reaches_the_host_logger(
-    caplog: pytest.LogCaptureFixture, tmp_path: Path
-) -> None:
+# Run in a fresh interpreter: the bridge fixes a Rust log target's level the
+# first time that target logs, so a target an earlier test in this process
+# logged through at `WARNING` would drop the debug records asserted here.
+_VERBOSITY_DRIVER = """
+import logging
+import os
+import sys
+
+import sysand
+from sysand._sysand_core import _run_cli
+
+# The state `conftest.py` sets up: a binding call has installed the bridge.
+sysand.env.env(path=os.path.join(sys.argv[1], "claim", sysand.env.DEFAULT_ENV_NAME))
+
+records = []
+
+
+class Collect(logging.Handler):
+    def emit(self, record):
+        records.append(record)
+
+
+logging.getLogger().addHandler(Collect())
+logging.getLogger().setLevel(logging.DEBUG)
+os.chdir(sys.argv[1])
+assert int(_run_cli(["sysand", "--verbose", "info", "--no-config"])) == 1
+sys.exit(0 if any(r.levelno == logging.DEBUG for r in records) else 3)
+"""
+
+
+def test_verbosity_still_reaches_the_host_logger(tmp_path: Path) -> None:
     # What the warning was warning about, and the reason it can be dropped
     # rather than merely hidden: `--verbose` still applies, through whatever
     # logger the host installed. The records arrive as Python logging records,
     # because the bridge is what is installed.
-    with caplog.at_level(logging.DEBUG):
-        assert run_cli_in(tmp_path, "--verbose", "info", "--no-config") == 1
-
-    assert any(record.levelno == logging.DEBUG for record in caplog.records), (
-        f"no debug records reached the host logger: {caplog.records}"
+    (tmp_path / "claim").mkdir()
+    result = subprocess.run(
+        [sys.executable, "-c", _VERBOSITY_DRIVER, str(tmp_path)],
+        env={**os.environ, "NO_COLOR": "1"},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, (
+        f"no debug records reached the host logger:\n{result.stdout}\n{result.stderr}"
     )

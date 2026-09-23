@@ -22,7 +22,7 @@ use sysand::{
         lock::{CliLockError, resolve_lock},
         sync::{CliSyncError, CommandSyncError, command_sync},
     },
-    default_index_location, get_env, get_or_create_env, standard_auth_policy,
+    default_index_location, get_env, get_or_create_env, get_overrides, standard_auth_policy,
 };
 use sysand_core::{
     auth::{GlobMapResult, StandardHTTPAuthenticationBuilder},
@@ -43,14 +43,15 @@ use sysand_core::{
     context::ProjectContext,
     discover::{discover_project, discover_workspace},
     env::{
-        DEFAULT_ENV_NAME, PutProjectError,
+        DEFAULT_ENV_NAME, PutProjectError, ReadEnvironment,
         discovery::DiscoveryError,
         index::{HttpFetchError, IndexEnvironmentError},
         local_directory::{
             LocalDirectoryEnvironment, LocalWriteError,
             metadata::{EnvMetadataError, EnvProject, EnvProjectChecksum},
         },
-        utils::CloneError,
+        null::NullEnvironment,
+        utils::{CloneError, ErrorBound},
     },
     exclude::do_exclude,
     include::do_include,
@@ -73,8 +74,9 @@ use sysand_core::{
     resolve::{
         ResolveRead,
         combined::CombinedResolverError,
+        memory::MemoryResolver,
         net_utils::create_reqwest_client,
-        priority::PriorityError,
+        priority::{PriorityError, PriorityResolver},
         standard::{StandardResolver, standard_resolver},
     },
     root::do_root,
@@ -286,8 +288,9 @@ fn build_auth_policy(spec: &AuthSpec) -> PyResult<Arc<CliAuthPolicy>> {
                 .build()
                 .map_err(|e| PyAuthError::new_err(format_err(e)))?,
         ),
-        "env" => standard_auth_policy(spec.keyring)
-            .map_err(|e| PyAuthError::new_err(format!("{e:#}")))?,
+        "env" => {
+            standard_auth_policy(spec.keyring).map_err(|e| PyAuthError::new_err(format_err(&*e)))?
+        }
         "bearer" | "basic" => {
             let missing = || PyValueError::new_err("incomplete AuthPolicy specification");
             let url_glob = spec.url_glob.as_deref().ok_or_else(missing)?;
@@ -317,19 +320,12 @@ fn build_auth_policy(spec: &AuthSpec) -> PyResult<Arc<CliAuthPolicy>> {
 }
 
 /// The index URLs a call resolves against: `None` means "no index" (the
-/// `use_index=False`, or no `Resolution` at all), otherwise the CLI's merge of
-/// explicit indexes, configuration files, and the default index.
-fn index_locations(
-    spec: Option<&ResolutionSpec>,
-    project_root: Option<&Utf8Path>,
-) -> PyResult<Option<Vec<IndexLocation>>> {
-    let Some(spec) = spec else {
-        return Ok(None);
-    };
+/// `use_index=False`), otherwise the CLI's merge of explicit indexes,
+/// configuration files, and the default index.
+fn index_locations(spec: &ResolutionSpec, config: &Config) -> PyResult<Option<Vec<IndexLocation>>> {
     if !spec.use_index {
         return Ok(None);
     }
-    let config = config_for(spec, project_root.unwrap_or_else(|| Utf8Path::new(".")))?;
     let locations = config.index_urls(
         parse_index_locations(&spec.index)?,
         vec![default_index_location()],
@@ -389,15 +385,17 @@ fn auth_hint(auth: &AuthSpec, policy: &CliAuthPolicy, url: &str) -> String {
 /// Typed exception for a failed `info`. The resolver's error type is known
 /// statically, so this matches variants rather than walking `source()`
 /// (the `transparent` wrappers in between would collapse that chain).
-fn info_error_to_pyerr(
-    err: InfoError<StandardResolverError>,
+fn info_error_to_pyerr<OverrideError: ErrorBound>(
+    err: InfoError<PriorityError<OverrideError, StandardResolverError>>,
     auth: &AuthSpec,
     policy: &CliAuthPolicy,
 ) -> PyErr {
     let message = format_err(&err);
     match &err {
         InfoError::NotFound { .. } => PyNotFoundError::new_err(message),
-        InfoError::Resolution(inner) => combined_error_to_pyerr(inner, message, auth, policy),
+        InfoError::Resolution(PriorityError::Lower(inner)) => {
+            combined_error_to_pyerr(inner, message, auth, policy)
+        }
         _ => PyResolutionError::new_err(message),
     }
 }
@@ -427,25 +425,55 @@ fn combined_error_to_pyerr<F, L, R>(
     }
 }
 
-/// The resolver stack every index-reaching call uses: HTTP client, a
-/// current-thread runtime, the configured indexes and the authentication
-/// policy. Must run inside `py.detach` (the stack is `!Send`).
-fn standard_resolver_for(
-    resolution: Option<&ResolutionSpec>,
+/// The resolver stack `info` and `versions` use, built as the CLI's `info`
+/// builds it from the current directory: the enclosing project's (or
+/// workspace's) `.sysand` environment, the overrides and indexes of the
+/// configuration, and the authentication policy. Must run inside
+/// `py.detach` (the stack is `!Send`).
+fn cli_resolver_for(
+    resolution: &ResolutionSpec,
     auth: &AuthSpec,
-    project_root: Option<&Utf8Path>,
-) -> PyResult<(StandardResolver<CliAuthPolicy>, Arc<CliAuthPolicy>)> {
+) -> PyResult<(
+    impl ResolveRead<Error = PriorityError<impl ErrorBound, StandardResolverError>>,
+    Arc<CliAuthPolicy>,
+)> {
+    let project_error = |e: String| ProjectError::new_err(e);
+    let cwd = wrapfs::canonicalize(".").map_err(|e| project_error(format_err(e)))?;
+    let current_project = discover_project(&cwd).map_err(|e| project_error(format_err(e)))?;
+    let current_workspace = discover_workspace(&cwd).map_err(|e| project_error(format_err(e)))?;
+    let env_root = match (&current_workspace, &current_project) {
+        (Some(workspace), _) => workspace.root_path(),
+        (None, Some(project)) => project.root_path(),
+        (None, None) => cwd.as_path(),
+    };
+    let env = get_env(env_root).map_err(|e| project_error(format_err(e)))?;
+    let project_root = current_project
+        .as_ref()
+        .map_or(cwd.as_path(), |project| project.root_path());
+
+    let config = config_for(resolution, project_root)?;
+    let index_urls = index_locations(resolution, &config)?;
     let client = create_reqwest_client().map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
     let runtime = Arc::new(
         tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?,
     );
-    let index_urls = index_locations(resolution, project_root)?;
     let auth_policy = build_auth_policy(auth)?;
-    let resolver = standard_resolver(None, Some(client), index_urls, runtime, auth_policy.clone())
+    let overrides = get_overrides(
+        &config,
+        project_root,
+        &client,
+        runtime.clone(),
+        auth_policy.clone(),
+    )
+    .map_err(|e| project_error(format_err(&*e)))?;
+    let resolver = standard_resolver(env, Some(client), index_urls, runtime, auth_policy.clone())
         .map_err(|err| PyValueError::new_err(format_err(err)))?;
-    Ok((resolver, auth_policy))
+    Ok((
+        PriorityResolver::new(MemoryResolver::from(overrides), resolver),
+        auth_policy,
+    ))
 }
 
 fn parse_iri(iri: String) -> PyResult<Iri<String>> {
@@ -460,15 +488,14 @@ fn parse_iri(iri: String) -> PyResult<Iri<String>> {
 fn do_info_py(
     py: Python,
     uri: String,
-    resolution: Option<ResolutionSpec>,
+    resolution: ResolutionSpec,
     auth: Option<AuthSpec>,
 ) -> PyResult<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)> {
     common_init();
 
     py.detach(|| {
         let auth = auth.unwrap_or_default();
-        // Without a `Resolution` no index is consulted
-        let (resolver, auth_policy) = standard_resolver_for(resolution.as_ref(), &auth, None)?;
+        let (resolver, auth_policy) = cli_resolver_for(&resolution, &auth)?;
         let uri = parse_iri(uri)?;
         do_info(&uri, &resolver).map_err(|e| info_error_to_pyerr(e, &auth, &auth_policy))
     })
@@ -482,14 +509,14 @@ fn do_info_py(
 fn do_versions_py(
     py: Python,
     iri: String,
-    resolution: Option<ResolutionSpec>,
+    resolution: ResolutionSpec,
     auth: Option<AuthSpec>,
 ) -> PyResult<(String, Vec<String>, Vec<String>)> {
     common_init();
 
     py.detach(|| {
         let auth = auth.unwrap_or_default();
-        let (resolver, auth_policy) = standard_resolver_for(resolution.as_ref(), &auth, None)?;
+        let (resolver, auth_policy) = cli_resolver_for(&resolution, &auth)?;
         let iri = parse_iri(iri)?;
         let listing = do_versions(&iri, &resolver)
             .map_err(|e| info_error_to_pyerr(e, &auth, &auth_policy))?;
@@ -540,7 +567,7 @@ fn project_context(start: &Utf8Path) -> PyResult<(ProjectContext, Utf8PathBuf)> 
     let env_root = current_workspace
         .as_ref()
         .map_or_else(|| project_root.clone(), |w| w.root_path().to_owned());
-    let env = get_env(&env_root).map_err(|e| project_error(format!("{e:#}")))?;
+    let env = get_env(&env_root).map_err(|e| project_error(format_err(e)))?;
     Ok((
         ProjectContext {
             env,
@@ -704,7 +731,7 @@ impl Failure {
 /// become `SolveError` with their conflicts, unless the solver itself hit a
 /// transport or authentication problem, which is classified like `info`'s.
 fn lock_error_to_failure(err: anyhow::Error, auth: &AuthSpec, policy: &CliAuthPolicy) -> Failure {
-    let message = format!("{err:#}");
+    let message = format_err(&*err);
     match err.downcast_ref::<CliLockError<CliAuthPolicy>>() {
         Some(LockProjectError::LockError(LockError::Solver(solver))) => {
             if let Some(PriorityError::Lower(inner)) = solver.resolution_error() {
@@ -841,7 +868,7 @@ fn do_sync_py(
             &ctx.current_directory,
         )
         .map_err(|e| Failure::Env {
-            message: format!("{e:#}"),
+            message: format_err(&*e),
             wrote: false,
         })?;
 
@@ -888,12 +915,13 @@ fn do_root_py(path: String) -> PyResult<Option<String>> {
 
 #[pyfunction(name = "do_build_py")]
 #[pyo3(
-    signature = (output_path, project_path, compression),
+    signature = (output_path, project_path, compression, allow_path_usage),
 )]
 fn do_build_py(
     output_path: String,
     project_path: Option<String>,
     compression: Option<String>,
+    allow_path_usage: bool,
 ) -> PyResult<()> {
     common_init();
 
@@ -910,7 +938,7 @@ fn do_build_py(
         None => KparCompressionMethod::default(),
     };
 
-    match do_build_kpar(&project, &output_path, compression, true, true) {
+    match do_build_kpar(&project, &output_path, compression, true, allow_path_usage) {
         Ok(_) => Ok(()),
         Err(err) => Err({
             let e = format_err(&err);
@@ -922,9 +950,11 @@ fn do_build_py(
                 | KParBuildError::MissingMeta
                 | KParBuildError::MissingInfoMeta
                 | KParBuildError::Serialize(..)
-                | KParBuildError::PathUsage(_)
                 | KParBuildError::WorkspaceMetamodelConflict { .. }
                 | KParBuildError::MissingIndexSymbol(_, _) => PyValueError::new_err(e),
+                KParBuildError::PathUsage(_) => PyValueError::new_err(format!(
+                    "{e}\nto build anyway, pass `allow_path_usage=True`"
+                )),
                 KParBuildError::Io(_) | KParBuildError::Zip(_) => PyIOError::new_err(e),
                 KParBuildError::ProjectRead(_) | KParBuildError::WorkspaceRead(_) => {
                     PyRuntimeError::new_err(e)
@@ -936,8 +966,10 @@ fn do_build_py(
 
 /// Collects the source files of the dependencies of `usages` selected by
 /// `dependencies` (resolved in `env`).
-fn collect_dependency_sources(
-    env: LocalDirectoryEnvironment,
+fn collect_dependency_sources<
+    Env: ReadEnvironment<InterchangeProjectRead = LocalSrcProject> + std::fmt::Debug + 'static,
+>(
+    env: Env,
     usages: Vec<InterchangeProjectUsage>,
     dependencies: Dependencies,
 ) -> PyResult<Vec<String>> {
@@ -1012,7 +1044,7 @@ pub fn do_sources_project_py(
 
     let mut result = vec![];
 
-    let current_project = LocalSrcProject::new_access(path, None);
+    let current_project = LocalSrcProject::new_access(path.clone(), None);
 
     if include_own {
         for src_path in do_sources_local_src_project_no_deps(&current_project, true)
@@ -1033,14 +1065,6 @@ pub fn do_sources_project_py(
             ));
         };
 
-        let Some(env_path) = env_path else {
-            return Err(PyRuntimeError::new_err(
-                "unable to identify local environment",
-            ));
-        };
-
-        let env = LocalDirectoryEnvironment::read(&env_path).map_err(env_read_to_pyerr)?;
-
         let usages = info
             .validate()
             .map_err(|e| {
@@ -1053,7 +1077,26 @@ pub fn do_sources_project_py(
             })?
             .usage;
 
-        result.extend(collect_dependency_sources(env, usages, dependencies)?);
+        let env = if let Some(env_path) = env_path {
+            Some(LocalDirectoryEnvironment::read(&env_path).map_err(env_read_to_pyerr)?)
+        } else {
+            // As the CLI: the environment of the project's workspace, or
+            // else its own, if there is one.
+            let workspace =
+                discover_workspace(&path).map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
+            let env_root = workspace
+                .as_ref()
+                .map_or_else(|| Utf8Path::new(&path), |workspace| workspace.root_path());
+            get_env(env_root).map_err(env_read_to_pyerr)?
+        };
+        result.extend(match env {
+            Some(env) => collect_dependency_sources(env, usages, dependencies)?,
+            None => collect_dependency_sources(
+                NullEnvironment::<LocalSrcProject>::new(),
+                usages,
+                dependencies,
+            )?,
+        });
     }
 
     Ok(result)
