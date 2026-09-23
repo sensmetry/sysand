@@ -7,6 +7,7 @@ use anyhow::{Result, bail};
 use camino::{Utf8Path, Utf8PathBuf};
 
 use fluent_uri::Iri;
+use semver::VersionReq;
 use sysand_core::{
     add::do_add,
     auth::HTTPAuthentication,
@@ -41,7 +42,7 @@ use crate::{
 #[expect(clippy::fn_params_excessive_bools)]
 pub fn command_add<Policy: HTTPAuthentication>(
     iri: Iri<String>,
-    version_constraint: Option<String>,
+    version_constraint: Option<VersionReq>,
     no_lock: bool,
     no_sync: bool,
     no_prune: bool,
@@ -197,7 +198,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
 
     let usage_raw = InterchangeProjectUsageRaw::Resource {
         resource: iri.to_owned(),
-        version_constraint,
+        version_constraint: version_constraint.map(|vc| vc.to_string()),
     };
 
     if no_lock {

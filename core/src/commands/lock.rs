@@ -98,8 +98,9 @@ pub enum LockError<PD: ProjectRead, R: ResolveRead + Debug + 'static> {
         /// `canonical digest`.
         field: IncompleteField,
     },
-    #[error("project `{identifier}` has invalid metadata")]
+    #[error("project {identifier} has invalid metadata")]
     InvalidProject {
+        /// Human-readable label for the project, already quoted
         identifier: String,
         source: InterchangeProjectValidationError,
     },
@@ -264,7 +265,7 @@ pub fn do_lock_extend<
                 field: IncompleteField::Info,
             })?;
         let validated_info = info.validate().map_err(|e| LockError::InvalidProject {
-            identifier: identifier.to_string(),
+            identifier: format!("`{identifier}` {}", info.version),
             source: e,
         })?;
         let meta = project

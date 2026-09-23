@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use semver::Version;
 use std::assert_matches;
-use sysand_core::{commands::init::do_init, init::do_init_memory, model::InterchangeProjectInfo};
+use sysand_core::{
+    commands::init::do_init_parse, init::do_init_memory, model::InterchangeProjectInfoRaw,
+};
 
 /// `sysand init` should create valid, minimal, .project.json
 /// and .meta.json files in the current working directory. (Non-interactive use)
@@ -13,18 +14,17 @@ fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
 
     assert_eq!(
         memory_storage.info.unwrap(),
-        InterchangeProjectInfo {
+        InterchangeProjectInfoRaw {
             name: "init_basic".to_owned(),
             publisher: Some("e".to_owned()),
             description: None,
-            version: Version::parse("1.2.3").unwrap(),
+            version: "1.2.3".to_owned(),
             license: Some("Apache-2.0".to_owned()),
             maintainer: vec![],
             website: None,
             topic: vec![],
             usage: vec![],
         }
-        .into()
     );
 
     assert!(memory_storage.meta.as_ref().unwrap().index.is_empty());
@@ -66,7 +66,7 @@ fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
     let original_info = memory_storage.info.clone();
     let original_meta = memory_storage.meta.clone();
 
-    let second_result = do_init(
+    let second_result = do_init_parse(
         "init_fail_on_double_init".to_owned(),
         "a".into(),
         "1.2.3".to_owned(),

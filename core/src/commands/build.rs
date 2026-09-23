@@ -273,30 +273,14 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         },
         Err(e) => return Err(KParBuildError::ProjectRead(e)),
     };
+    let info_valid = info.validate().map_err(|e| KParBuildError::Validation {
+        name: "project",
+        source: e,
+    })?;
     meta.validate().map_err(|e| KParBuildError::Validation {
         name: "meta",
         source: e,
     })?;
-
-    match semver::Version::parse(&info.version) {
-        Ok(_) => (),
-        Err(e) => log::warn!(
-            "project's version `{}` is not a valid SemVer version: {e}",
-            info.version
-        ),
-    }
-    let license_info: Option<(&str, spdx::Expression)> =
-        info.license
-            .as_deref()
-            .and_then(|l| match spdx::Expression::parse(l) {
-                Ok(expr) => Some((l, expr)),
-                Err(e) => {
-                    log::warn!(
-                        "project's license `{l}` is not a valid SPDX license expression:\n{e}"
-                    );
-                    None
-                }
-            });
 
     if let Some(path_usage) = info.usage.iter().find_map(|x| {
         match x {
@@ -440,13 +424,13 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     if let Some(content) = read_optional_project_file(project_root, "CHANGELOG.md", "changelog")? {
         extra_files.push(("CHANGELOG.md".to_owned(), content));
     }
-    if let Some((license_str, expression)) = license_info.as_ref() {
+    if let Some(expression) = &info_valid.license {
         for stem in license_file_stems(expression) {
             let relative = format!("LICENSES/{stem}.txt");
             match read_optional_project_file(project_root, &relative, "license")? {
                 Some(content) => extra_files.push((relative, content)),
                 None => log::warn!(
-                    "license file `{relative}` referenced by project license `{license_str}` was not found"
+                    "license file `{relative}` referenced by project license `{expression}` was not found"
                 ),
             }
         }

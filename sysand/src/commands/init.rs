@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use crate::CliError;
+use crate::{CliError, commands::info::log_license_files_note};
 use anyhow::Result;
 use camino::{Utf8Path, Utf8PathBuf};
+use semver::Version;
 use sysand_core::{
     context::ProjectContext,
     discover::{discover_project, discover_workspace},
@@ -17,10 +18,8 @@ const DEFAULT_VERSION: &str = "0.0.1";
 pub fn command_init(
     name: Option<String>,
     publisher: String,
-    version: Option<String>,
-    no_semver: bool,
-    license: Option<String>,
-    no_spdx: bool,
+    version: Option<Version>,
+    license: Option<spdx::Expression>,
     path: Option<String>,
     ctx: ProjectContext,
 ) -> Result<()> {
@@ -33,21 +32,23 @@ pub fn command_init(
     };
     warn_parent_project_workspace(&target, &ctx)?;
 
-    let version = version.unwrap_or_else(|| DEFAULT_VERSION.to_owned());
+    let version = version.unwrap_or_else(|| Version::parse(DEFAULT_VERSION).unwrap());
     let name = match name {
         Some(n) => n,
         None => default_name_from_path(&target)?,
     };
 
-    sysand_core::init::do_init_ext(
+    let has_license = license.is_some();
+    sysand_core::init::do_init(
         name,
         publisher,
         version,
-        no_semver,
         license,
-        no_spdx,
         &mut LocalSrcProject::new_access(target, None),
     )?;
+    if has_license {
+        log_license_files_note();
+    }
     Ok(())
 }
 

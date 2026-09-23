@@ -34,7 +34,6 @@ use sysand_core::{
     discover::{discover_project, discover_workspace},
     env::{DEFAULT_ENV_NAME, local_directory::LocalDirectoryEnvironment},
     index::RemoveTarget,
-    init::InitError,
     lock::Lock,
     project::{
         any::{AnyProject, OverrideProject},
@@ -50,7 +49,7 @@ use sysand_core::{
 use url::Url;
 
 use crate::{
-    cli::{Args, AuthCommand, Command, EnvCommand, ExpCommand, IndexCommand, InfoCommand},
+    cli::{Args, AuthCommand, Command, EnvCommand, ExpCommand, IndexCommand},
     commands::{
         add::{ExpAddArgs, command_add, exp_command_add},
         auth::{command_auth_login, command_auth_logout, command_auth_status, command_auth_whoami},
@@ -461,7 +460,7 @@ fn run_cli_with(
             publisher,
             version,
             license,
-        } => command_init(name, publisher, version, false, license, false, path, ctx),
+        } => command_init(name, publisher, version, license, path, ctx),
         Command::New { .. } => bail!("use `init` instead of `new`"),
         Command::Env { command } => match command {
             None => {
@@ -707,27 +706,6 @@ fn run_cli_with(
                     if let Some(current_project) = ctx.current_project {
                         match subcommand {
                             Some(subcommand) => {
-                                match &subcommand {
-                                    InfoCommand::Version { set, no_semver, .. } => {
-                                        if !no_semver && let Some(v) = set {
-                                            semver::Version::parse(v).map_err(|e| {
-                                                InitError::<std::convert::Infallible>::SemVerParse(
-                                                    v.as_str().into(),
-                                                    e,
-                                                )
-                                            })?;
-                                        }
-                                    }
-                                    InfoCommand::License { set, no_spdx, .. } => {
-                                        if !no_spdx && let Some(l) = set {
-                                            spdx::Expression::parse(l).map_err(|e| {
-                                                InitError::<std::convert::Infallible>::SPDXLicenseParse(l.as_str().into(), e)
-                                            })?;
-                                        }
-                                    }
-                                    _ => (),
-                                }
-
                                 let numbered = subcommand.numbered();
                                 command_info_current_project(
                                     current_project,
@@ -904,13 +882,13 @@ fn run_cli_with(
         }
         Command::Clone {
             locator,
-            version,
+            version_constraint,
             target,
             resolution_opts,
             no_deps,
         } => command_clone(
             locator,
-            version,
+            version_constraint,
             target,
             ctx,
             no_deps,

@@ -7,7 +7,7 @@
 mod browser_tests {
     use std::error::Error;
 
-    use sysand_core::{model::InterchangeProjectInfo, project::ProjectRead as _};
+    use sysand_core::{model::InterchangeProjectInfoRaw, project::ProjectRead as _};
 
     use sysand_js::{
         do_env_js_local_storage, do_init_js_local_storage,
@@ -16,8 +16,6 @@ mod browser_tests {
 
     use typed_path::Utf8UnixPath;
     use wasm_bindgen_test::wasm_bindgen_test;
-
-    use semver::Version;
 
     use regex::Regex;
 
@@ -60,18 +58,17 @@ mod browser_tests {
 
         assert_eq!(
             info,
-            InterchangeProjectInfo {
+            InterchangeProjectInfoRaw {
                 name: "basic_init".to_owned(),
                 publisher: Some(String::from("a")),
                 description: None,
-                version: Version::parse("1.2.3")?,
+                version: "1.2.3".to_owned(),
                 license: Some("MIT OR Apache-2.0".to_owned()),
                 maintainer: vec![],
                 website: None,
                 topic: vec![],
                 usage: vec![],
             }
-            .into()
         );
 
         assert!(meta.checksum.is_none());

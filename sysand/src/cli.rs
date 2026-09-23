@@ -10,13 +10,13 @@ use std::{
 use camino::Utf8PathBuf;
 use clap::{ValueEnum, builder::StyledStr, crate_authors};
 use fluent_uri::Iri;
-use semver::VersionReq;
+use semver::{Version, VersionReq};
 use sysand_core::{
     add::expand_sysand_purl_shorthand,
     build::KparCompressionMethod,
     commands::sources::Dependencies as CoreDependencies,
     index_location::IndexLocation,
-    model::{KERML_SPEC_PREFIX, SYSML_SPEC_PREFIX},
+    model::{KERML_SPEC_PREFIX, LICENSE_EXPRESSION_HELP, SYSML_SPEC_PREFIX},
 };
 
 use crate::env_vars;
@@ -78,11 +78,17 @@ pub enum Command {
         publisher: String,
         /// Set the version in SemVer 2.0 format. Defaults to `0.0.1`
         #[arg(long)]
-        version: Option<String>,
-        /// Set the license in the form of an SPDX license identifier
+        version: Option<Version>,
+        /// Set the license in the form of an SPDX license expression.
         /// Defaults to omitting the license field
-        #[arg(long, alias = "licence", verbatim_doc_comment)]
-        license: Option<String>,
+        #[arg(
+            long,
+            alias = "licence",
+            value_name = "LICENSE",
+            value_parser = parse_spdx_expression,
+            verbatim_doc_comment
+        )]
+        license: Option<spdx::Expression>,
     },
     // Only for better error messages
     #[command(hide = true)]
@@ -100,7 +106,7 @@ pub enum Command {
         /// Examples: `1.2.3`, `<2`, `>=3`. For details, see the user
         /// guide's `Project information and metadata` section
         #[clap(verbatim_doc_comment)]
-        version_constraint: Option<String>,
+        version_constraint: Option<VersionReq>,
         /// Do not automatically resolve dependencies (and generate
         /// lockfile). Implies `--no-sync`
         // TODO: consider enforcing the implication here via e.g. default_value_if(s);
@@ -150,11 +156,12 @@ pub enum Command {
         /// be an empty directory. Defaults to current directory
         #[arg(long, default_value = None, verbatim_doc_comment)]
         target: Option<Utf8PathBuf>,
-        /// Version of the project to clone. Defaults to the latest
-        /// version according to SemVer 2.0; for `pkg:sysand` projects
-        /// pre-releases are ignored unless this names one
+        /// Version constraint of the project to clone; the highest
+        /// matching version is chosen. A bare version such as `1.2.3`
+        /// means `^1.2.3`; use `=1.2.3` for an exact version.
+        /// Defaults to `*` (latest non-prerelease version)
         #[arg(long, verbatim_doc_comment)]
-        version: Option<String>,
+        version_constraint: Option<VersionReq>,
 
         /// Don't resolve or install dependencies
         #[arg(long)]
@@ -623,10 +630,7 @@ pub enum InfoCommand {
     Version {
         /// Set the version in SemVer 2.0 format
         #[arg(long, value_name = "VERSION", default_value=None)]
-        set: Option<String>,
-        /// Don't require version to conform to Semantic Versioning
-        #[arg(long, requires = "set")]
-        no_semver: bool,
+        set: Option<Version>,
         // Only for better error messages
         #[arg(
             hide = true,
@@ -652,12 +656,9 @@ pub enum InfoCommand {
     #[command(visible_alias = "licence")]
     #[group(required = false, multiple = false)]
     License {
-        /// Set the license in the form of an SPDX license identifier
-        #[arg(long, value_name = "LICENSE", default_value=None)]
-        set: Option<String>,
-        /// Don't require license to be an SPDX expression
-        #[arg(long, requires = "set")]
-        no_spdx: bool,
+        /// Set the license in the form of an SPDX license expression
+        #[arg(long, value_name = "LICENSE", value_parser = parse_spdx_expression, default_value=None)]
+        set: Option<spdx::Expression>,
         /// Remove the project's license
         #[arg(long, default_value = None)]
         clear: bool,
@@ -963,6 +964,10 @@ pub enum GetVerb {
 }
 
 #[derive(Debug, Clone)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "caused by spdx::Expression; does not matter"
+)]
 pub enum SetVerb {
     SetInfoVerb(SetInfoVerb),
     SetMetaVerb(SetMetaVerb),
@@ -1004,8 +1009,8 @@ pub enum SetInfoVerb {
     SetName(String),
     SetPublisher(String),
     SetDescription(String),
-    SetVersion(String),
-    SetLicense(String),
+    SetVersion(Version),
+    SetLicense(spdx::Expression),
     SetMaintainer(Vec<String>),
     SetWebsite(String),
     SetTopic(Vec<String>),
@@ -1169,7 +1174,6 @@ impl InfoCommand {
                 clear,
                 add,
                 remove,
-                no_semver: _,
             } => pack_info(
                 GetInfoVerb::GetVersion,
                 set.map(SetInfoVerb::SetVersion),
@@ -1182,7 +1186,6 @@ impl InfoCommand {
                 clear,
                 add,
                 remove,
-                no_spdx: _,
             } => pack_info(
                 GetInfoVerb::GetLicense,
                 set.map(SetInfoVerb::SetLicense),
@@ -1382,14 +1385,12 @@ impl InfoCommand {
             } => false,
             Self::Version {
                 set: _,
-                no_semver: _,
                 clear: _,
                 add: _,
                 remove: _,
             } => false,
             Self::License {
                 set: _,
-                no_spdx: _,
                 clear: _,
                 add: _,
                 remove: _,
@@ -1815,6 +1816,19 @@ fn parse_https_iri(s: &str) -> Result<fluent_uri::Iri<String>, fluent_uri::Parse
         https.push_str(s);
         // Return the original error to not confuse the user
         Iri::parse(https).map_err(|_irrelevant| original_err)
+    })
+}
+
+/// `spdx::ParseError` is a multiline diagram (the expression with a caret
+/// under the offending term), so it must start on a line of its own to
+/// stay aligned; clap puts the parser's error right after `...': `.
+fn parse_spdx_expression(s: &str) -> Result<spdx::Expression, String> {
+    use crate::style::USAGE;
+    spdx::Expression::parse(s).map_err(|err| {
+        format!(
+            "not a valid SPDX license expression:\n{err}\n\
+            {USAGE}hint:{USAGE:#} {LICENSE_EXPRESSION_HELP}"
+        )
     })
 }
 

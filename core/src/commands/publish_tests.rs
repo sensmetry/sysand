@@ -1274,7 +1274,7 @@ mod prepare_publish {
             (".meta.json", meta_json_empty().as_slice(), deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert_matches!(err, PublishError::InvalidLicense { .. });
+        assert_matches!(err, PublishError::InfoMetaValidation { .. });
     }
 
     #[test]

@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 
 use indexmap::IndexMap;
+use semver::VersionReq;
 use sysand_core::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{memory::InMemoryProject, utils::Identifier},
@@ -85,7 +86,7 @@ fn picked(iri: &str, version: Option<&str>, versions: &[&str]) -> Result<String,
     let resolve = ResolutionInfo::iri(fluent_uri::Iri::parse(iri.to_owned()).unwrap());
     get_project_version(
         &resolve,
-        version.map(ToOwned::to_owned),
+        version.map(|v| VersionReq::parse(v).unwrap()),
         &resolver(iri, versions),
     )
     .map(|(version, _storage)| version.to_string())

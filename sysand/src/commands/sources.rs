@@ -4,7 +4,7 @@
 use crate::{CliError, cli::Dependencies};
 
 use anstream::println;
-use anyhow::{Result, bail};
+use anyhow::{Context as _, Result, bail};
 use semver::{Version, VersionReq};
 use sysand_core::{
     context::ProjectContext,
@@ -76,7 +76,10 @@ pub fn command_sources_env<S: AsRef<str>>(
             bail!("project is missing project information")
         };
 
-        for dep in resolve_dependencies(info.validate()?.usage, env, dependencies.into())? {
+        let info = info
+            .validate()
+            .with_context(|| format!("project `{}` has invalid metadata", iri.as_ref()))?;
+        for dep in resolve_dependencies(info.usage, env, dependencies.into())? {
             for src_path in do_sources_local_src_project_no_deps(&dep, true)? {
                 println!("{}", src_path);
             }
@@ -98,7 +101,12 @@ pub fn command_sources_project(
     let Some(info) = current_project.get_info()? else {
         bail!("project is missing project information")
     };
-    let info = info.validate()?;
+    let info = info.validate().with_context(|| {
+        format!(
+            "project `{}` {} has invalid metadata",
+            info.name, info.version
+        )
+    })?;
 
     if !no_own {
         for src_path in do_sources_local_src_project_no_deps(&current_project, true)? {

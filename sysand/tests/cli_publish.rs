@@ -562,16 +562,13 @@ fn publish_rejects_upload_endpoint_index_url() -> TestResult {
 
 #[test]
 fn publish_rejects_invalid_semver_version() -> TestResult {
+    // `sysand build` now validates the version itself, so a kpar with an
+    // invalid version can no longer come from the normal build path; write
+    // one directly to exercise `publish`'s own validation.
     let (_temp_dir, cwd) = init_project("invalid-version")?;
 
-    let project_file = cwd.join(".project.json");
-    let project_json = std::fs::read_to_string(&project_file)?;
-    let project_json =
-        project_json.replace("\"version\": \"1.0.0\"", "\"version\": \"not-semver\"");
-    std::fs::write(project_file, project_json)?;
-
-    include_basic_model(&cwd)?;
-    build_kpar_at(&cwd, "artifact.kpar")?;
+    let (kpar_bytes, _info, _meta) = build_index_kpar_bytes("invalid-version", "not-semver");
+    std::fs::write(cwd.join("artifact.kpar"), kpar_bytes)?;
 
     let env = bearer_env_for_url("http://localhost:1");
     let out = run_sysand_in_with(
@@ -584,7 +581,6 @@ fn publish_rejects_invalid_semver_version() -> TestResult {
     out.assert()
         .failure()
         .stderr(predicate::str::contains("`not-semver`"))
-        .stderr(predicate::str::contains("Semantic Version"))
         .stderr(predicate::str::contains("HTTP request failed").not());
 
     Ok(())

@@ -35,6 +35,11 @@ pub const SYSML_SPEC_PREFIX: &str = "https://www.omg.org/spec/SysML/";
 /// Prefix shared between KerML metamodel and standard libs
 pub const KERML_SPEC_PREFIX: &str = "https://www.omg.org/spec/KerML/";
 
+pub const LICENSE_EXPRESSION_HELP: &str = "\
+    see https://spdx.github.io/spdx-spec/v3.0.1/annexes/spdx-license-expressions/\n\
+    for the syntax and https://spdx.org/licenses/ for the list of license identifiers;\n\
+    for custom licenses, use `LicenseRef-My-custom-license`";
+
 /// A dependency on another interchange project. In the dependency solver,
 /// usages are treated as referring to the same project iff they derive the
 /// same `Identifier`. A solution contains one instance per identifier, which
@@ -64,7 +69,7 @@ pub enum InterchangeProjectUsageG<Iri, VersionReq, Path> {
     Resource {
         resource: Iri, // TODO: We should have a fallback for invalid IRIs
         #[serde(skip_serializing_if = "Option::is_none")]
-        version_constraint: Option<VersionReq>, // TODO: We should have a fallback for invalid semvers
+        version_constraint: Option<VersionReq>,
     },
     /// The project in the directory `dir`, relative to the root
     /// of the project declaring the usage. `publisher` and `name` must match the
@@ -298,7 +303,7 @@ impl<Iri: Display, VersionReq: Display, Path: Display> Display
     pyo3(from_item_all)
 )]
 #[serde(rename_all = "camelCase")]
-pub struct InterchangeProjectInfoG<Iri, Version, VersionReq, Path> {
+pub struct InterchangeProjectInfoG<Iri, Version, License, VersionReq, Path> {
     pub name: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -307,10 +312,10 @@ pub struct InterchangeProjectInfoG<Iri, Version, VersionReq, Path> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 
-    pub version: Version, // TODO We should have a fallback for invalid semvers
+    pub version: Version,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub license: Option<String>,
+    pub license: Option<License>,
 
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[serde(default)]
@@ -328,10 +333,12 @@ pub struct InterchangeProjectInfoG<Iri, Version, VersionReq, Path> {
     pub usage: Vec<InterchangeProjectUsageG<Iri, VersionReq, Path>>,
 }
 
-pub type InterchangeProjectInfoRaw = InterchangeProjectInfoG<String, String, String, String>;
+pub type InterchangeProjectInfoRaw =
+    InterchangeProjectInfoG<String, String, String, String, String>;
 pub type InterchangeProjectInfo = InterchangeProjectInfoG<
     fluent_uri::Iri<String>,
     semver::Version,
+    spdx::Expression,
     semver::VersionReq,
     Utf8UnixPathBuf,
 >;
@@ -343,7 +350,7 @@ impl From<InterchangeProjectInfo> for InterchangeProjectInfoRaw {
             publisher: value.publisher,
             description: value.description,
             version: value.version.to_string(),
-            license: value.license,
+            license: value.license.map(|l| l.to_string()),
             maintainer: value.maintainer,
             website: value.website.map(|uri| uri.to_string()),
             topic: value.topic,
@@ -356,8 +363,8 @@ impl From<InterchangeProjectInfo> for InterchangeProjectInfoRaw {
     }
 }
 
-impl<Iri: PartialEq + Clone, Version, VersionReq: Clone, Path>
-    InterchangeProjectInfoG<Iri, Version, VersionReq, Path>
+impl<Iri: PartialEq + Clone, Version, License, VersionReq: Clone, Path>
+    InterchangeProjectInfoG<Iri, Version, License, VersionReq, Path>
 {
     pub fn minimal(name: String, version: Version) -> Self {
         Self {
@@ -430,7 +437,14 @@ impl InterchangeProjectInfoRaw {
                     e,
                 )
             })?,
-            license: self.license.clone(),
+            license: match self.license.as_deref() {
+                Some(l) => {
+                    let license = spdx::Expression::parse(l)
+                        .map_err(InterchangeProjectValidationError::InvalidProjectLicense)?;
+                    Some(license)
+                }
+                None => None,
+            },
             maintainer: self.maintainer.clone(),
             website: self
                 .website
@@ -711,6 +725,15 @@ pub enum InterchangeProjectValidationError {
     InvalidMetamodel(String, #[source] fluent_uri::ParseError),
     #[error("project has an invalid Semantic Version `{0}`")]
     InvalidProjectVersion(Box<str>, #[source] semver::Error),
+    // spdx::ParseError formatting requires placing the error (which already
+    // contains the original expression) as a first thing on a new line, so
+    // do the whole formatting here
+    #[error(
+        "project has an invalid license (must be a valid SPDX license expression;\n\
+        {LICENSE_EXPRESSION_HELP}):\n\
+        {0}"
+    )]
+    InvalidProjectLicense(spdx::ParseError),
     #[error(
         "failed to parse version constraint `{constraint}` of usage\n\
         `{resource}` as a Semantic Version constraint"
