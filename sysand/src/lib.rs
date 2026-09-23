@@ -141,41 +141,66 @@ where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
-    // The hook is process-wide and blames any panic on Sysand, which is only
-    // fair when no other Rust code runs in the process.
-    #[cfg(not(debug_assertions))]
-    if ownership == ProcessOwnership::Owned {
-        set_panic_hook();
-    }
+    // Before parsing, so the crash hook also covers a panic inside clap.
+    // `run_parsed` claims again, which does nothing the second time.
+    claim_process(ownership);
 
     match Args::try_parse_from(args) {
-        Ok(args) => {
-            if let Err(err) = run_cli_with(args, ownership) {
-                let style = style::ERROR;
-                eprintln!("{style}error{style:#}: {err}");
-                let mut causes = err.chain();
-                // The first cause is the error itself which is printed already
-                _ = causes.next();
-                for cause in causes {
-                    eprintln!("{style}  caused by:{style:#} {cause}");
-                }
-                let note_style = style::GOOD;
-                if log::max_level() < log::Level::Debug {
-                    eprintln!(
-                        "\n{note_style}note{note_style:#}: pass `-v`/`--verbose` to output additional logs"
-                    );
-                }
-                return 1;
-            }
-        }
+        Ok(args) => run_parsed(args.global_opts, args.command, ownership),
         Err(err) => {
             err.print().expect("failed to write Clap error");
             // `exit_code()` is non-negative and within u8
             #[expect(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-            return err.exit_code() as u8;
+            let code = err.exit_code() as u8;
+            code
         }
     }
-    0
+}
+
+/// Run a command that is already parsed, and return the exit code the process
+/// should report.
+///
+/// For an embedder with a command line of its own, which parses into
+/// [`cli::GlobalOptions`] and [`cli::Command`] itself rather than handing
+/// Sysand an argument list. Everything after parsing is as in
+/// [`lib_main_with`]: the error, if any, is printed to standard error and the
+/// code is 1; otherwise it is 0.
+pub fn run_parsed(
+    global_opts: cli::GlobalOptions,
+    command: cli::Command,
+    ownership: ProcessOwnership,
+) -> u8 {
+    claim_process(ownership);
+
+    let Err(err) = run_cli_with(global_opts, command, ownership) else {
+        return 0;
+    };
+    let style = style::ERROR;
+    eprintln!("{style}error{style:#}: {err}");
+    let mut causes = err.chain();
+    // The first cause is the error itself which is printed already
+    _ = causes.next();
+    for cause in causes {
+        eprintln!("{style}  caused by:{style:#} {cause}");
+    }
+    let note_style = style::GOOD;
+    if log::max_level() < log::Level::Debug {
+        eprintln!(
+            "\n{note_style}note{note_style:#}: pass `-v`/`--verbose` to output additional logs"
+        );
+    }
+    1
+}
+
+/// Set up what the process is owed by a CLI that owns it; nothing for one
+/// that does not. Safe to call more than once.
+fn claim_process(ownership: ProcessOwnership) {
+    // The hook is process-wide and blames any panic on Sysand, which is only
+    // fair when no other Rust code runs in the process. Not in debug builds,
+    // where it clutters panic output.
+    if cfg!(not(debug_assertions)) && ownership == ProcessOwnership::Owned {
+        set_panic_hook();
+    }
 }
 
 /// Render, as a string, the long help clap would print for the command
@@ -240,8 +265,6 @@ where
     }
 }
 
-// Clutters panic output, so disabled in debug builds
-#[cfg(not(debug_assertions))]
 fn set_panic_hook() {
     use std::sync::Once;
 
@@ -251,7 +274,6 @@ fn set_panic_hook() {
     INSTALLED.call_once(install_panic_hook);
 }
 
-#[cfg(not(debug_assertions))]
 fn install_panic_hook() {
     use std::panic;
     // TODO: use `panic::update_hook()` once it's stable
@@ -325,11 +347,15 @@ pub fn standard_auth_policy(use_credential_store: bool) -> Result<CliAuthPolicy>
     })
 }
 
-fn run_cli_with(args: cli::Args, ownership: ProcessOwnership) -> Result<()> {
+fn run_cli_with(
+    global_opts: cli::GlobalOptions,
+    command: cli::Command,
+    ownership: ProcessOwnership,
+) -> Result<()> {
     sysand_core::style::set_style_config(crate::style::CONFIG);
 
     let cwd = wrapfs::current_dir()?;
-    let log_level = get_log_level(args.global_opts.verbose, args.global_opts.quiet);
+    let log_level = get_log_level(global_opts.verbose, global_opts.quiet);
     if logger::init(log_level).is_err() {
         // Someone else owns the one global logger. The level still reaches it
         // — `set_max_level` is not the logger's to keep — so `--verbose` and
@@ -378,14 +404,14 @@ fn run_cli_with(args: cli::Args, ownership: ProcessOwnership) -> Result<()> {
         .as_ref()
         .map(|p| p.root_path().to_owned());
 
-    let auto_config = if args.global_opts.no_config {
+    let auto_config = if global_opts.no_config {
         Config::default()
     } else {
         #[expect(clippy::or_fun_call, reason = "cheap")]
         load_configs(project_root.as_deref().unwrap_or(Utf8Path::new(".")))?
     };
 
-    let mut config = if let Some(config_file) = &args.global_opts.config_file {
+    let mut config = if let Some(config_file) = &global_opts.config_file {
         get_config(config_file)?
     } else {
         Config::default()
@@ -414,7 +440,7 @@ fn run_cli_with(args: cli::Args, ownership: ProcessOwnership) -> Result<()> {
     // handles its discovery fetch itself (an unauthenticated baseline
     // with a forced-bearer retry carrying the just-entered secret), so
     // no ambient auth policy is needed.
-    let command = match args.command {
+    let command = match command {
         Command::Auth { command } => {
             return match command {
                 AuthCommand::Status => command_auth_status(&config),
@@ -777,8 +803,8 @@ fn run_cli_with(args: cli::Args, ownership: ProcessOwnership) -> Result<()> {
                 resolution_opts,
                 source_opts,
                 config,
-                args.global_opts.config_file,
-                args.global_opts.no_config,
+                global_opts.config_file,
+                global_opts.no_config,
                 ctx,
                 client,
                 runtime,
@@ -797,8 +823,8 @@ fn run_cli_with(args: cli::Args, ownership: ProcessOwnership) -> Result<()> {
                 iri,
                 ctx,
                 config,
-                args.global_opts.config_file,
-                args.global_opts.no_config,
+                global_opts.config_file,
+                global_opts.no_config,
                 no_lock,
                 no_sync,
                 no_prune,
