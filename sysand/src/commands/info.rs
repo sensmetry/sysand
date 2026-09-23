@@ -77,7 +77,11 @@ pub fn pprint_interchange_project(
                     !excluded_iris.contains(resource)
                 }
                 InterchangeProjectUsageRaw::Directory { .. }
-                | InterchangeProjectUsageRaw::KparPath { .. } => true,
+                | InterchangeProjectUsageRaw::KparPath { .. }
+                // Never a standard library, which is all `excluded_iris`
+                // holds, and worth seeing: it is the one usage `info` can say
+                // nothing else about.
+                | InterchangeProjectUsageRaw::Unknown(_) => true,
             })
             .collect();
         let has_ignored_usages = info.usage.len() > usages_to_print.len();

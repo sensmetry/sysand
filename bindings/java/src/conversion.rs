@@ -581,6 +581,16 @@ impl ToJObject for InterchangeProjectChecksumRaw {
 impl ToJObject for InterchangeProjectUsageRaw {
     fn to_jobject<'local>(&self, env: &mut Env<'local>) -> Option<JObject<'local>> {
         let usage = match self {
+            // The Java bindings have no class for a usage kind this build
+            // does not know, and inventing one would misreport it. Throw
+            // instead: the caller learns the manifest needs a newer sysand.
+            Self::Unknown(unknown) => {
+                env.throw_runtime_exception(format!(
+                    "`.project.json` declares a usage this sysand cannot interpret ({unknown});\n\
+                    it is either a usage kind from a newer sysand or a malformed entry"
+                ));
+                return None;
+            }
             Self::Resource {
                 resource,
                 version_constraint,

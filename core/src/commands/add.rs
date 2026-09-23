@@ -229,6 +229,9 @@ pub fn do_add<P: ProjectMut>(
                     }
                 }
             }
+            // `usage` passed `validate` above, which refuses an
+            // uninterpretable entry, so there is no merge path to take here.
+            InterchangeProjectUsageRaw::Unknown(_) => {}
             InterchangeProjectUsageRaw::KparPath {
                 kpar_path: new_kpar_path,
                 publisher: new_publisher,

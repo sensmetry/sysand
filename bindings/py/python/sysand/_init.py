@@ -8,7 +8,10 @@ from . import _sysand_core as sysand_rs
 from pathlib import Path
 
 
-def init(name: str, publisher: str, version: str, path: str | Path = ".") -> None:
+def init(*, path: str | Path, name: str, publisher: str, version: str) -> None:
+    """Create a project named ``name`` at ``path``, creating the directory
+    if it does not exist.
+    """
     if not Path(path).exists():
         Path(path).mkdir()
 

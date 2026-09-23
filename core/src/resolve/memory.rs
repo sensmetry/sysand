@@ -70,7 +70,8 @@ impl IRIPredicate for AcceptScheme<'_> {
                 version_constraint: _,
             } => resource.scheme() == self.scheme,
             InterchangeProjectUsage::Directory { .. }
-            | InterchangeProjectUsage::KparPath { .. } => false,
+            | InterchangeProjectUsage::KparPath { .. }
+            | InterchangeProjectUsage::Unknown(_) => false,
         }
     }
 }

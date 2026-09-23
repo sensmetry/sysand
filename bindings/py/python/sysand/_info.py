@@ -13,20 +13,21 @@ from pathlib import Path
 
 
 def info_path(
+    *,
     path: str | Path = ".",
 ) -> typing.Tuple[InterchangeProjectInfo, InterchangeProjectMetadata]:
     return sysand_rs.do_info_py_path(str(path))  # type: ignore
 
 
 def info(
-    uri: str,
     *,
+    iri: str,
     index_urls: str | typing.List[str] | None = None,
     resolution: Resolution | None = None,
     auth: AuthPolicy | None = None,
 ) -> typing.Tuple[InterchangeProjectInfo, InterchangeProjectMetadata]:
     """Fetch the best-matching version's ``.project.json`` and ``.meta.json``
-    for ``uri``.
+    for ``iri``.
 
     Without ``resolution`` and ``index_urls`` no index is consulted at all
     (only local files and URLs). ``index_urls`` is the older way to name
@@ -35,7 +36,7 @@ def info(
     ``auth`` defaults to :meth:`AuthPolicy.none`.
 
     Raises:
-        NotFoundError: no source knows ``uri``.
+        NotFoundError: no source knows ``iri``.
         AuthError: an index refused the request (HTTP 401/403).
         IndexProtocolError: an index answered with something malformed.
         ResolutionError: any other resolution failure.
@@ -48,7 +49,7 @@ def info(
         resolution = Resolution(default_index=index_urls, use_config=False)
 
     return sysand_rs.do_info_py(  # type: ignore
-        uri,
+        iri,
         resolution._spec() if resolution is not None else None,
         auth._spec() if auth is not None else None,
     )

@@ -116,6 +116,61 @@ based on the following rules:
 - increment the minor version if enhancements or new features have been added
 - increment the patch version otherwise
 
+#### What the version number covers
+
+A change is breaking if it breaks one of these two surfaces:
+
+- **The CLI.** Command names, their arguments and their exit codes. The
+  wording of human-readable output is not part of the promise: a message may
+  be reworded in any release, as long as the command still succeeds or fails
+  under the same conditions.
+- **The Python API.** The public names exported from the `sysand` package on
+  PyPI, and the keyword parameter names of its functions.
+
+Everything else is outside it:
+
+- **`sysand experimental`.** Every subcommand under it, and everything named
+  with an `Exp`/`exp_` prefix, may change incompatibly or disappear in any
+  release, including a patch release. This is the same disclaimer that
+  `sysand experimental --help` prints, and it is what lets new usage kinds be
+  developed in the open before their commands are committed to.
+- **The Rust crates.** `sysand-core`, `sysand`, `sysand-macros` and the
+  binding crates set `publish = false` in the workspace `Cargo.toml` and are
+  not on crates.io. Their library APIs are internal to this repository:
+  renaming an item, changing a signature or adding an enum variant in them is
+  not a breaking change.
+- **The Java and JavaScript bindings.** Published, but placeholders with no
+  known users. Their APIs carry no compatibility promise yet. Say so here
+  before that stops being true.
+
+#### File formats are not covered by the version number at all
+
+`.project.json`, `.meta.json`, `sysand-lock.toml` and the environment
+metadata are read by other tools, and by sysand binaries installed elsewhere
+that no version number reaches. Breaking one of them cannot be repaired by a
+major bump, so treat every change to them as permanent.
+
+What already protects them, and must keep working:
+
+- `sysand-lock.toml` carries `lock_version` and the environment metadata
+  carries `version`. A value this build does not support is refused with a
+  message saying how to regenerate the file, rather than misparsed. Any
+  change to the shape of either file needs its version bumped in the same
+  commit.
+- `.project.json` and `.meta.json` follow the KerML interchange format and
+  carry no version of their own. Unknown fields in them are ignored, so
+  adding a new optional field is always safe. Do not add
+  `#[serde(deny_unknown_fields)]` to any type that either file deserializes
+  into.
+- A `usage` entry matching no kind a build knows deserializes into
+  `InterchangeProjectUsageG::Unknown`, which holds its JSON verbatim. Such a
+  project can still be read and edited, and rewriting the manifest puts the
+  entry back untouched; only an operation that would act on it as a
+  dependency refuses. Keep it that way, so that introducing a fourth usage
+  kind never costs older sysands the ability to read a manifest. Builds
+  released before this one fail to parse one outright, which is what sets
+  the floor for when a new kind can be introduced.
+
 [semver 2]: https://semver.org/
 
 #### What the version number covers

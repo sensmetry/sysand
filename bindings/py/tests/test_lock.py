@@ -23,7 +23,7 @@ def resolution(index: MockIndex) -> sysand.Resolution:
 def project_with(tmp_path: Path, usages: list[dict]) -> Path:
     root = tmp_path / "proj"
     root.mkdir()
-    sysand.init("proj", "acme", "1.0.0", root)
+    sysand.init(path=root, name="proj", publisher="acme", version="1.0.0")
     manifest = json.loads((root / ".project.json").read_text())
     manifest["usage"] = usages
     (root / ".project.json").write_text(json.dumps(manifest, indent=2) + "\n")
@@ -41,7 +41,7 @@ def test_lock_write_false_leaves_no_lockfile(
     mock_index.publish(DEP, "1.0.0", files={"dep.sysml": b"package Dep;"})
     root = project_with(tmp_path, [usage(DEP, ">=1.0.0")])
 
-    result = sysand.lock(root, resolution=resolution(mock_index), write=False)
+    result = sysand.lock(path=root, resolution=resolution(mock_index), write=False)
 
     assert not (root / "sysand-lock.toml").exists()
     assert "lock_version = " in result["text"]
@@ -62,13 +62,13 @@ def test_lock_writes_exactly_text(tmp_path: Path, mock_index: MockIndex) -> None
     root = project_with(tmp_path, [usage(DEP, ">=1.0.0")])
     res = resolution(mock_index)
 
-    dry = sysand.lock(root, resolution=res, write=False)
-    written = sysand.lock(root, resolution=res)
+    dry = sysand.lock(path=root, resolution=res, write=False)
+    written = sysand.lock(path=root, resolution=res)
 
     lockfile = root / "sysand-lock.toml"
     assert lockfile.read_text() == written["text"] == dry["text"]
     # The lockfile is exactly what the CLI writes.
-    assert lockfile.read_text() == sysand.lock(root, resolution=res)["text"]
+    assert lockfile.read_text() == sysand.lock(path=root, resolution=res)["text"]
     assert lockfile.read_text() == written["text"]
 
 
@@ -80,7 +80,7 @@ def test_lock_from_a_subdirectory_targets_the_project_root(
     nested = root / "src" / "deep"
     nested.mkdir(parents=True)
 
-    sysand.lock(nested, resolution=resolution(mock_index))
+    sysand.lock(path=nested, resolution=resolution(mock_index))
 
     assert (root / "sysand-lock.toml").is_file()
     assert not (nested / "sysand-lock.toml").exists()
@@ -98,7 +98,7 @@ def test_lock_conflicts_name_the_dependent(
     )
 
     with pytest.raises(sysand.SolveError) as excinfo:
-        sysand.lock(root, resolution=resolution(mock_index))
+        sysand.lock(path=root, resolution=resolution(mock_index))
     error = excinfo.value
 
     assert error.wrote is False
@@ -124,7 +124,7 @@ def test_lock_no_matching_version(tmp_path: Path, mock_index: MockIndex) -> None
     root = project_with(tmp_path, [usage(LIBRARY, ">=0.11.0, <0.12.0")])
 
     with pytest.raises(sysand.SolveError) as excinfo:
-        sysand.lock(root, resolution=resolution(mock_index), write=False)
+        sysand.lock(path=root, resolution=resolution(mock_index), write=False)
     error = excinfo.value
 
     # A constraint nothing satisfies rules out the project that stated it,
@@ -149,7 +149,7 @@ def test_lock_unknown_project_is_a_not_found_conflict(
     root = project_with(tmp_path, [usage("pkg:sysand/mock/absent")])
 
     with pytest.raises(sysand.SolveError) as excinfo:
-        sysand.lock(root, resolution=resolution(mock_index), write=False)
+        sysand.lock(path=root, resolution=resolution(mock_index), write=False)
 
     [conflict] = excinfo.value.conflicts
     assert conflict["kind"] == "NotFound"
@@ -158,7 +158,7 @@ def test_lock_unknown_project_is_a_not_found_conflict(
 
 def test_lock_not_in_project(tmp_path: Path, mock_index: MockIndex) -> None:
     with pytest.raises(sysand.ProjectError) as excinfo:
-        sysand.lock(tmp_path, resolution=resolution(mock_index))
+        sysand.lock(path=tmp_path, resolution=resolution(mock_index))
     assert excinfo.value.wrote is False
     assert "not inside a project" in str(excinfo.value)
 
@@ -191,7 +191,7 @@ def test_lock_provided_project_is_not_fetched(
     }
 
     result = sysand.lock(
-        root, resolution=resolution(mock_index), provided=[provided], write=False
+        path=root, resolution=resolution(mock_index), provided=[provided], write=False
     )
 
     dep = by_name(result, "dep")
@@ -207,13 +207,13 @@ def test_lock_auth(tmp_path: Path, mock_index: MockIndex) -> None:
     res = resolution(mock_index)
 
     with pytest.raises(sysand.AuthError) as excinfo:
-        sysand.lock(root, resolution=res, write=False)
+        sysand.lock(path=root, resolution=res, write=False)
     assert excinfo.value.wrote is False
 
     result = sysand.lock(
-        root,
+        path=root,
         resolution=res,
-        auth=sysand.AuthPolicy.bearer(mock_index.url + "**", "s3cret"),
+        auth=sysand.AuthPolicy.bearer(url_glob=mock_index.url + "**", token="s3cret"),
         write=False,
     )
     assert by_name(result, "dep")["version"] == "1.0.0"

@@ -10,6 +10,7 @@ from pathlib import Path
 
 
 def build(
+    *,
     output_path: str | Path,
     project_path: str | Path | None = None,
     compression: CompressionMethod | None = None,

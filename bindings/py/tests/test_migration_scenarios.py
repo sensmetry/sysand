@@ -47,7 +47,7 @@ def project_version(projects: typing.Sequence[dict], iri: str) -> str | None:
 def env_versions(baseline: Baseline) -> dict[str, str]:
     return {
         project["identifiers"][0]: project["version"]
-        for project in sysand.env.projects(baseline.env_dir)
+        for project in sysand.env.projects(env_path=baseline.env_dir)
         if project["identifiers"]
     }
 
@@ -57,7 +57,9 @@ def changed(entries: typing.Sequence[dict]) -> set[tuple[str, str]]:
 
 
 def migrate_constraint(baseline: Baseline) -> None:
-    change = sysand.set_usage_constraint(baseline.root, LIBRARY, TARGET_CONSTRAINT)
+    change = sysand.set_usage_constraint(
+        path=baseline.root, identifier=LIBRARY, constraint=TARGET_CONSTRAINT
+    )
     assert change["found"] is True
     assert change["changed"] is True
     assert change["old_constraint"] == LEGACY_CONSTRAINT
@@ -98,21 +100,36 @@ def test_add_when_missing(make_baseline: MakeBaseline) -> None:
     before = baseline.manifest.read_bytes()
 
     change = sysand.set_usage_constraint(
-        baseline.root, LIBRARY, TARGET_CONSTRAINT, must_exist=False
+        path=baseline.root,
+        identifier=LIBRARY,
+        constraint=TARGET_CONSTRAINT,
+        must_exist=False,
     )
     assert change["found"] is False
     assert change["changed"] is False
     assert baseline.manifest.read_bytes() == before
 
     with pytest.raises(sysand.ProjectError) as excinfo:
-        sysand.set_usage_constraint(baseline.root, LIBRARY, TARGET_CONSTRAINT)
+        sysand.set_usage_constraint(
+            path=baseline.root, identifier=LIBRARY, constraint=TARGET_CONSTRAINT
+        )
     assert excinfo.value.wrote is False
 
-    assert sysand.add(baseline.root, LIBRARY, TARGET_CONSTRAINT) is True
+    assert (
+        sysand.add(
+            path=baseline.root, iri=LIBRARY, version_constraint=TARGET_CONSTRAINT
+        )
+        is True
+    )
     manifest = json.loads(baseline.manifest.read_text())
     assert manifest["usage"] == [usage(LIBRARY, TARGET_CONSTRAINT)]
     # A second add merges into the existing usage rather than adding one.
-    assert sysand.add(baseline.root, LIBRARY, TARGET_CONSTRAINT) is False
+    assert (
+        sysand.add(
+            path=baseline.root, iri=LIBRARY, version_constraint=TARGET_CONSTRAINT
+        )
+        is False
+    )
     assert len(json.loads(baseline.manifest.read_text())["usage"]) == 1
 
 
@@ -120,22 +137,22 @@ def test_workspace_detection(baseline: Baseline) -> None:
     # A tool that must not edit a project inside a workspace checks
     # `discover` first: the project root is found, the workspace root only
     # once a `.workspace.json` appears above the project.
-    discovery = sysand.discover(baseline.root)
+    discovery = sysand.discover(path=baseline.root)
     assert discovery["workspace_root"] is None
     assert discovery["project_root"] is not None
     assert os.path.samefile(discovery["project_root"], baseline.root)
 
     workspace = baseline.root.parent
     (workspace / ".workspace.json").write_text('{"projects": []}\n')
-    discovery = sysand.discover(baseline.root)
+    discovery = sysand.discover(path=baseline.root)
     assert discovery["workspace_root"] is not None
     assert os.path.samefile(discovery["workspace_root"], workspace)
     assert os.path.samefile(discovery["project_root"], baseline.root)
 
     nested = baseline.root / "src" / "deep"
     nested.mkdir(parents=True)
-    assert os.path.samefile(sysand.discover(nested)["project_root"], baseline.root)
-    assert sysand.discover(workspace)["project_root"] is None
+    assert os.path.samefile(sysand.discover(path=nested)["project_root"], baseline.root)
+    assert sysand.discover(path=workspace)["project_root"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -170,7 +187,7 @@ def test_dependent_excludes_new_version(
     before = baseline.snapshot()
 
     with pytest.raises(sysand.SolveError) as excinfo:
-        sysand.lock(baseline.root, resolution=res, write=False)
+        sysand.lock(path=baseline.root, resolution=res, write=False)
     error = excinfo.value
     assert error.wrote is False
     assert isinstance(error.report, str) and error.report
@@ -197,7 +214,7 @@ def test_no_compatible_dependent_release(
     migrate_constraint(baseline)
     before = baseline.snapshot()
     with pytest.raises(sysand.SolveError) as excinfo:
-        sysand.lock(baseline.root, resolution=res, write=False)
+        sysand.lock(path=baseline.root, resolution=res, write=False)
     assert excinfo.value.wrote is False
     assert any(
         c["kind"] == "Constraint" and c["required_by"] == DEPENDENT
@@ -210,13 +227,13 @@ def test_new_version_not_published_yet(baseline: Baseline) -> None:
     index = baseline.index
     res = resolution(index)
 
-    listing = sysand.versions(LIBRARY, resolution=res)
+    listing = sysand.versions(iri=LIBRARY, resolution=res)
     assert listing["versions"] == ["0.10.3"]
 
     migrate_constraint(baseline)
     before = baseline.snapshot()
     with pytest.raises(sysand.SolveError) as excinfo:
-        sysand.lock(baseline.root, resolution=res, write=False)
+        sysand.lock(path=baseline.root, resolution=res, write=False)
     error = excinfo.value
     assert error.wrote is False
     [conflict] = [c for c in error.conflicts if c["kind"] == "NoVersions"]
@@ -228,7 +245,7 @@ def test_new_version_not_published_yet(baseline: Baseline) -> None:
     # Once the version appears, the same call resolves; a dry run still
     # writes nothing.
     index.publish(LIBRARY, "0.11.0")
-    result = sysand.lock(baseline.root, resolution=res, write=False)
+    result = sysand.lock(path=baseline.root, resolution=res, write=False)
     assert project_version(result["projects"], LIBRARY) == "0.11.0"
     assert baseline.snapshot() == before
 
@@ -247,21 +264,21 @@ def test_root_pins_library(baseline: Baseline) -> None:
     migrate_constraint(baseline)
 
     # What is available, before anything is decided.
-    listing = sysand.versions(LIBRARY, resolution=res)
+    listing = sysand.versions(iri=LIBRARY, resolution=res)
     assert listing["versions"] == ["0.11.0", "0.10.3"]
     assert listing["ignored"] == []
 
     # The resolution, shown to the user before anything is written.
     lock_before = baseline.lockfile.read_bytes()
-    dry = sysand.lock(baseline.root, resolution=res, write=False)
+    dry = sysand.lock(path=baseline.root, resolution=res, write=False)
     assert baseline.lockfile.read_bytes() == lock_before
     assert project_version(dry["projects"], LIBRARY) == "0.11.0"
 
-    written = sysand.lock(baseline.root, resolution=res)
+    written = sysand.lock(path=baseline.root, resolution=res)
     assert written["text"] == dry["text"]
     assert baseline.lockfile.read_text() == written["text"]
 
-    outcome = sysand.sync(baseline.root, resolution=res)
+    outcome = sysand.sync(path=baseline.root, resolution=res)
     assert changed(outcome["installed"]) == {(LIBRARY, "0.11.0")}
     assert changed(outcome["pruned"]) == {(LIBRARY, "0.10.3")}
     assert outcome["kept"] == []
@@ -291,11 +308,11 @@ def test_dependent_pins_internally(
     res = resolution(mock_index)
 
     migrate_constraint(baseline)
-    result = sysand.lock(baseline.root, resolution=res)
+    result = sysand.lock(path=baseline.root, resolution=res)
     assert project_version(result["projects"], LIBRARY) == "0.11.0"
     assert project_version(result["projects"], DEPENDENT) == "1.1.0"
 
-    outcome = sysand.sync(baseline.root, resolution=res)
+    outcome = sysand.sync(path=baseline.root, resolution=res)
     assert changed(outcome["installed"]) == {
         (LIBRARY, "0.11.0"),
         (DEPENDENT, "1.1.0"),
@@ -319,16 +336,16 @@ def test_open_ended_dependent(
     res = resolution(mock_index)
 
     migrate_constraint(baseline)
-    result = sysand.lock(baseline.root, resolution=res)
+    result = sysand.lock(path=baseline.root, resolution=res)
     assert project_version(result["projects"], LIBRARY) == "0.11.0"
     assert project_version(result["projects"], DEPENDENT) == "1.0.0"
 
-    outcome = sysand.sync(baseline.root, resolution=res)
+    outcome = sysand.sync(path=baseline.root, resolution=res)
     assert changed(outcome["installed"]) == {(LIBRARY, "0.11.0")}
     assert changed(outcome["pruned"]) == {(LIBRARY, "0.10.3")}
     assert changed(outcome["kept"]) == {(DEPENDENT, "1.0.0")}
 
-    projects = sysand.env.projects(baseline.env_dir)
+    projects = sysand.env.projects(env_path=baseline.env_dir)
     assert env_versions(baseline) == {LIBRARY: "0.11.0", DEPENDENT: "1.0.0"}
     [dependent] = [p for p in projects if DEPENDENT in p["identifiers"]]
     assert dependent["editable"] is False
@@ -350,14 +367,14 @@ def test_authenticated_index(
     url_glob = index.url + "**"
 
     with pytest.raises(sysand.AuthError):
-        sysand.versions(LIBRARY, resolution=res)
+        sysand.versions(iri=LIBRARY, resolution=res)
     with pytest.raises(sysand.AuthError):
-        sysand.versions(LIBRARY, resolution=res, auth=sysand.AuthPolicy.none())
+        sysand.versions(iri=LIBRARY, resolution=res, auth=sysand.AuthPolicy.none())
 
-    bearer = sysand.AuthPolicy.bearer(url_glob, "s3cret")
+    bearer = sysand.AuthPolicy.bearer(url_glob=url_glob, token="s3cret")
     assert "s3cret" not in repr(bearer)
     assert "s3cret" not in str(bearer)
-    listing = sysand.versions(LIBRARY, resolution=res, auth=bearer)
+    listing = sysand.versions(iri=LIBRARY, resolution=res, auth=bearer)
     assert listing["versions"] == ["0.11.0", "0.10.3"]
 
     # The CLI's own resolution, env vars only (`sysand/src/cred_env.rs`).
@@ -365,15 +382,15 @@ def test_authenticated_index(
     monkeypatch.setenv("SYSAND_CRED_TEST_BEARER_TOKEN", "s3cret")
     from_env = sysand.AuthPolicy.from_env(keyring=False)
     assert "s3cret" not in repr(from_env)
-    listing = sysand.versions(LIBRARY, resolution=res, auth=from_env)
+    listing = sysand.versions(iri=LIBRARY, resolution=res, auth=from_env)
     assert listing["versions"] == ["0.11.0", "0.10.3"]
 
     migrate_constraint(baseline)
     with pytest.raises(sysand.AuthError) as excinfo:
-        sysand.lock(baseline.root, resolution=res, write=False)
+        sysand.lock(path=baseline.root, resolution=res, write=False)
     assert excinfo.value.wrote is False
-    sysand.lock(baseline.root, resolution=res, auth=bearer)
-    outcome = sysand.sync(baseline.root, resolution=res, auth=bearer)
+    sysand.lock(path=baseline.root, resolution=res, auth=bearer)
+    outcome = sysand.sync(path=baseline.root, resolution=res, auth=bearer)
     assert changed(outcome["installed"]) == {(LIBRARY, "0.11.0")}
 
 
@@ -384,7 +401,7 @@ def test_half_synced(make_baseline: MakeBaseline, mock_index: MockIndex) -> None
     res = resolution(mock_index)
 
     migrate_constraint(baseline)
-    result = sysand.lock(baseline.root, resolution=res)
+    result = sysand.lock(path=baseline.root, resolution=res)
     iri_by_name = {"library": LIBRARY, "dependent": DEPENDENT}
     # `sync` installs in lockfile order; fail the archive of the entry that
     # comes last so at least one install has already landed.
@@ -396,7 +413,7 @@ def test_half_synced(make_baseline: MakeBaseline, mock_index: MockIndex) -> None
     mock_index.fail_next(MockIndex.kpar_path(last_iri, last["version"]), 500)
 
     with pytest.raises(sysand.SyncError) as excinfo:
-        sysand.sync(baseline.root, resolution=res)
+        sysand.sync(path=baseline.root, resolution=res)
     error = excinfo.value
     assert error.wrote is True
     assert changed(error.partial["installed"]) == {

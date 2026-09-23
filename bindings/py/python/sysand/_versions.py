@@ -10,8 +10,8 @@ from ._model import VersionListing
 
 
 def versions(
-    iri: str,
     *,
+    iri: str,
     resolution: Resolution | None = None,
     auth: AuthPolicy | None = None,
 ) -> VersionListing:

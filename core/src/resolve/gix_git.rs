@@ -34,6 +34,14 @@ impl ResolveRead for GitResolver {
         resolve: &ResolutionInfo,
     ) -> Result<super::ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         match resolve.usage() {
+            // `validate` refuses a usage this build cannot interpret, so one
+            // never reaches a resolver. Reporting it as unsupported rather
+            // than resolving it is the safe answer if that ever changes.
+            InterchangeProjectUsage::Unknown(unknown) => {
+                Ok(ResolutionOutcome::UnsupportedUsageType {
+                    reason: unknown.to_string(),
+                })
+            }
             InterchangeProjectUsage::Resource {
                 resource,
                 version_constraint: _,

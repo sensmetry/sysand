@@ -21,7 +21,7 @@ from ._sources import (
 from pathlib import Path
 
 
-def env(path: str | Path = DEFAULT_ENV_NAME) -> None:
+def env(*, path: str | Path = DEFAULT_ENV_NAME) -> None:
     sysand_rs.do_env_py_local_dir(str(path))
 
 

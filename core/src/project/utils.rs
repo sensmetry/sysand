@@ -556,10 +556,24 @@ impl From<&InterchangeProjectUsage> for Identifier {
             | InterchangeProjectUsage::KparPath {
                 publisher, name, ..
             } => (publisher, name),
+            InterchangeProjectUsage::Unknown(unknown) => {
+                unreachable!("{UNKNOWN_IS_NOT_VALIDATED}: {unknown}")
+            }
         };
         Self::make_identifier_iri(publisher, name)
     }
 }
+
+/// Why [`Identifier`] can be taken from a validated usage without a fallible
+/// path: [`InterchangeProjectUsageG::validate`] refuses
+/// [`InterchangeProjectUsageG::Unknown`], so a validated usage never holds
+/// one. Read an unvalidated usage with [`Identifier::from_unvalidated_usage`]
+/// instead, which returns `None` for it.
+///
+/// [`InterchangeProjectUsageG::validate`]: crate::model::InterchangeProjectUsageG::validate
+/// [`InterchangeProjectUsageG::Unknown`]: crate::model::InterchangeProjectUsageG::Unknown
+const UNKNOWN_IS_NOT_VALIDATED: &str =
+    "a validated usage cannot be `Unknown`, because `validate` refuses it";
 
 impl From<InterchangeProjectUsage> for Identifier {
     fn from(value: InterchangeProjectUsage) -> Self {
@@ -573,6 +587,9 @@ impl From<InterchangeProjectUsage> for Identifier {
             | InterchangeProjectUsage::KparPath {
                 publisher, name, ..
             } => (publisher, name),
+            InterchangeProjectUsage::Unknown(unknown) => {
+                unreachable!("{UNKNOWN_IS_NOT_VALIDATED}: {unknown}")
+            }
         };
         Self::make_identifier_iri(publisher, name)
     }
@@ -588,11 +605,12 @@ impl Identifier {
     /// Never persist in files! Can only be used for comparison with other
     /// identifiers.
     ///
-    /// Returns `None` for a typed usage with an empty `publisher` or `name`,
-    /// which has no well-formed identifier (and which
-    /// [`Self::from_interchange_usage_unchecked`] rejects with a debug
-    /// assertion). Callers use this to compare usages of *any* kind by
-    /// identity without having to trust the manifest first.
+    /// Returns `None` where no identifier can be derived: a usage this build
+    /// cannot interpret has none to derive, and a typed usage with an empty
+    /// `publisher` or `name` has no well-formed one. Callers use this to
+    /// compare usages of *any* kind by identity without having to trust the
+    /// manifest first, and skip the ones that answer `None` rather than
+    /// guessing at them.
     pub fn from_unvalidated_usage(usage: &InterchangeProjectUsageRaw) -> Option<Self> {
         match usage {
             InterchangeProjectUsageRaw::Resource { resource, .. } => Some(Self(resource.clone())),
@@ -608,22 +626,8 @@ impl Identifier {
                     Some(Self::make_identifier_iri(publisher, name))
                 }
             }
+            InterchangeProjectUsageRaw::Unknown(_) => None,
         }
-    }
-
-    pub fn from_interchange_usage_unchecked(usage: &InterchangeProjectUsageRaw) -> Self {
-        let (publisher, name) = match usage {
-            InterchangeProjectUsageRaw::Resource { resource, .. } => {
-                return Self(resource.clone());
-            }
-            InterchangeProjectUsageRaw::Directory {
-                publisher, name, ..
-            }
-            | InterchangeProjectUsageRaw::KparPath {
-                publisher, name, ..
-            } => (publisher, name),
-        };
-        Self::make_identifier_iri(publisher, name)
     }
 
     pub fn from_iri_owned(iri: Iri<String>) -> Self {

@@ -21,7 +21,7 @@ use sysand::{
     get_env, get_or_create_env, standard_auth_policy,
 };
 use sysand_core::{
-    add::do_add_guess,
+    add::{do_add, do_add_guess},
     auth::{GlobMapResult, StandardHTTPAuthenticationBuilder},
     build::{KParBuildError, KparCompressionMethod, do_build_kpar},
     commands::{
@@ -56,7 +56,7 @@ use sysand_core::{
     project::{
         ProjectRead as _,
         local_kpar::{KparInnerPath, LocalKParProject},
-        local_src::{EditInfoError, LocalSrcError, LocalSrcProject},
+        local_src::{LocalSrcError, LocalSrcProject},
         memory::InMemoryProject,
         utils::{Identifier, wrapfs},
     },
@@ -73,7 +73,7 @@ use sysand_core::{
     sources::{Dependencies, do_sources_local_src_project_no_deps, resolve_dependencies},
     stdlib::known_std_libs,
     symbols::Language,
-    usage::{ConstraintChange, SetConstraintError, do_set_usage_constraint_local},
+    usage::{ConstraintChange, do_set_usage_constraint_local},
     utils::ProvidedProjects,
     utils::format_err,
     versions::do_versions,
@@ -1149,9 +1149,9 @@ pub fn do_sources_project_py(
 
 #[pyfunction(name = "do_add_py")]
 #[pyo3(
-    signature = (path, iri, version),
+    signature = (path, iri, version_constraint),
 )]
-fn do_add_py(path: String, iri: String, version: Option<String>) -> PyResult<bool> {
+fn do_add_py(path: String, iri: String, version_constraint: Option<String>) -> PyResult<bool> {
     common_init();
 
     let mut project = LocalSrcProject::new_access(path, None);
@@ -1159,7 +1159,22 @@ fn do_add_py(path: String, iri: String, version: Option<String>) -> PyResult<boo
     // TODO: do dependency resolution and locking?
     // `true` when a new usage was added, `false` when it was merged into an
     // existing one.
-    do_add_guess(&mut project, iri, version).map_err(|e| PyRuntimeError::new_err(format_err(e)))
+    do_add_guess(&mut project, iri, version_constraint)
+        .map_err(|e| ProjectError::new_err(format_err(e)))
+}
+
+/// Add a usage of any kind, given as the model dict itself rather than an
+/// IRI, so that a new usage kind needs no new entry point here.
+#[pyfunction(name = "do_add_usage_py")]
+#[pyo3(
+    signature = (path, usage),
+)]
+fn do_add_usage_py(path: String, usage: InterchangeProjectUsageRaw) -> PyResult<bool> {
+    common_init();
+
+    let mut project = LocalSrcProject::new_access(path, None);
+
+    do_add(&mut project, &usage).map_err(|e| ProjectError::new_err(format_err(e)))
 }
 
 /// The exception classes live in Python (`_errors.py`) so that `mypy` sees
@@ -1276,53 +1291,49 @@ use py_errors::{
     SolveError as PySolveError, SyncError as PySyncError, register_errors,
 };
 
-/// Returns `(matched_resource, found, changed, old_constraint, new_constraint)`.
+/// Returns `(matched_identifier, found, changed, old_constraint, new_constraint)`.
 ///
-/// Invalid input (a malformed shorthand or an invalid version requirement)
-/// raises `ValueError`; a missing, unreadable or malformed manifest and an
-/// ambiguous declaration raise `ProjectError` (`wrote` stays `False`:
-/// nothing is written unless the edit succeeds). A missing usage is *not* an
-/// error here — `found` is `False` and the Python side decides.
+/// Every failure raises `ProjectError` (`wrote` stays `False`: nothing is
+/// written unless the edit succeeds), matching `do_add_py` and
+/// `do_remove_py`, which reject a malformed shorthand or an invalid version
+/// requirement the same way. A missing usage is *not* an error here —
+/// `found` is `False` and the Python side decides.
 #[pyfunction(name = "do_set_usage_constraint_py")]
 #[pyo3(
-    signature = (path, resource, constraint),
+    signature = (path, identifier, constraint),
 )]
 fn do_set_usage_constraint_py(
     path: String,
-    resource: String,
+    identifier: String,
     constraint: Option<String>,
 ) -> PyResult<(String, bool, bool, Option<String>, Option<String>)> {
     common_init();
 
     let mut project = LocalSrcProject::new_access(path, None);
 
-    match do_set_usage_constraint_local(&mut project, &resource, constraint.as_deref()) {
-        Ok((resource, ConstraintChange::Replaced { old, new })) => {
-            Ok((resource, true, true, old, new))
+    match do_set_usage_constraint_local(&mut project, &identifier, constraint.as_deref()) {
+        Ok((identifier, ConstraintChange::Replaced { old, new })) => {
+            Ok((identifier, true, true, old, new))
         }
-        Ok((resource, ConstraintChange::Unchanged { constraint })) => {
-            Ok((resource, true, false, constraint.clone(), constraint))
+        Ok((identifier, ConstraintChange::Unchanged { constraint })) => {
+            Ok((identifier, true, false, constraint.clone(), constraint))
         }
-        Ok((resource, ConstraintChange::NotFound)) => Ok((resource, false, false, None, None)),
-        Err(EditInfoError::Edit(
-            e @ (SetConstraintError::InvalidConstraint(..) | SetConstraintError::MalformedUsage(_)),
-        )) => Err(PyValueError::new_err(format_err(e))),
+        Ok((identifier, ConstraintChange::NotFound)) => Ok((identifier, false, false, None, None)),
         Err(e) => Err(ProjectError::new_err(format_err(e))),
     }
 }
 
+/// Returns the usages that were removed, in declaration order.
 #[pyfunction(name = "do_remove_py")]
 #[pyo3(
     signature = (path, iri),
 )]
-fn do_remove_py(path: String, iri: String) -> PyResult<()> {
+fn do_remove_py(path: String, iri: String) -> PyResult<Vec<InterchangeProjectUsageRaw>> {
     common_init();
 
     let mut project = LocalSrcProject::new_access(path, None);
 
-    do_remove_guess(&mut project, iri).map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
-
-    Ok(())
+    do_remove_guess(&mut project, iri).map_err(|e| ProjectError::new_err(format_err(e)))
 }
 
 /// `src_path` must be relative to and under the project root
@@ -1459,6 +1470,7 @@ pub fn sysand_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(do_sources_env_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_sources_project_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_add_py, m)?)?;
+    m.add_function(wrap_pyfunction!(do_add_usage_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_set_usage_constraint_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_remove_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_include_py, m)?)?;
@@ -1571,6 +1583,7 @@ fn info_and_metadata_fields_guard(
                 publisher,
                 name,
             } => {}
+            InterchangeProjectUsageRaw::Unknown(unknown) => {}
         }
     }
 

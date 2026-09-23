@@ -254,6 +254,9 @@ fn print_removed(usages: &[InterchangeProjectUsageRaw]) {
     let header = sysand_core::style::get_style_config().header;
     for usage in usages {
         match usage {
+            InterchangeProjectUsageRaw::Unknown(unknown) => {
+                log::info!("{header}{removed:>12}{header:#} {unknown}");
+            }
             InterchangeProjectUsageRaw::Resource {
                 resource,
                 version_constraint,

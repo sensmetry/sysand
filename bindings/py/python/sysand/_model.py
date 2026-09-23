@@ -11,18 +11,35 @@ import typing
 # to/from Rust `*Raw` model type variants
 
 
-class InterchangeProjectUsageResource(typing.TypedDict):
+class _InterchangeProjectUsageResourceRequired(typing.TypedDict):
     resource: str
+
+
+class InterchangeProjectUsageResource(
+    _InterchangeProjectUsageResourceRequired, total=False
+):
+    """The untyped usage: a project named by an IRI, optionally constrained
+    to a range of versions. The only kind that carries a version constraint.
+    """
+
     version_constraint: typing.Optional[str]
 
 
 class InterchangeProjectUsageDirectory(typing.TypedDict):
+    """A typed usage: the project in the directory ``dir``, relative to the
+    root of the project declaring the usage. It carries no version
+    constraint -- the directory holds a single version."""
+
     dir: str
     publisher: str
     name: str
 
 
 class InterchangeProjectUsageKparPath(typing.TypedDict):
+    """A typed usage: the project in the KPAR at ``kpar_path``, relative to
+    the root of the project declaring the usage. It carries no version
+    constraint -- the archive holds a single version."""
+
     kpar_path: str
     publisher: str
     name: str
@@ -33,14 +50,37 @@ InterchangeProjectUsage = typing.Union[
     InterchangeProjectUsageDirectory,
     InterchangeProjectUsageKparPath,
 ]
+"""A usage of a kind this sysand understands. Use this when *writing* a
+usage, for example as :func:`sysand.add`'s ``usage``."""
+
+InterchangeProjectUsageUnknown = typing.Dict[str, typing.Any]
+"""A usage entry this sysand cannot interpret, passed through exactly as it
+appears in ``.project.json``.
+
+Almost always a usage kind added by a newer sysand. Reading it is allowed so
+that a manifest written by that newer sysand stays readable and editable
+here, and so that rewriting the manifest keeps the entry intact; acting on it
+as a dependency is not, and raises :class:`ProjectError`.
+"""
+
+InterchangeProjectUsageAny = typing.Union[
+    InterchangeProjectUsage,
+    InterchangeProjectUsageUnknown,
+]
+"""Any usage that can be *read* out of a manifest, interpretable or not.
+
+Deliberately wider than :data:`InterchangeProjectUsage`: a caller that walks
+``InterchangeProjectInfo.usage`` has to be ready for an entry this sysand
+cannot name the fields of.
+"""
 
 
 class UsageConstraintChange(typing.TypedDict):
     """Result of :func:`sysand.set_usage_constraint`."""
 
-    resource: str
-    """The resource actually matched, with the ``publisher/name`` shorthand
-    expanded to its ``pkg:sysand/`` IRI."""
+    identifier: str
+    """The project identifier actually matched, with the ``publisher/name``
+    shorthand expanded to its ``pkg:sysand/`` IRI."""
     found: bool
     changed: bool
     old_constraint: typing.Optional[str]
@@ -160,7 +200,7 @@ class InterchangeProjectInfo(typing.TypedDict):
     maintainer: typing.List[str]
     website: typing.Optional[str]
     topic: typing.List[str]
-    usage: typing.List[InterchangeProjectUsage]
+    usage: typing.List[InterchangeProjectUsageAny]
 
 
 class InterchangeProjectChecksum(typing.TypedDict):
@@ -208,6 +248,8 @@ __all__ = [
     "InterchangeProjectUsageDirectory",
     "InterchangeProjectUsageKparPath",
     "InterchangeProjectUsage",
+    "InterchangeProjectUsageUnknown",
+    "InterchangeProjectUsageAny",
     "InterchangeProjectInfo",
     "InterchangeProjectChecksum",
     "InterchangeProjectMetadata",

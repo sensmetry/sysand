@@ -1557,6 +1557,14 @@ fn check_usage(usage: &InterchangeProjectUsageRaw) -> Result<(), PublishError> {
         InterchangeProjectUsageRaw::KparPath { kpar_path, .. } => Err(PublishError::PathUsage {
             path: kpar_path.as_str().into(),
         }),
+        // Publishing means vouching for what the project depends on, which
+        // this build cannot do for a usage it cannot interpret.
+        InterchangeProjectUsageRaw::Unknown(unknown) => Err(PublishError::InfoMetaValidation {
+            name: "project",
+            source: InterchangeProjectValidationError::UnknownUsageKind {
+                keys: unknown.quoted_keys(),
+            },
+        }),
     }
 }
 
@@ -1599,7 +1607,8 @@ fn check_std_libs(
             Ok(false)
         }
         InterchangeProjectUsageRaw::Directory { .. }
-        | InterchangeProjectUsageRaw::KparPath { .. } => Ok(false),
+        | InterchangeProjectUsageRaw::KparPath { .. }
+        | InterchangeProjectUsageRaw::Unknown(_) => Ok(false),
     }
 }
 

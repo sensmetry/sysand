@@ -22,7 +22,9 @@ def test_basic_init(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(level)
 
     with tempfile.TemporaryDirectory() as tmpdirname:
-        sysand.init("test_basic_init", "a", "1.2.3", tmpdirname)
+        sysand.init(
+            path=tmpdirname, name="test_basic_init", publisher="a", version="1.2.3"
+        )
 
         assert caplog.record_tuples == [
             (
@@ -46,7 +48,7 @@ def test_basic_init(caplog: pytest.LogCaptureFixture) -> None:
 def test_basic_env() -> None:
     with tempfile.TemporaryDirectory() as tmpdirname:
         env_path = Path(tmpdirname) / sysand.env.DEFAULT_ENV_NAME
-        sysand.env.env(env_path)
+        sysand.env.env(path=env_path)
         assert env_path.is_dir()
         content = (env_path / "env.toml").read_text()
         assert (
@@ -57,9 +59,14 @@ def test_basic_env() -> None:
 
 def test_add_accepts_sysand_shorthand() -> None:
     with tempfile.TemporaryDirectory() as tmpdirname:
-        sysand.init("test_add_accepts_sysand_shorthand", "a", "1.2.3", tmpdirname)
+        sysand.init(
+            path=tmpdirname,
+            name="test_add_accepts_sysand_shorthand",
+            publisher="a",
+            version="1.2.3",
+        )
 
-        sysand.add(tmpdirname, "acme-labs/my.project")
+        sysand.add(path=tmpdirname, iri="acme-labs/my.project")
 
         assert (
             (Path(tmpdirname) / ".project.json").read_text()
@@ -69,10 +76,15 @@ def test_add_accepts_sysand_shorthand() -> None:
 
 def test_remove_accepts_sysand_shorthand() -> None:
     with tempfile.TemporaryDirectory() as tmpdirname:
-        sysand.init("test_remove_accepts_sysand_shorthand", "a", "1.2.3", tmpdirname)
+        sysand.init(
+            path=tmpdirname,
+            name="test_remove_accepts_sysand_shorthand",
+            publisher="a",
+            version="1.2.3",
+        )
 
-        sysand.add(tmpdirname, "acme-labs/my.project")
-        sysand.remove(tmpdirname, "acme-labs/my.project")
+        sysand.add(path=tmpdirname, iri="acme-labs/my.project")
+        sysand.remove(path=tmpdirname, iri="acme-labs/my.project")
 
         assert (
             (Path(tmpdirname) / ".project.json").read_text()
@@ -116,10 +128,12 @@ def test_set_usage_constraint_preserves_document(tmp_path: Path) -> None:
     manifest = tmp_path / ".project.json"
     manifest.write_text(SYSAND_FORMATTED_MANIFEST)
 
-    change = sysand.set_usage_constraint(tmp_path, "mock/library", ">=0.11.0, <0.12.0")
+    change = sysand.set_usage_constraint(
+        path=tmp_path, identifier="mock/library", constraint=">=0.11.0, <0.12.0"
+    )
 
     assert change == {
-        "resource": "pkg:sysand/mock/library",
+        "identifier": "pkg:sysand/mock/library",
         "found": True,
         "changed": True,
         "old_constraint": ">=0.10.0, <0.11.0",
@@ -134,7 +148,9 @@ def test_set_usage_constraint_purl_matches_shorthand_declaration(
     tmp_path: Path,
 ) -> None:
     (tmp_path / ".project.json").write_text(SYSAND_FORMATTED_MANIFEST)
-    change = sysand.set_usage_constraint(tmp_path, "pkg:sysand/mock/library", "0.11.0")
+    change = sysand.set_usage_constraint(
+        path=tmp_path, identifier="pkg:sysand/mock/library", constraint="0.11.0"
+    )
     assert change["found"] and change["changed"]
     assert change["new_constraint"] == "0.11.0"
 
@@ -143,7 +159,9 @@ def test_set_usage_constraint_clear(tmp_path: Path) -> None:
     manifest = tmp_path / ".project.json"
     manifest.write_text(SYSAND_FORMATTED_MANIFEST)
 
-    change = sysand.set_usage_constraint(tmp_path, "mock/library", None)
+    change = sysand.set_usage_constraint(
+        path=tmp_path, identifier="mock/library", constraint=None
+    )
 
     assert change["changed"] is True
     assert change["old_constraint"] == ">=0.10.0, <0.11.0"
@@ -154,7 +172,9 @@ def test_set_usage_constraint_clear(tmp_path: Path) -> None:
     assert manifest.read_text() == expected
 
     # Setting a constraint on a usage without one appends it as the last key.
-    sysand.set_usage_constraint(tmp_path, "mock/library", "^0.11")
+    sysand.set_usage_constraint(
+        path=tmp_path, identifier="mock/library", constraint="^0.11"
+    )
     assert manifest.read_text() == SYSAND_FORMATTED_MANIFEST.replace(
         ">=0.10.0, <0.11.0", "^0.11"
     )
@@ -166,7 +186,9 @@ def test_set_usage_constraint_unchanged_does_not_touch_file(tmp_path: Path) -> N
     os.utime(manifest, ns=(1_000_000_000_000_000_000, 1_000_000_000_000_000_000))
     before = manifest.stat()
 
-    change = sysand.set_usage_constraint(tmp_path, "mock/library", ">=0.10.0, <0.11.0")
+    change = sysand.set_usage_constraint(
+        path=tmp_path, identifier="mock/library", constraint=">=0.10.0, <0.11.0"
+    )
 
     assert change["found"] is True
     assert change["changed"] is False
@@ -181,16 +203,18 @@ def test_set_usage_constraint_not_found(tmp_path: Path) -> None:
     manifest.write_text(SYSAND_FORMATTED_MANIFEST)
 
     with pytest.raises(sysand.ProjectError) as excinfo:
-        sysand.set_usage_constraint(tmp_path, "acme/absent", "1.0.0")
+        sysand.set_usage_constraint(
+            path=tmp_path, identifier="acme/absent", constraint="1.0.0"
+        )
     assert excinfo.value.wrote is False
     assert isinstance(excinfo.value, RuntimeError)
     assert "pkg:sysand/acme/absent" in str(excinfo.value)
 
     change = sysand.set_usage_constraint(
-        tmp_path, "acme/absent", "1.0.0", must_exist=False
+        path=tmp_path, identifier="acme/absent", constraint="1.0.0", must_exist=False
     )
     assert change == {
-        "resource": "pkg:sysand/acme/absent",
+        "identifier": "pkg:sysand/acme/absent",
         "found": False,
         "changed": False,
         "old_constraint": None,
@@ -201,7 +225,10 @@ def test_set_usage_constraint_not_found(tmp_path: Path) -> None:
     # A missing manifest is an error even with must_exist=False.
     with pytest.raises(sysand.ProjectError):
         sysand.set_usage_constraint(
-            tmp_path / "nowhere", "acme/absent", "1.0.0", must_exist=False
+            path=tmp_path / "nowhere",
+            identifier="acme/absent",
+            constraint="1.0.0",
+            must_exist=False,
         )
 
 
@@ -209,10 +236,15 @@ def test_set_usage_constraint_rejects_bad_input(tmp_path: Path) -> None:
     manifest = tmp_path / ".project.json"
     manifest.write_text(SYSAND_FORMATTED_MANIFEST)
 
-    with pytest.raises(ValueError):
-        sysand.set_usage_constraint(tmp_path, "mock/library", "nonsense")
-    with pytest.raises(ValueError):
-        sysand.set_usage_constraint(tmp_path, "ab/proj0", "1.0.0")
+    # The same faults `add` and `remove` reject, rejected the same way.
+    with pytest.raises(sysand.ProjectError):
+        sysand.set_usage_constraint(
+            path=tmp_path, identifier="mock/library", constraint="nonsense"
+        )
+    with pytest.raises(sysand.ProjectError):
+        sysand.set_usage_constraint(
+            path=tmp_path, identifier="ab/proj0", constraint="1.0.0"
+        )
     assert manifest.read_text() == SYSAND_FORMATTED_MANIFEST
 
     manifest.write_text(
@@ -221,7 +253,9 @@ def test_set_usage_constraint_rejects_bad_input(tmp_path: Path) -> None:
         )
     )
     with pytest.raises(sysand.ProjectError) as excinfo:
-        sysand.set_usage_constraint(tmp_path, "mock/library", "1.0.0")
+        sysand.set_usage_constraint(
+            path=tmp_path, identifier="mock/library", constraint="1.0.0"
+        )
     assert "2 times" in str(excinfo.value)
     assert excinfo.value.wrote is False
 
@@ -233,7 +267,7 @@ def test_set_usage_constraint_normalizes_hand_formatted_whitespace(
     manifest.write_text(
         '{"name":"hand","version":"1.0.0","usage":[{"resource":"a:b","versionConstraint":"1.0.0"}],"z":1}'
     )
-    sysand.set_usage_constraint(tmp_path, "a:b", "2.0.0")
+    sysand.set_usage_constraint(path=tmp_path, identifier="a:b", constraint="2.0.0")
     # Same keys, same order, sysand's whitespace.
     assert (
         manifest.read_text()
@@ -253,11 +287,193 @@ def test_set_usage_constraint_normalizes_hand_formatted_whitespace(
 
 
 def test_add_returns_whether_a_usage_was_added(tmp_path: Path) -> None:
-    sysand.init("test_add_returns", "a", "1.2.3", tmp_path)
+    sysand.init(path=tmp_path, name="test_add_returns", publisher="a", version="1.2.3")
 
-    assert sysand.add(tmp_path, "acme-labs/my.project", ">=1.0.0") is True
-    assert sysand.add(tmp_path, "acme-labs/my.project", ">=1.0.0") is False
-    assert sysand.add(tmp_path, "acme-labs/other") is True
+    assert (
+        sysand.add(
+            path=tmp_path, iri="acme-labs/my.project", version_constraint=">=1.0.0"
+        )
+        is True
+    )
+    assert (
+        sysand.add(
+            path=tmp_path, iri="acme-labs/my.project", version_constraint=">=1.0.0"
+        )
+        is False
+    )
+    assert sysand.add(path=tmp_path, iri="acme-labs/other") is True
+
+
+def test_set_usage_constraint_refuses_a_usage_that_cannot_hold_one(
+    tmp_path: Path,
+) -> None:
+    # The directory usage in the fixture *is* the project `local-pub/local-lib`.
+    # Reporting it as "not declared" would be false, and setting a constraint
+    # on it is meaningless: a directory holds one version.
+    manifest = tmp_path / ".project.json"
+    manifest.write_text(SYSAND_FORMATTED_MANIFEST)
+
+    with pytest.raises(sysand.ProjectError) as excinfo:
+        sysand.set_usage_constraint(
+            path=tmp_path, identifier="local-pub/local-lib", constraint="1.0.0"
+        )
+    assert "directory usage" in str(excinfo.value)
+    assert excinfo.value.wrote is False
+
+    # `must_exist=False` means "absent is fine". This usage is not absent.
+    with pytest.raises(sysand.ProjectError):
+        sysand.set_usage_constraint(
+            path=tmp_path,
+            identifier="local-pub/local-lib",
+            constraint="1.0.0",
+            must_exist=False,
+        )
+
+    assert manifest.read_text() == SYSAND_FORMATTED_MANIFEST
+
+
+def test_set_usage_constraint_reports_the_matched_identifier(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / ".project.json").write_text(SYSAND_FORMATTED_MANIFEST)
+
+    change = sysand.set_usage_constraint(
+        path=tmp_path, identifier="mock/library", constraint="0.11.0"
+    )
+
+    assert change["identifier"] == "pkg:sysand/mock/library"
+
+
+def test_remove_returns_the_removed_usages(tmp_path: Path) -> None:
+    sysand.init(
+        path=tmp_path, name="test_remove_returns", publisher="a", version="1.2.3"
+    )
+    sysand.add(path=tmp_path, iri="acme-labs/my.project", version_constraint=">=1.0.0")
+
+    removed = sysand.remove(path=tmp_path, iri="acme-labs/my.project")
+
+    assert removed == [
+        {
+            "resource": "pkg:sysand/acme-labs/my.project",
+            "version_constraint": ">=1.0.0",
+        }
+    ]
+
+
+def test_remove_refuses_a_usage_of_another_kind(tmp_path: Path) -> None:
+    root = tmp_path / "proj"
+    dep = tmp_path / "dep"
+    sysand.init(path=root, name="proj", publisher="acme", version="1.0.0")
+    sysand.init(path=dep, name="my.project", publisher="acme-labs", version="1.0.0")
+    sysand.add(
+        path=root,
+        usage={"dir": "../dep", "publisher": "acme-labs", "name": "my.project"},
+    )
+
+    with pytest.raises(sysand.ProjectError) as excinfo:
+        sysand.remove(path=root, iri="acme-labs/my.project")
+    message = str(excinfo.value)
+    assert "declared as a directory usage" in message
+    assert "could not find" not in message
+
+    # Still declared.
+    info, _ = sysand.info_path(path=root)
+    assert len(info["usage"]) == 1
+
+
+def test_remove_still_reports_an_absent_usage(tmp_path: Path) -> None:
+    sysand.init(path=tmp_path, name="proj", publisher="acme", version="1.0.0")
+
+    with pytest.raises(sysand.ProjectError) as excinfo:
+        sysand.remove(path=tmp_path, iri="acme-labs/absent")
+    assert "could not find usage" in str(excinfo.value)
+
+
+def test_add_refuses_a_project_already_declared_as_another_kind(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "proj"
+    dep = tmp_path / "dep"
+    sysand.init(path=root, name="proj", publisher="acme", version="1.0.0")
+    sysand.init(path=dep, name="my.project", publisher="acme-labs", version="1.0.0")
+    sysand.add(
+        path=root,
+        usage={"dir": "../dep", "publisher": "acme-labs", "name": "my.project"},
+    )
+
+    with pytest.raises(sysand.ProjectError) as excinfo:
+        sysand.add(path=root, iri="acme-labs/my.project")
+    assert "already declared as a directory usage" in str(excinfo.value)
+
+    info, _ = sysand.info_path(path=root)
+    assert len(info["usage"]) == 1
+
+
+def test_add_raises_project_error_for_a_malformed_shorthand(
+    tmp_path: Path,
+) -> None:
+    sysand.init(path=tmp_path, name="proj", publisher="acme", version="1.0.0")
+
+    with pytest.raises(sysand.ProjectError):
+        sysand.add(path=tmp_path, iri="Acme Labs/My.Project")
+
+
+def test_add_accepts_every_usage_kind(tmp_path: Path) -> None:
+    root = tmp_path / "proj"
+    dep = tmp_path / "dep"
+    sysand.init(path=root, name="proj", publisher="acme", version="1.0.0")
+    sysand.init(path=dep, name="dep", publisher="acme", version="1.0.0")
+
+    # A resource usage may leave `version_constraint` out entirely.
+    assert sysand.add(path=root, usage={"resource": "pkg:sysand/acme/other"}) is True
+    assert (
+        sysand.add(
+            path=root, usage={"dir": "../dep", "publisher": "acme", "name": "dep"}
+        )
+        is True
+    )
+    assert (
+        sysand.add(
+            path=root,
+            usage={"kpar_path": "../third.kpar", "publisher": "acme", "name": "third"},
+        )
+        is True
+    )
+
+    info, _ = sysand.info_path(path=root)
+    assert info["usage"] == [
+        {"resource": "pkg:sysand/acme/other", "version_constraint": None},
+        {"dir": "../dep", "publisher": "acme", "name": "dep"},
+        {"kpar_path": "../third.kpar", "publisher": "acme", "name": "third"},
+    ]
+
+
+def test_add_names_the_dependency_exactly_once(tmp_path: Path) -> None:
+    # `iri` and `usage` are two ways to say the same thing, so exactly one of
+    # them is a call. Overloads make each of these a type error too; this
+    # pins the runtime behaviour for callers who are not type-checked.
+    sysand.init(path=tmp_path, name="proj", publisher="acme", version="1.0.0")
+
+    with pytest.raises(TypeError):
+        sysand.add(path=tmp_path)
+
+    with pytest.raises(TypeError):
+        sysand.add(
+            path=tmp_path,
+            iri="acme/lib",
+            usage={"resource": "pkg:sysand/acme/lib"},
+        )
+
+    # A usage carries its own constraint, so the keyword has nothing to set.
+    with pytest.raises(TypeError):
+        sysand.add(
+            path=tmp_path,
+            usage={"dir": "../dep", "publisher": "acme", "name": "dep"},
+            version_constraint=">=1.0.0",
+        )
+
+    info, _ = sysand.info_path(path=tmp_path)
+    assert info["usage"] == []
 
 
 def _project_with_dir_usage(tmp_path: Path) -> tuple[Path, Path]:
@@ -268,9 +484,9 @@ def _project_with_dir_usage(tmp_path: Path) -> tuple[Path, Path]:
     kpar_dep = tmp_path / "kpar-dep"
     for name, path in [("proj", root), ("dir-dep", dep), ("kpar-dep", kpar_dep)]:
         path.mkdir()
-        sysand.init(name, "acme", "1.0.0", path)
+        sysand.init(path=path, name=name, publisher="acme", version="1.0.0")
         (path / f"{name}.sysml").write_text(f"package P_{name.replace('-', '_')};")
-        sysand.include(path, f"{name}.sysml")
+        sysand.include(path=path, src_path=f"{name}.sysml")
     manifest = json.loads((root / ".project.json").read_text())
     manifest["usage"] = [{"dir": "../dir-dep", "publisher": "acme", "name": "dir-dep"}]
     (root / ".project.json").write_text(json.dumps(manifest, indent=2) + "\n")
@@ -278,14 +494,14 @@ def _project_with_dir_usage(tmp_path: Path) -> tuple[Path, Path]:
     assert run_cli_in(root, "sync", "--no-config", "--no-index") == 0
     env_dir = root / sysand.env.DEFAULT_ENV_NAME
     # After `sync`, which prunes anything not in the lockfile.
-    sysand.env.install_path(env_dir, "urn:kpar:dep", kpar_dep)
+    sysand.env.install_path(env_path=env_dir, iri="urn:kpar:dep", location=kpar_dep)
     return root, env_dir
 
 
 def test_env_projects_lists_installed_and_editable(tmp_path: Path) -> None:
     root, env_dir = _project_with_dir_usage(tmp_path)
 
-    projects = {p["name"]: p for p in sysand.env.projects(env_dir)}
+    projects = {p["name"]: p for p in sysand.env.projects(env_path=env_dir)}
     assert set(projects) == {"proj", "dir-dep", "kpar-dep"}
     for project in projects.values():
         assert set(project) == set(sysand.EnvProject.__annotations__)
@@ -321,9 +537,11 @@ def test_env_projects_lists_installed_and_editable(tmp_path: Path) -> None:
 
 def test_env_sources_is_exported(tmp_path: Path) -> None:
     root, env_dir = _project_with_dir_usage(tmp_path)
-    [kpar_dep] = [p for p in sysand.env.projects(env_dir) if p["name"] == "kpar-dep"]
+    [kpar_dep] = [
+        p for p in sysand.env.projects(env_path=env_dir) if p["name"] == "kpar-dep"
+    ]
 
-    [source] = sysand.env.sources(env_dir, "urn:kpar:dep")
+    [source] = sysand.env.sources(env_path=env_dir, iri="urn:kpar:dep")
 
     assert os.path.samefile(source, env_dir / kpar_dep["path"] / "kpar-dep.sysml")
     assert "sources" in sysand.env.__all__
@@ -331,43 +549,48 @@ def test_env_sources_is_exported(tmp_path: Path) -> None:
 
 def test_env_projects_missing_env(tmp_path: Path) -> None:
     with pytest.raises(sysand.EnvError) as excinfo:
-        sysand.env.projects(tmp_path / "nope")
+        sysand.env.projects(env_path=tmp_path / "nope")
     assert excinfo.value.wrote is False
     assert isinstance(excinfo.value, RuntimeError)
     assert isinstance(excinfo.value, sysand.SysandError)
 
     # The same failure raises the same class from `install_path`.
     with pytest.raises(sysand.EnvError):
-        sysand.env.install_path(tmp_path / "nope", "urn:kpar:x", tmp_path)
+        sysand.env.install_path(
+            env_path=tmp_path / "nope", iri="urn:kpar:x", location=tmp_path
+        )
 
 
 def test_discover(tmp_path: Path) -> None:
-    assert sysand.discover(tmp_path) == {"project_root": None, "workspace_root": None}
+    assert sysand.discover(path=tmp_path) == {
+        "project_root": None,
+        "workspace_root": None,
+    }
 
     root = tmp_path / "ws" / "proj"
     root.mkdir(parents=True)
-    sysand.init("discover", "acme", "1.0.0", root)
+    sysand.init(path=root, name="discover", publisher="acme", version="1.0.0")
     nested = root / "src" / "deep"
     nested.mkdir(parents=True)
 
     for start in (root, nested):
-        found = sysand.discover(start)
+        found = sysand.discover(path=start)
         assert found["project_root"] is not None
         assert os.path.samefile(found["project_root"], root)
         assert found["workspace_root"] is None
-    assert sysand.discover(root)["project_root"] == str(sysand.root(root))
+    assert sysand.discover(path=root)["project_root"] == str(sysand.root(path=root))
 
     (tmp_path / "ws" / ".workspace.json").write_text('{"projects": []}\n')
-    found = sysand.discover(nested)
+    found = sysand.discover(path=nested)
     assert found["workspace_root"] is not None
     assert os.path.samefile(found["workspace_root"], tmp_path / "ws")
     assert found["project_root"] is not None
     assert os.path.samefile(found["project_root"], root)
-    assert sysand.discover(tmp_path / "ws")["project_root"] is None
+    assert sysand.discover(path=tmp_path / "ws")["project_root"] is None
 
     (tmp_path / "ws" / ".workspace.json").write_text("not json")
     with pytest.raises(sysand.ProjectError) as excinfo:
-        sysand.discover(root)
+        sysand.discover(path=root)
     assert excinfo.value.wrote is False
 
 
@@ -377,9 +600,11 @@ def test_basic_info(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(level)
 
     with tempfile.TemporaryDirectory() as tmpdirname:
-        sysand.init("test_basic_info", "a", "1.2.3", tmpdirname)
+        sysand.init(
+            path=tmpdirname, name="test_basic_info", publisher="a", version="1.2.3"
+        )
 
-        info_meta = sysand.info_path(tmpdirname)
+        info_meta = sysand.info_path(path=tmpdirname)
         assert info_meta is not None
 
         info, meta = info_meta
@@ -406,7 +631,7 @@ def test_basic_info(caplog: pytest.LogCaptureFixture) -> None:
 
         file_uri = Path(tmpdirname).resolve().as_uri()
 
-        info_meta2 = sysand.info(file_uri)
+        info_meta2 = sysand.info(iri=file_uri)
         assert info_meta2 == info_meta
 
 
@@ -422,7 +647,7 @@ def test_http_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) -> 
         {"index": {}, "created": "0000-00-00T00:00:00.123456789Z"}
     )
 
-    info, meta = sysand.info(httpserver.url_for(""))
+    info, meta = sysand.info(iri=httpserver.url_for(""))
 
     assert info == {
         "name": "test_http_info",
@@ -454,7 +679,7 @@ def test_index_info(caplog: pytest.LogCaptureFixture, mock_index: MockIndex) -> 
     # the discovery root).
     mock_index.publish("urn:kpar:test_index_info", "1.2.3")
 
-    info, meta = sysand.info("urn:kpar:test_index_info", index_urls=mock_index.url)
+    info, meta = sysand.info(iri="urn:kpar:test_index_info", index_urls=mock_index.url)
 
     assert info["name"] == "test_index_info"
     assert info["version"] == "1.2.3"
@@ -551,36 +776,57 @@ def test_end_to_end_install_sources() -> None:
         tmp_main = Path(tmp_main).resolve()
         tmp_dep = Path(tmp_dep).resolve()
         tmp_std = Path(tmp_std).resolve()
-        sysand.init("test_end_to_end_install_sources", "a", "1.2.3", tmp_main)
-        sysand.init("test_end_to_end_install_sources_dep", "a", "1.2.3", tmp_dep)
-        sysand.init("Kernel Function Library", "a", std_version, tmp_std)
+        sysand.init(
+            path=tmp_main,
+            name="test_end_to_end_install_sources",
+            publisher="a",
+            version="1.2.3",
+        )
+        sysand.init(
+            path=tmp_dep,
+            name="test_end_to_end_install_sources_dep",
+            publisher="a",
+            version="1.2.3",
+        )
+        sysand.init(
+            path=tmp_std,
+            name="Kernel Function Library",
+            publisher="a",
+            version=std_version,
+        )
 
         with open(Path(tmp_main) / "src.sysml", "w") as f:
             f.write("package Src;")
 
-        sysand.include(tmp_main, "src.sysml")
+        sysand.include(path=tmp_main, src_path="src.sysml")
 
         with open(Path(tmp_dep) / "src_dep.sysml", "w") as f:
             f.write("package SrcDep;")
 
-        sysand.include(tmp_dep, "src_dep.sysml")
+        sysand.include(path=tmp_dep, src_path="src_dep.sysml")
 
         with open(Path(tmp_std) / "src_std.sysml", "w") as f:
             f.write("package SrcStd;")
 
-        sysand.include(tmp_std, "src_std.sysml")
+        sysand.include(path=tmp_std, src_path="src_std.sysml")
 
         env_path = Path(tmp_main) / sysand.env.DEFAULT_ENV_NAME
 
-        sysand.env.env(env_path)
+        sysand.env.env(path=env_path)
 
         sysand.env.install_path(
-            env_path, "urn:kpar:test_end_to_end_install_sources_dep", tmp_dep
+            env_path=env_path,
+            iri="urn:kpar:test_end_to_end_install_sources_dep",
+            location=tmp_dep,
         )
-        sysand.env.install_path(env_path, std_iri, tmp_std)
+        sysand.env.install_path(env_path=env_path, iri=std_iri, location=tmp_std)
 
-        sysand.add(tmp_main, "urn:kpar:test_end_to_end_install_sources_dep", "1.2.3")
-        sysand.add(tmp_main, std_iri, std_version)
+        sysand.add(
+            path=tmp_main,
+            iri="urn:kpar:test_end_to_end_install_sources_dep",
+            version_constraint="1.2.3",
+        )
+        sysand.add(path=tmp_main, iri=std_iri, version_constraint=std_version)
 
         dep_src = (
             env_path
@@ -593,24 +839,24 @@ def test_end_to_end_install_sources() -> None:
 
         # By default only the project's own sources are listed.
         compare_sources(
-            sysand.sources(tmp_main),
+            sysand.sources(path=tmp_main),
             [str(Path(tmp_main) / "src.sysml")],
         )
         compare_sources(
-            sysand.sources(tmp_dep),
+            sysand.sources(path=tmp_dep),
             [str(Path(tmp_dep) / "src_dep.sysml")],
         )
         # Own sources together with dependency sources, excluding std libs.
         compare_sources(
             sysand.sources(
-                tmp_main, dependencies=sysand.Dependencies.DEPS, env_path=env_path
+                path=tmp_main, dependencies=sysand.Dependencies.DEPS, env_path=env_path
             ),
             [str(Path(tmp_main) / "src.sysml"), str(dep_src)],
         )
         # Only dependency sources.
         compare_sources(
             sysand.sources(
-                tmp_main,
+                path=tmp_main,
                 no_own=True,
                 dependencies=sysand.Dependencies.DEPS,
                 env_path=env_path,
@@ -618,13 +864,13 @@ def test_end_to_end_install_sources() -> None:
             [str(dep_src)],
         )
         # no_own without dependencies yields nothing.
-        compare_sources(sysand.sources(tmp_main, no_own=True), [])
+        compare_sources(sysand.sources(path=tmp_main, no_own=True), [])
 
         # DEPS_STD includes both the dependency and the std lib.
         compare_sources(
             sorted(
                 sysand.sources(
-                    tmp_main,
+                    path=tmp_main,
                     no_own=True,
                     dependencies=sysand.Dependencies.DEPS_STD,
                     env_path=env_path,
@@ -636,7 +882,7 @@ def test_end_to_end_install_sources() -> None:
         # STD includes only the std lib.
         compare_sources(
             sysand.sources(
-                tmp_main,
+                path=tmp_main,
                 no_own=True,
                 dependencies=sysand.Dependencies.STD,
                 env_path=env_path,
@@ -644,17 +890,17 @@ def test_end_to_end_install_sources() -> None:
             [str(std_src)],
         )
 
-        sysand.exclude(tmp_main, "src.sysml")
+        sysand.exclude(path=tmp_main, src_path="src.sysml")
 
         compare_sources(
             sysand.sources(
-                tmp_main, dependencies=sysand.Dependencies.DEPS, env_path=env_path
+                path=tmp_main, dependencies=sysand.Dependencies.DEPS, env_path=env_path
             ),
             [str(dep_src)],
         )
         compare_sources(
             sysand.sources(
-                tmp_main,
+                path=tmp_main,
                 no_own=True,
                 dependencies=sysand.Dependencies.DEPS,
                 env_path=env_path,
@@ -666,13 +912,13 @@ def test_end_to_end_install_sources() -> None:
 def test_root() -> None:
     with tempfile.TemporaryDirectory() as tmpdirname:
         tmpdirname = Path(tmpdirname).resolve()
-        sysand.init("test_root", "a", "1.2.3", tmpdirname)
+        sysand.init(path=tmpdirname, name="test_root", publisher="a", version="1.2.3")
 
         subdir = tmpdirname / "sub" / "nested"
         subdir.mkdir(parents=True)
 
-        root_from_top = sysand.root(tmpdirname)
-        root_from_sub = sysand.root(subdir)
+        root_from_top = sysand.root(path=tmpdirname)
+        root_from_sub = sysand.root(path=subdir)
 
         assert root_from_top is not None
         assert root_from_sub is not None
@@ -682,7 +928,7 @@ def test_root() -> None:
 
 def test_root_not_in_project() -> None:
     with tempfile.TemporaryDirectory() as tmpdirname:
-        assert sysand.root(tmpdirname) is None
+        assert sysand.root(path=tmpdirname) is None
 
 
 @pytest.mark.parametrize(
@@ -692,15 +938,68 @@ def test_root_not_in_project() -> None:
 def test_build(compression: Union[sysand.CompressionMethod, None]) -> None:
     with tempfile.TemporaryDirectory() as tmp_main:
         tmp_main = Path(tmp_main).resolve()
-        sysand.init("test_build", "a", "1.2.3", tmp_main)
+        sysand.init(path=tmp_main, name="test_build", publisher="a", version="1.2.3")
 
         with open(tmp_main / "src.sysml", "w") as f:
             f.write("package Src;")
 
-        sysand.include(tmp_main, "src.sysml")
+        sysand.include(path=tmp_main, src_path="src.sysml")
 
         sysand.build(
             output_path=tmp_main / "test_build.kpar",
             project_path=tmp_main,
             compression=compression,
         )
+
+
+FUTURE_USAGE = {
+    "registry": "https://example.com/i",
+    "publisher": "acme",
+    "name": "future",
+}
+
+MANIFEST_FROM_A_NEWER_SYSAND = json.dumps(
+    {
+        "name": "probe",
+        "publisher": "acme",
+        "version": "0.0.1",
+        "usage": [
+            {"resource": "pkg:sysand/acme/lib", "versionConstraint": "^1"},
+            FUTURE_USAGE,
+        ],
+    },
+    indent=2,
+)
+
+
+def test_a_usage_kind_from_a_newer_sysand_is_readable(tmp_path: Path) -> None:
+    (tmp_path / ".project.json").write_text(MANIFEST_FROM_A_NEWER_SYSAND)
+    (tmp_path / ".meta.json").write_text(
+        '{"index": {}, "created": "2026-09-22T08:00:00Z"}'
+    )
+
+    info, _meta = sysand.info_path(path=tmp_path)
+
+    # Reading the project does not fail, and the entry this sysand cannot
+    # interpret comes back exactly as the document spells it.
+    assert info["usage"][1] == FUTURE_USAGE
+
+
+def test_a_usage_kind_from_a_newer_sysand_survives_an_edit(tmp_path: Path) -> None:
+    (tmp_path / ".project.json").write_text(MANIFEST_FROM_A_NEWER_SYSAND)
+
+    assert sysand.add(path=tmp_path, iri="acme/widget")
+
+    # Rewriting the manifest to add an unrelated dependency must not drop the
+    # one this sysand does not understand.
+    usages = json.loads((tmp_path / ".project.json").read_text())["usage"]
+    assert FUTURE_USAGE in usages
+
+
+def test_a_usage_kind_from_a_newer_sysand_cannot_be_written(tmp_path: Path) -> None:
+    sysand.init(path=tmp_path, name="probe", publisher="acme", version="0.0.1")
+
+    # Readable is not the same as writable: sysand refuses to declare a usage
+    # it could not act on itself.
+    with pytest.raises(sysand.ProjectError):
+        sysand.add(path=tmp_path, usage=FUTURE_USAGE)  # type: ignore[arg-type]
