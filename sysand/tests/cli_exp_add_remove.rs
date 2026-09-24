@@ -874,15 +874,16 @@ fn exp_remove_prunes_unneeded_dependency_by_default() -> Result<(), Box<dyn std:
     .assert()
     .success();
 
-    // Install an unrelated project directly into the env, bypassing the
-    // lockfile entirely, before any lockfile exists for this project.
+    // Add an unrelated project, then immediately remove its usage without
+    // pruning: this leaves it physically installed in `.sysand` while
+    // excluded from the current lockfile, mirroring a stale/orphaned
+    // install left over from an earlier lockfile.
     run_sysand_in(
         &cwd,
         [
-            "env",
-            "install",
+            "add",
             "urn:kpar:exp-remove-prune-extra",
-            "--path",
+            "--as-local-src",
             cwd_extra.as_str(),
         ],
         None,
@@ -893,8 +894,17 @@ fn exp_remove_prunes_unneeded_dependency_by_default() -> Result<(), Box<dyn std:
     let env_lib = cwd.join(DEFAULT_ENV_NAME).join("lib");
     assert!(env_lib.join("kpar.exp-remove-prune-extra_1.0.0").is_dir());
 
-    // No lockfile has been generated yet, so this `experimental remove`
-    // performs a full lock + sync of the remaining usages.
+    run_sysand_in(
+        &cwd,
+        ["remove", "urn:kpar:exp-remove-prune-extra", "--no-prune"],
+        None,
+    )?
+    .assert()
+    .success();
+
+    // Still physically present, but no longer part of the lockfile.
+    assert!(env_lib.join("kpar.exp-remove-prune-extra_1.0.0").is_dir());
+
     run_sysand_in(
         &cwd,
         ["experimental", "remove", "b", "exp_remove_prune_drop"],
@@ -970,15 +980,25 @@ fn exp_remove_no_prune_keeps_unneeded_dependency_and_still_syncs()
     .assert()
     .success();
 
+    // Add an unrelated project, then immediately remove its usage without
+    // pruning: this leaves it physically installed in `.sysand` while
+    // excluded from the current lockfile.
     run_sysand_in(
         &cwd,
         [
-            "env",
-            "install",
+            "add",
             "urn:kpar:exp-remove-no-prune-extra",
-            "--path",
+            "--as-local-src",
             cwd_extra.as_str(),
         ],
+        None,
+    )?
+    .assert()
+    .success();
+
+    run_sysand_in(
+        &cwd,
+        ["remove", "urn:kpar:exp-remove-no-prune-extra", "--no-prune"],
         None,
     )?
     .assert()

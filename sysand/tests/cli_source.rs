@@ -35,24 +35,11 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
     let out = run_sysand_in(
         &path,
         [
-            "env",
-            "install",
-            "urn:kpar:list_sources_dep",
-            "--path",
-            dep_path.as_str(),
-        ],
-        None,
-    )?;
-    out.assert().success();
-
-    let out = run_sysand_in(
-        &path,
-        [
             "add",
-            "--no-sync",
             "urn:kpar:list_sources_dep",
+            "--as-local-src",
+            dep_path.as_str(),
             "--no-index",
-            "--verbose",
         ],
         None,
     )?;
@@ -207,19 +194,12 @@ fn sources_without_std() -> Result<(), Box<dyn std::error::Error>> {
     let out = run_sysand_in(
         &path,
         [
-            "env",
-            "install",
+            "add",
             "urn:kpar:sources_without_std_dep",
-            "--path",
+            "--as-local-src",
             path_dep.as_str(),
+            "--no-index",
         ],
-        None,
-    )?;
-    out.assert().success();
-
-    let out = run_sysand_in(
-        &path,
-        ["add", "--no-index", "urn:kpar:sources_without_std_dep"],
         None,
     )?;
     out.assert().success();
