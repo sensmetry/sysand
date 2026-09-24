@@ -23,6 +23,17 @@ use crate::{
     },
 };
 
+use super::SolveOptions;
+
+/// [`super::solve`] with the default options
+fn solve<R: ResolveRead + Debug + 'static>(
+    requested: Vec<InterchangeProjectUsage>,
+    base_path: Option<camino::Utf8PathBuf>,
+    resolver: R,
+) -> Result<HashMap<Identifier, R::ProjectStorage>, super::SolverError<R>> {
+    super::solve(requested, base_path, resolver, SolveOptions::default())
+}
+
 fn trivial_memory_project<'a>(
     name: &str,
     version: &str,
@@ -168,7 +179,7 @@ fn simple_resolver_environment(
 fn trivial_resolution() -> Result<(), Box<dyn std::error::Error>> {
     let resolver = simple_resolver_environment(&[]);
 
-    let solution = super::solve(vec![], None, resolver)?;
+    let solution = solve(vec![], None, resolver)?;
 
     assert!(solution.is_empty());
 
@@ -183,7 +194,7 @@ fn version_selection() -> Result<(), Box<dyn std::error::Error>> {
     let resolver =
         simple_resolver_environment(&[("urn:kpar:version_selection", &[project_v1, project_v2])]);
 
-    let solution = super::solve(
+    let solution = solve(
         vec![InterchangeProjectUsage::Resource {
             resource: Iri::parse("urn:kpar:version_selection")?.into(),
             version_constraint: Some(VersionReq::parse(">=2.0.0")?),
@@ -221,7 +232,7 @@ fn directory_usage_env_single_version() -> Result<(), Box<dyn std::error::Error>
 
     let resolver = simple_resolver_environment(&[("pkg:sysand/acme/widget", &[widget])]);
 
-    let solution = super::solve(
+    let solution = solve(
         vec![InterchangeProjectUsage::Directory {
             dir: "some/dir".into(),
             publisher: "acme".to_owned(),
@@ -250,7 +261,7 @@ fn directory_usage_env_multiple_versions_selects_highest() -> Result<(), Box<dyn
     let resolver =
         simple_resolver_environment(&[("pkg:sysand/acme/widget", &[widget_v1, widget_v2])]);
 
-    let solution = super::solve(
+    let solution = solve(
         vec![InterchangeProjectUsage::Directory {
             dir: "some/dir".into(),
             publisher: "acme".to_owned(),
@@ -290,7 +301,7 @@ fn directory_usage_env_transitive() -> Result<(), Box<dyn std::error::Error>> {
         ("pkg:sysand/acme/widget", &[widget_v1, widget_v2]),
     ]);
 
-    let solution = super::solve(
+    let solution = solve(
         vec![InterchangeProjectUsage::Resource {
             resource: Iri::parse("pkg:sysand/acme/app")?.into(),
             version_constraint: None,
@@ -327,7 +338,7 @@ fn directory_and_resource_usage_same_project() -> Result<(), Box<dyn std::error:
         ("pkg:sysand/acme/widget", &[widget]),
     ]);
 
-    let solution = super::solve(
+    let solution = solve(
         vec![
             InterchangeProjectUsage::Resource {
                 resource: Iri::parse("pkg:sysand/acme/app")?.into(),
@@ -378,7 +389,7 @@ fn diamond_selection() -> Result<(), Box<dyn std::error::Error>> {
         ),
     ]);
 
-    let solution = super::solve(
+    let solution = solve(
         vec![
             InterchangeProjectUsage::Resource {
                 resource: Iri::parse("urn:kpar:diamond_selection_a")?.into(),
@@ -415,7 +426,7 @@ fn incompatible_versions_fail() {
 
     let resolver = simple_resolver_environment(&[("urn:kpar:widget", &[widget_v1, widget_v2])]);
 
-    super::solve(
+    solve(
         vec![
             InterchangeProjectUsage::Resource {
                 resource: Iri::parse("urn:kpar:widget").unwrap().into(),
@@ -446,7 +457,7 @@ fn incompatible_versions_fail_transitive() {
         ("urn:kpar:widget", &[widget_v1, widget_v2]),
     ]);
 
-    super::solve(
+    solve(
         vec![
             InterchangeProjectUsage::Resource {
                 resource: Iri::parse("urn:kpar:app_a").unwrap().into(),
@@ -473,7 +484,7 @@ fn single_version_single_project() -> Result<(), Box<dyn std::error::Error>> {
     let storage_b = memory_resolver(&[("urn:kpar:widget", &[widget])]);
     let resolver = SequentialResolver::new([storage_a, storage_b]);
 
-    let solution = super::solve(
+    let solution = solve(
         vec![InterchangeProjectUsage::Resource {
             resource: Iri::parse("urn:kpar:widget")?.into(),
             version_constraint: None,
@@ -571,7 +582,7 @@ fn usages_multiple_versions_of_same_project() {
 
     let resolver = simple_resolver_environment(&[("urn:kpar:widget", &[widget_v1, widget_v2])]);
 
-    super::solve(
+    solve(
         vec![
             InterchangeProjectUsage::Resource {
                 resource: Iri::parse("urn:kpar:widget").unwrap().into(),
@@ -602,7 +613,7 @@ fn transitive_usages_different_versions_of_same_project() {
         ("urn:kpar:widget", &[widget_v1, widget_v2]),
     ]);
 
-    super::solve(
+    solve(
         vec![
             InterchangeProjectUsage::Resource {
                 resource: Iri::parse("urn:kpar:app_a").unwrap().into(),
@@ -645,7 +656,7 @@ where
     R: ResolveRead + Debug + 'static,
     R::ProjectStorage: Debug,
 {
-    let result = super::solve(
+    let result = solve(
         vec![InterchangeProjectUsage::Directory {
             dir: "some/dir".into(),
             publisher: "acme".to_owned(),
@@ -784,7 +795,7 @@ fn directory_usage_candidate_rejection_reason_is_reported() -> Result<(), Box<dy
         projects: [(Identifier::from_pub_name("acme", "widget"), vec![project])].into(),
     };
 
-    let result = super::solve(
+    let result = solve(
         vec![InterchangeProjectUsage::Directory {
             dir: "widget".into(),
             publisher: "acme".to_owned(),
@@ -831,7 +842,7 @@ fn directory_usage_copy_satisfies_constraints_of_other_dependents()
     );
     let resolver = SequentialResolver::new([local_paths, index]);
 
-    let solution = super::solve(
+    let solution = solve(
         vec![
             InterchangeProjectUsage::Directory {
                 dir: "some/dir".into(),
@@ -886,7 +897,7 @@ fn directory_usage_copy_violating_constraints_is_an_error() -> Result<(), Box<dy
     );
     let resolver = SequentialResolver::new([local_paths, index]);
 
-    let result = super::solve(
+    let result = solve(
         vec![
             InterchangeProjectUsage::Directory {
                 dir: "some/dir".into(),
@@ -923,7 +934,7 @@ fn same_project_version_from_different_storages_and_usage_forms_installs_once()
     let storage_b = memory_resolver(&[("pkg:sysand/acme/widget", &[widget])]);
     let resolver = SequentialResolver::new([storage_a, storage_b]);
 
-    let solution = super::solve(
+    let solution = solve(
         vec![
             InterchangeProjectUsage::Resource {
                 resource: Iri::parse("pkg:sysand/acme/widget")?.into(),
@@ -967,7 +978,7 @@ fn conflicts_name_root_pins_that_contradict() {
     let widget_v2 = trivial_memory_project("widget", "2.0.0", vec![]);
     let resolver = memory_resolver(&[("urn:kpar:widget", &[widget_v1, widget_v2])]);
 
-    let err = super::solve(
+    let err = solve(
         vec![
             root_usage("urn:kpar:widget", Some("=1.0.0")),
             root_usage("urn:kpar:widget", Some("=2.0.0")),
@@ -1003,7 +1014,7 @@ fn conflicts_name_the_dependents_that_pin_transitively() {
         ("urn:kpar:widget", &[widget_v1, widget_v2]),
     ]);
 
-    let err = super::solve(
+    let err = solve(
         vec![
             root_usage("urn:kpar:app_a", None),
             root_usage("urn:kpar:app_b", None),
@@ -1046,7 +1057,7 @@ fn no_matching_version_is_a_no_versions_conflict_with_the_found_versions() {
     let widget_v2 = trivial_memory_project("widget", "2.0.0", vec![]);
     let resolver = memory_resolver(&[("urn:kpar:widget", &[widget_v1, widget_v2])]);
 
-    let err = super::solve(
+    let err = solve(
         vec![root_usage("urn:kpar:widget", Some(">=3"))],
         None,
         resolver,
@@ -1082,7 +1093,7 @@ fn no_matching_version_for_a_dependency_names_the_dependent_in_the_report() {
     let widget = trivial_memory_project("widget", "1.0.0", vec![]);
     let resolver = memory_resolver(&[("urn:kpar:app", &[app]), ("urn:kpar:widget", &[widget])]);
 
-    let err = super::solve(vec![root_usage("urn:kpar:app", None)], None, resolver).unwrap_err();
+    let err = solve(vec![root_usage("urn:kpar:app", None)], None, resolver).unwrap_err();
 
     assert_eq!(err.kind(), "no_solution");
     assert!(
@@ -1122,7 +1133,7 @@ fn found_versions_are_sorted_by_semver_and_listed_once() {
         .collect();
     let resolver = memory_resolver(&[("urn:kpar:widget", &widgets)]);
 
-    let err = super::solve(
+    let err = solve(
         vec![root_usage("urn:kpar:widget", Some(">=3"))],
         None,
         resolver,
@@ -1139,7 +1150,7 @@ fn found_versions_are_sorted_by_semver_and_listed_once() {
 fn unknown_project_is_a_not_found_conflict() {
     let resolver = memory_resolver(&[]);
 
-    let err = super::solve(vec![root_usage("urn:kpar:absent", None)], None, resolver).unwrap_err();
+    let err = solve(vec![root_usage("urn:kpar:absent", None)], None, resolver).unwrap_err();
 
     assert_eq!(err.kind(), "retrieval");
     assert!(err.resolution_error().is_none());
@@ -1163,7 +1174,7 @@ fn prerelease_is_ignored_by_a_release_constraint() -> Result<(), Box<dyn std::er
     let release = trivial_memory_project("widget", "1.0.0", vec![]);
     let resolver = memory_resolver(&[("urn:kpar:widget", &[prerelease, release])]);
 
-    let solution = super::solve(
+    let solution = solve(
         vec![root_usage("urn:kpar:widget", Some("^1"))],
         None,
         resolver,
@@ -1182,7 +1193,7 @@ fn star_constraint_ignores_prereleases() -> Result<(), Box<dyn std::error::Error
     let release = trivial_memory_project("widget", "1.0.0", vec![]);
     let resolver = memory_resolver(&[("urn:kpar:widget", &[prerelease, release])]);
 
-    let solution = super::solve(
+    let solution = solve(
         vec![root_usage("urn:kpar:widget", Some("*"))],
         None,
         resolver,
@@ -1203,7 +1214,7 @@ fn prerelease_is_selected_when_the_constraint_names_one() -> Result<(), Box<dyn 
     let release = trivial_memory_project("widget", "1.0.0", vec![]);
     let resolver = memory_resolver(&[("urn:kpar:widget", &[alpha, release])]);
 
-    let solution = super::solve(
+    let solution = solve(
         vec![root_usage("urn:kpar:widget", Some("^1.1.0-alpha"))],
         None,
         resolver,
@@ -1224,7 +1235,7 @@ fn prerelease_constraint_does_not_admit_other_prereleases() -> Result<(), Box<dy
     let alpha = trivial_memory_project("widget", "1.0.0-alpha.1", vec![]);
     let resolver = memory_resolver(&[("urn:kpar:widget", &[beta, alpha])]);
 
-    let solution = super::solve(
+    let solution = solve(
         vec![root_usage("urn:kpar:widget", Some(">=1.0.0-alpha"))],
         None,
         resolver,
@@ -1244,7 +1255,7 @@ fn only_prereleases_published_is_a_no_versions_failure() {
     let alpha = trivial_memory_project("widget", "1.0.0-alpha.1", vec![]);
     let resolver = memory_resolver(&[("urn:kpar:widget", &[beta, alpha])]);
 
-    let err = super::solve(
+    let err = solve(
         vec![root_usage("urn:kpar:widget", Some("^1"))],
         None,
         resolver,
@@ -1276,7 +1287,7 @@ fn transitive_constraint_ignores_prereleases() -> Result<(), Box<dyn std::error:
         ("urn:kpar:widget", &[prerelease, release]),
     ]);
 
-    let solution = super::solve(vec![root_usage("urn:kpar:app", Some("^1"))], None, resolver)?;
+    let solution = solve(vec![root_usage("urn:kpar:app", Some("^1"))], None, resolver)?;
 
     let install = &solution[&Identifier::from_iri_unchecked_str("urn:kpar:widget")];
     assert_eq!(install.version()?.unwrap(), "1.0.0");
@@ -1302,7 +1313,7 @@ fn prerelease_opt_in_of_one_dependent_conflicts_with_a_release_pin() {
         ("urn:kpar:widget", &[release, alpha]),
     ]);
 
-    let err = super::solve(
+    let err = solve(
         vec![
             root_usage("urn:kpar:app_a", None),
             root_usage("urn:kpar:app_b", None),
@@ -1329,7 +1340,7 @@ fn unconstrained_purl_usage_ignores_prereleases() -> Result<(), Box<dyn std::err
         .collect();
     let resolver = memory_resolver(&[("pkg:sysand/acme/widget", &candidates)]);
 
-    let solution = super::solve(
+    let solution = solve(
         vec![root_usage("pkg:sysand/acme/widget", None)],
         None,
         resolver,
@@ -1350,7 +1361,7 @@ fn unconstrained_purl_usage_of_a_prerelease_only_project_is_a_no_versions_failur
     let alpha = trivial_memory_project("widget", "1.0.0-alpha.1", vec![]);
     let resolver = memory_resolver(&[("pkg:sysand/acme/widget", &[alpha])]);
 
-    let err = super::solve(
+    let err = solve(
         vec![root_usage("pkg:sysand/acme/widget", None)],
         None,
         resolver,
@@ -1390,7 +1401,7 @@ fn unconstrained_transitive_purl_usage_ignores_prereleases()
         ("pkg:sysand/acme/widget", &[prerelease, release]),
     ]);
 
-    let solution = super::solve(vec![root_usage("urn:kpar:app", None)], None, resolver)?;
+    let solution = solve(vec![root_usage("urn:kpar:app", None)], None, resolver)?;
 
     let install = &solution[&Identifier::from_iri_unchecked_str("pkg:sysand/acme/widget")];
     assert_eq!(install.version()?.unwrap(), "1.0.0");
@@ -1418,7 +1429,7 @@ fn unconstrained_usage_of_a_single_project_source_admits_a_prerelease()
         let prerelease = single_project_source("widget", "1.0.0-alpha.1", vec![]);
         let resolver = memory_resolver(&[(iri, &[prerelease])]);
 
-        let solution = super::solve(vec![root_usage(iri, None)], None, resolver)?;
+        let solution = solve(vec![root_usage(iri, None)], None, resolver)?;
 
         let install = &solution[&Identifier::from_iri_unchecked_str(iri)];
         assert_eq!(install.version()?.unwrap(), "1.0.0-alpha.1", "for `{iri}`");
@@ -1437,7 +1448,7 @@ fn unconstrained_usage_of_a_multi_version_source_ignores_prereleases()
     let prerelease = trivial_memory_project("widget", "2.0.0-beta.1", vec![]);
     let resolver = memory_resolver(&[("urn:kpar:widget", &[prerelease, release])]);
 
-    let solution = super::solve(vec![root_usage("urn:kpar:widget", None)], None, resolver)?;
+    let solution = solve(vec![root_usage("urn:kpar:widget", None)], None, resolver)?;
 
     let install = &solution[&Identifier::from_iri_unchecked_str("urn:kpar:widget")];
     assert_eq!(install.version()?.unwrap(), "1.0.0");
@@ -1455,7 +1466,7 @@ fn unconstrained_usage_of_a_single_project_source_takes_the_highest_version()
     let prerelease = single_project_source("widget", "2.0.0-beta.1", vec![]);
     let resolver = memory_resolver(&[("urn:kpar:widget", &[release, prerelease])]);
 
-    let solution = super::solve(vec![root_usage("urn:kpar:widget", None)], None, resolver)?;
+    let solution = solve(vec![root_usage("urn:kpar:widget", None)], None, resolver)?;
 
     let install = &solution[&Identifier::from_iri_unchecked_str("urn:kpar:widget")];
     assert_eq!(install.version()?.unwrap(), "2.0.0-beta.1");
@@ -1471,7 +1482,7 @@ fn directory_usage_admits_a_prerelease() -> Result<(), Box<dyn std::error::Error
     let widget = trivial_memory_project("widget", "1.0.0-alpha.1", vec![]);
     let resolver = simple_resolver_environment(&[("pkg:sysand/acme/widget", &[widget])]);
 
-    let solution = super::solve(
+    let solution = solve(
         vec![InterchangeProjectUsage::Directory {
             dir: "some/dir".into(),
             publisher: "acme".to_owned(),
@@ -1517,7 +1528,7 @@ fn constrained_usage_picks_by_candidate_order_not_by_version()
     ] {
         let resolver = memory_resolver(&[("urn:kpar:widget", &candidates)]);
 
-        let solution = super::solve(
+        let solution = solve(
             vec![root_usage("urn:kpar:widget", Some("^1.0.0-alpha"))],
             None,
             resolver,
@@ -1558,7 +1569,7 @@ fn constrained_usage_should_pick_the_highest_matching_version_within_one_source(
     let candidates = ["1.0.0", "1.2.0"].map(|v| trivial_memory_project("widget", v, vec![]));
     let resolver = memory_resolver(&[("urn:kpar:widget", &candidates)]);
 
-    let solution = super::solve(
+    let solution = solve(
         vec![root_usage("urn:kpar:widget", Some("^1"))],
         None,
         resolver,
@@ -1610,7 +1621,7 @@ fn index_order_makes_the_lowest_candidate_index_the_highest_version()
     ] {
         let resolver = memory_resolver(&[("pkg:sysand/acme/widget", &candidates)]);
 
-        let solution = super::solve(
+        let solution = solve(
             vec![root_usage("pkg:sysand/acme/widget", constraint)],
             None,
             resolver,
@@ -1651,7 +1662,7 @@ fn solve_backtracks_past_a_constraint_that_selects_nothing()
         ("urn:kpar:widget", &[widget]),
     ]);
 
-    let solution = super::solve(vec![root_usage("urn:kpar:app", Some("*"))], None, resolver)?;
+    let solution = solve(vec![root_usage("urn:kpar:app", Some("*"))], None, resolver)?;
 
     let app = &solution[&Identifier::from_iri_unchecked_str("urn:kpar:app")];
     assert_eq!(app.version()?.unwrap(), "1.0.0");
@@ -1676,7 +1687,7 @@ fn solve_backtracks_past_a_default_constraint_that_selects_nothing()
         ("pkg:sysand/acme/widget", &[alpha]),
     ]);
 
-    let solution = super::solve(
+    let solution = solve(
         vec![root_usage("pkg:sysand/acme/app", None)],
         None,
         resolver,
@@ -1693,3 +1704,183 @@ fn solve_backtracks_past_a_default_constraint_that_selects_nothing()
 // alternative candidate to fall back to, the solve still fails and names the
 // constraint that could not be met -- see
 // `no_matching_version_for_a_dependency_names_the_dependent_in_the_report`.
+
+mod index_usages {
+    use super::*;
+    use crate::{
+        model::IndexUsage,
+        solve::pubgrub::{InternalSolverError, SolveConflict, SolverError},
+    };
+
+    const LIB: &str = "pkg:sysand/acme/lib";
+
+    const STRICT: SolveOptions = SolveOptions {
+        strict_index_versions: true,
+    };
+
+    fn index_usage(constraint: &str) -> InterchangeProjectUsage {
+        InterchangeProjectUsage::Index(IndexUsage {
+            publisher: "acme".to_owned(),
+            name: "lib".to_owned(),
+            version_constraint: VersionReq::parse(constraint).unwrap(),
+        })
+    }
+
+    fn directory_usage() -> InterchangeProjectUsage {
+        InterchangeProjectUsage::Directory {
+            dir: "lib".into(),
+            publisher: "acme".to_owned(),
+            name: "lib".to_owned(),
+        }
+    }
+
+    /// `lib` 1.0.0, and a 2.0.0 whose own usage fails validation
+    fn lib_with_broken_newest() -> MemoryResolver<AcceptAll, InMemoryProject> {
+        let good = trivial_memory_project("lib", "1.0.0", vec![]);
+        // Not normalized, so not a valid `pkg:sysand` PURL
+        let broken = trivial_memory_project("lib", "2.0.0", vec![("pkg:sysand/Acme/Lib", None)]);
+        memory_resolver(&[(LIB, &[good, broken])])
+    }
+
+    fn solved_version<R: ResolveRead + Debug + 'static>(
+        result: Result<HashMap<Identifier, R::ProjectStorage>, SolverError<R>>,
+    ) -> String {
+        let solution = result.unwrap_or_else(|e| panic!("{e}"));
+        solution[&Identifier::from_iri_unchecked_str(LIB)]
+            .version()
+            .unwrap()
+            .unwrap()
+    }
+
+    fn assert_fails_on_broken<R: ResolveRead + Debug + 'static>(
+        result: Result<HashMap<Identifier, R::ProjectStorage>, SolverError<R>>,
+    ) {
+        let Err(err) = result else {
+            panic!("solved");
+        };
+        assert!(
+            matches!(
+                err.inner.as_ref(),
+                pubgrub::PubGrubError::ErrorRetrievingDependencies {
+                    source: InternalSolverError::InvalidProject { .. },
+                    ..
+                }
+            ),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn broken_version_is_skipped_by_default() {
+        let result = solve(vec![index_usage("*")], None, lib_with_broken_newest());
+        assert_eq!(solved_version(result), "1.0.0");
+    }
+
+    #[test]
+    fn broken_version_fails_when_strict() {
+        let result = super::super::solve(
+            vec![index_usage("*")],
+            None,
+            lib_with_broken_newest(),
+            STRICT,
+        );
+        assert_fails_on_broken(result);
+    }
+
+    #[test]
+    fn strict_does_not_apply_to_other_kinds() {
+        for options in [SolveOptions::default(), STRICT] {
+            assert_fails_on_broken(super::super::solve(
+                vec![directory_usage()],
+                None,
+                lib_with_broken_newest(),
+                options,
+            ));
+            let result = super::super::solve(
+                vec![root_usage(LIB, None)],
+                None,
+                lib_with_broken_newest(),
+                options,
+            );
+            assert_eq!(solved_version(result), "1.0.0");
+        }
+    }
+
+    /// Usages sharing an identifier share its candidates, so a usage that
+    /// may skip a broken version must not let a strict one get past it,
+    /// whichever comes first
+    #[test]
+    fn strictest_usage_of_an_identifier_wins_in_either_order() {
+        let lenient = root_usage(LIB, None);
+        let strict = index_usage("*");
+        for usages in [vec![lenient.clone(), strict.clone()], vec![strict, lenient]] {
+            assert_fails_on_broken(super::super::solve(
+                usages.clone(),
+                None,
+                lib_with_broken_newest(),
+                STRICT,
+            ));
+            let result = solve(usages, None, lib_with_broken_newest());
+            assert_eq!(solved_version(result), "1.0.0");
+        }
+    }
+
+    /// The same, for a strict usage reached only through a dependency
+    #[test]
+    fn strictest_usage_wins_transitively() {
+        let app = memory_project(
+            "app",
+            "1.0.0",
+            vec![InterchangeProjectUsageRaw::Directory {
+                dir: "lib".to_owned(),
+                publisher: "acme".to_owned(),
+                name: "lib".to_owned(),
+            }],
+        );
+        let good = trivial_memory_project("lib", "1.0.0", vec![]);
+        let broken = trivial_memory_project("lib", "2.0.0", vec![("pkg:sysand/Acme/Lib", None)]);
+        let resolver = memory_resolver(&[("urn:kpar:app", &[app]), (LIB, &[good, broken])]);
+
+        assert_fails_on_broken(solve(
+            vec![
+                root_usage(LIB, Some("^1")),
+                root_usage("urn:kpar:app", None),
+            ],
+            None,
+            resolver,
+        ));
+    }
+
+    #[test]
+    fn constraint_selects_versions() {
+        let v1 = trivial_memory_project("lib", "1.0.0", vec![]);
+        let v2 = trivial_memory_project("lib", "2.0.0", vec![]);
+        let result = solve(
+            vec![index_usage("^1")],
+            None,
+            memory_resolver(&[(LIB, &[v1, v2])]),
+        );
+        assert_eq!(solved_version(result), "1.0.0");
+    }
+
+    #[test]
+    fn constraint_is_reported_in_conflicts() {
+        let v1 = trivial_memory_project("lib", "1.0.0", vec![]);
+        let err = solve(
+            vec![index_usage(">=3")],
+            None,
+            memory_resolver(&[(LIB, &[v1])]),
+        )
+        .unwrap_err();
+        assert_eq!(
+            err.conflicts(),
+            vec![SolveConflict::NoVersions {
+                iri: LIB.to_owned(),
+                constraint: ">=3".to_owned(),
+                defaulted: false,
+                found: vec!["1.0.0".to_owned()],
+                required_by: None,
+            }]
+        );
+    }
+}

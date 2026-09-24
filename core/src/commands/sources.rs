@@ -159,8 +159,15 @@ fn solve_dependencies<Env: ReadEnvironment + Debug + 'static>(
         EnvResolver { env },
     );
 
-    // `base_path` does not matter here, since the resolver only looks in env
-    let mut resolved = crate::solve::pubgrub::solve(requested, None, resolver)?;
+    // `base_path` does not matter here, since the resolver only looks in env.
+    // There are no resolution options to take either: only what is installed
+    // is looked at
+    let mut resolved = crate::solve::pubgrub::solve(
+        requested,
+        None,
+        resolver,
+        crate::solve::pubgrub::SolveOptions::default(),
+    )?;
 
     Ok(resolved
         .drain()

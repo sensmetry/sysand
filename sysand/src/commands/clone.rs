@@ -84,6 +84,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
     };
     warn_parent_project_workspace(target, &ctx)?;
 
+    let solve_options = resolution_opts.solve_options();
     let (include_std, locator, local_project, std_resolver) = match obtain_project(
         locator,
         version,
@@ -139,6 +140,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         } = sysand_core::commands::lock::do_lock_projects(
             [(identifiers, &project)],
             resolver,
+            solve_options,
             &provided_usages,
             &ctx,
         )?;
@@ -208,6 +210,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
         default_index,
         no_index,
         include_std,
+        strict_index_versions: _,
     } = resolution_opts;
     let index_urls = if no_index {
         None
@@ -357,6 +360,7 @@ pub fn get_project_version<R: ResolveRead>(
                     None,
                     InterchangeProjectUsage::Directory { .. }
                     | InterchangeProjectUsage::KparPath { .. }
+                    | InterchangeProjectUsage::Index(_)
                     | InterchangeProjectUsage::Resource {
                         version_constraint: Some(_),
                         ..

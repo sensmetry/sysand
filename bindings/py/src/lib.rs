@@ -50,8 +50,8 @@ use sysand_core::{
     init::InitError,
     lock::{Lock, Project as LockedProject},
     model::{
-        InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
-        InterchangeProjectUsage, InterchangeProjectUsageRaw,
+        IndexUsage, InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw,
+        InterchangeProjectMetadataRaw, InterchangeProjectUsage, InterchangeProjectUsageRaw,
     },
     project::{
         ProjectRead as _,
@@ -60,8 +60,7 @@ use sysand_core::{
         memory::InMemoryProject,
         utils::{Identifier, wrapfs},
     },
-    purl::{is_valid_unnormalized_name, is_valid_unnormalized_publisher},
-    remove::{RemoveError, do_remove},
+    remove::{RemoveError, do_remove, do_remove_index},
     resolve::{
         ResolveRead,
         combined::CombinedResolverError,
@@ -73,15 +72,12 @@ use sysand_core::{
     solve::pubgrub::SolveConflict,
     sources::{Dependencies, do_sources_local_src_project_no_deps, resolve_dependencies},
     stdlib::known_std_libs,
-    usage::{ConstraintChange, do_set_usage_constraint_local},
+    usage::{ConstraintChange, do_set_index_usage_constraint_local, do_set_usage_constraint_local},
     utils::ProvidedProjects,
     utils::format_err,
     versions::do_versions,
 };
 use typed_path::Utf8UnixPathBuf;
-
-mod model;
-use model::{PyInfo, PyUsage, index_purl};
 
 #[pyfunction(name = "_run_cli")]
 fn run_cli(py: Python<'_>, args: Vec<String>) -> u8 {
@@ -204,13 +200,15 @@ fn do_env_py_local_dir(path: String) -> PyResult<()> {
 #[pyo3(
     signature = (path),
 )]
-fn do_info_py_path(path: String) -> PyResult<(PyInfo, InterchangeProjectMetadataRaw)> {
+fn do_info_py_path(
+    path: String,
+) -> PyResult<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)> {
     common_init();
 
     let project = LocalSrcProject::new_access(path, None);
 
     match do_info_project(&project) {
-        Ok((info, meta)) => Ok((info.into(), meta)),
+        Ok((info, meta)) => Ok((info, meta)),
         Err(
             e @ (InfoProjectError::MissingProject
             | InfoProjectError::MissingInfo
@@ -255,6 +253,7 @@ impl Default for AuthSpec {
 /// it; mirrors the CLI's `ResolutionOptions`.
 #[derive(FromPyObject, Debug)]
 #[pyo3(from_item_all)]
+#[expect(clippy::struct_excessive_bools, reason = "mirrors the CLI's flags")]
 struct ResolutionSpec {
     #[pyo3(default)]
     index: Vec<String>,
@@ -264,6 +263,8 @@ struct ResolutionSpec {
     no_index: bool,
     #[pyo3(default)]
     include_std: bool,
+    #[pyo3(default)]
+    strict_index_versions: bool,
     use_config: bool,
 }
 
@@ -454,7 +455,7 @@ fn do_info_py(
     uri: String,
     resolution: Option<ResolutionSpec>,
     auth: Option<AuthSpec>,
-) -> PyResult<(PyInfo, InterchangeProjectMetadataRaw)> {
+) -> PyResult<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)> {
     common_init();
 
     py.detach(|| {
@@ -462,9 +463,7 @@ fn do_info_py(
         // Without a `Resolution` no index is consulted
         let (resolver, auth_policy) = standard_resolver_for(resolution.as_ref(), &auth, None)?;
         let uri = parse_iri(uri)?;
-        do_info(&uri, &resolver)
-            .map(|(info, meta)| (info.into(), meta))
-            .map_err(|e| info_error_to_pyerr(e, &auth, &auth_policy))
+        do_info(&uri, &resolver).map_err(|e| info_error_to_pyerr(e, &auth, &auth_policy))
     })
 }
 
@@ -500,7 +499,7 @@ fn do_versions_py(
 #[pyo3(from_item_all)]
 struct ProvidedSpec {
     iri: String,
-    info: PyInfo,
+    info: InterchangeProjectInfoRaw,
     meta: InterchangeProjectMetadataRaw,
 }
 
@@ -511,7 +510,7 @@ fn provided_projects(specs: Vec<ProvidedSpec>) -> PyResult<ProvidedProjects> {
         provided
             .entry(Identifier::from_iri_owned(iri))
             .or_default()
-            .push(InMemoryProject::from_info_meta(spec.info.into(), spec.meta));
+            .push(InMemoryProject::from_info_meta(spec.info, spec.meta));
     }
     Ok(provided)
 }
@@ -552,6 +551,7 @@ fn resolution_options(spec: &ResolutionSpec) -> ResolutionOptions {
         default_index: spec.default_index.clone(),
         no_index: spec.no_index,
         include_std: spec.include_std,
+        strict_index_versions: spec.strict_index_versions,
     }
 }
 
@@ -1105,19 +1105,65 @@ pub fn do_sources_project_py(
     Ok(result)
 }
 
-/// Adds a resource usage of `iri`, taken literally: the `publisher/name`
-/// shorthand is not expanded, so anything but an IRI is refused.
+/// The usage an `add`, `remove` or `set_usage_constraint` call names: the
+/// resource usage of `iri`, taken literally, or the index usage of
+/// `publisher`/`name`, spelled exactly so. The Python side checks that
+/// exactly one of the two was given.
+enum Named {
+    Iri(String),
+    Index { publisher: String, name: String },
+}
+
+impl Named {
+    fn new(iri: Option<String>, publisher: Option<String>, name: Option<String>) -> PyResult<Self> {
+        match (iri, publisher, name) {
+            (Some(iri), None, None) => {
+                validate_iri(&iri)?;
+                Ok(Self::Iri(iri))
+            }
+            (None, Some(publisher), Some(name)) => {
+                // Only the publisher and name are checked; any constraint would do
+                InterchangeProjectUsageRaw::Index(IndexUsage {
+                    publisher: publisher.clone(),
+                    name: name.clone(),
+                    version_constraint: "*".to_owned(),
+                })
+                .validate()
+                .map_err(|e| ProjectError::new_err(format_err(e)))?;
+                Ok(Self::Index { publisher, name })
+            }
+            _ => Err(PyValueError::new_err(
+                "exactly one of `iri` and `publisher` with `name` must be given",
+            )),
+        }
+    }
+}
+
+/// Adds the usage `add()` names, with `version_constraint`.
 #[pyfunction(name = "do_add_py")]
 #[pyo3(
-    signature = (path, iri, version_constraint),
+    signature = (path, iri, publisher, name, version_constraint),
 )]
-fn do_add_py(path: String, iri: String, version_constraint: String) -> PyResult<bool> {
+fn do_add_py(
+    path: String,
+    iri: Option<String>,
+    publisher: Option<String>,
+    name: Option<String>,
+    version_constraint: String,
+) -> PyResult<bool> {
     common_init();
 
     let mut project = LocalSrcProject::new_access(path, None);
-    let usage = InterchangeProjectUsageRaw::Resource {
-        resource: iri,
-        version_constraint: Some(version_constraint),
+    let usage = match Named::new(iri, publisher, name)? {
+        Named::Iri(resource) => InterchangeProjectUsageRaw::Resource {
+            resource,
+            version_constraint: Some(version_constraint),
+        },
+        Named::Index { publisher, name } => InterchangeProjectUsageRaw::Index(IndexUsage {
+            publisher,
+            name,
+            version_constraint,
+        }),
     };
 
     // TODO: do dependency resolution and locking?
@@ -1130,37 +1176,15 @@ fn do_add_py(path: String, iri: String, version_constraint: String) -> PyResult<
             identifier,
             existing,
             new,
-        } => ProjectError::new_err(format!(
-            "`{identifier}` is already declared as a {existing} usage, so it cannot \
-             also be added as a {new} usage; the Python API cannot remove \
-             directory and KPAR usages yet"
-        )),
+        } if existing == "a directory" || existing == "a KPAR path" => {
+            ProjectError::new_err(format!(
+                "`{identifier}` is already declared as {existing} usage, so it cannot \
+                 also be added as {new} usage; the Python API cannot remove \
+                 directory and KPAR usages yet"
+            ))
+        }
         err => ProjectError::new_err(format_err(err)),
     })
-}
-
-/// The `pkg:sysand` PURL that `add`, `remove` and `set_usage_constraint`
-/// name the index usage of `publisher` and `name` by. Either may be given
-/// unnormalized (`Acme Labs`), so that the same values can later declare a
-/// typed index usage, which keeps them as given; the PURL holds them
-/// normalized (`acme-labs`).
-#[pyfunction(name = "index_purl_py")]
-fn index_purl_py(publisher: &str, name: &str) -> PyResult<String> {
-    if !is_valid_unnormalized_publisher(publisher) {
-        return Err(ProjectError::new_err(format!(
-            "publisher `{publisher}` is not valid: it must be 3-50 characters,\n\
-             use only ASCII letters and numbers, may include single spaces or\n\
-             hyphens between words, and must start and end with a letter or number"
-        )));
-    }
-    if !is_valid_unnormalized_name(name) {
-        return Err(ProjectError::new_err(format!(
-            "name `{name}` is not valid: it must be 3-50 characters, use only\n\
-             ASCII letters and numbers, may include single spaces, hyphens, or\n\
-             dots between words, and must start and end with a letter or number"
-        )));
-    }
-    Ok(index_purl(publisher, name))
 }
 
 /// Refuses anything that is not an IRI a resource usage could name, with the
@@ -1292,7 +1316,8 @@ use py_errors::{
     SolveError as PySolveError, SyncError as PySyncError, register_errors,
 };
 
-/// Returns `(found, changed, old_version_constraint, new_version_constraint)`.
+/// Returns `(found, changed, old_version_constraint, new_version_constraint)`
+/// for the usage `set_usage_constraint()` names.
 ///
 /// Every failure raises `ProjectError` (`wrote` stays `False`: nothing is
 /// written unless the edit succeeds), matching `do_add_py` and
@@ -1301,19 +1326,27 @@ use py_errors::{
 /// `found` is `False` and the Python side decides.
 #[pyfunction(name = "do_set_usage_constraint_py")]
 #[pyo3(
-    signature = (path, iri, version_constraint),
+    signature = (path, iri, publisher, name, version_constraint),
 )]
 fn do_set_usage_constraint_py(
     path: String,
-    iri: String,
+    iri: Option<String>,
+    publisher: Option<String>,
+    name: Option<String>,
     version_constraint: String,
 ) -> PyResult<(bool, bool, Option<String>, Option<String>)> {
     common_init();
 
-    validate_iri(&iri)?;
+    let named = Named::new(iri, publisher, name)?;
     let mut project = LocalSrcProject::new_access(path, None);
 
-    match do_set_usage_constraint_local(&mut project, &iri, &version_constraint) {
+    let changed = match &named {
+        Named::Iri(iri) => do_set_usage_constraint_local(&mut project, iri, &version_constraint),
+        Named::Index { publisher, name } => {
+            do_set_index_usage_constraint_local(&mut project, publisher, name, &version_constraint)
+        }
+    };
+    match changed {
         Ok(ConstraintChange::Replaced { old, new }) => Ok((true, true, old, Some(new))),
         Ok(ConstraintChange::Unchanged { constraint }) => {
             Ok((true, false, Some(constraint.clone()), Some(constraint)))
@@ -1323,27 +1356,57 @@ fn do_set_usage_constraint_py(
     }
 }
 
-/// Removes the resource usages of `iri`, taken literally, as `do_add_py`
-/// takes it. Returns the usages that were removed, in declaration order.
+/// Removes the usages `remove()` names. Returns the usages that were
+/// removed, in declaration order.
 #[pyfunction(name = "do_remove_py")]
 #[pyo3(
-    signature = (path, iri),
+    signature = (path, iri, publisher, name),
 )]
-fn do_remove_py(path: String, iri: String) -> PyResult<Vec<PyUsage>> {
+fn do_remove_py(
+    path: String,
+    iri: Option<String>,
+    publisher: Option<String>,
+    name: Option<String>,
+) -> PyResult<Vec<InterchangeProjectUsageRaw>> {
     common_init();
 
-    validate_iri(&iri)?;
+    let named = Named::new(iri, publisher, name)?;
     let mut project = LocalSrcProject::new_access(path, None);
 
-    let removed = do_remove(&mut project, iri).map_err(|err| match err {
-        // The core message points at a CLI command, which is no help here.
-        RemoveError::UsageIsTyped { identifier, kind } => ProjectError::new_err(format!(
-            "`{identifier}` is declared as a {kind} usage, not as a resource \
-             or index usage; the Python API cannot remove directory and KPAR usages yet"
+    let removed = match named {
+        Named::Iri(iri) => do_remove(&mut project, iri),
+        Named::Index { publisher, name } => do_remove_index(&mut project, &publisher, &name),
+    };
+    removed.map_err(|err| match err {
+        // The core messages point at a CLI command, which is no help here.
+        RemoveError::UsageIsTyped {
+            identifier,
+            kind: kind @ "an index",
+            ..
+        }
+        | RemoveError::NotAnIndexUsage {
+            identifier,
+            kind: kind @ "a resource",
+            ..
+        } => ProjectError::new_err(format!(
+            "`{identifier}` is declared as {kind} usage; name it by {}",
+            if kind == "an index" {
+                "`publisher` and `name`"
+            } else {
+                "`iri`"
+            }
+        )),
+        RemoveError::UsageIsTyped {
+            identifier, kind, ..
+        }
+        | RemoveError::NotAnIndexUsage {
+            identifier, kind, ..
+        } => ProjectError::new_err(format!(
+            "`{identifier}` is declared as {kind} usage; the Python API cannot \
+             remove directory and KPAR usages yet"
         )),
         err => ProjectError::new_err(format_err(err)),
-    })?;
-    Ok(removed.into_iter().map(PyUsage::from).collect())
+    })
 }
 
 /// `src_path` must be relative to and under the project root
@@ -1467,7 +1530,6 @@ pub fn sysand_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(do_build_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_sources_env_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_sources_project_py, m)?)?;
-    m.add_function(wrap_pyfunction!(index_purl_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_add_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_set_usage_constraint_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_remove_py, m)?)?;
@@ -1540,10 +1602,8 @@ fn do_discover_py(path: String) -> PyResult<(Option<String>, Option<String>)> {
 fn do_model_roundtrip_py(
     info: &Bound<'_, PyAny>,
     metadata: &Bound<'_, PyAny>,
-) -> PyResult<(PyInfo, InterchangeProjectMetadataRaw)> {
-    // Through core's type, so a field the view drops shows up as a diff.
-    let info: InterchangeProjectInfoRaw = info.extract::<PyInfo>()?.into();
-    Ok((info.into(), metadata.extract()?))
+) -> PyResult<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)> {
+    Ok((info.extract()?, metadata.extract()?))
 }
 
 // Break the build when core types gain, lose, or rename a field/variant,
@@ -1583,6 +1643,11 @@ fn info_and_metadata_fields_guard(
                 publisher,
                 name,
             } => {}
+            InterchangeProjectUsageRaw::Index(IndexUsage {
+                publisher,
+                name,
+                version_constraint,
+            }) => {}
         }
     }
 

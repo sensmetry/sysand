@@ -1557,6 +1557,7 @@ fn check_usage(usage: &InterchangeProjectUsageRaw) -> Result<(), PublishError> {
         InterchangeProjectUsageRaw::KparPath { kpar_path, .. } => Err(PublishError::PathUsage {
             path: kpar_path.as_str().into(),
         }),
+        InterchangeProjectUsageRaw::Index(_) => Ok(()),
     }
 }
 
@@ -1599,7 +1600,8 @@ fn check_std_libs(
             Ok(false)
         }
         InterchangeProjectUsageRaw::Directory { .. }
-        | InterchangeProjectUsageRaw::KparPath { .. } => Ok(false),
+        | InterchangeProjectUsageRaw::KparPath { .. }
+        | InterchangeProjectUsageRaw::Index(_) => Ok(false),
     }
 }
 

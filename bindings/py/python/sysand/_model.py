@@ -8,10 +8,7 @@ import typing
 # Keep the types here in sync with Rust types from sysand-core.
 #
 # Use raw types for components, as these classes are converted
-# to/from Rust `*Raw` model type variants. The exception is
-# `InterchangeProjectUsageIndex`, which core does not have yet: the binding
-# (`bindings/py/src/model.rs`) converts it to and from a `pkg:sysand`
-# resource usage.
+# to/from Rust `*Raw` model type variants.
 
 
 class _InterchangeProjectUsageResourceRequired(typing.TypedDict):
@@ -24,8 +21,9 @@ class InterchangeProjectUsageResource(
     """The untyped usage KerML specifies: a project named by an IRI,
     optionally constrained to a range of versions.
 
-    Legacy: typed usages will replace it. A ``pkg:sysand`` IRI is never
-    returned as one, but as :class:`InterchangeProjectUsageIndex`.
+    Legacy: typed usages will replace it. A ``pkg:sysand`` IRI is a
+    resource usage too, until the manifest is migrated to the
+    :class:`InterchangeProjectUsageIndex` of that project.
     """
 
     version_constraint: typing.Optional[str]
@@ -51,25 +49,17 @@ class InterchangeProjectUsageKparPath(typing.TypedDict):
     name: str
 
 
-class _InterchangeProjectUsageIndexRequired(typing.TypedDict):
+class InterchangeProjectUsageIndex(typing.TypedDict):
+    """A typed usage: the project ``publisher``/``name``, resolved from the
+    index (or any other source that finds a project by its publisher and
+    name), constrained to a range of versions.
+
+    ``publisher`` and ``name`` are spelled exactly as the project spells
+    them."""
+
     publisher: str
     name: str
-
-
-class InterchangeProjectUsageIndex(_InterchangeProjectUsageIndexRequired, total=False):
-    """A typed usage: the project ``publisher``/``name``, resolved from the
-    index, optionally constrained to a range of versions.
-
-    The manifest stores it as the resource usage of
-    ``pkg:sysand/<publisher>/<name>``, and is read back as this. Until core
-    has an index usage of its own, that PURL keeps ``publisher`` and ``name``
-    only normalized: a usage added as ``"Acme Labs"`` is read back as
-    ``"acme-labs"``.
-    """
-
-    version_constraint: typing.Optional[str]
-    """``None`` when the manifest declares no constraint. :func:`sysand.add`
-    always writes one."""
+    version_constraint: str
 
 
 InterchangeProjectUsage = typing.Union[

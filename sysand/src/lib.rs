@@ -666,6 +666,8 @@ fn run_cli_with(
                 default_index,
                 no_index,
                 include_std,
+                // `info` does not solve
+                strict_index_versions: _,
             } = resolution_opts;
             let index_urls = if no_index {
                 None
@@ -796,9 +798,9 @@ fn run_cli_with(
             source_opts,
             no_prune,
         } => {
-            let iri = iri_or_path_to_iri(locator.iri, locator.path)?;
+            let locator = locator_or_path(locator.iri, locator.path)?;
             command_add(
-                iri,
+                locator,
                 version_constraint,
                 no_lock,
                 no_sync,
@@ -821,9 +823,9 @@ fn run_cli_with(
             no_prune,
             resolution_opts,
         } => {
-            let iri = iri_or_path_to_iri(locator.iri, locator.path)?;
+            let locator = locator_or_path(locator.iri, locator.path)?;
             command_remove(
-                iri,
+                locator,
                 ctx,
                 config,
                 global_opts.config_file,
@@ -980,19 +982,20 @@ fn run_cli_with(
     }
 }
 
-fn iri_or_path_to_iri(
-    iri: Option<Iri<String>>,
+/// `locator`, or the `file://` URL of `path` when there is none
+fn locator_or_path(
+    locator: Option<cli::UsageLocator>,
     path: Option<Utf8PathBuf>,
-) -> Result<Iri<String>, anyhow::Error> {
-    Ok(if let Some(iri) = iri {
-        iri
+) -> Result<cli::UsageLocator, anyhow::Error> {
+    Ok(if let Some(locator) = locator {
+        locator
     } else {
         let Some(path) = path else { unreachable!() };
         let abs_path = wrapfs::canonicalize(&path)?;
         let url: String = Url::from_file_path(abs_path)
             .map_err(|()| anyhow!("unsupported path type of `{path}`"))?
             .into();
-        Iri::parse(url).expect("BUG: file URL from path is invalid IRI")
+        cli::UsageLocator::Iri(Iri::parse(url).expect("BUG: file URL from path is invalid IRI"))
     })
 }
 

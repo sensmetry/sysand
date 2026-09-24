@@ -11,6 +11,7 @@ import com.sensmetry.sysand.model.InterchangeProjectInfo;
 import com.sensmetry.sysand.model.InterchangeProjectMetadata;
 import com.sensmetry.sysand.model.InterchangeProjectUsage;
 import com.sensmetry.sysand.model.InterchangeProjectUsageDirectory;
+import com.sensmetry.sysand.model.InterchangeProjectUsageIndex;
 import com.sensmetry.sysand.model.InterchangeProjectUsageKparPath;
 import com.sensmetry.sysand.model.InterchangeProjectUsageResource;
 
@@ -35,6 +36,7 @@ public class ModelRoundtripTest {
                     new InterchangeProjectUsageResource("pkg:sysand/acme/remote-lib", ">=1.0.0"),
                     new InterchangeProjectUsageDirectory("../local-lib", "local-pub", "local-lib"),
                     new InterchangeProjectUsageKparPath("deps/archive-lib.kpar", "archive-pub", "archive-lib"),
+                    new InterchangeProjectUsageIndex("Acme Labs", "My Lib", "^1.2"),
                 });
 
         LinkedHashMap<String, String> index = new LinkedHashMap<>();
@@ -92,6 +94,13 @@ public class ModelRoundtripTest {
         assertEquals(expectedKparPath.getKparPath(), actualKparPath.getKparPath());
         assertEquals(expectedKparPath.getPublisher(), actualKparPath.getPublisher());
         assertEquals(expectedKparPath.getName(), actualKparPath.getName());
+
+        InterchangeProjectUsageIndex expectedIndex = (InterchangeProjectUsageIndex) expectedUsage[3];
+        assertInstanceOf(InterchangeProjectUsageIndex.class, actualUsage[3]);
+        InterchangeProjectUsageIndex actualIndex = (InterchangeProjectUsageIndex) actualUsage[3];
+        assertEquals(expectedIndex.getPublisher(), actualIndex.getPublisher());
+        assertEquals(expectedIndex.getName(), actualIndex.getName());
+        assertEquals(expectedIndex.getVersionConstraint(), actualIndex.getVersionConstraint());
     }
 
     private static void assertMetadataEquals(

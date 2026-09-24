@@ -911,9 +911,13 @@ fn lock_directory_usage_env_installed_dependency() -> Result<(), Box<dyn std::er
     .success();
     std::fs::remove_dir_all(cwd.join("src"))?;
 
-    run_sysand_in(&cwd, ["add", "acme/app", "--no-lock", "--no-index"], None)?
-        .assert()
-        .success();
+    run_sysand_in(
+        &cwd,
+        ["add", "pkg:sysand/acme/app", "--no-lock", "--no-index"],
+        None,
+    )?
+    .assert()
+    .success();
 
     let out = run_sysand_in(&cwd, ["lock", "--no-index"], None)?;
     out.assert().success();
@@ -968,6 +972,83 @@ fn lock_fail_unsatisfiable() -> Result<(), Box<dyn std::error::Error>> {
     for mock in project_mocks {
         mock.assert();
     }
+
+    Ok(())
+}
+
+/// A version whose own usages are invalid is skipped for an index usage,
+/// unless `--strict-index-versions` is passed
+#[test]
+fn lock_strict_index_versions() -> Result<(), Box<dyn std::error::Error>> {
+    let mut server = Server::new();
+
+    let (kpar_bytes, mut info, meta) = build_index_kpar_bytes("dep", "0.1.0");
+    // Spelled as the index usage below spells it
+    info.publisher = Some("mock".to_owned());
+    let kpar_sha256_hex = sha256_lowercase_hex(&kpar_bytes);
+    let kpar_size = kpar_bytes.len();
+
+    let _config_mock = server
+        .mock("GET", "/sysand-index-config.json")
+        .with_status(404)
+        .create();
+    // 0.2.0 declares a usage that fails validation
+    let broken = format!(
+        r#"{{"version":"0.2.0","usage":[{{"resource":"pkg:sysand/Acme/Lib"}}],"kpar_size":{kpar_size},"kpar_digest":"sha256:{kpar_sha256_hex}"}}"#
+    );
+    let _versions_mock = server
+        .mock("GET", "/mock/dep/versions.json")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(versions_json_body(&[
+            broken,
+            versions_json_entry_body("0.1.0", kpar_size, &kpar_sha256_hex),
+        ]))
+        .create();
+    let _project_json_mock = server
+        .mock("GET", "/mock/dep/0.1.0/.project.json")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(serde_json::to_string(&info)?)
+        .create();
+    let _meta_json_mock = server
+        .mock("GET", "/mock/dep/0.1.0/.meta.json")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(serde_json::to_string(&meta)?)
+        .create();
+
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "lock_strict_index_versions", "1.2.3")?;
+    out.assert().success();
+    let mut project: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(cwd.join(".project.json"))?)?;
+    project["usage"] = json!([{ "publisher": "mock", "name": "dep", "versionConstraint": "*" }]);
+    std::fs::write(cwd.join(".project.json"), project.to_string())?;
+
+    let server_url = server.url();
+    let out = run_sysand_in(&cwd, ["lock", "--default-index", &server_url], None)?;
+    out.assert().success();
+    let lock_file: Lock =
+        toml::from_str(&std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?)?;
+    let dep = lock_file.projects.iter().find(|p| p.name == "dep").unwrap();
+    assert_eq!(dep.version, "0.1.0");
+
+    let out = run_sysand_in(
+        &cwd,
+        [
+            "lock",
+            "--default-index",
+            &server_url,
+            "--strict-index-versions",
+        ],
+        None,
+    )?;
+    out.assert()
+        .failure()
+        .stderr(contains(
+            "resolved to version 0.2.0, which has an invalid usage",
+        ))
+        .stderr(contains("pkg:sysand/Acme/Lib"));
 
     Ok(())
 }

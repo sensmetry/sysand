@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{collections::HashMap, path::Path, sync::Arc};
+use std::{collections::HashMap, convert::Infallible, path::Path, sync::Arc};
 
 use anyhow::{Result, bail};
 use camino::{Utf8Path, Utf8PathBuf};
 
 use fluent_uri::Iri;
 use sysand_core::{
-    add::do_add,
+    add::{AddError, do_add},
     auth::HTTPAuthentication,
     commands::{
         lock::{DEFAULT_LOCKFILE_NAME, LockOutcome, do_lock_local_editable},
@@ -19,28 +19,31 @@ use sysand_core::{
         local_fs::{CONFIG_FILE, add_project_source_to_config},
     },
     context::ProjectContext,
-    model::{InterchangeProjectUsage, InterchangeProjectUsageRaw},
+    model::{IndexUsage, InterchangeProjectUsage, InterchangeProjectUsageRaw},
     project::{
-        ProjectRead as _,
+        ProjectMut as _, ProjectRead as _,
         local_kpar::{KparInnerPath, LocalKParProject},
         local_src::LocalSrcProject,
-        utils::{relativize_path, wrapfs},
+        utils::{Identifier, relativize_path, wrapfs},
     },
     resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead as _, standard::standard_resolver},
-    utils::{ProvidedProjects, format_err},
+    utils::{ProvidedProjects, SP, format_err},
 };
 
 use crate::{
     CliError, DEFAULT_INDEX_URL,
-    cli::{ProjectSourceOptions, ResolutionOptions},
-    commands::{lock::create_resolver, sync::command_sync},
+    cli::{ProjectSourceOptions, ResolutionOptions, UsageLocator},
+    commands::{
+        lock::{create_resolver, resolve_lock},
+        sync::command_sync,
+    },
     style::GOOD,
 };
 
 // TODO: Collect common arguments
 #[expect(clippy::fn_params_excessive_bools)]
 pub fn command_add<Policy: HTTPAuthentication>(
-    iri: Iri<String>,
+    locator: UsageLocator,
     version_constraint: Option<String>,
     no_lock: bool,
     no_sync: bool,
@@ -55,11 +58,89 @@ pub fn command_add<Policy: HTTPAuthentication>(
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
 ) -> Result<()> {
-    let iri = iri.as_ref();
     let mut current_project = ctx
         .current_project
         .clone()
         .ok_or(CliError::MissingProjectCurrentDir)?;
+
+    // `identifier` is what config overrides, the lockfile and the standard
+    // libraries know the project by. An index usage given without a
+    // constraint is first added in `unconstrained_index`, see below.
+    let (identifier, usage_raw, unconstrained_index) = match locator {
+        UsageLocator::Iri(iri) => {
+            let identifier = iri.to_string();
+            let usage = InterchangeProjectUsageRaw::Resource {
+                resource: iri.into_string(),
+                version_constraint,
+            };
+            (identifier, usage, None)
+        }
+        UsageLocator::PublisherName { publisher, name } => {
+            let identifier = Identifier::from_pub_name(&publisher, &name).into_string();
+            match version_constraint {
+                Some(version_constraint) => {
+                    let usage = InterchangeProjectUsageRaw::Index(IndexUsage {
+                        publisher,
+                        name,
+                        version_constraint,
+                    });
+                    (identifier, usage, None)
+                }
+                None if no_lock => bail!(
+                    "an index usage needs a version constraint: pass one, or leave out\n\
+                     `--no-lock` to use the version that locking chooses"
+                ),
+                None => {
+                    let Some(info) = current_project.get_info()? else {
+                        bail!(CliError::MissingProjectCurrentDir);
+                    };
+                    // Report a clash with an existing usage before resolving anything,
+                    // as `do_add` would
+                    if let Some(existing) = info.usage.iter().find(|u| {
+                        Identifier::from_unvalidated_usage(u)
+                            .is_some_and(|id| id.as_str() == identifier)
+                    }) {
+                        match existing {
+                            InterchangeProjectUsageRaw::Index(IndexUsage {
+                                publisher: p,
+                                name: n,
+                                version_constraint,
+                            }) if *p == publisher && *n == name => {
+                                log::warn!(
+                                    "ignoring usage `{publisher}/{name}` without a version constraint,\n\
+                                     {SP:>8} since it is already present with version constraint\n\
+                                     {SP:>8} `{version_constraint}`",
+                                );
+                                return Ok(());
+                            }
+                            InterchangeProjectUsageRaw::Index(IndexUsage {
+                                publisher: p,
+                                name: n,
+                                ..
+                            }) => bail!(AddError::<Infallible>::IndexUsageSpelledDifferently {
+                                existing: format!("{p}/{n}"),
+                                new: format!("{publisher}/{name}"),
+                            }),
+                            other => bail!(AddError::<Infallible>::DuplicateIdentifier {
+                                identifier,
+                                existing: other.kind_with_article(),
+                                new: "an index",
+                            }),
+                        }
+                    }
+                    // Resolved first as a resource usage of the same identifier and
+                    // no constraint, which chooses the version the way an unconstrained
+                    // usage always has (e.g. a prerelease from a source override)
+                    let usage = InterchangeProjectUsageRaw::Resource {
+                        resource: identifier.clone(),
+                        version_constraint: None,
+                    };
+                    (identifier, usage, Some((publisher, name)))
+                }
+            }
+        }
+    };
+    let iri = identifier.as_str();
 
     #[expect(clippy::manual_map)] // For readability and compactness
     let source = if let Some(path) = source_opts.from_path {
@@ -85,6 +166,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
             default_index,
             no_index,
             include_std: _,
+            strict_index_versions: _,
         } = resolution_opts.clone();
 
         let index_urls = if no_index {
@@ -195,20 +277,43 @@ pub fn command_add<Policy: HTTPAuthentication>(
         });
     }
 
-    let usage_raw = InterchangeProjectUsageRaw::Resource {
-        resource: iri.to_owned(),
-        version_constraint,
-    };
-
     if no_lock {
         do_add(&mut current_project, &usage_raw)?;
         Ok(())
     } else {
         let info_path = current_project.info_path();
         let info_backup = wrapfs::read_to_string(&info_path)?;
-        let added = do_add(&mut current_project, &usage_raw)?;
-        if !added {
-            return Ok(());
+        if unconstrained_index.is_some() {
+            // Not `do_add`, so that only the final usage is reported as added
+            let mut info = current_project
+                .get_info()?
+                .ok_or(CliError::MissingProjectCurrentDir)?;
+            info.usage.push(usage_raw);
+            current_project.put_info(&info, true)?;
+        } else {
+            let added = do_add(&mut current_project, &usage_raw)?;
+            if !added {
+                return Ok(());
+            }
+        }
+
+        if let Some((publisher, name)) = unconstrained_index {
+            let result = constrain_to_locked_version(
+                &mut current_project,
+                iri,
+                publisher,
+                name,
+                &resolution_opts,
+                &config,
+                &client,
+                &runtime,
+                &auth_policy,
+                &ctx,
+            );
+            if let Err(e) = result {
+                wrapfs::write(&info_path, info_backup)?;
+                return Err(e);
+            }
         }
 
         let provided_iris = if resolution_opts.include_std {
@@ -257,6 +362,58 @@ pub fn command_add<Policy: HTTPAuthentication>(
             }
         }
     }
+}
+
+/// Replace the usage of `identifier`, a resource usage with no constraint, by
+/// the index usage of `publisher`/`name` constrained to `^` the version a
+/// lock chooses for it, as `cargo add` does
+fn constrain_to_locked_version<Policy: HTTPAuthentication>(
+    project: &mut LocalSrcProject,
+    identifier: &str,
+    publisher: String,
+    name: String,
+    resolution_opts: &ResolutionOptions,
+    config: &Config,
+    client: &reqwest_middleware::ClientWithMiddleware,
+    runtime: &Arc<tokio::runtime::Runtime>,
+    auth_policy: &Arc<Policy>,
+    ctx: &ProjectContext,
+) -> Result<()> {
+    let lock = resolve_lock(
+        ".",
+        resolution_opts.clone(),
+        config,
+        project.root_path(),
+        ProvidedProjects::default(),
+        client.clone(),
+        runtime.clone(),
+        auth_policy.clone(),
+        ctx,
+    )?;
+    let Some(locked) = lock
+        .projects
+        .iter()
+        .find(|p| p.identifiers.iter().any(|id| id == identifier))
+    else {
+        bail!("`{publisher}/{name}` is missing from the lock");
+    };
+    let version_constraint = format!("^{}", locked.version);
+    let mut info = project
+        .get_info()?
+        .ok_or(CliError::MissingProjectCurrentDir)?;
+    info.usage.retain(|u| {
+        !matches!(u, InterchangeProjectUsageRaw::Resource { resource, .. } if resource == identifier)
+    });
+    project.put_info(&info, true)?;
+    do_add(
+        project,
+        &InterchangeProjectUsageRaw::Index(IndexUsage {
+            publisher,
+            name,
+            version_constraint,
+        }),
+    )?;
+    Ok(())
 }
 
 pub enum ExpAddArgs {
@@ -380,6 +537,7 @@ pub fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     provided_iris: ProvidedProjects,
     ctx: ProjectContext,
 ) -> Result<(), anyhow::Error> {
+    let solve_options = resolution_opts.solve_options();
     let resolver = create_resolver(
         resolution_opts,
         config,
@@ -397,6 +555,7 @@ pub fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         project_identifiers,
         &provided_iris,
         resolver,
+        solve_options,
         &ctx,
     )?;
     let lock = lock.canonicalize();

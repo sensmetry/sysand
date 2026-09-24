@@ -6,6 +6,7 @@ import logging
 import tempfile
 from pathlib import Path
 import os
+import typing
 import re
 from typing import Callable, List, Union
 
@@ -78,7 +79,7 @@ def test_add_by_publisher_and_name() -> None:
 
         assert (
             (Path(tmpdirname) / ".project.json").read_text()
-            == '{\n  "name": "test_add_by_publisher_and_name",\n  "publisher": "a",\n  "version": "1.2.3",\n  "usage": [\n    {\n      "resource": "pkg:sysand/acme-labs/my.project",\n      "versionConstraint": "*"\n    }\n  ]\n}\n'
+            == '{\n  "name": "test_add_by_publisher_and_name",\n  "publisher": "a",\n  "version": "1.2.3",\n  "usage": [\n    {\n      "publisher": "acme-labs",\n      "name": "my.project",\n      "versionConstraint": "*"\n    }\n  ]\n}\n'
         )
 
 
@@ -93,7 +94,8 @@ def test_remove_by_publisher_and_name() -> None:
 
         sysand.add(
             project_dir=tmpdirname,
-            iri="pkg:sysand/acme-labs/my.project",
+            publisher="acme-labs",
+            name="my.project",
             version_constraint="*",
         )
         sysand.remove(project_dir=tmpdirname, publisher="acme-labs", name="my.project")
@@ -166,8 +168,7 @@ def test_set_usage_constraint_preserves_document(tmp_path: Path) -> None:
 
     change = sysand.set_usage_constraint(
         project_dir=tmp_path,
-        publisher="mock",
-        name="library",
+        iri="pkg:sysand/mock/library",
         version_constraint=">=0.11.0, <0.12.0",
     )
 
@@ -182,7 +183,7 @@ def test_set_usage_constraint_preserves_document(tmp_path: Path) -> None:
     assert new_line == '      "versionConstraint": ">=0.11.0, <0.12.0"\n'
 
 
-def test_set_usage_constraint_iri_matches_publisher_and_name(
+def test_set_usage_constraint_by_iri(
     tmp_path: Path,
 ) -> None:
     (tmp_path / ".project.json").write_text(SYSAND_FORMATTED_MANIFEST)
@@ -218,8 +219,7 @@ def test_set_usage_constraint_appends_a_missing_constraint(tmp_path: Path) -> No
     # Setting a constraint on a usage without one appends it as the last key.
     change = sysand.set_usage_constraint(
         project_dir=tmp_path,
-        publisher="mock",
-        name="library",
+        iri="pkg:sysand/mock/library",
         version_constraint="^0.11",
     )
     assert change["old_version_constraint"] is None
@@ -237,8 +237,7 @@ def test_set_usage_constraint_unchanged_does_not_touch_file(tmp_path: Path) -> N
 
     change = sysand.set_usage_constraint(
         project_dir=tmp_path,
-        publisher="mock",
-        name="library",
+        iri="pkg:sysand/mock/library",
         version_constraint=">=0.10.0, <0.11.0",
     )
 
@@ -267,7 +266,7 @@ def test_set_usage_constraint_not_found(tmp_path: Path) -> None:
         )
     assert excinfo.value.wrote is False
     assert isinstance(excinfo.value, RuntimeError)
-    assert "pkg:sysand/acme/absent" in str(excinfo.value)
+    assert "usage `acme/absent` is not declared" in str(excinfo.value)
 
     change = sysand.set_usage_constraint(
         project_dir=tmp_path,
@@ -303,8 +302,7 @@ def test_set_usage_constraint_rejects_bad_input(tmp_path: Path) -> None:
     with pytest.raises(sysand.ProjectError):
         sysand.set_usage_constraint(
             project_dir=tmp_path,
-            publisher="mock",
-            name="library",
+            iri="pkg:sysand/mock/library",
             version_constraint="nonsense",
         )
     with pytest.raises(sysand.ProjectError):
@@ -324,8 +322,7 @@ def test_set_usage_constraint_rejects_bad_input(tmp_path: Path) -> None:
     with pytest.raises(sysand.ProjectError) as excinfo:
         sysand.set_usage_constraint(
             project_dir=tmp_path,
-            publisher="mock",
-            name="library",
+            iri="pkg:sysand/mock/library",
             version_constraint="1.0.0",
         )
     assert "2 times" in str(excinfo.value)
@@ -428,7 +425,9 @@ def test_remove_returns_the_removed_usages(tmp_path: Path) -> None:
         version_constraint=">=1.0.0",
     )
 
-    removed = sysand.remove(project_dir=tmp_path, iri="pkg:sysand/acme-labs/my.project")
+    removed = sysand.remove(
+        project_dir=tmp_path, publisher="acme-labs", name="my.project"
+    )
 
     assert removed == [
         {
@@ -447,7 +446,7 @@ def test_usages_read_back_by_how_they_are_found(tmp_path: Path) -> None:
         name="by.index",
         version_constraint="*",
     )
-    # A `pkg:sysand` IRI is the same index usage, however it was added.
+    # A `pkg:sysand` IRI is a resource usage, taken literally.
     sysand.add(
         project_dir=tmp_path,
         iri="pkg:sysand/acme-labs/by.iri",
@@ -463,14 +462,13 @@ def test_usages_read_back_by_how_they_are_found(tmp_path: Path) -> None:
 
     assert info["usage"] == [
         {"publisher": "acme-labs", "name": "by.index", "version_constraint": "*"},
-        {"publisher": "acme-labs", "name": "by.iri", "version_constraint": "^1.0"},
+        {"resource": "pkg:sysand/acme-labs/by.iri", "version_constraint": "^1.0"},
         {"resource": "https://example.com/by-url.kpar", "version_constraint": "*"},
     ]
-    # The manifest itself is unchanged: an index usage is still stored as
-    # the resource usage of its PURL.
     manifest = json.loads((tmp_path / ".project.json").read_text())
     assert manifest["usage"][0] == {
-        "resource": "pkg:sysand/acme-labs/by.index",
+        "publisher": "acme-labs",
+        "name": "by.index",
         "versionConstraint": "*",
     }
 
@@ -535,9 +533,7 @@ def test_add_refuses_a_project_already_declared_as_another_kind(
     assert len(info["usage"]) == 1
 
 
-def test_publisher_and_name_are_taken_unnormalized(tmp_path: Path) -> None:
-    # The values a typed index usage will keep as given; until then the PURL
-    # holds them normalized, and so does what is read back.
+def test_publisher_and_name_are_kept_as_spelled(tmp_path: Path) -> None:
     sysand.init(project_dir=tmp_path, name="proj", publisher="acme", version="1.0.0")
     manifest = tmp_path / ".project.json"
 
@@ -547,7 +543,11 @@ def test_publisher_and_name_are_taken_unnormalized(tmp_path: Path) -> None:
         name="My.Project",
         version_constraint="*",
     )
-    assert '"resource": "pkg:sysand/acme-labs/my.project"' in manifest.read_text()
+    assert '"publisher": "Acme Labs"' in manifest.read_text()
+    info, _ = sysand.info_path(project_dir=tmp_path)
+    assert info["usage"] == [
+        {"publisher": "Acme Labs", "name": "My.Project", "version_constraint": "*"}
+    ]
 
     change = sysand.set_usage_constraint(
         project_dir=tmp_path,
@@ -557,19 +557,72 @@ def test_publisher_and_name_are_taken_unnormalized(tmp_path: Path) -> None:
     )
     assert change["found"] and change["changed"]
 
-    # The normalized spelling names the same usage.
-    assert not sysand.add(
-        project_dir=tmp_path,
-        publisher="acme-labs",
-        name="my.project",
-        version_constraint="^1",
-    )
+    # Another spelling of the same project names no usage, and says so
+    before = manifest.read_text()
+    with pytest.raises(
+        sysand.ProjectError,
+        match="already declared as the index usage `Acme Labs/My.Project`",
+    ):
+        sysand.add(
+            project_dir=tmp_path,
+            publisher="acme-labs",
+            name="my.project",
+            version_constraint="^1",
+        )
+    with pytest.raises(
+        sysand.ProjectError, match="did you mean `Acme Labs/My.Project`"
+    ):
+        sysand.set_usage_constraint(
+            project_dir=tmp_path,
+            publisher="acme-labs",
+            name="my.project",
+            version_constraint="^2",
+            must_exist=False,
+        )
+    with pytest.raises(
+        sysand.ProjectError, match="did you mean `Acme Labs/My.Project`"
+    ):
+        sysand.remove(project_dir=tmp_path, publisher="acme-labs", name="my.project")
+    # Nor does its PURL
+    with pytest.raises(sysand.ProjectError, match="name it by `publisher` and `name`"):
+        sysand.remove(project_dir=tmp_path, iri="pkg:sysand/acme-labs/my.project")
+    assert manifest.read_text() == before
 
     removed = sysand.remove(
         project_dir=tmp_path, publisher="Acme Labs", name="My.Project"
     )
     assert removed == [
-        {"publisher": "acme-labs", "name": "my.project", "version_constraint": "^1"}
+        {"publisher": "Acme Labs", "name": "My.Project", "version_constraint": "^1"}
+    ]
+
+
+def test_a_legacy_purl_is_named_by_its_iri(tmp_path: Path) -> None:
+    sysand.init(project_dir=tmp_path, name="proj", publisher="acme", version="1.0.0")
+    sysand.add(
+        project_dir=tmp_path, iri="pkg:sysand/acme-labs/lib", version_constraint="^1"
+    )
+
+    with pytest.raises(
+        sysand.ProjectError, match="already declared as a resource usage"
+    ):
+        sysand.add(
+            project_dir=tmp_path,
+            publisher="acme-labs",
+            name="lib",
+            version_constraint="^1",
+        )
+    with pytest.raises(sysand.ProjectError, match="name it by `iri`"):
+        sysand.remove(project_dir=tmp_path, publisher="acme-labs", name="lib")
+    with pytest.raises(sysand.ProjectError, match="not as an index usage"):
+        sysand.set_usage_constraint(
+            project_dir=tmp_path,
+            publisher="acme-labs",
+            name="lib",
+            version_constraint="^2",
+        )
+
+    assert sysand.remove(project_dir=tmp_path, iri="pkg:sysand/acme-labs/lib") == [
+        {"resource": "pkg:sysand/acme-labs/lib", "version_constraint": "^1"}
     ]
 
 
@@ -945,7 +998,9 @@ def test_model_roundtrip() -> None:
     assert roundtripped_metadata == metadata
 
 
-def test_a_pkg_sysand_resource_is_accepted_and_read_back_as_an_index_usage() -> None:
+def _model_roundtrip(
+    usage: typing.List[sysand.InterchangeProjectUsage],
+) -> typing.List[sysand.InterchangeProjectUsage]:
     from sysand._sysand_core import _do_model_roundtrip_py  # type: ignore
 
     info: sysand.InterchangeProjectInfo = {
@@ -957,19 +1012,7 @@ def test_a_pkg_sysand_resource_is_accepted_and_read_back_as_an_index_usage() -> 
         "maintainer": [],
         "website": None,
         "topic": [],
-        "usage": [
-            sysand.InterchangeProjectUsageResource(
-                resource="pkg:sysand/acme/index-lib", version_constraint=None
-            ),
-            # Not a valid `pkg:sysand` PURL, so no index could resolve it.
-            sysand.InterchangeProjectUsageResource(
-                resource="pkg:sysand/Acme/Index-Lib", version_constraint=None
-            ),
-            # Normalized on the way in, as `add` normalizes it.
-            sysand.InterchangeProjectUsageIndex(
-                publisher="Acme Labs", name="Other Lib", version_constraint="^1"
-            ),
-        ],
+        "usage": usage,
     }
     metadata: sysand.InterchangeProjectMetadata = {
         "index": {},
@@ -979,14 +1022,31 @@ def test_a_pkg_sysand_resource_is_accepted_and_read_back_as_an_index_usage() -> 
         "includes_implied": None,
         "checksum": None,
     }
-
     roundtripped_info, _ = _do_model_roundtrip_py(info, metadata)
+    return roundtripped_info["usage"]  # type: ignore[no-any-return]
 
-    assert roundtripped_info["usage"] == [
-        {"publisher": "acme", "name": "index-lib", "version_constraint": None},
-        {"resource": "pkg:sysand/Acme/Index-Lib", "version_constraint": None},
-        {"publisher": "acme-labs", "name": "other-lib", "version_constraint": "^1"},
+
+def test_usages_round_trip_as_given() -> None:
+    usage: typing.List[sysand.InterchangeProjectUsage] = [
+        sysand.InterchangeProjectUsageResource(
+            resource="pkg:sysand/acme/index-lib", version_constraint=None
+        ),
+        sysand.InterchangeProjectUsageIndex(
+            publisher="Acme Labs", name="Other Lib", version_constraint="^1"
+        ),
     ]
+
+    assert _model_roundtrip(usage) == [
+        {"resource": "pkg:sysand/acme/index-lib", "version_constraint": None},
+        {"publisher": "Acme Labs", "name": "Other Lib", "version_constraint": "^1"},
+    ]
+
+
+def test_an_index_usage_needs_a_constraint() -> None:
+    with pytest.raises(Exception):
+        _model_roundtrip(
+            [{"publisher": "Acme Labs", "name": "Other Lib"}]  # type: ignore[list-item]
+        )
 
 
 def compare_sources(

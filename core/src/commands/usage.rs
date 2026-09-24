@@ -11,7 +11,10 @@
 
 use thiserror::Error;
 
-use crate::{model::InterchangeProjectUsageRaw, project::utils::Identifier};
+use crate::{
+    model::{IndexUsage, InterchangeProjectUsageRaw},
+    project::utils::Identifier,
+};
 
 /// Outcome of a constraint edit, so callers can report precisely.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,13 +42,31 @@ pub enum SetConstraintError {
     /// The identifier names a usage that exists but cannot carry a version
     /// constraint, because its kind pins a single version by construction
     #[error(
-        "`{identifier}` is declared as a {kind} usage, which carries no\n\
+        "`{identifier}` is declared as {kind} usage, which carries no\n\
         version constraint: it always resolves to the single version found there"
     )]
     UsageCannotHoldConstraint {
         identifier: String,
         kind: &'static str,
     },
+    /// The identifier names an index usage, which is named by its publisher
+    /// and name instead
+    #[error(
+        "`{identifier}` is declared as the index usage `{publisher}/{name}`;\n\
+        name it by its publisher and name"
+    )]
+    IndexUsageMatchedByIdentifier {
+        identifier: String,
+        publisher: String,
+        name: String,
+    },
+    /// No index usage has the given spelling, but one of the same project
+    /// is spelled differently
+    #[error("could not find index usage `{requested}`; did you mean `{existing}`?")]
+    IndexUsageSpelledDifferently { requested: String, existing: String },
+    /// The project is declared as a resource usage, which is named by its IRI
+    #[error("`{identifier}` is declared as a resource usage, not as an index usage")]
+    NotAnIndexUsage { identifier: String },
 }
 
 const USAGE_KEY: &str = "usage";
@@ -53,13 +74,15 @@ const RESOURCE_KEY: &str = "resource";
 const VERSION_CONSTRAINT_KEY: &str = "versionConstraint";
 
 /// The kind of a usage that a lookup matched.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum MatchedKind {
-    /// A `Resource` usage: the one kind that can carry a version constraint.
+    /// A `Resource` usage.
     Resource,
-    /// A typed usage (`Directory`, `KparPath`, ...) whose [`Identifier`] is
-    /// the looked-up one. It is the same project, but cannot hold a
-    /// constraint.
+    /// An index usage whose [`Identifier`] is the looked-up one. It is the
+    /// same project, but named by publisher and name.
+    Index { publisher: String, name: String },
+    /// A path usage (`Directory`, `KparPath`) whose [`Identifier`] is the
+    /// looked-up one. It is the same project, but cannot hold a constraint.
     Typed(&'static str),
 }
 
@@ -75,8 +98,15 @@ fn match_usage(usage: &serde_json::Value, identifier: &str) -> Option<MatchedKin
     }
 
     let usage: InterchangeProjectUsageRaw = serde_json::from_value(usage.clone()).ok()?;
-    (Identifier::from_unvalidated_usage(&usage)?.as_str() == identifier)
-        .then(|| MatchedKind::Typed(usage.kind_noun()))
+    if Identifier::from_unvalidated_usage(&usage)?.as_str() != identifier {
+        return None;
+    }
+    Some(match usage {
+        InterchangeProjectUsageRaw::Index(IndexUsage {
+            publisher, name, ..
+        }) => MatchedKind::Index { publisher, name },
+        usage => MatchedKind::Typed(usage.kind_with_article()),
+    })
 }
 
 /// Set the `versionConstraint` of the usage naming `resource`, editing `doc`
@@ -127,16 +157,19 @@ pub fn do_set_usage_constraint(
         // Declared only as a typed usage: the same project, but no kind that
         // can hold a constraint.
         (0, _) => {
-            let kind = matches
-                .iter()
-                .find_map(|(_, kind)| match kind {
-                    MatchedKind::Typed(kind) => Some(*kind),
-                    MatchedKind::Resource => None,
-                })
-                .expect("a non-resource match is typed");
-            return Err(SetConstraintError::UsageCannotHoldConstraint {
-                identifier: resource.to_owned(),
-                kind,
+            return Err(match &matches[0].1 {
+                MatchedKind::Index { publisher, name } => {
+                    SetConstraintError::IndexUsageMatchedByIdentifier {
+                        identifier: resource.to_owned(),
+                        publisher: publisher.clone(),
+                        name: name.clone(),
+                    }
+                }
+                MatchedKind::Typed(kind) => SetConstraintError::UsageCannotHoldConstraint {
+                    identifier: resource.to_owned(),
+                    kind,
+                },
+                MatchedKind::Resource => unreachable!("no resource usage matched"),
             });
         }
         // Exactly one resource usage and nothing else of that identity.
@@ -176,6 +209,120 @@ pub fn do_set_usage_constraint(
         old,
         new: constraint.to_owned(),
     })
+}
+
+/// Set the `versionConstraint` of the index usage of `publisher`/`name`,
+/// spelled exactly so, editing `doc` in place as [`do_set_usage_constraint`]
+/// does.
+///
+/// When there is none, but the same project is declared otherwise (spelled
+/// differently, or as a usage of another kind), that is an error rather than
+/// [`ConstraintChange::NotFound`].
+pub fn do_set_index_usage_constraint(
+    doc: &mut serde_json::Value,
+    publisher: &str,
+    name: &str,
+    constraint: &str,
+) -> Result<ConstraintChange, SetConstraintError> {
+    semver::VersionReq::parse(constraint)
+        .map_err(|e| SetConstraintError::InvalidConstraint(constraint.to_owned(), e))?;
+
+    let serde_json::Value::Object(root) = doc else {
+        return Err(SetConstraintError::NotAnObject);
+    };
+    let usages = match root.get_mut(USAGE_KEY) {
+        None => return Ok(ConstraintChange::NotFound),
+        Some(serde_json::Value::Array(usages)) => usages,
+        Some(_) => return Err(SetConstraintError::UsageNotAnArray),
+    };
+
+    let identifier = Identifier::from_pub_name(publisher, name);
+    let mut exact = vec![];
+    let mut same_project = None;
+    for (index, usage) in usages.iter().enumerate() {
+        let Ok(usage) = serde_json::from_value::<InterchangeProjectUsageRaw>(usage.clone()) else {
+            continue;
+        };
+        match &usage {
+            InterchangeProjectUsageRaw::Index(IndexUsage {
+                publisher: p,
+                name: n,
+                ..
+            }) if p == publisher && n == name => exact.push(index),
+            _ if Identifier::from_unvalidated_usage(&usage).is_some_and(|id| id == identifier) => {
+                same_project.get_or_insert(usage);
+            }
+            _ => {}
+        }
+    }
+
+    let index = match (exact.as_slice(), same_project) {
+        ([index], _) => *index,
+        ([], None) => return Ok(ConstraintChange::NotFound),
+        ([], Some(usage)) => {
+            return Err(match usage {
+                InterchangeProjectUsageRaw::Index(IndexUsage {
+                    publisher: p,
+                    name: n,
+                    ..
+                }) => SetConstraintError::IndexUsageSpelledDifferently {
+                    requested: format!("{publisher}/{name}"),
+                    existing: format!("{p}/{n}"),
+                },
+                InterchangeProjectUsageRaw::Resource { .. } => {
+                    SetConstraintError::NotAnIndexUsage {
+                        identifier: identifier.into_string(),
+                    }
+                }
+                usage => SetConstraintError::UsageCannotHoldConstraint {
+                    identifier: identifier.into_string(),
+                    kind: usage.kind_with_article(),
+                },
+            });
+        }
+        (exact, _) => {
+            return Err(SetConstraintError::Ambiguous {
+                resource: format!("{publisher}/{name}"),
+                count: exact.len(),
+            });
+        }
+    };
+
+    let serde_json::Value::Object(usage) = &mut usages[index] else {
+        unreachable!("only object usages can match")
+    };
+    let old = usage
+        .get(VERSION_CONSTRAINT_KEY)
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned);
+    if old.as_deref() == Some(constraint) {
+        return Ok(ConstraintChange::Unchanged {
+            constraint: constraint.to_owned(),
+        });
+    }
+    usage.insert(
+        VERSION_CONSTRAINT_KEY.to_owned(),
+        serde_json::Value::String(constraint.to_owned()),
+    );
+
+    Ok(ConstraintChange::Replaced {
+        old,
+        new: constraint.to_owned(),
+    })
+}
+
+/// [`do_set_index_usage_constraint`] on the `.project.json` of a local
+/// project, written back in sysand's pretty format only when the document
+/// changed.
+#[cfg(feature = "filesystem")]
+pub fn do_set_index_usage_constraint_local(
+    project: &mut crate::project::local_src::LocalSrcProject,
+    publisher: &str,
+    name: &str,
+    constraint: &str,
+) -> Result<ConstraintChange, crate::project::local_src::EditInfoError<SetConstraintError>> {
+    project
+        .edit_info_document(|doc| do_set_index_usage_constraint(doc, publisher, name, constraint))
 }
 
 /// [`do_set_usage_constraint`] on the `.project.json` of a local project,

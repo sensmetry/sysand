@@ -320,6 +320,8 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
                 publisher: _,
                 name: _,
             } => Some(kpar_path),
+            // Portable: resolved by identity wherever the KPAR is used
+            InterchangeProjectUsageRaw::Index(_) => None,
         }
     }) {
         if allow_path_usage {
