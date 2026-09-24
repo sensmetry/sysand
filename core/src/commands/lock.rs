@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 use fluent_uri::Iri;
+use semver::VersionReq;
 use std::{
     collections::{HashMap, HashSet, hash_map::Entry},
     fmt::{self, Debug},
@@ -20,13 +21,13 @@ use crate::project::{editable::EditableProject, local_src::LocalSrcProject, util
 use crate::{
     context::ProjectContext,
     lock::{Lock, Project, Usage, hash_str},
-    model::{InterchangeProjectUsage, InterchangeProjectValidationError},
+    model::{IndexUsage, InterchangeProjectUsage, InterchangeProjectValidationError},
     project::{
         CanonicalizationError, ProjectRead,
         utils::{FsIoError, Identifier},
     },
     resolve::ResolveRead,
-    solve::pubgrub::{SolverError, solve},
+    solve::pubgrub::{SolveOptions, SolverError, solve},
     utils::ProvidedProjects,
 };
 
@@ -78,6 +79,47 @@ pub struct SelfNameCollisionError {
     pub project: Project,
 }
 
+/// The project that declares a usage
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeclaredBy {
+    /// One of the projects being locked (or the request itself), labelled
+    /// for messages. The user can edit it.
+    Input(String),
+    /// A dependency, labelled for messages. Its publisher has to fix it.
+    Dependency(String),
+}
+
+impl fmt::Display for DeclaredBy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Input(label) => f.write_str(label),
+            Self::Dependency(label) => write!(f, "dependency {label}"),
+        }
+    }
+}
+
+/// An index usage resolved to a project whose publisher or name is spelled
+/// differently from the usage's.
+#[derive(Error, Debug)]
+#[error(
+    "index usage `{usage_publisher}/{usage_name}` in {declared_by} resolved to version \
+     {version} of a project that declares itself `{}/{name}`;\n{}",
+    .publisher.as_deref().unwrap_or("<none>"),
+    match .declared_by {
+        DeclaredBy::Input(_) => "spell the usage as the project does",
+        DeclaredBy::Dependency(_) =>
+            "the usage is not yours to edit: it has to be fixed by that dependency's publisher",
+    }
+)]
+pub struct IndexUsageMismatchError {
+    pub usage_publisher: String,
+    pub usage_name: String,
+    pub declared_by: DeclaredBy,
+    pub version: String,
+    pub publisher: Option<String>,
+    pub name: String,
+}
+
 #[derive(Error, Debug)]
 pub enum LockError<PD: ProjectRead, R: ResolveRead + Debug + 'static> {
     #[error(transparent)]
@@ -105,6 +147,8 @@ pub enum LockError<PD: ProjectRead, R: ResolveRead + Debug + 'static> {
     },
     #[error(transparent)]
     Solver(SolverError<R>),
+    #[error(transparent)]
+    IndexUsageMismatch(Box<IndexUsageMismatchError>),
     #[error(transparent)]
     NameCollision(Box<NameCollisionError>),
     #[error(transparent)]
@@ -140,6 +184,7 @@ pub fn do_lock_projects<
 >(
     projects: I,
     resolver: R,
+    options: SolveOptions,
     provided_usages: &ProvidedProjects,
     ctx: &ProjectContext,
 ) -> Result<LockOutcome<PD>, LockProjectError<PI, PD, R>> {
@@ -193,16 +238,22 @@ pub fn do_lock_projects<
             usages: validated_info.usage.iter().map(Usage::from).collect(),
         });
 
-        all_deps.extend(validated_info.usage);
+        all_deps.extend(
+            validated_info
+                .usage
+                .into_iter()
+                .map(|usage| (usage, DeclaredBy::Input(named_project_label.clone()))),
+        );
     }
 
-    let lock_outcome = do_lock_extend(lock, all_deps, resolver, provided_usages, ctx)?;
+    let lock_outcome = do_lock_extend(lock, all_deps, resolver, options, provided_usages, ctx)?;
 
     Ok(lock_outcome)
 }
 
 /// Solves for compatible set of dependencies based on usages and adds the solution
-/// to existing lockfile.
+/// to existing lockfile. Each usage comes with the project that declares it,
+/// for error messages.
 /// Note: The content of the lockfile is taken into account only to avoid
 ///       including duplicate projects (same project, same version) in lock.
 ///       This can cause incorrect version selection, as possible
@@ -213,22 +264,34 @@ pub fn do_lock_projects<
 //         already in lockfile
 pub fn do_lock_extend<
     PD: ProjectRead + Debug,
-    I: IntoIterator<Item = InterchangeProjectUsage>,
+    I: IntoIterator<Item = (InterchangeProjectUsage, DeclaredBy)>,
     R: ResolveRead<ProjectStorage = PD> + Debug,
 >(
     mut lock: Lock,
     usages: I,
     resolver: R,
+    options: SolveOptions,
     provided_usages: &ProvidedProjects,
     ctx: &ProjectContext,
 ) -> Result<LockOutcome<PD>, LockError<PD, R>> {
-    let inputs: Vec<_> = usages.into_iter().collect();
+    let (inputs, declared_by): (Vec<_>, Vec<_>) = usages.into_iter().unzip();
+    // Index usages, to check against the projects they resolve to
+    let mut index_usages: Vec<(IndexUsage<VersionReq>, DeclaredBy)> = inputs
+        .iter()
+        .zip(declared_by)
+        .filter_map(|(usage, declared_by)| match usage {
+            InterchangeProjectUsage::Index(index) => Some((index.clone(), declared_by)),
+            _ => None,
+        })
+        .collect();
+    // Publisher, name and version of each solved project
+    let mut solved = HashMap::new();
     let mut dependencies = vec![];
     #[cfg(feature = "filesystem")]
     let base_path = ctx.workspace_or_project_root();
     #[cfg(not(feature = "filesystem"))]
     let base_path = None;
-    let solution = solve(inputs, base_path, resolver).map_err(LockError::Solver)?;
+    let solution = solve(inputs, base_path, resolver, options).map_err(LockError::Solver)?;
     let mut lock_projects = HashSet::new();
     let mut lock_symbols = HashMap::new();
     for (i, p) in lock.projects.iter().enumerate() {
@@ -274,6 +337,26 @@ pub fn do_lock_extend<
                 project_label: identifier.to_string(),
                 field: IncompleteField::Meta,
             })?;
+
+        for usage in &validated_info.usage {
+            if let InterchangeProjectUsage::Index(index) = usage {
+                index_usages.push((
+                    index.clone(),
+                    DeclaredBy::Dependency(format!(
+                        "`{}` {} (`{identifier}`)",
+                        info.name, info.version
+                    )),
+                ));
+            }
+        }
+        solved.insert(
+            identifier.clone(),
+            (
+                info.publisher.clone(),
+                info.name.clone(),
+                info.version.clone(),
+            ),
+        );
 
         let sources = if provided_usages.contains_key(&identifier) {
             Vec::new()
@@ -334,7 +417,38 @@ pub fn do_lock_extend<
         dependencies.push((identifier, project));
     }
 
+    check_index_usages(index_usages, &solved).map_err(LockError::IndexUsageMismatch)?;
+
     Ok(LockOutcome { lock, dependencies })
+}
+
+/// Check that each index usage's publisher and name are spelled exactly as
+/// the project it resolved to (in `solved`, as publisher, name and version)
+/// spells them. Normalization makes them resolve to the same project
+/// regardless, so this is the only place a misspelling is caught.
+fn check_index_usages(
+    index_usages: Vec<(IndexUsage<VersionReq>, DeclaredBy)>,
+    solved: &HashMap<Identifier, (Option<String>, String, String)>,
+) -> Result<(), Box<IndexUsageMismatchError>> {
+    for (usage, declared_by) in index_usages {
+        let identifier = Identifier::from_pub_name(&usage.publisher, &usage.name);
+        // Not being in the solution is not a mismatch: e.g. a project the
+        // caller provides, or one already in the lock
+        let Some((publisher, name, version)) = solved.get(&identifier) else {
+            continue;
+        };
+        if publisher.as_deref() != Some(usage.publisher.as_str()) || *name != usage.name {
+            return Err(Box::new(IndexUsageMismatchError {
+                usage_publisher: usage.publisher,
+                usage_name: usage.name,
+                declared_by,
+                version: version.clone(),
+                publisher: publisher.clone(),
+                name: name.clone(),
+            }));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(feature = "filesystem")]
@@ -353,6 +467,7 @@ pub fn do_lock_local_editable<
     identifiers: Option<Vec<Iri<String>>>,
     provided_usages: &ProvidedProjects,
     resolver: R,
+    options: SolveOptions,
     ctx: &ProjectContext,
 ) -> Result<LockOutcome<PD>, LockProjectError<EditableLocalSrcProject, PD, R>> {
     let path = path.as_ref();
@@ -364,7 +479,13 @@ pub fn do_lock_local_editable<
         ),
     );
 
-    do_lock_projects([(identifiers, &project)], resolver, provided_usages, ctx)
+    do_lock_projects(
+        [(identifiers, &project)],
+        resolver,
+        options,
+        provided_usages,
+        ctx,
+    )
 }
 
 #[cfg(test)]

@@ -71,11 +71,10 @@ impl ResolveRead for GitResolver {
                 )))
             }
             InterchangeProjectUsage::Directory { .. }
-            | InterchangeProjectUsage::KparPath { .. } => {
-                Ok(ResolutionOutcome::UnsupportedUsageType {
-                    reason: String::from("not a git usage"),
-                })
-            }
+            | InterchangeProjectUsage::KparPath { .. }
+            | InterchangeProjectUsage::Index(_) => Ok(ResolutionOutcome::UnsupportedUsageType {
+                reason: String::from("not a git usage"),
+            }),
         }
     }
 }

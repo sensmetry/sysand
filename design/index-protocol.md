@@ -297,7 +297,8 @@ per-version file:
     {
       "version": "2.3.4",
       "usage": [
-        { "resource": "pkg:sysand/abc/dep", "versionConstraint": "<2" }
+        { "resource": "pkg:sysand/abc/dep", "versionConstraint": "<2" },
+        { "publisher": "Abc", "name": "Other Dep", "versionConstraint": "^1" }
       ],
       "kpar_size": 12345,
       "kpar_digest": "sha256:<64-hex>"
@@ -320,8 +321,14 @@ Per-entry rules:
   different artifacts, breaking the `(iri, version)` identity contract
   (see [§13]).
 - `usage` is an array of dependency declarations in the same shape as in
-  `.project.json`. It duplicates the version's project manifest so the
-  solver can run from `versions.json` alone.
+  `.project.json`, of any kind, including index usages
+  (`publisher`, `name` and `versionConstraint`, with no other key). It
+  duplicates the version's project manifest so the solver can run from
+  `versions.json` alone. A client that cannot parse one of these
+  declarations rejects the whole `versions.json`, so a client released
+  before a usage kind was introduced cannot resolve any version of a
+  project once one of its versions uses that kind; since `usage` never
+  changes ([§11]), that is permanent.
 - `kpar_digest` is lowercase SHA-256 in `sha256:<64-hex>` form ([§10]).
 - `kpar_size` is the byte length of the archive.
 - `status` is OPTIONAL. When present, it MUST be one of `"available"`,
@@ -482,7 +489,11 @@ Retirement ([§8] `status`) and the lockfile contract:
 ## 14. Forward compatibility
 
 - Unknown fields in any JSON document MUST be ignored by the clients. Clients
-  MAY still choose to inform the user of such changes.
+  MAY still choose to inform the user of such changes. The one exception is
+  an index usage (`publisher`, `name` and `versionConstraint`) in `usage`:
+  one with any other field is not an index usage, and clients MUST reject
+  it, so that a declaration of an unknown kind or with an unknown
+  index-selecting field is never resolved as a plain index usage.
 - Protocol version is not explicitly provided anywhere currently.
 - Breaking changes to this protocol are expected before v1.
 
