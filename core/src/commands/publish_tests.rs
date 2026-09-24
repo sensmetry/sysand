@@ -11,7 +11,7 @@ use super::{
 use crate::{
     auth::{EnvBearerAuth, ForceBearerAuth, GlobMap, GlobMapBuilder, StoredBearerAuth},
     index_location::IndexLocation,
-    model::InterchangeProjectUsageRaw,
+    model::{IndexUsage, InterchangeProjectUsageRaw},
     resolve::net_utils::create_reqwest_client,
 };
 use bytes::Bytes;
@@ -706,6 +706,16 @@ fn usage_with_vc(resource: &str, vc: &str) -> InterchangeProjectUsageRaw {
 #[test]
 fn check_usage_accepts_valid_sysand_purl() {
     check_usage(&usage("pkg:sysand/acme/widget")).unwrap();
+}
+
+#[test]
+fn check_usage_accepts_an_index_usage() {
+    check_usage(&InterchangeProjectUsageRaw::Index(IndexUsage {
+        publisher: "Acme Labs".to_owned(),
+        name: "My Lib".to_owned(),
+        version_constraint: "^1".to_owned(),
+    }))
+    .unwrap();
 }
 
 #[test]

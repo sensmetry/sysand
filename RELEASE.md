@@ -163,12 +163,21 @@ separately:
   format (with some Sysand additions) and carry no version of their own.
   Unknown fields in them are and must continue to be ignored (they may
   produce a warning, however), so adding a new optional field is always
-  safe.
+  safe. The one exception is an index usage entry (`publisher`, `name` and
+  `versionConstraint`, and no key of another kind): it rejects any other
+  field, so that an entry of an unknown kind, or with an unknown field that
+  would change how it resolves, is never read as a plain index usage. Adding
+  an optional field to index usages is therefore a format change that
+  earlier builds refuse.
 - A new `usage` kind in `.project.json` is the one change these rules do not
   make safe: the usage list deserializes through an untagged enum with no
   catch-all, so a manifest declaring a kind a build does not know fails to
   parse in full. Therefore, once a usage kind has been added (and can be
   populated with a non-experimental command), it must never be removed.
+  The index usage is such a kind: `sysand add <publisher>/<name>` writes
+  it. Builds released before it cannot read a manifest that contains one,
+  nor the `versions.json` of any index project that has one in any of its
+  versions.
 
 ### Bump version entries
 

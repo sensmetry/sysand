@@ -73,6 +73,7 @@ pub fn resolve_lock<P: AsRef<Utf8UnixPath>, Policy: HTTPAuthentication, R: AsRef
         known_std_libs()
     };
     provided_iris.extend(extra_provided);
+    let solve_options = resolution_opts.solve_options();
     let wrapped_resolver = create_resolver(
         resolution_opts,
         config,
@@ -104,6 +105,7 @@ pub fn resolve_lock<P: AsRef<Utf8UnixPath>, Policy: HTTPAuthentication, R: AsRef
         alias_iris,
         &provided_iris,
         wrapped_resolver,
+        solve_options,
         ctx,
     )?;
 
@@ -169,6 +171,7 @@ pub fn create_resolver<R: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         default_index,
         no_index,
         include_std: _,
+        strict_index_versions: _,
     } = resolution_opts;
 
     let index_urls = if no_index {

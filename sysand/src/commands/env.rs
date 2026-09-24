@@ -11,7 +11,11 @@ use fluent_uri::Iri;
 use semver::VersionReq;
 use sysand_core::{
     auth::HTTPAuthentication,
-    commands::{env::do_env_local_dir, lock::LockOutcome, sync::SyncOutcome},
+    commands::{
+        env::do_env_local_dir,
+        lock::{DeclaredBy, LockOutcome},
+        sync::SyncOutcome,
+    },
     config::Config,
     context::ProjectContext,
     env::local_directory::LocalDirectoryEnvironment,
@@ -30,6 +34,7 @@ use sysand_core::{
         priority::PriorityResolver,
         standard::standard_resolver,
     },
+    solve::pubgrub::SolveOptions,
     utils::SP,
 };
 use typed_path::Utf8UnixPathBuf;
@@ -78,7 +83,11 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
         default_index,
         no_index,
         include_std,
+        strict_index_versions,
     } = resolution_opts;
+    let solve_options = SolveOptions {
+        strict_index_versions,
+    };
 
     // TODO: should probably first check that current project exists
     let provided_usages = if include_std {
@@ -143,10 +152,13 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
             allow_multiple,
         )?;
     } else {
-        let usages = [InterchangeProjectUsage::Resource {
-            resource: fluent_uri::Iri::from_str(iri.as_ref())?,
-            version_constraint,
-        }];
+        let usages = [(
+            InterchangeProjectUsage::Resource {
+                resource: fluent_uri::Iri::from_str(iri.as_ref())?,
+                version_constraint,
+            },
+            DeclaredBy::Input("the command line".to_owned()),
+        )];
 
         let LockOutcome {
             lock,
@@ -155,6 +167,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
             Lock::default(),
             usages,
             resolver,
+            solve_options,
             &provided_usages,
             &ctx,
         )?;
@@ -226,7 +239,11 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
         default_index,
         no_index,
         include_std,
+        strict_index_versions,
     } = resolution_opts;
+    let solve_options = SolveOptions {
+        strict_index_versions,
+    };
 
     let metadata = wrapfs::metadata(&path)?;
     let project = if metadata.is_dir() {
@@ -318,6 +335,7 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
         } = sysand_core::commands::lock::do_lock_projects(
             [(Some(vec![iri]), &project)],
             resolver,
+            solve_options,
             &provided_usages,
             &ctx,
         )?;

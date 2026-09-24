@@ -7,7 +7,7 @@ import typing
 
 from . import _sysand_core as sysand_rs
 
-from ._identify import project_iri
+from ._identify import check_named
 
 from pathlib import Path
 
@@ -47,13 +47,13 @@ def add(
     ``iri``
         The project's IRI, taken as given: ``publisher/name`` is not an IRI
         and is refused. This declares a resource usage, the untyped kind that
-        KerML specifies. A ``pkg:sysand`` IRI declares the same index usage
-        as ``publisher`` and ``name`` do.
+        KerML specifies, even for a ``pkg:sysand`` IRI.
 
     ``publisher`` and ``name``
         The project with that publisher and name, resolved from the index.
         This declares an index usage, which :func:`info_path` returns as
-        :class:`InterchangeProjectUsageIndex`.
+        :class:`InterchangeProjectUsageIndex`. Spell both exactly as the
+        project does: locking fails otherwise.
 
     Either way, ``version_constraint`` is a semver requirement such as
     ``">=1.0.0"``, and is required: pass ``"*"`` to accept any version.
@@ -79,17 +79,20 @@ def add(
         ProjectError: the project is missing or malformed, ``iri`` is not an
             IRI, ``publisher`` or ``name`` is not valid,
             ``version_constraint`` is not a semver requirement, or the same
-            project is already declared by a directory or KPAR usage (which
-            would declare it twice, from two different sources).
+            project is already declared by a usage of another kind (which
+            would declare it twice, from two different sources) or by an
+            index usage spelled differently.
     """
-    # Every usage `add` writes gets a constraint, so that a later index usage
-    # in core can require one.
+    # Every usage `add` writes gets a constraint, which an index usage
+    # requires.
     if version_constraint is None:
         raise TypeError(
             'add() takes a `version_constraint`; pass "*" to accept any version'
         )
-    resolved = project_iri("add", iri, publisher, name)
-    return sysand_rs.do_add_py(str(project_dir), resolved, version_constraint)  # type: ignore
+    check_named("add", iri, publisher, name)
+    return sysand_rs.do_add_py(  # type: ignore
+        str(project_dir), iri, publisher, name, version_constraint
+    )
 
 
 __all__ = ["add"]

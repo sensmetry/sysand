@@ -114,9 +114,21 @@ class Resolution:
     ``default_index`` replaces the built-in default (``https://sysand.com``)
     and any default marked in the configuration; ``index`` adds indexes that
     are tried before the defaults.
+
+    ``strict_index_versions`` mirrors ``--strict-index-versions``: a version
+    offered for an index usage that is not a valid project (for example, one
+    of its usages is malformed) fails the solve instead of being skipped. It
+    affects :func:`sysand.lock` only, the one call that solves.
     """
 
-    __slots__ = ("index", "default_index", "no_index", "include_std", "use_config")
+    __slots__ = (
+        "index",
+        "default_index",
+        "no_index",
+        "include_std",
+        "strict_index_versions",
+        "use_config",
+    )
 
     def __init__(
         self,
@@ -125,6 +137,7 @@ class Resolution:
         default_index: typing.Sequence[str] = (),
         no_index: bool = False,
         include_std: bool = False,
+        strict_index_versions: bool = False,
         use_config: bool = True,
     ) -> None:
         if no_index and (index or default_index):
@@ -133,6 +146,7 @@ class Resolution:
         self.default_index = list(default_index)
         self.no_index = no_index
         self.include_std = include_std
+        self.strict_index_versions = strict_index_versions
         self.use_config = use_config
 
     def _spec(self) -> dict[str, typing.Any]:
@@ -141,6 +155,7 @@ class Resolution:
             "default_index": self.default_index,
             "no_index": self.no_index,
             "include_std": self.include_std,
+            "strict_index_versions": self.strict_index_versions,
             "use_config": self.use_config,
         }
 
@@ -148,6 +163,7 @@ class Resolution:
         return (
             f"Resolution(index={self.index!r}, default_index={self.default_index!r}, "
             f"no_index={self.no_index!r}, include_std={self.include_std!r}, "
+            f"strict_index_versions={self.strict_index_versions!r}, "
             f"use_config={self.use_config!r})"
         )
 

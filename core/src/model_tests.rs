@@ -57,3 +57,121 @@ fn json_hash_agrees_with_shell() {
         "3b08c7119d89c406de6bdfbed29566077209d295736264229ad5d2e33991b3b4"
     );
 }
+
+mod index_usage {
+    use crate::{
+        model::{
+            IndexUsage, InterchangeProjectUsage, InterchangeProjectUsageRaw,
+            InterchangeProjectValidationError,
+        },
+        project::utils::Identifier,
+    };
+
+    fn parse(json: &str) -> Result<InterchangeProjectUsageRaw, serde_json::Error> {
+        serde_json::from_str(json)
+    }
+
+    fn index(publisher: &str, name: &str, constraint: &str) -> InterchangeProjectUsageRaw {
+        InterchangeProjectUsageRaw::Index(IndexUsage {
+            publisher: publisher.to_owned(),
+            name: name.to_owned(),
+            version_constraint: constraint.to_owned(),
+        })
+    }
+
+    #[test]
+    fn parses_and_round_trips() {
+        let json = r#"{"publisher":"Acme Labs","name":"My Lib","versionConstraint":"^1.2"}"#;
+        let usage = parse(json).unwrap();
+        assert_eq!(usage, index("Acme Labs", "My Lib", "^1.2"));
+        assert_eq!(serde_json::to_string(&usage).unwrap(), json);
+    }
+
+    #[test]
+    fn requires_a_constraint() {
+        let err = parse(r#"{"publisher":"Acme Labs","name":"My Lib"}"#).unwrap_err();
+        assert!(err.is_data(), "{err}");
+    }
+
+    #[test]
+    fn other_kinds_with_the_same_keys_keep_their_kind() {
+        let extra = r#""publisher":"acme","name":"lib","versionConstraint":"^1""#;
+        assert!(matches!(
+            parse(&format!(r#"{{"resource":"pkg:sysand/acme/lib",{extra}}}"#)).unwrap(),
+            InterchangeProjectUsageRaw::Resource { .. }
+        ));
+        assert!(matches!(
+            parse(&format!(r#"{{"dir":"lib",{extra}}}"#)).unwrap(),
+            InterchangeProjectUsageRaw::Directory { .. }
+        ));
+        assert!(matches!(
+            parse(&format!(r#"{{"kparPath":"lib.kpar",{extra}}}"#)).unwrap(),
+            InterchangeProjectUsageRaw::KparPath { .. }
+        ));
+    }
+
+    #[test]
+    fn rejects_extra_keys() {
+        for key in ["index", "kpar_path", "anything"] {
+            let json = format!(
+                r#"{{"publisher":"acme","name":"lib","versionConstraint":"^1","{key}":"x"}}"#
+            );
+            assert!(parse(&json).is_err(), "{json} parsed");
+        }
+    }
+
+    #[test]
+    fn validates() {
+        let valid = index("Acme Labs", "My.Lib", "^1.2").validate().unwrap();
+        assert_eq!(
+            valid,
+            InterchangeProjectUsage::Index(IndexUsage {
+                publisher: "Acme Labs".to_owned(),
+                name: "My.Lib".to_owned(),
+                version_constraint: semver::VersionReq::parse("^1.2").unwrap(),
+            })
+        );
+        assert!(matches!(
+            index("A", "My Lib", "^1").validate(),
+            Err(InterchangeProjectValidationError::InvalidIndexUsagePublisher { .. })
+        ));
+        assert!(matches!(
+            index("Acme", "my..lib", "^1").validate(),
+            Err(InterchangeProjectValidationError::InvalidIndexUsageName { .. })
+        ));
+        assert!(matches!(
+            index("Acme", "My Lib", "not a constraint").validate(),
+            Err(InterchangeProjectValidationError::InvalidIndexUsageVersionConstraint { .. })
+        ));
+    }
+
+    #[test]
+    fn no_identifier_without_publisher() {
+        assert_eq!(
+            Identifier::from_unvalidated_usage(&index("", "My Lib", "^1")),
+            None
+        );
+    }
+
+    #[test]
+    fn shares_its_identifier() {
+        let usage = index("Acme Labs", "My.Lib", "^1").validate().unwrap();
+        let directory = InterchangeProjectUsageRaw::Directory {
+            dir: "lib".to_owned(),
+            publisher: "Acme Labs".to_owned(),
+            name: "My.Lib".to_owned(),
+        }
+        .validate()
+        .unwrap();
+        let identifier = Identifier::from(&usage);
+        assert_eq!(identifier.as_str(), "pkg:sysand/acme-labs/my.lib");
+        assert_eq!(identifier, Identifier::from(&directory));
+        assert_eq!(
+            Some(identifier),
+            Identifier::from_unvalidated_usage(&InterchangeProjectUsageRaw::Resource {
+                resource: "pkg:sysand/acme-labs/my.lib".to_owned(),
+                version_constraint: None,
+            })
+        );
+    }
+}

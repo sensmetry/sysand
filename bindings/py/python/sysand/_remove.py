@@ -7,7 +7,7 @@ import typing
 
 from . import _sysand_core as sysand_rs
 
-from ._identify import project_iri
+from ._identify import check_named
 from ._model import InterchangeProjectUsage
 
 from pathlib import Path
@@ -35,12 +35,13 @@ def remove(
     """Remove a dependency from the project in ``project_dir``.
 
     The dependency is named as :func:`add` names it: by ``iri``, taken as
-    given, or by ``publisher`` and ``name``.
+    given, for a resource usage, or by ``publisher`` and ``name``, spelled
+    exactly as the usage spells them, for an index usage.
 
-    Only resource and index usages are removed. A directory or KPAR usage of the same
-    project is *not* removed, and is not reported as missing either: that
-    raises :class:`ProjectError`, since the project is declared, just as a
-    kind the Python API cannot remove yet.
+    A usage of another kind, or an index usage spelled differently, is *not*
+    removed, and is not reported as missing either: that raises
+    :class:`ProjectError`, since the project is declared, just not as the
+    usage asked for. Directory and KPAR usages cannot be removed yet.
 
     Args:
         project_dir: The project directory, the one holding ``.project.json``.
@@ -59,11 +60,10 @@ def remove(
             ``publisher`` and ``name`` was.
         ProjectError: the project is missing or malformed, ``iri`` is not an
             IRI, ``publisher`` or ``name`` is not valid, no usage
-            of the dependency is declared, or it is declared only as a
-            directory or KPAR usage.
+            of the dependency is declared, or it is declared only otherwise.
     """
-    resolved = project_iri("remove", iri, publisher, name)
-    return sysand_rs.do_remove_py(str(project_dir), resolved)  # type: ignore
+    check_named("remove", iri, publisher, name)
+    return sysand_rs.do_remove_py(str(project_dir), iri, publisher, name)  # type: ignore
 
 
 __all__ = ["remove"]

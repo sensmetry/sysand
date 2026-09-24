@@ -217,3 +217,35 @@ def test_lock_auth(tmp_path: Path, mock_index: MockIndex) -> None:
         write=False,
     )
     assert by_name(result, "dep")["version"] == "1.0.0"
+
+
+def test_lock_strict_index_versions(tmp_path: Path, mock_index: MockIndex) -> None:
+    mock_index.publish(DEP, "1.0.0")
+    # Its usage is not a valid `pkg:sysand` PURL, so the version is broken
+    mock_index.publish(DEP, "1.1.0", usage=[usage("pkg:sysand/Acme/Lib")])
+    root = project_with(
+        tmp_path, [{"publisher": "mock", "name": "dep", "versionConstraint": "^1"}]
+    )
+
+    lenient = sysand.lock(path=root, resolution=resolution(mock_index), write=False)
+    assert by_name(lenient, "dep")["version"] == "1.0.0"
+
+    strict = sysand.Resolution(
+        default_index=[mock_index.url], use_config=False, strict_index_versions=True
+    )
+    assert "strict_index_versions=True" in repr(strict)
+    with pytest.raises(sysand.SolveError) as excinfo:
+        sysand.lock(path=root, resolution=strict, write=False)
+    assert "resolved to version 1.1.0, which has an invalid usage" in str(excinfo.value)
+
+
+def test_lock_index_usage_spelled_unlike_the_project(
+    tmp_path: Path, mock_index: MockIndex
+) -> None:
+    mock_index.publish(DEP, "1.0.0")
+    root = project_with(
+        tmp_path, [{"publisher": "Mock", "name": "dep", "versionConstraint": "^1"}]
+    )
+
+    with pytest.raises(sysand.SysandError, match="declares itself `mock/dep`"):
+        sysand.lock(path=root, resolution=resolution(mock_index), write=False)

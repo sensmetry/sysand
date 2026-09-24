@@ -6,7 +6,6 @@ use std::{collections::HashMap, fs, io::ErrorKind, str::FromStr as _, sync::Arc}
 use anyhow::{Result, bail};
 use camino::{Utf8Path, Utf8PathBuf};
 
-use fluent_uri::Iri;
 use reqwest_middleware::ClientWithMiddleware;
 use sysand_core::{
     auth::HTTPAuthentication,
@@ -17,24 +16,24 @@ use sysand_core::{
     },
     context::ProjectContext,
     lock::Lock,
-    model::InterchangeProjectUsageRaw,
+    model::{IndexUsage, InterchangeProjectUsageRaw},
     project::{
         ProjectRead as _,
         utils::{Identifier, wrapfs},
     },
-    remove::{do_remove, exp_do_remove},
+    remove::{do_remove, do_remove_index, exp_do_remove},
     utils::format_err,
 };
 
 use crate::{
     CliError,
-    cli::ResolutionOptions,
+    cli::{ResolutionOptions, UsageLocator},
     commands::{add::resolve_deps, sync::command_sync},
 };
 
 #[expect(clippy::fn_params_excessive_bools)]
 pub fn command_remove<Policy: HTTPAuthentication>(
-    iri: Iri<String>,
+    locator: UsageLocator,
     mut ctx: ProjectContext,
     config: Config,
     config_file: Option<String>,
@@ -56,13 +55,24 @@ pub fn command_remove<Policy: HTTPAuthentication>(
         .map(Utf8PathBuf::from)
         .or_else(|| (!no_config).then(|| current_project.root_path().join(CONFIG_FILE)));
 
-    let iri_copy = iri.to_string();
     // `.project.json` is not backed up here, since the failure to lock
     // or sync cannot logically be caused by the remove command itself
     // (unlike `add`), the failure must be pre-existing or transient
     // (i.e. lock/sync would have also failed even without the `remove`).
     // Therefore lock/sync failures should not revert the removal
-    let usages = do_remove(current_project, iri.into_string())?;
+    let (identifier, usages) = match locator {
+        UsageLocator::Iri(iri) => {
+            let identifier = iri.to_string();
+            (identifier, do_remove(current_project, iri.into_string())?)
+        }
+        // The lockfile and the config know the project by its identifier,
+        // not by the usage's spelling
+        UsageLocator::PublisherName { publisher, name } => (
+            Identifier::from_pub_name(&publisher, &name).into_string(),
+            do_remove_index(current_project, &publisher, &name)?,
+        ),
+    };
+    let iri_copy = identifier;
     print_removed(&usages);
 
     if !no_lock {
@@ -278,6 +288,15 @@ fn print_removed(usages: &[InterchangeProjectUsageRaw]) {
                 name,
             } => {
                 log::info!("{header}{removed:>12}{header:#} `{publisher}/{name}` (path `{path}`)");
+            }
+            InterchangeProjectUsageRaw::Index(IndexUsage {
+                publisher,
+                name,
+                version_constraint,
+            }) => {
+                log::info!(
+                    "{header}{removed:>12}{header:#} `{publisher}/{name}` with version constraints `{version_constraint}`"
+                );
             }
         }
     }

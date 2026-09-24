@@ -276,6 +276,36 @@ fn project_build_path_usage() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// An index usage is portable: it needs no `--allow-path-usage`, and the
+/// KPAR keeps it as it is
+#[test]
+fn project_build_index_usage() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "test_build", "1.2.3")?;
+    out.assert().success();
+
+    run_sysand_in(&cwd, ["add", "--no-lock", "Acme Labs/My Lib", "^1"], None)?
+        .assert()
+        .success();
+    run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("path usage").not());
+
+    let info = read_kpar_file(&cwd.join("test_build.kpar"), ".project.json");
+    assert!(
+        info.contains(
+            r#"{
+      "publisher": "Acme Labs",
+      "name": "My Lib",
+      "versionConstraint": "^1"
+    }"#
+        ),
+        "{info}"
+    );
+
+    Ok(())
+}
+
 struct WProject {
     name: String,
     info_path: Utf8PathBuf,
