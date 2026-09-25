@@ -525,7 +525,7 @@ fn run_cli_with(
             }) => command_sources_env(
                 iri,
                 version,
-                sources_opts.only_deps,
+                sources_opts.no_own,
                 sources_opts.deps,
                 ctx.env,
             ),
@@ -642,7 +642,7 @@ fn run_cli_with(
             path,
             iri,
             auto_location,
-            no_normalise,
+            // no_normalise,
             resolution_opts,
             subcommand,
         } => {
@@ -725,7 +725,7 @@ fn run_cli_with(
                 }
                 (Location::Iri(iri), None) => crate::commands::info::command_info_uri(
                     iri,
-                    !no_normalise,
+                    true, // !no_normalise,
                     client,
                     index_urls,
                     &excluded_usages,
@@ -760,19 +760,17 @@ fn run_cli_with(
         Command::Add {
             locator,
             version_constraint,
-            no_lock,
-            no_sync,
             resolution_opts,
             source_opts,
-            no_prune,
+            sync,
         } => {
             let iri = iri_or_path_to_iri(locator.iri, locator.path)?;
             command_add(
                 iri,
                 version_constraint,
-                no_lock,
-                no_sync,
-                no_prune,
+                sync.no_lock,
+                sync.no_sync,
+                sync.no_prune,
                 resolution_opts,
                 source_opts,
                 config,
@@ -786,9 +784,7 @@ fn run_cli_with(
         }
         Command::Remove {
             locator,
-            no_lock,
-            no_sync,
-            no_prune,
+            sync,
             resolution_opts,
         } => {
             let iri = iri_or_path_to_iri(locator.iri, locator.path)?;
@@ -798,9 +794,9 @@ fn run_cli_with(
                 config,
                 global_opts.config_file,
                 global_opts.no_config,
-                no_lock,
-                no_sync,
-                no_prune,
+                sync.no_lock,
+                sync.no_sync,
+                sync.no_prune,
                 resolution_opts,
                 client,
                 runtime,
@@ -878,7 +874,7 @@ fn run_cli_with(
             runtime,
         ),
         Command::Sources { sources_opts } => {
-            command_sources_project(sources_opts.only_deps, sources_opts.deps, ctx)
+            command_sources_project(sources_opts.no_own, sources_opts.deps, ctx)
         }
         Command::Clone {
             locator,
@@ -902,9 +898,7 @@ fn run_cli_with(
             ExpCommand::Add {
                 locator,
                 resolution_opts,
-                no_lock,
-                no_sync,
-                no_prune,
+                sync,
             } => {
                 let add = if let Some(dir) = locator.dir {
                     ExpAddArgs::Dir { dir }
@@ -915,9 +909,9 @@ fn run_cli_with(
                 };
                 exp_command_add(
                     add,
-                    no_lock,
-                    no_sync,
-                    no_prune,
+                    sync.no_lock,
+                    sync.no_sync,
+                    sync.no_prune,
                     resolution_opts,
                     config,
                     ctx,
@@ -929,18 +923,16 @@ fn run_cli_with(
             ExpCommand::Remove {
                 publisher,
                 name,
-                no_lock,
-                no_sync,
-                no_prune,
+                sync,
                 resolution_opts,
             } => exp_command_remove(
                 publisher,
                 name,
                 ctx,
                 config,
-                no_lock,
-                no_sync,
-                no_prune,
+                sync.no_lock,
+                sync.no_sync,
+                sync.no_prune,
                 resolution_opts,
                 client,
                 runtime,

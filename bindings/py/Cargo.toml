@@ -39,6 +39,8 @@ tokio = { version = "1.50.0", default-features = false, features = ["rt"] }
 [dev-dependencies]
 predicates = "3.1.4"
 camino-tempfile = "1.4"
+# silence output in tests
+anstream = { version = "1.0.0", features = ["test"] }
 
 [lints]
 workspace = true

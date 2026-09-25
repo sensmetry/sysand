@@ -66,6 +66,8 @@ predicates = "3.1.4"
 camino-tempfile = "1.4"
 url = "2.5.8"
 zip = "8.0.0"
+# silence output in tests
+anstream = { version = "1.0.0", features = ["test"] }
 
 [target."cfg(not(windows))".dev-dependencies]
 rexpect = "0.7.0"
