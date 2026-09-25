@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context as _, Result, anyhow, bail};
 use camino::{Utf8Path, Utf8PathBuf};
 use fluent_uri::Iri;
-use semver::Version;
+use semver::{Version, VersionReq};
 
 use std::{collections::HashMap, fs, io::ErrorKind, sync::Arc};
 
@@ -48,7 +48,7 @@ pub enum ProjectLocator {
 /// Clones project from `locator` to `target` directory.
 pub fn command_clone<Policy: HTTPAuthentication>(
     locator: CloneProjectLocatorArgs,
-    version: Option<String>,
+    version_constraint: Option<VersionReq>,
     target: Option<Utf8PathBuf>,
     ctx: ProjectContext,
     no_deps: bool,
@@ -86,7 +86,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
 
     let (include_std, locator, local_project, std_resolver) = match obtain_project(
         locator,
-        version,
+        version_constraint,
         resolution_opts,
         config,
         &client,
@@ -187,7 +187,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
 
 fn obtain_project<Policy: HTTPAuthentication>(
     locator: CloneProjectLocatorArgs,
-    version: Option<String>,
+    version_constraint: Option<VersionReq>,
     resolution_opts: ResolutionOptions,
     config: &Config,
     client: &reqwest_middleware::ClientWithMiddleware,
@@ -254,7 +254,8 @@ fn obtain_project<Policy: HTTPAuthentication>(
                 local_project.root_path(),
             );
             let resolve = ResolutionInfo::iri(iri.to_owned());
-            let (_version, storage) = get_project_version(&resolve, version, &std_resolver)?;
+            let (_version, storage) =
+                get_project_version(&resolve, version_constraint, &std_resolver)?;
             let (info, _meta) = clone_project(&storage, &mut local_project, true)?;
             log::info!(
                 "{header}{cloned:>12}{header:#} `{}` {}",
@@ -266,7 +267,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
             if wrapfs::is_file(path)? {
                 let remote_project = LocalKParProjectRaw::new_guess_root(path)?;
                 clone_local(
-                    version,
+                    version_constraint,
                     cloning,
                     cloned,
                     header,
@@ -277,7 +278,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
             } else {
                 let remote_project = LocalSrcProject::new_access(path, None);
                 clone_local(
-                    version,
+                    version_constraint,
                     cloning,
                     cloned,
                     header,
@@ -293,7 +294,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
 }
 
 fn clone_local<P: ProjectRead>(
-    version: Option<String>,
+    version_constraint: Option<VersionReq>,
     cloning: &str,
     cloned: &str,
     header: clap::builder::styling::Style,
@@ -301,13 +302,17 @@ fn clone_local<P: ProjectRead>(
     path: &Utf8PathBuf,
     remote_project: P,
 ) -> Result<(), anyhow::Error> {
-    if let Some(version) = version {
+    if let Some(vc) = version_constraint {
         let project_version = remote_project
             .get_info()?
             .ok_or_else(|| anyhow!("missing project info"))?
+            .validate()
+            .with_context(|| format!("project at `{path}` has invalid metadata"))?
             .version;
-        if version != project_version {
-            bail!("given version {version} does not match project version {project_version}")
+        if !vc.matches(&project_version) {
+            bail!(
+                "project version {project_version} does not match the given version constraint `{vc}`"
+            )
         }
     }
     log::info!(
@@ -327,31 +332,22 @@ fn clone_local<P: ProjectRead>(
 }
 
 /// Obtains a project identified by `resolve` via `resolver`. If
-/// version is given, obtains exactly that version, prerelease or not. If
-/// not, obtains the latest version, but constrains PURLs with `*` like the solver
+/// `version_constraint` is given, obtains the highest version matching it
+/// (use `=X.Y.Z` for an exact version). Defaults to `*`
+/// (latest non-prerelease)
 pub fn get_project_version<R: ResolveRead>(
     resolve: &ResolutionInfo,
-    version: Option<String>,
+    version_constraint: Option<VersionReq>,
     resolver: &R,
-) -> Result<(semver::Version, R::ProjectStorage), anyhow::Error> {
+) -> Result<(Version, R::ProjectStorage), anyhow::Error> {
     match resolver.resolve_read(resolve)? {
         ResolutionOutcome::Resolved(alternatives) => {
             // If no version is supplied, choose the highest
             // Else, choose version that is supplied
-            // TODO: maybe add `no_semver` param to control whether version is
-            //       interpreted as semver?
-            let requested_version = version
-                .as_ref()
-                .map(|v| {
-                    // TODO: since we require this anyway, might as well take Option<Iri<String>>
-                    semver::Version::parse(v)
-                        .map_err(|e| anyhow!("failed to parse given version {v} as SemVer: {e}"))
-                })
-                .transpose()?;
             // Match what the solver does: an unconstrained usage defaults to
             // `*`, but only for candidates whose source poses a version choice
             // in the first place
-            let defaults_constraint = match (&requested_version, resolve.usage()) {
+            let defaults_constraint = match (&version_constraint, resolve.usage()) {
                 (Some(_), _) => false,
                 (
                     None,
@@ -408,8 +404,8 @@ pub fn get_project_version<R: ResolveRead>(
                         continue;
                     }
                 };
-                if let Some(version) = &requested_version
-                    && &candidate_version != version
+                if let Some(vc) = &version_constraint
+                    && !vc.matches(&candidate_version)
                 {
                     continue;
                 }
@@ -428,7 +424,7 @@ pub fn get_project_version<R: ResolveRead>(
             }
 
             match candidates.len() {
-                0 => match version {
+                0 => match version_constraint {
                     Some(v) => bail!(CliError::MissingProjectVersion(resolve.to_string(), v)),
                     None if !excluded_by_default.is_empty() => {
                         excluded_by_default.sort_unstable_by(|v1, v2| v2.cmp(v1));

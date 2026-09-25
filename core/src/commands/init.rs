@@ -27,28 +27,13 @@ pub enum InitError<ProjectError: ErrorBound> {
     SPDXLicenseParse(Box<str>, spdx::error::ParseError),
 }
 
-pub fn do_init_ext<P: ProjectMut>(
+pub fn do_init<P: ProjectMut>(
     name: String,
     publisher: String,
-    version: String,
-    no_semver: bool,
-    license: Option<String>,
-    no_spdx: bool,
+    version: Version,
+    license: Option<spdx::Expression>,
     storage: &mut P,
 ) -> Result<(), InitError<P::Error>> {
-    if !no_semver {
-        Version::parse(&version).map_err(|e| InitError::SemVerParse(version.as_str().into(), e))?;
-    }
-    let license = if let Some(l) = license {
-        if !no_spdx {
-            spdx::Expression::parse(&l)
-                .map_err(|e| InitError::SPDXLicenseParse(l.as_str().into(), e))?;
-        }
-        Some(l)
-    } else {
-        None
-    };
-
     let creating = "Creating";
     let header = crate::style::get_style_config().header;
     log::info!("{header}{creating:>12}{header:#} interchange project `{name}`");
@@ -58,8 +43,8 @@ pub fn do_init_ext<P: ProjectMut>(
             name,
             publisher: Some(publisher),
             description: None,
-            version,
-            license,
+            version: version.to_string(),
+            license: license.map(|l| l.to_string()),
             maintainer: vec![],
             topic: vec![],
             usage: vec![],
@@ -80,14 +65,24 @@ pub fn do_init_ext<P: ProjectMut>(
     Ok(())
 }
 
-pub fn do_init<P: ProjectMut>(
+/// Same as `do_init`, but takes unparsed values
+pub fn do_init_parse<P: ProjectMut>(
     name: String,
     publisher: String,
     version: String,
     license: Option<String>,
     storage: &mut P,
 ) -> Result<(), InitError<P::Error>> {
-    do_init_ext(name, publisher, version, false, license, false, storage)
+    let version =
+        Version::parse(&version).map_err(|e| InitError::SemVerParse(version.as_str().into(), e))?;
+    let license = if let Some(l) = license {
+        let l = spdx::Expression::parse(&l)
+            .map_err(|e| InitError::SPDXLicenseParse(l.as_str().into(), e))?;
+        Some(l)
+    } else {
+        None
+    };
+    do_init(name, publisher, version, license, storage)
 }
 
 pub fn do_init_memory<N: AsRef<str>, P: AsRef<str>, V: AsRef<str>>(
@@ -98,7 +93,7 @@ pub fn do_init_memory<N: AsRef<str>, P: AsRef<str>, V: AsRef<str>>(
 ) -> Result<InMemoryProject, InitError<crate::project::memory::InMemoryError>> {
     let mut storage = InMemoryProject::default();
 
-    do_init(
+    do_init_parse(
         name.as_ref().to_owned(),
         publisher.as_ref().to_owned(),
         version.as_ref().to_owned(),
@@ -118,7 +113,7 @@ pub fn do_init_local_file(
     path: Utf8PathBuf,
 ) -> Result<LocalSrcProject, InitError<LocalSrcError>> {
     let mut storage = LocalSrcProject::new_access(path, None);
-    do_init(name, publisher, version, license, &mut storage)?;
+    do_init_parse(name, publisher, version, license, &mut storage)?;
 
     Ok(storage)
 }

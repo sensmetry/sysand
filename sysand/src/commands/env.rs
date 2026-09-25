@@ -8,6 +8,7 @@ use anyhow::{Result, anyhow, bail};
 use camino::{Utf8Path, Utf8PathBuf};
 use fluent_uri::Iri;
 
+use semver::VersionReq;
 use sysand_core::{
     auth::HTTPAuthentication,
     commands::{env::do_env_local_dir, lock::LockOutcome, sync::SyncOutcome},
@@ -48,7 +49,7 @@ pub fn command_env<P: AsRef<Utf8Path>>(path: P) -> Result<LocalDirectoryEnvironm
 // TODO: Factor out provided_iris logic
 pub fn command_env_install<Policy: HTTPAuthentication>(
     iri: Iri<String>,
-    version: Option<String>,
+    version_constraint: Option<VersionReq>,
     install_opts: InstallOptions,
     resolution_opts: ResolutionOptions,
     config: &Config,
@@ -130,7 +131,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
         let id = iri.to_string();
         let resolve = ResolutionInfo::iri(iri);
         let (version, storage) =
-            crate::commands::clone::get_project_version(&resolve, version, &resolver)?;
+            crate::commands::clone::get_project_version(&resolve, version_constraint, &resolver)?;
         sysand_core::commands::env::do_env_install_project(
             id,
             &version.to_string(),
@@ -144,7 +145,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
     } else {
         let usages = [InterchangeProjectUsage::Resource {
             resource: fluent_uri::Iri::from_str(iri.as_ref())?,
-            version_constraint: version.map(|v| semver::VersionReq::parse(&v)).transpose()?,
+            version_constraint,
         }];
 
         let LockOutcome {

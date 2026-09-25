@@ -151,6 +151,31 @@ fn init_explicit_name() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// An invalid license is rejected by both `sysand init --license` and
+/// `sysand info license --set` with the same message, where the SPDX
+/// caret diagram starts on its own line so that it stays aligned.
+#[test]
+fn invalid_license_error_is_consistent() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        ["init", "--publisher", "a", "--license", "MIT ANDD foo"],
+        None,
+    )?;
+    let expected = "not a valid SPDX license expression:\nMIT ANDD foo\n    ^^^^ unknown term\n";
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains(expected));
+    assert!(!cwd.join(".project.json").exists());
+
+    let out = run_sysand_in(&cwd, ["init", "--publisher", "a"], None)?;
+    out.assert().success();
+    let out = run_sysand_in(&cwd, ["info", "license", "--set", "MIT ANDD foo"], None)?;
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains(expected));
+
+    Ok(())
+}
+
 /// `sysand init` should fail (loudly) in case there is already
 /// a project present (in the specified directory). Such an existing
 /// project should remain unaffected by the second `sysand init` execution.

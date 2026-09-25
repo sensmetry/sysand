@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+use semver::VersionReq;
 use sysand_core::{info::InfoProjectError, resolve::file::FileResolverProjectError};
 use thiserror::Error;
 
@@ -20,8 +21,8 @@ pub enum CliError {
     InvalidIri(String, fluent_uri::ParseError),
     #[error("unable to find interchange project `{0}`")]
     MissingProject(String),
-    #[error("unable to find interchange project `{0}` version {1}")]
-    MissingProjectVersion(String, String),
+    #[error("unable to find interchange project `{0}` with version matching {1}")]
+    MissingProjectVersion(String, VersionReq),
     #[error(
         "interchange project `{0}` has no released version,\n\
         only pre-releases ({1}); pass the version to use one of them"

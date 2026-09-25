@@ -130,27 +130,38 @@ fn clone_wrong_version() -> Result<(), Box<dyn std::error::Error>> {
     let test_path = fixture_path("test_lib");
     let test_path_str = test_path.as_str();
     // auto path form locator
-    let (_temp_dir, cwd, out) = run_sysand(["clone", test_path_str, "--version", "0.0.2"], None)?;
+    let (_temp_dir, cwd, out) = run_sysand(
+        ["clone", test_path_str, "--version-constraint", "0.0.2"],
+        None,
+    )?;
 
-    out.assert().failure().stderr(predicate::str::contains(
-        "given version 0.0.2 does not match project version",
-    ));
+    let error = "project version 0.0.1 does not match the given version constraint `^0.0.2`";
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains(error));
     assert_dir_empty(&cwd)?;
 
     // explicit path
     let (_temp_dir, cwd, out) = run_sysand(
-        ["clone", "--path", test_path_str, "--version", "0.0.2"],
+        [
+            "clone",
+            "--path",
+            test_path_str,
+            "--version-constraint",
+            "0.0.2",
+        ],
         None,
     )?;
 
-    out.assert().failure().stderr(predicate::str::contains(
-        "given version 0.0.2 does not match project version",
-    ));
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains(error));
     assert_dir_empty(&cwd)?;
 
     let file_url = file_url_from_path(&test_path);
     // auto path from `file` iri
-    let (_temp_dir, cwd, out) = run_sysand(["clone", &file_url, "--version", "0.0.2"], None)?;
+    let (_temp_dir, cwd, out) =
+        run_sysand(["clone", &file_url, "--version-constraint", "0.0.2"], None)?;
 
     out.assert().failure().stderr(predicate::str::contains(
         "unable to find interchange project",
@@ -158,8 +169,10 @@ fn clone_wrong_version() -> Result<(), Box<dyn std::error::Error>> {
     assert_dir_empty(&cwd)?;
 
     // explicit `file` iri
-    let (_temp_dir, cwd, out) =
-        run_sysand(["clone", "--iri", &file_url, "--version", "0.0.2"], None)?;
+    let (_temp_dir, cwd, out) = run_sysand(
+        ["clone", "--iri", &file_url, "--version-constraint", "0.0.2"],
+        None,
+    )?;
 
     out.assert().failure().stderr(predicate::str::contains(
         "unable to find interchange project",

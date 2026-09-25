@@ -1039,7 +1039,12 @@ pub fn do_sources_env_py(
 
         let usages = info
             .validate()
-            .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
+            .map_err(|e| {
+                PyRuntimeError::new_err(format!(
+                    "project `{iri}` has invalid metadata:\n{}",
+                    format_err(e)
+                ))
+            })?
             .usage;
 
         result.extend(collect_dependency_sources(env, usages, dependencies)?);
@@ -1096,7 +1101,14 @@ pub fn do_sources_project_py(
 
         let usages = info
             .validate()
-            .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
+            .map_err(|e| {
+                PyRuntimeError::new_err(format!(
+                    "project `{}` {} has invalid metadata:\n{}",
+                    info.name,
+                    info.version,
+                    format_err(e)
+                ))
+            })?
             .usage;
 
         result.extend(collect_dependency_sources(env, usages, dependencies)?);

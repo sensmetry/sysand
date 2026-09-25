@@ -787,7 +787,10 @@ pub enum PublishError {
         just note that some of them have placeholder copyright\n\
         holder/dates in the text that should be replaced"
     )]
-    MissingLicenseFile { path: Box<str>, license: Box<str> },
+    MissingLicenseFile {
+        path: Box<str>,
+        license: Box<spdx::Expression>,
+    },
     #[error(
         "metamodel `{metamodel}` cannot be used; only SysML/KerML\n\
         metamodels are currently allowed in the index"
@@ -892,16 +895,6 @@ pub enum PublishError {
 
     #[error("missing license in project info; it is required for publishing")]
     MissingLicense,
-
-    // Print `ParseError` directly, since its formatting demands a newline before
-    #[error(
-        "license `{license}` cannot be used for publishing; it must\n\
-        be a valid SPDX license expression, but failed to parse:\n{err}"
-    )]
-    InvalidLicense {
-        license: Box<str>,
-        err: spdx::error::ParseError,
-    },
 
     #[error("invalid api_root URL `{url}` for publish: {reason}")]
     InvalidApiRoot { url: Box<str>, reason: String },
@@ -1094,6 +1087,9 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
             name: "project",
             source: e,
         })?;
+    let Some(license_expr) = validated_info.license else {
+        return Err(PublishError::MissingLicense);
+    };
     let meta = meta.ok_or(PublishError::MissingMeta)?;
     // TODO: maybe use parse_sysand_purl() in validate() for usages? This would give better errors
     // than generic IRI parsing
@@ -1131,16 +1127,6 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
             version: version.as_str().into(),
         });
     }
-
-    let license = info
-        .license
-        .as_deref()
-        .ok_or(PublishError::MissingLicense)?;
-    let license_expr =
-        spdx::Expression::parse(license).map_err(|err| PublishError::InvalidLicense {
-            license: license.into(),
-            err,
-        })?;
 
     let (metamodel, metamodel_kind) = if let Some(m) = &meta.metamodel {
         (m, check_metamodel(m)?)
@@ -1211,7 +1197,7 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
             None => {
                 return Err(PublishError::MissingLicenseFile {
                     path: license_path.into_boxed_str(),
-                    license: license.into(),
+                    license: license_expr.into(),
                 });
             }
         }
@@ -1364,7 +1350,7 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
         "normalized_publisher": normalized_publisher,
         "normalized_name": normalized_name,
         "version": version,
-        "license": license,
+        "license": info.license.unwrap(),
         "kpar_sha256_digest": sha256_digest,
     })
     .to_string();

@@ -7,6 +7,7 @@ use crate::{
         GetMetaVerb, InfoCommandVerb, RemoveInfoVerb, RemoveMetaVerb, RemoveVerb, SetInfoVerb,
         SetMetaVerb, SetVerb,
     },
+    style::GOOD,
 };
 use camino::Utf8Path;
 use sysand_core::{
@@ -165,6 +166,20 @@ pub fn command_info_uri<Policy: HTTPAuthentication>(
     let (info, _) = do_info(&uri, &combined_resolver)?;
     pprint_interchange_project(&info, excluded_iris);
     Ok(())
+}
+
+/// Printed whenever the user sets a license, so that they know to add
+/// the license texts
+pub fn log_license_files_note() {
+    log::info!(
+        "{GOOD}note{GOOD:#}: every license/exception should have its corresponding\n\
+        file in LICENSES/ directory, and for publishing this is required.\n\
+        It is recommended to use SPDX license text files from\n\
+        https://spdx.org/licenses/ or\n\
+        https://github.com/spdx/license-list-data/tree/main/text\n\
+        just note that some of them have placeholder copyright\n\
+        holder/dates in the text that should be replaced"
+    )
 }
 
 fn print_output(output: Option<Vec<String>>, numbered: bool) {
@@ -410,19 +425,11 @@ fn set_info(
             info.description = Some(value.clone());
         }
         SetInfoVerb::SetVersion(value) => {
-            info.version = value.clone();
+            info.version = value.to_string();
         }
         SetInfoVerb::SetLicense(value) => {
-            info.license = Some(value.clone());
-            log::info!(
-                "Note: every license/exception should have its corresponding\n\
-                file in LICENSES/ directory, and for publishing this is required.\n\
-                It is recommended to use SPDX license text files from\n\
-                https://spdx.org/licenses/ or\n\
-                https://github.com/spdx/license-list-data/tree/main/text\n\
-                just note that some of them have placeholder copyright\n\
-                holder/dates in the text that should be replaced"
-            )
+            info.license = Some(value.to_string());
+            log_license_files_note();
         }
         SetInfoVerb::SetMaintainer(value) => {
             info.maintainer = value.clone();

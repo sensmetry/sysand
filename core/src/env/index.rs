@@ -207,7 +207,7 @@ pub enum IndexEnvironmentError {
         field: &'static str,
         value: String,
     },
-    #[error("versions.json at `{url}` has entry with non-semver version `{value}`: {source}")]
+    #[error("versions.json at `{url}` has entry with non-semver version `{value}`")]
     InvalidSemverVersion {
         url: Box<str>,
         value: String,
