@@ -800,7 +800,7 @@ fn info_basic_file_git() -> Result<(), Box<dyn Error>> {
     let (_, _, out) = run_sysand(
         [
             "info",
-            "--uri",
+            "--iri",
             url::Url::from_file_path(cwd.path()).unwrap().as_str(),
         ],
         None,

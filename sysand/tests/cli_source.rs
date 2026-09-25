@@ -64,7 +64,7 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     assert_eq!(wrapfs::canonicalize(p)?, expected_path);
 
-    let out = run_sysand_in(&path, ["sources", "--only-deps"], None)?;
+    let out = run_sysand_in(&path, ["sources", "--no-own"], None)?;
 
     let p = String::from_utf8(
         out.assert()

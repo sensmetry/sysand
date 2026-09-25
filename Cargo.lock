@@ -3992,6 +3992,7 @@ dependencies = [
 name = "sysand-py"
 version = "0.2.1"
 dependencies = [
+ "anstream",
  "anyhow",
  "camino",
  "camino-tempfile",

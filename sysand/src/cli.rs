@@ -107,20 +107,9 @@ pub enum Command {
         /// guide's `Project information and metadata` section
         #[clap(verbatim_doc_comment)]
         version_constraint: Option<VersionReq>,
-        /// Do not automatically resolve dependencies (and generate
-        /// lockfile). Implies `--no-sync`
-        // TODO: consider enforcing the implication here via e.g. default_value_if(s);
-        // the issue is that it does not work transitively and is verbose. Alternatively,
-        // do so in lib.rs with e.g. fn imply(bools: [&mut bool]), where the first
-        // implies second implies third and so on
-        #[arg(long, verbatim_doc_comment)]
-        no_lock: bool,
-        /// Do not automatically install dependencies. Implies `--no-prune`
-        #[arg(long)]
-        no_sync: bool,
-        /// Don't remove projects that are no longer needed from `.sysand`
-        #[arg(long)]
-        no_prune: bool,
+
+        #[clap(flatten)]
+        sync: LockSyncPrune,
 
         #[command(flatten)]
         resolution_opts: ResolutionOptions,
@@ -132,15 +121,9 @@ pub enum Command {
     Remove {
         #[clap(flatten)]
         locator: RemoveProjectLocatorArgs,
-        /// Do not automatically generate/update the lockfile. Implies `--no-sync`
-        #[arg(long)]
-        no_lock: bool,
-        /// Do not automatically install dependencies. Implies `--no-prune`
-        #[arg(long)]
-        no_sync: bool,
-        /// Don't remove projects that are no longer needed from `.sysand`
-        #[arg(long)]
-        no_prune: bool,
+
+        #[clap(flatten)]
+        sync: LockSyncPrune,
 
         #[command(flatten)]
         resolution_opts: ResolutionOptions,
@@ -278,16 +261,18 @@ pub enum Command {
         /// Use the project at the given path instead of the current project
         #[arg(long, group = "location")]
         path: Option<Utf8PathBuf>,
-        /// Use the project with the given IRI/URI/URL instead of the current project
-        #[arg(long, visible_alias = "uri", visible_alias = "url", group = "location")]
-        iri: Option<fluent_uri::Iri<String>>,
+        /// Use the project resolved from the given IRI/URI/URL instead
+        /// of the current project
+        #[arg(long, verbatim_doc_comment, group = "location")]
+        iri: Option<Iri<String>>,
         /// Use the project with the given locator, trying to parse it as
         /// an IRI/URI/URL and otherwise falling back to using it as a path
         #[arg(long, value_name = "LOCATOR", group = "location", verbatim_doc_comment)]
         auto_location: Option<String>,
-        /// Do not try to normalise the IRI/URI when resolving
-        #[arg(long, visible_alias = "no-normalize")]
-        no_normalise: bool,
+        // TODO: is this useful?
+        // /// Do not try to normalise the IRI/URI when resolving
+        // #[arg(long, visible_alias = "no-normalize")]
+        // no_normalise: bool,
         // TODO: Add various options, such as whether to take local environment
         //       into consideration
         #[command(flatten)]
@@ -322,16 +307,9 @@ pub enum ExpCommand {
         #[clap(flatten)]
         locator: ExpAddProjectLocatorArgs,
 
-        /// Do not automatically resolve dependencies (and generate
-        /// lockfile). Implies `--no-sync`
-        #[arg(long, verbatim_doc_comment)]
-        no_lock: bool,
-        /// Do not automatically install dependencies. Implies `--no-prune`
-        #[arg(long)]
-        no_sync: bool,
-        /// Don't remove projects that are no longer needed from `.sysand`
-        #[arg(long)]
-        no_prune: bool,
+        #[clap(flatten)]
+        sync: LockSyncPrune,
+
         #[command(flatten)]
         resolution_opts: ResolutionOptions,
     },
@@ -340,19 +318,32 @@ pub enum ExpCommand {
         publisher: String,
         name: String,
 
-        /// Do not automatically generate/update the lockfile. Implies `--no-sync`
-        #[arg(long)]
-        no_lock: bool,
-        /// Do not automatically install dependencies. Implies `--no-prune`
-        #[arg(long)]
-        no_sync: bool,
-        /// Don't remove projects that are no longer needed from `.sysand`
-        #[arg(long)]
-        no_prune: bool,
+        #[clap(flatten)]
+        sync: LockSyncPrune,
 
         #[command(flatten)]
         resolution_opts: ResolutionOptions,
     },
+}
+
+#[derive(clap::Args, Debug, Clone)]
+#[group(required = false, multiple = true)]
+pub struct LockSyncPrune {
+    // TODO: consider enforcing the implication here via e.g. default_value_if(s);
+    // the issue is that it does not work transitively and is verbose. Alternatively,
+    // do so in lib.rs with e.g. fn imply(bools: [&mut bool]), where the first
+    // implies second implies third and so on
+    /// Do not automatically resolve dependencies (and generate/update
+    /// the lockfile). Implies `--no-sync`
+    #[arg(long, verbatim_doc_comment)]
+    pub no_lock: bool,
+    /// Do not automatically install/update/remove dependencies. Implies
+    /// `--no-prune`
+    #[arg(long, verbatim_doc_comment)]
+    pub no_sync: bool,
+    /// Don't remove projects that are no longer needed from `.sysand`
+    #[arg(long)]
+    pub no_prune: bool,
 }
 
 #[derive(clap::Args, Debug, Clone)]
@@ -432,8 +423,8 @@ pub struct CloneProjectLocatorArgs {
     )]
     pub auto_location: Option<String>,
     /// IRI/URI/URL identifying the project to be cloned
-    #[arg(long, visible_alias = "uri", visible_alias = "url")]
-    pub iri: Option<fluent_uri::Iri<String>>,
+    #[arg(long)]
+    pub iri: Option<Iri<String>>,
     /// Path to clone the project from. If version is also
     /// given, verifies that the project has the given version
     // TODO: allow somehow requiring to use git here
@@ -693,7 +684,7 @@ pub enum InfoCommand {
     Website {
         /// Set the website. Must be a valid IRI/URI/URL
         #[arg(long, value_name = "URI", value_parser = parse_https_iri, default_value=None)]
-        set: Option<fluent_uri::Iri<String>>,
+        set: Option<Iri<String>>,
         #[arg(long, default_value = None)]
         clear: bool,
         // Only for better error messages
@@ -1554,7 +1545,7 @@ pub enum EnvCommand {
         /// IRI of the (already installed) project for which
         /// to enumerate source files
         #[clap(verbatim_doc_comment)]
-        iri: fluent_uri::Iri<String>,
+        iri: Iri<String>,
         /// Version of project to list sources for
         version: Option<VersionReq>,
 
@@ -1635,6 +1626,7 @@ pub struct IndexRemoveTarget {
 }
 
 #[derive(clap::Args, Debug, Clone)]
+#[group(required = false, multiple = true)]
 pub struct InstallOptions {
     /// Allow overwriting existing installation
     #[arg(long)]
@@ -1652,6 +1644,7 @@ pub struct InstallOptions {
 /// affect package resolution, only installation
 /// (in `sync`, `env install`, `lock`, etc.)
 #[derive(clap::Args, Debug, Clone)]
+#[group(required = false, multiple = true)]
 pub struct ResolutionOptions {
     /// Comma-delimited list of index URLs to use when resolving
     /// project(s) and/or their dependencies, in addition to the default indexes.
@@ -1745,9 +1738,9 @@ pub struct SourcesOptions {
     /// Do not include sources for dependencies
     #[arg(long, default_value = "deps")]
     pub deps: Dependencies,
-    /// Only include sources for dependencies, not the project's own sources
+    /// Do not include the project's own sources
     #[arg(long)]
-    pub only_deps: bool,
+    pub no_own: bool,
 }
 
 /// Selects which dependency sources a sources enumeration should yield. Whether
@@ -1806,7 +1799,7 @@ pub struct GlobalOptions {
 
 /// Parse an IRI. Tolerates missing IRI scheme, uses
 /// `https://` scheme in that case.
-fn parse_https_iri(s: &str) -> Result<fluent_uri::Iri<String>, fluent_uri::ParseError> {
+fn parse_https_iri(s: &str) -> Result<Iri<String>, fluent_uri::ParseError> {
     use fluent_uri::Iri;
 
     Iri::parse(s).map(Into::into).or_else(|original_err| {
