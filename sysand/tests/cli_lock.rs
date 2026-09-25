@@ -876,44 +876,30 @@ fn lock_directory_usage_env_installed_dependency() -> Result<(), Box<dyn std::er
     .assert()
     .success();
 
-    // Install both projects into the consumer's environment, then delete the
-    // source tree: the env copies are the only ones left, and the `../widget`
-    // recorded in `app` now points at a non-existent path inside `.sysand`
+    // Add `app` as a usage of the consumer while the source tree still
+    // exists: this resolves and installs both `app` and (transitively,
+    // via its `../widget` directory usage) `widget` into `.sysand`.
     run_sysand_in(
         &cwd,
         [
-            "env",
-            "install",
-            "pkg:sysand/acme/widget",
-            "--path",
-            "src/widget",
-            "--no-deps",
-            "--no-index",
-        ],
-        None,
-    )?
-    .assert()
-    .success();
-    run_sysand_in(
-        &cwd,
-        [
-            "env",
-            "install",
+            "add",
             "pkg:sysand/acme/app",
-            "--path",
+            "--as-local-src",
             "src/app",
-            "--no-deps",
             "--no-index",
         ],
         None,
     )?
     .assert()
     .success();
-    std::fs::remove_dir_all(cwd.join("src"))?;
 
-    run_sysand_in(&cwd, ["add", "acme/app", "--no-lock", "--no-index"], None)?
-        .assert()
-        .success();
+    // Delete the source tree: the env copies are the only ones left, and the
+    // `../widget` recorded in `app` now points at a non-existent path inside
+    // `.sysand`. Also drop the lockfile written by `add` (the `--as-local-src`
+    // override itself is not persisted, as there is no config file), so
+    // `lock` below can only resolve from the env
+    std::fs::remove_dir_all(cwd.join("src"))?;
+    std::fs::remove_file(cwd.join(DEFAULT_LOCKFILE_NAME))?;
 
     let out = run_sysand_in(&cwd, ["lock", "--no-index"], None)?;
     out.assert().success();
@@ -934,6 +920,55 @@ fn lock_directory_usage_env_installed_dependency() -> Result<(), Box<dyn std::er
             .unwrap_or_else(|| panic!("`{name}` missing from lockfile: {projects:#?}"));
         assert_eq!(project.version, "1.0.0");
     }
+
+    Ok(())
+}
+
+/// A `--as-local-src` override in the config file whose directory has since
+/// been deleted is authoritative: `lock` fails instead of silently falling back
+/// to the copy that is still installed in the env.
+#[test]
+fn lock_local_src_override_deleted() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "consumer", "1.0.0")?;
+    out.assert().success();
+
+    let app_dir = cwd.join("src").join("app");
+    std::fs::create_dir_all(&app_dir)?;
+    cli_init_project_in(&app_dir, None, "acme", Some("app"), Some("1.0.0"), None)?
+        .assert()
+        .success();
+
+    let config_path = cwd.join("sysand.toml");
+    run_sysand_in(
+        &cwd,
+        [
+            "add",
+            "pkg:sysand/acme/app",
+            "--as-local-src",
+            "src/app",
+            "--no-index",
+        ],
+        Some(config_path.as_str()),
+    )?
+    .assert()
+    .success();
+    let entries: Vec<String> = LocalDirectoryEnvironment::read(cwd.join(DEFAULT_ENV_NAME))?
+        .projects()
+        .iter()
+        .flat_map(|p| p.identifiers.iter().cloned())
+        .collect();
+    assert_eq!(entries, ["pkg:sysand/acme/app"]);
+
+    std::fs::remove_dir_all(cwd.join("src"))?;
+    std::fs::remove_file(cwd.join(DEFAULT_LOCKFILE_NAME))?;
+
+    run_sysand_in(&cwd, ["lock", "--no-index"], Some(config_path.as_str()))?
+        .assert()
+        .failure()
+        .stderr(contains(
+            "no valid candidates found for project IRI `pkg:sysand/acme/app`",
+        ));
+    assert!(!cwd.join(DEFAULT_LOCKFILE_NAME).exists());
 
     Ok(())
 }

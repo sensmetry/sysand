@@ -1518,31 +1518,32 @@ pub enum AuthCommand {
 
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum EnvCommand {
-    /// Install project in `.sysand`
-    Install {
-        /// IRI identifying the project to be installed
-        iri: fluent_uri::Iri<String>,
-        /// Version to be installed. Defaults to the latest version
-        /// according to SemVer 2.0; for `pkg:sysand` projects
-        /// pre-releases are ignored unless this names one
-        #[clap(verbatim_doc_comment)]
-        version: Option<String>,
-        /// Path to interchange project
-        #[arg(long, default_value = None)]
-        path: Option<Utf8PathBuf>,
+    // TODO: decide whether to enable or remove these commands
+    // /// Install project in `.sysand`
+    // Install {
+    //     /// IRI identifying the project to be installed
+    //     iri: fluent_uri::Iri<String>,
+    //     /// Version to be installed. Defaults to the latest version
+    //     /// according to SemVer 2.0; for `pkg:sysand` projects
+    //     /// pre-releases are ignored unless this names one
+    //     #[clap(verbatim_doc_comment)]
+    //     version: Option<String>,
+    //     /// Path to interchange project
+    //     #[arg(long, default_value = None)]
+    //     path: Option<Utf8PathBuf>,
 
-        #[command(flatten)]
-        install_opts: InstallOptions,
-        #[command(flatten)]
-        resolution_opts: ResolutionOptions,
-    },
-    /// Uninstall project in `.sysand`
-    Uninstall {
-        /// IRI identifying the project to be uninstalled
-        iri: fluent_uri::Iri<String>,
-        /// Version to be uninstalled
-        version: Option<String>,
-    },
+    //     #[command(flatten)]
+    //     install_opts: InstallOptions,
+    //     #[command(flatten)]
+    //     resolution_opts: ResolutionOptions,
+    // },
+    // /// Uninstall project in `.sysand`
+    // Uninstall {
+    //     /// IRI identifying the project to be uninstalled
+    //     iri: fluent_uri::Iri<String>,
+    //     /// Version to be uninstalled
+    //     version: Option<String>,
+    // },
     /// List projects installed in `.sysand`
     List,
     /// List source files for an installed project and

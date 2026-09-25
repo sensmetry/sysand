@@ -4,14 +4,12 @@
 use std::path::Path;
 
 use assert_cmd::prelude::*;
-use camino::Utf8Path;
-use mockito::Server;
 use predicates::prelude::*;
-use sysand_core::{
-    env::{DEFAULT_ENV_NAME, local_directory::METADATA_PATH},
-    project::utils::relativize_path,
-    utils::sha256_lowercase_hex,
-};
+use sysand_core::env::{DEFAULT_ENV_NAME, local_directory::METADATA_PATH};
+// Only used by the `env install`/`env uninstall` tests commented out below.
+// use camino::Utf8Path;
+// use mockito::Server;
+// use sysand_core::{project::utils::relativize_path, utils::sha256_lowercase_hex};
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
 mod common;
@@ -43,6 +41,11 @@ fn env_init_empty_env() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+// The `env install`/`env uninstall` subcommands are commented out (see `EnvCommand` in cli.rs).
+// Installing a local-src project on `add` and removing it again on `remove` is already covered
+// by `add_and_remove_as_local_src` and `remove_keeps_lockfile_valid_and_syncs` in
+// `cli_add_remove.rs`, so this test is commented out to match rather than ported to `add`/`remove`.
+/*
 /// `sysand env install <IRI> --location <LOCATION>` should install the
 /// interchange project at <LOCATION> as <IRI> in local env, `sysand env
 /// list` should print the <IRI> and version to stdout and `sysand env
@@ -140,7 +143,13 @@ src_cksum = "c83ef78e3b8d52d622dea6db2e7c6c326801500ae1e99f6a54c39a1f473367b3"
 
     Ok(())
 }
+*/
 
+// The `env uninstall` subcommand is commented out (see `EnvCommand` in cli.rs); it produces an
+// env-level "not found" error that `remove` (which errors at the usage level instead) does not
+// have an equivalent for, so these tests are commented out to match until that functionality is
+// decided on.
+/*
 /// `sysand env uninstall <IRI>` for an IRI that is not installed in the
 /// env should fail with an error, and must not modify `env.toml`
 #[test]
@@ -200,7 +209,12 @@ fn env_uninstall_nonexistent_version() -> Result<(), Box<dyn std::error::Error>>
 
     Ok(())
 }
+*/
 
+// The `env install` subcommand is commented out (see `EnvCommand` in cli.rs); installing a
+// project from an HTTP kpar URL is covered through `add` by `add_from_http_kpar` in
+// `cli_add_remove.rs`, so this test is commented out to match.
+/*
 #[test]
 fn env_install_from_http_kpar() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, _) = run_sysand(["env"], None)?;
@@ -281,7 +295,12 @@ kpar_cksum = "1838ad10a9c1fa46c74a92c68212e6fdcf6f6011a94ca5f16e343ea18a8e203b"
 
     Ok(())
 }
+*/
 
+// The `env install`/`env uninstall` subcommands are commented out (see `EnvCommand` in cli.rs);
+// `--allow-overwrite` and `--allow-multiple` have no equivalent through `add`/`sync`, so these
+// tests are commented out to match until that functionality is decided on.
+/*
 /// `sysand env install <IRI> --location <LOCATION>` should install
 /// the interchange project att <LOCATION> as <IRI> in local env.
 /// If the same command is run again it should give an error,
@@ -343,6 +362,7 @@ fn env_install_from_local_dir_allow_overwrite() -> Result<(), Box<dyn std::error
 
     Ok(())
 }
+*/
 
 #[test]
 fn install_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
@@ -363,6 +383,10 @@ fn install_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+// The `env install` subcommand is commented out (see `EnvCommand` in cli.rs); `--allow-multiple`
+// has no equivalent through `add`/`sync` (the solver picks a single version to satisfy all
+// usages), so this test is commented out to match until that functionality is decided on.
+/*
 /// `--allow-multiple` lets a different version of an already-installed project
 /// be installed alongside it; the same version still triggers an error.
 /// `env list` then names each installed version once.
@@ -466,9 +490,18 @@ fn env_install_allow_multiple() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+*/
 
 // TODO: Write helper function to generate an index and add tests for
 // installing from index.
+
+// The `env install` subcommand is commented out (see `EnvCommand` in cli.rs). Ported to `add`,
+// these tests would duplicate existing ones: installing several local-src projects and resolving
+// a source through a config file are covered by `add_prunes_unneeded_dependency_by_default` in
+// `cli_add_remove.rs`, and the pre-release handling of an unconstrained or version-pinned PURL
+// usage (which `add` leaves to the solver, unlike `env install --no-deps`) by the pre-release
+// tests in `core/src/solve/pubgrub_tests.rs`. So they are commented out to match instead.
+/*
 
 /// Installing multiple projects in sequence via `env install --path` keeps all
 /// entries in `env.toml` and physically installs each project into the env
@@ -887,3 +920,4 @@ fn env_install_no_deps_purl_named_prerelease_is_installed() -> Result<(), Box<dy
 
     Ok(())
 }
+*/

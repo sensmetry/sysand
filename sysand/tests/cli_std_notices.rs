@@ -4,15 +4,12 @@
 //! Tests for notices about ignored std libs
 
 use assert_cmd::prelude::*;
-use predicates::prelude::{
-    predicate::str::{contains, is_empty},
-    *,
-};
-use sysand_core::{
-    commands::lock::DEFAULT_LOCKFILE_NAME,
-    config::{self, ConfigProject, OverrideSource},
-    lock::Lock,
-};
+use predicates::prelude::{predicate::str::contains, *};
+// `is_empty` and the `config` imports are only used by the `env install`
+// tests commented out below.
+// use predicates::prelude::predicate::str::is_empty;
+use sysand_core::{commands::lock::DEFAULT_LOCKFILE_NAME, lock::Lock};
+// use sysand_core::config::{self, ConfigProject, OverrideSource};
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
 mod common;
@@ -75,6 +72,10 @@ fn add_std_lib_direct_note_still_locks_skips_sync() -> Result<(), Box<dyn std::e
     Ok(())
 }
 
+// The `env install` subcommand is commented out (see `EnvCommand` in
+// cli.rs); these tests are commented out to match until that functionality
+// is decided on.
+/*
 /// `sysand env install <std-iri>` (with and without `--path`) warns that installing std
 /// libs directly is not recommended, and does not install anything.
 #[test]
@@ -188,6 +189,7 @@ fn env_install_transitive_std_deps_note() -> Result<(), Box<dyn std::error::Erro
 
     Ok(())
 }
+*/
 
 /// `sysand info` on a project whose only usage is a std lib prints the
 /// "All usages are ignored" note instead of an empty/misleading usage list.

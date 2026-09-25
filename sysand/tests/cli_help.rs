@@ -53,10 +53,13 @@ fn matches_what_the_binary_prints() {
 
 #[test]
 fn subcommand_path_is_resolved() {
-    let help = render_long_help("sysand", ["env", "install"]);
+    let help = render_long_help("sysand", ["env", "sources"]);
 
-    assert!(help.contains("Usage: sysand env install"), "{help}");
-    assert!(help.contains("Install project in `.sysand`"), "{help}");
+    assert!(help.contains("Usage: sysand env sources"), "{help}");
+    assert!(
+        help.contains("List source files for an installed project"),
+        "{help}"
+    );
     assert!(
         !help.contains("A package manager for SysML v2 and KerML"),
         "the root about must not appear in a subcommand's help: {help}"

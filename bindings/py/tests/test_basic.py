@@ -69,6 +69,9 @@ def test_add_by_publisher_and_name() -> None:
             version="1.2.3",
         )
 
+        # Normalized version is currently accepted. This will not work for new
+        # project format and will stop working in the future for the old one
+        # when index usage type is added
         sysand.add(
             project_dir=tmpdirname,
             publisher="acme-labs",
@@ -76,9 +79,17 @@ def test_add_by_publisher_and_name() -> None:
             version_constraint="*",
         )
 
+        # Non-normalized must work
+        sysand.add(
+            project_dir=tmpdirname,
+            publisher="Acme Labs",
+            name="My.Project2",
+            version_constraint="*",
+        )
+
         assert (
             (Path(tmpdirname) / ".project.json").read_text()
-            == '{\n  "name": "test_add_by_publisher_and_name",\n  "publisher": "a",\n  "version": "1.2.3",\n  "usage": [\n    {\n      "resource": "pkg:sysand/acme-labs/my.project",\n      "versionConstraint": "*"\n    }\n  ]\n}\n'
+            == '{\n  "name": "test_add_by_publisher_and_name",\n  "publisher": "a",\n  "version": "1.2.3",\n  "usage": [\n    {\n      "resource": "pkg:sysand/acme-labs/my.project",\n      "versionConstraint": "*"\n    },\n    {\n      "resource": "pkg:sysand/acme-labs/my.project2",\n      "versionConstraint": "*"\n    }\n  ]\n}\n'
         )
 
 

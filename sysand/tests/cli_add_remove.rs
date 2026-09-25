@@ -4,6 +4,7 @@
 use std::fs;
 
 use assert_cmd::prelude::*;
+use mockito::Server;
 use predicates::prelude::{predicate::str::contains, *};
 use sysand_core::env::{DEFAULT_ENV_NAME, local_directory::METADATA_PATH};
 
@@ -1034,6 +1035,76 @@ fn add_and_remove_from_url() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// `add <URL>` of a kpar served over HTTP installs it into `.sysand`
+#[test]
+fn add_from_http_kpar() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("t", "add_from_http_kpar", "1.0.0")?;
+    out.assert().success();
+
+    let test_path = fixture_path("test_lib.kpar");
+
+    let mut server = Server::new();
+
+    let test_body = fs::read(test_path)?;
+
+    let git_mock = server
+        .mock("GET", "/test_lib.kpar/info/refs?service=git-upload-pack")
+        .with_status(404)
+        .expect(1)
+        .create();
+
+    let project_mock = server
+        .mock("HEAD", "/test_lib.kpar/.project.json")
+        .with_status(404)
+        .expect(1)
+        .create();
+
+    let meta_mock = server
+        .mock("HEAD", "/test_lib.kpar/.meta.json")
+        .with_status(404)
+        .expect(1)
+        .create();
+
+    let head_mock = server
+        .mock("HEAD", "/test_lib.kpar")
+        .with_status(200)
+        .with_header("content-type", "application/octet-stream")
+        .with_body(&test_body)
+        .expect(0)
+        .create();
+
+    let get_mock = server
+        .mock("GET", "/test_lib.kpar")
+        .with_status(200)
+        .with_header("content-type", "application/octet-stream")
+        .with_body(&test_body)
+        .expect(2) // TODO: Reduce this to 1 after caching
+        .create();
+
+    let project_url = format!("{}/test_lib.kpar", server.url());
+
+    let out = run_sysand_in(&cwd, ["add", &project_url, "--no-index"], None)?;
+
+    head_mock.assert();
+    get_mock.assert();
+    git_mock.assert();
+    project_mock.assert();
+    meta_mock.assert();
+
+    out.assert().success();
+
+    let env_toml = fs::read_to_string(cwd.join(DEFAULT_ENV_NAME).join(METADATA_PATH))?;
+    assert!(env_toml.contains(r#"name = "Lib test""#), "{env_toml}");
+    assert!(
+        env_toml.contains(r#"path = "lib/127.0.0.1-test_lib_0.0.1""#),
+        "{env_toml}"
+    );
+    assert!(env_toml.contains(&project_url), "{env_toml}");
+    assert!(env_toml.contains("kpar_cksum"), "{env_toml}");
+
+    Ok(())
+}
+
 /// Passing the full `pkg:sysand/publisher/name` PURL form directly must not
 /// cause double-expansion. The scheme's colon prevents it from matching the
 /// `publisher/name` shorthand heuristic, so the value is stored verbatim.
@@ -1204,6 +1275,10 @@ fn remove_nonexistent_shorthand() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+// The `env install` subcommand is commented out (see `EnvCommand` in cli.rs). Without the
+// preinstall step this test would duplicate `add_and_remove_as_local_src` and
+// `remove_keeps_lockfile_valid_and_syncs`, so it is commented out to match instead.
+/*
 #[test]
 fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir_dep, cwd_dep, out) =
@@ -1297,6 +1372,7 @@ fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error
 
     Ok(())
 }
+*/
 
 #[test]
 fn add_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
@@ -1668,15 +1744,16 @@ fn remove_prunes_unneeded_dependency_by_default() -> Result<(), Box<dyn std::err
     .assert()
     .success();
 
-    // Install an unrelated project directly into the env, bypassing the
-    // lockfile entirely, before any lockfile exists for this project.
+    // Add an unrelated project, then immediately remove its usage without
+    // pruning: this leaves it physically installed in `.sysand` while
+    // excluded from the current lockfile, mirroring a stale/orphaned
+    // install left over from an earlier lockfile.
     run_sysand_in(
         &cwd,
         [
-            "env",
-            "install",
+            "add",
             "urn:kpar:remove-prune-extra",
-            "--path",
+            "--as-local-src",
             cwd_extra.as_str(),
         ],
         cfg,
@@ -1687,8 +1764,17 @@ fn remove_prunes_unneeded_dependency_by_default() -> Result<(), Box<dyn std::err
     let env_lib = cwd.join(DEFAULT_ENV_NAME).join("lib");
     assert!(env_lib.join("kpar.remove-prune-extra_1.0.0").is_dir());
 
-    // No lockfile has been generated yet, so this `remove` performs a full
-    // lock + sync of the remaining usages.
+    run_sysand_in(
+        &cwd,
+        ["remove", "urn:kpar:remove-prune-extra", "--no-prune"],
+        cfg,
+    )?
+    .assert()
+    .success();
+
+    // Still physically present, but no longer part of the lockfile.
+    assert!(env_lib.join("kpar.remove-prune-extra_1.0.0").is_dir());
+
     run_sysand_in(&cwd, ["remove", "urn:kpar:remove-prune-drop"], cfg)?
         .assert()
         .success();
@@ -1755,15 +1841,25 @@ fn remove_no_prune_keeps_unneeded_dependency_and_still_syncs()
     .assert()
     .success();
 
+    // Add an unrelated project, then immediately remove its usage without
+    // pruning: this leaves it physically installed in `.sysand` while
+    // excluded from the current lockfile.
     run_sysand_in(
         &cwd,
         [
-            "env",
-            "install",
+            "add",
             "urn:kpar:remove-no-prune-extra",
-            "--path",
+            "--as-local-src",
             cwd_extra.as_str(),
         ],
+        cfg,
+    )?
+    .assert()
+    .success();
+
+    run_sysand_in(
+        &cwd,
+        ["remove", "urn:kpar:remove-no-prune-extra", "--no-prune"],
         cfg,
     )?
     .assert()

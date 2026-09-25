@@ -56,10 +56,7 @@ use crate::{
         auth::{command_auth_login, command_auth_logout, command_auth_status, command_auth_whoami},
         build::{command_build_for_project, command_build_for_workspace},
         clone::command_clone,
-        env::{
-            command_env, command_env_install, command_env_install_path, command_env_list,
-            command_env_uninstall,
-        },
+        env::{command_env, command_env_list},
         exclude::command_exclude,
         include::command_include,
         index::{command_index_add, command_index_init, command_index_remove, command_index_yank},
@@ -190,9 +187,7 @@ pub fn run_parsed(
     }
     let note_style = style::GOOD;
     if log::max_level() < log::Level::Debug {
-        eprintln!(
-            "\n{note_style}note{note_style:#}: pass `-v`/`--verbose` to output additional logs"
-        );
+        eprintln!("\n{note_style}note{note_style:#}: pass `--verbose` to output additional logs");
     }
     1
 }
@@ -374,9 +369,8 @@ fn run_cli_with(
                 );
             }
             // Every invocation in the host's process would say this, about a
-            // situation the host arranged on purpose. Left discoverable under
-            // `-v` rather than printed, because it does explain why the
-            // output looks unlike the binary's.
+            // situation the host arranged on purpose. Still logged, but in debug,
+            // because it does explain why the output looks unlike the binary's.
             ProcessOwnership::Embedded => log::debug!(
                 "the host installed the global logger first; sysand's own formatting and \
                  `RUST_LOG` filters do not apply"
@@ -480,50 +474,50 @@ fn run_cli_with(
 
                 Ok(())
             }
-            Some(EnvCommand::Install {
-                iri,
-                version,
-                path,
-                install_opts,
-                resolution_opts,
-            }) => {
-                if let Some(path) = path {
-                    command_env_install_path(
-                        iri,
-                        version,
-                        path,
-                        install_opts,
-                        resolution_opts,
-                        &config,
-                        project_root,
-                        client,
-                        runtime,
-                        auth_policy,
-                        ctx,
-                    )
-                } else {
-                    command_env_install(
-                        iri,
-                        version,
-                        install_opts,
-                        resolution_opts,
-                        &config,
-                        project_root,
-                        client,
-                        runtime,
-                        auth_policy,
-                        ctx,
-                    )
-                }
-            }
-            Some(EnvCommand::Uninstall { iri, version }) => {
-                if let Some(local_environment) = ctx.env {
-                    command_env_uninstall(iri, version, local_environment)
-                } else {
-                    log::warn!("no environment to uninstall from");
-                    Ok(())
-                }
-            }
+            // Some(EnvCommand::Install {
+            //     iri,
+            //     version,
+            //     path,
+            //     install_opts,
+            //     resolution_opts,
+            // }) => {
+            //     if let Some(path) = path {
+            //         command_env_install_path(
+            //             iri,
+            //             version,
+            //             path,
+            //             install_opts,
+            //             resolution_opts,
+            //             &config,
+            //             project_root,
+            //             client,
+            //             runtime,
+            //             auth_policy,
+            //             ctx,
+            //         )
+            //     } else {
+            //         command_env_install(
+            //             iri,
+            //             version,
+            //             install_opts,
+            //             resolution_opts,
+            //             &config,
+            //             project_root,
+            //             client,
+            //             runtime,
+            //             auth_policy,
+            //             ctx,
+            //         )
+            //     }
+            // }
+            // Some(EnvCommand::Uninstall { iri, version }) => {
+            //     if let Some(local_environment) = ctx.env {
+            //         command_env_uninstall(iri, version, local_environment)
+            //     } else {
+            //         log::warn!("no environment to uninstall from");
+            //         Ok(())
+            //     }
+            // }
             Some(EnvCommand::List) => command_env_list(ctx.env),
             Some(EnvCommand::Sources {
                 iri,
