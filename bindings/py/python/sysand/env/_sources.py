@@ -15,12 +15,14 @@ def sources(
     iri: str,
     version: str | None = None,
     no_own: bool = False,
-    dependencies: Dependencies = Dependencies.NONE,
+    dependencies: Dependencies = Dependencies.DEPS,
 ) -> List[Path]:
     """List the source files of an (already installed) project in an environment.
 
-    By default only the project's own sources are listed. ``no_own`` excludes
-    them, and ``dependencies`` selects which dependency sources to add. Every
+    By default, as with ``sysand env sources``, the project's own sources are
+    listed, followed by those of its dependencies other than the standard
+    libraries. ``no_own`` excludes the project's own sources, and
+    ``dependencies`` selects which dependency sources to add. Every
     combination of ``no_own`` and ``dependencies`` is valid.
 
     Args:
@@ -30,7 +32,8 @@ def sources(
             Defaults to the first matching candidate.
         no_own: Exclude the project's own sources.
         dependencies: Which dependency sources to list (see :class:`Dependencies`).
-            Defaults to :attr:`Dependencies.NONE` (no dependencies).
+            Defaults to :attr:`Dependencies.DEPS` (dependencies, without the
+            standard libraries).
 
     Returns:
         The source file paths as a list of :class:`~pathlib.Path`.

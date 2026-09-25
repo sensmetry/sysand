@@ -14,6 +14,7 @@ def build(
     output_path: str | Path,
     project_dir: str | Path | None = None,
     compression: CompressionMethod | None = None,
+    allow_path_usage: bool = False,
 ) -> None:
     """Build a KerML Project Archive (KPAR) of the project in
     ``project_dir``.
@@ -25,13 +26,17 @@ def build(
             raises :class:`NotImplementedError`.
         compression: How to compress the archive's entries. Defaults to
             :attr:`CompressionMethod.DEFLATED`.
+        allow_path_usage: Build even if the project has a ``file://`` usage.
+            As with ``sysand build``, such a project is refused by default,
+            since the usage holds an absolute path and does not work on
+            another machine.
     """
     if project_dir is not None:
         project_dir = str(project_dir)
 
     # comp = None if compression is None else _convert_compression(compression)
     comp = None if compression is None else compression.name
-    sysand_rs.do_build_py(str(output_path), project_dir, comp)
+    sysand_rs.do_build_py(str(output_path), project_dir, comp, allow_path_usage)
 
 
 __all__ = [
