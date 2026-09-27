@@ -117,7 +117,10 @@ def test_add_when_missing(make_baseline: MakeBaseline) -> None:
 
     assert (
         sysand.add(
-            project_dir=baseline.root, iri=LIBRARY, version_constraint=TARGET_CONSTRAINT
+            project_dir=baseline.root,
+            iri=LIBRARY,
+            version_constraint=TARGET_CONSTRAINT,
+            no_lock=True,
         )
         is True
     )
@@ -126,7 +129,10 @@ def test_add_when_missing(make_baseline: MakeBaseline) -> None:
     # A second add merges into the existing usage rather than adding one.
     assert (
         sysand.add(
-            project_dir=baseline.root, iri=LIBRARY, version_constraint=TARGET_CONSTRAINT
+            project_dir=baseline.root,
+            iri=LIBRARY,
+            version_constraint=TARGET_CONSTRAINT,
+            no_lock=True,
         )
         is False
     )

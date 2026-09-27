@@ -1720,7 +1720,7 @@ impl ResolutionOptions {
     }
 }
 
-#[derive(clap::Args, Debug, Clone)]
+#[derive(clap::Args, Debug, Clone, Default)]
 pub struct ProjectSourceOptions {
     /// Add usage as a local interchange project at PATH and
     /// update configuration file attempting to guess the

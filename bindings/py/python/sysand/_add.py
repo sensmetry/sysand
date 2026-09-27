@@ -7,6 +7,7 @@ import typing
 
 from . import _sysand_core as sysand_rs
 
+from ._auth import AuthPolicy, Resolution
 from ._identify import check_named
 
 from pathlib import Path
@@ -18,6 +19,11 @@ def add(
     project_dir: Path | str,
     iri: str,
     version_constraint: str,
+    no_lock: bool = False,
+    no_sync: bool = False,
+    no_prune: bool = False,
+    resolution: Resolution | None = None,
+    auth: AuthPolicy | None = None,
 ) -> bool: ...
 
 
@@ -28,6 +34,11 @@ def add(
     publisher: str,
     name: str,
     version_constraint: str,
+    no_lock: bool = False,
+    no_sync: bool = False,
+    no_prune: bool = False,
+    resolution: Resolution | None = None,
+    auth: AuthPolicy | None = None,
 ) -> bool: ...
 
 
@@ -38,8 +49,14 @@ def add(
     publisher: str | None = None,
     name: str | None = None,
     version_constraint: str,
+    no_lock: bool = False,
+    no_sync: bool = False,
+    no_prune: bool = False,
+    resolution: Resolution | None = None,
+    auth: AuthPolicy | None = None,
 ) -> bool:
-    """Declare a dependency of the project in ``project_dir``.
+    """Declare a dependency of the project in ``project_dir``, then lock and
+    sync, as ``sysand add`` does.
 
     The dependency is named one of two ways, and exactly one of them must be
     given:
@@ -53,12 +70,22 @@ def add(
         The project with that publisher and name, resolved from the index.
         This declares an index usage, which :func:`info_path` returns as
         :class:`InterchangeProjectUsageIndex`. Spell both exactly as the
-        project does: locking fails otherwise.
+        project does, or fully normalized (``acme-labs``/``my-lib``) to take
+        the project's own spelling. With ``no_lock=True``, the spelling is
+        checked against, or taken from, the versions installed in the
+        project's environment, and the call fails when none that
+        ``version_constraint`` accepts is installed.
 
     Either way, ``version_constraint`` is a semver requirement such as
     ``">=1.0.0"``, and is required: pass ``"*"`` to accept any version.
 
     Directory and KPAR usages cannot be added yet.
+
+    Unless ``no_lock``, the project's dependencies are then locked into
+    ``sysand-lock.toml`` and, unless ``no_sync``, installed into its
+    environment. If either fails, ``.project.json`` is restored.
+    ``resolution`` defaults to :class:`Resolution` ``()`` (the CLI's
+    semantics); ``auth`` defaults to :meth:`AuthPolicy.none`.
 
     Args:
         project_dir: The project directory, the one holding ``.project.json``.
@@ -66,6 +93,11 @@ def add(
         publisher: The dependency's publisher, given together with ``name``.
         name: The dependency's name, given together with ``publisher``.
         version_constraint: A semver requirement such as ``">=1.0.0"``.
+        no_lock: Only edit ``.project.json``; implies ``no_sync``.
+        no_sync: Lock, but do not install into the environment.
+        no_prune: When syncing, keep projects the lockfile no longer lists.
+        resolution: Where to look for dependencies.
+        auth: How to authenticate to indexes.
 
     Returns:
         ``True`` when a new usage was added, ``False`` when the project was
@@ -76,12 +108,15 @@ def add(
         TypeError: neither form was given, both were, only one of
             ``publisher`` and ``name`` was, or ``version_constraint`` is
             missing or ``None``.
+        SolveError: no compatible set of versions exists.
         ProjectError: the project is missing or malformed, ``iri`` is not an
-            IRI, ``publisher`` or ``name`` is not valid,
-            ``version_constraint`` is not a semver requirement, or the same
-            project is already declared by a usage of another kind (which
-            would declare it twice, from two different sources) or by an
-            index usage spelled differently.
+            IRI, ``publisher`` or ``name`` is not valid or not spelled as the
+            project does, ``version_constraint`` is not a semver requirement,
+            the same project is already declared by a usage of another kind
+            (which would declare it twice, from two different sources) or by
+            an index usage spelled differently, or syncing failed.
+        AuthError, IndexProtocolError, ResolutionError: an index could not be
+            used.
     """
     # Every usage `add` writes gets a constraint, which an index usage
     # requires.
@@ -90,8 +125,19 @@ def add(
             'add() takes a `version_constraint`; pass "*" to accept any version'
         )
     check_named("add", iri, publisher, name)
+    if resolution is None:
+        resolution = Resolution()
     return sysand_rs.do_add_py(  # type: ignore
-        str(project_dir), iri, publisher, name, version_constraint
+        str(project_dir),
+        iri,
+        publisher,
+        name,
+        version_constraint,
+        no_lock,
+        no_sync,
+        no_prune,
+        resolution._spec(),
+        auth._spec() if auth is not None else None,
     )
 
 

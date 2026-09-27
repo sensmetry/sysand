@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{iter, str::FromStr as _, sync::Arc};
+use std::{convert::Infallible, iter, str::FromStr as _, sync::Arc};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use fluent_uri::Iri;
@@ -13,15 +13,16 @@ use pyo3::{
 use semver::{Version, VersionReq};
 use sysand::{
     CliAuthPolicy, DEFAULT_INDEX_URL,
-    cli::ResolutionOptions,
+    cli::{ResolutionOptions, UsageLocator},
     commands::{
+        add::command_add,
         lock::{CliLockError, resolve_lock},
         sync::{CliSyncError, CommandSyncError, command_sync},
     },
     get_env, get_or_create_env, standard_auth_policy,
 };
 use sysand_core::{
-    add::{AddError, do_add},
+    add::AddError,
     auth::{GlobMapResult, StandardHTTPAuthenticationBuilder},
     build::{KParBuildError, KparCompressionMethod, do_build_kpar},
     commands::{
@@ -1151,52 +1152,119 @@ impl Named {
     }
 }
 
-/// Adds the usage `add()` names, with `version_constraint`.
+/// Adds the usage `add()` names, with `version_constraint`, as `sysand add`
+/// does: then locks and syncs, unless `no_lock` or `no_sync`. Returns `true`
+/// when a new usage was added, `false` when it was merged into an existing
+/// one.
 #[pyfunction(name = "do_add_py")]
 #[pyo3(
-    signature = (path, iri, publisher, name, version_constraint),
+    signature = (path, iri, publisher, name, version_constraint, no_lock, no_sync, no_prune, resolution, auth),
 )]
+#[expect(clippy::too_many_arguments)]
 fn do_add_py(
+    py: Python,
     path: String,
     iri: Option<String>,
     publisher: Option<String>,
     name: Option<String>,
     version_constraint: String,
+    no_lock: bool,
+    no_sync: bool,
+    no_prune: bool,
+    resolution: ResolutionSpec,
+    auth: Option<AuthSpec>,
 ) -> PyResult<bool> {
     common_init();
 
-    let mut project = LocalSrcProject::new_access(path, None);
-    let usage = match Named::new(iri, publisher, name)? {
-        Named::Iri(resource) => InterchangeProjectUsageRaw::Resource {
-            resource,
-            version_constraint: Some(version_constraint),
-        },
-        Named::Index { publisher, name } => InterchangeProjectUsageRaw::Index(IndexUsage {
-            publisher,
-            name,
-            version_constraint,
-        }),
+    let (locator, usage) = match Named::new(iri, publisher, name)? {
+        Named::Iri(resource) => {
+            let usage = InterchangeProjectUsageRaw::Resource {
+                resource: resource.clone(),
+                version_constraint: Some(version_constraint.clone()),
+            };
+            let iri =
+                Iri::parse(resource).map_err(|(e, _)| ProjectError::new_err(e.to_string()))?;
+            (UsageLocator::Iri(iri), usage)
+        }
+        Named::Index { publisher, name } => {
+            let usage = InterchangeProjectUsageRaw::Index(IndexUsage {
+                publisher: publisher.clone(),
+                name: name.clone(),
+                version_constraint: version_constraint.clone(),
+            });
+            (UsageLocator::PublisherName { publisher, name }, usage)
+        }
     };
+    // With the same message as the manifest would give for it
+    usage
+        .validate()
+        .map_err(|e| ProjectError::new_err(format_err(e)))?;
+    let version_constraint = VersionReq::parse(&version_constraint)
+        .expect("BUG: a validated usage has a valid version constraint");
 
-    // TODO: do dependency resolution and locking?
-    // `true` when a new usage was added, `false` when it was merged into an
-    // existing one.
-    do_add(&mut project, &usage).map_err(|err| match err {
-        // The core message says to remove the other usage first, which the
-        // Python API cannot do for a directory or KPAR usage.
-        AddError::DuplicateIdentifier {
-            identifier,
-            existing,
-            new,
-        } if existing == "a directory" || existing == "a KPAR path" => {
-            ProjectError::new_err(format!(
+    let outcome: Result<bool, Failure> = py.detach(|| {
+        let auth = auth.unwrap_or_default();
+        let (ctx, project_root) = project_context(Utf8Path::new(&path))?;
+        let config = config_for(&resolution, &project_root)?;
+        let client = create_reqwest_client().map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
+        let runtime = Arc::new(
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(PyErr::from)?,
+        );
+        let auth_policy = build_auth_policy(&auth)?;
+
+        command_add(
+            locator,
+            Some(version_constraint),
+            no_lock,
+            no_sync,
+            no_prune,
+            resolution_options(&resolution),
+            Box::default(),
+            config,
+            None,
+            // No source is added, so no configuration file is written
+            true,
+            ctx,
+            client,
+            runtime,
+            auth_policy.clone(),
+        )
+        .map_err(|err| match add_error_for_python(&err) {
+            Some(message) => Failure::Py(ProjectError::new_err(message)),
+            None => lock_error_to_failure(err, &auth, &auth_policy),
+        })
+    });
+    outcome.map_err(|failure| failure.into_pyerr(py))
+}
+
+/// The message to raise for an `add` error that the core words for the CLI
+fn add_error_for_python(err: &anyhow::Error) -> Option<String> {
+    fn message<E>(err: &AddError<E>) -> Option<String> {
+        match err {
+            // The core message says to remove the other usage first, which the
+            // Python API cannot do for a directory or KPAR usage.
+            AddError::DuplicateIdentifier {
+                identifier,
+                existing,
+                new,
+            } if *existing == "a directory" || *existing == "a KPAR path" => Some(format!(
                 "`{identifier}` is already declared as {existing} usage, so it cannot \
                  also be added as {new} usage; the Python API cannot remove \
                  directory and KPAR usages yet"
-            ))
+            )),
+            _ => None,
         }
-        err => ProjectError::new_err(format_err(err)),
-    })
+    }
+    if let Some(err) = err.downcast_ref::<AddError<Infallible>>() {
+        message(err)
+    } else if let Some(err) = err.downcast_ref::<AddError<LocalSrcError>>() {
+        message(err)
+    } else {
+        None
+    }
 }
 
 /// Refuses anything that is not an IRI a resource usage could name, with the

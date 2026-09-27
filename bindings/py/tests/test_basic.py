@@ -17,6 +17,25 @@ import sysand
 from mockindex import MockIndex, run_cli_in
 
 
+def _install_in_env(
+    root: Union[str, Path], publisher: str, name: str, version: str = "1.0.0"
+) -> None:
+    """Install version ``version`` of the project ``publisher``/``name`` into
+    the environment of the project at ``root``, creating it if missing, so
+    that ``add(no_lock=True)`` can check the spelling of an index usage."""
+    env_path = Path(root) / sysand.env.DEFAULT_ENV_NAME
+    if not env_path.is_dir():
+        sysand.env.env(path=env_path)
+    with tempfile.TemporaryDirectory() as source:
+        sysand.init(project_dir=source, name=name, publisher=publisher, version=version)
+        normalized = [part.lower().replace(" ", "-") for part in (publisher, name)]
+        sysand.env.install_path(
+            env_path=env_path,
+            iri="pkg:sysand/" + "/".join(normalized),
+            location=source,
+        )
+
+
 def test_basic_init(caplog: pytest.LogCaptureFixture) -> None:
     level = logging.DEBUG
     logging.basicConfig(level=level)
@@ -70,26 +89,30 @@ def test_add_by_publisher_and_name() -> None:
             version="1.2.3",
         )
 
-        # Both spellings are written as given: whether they match the
-        # project's own spelling is only checked when locking
+        _install_in_env(tmpdirname, "Acme Labs", "My.Project")
+        _install_in_env(tmpdirname, "Acme Labs", "My.Project2")
+
+        # Normalized takes the project's own spelling
         sysand.add(
             project_dir=tmpdirname,
             publisher="acme-labs",
             name="my.project",
             version_constraint="*",
+            no_lock=True,
         )
 
-        # Non-normalized must work
+        # The project's own spelling is checked
         sysand.add(
             project_dir=tmpdirname,
             publisher="Acme Labs",
             name="My.Project2",
             version_constraint="*",
+            no_lock=True,
         )
 
         assert (
             (Path(tmpdirname) / ".project.json").read_text()
-            == '{\n  "name": "test_add_by_publisher_and_name",\n  "publisher": "a",\n  "version": "1.2.3",\n  "usage": [\n    {\n      "publisher": "acme-labs",\n      "name": "my.project",\n      "versionConstraint": "*"\n    },\n    {\n      "publisher": "Acme Labs",\n      "name": "My.Project2",\n      "versionConstraint": "*"\n    }\n  ]\n}\n'
+            == '{\n  "name": "test_add_by_publisher_and_name",\n  "publisher": "a",\n  "version": "1.2.3",\n  "usage": [\n    {\n      "publisher": "Acme Labs",\n      "name": "My.Project",\n      "versionConstraint": "*"\n    },\n    {\n      "publisher": "Acme Labs",\n      "name": "My.Project2",\n      "versionConstraint": "*"\n    }\n  ]\n}\n'
         )
 
 
@@ -101,12 +124,14 @@ def test_remove_by_publisher_and_name() -> None:
             publisher="a",
             version="1.2.3",
         )
+        _install_in_env(tmpdirname, "acme-labs", "my.project")
 
         sysand.add(
             project_dir=tmpdirname,
             publisher="acme-labs",
             name="my.project",
             version_constraint="*",
+            no_lock=True,
         )
         sysand.remove(project_dir=tmpdirname, publisher="acme-labs", name="my.project")
 
@@ -371,6 +396,7 @@ def test_add_returns_whether_a_usage_was_added(tmp_path: Path) -> None:
     sysand.init(
         project_dir=tmp_path, name="test_add_returns", publisher="a", version="1.2.3"
     )
+    _install_in_env(tmp_path, "acme-labs", "my.project")
 
     def add_mine() -> bool:
         return sysand.add(
@@ -378,6 +404,7 @@ def test_add_returns_whether_a_usage_was_added(tmp_path: Path) -> None:
             publisher="acme-labs",
             name="my.project",
             version_constraint=">=1.0.0",
+            no_lock=True,
         )
 
     assert add_mine() is True
@@ -387,6 +414,7 @@ def test_add_returns_whether_a_usage_was_added(tmp_path: Path) -> None:
             project_dir=tmp_path,
             iri="pkg:sysand/acme-labs/other",
             version_constraint="*",
+            no_lock=True,
         )
         is True
     )
@@ -428,11 +456,13 @@ def test_remove_returns_the_removed_usages(tmp_path: Path) -> None:
     sysand.init(
         project_dir=tmp_path, name="test_remove_returns", publisher="a", version="1.2.3"
     )
+    _install_in_env(tmp_path, "acme-labs", "my.project")
     sysand.add(
         project_dir=tmp_path,
         publisher="acme-labs",
         name="my.project",
         version_constraint=">=1.0.0",
+        no_lock=True,
     )
 
     removed = sysand.remove(
@@ -450,22 +480,26 @@ def test_remove_returns_the_removed_usages(tmp_path: Path) -> None:
 
 def test_usages_read_back_by_how_they_are_found(tmp_path: Path) -> None:
     sysand.init(project_dir=tmp_path, name="proj", publisher="acme", version="1.0.0")
+    _install_in_env(tmp_path, "acme-labs", "by.index")
     sysand.add(
         project_dir=tmp_path,
         publisher="acme-labs",
         name="by.index",
         version_constraint="*",
+        no_lock=True,
     )
     # A `pkg:sysand` IRI is a resource usage, taken literally.
     sysand.add(
         project_dir=tmp_path,
         iri="pkg:sysand/acme-labs/by.iri",
         version_constraint="^1.0",
+        no_lock=True,
     )
     sysand.add(
         project_dir=tmp_path,
         iri="https://example.com/by-url.kpar",
         version_constraint="*",
+        no_lock=True,
     )
 
     info, _ = sysand.info_path(project_dir=tmp_path)
@@ -533,6 +567,7 @@ def test_add_refuses_a_project_already_declared_as_another_kind(
             publisher="acme-labs",
             name="my.project",
             version_constraint="*",
+            no_lock=True,
         )
     message = str(excinfo.value)
     assert "already declared as a directory usage" in message
@@ -546,12 +581,14 @@ def test_add_refuses_a_project_already_declared_as_another_kind(
 def test_publisher_and_name_are_kept_as_spelled(tmp_path: Path) -> None:
     sysand.init(project_dir=tmp_path, name="proj", publisher="acme", version="1.0.0")
     manifest = tmp_path / ".project.json"
+    _install_in_env(tmp_path, "Acme Labs", "My.Project")
 
     sysand.add(
         project_dir=tmp_path,
         publisher="Acme Labs",
         name="My.Project",
         version_constraint="*",
+        no_lock=True,
     )
     assert '"publisher": "Acme Labs"' in manifest.read_text()
     info, _ = sysand.info_path(project_dir=tmp_path)
@@ -567,18 +604,31 @@ def test_publisher_and_name_are_kept_as_spelled(tmp_path: Path) -> None:
     )
     assert change["found"] and change["changed"]
 
-    # Another spelling of the same project names no usage, and says so
+    # Another spelling of the same project is refused, and says so
     before = manifest.read_text()
     with pytest.raises(
         sysand.ProjectError,
-        match="already declared as the index usage `Acme Labs/My.Project`",
+        match="spell the usage exactly as `Acme Labs/My.Project`",
     ):
+        sysand.add(
+            project_dir=tmp_path,
+            publisher="ACME Labs",
+            name="My.Project",
+            version_constraint="^1",
+            no_lock=True,
+        )
+    # But the normalized one takes the declared spelling, so this is the
+    # same usage again
+    assert (
         sysand.add(
             project_dir=tmp_path,
             publisher="acme-labs",
             name="my.project",
             version_constraint="^1",
+            no_lock=True,
         )
+        is False
+    )
     with pytest.raises(
         sysand.ProjectError, match="did you mean `Acme Labs/My.Project`"
     ):
@@ -609,7 +659,10 @@ def test_publisher_and_name_are_kept_as_spelled(tmp_path: Path) -> None:
 def test_a_legacy_purl_is_named_by_its_iri(tmp_path: Path) -> None:
     sysand.init(project_dir=tmp_path, name="proj", publisher="acme", version="1.0.0")
     sysand.add(
-        project_dir=tmp_path, iri="pkg:sysand/acme-labs/lib", version_constraint="^1"
+        project_dir=tmp_path,
+        iri="pkg:sysand/acme-labs/lib",
+        version_constraint="^1",
+        no_lock=True,
     )
 
     with pytest.raises(
@@ -620,6 +673,7 @@ def test_a_legacy_purl_is_named_by_its_iri(tmp_path: Path) -> None:
             publisher="acme-labs",
             name="lib",
             version_constraint="^1",
+            no_lock=True,
         )
     with pytest.raises(sysand.ProjectError, match="name it by `iri`"):
         sysand.remove(project_dir=tmp_path, publisher="acme-labs", name="lib")
@@ -1134,8 +1188,14 @@ def test_end_to_end_install_sources() -> None:
             project_dir=tmp_main,
             iri="urn:kpar:test_end_to_end_install_sources_dep",
             version_constraint="1.2.3",
+            no_lock=True,
         )
-        sysand.add(project_dir=tmp_main, iri=std_iri, version_constraint=std_version)
+        sysand.add(
+            project_dir=tmp_main,
+            iri=std_iri,
+            version_constraint=std_version,
+            no_lock=True,
+        )
 
         dep_src = (
             env_path

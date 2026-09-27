@@ -783,6 +783,7 @@ fn run_cli_with(
                 runtime,
                 auth_policy,
             )
+            .map(|_added| ())
         }
         Command::Remove {
             locator,

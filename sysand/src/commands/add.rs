@@ -41,6 +41,8 @@ use crate::{
     style::{GOOD, USAGE},
 };
 
+/// Returns whether a usage was added: `false` when the usage was already
+/// present, and the call was merged into (or ignored for) it
 // TODO: Collect common arguments
 #[expect(clippy::fn_params_excessive_bools)]
 pub fn command_add<Policy: HTTPAuthentication>(
@@ -58,7 +60,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
-) -> Result<()> {
+) -> Result<bool> {
     let mut current_project = ctx
         .current_project
         .clone()
@@ -146,7 +148,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
                              {SP:>8} since it is already present with version constraint\n\
                              {SP:>8} `{existing_constraint}`",
                         );
-                        return Ok(());
+                        return Ok(false);
                     }
                     None => bail!(AddError::<Infallible>::IndexUsageSpelledDifferently {
                         existing: format!("{p}/{n}"),
@@ -322,8 +324,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
     }
 
     if no_lock {
-        do_add(&mut current_project, &usage_raw)?;
-        Ok(())
+        Ok(do_add(&mut current_project, &usage_raw)?)
     } else {
         let info_path = current_project.info_path();
         let info_backup = wrapfs::read_to_string(&info_path)?;
@@ -337,7 +338,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
         } else {
             let added = do_add(&mut current_project, &usage_raw)?;
             if !added {
-                return Ok(());
+                return Ok(false);
             }
         }
 
@@ -397,7 +398,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
             provided_iris,
             ctx,
         ) {
-            Ok(()) => Ok(()),
+            Ok(()) => Ok(true),
             Err(e) => {
                 // Restore old info
                 wrapfs::write(&info_path, info_backup)?;
