@@ -247,5 +247,8 @@ def test_lock_index_usage_spelled_unlike_the_project(
         tmp_path, [{"publisher": "Mock", "name": "dep", "versionConstraint": "^1"}]
     )
 
-    with pytest.raises(sysand.SysandError, match="declares itself `mock/dep`"):
+    with pytest.raises(
+        sysand.SysandError,
+        match="resolved to version .* of `mock/dep`, but is rejected because its spelling",
+    ):
         sysand.lock(path=root, resolution=resolution(mock_index), write=False)

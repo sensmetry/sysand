@@ -307,8 +307,8 @@ mod index_usage_spelling {
         assert_eq!(
             err.to_string(),
             "index usage `Acme Labs/My Lib` in `app` 1.0.0 resolved to version 1.0.0 \
-             of a project that declares itself `acme-labs/My Lib`;\n\
-             spell the usage as the project does"
+             of `acme-labs/My Lib`, but is rejected because its spelling does not match the \
+             project's;\nspell the usage exactly as `acme-labs/My Lib`"
         );
     }
 
@@ -332,7 +332,8 @@ mod index_usage_spelling {
         )
         .unwrap_err();
         assert!(
-            err.to_string().contains("declares itself `<none>/My Lib`"),
+            err.to_string()
+                .contains("resolved to version 1.0.0 of `<none>/My Lib`"),
             "{err}"
         );
     }

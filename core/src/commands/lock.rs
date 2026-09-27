@@ -101,16 +101,6 @@ impl fmt::Display for DeclaredBy {
 /// An index usage resolved to a project whose publisher or name is spelled
 /// differently from the usage's.
 #[derive(Error, Debug)]
-#[error(
-    "index usage `{usage_publisher}/{usage_name}` in {declared_by} resolved to version \
-     {version} of a project that declares itself `{}/{name}`;\n{}",
-    .publisher.as_deref().unwrap_or("<none>"),
-    match .declared_by {
-        DeclaredBy::Input(_) => "spell the usage as the project does",
-        DeclaredBy::Dependency(_) =>
-            "the usage is not yours to edit: it has to be fixed by that dependency's publisher",
-    }
-)]
 pub struct IndexUsageMismatchError {
     pub usage_publisher: String,
     pub usage_name: String,
@@ -118,6 +108,32 @@ pub struct IndexUsageMismatchError {
     pub version: String,
     pub publisher: Option<String>,
     pub name: String,
+}
+
+impl fmt::Display for IndexUsageMismatchError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            usage_publisher,
+            usage_name,
+            declared_by,
+            version,
+            publisher,
+            name,
+        } = self;
+        let spelling = format!("{}/{name}", publisher.as_deref().unwrap_or("<none>"));
+        writeln!(
+            f,
+            "index usage `{usage_publisher}/{usage_name}` in {declared_by} resolved to version \
+             {version} of `{spelling}`, but is rejected because its spelling does not match the \
+             project's;"
+        )?;
+        match declared_by {
+            DeclaredBy::Input(_) => write!(f, "spell the usage exactly as `{spelling}`"),
+            DeclaredBy::Dependency(_) => f.write_str(
+                "the usage is not yours to edit: it has to be fixed by that dependency's publisher",
+            ),
+        }
+    }
 }
 
 #[derive(Error, Debug)]

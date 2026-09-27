@@ -67,6 +67,7 @@ fn add_and_remove_without_lock() -> Result<(), Box<dyn std::error::Error>> {
 fn add_publisher_name_writes_an_index_usage() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = cli_init_project_basic("f", "add_index_usage", "1.2.3")?;
     out.assert().success();
+    install_in_env(&cwd, "Acme Labs", "My Lib", "1.0.0")?;
 
     let out = run_sysand_in(&cwd, ["add", "--no-lock", "Acme Labs/My Lib", "^1"], None)?;
     out.assert()
@@ -97,11 +98,13 @@ fn add_publisher_name_writes_an_index_usage() -> Result<(), Box<dyn std::error::
     );
 
     // A different spelling of the same project is refused
-    run_sysand_in(&cwd, ["add", "--no-lock", "acme-labs/my-lib", "^1"], None)?
+    run_sysand_in(&cwd, ["add", "--no-lock", "Acme labs/My Lib", "^1"], None)?
         .assert()
         .failure()
         .stderr(contains(
-            "`acme-labs/my-lib` is already declared as the index usage `Acme Labs/My Lib`",
+            "index usage `Acme labs/My Lib` is rejected because its spelling does not match \
+             the project's: version 1.0.0 installed in the local environment declares itself \
+             `Acme Labs/My Lib`;\nspell the usage exactly as `Acme Labs/My Lib`",
         ));
     assert_eq!(
         std::fs::read_to_string(cwd.join(".project.json"))?,
@@ -170,6 +173,7 @@ fn add_index_usage_over_a_legacy_purl_is_refused() -> Result<(), Box<dyn std::er
 fn remove_index_usage_by_exact_spelling() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = cli_init_project_basic("h", "remove_index_usage", "1.2.3")?;
     out.assert().success();
+    install_in_env(&cwd, "Acme Labs", "My Lib", "1.0.0")?;
 
     run_sysand_in(&cwd, ["add", "--no-lock", "Acme Labs/My Lib", "^1"], None)?
         .assert()
@@ -1972,18 +1976,180 @@ fn add_index_usage_spelled_unlike_the_project_fails() -> Result<(), Box<dyn std:
     .success();
     let before = std::fs::read_to_string(cwd.join(".project.json"))?;
 
-    run_sysand_in(
-        &cwd,
-        ["add", "--no-sync", "acme-labs/my-lib", "--from-path", "dep"],
-        Some(cwd.join("sysand.toml").as_str()),
-    )?
-    .assert()
-    .failure()
-    .stderr(contains(
-        "index usage `acme-labs/my-lib` in `add_index_misspelled` 1.2.3 resolved to version \
-         1.0.0 of a project that declares itself `Acme Labs/My Lib`",
-    ));
+    for args in [
+        &["add", "--no-sync", "Acme labs/My Lib", "--from-path", "dep"][..],
+        &[
+            "add",
+            "--no-sync",
+            "Acme labs/My Lib",
+            "^1",
+            "--from-path",
+            "dep",
+        ][..],
+    ] {
+        run_sysand_in(
+            &cwd,
+            args.iter().copied(),
+            Some(cwd.join("sysand.toml").as_str()),
+        )?
+        .assert()
+        .failure()
+        .stderr(contains(
+            "index usage `Acme labs/My Lib` in `add_index_misspelled` 1.2.3 resolved to \
+             version 1.0.0 of `Acme Labs/My Lib`, but is rejected because its spelling does \
+             not match the project's;\nspell the usage exactly as `Acme Labs/My Lib`",
+        ));
+        assert_eq!(std::fs::read_to_string(cwd.join(".project.json"))?, before);
+    }
+
+    Ok(())
+}
+
+/// A normalized spelling takes the spelling of the project that locking
+/// chooses, with or without a version constraint
+#[test]
+fn add_normalized_index_usage_takes_the_locked_spelling() -> Result<(), Box<dyn std::error::Error>>
+{
+    for (constraint, written) in [(Some("^1"), "^1"), (None, "^1.0.0")] {
+        let (_temp_dir, cwd, out) =
+            cli_init_project_basic("main", "add_index_normalized", "1.2.3")?;
+        out.assert().success();
+        cli_init_project_in(
+            &cwd,
+            Some("dep"),
+            "Acme Labs",
+            Some("My Lib"),
+            Some("1.0.0"),
+            None,
+        )?
+        .assert()
+        .success();
+
+        let mut args = vec!["add", "--no-sync", "acme-labs/my-lib"];
+        args.extend(constraint);
+        args.extend(["--from-path", "dep"]);
+        run_sysand_in(&cwd, args, Some(cwd.join("sysand.toml").as_str()))?
+            .assert()
+            .success()
+            .stderr(contains(format!(
+                "Adding usage: `Acme Labs/My Lib` ({written})"
+            )));
+
+        let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+        assert!(
+            info_json.contains(&format!(
+                r#"{{
+      "publisher": "Acme Labs",
+      "name": "My Lib",
+      "versionConstraint": "{written}"
+    }}"#
+            )),
+            "{info_json}"
+        );
+        assert!(!info_json.contains("acme-labs"), "{info_json}");
+    }
+
+    Ok(())
+}
+
+/// Without locking, a normalized spelling takes the spelling of the matching
+/// versions installed in the local environment
+#[test]
+fn add_normalized_index_usage_without_lock_takes_the_installed_spelling()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("f", "add_index_env_spelling", "1.2.3")?;
+    out.assert().success();
+    install_in_env(&cwd, "Acme Labs", "My Lib", "1.0.0")?;
+    // Does not match the constraint, so its spelling does not count
+    install_in_env(&cwd, "ACME Labs", "My Lib", "2.0.0")?;
+
+    run_sysand_in(&cwd, ["add", "--no-lock", "acme-labs/my-lib", "^1"], None)?
+        .assert()
+        .success()
+        .stderr(contains("Adding usage: `Acme Labs/My Lib` (^1)"));
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    assert!(
+        info_json.contains(
+            r#"{
+      "publisher": "Acme Labs",
+      "name": "My Lib",
+      "versionConstraint": "^1"
+    }"#
+        ),
+        "{info_json}"
+    );
+
+    // Adding it again the normalized way takes the declared spelling
+    run_sysand_in(&cwd, ["add", "--no-lock", "acme-labs/my-lib", "^1"], None)?
+        .assert()
+        .success();
+    assert_eq!(
+        std::fs::read_to_string(cwd.join(".project.json"))?,
+        info_json
+    );
+
+    Ok(())
+}
+
+/// Without locking, a spelling that cannot be checked against, or recovered
+/// from, the local environment is refused
+#[test]
+fn add_index_usage_without_lock_needs_it_installed() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("f", "add_index_not_installed", "1.2.3")?;
+    out.assert().success();
+    let before = std::fs::read_to_string(cwd.join(".project.json"))?;
+
+    for (spelling, message) in [
+        (
+            "Acme Labs/My Lib",
+            "cannot check that `Acme Labs/My Lib` is spelled as the project spells it",
+        ),
+        (
+            "acme-labs/my-lib",
+            "cannot find how the project `acme-labs/my-lib` spells its publisher and name",
+        ),
+    ] {
+        run_sysand_in(&cwd, ["add", "--no-lock", spelling, "^1"], None)?
+            .assert()
+            .failure()
+            .stderr(contains(format!(
+                "{message}: no version matching `^1` is installed in the local environment"
+            )))
+            .stderr(contains("leave out `--no-lock`"));
+    }
+
+    // Installed, but not in a version the constraint accepts
+    install_in_env(&cwd, "Acme Labs", "My Lib", "2.0.0")?;
+    run_sysand_in(&cwd, ["add", "--no-lock", "Acme Labs/My Lib", "^1"], None)?
+        .assert()
+        .failure()
+        .stderr(contains("no version matching `^1` is installed"));
+
     assert_eq!(std::fs::read_to_string(cwd.join(".project.json"))?, before);
+
+    Ok(())
+}
+
+/// Without locking, matching installed versions that disagree on the
+/// spelling leave nothing to check against
+#[test]
+fn add_index_usage_without_lock_refuses_inconsistent_spellings()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("f", "add_index_inconsistent", "1.2.3")?;
+    out.assert().success();
+    install_in_env(&cwd, "Acme Labs", "My Lib", "1.0.0")?;
+    install_in_env(&cwd, "ACME Labs", "My Lib", "1.1.0")?;
+
+    for spelling in ["Acme Labs/My Lib", "acme-labs/my-lib"] {
+        run_sysand_in(&cwd, ["add", "--no-lock", spelling, "^1"], None)?
+            .assert()
+            .failure()
+            .stderr(contains(format!(
+                "versions of `{spelling}` installed in the local environment spell it \
+                 differently: `ACME Labs/My Lib` (1.1.0), `Acme Labs/My Lib` (1.0.0)"
+            )));
+    }
 
     Ok(())
 }

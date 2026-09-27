@@ -365,8 +365,11 @@ pub struct ExpAddProjectLocatorArgs {
 pub struct AddProjectLocatorArgs {
     /// IRI/URI/URL identifying the project to be used, or
     /// `<publisher>/<name>` of a project to be found by index, spelled
-    /// exactly as the project spells them (e.g. `"Acme Labs/My Lib"`).
-    /// Paths must use `--path`
+    /// exactly as the project spells them (e.g. `"Acme Labs/My Lib"`), or
+    /// normalized (e.g. `acme-labs/my-lib`) to take the project's spelling.
+    /// With `--no-lock`, the spelling is checked against, or taken from,
+    /// the versions installed in the local environment. Paths must use
+    /// `--path`
     #[clap(
         default_value = None,
         value_parser = parse_usage_locator_suggest_path,

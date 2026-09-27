@@ -3,13 +3,13 @@
 
 use std::{collections::HashMap, convert::Infallible, path::Path, sync::Arc};
 
-use anyhow::{Result, bail};
+use anyhow::{Result, anyhow, bail};
 use camino::{Utf8Path, Utf8PathBuf};
 
 use fluent_uri::Iri;
 use semver::VersionReq;
 use sysand_core::{
-    add::{AddError, do_add},
+    add::{AddError, IndexSpellingError, do_add, is_normalized_spelling, spell_index_usage},
     auth::HTTPAuthentication,
     commands::{
         lock::{DEFAULT_LOCKFILE_NAME, LockOutcome, do_lock_local_editable},
@@ -38,7 +38,7 @@ use crate::{
         lock::{create_resolver, resolve_lock},
         sync::command_sync,
     },
-    style::GOOD,
+    style::{GOOD, USAGE},
 };
 
 // TODO: Collect common arguments
@@ -65,9 +65,10 @@ pub fn command_add<Policy: HTTPAuthentication>(
         .ok_or(CliError::MissingProjectCurrentDir)?;
 
     // `identifier` is what config overrides, the lockfile and the standard
-    // libraries know the project by. An index usage given without a
-    // constraint is first added in `unconstrained_index`, see below.
-    let (identifier, usage_raw, unconstrained_index) = match locator {
+    // libraries know the project by. An index usage whose version constraint
+    // or spelling is up to locking is first added as a placeholder, and
+    // settled in `pending_index`, see below.
+    let (identifier, usage_raw, pending_index) = match locator {
         UsageLocator::Iri(iri) => {
             let identifier = iri.to_string();
             let usage = InterchangeProjectUsageRaw::Resource {
@@ -78,66 +79,108 @@ pub fn command_add<Policy: HTTPAuthentication>(
         }
         UsageLocator::PublisherName { publisher, name } => {
             let identifier = Identifier::from_pub_name(&publisher, &name).into_string();
-            match version_constraint {
-                Some(version_constraint) => {
-                    let usage = InterchangeProjectUsageRaw::Index(IndexUsage {
-                        publisher,
-                        name,
-                        version_constraint: version_constraint.to_string(),
-                    });
-                    (identifier, usage, None)
-                }
-                None if no_lock => bail!(
-                    "an index usage needs a version constraint: pass one, or leave out\n\
-                     `--no-lock` to use the version that locking chooses"
-                ),
-                None => {
-                    let Some(info) = current_project.get_info()? else {
-                        bail!(CliError::MissingProjectCurrentDir);
-                    };
-                    // Report a clash with an existing usage before resolving anything,
-                    // as `do_add` would
-                    if let Some(existing) = info.usage.iter().find(|u| {
-                        Identifier::from_unvalidated_usage(u)
-                            .is_some_and(|id| id.as_str() == identifier)
-                    }) {
-                        match existing {
-                            InterchangeProjectUsageRaw::Index(IndexUsage {
-                                publisher: p,
-                                name: n,
-                                version_constraint,
-                            }) if *p == publisher && *n == name => {
-                                log::warn!(
-                                    "ignoring usage `{publisher}/{name}` without a version constraint,\n\
-                                     {SP:>8} since it is already present with version constraint\n\
-                                     {SP:>8} `{version_constraint}`",
-                                );
-                                return Ok(());
-                            }
-                            InterchangeProjectUsageRaw::Index(IndexUsage {
-                                publisher: p,
-                                name: n,
-                                ..
-                            }) => bail!(AddError::<Infallible>::IndexUsageSpelledDifferently {
-                                existing: format!("{p}/{n}"),
-                                new: format!("{publisher}/{name}"),
-                            }),
-                            other => bail!(AddError::<Infallible>::DuplicateIdentifier {
-                                identifier,
-                                existing: other.kind_with_article(),
-                                new: "an index",
-                            }),
-                        }
+            let Some(info) = current_project.get_info()? else {
+                bail!(CliError::MissingProjectCurrentDir);
+            };
+            let existing = info.usage.iter().find(|u| {
+                Identifier::from_unvalidated_usage(u).is_some_and(|id| id.as_str() == identifier)
+            });
+            // A normalized spelling names the project by its identifier only,
+            // so an index usage of it already declared says how it is spelled
+            let (publisher, name) = match existing {
+                Some(InterchangeProjectUsageRaw::Index(IndexUsage {
+                    publisher: p,
+                    name: n,
+                    ..
+                })) if is_normalized_spelling(&publisher, &name) => (p.clone(), n.clone()),
+                _ => (publisher, name),
+            };
+            // Report a clash with a usage of another kind before resolving
+            // or looking up anything, as `do_add` would
+            if let Some(other) = existing
+                && !matches!(other, InterchangeProjectUsageRaw::Index(_))
+            {
+                bail!(AddError::<Infallible>::DuplicateIdentifier {
+                    identifier,
+                    existing: other.kind_with_article(),
+                    new: "an index",
+                });
+            }
+            let index_usage = |publisher, name, version_constraint: &VersionReq| {
+                InterchangeProjectUsageRaw::Index(IndexUsage {
+                    publisher,
+                    name,
+                    version_constraint: version_constraint.to_string(),
+                })
+            };
+            if no_lock {
+                let Some(version_constraint) = version_constraint else {
+                    bail!(
+                        "an index usage needs a version constraint: pass one, or leave out\n\
+                         `--no-lock` to use the version that locking chooses"
+                    );
+                };
+                // Without locking, the spelling can only be checked against, or
+                // recovered from, what is installed
+                let (publisher, name) =
+                    spell_index_usage(ctx.env.as_ref(), &publisher, &name, &version_constraint)
+                        .map_err(|err| match err {
+                            IndexSpellingError::NotInstalled { .. } => anyhow!(
+                                "{err}\n{USAGE}hint:{USAGE:#} leave out `--no-lock` to look the \
+                         project up in the indexes"
+                            ),
+                            err => err.into(),
+                        })?;
+                let usage = index_usage(publisher, name, &version_constraint);
+                (identifier, usage, None)
+            } else if let Some(InterchangeProjectUsageRaw::Index(IndexUsage {
+                publisher: p,
+                name: n,
+                version_constraint: existing_constraint,
+            })) = existing
+            {
+                match version_constraint {
+                    None if *p == publisher && *n == name => {
+                        log::warn!(
+                            "ignoring usage `{publisher}/{name}` without a version constraint,\n\
+                             {SP:>8} since it is already present with version constraint\n\
+                             {SP:>8} `{existing_constraint}`",
+                        );
+                        return Ok(());
                     }
-                    // Resolved first as a resource usage of the same identifier and
-                    // no constraint, which chooses the version the way an unconstrained
-                    // usage always has (e.g. a prerelease from a source override)
-                    let usage = InterchangeProjectUsageRaw::Resource {
-                        resource: identifier.clone(),
-                        version_constraint: None,
-                    };
-                    (identifier, usage, Some((publisher, name)))
+                    None => bail!(AddError::<Infallible>::IndexUsageSpelledDifferently {
+                        existing: format!("{p}/{n}"),
+                        new: format!("{publisher}/{name}"),
+                    }),
+                    // `do_add` merges the constraints (or reports a different
+                    // spelling), and locking checks the spelling
+                    Some(version_constraint) => {
+                        let usage = index_usage(publisher, name, &version_constraint);
+                        (identifier, usage, None)
+                    }
                 }
+            } else if let Some(version_constraint) = &version_constraint
+                && !is_normalized_spelling(&publisher, &name)
+            {
+                // Locking checks the spelling
+                let usage = index_usage(publisher, name, version_constraint);
+                (identifier, usage, None)
+            } else {
+                // Resolved first as a resource usage of the same identifier,
+                // which does not depend on the spelling, and, without a
+                // constraint, chooses the version the way an unconstrained
+                // usage always has (e.g. a prerelease from a source override)
+                let usage = InterchangeProjectUsageRaw::Resource {
+                    resource: identifier.clone(),
+                    version_constraint: version_constraint.as_ref().map(ToString::to_string),
+                };
+                let pending = PendingIndexUsage {
+                    recover_spelling: is_normalized_spelling(&publisher, &name),
+                    publisher,
+                    name,
+                    version_constraint,
+                };
+                (identifier, usage, Some(pending))
             }
         }
     };
@@ -284,7 +327,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
     } else {
         let info_path = current_project.info_path();
         let info_backup = wrapfs::read_to_string(&info_path)?;
-        if unconstrained_index.is_some() {
+        if pending_index.is_some() {
             // Not `do_add`, so that only the final usage is reported as added
             let mut info = current_project
                 .get_info()?
@@ -298,12 +341,11 @@ pub fn command_add<Policy: HTTPAuthentication>(
             }
         }
 
-        if let Some((publisher, name)) = unconstrained_index {
-            let result = constrain_to_locked_version(
+        if let Some(pending) = pending_index {
+            let result = settle_index_usage(
                 &mut current_project,
                 iri,
-                publisher,
-                name,
+                pending,
                 &resolution_opts,
                 &config,
                 &client,
@@ -365,14 +407,25 @@ pub fn command_add<Policy: HTTPAuthentication>(
     }
 }
 
-/// Replace the usage of `identifier`, a resource usage with no constraint, by
-/// the index usage of `publisher`/`name` constrained to `^` the version a
-/// lock chooses for it, as `cargo add` does
-fn constrain_to_locked_version<Policy: HTTPAuthentication>(
-    project: &mut LocalSrcProject,
-    identifier: &str,
+/// An index usage that `add` settles by locking (see [`settle_index_usage`])
+struct PendingIndexUsage {
     publisher: String,
     name: String,
+    /// Taken from the lock when `None`
+    version_constraint: Option<VersionReq>,
+    /// Whether `publisher`/`name` is normalized, and the usage is to take
+    /// the spelling of the project it locks to instead
+    recover_spelling: bool,
+}
+
+/// Replace the usage of `identifier`, a placeholder resource usage, by the
+/// index usage `pending`. Its version constraint, when it has none, is `^`
+/// the version a lock chooses for it, as `cargo add` does, and its spelling,
+/// when it is normalized, is that of the project locked
+fn settle_index_usage<Policy: HTTPAuthentication>(
+    project: &mut LocalSrcProject,
+    identifier: &str,
+    pending: PendingIndexUsage,
     resolution_opts: &ResolutionOptions,
     config: &Config,
     client: &reqwest_middleware::ClientWithMiddleware,
@@ -380,6 +433,12 @@ fn constrain_to_locked_version<Policy: HTTPAuthentication>(
     auth_policy: &Arc<Policy>,
     ctx: &ProjectContext,
 ) -> Result<()> {
+    let PendingIndexUsage {
+        publisher,
+        name,
+        version_constraint,
+        recover_spelling,
+    } = pending;
     let lock = resolve_lock(
         ".",
         resolution_opts.clone(),
@@ -398,7 +457,20 @@ fn constrain_to_locked_version<Policy: HTTPAuthentication>(
     else {
         bail!("`{publisher}/{name}` is missing from the lock");
     };
-    let version_constraint = format!("^{}", locked.version);
+    let (publisher, name) = if recover_spelling {
+        let Some(locked_publisher) = &locked.publisher else {
+            bail!(
+                "`{publisher}/{name}` locked to version {} of a project that declares no \
+                 publisher, which an index usage cannot name",
+                locked.version
+            );
+        };
+        (locked_publisher.clone(), locked.name.clone())
+    } else {
+        (publisher, name)
+    };
+    let version_constraint =
+        version_constraint.map_or_else(|| format!("^{}", locked.version), |vc| vc.to_string());
     let mut info = project
         .get_info()?
         .ok_or(CliError::MissingProjectCurrentDir)?;

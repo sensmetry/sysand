@@ -282,6 +282,7 @@ fn project_build_path_usage() -> Result<(), Box<dyn std::error::Error>> {
 fn project_build_index_usage() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = cli_init_project_basic("a", "test_build", "1.2.3")?;
     out.assert().success();
+    install_in_env(&cwd, "Acme Labs", "My Lib", "1.0.0")?;
 
     run_sysand_in(&cwd, ["add", "--no-lock", "Acme Labs/My Lib", "^1"], None)?
         .assert()
