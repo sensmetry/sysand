@@ -428,6 +428,13 @@ A conforming sysand index server MUST uphold:
 - **`versions.json` consistency.** The fields advertised in a `versions.json`
   `versions` entry, agree with actual `.project.json`, `.meta.json`, and
   `project.kpar` files served at that version's directory.
+- **One spelling per project.** Every version of a `pkg:sysand` project
+  whose `status` is not `removed` declares the same `publisher` and `name`
+  in its `.project.json`, spelled identically: equal after the
+  normalization of [§6] is not enough. An index usage ([§8]) has to spell
+  them exactly as the project does, so a project spelled two ways could not
+  be named by any one index usage. A new version spelled differently from
+  the project's existing versions MUST be refused.
 - **Version file presence.** Every version listed in `versions.json` with
   `status` other than `removed` has all three per-version files
   available for retrieval.
@@ -503,6 +510,9 @@ The `sysand index` command group produces and maintains a sysand index
 tree: laying out files, generating digests, and keeping
 `versions.json` consistent with the per-version artifacts. This is the
 only supported path for creating and mutating an index tree.
+`sysand index add` keeps one spelling per project ([§11]): it refuses a
+version spelled differently from the project's existing versions, and any
+version at all of a project whose existing versions already disagree.
 
 [§1]: #1-scope
 [§2]: #2-implementability
