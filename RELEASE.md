@@ -174,10 +174,6 @@ separately:
   catch-all, so a manifest declaring a kind a build does not know fails to
   parse in full. Therefore, once a usage kind has been added (and can be
   populated with a non-experimental command), it must never be removed.
-  The index usage is such a kind: `sysand add <publisher>/<name>` writes
-  it. Builds released before it cannot read a manifest that contains one,
-  nor the `versions.json` of any index project that has one in any of its
-  versions.
 
 ### Bump version entries
 
