@@ -21,9 +21,7 @@ class InterchangeProjectUsageResource(
     """The untyped usage KerML specifies: a project named by an IRI,
     optionally constrained to a range of versions.
 
-    Legacy: typed usages will replace it. A ``pkg:sysand`` IRI is a
-    resource usage too, until the manifest is migrated to the
-    :class:`InterchangeProjectUsageIndex` of that project.
+    Legacy: typed usages will replace it.
     """
 
     version_constraint: typing.Optional[str]
