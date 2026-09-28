@@ -15,6 +15,9 @@ from pytest_httpserver import HTTPServer
 import sysand
 from mockindex import MockIndex, run_cli_in
 
+# `info` defaults to the CLI's resolution, which reaches the public index.
+NO_INDEX = sysand.Resolution(no_index=True, use_config=False)
+
 
 def test_basic_init(caplog: pytest.LogCaptureFixture) -> None:
     level = logging.DEBUG
@@ -829,7 +832,7 @@ def test_basic_info(caplog: pytest.LogCaptureFixture) -> None:
 
         file_uri = Path(tmpdirname).resolve().as_uri()
 
-        info_meta2 = sysand.info(iri=file_uri)
+        info_meta2 = sysand.info(iri=file_uri, resolution=NO_INDEX)
         assert info_meta2 == info_meta
 
 
@@ -845,7 +848,7 @@ def test_http_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) -> 
         {"index": {}, "created": "0000-00-00T00:00:00.123456789Z"}
     )
 
-    info, meta = sysand.info(iri=httpserver.url_for(""))
+    info, meta = sysand.info(iri=httpserver.url_for(""), resolution=NO_INDEX)
 
     assert info == {
         "name": "test_http_info",
@@ -1087,14 +1090,22 @@ def test_end_to_end_install_sources() -> None:
 
         [std_src] = (env_path / "lib").glob("*/src_std.sysml")
 
-        # By default only the project's own sources are listed.
+        # By default, as in the CLI, the project's own sources are listed with
+        # those of its dependencies other than std libs, from the project's
+        # own environment.
         compare_sources(
             sysand.sources(project_dir=tmp_main),
-            [str(Path(tmp_main) / "src.sysml")],
+            [str(Path(tmp_main) / "src.sysml"), str(dep_src)],
         )
+        # A project with no environment and no dependencies lists its own.
         compare_sources(
             sysand.sources(project_dir=tmp_dep),
             [str(Path(tmp_dep) / "src_dep.sysml")],
+        )
+        # Only the project's own sources.
+        compare_sources(
+            sysand.sources(project_dir=tmp_main, dependencies=sysand.Dependencies.NONE),
+            [str(Path(tmp_main) / "src.sysml")],
         )
         # Own sources together with dependency sources, excluding std libs.
         compare_sources(
@@ -1116,7 +1127,14 @@ def test_end_to_end_install_sources() -> None:
             [str(dep_src)],
         )
         # no_own without dependencies yields nothing.
-        compare_sources(sysand.sources(project_dir=tmp_main, no_own=True), [])
+        compare_sources(
+            sysand.sources(
+                project_dir=tmp_main,
+                no_own=True,
+                dependencies=sysand.Dependencies.NONE,
+            ),
+            [],
+        )
 
         # DEPS_STD includes both the dependency and the std lib.
         compare_sources(

@@ -39,12 +39,18 @@ def info(
     """Fetch the best-matching version's ``.project.json`` and ``.meta.json``
     for ``iri``.
 
-    Without ``resolution`` no index is consulted at all (only local files
-    and URLs). ``auth`` defaults to :meth:`AuthPolicy.none`.
+    Resolution follows the CLI's ``sysand info --iri``, from the current
+    directory: the projects the configuration overrides, local files, the
+    ``.sysand`` environment of the enclosing workspace or project, remote
+    URLs, then the indexes. ``resolution`` defaults to :class:`Resolution`
+    ``()``: configuration files plus the default index. Pass
+    ``Resolution(no_index=True)`` to consult no index. ``auth`` defaults to
+    :meth:`AuthPolicy.none`.
 
     Args:
         iri: The project's IRI.
-        resolution: Where to look for the project.
+        resolution: Where to look for the project. Defaults to
+            :class:`Resolution` ``()``.
         auth: How to authenticate to indexes.
 
     Returns:
@@ -56,9 +62,11 @@ def info(
         IndexProtocolError: an index answered with something malformed.
         ResolutionError: any other resolution failure.
     """
+    if resolution is None:
+        resolution = Resolution()
     return sysand_rs.do_info_py(  # type: ignore
         iri,
-        resolution._spec() if resolution is not None else None,
+        resolution._spec(),
         auth._spec() if auth is not None else None,
     )
 
