@@ -497,10 +497,17 @@ Retirement ([§8] `status`) and the lockfile contract:
 
 - Unknown fields in any JSON document MUST be ignored by the clients. Clients
   MAY still choose to inform the user of such changes. The one exception is
-  an index usage (`publisher`, `name` and `versionConstraint`) in `usage`:
-  one with any other field is not an index usage, and clients MUST reject
-  it, so that a declaration of an unknown kind or with an unknown
-  index-selecting field is never resolved as a plain index usage.
+  an index usage in `usage` ([§8]): one with any key other than
+  `publisher`, `name` and `versionConstraint` is not an index usage, and
+  clients MUST reject it. Every other kind of usage has a key that only it
+  carries (`resource`, `dir`, `kparPath`) and that says where the project
+  comes from, so an unknown extra key cannot change which kind it is. An
+  index usage has no such key: `publisher` and `name` are shared with the
+  directory and KPAR usages, and `versionConstraint` with the resource
+  usage. It is recognized only by lacking a source key, so without this
+  rule a future kind that adds one (a git or registry URL, say) to
+  `publisher`, `name` and `versionConstraint` would be read by older
+  clients as an index usage and resolved from the wrong place.
 - Protocol version is not explicitly provided anywhere currently.
 - Breaking changes to this protocol are expected before v1.
 
