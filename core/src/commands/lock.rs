@@ -27,7 +27,7 @@ use crate::{
         utils::{FsIoError, Identifier},
     },
     resolve::ResolveRead,
-    solve::pubgrub::{SolveOptions, SolverError, solve},
+    solve::pubgrub::{SolverError, solve},
     utils::ProvidedProjects,
 };
 
@@ -201,7 +201,6 @@ pub fn do_lock_projects<
 >(
     projects: I,
     resolver: R,
-    options: SolveOptions,
     provided_usages: &ProvidedProjects,
     ctx: &ProjectContext,
 ) -> Result<LockOutcome<PD>, LockProjectError<PI, PD, R>> {
@@ -263,7 +262,7 @@ pub fn do_lock_projects<
         );
     }
 
-    let lock_outcome = do_lock_extend(lock, all_deps, resolver, options, provided_usages, ctx)?;
+    let lock_outcome = do_lock_extend(lock, all_deps, resolver, provided_usages, ctx)?;
 
     Ok(lock_outcome)
 }
@@ -287,7 +286,6 @@ pub fn do_lock_extend<
     mut lock: Lock,
     usages: I,
     resolver: R,
-    options: SolveOptions,
     provided_usages: &ProvidedProjects,
     ctx: &ProjectContext,
 ) -> Result<LockOutcome<PD>, LockError<PD, R>> {
@@ -308,7 +306,7 @@ pub fn do_lock_extend<
     let base_path = ctx.workspace_or_project_root();
     #[cfg(not(feature = "filesystem"))]
     let base_path = None;
-    let solution = solve(inputs, base_path, resolver, options).map_err(LockError::Solver)?;
+    let solution = solve(inputs, base_path, resolver).map_err(LockError::Solver)?;
     let mut lock_projects = HashSet::new();
     let mut lock_symbols = HashMap::new();
     for (i, p) in lock.projects.iter().enumerate() {
@@ -484,7 +482,6 @@ pub fn do_lock_local_editable<
     identifiers: Option<Vec<Iri<String>>>,
     provided_usages: &ProvidedProjects,
     resolver: R,
-    options: SolveOptions,
     ctx: &ProjectContext,
 ) -> Result<LockOutcome<PD>, LockProjectError<EditableLocalSrcProject, PD, R>> {
     let path = path.as_ref();
@@ -496,13 +493,7 @@ pub fn do_lock_local_editable<
         ),
     );
 
-    do_lock_projects(
-        [(identifiers, &project)],
-        resolver,
-        options,
-        provided_usages,
-        ctx,
-    )
+    do_lock_projects([(identifiers, &project)], resolver, provided_usages, ctx)
 }
 
 #[cfg(test)]

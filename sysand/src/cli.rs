@@ -17,7 +17,6 @@ use sysand_core::{
     index_location::IndexLocation,
     model::{KERML_SPEC_PREFIX, LICENSE_EXPRESSION_HELP, SYSML_SPEC_PREFIX},
     purl::{is_valid_unnormalized_name, is_valid_unnormalized_publisher},
-    solve::pubgrub::SolveOptions,
 };
 
 use crate::env_vars;
@@ -1698,26 +1697,6 @@ pub struct ResolutionOptions {
     /// Don't ignore KerML/SysML v2 standard libraries if specified as dependencies
     #[arg(long, global = true, help_heading = "Resolution options")]
     pub include_std: bool,
-    /// Fail instead of skipping a version offered for an index usage when that
-    /// version's own metadata is invalid (for example, one of its usages is
-    /// malformed). Applies to index usages only, whichever source offers the
-    /// version. A malformed index listing fails in either mode.
-    #[arg(
-        long,
-        global = true,
-        help_heading = "Resolution options",
-        verbatim_doc_comment
-    )]
-    pub strict_index_versions: bool,
-}
-
-impl ResolutionOptions {
-    /// The options for the dependency solver
-    pub fn solve_options(&self) -> SolveOptions {
-        SolveOptions {
-            strict_index_versions: self.strict_index_versions,
-        }
-    }
 }
 
 #[derive(clap::Args, Debug, Clone, Default)]

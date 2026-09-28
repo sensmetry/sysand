@@ -1007,10 +1007,10 @@ fn lock_fail_unsatisfiable() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// A version whose own usages are invalid is skipped for an index usage,
-/// unless `--strict-index-versions` is passed
+/// A version an index offers whose own usages are invalid fails the lock,
+/// even though another version would do
 #[test]
-fn lock_strict_index_versions() -> Result<(), Box<dyn std::error::Error>> {
+fn lock_fails_on_a_broken_index_version() -> Result<(), Box<dyn std::error::Error>> {
     let mut server = Server::new();
 
     let (kpar_bytes, mut info, meta) = build_index_kpar_bytes("dep", "0.1.0");
@@ -1049,7 +1049,8 @@ fn lock_strict_index_versions() -> Result<(), Box<dyn std::error::Error>> {
         .with_body(serde_json::to_string(&meta)?)
         .create();
 
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "lock_strict_index_versions", "1.2.3")?;
+    let (_temp_dir, cwd, out) =
+        cli_init_project_basic("a", "lock_fails_on_a_broken_index_version", "1.2.3")?;
     out.assert().success();
     let mut project: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(cwd.join(".project.json"))?)?;
@@ -1058,28 +1059,28 @@ fn lock_strict_index_versions() -> Result<(), Box<dyn std::error::Error>> {
 
     let server_url = server.url();
     let out = run_sysand_in(&cwd, ["lock", "--default-index", &server_url], None)?;
+    out.assert()
+        .failure()
+        .stderr(contains(
+            "error: version 0.2.0 offered for index usage `mock/dep` (*) is not a valid project,\n\
+             and a broken version fails the solve instead of being skipped;\n\
+             exclude it with a version constraint, or have its publisher fix or yank it\n",
+        ))
+        .stderr(contains("caused by: one of its usages is invalid\n"))
+        .stderr(contains(
+            "caused by: malformed `pkg:sysand` IRI `pkg:sysand/Acme/Lib`\n",
+        ))
+        .stderr(contains("can be normalized to `pkg:sysand/acme/lib`"));
+    assert!(!cwd.join(DEFAULT_LOCKFILE_NAME).exists());
+
+    project["usage"] = json!([{ "publisher": "mock", "name": "dep", "versionConstraint": "<0.2" }]);
+    std::fs::write(cwd.join(".project.json"), project.to_string())?;
+    let out = run_sysand_in(&cwd, ["lock", "--default-index", &server_url], None)?;
     out.assert().success();
     let lock_file: Lock =
         toml::from_str(&std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?)?;
     let dep = lock_file.projects.iter().find(|p| p.name == "dep").unwrap();
     assert_eq!(dep.version, "0.1.0");
-
-    let out = run_sysand_in(
-        &cwd,
-        [
-            "lock",
-            "--default-index",
-            &server_url,
-            "--strict-index-versions",
-        ],
-        None,
-    )?;
-    out.assert()
-        .failure()
-        .stderr(contains(
-            "resolved to version 0.2.0, which has an invalid usage",
-        ))
-        .stderr(contains("pkg:sysand/Acme/Lib"));
 
     Ok(())
 }

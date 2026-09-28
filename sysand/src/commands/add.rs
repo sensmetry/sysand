@@ -212,7 +212,6 @@ pub fn command_add<Policy: HTTPAuthentication>(
             default_index,
             no_index,
             include_std: _,
-            strict_index_versions: _,
         } = resolution_opts.clone();
 
         let index_urls = if no_index {
@@ -611,7 +610,6 @@ pub fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     provided_iris: ProvidedProjects,
     ctx: ProjectContext,
 ) -> Result<(), anyhow::Error> {
-    let solve_options = resolution_opts.solve_options();
     let resolver = create_resolver(
         resolution_opts,
         config,
@@ -629,7 +627,6 @@ pub fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         project_identifiers,
         &provided_iris,
         resolver,
-        solve_options,
         &ctx,
     )?;
     let lock = lock.canonicalize();

@@ -254,7 +254,6 @@ impl Default for AuthSpec {
 /// it; mirrors the CLI's `ResolutionOptions`.
 #[derive(FromPyObject, Debug)]
 #[pyo3(from_item_all)]
-#[expect(clippy::struct_excessive_bools, reason = "mirrors the CLI's flags")]
 struct ResolutionSpec {
     #[pyo3(default)]
     index: Vec<String>,
@@ -264,8 +263,6 @@ struct ResolutionSpec {
     no_index: bool,
     #[pyo3(default)]
     include_std: bool,
-    #[pyo3(default)]
-    strict_index_versions: bool,
     use_config: bool,
 }
 
@@ -552,7 +549,6 @@ fn resolution_options(spec: &ResolutionSpec) -> ResolutionOptions {
         default_index: spec.default_index.clone(),
         no_index: spec.no_index,
         include_std: spec.include_std,
-        strict_index_versions: spec.strict_index_versions,
     }
 }
 

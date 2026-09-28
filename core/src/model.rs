@@ -882,7 +882,7 @@ pub enum InterchangeProjectValidationError {
     },
     #[error("checksum `{cksum}`\ncontains invalid symbols (only `A-Fa-f0-9` are allowed)")]
     NonHexChecksumChars { cksum: Box<str> },
-    #[error("malformed `pkg:sysand` IRI `{iri}`: {source}")]
+    #[error("malformed `pkg:sysand` IRI `{iri}`")]
     MalformedUsageSysandPurl {
         iri: String,
         #[source]

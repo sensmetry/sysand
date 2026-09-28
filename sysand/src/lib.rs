@@ -658,7 +658,6 @@ fn run_cli_with(
                 no_index,
                 include_std,
                 // `info` does not solve
-                strict_index_versions: _,
             } = resolution_opts;
             let index_urls = if no_index {
                 None

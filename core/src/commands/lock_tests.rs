@@ -13,7 +13,6 @@ use crate::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::memory::InMemoryProject,
     resolve::null::NullResolver,
-    solve::pubgrub::SolveOptions,
 };
 
 #[test]
@@ -47,7 +46,6 @@ fn lock_export_conflict() {
         lock,
         [],
         NullResolver {},
-        SolveOptions::default(),
         &HashMap::new(),
         &ProjectContext::default(),
     );
@@ -85,7 +83,6 @@ fn lock_preserves_project_publisher() {
     let lock = do_lock_projects(
         [(None, &project)],
         NullResolver {},
-        SolveOptions::default(),
         &HashMap::new(),
         &ProjectContext::default(),
     )
@@ -173,7 +170,6 @@ fn lock_reports_which_dependent_pins_a_conflicting_version() {
     let err = do_lock_projects(
         [(None, &root)],
         resolver,
-        SolveOptions::default(),
         &HashMap::new(),
         &ProjectContext::default(),
     )
@@ -269,7 +265,6 @@ mod index_usage_spelling {
         match do_lock_projects(
             [(None, root)],
             resolver,
-            SolveOptions::default(),
             &HashMap::new(),
             &ProjectContext::default(),
         ) {
