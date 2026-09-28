@@ -9,6 +9,8 @@ use thiserror::Error;
 pub enum CliError {
     #[error("invalid directory: {0}")]
     InvalidDirectory(String),
+    #[error("cannot use the directory name `{0}` as the project name: {1}; use `--name` to set it")]
+    InvalidDirectoryName(String, &'static str),
     #[error("unable to find project with IRI `{0}`")]
     NoResolve(String),
     #[error("invalid project with IRI `{iri}`")]

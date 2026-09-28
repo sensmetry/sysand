@@ -289,7 +289,7 @@ where
                     let remote_src_storage = remote_src_storage
                         .as_ref()
                         .ok_or_else(|| SyncError::MissingRemoteSrcStorage(uri.as_str().into()))?;
-                    let storage = remote_src_storage(remote_src.clone(), checksum.clone())
+                    let storage = remote_src_storage(remote_src.to_string(), checksum.clone())
                         .map_err(|e| {
                             SyncError::InvalidRemoteSource(remote_src.as_str().into(), e)
                         })?;
@@ -341,7 +341,7 @@ where
                         SyncError::MissingRemoteKparStorage(remote_kpar.as_str().into())
                     })?;
                     let storage = remote_kpar_storage(
-                        remote_kpar.to_owned(),
+                        remote_kpar.to_string(),
                         *kpar_size,
                         kpar_digest.to_owned(),
                     )
@@ -367,7 +367,7 @@ where
                         .as_ref()
                         .ok_or_else(|| SyncError::MissingIndexKparStorage(uri.as_str().into()))?;
                     let storage =
-                        index_kpar_storage(index_kpar.to_owned(), *kpar_size, kpar_digest.clone())
+                        index_kpar_storage(index_kpar.to_string(), *kpar_size, kpar_digest.clone())
                             .map_err(|e| {
                                 SyncError::InvalidRemoteSource(index_kpar.as_str().into(), e)
                             })?;
@@ -392,7 +392,7 @@ where
                     let remote_git_storage = remote_git_storage.as_ref().ok_or_else(|| {
                         SyncError::MissingRemoteGitStorage(remote_git.as_str().into())
                     })?;
-                    let storage = remote_git_storage(remote_git.clone())
+                    let storage = remote_git_storage(remote_git.to_string())
                         .map_err(|e| SyncError::GitDownload(remote_git.as_str().into(), e))?;
                     log::debug!("trying to install `{uri}` from remote_git: {remote_git}");
                     do_env_install_project(uri, &project.version, &storage, None, env, true, true)

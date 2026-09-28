@@ -11,7 +11,7 @@ use std::{
     io::ErrorKind,
     iter,
     str::FromStr as _,
-    sync::Arc,
+    sync::{Arc, LazyLock},
 };
 
 use anstream::eprintln;
@@ -34,6 +34,7 @@ use sysand_core::{
     discover::{discover_project, discover_workspace},
     env::{DEFAULT_ENV_NAME, local_directory::LocalDirectoryEnvironment},
     index::RemoveTarget,
+    index_location::IndexLocation,
     lock::Lock,
     project::{
         any::{AnyProject, OverrideProject},
@@ -49,9 +50,9 @@ use sysand_core::{
 use url::Url;
 
 use crate::{
-    cli::{Args, AuthCommand, Command, EnvCommand, ExpCommand, IndexCommand},
+    cli::{Args, AuthCommand, Command, EnvCommand, IndexCommand},
     commands::{
-        add::{ExpAddArgs, command_add, exp_command_add},
+        add::command_add,
         auth::{command_auth_login, command_auth_logout, command_auth_status, command_auth_whoami},
         build::{command_build_for_project, command_build_for_workspace},
         clone::command_clone,
@@ -64,13 +65,22 @@ use crate::{
         lock::command_lock,
         print_root::command_print_root,
         publish::command_publish,
-        remove::{command_remove, exp_command_remove},
+        remove::command_remove,
         sources::{command_sources_env, command_sources_project},
         sync::command_sync,
     },
 };
 
-pub const DEFAULT_INDEX_URL: &str = "https://sysand.com";
+const DEFAULT_INDEX_URL: &str = "https://sysand.com";
+
+/// [`DEFAULT_INDEX_URL`], parsed once
+pub fn default_index_location() -> IndexLocation {
+    static LOCATION: LazyLock<IndexLocation> = LazyLock::new(|| {
+        IndexLocation::parse(DEFAULT_INDEX_URL)
+            .expect("BUG: DEFAULT_INDEX_URL is a valid index URL")
+    });
+    LOCATION.clone()
+}
 
 /// The CLI's composed authentication policy: eager `SYSAND_CRED_*`
 /// credentials first, then lazily read stored credentials from the OS
@@ -158,6 +168,9 @@ where
 
 /// Run a command that is already parsed, and return the exit code the process
 /// should report.
+///
+/// WARNING: `global_opts` and `command` must obey the invariants from `cli.rs`,
+/// which are only given as clap macro attributes.
 ///
 /// For an embedder with a command line of its own, which parses into
 /// [`cli::GlobalOptions`] and [`cli::Command`] itself rather than handing
@@ -661,7 +674,7 @@ fn run_cli_with(
             let index_urls = if no_index {
                 None
             } else {
-                Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_owned()], default_index)?)
+                Some(config.index_urls(index, vec![default_index_location()], default_index))
             };
             let excluded_usages: HashSet<_> = if include_std {
                 HashSet::default()
@@ -763,46 +776,40 @@ fn run_cli_with(
             resolution_opts,
             source_opts,
             sync,
-        } => {
-            let iri = iri_or_path_to_iri(locator.iri, locator.path)?;
-            command_add(
-                iri,
-                version_constraint,
-                sync.no_lock,
-                sync.no_sync,
-                sync.no_prune,
-                resolution_opts,
-                source_opts,
-                config,
-                global_opts.config_file,
-                global_opts.no_config,
-                ctx,
-                client,
-                runtime,
-                auth_policy,
-            )
-        }
+        } => command_add(
+            locator,
+            version_constraint,
+            sync.no_lock,
+            sync.no_sync,
+            sync.no_prune,
+            resolution_opts,
+            source_opts,
+            config,
+            global_opts.config_file,
+            global_opts.no_config,
+            ctx,
+            client,
+            runtime,
+            auth_policy,
+        ),
         Command::Remove {
             locator,
             sync,
             resolution_opts,
-        } => {
-            let iri = iri_or_path_to_iri(locator.iri, locator.path)?;
-            command_remove(
-                iri,
-                ctx,
-                config,
-                global_opts.config_file,
-                global_opts.no_config,
-                sync.no_lock,
-                sync.no_sync,
-                sync.no_prune,
-                resolution_opts,
-                client,
-                runtime,
-                auth_policy,
-            )
-        }
+        } => command_remove(
+            locator,
+            ctx,
+            config,
+            global_opts.config_file,
+            global_opts.no_config,
+            sync.no_lock,
+            sync.no_sync,
+            sync.no_prune,
+            resolution_opts,
+            client,
+            runtime,
+            auth_policy,
+        ),
         Command::Include {
             paths,
             compute_checksum: add_checksum,
@@ -894,55 +901,13 @@ fn run_cli_with(
             runtime,
             auth_policy,
         ),
-        Command::Experimental { subcommand } => match subcommand {
-            ExpCommand::Add {
-                locator,
-                resolution_opts,
-                sync,
-            } => {
-                let add = if let Some(dir) = locator.dir {
-                    ExpAddArgs::Dir { dir }
-                } else if let Some(kpar_path) = locator.kpar_path {
-                    ExpAddArgs::KparPath { kpar_path }
-                } else {
-                    unreachable!("clap group requires exactly one of `dir`/`kpar_path`")
-                };
-                exp_command_add(
-                    add,
-                    sync.no_lock,
-                    sync.no_sync,
-                    sync.no_prune,
-                    resolution_opts,
-                    config,
-                    ctx,
-                    client,
-                    runtime,
-                    auth_policy,
-                )
-            }
-            ExpCommand::Remove {
-                publisher,
-                name,
-                sync,
-                resolution_opts,
-            } => exp_command_remove(
-                publisher,
-                name,
-                ctx,
-                config,
-                sync.no_lock,
-                sync.no_sync,
-                sync.no_prune,
-                resolution_opts,
-                client,
-                runtime,
-                auth_policy,
-            ),
-        },
+        Command::Experimental {} => {
+            bail!("No experimental commands are available");
+        }
     }
 }
 
-fn iri_or_path_to_iri(
+pub fn iri_or_path_to_iri(
     iri: Option<Iri<String>>,
     path: Option<Utf8PathBuf>,
 ) -> Result<Iri<String>, anyhow::Error> {

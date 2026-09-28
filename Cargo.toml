@@ -189,6 +189,21 @@ significant_drop_tightening = "allow"
 uninhabited_references = "allow"
 option_if_let_else = "allow"
 
+[workspace.lints.rustdoc]
+# Only checked by `cargo doc`, not by `cargo check`/`cargo clippy`.
+# All stable rustdoc lints (https://doc.rust-lang.org/rustdoc/lints.html);
+# `missing_doc_code_examples` is omitted as it is nightly-only
+broken_intra_doc_links = "warn"
+private_intra_doc_links = "allow"
+missing_crate_level_docs = "allow"
+private_doc_tests = "warn"
+invalid_codeblock_attributes = "warn"
+invalid_html_tags = "warn"
+invalid_rust_codeblocks = "warn"
+bare_urls = "warn"
+unescaped_backticks = "warn"
+redundant_explicit_links = "warn"
+
 [workspace.metadata.dylint]
 # cargo-dylint (https://github.com/trailofbits/dylint)
 # is for additional lints. Lint providers are configured with

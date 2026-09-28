@@ -4,6 +4,7 @@
 use std::path::Path;
 
 use assert_cmd::prelude::*;
+use indexmap::IndexMap;
 use mockito::{Mock, Server, ServerGuard};
 use predicates::{prelude::*, str::contains};
 use sysand_core::{
@@ -62,14 +63,18 @@ fn lock_local_source() -> Result<(), Box<dyn std::error::Error>> {
 
     out.assert().success().stdout(predicate::str::is_empty());
 
-    let out = run_sysand_in(&cwd, ["add", "urn:kpar:local_dep", "--no-lock"], None)?;
+    let out = run_sysand_in(
+        &cwd,
+        ["add", "--iri", "urn:kpar:local_dep", "--no-lock"],
+        None,
+    )?;
 
     out.assert().success().stdout(predicate::str::is_empty());
 
     let cfg = toml::to_string(&config::Config {
         indexes: vec![],
         projects: vec![ConfigProject {
-            identifiers: vec!["urn:kpar:local_dep".to_owned()],
+            identifiers: vec![fluent_uri::Iri::parse("urn:kpar:local_dep".to_owned()).unwrap()],
             sources: vec![OverrideSource::LocalSrc {
                 src_path: "local_dep".into(),
             }],
@@ -110,13 +115,17 @@ fn lock_local_source_with_a_prerelease_version() -> Result<(), Box<dyn std::erro
 
     // No version constraint: the usage says which project, the override says
     // where it lives.
-    let out = run_sysand_in(&cwd, ["add", "urn:kpar:local_dep", "--no-lock"], None)?;
+    let out = run_sysand_in(
+        &cwd,
+        ["add", "--iri", "urn:kpar:local_dep", "--no-lock"],
+        None,
+    )?;
     out.assert().success().stdout(predicate::str::is_empty());
 
     let cfg = toml::to_string(&config::Config {
         indexes: vec![],
         projects: vec![ConfigProject {
-            identifiers: vec!["urn:kpar:local_dep".to_owned()],
+            identifiers: vec![fluent_uri::Iri::parse("urn:kpar:local_dep".to_owned()).unwrap()],
             sources: vec![OverrideSource::LocalSrc {
                 src_path: "local_dep".into(),
             }],
@@ -166,7 +175,13 @@ fn lock_purl_local_source_override_with_a_prerelease_version()
     // where it lives.
     run_sysand_in(
         &cwd,
-        ["add", "pkg:sysand/acme/widget", "--no-lock", "--no-index"],
+        [
+            "add",
+            "--iri",
+            "pkg:sysand/acme/widget",
+            "--no-lock",
+            "--no-index",
+        ],
         None,
     )?
     .assert()
@@ -176,7 +191,7 @@ fn lock_purl_local_source_override_with_a_prerelease_version()
     let cfg = toml::to_string(&config::Config {
         indexes: vec![],
         projects: vec![ConfigProject {
-            identifiers: vec!["pkg:sysand/acme/widget".to_owned()],
+            identifiers: vec![fluent_uri::Iri::parse("pkg:sysand/acme/widget".to_owned()).unwrap()],
             sources: vec![OverrideSource::LocalSrc {
                 src_path: "local_dep".into(),
             }],
@@ -222,13 +237,9 @@ fn lock_directory_usage_with_a_prerelease_version() -> Result<(), Box<dyn std::e
     .assert()
     .success();
 
-    run_sysand_in(
-        &cwd,
-        ["experimental", "add", "--no-lock", "--dir", "deps/widget"],
-        None,
-    )?
-    .assert()
-    .success();
+    run_sysand_in(&cwd, ["add", "--no-lock", "--dir", "deps/widget"], None)?
+        .assert()
+        .success();
 
     let out = run_sysand_in(&cwd, ["lock"], None)?;
     out.assert().success();
@@ -256,6 +267,7 @@ fn lock_std_lib() -> Result<(), Box<dyn std::error::Error>> {
         &cwd,
         [
             "add",
+            "--iri",
             "https://www.omg.org/spec/KerML/20250201/Function-Library.kpar",
             "--no-lock",
             "--include-std",
@@ -270,7 +282,7 @@ fn lock_std_lib() -> Result<(), Box<dyn std::error::Error>> {
     let cfg = toml::to_string(&config::Config {
         indexes: vec![],
         projects: vec![sysand_core::config::ConfigProject {
-            identifiers: vec!["urn:kpar:local_dep".to_owned()],
+            identifiers: vec![fluent_uri::Iri::parse("urn:kpar:local_dep".to_owned()).unwrap()],
             sources: vec![OverrideSource::LocalSrc {
                 src_path: cwd.join("local_dep").as_str().into(),
             }],
@@ -789,17 +801,13 @@ fn lock_directory_usage_transitive() -> Result<(), Box<dyn std::error::Error>> {
         .assert()
         .success();
 
-    run_sysand_in(
-        &cwd,
-        ["experimental", "add", "--no-lock", "--dir", "deps/widget"],
-        None,
-    )?
-    .assert()
-    .success();
+    run_sysand_in(&cwd, ["add", "--no-lock", "--dir", "deps/widget"], None)?
+        .assert()
+        .success();
 
     run_sysand_in(
         &widget_dir,
-        ["experimental", "add", "--no-lock", "--dir", "../gadget"],
+        ["add", "--no-lock", "--dir", "../gadget"],
         None,
     )?
     .assert()
@@ -868,13 +876,9 @@ fn lock_directory_usage_env_installed_dependency() -> Result<(), Box<dyn std::er
     cli_init_project_in(&app_dir, None, "acme", Some("app"), Some("1.0.0"), None)?
         .assert()
         .success();
-    run_sysand_in(
-        &app_dir,
-        ["experimental", "add", "--no-lock", "--dir", "../widget"],
-        None,
-    )?
-    .assert()
-    .success();
+    run_sysand_in(&app_dir, ["add", "--no-lock", "--dir", "../widget"], None)?
+        .assert()
+        .success();
 
     // Add `app` as a usage of the consumer while the source tree still
     // exists: this resolves and installs both `app` and (transitively,
@@ -883,6 +887,7 @@ fn lock_directory_usage_env_installed_dependency() -> Result<(), Box<dyn std::er
         &cwd,
         [
             "add",
+            "--iri",
             "pkg:sysand/acme/app",
             "--as-local-src",
             "src/app",
@@ -943,6 +948,7 @@ fn lock_local_src_override_deleted() -> Result<(), Box<dyn std::error::Error>> {
         &cwd,
         [
             "add",
+            "--iri",
             "pkg:sysand/acme/app",
             "--as-local-src",
             "src/app",
@@ -969,6 +975,76 @@ fn lock_local_src_override_deleted() -> Result<(), Box<dyn std::error::Error>> {
             "no valid candidates found for project IRI `pkg:sysand/acme/app`",
         ));
     assert!(!cwd.join(DEFAULT_LOCKFILE_NAME).exists());
+
+    Ok(())
+}
+
+/// An invalid index URL is rejected at argument parsing, and the error
+/// must not echo the password, whether it came from a flag or an env var.
+#[test]
+fn lock_invalid_index_url_error_redacts_password() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic(
+        "a",
+        "lock_invalid_index_url_error_redacts_password",
+        "1.2.3",
+    )?;
+    out.assert().success();
+
+    run_sysand_in(
+        &cwd,
+        ["lock", "--index", "https://user:hunter2@example.org/"],
+        None,
+    )?
+    .assert()
+    .failure()
+    .stderr(contains("invalid value for '--index"))
+    .stderr(contains(
+        "`https://<redacted>@example.org/` includes username or password",
+    ))
+    .stderr(contains("hunter2").not());
+
+    run_sysand_in_with(
+        &cwd,
+        ["lock"],
+        None,
+        &IndexMap::from([("SYSAND_DEFAULT_INDEX", "https://user:hunter2@example.org/")]),
+    )?
+    .assert()
+    .failure()
+    .stderr(contains(
+        "invalid `SYSAND_DEFAULT_INDEX` environment variable: index URL `https://<redacted>@example.org/`",
+    ))
+    .stderr(contains("hunter2").not());
+
+    Ok(())
+}
+
+#[test]
+fn lock_empty_index_url_hints_at_a_stray_comma() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) =
+        cli_init_project_basic("a", "lock_empty_index_url_hints_at_a_stray_comma", "1.2.3")?;
+    out.assert().success();
+
+    run_sysand_in(&cwd, ["lock", "--index", "https://example.org,"], None)?
+        .assert()
+        .failure()
+        .stderr(contains("index URL is empty"))
+        .stderr(contains("hint: check for a stray `,`\n"));
+
+    run_sysand_in_with(
+        &cwd,
+        ["lock"],
+        None,
+        &IndexMap::from([("SYSAND_INDEX", "")]),
+    )?
+    .assert()
+    .failure()
+    .stderr(contains(
+        "invalid `SYSAND_INDEX` environment variable: index URL is empty",
+    ))
+    .stderr(contains(
+        "hint: check for a stray `,`, or for `SYSAND_INDEX` set to an empty value",
+    ));
 
     Ok(())
 }

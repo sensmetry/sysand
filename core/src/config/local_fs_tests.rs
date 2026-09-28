@@ -4,11 +4,17 @@
 use std::{error::Error, io::Write as _};
 
 use camino_tempfile::tempdir;
+use fluent_uri::Iri;
 
 use crate::{
     config::{Config, ConfigProject, Index, OverrideSource, local_fs},
+    index_location::IndexLocation,
     project::utils::wrapfs,
 };
+
+fn iri(iri: &str) -> Iri<String> {
+    Iri::parse(iri).unwrap().into()
+}
 
 #[test]
 fn load_configs() -> Result<(), Box<dyn Error>> {
@@ -16,10 +22,9 @@ fn load_configs() -> Result<(), Box<dyn Error>> {
     let config_path = dir.path().join(local_fs::CONFIG_FILE);
     let mut config_file = wrapfs::File::create(config_path)?;
     let config = Config {
-        indexes: vec![Index {
-            url: "http://www.example.com".to_owned(),
-            ..Default::default()
-        }],
+        indexes: vec![Index::new_url(
+            IndexLocation::parse("http://www.example.com").unwrap(),
+        )],
         projects: vec![],
         // auth: None,
     };
@@ -40,20 +45,18 @@ fn load_configs_merges_user_config_before_working_dir() -> Result<(), Box<dyn Er
     let user_dir = tempdir()?;
     let user_path = user_dir.path().join(local_fs::CONFIG_FILE);
     let user_config = Config {
-        indexes: vec![Index {
-            url: "http://user.example.com".to_owned(),
-            ..Default::default()
-        }],
+        indexes: vec![Index::new_url(
+            IndexLocation::parse("http://user.example.com").unwrap(),
+        )],
         projects: vec![],
     };
     wrapfs::write(&user_path, toml::to_string(&user_config)?)?;
 
     let working_dir = tempdir()?;
     let working_config = Config {
-        indexes: vec![Index {
-            url: "http://working.example.com".to_owned(),
-            ..Default::default()
-        }],
+        indexes: vec![Index::new_url(
+            IndexLocation::parse("http://working.example.com").unwrap(),
+        )],
         projects: vec![],
     };
     wrapfs::write(
@@ -74,17 +77,17 @@ fn load_configs_merges_user_config_before_working_dir() -> Result<(), Box<dyn Er
 fn add_project_source_to_config() -> Result<(), Box<dyn Error>> {
     let dir = tempdir()?;
     let config_path = dir.path().join(local_fs::CONFIG_FILE);
-    let iri = "urn:kpar:test";
+    let iri = iri("urn:kpar:test");
     let source = OverrideSource::LocalSrc {
         src_path: "local/test".into(),
     };
 
-    local_fs::add_project_source_to_config(&config_path, iri, &source)?;
+    local_fs::add_project_source_to_config(&config_path, iri.borrow(), &source)?;
 
     let config = Config {
         indexes: vec![],
         projects: vec![ConfigProject {
-            identifiers: vec![iri.to_owned()],
+            identifiers: vec![iri],
             sources: vec![source],
         }],
     };
@@ -102,20 +105,20 @@ fn remove_project_source_from_config() -> Result<(), Box<dyn Error>> {
     let dir = tempdir()?;
     let config_path = dir.path().join(local_fs::CONFIG_FILE);
     let mut config_file = wrapfs::File::create(&config_path)?;
-    let iri = "urn:kpar:test";
+    let iri = iri("urn:kpar:test");
     let source = OverrideSource::LocalSrc {
         src_path: "local/test".into(),
     };
     let config = Config {
         indexes: vec![],
         projects: vec![ConfigProject {
-            identifiers: vec![iri.to_owned()],
+            identifiers: vec![iri.clone()],
             sources: vec![source],
         }],
     };
     config_file.write_all(toml::to_string_pretty(&config)?.as_bytes())?;
 
-    local_fs::remove_project_source_from_config(&config_path, iri)?;
+    local_fs::remove_project_source_from_config(&config_path, iri.borrow())?;
 
     assert!(!config_path.is_file());
 

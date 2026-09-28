@@ -35,10 +35,9 @@ use sysand_core::{
 use typed_path::Utf8UnixPathBuf;
 
 use crate::{
-    DEFAULT_INDEX_URL,
     cli::{InstallOptions, ResolutionOptions},
     commands::sync::command_sync,
-    get_overrides,
+    default_index_location, get_overrides,
 };
 
 pub fn command_env<P: AsRef<Utf8Path>>(path: P) -> Result<LocalDirectoryEnvironment> {
@@ -95,7 +94,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
     let index_urls = if no_index {
         None
     } else {
-        Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_owned()], default_index)?)
+        Some(config.index_urls(index, vec![default_index_location()], default_index))
     };
 
     let overrides = get_overrides(
@@ -260,7 +259,7 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
     let index_urls = if no_index {
         None
     } else {
-        Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_owned()], default_index)?)
+        Some(config.index_urls(index, vec![default_index_location()], default_index))
     };
 
     let project_version = project

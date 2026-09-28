@@ -14,7 +14,7 @@
 //! The blob handling is generic over [`BlobBackend`] so the lock and
 //! fail-closed logic is testable without a real OS
 //! keyring, and so hosts can substitute backends (the CLI's debug-only
-//! test seam). The production backend, [`OsKeyringBackend`] (one keyring
+//! test seam). The production backend, `OsKeyringBackend` (one keyring
 //! entry: service `sysand`, account `credentials`), sits behind the
 //! `keyring` cargo feature; everything else here is unconditional.
 

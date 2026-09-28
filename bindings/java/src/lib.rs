@@ -105,6 +105,9 @@ fn init<'local>(
         Err(error) => {
             let e = format_err(&error);
             match error {
+                InitError::NameParse(..) | InitError::PublisherParse(..) => {
+                    env.throw_exception(ExceptionKind::InvalidValue, e)
+                }
                 InitError::SemVerParse(..) => {
                     env.throw_exception(ExceptionKind::InvalidSemanticVersion, e)
                 }

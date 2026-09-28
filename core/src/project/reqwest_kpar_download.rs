@@ -9,6 +9,7 @@ use std::{
 };
 
 use camino_tempfile::tempdir;
+use fluent_uri::Iri;
 use futures::AsyncRead;
 use sha2::{Digest as _, Sha256};
 use thiserror::Error;
@@ -361,7 +362,9 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestRemoteKparDownloade
             (actual_meta.size_bytes, actual_meta.sha256_hex.clone())
         };
         Ok(vec![Source::RemoteKpar {
-            remote_kpar: self.url.to_string(),
+            // Panic here should be impossible, as the URL should have
+            // been created from IRI
+            remote_kpar: Iri::parse(self.url.to_string()).unwrap(),
             kpar_size,
             kpar_digest,
         }])
@@ -578,7 +581,9 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestIndexKparDownloaded
 
     async fn sources_async(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         Ok(vec![Source::IndexKpar {
-            index_kpar: self.url.to_string(),
+            // Panic here should be impossible, as the URL should have
+            // been created from IRI
+            index_kpar: Iri::parse(self.url.to_string()).unwrap(),
             kpar_size: self.expected_size,
             kpar_digest: self.expected_kpar_sha256.clone(),
         }])

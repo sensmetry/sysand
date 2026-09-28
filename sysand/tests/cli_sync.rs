@@ -90,6 +90,7 @@ fn repeated_sync_keeps_lockfile_and_env_toml_stable() -> Result<(), Box<dyn std:
         [
             "add",
             "--no-lock",
+            "--iri",
             "urn:kpar:lock-sync-stable-dep",
             "--as-editable",
             dep_cwd.as_str(),
@@ -525,6 +526,7 @@ fn sync_env_toml_with_editable_and_non_editable() -> Result<(), Box<dyn std::err
         [
             "add",
             "--no-lock",
+            "--iri",
             "urn:kpar:sync-mixed-src",
             "--as-local-src",
             cwd_src.as_str(),
@@ -539,6 +541,7 @@ fn sync_env_toml_with_editable_and_non_editable() -> Result<(), Box<dyn std::err
         [
             "add",
             "--no-lock",
+            "--iri",
             "urn:kpar:sync-mixed-editable",
             "--as-editable",
             cwd_editable.as_str(),
@@ -638,25 +641,15 @@ fn sync_kpar_path_usage_transitive() -> Result<(), Box<dyn std::error::Error>> {
         .success();
     run_sysand_in(
         &widget_dir,
-        [
-            "experimental",
-            "add",
-            "--no-lock",
-            "--kpar-path",
-            "../gadget.kpar",
-        ],
+        ["add", "--no-lock", "--kpar-path", "../gadget.kpar"],
         None,
     )?
     .assert()
     .success();
 
-    run_sysand_in(
-        &cwd,
-        ["experimental", "add", "--no-lock", "--dir", "deps/widget"],
-        None,
-    )?
-    .assert()
-    .success();
+    run_sysand_in(&cwd, ["add", "--no-lock", "--dir", "deps/widget"], None)?
+        .assert()
+        .success();
 
     let out = run_sysand_in(&cwd, ["lock"], None)?;
     out.assert().success();
@@ -745,6 +738,7 @@ fn sync_prunes_unneeded_dependency_by_default() -> Result<(), Box<dyn std::error
         [
             "add",
             "--no-lock",
+            "--iri",
             "urn:kpar:prune-dep-keep",
             "--as-local-src",
             cwd_keep.as_str(),
@@ -759,6 +753,7 @@ fn sync_prunes_unneeded_dependency_by_default() -> Result<(), Box<dyn std::error
         [
             "add",
             "--no-lock",
+            "--iri",
             "urn:kpar:prune-dep-drop",
             "--as-local-src",
             cwd_drop.as_str(),
@@ -780,7 +775,7 @@ fn sync_prunes_unneeded_dependency_by_default() -> Result<(), Box<dyn std::error
     // longer lists it.
     run_sysand_in(
         &cwd,
-        ["remove", "--no-lock", "urn:kpar:prune-dep-drop"],
+        ["remove", "--no-lock", "--iri", "urn:kpar:prune-dep-drop"],
         cfg,
     )?
     .assert()
@@ -851,6 +846,7 @@ fn sync_no_prune_keeps_unneeded_dependency() -> Result<(), Box<dyn std::error::E
         [
             "add",
             "--no-lock",
+            "--iri",
             "urn:kpar:no-prune-dep-keep",
             "--as-local-src",
             cwd_keep.as_str(),
@@ -865,6 +861,7 @@ fn sync_no_prune_keeps_unneeded_dependency() -> Result<(), Box<dyn std::error::E
         [
             "add",
             "--no-lock",
+            "--iri",
             "urn:kpar:no-prune-dep-drop",
             "--as-local-src",
             cwd_drop.as_str(),
@@ -883,7 +880,7 @@ fn sync_no_prune_keeps_unneeded_dependency() -> Result<(), Box<dyn std::error::E
 
     run_sysand_in(
         &cwd,
-        ["remove", "--no-lock", "urn:kpar:no-prune-dep-drop"],
+        ["remove", "--no-lock", "--iri", "urn:kpar:no-prune-dep-drop"],
         cfg,
     )?
     .assert()

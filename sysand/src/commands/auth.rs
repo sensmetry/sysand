@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use anstream::println;
 use anyhow::{Context as _, Result, bail};
+use sysand_core::utils::format_err;
 use sysand_core::{
     auth::{GlobMapBuilder, StandardHTTPAuthentication, StandardHTTPAuthenticationBuilder},
     commands::auth::{
@@ -24,45 +25,80 @@ use sysand_core::{
 
 use jiff::Timestamp;
 
-use crate::{CliAuthPolicy, DEFAULT_INDEX_URL, credential_store::open_cli_credential_store};
+use crate::{CliAuthPolicy, credential_store::open_cli_credential_store, default_index_location};
 
 const KEYRING_LOCKED_HINT: &str = "unlock your OS keyring and retry, or provide credentials via\n\
      `SYSAND_CRED_*` environment variables";
 
+/// Why [`resolve_default_index`] found no single target.
+#[derive(Debug, thiserror::Error)]
+pub enum DefaultIndexError {
+    #[error(
+        "more than one default index is configured ({}); pass an explicit index URL",
+        .0.join(", ")
+    )]
+    Ambiguous(Vec<String>),
+    /// An entry of `SYSAND_DEFAULT_INDEX` is invalid. The entry itself is
+    /// not kept, as it may contain credentials; `reason` names it redacted.
+    #[error(
+        "invalid `SYSAND_DEFAULT_INDEX` environment variable: {reason}{}",
+        if *empty {
+            "\nhint: check for a stray `,`, or for `SYSAND_DEFAULT_INDEX` set to an empty value"
+        } else {
+            ""
+        }
+    )]
+    InvalidEnv {
+        empty: bool,
+        reason: AuthCommandError,
+    },
+}
+
 /// Resolve the single index a bare `sysand auth login` / `auth logout`
-/// targets: the `SYSAND_DEFAULT_INDEX` environment override
-/// (comma-delimited) when
-/// set, else a `default = true` index from configuration, else the
-/// built-in [`DEFAULT_INDEX_URL`]. If the consulted stage yields more
-/// than one distinct URL, the target is ambiguous and an explicit URL is
-/// required.
-pub fn resolve_default_index(config: &Config) -> Result<String> {
-    let env_override = std::env::var(crate::env_vars::SYSAND_DEFAULT_INDEX).ok();
-    let env_candidates: Vec<&str> = env_override
-        .as_deref()
-        .map(|raw| raw.split(',').filter(|url| !url.is_empty()).collect())
+/// / `auth whoami` targets: the `SYSAND_DEFAULT_INDEX` environment
+/// override (comma-delimited) when set, else a `default = true` index
+/// from configuration, else the built-in [`default_index_location`]. If
+/// the consulted stage yields more than one distinct index, the target is
+/// ambiguous and an explicit URL is required.
+///
+/// The variable is read here rather than through clap, as the `auth`
+/// commands have no `--default-index` option.
+pub fn resolve_default_index(config: &Config) -> Result<IndexKey, DefaultIndexError> {
+    let env_candidates: Vec<IndexKey> = std::env::var(crate::env_vars::SYSAND_DEFAULT_INDEX)
+        .ok()
+        .map(|raw| {
+            raw.split(',')
+                .map(|entry| {
+                    IndexKey::validate(entry).map_err(|reason| DefaultIndexError::InvalidEnv {
+                        empty: entry.is_empty(),
+                        reason,
+                    })
+                })
+                .collect::<Result<_, _>>()
+        })
+        .transpose()?
         .unwrap_or_default();
-    let mut candidates: Vec<&str> = if env_candidates.is_empty() {
+    let mut candidates: Vec<IndexKey> = if env_candidates.is_empty() {
         config
-            .indexes
-            .iter()
-            .filter(|index| index.default.unwrap_or(false))
-            .map(|index| index.url.as_str())
+            .default_index_locations()
+            .into_iter()
+            .map(IndexKey::from)
             .collect()
     } else {
         env_candidates
     };
-    // Exact duplicates of one URL are still a single target.
+    // Spellings of one normalized key are still a single target.
     let mut seen = std::collections::HashSet::new();
-    candidates.retain(|url| seen.insert(*url));
+    candidates.retain(|key| seen.insert(key.as_str().to_owned()));
 
-    match candidates.as_slice() {
-        [] => Ok(DEFAULT_INDEX_URL.to_owned()),
-        [single] => Ok((*single).to_owned()),
-        many => bail!(
-            "more than one default index is configured ({}); pass an explicit index URL",
-            many.join(", ")
-        ),
+    if candidates.len() > 1 {
+        return Err(DefaultIndexError::Ambiguous(
+            candidates.iter().map(IndexKey::to_string).collect(),
+        ));
+    }
+    match candidates.pop() {
+        Some(key) => Ok(key),
+        None => Ok(default_index_location().into()),
     }
 }
 
@@ -141,25 +177,23 @@ fn render_login_notice(notice: AuthLoginNotice, index_key: &str) {
 }
 
 pub fn command_auth_login(
-    index_url: Option<String>,
+    index_url: Option<IndexKey>,
     token_stdin: bool,
     config: &Config,
     client: &reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
-    let target = match index_url {
-        Some(url) => url,
+    // Resolve before any secret entry, so an ambiguous default fails
+    // without prompting
+    let key = match index_url {
+        Some(key) => key,
         None => resolve_default_index(config)?,
     };
-    // Validate and normalize before any secret entry, so a `file://` or
-    // unanchorable-template target fails without prompting. This is the
-    // one validation; core takes the resulting `IndexKey` as proof.
-    let key = IndexKey::validate(&target)?;
     // Echo the resolved index before reading the secret, on both the
     // prompt and the stdin path, so a project-configured default cannot
     // be targeted silently.
-    // Printed, not logged: `--quiet` must not hide it.
     let header = sysand_core::style::get_style_config().header;
+    // Print to ignore log levels
     println!("{header}{:>12}{header:#} to index `{key}`", "Logging in");
 
     // An `http` index sends the token in cleartext, and a MITM at login
@@ -339,26 +373,18 @@ fn cred_env_var_stem(key: &str) -> String {
     stem
 }
 
-pub fn command_auth_logout(index_url: Option<String>, config: &Config) -> Result<()> {
-    let target = match index_url {
-        Some(url) => url,
+pub fn command_auth_logout(index_url: Option<IndexKey>, config: &Config) -> Result<()> {
+    let key = match index_url {
+        Some(key) => key,
         None => resolve_default_index(config)?,
     };
-    // Echo the resolved index (normalized to the stored-key form when
-    // possible) so a configured default cannot be targeted silently.
-    // Printed, not logged: `--quiet` must not hide it.
-    let validated = IndexKey::validate(&target);
-    let echo = validated.as_ref().map_or(target.as_str(), IndexKey::as_str);
+    // Echo the resolved index (in the stored-key form) so a configured
+    // default cannot be targeted silently.
     let header = sysand_core::style::get_style_config().header;
-    println!(
-        "{header}{:>12}{header:#} from index `{echo}`",
-        "Logging out"
-    );
+    // Print to ignore log levels
+    println!("{header}{:>12}{header:#} from index `{key}`", "Logging out");
 
     let mut store = open_cli_credential_store().context("could not open the credential store")?;
-    // The one validation for this command; an invalid target surfaces
-    // here, after the echo, as it did when core validated it.
-    let key = validated?;
     match do_auth_logout(&mut store, &key) {
         Ok(key) => {
             log::info!(
@@ -389,20 +415,27 @@ pub fn command_auth_logout(index_url: Option<String>, config: &Config) -> Result
 }
 
 pub fn command_auth_status(config: &Config) -> Result<()> {
-    // Status is diagnostic, so default-index resolution is lenient: an
-    // ambiguous chain gets a note instead of the hard error bare
-    // `login`/`logout` raise, and an invalid default simply marks nothing.
-    let default_key = if let Ok(url) = resolve_default_index(config) {
-        IndexKey::validate(&url).ok()
-    } else {
-        // `resolve_default_index` errors only on an ambiguous chain
-        // (more than one distinct default index).
-        let note = sysand_core::style::get_style_config().note;
-        println!(
-            "{note}note:{note:#} more than one default index is configured; no entry\n\
-             is marked as the default index"
-        );
-        None
+    // Status is diagnostic and marking the default index is not critical,
+    // so default-index resolution is lenient: an ambiguous chain gets a
+    // note instead of the hard error bare `login`/`logout` raise, and an
+    // invalid default gets a warning and marks nothing.
+    let default_key = match resolve_default_index(config) {
+        Ok(key) => Some(key),
+        Err(DefaultIndexError::Ambiguous(_)) => {
+            let note = sysand_core::style::get_style_config().note;
+            println!(
+                "{note}note:{note:#} more than one default index is configured; no entry\n\
+                 is marked as the default index"
+            );
+            None
+        }
+        Err(e @ DefaultIndexError::InvalidEnv { .. }) => {
+            log::warn!(
+                "ignoring invalid default index configuration: {}",
+                format_err(e)
+            );
+            None
+        }
     };
     let default_key = default_key.as_ref().map(IndexKey::as_str);
     let env = collect_env_credential_entries()?;
@@ -621,20 +654,19 @@ fn lenient_env_auth_policy() -> Result<StandardHTTPAuthentication> {
 }
 
 pub fn command_auth_whoami(
-    index_url: Option<String>,
+    index_url: Option<IndexKey>,
     config: &Config,
     client: &reqwest_middleware::ClientWithMiddleware,
     runtime: &tokio::runtime::Runtime,
 ) -> Result<()> {
-    let target = match index_url {
-        Some(url) => url,
+    // Validate before any store or network access, and echo the resolved
+    // index so a configured default cannot be targeted silently
+    let key = match index_url {
+        Some(key) => key,
         None => resolve_default_index(config)?,
     };
-    // Validate before any store or network access, and echo the resolved
-    // index so a configured default cannot be targeted silently. Printed,
-    // not logged: `--quiet` must not hide it.
-    let key = IndexKey::validate(&target)?;
     let header = sysand_core::style::get_style_config().header;
+    // Print to ignore log levels
     println!(
         "{header}{:>12}{header:#} identity on index `{key}`",
         "Checking"
@@ -645,8 +677,8 @@ pub fn command_auth_whoami(
         .publish_bearer_auth_map()
         .context("could not compile `SYSAND_CRED_*` URL patterns")?;
     // One store read serves both the discovery fetch and credential
-    // selection (at most one keychain touch per command); on a locked
-    // keyring this is the single unlock prompt.
+    // selection (at most one keychain touch per command); this is
+    // important to minimize, as each read may trigger a user prompt
     let store = open_cli_credential_store().context("could not open the credential store")?;
     let records = match store.list() {
         Ok(records) => records,

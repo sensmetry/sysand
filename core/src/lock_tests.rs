@@ -13,11 +13,15 @@ use typed_path::Utf8UnixPathBuf;
 use crate::utils::format_err;
 use crate::{
     lock::{
-        CURRENT_LOCK_VERSION, LOCKFILE_PREFIX, Lock, Project, Source, Usage, ValidationError,
-        VersionError, check_lock_version,
+        CURRENT_LOCK_VERSION, LOCKFILE_PREFIX, Lock, Project, RemoveUsageOutcome, Source, Usage,
+        ValidationError, VersionError, check_lock_version,
     },
     project::ProjectChecksum,
 };
+
+fn iri(iri: &str) -> Iri<String> {
+    Iri::parse(iri).unwrap().into()
+}
 
 #[test]
 fn check_current_lock_version() {
@@ -333,24 +337,24 @@ fn many_sources_to_toml() {
                         .to_owned(),
                 },
                 Source::RemoteKpar {
-                    remote_kpar: "www.example.com/remote.kpar".to_owned(),
+                    remote_kpar: iri("https://www.example.com/remote.kpar"),
                     kpar_size: NonZeroU64::new(64).unwrap(),
                     kpar_digest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                         .to_owned(),
                 },
                 Source::IndexKpar {
-                    index_kpar: "www.example.com/index.kpar".to_owned(),
+                    index_kpar: iri("https://www.example.com/index.kpar"),
                     kpar_size: NonZeroU64::new(128).unwrap(),
                     kpar_digest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                         .to_owned(),
                 },
                 Source::RemoteSrc {
-                    remote_src: "www.example.com/remote".to_owned(),
+                    remote_src: iri("https://www.example.com/remote"),
                     checksum: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                         .to_owned(),
                 },
                 Source::RemoteGit {
-                    remote_git: "github.com/example/remote.git".to_owned(),
+                    remote_git: iri("https://github.com/example/remote.git"),
                 },
             ],
         }],
@@ -362,10 +366,10 @@ sources = [
     { editable = "example/path" },
     { kpar_path = "example.kpar", kpar_size = 64, kpar_digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
     { src_path = "example/path", checksum = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
-    { remote_kpar = "www.example.com/remote.kpar", kpar_size = 64, kpar_digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
-    { index_kpar = "www.example.com/index.kpar", kpar_size = 128, kpar_digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
-    { remote_src = "www.example.com/remote", checksum = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
-    { remote_git = "github.com/example/remote.git" },
+    { remote_kpar = "https://www.example.com/remote.kpar", kpar_size = 64, kpar_digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    { index_kpar = "https://www.example.com/index.kpar", kpar_size = 128, kpar_digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    { remote_src = "https://www.example.com/remote", checksum = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    { remote_git = "https://github.com/example/remote.git" },
 ]
 "#,
     );
@@ -715,7 +719,7 @@ fn validate_checksum_invalid_digest_all_source_types() {
         (
             "RemoteSrc",
             Source::RemoteSrc {
-                remote_src: "https://example.com/src".to_owned(),
+                remote_src: iri("https://example.com/src"),
                 checksum: INVALID.to_owned(),
             },
         ),
@@ -730,7 +734,7 @@ fn validate_checksum_invalid_digest_all_source_types() {
         (
             "RemoteKpar",
             Source::RemoteKpar {
-                remote_kpar: "https://example.com/project.kpar".to_owned(),
+                remote_kpar: iri("https://example.com/project.kpar"),
                 kpar_size: NonZeroU64::new(1).unwrap(),
                 kpar_digest: INVALID.to_owned(),
             },
@@ -738,7 +742,7 @@ fn validate_checksum_invalid_digest_all_source_types() {
         (
             "IndexKpar",
             Source::IndexKpar {
-                index_kpar: "https://example.com/indexed.kpar".to_owned(),
+                index_kpar: iri("https://example.com/indexed.kpar"),
                 kpar_size: NonZeroU64::new(1).unwrap(),
                 kpar_digest: INVALID.to_owned(),
             },
@@ -783,7 +787,7 @@ fn validate_kpar_digest_rejects_uppercase() {
             identifiers: vec!["urn:kpar:indexed".to_owned()],
             usages: vec![],
             sources: vec![Source::IndexKpar {
-                index_kpar: "https://example.com/indexed.kpar".to_owned(),
+                index_kpar: iri("https://example.com/indexed.kpar"),
                 kpar_size: std::num::NonZeroU64::new(123).unwrap(),
                 kpar_digest: invalid_digest.to_owned(),
             }],
@@ -999,7 +1003,7 @@ fn canonicalize_checksums() {
                     checksum: MIXED.to_owned(),
                 },
                 Source::RemoteSrc {
-                    remote_src: "https://example.com/src".to_owned(),
+                    remote_src: iri("https://example.com/src"),
                     checksum: MIXED.to_owned(),
                 },
                 Source::LocalKpar {
@@ -1008,12 +1012,12 @@ fn canonicalize_checksums() {
                     kpar_digest: MIXED.to_owned(),
                 },
                 Source::RemoteKpar {
-                    remote_kpar: "https://example.com/project.kpar".to_owned(),
+                    remote_kpar: iri("https://example.com/project.kpar"),
                     kpar_size: NonZeroU64::new(1).unwrap(),
                     kpar_digest: MIXED.to_owned(),
                 },
                 Source::IndexKpar {
-                    index_kpar: "https://example.com/indexed.kpar".to_owned(),
+                    index_kpar: iri("https://example.com/indexed.kpar"),
                     kpar_size: NonZeroU64::new(1).unwrap(),
                     kpar_digest: MIXED.to_owned(),
                 },
@@ -1021,7 +1025,7 @@ fn canonicalize_checksums() {
                     editable: Utf8UnixPathBuf::from("editable/path"),
                 },
                 Source::RemoteGit {
-                    remote_git: "https://github.com/example/example.git".to_owned(),
+                    remote_git: iri("https://github.com/example/example.git"),
                 },
             ],
         }],
@@ -1205,7 +1209,7 @@ fn source_to_checksum_editable_is_none() {
 #[test]
 fn source_to_checksum_remote_git_is_none() {
     let source = Source::RemoteGit {
-        remote_git: "https://github.com/example/example.git".to_owned(),
+        remote_git: iri("https://github.com/example/example.git"),
     };
     assert!(source.to_checksum().is_none());
 }
@@ -1227,7 +1231,7 @@ fn source_to_checksum_local_src_is_project_variant() {
 fn source_to_checksum_remote_src_is_project_variant() {
     let checksum = "b".repeat(64);
     let source = Source::RemoteSrc {
-        remote_src: "https://example.com/src".to_owned(),
+        remote_src: iri("https://example.com/src"),
         checksum: checksum.clone(),
     };
     assert_eq!(
@@ -1251,7 +1255,7 @@ fn source_to_checksum_local_kpar_is_kpar_variant() {
 fn source_to_checksum_remote_kpar_is_kpar_variant() {
     let digest = "d".repeat(64);
     let source = Source::RemoteKpar {
-        remote_kpar: "https://example.com/project.kpar".to_owned(),
+        remote_kpar: iri("https://example.com/project.kpar"),
         kpar_size: NonZeroU64::new(1).unwrap(),
         kpar_digest: digest.clone(),
     };
@@ -1262,7 +1266,7 @@ fn source_to_checksum_remote_kpar_is_kpar_variant() {
 fn source_to_checksum_index_kpar_is_kpar_variant() {
     let digest = "e".repeat(64);
     let source = Source::IndexKpar {
-        index_kpar: "https://example.com/indexed.kpar".to_owned(),
+        index_kpar: iri("https://example.com/indexed.kpar"),
         kpar_size: NonZeroU64::new(1).unwrap(),
         kpar_digest: digest.clone(),
     };
@@ -1326,7 +1330,7 @@ fn dep_project(name: &str, identifier: &str, usages: &[&str]) -> Project {
             .map(|u| Usage::from_str_unchecked(u))
             .collect(),
         sources: vec![Source::RemoteGit {
-            remote_git: format!("https://example.com/{name}.git"),
+            remote_git: iri(&format!("https://example.com/{name}.git")),
         }],
     }
 }
@@ -1367,7 +1371,7 @@ fn is_root_false_for_parent_relative_editable() {
 #[test]
 fn is_root_false_for_non_editable_source() {
     let project = project_with_sources(vec![Source::RemoteGit {
-        remote_git: "https://example.com/foo.git".to_owned(),
+        remote_git: iri("https://example.com/foo.git"),
     }]);
     assert!(!Lock::is_root(&project));
 }
@@ -1379,7 +1383,7 @@ fn is_root_false_for_multiple_sources() {
             editable: Utf8UnixPathBuf::from("."),
         },
         Source::RemoteGit {
-            remote_git: "https://example.com/foo.git".to_owned(),
+            remote_git: iri("https://example.com/foo.git"),
         },
     ]);
     assert!(!Lock::is_root(&project));
@@ -1401,9 +1405,11 @@ fn remove_usage_prunes_unreachable_dependency() {
         ],
     };
 
-    let removed = lock
-        .remove_usage(Some("me"), "root", "urn:dep")
-        .expect("root project should be found");
+    let RemoveUsageOutcome::Removed { pruned: removed } =
+        lock.remove_usage(Some("me"), "root", "urn:dep")
+    else {
+        panic!("usage should be removed");
+    };
 
     assert_eq!(project_names(&lock), vec!["root".to_owned()]);
     assert_eq!(lock.projects[0].usages, []);
@@ -1412,7 +1418,7 @@ fn remove_usage_prunes_unreachable_dependency() {
 }
 
 #[test]
-fn remove_usage_returns_none_when_root_not_found() {
+fn remove_usage_reports_root_not_found() {
     let mut lock = Lock {
         lock_version: CURRENT_LOCK_VERSION.to_owned(),
         projects: vec![
@@ -1421,9 +1427,9 @@ fn remove_usage_returns_none_when_root_not_found() {
         ],
     };
 
-    let removed = lock.remove_usage(Some("someone-else"), "root", "urn:dep");
+    let outcome = lock.remove_usage(Some("someone-else"), "root", "urn:dep");
 
-    assert_eq!(removed, None);
+    assert_eq!(outcome, RemoveUsageOutcome::RootNotFound);
     assert_eq!(
         project_names(&lock),
         vec!["dep".to_owned(), "root".to_owned()]
@@ -1432,7 +1438,7 @@ fn remove_usage_returns_none_when_root_not_found() {
 }
 
 #[test]
-fn remove_usage_returns_empty_when_usage_not_present() {
+fn remove_usage_reports_usage_not_present() {
     let mut lock = Lock {
         lock_version: CURRENT_LOCK_VERSION.to_owned(),
         projects: vec![
@@ -1441,9 +1447,9 @@ fn remove_usage_returns_empty_when_usage_not_present() {
         ],
     };
 
-    let removed = lock.remove_usage(Some("me"), "root", "urn:other");
+    let outcome = lock.remove_usage(Some("me"), "root", "urn:other");
 
-    assert_eq!(removed, Some(Vec::new()));
+    assert_eq!(outcome, RemoveUsageOutcome::UsageNotFound);
     assert_eq!(
         project_names(&lock),
         vec!["dep".to_owned(), "root".to_owned()]
@@ -1464,15 +1470,19 @@ fn remove_usage_keeps_dependency_needed_by_sibling_root() {
         ],
     };
 
-    let removed = lock
-        .remove_usage(Some("me"), "app", "urn:shared")
-        .expect("root project should be found");
+    let RemoveUsageOutcome::Removed { pruned: removed } =
+        lock.remove_usage(Some("me"), "app", "urn:shared")
+    else {
+        panic!("usage should be removed");
+    };
 
     assert!(removed.is_empty(), "removed = {removed:?}");
     assert_eq!(
         project_names(&lock),
         vec!["app".to_owned(), "lib".to_owned(), "shared".to_owned()]
     );
+    let app = lock.projects.iter().find(|p| p.name == "app").unwrap();
+    assert_eq!(app.usages, []);
 }
 
 #[test]
@@ -1488,9 +1498,11 @@ fn remove_usage_prunes_transitive_chain() {
         ],
     };
 
-    let removed = lock
-        .remove_usage(Some("me"), "root", "urn:b")
-        .expect("root project should be found");
+    let RemoveUsageOutcome::Removed { pruned: removed } =
+        lock.remove_usage(Some("me"), "root", "urn:b")
+    else {
+        panic!("usage should be removed");
+    };
 
     assert_eq!(project_names(&lock), vec!["root".to_owned()]);
     let mut removed_names: Vec<_> = removed.iter().map(|p| p.name.clone()).collect();
@@ -1514,9 +1526,11 @@ fn remove_usage_keeps_sibling_usage_and_its_own_subtree() {
         ],
     };
 
-    let removed = lock
-        .remove_usage(Some("me"), "root", "urn:b")
-        .expect("root project should be found");
+    let RemoveUsageOutcome::Removed { pruned: removed } =
+        lock.remove_usage(Some("me"), "root", "urn:b")
+    else {
+        panic!("usage should be removed");
+    };
 
     let mut removed_names: Vec<_> = removed.iter().map(|p| p.name.clone()).collect();
     removed_names.sort();

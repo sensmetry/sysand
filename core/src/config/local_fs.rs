@@ -4,6 +4,7 @@
 use std::{fs, io::ErrorKind, str::FromStr as _};
 
 use camino::{Utf8Path, Utf8PathBuf};
+use fluent_uri::Iri;
 use thiserror::Error;
 use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, Value};
 
@@ -79,9 +80,9 @@ pub enum ConfigProjectSourceError {
     InvalidProjects(String),
 }
 
-pub fn add_project_source_to_config<P: AsRef<Utf8Path>, S: AsRef<str>>(
+pub fn add_project_source_to_config<P: AsRef<Utf8Path>>(
     config_path: P,
-    iri: S,
+    iri: Iri<&str>,
     source: &OverrideSource,
 ) -> Result<(), ConfigProjectSourceError> {
     let config_path = config_path.as_ref();
@@ -145,9 +146,9 @@ pub fn add_project_source_to_config<P: AsRef<Utf8Path>, S: AsRef<str>>(
     Ok(())
 }
 
-pub fn remove_project_source_from_config<P: AsRef<Utf8Path>, S: AsRef<str>>(
+pub fn remove_project_source_from_config<P: AsRef<Utf8Path>>(
     config_path: P,
-    iri: S,
+    iri: Iri<&str>,
 ) -> Result<bool, ConfigProjectSourceError> {
     let config_path = config_path.as_ref();
     let contents = match wrapfs::metadata(config_path) {

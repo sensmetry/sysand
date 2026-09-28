@@ -4,7 +4,9 @@
 use indexmap::IndexMap;
 
 use crate::{
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    model::{
+        InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, ProjectName, ProjectPublisher,
+    },
     utils::lowercase_hex,
 };
 
@@ -56,4 +58,50 @@ fn json_hash_agrees_with_shell() {
         lowercase_hex(super::project_hash_raw(&info, &meta)),
         "3b08c7119d89c406de6bdfbed29566077209d295736264229ad5d2e33991b3b4"
     );
+}
+
+/// Inputs rejected by both `ProjectPublisher::parse` and `ProjectName::parse`,
+/// with the expected message suffix (after `publisher `/`name `)
+const INVALID_PUBLISHERS_NAMES: &[(&str, &str)] = &[
+    ("", "cannot be empty"),
+    ("a/b", "cannot contain `/`"),
+    ("a:b", "cannot contain `:`"),
+    ("a\tb", "cannot contain control characters"),
+    ("a\nb", "cannot contain control characters"),
+    ("a\0b", "cannot contain control characters"),
+    ("a\u{7f}b", "cannot contain control characters"),
+];
+
+const VALID_PUBLISHERS_NAMES: &[&str] = &["a", "Acme Labs", "my.project-1_x", "Ąžuolas", " a "];
+
+#[test]
+fn project_publisher_parse() {
+    for &valid in VALID_PUBLISHERS_NAMES {
+        let publisher = ProjectPublisher::parse(valid.to_owned()).unwrap();
+        assert_eq!(publisher.as_str(), valid);
+        assert_eq!(publisher.into_string(), valid);
+    }
+    for &(invalid, msg) in INVALID_PUBLISHERS_NAMES {
+        assert_eq!(
+            ProjectPublisher::parse(invalid.to_owned()),
+            Err((invalid.to_owned(), format!("publisher {msg}").as_str())),
+            "input: {invalid:?}"
+        );
+    }
+}
+
+#[test]
+fn project_name_parse() {
+    for &valid in VALID_PUBLISHERS_NAMES {
+        let name = ProjectName::parse(valid.to_owned()).unwrap();
+        assert_eq!(name.as_str(), valid);
+        assert_eq!(name.into_string(), valid);
+    }
+    for &(invalid, msg) in INVALID_PUBLISHERS_NAMES {
+        assert_eq!(
+            ProjectName::parse(invalid.to_owned()),
+            Err((invalid.to_owned(), format!("name {msg}").as_str())),
+            "input: {invalid:?}"
+        );
+    }
 }

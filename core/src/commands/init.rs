@@ -8,7 +8,7 @@ use spdx;
 
 use crate::{
     env::utils::ErrorBound,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadata},
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadata, ProjectName, ProjectPublisher},
     project::{ProjectMut, memory::InMemoryProject},
 };
 
@@ -19,6 +19,10 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum InitError<ProjectError: ErrorBound> {
+    #[error("invalid project name `{0}`: {1}")]
+    NameParse(String, &'static str),
+    #[error("invalid project publisher `{0}`: {1}")]
+    PublisherParse(String, &'static str),
     #[error("failed to parse `{0}` as a Semantic Version: {1}")]
     SemVerParse(Box<str>, semver::Error),
     #[error(transparent)]
@@ -28,20 +32,23 @@ pub enum InitError<ProjectError: ErrorBound> {
 }
 
 pub fn do_init<P: ProjectMut>(
-    name: String,
-    publisher: String,
+    name: ProjectName,
+    publisher: ProjectPublisher,
     version: Version,
     license: Option<spdx::Expression>,
     storage: &mut P,
 ) -> Result<(), InitError<P::Error>> {
     let creating = "Creating";
     let header = crate::style::get_style_config().header;
-    log::info!("{header}{creating:>12}{header:#} interchange project `{name}`");
+    log::info!(
+        "{header}{creating:>12}{header:#} interchange project `{}`",
+        name.as_str()
+    );
 
     storage.put_project(
         &InterchangeProjectInfoRaw {
-            name,
-            publisher: Some(publisher),
+            name: name.into_string(),
+            publisher: Some(publisher.into_string()),
             description: None,
             version: version.to_string(),
             license: license.map(|l| l.to_string()),
@@ -73,6 +80,9 @@ pub fn do_init_parse<P: ProjectMut>(
     license: Option<String>,
     storage: &mut P,
 ) -> Result<(), InitError<P::Error>> {
+    let name = ProjectName::parse(name).map_err(|(name, e)| InitError::NameParse(name, e))?;
+    let publisher = ProjectPublisher::parse(publisher)
+        .map_err(|(publisher, e)| InitError::PublisherParse(publisher, e))?;
     let version =
         Version::parse(&version).map_err(|e| InitError::SemVerParse(version.as_str().into(), e))?;
     let license = if let Some(l) = license {

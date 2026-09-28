@@ -8,15 +8,18 @@ use std::{
 };
 
 use camino::Utf8PathBuf;
-use clap::{ValueEnum, builder::StyledStr, crate_authors};
+use clap::{ValueEnum, builder::StyledStr, crate_authors, parser::ValueSource};
 use fluent_uri::Iri;
 use semver::{Version, VersionReq};
 use sysand_core::{
     add::expand_sysand_purl_shorthand,
     build::KparCompressionMethod,
-    commands::sources::Dependencies as CoreDependencies,
+    commands::{auth::IndexKey, sources::Dependencies as CoreDependencies},
     index_location::IndexLocation,
-    model::{KERML_SPEC_PREFIX, LICENSE_EXPRESSION_HELP, SYSML_SPEC_PREFIX},
+    model::{
+        KERML_SPEC_PREFIX, LICENSE_EXPRESSION_HELP, ProjectName, ProjectPublisher,
+        SYSML_SPEC_PREFIX,
+    },
 };
 
 use crate::env_vars;
@@ -66,16 +69,16 @@ pub enum Command {
     /// Create a new project
     Init {
         /// The path to use for the project. Defaults to current directory
-        path: Option<String>,
+        path: Option<Utf8PathBuf>,
         /// The name of the project. Defaults to the directory name
-        #[arg(long)]
-        name: Option<String>,
+        #[arg(long, value_parser = parse_project_name)]
+        name: Option<ProjectName>,
         /// The publisher of the project. Should be the person/team/organization
         /// developing the project. It is (together with name) used
         /// to uniquely refer to a project by other projects when added as a
         /// usage (dependency)
-        #[arg(long, verbatim_doc_comment)]
-        publisher: String,
+        #[arg(long, value_parser = parse_project_publisher, verbatim_doc_comment)]
+        publisher: ProjectPublisher,
         /// Set the version in SemVer 2.0 format. Defaults to `0.0.1`
         #[arg(long)]
         version: Option<Version>,
@@ -105,7 +108,7 @@ pub enum Command {
         /// Version constraints use same syntax as Rust's Cargo.
         /// Examples: `1.2.3`, `<2`, `>=3`. For details, see the user
         /// guide's `Project information and metadata` section
-        #[clap(verbatim_doc_comment)]
+        #[clap(long, verbatim_doc_comment)]
         version_constraint: Option<VersionReq>,
 
         #[clap(flatten)]
@@ -212,7 +215,7 @@ pub enum Command {
         /// Configured index URL to publish to (e.g. https://sysand.com)
         /// The index must advertise a publish endpoint: its
         /// sysand-index-config.json must set `api_root`
-        #[arg(long, value_name = "URL", verbatim_doc_comment)]
+        #[arg(long, value_name = "URL", verbatim_doc_comment, value_parser = IndexLocationParser)]
         index: IndexLocation,
 
         /// How to use CI trusted publishing for acquiring publish credentials
@@ -292,37 +295,10 @@ pub enum Command {
     /// Prints the root directory of the current project
     PrintRoot,
     /// Experimental commands. Likely to change in incompatible ways or be
-    /// removed in the future.
-    #[clap(verbatim_doc_comment)]
+    /// removed in the future. Currently no experimental commands are included
+    #[clap(hide = true, verbatim_doc_comment)]
     Experimental {
-        #[command(subcommand)]
-        subcommand: ExpCommand,
-    },
-}
-
-#[derive(clap::Subcommand, Debug, Clone)]
-pub enum ExpCommand {
-    /// Add a usage
-    Add {
-        #[clap(flatten)]
-        locator: ExpAddProjectLocatorArgs,
-
-        #[clap(flatten)]
-        sync: LockSyncPrune,
-
-        #[command(flatten)]
-        resolution_opts: ResolutionOptions,
-    },
-    /// Remove a usage
-    Remove {
-        publisher: String,
-        name: String,
-
-        #[clap(flatten)]
-        sync: LockSyncPrune,
-
-        #[command(flatten)]
-        resolution_opts: ResolutionOptions,
+        // Kept as a placeholder only for future experimental commands
     },
 }
 
@@ -348,67 +324,93 @@ pub struct LockSyncPrune {
 
 #[derive(clap::Args, Debug, Clone)]
 #[group(required = true, multiple = false)]
-pub struct ExpAddProjectLocatorArgs {
+pub struct AddProjectLocatorArgs {
+    /// Project identifier of the form `<publisher>/<name>`. `<publisher`
+    /// and `<name>` can either exactly match those of the project being
+    /// added, or use lowercase letters only and replace spaces with `-`
+    /// Currently a failing placeholder, in the future will allow adding
+    /// index usages
+    #[clap(
+        default_value = None,
+        value_name = "IDENTIFIER",
+        value_parser = parse_project_identifier,
+        verbatim_doc_comment,
+        // conflict with iri/iri_path is currently a no-op, as multiple=false;
+        // this is for the future when `--identifier` will be usable with
+        // `--dir` and other types, but not `--iri`
+        conflicts_with_all = ["source", "iri", "iri_path", "version_constraint"]
+    )]
+    pub identifier: Option<(ProjectPublisher, ProjectName)>,
     /// Add a project from a given directory path. Path can be relative
     /// or absolute
-    #[arg(long, verbatim_doc_comment)]
+    #[arg(long, verbatim_doc_comment,
+        conflicts_with_all = ["source", "iri", "iri_path", "version_constraint"])]
     pub dir: Option<Utf8PathBuf>,
     /// Add a project from a KPAR at a given path. Path can be relative
     /// or absolute
-    #[arg(long, verbatim_doc_comment)]
+    #[arg(long, verbatim_doc_comment,
+        conflicts_with_all = ["source", "iri", "iri_path", "version_constraint"])]
     pub kpar_path: Option<Utf8PathBuf>,
-}
-
-#[derive(clap::Args, Debug, Clone)]
-#[group(required = true, multiple = false)]
-pub struct AddProjectLocatorArgs {
-    /// IRI/URI/URL identifying the project to be used, or
-    /// `<publisher>/<name>` shorthand for `pkg:sysand/<publisher>/<name>`.
-    /// Paths must use `--path`
+    /// IRI/URI/URL identifying the project to be used. Use `--iri-path`
+    /// for paths.
+    /// Where possible, consider using `--dir` or `--kpar-path`. They
+    /// explicitly identify the project separately from how it is
+    /// obtained
     #[clap(
+        long,
         default_value = None,
-        value_parser = parse_usage_locator_suggest_path,
+        value_parser = parse_add_usage_locator,
         verbatim_doc_comment
     )]
     pub iri: Option<Iri<String>>,
-    /// Path to the project to be added. Since every usage is identified by an
-    /// IRI, `file://` URL will be used to refer to the project.
+    /// Path to the project to be added, after converting to a `file://` IRI.
     ///
     /// Deprecation notice: using this flag makes the project not portable
     /// between different computers, as `file://` URL always contains an
-    /// absolute path. `sysand experimental add --dir` records a relative path
-    /// and, therefore, will replace this flag as soon as it gets stable.
+    /// absolute path. Use `--dir` or `--kpar-path` to record a relative
+    /// path instead.
     /// Currently, this flag is still necessary when the usage is on another
     /// drive (on Windows only) because this flag allows pointing to it, unlike
-    /// `sysand experimental add`, which currently forbids absolute paths
+    /// `--dir`/`--kpar-path`, which currently forbid absolute paths
     #[arg(
         long,
         default_value = None,
-        verbatim_doc_comment
+        verbatim_doc_comment,
+        conflicts_with = "iri"
     )]
-    pub path: Option<Utf8PathBuf>,
+    pub iri_path: Option<Utf8PathBuf>,
 }
 
 #[derive(clap::Args, Debug, Clone)]
 #[group(required = true, multiple = false)]
 pub struct RemoveProjectLocatorArgs {
-    /// IRI identifying the project usage to be removed, or
-    /// `<publisher>/<name>` shorthand for `pkg:sysand/<publisher>/<name>`.
-    /// Paths must use `--path`
+    /// Project identifier of the form `<publisher>/<name>`. `<publisher`
+    /// and `<name>` can either exactly match those of the project being
+    /// removed, or use lowercase letters only and replace spaces with `-`
     #[clap(
         default_value = None,
-        value_parser = parse_usage_locator_suggest_path,
+        value_name = "IDENTIFIER",
+        value_parser = parse_project_identifier,
+        verbatim_doc_comment
+    )]
+    pub identifier: Option<(ProjectPublisher, ProjectName)>,
+    /// IRI identifying the project usage to be removed. Use `--iri-path`
+    /// for paths
+    #[clap(
+        long,
+        default_value = None,
+        value_parser = parse_remove_usage_locator,
         verbatim_doc_comment
     )]
     pub iri: Option<Iri<String>>,
-    /// Path to the project to be removed from usages. Since every usage is
-    /// identified by an IRI, the path will be transformed into a `file://` URL
+    /// Path to the project to be removed from usages after conversion to a
+    /// `file://` IRI
     #[arg(
         long,
         default_value = None,
         verbatim_doc_comment
     )]
-    pub path: Option<Utf8PathBuf>,
+    pub iri_path: Option<Utf8PathBuf>,
 }
 
 #[derive(clap::Args, Debug, Clone)]
@@ -561,13 +563,120 @@ impl clap::builder::TypedValueParser for InvalidCommand {
     }
 }
 
+/// Parse an index URL argument with `parse`. Unlike clap's default
+/// error, the one returned does not echo the raw value, which may contain
+/// credentials (the parse error names the URL with userinfo redacted), and
+/// it names the environment variable rather than the option when the value
+/// came from one (clap does not, see
+/// <https://github.com/clap-rs/clap/issues/5202>).
+fn parse_index_value<T, E: Display>(
+    cmd: &clap::Command,
+    arg: Option<&clap::Arg>,
+    value: &OsStr,
+    source: ValueSource,
+    parse: impl FnOnce(&str) -> Result<T, E>,
+) -> Result<T, clap::Error> {
+    let value = value
+        .to_str()
+        .ok_or_else(|| clap::Error::new(clap::error::ErrorKind::InvalidUtf8).with_cmd(cmd))?;
+    parse(value).map_err(|e| {
+        let env = arg
+            .and_then(clap::Arg::get_env)
+            .filter(|_| source == ValueSource::EnvVariable);
+        let mut message = if let Some(env) = env {
+            format!("invalid `{}` environment variable: {e}", env.display())
+        } else {
+            let name = arg.map_or_else(|| "...".to_owned(), ToString::to_string);
+            format!("invalid value for '{name}': {e}")
+        };
+        // An empty value most likely comes from a stray delimiter or an
+        // empty environment variable
+        if value.is_empty() {
+            let delimiter = arg.and_then(clap::Arg::get_value_delimiter);
+            let hint = match (delimiter, env) {
+                (Some(d), Some(env)) => Some(format!(
+                    "check for a stray `{d}`, or for `{}` set to an empty value",
+                    env.display()
+                )),
+                (Some(d), None) => Some(format!("check for a stray `{d}`")),
+                (None, Some(env)) => Some(format!(
+                    "check for `{}` set to an empty value",
+                    env.display()
+                )),
+                (None, None) => None,
+            };
+            if let Some(hint) = hint {
+                message.push_str("\nhint: ");
+                message.push_str(&hint);
+            }
+        }
+        message.push('\n');
+        clap::Error::raw(clap::error::ErrorKind::ValueValidation, message).with_cmd(cmd)
+    })
+}
+
+/// Parses an [`IndexLocation`], see [`parse_index_value`]
+#[derive(Clone, Debug)]
+struct IndexLocationParser;
+
+impl clap::builder::TypedValueParser for IndexLocationParser {
+    type Value = IndexLocation;
+
+    fn parse_ref(
+        &self,
+        cmd: &clap::Command,
+        arg: Option<&clap::Arg>,
+        value: &OsStr,
+    ) -> Result<Self::Value, clap::Error> {
+        self.parse_ref_(cmd, arg, value, ValueSource::CommandLine)
+    }
+
+    fn parse_ref_(
+        &self,
+        cmd: &clap::Command,
+        arg: Option<&clap::Arg>,
+        value: &OsStr,
+        source: ValueSource,
+    ) -> Result<Self::Value, clap::Error> {
+        parse_index_value(cmd, arg, value, source, IndexLocation::parse)
+    }
+}
+
+/// Parses an [`IndexKey`] (with the credential-specific errors of
+/// [`IndexKey::validate`]), see [`parse_index_value`]
+#[derive(Clone, Debug)]
+struct IndexKeyParser;
+
+impl clap::builder::TypedValueParser for IndexKeyParser {
+    type Value = IndexKey;
+
+    fn parse_ref(
+        &self,
+        cmd: &clap::Command,
+        arg: Option<&clap::Arg>,
+        value: &OsStr,
+    ) -> Result<Self::Value, clap::Error> {
+        self.parse_ref_(cmd, arg, value, ValueSource::CommandLine)
+    }
+
+    fn parse_ref_(
+        &self,
+        cmd: &clap::Command,
+        arg: Option<&clap::Arg>,
+        value: &OsStr,
+        source: ValueSource,
+    ) -> Result<Self::Value, clap::Error> {
+        parse_index_value(cmd, arg, value, source, IndexKey::validate)
+    }
+}
+
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum InfoCommand {
     /// Get or set the name of the project
     #[group(required = false, multiple = false)]
     Name {
-        #[arg(long, value_name = "NAME", default_value=None)]
-        set: Option<String>,
+        #[arg(long, value_name = "NAME", value_parser = parse_project_name, default_value=None)]
+        set: Option<ProjectName>,
         // Only for better error messages
         #[arg(hide = true, long, num_args=0, default_missing_value="None", value_parser=
             invalid_command("`name` cannot be unset"))]
@@ -584,8 +693,8 @@ pub enum InfoCommand {
     /// Get or set the publisher of the project
     #[group(required = false, multiple = false)]
     Publisher {
-        #[arg(long, value_name = "PUBLISHER", default_value=None)]
-        set: Option<String>,
+        #[arg(long, value_name = "PUBLISHER", value_parser = parse_project_publisher, default_value=None)]
+        set: Option<ProjectPublisher>,
         #[arg(hide = true, long, num_args=0, default_missing_value="None", value_parser=
             invalid_command("`publisher` cannot be unset"))]
         clear: Option<Infallible>,
@@ -997,8 +1106,8 @@ pub enum GetInfoVerb {
 
 #[derive(Debug, Clone)]
 pub enum SetInfoVerb {
-    SetName(String),
-    SetPublisher(String),
+    SetName(ProjectName),
+    SetPublisher(ProjectPublisher),
     SetDescription(String),
     SetVersion(Version),
     SetLicense(spdx::Expression),
@@ -1478,8 +1587,8 @@ pub enum AuthCommand {
         /// URL templates are accepted (see `--index` in `sysand add
         /// --help`); the credential is scoped to the template's literal
         /// prefix. Defaults to the default index
-        #[clap(verbatim_doc_comment)]
-        index_url: Option<String>,
+        #[arg(verbatim_doc_comment, value_parser = IndexKeyParser)]
+        index_url: Option<IndexKey>,
         /// Read the token from standard input (trimming one trailing
         /// newline) instead of prompting
         #[arg(long, verbatim_doc_comment)]
@@ -1495,16 +1604,16 @@ pub enum AuthCommand {
         /// URL templates are accepted (see `--index` in `sysand add
         /// --help`); the index must advertise an API in its discovery
         /// configuration. Defaults to the default index
-        #[clap(verbatim_doc_comment)]
-        index_url: Option<String>,
+        #[arg(verbatim_doc_comment, value_parser = IndexKeyParser)]
+        index_url: Option<IndexKey>,
     },
     /// Remove a stored index login
     Logout {
         /// Index URL to log out from (e.g. https://sysand.com).
         /// URL templates are accepted (see `--index` in `sysand add
         /// --help`). Defaults to the default index
-        #[clap(verbatim_doc_comment)]
-        index_url: Option<String>,
+        #[arg(verbatim_doc_comment, value_parser = IndexKeyParser)]
+        index_url: Option<IndexKey>,
     },
 }
 
@@ -1661,9 +1770,10 @@ pub struct ResolutionOptions {
         help_heading = "Resolution options",
         env = env_vars::SYSAND_INDEX,
         value_delimiter = ',',
+        value_parser = IndexLocationParser,
         verbatim_doc_comment
     )]
-    pub index: Vec<String>,
+    pub index: Vec<IndexLocation>,
     /// Comma-delimited list of URLs to use as default index
     /// URLs. Default indexes are tried after other indexes
     /// (default `https://sysand.com`). Accepts URL templates like --index.
@@ -1674,9 +1784,10 @@ pub struct ResolutionOptions {
         help_heading = "Resolution options",
         env = env_vars::SYSAND_DEFAULT_INDEX,
         value_delimiter = ',',
+        value_parser = IndexLocationParser,
         verbatim_doc_comment
     )]
-    pub default_index: Vec<String>,
+    pub default_index: Vec<IndexLocation>,
     /// Do not use any index when resolving project(s) and/or their dependencies
     // TODO: document somewhere which sources are supported:
     // - file:// (sometimes also regular paths)
@@ -1791,7 +1902,7 @@ pub struct GlobalOptions {
     pub no_config: bool,
     /// Give path to `sysand.toml` to use for configuration
     #[arg(long, global = true, help_heading = "Global options", env = env_vars::SYSAND_CONFIG_FILE)]
-    pub config_file: Option<String>,
+    pub config_file: Option<Utf8PathBuf>,
     /// Print help
     #[arg(long, global = true, action = clap::ArgAction::HelpLong, help_heading = "Global options")]
     pub help: Option<bool>,
@@ -1922,18 +2033,46 @@ impl ValueEnum for MetamodelVersion {
     }
 }
 
-fn parse_usage_locator_suggest_path(s: &str) -> Result<Iri<String>, String> {
+/// Parse a `<publisher>/<name>` project identifier
+fn parse_project_identifier(s: &str) -> Result<(ProjectPublisher, ProjectName), &'static str> {
+    let Some((publisher, name)) = s.split_once('/') else {
+        return Err("identifier is not of the form `<publisher>/<name>`");
+    };
+    Ok((
+        parse_project_publisher(publisher)?,
+        parse_project_name(name)?,
+    ))
+}
+
+fn parse_project_publisher(s: &str) -> Result<ProjectPublisher, &'static str> {
+    ProjectPublisher::parse(s.to_owned()).map_err(|(_, e)| e)
+}
+
+fn parse_project_name(s: &str) -> Result<ProjectName, &'static str> {
+    ProjectName::parse(s.to_owned()).map_err(|(_, e)| e)
+}
+
+fn parse_add_usage_locator(s: &str) -> Result<Iri<String>, String> {
+    parse_usage_locator(s, "`--dir`, `--kpar-path` or `--iri-path`")
+}
+
+fn parse_remove_usage_locator(s: &str) -> Result<Iri<String>, String> {
+    parse_usage_locator(s, "`--iri-path`")
+}
+
+/// Parse `s` as an IRI or `publisher/name` PURL shorthand. On failure,
+/// suggest the `path_options` in case a path was meant
+fn parse_usage_locator(s: &str, path_options: &str) -> Result<Iri<String>, String> {
     use crate::style::USAGE;
-    match Iri::parse(s) {
-        Ok(i) => Ok(i.to_owned()),
+    let err = match Iri::parse(s) {
+        Ok(i) => return Ok(i.to_owned()),
         Err(err) => match expand_sysand_purl_shorthand(s) {
-            Ok(Some(purl)) => Ok(Iri::parse(purl).expect("BUG: Sysand PURL is invalid IRI")),
-            Ok(None) => Err(format!(
-                "{err}\n{USAGE}hint:{USAGE:#} if you wanted to use a path, use `--path` instead"
-            )),
-            Err(e) => Err(format!(
-                "{e}\n{USAGE}hint:{USAGE:#} if you wanted to use a path, use `--path` instead"
-            )),
+            Ok(Some(purl)) => return Ok(Iri::parse(purl).expect("BUG: Sysand PURL is invalid IRI")),
+            Ok(None) => err.to_string(),
+            Err(e) => e.to_string(),
         },
-    }
+    };
+    Err(format!(
+        "{err}\n{USAGE}hint:{USAGE:#} if you wanted to use a path, use {path_options} instead"
+    ))
 }

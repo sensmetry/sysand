@@ -8,6 +8,8 @@ use typed_path::Utf8UnixPath;
 
 use crate::{
     auth::Unauthenticated,
+    context::ProjectContext,
+    lock::Source,
     project::{ProjectRead as _, ProjectReadAsync as _, reqwest_src::ReqwestSrcProjectAsync},
     resolve::net_utils::create_reqwest_client,
 };
@@ -111,5 +113,35 @@ fn basic_project_urls_http_src() -> Result<(), Box<dyn std::error::Error>> {
     meta_mock.assert();
     src_mock.assert();
 
+    Ok(())
+}
+
+/// Userinfo in a remote src URL is kept verbatim in the lockfile source.
+/// Intended: the URL (password included) is exactly what the user wrote in
+/// `.project.json` or `sysand.toml`, which are not secret, and sysand's own
+/// credentials are sent as headers, never put into URLs.
+#[test]
+fn sources_keep_userinfo_verbatim() -> Result<(), Box<dyn std::error::Error>> {
+    let remote_src = "https://user:pass@example.com/project/";
+    let checksum = "a".repeat(64);
+    let project = ReqwestSrcProjectAsync {
+        client: create_reqwest_client()?,
+        url: reqwest::Url::parse(remote_src)?,
+        auth_policy: Arc::new(Unauthenticated {}),
+        expected_checksum: Some(checksum.clone()),
+    };
+
+    let sources = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(project.sources_async(&ProjectContext::default()))?;
+
+    assert_eq!(
+        sources,
+        vec![Source::RemoteSrc {
+            remote_src: fluent_uri::Iri::parse(remote_src).unwrap().into(),
+            checksum,
+        }]
+    );
     Ok(())
 }

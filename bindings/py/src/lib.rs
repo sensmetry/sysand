@@ -12,13 +12,13 @@ use pyo3::{
 };
 use semver::{Version, VersionReq};
 use sysand::{
-    CliAuthPolicy, DEFAULT_INDEX_URL,
+    CliAuthPolicy,
     cli::ResolutionOptions,
     commands::{
         lock::{CliLockError, resolve_lock},
         sync::{CliSyncError, CommandSyncError, command_sync},
     },
-    get_env, get_or_create_env, standard_auth_policy,
+    default_index_location, get_env, get_or_create_env, standard_auth_policy,
 };
 use sysand_core::{
     add::{AddError, do_add},
@@ -51,7 +51,7 @@ use sysand_core::{
     lock::{Lock, Project as LockedProject},
     model::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
-        InterchangeProjectUsage, InterchangeProjectUsageRaw,
+        InterchangeProjectUsage, InterchangeProjectUsageRaw, UsageRef,
     },
     project::{
         ProjectRead as _,
@@ -144,9 +144,10 @@ fn do_init_py_local_file(
         |err| {
             let e = format_err(&err);
             match err {
-                InitError::SemVerParse(..) | InitError::SPDXLicenseParse(..) => {
-                    PyValueError::new_err(e)
-                }
+                InitError::NameParse(..)
+                | InitError::PublisherParse(..)
+                | InitError::SemVerParse(..)
+                | InitError::SPDXLicenseParse(..) => PyValueError::new_err(e),
                 InitError::Project(err) => match err {
                     LocalSrcError::AlreadyExists(_) => PyFileExistsError::new_err(e),
                     LocalSrcError::Io(_) | LocalSrcError::Path(_) => PyIOError::new_err(e),
@@ -326,14 +327,18 @@ fn index_locations(
     } else {
         Config::default()
     };
-    let locations = config
-        .index_urls(
-            spec.index.clone(),
-            vec![DEFAULT_INDEX_URL.to_owned()],
-            spec.default_index.clone(),
-        )
-        .map_err(|e| PyValueError::new_err(format_err(e)))?;
+    let locations = config.index_urls(
+        parse_index_locations(&spec.index)?,
+        vec![default_index_location()],
+        parse_index_locations(&spec.default_index)?,
+    );
     Ok(Some(locations))
+}
+
+fn parse_index_locations(urls: &[String]) -> PyResult<Vec<IndexLocation>> {
+    urls.iter()
+        .map(|url| IndexLocation::parse(url).map_err(|e| PyValueError::new_err(format_err(e))))
+        .collect()
 }
 
 type StandardResolverError = <StandardResolver<CliAuthPolicy> as ResolveRead>::Error;
@@ -546,13 +551,13 @@ fn project_context(start: &Utf8Path) -> PyResult<(ProjectContext, Utf8PathBuf)> 
     ))
 }
 
-fn resolution_options(spec: &ResolutionSpec) -> ResolutionOptions {
-    ResolutionOptions {
-        index: spec.index.clone(),
-        default_index: spec.default_index.clone(),
+fn resolution_options(spec: &ResolutionSpec) -> PyResult<ResolutionOptions> {
+    Ok(ResolutionOptions {
+        index: parse_index_locations(&spec.index)?,
+        default_index: parse_index_locations(&spec.default_index)?,
         no_index: spec.no_index,
         include_std: spec.include_std,
-    }
+    })
 }
 
 fn config_for(spec: &ResolutionSpec, project_root: &Utf8Path) -> PyResult<Config> {
@@ -740,7 +745,7 @@ fn do_lock_py(
 
         let lock: Lock = resolve_lock(
             ".",
-            resolution_options(&resolution),
+            resolution_options(&resolution)?,
             &config,
             &project_root,
             provided,
@@ -1179,15 +1184,18 @@ fn index_purl_py(publisher: &str, name: &str) -> PyResult<String> {
 /// message `do_add_py` gives for it. `do_remove` and
 /// `do_set_usage_constraint_local` take their argument as given, without
 /// checking that it is an IRI, so a typo would otherwise be reported as
-/// "not found".
-fn validate_iri(iri: &str) -> PyResult<()> {
-    InterchangeProjectUsageRaw::Resource {
-        resource: iri.to_owned(),
+/// "not found". Returns the parsed IRI.
+fn validate_iri(iri: String) -> PyResult<Iri<String>> {
+    match (InterchangeProjectUsageRaw::Resource {
+        resource: iri,
         version_constraint: None,
-    }
+    })
     .validate()
-    .map(drop)
-    .map_err(|e| ProjectError::new_err(format_err(e)))
+    {
+        Ok(InterchangeProjectUsage::Resource { resource, .. }) => Ok(resource),
+        Ok(_) => unreachable!("a resource usage validates to a resource usage"),
+        Err(e) => Err(ProjectError::new_err(format_err(e))),
+    }
 }
 
 /// The exception classes live in Python (`_errors.py`) so that `mypy` sees
@@ -1322,10 +1330,10 @@ fn do_set_usage_constraint_py(
 ) -> PyResult<(bool, bool, Option<String>, Option<String>)> {
     common_init();
 
-    validate_iri(&iri)?;
+    let iri = validate_iri(iri)?;
     let mut project = LocalSrcProject::new_access(path, None);
 
-    match do_set_usage_constraint_local(&mut project, &iri, &version_constraint) {
+    match do_set_usage_constraint_local(&mut project, iri.as_str(), &version_constraint) {
         Ok(ConstraintChange::Replaced { old, new }) => Ok((true, true, old, Some(new))),
         Ok(ConstraintChange::Unchanged { constraint }) => {
             Ok((true, false, Some(constraint.clone()), Some(constraint)))
@@ -1344,17 +1352,18 @@ fn do_set_usage_constraint_py(
 fn do_remove_py(path: String, iri: String) -> PyResult<Vec<PyUsage>> {
     common_init();
 
-    validate_iri(&iri)?;
+    let iri = validate_iri(iri)?;
     let mut project = LocalSrcProject::new_access(path, None);
 
-    let removed = do_remove(&mut project, iri).map_err(|err| match err {
-        // The core message points at a CLI command, which is no help here.
-        RemoveError::UsageIsTyped { identifier, kind } => ProjectError::new_err(format!(
-            "`{identifier}` is declared as a {kind} usage, not as a resource \
+    let removed =
+        do_remove(&mut project, UsageRef::Resource(iri.borrow())).map_err(|err| match err {
+            // The core message points at a CLI command, which is no help here.
+            RemoveError::UsageIsTyped { identifier, kind } => ProjectError::new_err(format!(
+                "`{identifier}` is declared as a {kind} usage, not as a resource \
              or index usage; the Python API cannot remove directory and KPAR usages yet"
-        )),
-        err => ProjectError::new_err(format_err(err)),
-    })?;
+            )),
+            err => ProjectError::new_err(format_err(err)),
+        })?;
     Ok(removed.into_iter().map(PyUsage::from).collect())
 }
 

@@ -2,9 +2,10 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use crate::{
+    model::UsageRef,
     model::{InterchangeProjectInfoRaw, InterchangeProjectUsageRaw},
     project::memory::InMemoryProject,
-    remove::do_remove_guess,
+    remove::{do_remove, do_remove_guess},
     utils::format_err,
 };
 
@@ -138,4 +139,72 @@ fn remove_still_reports_a_genuinely_absent_usage_as_missing() {
         message.contains("could not find usage for `pkg:sysand/acme-labs/other`"),
         "{message}"
     );
+}
+
+#[test]
+fn remove_typed_matches_the_declared_publisher_and_name_exactly() {
+    let mut project = project_with_directory_usage("Acme Labs", "My.Project");
+
+    let removed = do_remove(&mut project, UsageRef::Typed("Acme Labs", "My.Project")).unwrap();
+
+    assert_eq!(removed.len(), 1);
+    assert_eq!(project.info.unwrap().usage, []);
+}
+
+#[test]
+fn remove_typed_matches_the_normalized_publisher_and_name() {
+    let mut project = project_with_directory_usage("Acme Labs", "My.Project");
+
+    let removed = do_remove(&mut project, UsageRef::Typed("acme-labs", "my.project")).unwrap();
+
+    assert_eq!(removed.len(), 1);
+    assert_eq!(project.info.unwrap().usage, []);
+}
+
+#[test]
+fn remove_typed_rejects_other_spellings_of_a_typed_usage() {
+    let mut project = project_with_directory_usage("Acme Labs", "My.Project");
+
+    let err = do_remove(&mut project, UsageRef::Typed("ACME Labs", "My.Project")).unwrap_err();
+
+    let message = format_err(err);
+    assert!(
+        message.contains("could not find usage for `ACME Labs/My.Project`"),
+        "{message}"
+    );
+    assert_eq!(project.info.unwrap().usage.len(), 1);
+}
+
+#[test]
+fn remove_typed_also_removes_the_sysand_purl_resource_usage() {
+    let mut project = project();
+    project
+        .info
+        .as_mut()
+        .unwrap()
+        .usage
+        .push(InterchangeProjectUsageRaw::KparPath {
+            kpar_path: "../my.project.kpar".to_owned(),
+            publisher: "Acme Labs".to_owned(),
+            name: "My.Project".to_owned(),
+        });
+
+    let removed = do_remove(&mut project, UsageRef::Typed("Acme Labs", "My.Project")).unwrap();
+
+    assert_eq!(removed.len(), 2);
+    assert_eq!(project.info.unwrap().usage, []);
+}
+
+#[test]
+fn remove_typed_keeps_other_projects() {
+    let mut project = project_with_directory_usage("acme-labs", "my.project");
+
+    let err = do_remove(&mut project, UsageRef::Typed("acme-labs", "other")).unwrap_err();
+
+    let message = format_err(err);
+    assert!(
+        message.contains("could not find usage for `acme-labs/other`"),
+        "{message}"
+    );
+    assert_eq!(project.info.unwrap().usage.len(), 1);
 }

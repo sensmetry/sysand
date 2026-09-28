@@ -1899,3 +1899,86 @@ fn info_set_metamodel() -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
+
+/// `sysand info name --set` and `sysand info publisher --set` should reject
+/// invalid values and leave `.project.json` unchanged
+#[test]
+fn info_set_rejects_invalid_name_and_publisher() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "info_set_invalid", "1.2.3")?;
+    out.assert().success();
+    let original = std::fs::read_to_string(cwd.join(".project.json"))?;
+
+    for (field, value_name, value, msg) in [
+        ("name", "NAME", "", "name cannot be empty"),
+        ("name", "NAME", "a/b", "name cannot contain `/`"),
+        ("name", "NAME", "a:b", "name cannot contain `:`"),
+        (
+            "name",
+            "NAME",
+            "a\tb",
+            "name cannot contain control characters",
+        ),
+        ("publisher", "PUBLISHER", "", "publisher cannot be empty"),
+        (
+            "publisher",
+            "PUBLISHER",
+            "a/b",
+            "publisher cannot contain `/`",
+        ),
+        (
+            "publisher",
+            "PUBLISHER",
+            "a:b",
+            "publisher cannot contain `:`",
+        ),
+        (
+            "publisher",
+            "PUBLISHER",
+            "a\nb",
+            "publisher cannot contain control characters",
+        ),
+    ] {
+        let out = run_sysand_in(&cwd, ["info", field, "--set", value], None)?;
+
+        out.assert().failure().stderr(
+            predicate::str::contains(format!(
+                "invalid value '{value}' for '--set <{value_name}>'"
+            ))
+            .and(predicate::str::contains(msg)),
+        );
+        assert_eq!(
+            std::fs::read_to_string(cwd.join(".project.json"))?,
+            original,
+            "field: {field}, value: {value:?}"
+        );
+    }
+
+    Ok(())
+}
+
+/// `sysand info name --set` and `sysand info publisher --set` should accept
+/// values containing spaces
+#[test]
+fn info_set_accepts_spaces_in_name_and_publisher() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "info_set_spaces", "1.2.3")?;
+    out.assert().success();
+
+    run_sysand_in(&cwd, ["info", "name", "--set", "My Project"], None)?
+        .assert()
+        .success();
+    run_sysand_in(&cwd, ["info", "publisher", "--set", "Acme Labs"], None)?
+        .assert()
+        .success();
+
+    assert_eq!(
+        std::fs::read_to_string(cwd.join(".project.json"))?,
+        r#"{
+  "name": "My Project",
+  "publisher": "Acme Labs",
+  "version": "1.2.3"
+}
+"#
+    );
+
+    Ok(())
+}
