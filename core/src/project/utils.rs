@@ -20,7 +20,7 @@ use typed_path::Utf8UnixPathBuf;
 use zip::{self, result::ZipError};
 
 use crate::{
-    model::{InterchangeProjectUsage, InterchangeProjectUsageRaw},
+    model::{IndexUsage, InterchangeProjectUsage, InterchangeProjectUsageRaw},
     purl::{is_valid_purl_name, is_valid_purl_publisher, normalize_field},
 };
 
@@ -555,7 +555,10 @@ impl From<&InterchangeProjectUsage> for Identifier {
             }
             | InterchangeProjectUsage::KparPath {
                 publisher, name, ..
-            } => (publisher, name),
+            }
+            | InterchangeProjectUsage::Index(IndexUsage {
+                publisher, name, ..
+            }) => (publisher, name),
         };
         Self::make_identifier_iri(publisher, name)
     }
@@ -572,7 +575,10 @@ impl From<InterchangeProjectUsage> for Identifier {
             }
             | InterchangeProjectUsage::KparPath {
                 publisher, name, ..
-            } => (publisher, name),
+            }
+            | InterchangeProjectUsage::Index(IndexUsage {
+                publisher, name, ..
+            }) => (publisher, name),
         };
         Self::make_identifier_iri(publisher, name)
     }
@@ -601,7 +607,10 @@ impl Identifier {
             }
             | InterchangeProjectUsageRaw::KparPath {
                 publisher, name, ..
-            } => {
+            }
+            | InterchangeProjectUsageRaw::Index(IndexUsage {
+                publisher, name, ..
+            }) => {
                 if publisher.is_empty() || name.is_empty() {
                     None
                 } else {
@@ -621,7 +630,10 @@ impl Identifier {
             }
             | InterchangeProjectUsageRaw::KparPath {
                 publisher, name, ..
-            } => (publisher, name),
+            }
+            | InterchangeProjectUsageRaw::Index(IndexUsage {
+                publisher, name, ..
+            }) => (publisher, name),
         };
         Self::make_identifier_iri(publisher, name)
     }

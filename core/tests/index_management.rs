@@ -32,8 +32,8 @@ fn command_test() {
     let kpar_path2 = cwd.path().join("test2.kpar");
     write_kpar(
         &kpar_path2,
-        "Dummy publisher",
-        "Dummy.name",
+        "Dummy Publisher",
+        "dummy.Name",
         "2.2.3",
         "0000-01-01T00:00:00.123456789Z",
         json!([]),
@@ -247,6 +247,96 @@ fn file_state_test() {
     assert_eq!(
         fs::read(project2v1_path.join("project.kpar")).unwrap(),
         fs::read(kpar2v1_path).unwrap()
+    );
+}
+
+/// Every version of a project in an index spells its publisher and name the
+/// same way
+#[test]
+fn spelling_is_kept_per_project() {
+    let cwd_dir = tempdir().unwrap();
+    let cwd = cwd_dir.path();
+    let iri = "pkg:sysand/acme-labs/my-lib";
+    let kpar = |file: &str, publisher: &str, name: &str, version: &str| {
+        let path = cwd.join(file);
+        write_kpar(
+            &path,
+            publisher,
+            name,
+            version,
+            "2026-05-15T12:35:57.053279000Z",
+            json!([]),
+        );
+        path
+    };
+    let v1 = kpar("v1.kpar", "Acme Labs", "My Lib", "1.0.0");
+    let v2 = kpar("v2.kpar", "Acme Labs", "My Lib", "2.0.0");
+    let v2_other = kpar("v2_other.kpar", "ACME Labs", "My Lib", "2.0.0");
+    let v3_other = kpar("v3_other.kpar", "Acme Labs", "my lib", "3.0.0");
+    let index_root = cwd.join("index");
+    do_index_init(&index_root).unwrap();
+
+    do_index_add::<&str, _, _>(None, &v1, &index_root).unwrap();
+    let versions_before = read_json(index_root.join("acme-labs/my-lib/versions.json"));
+    let err = do_index_add::<&str, _, _>(None, &v2_other, &index_root).unwrap_err();
+    assert_error_contains(
+        err,
+        &format!(
+            "{iri} is spelled `Acme Labs/My Lib` by the versions already in the index (1.0.0),\n\
+             but version 2.0.0 in `{v2_other}` spells it `ACME Labs/My Lib`"
+        ),
+    );
+    // Nothing was added
+    assert_eq!(
+        read_json(index_root.join("acme-labs/my-lib/versions.json")),
+        versions_before
+    );
+    assert!(!index_root.join("acme-labs/my-lib/2.0.0").exists());
+
+    // Yanked versions count, but removed ones are gone
+    do_index_add::<&str, _, _>(None, &v2, &index_root).unwrap();
+    do_index_yank(iri, "2.0.0", &index_root).unwrap();
+    let err = do_index_add::<&str, _, _>(None, &v3_other, &index_root).unwrap_err();
+    assert_error_contains(err, "by the versions already in the index (2.0.0, 1.0.0)");
+    do_index_remove(iri, RemoveTarget::Version("1.0.0".to_owned()), &index_root).unwrap();
+    do_index_remove(iri, RemoveTarget::Version("2.0.0".to_owned()), &index_root).unwrap();
+    do_index_add::<&str, _, _>(None, &v3_other, &index_root).unwrap();
+}
+
+/// An index whose versions of a project already disagree on the spelling
+/// refuses to add another version of it
+#[test]
+fn inconsistently_spelled_index_is_refused() {
+    let cwd_dir = tempdir().unwrap();
+    let cwd = cwd_dir.path();
+    let kpar = |file: &str, version: &str| {
+        let path = cwd.join(file);
+        write_kpar(
+            &path,
+            "Acme Labs",
+            "My Lib",
+            version,
+            "2026-05-15T12:35:57.053279000Z",
+            json!([]),
+        );
+        path
+    };
+    let index_root = cwd.join("index");
+    do_index_init(&index_root).unwrap();
+    do_index_add::<&str, _, _>(None, kpar("v1.kpar", "1.0.0"), &index_root).unwrap();
+    do_index_add::<&str, _, _>(None, kpar("v2.kpar", "2.0.0"), &index_root).unwrap();
+    // As an index built before the spelling was kept would be
+    let info_path = index_root.join("acme-labs/my-lib/2.0.0/.project.json");
+    let mut info = read_json(info_path.clone());
+    info["publisher"] = json!("ACME Labs");
+    fs::write(&info_path, info.to_string()).unwrap();
+
+    let err = do_index_add::<&str, _, _>(None, kpar("v3.kpar", "3.0.0"), &index_root).unwrap_err();
+    assert_error_contains(
+        err,
+        "the versions of pkg:sysand/acme-labs/my-lib already in the index spell its publisher \
+         and name differently: `ACME Labs/My Lib` (2.0.0), `Acme Labs/My Lib` (1.0.0);\n\
+         no version can be added until they agree",
     );
 }
 

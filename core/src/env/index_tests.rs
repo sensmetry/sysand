@@ -1363,6 +1363,51 @@ mod get_project {
         Ok(())
     }
 
+    /// An index usage in `versions.json` is read as one, with its spelling
+    #[test]
+    fn get_project_carries_index_usage() -> Result<(), Box<dyn std::error::Error>> {
+        let mut server = mockito::Server::new();
+
+        let env = index_env_sync(&server)?;
+
+        let usage_json = r#"[{"publisher":"Acme Labs","name":"My Lib","versionConstraint":"^1"}]"#;
+        let versions_mock = mock_json_get(
+            &mut server,
+            "/admin/proj0/versions.json",
+            versions_json_body([("0.3.0", usage_json)]),
+        );
+        let project_json_mock = mock_json_get(
+            &mut server,
+            "/admin/proj0/0.3.0/.project.json",
+            project_json_body("proj0", Some("admin"), "0.3.0", usage_json),
+        );
+        let meta_json_mock = mock_json_get(
+            &mut server,
+            "/admin/proj0/0.3.0/.meta.json",
+            meta_json_body(),
+        );
+
+        let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
+        let (info, _) = project.get_project()?;
+        let info = info.expect("info should be prefetched");
+
+        assert_eq!(
+            info.usage,
+            [InterchangeProjectUsageRaw::Index(
+                crate::model::IndexUsage {
+                    publisher: "Acme Labs".to_owned(),
+                    name: "My Lib".to_owned(),
+                    version_constraint: "^1".to_owned(),
+                }
+            )]
+        );
+        versions_mock.assert();
+        project_json_mock.assert();
+        meta_json_mock.assert();
+
+        Ok(())
+    }
+
     #[test]
     fn get_project_ignores_textual_usage_drift() -> Result<(), Box<dyn std::error::Error>> {
         // Textual drift between advertised and fetched

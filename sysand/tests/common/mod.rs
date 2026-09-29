@@ -171,6 +171,46 @@ pub fn cli_init_project_in(
     run_sysand_in(cwd, args, None)
 }
 
+/// Install version `version` of a project `publisher`/`name` into the local
+/// environment of the project at `root` (creating the environment if
+/// missing), as `sync` would. The project's sources are made in a temporary
+/// directory, and the environment keeps its own copy.
+pub fn install_in_env(
+    root: &Utf8Path,
+    publisher: &str,
+    name: &str,
+    version: &str,
+) -> Result<(), Box<dyn Error>> {
+    use assert_cmd::prelude::OutputAssertExt as _;
+    use sysand_core::{
+        commands::env::{do_env_install_project, do_env_local_dir},
+        env::{DEFAULT_ENV_NAME, local_directory::LocalDirectoryEnvironment},
+        project::{ProjectRead as _, local_src::LocalSrcProject, utils::Identifier},
+    };
+
+    let (_source_dir, source) = new_temp_cwd()?;
+    cli_init_project_in(&source, None, publisher, Some(name), Some(version), None)?
+        .assert()
+        .success();
+    let env_path = root.join(DEFAULT_ENV_NAME);
+    let mut env = if env_path.exists() {
+        LocalDirectoryEnvironment::read(&env_path)?
+    } else {
+        do_env_local_dir(&env_path)?
+    };
+    let project = LocalSrcProject::new_access(source, None);
+    do_env_install_project(
+        Identifier::from_pub_name(publisher, name).as_str(),
+        version,
+        &project,
+        Some(project.checksum_canonical_variant()?),
+        &mut env,
+        false,
+        true,
+    )?;
+    Ok(())
+}
+
 /// Creates a temporary directory and returns the tuple of the temporary
 /// directory handle and the canonicalised path to it. We need to canonicalise
 /// the path because tests check the output of CLI to see whether it operated on

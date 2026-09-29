@@ -205,6 +205,7 @@ impl Display for ResolutionInfo {
                     write!(f, "`{publisher}/{name}` from `{path}` (base path unknown)")?;
                 }
             }
+            InterchangeProjectUsage::Index(_) => Display::fmt(&self.usage, f)?,
         }
         Ok(())
     }

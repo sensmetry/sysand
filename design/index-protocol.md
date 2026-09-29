@@ -297,7 +297,8 @@ per-version file:
     {
       "version": "2.3.4",
       "usage": [
-        { "resource": "pkg:sysand/abc/dep", "versionConstraint": "<2" }
+        { "resource": "pkg:sysand/abc/dep", "versionConstraint": "<2" },
+        { "publisher": "Abc", "name": "Other Dep", "versionConstraint": "^1" }
       ],
       "kpar_size": 12345,
       "kpar_digest": "sha256:<64-hex>"
@@ -320,8 +321,11 @@ Per-entry rules:
   different artifacts, breaking the `(iri, version)` identity contract
   (see [§13]).
 - `usage` is an array of dependency declarations in the same shape as in
-  `.project.json`. It duplicates the version's project manifest so the
-  solver can run from `versions.json` alone.
+  `.project.json`; a typed one carries no
+  key its kind does not define ([§14]). It duplicates the version's
+  project manifest so the solver can run from `versions.json` alone. A
+  client that cannot parse one of these declarations rejects the whole
+  `versions.json`.
 - `kpar_digest` is lowercase SHA-256 in `sha256:<64-hex>` form ([§10]).
 - `kpar_size` is the byte length of the archive.
 - `status` is OPTIONAL. When present, it MUST be one of `"available"`,
@@ -421,6 +425,13 @@ A conforming sysand index server MUST uphold:
 - **`versions.json` consistency.** The fields advertised in a `versions.json`
   `versions` entry, agree with actual `.project.json`, `.meta.json`, and
   `project.kpar` files served at that version's directory.
+- **One spelling per project.** Every version of a `pkg:sysand` project
+  whose `status` is not `removed` declares the same `publisher` and `name`
+  in its `.project.json`, spelled identically: equal after the
+  normalization of [§6] is not enough. An index usage ([§8]) has to spell
+  them exactly as the project does, so a project spelled two ways could not
+  be named by any one index usage. A new version spelled differently from
+  the project's existing versions MUST be refused.
 - **Version file presence.** Every version listed in `versions.json` with
   `status` other than `removed` has all three per-version files
   available for retrieval.
@@ -482,7 +493,18 @@ Retirement ([§8] `status`) and the lockfile contract:
 ## 14. Forward compatibility
 
 - Unknown fields in any JSON document MUST be ignored by the clients. Clients
-  MAY still choose to inform the user of such changes.
+  MAY still choose to inform the user of such changes. The one exception is
+  a typed dependency declaration in `usage` ([§8]), i.e. a directory, KPAR
+  or index usage: one with a key that its kind does not define matches no
+  kind, and clients MUST reject it. A usage has no key naming its kind,
+  which is instead read from the keys present, so an unknown key could
+  otherwise change what a declaration means without any client noticing: a
+  future kind that adds a source key (a git URL, say) to `publisher`,
+  `name` and `versionConstraint` would be read as an index usage, and a
+  future `versionConstraint` on a directory usage would be silently
+  dropped. A resource usage, the shape KerML specifies, still has unknown
+  keys ignored: existing manifests rely on it, and its `resource` key
+  already names its source.
 - Protocol version is not explicitly provided anywhere currently.
 - Breaking changes to this protocol are expected before v1.
 
@@ -492,6 +514,9 @@ The `sysand index` command group produces and maintains a sysand index
 tree: laying out files, generating digests, and keeping
 `versions.json` consistent with the per-version artifacts. This is the
 only supported path for creating and mutating an index tree.
+`sysand index add` keeps one spelling per project ([§11]): it refuses a
+version spelled differently from the project's existing versions, and any
+version at all of a project whose existing versions already disagree.
 
 [§1]: #1-scope
 [§2]: #2-implementability

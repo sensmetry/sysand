@@ -11,7 +11,11 @@ use fluent_uri::Iri;
 use semver::VersionReq;
 use sysand_core::{
     auth::HTTPAuthentication,
-    commands::{env::do_env_local_dir, lock::LockOutcome, sync::SyncOutcome},
+    commands::{
+        env::do_env_local_dir,
+        lock::{DeclaredBy, LockOutcome},
+        sync::SyncOutcome,
+    },
     config::Config,
     context::ProjectContext,
     env::local_directory::LocalDirectoryEnvironment,
@@ -143,10 +147,13 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
             allow_multiple,
         )?;
     } else {
-        let usages = [InterchangeProjectUsage::Resource {
-            resource: fluent_uri::Iri::from_str(iri.as_ref())?,
-            version_constraint,
-        }];
+        let usages = [(
+            InterchangeProjectUsage::Resource {
+                resource: fluent_uri::Iri::from_str(iri.as_ref())?,
+                version_constraint,
+            },
+            DeclaredBy::Input("the command line".to_owned()),
+        )];
 
         let LockOutcome {
             lock,
