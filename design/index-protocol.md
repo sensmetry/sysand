@@ -321,15 +321,11 @@ Per-entry rules:
   different artifacts, breaking the `(iri, version)` identity contract
   (see [§13]).
 - `usage` is an array of dependency declarations in the same shape as in
-  `.project.json`, of any kind, including index usages
-  (`publisher`, `name` and `versionConstraint`); a typed one carries no
+  `.project.json`; a typed one carries no
   key its kind does not define ([§14]). It duplicates the version's
   project manifest so the solver can run from `versions.json` alone. A
   client that cannot parse one of these declarations rejects the whole
-  `versions.json`, so a client released
-  before a usage kind was introduced cannot resolve any version of a
-  project once one of its versions uses that kind; since `usage` never
-  changes ([§11]), that is permanent.
+  `versions.json`.
 - `kpar_digest` is lowercase SHA-256 in `sha256:<64-hex>` form ([§10]).
 - `kpar_size` is the byte length of the archive.
 - `status` is OPTIONAL. When present, it MUST be one of `"available"`,
