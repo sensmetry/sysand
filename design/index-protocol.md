@@ -322,10 +322,11 @@ Per-entry rules:
   (see [§13]).
 - `usage` is an array of dependency declarations in the same shape as in
   `.project.json`, of any kind, including index usages
-  (`publisher`, `name` and `versionConstraint`, with no other key). It
-  duplicates the version's project manifest so the solver can run from
-  `versions.json` alone. A client that cannot parse one of these
-  declarations rejects the whole `versions.json`, so a client released
+  (`publisher`, `name` and `versionConstraint`); a typed one carries no
+  key its kind does not define ([§14]). It duplicates the version's
+  project manifest so the solver can run from `versions.json` alone. A
+  client that cannot parse one of these declarations rejects the whole
+  `versions.json`, so a client released
   before a usage kind was introduced cannot resolve any version of a
   project once one of its versions uses that kind; since `usage` never
   changes ([§11]), that is permanent.
@@ -497,17 +498,17 @@ Retirement ([§8] `status`) and the lockfile contract:
 
 - Unknown fields in any JSON document MUST be ignored by the clients. Clients
   MAY still choose to inform the user of such changes. The one exception is
-  an index usage in `usage` ([§8]): one with any key other than
-  `publisher`, `name` and `versionConstraint` is not an index usage, and
-  clients MUST reject it. Every other kind of usage has a key that only it
-  carries (`resource`, `dir`, `kparPath`) and that says where the project
-  comes from, so an unknown extra key cannot change which kind it is. An
-  index usage has no such key: `publisher` and `name` are shared with the
-  directory and KPAR usages, and `versionConstraint` with the resource
-  usage. It is recognized only by lacking a source key, so without this
-  rule a future kind that adds one (a git or registry URL, say) to
-  `publisher`, `name` and `versionConstraint` would be read by older
-  clients as an index usage and resolved from the wrong place.
+  a typed dependency declaration in `usage` ([§8]), i.e. a directory, KPAR
+  or index usage: one with a key that its kind does not define matches no
+  kind, and clients MUST reject it. A usage has no key naming its kind,
+  which is instead read from the keys present, so an unknown key could
+  otherwise change what a declaration means without any client noticing: a
+  future kind that adds a source key (a git URL, say) to `publisher`,
+  `name` and `versionConstraint` would be read as an index usage, and a
+  future `versionConstraint` on a directory usage would be silently
+  dropped. A resource usage, the shape KerML specifies, still has unknown
+  keys ignored: existing manifests rely on it, and its `resource` key
+  already names its source.
 - Protocol version is not explicitly provided anywhere currently.
 - Breaking changes to this protocol are expected before v1.
 

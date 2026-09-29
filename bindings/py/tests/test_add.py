@@ -77,7 +77,7 @@ def test_add_locks_and_syncs(tmp_path: Path, mock_index: MockIndex) -> None:
     assert installed(root) == [DEP]
 
 
-def test_add_no_sync_only_locks(tmp_path: Path, mock_index: MockIndex) -> None:
+def test_add_without_sync_only_locks(tmp_path: Path, mock_index: MockIndex) -> None:
     publish_dep(mock_index)
     root = init(tmp_path)
 
@@ -86,7 +86,7 @@ def test_add_no_sync_only_locks(tmp_path: Path, mock_index: MockIndex) -> None:
         publisher="Acme Labs",
         name="My Lib",
         version_constraint="^1",
-        no_sync=True,
+        sync=False,
         resolution=resolution(mock_index),
     )
 
@@ -153,7 +153,7 @@ def test_add_unsatisfiable_is_a_solve_error(
     assert (root / ".project.json").read_text() == before
 
 
-def test_add_no_lock_checks_against_the_environment(
+def test_add_without_lock_checks_against_the_environment(
     tmp_path: Path, mock_index: MockIndex
 ) -> None:
     publish_dep(mock_index)
@@ -170,7 +170,7 @@ def test_add_no_lock_checks_against_the_environment(
             publisher="acme-labs",
             name="my-lib",
             version_constraint="^1",
-            no_lock=True,
+            lock=False,
             resolution=resolution(mock_index),
         )
     assert mock_index.requests() == []
@@ -194,7 +194,7 @@ def test_add_no_lock_checks_against_the_environment(
         publisher="acme-labs",
         name="my-lib",
         version_constraint="^1",
-        no_lock=True,
+        lock=False,
         resolution=resolution(mock_index),
     )
     assert usages(root) == [

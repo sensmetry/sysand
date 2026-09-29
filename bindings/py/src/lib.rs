@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{convert::Infallible, iter, str::FromStr as _, sync::Arc};
+use std::{iter, str::FromStr as _, sync::Arc};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use fluent_uri::Iri;
@@ -22,7 +22,6 @@ use sysand::{
     get_env, get_or_create_env, standard_auth_policy,
 };
 use sysand_core::{
-    add::AddError,
     auth::{GlobMapResult, StandardHTTPAuthenticationBuilder},
     build::{KParBuildError, KparCompressionMethod, do_build_kpar},
     commands::{
@@ -61,7 +60,7 @@ use sysand_core::{
         memory::InMemoryProject,
         utils::{Identifier, wrapfs},
     },
-    remove::{RemoveError, do_remove, do_remove_index},
+    remove::{RemoveError, do_remove, do_remove_named},
     resolve::{
         ResolveRead,
         combined::CombinedResolverError,
@@ -1115,9 +1114,10 @@ pub fn do_sources_project_py(
 }
 
 /// The usage an `add`, `remove` or `set_usage_constraint` call names: the
-/// resource usage of `iri`, taken literally, or the index usage of
-/// `publisher`/`name`, spelled exactly so. The Python side checks that
-/// exactly one of the two was given.
+/// resource usage of `iri`, taken literally, or the usage of
+/// `publisher`/`name` (for `add` and `set_usage_constraint`, an index usage;
+/// for `remove`, a usage of any kind). The Python side checks that exactly
+/// one of the two was given.
 enum Named {
     Iri(String),
     Index { publisher: String, name: String },
@@ -1228,39 +1228,9 @@ fn do_add_py(
             runtime,
             auth_policy.clone(),
         )
-        .map_err(|err| match add_error_for_python(&err) {
-            Some(message) => Failure::Py(ProjectError::new_err(message)),
-            None => lock_error_to_failure(err, &auth, &auth_policy),
-        })
+        .map_err(|err| lock_error_to_failure(err, &auth, &auth_policy))
     });
     outcome.map_err(|failure| failure.into_pyerr(py))
-}
-
-/// The message to raise for an `add` error that the core words for the CLI
-fn add_error_for_python(err: &anyhow::Error) -> Option<String> {
-    fn message<E>(err: &AddError<E>) -> Option<String> {
-        match err {
-            // The core message says to remove the other usage first, which the
-            // Python API cannot do for a directory or KPAR usage.
-            AddError::DuplicateIdentifier {
-                identifier,
-                existing,
-                new,
-            } if *existing == "a directory" || *existing == "a KPAR path" => Some(format!(
-                "`{identifier}` is already declared as {existing} usage, so it cannot \
-                 also be added as {new} usage; the Python API cannot remove \
-                 directory and KPAR usages yet"
-            )),
-            _ => None,
-        }
-    }
-    if let Some(err) = err.downcast_ref::<AddError<Infallible>>() {
-        message(err)
-    } else if let Some(err) = err.downcast_ref::<AddError<LocalSrcError>>() {
-        message(err)
-    } else {
-        None
-    }
 }
 
 /// Refuses anything that is not an IRI a resource usage could name, with the
@@ -1451,35 +1421,14 @@ fn do_remove_py(
 
     let removed = match named {
         Named::Iri(iri) => do_remove(&mut project, iri),
-        Named::Index { publisher, name } => do_remove_index(&mut project, &publisher, &name),
+        Named::Index { publisher, name } => do_remove_named(&mut project, &publisher, &name),
     };
     removed.map_err(|err| match err {
-        // The core messages point at a CLI command, which is no help here.
-        RemoveError::UsageIsTyped {
-            identifier,
-            kind: kind @ "an index",
-            ..
-        }
-        | RemoveError::NotAnIndexUsage {
-            identifier,
-            kind: kind @ "a resource",
-            ..
-        } => ProjectError::new_err(format!(
-            "`{identifier}` is declared as {kind} usage; name it by {}",
-            if kind == "an index" {
-                "`publisher` and `name`"
-            } else {
-                "`iri`"
-            }
-        )),
+        // The core message points at a CLI command, which is no help here.
         RemoveError::UsageIsTyped {
             identifier, kind, ..
-        }
-        | RemoveError::NotAnIndexUsage {
-            identifier, kind, ..
         } => ProjectError::new_err(format!(
-            "`{identifier}` is declared as {kind} usage; the Python API cannot \
-             remove directory and KPAR usages yet"
+            "`{identifier}` is declared as {kind} usage; name it by `publisher` and `name`"
         )),
         err => ProjectError::new_err(format_err(err)),
     })

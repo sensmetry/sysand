@@ -21,7 +21,7 @@ use sysand_core::{
         ProjectRead as _,
         utils::{Identifier, wrapfs},
     },
-    remove::{do_remove, do_remove_index, exp_do_remove},
+    remove::{do_remove, do_remove_named, exp_do_remove},
     utils::format_err,
 };
 
@@ -69,7 +69,7 @@ pub fn command_remove<Policy: HTTPAuthentication>(
         // not by the usage's spelling
         UsageLocator::PublisherName { publisher, name } => (
             Identifier::from_pub_name(&publisher, &name).into_string(),
-            do_remove_index(current_project, &publisher, &name)?,
+            do_remove_named(current_project, &publisher, &name)?,
         ),
     };
     let iri_copy = identifier;

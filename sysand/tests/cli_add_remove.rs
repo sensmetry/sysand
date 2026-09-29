@@ -183,7 +183,7 @@ fn remove_index_usage_by_exact_spelling() -> Result<(), Box<dyn std::error::Erro
         .assert()
         .failure()
         .stderr(contains(
-            "could not find index usage `acme labs/my lib`; did you mean `Acme Labs/My Lib`?",
+            "could not find usage for `acme labs/my lib`; did you mean `Acme Labs/My Lib`?",
         ));
     run_sysand_in(
         &cwd,
@@ -218,8 +218,8 @@ fn remove_index_usage_by_exact_spelling() -> Result<(), Box<dyn std::error::Erro
 }
 
 #[test]
-fn remove_shorthand_points_at_a_legacy_purl() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("h", "reject_remove_shorthand", "1.2.3")?;
+fn remove_shorthand_removes_a_legacy_purl() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("h", "remove_shorthand_purl", "1.2.3")?;
     out.assert().success();
 
     run_sysand_in(
@@ -230,17 +230,14 @@ fn remove_shorthand_points_at_a_legacy_purl() -> Result<(), Box<dyn std::error::
     .assert()
     .success();
 
-    run_sysand_in(&cwd, ["remove", "Acme Labs/My.Project"], None)?
+    run_sysand_in(&cwd, ["remove", "--no-lock", "Acme Labs/My.Project"], None)?
         .assert()
-        .failure()
-        .stderr(contains(
-            "`pkg:sysand/acme-labs/my.project` is declared as a resource usage, not as an index usage;\n\
-             remove it with `sysand remove pkg:sysand/acme-labs/my.project`",
-        ));
+        .success()
+        .stderr(contains("Removed `pkg:sysand/acme-labs/my.project`"));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
     assert!(
-        info_json.contains("pkg:sysand/acme-labs/my.project"),
+        !info_json.contains("pkg:sysand/acme-labs/my.project"),
         "{info_json}"
     );
 

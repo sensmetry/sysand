@@ -4,7 +4,7 @@
 use crate::{
     model::{IndexUsage, InterchangeProjectInfoRaw, InterchangeProjectUsageRaw},
     project::memory::InMemoryProject,
-    remove::{RemoveError, do_remove, do_remove_index},
+    remove::{RemoveError, do_remove, do_remove_named},
     utils::format_err,
 };
 
@@ -119,47 +119,69 @@ fn project_with_index_usage(publisher: &str, name: &str) -> InMemoryProject {
 }
 
 #[test]
-fn remove_index_by_exact_spelling() {
+fn remove_named_by_exact_spelling() {
     let mut project = project_with_index_usage("Acme Labs", "My Lib");
 
-    let removed = do_remove_index(&mut project, "Acme Labs", "My Lib").unwrap();
+    let removed = do_remove_named(&mut project, "Acme Labs", "My Lib").unwrap();
 
     assert_eq!(removed, [index("Acme Labs", "My Lib")]);
     assert_eq!(project.info.unwrap().usage, []);
 }
 
 #[test]
-fn remove_index_spelled_differently_suggests_the_spelling() {
+fn remove_named_by_normalized_spelling() {
     let mut project = project_with_index_usage("Acme Labs", "My Lib");
 
-    let err = do_remove_index(&mut project, "acme labs", "my lib").unwrap_err();
+    let removed = do_remove_named(&mut project, "acme-labs", "my-lib").unwrap();
+
+    assert_eq!(removed, [index("Acme Labs", "My Lib")]);
+}
+
+#[test]
+fn remove_named_spelled_differently_suggests_the_spelling() {
+    let mut project = project_with_index_usage("Acme Labs", "My Lib");
+
+    let err = do_remove_named(&mut project, "acme labs", "my lib").unwrap_err();
 
     assert_eq!(
         format_err(err),
-        "could not find index usage `acme labs/my lib`; did you mean `Acme Labs/My Lib`?"
+        "could not find usage for `acme labs/my lib`; did you mean `Acme Labs/My Lib`?"
     );
     assert_eq!(project.info.unwrap().usage.len(), 1);
 }
 
 #[test]
-fn remove_index_points_at_a_legacy_purl() {
+fn remove_named_removes_a_legacy_purl() {
     let mut project = project_with_usage("pkg:sysand/acme-labs/my-lib");
 
-    let err = do_remove_index(&mut project, "Acme Labs", "My Lib").unwrap_err();
+    let removed = do_remove_named(&mut project, "Acme Labs", "My Lib").unwrap();
 
-    assert_eq!(
-        format_err(err),
-        "`pkg:sysand/acme-labs/my-lib` is declared as a resource usage, not as an index usage;\n\
-         remove it with `sysand remove pkg:sysand/acme-labs/my-lib`"
-    );
-    assert_eq!(project.info.unwrap().usage.len(), 1);
+    assert_eq!(removed.len(), 1);
+    assert_eq!(project.info.unwrap().usage, []);
 }
 
 #[test]
-fn remove_index_reports_a_genuinely_absent_usage_as_missing() {
+fn remove_named_removes_directory_and_kpar_usages() {
+    let mut project = project_with_directory_usage("Acme Labs", "My Lib");
+    let usages = &mut project.info.as_mut().unwrap().usage;
+    usages.push(InterchangeProjectUsageRaw::KparPath {
+        kpar_path: "../my-lib.kpar".to_owned(),
+        publisher: "Acme Labs".to_owned(),
+        name: "My Lib".to_owned(),
+    });
+    usages.push(index("Acme Labs", "Other"));
+
+    let removed = do_remove_named(&mut project, "Acme Labs", "My Lib").unwrap();
+
+    assert_eq!(removed.len(), 2);
+    assert_eq!(project.info.unwrap().usage, [index("Acme Labs", "Other")]);
+}
+
+#[test]
+fn remove_named_reports_a_genuinely_absent_usage_as_missing() {
     let mut project = project_with_index_usage("Acme Labs", "My Lib");
 
-    let err = do_remove_index(&mut project, "Acme Labs", "Other").unwrap_err();
+    let err = do_remove_named(&mut project, "Acme Labs", "Other").unwrap_err();
 
     assert!(matches!(err, RemoveError::ExpUsageNotFound { .. }), "{err}");
 }

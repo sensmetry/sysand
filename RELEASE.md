@@ -163,12 +163,13 @@ separately:
   format (with some Sysand additions) and carry no version of their own.
   Unknown fields in them are and must continue to be ignored (they may
   produce a warning, however), so adding a new optional field is always
-  safe. The one exception is an index usage entry (`publisher`, `name` and
-  `versionConstraint`, and no key of another kind): it rejects any other
-  field, so that an entry of an unknown kind, or with an unknown field that
-  would change how it resolves, is never read as a plain index usage. Adding
-  an optional field to index usages is therefore a format change that
-  earlier builds refuse.
+  safe. The one exception is a typed usage entry (a directory, KPAR or
+  index usage): it rejects any field its kind does not define, so that an
+  entry of an unknown kind, or with an unknown field that would change what
+  it means, is never read as a kind it is not or with that field dropped.
+  Adding an optional field to a typed usage kind is therefore a format
+  change that earlier builds refuse. Resource usages, the shape KerML
+  specifies, keep ignoring unknown fields.
 - A new `usage` kind in `.project.json` is the one change these rules do not
   make safe: the usage list deserializes through an untagged enum with no
   catch-all, so a manifest declaring a kind a build does not know fails to

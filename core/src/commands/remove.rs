@@ -6,6 +6,7 @@ use thiserror::Error;
 use crate::{
     model::{IndexUsage, InterchangeProjectUsageRaw, InterchangeProjectValidationError},
     project::{ProjectMut, utils::Identifier},
+    purl::{normalize_field, parse_sysand_purl},
 };
 
 #[derive(Error, Debug)]
@@ -32,22 +33,10 @@ pub enum RemoveError<ProjectError> {
         /// The CLI command that removes it
         remove_with: String,
     },
-    /// No index usage has the given spelling, but one of the same project
-    /// is spelled differently
-    #[error("could not find index usage `{requested}`; did you mean `{existing}`?")]
-    IndexUsageSpelledDifferently { requested: String, existing: String },
-    /// No index usage of the project exists, but a usage of another kind
-    /// does (e.g. a legacy `pkg:sysand` resource usage)
-    #[error(
-        "`{identifier}` is declared as {kind} usage, not as an index usage;\n\
-        remove it with `{remove_with}`"
-    )]
-    NotAnIndexUsage {
-        identifier: String,
-        kind: &'static str,
-        /// The CLI command that removes it
-        remove_with: String,
-    },
+    /// No usage has the given spelling, but one of the same project is
+    /// spelled differently
+    #[error("could not find usage for `{requested}`; did you mean `{existing}`?")]
+    UsageSpelledDifferently { requested: String, existing: String },
     #[error("project is missing project information")]
     MissingInfo,
 }
@@ -95,12 +84,46 @@ pub fn do_remove<P: ProjectMut>(
     }
 }
 
-/// Remove the index usage of `publisher`/`name`, spelled exactly so.
+/// Whether `usage` is one of `publisher`/`name`: a directory, KPAR or index
+/// usage declaring them, each field spelled exactly so or normalized (see
+/// [`normalize_field`]), or a `pkg:sysand` resource usage of them.
+fn is_usage_of(usage: &InterchangeProjectUsageRaw, publisher: &str, name: &str) -> bool {
+    match usage {
+        // A `pkg:sysand` IRI only holds the normalized form
+        InterchangeProjectUsageRaw::Resource { resource, .. } => parse_sysand_purl(resource)
+            .is_ok_and(|parsed| {
+                parsed.is_some_and(|(p, n)| {
+                    p == normalize_field(publisher) && n == normalize_field(name)
+                })
+            }),
+        InterchangeProjectUsageRaw::Directory {
+            publisher: p,
+            name: n,
+            ..
+        }
+        | InterchangeProjectUsageRaw::KparPath {
+            publisher: p,
+            name: n,
+            ..
+        }
+        | InterchangeProjectUsageRaw::Index(IndexUsage {
+            publisher: p,
+            name: n,
+            ..
+        }) => {
+            let field_matches = |declared: &str, given: &str| {
+                given == declared || given == normalize_field(declared)
+            };
+            field_matches(p, publisher) && field_matches(n, name)
+        }
+    }
+}
+
+/// Remove the usages of `publisher`/`name`, of any kind (see [`is_usage_of`]).
 ///
-/// When there is none, but the same project is declared otherwise (spelled
-/// differently, or as a usage of another kind), that is reported rather
-/// than "not found".
-pub fn do_remove_index<P: ProjectMut>(
+/// When there is none, but the same project is declared spelled otherwise,
+/// that is reported rather than "not found".
+pub fn do_remove_named<P: ProjectMut>(
     project: &mut P,
     publisher: &str,
     name: &str,
@@ -114,13 +137,7 @@ pub fn do_remove_index<P: ProjectMut>(
     };
     let popped: Vec<_> = info
         .usage
-        .extract_if(.., |usage| {
-            matches!(
-                usage,
-                InterchangeProjectUsageRaw::Index(IndexUsage { publisher: p, name: n, .. })
-                    if p == publisher && n == name
-            )
-        })
+        .extract_if(.., |usage| is_usage_of(usage, publisher, name))
         .collect();
     if !popped.is_empty() {
         project
@@ -135,23 +152,34 @@ pub fn do_remove_index<P: ProjectMut>(
         .iter()
         .find(|usage| Identifier::from_unvalidated_usage(usage).is_some_and(|id| id == identifier))
     {
-        Some(InterchangeProjectUsageRaw::Index(IndexUsage {
-            publisher: p,
-            name: n,
-            ..
-        })) => Err(RemoveError::IndexUsageSpelledDifferently {
+        Some(
+            InterchangeProjectUsageRaw::Directory {
+                publisher: p,
+                name: n,
+                ..
+            }
+            | InterchangeProjectUsageRaw::KparPath {
+                publisher: p,
+                name: n,
+                ..
+            }
+            | InterchangeProjectUsageRaw::Index(IndexUsage {
+                publisher: p,
+                name: n,
+                ..
+            }),
+        ) => Err(RemoveError::UsageSpelledDifferently {
             requested: format!("{publisher}/{name}"),
             existing: format!("{p}/{n}"),
         }),
-        Some(usage) => Err(RemoveError::NotAnIndexUsage {
-            identifier: identifier.into_string(),
-            kind: usage.kind_with_article(),
-            remove_with: remove_command(usage),
-        }),
-        None => Err(RemoveError::ExpUsageNotFound {
-            publisher: publisher.to_owned(),
-            name: name.to_owned(),
-        }),
+        // A resource usage of this identifier is a `pkg:sysand` usage of
+        // `publisher`/`name`, which would have been removed above
+        Some(InterchangeProjectUsageRaw::Resource { .. }) | None => {
+            Err(RemoveError::ExpUsageNotFound {
+                publisher: publisher.to_owned(),
+                name: name.to_owned(),
+            })
+        }
     }
 }
 
@@ -174,12 +202,8 @@ fn remove_command(usage: &InterchangeProjectUsageRaw) -> String {
         }
         | InterchangeProjectUsageRaw::KparPath {
             publisher, name, ..
-        } => format!(
-            "sysand experimental remove {} {}",
-            quoted(publisher),
-            quoted(name)
-        ),
-        InterchangeProjectUsageRaw::Index(IndexUsage {
+        }
+        | InterchangeProjectUsageRaw::Index(IndexUsage {
             publisher, name, ..
         }) => format!("sysand remove {}", quoted(&format!("{publisher}/{name}"))),
     }

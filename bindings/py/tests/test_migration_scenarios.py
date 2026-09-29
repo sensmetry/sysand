@@ -120,7 +120,7 @@ def test_add_when_missing(make_baseline: MakeBaseline) -> None:
             project_dir=baseline.root,
             iri=LIBRARY,
             version_constraint=TARGET_CONSTRAINT,
-            no_lock=True,
+            lock=False,
         )
         is True
     )
@@ -132,7 +132,7 @@ def test_add_when_missing(make_baseline: MakeBaseline) -> None:
             project_dir=baseline.root,
             iri=LIBRARY,
             version_constraint=TARGET_CONSTRAINT,
-            no_lock=True,
+            lock=False,
         )
         is False
     )

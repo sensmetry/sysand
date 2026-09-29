@@ -34,14 +34,20 @@ def remove(
 ) -> typing.List[InterchangeProjectUsage]:
     """Remove a dependency from the project in ``project_dir``.
 
-    The dependency is named as :func:`add` names it: by ``iri``, taken as
-    given, for a resource usage, or by ``publisher`` and ``name``, spelled
-    exactly as the usage spells them, for an index usage.
+    The dependency is named one of two ways:
 
-    A usage of another kind, or an index usage spelled differently, is *not*
-    removed, and is not reported as missing either: that raises
-    :class:`ProjectError`, since the project is declared, just not as the
-    usage asked for. Directory and KPAR usages cannot be removed yet.
+    ``iri``
+        The resource usage of that IRI, taken as given.
+
+    ``publisher`` and ``name``
+        Every usage of that project, of any kind: index, directory and KPAR
+        usages, and a ``pkg:sysand`` resource usage. Spell both exactly as
+        the usage does, or fully normalized (``acme-labs``/``my-lib``).
+
+    When no usage matches, but the project is declared anyway (as a usage
+    that ``iri`` does not name, or spelled differently), that raises
+    :class:`ProjectError` saying how it is declared, rather than reporting it
+    missing.
 
     Args:
         project_dir: The project directory, the one holding ``.project.json``.
@@ -52,7 +58,7 @@ def remove(
     Returns:
         The usages that were removed, in declaration order, in the shape
         :func:`info_path` returns them. Normally one: sysand never adds the
-        same resource twice, but it tolerates a manifest that declares it
+        same project twice, but it tolerates a manifest that declares it
         more than once.
 
     Raises:

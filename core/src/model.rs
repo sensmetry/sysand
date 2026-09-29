@@ -47,19 +47,14 @@ pub const LICENSE_EXPRESSION_HELP: &str = "\
 /// all version constraints)
 ///
 /// `.project.json` stores every kind as a bare object with no kind key, so
-/// the kind is decided by which keys are present: the variants are tried in
-/// declaration order, and the first one whose required keys are all present
-/// wins. `Resource`, `Directory` and `KparPath` each require a key the others
-/// lack (`resource`, `dir`, `kparPath`); `Index` is tried last and, unlike the
-/// others, rejects any key it does not know, so an entry of another or a
-/// future kind is never read as an index usage.
+/// the kind is decided by which keys are present (see [`Usage`] for how).
 #[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Hash, Debug)]
 #[cfg_attr(
     feature = "python",
     derive(FromPyObject, IntoPyObject),
     pyo3(from_item_all)
 )]
-#[serde(untagged)]
+#[serde(untagged, from = "Usage<Iri, VersionReq, Path>")]
 pub enum InterchangeProjectUsageG<Iri, VersionReq, Path> {
     /// Untyped usage, the only shape KerML 1.0 specifies. Kept for
     /// compatibility with the spec. `resource` serves two roles at once: it is
@@ -108,9 +103,7 @@ pub enum InterchangeProjectUsageG<Iri, VersionReq, Path> {
 
 /// An index usage (see [`InterchangeProjectUsageG::Index`]). `publisher` and
 /// `name` must match the resolved project's, without any normalization.
-// `deny_unknown_fields` is what keeps an entry with an extra key (a typo of
-// another kind's key, a future kind, a future index-selecting key) from being
-// read as an index usage: such an entry matches no kind and fails to parse.
+// `deny_unknown_fields`: see `Usage`
 #[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Hash, Debug)]
 #[cfg_attr(
     feature = "python",
@@ -122,6 +115,88 @@ pub struct IndexUsage<VersionReq> {
     pub publisher: String,
     pub name: String,
     pub version_constraint: VersionReq,
+}
+
+/// How [`InterchangeProjectUsageG`] is read. The variants are tried in
+/// declaration order, and the first one that accepts the keys present wins.
+///
+/// Every typed kind rejects a key it does not know (`deny_unknown_fields`,
+/// which serde only offers per struct, hence the structs here). Without a
+/// kind key, an unknown key could otherwise change what an entry means
+/// unnoticed: a future kind that adds a source key (say, `git`) to an index
+/// usage's keys would be read as an index usage, and a future
+/// `versionConstraint` on a directory usage would be dropped. Such an entry
+/// matches no kind and fails to parse instead.
+///
+/// A resource usage, the shape KerML specifies, keeps ignoring unknown keys,
+/// as manifests written for sysand before typed usages rely on it. Its
+/// `resource` key names its source, so a key it ignores cannot turn it into
+/// another kind.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Usage<Iri, VersionReq, Path> {
+    Resource(ResourceUsage<Iri, VersionReq>),
+    Directory(DirectoryUsage<Path>),
+    KparPath(KparPathUsage<Path>),
+    Index(IndexUsage<VersionReq>),
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ResourceUsage<Iri, VersionReq> {
+    resource: Iri,
+    version_constraint: Option<VersionReq>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DirectoryUsage<Path> {
+    dir: Path,
+    publisher: String,
+    name: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct KparPathUsage<Path> {
+    kpar_path: Path,
+    publisher: String,
+    name: String,
+}
+
+impl<Iri, VersionReq, Path> From<Usage<Iri, VersionReq, Path>>
+    for InterchangeProjectUsageG<Iri, VersionReq, Path>
+{
+    fn from(usage: Usage<Iri, VersionReq, Path>) -> Self {
+        match usage {
+            Usage::Resource(ResourceUsage {
+                resource,
+                version_constraint,
+            }) => Self::Resource {
+                resource,
+                version_constraint,
+            },
+            Usage::Directory(DirectoryUsage {
+                dir,
+                publisher,
+                name,
+            }) => Self::Directory {
+                dir,
+                publisher,
+                name,
+            },
+            Usage::KparPath(KparPathUsage {
+                kpar_path,
+                publisher,
+                name,
+            }) => Self::KparPath {
+                kpar_path,
+                publisher,
+                name,
+            },
+            Usage::Index(usage) => Self::Index(usage),
+        }
+    }
 }
 
 pub type InterchangeProjectUsageRaw = InterchangeProjectUsageG<String, String, String>;

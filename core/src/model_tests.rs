@@ -94,30 +94,38 @@ mod index_usage {
     }
 
     #[test]
-    fn other_kinds_with_the_same_keys_keep_their_kind() {
-        let extra = r#""publisher":"acme","name":"lib","versionConstraint":"^1""#;
-        assert!(matches!(
-            parse(&format!(r#"{{"resource":"pkg:sysand/acme/lib",{extra}}}"#)).unwrap(),
-            InterchangeProjectUsageRaw::Resource { .. }
-        ));
-        assert!(matches!(
-            parse(&format!(r#"{{"dir":"lib",{extra}}}"#)).unwrap(),
-            InterchangeProjectUsageRaw::Directory { .. }
-        ));
-        assert!(matches!(
-            parse(&format!(r#"{{"kparPath":"lib.kpar",{extra}}}"#)).unwrap(),
-            InterchangeProjectUsageRaw::KparPath { .. }
-        ));
+    fn typed_kinds_reject_extra_keys() {
+        for kind in [
+            r#""dir":"lib","publisher":"acme","name":"lib""#,
+            r#""kparPath":"lib.kpar","publisher":"acme","name":"lib""#,
+            r#""publisher":"acme","name":"lib","versionConstraint":"^1""#,
+        ] {
+            assert!(
+                parse(&format!("{{{kind}}}")).is_ok(),
+                "{kind} did not parse"
+            );
+            for key in ["versionConstraint", "dir", "git", "anything"] {
+                if !kind.contains(&format!(r#""{key}""#)) {
+                    let json = format!(r#"{{{kind},"{key}":"x"}}"#);
+                    assert!(parse(&json).is_err(), "{json} parsed");
+                }
+            }
+        }
     }
 
     #[test]
-    fn rejects_extra_keys() {
-        for key in ["index", "kpar_path", "anything"] {
-            let json = format!(
-                r#"{{"publisher":"acme","name":"lib","versionConstraint":"^1","{key}":"x"}}"#
-            );
-            assert!(parse(&json).is_err(), "{json} parsed");
-        }
+    fn a_resource_usage_ignores_extra_keys() {
+        let usage = parse(
+            r#"{"resource":"pkg:sysand/acme/lib","publisher":"acme","name":"lib","x-note":"x"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            usage,
+            InterchangeProjectUsageRaw::Resource {
+                resource: "pkg:sysand/acme/lib".to_owned(),
+                version_constraint: None,
+            }
+        );
     }
 
     #[test]

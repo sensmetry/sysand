@@ -397,9 +397,10 @@ pub struct AddProjectLocatorArgs {
 #[group(required = true, multiple = false)]
 pub struct RemoveProjectLocatorArgs {
     /// IRI identifying the project usage to be removed, or
-    /// `<publisher>/<name>` of an index usage, spelled exactly as the usage
-    /// spells them, or normalized (e.g. `acme-labs/my-lib`). Paths must
-    /// use `--path`
+    /// `<publisher>/<name>` of the project, spelled exactly as the usage
+    /// spells them, or normalized (e.g. `acme-labs/my-lib`), which removes
+    /// its usages of every kind, `pkg:sysand` resource usages included.
+    /// Paths must use `--path`
     #[clap(
         default_value = None,
         value_parser = parse_usage_locator_suggest_path,
