@@ -16,7 +16,7 @@ use thiserror::Error;
 /// The `pkg:sysand/` URI scheme prefix. A `pkg:sysand` IRI is required to
 /// have exactly two slash-separated segments (`<publisher>/<name>`) after
 /// this prefix, both satisfying the field rules enforced by
-/// [`is_valid_publisher`] and [`is_valid_name`].
+/// [`is_valid_purl_publisher`] and [`is_valid_purl_name`].
 pub const PKG_SYSAND_PREFIX: &str = "pkg:sysand/";
 
 /// Which kind of `pkg:sysand` segment to validate. Publishers disallow dots,
@@ -103,8 +103,9 @@ pub fn is_valid_purl_name(s: &str) -> bool {
 
 /// Canonicalizes a publisher or name by lowercasing ASCII and replacing spaces
 /// with hyphens. The result is what ends up embedded in a `pkg:sysand` IRI;
-/// callers should validate with [`is_valid_publisher`] or [`is_valid_name`]
-/// before or after calling.
+/// callers should validate the input with
+/// [`is_valid_unnormalized_publisher`] or [`is_valid_unnormalized_name`], or
+/// the result with [`is_valid_purl_publisher`] or [`is_valid_purl_name`].
 pub fn normalize_field(s: &str) -> String {
     s.to_ascii_lowercase().replace(' ', "-")
 }

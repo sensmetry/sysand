@@ -29,7 +29,7 @@ use sysand_core::{
 };
 use typed_path::Utf8UnixPath;
 
-use crate::{DEFAULT_INDEX_URL, cli::ResolutionOptions, get_overrides};
+use crate::{cli::ResolutionOptions, default_index_location, get_overrides};
 
 /// The resolver [`create_resolver`] builds: overrides, then provided
 /// projects, then the standard file/env/index stack. Named so that callers
@@ -174,7 +174,7 @@ pub fn create_resolver<R: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     let index_urls = if no_index {
         None
     } else {
-        Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_owned()], default_index)?)
+        Some(config.index_urls(index, vec![default_index_location()], default_index))
     };
 
     let overrides = get_overrides(

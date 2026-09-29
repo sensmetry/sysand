@@ -18,8 +18,10 @@ use std::sync::Arc;
 
 use crate::{
     auth::Unauthenticated,
+    context::ProjectContext,
     env::index::{AdvertisedVersion, Sha256HexDigest},
     index::model::VersionStatus,
+    index_location::IndexLocation,
     model::InterchangeProjectUsageRaw,
     project::{ProjectChecksum, ProjectReadAsync as _, index_entry::IndexEntryProject},
     purl::PKG_SYSAND_PREFIX,
@@ -33,6 +35,12 @@ use crate::{
 /// contract must succeed without touching the network (which the
 /// unreachable mock URL would otherwise error on).
 fn make_fixture() -> IndexEntryProject<Unauthenticated> {
+    // `test.invalid` is reserved by RFC 2606; any accidental fetch
+    // fails DNS resolution rather than hitting a live host.
+    make_fixture_with_kpar_url(reqwest::Url::parse("http://test.invalid/kpar").unwrap())
+}
+
+fn make_fixture_with_kpar_url(kpar_url: reqwest::Url) -> IndexEntryProject<Unauthenticated> {
     // Two distinct 64-hex digests so a test that confuses them fails
     // loudly rather than passing on equality.
     let kpar_digest = Sha256HexDigest::try_from(
@@ -51,9 +59,6 @@ fn make_fixture() -> IndexEntryProject<Unauthenticated> {
         status: VersionStatus::Available,
     };
 
-    // `test.invalid` is reserved by RFC 2606; any accidental fetch
-    // fails DNS resolution rather than hitting a live host.
-    let kpar_url = reqwest::Url::parse("http://test.invalid/kpar").unwrap();
     let project_json_url = reqwest::Url::parse("http://test.invalid/.project.json").unwrap();
     let meta_json_url = reqwest::Url::parse("http://test.invalid/.meta.json").unwrap();
 
@@ -120,4 +125,48 @@ fn checksum_canonical_variant_async_returns_advertised_before_download() {
         !project.archive.is_downloaded_and_verified(),
         "checksum_canonical_variant_async must not trigger a download before the archive is present"
     );
+}
+
+/// `sources_async` for a kpar under the index root `root`, built the way
+/// `IndexEnvironment` builds it (`ResolvedEndpoints::kpar_url`).
+fn index_kpar_sources(root: &str) {
+    let kpar_url = IndexLocation::parse(root)
+        .expect("index root is a valid URL")
+        .resolve(["acme", "widget", "1.2.3", "project.kpar"]);
+    let project = make_fixture_with_kpar_url(kpar_url);
+    let _sources = block_on(project.sources_async(&ProjectContext::default()));
+}
+
+// `url::Url` accepts and leaves unescaped some characters that are not
+// valid in an IRI, so an index root containing them makes the
+// `Iri::parse(..).unwrap()` in `sources_async` panic.
+
+#[test]
+#[should_panic(expected = "called `Result::unwrap()` on an `Err` value")]
+fn sources_async_panics_on_index_root_with_pipe() {
+    index_kpar_sources("https://test.invalid/a|b/");
+}
+
+#[test]
+#[should_panic(expected = "called `Result::unwrap()` on an `Err` value")]
+fn sources_async_panics_on_index_root_with_caret() {
+    index_kpar_sources("https://test.invalid/a^b/");
+}
+
+#[test]
+#[should_panic(expected = "called `Result::unwrap()` on an `Err` value")]
+fn sources_async_panics_on_index_root_with_brackets() {
+    index_kpar_sources("https://test.invalid/a[b]/");
+}
+
+#[test]
+#[should_panic(expected = "called `Result::unwrap()` on an `Err` value")]
+fn sources_async_panics_on_index_root_with_invalid_query() {
+    index_kpar_sources("https://test.invalid/idx?a=|^`");
+}
+
+#[test]
+#[should_panic(expected = "called `Result::unwrap()` on an `Err` value")]
+fn sources_async_panics_on_index_template_with_pipe() {
+    index_kpar_sources("https://test.invalid/a|b/{path_raw}");
 }

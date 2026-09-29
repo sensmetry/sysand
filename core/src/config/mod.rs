@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+use fluent_uri::Iri;
 use serde::{Deserialize, Serialize};
 use toml_edit::{InlineTable, Value};
 use typed_path::Utf8UnixPathBuf;
 
-use crate::index_location::{IndexLocation, IndexLocationError};
+use crate::index_location::IndexLocation;
 use crate::project::utils::{deserialize_unix_path, serialize_unix_path};
 
 #[cfg(feature = "filesystem")]
@@ -24,7 +25,7 @@ pub struct Config {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConfigProject {
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub identifiers: Vec<String>,
+    pub identifiers: Vec<Iri<String>>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub sources: Vec<OverrideSource>,
 }
@@ -57,7 +58,7 @@ pub enum OverrideSource {
         kpar_path: Utf8UnixPathBuf,
     },
     RemoteKpar {
-        remote_kpar: String,
+        remote_kpar: Iri<String>,
     },
     // TODO: it doesn't make sense to have this in url shape; it should be a
     // publisher/name/IRI
@@ -65,10 +66,10 @@ pub enum OverrideSource {
     //     index_kpar: String,
     // },
     RemoteSrc {
-        remote_src: String,
+        remote_src: Iri<String>,
     },
     RemoteGit {
-        remote_git: String,
+        remote_git: Iri<String>,
     },
 }
 
@@ -90,13 +91,13 @@ impl OverrideSource {
                 table.insert("src_path", Value::from(src_path.as_str()));
             }
             Self::RemoteGit { remote_git } => {
-                table.insert("remote_git", Value::from(remote_git));
+                table.insert("remote_git", Value::from(remote_git.as_str()));
             }
             Self::RemoteKpar { remote_kpar } => {
-                table.insert("remote_kpar", Value::from(remote_kpar));
+                table.insert("remote_kpar", Value::from(remote_kpar.as_str()));
             }
             Self::RemoteSrc { remote_src } => {
-                table.insert("remote_src", Value::from(remote_src));
+                table.insert("remote_src", Value::from(remote_src.as_str()));
             }
         }
         table
@@ -119,10 +120,10 @@ impl Config {
 
     pub fn index_urls(
         &self,
-        index_urls: Vec<String>,
-        default_urls: Vec<String>,
-        default_override_urls: Vec<String>,
-    ) -> Result<Vec<IndexLocation>, IndexLocationError> {
+        index_urls: Vec<IndexLocation>,
+        default_urls: Vec<IndexLocation>,
+        default_override_urls: Vec<IndexLocation>,
+    ) -> Vec<IndexLocation> {
         if default_override_urls.is_empty() {
             self.index_urls_no_default_override(index_urls, default_urls)
         } else {
@@ -130,11 +131,21 @@ impl Config {
         }
     }
 
+    /// Locations of the indexes marked `default = true`, in configuration
+    /// order
+    pub fn default_index_locations(&self) -> Vec<IndexLocation> {
+        self.indexes
+            .iter()
+            .filter(|i| i.default.unwrap_or(false))
+            .map(|i| i.url.clone())
+            .collect()
+    }
+
     fn index_urls_no_default_override(
         &self,
-        index_urls: Vec<String>,
-        default_urls: Vec<String>,
-    ) -> Result<Vec<IndexLocation>, IndexLocationError> {
+        index_urls: Vec<IndexLocation>,
+        default_urls: Vec<IndexLocation>,
+    ) -> Vec<IndexLocation> {
         let mut indexes = self.indexes.clone();
 
         indexes.sort_by_key(|i| i.default.unwrap_or(false));
@@ -147,40 +158,46 @@ impl Config {
         let end = if has_default { vec![] } else { default_urls };
 
         index_urls
-            .iter()
-            .map(String::as_str)
-            .chain(indexes.iter().map(|i| i.url.as_str()))
-            .chain(end.iter().map(String::as_str))
-            .map(IndexLocation::parse)
+            .into_iter()
+            .chain(indexes.into_iter().map(|i| i.url))
+            .chain(end)
             .collect()
     }
 
     fn index_urls_with_default_override(
         &self,
-        index_urls: Vec<String>,
-        default_urls: Vec<String>,
-    ) -> Result<Vec<IndexLocation>, IndexLocationError> {
+        index_urls: Vec<IndexLocation>,
+        default_urls: Vec<IndexLocation>,
+    ) -> Vec<IndexLocation> {
         index_urls
-            .iter()
-            .map(String::as_str)
+            .into_iter()
             .chain(
                 self.indexes
                     .iter()
                     .filter(|i| !i.default.unwrap_or(false))
-                    .map(|i| i.url.as_str()),
+                    .map(|i| i.url.clone()),
             )
-            .chain(default_urls.iter().map(String::as_str))
-            .map(IndexLocation::parse)
+            .chain(default_urls)
             .collect()
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Index {
-    pub name: Option<String>,
-    pub url: String,
-    // pub explicit: Option<bool>,
-    pub default: Option<bool>,
+    name: Option<String>,
+    url: IndexLocation,
+    // explicit: Option<bool>,
+    default: Option<bool>,
+}
+
+impl Index {
+    pub fn new_url(url: IndexLocation) -> Self {
+        Self {
+            name: None,
+            url,
+            default: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

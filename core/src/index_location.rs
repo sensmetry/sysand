@@ -33,6 +33,7 @@
 
 use core::fmt;
 use core::str::FromStr;
+use std::borrow::Cow;
 
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use thiserror::Error;
@@ -57,6 +58,8 @@ const PATH_ENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC
 
 #[derive(Error, Debug)]
 pub enum IndexLocationError {
+    #[error("index URL is empty")]
+    Empty,
     #[error("invalid index URL `{url}`")]
     InvalidUrl {
         url: Box<str>,
@@ -314,6 +317,11 @@ impl IndexLocation {
     ///
     /// [RFC 3986 §2]: https://www.rfc-editor.org/rfc/rfc3986#section-2
     pub fn parse(s: &str) -> Result<Self, IndexLocationError> {
+        // Empty URL gets an unhelpful "relative reference" error if passed
+        // to `url::Url::parse`
+        if s.is_empty() {
+            return Err(IndexLocationError::Empty);
+        }
         if is_template_syntax(s) {
             return Ok(Self::Template(IndexUrlTemplate::parse(s)?));
         }
@@ -391,7 +399,7 @@ impl fmt::Display for IndexLocation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Root(url) => f.write_str(url.as_str()),
-            Self::Template(template) => write!(f, "{template}"),
+            Self::Template(template) => template.fmt(f),
         }
     }
 }
@@ -401,6 +409,20 @@ impl FromStr for IndexLocation {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::parse(s)
+    }
+}
+
+/// Serialized as its (normalized) `Display` text
+impl serde::Serialize for IndexLocation {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(self)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for IndexLocation {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = Cow::deserialize(deserializer)?;
+        Self::parse(&s).map_err(serde::de::Error::custom)
     }
 }
 

@@ -10,7 +10,11 @@ use assert_cmd::prelude::*;
 use camino::Utf8Path;
 use camino_tempfile::tempdir;
 
-use crate::project::{ProjectRead as _, gix_git_download::GixDownloadedProject};
+use crate::{
+    context::ProjectContext,
+    lock::Source,
+    project::{ProjectRead as _, gix_git_download::GixDownloadedProject},
+};
 //use predicates::prelude::*;
 
 /// Initializes a git repository at `path` with a pre-configured test user.
@@ -127,4 +131,70 @@ pub fn basic_gix_access() -> Result<(), Box<dyn std::error::Error>> {
 
     // server.kill()?;
     Ok(())
+}
+
+/// `gix::Url` serializes an ssh URL with an IPv6 host without the
+/// brackets (`ssh://::1/r.git`), which is not a valid IRI, so the
+/// `Iri::parse(..).unwrap()` in `sources` panics.
+#[test]
+#[should_panic(expected = "called `Result::unwrap()` on an `Err` value")]
+fn sources_panics_on_ssh_ipv6_host() {
+    let project =
+        GixDownloadedProject::new("ssh://[::1]/r.git").expect("gix accepts an IPv6 ssh URL");
+    let _sources = project.sources(&ProjectContext::default());
+}
+
+/// The `remote_git` lockfile source recorded for `url`
+fn remote_git_source(url: &str) -> String {
+    let project = GixDownloadedProject::new(url).expect("gix accepts the URL");
+    match project
+        .sources(&ProjectContext::default())
+        .expect("sources needs no download")
+        .as_slice()
+    {
+        [Source::RemoteGit { remote_git }] => remote_git.to_string(),
+        other => panic!("expected a single remote git source, got {other:?}"),
+    }
+}
+
+/// NOT INTENDED (known bug): `gix::Url`'s `Display` replaces the password
+/// with `redacted`, and `sources` records that, so the lockfile source
+/// differs from the URL the user wrote and a later sync from the lockfile
+/// authenticates with the literal password `redacted`. The source should
+/// be the URL as written; update these assertions when that is fixed.
+#[test]
+fn sources_record_a_redacted_password_for_https() {
+    assert_eq!(
+        remote_git_source("https://user:pass@example.com/repo.git"),
+        "https://user:redacted@example.com/repo.git"
+    );
+}
+
+/// NOT INTENDED (known bug), see [`sources_record_a_redacted_password_for_https`]
+#[test]
+fn sources_record_a_redacted_password_for_ssh() {
+    assert_eq!(
+        remote_git_source("ssh://user:pass@example.com/repo.git"),
+        "ssh://user:redacted@example.com/repo.git"
+    );
+}
+
+/// NOT INTENDED (known bug), see [`sources_record_a_redacted_password_for_https`]
+#[test]
+fn sources_record_a_redacted_password_for_git() {
+    assert_eq!(
+        remote_git_source("git://user:pass@example.com/repo.git"),
+        "git://user:redacted@example.com/repo.git"
+    );
+}
+
+/// Intended: `gix::Url` does not redact `file://` URLs, so the source is
+/// the URL as written (password included; the URL came from a
+/// non-secret project or config file).
+#[test]
+fn sources_keep_userinfo_verbatim_for_file() {
+    assert_eq!(
+        remote_git_source("file://user:pass@example.com/repo"),
+        "file://user:pass@example.com/repo"
+    );
 }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::fs;
+use std::{fs, io::Write as _, str::FromStr as _};
 
 use assert_cmd::prelude::*;
 use mockito::Server;
@@ -18,7 +18,7 @@ fn add_and_remove_without_lock() -> Result<(), Box<dyn std::error::Error>> {
 
     out.assert().success();
 
-    let out = run_sysand_in(&cwd, ["add", "--no-lock", "urn:kpar:test"], None)?;
+    let out = run_sysand_in(&cwd, ["add", "--no-lock", "--iri", "urn:kpar:test"], None)?;
 
     out.assert()
         .success()
@@ -41,7 +41,7 @@ fn add_and_remove_without_lock() -> Result<(), Box<dyn std::error::Error>> {
 "#
     );
 
-    let out = run_sysand_in(&cwd, ["remove", "urn:kpar:test"], None)?;
+    let out = run_sysand_in(&cwd, ["remove", "--iri", "urn:kpar:test"], None)?;
 
     out.assert().success().stderr(contains(
         "Removing `urn:kpar:test` from usages
@@ -69,7 +69,11 @@ fn add_accepts_sysand_shorthand_without_lock() -> Result<(), Box<dyn std::error:
 
     out.assert().success();
 
-    let out = run_sysand_in(&cwd, ["add", "--no-lock", "acme-labs/my.project"], None)?;
+    let out = run_sysand_in(
+        &cwd,
+        ["add", "--no-lock", "--iri", "acme-labs/my.project"],
+        None,
+    )?;
 
     out.assert().success().stderr(contains(
         "Adding usage: IRI `pkg:sysand/acme-labs/my.project`",
@@ -101,7 +105,11 @@ fn add_rejects_non_normalized_sysand_shorthand() -> Result<(), Box<dyn std::erro
 
     out.assert().success();
 
-    let out = run_sysand_in(&cwd, ["add", "--no-lock", "Acme Labs/My.Project"], None)?;
+    let out = run_sysand_in(
+        &cwd,
+        ["add", "--no-lock", "--iri", "Acme Labs/My.Project"],
+        None,
+    )?;
 
     out.assert()
         .failure()
@@ -123,12 +131,12 @@ fn add_rejects_non_normalized_sysand_shorthand() -> Result<(), Box<dyn std::erro
 }
 
 #[test]
-fn add_path_like_positional_suggests_path_option() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, _cwd, out) = run_sysand(["add", "a/b/c"], None)?;
+fn add_path_like_iri_suggests_path_options() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, _cwd, out) = run_sysand(["add", "--iri", "a/b/c"], None)?;
 
-    out.assert()
-        .failure()
-        .stderr(contains("use `--path` instead"));
+    out.assert().failure().stderr(contains(
+        "use `--dir`, `--kpar-path` or `--iri-path` instead",
+    ));
 
     Ok(())
 }
@@ -141,13 +149,18 @@ fn remove_accepts_sysand_shorthand() -> Result<(), Box<dyn std::error::Error>> {
 
     run_sysand_in(
         &cwd,
-        ["add", "--no-lock", "pkg:sysand/acme-labs/my.project"],
+        [
+            "add",
+            "--no-lock",
+            "--iri",
+            "pkg:sysand/acme-labs/my.project",
+        ],
         None,
     )?
     .assert()
     .success();
 
-    let out = run_sysand_in(&cwd, ["remove", "acme-labs/my.project"], None)?;
+    let out = run_sysand_in(&cwd, ["remove", "--iri", "acme-labs/my.project"], None)?;
 
     out.assert()
         .success()
@@ -176,13 +189,18 @@ fn remove_rejects_non_normalized_sysand_shorthand() -> Result<(), Box<dyn std::e
 
     run_sysand_in(
         &cwd,
-        ["add", "--no-lock", "pkg:sysand/acme-labs/my.project"],
+        [
+            "add",
+            "--no-lock",
+            "--iri",
+            "pkg:sysand/acme-labs/my.project",
+        ],
         None,
     )?
     .assert()
     .success();
 
-    let out = run_sysand_in(&cwd, ["remove", "Acme Labs/My.Project"], None)?;
+    let out = run_sysand_in(&cwd, ["remove", "--iri", "Acme Labs/My.Project"], None)?;
 
     out.assert()
         .failure()
@@ -209,17 +227,17 @@ fn remove_rejects_non_normalized_sysand_shorthand() -> Result<(), Box<dyn std::e
 }
 
 #[test]
-fn remove_path_like_positional_suggests_path_option() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, _cwd, out) = run_sysand(["remove", "a/b/c"], None)?;
+fn remove_path_like_iri_suggests_iri_path() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, _cwd, out) = run_sysand(["remove", "--iri", "a/b/c"], None)?;
 
     out.assert()
         .failure()
-        .stderr(contains("use `--path` instead"));
+        .stderr(contains("use `--iri-path` instead"));
 
     Ok(())
 }
 
-/// Add and remove usages with `--path <path>`
+/// Add and remove usages with `--iri-path <path>`
 #[test]
 fn add_and_remove_path() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir1, cwd1, out1) = cli_init_project_basic("i", "add_and_remove_path1", "1.2.3")?;
@@ -229,7 +247,11 @@ fn add_and_remove_path() -> Result<(), Box<dyn std::error::Error>> {
     out1.assert().success();
     out2.assert().success();
 
-    let out = run_sysand_in(&cwd1, ["add", "--no-lock", "--path", cwd2.as_str()], None)?;
+    let out = run_sysand_in(
+        &cwd1,
+        ["add", "--no-lock", "--iri-path", cwd2.as_str()],
+        None,
+    )?;
 
     out.assert()
         .success()
@@ -254,7 +276,7 @@ fn add_and_remove_path() -> Result<(), Box<dyn std::error::Error>> {
         )
     );
 
-    let out = run_sysand_in(&cwd1, ["remove", "--path", cwd2.as_str()], None)?;
+    let out = run_sysand_in(&cwd1, ["remove", "--iri-path", cwd2.as_str()], None)?;
 
     out.assert().success().stderr(contains(format!(
         "Removing `{file_url}` from usages
@@ -289,6 +311,7 @@ fn add_and_remove_as_editable() -> Result<(), Box<dyn std::error::Error>> {
         [
             "add",
             "--no-lock",
+            "--iri",
             "urn:kpar:test",
             "--as-editable",
             "local/test",
@@ -335,7 +358,7 @@ sources = [
 
     let out = run_sysand_in(
         &cwd,
-        ["remove", "urn:kpar:test"],
+        ["remove", "--iri", "urn:kpar:test"],
         Some(config_path.as_str()),
     )?;
 
@@ -379,6 +402,7 @@ fn add_and_remove_as_local_src() -> Result<(), Box<dyn std::error::Error>> {
         [
             "add",
             "--no-lock",
+            "--iri",
             "urn:kpar:test",
             "--as-local-src",
             "local/test",
@@ -425,7 +449,7 @@ sources = [
 
     let out = run_sysand_in(
         &cwd,
-        ["remove", "urn:kpar:test"],
+        ["remove", "--iri", "urn:kpar:test"],
         Some(config_path.as_str()),
     )?;
 
@@ -469,6 +493,7 @@ fn add_and_remove_as_local_kpar() -> Result<(), Box<dyn std::error::Error>> {
         [
             "add",
             "--no-lock",
+            "--iri",
             "urn:kpar:test",
             "--as-local-kpar",
             "local/test.kpar",
@@ -515,7 +540,7 @@ sources = [
 
     let out = run_sysand_in(
         &cwd,
-        ["remove", "urn:kpar:test"],
+        ["remove", "--iri", "urn:kpar:test"],
         Some(config_path.as_str()),
     )?;
 
@@ -559,6 +584,7 @@ fn add_and_remove_as_remote_src() -> Result<(), Box<dyn std::error::Error>> {
         [
             "add",
             "--no-lock",
+            "--iri",
             "urn:kpar:test",
             "--as-remote-src",
             "https://www.example.com/test",
@@ -605,7 +631,7 @@ sources = [
 
     let out = run_sysand_in(
         &cwd,
-        ["remove", "urn:kpar:test"],
+        ["remove", "--iri", "urn:kpar:test"],
         Some(config_path.as_str()),
     )?;
 
@@ -649,6 +675,7 @@ fn add_and_remove_as_remote_kpar() -> Result<(), Box<dyn std::error::Error>> {
         [
             "add",
             "--no-lock",
+            "--iri",
             "urn:kpar:test",
             "--as-remote-kpar",
             "https://www.example.com/test.kpar",
@@ -695,7 +722,7 @@ sources = [
 
     let out = run_sysand_in(
         &cwd,
-        ["remove", "urn:kpar:test"],
+        ["remove", "--iri", "urn:kpar:test"],
         Some(config_path.as_str()),
     )?;
 
@@ -739,6 +766,7 @@ fn add_and_remove_as_remote_git() -> Result<(), Box<dyn std::error::Error>> {
         [
             "add",
             "--no-lock",
+            "--iri",
             "urn:kpar:test",
             "--as-remote-git",
             "https://www.example.com/test.git",
@@ -785,7 +813,7 @@ sources = [
 
     let out = run_sysand_in(
         &cwd,
-        ["remove", "urn:kpar:test"],
+        ["remove", "--iri", "urn:kpar:test"],
         Some(config_path.as_str()),
     )?;
 
@@ -831,6 +859,7 @@ fn add_and_remove_from_path() -> Result<(), Box<dyn std::error::Error>> {
         [
             "add",
             "--no-lock",
+            "--iri",
             "urn:kpar:test-src",
             "--from-path",
             "local/test",
@@ -851,6 +880,7 @@ fn add_and_remove_from_path() -> Result<(), Box<dyn std::error::Error>> {
         [
             "add",
             "--no-lock",
+            "--iri",
             "urn:kpar:test-kpar",
             "--from-path",
             "local/test.kpar",
@@ -907,7 +937,7 @@ sources = [
 
     let out = run_sysand_in(
         &cwd,
-        ["remove", "urn:kpar:test-src", "--no-lock"],
+        ["remove", "--iri", "urn:kpar:test-src", "--no-lock"],
         Some(config_path.as_str()),
     )?;
 
@@ -919,7 +949,7 @@ sources = [
 
     let out = run_sysand_in(
         &cwd,
-        ["remove", "urn:kpar:test-kpar", "--no-lock"],
+        ["remove", "--iri", "urn:kpar:test-kpar", "--no-lock"],
         Some(config_path.as_str()),
     )?;
 
@@ -969,6 +999,7 @@ fn add_and_remove_from_url() -> Result<(), Box<dyn std::error::Error>> {
             "--no-lock",
             "--from-url",
             &dep_url,
+            "--iri",
             "urn:kpar:add-from-url-dep",
         ],
         Some(config_path.as_str()),
@@ -1005,7 +1036,7 @@ fn add_and_remove_from_url() -> Result<(), Box<dyn std::error::Error>> {
 
     let out = run_sysand_in(
         &cwd,
-        ["remove", "urn:kpar:add-from-url-dep"],
+        ["remove", "--iri", "urn:kpar:add-from-url-dep"],
         Some(config_path.as_str()),
     )?;
 
@@ -1083,7 +1114,7 @@ fn add_from_http_kpar() -> Result<(), Box<dyn std::error::Error>> {
 
     let project_url = format!("{}/test_lib.kpar", server.url());
 
-    let out = run_sysand_in(&cwd, ["add", &project_url, "--no-index"], None)?;
+    let out = run_sysand_in(&cwd, ["add", "--iri", &project_url, "--no-index"], None)?;
 
     head_mock.assert();
     get_mock.assert();
@@ -1116,7 +1147,12 @@ fn add_and_remove_full_purl_sysand_without_lock() -> Result<(), Box<dyn std::err
 
     let out = run_sysand_in(
         &cwd,
-        ["add", "--no-lock", "pkg:sysand/acme-labs/my.project"],
+        [
+            "add",
+            "--no-lock",
+            "--iri",
+            "pkg:sysand/acme-labs/my.project",
+        ],
         None,
     )?;
 
@@ -1141,7 +1177,11 @@ fn add_and_remove_full_purl_sysand_without_lock() -> Result<(), Box<dyn std::err
 "#
     );
 
-    let out = run_sysand_in(&cwd, ["remove", "pkg:sysand/acme-labs/my.project"], None)?;
+    let out = run_sysand_in(
+        &cwd,
+        ["remove", "--iri", "pkg:sysand/acme-labs/my.project"],
+        None,
+    )?;
 
     out.assert().success().stderr(contains(
         "Removing `pkg:sysand/acme-labs/my.project` from usages
@@ -1176,7 +1216,7 @@ fn add_and_remove_urn_with_slash_not_treated_as_shorthand() -> Result<(), Box<dy
 
     let out = run_sysand_in(
         &cwd,
-        ["add", "--no-lock", "urn:kpar:acme-labs/my.project"],
+        ["add", "--no-lock", "--iri", "urn:kpar:acme-labs/my.project"],
         None,
     )?;
 
@@ -1201,7 +1241,11 @@ fn add_and_remove_urn_with_slash_not_treated_as_shorthand() -> Result<(), Box<dy
 "#
     );
 
-    let out = run_sysand_in(&cwd, ["remove", "urn:kpar:acme-labs/my.project"], None)?;
+    let out = run_sysand_in(
+        &cwd,
+        ["remove", "--iri", "urn:kpar:acme-labs/my.project"],
+        None,
+    )?;
 
     out.assert().success().stderr(contains(
         "Removing `urn:kpar:acme-labs/my.project` from usages
@@ -1232,11 +1276,19 @@ fn add_shorthand_then_remove_full_purl() -> Result<(), Box<dyn std::error::Error
 
     out.assert().success();
 
-    run_sysand_in(&cwd, ["add", "--no-lock", "acme-labs/my.project"], None)?
-        .assert()
-        .success();
+    run_sysand_in(
+        &cwd,
+        ["add", "--no-lock", "--iri", "acme-labs/my.project"],
+        None,
+    )?
+    .assert()
+    .success();
 
-    let out = run_sysand_in(&cwd, ["remove", "pkg:sysand/acme-labs/my.project"], None)?;
+    let out = run_sysand_in(
+        &cwd,
+        ["remove", "--iri", "pkg:sysand/acme-labs/my.project"],
+        None,
+    )?;
 
     out.assert()
         .success()
@@ -1266,7 +1318,7 @@ fn remove_nonexistent_shorthand() -> Result<(), Box<dyn std::error::Error>> {
 
     out.assert().success();
 
-    let out = run_sysand_in(&cwd, ["remove", "acme-labs/nonexistent"], None)?;
+    let out = run_sysand_in(&cwd, ["remove", "--iri", "acme-labs/nonexistent"], None)?;
 
     out.assert().failure().stderr(contains(
         "could not find usage for `pkg:sysand/acme-labs/nonexistent`",
@@ -1322,7 +1374,7 @@ fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error
         &cwd,
         [
             "add",
-            "urn:kpar:add_and_remove_with_lock_preinstall_dep",
+            "--iri", "urn:kpar:add_and_remove_with_lock_preinstall_dep",
             "--no-index",
         ],
         None,
@@ -1352,7 +1404,7 @@ fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error
 
     run_sysand_in(
         &cwd,
-        ["remove", "urn:kpar:add_and_remove_with_lock_preinstall_dep"],
+        ["remove", "--iri", "urn:kpar:add_and_remove_with_lock_preinstall_dep"],
         None,
     )?
     .assert()
@@ -1380,7 +1432,7 @@ fn add_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
 
     out.assert().success();
 
-    let out = run_sysand_in(&cwd, ["add", "urn:kpar:add_nonexistent"], None)?;
+    let out = run_sysand_in(&cwd, ["add", "--iri", "urn:kpar:add_nonexistent"], None)?;
 
     out.assert()
         .failure()
@@ -1395,7 +1447,11 @@ fn remove_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
 
     out.assert().success();
 
-    let out = run_sysand_in(&cwd, ["remove", "urn:kpar:remove_nonexistent"], None)?;
+    let out = run_sysand_in(
+        &cwd,
+        ["remove", "--iri", "urn:kpar:remove_nonexistent"],
+        None,
+    )?;
 
     out.assert().failure().stderr(contains(
         "could not find usage for `urn:kpar:remove_nonexistent`",
@@ -1422,6 +1478,7 @@ fn add_no_sync_skips_env_sync() -> Result<(), Box<dyn std::error::Error>> {
         [
             "add",
             "--no-sync",
+            "--iri",
             "urn:kpar:add-no-sync-dep",
             "--as-local-src",
             cwd_dep.as_str(),
@@ -1475,6 +1532,7 @@ fn add_prunes_unneeded_dependency_by_default() -> Result<(), Box<dyn std::error:
         [
             "add",
             "--no-lock",
+            "--iri",
             "urn:kpar:add-prune-keep",
             "--as-local-src",
             cwd_keep.as_str(),
@@ -1489,6 +1547,7 @@ fn add_prunes_unneeded_dependency_by_default() -> Result<(), Box<dyn std::error:
         [
             "add",
             "--no-lock",
+            "--iri",
             "urn:kpar:add-prune-drop",
             "--as-local-src",
             cwd_drop.as_str(),
@@ -1508,7 +1567,7 @@ fn add_prunes_unneeded_dependency_by_default() -> Result<(), Box<dyn std::error:
     // Drop the usage and regenerate the lockfile without touching the env.
     run_sysand_in(
         &cwd,
-        ["remove", "--no-lock", "urn:kpar:add-prune-drop"],
+        ["remove", "--no-lock", "--iri", "urn:kpar:add-prune-drop"],
         cfg,
     )?
     .assert()
@@ -1521,6 +1580,7 @@ fn add_prunes_unneeded_dependency_by_default() -> Result<(), Box<dyn std::error:
         &cwd,
         [
             "add",
+            "--iri",
             "urn:kpar:add-prune-new",
             "--as-local-src",
             cwd_new.as_str(),
@@ -1575,6 +1635,7 @@ fn add_no_prune_keeps_unneeded_dependency() -> Result<(), Box<dyn std::error::Er
         [
             "add",
             "--no-lock",
+            "--iri",
             "urn:kpar:add-no-prune-keep",
             "--as-local-src",
             cwd_keep.as_str(),
@@ -1589,6 +1650,7 @@ fn add_no_prune_keeps_unneeded_dependency() -> Result<(), Box<dyn std::error::Er
         [
             "add",
             "--no-lock",
+            "--iri",
             "urn:kpar:add-no-prune-drop",
             "--as-local-src",
             cwd_drop.as_str(),
@@ -1607,7 +1669,7 @@ fn add_no_prune_keeps_unneeded_dependency() -> Result<(), Box<dyn std::error::Er
 
     run_sysand_in(
         &cwd,
-        ["remove", "--no-lock", "urn:kpar:add-no-prune-drop"],
+        ["remove", "--no-lock", "--iri", "urn:kpar:add-no-prune-drop"],
         cfg,
     )?
     .assert()
@@ -1620,6 +1682,7 @@ fn add_no_prune_keeps_unneeded_dependency() -> Result<(), Box<dyn std::error::Er
         [
             "add",
             "--no-prune",
+            "--iri",
             "urn:kpar:add-no-prune-new",
             "--as-local-src",
             cwd_new.as_str(),
@@ -1663,6 +1726,7 @@ fn remove_keeps_lockfile_valid_and_syncs() -> Result<(), Box<dyn std::error::Err
         [
             "add",
             "--no-lock",
+            "--iri",
             "urn:kpar:remove-lock-dep",
             "--as-local-src",
             cwd_dep.as_str(),
@@ -1678,7 +1742,7 @@ fn remove_keeps_lockfile_valid_and_syncs() -> Result<(), Box<dyn std::error::Err
     let env_lib = cwd.join(DEFAULT_ENV_NAME).join("lib");
     assert!(env_lib.join("kpar.remove-lock-dep_1.0.0").is_dir());
 
-    run_sysand_in(&cwd, ["remove", "urn:kpar:remove-lock-dep"], cfg)?
+    run_sysand_in(&cwd, ["remove", "--iri", "urn:kpar:remove-lock-dep"], cfg)?
         .assert()
         .success();
 
@@ -1721,6 +1785,7 @@ fn remove_prunes_unneeded_dependency_by_default() -> Result<(), Box<dyn std::err
         [
             "add",
             "--no-lock",
+            "--iri",
             "urn:kpar:remove-prune-keep",
             "--as-local-src",
             cwd_keep.as_str(),
@@ -1735,6 +1800,7 @@ fn remove_prunes_unneeded_dependency_by_default() -> Result<(), Box<dyn std::err
         [
             "add",
             "--no-lock",
+            "--iri",
             "urn:kpar:remove-prune-drop",
             "--as-local-src",
             cwd_drop.as_str(),
@@ -1752,6 +1818,7 @@ fn remove_prunes_unneeded_dependency_by_default() -> Result<(), Box<dyn std::err
         &cwd,
         [
             "add",
+            "--iri",
             "urn:kpar:remove-prune-extra",
             "--as-local-src",
             cwd_extra.as_str(),
@@ -1766,7 +1833,12 @@ fn remove_prunes_unneeded_dependency_by_default() -> Result<(), Box<dyn std::err
 
     run_sysand_in(
         &cwd,
-        ["remove", "urn:kpar:remove-prune-extra", "--no-prune"],
+        [
+            "remove",
+            "--iri",
+            "urn:kpar:remove-prune-extra",
+            "--no-prune",
+        ],
         cfg,
     )?
     .assert()
@@ -1775,7 +1847,7 @@ fn remove_prunes_unneeded_dependency_by_default() -> Result<(), Box<dyn std::err
     // Still physically present, but no longer part of the lockfile.
     assert!(env_lib.join("kpar.remove-prune-extra_1.0.0").is_dir());
 
-    run_sysand_in(&cwd, ["remove", "urn:kpar:remove-prune-drop"], cfg)?
+    run_sysand_in(&cwd, ["remove", "--iri", "urn:kpar:remove-prune-drop"], cfg)?
         .assert()
         .success();
 
@@ -1818,6 +1890,7 @@ fn remove_no_prune_keeps_unneeded_dependency_and_still_syncs()
         [
             "add",
             "--no-lock",
+            "--iri",
             "urn:kpar:remove-no-prune-keep",
             "--as-local-src",
             cwd_keep.as_str(),
@@ -1832,6 +1905,7 @@ fn remove_no_prune_keeps_unneeded_dependency_and_still_syncs()
         [
             "add",
             "--no-lock",
+            "--iri",
             "urn:kpar:remove-no-prune-drop",
             "--as-local-src",
             cwd_drop.as_str(),
@@ -1848,6 +1922,7 @@ fn remove_no_prune_keeps_unneeded_dependency_and_still_syncs()
         &cwd,
         [
             "add",
+            "--iri",
             "urn:kpar:remove-no-prune-extra",
             "--as-local-src",
             cwd_extra.as_str(),
@@ -1859,7 +1934,12 @@ fn remove_no_prune_keeps_unneeded_dependency_and_still_syncs()
 
     run_sysand_in(
         &cwd,
-        ["remove", "urn:kpar:remove-no-prune-extra", "--no-prune"],
+        [
+            "remove",
+            "--iri",
+            "urn:kpar:remove-no-prune-extra",
+            "--no-prune",
+        ],
         cfg,
     )?
     .assert()
@@ -1869,7 +1949,12 @@ fn remove_no_prune_keeps_unneeded_dependency_and_still_syncs()
 
     run_sysand_in(
         &cwd,
-        ["remove", "--no-prune", "urn:kpar:remove-no-prune-drop"],
+        [
+            "remove",
+            "--no-prune",
+            "--iri",
+            "urn:kpar:remove-no-prune-drop",
+        ],
         cfg,
     )?
     .assert()
@@ -1882,6 +1967,850 @@ fn remove_no_prune_keeps_unneeded_dependency_and_still_syncs()
     assert!(
         env_lib.join("kpar.remove-no-prune-extra_1.0.0").is_dir(),
         "`--no-prune` must leave a project not present in the lockfile installed in `.sysand`"
+    );
+
+    Ok(())
+}
+
+/// Write a KPAR containing `.project.json`/`.meta.json` at the archive root,
+/// as required by the `KparPath` usage type.
+fn write_dep_kpar(
+    kpar_path: &camino::Utf8Path,
+    publisher: &str,
+    name: &str,
+    version: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let file = std::fs::File::create(kpar_path)?;
+    let mut zip = zip::ZipWriter::new(file);
+
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Stored)
+        .unix_permissions(0o644);
+
+    zip.start_file(".project.json", options)?;
+    zip.write_all(
+        format!(r#"{{"name":"{name}","publisher":"{publisher}","version":"{version}"}}"#)
+            .as_bytes(),
+    )?;
+    zip.start_file(".meta.json", options)?;
+    zip.write_all(br#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)?;
+
+    zip.finish()?;
+    Ok(())
+}
+
+#[test]
+fn add_dir_and_remove_identifier_without_lock() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "exp_add_and_remove", "1.2.3")?;
+    out.assert().success();
+
+    let dep_dir = cwd.join("dep");
+    std::fs::create_dir_all(&dep_dir)?;
+    cli_init_project_in(
+        &dep_dir,
+        None,
+        "Acme Labs",
+        Some("My Dep"),
+        Some("1.0.0"),
+        None,
+    )?
+    .assert()
+    .success();
+
+    let out = run_sysand_in(&cwd, ["add", "--no-lock", "--dir", "dep"], None)?;
+
+    out.assert().success().stderr(predicate::str::contains(
+        "Adding usage: `Acme Labs/My Dep` from `dep`",
+    ));
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    assert_eq!(
+        info_json,
+        r#"{
+  "name": "exp_add_and_remove",
+  "publisher": "a",
+  "version": "1.2.3",
+  "usage": [
+    {
+      "dir": "dep",
+      "publisher": "Acme Labs",
+      "name": "My Dep"
+    }
+  ]
+}
+"#
+    );
+
+    let out = run_sysand_in(&cwd, ["remove", "Acme Labs/My Dep"], None)?;
+
+    out.assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "Removing `Acme Labs/My Dep` from usages",
+        ))
+        .stderr(predicate::str::contains(
+            "Removed `Acme Labs/My Dep` (path `dep`)",
+        ));
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    assert_eq!(
+        info_json,
+        r#"{
+  "name": "exp_add_and_remove",
+  "publisher": "a",
+  "version": "1.2.3"
+}
+"#
+    );
+
+    Ok(())
+}
+
+#[test]
+fn add_dir_missing_publisher_fails() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "exp_add_no_publisher", "1.2.3")?;
+    out.assert().success();
+
+    let dep_dir = cwd.join("dep");
+    std::fs::create_dir_all(&dep_dir)?;
+    std::fs::write(
+        dep_dir.join(".project.json"),
+        r#"{
+  "name": "no-publisher-dep",
+  "version": "1.0.0"
+}
+"#,
+    )?;
+
+    let out = run_sysand_in(&cwd, ["add", "--no-lock", "--dir", "dep"], None)?;
+
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains("does not have a publisher"));
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    assert_eq!(
+        info_json,
+        r#"{
+  "name": "exp_add_no_publisher",
+  "publisher": "a",
+  "version": "1.2.3"
+}
+"#
+    );
+
+    Ok(())
+}
+
+#[test]
+fn add_dir_nonexistent_project_fails() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "exp_add_nonexistent", "1.2.3")?;
+    out.assert().success();
+
+    let dep_dir = cwd.join("dep");
+    std::fs::create_dir_all(&dep_dir)?;
+    // dep exists as a directory but has no .project.json
+
+    let out = run_sysand_in(&cwd, ["add", "--no-lock", "--dir", "dep"], None)?;
+
+    out.assert().failure().stderr(predicate::str::contains(
+        "unable to find interchange project",
+    ));
+
+    Ok(())
+}
+
+#[test]
+fn add_dir_already_present_is_ignored() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "exp_add_already_present", "1.2.3")?;
+    out.assert().success();
+
+    let dep_dir = cwd.join("dep");
+    std::fs::create_dir_all(&dep_dir)?;
+    cli_init_project_in(
+        &dep_dir,
+        None,
+        "Acme Labs",
+        Some("My Dep"),
+        Some("1.0.0"),
+        None,
+    )?
+    .assert()
+    .success();
+
+    run_sysand_in(&cwd, ["add", "--no-lock", "--dir", "dep"], None)?
+        .assert()
+        .success();
+
+    let out = run_sysand_in(&cwd, ["add", "--no-lock", "--dir", "dep"], None)?;
+
+    out.assert()
+        .success()
+        .stderr(predicate::str::contains("is already present"));
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    assert_eq!(
+        info_json,
+        r#"{
+  "name": "exp_add_already_present",
+  "publisher": "a",
+  "version": "1.2.3",
+  "usage": [
+    {
+      "dir": "dep",
+      "publisher": "Acme Labs",
+      "name": "My Dep"
+    }
+  ]
+}
+"#
+    );
+
+    Ok(())
+}
+
+#[test]
+fn remove_identifier() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "exp_remove", "1.2.3")?;
+    out.assert().success();
+
+    let dep_dir = cwd.join("dep");
+    std::fs::create_dir_all(&dep_dir)?;
+    cli_init_project_in(
+        &dep_dir,
+        None,
+        "Acme Labs",
+        Some("My Dep"),
+        Some("1.0.0"),
+        None,
+    )?
+    .assert()
+    .success();
+
+    run_sysand_in(&cwd, ["add", "--no-lock", "--dir", "dep"], None)?
+        .assert()
+        .success();
+
+    let out = run_sysand_in(&cwd, ["remove", "Acme Labs/my-dep"], None)?;
+
+    out.assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "Removing `Acme Labs/my-dep` from usages",
+        ))
+        .stderr(predicate::str::contains(
+            "Removed `Acme Labs/My Dep` (path `dep`)",
+        ));
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    assert_eq!(
+        info_json,
+        r#"{
+  "name": "exp_remove",
+  "publisher": "a",
+  "version": "1.2.3"
+}
+"#
+    );
+
+    Ok(())
+}
+
+#[test]
+fn remove_identifier_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "exp_remove_nonexistent", "1.2.3")?;
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["remove", "Acme Labs/Nonexistent"], None)?;
+
+    out.assert().failure().stderr(predicate::str::contains(
+        "could not find usage for `Acme Labs/Nonexistent`",
+    ));
+
+    Ok(())
+}
+
+#[test]
+fn add_kpar_path_and_remove_identifier_without_lock() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) =
+        cli_init_project_basic("a", "exp_add_and_remove_kpar_path", "1.2.3")?;
+    out.assert().success();
+
+    let dep_kpar = cwd.join("dep.kpar");
+    write_dep_kpar(&dep_kpar, "Acme Labs", "My Dep", "1.0.0")?;
+
+    let out = run_sysand_in(&cwd, ["add", "--no-lock", "--kpar-path", "dep.kpar"], None)?;
+
+    out.assert().success().stderr(predicate::str::contains(
+        "Adding usage: `Acme Labs/My Dep` in `dep.kpar`",
+    ));
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    assert_eq!(
+        info_json,
+        r#"{
+  "name": "exp_add_and_remove_kpar_path",
+  "publisher": "a",
+  "version": "1.2.3",
+  "usage": [
+    {
+      "kparPath": "dep.kpar",
+      "publisher": "Acme Labs",
+      "name": "My Dep"
+    }
+  ]
+}
+"#
+    );
+
+    let out = run_sysand_in(&cwd, ["remove", "Acme Labs/My Dep"], None)?;
+
+    out.assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "Removing `Acme Labs/My Dep` from usages",
+        ))
+        .stderr(predicate::str::contains(
+            "Removed `Acme Labs/My Dep` (path `dep.kpar`)",
+        ));
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    assert_eq!(
+        info_json,
+        r#"{
+  "name": "exp_add_and_remove_kpar_path",
+  "publisher": "a",
+  "version": "1.2.3"
+}
+"#
+    );
+
+    Ok(())
+}
+
+#[test]
+fn add_kpar_path_missing_publisher_fails() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) =
+        cli_init_project_basic("a", "exp_add_kpar_path_no_publisher", "1.2.3")?;
+    out.assert().success();
+
+    let dep_kpar = cwd.join("dep.kpar");
+    {
+        let file = std::fs::File::create(&dep_kpar)?;
+        let mut zip = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored)
+            .unix_permissions(0o644);
+        zip.start_file(".project.json", options)?;
+        zip.write_all(br#"{"name":"no-publisher-dep","version":"1.0.0"}"#)?;
+        zip.finish()?;
+    }
+
+    let out = run_sysand_in(&cwd, ["add", "--no-lock", "--kpar-path", "dep.kpar"], None)?;
+
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains("does not have a publisher"));
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    assert_eq!(
+        info_json,
+        r#"{
+  "name": "exp_add_kpar_path_no_publisher",
+  "publisher": "a",
+  "version": "1.2.3"
+}
+"#
+    );
+
+    Ok(())
+}
+
+#[test]
+fn add_kpar_path_nonexistent_project_fails() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) =
+        cli_init_project_basic("a", "exp_add_kpar_path_nonexistent", "1.2.3")?;
+    out.assert().success();
+
+    let dep_kpar = cwd.join("dep.kpar");
+    // dep.kpar exists as a valid, but empty, archive: no `.project.json`
+    {
+        let file = std::fs::File::create(&dep_kpar)?;
+        zip::ZipWriter::new(file).finish()?;
+    }
+
+    let out = run_sysand_in(&cwd, ["add", "--no-lock", "--kpar-path", "dep.kpar"], None)?;
+
+    out.assert().failure().stderr(predicate::str::contains(
+        "unable to find interchange project",
+    ));
+
+    Ok(())
+}
+
+#[test]
+fn add_kpar_path_already_present_is_ignored() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) =
+        cli_init_project_basic("a", "exp_add_kpar_path_already_present", "1.2.3")?;
+    out.assert().success();
+
+    let dep_kpar = cwd.join("dep.kpar");
+    write_dep_kpar(&dep_kpar, "Acme Labs", "My Dep", "1.0.0")?;
+
+    run_sysand_in(&cwd, ["add", "--no-lock", "--kpar-path", "dep.kpar"], None)?
+        .assert()
+        .success();
+
+    let out = run_sysand_in(&cwd, ["add", "--no-lock", "--kpar-path", "dep.kpar"], None)?;
+
+    out.assert()
+        .success()
+        .stderr(predicate::str::contains("is already present"));
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    assert_eq!(
+        info_json,
+        r#"{
+  "name": "exp_add_kpar_path_already_present",
+  "publisher": "a",
+  "version": "1.2.3",
+  "usage": [
+    {
+      "kparPath": "dep.kpar",
+      "publisher": "Acme Labs",
+      "name": "My Dep"
+    }
+  ]
+}
+"#
+    );
+
+    Ok(())
+}
+
+#[test]
+fn remove_identifier_kpar_path() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "exp_remove_kpar_path", "1.2.3")?;
+    out.assert().success();
+
+    let dep_kpar = cwd.join("dep.kpar");
+    write_dep_kpar(&dep_kpar, "Acme Labs", "My Dep", "1.0.0")?;
+
+    run_sysand_in(&cwd, ["add", "--no-lock", "--kpar-path", "dep.kpar"], None)?
+        .assert()
+        .success();
+
+    let out = run_sysand_in(&cwd, ["remove", "acme-labs/my-dep"], None)?;
+
+    out.assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "Removing `acme-labs/my-dep` from usages",
+        ))
+        .stderr(predicate::str::contains(
+            "Removed `Acme Labs/My Dep` (path `dep.kpar`)",
+        ));
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    assert_eq!(
+        info_json,
+        r#"{
+  "name": "exp_remove_kpar_path",
+  "publisher": "a",
+  "version": "1.2.3"
+}
+"#
+    );
+
+    Ok(())
+}
+
+/// After `remove <publisher>/<name>` updates an existing lockfile, the lockfile
+/// must remain internally consistent, and the dependency should be gone
+/// from `.sysand`.
+#[test]
+fn remove_identifier_keeps_lockfile_valid_and_syncs() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "exp_remove_lock_app", "1.0.0")?;
+    out.assert().success();
+
+    let dep_dir = cwd.join("dep");
+    fs::create_dir_all(&dep_dir)?;
+    cli_init_project_in(
+        &dep_dir,
+        None,
+        "Acme Labs",
+        Some("Remove Lock Dep"),
+        Some("1.0.0"),
+        None,
+    )?
+    .assert()
+    .success();
+
+    run_sysand_in(&cwd, ["add", "--no-lock", "--dir", "dep"], None)?
+        .assert()
+        .success();
+
+    run_sysand_in(&cwd, ["lock"], None)?.assert().success();
+    run_sysand_in(&cwd, ["sync"], None)?.assert().success();
+
+    let env_lib = cwd.join(DEFAULT_ENV_NAME).join("lib");
+    assert!(env_lib.join("acme-labs-remove-lock-dep_1.0.0").is_dir());
+
+    run_sysand_in(&cwd, ["remove", "Acme Labs/Remove Lock Dep"], None)?
+        .assert()
+        .success();
+
+    let lockfile =
+        fs::read_to_string(cwd.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME))?;
+    assert!(
+        !lockfile.contains("Remove Lock Dep") && !lockfile.contains("remove-lock-dep"),
+        "lockfile must not reference the removed dependency anywhere, including in the root's own usage list: {lockfile}"
+    );
+
+    assert!(
+        !env_lib.join("acme-labs-remove-lock-dep_1.0.0").exists(),
+        "the dependency dropped by `remove <publisher>/<name>` must be pruned"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn add_identifier_is_reserved() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "add_identifier_reserved", "1.2.3")?;
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["add", "--no-lock", "acme-labs/my.project"], None)?;
+
+    out.assert()
+        .failure()
+        .stderr(contains("reserved for typed index usages"));
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    assert_eq!(
+        info_json,
+        r#"{
+  "name": "add_identifier_reserved",
+  "publisher": "a",
+  "version": "1.2.3"
+}
+"#
+    );
+
+    Ok(())
+}
+
+#[test]
+fn remove_identifier_removes_the_sysand_purl_resource() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "remove_identifier_purl", "1.2.3")?;
+    out.assert().success();
+
+    run_sysand_in(
+        &cwd,
+        [
+            "add",
+            "--no-lock",
+            "--iri",
+            "pkg:sysand/acme-labs/my.project",
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+
+    let out = run_sysand_in(&cwd, ["remove", "--no-lock", "acme-labs/my.project"], None)?;
+
+    out.assert()
+        .success()
+        .stderr(contains("Removing `acme-labs/my.project` from usages"))
+        .stderr(contains("Removed `pkg:sysand/acme-labs/my.project`"));
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    assert_eq!(
+        info_json,
+        r#"{
+  "name": "remove_identifier_purl",
+  "publisher": "a",
+  "version": "1.2.3"
+}
+"#
+    );
+
+    Ok(())
+}
+
+#[test]
+fn remove_identifier_matches_a_typed_usage_by_the_normalized_form()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) =
+        cli_init_project_basic("a", "remove_identifier_normalized", "1.2.3")?;
+    out.assert().success();
+
+    let dep_dir = cwd.join("dep");
+    std::fs::create_dir_all(&dep_dir)?;
+    cli_init_project_in(
+        &dep_dir,
+        None,
+        "Acme Labs",
+        Some("My Dep"),
+        Some("1.0.0"),
+        None,
+    )?
+    .assert()
+    .success();
+
+    run_sysand_in(&cwd, ["add", "--no-lock", "--dir", "dep"], None)?
+        .assert()
+        .success();
+
+    let out = run_sysand_in(&cwd, ["remove", "--no-lock", "acme-labs/my-dep"], None)?;
+
+    out.assert()
+        .success()
+        .stderr(contains("Removed `Acme Labs/My Dep` (path `dep`)"));
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    assert_eq!(
+        info_json,
+        r#"{
+  "name": "remove_identifier_normalized",
+  "publisher": "a",
+  "version": "1.2.3"
+}
+"#
+    );
+
+    Ok(())
+}
+
+#[test]
+fn remove_iri_of_a_typed_usage_suggests_identifier() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "remove_iri_of_typed", "1.2.3")?;
+    out.assert().success();
+
+    let dep_dir = cwd.join("dep");
+    std::fs::create_dir_all(&dep_dir)?;
+    // A valid `pkg:sysand` publisher, so the typed usage has a PURL identifier
+    cli_init_project_in(
+        &dep_dir,
+        None,
+        "acme-labs",
+        Some("my-dep"),
+        Some("1.0.0"),
+        None,
+    )?
+    .assert()
+    .success();
+
+    run_sysand_in(&cwd, ["add", "--no-lock", "--dir", "dep"], None)?
+        .assert()
+        .success();
+
+    let out = run_sysand_in(
+        &cwd,
+        ["remove", "--iri", "pkg:sysand/acme-labs/my-dep"],
+        None,
+    )?;
+
+    out.assert()
+        .failure()
+        .stderr(contains("declared as a directory usage"))
+        .stderr(contains("sysand remove <publisher>/<name>"));
+
+    Ok(())
+}
+
+/// Removing a typed usage by its normalized spelling must also remove it
+/// from the lockfile. The lock records the identifier derived from the
+/// declared spelling, which differs from the one derived from the normalized
+/// spelling when the result is not a valid `pkg:sysand` PURL (here the
+/// publisher's `.`), so the identifier must come from the removed usage
+#[test]
+fn remove_typed_by_normalized_spelling_updates_lockfile() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "remove_norm_app", "1.0.0")?;
+    out.assert().success();
+
+    let dep_dir = cwd.join("dep");
+    std::fs::create_dir_all(&dep_dir)?;
+    cli_init_project_in(
+        &dep_dir,
+        None,
+        "ACME Inc.",
+        Some("Foo"),
+        Some("1.0.0"),
+        None,
+    )?
+    .assert()
+    .success();
+
+    run_sysand_in(&cwd, ["add", "--no-index", "--dir", "dep"], None)?
+        .assert()
+        .success();
+
+    let lockfile_path = cwd.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME);
+    let lockfile = fs::read_to_string(&lockfile_path)?;
+    assert!(
+        lockfile.contains("urn:sysand:ACME%20Inc./Foo"),
+        "lockfile must reference the added dependency: {lockfile}"
+    );
+
+    run_sysand_in(&cwd, ["remove", "--no-index", "acme-inc./foo"], None)?
+        .assert()
+        .success()
+        .stderr(contains("Removed `ACME Inc./Foo` (path `dep`)"));
+
+    let lockfile = fs::read_to_string(&lockfile_path)?;
+    assert!(
+        !lockfile.contains("urn:sysand:ACME%20Inc./Foo"),
+        "lockfile must not reference the removed dependency: {lockfile}"
+    );
+
+    Ok(())
+}
+
+/// Identifiers that are not a valid `<publisher>/<name>` pair, with the
+/// expected error message
+const INVALID_IDENTIFIERS: &[(&str, &str)] = &[
+    (
+        "acme-labs",
+        "identifier is not of the form `<publisher>/<name>`",
+    ),
+    ("/my.project", "publisher cannot be empty"),
+    ("acme-labs/", "name cannot be empty"),
+    ("acme-labs/my/project", "name cannot contain `/`"),
+    ("acme:labs/my.project", "publisher cannot contain `:`"),
+    ("acme-labs/my:project", "name cannot contain `:`"),
+    (
+        "acme\tlabs/my.project",
+        "publisher cannot contain control characters",
+    ),
+    (
+        "acme-labs/my\nproject",
+        "name cannot contain control characters",
+    ),
+];
+
+/// A typed `sysand add <identifier>` should reject an invalid identifier
+/// while parsing arguments, before reaching the (reserved) typed add
+#[test]
+fn add_identifier_rejects_invalid_identifiers() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "add_identifier_invalid", "1.2.3")?;
+    out.assert().success();
+    let original = fs::read_to_string(cwd.join(".project.json"))?;
+
+    for &(identifier, msg) in INVALID_IDENTIFIERS {
+        let out = run_sysand_in(&cwd, ["add", "--no-lock", identifier], None)?;
+
+        out.assert().failure().stderr(
+            contains(format!("invalid value '{identifier}' for '[IDENTIFIER]'"))
+                .and(contains(msg))
+                .and(contains("reserved for typed index usages").not()),
+        );
+        assert_eq!(
+            fs::read_to_string(cwd.join(".project.json"))?,
+            original,
+            "identifier: {identifier:?}"
+        );
+    }
+
+    Ok(())
+}
+
+/// `sysand add <identifier>` should accept spaces in publisher and name,
+/// reaching the (reserved) typed add
+#[test]
+fn add_identifier_accepts_spaces() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "add_identifier_spaces", "1.2.3")?;
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["add", "--no-lock", "Acme Labs/My Project"], None)?;
+
+    out.assert()
+        .failure()
+        .stderr(contains("reserved for typed index usages"));
+
+    Ok(())
+}
+
+/// `sysand remove <identifier>` should reject an invalid identifier while
+/// parsing arguments, leaving the project untouched
+#[test]
+fn remove_identifier_rejects_invalid_identifiers() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "remove_identifier_invalid", "1.2.3")?;
+    out.assert().success();
+    let original = fs::read_to_string(cwd.join(".project.json"))?;
+
+    for &(identifier, msg) in INVALID_IDENTIFIERS {
+        let out = run_sysand_in(&cwd, ["remove", "--no-lock", identifier], None)?;
+
+        out.assert().failure().stderr(
+            contains(format!("invalid value '{identifier}' for '[IDENTIFIER]'")).and(contains(msg)),
+        );
+        assert_eq!(
+            fs::read_to_string(cwd.join(".project.json"))?,
+            original,
+            "identifier: {identifier:?}"
+        );
+    }
+
+    Ok(())
+}
+
+/// Removing a usage whose project is still needed transitively must drop it
+/// from the root's usages in the lockfile, even though no project is pruned
+#[test]
+fn remove_still_needed_dependency_updates_root_usages_in_lockfile()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "remove_needed_app", "1.0.0")?;
+    out.assert().success();
+
+    for name in ["dep-a", "dep-b"] {
+        let dir = cwd.join(name);
+        std::fs::create_dir_all(&dir)?;
+        cli_init_project_in(&dir, None, "acme", Some(name), Some("1.0.0"), None)?
+            .assert()
+            .success();
+    }
+    run_sysand_in(
+        &cwd.join("dep-a"),
+        ["add", "--no-lock", "--dir", "../dep-b"],
+        None,
+    )?
+    .assert()
+    .success();
+    run_sysand_in(&cwd, ["add", "--no-lock", "--dir", "dep-a"], None)?
+        .assert()
+        .success();
+    run_sysand_in(&cwd, ["add", "--no-index", "--dir", "dep-b"], None)?
+        .assert()
+        .success();
+
+    let lockfile_path = cwd.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME);
+    let root_usages = |lockfile: &str| -> Vec<String> {
+        let lock = sysand_core::lock::Lock::from_str(lockfile).unwrap();
+        let root = lock
+            .projects
+            .iter()
+            .find(|p| p.name == "remove_needed_app")
+            .unwrap();
+        root.usages.iter().map(|u| u.to_string()).collect()
+    };
+    let lockfile = fs::read_to_string(&lockfile_path)?;
+    assert_eq!(
+        root_usages(&lockfile),
+        ["pkg:sysand/acme/dep-a", "pkg:sysand/acme/dep-b"]
+    );
+
+    run_sysand_in(&cwd, ["remove", "--no-index", "acme/dep-b"], None)?
+        .assert()
+        .success();
+
+    let lockfile = fs::read_to_string(&lockfile_path)?;
+    assert_eq!(root_usages(&lockfile), ["pkg:sysand/acme/dep-a"]);
+    assert!(
+        lockfile.contains("name = \"dep-b\""),
+        "`dep-b` is still needed by `dep-a`, so it must stay locked: {lockfile}"
     );
 
     Ok(())

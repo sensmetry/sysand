@@ -275,3 +275,106 @@ fn init_fail_on_double_init_cwd() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+/// `sysand init` should reject an invalid `--publisher` before creating
+/// anything
+#[test]
+fn init_rejects_invalid_publisher() -> Result<(), Box<dyn std::error::Error>> {
+    for (publisher, msg) in [
+        ("", "publisher cannot be empty"),
+        ("acme/labs", "publisher cannot contain `/`"),
+        ("acme:labs", "publisher cannot contain `:`"),
+        ("acme\tlabs", "publisher cannot contain control characters"),
+    ] {
+        let (_temp_dir, cwd, out) =
+            run_sysand(["init", "--publisher", publisher, "--name", "n", "p"], None)?;
+
+        out.assert().failure().stderr(
+            predicate::str::contains(format!(
+                "invalid value '{publisher}' for '--publisher <PUBLISHER>'"
+            ))
+            .and(predicate::str::contains(msg)),
+        );
+        assert!(!cwd.join("p").exists(), "publisher: {publisher:?}");
+    }
+
+    Ok(())
+}
+
+/// `sysand init` should reject an invalid `--name` before creating
+/// anything
+#[test]
+fn init_rejects_invalid_name() -> Result<(), Box<dyn std::error::Error>> {
+    for (name, msg) in [
+        ("", "name cannot be empty"),
+        ("a/b", "name cannot contain `/`"),
+        ("a:b", "name cannot contain `:`"),
+        ("a\nb", "name cannot contain control characters"),
+    ] {
+        let (_temp_dir, cwd, out) =
+            run_sysand(["init", "--publisher", "a", "--name", name, "p"], None)?;
+
+        out.assert().failure().stderr(
+            predicate::str::contains(format!("invalid value '{name}' for '--name <NAME>'"))
+                .and(predicate::str::contains(msg)),
+        );
+        assert!(!cwd.join("p").exists(), "name: {name:?}");
+    }
+
+    Ok(())
+}
+
+/// `sysand init` should accept a publisher and name containing spaces
+#[test]
+fn init_accepts_spaces_in_publisher_and_name() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--publisher",
+            "Acme Labs",
+            "--name",
+            "My Project",
+            "p",
+        ],
+        None,
+    )?;
+
+    out.assert().success();
+    let info = std::fs::read_to_string(cwd.join("p").join(".project.json"))?;
+    assert_eq!(
+        info,
+        r#"{
+  "name": "My Project",
+  "publisher": "Acme Labs",
+  "version": "0.0.1"
+}
+"#
+    );
+
+    Ok(())
+}
+
+/// `sysand init` without `--name` should reject a directory name that is
+/// not a valid project name, and suggest `--name`. `:` is not allowed in
+/// Windows file names, hence Unix only
+#[cfg(unix)]
+#[test]
+fn init_rejects_invalid_directory_name() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(["init", "--publisher", "a", "bad:dir"], None)?;
+
+    out.assert().failure().stderr(predicate::str::contains(
+        "cannot use the directory name `bad:dir` as the project name: \
+         name cannot contain `:`; use `--name` to set it",
+    ));
+    assert!(!cwd.join("bad:dir").join(".project.json").exists());
+
+    let out = run_sysand_in(
+        &cwd,
+        ["init", "--publisher", "a", "--name", "good", "bad:dir"],
+        None,
+    )?;
+    out.assert().success();
+    assert!(cwd.join("bad:dir").join(".project.json").exists());
+
+    Ok(())
+}

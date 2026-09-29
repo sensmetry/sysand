@@ -199,6 +199,23 @@ pub type ProjectResolution<Env> = (
     Option<<Env as ReadEnvironment>::InterchangeProjectRead>,
 );
 
+/// Result of [`Lock::remove_usage`]
+#[derive(Debug, PartialEq, Eq)]
+#[must_use]
+pub enum RemoveUsageOutcome {
+    /// The root project was not found; the lock is unchanged
+    RootNotFound,
+    /// The root project does not have the usage; the lock is unchanged
+    UsageNotFound,
+    /// The usage was removed from the root project, so the lock is modified
+    /// even if `pruned` is empty (i.e. every dependency is still reachable
+    /// from some root)
+    Removed {
+        /// Projects no longer reachable from any root, removed from the lock
+        pruned: Vec<Project>,
+    },
+}
+
 impl Lock {
     pub fn validate(&self) -> Result<(), ValidationError> {
         self.validate_lock_version()?;
@@ -211,11 +228,6 @@ impl Lock {
     /// Remove usage from the root project identified by `root_publisher` and `root_name`,
     /// and prune all projects not reachable from any of the root projects.
     /// Root projects are assumed to be those who have `editable = "subpath"` sources.
-    /// Return:
-    /// - None - root project not found
-    /// - Some(false) - usage not present
-    /// - Some(true) - usage removed
-    ///
     /// Assumes that `self` is well formed, i.e. every usage is satisfied by a project
     /// whose first identifier matches the usage
     pub fn remove_usage(
@@ -223,7 +235,7 @@ impl Lock {
         root_publisher: Option<&str>,
         root_name: &str,
         usage_id: &str,
-    ) -> Option<Vec<Project>> {
+    ) -> RemoveUsageOutcome {
         // identifier -> project index mapping
         let mut project_to_index = HashMap::new();
         let mut reachable = HashSet::new();
@@ -246,7 +258,9 @@ impl Lock {
             }
         }
 
-        let (project, project_index) = project?;
+        let Some((project, project_index)) = project else {
+            return RemoveUsageOutcome::RootNotFound;
+        };
         let mut usage_found = None;
         for (u_idx, u) in project.usages.iter().enumerate() {
             if &**u == usage_id {
@@ -261,7 +275,7 @@ impl Lock {
         if let Some(u_idx) = usage_found {
             self.projects[project_index].usages.remove(u_idx);
         } else {
-            return Some(Vec::new());
+            return RemoveUsageOutcome::UsageNotFound;
         }
 
         while let Some(idx) = queue.pop_front() {
@@ -273,7 +287,7 @@ impl Lock {
             }
         }
         let mut index = 0;
-        let removed = self
+        let pruned = self
             .projects
             .extract_if(.., |_| {
                 let keep = reachable.contains(&index);
@@ -281,7 +295,7 @@ impl Lock {
                 !keep
             })
             .collect();
-        Some(removed)
+        RemoveUsageOutcome::Removed { pruned }
     }
 
     /// Root (i.e. belonging to the current workspace) projects are those
@@ -679,21 +693,21 @@ pub enum Source {
         kpar_digest: String,
     },
     RemoteKpar {
-        remote_kpar: String,
+        remote_kpar: Iri<String>,
         kpar_size: NonZeroU64,
         kpar_digest: String,
     },
     IndexKpar {
-        index_kpar: String,
+        index_kpar: Iri<String>,
         kpar_size: NonZeroU64,
         kpar_digest: String,
     },
     RemoteSrc {
-        remote_src: String,
+        remote_src: Iri<String>,
         checksum: String,
     },
     RemoteGit {
-        remote_git: String,
+        remote_git: Iri<String>,
     },
 }
 
@@ -723,14 +737,14 @@ impl Source {
                 table.insert("checksum", Value::from(checksum));
             }
             Self::RemoteGit { remote_git } => {
-                table.insert("remote_git", Value::from(remote_git));
+                table.insert("remote_git", Value::from(remote_git.as_str()));
             }
             Self::RemoteKpar {
                 remote_kpar,
                 kpar_size,
                 kpar_digest,
             } => {
-                table.insert("remote_kpar", Value::from(remote_kpar));
+                table.insert("remote_kpar", Value::from(remote_kpar.as_str()));
                 let size = i64::try_from(kpar_size.get()).unwrap();
                 table.insert("kpar_size", Value::Integer(Formatted::new(size)));
                 table.insert("kpar_digest", Value::from(kpar_digest));
@@ -740,7 +754,7 @@ impl Source {
                 kpar_size,
                 kpar_digest,
             } => {
-                table.insert("index_kpar", Value::from(index_kpar));
+                table.insert("index_kpar", Value::from(index_kpar.as_str()));
                 let size = i64::try_from(kpar_size.get()).unwrap();
                 table.insert("kpar_size", Value::Integer(Formatted::new(size)));
                 table.insert("kpar_digest", Value::from(kpar_digest));
@@ -749,7 +763,7 @@ impl Source {
                 remote_src,
                 checksum,
             } => {
-                table.insert("remote_src", Value::from(remote_src));
+                table.insert("remote_src", Value::from(remote_src.as_str()));
                 table.insert("checksum", Value::from(checksum));
             }
         }

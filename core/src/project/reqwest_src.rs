@@ -5,6 +5,7 @@
 
 use std::{io, marker::Send, pin::Pin, sync::Arc};
 
+use fluent_uri::Iri;
 use futures::{TryStreamExt as _, join};
 use thiserror::Error;
 use typed_path::Utf8UnixPath;
@@ -188,7 +189,9 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Pol
                 .ok_or(ReqwestSrcError::MissingInfoMeta)?,
         };
         Ok(vec![Source::RemoteSrc {
-            remote_src: self.url.to_string(),
+            // Panic here should be impossible, as the URL should have
+            // been created from IRI
+            remote_src: Iri::parse(self.url.to_string()).unwrap(),
             checksum,
         }])
     }

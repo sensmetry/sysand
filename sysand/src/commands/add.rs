@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{collections::HashMap, path::Path, sync::Arc};
+use std::{assert_matches, collections::HashMap, path::Path, sync::Arc};
 
 use anyhow::{Result, bail};
 use camino::{Utf8Path, Utf8PathBuf};
@@ -20,7 +20,7 @@ use sysand_core::{
         local_fs::{CONFIG_FILE, add_project_source_to_config},
     },
     context::ProjectContext,
-    model::{InterchangeProjectUsage, InterchangeProjectUsageRaw},
+    model::InterchangeProjectUsage,
     project::{
         ProjectRead as _,
         local_kpar::{KparInnerPath, LocalKParProject},
@@ -32,38 +32,200 @@ use sysand_core::{
 };
 
 use crate::{
-    CliError, DEFAULT_INDEX_URL,
-    cli::{ProjectSourceOptions, ResolutionOptions},
+    CliError,
+    cli::{AddProjectLocatorArgs, ProjectSourceOptions, ResolutionOptions},
     commands::{lock::create_resolver, sync::command_sync},
+    default_index_location, iri_or_path_to_iri,
     style::GOOD,
 };
 
 // TODO: Collect common arguments
 #[expect(clippy::fn_params_excessive_bools)]
 pub fn command_add<Policy: HTTPAuthentication>(
-    iri: Iri<String>,
+    locator: AddProjectLocatorArgs,
+    // iri: Iri<String>,
     version_constraint: Option<VersionReq>,
     no_lock: bool,
     no_sync: bool,
     no_prune: bool,
     resolution_opts: ResolutionOptions,
-    source_opts: Box<ProjectSourceOptions>,
+    source_overrides: Box<ProjectSourceOptions>,
     mut config: Config,
-    config_file: Option<String>,
+    config_file: Option<Utf8PathBuf>,
     no_config: bool,
     ctx: ProjectContext,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
 ) -> Result<()> {
-    let iri = iri.as_ref();
     let mut current_project = ctx
         .current_project
         .clone()
         .ok_or(CliError::MissingProjectCurrentDir)?;
 
+    let usage = match locator {
+        AddProjectLocatorArgs {
+            identifier: Some(_),
+            dir: None,
+            kpar_path: None,
+            iri: None,
+            iri_path: None,
+        } => {
+            assert_no_overrides(&source_overrides);
+            assert_eq!(version_constraint, None);
+            bail!("reserved for typed index usages")
+        }
+        AddProjectLocatorArgs {
+            identifier: None,
+            dir: Some(dir),
+            kpar_path: None,
+            iri: None,
+            iri_path: None,
+        } => {
+            assert_no_overrides(&source_overrides);
+            assert_eq!(version_constraint, None);
+            let abs_path = wrapfs::canonicalize(dir)?;
+            let relative = relativize_path(&abs_path, current_project.root_path())?;
+            let project = LocalSrcProject::new_access(abs_path, None);
+            let info = project
+                .get_info()?
+                .ok_or_else(|| CliError::MissingProject(project.root_path().to_string()))?;
+            let publisher = info.publisher.ok_or_else(|| {
+                CliError::MissingPublisherForUsage(project.root_path().to_string())
+            })?;
+            InterchangeProjectUsage::Directory {
+                dir: relative,
+                publisher,
+                name: info.name,
+            }
+        }
+        AddProjectLocatorArgs {
+            identifier: None,
+            dir: None,
+            kpar_path: Some(kpar_path),
+            iri: None,
+            iri_path: None,
+        } => {
+            assert_no_overrides(&source_overrides);
+            assert_eq!(version_constraint, None);
+            let abs_path = wrapfs::canonicalize(kpar_path)?;
+            let relative = relativize_path(&abs_path, current_project.root_path())?;
+            let project = LocalKParProject::new_access(abs_path.clone(), KparInnerPath::Root, None);
+            let info = project
+                .get_info()?
+                .ok_or_else(|| CliError::MissingProject(abs_path.to_string()))?;
+            let publisher = info
+                .publisher
+                .ok_or_else(|| CliError::MissingPublisherForUsage(abs_path.to_string()))?;
+            InterchangeProjectUsage::KparPath {
+                kpar_path: relative,
+                publisher,
+                name: info.name,
+            }
+        }
+        AddProjectLocatorArgs {
+            identifier: None,
+            dir: None,
+            kpar_path: None,
+            iri,
+            iri_path,
+        } => {
+            let iri = iri_or_path_to_iri(iri, iri_path)?;
+            process_overrides(
+                &resolution_opts,
+                source_overrides,
+                &mut config,
+                config_file,
+                no_config,
+                &ctx,
+                &client,
+                &runtime,
+                &auth_policy,
+                &current_project,
+                &iri,
+            )?;
+            InterchangeProjectUsage::Resource {
+                resource: iri,
+                version_constraint,
+            }
+        }
+        _ => unreachable!(),
+    };
+
+    if no_lock {
+        do_add(&mut current_project, &usage.into())?;
+        Ok(())
+    } else {
+        let info_path = current_project.info_path();
+        let info_backup = wrapfs::read_to_string(&info_path)?;
+
+        let provided_iris = if resolution_opts.include_std {
+            HashMap::default()
+        } else {
+            let sysml_std = crate::known_std_libs();
+            if let InterchangeProjectUsage::Resource { resource, .. } = &usage
+                && sysml_std.contains_key(resource.as_str())
+            {
+                log::info!(
+                    "{GOOD}note{GOOD:#}: SysMLv2/KerML standard libraries will not be installed during sync"
+                );
+                // Can't skip either locking or syncing, since lockfile needs to add the usage,
+                // and std version being added may affect version resolution of other packages
+                // in the dependency graph (e.g. older versions used older std, newer use some
+                // newer version)
+            }
+            sysml_std
+        };
+
+        do_add(&mut current_project, &usage.into())?;
+
+        let alias_iris = if let Some(w) = &ctx.current_workspace {
+            w.projects()
+                .iter()
+                .find(|p| Path::new(&p.path) == current_project.root_path())
+                .map(|p| p.iris.clone())
+        } else {
+            None
+        };
+
+        match resolve_deps(
+            no_sync,
+            no_prune,
+            resolution_opts,
+            &config,
+            client,
+            runtime,
+            auth_policy,
+            current_project.root_path(),
+            alias_iris,
+            provided_iris,
+            ctx,
+        ) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                // Restore old info
+                wrapfs::write(&info_path, info_backup)?;
+                Err(e)
+            }
+        }
+    }
+}
+
+fn process_overrides<Policy: HTTPAuthentication>(
+    resolution_opts: &ResolutionOptions,
+    source_overrides: Box<ProjectSourceOptions>,
+    config: &mut Config,
+    config_file: Option<Utf8PathBuf>,
+    no_config: bool,
+    ctx: &ProjectContext,
+    client: &reqwest_middleware::ClientWithMiddleware,
+    runtime: &Arc<tokio::runtime::Runtime>,
+    auth_policy: &Arc<Policy>,
+    current_project: &LocalSrcProject,
+    iri: &Iri<String>,
+) -> Result<(), anyhow::Error> {
     #[expect(clippy::manual_map)] // For readability and compactness
-    let source = if let Some(path) = source_opts.from_path {
+    let source = if let Some(path) = source_overrides.from_path {
         let metadata = wrapfs::metadata(&path)?;
         if metadata.is_dir() {
             Some(OverrideSource::LocalSrc {
@@ -80,7 +242,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
         } else {
             bail!("path `{path}` is neither a directory nor a file");
         }
-    } else if let Some(url) = source_opts.from_url {
+    } else if let Some(url) = source_overrides.from_url {
         let ResolutionOptions {
             index,
             default_index,
@@ -91,7 +253,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
         let index_urls = if no_index {
             None
         } else {
-            Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_owned()], default_index)?)
+            Some(config.index_urls(index, vec![default_index_location()], default_index))
         };
         let std_resolver = standard_resolver(
             // TODO: why not use env here?
@@ -109,7 +271,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
                 for candidate in alternatives {
                     match candidate {
                         Ok(project) => {
-                            source = Some(project.sources(&ctx)?[0].to_override());
+                            source = Some(project.sources(ctx)?[0].to_override());
                             break;
                         }
                         Err(err) => {
@@ -132,7 +294,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
             bail!("unable to find project {resolve}")
         }
         source
-    } else if let Some(editable) = source_opts.as_editable {
+    } else if let Some(editable) = source_overrides.as_editable {
         Some(OverrideSource::Editable {
             editable: get_relative(
                 editable,
@@ -142,7 +304,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
             .as_str()
             .into(),
         })
-    } else if let Some(src_path) = source_opts.as_local_src {
+    } else if let Some(src_path) = source_overrides.as_local_src {
         Some(OverrideSource::LocalSrc {
             src_path: get_relative(
                 src_path,
@@ -152,7 +314,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
             .as_str()
             .into(),
         })
-    } else if let Some(kpar_path) = source_opts.as_local_kpar {
+    } else if let Some(kpar_path) = source_overrides.as_local_kpar {
         Some(OverrideSource::LocalKpar {
             kpar_path: get_relative(
                 kpar_path,
@@ -162,210 +324,32 @@ pub fn command_add<Policy: HTTPAuthentication>(
             .as_str()
             .into(),
         })
-    } else if let Some(remote_src) = source_opts.as_remote_src {
-        Some(OverrideSource::RemoteSrc {
-            remote_src: remote_src.into_string(),
-        })
-    } else if let Some(remote_kpar) = source_opts.as_remote_kpar {
+    } else if let Some(remote_src) = source_overrides.as_remote_src {
+        Some(OverrideSource::RemoteSrc { remote_src })
+    } else if let Some(remote_kpar) = source_overrides.as_remote_kpar {
         // TODO: maybe also allow giving IndexKpar (does it make sense?)
-        Some(OverrideSource::RemoteKpar {
-            remote_kpar: remote_kpar.into_string(),
-        })
-    } else if let Some(remote_git) = source_opts.as_remote_git {
-        Some(OverrideSource::RemoteGit {
-            remote_git: remote_git.into_string(),
-        })
+        Some(OverrideSource::RemoteKpar { remote_kpar })
+    } else if let Some(remote_git) = source_overrides.as_remote_git {
+        Some(OverrideSource::RemoteGit { remote_git })
     } else {
         None
     };
-
-    if let Some(source) = source {
+    let _: () = if let Some(source) = source {
         let config_path = config_file
-            .map(Utf8PathBuf::from)
             .or_else(|| (!no_config).then(|| current_project.root_path().join(CONFIG_FILE)));
 
         if let Some(path) = config_path {
-            add_project_source_to_config(&path, iri, &source)?;
+            add_project_source_to_config(&path, iri.borrow(), &source)?;
         } else {
             log::warn!("project source for `{iri}` not added to any config file");
         }
 
         config.projects.push(ConfigProject {
-            identifiers: vec![iri.to_owned()],
+            identifiers: vec![iri.clone()],
             sources: vec![source],
         });
-    }
-
-    let usage_raw = InterchangeProjectUsageRaw::Resource {
-        resource: iri.to_owned(),
-        version_constraint: version_constraint.map(|vc| vc.to_string()),
     };
-
-    if no_lock {
-        do_add(&mut current_project, &usage_raw)?;
-        Ok(())
-    } else {
-        let info_path = current_project.info_path();
-        let info_backup = wrapfs::read_to_string(&info_path)?;
-        let added = do_add(&mut current_project, &usage_raw)?;
-        if !added {
-            return Ok(());
-        }
-
-        let provided_iris = if resolution_opts.include_std {
-            HashMap::default()
-        } else {
-            let sysml_std = crate::known_std_libs();
-            if sysml_std.contains_key(iri) {
-                log::info!(
-                    "{GOOD}note{GOOD:#}: SysMLv2/KerML standard libraries will not be installed during sync"
-                );
-                // Can't skip either locking or syncing, since lockfile needs to add the usage,
-                // and std version being added may affect version resolution of other packages
-                // in the dependency graph (e.g. older versions used older std, newer use some
-                // newer version)
-            }
-            sysml_std
-        };
-
-        let alias_iris = if let Some(w) = &ctx.current_workspace {
-            w.projects()
-                .iter()
-                .find(|p| Path::new(&p.path) == current_project.root_path())
-                .map(|p| p.iris.clone())
-        } else {
-            None
-        };
-
-        match resolve_deps(
-            no_sync,
-            no_prune,
-            resolution_opts,
-            &config,
-            client,
-            runtime,
-            auth_policy,
-            current_project.root_path(),
-            alias_iris,
-            provided_iris,
-            ctx,
-        ) {
-            Ok(()) => Ok(()),
-            Err(e) => {
-                // Restore old info
-                wrapfs::write(&info_path, info_backup)?;
-                Err(e)
-            }
-        }
-    }
-}
-
-pub enum ExpAddArgs {
-    Dir { dir: Utf8PathBuf },
-    KparPath { kpar_path: Utf8PathBuf },
-}
-
-// TODO: Collect common arguments
-pub fn exp_command_add<Policy: HTTPAuthentication>(
-    add: ExpAddArgs,
-    no_lock: bool,
-    no_sync: bool,
-    no_prune: bool,
-    resolution_opts: ResolutionOptions,
-    config: Config,
-    ctx: ProjectContext,
-    client: reqwest_middleware::ClientWithMiddleware,
-    runtime: Arc<tokio::runtime::Runtime>,
-    auth_policy: Arc<Policy>,
-) -> Result<()> {
-    let mut current_project = ctx
-        .current_project
-        .clone()
-        .ok_or(CliError::MissingProjectCurrentDir)?;
-
-    let usage = match add {
-        ExpAddArgs::Dir { dir } => {
-            let abs_path = wrapfs::canonicalize(dir)?;
-            let relative = relativize_path(&abs_path, current_project.root_path())?;
-            let project = LocalSrcProject::new_access(abs_path, None);
-            let info = project
-                .get_info()?
-                .ok_or_else(|| CliError::MissingProject(project.root_path().to_string()))?;
-            let publisher = info.publisher.ok_or_else(|| {
-                CliError::MissingPublisherForUsage(project.root_path().to_string())
-            })?;
-            InterchangeProjectUsage::Directory {
-                dir: relative,
-                publisher,
-                name: info.name,
-            }
-        }
-        ExpAddArgs::KparPath { kpar_path } => {
-            let abs_path = wrapfs::canonicalize(kpar_path)?;
-            let relative = relativize_path(&abs_path, current_project.root_path())?;
-            let project = LocalKParProject::new_access(abs_path.clone(), KparInnerPath::Root, None);
-            let info = project
-                .get_info()?
-                .ok_or_else(|| CliError::MissingProject(abs_path.to_string()))?;
-            let publisher = info
-                .publisher
-                .ok_or_else(|| CliError::MissingPublisherForUsage(abs_path.to_string()))?;
-            InterchangeProjectUsage::KparPath {
-                kpar_path: relative,
-                publisher,
-                name: info.name,
-            }
-        }
-    };
-
-    if no_lock {
-        do_add(&mut current_project, &usage.into())?;
-        Ok(())
-    } else {
-        let info_path = current_project.info_path();
-        let info_backup = wrapfs::read_to_string(&info_path)?;
-        let added = do_add(&mut current_project, &usage.into())?;
-        if !added {
-            return Ok(());
-        }
-
-        let provided_iris = if resolution_opts.include_std {
-            HashMap::default()
-        } else {
-            // Don't warn; std libs are all `https://`, so they can't match this usage
-            crate::known_std_libs()
-        };
-
-        let alias_iris = if let Some(w) = &ctx.current_workspace {
-            w.projects()
-                .iter()
-                .find(|p| Path::new(&p.path) == current_project.root_path())
-                .map(|p| p.iris.clone())
-        } else {
-            None
-        };
-
-        match resolve_deps(
-            no_sync,
-            no_prune,
-            resolution_opts,
-            &config,
-            client,
-            runtime,
-            auth_policy,
-            current_project.root_path(),
-            alias_iris,
-            provided_iris,
-            ctx,
-        ) {
-            Ok(()) => Ok(()),
-            Err(e) => {
-                // Restore old info
-                wrapfs::write(&info_path, info_backup)?;
-                Err(e)
-            }
-        }
-    }
+    Ok(())
 }
 
 pub fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
@@ -445,4 +429,20 @@ fn get_relative<P: Into<Utf8PathBuf> + AsRef<Utf8Path>>(
         src_path.into()
     };
     Ok(src_path)
+}
+
+fn assert_no_overrides(source_overrides: &ProjectSourceOptions) {
+    assert_matches!(
+        source_overrides,
+        ProjectSourceOptions {
+            from_path: None,
+            from_url: None,
+            as_editable: None,
+            as_local_src: None,
+            as_local_kpar: None,
+            as_remote_src: None,
+            as_remote_kpar: None,
+            as_remote_git: None
+        }
+    );
 }

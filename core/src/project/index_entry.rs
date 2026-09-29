@@ -19,7 +19,7 @@
 //!   ([`ProjectReadAsync::get_project_async`]/`get_info_async`/`get_meta_async`)
 //!   guarded by `fetched_info_meta`'s `OnceCell`.
 //! - [`ProjectReadAsync::read_source_async`] delegating to
-//!   [`crate::project::reqwest_kpar_download::ReqwestKparDownloadedProject`],
+//!   [`crate::project::reqwest_kpar_download::ReqwestIndexKparDownloadedProject`],
 //!   which verifies the archive against the advertised `kpar_digest` before
 //!   exposing source bytes.
 
@@ -27,6 +27,7 @@
 
 use std::sync::Arc;
 
+use fluent_uri::Iri;
 use thiserror::Error;
 use tokio::sync::OnceCell;
 
@@ -168,7 +169,9 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for IndexEntryProject<Policy> 
 
     async fn sources_async(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         Ok(vec![Source::IndexKpar {
-            index_kpar: self.archive.url().to_string(),
+            // Panic here should be impossible, as the URL should have
+            // been created from IRI
+            index_kpar: Iri::parse(self.archive.url().to_string()).unwrap(),
             kpar_size: self.advertised.kpar_size,
             kpar_digest: self.advertised.kpar_digest.as_hex().to_owned(),
         }])

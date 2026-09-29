@@ -33,10 +33,10 @@ use sysand_core::{
 };
 
 use crate::{
-    CliError, DEFAULT_INDEX_URL,
+    CliError,
     cli::{CloneProjectLocatorArgs, ResolutionOptions},
     commands::{init::warn_parent_project_workspace, sync::command_sync},
-    get_or_create_env,
+    default_index_location, get_or_create_env,
     style::GOOD,
 };
 
@@ -212,7 +212,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
     let index_urls = if no_index {
         None
     } else {
-        Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_owned()], default_index)?)
+        Some(config.index_urls(index, vec![default_index_location()], default_index))
     };
     let CloneProjectLocatorArgs {
         auto_location,

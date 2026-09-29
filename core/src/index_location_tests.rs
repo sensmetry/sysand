@@ -35,6 +35,11 @@ fn relative_url_is_rejected() {
 }
 
 #[test]
+fn empty_url_is_rejected() {
+    assert_matches!(IndexLocation::parse(""), Err(IndexLocationError::Empty));
+}
+
+#[test]
 fn braces_dispatch_to_template() {
     assert_matches!(
         IndexLocation::parse(GITLAB_TEMPLATE),

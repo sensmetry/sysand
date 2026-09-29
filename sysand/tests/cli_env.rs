@@ -372,7 +372,7 @@ fn install_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
 
     let out = run_sysand_in(
         &cwd,
-        ["add", "urn:kpar:install_nonexistent", "--no-index"],
+        ["add", "--iri", "urn:kpar:install_nonexistent", "--no-index"],
         None,
     )?;
 

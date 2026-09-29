@@ -8,6 +8,7 @@ use semver::Version;
 use sysand_core::{
     context::ProjectContext,
     discover::{discover_project, discover_workspace},
+    model::{ProjectName, ProjectPublisher},
     project::{local_src::LocalSrcProject, utils::wrapfs},
     utils::{RelativePathKind, parse_relative_unix_path},
     workspace::Workspace,
@@ -16,17 +17,17 @@ use sysand_core::{
 const DEFAULT_VERSION: &str = "0.0.1";
 
 pub fn command_init(
-    name: Option<String>,
-    publisher: String,
+    name: Option<ProjectName>,
+    publisher: ProjectPublisher,
     version: Option<Version>,
     license: Option<spdx::Expression>,
-    path: Option<String>,
+    path: Option<Utf8PathBuf>,
     ctx: ProjectContext,
 ) -> Result<()> {
     let target = match path {
         Some(p) => {
             wrapfs::create_dir_all(&p)?;
-            p.into()
+            p
         }
         None => Utf8PathBuf::from("."),
     };
@@ -52,13 +53,15 @@ pub fn command_init(
     Ok(())
 }
 
-fn default_name_from_path<P: AsRef<Utf8Path>>(path: P) -> Result<String> {
-    Ok(wrapfs::canonicalize(&path)?
+fn default_name_from_path<P: AsRef<Utf8Path>>(path: P) -> Result<ProjectName> {
+    let dir_name = wrapfs::canonicalize(&path)?
         .file_name()
         .ok_or_else(|| {
             CliError::InvalidDirectory(format!("path `{}` is not a directory", path.as_ref()))
         })?
-        .to_owned())
+        .to_owned();
+    Ok(ProjectName::parse(dir_name)
+        .map_err(|(dir_name, e)| CliError::InvalidDirectoryName(dir_name, e))?)
 }
 
 pub fn warn_parent_project_workspace(target: &Utf8Path, ctx: &ProjectContext) -> Result<()> {

@@ -10,6 +10,7 @@
 use std::{clone::Clone, collections::HashSet, fmt::Display, hash::Hash};
 
 use digest::array::{Array, typenum};
+use fluent_uri::Iri;
 use indexmap::IndexMap;
 #[cfg(feature = "python")]
 use pyo3::{FromPyObject, IntoPyObject, pyclass};
@@ -17,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
+use crate::purl::{normalize_field, parse_sysand_purl};
 use crate::utils::{
     RelativePathKind, RelativeUnixPathError, lowercase_hex, parse_relative_unix_path,
 };
@@ -363,6 +365,69 @@ impl From<InterchangeProjectInfo> for InterchangeProjectInfoRaw {
     }
 }
 
+/// Info to find the usage by
+#[derive(Debug, Clone, Copy)]
+pub enum UsageRef<'a> {
+    /// A `Resource` usage of exactly this IRI
+    Resource(Iri<&'a str>),
+    /// `publisher`, `name` of a typed usage or of a `pkg:sysand` resource
+    /// usage. For a typed usage, each may be given either exactly as the
+    /// project declares it, or normalized (see
+    /// [`crate::purl::normalize_field`]). A `pkg:sysand` IRI only holds the
+    /// normalized form, so for such a resource usage any spelling that
+    /// normalizes to it matches
+    Typed(&'a str, &'a str),
+}
+
+impl UsageRef<'_> {
+    pub fn matches<Iri: AsRef<str>, VersionReq, Path>(
+        &self,
+        usage: &InterchangeProjectUsageG<Iri, VersionReq, Path>,
+    ) -> bool {
+        match (self, usage) {
+            (Self::Resource(iri), InterchangeProjectUsageG::Resource { resource, .. }) => {
+                resource.as_ref() == iri.as_str()
+            }
+            (Self::Resource(_), _) => false,
+            // A `pkg:sysand` IRI only holds the normalized form
+            (Self::Typed(publisher, name), InterchangeProjectUsageG::Resource { resource, .. }) => {
+                parse_sysand_purl(resource.as_ref()).is_ok_and(|parsed| {
+                    parsed.is_some_and(|(p, n)| {
+                        p == normalize_field(publisher) && n == normalize_field(name)
+                    })
+                })
+            }
+            (
+                Self::Typed(publisher, name),
+                InterchangeProjectUsageG::Directory {
+                    publisher: p,
+                    name: n,
+                    ..
+                }
+                | InterchangeProjectUsageG::KparPath {
+                    publisher: p,
+                    name: n,
+                    ..
+                },
+            ) => {
+                let field_matches = |declared: &str, given: &str| {
+                    given == declared || given == normalize_field(declared)
+                };
+                field_matches(p, publisher) && field_matches(n, name)
+            }
+        }
+    }
+}
+
+impl Display for UsageRef<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Resource(iri) => write!(f, "{iri}"),
+            Self::Typed(publisher, name) => write!(f, "{publisher}/{name}"),
+        }
+    }
+}
+
 impl<Iri: PartialEq + Clone, Version, License, VersionReq: Clone, Path>
     InterchangeProjectInfoG<Iri, Version, License, VersionReq, Path>
 {
@@ -380,42 +445,18 @@ impl<Iri: PartialEq + Clone, Version, License, VersionReq: Clone, Path>
         }
     }
 
-    /// Remove and return all occurrences of `resource` in project usages.
+    /// Remove and return all usages matching `usage`.
     /// Note that sysand will never add multiple usages of the same resource
     /// to the project, but it does tolerate such usages.
     // TODO: the spec does not say anything about this and should be clarified
     pub fn pop_usage(
         &mut self,
-        resource: &Iri,
-    ) -> Vec<InterchangeProjectUsageG<Iri, VersionReq, Path>> {
-        self.usage
-            .extract_if(.., |u| match u {
-                InterchangeProjectUsageG::Resource { resource: r, .. } => r == resource,
-                _ => false,
-            })
-            .collect()
-    }
-
-    pub fn exp_pop_usage(
-        &mut self,
-        publisher: &str,
-        name: &str,
-    ) -> Vec<InterchangeProjectUsageG<Iri, VersionReq, Path>> {
-        self.usage
-            .extract_if(.., |u| match u {
-                InterchangeProjectUsageG::Resource { .. } => false,
-                InterchangeProjectUsageG::Directory {
-                    dir: _,
-                    publisher: p,
-                    name: n,
-                }
-                | InterchangeProjectUsageG::KparPath {
-                    kpar_path: _,
-                    publisher: p,
-                    name: n,
-                } => p == publisher && n == name,
-            })
-            .collect()
+        usage: &UsageRef<'_>,
+    ) -> Vec<InterchangeProjectUsageG<Iri, VersionReq, Path>>
+    where
+        Iri: AsRef<str>,
+    {
+        self.usage.extract_if(.., |u| usage.matches(u)).collect()
     }
 }
 
@@ -1008,6 +1049,88 @@ pub fn project_hash_hex(
     meta: &InterchangeProjectMetadataRaw,
 ) -> String {
     lowercase_hex(project_hash_raw(info, meta))
+}
+
+// Impose basic requirements on publisher/name
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectPublisher(String);
+
+impl ProjectPublisher {
+    pub fn parse(publisher: String) -> Result<Self, (String, &'static str)> {
+        if publisher.is_empty() {
+            return Err((publisher, "publisher cannot be empty"));
+        }
+        for c in publisher.chars() {
+            if c.is_control() {
+                // Invisible chars that are not intended for display purposes
+                return Err((publisher, "publisher cannot contain control characters"));
+            } else if c.is_ascii_whitespace() && c != ' ' {
+                // ASCII whitespace is difficult to deal with in shells
+                // TODO: should non-ascii whitespace be forbidden as well?
+                return Err((
+                    publisher,
+                    "publisher cannot contain ASCII whitespace other than simple space",
+                ));
+            } else if c == '/' {
+                // Allows unambiguously using `publisher/name` notation
+                return Err((publisher, "publisher cannot contain `/`"));
+            } else if c == ':' {
+                // Not strictly necessary, but prevents using an IRI, which
+                // could be confusing
+                return Err((publisher, "publisher cannot contain `:`"));
+            }
+        }
+        Ok(Self(publisher))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectName(String);
+
+impl ProjectName {
+    pub fn parse(name: String) -> Result<Self, (String, &'static str)> {
+        if name.is_empty() {
+            return Err((name, "name cannot be empty"));
+        }
+        for c in name.chars() {
+            if c.is_control() {
+                // Invisible chars that are not intended for display purposes
+                return Err((name, "name cannot contain control characters"));
+            } else if c.is_ascii_whitespace() && c != ' ' {
+                // ASCII whitespace is difficult to deal with in shells
+                // TODO: should non-ascii whitespace be forbidden as well?
+                return Err((
+                    name,
+                    "name cannot contain ASCII whitespace other than simple space",
+                ));
+            } else if c == '/' {
+                // Allows unambiguously using `publisher/name` notation
+                return Err((name, "name cannot contain `/`"));
+            } else if c == ':' {
+                // Not strictly necessary, but prevents using an IRI, which
+                // could be confusing
+                return Err((name, "name cannot contain `:`"));
+            }
+        }
+        Ok(Self(name))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
 }
 
 #[cfg(test)]

@@ -25,7 +25,7 @@ fn add_std_lib_direct_note_still_locks_skips_sync() -> Result<(), Box<dyn std::e
     let (_temp_dir, cwd, out) = cli_init_project_basic("u", "add_std_direct", "1.2.3")?;
     out.assert().success();
 
-    let out = run_sysand_in(&cwd, ["add", FUNCTION_LIBRARY_IRI], None)?;
+    let out = run_sysand_in(&cwd, ["add", "--iri", FUNCTION_LIBRARY_IRI], None)?;
 
     out.assert()
         .success()
@@ -146,7 +146,7 @@ fn env_install_transitive_std_deps_note() -> Result<(), Box<dyn std::error::Erro
 
     run_sysand_in(
         &cwd_dep,
-        ["add", "--no-lock", "--include-std", FUNCTION_LIBRARY_IRI],
+        ["add", "--no-lock", "--include-std", "--iri", FUNCTION_LIBRARY_IRI],
         None,
     )?
     .assert()
@@ -200,7 +200,13 @@ fn info_all_usages_ignored_std_only() -> Result<(), Box<dyn std::error::Error>> 
 
     run_sysand_in(
         &cwd,
-        ["add", "--no-lock", "--include-std", FUNCTION_LIBRARY_IRI],
+        [
+            "add",
+            "--no-lock",
+            "--include-std",
+            "--iri",
+            FUNCTION_LIBRARY_IRI,
+        ],
         None,
     )?
     .assert()
@@ -230,12 +236,22 @@ fn info_some_usages_ignored_mixed() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = cli_init_project_basic("a", "info_mixed", "1.2.3")?;
     out.assert().success();
 
-    run_sysand_in(&cwd, ["add", "--no-lock", "urn:kpar:normal-dep"], None)?
-        .assert()
-        .success();
     run_sysand_in(
         &cwd,
-        ["add", "--no-lock", "--include-std", FUNCTION_LIBRARY_IRI],
+        ["add", "--no-lock", "--iri", "urn:kpar:normal-dep"],
+        None,
+    )?
+    .assert()
+    .success();
+    run_sysand_in(
+        &cwd,
+        [
+            "add",
+            "--no-lock",
+            "--include-std",
+            "--iri",
+            FUNCTION_LIBRARY_IRI,
+        ],
         None,
     )?
     .assert()

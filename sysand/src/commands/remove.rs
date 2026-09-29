@@ -16,28 +16,29 @@ use sysand_core::{
         local_fs::{CONFIG_FILE, remove_project_source_from_config},
     },
     context::ProjectContext,
-    lock::Lock,
-    model::InterchangeProjectUsageRaw,
+    lock::{Lock, RemoveUsageOutcome},
+    model::{InterchangeProjectUsageRaw, UsageRef},
     project::{
         ProjectRead as _,
         utils::{Identifier, wrapfs},
     },
-    remove::{do_remove, exp_do_remove},
+    remove::do_remove,
     utils::format_err,
 };
 
 use crate::{
     CliError,
-    cli::ResolutionOptions,
+    cli::{RemoveProjectLocatorArgs, ResolutionOptions},
     commands::{add::resolve_deps, sync::command_sync},
+    iri_or_path_to_iri,
 };
 
 #[expect(clippy::fn_params_excessive_bools)]
 pub fn command_remove<Policy: HTTPAuthentication>(
-    iri: Iri<String>,
+    locator: RemoveProjectLocatorArgs,
     mut ctx: ProjectContext,
     config: Config,
-    config_file: Option<String>,
+    config_file: Option<Utf8PathBuf>,
     no_config: bool,
     no_lock: bool,
     no_sync: bool,
@@ -47,24 +48,42 @@ pub fn command_remove<Policy: HTTPAuthentication>(
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
 ) -> Result<()> {
+    let RemoveProjectLocatorArgs {
+        identifier,
+        iri,
+        iri_path,
+    } = locator;
+    let resolved_iri;
+    let usage = if let Some((publisher, name)) = &identifier {
+        UsageRef::Typed(publisher.as_str(), name.as_str())
+    } else {
+        resolved_iri = iri_or_path_to_iri(iri, iri_path)?;
+        UsageRef::Resource(resolved_iri.borrow())
+    };
+
     let current_project = ctx
         .current_project
         .as_mut()
         .ok_or(CliError::MissingProjectCurrentDir)?;
     let project_root = current_project.root_path().to_owned();
-    let config_path = config_file
-        .map(Utf8PathBuf::from)
-        .or_else(|| (!no_config).then(|| current_project.root_path().join(CONFIG_FILE)));
+    let config_path =
+        config_file.or_else(|| (!no_config).then(|| current_project.root_path().join(CONFIG_FILE)));
 
-    let iri_copy = iri.to_string();
     // `.project.json` is not backed up here, since the failure to lock
     // or sync cannot logically be caused by the remove command itself
     // (unlike `add`), the failure must be pre-existing or transient
     // (i.e. lock/sync would have also failed even without the `remove`).
     // Therefore lock/sync failures should not revert the removal
-    let usages = do_remove(current_project, iri.into_string())?;
-    print_removed(&usages);
+    let removed = do_remove(current_project, usage)?;
+    print_removed(&removed);
 
+    // Identifiers must be derived from the removed usages, not from `usage`,
+    // since a typed usage can be matched by a spelling that yields a
+    // different identifier than the declared one
+    let removed_identifiers: Vec<_> = removed
+        .iter()
+        .filter_map(Identifier::from_unvalidated_usage)
+        .collect();
     if !no_lock {
         lock_sync(
             ctx,
@@ -76,63 +95,24 @@ pub fn command_remove<Policy: HTTPAuthentication>(
             runtime,
             auth_policy,
             project_root,
-            &iri_copy,
+            &removed_identifiers,
         )?;
     }
 
     // This has to be done after the resolution
     // TODO: this is not always correct, as config file overrides also
     // affect transitive dependencies
+    // Typed usages are not removed from config, as we don't properly support
+    // aliases for PURL projects
     if let Some(path) = config_path {
-        remove_project_source_from_config(path, &iri_copy)?;
+        for usage in &removed {
+            if let InterchangeProjectUsageRaw::Resource { resource, .. } = usage
+                && let Ok(iri) = Iri::parse(resource.as_str())
+            {
+                remove_project_source_from_config(&path, iri)?;
+            }
+        }
     }
-
-    Ok(())
-}
-
-pub fn exp_command_remove<Policy: HTTPAuthentication>(
-    publisher: impl AsRef<str>,
-    name: impl AsRef<str>,
-    mut ctx: ProjectContext,
-    config: Config,
-    no_lock: bool,
-    no_sync: bool,
-    no_prune: bool,
-    resolution_opts: ResolutionOptions,
-    client: ClientWithMiddleware,
-    runtime: Arc<tokio::runtime::Runtime>,
-    auth_policy: Arc<Policy>,
-) -> Result<()> {
-    let publisher = publisher.as_ref();
-    let name = name.as_ref();
-    let current_project = ctx
-        .current_project
-        .as_mut()
-        .ok_or(CliError::MissingProjectCurrentDir)?;
-
-    let project_root = current_project.root_path().to_owned();
-
-    let usages = exp_do_remove(current_project, publisher, name)?;
-    print_removed(&usages);
-
-    let usage_identifier = Identifier::from_pub_name(publisher, name);
-    if !no_lock {
-        lock_sync(
-            ctx,
-            config,
-            no_sync,
-            no_prune,
-            resolution_opts,
-            client,
-            runtime,
-            auth_policy,
-            project_root,
-            usage_identifier.as_str(),
-        )?;
-    }
-
-    // Don't remove the project from config, as we don't properly support aliases
-    // for PURL projects
 
     Ok(())
 }
@@ -147,7 +127,7 @@ fn lock_sync<Policy: HTTPAuthentication>(
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
     project_root: Utf8PathBuf,
-    iri: &str,
+    removed_usages: &[Identifier],
 ) -> Result<(), anyhow::Error> {
     let provided_iris = if resolution_opts.include_std {
         HashMap::default()
@@ -172,15 +152,27 @@ fn lock_sync<Policy: HTTPAuthentication>(
                 let info = current_project
                     .get_info()?
                     .ok_or(CliError::MissingProjectCurrentDir)?;
-                match lock.remove_usage(info.publisher.as_deref(), &info.name, iri) {
-                    Some(removed) => {
-                        match removed.as_slice() {
-                            [] => log::debug!(
-                                "nothing removed from lockfile; dependency used by other project(s)"
-                            ),
-                            projects => {
-                                log::debug!("projects removed from lockfile:");
-                                for p in projects {
+                let mut modified = false;
+                let mut root_found = true;
+                for id in removed_usages {
+                    match lock.remove_usage(info.publisher.as_deref(), &info.name, id) {
+                        RemoveUsageOutcome::RootNotFound => {
+                            root_found = false;
+                            break;
+                        }
+                        RemoveUsageOutcome::UsageNotFound => {
+                            log::debug!("usage `{id}` not present in lockfile");
+                        }
+                        RemoveUsageOutcome::Removed { pruned } => {
+                            modified = true;
+                            if pruned.is_empty() {
+                                log::debug!(
+                                    "no projects pruned from lockfile for `{id}`; \
+                                    dependency used by other project(s)"
+                                );
+                            } else {
+                                log::debug!("projects pruned from lockfile for `{id}`:");
+                                for p in &pruned {
                                     log::debug!(
                                         "  publisher: {:?}, name: {}, first identifier: {:?}",
                                         p.publisher,
@@ -188,19 +180,20 @@ fn lock_sync<Policy: HTTPAuthentication>(
                                         p.identifiers.first()
                                     );
                                 }
-                                // Lock should not be canonicalized, as the goal is to make
-                                // minimal necessary modifications to give a smaller diff
-                                wrapfs::write(lockfile, lock.to_string())?;
                             }
                         }
                     }
-                    None => {
-                        log::warn!(
-                            "lockfile was not modified, as it does not contain the current project;\n\
-                            it is likely corrupt and should be regenerated by removing `sysand-lock.toml`\n\
-                            and recreating it with `sysand lock`"
-                        )
-                    }
+                }
+                if !root_found {
+                    log::warn!(
+                        "lockfile was not modified, as it does not contain the current project;\n\
+                        it is likely corrupt and should be regenerated by removing `sysand-lock.toml`\n\
+                        and recreating it with `sysand lock`"
+                    );
+                } else if modified {
+                    // Lock should not be canonicalized, as the goal is to make
+                    // minimal necessary modifications to give a smaller diff
+                    wrapfs::write(lockfile, lock.to_string())?;
                 }
                 if !no_sync {
                     let mut env = crate::get_or_create_env(

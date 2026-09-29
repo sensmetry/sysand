@@ -36,6 +36,7 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
         &path,
         [
             "add",
+            "--iri",
             "urn:kpar:list_sources_dep",
             "--as-local-src",
             dep_path.as_str(),
@@ -138,6 +139,7 @@ fn sources_without_std() -> Result<(), Box<dyn std::error::Error>> {
         [
             "add",
             "--no-index",
+            "--iri",
             "https://www.omg.org/spec/KerML/20250201/Function-Library.kpar",
         ],
         None,
@@ -149,6 +151,7 @@ fn sources_without_std() -> Result<(), Box<dyn std::error::Error>> {
         [
             "add",
             "--no-index",
+            "--iri",
             "https://www.omg.org/spec/KerML/20250201/Function-Library.kpar",
         ],
         None,
@@ -160,6 +163,7 @@ fn sources_without_std() -> Result<(), Box<dyn std::error::Error>> {
         [
             "add",
             "--no-index",
+            "--iri",
             "https://www.omg.org/spec/KerML/20250201/Function-Library.kpar",
         ],
         None,
@@ -171,6 +175,7 @@ fn sources_without_std() -> Result<(), Box<dyn std::error::Error>> {
         [
             "add",
             "--no-index",
+            "--iri",
             "https://www.omg.org/spec/KerML/20250201/Function-Library.kpar",
         ],
         None,
@@ -195,6 +200,7 @@ fn sources_without_std() -> Result<(), Box<dyn std::error::Error>> {
         &path,
         [
             "add",
+            "--iri",
             "urn:kpar:sources_without_std_dep",
             "--as-local-src",
             path_dep.as_str(),

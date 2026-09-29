@@ -86,3 +86,54 @@ fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+/// `do_init_parse` (and so `do_init_memory`) should reject an invalid
+/// project name, reporting the offending input
+#[test]
+fn init_rejects_invalid_name() {
+    let result = do_init_memory("a/b", "e", "1.2.3", None);
+
+    let Err(err @ sysand_core::commands::init::InitError::NameParse(..)) = result else {
+        panic!("expected `NameParse`, got {result:?}");
+    };
+    assert_eq!(
+        err.to_string(),
+        "invalid project name `a/b`: name cannot contain `/`"
+    );
+}
+
+/// `do_init_parse` (and so `do_init_memory`) should reject an invalid
+/// project publisher, reporting the offending input
+#[test]
+fn init_rejects_invalid_publisher() {
+    let result = do_init_memory("n", "acme:labs", "1.2.3", None);
+
+    let Err(err @ sysand_core::commands::init::InitError::PublisherParse(..)) = result else {
+        panic!("expected `PublisherParse`, got {result:?}");
+    };
+    assert_eq!(
+        err.to_string(),
+        "invalid project publisher `acme:labs`: publisher cannot contain `:`"
+    );
+}
+
+/// An invalid name or publisher should leave the storage untouched
+#[test]
+fn init_invalid_name_leaves_storage_empty() {
+    let mut storage = sysand_core::project::memory::InMemoryProject::default();
+
+    let result = do_init_parse(
+        String::new(),
+        "e".to_owned(),
+        "1.2.3".to_owned(),
+        None,
+        &mut storage,
+    );
+
+    assert_matches!(
+        result,
+        Err(sysand_core::commands::init::InitError::NameParse(..))
+    );
+    assert!(storage.info.is_none());
+    assert!(storage.meta.is_none());
+}

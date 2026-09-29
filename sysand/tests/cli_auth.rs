@@ -52,9 +52,9 @@ fn auth_logout_rejects_a_non_http_index() -> TestResult {
 }
 
 #[test]
-fn bare_auth_logout_resolves_and_echoes_the_env_default_index() -> TestResult {
-    // A file:// default index exercises the resolution chain and the echo
-    // while failing before any credential store access.
+fn bare_auth_logout_rejects_an_invalid_env_default_index() -> TestResult {
+    // The default index is validated while resolving it, so an invalid
+    // one fails before the echo, with an error naming the URL.
     let (_temp_dir, _cwd, out) = run_sysand_with(
         ["auth", "logout"],
         None,
@@ -62,10 +62,30 @@ fn bare_auth_logout_resolves_and_echoes_the_env_default_index() -> TestResult {
     )?;
     out.assert()
         .failure()
-        .stdout(predicate::str::contains(
-            "Logging out from index `file:///srv/index`",
-        ))
+        .stdout(predicate::str::contains("Logging out").not())
+        .stderr(predicate::str::contains("`file:///srv/index`"))
         .stderr(predicate::str::contains(NOT_HTTP_MESSAGE));
+    Ok(())
+}
+
+#[test]
+fn bare_auth_logout_resolves_and_echoes_the_env_default_index() -> TestResult {
+    // Two spellings of one index normalize to a single key, so the
+    // default is not ambiguous.
+    let (_store_dir, store_path) = seam_store()?;
+    let mut env = seam_env(&store_path);
+    env.extend(default_index_env(
+        "https://nothing.example,HTTPS://Nothing.example:443/",
+    ));
+    let (_t, _c, out) = run_sysand_with(["auth", "logout"], None, &env)?;
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Logging out from index `https://nothing.example/`",
+        ))
+        .stderr(predicate::str::contains(
+            "warning: no stored credential for `https://nothing.example/`",
+        ));
     Ok(())
 }
 
@@ -581,6 +601,42 @@ fn auth_status_marks_the_entry_for_the_default_index() -> TestResult {
     out.assert().success().stdout(predicate::str::contains(
         "Stored https://one.example/  validated (read)  (default index)",
     ));
+    Ok(())
+}
+
+#[test]
+fn auth_status_with_an_invalid_env_default_index_warns_and_marks_nothing() -> TestResult {
+    // Marking the default index is not critical, so status still succeeds.
+    let (_store_dir, store_path) = seam_store()?;
+    fs::write(&store_path, one_example_blob())?;
+    let mut env = seam_env(&store_path);
+    env.extend(default_index_env("file:///srv/index"));
+
+    let (_t, _c, out) = run_sysand_with(["auth", "status"], None, &env)?;
+    out.assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "warning: ignoring invalid default index configuration",
+        ))
+        .stderr(predicate::str::contains(NOT_HTTP_MESSAGE))
+        .stdout(predicate::str::contains(MARKER).not());
+    Ok(())
+}
+
+#[test]
+fn bare_auth_logout_with_a_stray_comma_in_env_default_index_hints_at_it() -> TestResult {
+    let (_temp_dir, _cwd, out) = run_sysand_with(
+        ["auth", "logout"],
+        None,
+        &default_index_env("https://a.example,"),
+    )?;
+    out.assert()
+        .failure()
+        .stdout(predicate::str::contains("Logging out").not())
+        .stderr(predicate::str::contains("index URL is empty"))
+        .stderr(predicate::str::contains(
+            "hint: check for a stray `,`, or for `SYSAND_DEFAULT_INDEX` set to an empty value",
+        ));
     Ok(())
 }
 

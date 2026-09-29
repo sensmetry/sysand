@@ -4,6 +4,7 @@
 use std::num::NonZero;
 
 use camino::Utf8PathBuf;
+use fluent_uri::Iri;
 use gix::{prepare_clone, remote::fetch::Shallow};
 use thiserror::Error;
 
@@ -173,7 +174,9 @@ impl ProjectRead for GixDownloadedProject {
 
     fn sources(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         Ok(vec![Source::RemoteGit {
-            remote_git: self.url.to_string(),
+            // Panic here should be impossible, as the URL should have
+            // been created from IRI
+            remote_git: Iri::parse(self.url.to_string()).unwrap(),
         }])
     }
 

@@ -262,11 +262,47 @@ fn index_kpar_source_roundtrips_digest_and_size() -> Result<(), Box<dyn std::err
     assert_eq!(
         sources,
         vec![Source::IndexKpar {
-            index_kpar: index_kpar.to_owned(),
+            index_kpar: fluent_uri::Iri::parse(index_kpar).unwrap().into(),
             kpar_size: index_kpar_size,
             kpar_digest: index_kpar_digest,
         }]
     );
 
+    Ok(())
+}
+
+/// Userinfo in a remote kpar URL is kept verbatim in the lockfile source.
+/// Intended: the URL (password included) is exactly what the user wrote in
+/// `.project.json` or `sysand.toml`, which are not secret, and sysand's own
+/// credentials are sent as headers, never put into URLs.
+#[test]
+fn remote_kpar_sources_keep_userinfo_verbatim() -> Result<(), Box<dyn std::error::Error>> {
+    let remote_kpar = "https://user:pass@example.com/project.kpar";
+    let kpar_size = NonZeroU64::new(1234).unwrap();
+    let kpar_digest = "a".repeat(64);
+
+    let project = ReqwestRemoteKparDownloadedProject::new_guess_root(
+        remote_kpar,
+        create_reqwest_client()?,
+        Arc::new(Unauthenticated {}),
+        Some(KparMeta {
+            size_bytes: kpar_size,
+            sha256_hex: kpar_digest.clone(),
+        }),
+    )?;
+
+    let sources = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(project.sources_async(&ProjectContext::default()))?;
+
+    assert_eq!(
+        sources,
+        vec![Source::RemoteKpar {
+            remote_kpar: fluent_uri::Iri::parse(remote_kpar).unwrap().into(),
+            kpar_size,
+            kpar_digest,
+        }]
+    );
     Ok(())
 }

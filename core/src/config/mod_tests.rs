@@ -1,10 +1,19 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use fluent_uri::Iri;
 use url::Url;
 
 use crate::config::{Config, ConfigProject, Index, OverrideSource};
 use crate::index_location::IndexLocation;
+
+fn iri(iri: &str) -> Iri<String> {
+    Iri::parse(iri).unwrap().into()
+}
+
+fn loc(url: &str) -> IndexLocation {
+    IndexLocation::parse(url).unwrap()
+}
 
 #[test]
 fn default_config() {
@@ -15,25 +24,12 @@ fn default_config() {
 }
 
 #[test]
-fn default_index() {
-    let index = Index::default();
-
-    assert_eq!(index.name, None);
-    assert_eq!(index.url, "");
-    // assert_eq!(index.explicit, None);
-    assert_eq!(index.default, None);
-}
-
-#[test]
 fn merge() {
     let mut defaults = Config::default();
     let config = Config {
-        indexes: vec![Index {
-            url: "http://www.example.com".to_owned(),
-            ..Default::default()
-        }],
+        indexes: vec![Index::new_url(loc("http://www.example.com"))],
         projects: vec![ConfigProject {
-            identifiers: vec!["urn:kpar:test".to_owned()],
+            identifiers: vec![iri("urn:kpar:test")],
             sources: vec![OverrideSource::LocalSrc {
                 src_path: "./path/to project".into(),
             }],
@@ -48,19 +44,14 @@ fn merge() {
 #[test]
 fn index_urls_without_default() {
     let config = Config {
-        indexes: vec![Index {
-            url: "http://www.index.com".to_owned(),
-            ..Default::default()
-        }],
+        indexes: vec![Index::new_url(loc("http://www.index.com"))],
         ..Default::default()
     };
-    let index = vec!["http://www.extra-index.com".to_owned()];
-    let default_urls = vec!["http://www.default.com".to_owned()];
+    let index = vec![loc("http://www.extra-index.com")];
+    let default_urls = vec![loc("http://www.default.com")];
     let default_override_urls = vec![];
 
-    let index_urls = config
-        .index_urls(index, default_urls, default_override_urls)
-        .unwrap();
+    let index_urls = config.index_urls(index, default_urls, default_override_urls);
 
     assert_eq!(
         index_urls,
@@ -77,24 +68,18 @@ fn index_urls_with_default() {
     let config = Config {
         indexes: vec![
             Index {
-                url: "http://www.config-default.com".to_owned(),
                 default: Some(true),
-                ..Default::default()
+                ..Index::new_url(loc("http://www.config-default.com"))
             },
-            Index {
-                url: "http://www.index.com".to_owned(),
-                ..Default::default()
-            },
+            Index::new_url(loc("http://www.index.com")),
         ],
         ..Default::default()
     };
-    let index = vec!["http://www.extra-index.com".to_owned()];
-    let default_urls = vec!["http://www.default.com".to_owned()];
+    let index = vec![loc("http://www.extra-index.com")];
+    let default_urls = vec![loc("http://www.default.com")];
     let default_override_urls = vec![];
 
-    let index_urls = config
-        .index_urls(index, default_urls, default_override_urls)
-        .unwrap();
+    let index_urls = config.index_urls(index, default_urls, default_override_urls);
 
     assert_eq!(
         index_urls,
@@ -111,24 +96,18 @@ fn index_urls_with_override() {
     let config = Config {
         indexes: vec![
             Index {
-                url: "http://www.config-default.com".to_owned(),
                 default: Some(true),
-                ..Default::default()
+                ..Index::new_url(loc("http://www.config-default.com"))
             },
-            Index {
-                url: "http://www.index.com".to_owned(),
-                ..Default::default()
-            },
+            Index::new_url(loc("http://www.index.com")),
         ],
         ..Default::default()
     };
-    let index = vec!["http://www.extra-index.com".to_owned()];
-    let default_urls = vec!["http://www.default.com".to_owned()];
-    let default_override_urls = vec!["http://www.new-default.com".to_owned()];
+    let index = vec![loc("http://www.extra-index.com")];
+    let default_urls = vec![loc("http://www.default.com")];
+    let default_override_urls = vec![loc("http://www.new-default.com")];
 
-    let index_urls = config
-        .index_urls(index, default_urls, default_override_urls)
-        .unwrap();
+    let index_urls = config.index_urls(index, default_urls, default_override_urls);
 
     assert_eq!(
         index_urls,
@@ -146,20 +125,16 @@ fn index_urls_accepts_templates_everywhere() {
     // `--index` values, `sysand.toml` `[[index]]` entries, and default
     // overrides all funnel through the same parser.
     let config = Config {
-        indexes: vec![Index {
-            url: "https://gitlab.com/api/v4/projects/123/repository/files/{path}/raw?ref=main"
-                .to_owned(),
-            ..Default::default()
-        }],
+        indexes: vec![Index::new_url(loc(
+            "https://gitlab.com/api/v4/projects/123/repository/files/{path}/raw?ref=main",
+        ))],
         ..Default::default()
     };
-    let index = vec!["https://example.org/raw/{path_raw}?ref=main".to_owned()];
+    let index = vec![loc("https://example.org/raw/{path_raw}?ref=main")];
     let default_urls = vec![];
-    let default_override_urls = vec!["https://other.example/files/{path}/x".to_owned()];
+    let default_override_urls = vec![loc("https://other.example/files/{path}/x")];
 
-    let index_urls = config
-        .index_urls(index, default_urls, default_override_urls)
-        .unwrap();
+    let index_urls = config.index_urls(index, default_urls, default_override_urls);
 
     assert_eq!(
         index_urls
@@ -180,14 +155,77 @@ fn index_urls_accepts_templates_everywhere() {
 }
 
 #[test]
-fn index_urls_rejects_bad_template() {
-    let config = Config::default();
-    let err = config
-        .index_urls(
-            vec!["https://example.org/files/{file}/raw".to_owned()],
-            vec![],
-            vec![],
-        )
-        .unwrap_err();
-    assert!(err.to_string().contains("unknown placeholder `{file}`"));
+fn index_url_with_bad_template_is_rejected_on_load() {
+    let err = toml::from_str::<Config>(
+        r#"
+[[index]]
+url = "https://example.org/files/{file}/raw"
+"#,
+    )
+    .unwrap_err();
+    assert!(
+        err.to_string().contains("unknown placeholder `{file}`"),
+        "{err}"
+    );
+}
+
+/// The index-location error itself redacts the password, but the TOML
+/// error quotes the offending source line, so the password does appear in
+/// the message. This is not ideal, but acceptable, as unlike an environment
+/// variable, a config file is not expected to be secret in e.g. CI
+#[test]
+fn index_url_with_password_is_rejected_on_load_and_quoted_in_the_toml_snippet() {
+    let err = toml::from_str::<Config>(
+        r#"
+[[index]]
+url = "https://user:hunter2@example.org/"
+"#,
+    )
+    .unwrap_err();
+    let err = err.to_string();
+    assert!(
+        err.contains("index URL `https://<redacted>@example.org/` includes username or password"),
+        "{err}"
+    );
+    assert!(
+        err.contains(r#"url = "https://user:hunter2@example.org/""#),
+        "{err}"
+    );
+}
+
+#[test]
+fn default_index_locations_returns_only_defaults() {
+    let config = Config {
+        indexes: vec![
+            Index {
+                default: Some(true),
+                ..Index::new_url(loc("http://www.config-default.com"))
+            },
+            Index::new_url(loc("http://www.not-default.com")),
+            Index {
+                default: Some(false),
+                ..Index::new_url(loc("http://www.explicitly-not-default.com"))
+            },
+        ],
+        ..Default::default()
+    };
+
+    assert_eq!(
+        config.default_index_locations(),
+        vec![IndexLocation::Root(
+            Url::parse("http://www.config-default.com").unwrap()
+        )]
+    );
+}
+
+#[test]
+fn index_url_round_trips_through_toml() {
+    let config = Config {
+        indexes: vec![Index::new_url(loc(
+            "https://gitlab.com/api/v4/projects/123/repository/files/{path}/raw?ref=main",
+        ))],
+        ..Default::default()
+    };
+    let text = toml::to_string(&config).unwrap();
+    assert_eq!(toml::from_str::<Config>(&text).unwrap(), config);
 }

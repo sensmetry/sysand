@@ -109,8 +109,8 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
             OverrideSource::RemoteSrc { remote_src } => Ok(Self::RemoteSrc(
                 ReqwestSrcProjectAsync::<Policy> {
                     client,
-                    url: reqwest::Url::parse(&remote_src)
-                        .map_err(|e| TryFromSourceError::UrlParse(remote_src, e))?,
+                    url: reqwest::Url::parse(remote_src.as_str())
+                        .map_err(|e| TryFromSourceError::UrlParse(remote_src.to_string(), e))?,
                     auth_policy,
                     expected_checksum: None,
                 }

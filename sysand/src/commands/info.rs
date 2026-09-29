@@ -206,7 +206,7 @@ pub fn command_info_verb_path<P: AsRef<Utf8Path>>(
     match project {
         FileResolverProject::LocalSrcProject(mut local_src_project) => match verb {
             InfoCommandVerb::Get(get_verb) => apply_get(&get_verb, &local_src_project, numbered),
-            InfoCommandVerb::Set(set_verb) => apply_set(&set_verb, &mut local_src_project),
+            InfoCommandVerb::Set(set_verb) => apply_set(set_verb, &mut local_src_project),
             InfoCommandVerb::Clear(clear_verb) => apply_clear(&clear_verb, &mut local_src_project),
             InfoCommandVerb::Add(add_verb) => apply_add(&add_verb, &mut local_src_project),
             InfoCommandVerb::Remove(remove_verb) => {
@@ -268,7 +268,7 @@ pub fn command_info_current_project(
 ) -> Result<()> {
     match verb {
         InfoCommandVerb::Get(get_verb) => apply_get(&get_verb, &current_project, numbered),
-        InfoCommandVerb::Set(set_verb) => apply_set(&set_verb, &mut current_project),
+        InfoCommandVerb::Set(set_verb) => apply_set(set_verb, &mut current_project),
         InfoCommandVerb::Clear(clear_verb) => apply_clear(&clear_verb, &mut current_project),
         InfoCommandVerb::Add(add_verb) => apply_add(&add_verb, &mut current_project),
         InfoCommandVerb::Remove(remove_verb) => apply_remove(&remove_verb, &mut current_project),
@@ -393,7 +393,7 @@ fn apply_get_meta(
 }
 
 fn apply_set<Project: ProjectRead + ProjectMut>(
-    set_verb: &SetVerb,
+    set_verb: SetVerb,
     project: &mut Project,
 ) -> Result<()> {
     match set_verb {
@@ -403,7 +403,7 @@ fn apply_set<Project: ProjectRead + ProjectMut>(
             set_info_or_bail(project, &new_info)
         }
         crate::cli::SetVerb::SetMetaVerb(set_meta_verb) => {
-            let new_meta = set_meta(set_meta_verb, get_meta_or_bail(project)?);
+            let new_meta = set_meta(&set_meta_verb, get_meta_or_bail(project)?);
 
             set_meta_or_bail(project, &new_meta)
         }
@@ -411,18 +411,18 @@ fn apply_set<Project: ProjectRead + ProjectMut>(
 }
 
 fn set_info(
-    set_info_verb: &SetInfoVerb,
+    set_info_verb: SetInfoVerb,
     mut info: InterchangeProjectInfoRaw,
 ) -> InterchangeProjectInfoRaw {
     match set_info_verb {
         SetInfoVerb::SetName(value) => {
-            info.name = value.clone();
+            info.name = value.into_string();
         }
         SetInfoVerb::SetPublisher(value) => {
-            info.publisher = Some(value.clone());
+            info.publisher = Some(value.into_string());
         }
         SetInfoVerb::SetDescription(value) => {
-            info.description = Some(value.clone());
+            info.description = Some(value);
         }
         SetInfoVerb::SetVersion(value) => {
             info.version = value.to_string();
@@ -432,13 +432,13 @@ fn set_info(
             log_license_files_note();
         }
         SetInfoVerb::SetMaintainer(value) => {
-            info.maintainer = value.clone();
+            info.maintainer = value;
         }
         SetInfoVerb::SetWebsite(value) => {
-            info.website = Some(value.clone());
+            info.website = Some(value);
         }
         SetInfoVerb::SetTopic(value) => {
-            info.topic = value.clone();
+            info.topic = value;
         }
     }
 

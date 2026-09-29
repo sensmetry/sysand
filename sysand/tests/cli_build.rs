@@ -234,7 +234,7 @@ fn project_build_path_usage() -> Result<(), Box<dyn std::error::Error>> {
     out1.assert().success();
     out2.assert().success();
 
-    let out = run_sysand_in(&cwd1, ["add", "--path", cwd2.as_str()], None)?;
+    let out = run_sysand_in(&cwd1, ["add", "--iri-path", cwd2.as_str()], None)?;
     out.assert().success();
 
     let out = run_sysand_in(&cwd1, ["build", "./test_build.kpar"], None)?;

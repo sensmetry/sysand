@@ -127,6 +127,7 @@ fn try_merge_path_usage(
 /// [`AddError::DuplicateIdentifier`].
 pub fn do_add<P: ProjectMut>(
     project: &mut P,
+    // TODO: take non-raw, CLI has it
     usage_raw: &InterchangeProjectUsageRaw,
 ) -> Result<bool, AddError<P::Error>> {
     let usage: InterchangeProjectUsageG<String, String, String> = usage_raw.validate()?.into();

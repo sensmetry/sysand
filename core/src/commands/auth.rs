@@ -309,9 +309,9 @@ pub struct AuthStatus {
 }
 
 /// A validated, normalized index credential key. Constructed only
-/// through [`IndexKey::validate`], so holding one proves the target was
-/// already validated: the `do_auth_*` commands take it instead of a raw
-/// string and never re-validate.
+/// through [`IndexKey::validate`] or from a parsed [`IndexLocation`], so
+/// holding one proves the target was already validated: the `do_auth_*`
+/// commands take it instead of a raw string and never re-validate.
 #[derive(Debug, Clone)]
 pub struct IndexKey {
     /// The normalized key, exactly as stored and printed.
@@ -337,26 +337,36 @@ impl IndexKey {
     /// This is the only validation path; the CLI calls it once, before
     /// reading a secret.
     pub fn validate(index_url: &str) -> Result<Self, AuthCommandError> {
-        let location = IndexLocation::parse(index_url).map_err(|err| match err {
-            IndexLocationError::UnsupportedScheme { .. } => AuthCommandError::NotHttpIndex {
-                url: index_url.to_owned(),
-            },
-            // The index-location errors already name the URL; no
-            // re-prefixing.
-            other => AuthCommandError::InvalidIndexUrl(other.to_string()),
-        })?;
+        Ok(IndexLocation::parse(index_url)?.into())
+    }
+
+    /// Normalized key string, in the form credentials are stored under
+    pub fn as_str(&self) -> &str {
+        &self.key
+    }
+}
+
+impl From<IndexLocation> for IndexKey {
+    fn from(location: IndexLocation) -> Self {
         let glob_root = location_glob_root(&location);
-        Ok(Self {
+        Self {
             key: location.to_string(),
             location,
             glob_root,
-        })
+        }
     }
+}
 
-    /// The normalized key string, in the exact form credentials are
-    /// stored and printed under.
-    pub fn as_str(&self) -> &str {
-        &self.key
+impl From<IndexLocationError> for AuthCommandError {
+    fn from(err: IndexLocationError) -> Self {
+        match err {
+            IndexLocationError::UnsupportedScheme { url, .. } => {
+                Self::NotHttpIndex { url: url.into() }
+            }
+            // The index-location errors already name the URL; no
+            // re-prefixing.
+            other => Self::InvalidIndexUrl(other.to_string()),
+        }
     }
 }
 

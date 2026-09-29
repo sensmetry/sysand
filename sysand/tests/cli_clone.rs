@@ -234,6 +234,7 @@ fn clone_std_deps_note() -> Result<(), Box<dyn std::error::Error>> {
             "add",
             "--no-lock",
             "--include-std",
+            "--iri",
             "https://www.omg.org/spec/KerML/20250201/Function-Library.kpar",
         ],
         None,
