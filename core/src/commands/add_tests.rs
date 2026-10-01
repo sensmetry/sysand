@@ -2,11 +2,12 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use crate::{
-    add::do_add,
+    add::{AddError, do_add},
     model::{InterchangeProjectInfoRaw, InterchangeProjectUsageRaw},
     project::memory::InMemoryProject,
     utils::format_err,
 };
+use std::assert_matches;
 
 fn resource(iri: &str) -> InterchangeProjectUsageRaw {
     InterchangeProjectUsageRaw::Resource {
@@ -29,6 +30,14 @@ fn project() -> InMemoryProject {
             website: None,
         }),
         ..InMemoryProject::default()
+    }
+}
+
+fn index(publisher: &str, name: &str, constraint: &str) -> InterchangeProjectUsageRaw {
+    InterchangeProjectUsageRaw::Index {
+        publisher: publisher.to_owned(),
+        name: name.to_owned(),
+        version_constraint: constraint.to_owned(),
     }
 }
 
@@ -117,4 +126,72 @@ fn add_allows_a_directory_usage_of_a_different_project() {
     do_add(&mut project, &resource("pkg:sysand/acme-labs/other")).unwrap();
 
     assert_eq!(project.info.unwrap().usage.len(), 2);
+}
+
+#[test]
+fn add_writes_an_index_usage_as_spelled() {
+    let mut project = project();
+
+    assert!(do_add(&mut project, &index("Acme Labs", "My Lib", "^1")).unwrap());
+
+    assert_eq!(
+        project.info.unwrap().usage,
+        [index("Acme Labs", "My Lib", "^1")]
+    );
+}
+
+#[test]
+fn add_merges_an_index_usage_spelled_the_same() {
+    let mut project = project_with_usage(index("Acme Labs", "My Lib", "^1"));
+
+    assert!(!do_add(&mut project, &index("Acme Labs", "My Lib", "^1")).unwrap());
+    assert!(do_add(&mut project, &index("Acme Labs", "My Lib", "<1.5")).unwrap());
+
+    assert_eq!(
+        project.info.unwrap().usage,
+        [index("Acme Labs", "My Lib", "^1, <1.5")]
+    );
+}
+
+#[test]
+fn add_refuses_an_index_usage_spelled_differently() {
+    let mut project = project_with_usage(index("Acme Labs", "My Lib", "^1"));
+
+    let err = do_add(&mut project, &index("acme labs", "my lib", "^1")).unwrap_err();
+
+    assert_matches!(
+        err,
+        AddError::IndexUsageSpelledDifferently { existing, new }
+            if existing == "Acme Labs/My Lib" && new == "acme labs/my lib"
+    );
+    assert_eq!(project.info.unwrap().usage.len(), 1);
+}
+
+#[test]
+fn add_refuses_an_index_usage_over_a_legacy_purl() {
+    let mut project = project_with_usage(resource("pkg:sysand/acme-labs/my-lib"));
+
+    let err = do_add(&mut project, &index("Acme Labs", "My Lib", "^1")).unwrap_err();
+
+    assert_eq!(
+        format_err(err),
+        "`pkg:sysand/acme-labs/my-lib` is already declared as a resource usage;\n\
+         remove it before adding it as an index usage"
+    );
+    assert_eq!(project.info.unwrap().usage.len(), 1);
+}
+
+#[test]
+fn add_refuses_a_legacy_purl_over_an_index_usage() {
+    let mut project = project_with_usage(index("Acme Labs", "My Lib", "^1"));
+
+    let err = do_add(&mut project, &resource("pkg:sysand/acme-labs/my-lib")).unwrap_err();
+
+    assert_matches!(
+        err,
+        AddError::DuplicateIdentifier {
+            existing: "an index",
+            ..
+        }
+    );
 }

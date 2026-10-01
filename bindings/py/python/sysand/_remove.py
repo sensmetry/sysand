@@ -7,7 +7,6 @@ import typing
 
 from . import _sysand_core as sysand_rs
 
-from ._identify import project_iri
 from ._model import InterchangeProjectUsage
 
 from pathlib import Path
@@ -34,13 +33,20 @@ def remove(
 ) -> typing.List[InterchangeProjectUsage]:
     """Remove a dependency from the project in ``project_dir``.
 
-    The dependency is named as :func:`add` names it: by ``iri``, taken as
-    given, or by ``publisher`` and ``name``.
+    The dependency is named one of two ways:
 
-    Only resource and index usages are removed. A directory or KPAR usage of the same
-    project is *not* removed, and is not reported as missing either: that
-    raises :class:`ProjectError`, since the project is declared, just as a
-    kind the Python API cannot remove yet.
+    ``iri``
+        The resource usage of that IRI, taken as given.
+
+    ``publisher`` and ``name``
+        Every usage of that project, of any kind: index, directory and KPAR
+        usages, and a ``pkg:sysand`` resource usage. Spell both exactly as
+        the usage does, or fully normalized (``acme-labs``/``my-lib``).
+
+    When no usage matches, but the project is declared anyway (as a usage
+    that ``iri`` does not name, or spelled differently), that raises
+    :class:`ProjectError` saying how it is declared, rather than reporting it
+    missing.
 
     Args:
         project_dir: The project directory, the one holding ``.project.json``.
@@ -51,7 +57,7 @@ def remove(
     Returns:
         The usages that were removed, in declaration order, in the shape
         :func:`info_path` returns them. Normally one: sysand never adds the
-        same resource twice, but it tolerates a manifest that declares it
+        same project twice, but it tolerates a manifest that declares it
         more than once.
 
     Raises:
@@ -59,11 +65,9 @@ def remove(
             ``publisher`` and ``name`` was.
         ProjectError: the project is missing or malformed, ``iri`` is not an
             IRI, ``publisher`` or ``name`` is not valid, no usage
-            of the dependency is declared, or it is declared only as a
-            directory or KPAR usage.
+            of the dependency is declared, or it is declared only otherwise.
     """
-    resolved = project_iri("remove", iri, publisher, name)
-    return sysand_rs.do_remove_py(str(project_dir), resolved)  # type: ignore
+    return sysand_rs.do_remove_py(str(project_dir), iri, publisher, name)  # type: ignore
 
 
 __all__ = ["remove"]

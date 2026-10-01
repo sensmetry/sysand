@@ -217,3 +217,48 @@ def test_lock_auth(tmp_path: Path, mock_index: MockIndex) -> None:
         write=False,
     )
     assert by_name(result, "dep")["version"] == "1.0.0"
+
+
+def test_lock_fails_on_a_broken_index_version(
+    tmp_path: Path, mock_index: MockIndex
+) -> None:
+    mock_index.publish(DEP, "1.0.0")
+    # Its usage is not a valid `pkg:sysand` PURL, so the version is broken
+    mock_index.publish(DEP, "1.1.0", usage=[usage("pkg:sysand/Acme/Lib")])
+    root = project_with(
+        tmp_path, [{"publisher": "mock", "name": "dep", "versionConstraint": "^1"}]
+    )
+
+    with pytest.raises(sysand.SolveError) as excinfo:
+        sysand.lock(path=root, resolution=resolution(mock_index), write=False)
+    message = str(excinfo.value)
+    assert (
+        "version 1.1.0 offered for index usage `mock/dep` (^1) is not a valid project"
+        in message
+    )
+    assert "exclude it with a version constraint" in message
+    assert "one of its usages is invalid" in message
+
+    # Ruled out by the constraint, it does not stand in the way
+    (tmp_path / "narrow").mkdir()
+    root = project_with(
+        tmp_path / "narrow",
+        [{"publisher": "mock", "name": "dep", "versionConstraint": "~1.0"}],
+    )
+    result = sysand.lock(path=root, resolution=resolution(mock_index), write=False)
+    assert by_name(result, "dep")["version"] == "1.0.0"
+
+
+def test_lock_index_usage_spelled_unlike_the_project(
+    tmp_path: Path, mock_index: MockIndex
+) -> None:
+    mock_index.publish(DEP, "1.0.0")
+    root = project_with(
+        tmp_path, [{"publisher": "Mock", "name": "dep", "versionConstraint": "^1"}]
+    )
+
+    with pytest.raises(
+        sysand.SysandError,
+        match="resolved to version .* of `mock/dep`, but is rejected because its spelling",
+    ):
+        sysand.lock(path=root, resolution=resolution(mock_index), write=False)

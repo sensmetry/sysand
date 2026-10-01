@@ -172,7 +172,7 @@ fn directory_usage_is_refused_rather_than_reported_missing() {
         err,
         SetConstraintError::UsageCannotHoldConstraint {
             identifier,
-            kind: "directory",
+            kind: "a directory",
         } if identifier == LOCAL_LIB
     );
     assert_eq!(render(&d), MANIFEST);
@@ -211,7 +211,7 @@ fn kpar_path_usage_is_refused_by_its_identifier() {
     assert_matches!(
         err,
         SetConstraintError::UsageCannotHoldConstraint {
-            kind: "KPAR path",
+            kind: "a KPAR path",
             ..
         }
     );
@@ -399,5 +399,96 @@ mod filesystem {
 
     fn filetime_of(path: &camino::Utf8Path) -> std::time::SystemTime {
         std::fs::metadata(path).unwrap().modified().unwrap()
+    }
+}
+
+mod index_usage {
+    use super::*;
+    use crate::commands::usage::do_set_index_usage_constraint;
+
+    /// Keys in a non-canonical order, to check they stay so
+    const INDEX_MANIFEST: &str = r#"{
+  "name": "fidelity",
+  "version": "1.2.3",
+  "usage": [
+    {
+      "versionConstraint": "^1",
+      "name": "My Lib",
+      "publisher": "Acme Labs"
+    },
+    {
+      "resource": "pkg:sysand/mock/library"
+    }
+  ]
+}
+"#;
+
+    #[test]
+    fn edits_the_constraint_in_place() {
+        let mut d = doc(INDEX_MANIFEST);
+
+        let change = do_set_index_usage_constraint(&mut d, "Acme Labs", "My Lib", "^2").unwrap();
+
+        assert_eq!(
+            change,
+            ConstraintChange::Replaced {
+                old: Some("^1".to_owned()),
+                new: "^2".to_owned(),
+            }
+        );
+        assert_eq!(
+            one_line_diff(INDEX_MANIFEST, &render(&d)),
+            (
+                r#"      "versionConstraint": "^1","#,
+                r#"      "versionConstraint": "^2","#
+            )
+        );
+    }
+
+    #[test]
+    fn not_found() {
+        let mut d = doc(INDEX_MANIFEST);
+
+        let change = do_set_index_usage_constraint(&mut d, "Acme Labs", "Other", "^2").unwrap();
+
+        assert_eq!(change, ConstraintChange::NotFound);
+        assert_eq!(render(&d), INDEX_MANIFEST);
+    }
+
+    #[test]
+    fn different_spelling_is_refused() {
+        let mut d = doc(INDEX_MANIFEST);
+
+        let err = do_set_index_usage_constraint(&mut d, "acme labs", "my lib", "^2").unwrap_err();
+
+        assert_matches!(
+            err,
+            SetConstraintError::IndexUsageSpelledDifferently { existing, .. }
+                if existing == "Acme Labs/My Lib"
+        );
+        assert_eq!(render(&d), INDEX_MANIFEST);
+    }
+
+    #[test]
+    fn legacy_purl_is_not_matched_by_publisher_and_name() {
+        let mut d = doc(INDEX_MANIFEST);
+
+        let err = do_set_index_usage_constraint(&mut d, "mock", "library", "^2").unwrap_err();
+
+        assert_matches!(err, SetConstraintError::NotAnIndexUsage { identifier } if identifier == LIBRARY);
+        assert_eq!(render(&d), INDEX_MANIFEST);
+    }
+
+    #[test]
+    fn purl_of_an_index_usage_points_at_publisher_and_name() {
+        let mut d = doc(INDEX_MANIFEST);
+
+        let err = do_set_usage_constraint(&mut d, "pkg:sysand/acme-labs/my-lib", "^2").unwrap_err();
+
+        assert_matches!(
+            err,
+            SetConstraintError::IndexUsageMatchedByIdentifier { publisher, name, .. }
+                if publisher == "Acme Labs" && name == "My Lib"
+        );
     }
 }

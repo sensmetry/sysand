@@ -555,6 +555,9 @@ impl From<&InterchangeProjectUsage> for Identifier {
             }
             | InterchangeProjectUsage::KparPath {
                 publisher, name, ..
+            }
+            | InterchangeProjectUsage::Index {
+                publisher, name, ..
             } => (publisher, name),
         };
         Self::make_identifier_iri(publisher, name)
@@ -571,6 +574,9 @@ impl From<InterchangeProjectUsage> for Identifier {
                 publisher, name, ..
             }
             | InterchangeProjectUsage::KparPath {
+                publisher, name, ..
+            }
+            | InterchangeProjectUsage::Index {
                 publisher, name, ..
             } => (publisher, name),
         };
@@ -601,6 +607,9 @@ impl Identifier {
             }
             | InterchangeProjectUsageRaw::KparPath {
                 publisher, name, ..
+            }
+            | InterchangeProjectUsageRaw::Index {
+                publisher, name, ..
             } => {
                 if publisher.is_empty() || name.is_empty() {
                     None
@@ -620,6 +629,9 @@ impl Identifier {
                 publisher, name, ..
             }
             | InterchangeProjectUsageRaw::KparPath {
+                publisher, name, ..
+            }
+            | InterchangeProjectUsageRaw::Index {
                 publisher, name, ..
             } => (publisher, name),
         };

@@ -29,7 +29,7 @@ use sysand_core::{
 use crate::{
     CliError,
     cli::{RemoveProjectLocatorArgs, ResolutionOptions},
-    commands::{add::resolve_deps, sync::command_sync},
+    commands::{add::resolve_deps, lock::create_resolver, sync::command_sync},
     iri_or_path_to_iri,
 };
 
@@ -221,11 +221,20 @@ fn lock_sync<Policy: HTTPAuthentication>(
         },
         Err(e) => {
             if e.kind() == ErrorKind::NotFound {
+                let resolver = create_resolver(
+                    resolution_opts,
+                    &config,
+                    &project_root,
+                    &ctx,
+                    provided_iris.clone(),
+                    client.clone(),
+                    runtime.clone(),
+                    auth_policy.clone(),
+                )?;
                 resolve_deps(
                     no_sync,
                     no_prune,
-                    resolution_opts,
-                    &config,
+                    resolver,
                     client,
                     runtime,
                     auth_policy,
@@ -271,6 +280,15 @@ fn print_removed(usages: &[InterchangeProjectUsageRaw]) {
                 name,
             } => {
                 log::info!("{header}{removed:>12}{header:#} `{publisher}/{name}` (path `{path}`)");
+            }
+            InterchangeProjectUsageRaw::Index {
+                publisher,
+                name,
+                version_constraint,
+            } => {
+                log::info!(
+                    "{header}{removed:>12}{header:#} `{publisher}/{name}` with version constraints `{version_constraint}`"
+                );
             }
         }
     }

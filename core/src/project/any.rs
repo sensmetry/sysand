@@ -29,7 +29,7 @@ use crate::{
         reqwest_src::ReqwestSrcProjectAsync,
         utils::FsIoError,
     },
-    resolve::memory::{AcceptAll, MemoryResolver},
+    resolve::memory::{AcceptResource, MemoryResolver},
 };
 
 use super::local_kpar::KparInnerPath;
@@ -127,4 +127,4 @@ pub type OverrideProject<Policy> = ProjectReference<AnyProject<Policy>>;
 
 pub type OverrideEnvironment<Policy> = MemoryStorageEnvironment<OverrideProject<Policy>>;
 
-pub type OverrideResolver<Policy> = MemoryResolver<AcceptAll, OverrideProject<Policy>>;
+pub type OverrideResolver<Policy> = MemoryResolver<AcceptResource, OverrideProject<Policy>>;

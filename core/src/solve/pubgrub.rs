@@ -255,7 +255,19 @@ impl VersionSet for DiscreteHashSet {
     }
 }
 
-type CandidateMap<ProjectStorage> = HashMap<Identifier, Vec<Candidate<ProjectStorage>>>;
+type CandidateMap<R> = HashMap<Identifier, CandidateEntry<R>>;
+
+/// The candidates resolved for one identifier, and those that were skipped as
+/// broken while resolving them.
+///
+/// The faults are kept because the entry is shared by every usage with that
+/// identifier, but not every usage may skip the same broken candidates (see
+/// [`OnBrokenCandidate`]): a usage fails with the first one it may not skip
+/// when it reads the entry, whichever usage happened to fill the entry first.
+struct CandidateEntry<R: ResolveRead> {
+    candidates: Vec<Candidate<R::ProjectStorage>>,
+    skipped: Vec<CandidateError<R>>,
+}
 
 /// One resolved alternative for a given IRI: the summary the solver scores
 /// against and the `ProjectStorage` we hand back at extraction time.
@@ -278,18 +290,176 @@ struct CandidateSummary {
 
 pub struct ProjectSolver<R: ResolveRead> {
     // Internal RefCell, used in order to lazily populate the cache during resolution
-    resolved_candidates: RefCell<CandidateMap<R::ProjectStorage>>,
+    resolved_candidates: RefCell<CandidateMap<R>>,
     // dependency_provider: OfflineDependencyProvider<DependencyIdentifier, DiscreteHashSet>,
     resolver: R,
 }
 
+/// What resolving a usage does with a candidate that is not a valid project
+/// (e.g. its version or usages cannot be read, or fail validation).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum OnBrokenCandidate<'a> {
+    /// Fail the solve
+    Fail,
+    /// Fail the solve, unless the candidate's version is one the constraint
+    /// rules out, and so would not be picked anyway
+    FailIfSelectable(&'a VersionReq),
+    /// Leave the candidate out and carry on with the rest
+    Skip,
+}
+
+impl<'a> OnBrokenCandidate<'a> {
+    fn of(usage: &'a InterchangeProjectUsage) -> Self {
+        // Candidates from env don't change the logic here
+        match usage {
+            // Resource usages may produce invalid candidates that should not fail
+            // the whole resolution (e.g. both src and kpar variants for paths and http)
+            InterchangeProjectUsage::Resource { .. } => Self::Skip,
+            // Path usages name one project outright, so it must be a valid one
+            InterchangeProjectUsage::Directory { .. }
+            | InterchangeProjectUsage::KparPath { .. } => Self::Fail,
+            // A version an index offers is one its publisher published, so a
+            // broken one is a fault of the index to report, not to paper over
+            // by quietly picking another version
+            InterchangeProjectUsage::Index {
+                version_constraint, ..
+            } => Self::FailIfSelectable(version_constraint),
+        }
+    }
+
+    fn may_skip<R: ResolveRead>(self, fault: &CandidateError<R>) -> bool {
+        match self {
+            Self::Fail => false,
+            // A candidate whose version is not known cannot be ruled out
+            Self::FailIfSelectable(constraint) => fault
+                .version()
+                .is_some_and(|version| !constraint.matches(version)),
+            Self::Skip => true,
+        }
+    }
+}
+
+/// Why a candidate is not a valid project: an [`InternalSolverError`] without
+/// the usage, which is supplied by the usage the fault is reported against.
+///
+/// Displayed as what is wrong with the candidate, for
+/// [`InternalSolverError::BrokenIndexVersion`] to report.
+#[derive(Error, Debug)]
+pub enum CandidateError<R: ResolveRead> {
+    #[error("it cannot be read")]
+    Resolved(#[source] R::Error),
+    #[error("its version `{version}` is not a valid Semantic Version")]
+    InvalidVersion {
+        version: String,
+        source: semver::Error,
+    },
+    #[error("it does not declare a version")]
+    MissingVersion,
+    #[error("its version cannot be read")]
+    VersionObtain(#[source] StorageError<R>),
+    #[error("one of its usages is invalid")]
+    InvalidProject {
+        version: Version,
+        source: InterchangeProjectValidationError,
+    },
+    #[error("it does not declare its usages")]
+    MissingUsage,
+    #[error("its usages cannot be read")]
+    UsageObtain(#[source] StorageError<R>),
+}
+
+impl<R: ResolveRead> CandidateError<R> {
+    /// The version of the candidate, when it is known
+    fn version(&self) -> Option<&Version> {
+        match self {
+            Self::InvalidProject { version, .. } => Some(version),
+            Self::Resolved(_)
+            | Self::InvalidVersion { .. }
+            | Self::MissingVersion
+            | Self::VersionObtain(_)
+            | Self::MissingUsage
+            | Self::UsageObtain(_) => None,
+        }
+    }
+
+    /// The error for `resolve`, which may not skip this candidate
+    fn into_error(self, resolve: &CoalescingUsage) -> InternalSolverError<R> {
+        let usage = resolve.to_usage();
+        if let InterchangeProjectUsage::Index { .. } = resolve.usage().usage() {
+            return InternalSolverError::BrokenIndexVersion {
+                usage,
+                version: self.version().map(Version::to_string),
+                source: self,
+            };
+        }
+        match self {
+            Self::Resolved(source) => InternalSolverError::ResolvedError { usage, source },
+            Self::InvalidVersion { source, .. } => {
+                InternalSolverError::InvalidResolvedVersion { usage, source }
+            }
+            Self::MissingVersion => InternalSolverError::MissingVersion { usage },
+            Self::VersionObtain(source) => InternalSolverError::VersionObtain { usage, source },
+            Self::InvalidProject { version, source } => InternalSolverError::InvalidProject {
+                usage,
+                version,
+                source,
+            },
+            Self::MissingUsage => InternalSolverError::MissingUsage { usage },
+            Self::UsageObtain(source) => InternalSolverError::UsageObtain { usage, source },
+        }
+    }
+}
+
+/// Read what the solver needs out of one resolved alternative
+#[expect(clippy::result_large_err)]
+fn read_candidate<R: ResolveRead>(
+    alternative: Result<R::ProjectStorage, R::Error>,
+) -> Result<Candidate<R::ProjectStorage>, CandidateError<R>> {
+    let project = alternative.map_err(CandidateError::Resolved)?;
+
+    let version = match project.version() {
+        Ok(Some(version)) => Version::parse(&version)
+            .map_err(|source| CandidateError::InvalidVersion { version, source })?,
+        Ok(None) => return Err(CandidateError::MissingVersion),
+        Err(e) => return Err(CandidateError::VersionObtain(e)),
+    };
+
+    let usage = match project.usage() {
+        Ok(Some(usages)) => usages
+            .into_iter()
+            .map(|usage| usage.validate())
+            .collect::<Result<Vec<InterchangeProjectUsage>, _>>()
+            .map_err(|source| CandidateError::InvalidProject {
+                version: version.clone(),
+                source,
+            })?,
+        Ok(None) => return Err(CandidateError::MissingUsage),
+        Err(e) => return Err(CandidateError::UsageObtain(e)),
+    };
+    let relative_root = project.project_root().map(camino::Utf8Path::to_path_buf);
+    let usage = usage
+        .into_iter()
+        .map(|u| CoalescingUsage::new_usage(u, relative_root.clone()))
+        .collect();
+
+    Ok(Candidate {
+        summary: CandidateSummary {
+            version,
+            usage,
+            source_may_offer_multiple_versions: project.source_may_offer_multiple_versions(),
+        },
+        project,
+    })
+}
+
 /// Returned Vec will have `len >= 1`
 #[expect(clippy::result_large_err)]
-fn resolve_candidates<R: ResolveRead>(
+fn resolve_candidates<R: ResolveRead + fmt::Debug>(
     resolver: &R,
     resolve: &CoalescingUsage,
-    cache: &mut CandidateMap<R::ProjectStorage>,
+    cache: &mut CandidateMap<R>,
 ) -> Result<Vec<CandidateSummary>, InternalSolverError<R>> {
+    let on_broken = OnBrokenCandidate::of(resolve.usage().usage());
     let entry = cache.entry(resolve.to_id());
 
     // TODO: decide on a resolution policy. Currently the cache is keyed by Identifier,
@@ -301,13 +471,22 @@ fn resolve_candidates<R: ResolveRead>(
     // direct dependencies of the root project? Either way, the policy has to be explicitly
     // documented
     match entry {
-        Entry::Occupied(occupied_entry) => Ok(occupied_entry
-            .get()
-            .iter()
-            .map(|c| c.summary.clone())
-            .collect()),
+        Entry::Occupied(mut occupied_entry) => {
+            // The strictest usage decides, whichever came first
+            let skipped = &mut occupied_entry.get_mut().skipped;
+            if let Some(position) = skipped.iter().position(|fault| !on_broken.may_skip(fault)) {
+                return Err(skipped.swap_remove(position).into_error(resolve));
+            }
+            Ok(occupied_entry
+                .get()
+                .candidates
+                .iter()
+                .map(|c| c.summary.clone())
+                .collect())
+        }
         Entry::Vacant(vacant_entry) => {
             let mut found = vec![];
+            let mut skipped = vec![];
 
             match resolver
                 .resolve_read(resolve.usage())
@@ -326,141 +505,18 @@ fn resolve_candidates<R: ResolveRead>(
                     });
                 }
                 ResolutionOutcome::Resolved(alternatives) => {
-                    // Treat `Resource` usages leniently, as they may produce invalid candidates that should
-                    // not fail the whole resolution (e.g. both src and kpar variants for paths and http)
-                    // Typed usages in contrast are required to be present and valid projects, so missing
-                    // or invalid ones will fail resolution
-                    let typed = resolve.usage().usage().is_typed();
                     for alternative in alternatives {
-                        let project = match alternative {
-                            Ok(project) => project,
-                            Err(e) => {
-                                if typed {
-                                    return Err(InternalSolverError::ResolvedError {
-                                        usage: resolve.to_usage(),
-                                        source: e,
-                                    });
-                                } else {
-                                    log::debug!(
-                                        "candidate project for {resolve} is error: {}",
-                                        format_err(e)
-                                    );
-                                    continue;
-                                }
+                        match read_candidate::<R>(alternative) {
+                            Ok(candidate) => found.push(candidate),
+                            Err(fault) if on_broken.may_skip(&fault) => {
+                                log::debug!(
+                                    "skipping candidate project for {resolve}: {}",
+                                    format_err(&fault)
+                                );
+                                skipped.push(fault);
                             }
-                        };
-
-                        let version = match project.version() {
-                            Ok(Some(version)) => match Version::parse(&version) {
-                                Ok(version) => version,
-                                Err(e) => {
-                                    if typed {
-                                        return Err(InternalSolverError::InvalidResolvedVersion {
-                                            usage: resolve.to_usage(),
-                                            source: e,
-                                        });
-                                    } else {
-                                        log::debug!(
-                                            "candidate project for {resolve} has invalid version `{version}`: {}",
-                                            format_err(e)
-                                        );
-                                        continue;
-                                    }
-                                }
-                            },
-                            Ok(None) => {
-                                if typed {
-                                    return Err(InternalSolverError::MissingVersion {
-                                        usage: resolve.to_usage(),
-                                    });
-                                } else {
-                                    log::debug!(
-                                        "candidate project for {resolve} did not expose a version"
-                                    );
-                                    continue;
-                                }
-                            }
-                            Err(e) => {
-                                if typed {
-                                    return Err(InternalSolverError::VersionObtain {
-                                        usage: resolve.to_usage(),
-                                        source: e,
-                                    });
-                                } else {
-                                    log::debug!(
-                                        "candidate project for {resolve} failed to get version: {}",
-                                        format_err(e)
-                                    );
-                                    continue;
-                                }
-                            }
-                        };
-
-                        let usage = match project.usage() {
-                            Ok(Some(usages)) => {
-                                let validated: Result<Vec<InterchangeProjectUsage>, _> =
-                                    usages.into_iter().map(|usage| usage.validate()).collect();
-                                match validated {
-                                    Ok(usage) => usage,
-                                    Err(e) => {
-                                        if typed {
-                                            return Err(InternalSolverError::InvalidProject {
-                                                usage: resolve.to_usage(),
-                                                source: e,
-                                            });
-                                        } else {
-                                            log::debug!(
-                                                "candidate project for {resolve} has invalid usage: {}",
-                                                format_err(e)
-                                            );
-                                            continue;
-                                        }
-                                    }
-                                }
-                            }
-                            Ok(None) => {
-                                if typed {
-                                    return Err(InternalSolverError::MissingUsage {
-                                        usage: resolve.to_usage(),
-                                    });
-                                } else {
-                                    log::debug!(
-                                        "candidate project for {resolve} did not expose usages"
-                                    );
-                                    continue;
-                                }
-                            }
-                            Err(e) => {
-                                if typed {
-                                    return Err(InternalSolverError::UsageObtain {
-                                        usage: resolve.to_usage(),
-                                        source: e,
-                                    });
-                                } else {
-                                    log::debug!(
-                                        "candidate project for {resolve} failed to get usages: {}",
-                                        format_err(e)
-                                    );
-                                    continue;
-                                }
-                            }
-                        };
-                        let relative_root =
-                            project.project_root().map(camino::Utf8Path::to_path_buf);
-                        let usage = usage
-                            .into_iter()
-                            .map(|u| CoalescingUsage::new_usage(u, relative_root.clone()))
-                            .collect();
-
-                        found.push(Candidate {
-                            summary: CandidateSummary {
-                                version,
-                                usage,
-                                source_may_offer_multiple_versions: project
-                                    .source_may_offer_multiple_versions(),
-                            },
-                            project,
-                        });
+                            Err(fault) => return Err(fault.into_error(resolve)),
+                        }
                     }
                     if found.is_empty() {
                         return Err(InternalSolverError::NoValidCandidates(resolve.to_usage()));
@@ -473,7 +529,10 @@ fn resolve_candidates<R: ResolveRead>(
 
             let result: Vec<CandidateSummary> = found.iter().map(|c| c.summary.clone()).collect();
 
-            vacant_entry.insert(found);
+            vacant_entry.insert(CandidateEntry {
+                candidates: found,
+                skipped,
+            });
 
             Ok(result)
         }
@@ -484,7 +543,7 @@ fn resolve_candidates<R: ResolveRead>(
 fn compute_deps<R: ResolveRead + fmt::Debug>(
     resolver: &R,
     usages: &[CoalescingUsage],
-    cache: &mut CandidateMap<R::ProjectStorage>,
+    cache: &mut CandidateMap<R>,
 ) -> Result<
     pubgrub::Dependencies<DependencyIdentifier, DiscreteHashSet, String>,
     InternalSolverError<R>,
@@ -513,6 +572,17 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
                     numbered(&candidates).map(|(index, c)| (index, &c.version)),
                     version_constraint.as_ref(),
                     default_constraint(&candidates).as_ref(),
+                );
+
+                deps.push((DependencyIdentifier::Remote(usage.to_owned()), selected));
+            }
+            InterchangeProjectUsage::Index {
+                version_constraint, ..
+            } => {
+                let selected = selected_by(
+                    numbered(&candidates).map(|(index, c)| (index, &c.version)),
+                    Some(version_constraint),
+                    None,
                 );
 
                 deps.push((DependencyIdentifier::Remote(usage.to_owned()), selected));
@@ -636,6 +706,10 @@ fn constraint_of(usage: &CoalescingUsage) -> String {
         InterchangeProjectUsage::Resource {
             version_constraint: Some(constraint),
             ..
+        }
+        | InterchangeProjectUsage::Index {
+            version_constraint: constraint,
+            ..
         } => constraint.to_string(),
         _ => "*".to_owned(),
     }
@@ -675,6 +749,14 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
             | pubgrub::PubGrubError::ErrorRetrievingDependencies {
                 source: InternalSolverError::ResolvedError { source: err, .. },
                 ..
+            }
+            | pubgrub::PubGrubError::ErrorRetrievingDependencies {
+                source:
+                    InternalSolverError::BrokenIndexVersion {
+                        source: CandidateError::Resolved(err),
+                        ..
+                    },
+                ..
             } => Some(err),
             _ => None,
         }
@@ -690,12 +772,18 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
                 self.walk(derivation_tree, &mut conflicts);
             }
             pubgrub::PubGrubError::ErrorRetrievingDependencies { source, .. } => match source {
-                InternalSolverError::Resolution(_) | InternalSolverError::ResolvedError { .. } => {}
+                InternalSolverError::Resolution(_)
+                | InternalSolverError::ResolvedError { .. }
+                | InternalSolverError::BrokenIndexVersion {
+                    source: CandidateError::Resolved(_),
+                    ..
+                } => {}
                 InternalSolverError::NotFound(usage, _)
                 | InternalSolverError::NoValidCandidates(usage)
                 | InternalSolverError::UnsupportedUsageType { usage, .. }
                 | InternalSolverError::Unresolvable { usage, .. }
                 | InternalSolverError::InvalidProject { usage, .. }
+                | InternalSolverError::BrokenIndexVersion { usage, .. }
                 | InternalSolverError::MissingVersion { usage }
                 | InternalSolverError::MissingUsage { usage }
                 | InternalSolverError::InvalidResolvedVersion { usage, .. }
@@ -861,6 +949,10 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
             InterchangeProjectUsage::Resource {
                 version_constraint: Some(constraint),
                 ..
+            }
+            | InterchangeProjectUsage::Index {
+                version_constraint: constraint,
+                ..
             } => selected_by(
                 candidates.iter().map(|c| (c.index, &c.version)),
                 Some(constraint),
@@ -938,20 +1030,24 @@ impl<R: ResolveRead + fmt::Debug + 'static> Display for SolverError<R> {
             pubgrub::PubGrubError::ErrorRetrievingDependencies {
                 package, source, ..
             } => match package {
-                DependencyIdentifier::Requested(_) => {
-                    write!(f, "failed to retrieve project(s): {source}")
+                // Says all there is to say about which usage failed, and why
+                DependencyIdentifier::Requested(_)
+                    if matches!(source, InternalSolverError::BrokenIndexVersion { .. }) =>
+                {
+                    write!(f, "{source}")
                 }
+                DependencyIdentifier::Requested(_) => write!(f, "failed to retrieve project(s)"),
                 DependencyIdentifier::Remote(iri) => {
-                    write!(f, "failed to retrieve usages of `{iri}`: {source}")
+                    write!(f, "failed to retrieve usages of `{iri}`")
                 }
             },
-            pubgrub::PubGrubError::ErrorChoosingVersion { package, source } => match package {
+            pubgrub::PubGrubError::ErrorChoosingVersion { package, .. } => match package {
                 DependencyIdentifier::Requested(_) => {
                     // `fn choose_version()` is infallible in this path
                     unreachable!();
                 }
                 DependencyIdentifier::Remote(iri) => {
-                    write!(f, "unable to select version of `{iri}`: {source}")
+                    write!(f, "unable to select version of `{iri}`")
                 }
             },
             pubgrub::PubGrubError::ErrorInShouldCancel(_) => {
@@ -962,7 +1058,24 @@ impl<R: ResolveRead + fmt::Debug + 'static> Display for SolverError<R> {
     }
 }
 
-impl<R: ResolveRead + fmt::Debug + 'static> std::error::Error for SolverError<R> {}
+impl<R: ResolveRead + fmt::Debug + 'static> std::error::Error for SolverError<R> {
+    /// The solver's own error, skipping pubgrub's, whose generic message
+    /// says nothing `Display` does not
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self.inner.as_ref() {
+            // `Display` already is this error, so skip to what caused it
+            pubgrub::PubGrubError::ErrorRetrievingDependencies {
+                package: DependencyIdentifier::Requested(_),
+                source: source @ InternalSolverError::BrokenIndexVersion { .. },
+                ..
+            } => std::error::Error::source(source),
+            pubgrub::PubGrubError::ErrorRetrievingDependencies { source, .. }
+            | pubgrub::PubGrubError::ErrorChoosingVersion { source, .. } => Some(source),
+            pubgrub::PubGrubError::NoSolution(_)
+            | pubgrub::PubGrubError::ErrorInShouldCancel(_) => None,
+        }
+    }
+}
 
 /// Error of `R`'s resolved project storage. Also hides the nested projection
 /// from `derive(Debug)`, which would otherwise emit an unsatisfiable
@@ -995,14 +1108,32 @@ pub enum InternalSolverError<R: ResolveRead> {
         usage: ResolutionInfo,
         reason: String,
     },
+    /// A version offered for an index usage is not a valid project. It is
+    /// not skipped for another version, which would make what is locked
+    /// depend on which versions happen to be broken
+    #[error(
+        "{} offered for index usage {usage} is not a valid project,\n\
+         and a broken version fails the solve instead of being skipped;\n\
+         exclude it with a version constraint, or have its publisher fix or yank it",
+        match version {
+            Some(version) => format!("version {version}"),
+            None => "a version".to_owned(),
+        }
+    )]
+    BrokenIndexVersion {
+        usage: ResolutionInfo,
+        version: Option<String>,
+        source: CandidateError<R>,
+    },
     #[error("usage {usage} resolved to an error")]
     ResolvedError {
         usage: ResolutionInfo,
         source: R::Error,
     },
-    #[error("usage {usage} resolved to an error")]
+    #[error("usage {usage} resolved to version {version}, which has an invalid usage")]
     InvalidProject {
         usage: ResolutionInfo,
+        version: Version,
         source: InterchangeProjectValidationError,
     },
     #[error("usage {usage} resolved to a project that does not expose its version")]
@@ -1175,10 +1306,10 @@ pub fn solve<R: ResolveRead + fmt::Debug + 'static>(
                 .resolved_candidates
                 .take()
                 .into_iter()
-                .map(|(id, candidates)| {
+                .map(|(id, entry)| {
                     (
                         id,
-                        numbered(&candidates)
+                        numbered(&entry.candidates)
                             .map(|(index, c)| CandidateSnapshot {
                                 index,
                                 version: c.summary.version.clone(),
@@ -1202,7 +1333,7 @@ pub fn solve<R: ResolveRead + fmt::Debug + 'static>(
     for (k, idx) in solution {
         if let DependencyIdentifier::Remote(usage) = k {
             let (_, id) = usage.into_parts();
-            let mut extracted = map.remove(&id).expect("internal solver error");
+            let mut extracted = map.remove(&id).expect("internal solver error").candidates;
 
             result.insert(id, extracted.swap_remove(idx).project);
         }

@@ -57,6 +57,28 @@ impl IRIPredicate for AcceptAll {
     }
 }
 
+/// Accepts only `Resource` usages. Source overrides are keyed by the IRIs
+/// of resource usages, so they must not resolve typed usages that happen to
+/// share an [`Identifier`]
+#[derive(Debug)]
+pub struct AcceptResource;
+
+impl IRIPredicate for AcceptResource {
+    fn accept(&self, usage: &ResolutionInfo) -> bool {
+        matches!(usage.usage(), InterchangeProjectUsage::Resource { .. })
+    }
+}
+
+impl<Project: ProjectRead + Clone> MemoryResolver<AcceptResource, Project> {
+    /// A resolver of only `Resource` usages, e.g. for source overrides
+    pub fn resources_only(projects: impl IntoIterator<Item = (Identifier, Vec<Project>)>) -> Self {
+        Self {
+            iri_predicate: AcceptResource,
+            projects: HashMap::from_iter(projects),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct AcceptScheme<'a> {
     pub scheme: &'a Scheme,
@@ -70,7 +92,8 @@ impl IRIPredicate for AcceptScheme<'_> {
                 version_constraint: _,
             } => resource.scheme() == self.scheme,
             InterchangeProjectUsage::Directory { .. }
-            | InterchangeProjectUsage::KparPath { .. } => false,
+            | InterchangeProjectUsage::KparPath { .. }
+            | InterchangeProjectUsage::Index { .. } => false,
         }
     }
 }
