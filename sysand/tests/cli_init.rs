@@ -284,7 +284,7 @@ fn init_rejects_invalid_publisher() -> Result<(), Box<dyn std::error::Error>> {
         ("", "publisher cannot be empty"),
         ("acme/labs", "publisher cannot contain `/`"),
         ("acme:labs", "publisher cannot contain `:`"),
-        ("acme\tlabs", "publisher cannot contain control characters"),
+        ("acme\tlabs", "publisher cannot contain `\\t`"),
     ] {
         let (_temp_dir, cwd, out) =
             run_sysand(["init", "--publisher", publisher, "--name", "n", "p"], None)?;
@@ -309,7 +309,7 @@ fn init_rejects_invalid_name() -> Result<(), Box<dyn std::error::Error>> {
         ("", "name cannot be empty"),
         ("a/b", "name cannot contain `/`"),
         ("a:b", "name cannot contain `:`"),
-        ("a\nb", "name cannot contain control characters"),
+        ("a\nb", "name cannot contain `\\n`"),
     ] {
         let (_temp_dir, cwd, out) =
             run_sysand(["init", "--publisher", "a", "--name", name, "p"], None)?;

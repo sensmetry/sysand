@@ -166,7 +166,7 @@ pub fn command_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
                 if you have access to the original project, run:
                 sysand build\n\
                 if not, clone and rebuild the project by running in an empty directory:
-                sysand clone {}\n\
+                sysand clone --kpar-path {}\n\
                 sysand build\n\
                 and then try adding the built KPAR to the index",
                     quote_for_shell(kpar_path.as_str())

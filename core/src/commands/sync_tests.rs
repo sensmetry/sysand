@@ -13,7 +13,7 @@ use crate::{
         memory::MemoryStorageEnvironment, utils::clone_project,
     },
     lock::{Lock, Project, Source},
-    model::{InterchangeProjectInfo, InterchangeProjectMetadata},
+    model::{InterchangeProjectInfo, InterchangeProjectMetadata, ProjectName},
     project::{ProjectChecksum, ProjectMut as _, ProjectRead as _, memory::InMemoryProject},
     sync::{SyncError, SyncOutcome, SyncedProject, do_sync, try_install},
 };
@@ -28,7 +28,7 @@ fn storage_example() -> InMemoryProject {
     storage
         .put_project(
             &InterchangeProjectInfo {
-                name: "install_test".to_owned(),
+                name: ProjectName::parse("install_test".to_owned()).unwrap(),
                 publisher: None,
                 description: None,
                 version: Version::new(1, 2, 3),

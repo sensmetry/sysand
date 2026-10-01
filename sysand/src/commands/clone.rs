@@ -37,12 +37,13 @@ use crate::{
     cli::{CloneProjectLocatorArgs, ResolutionOptions},
     commands::{init::warn_parent_project_workspace, sync::command_sync},
     default_index_location, get_or_create_env,
-    style::GOOD,
+    style::{GOOD, USAGE},
 };
 
 pub enum ProjectLocator {
     Iri(Iri<String>),
-    Path(Utf8PathBuf),
+    Dir(Utf8PathBuf),
+    KparPath(Utf8PathBuf),
 }
 
 /// Clones project from `locator` to `target` directory.
@@ -131,7 +132,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         let project = EditableProject::new(".".into(), local_project);
         let identifiers = match locator {
             ProjectLocator::Iri(iri) => Some(vec![iri]),
-            ProjectLocator::Path(_) => None,
+            ProjectLocator::Dir(_) | ProjectLocator::KparPath(_) => None,
         };
         let LockOutcome {
             lock,
@@ -214,22 +215,34 @@ fn obtain_project<Policy: HTTPAuthentication>(
     } else {
         Some(config.index_urls(index, vec![default_index_location()], default_index))
     };
-    let CloneProjectLocatorArgs {
-        auto_location,
-        iri,
-        path,
-    } = locator;
-    let locator = if let Some(auto_location) = auto_location {
-        match fluent_uri::Iri::parse(auto_location) {
-            Ok(iri) => ProjectLocator::Iri(iri),
-            Err((_e, path)) => ProjectLocator::Path(path.into()),
+    let locator = match locator {
+        CloneProjectLocatorArgs {
+            identifier: Some(_),
+            dir: None,
+            kpar_path: None,
+            iri: None,
+        } => {
+            bail!("cloning by `<publisher>/<name>` identifier is not supported yet")
         }
-    } else if let Some(path) = path {
-        ProjectLocator::Path(path)
-    } else if let Some(iri) = iri {
-        ProjectLocator::Iri(iri)
-    } else {
-        unreachable!()
+        CloneProjectLocatorArgs {
+            identifier: None,
+            dir: Some(dir),
+            kpar_path: None,
+            iri: None,
+        } => ProjectLocator::Dir(dir),
+        CloneProjectLocatorArgs {
+            identifier: None,
+            dir: None,
+            kpar_path: Some(kpar_path),
+            iri: None,
+        } => ProjectLocator::KparPath(kpar_path),
+        CloneProjectLocatorArgs {
+            identifier: None,
+            dir: None,
+            kpar_path: None,
+            iri: Some(iri),
+        } => ProjectLocator::Iri(iri),
+        _ => unreachable!(),
     };
     let cloning = "Cloning";
     let cloned = "Cloned";
@@ -263,30 +276,41 @@ fn obtain_project<Policy: HTTPAuthentication>(
                 info.version
             );
         }
-        ProjectLocator::Path(path) => {
+        ProjectLocator::Dir(path) => {
             if wrapfs::is_file(path)? {
-                let remote_project = LocalKParProjectRaw::new_guess_root(path)?;
-                clone_local(
-                    version_constraint,
-                    cloning,
-                    cloned,
-                    header,
-                    &mut local_project,
-                    path,
-                    remote_project,
-                )?;
-            } else {
-                let remote_project = LocalSrcProject::new_access(path, None);
-                clone_local(
-                    version_constraint,
-                    cloning,
-                    cloned,
-                    header,
-                    &mut local_project,
-                    path,
-                    remote_project,
-                )?;
+                bail!(
+                    "`{path}` is not a directory\n\
+                    {USAGE}hint:{USAGE:#} to clone from a KPAR, use `--kpar-path`"
+                );
             }
+            let remote_project = LocalSrcProject::new_access(path, None);
+            clone_local(
+                version_constraint,
+                cloning,
+                cloned,
+                header,
+                &mut local_project,
+                path,
+                remote_project,
+            )?;
+        }
+        ProjectLocator::KparPath(path) => {
+            if wrapfs::is_dir(path)? {
+                bail!(
+                    "`{path}` is not a file\n\
+                    {USAGE}hint:{USAGE:#} to clone from a directory, use `--dir`"
+                );
+            }
+            let remote_project = LocalKParProjectRaw::new_guess_root(path)?;
+            clone_local(
+                version_constraint,
+                cloning,
+                cloned,
+                header,
+                &mut local_project,
+                path,
+                remote_project,
+            )?;
         }
     }
 

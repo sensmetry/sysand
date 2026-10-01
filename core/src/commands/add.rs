@@ -7,7 +7,6 @@ use crate::{
         InterchangeProjectUsageG, InterchangeProjectUsageRaw, InterchangeProjectValidationError,
     },
     project::{ProjectMut, utils::Identifier},
-    purl::{PKG_SYSAND_PREFIX, SysandPurlError, parse_sysand_purl},
     utils::SP,
 };
 
@@ -34,54 +33,6 @@ pub enum AddError<ProjectError> {
         existing: &'static str,
         new: &'static str,
     },
-}
-
-/// If `resource` is of shape `publisher/name`, and both satisfy Sysand PURL
-/// rules, return `Ok(Some(pkg:sysand/publisher/name))`. Otherwise, if it's of shape
-/// `string1/string2` and does not contain `:`, return error. If none of these,
-/// return `Ok(None)`, which indicates that it's likely something else
-pub fn expand_sysand_purl_shorthand(resource: &str) -> Result<Option<String>, SysandPurlError> {
-    let mut parts = resource.split('/');
-    let publisher = parts.next();
-    let name = parts.next();
-    let has_exactly_two_segments = publisher.is_some() && name.is_some() && parts.next().is_none();
-
-    // IRI always starts with `scheme:`, so differentiate from it by absence of `:`
-    if !resource.contains(':') && has_exactly_two_segments {
-        let purl = format!("{PKG_SYSAND_PREFIX}{resource}");
-        match parse_sysand_purl(&purl) {
-            Ok(Some(_)) => Ok(Some(purl)),
-            Err(SysandPurlError::WrongShape { .. }) | Ok(None) => unreachable!(),
-            Err(source) => Err(source),
-        }
-    } else {
-        Ok(None)
-    }
-}
-
-/// Like `do_add`, but try to guess how `resource` should be interpreted.
-/// Currently it can be either an IRI or `publisher/name` PURL shorthand
-pub fn do_add_guess<P: ProjectMut>(
-    project: &mut P,
-    resource: String,
-    version_constraint: Option<String>,
-) -> Result<bool, AddError<P::Error>> {
-    let usage_raw = InterchangeProjectUsageRaw::Resource {
-        resource: match expand_sysand_purl_shorthand(&resource) {
-            Ok(Some(purl)) => purl,
-            Ok(None) => resource,
-            Err(source) => {
-                return Err(AddError::Validation(
-                    InterchangeProjectValidationError::MalformedUsageSysandPurl {
-                        iri: resource,
-                        source,
-                    },
-                ));
-            }
-        },
-        version_constraint,
-    };
-    do_add(project, &usage_raw)
 }
 
 /// Common merge logic for path-like usages (`Directory`, `KparPath`): if an

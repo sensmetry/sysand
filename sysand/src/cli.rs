@@ -5,6 +5,7 @@ use std::{
     convert::Infallible,
     ffi::OsStr,
     fmt::{Display, Write as _},
+    str::FromStr as _,
 };
 
 use camino::Utf8PathBuf;
@@ -12,13 +13,12 @@ use clap::{ValueEnum, builder::StyledStr, crate_authors, parser::ValueSource};
 use fluent_uri::Iri;
 use semver::{Version, VersionReq};
 use sysand_core::{
-    add::expand_sysand_purl_shorthand,
     build::KparCompressionMethod,
     commands::{auth::IndexKey, sources::Dependencies as CoreDependencies},
     index_location::IndexLocation,
     model::{
-        KERML_SPEC_PREFIX, LICENSE_EXPRESSION_HELP, ProjectName, ProjectPublisher,
-        SYSML_SPEC_PREFIX,
+        KERML_SPEC_PREFIX, LICENSE_EXPRESSION_HELP, ProjectFieldError, ProjectName,
+        ProjectPublisher, SYSML_SPEC_PREFIX,
     },
 };
 
@@ -106,8 +106,7 @@ pub enum Command {
         /// A constraint on the allowed versions of a used project.
         /// Assumes that the project being added uses Semantic Versioning.
         /// Version constraints use same syntax as Rust's Cargo.
-        /// Examples: `1.2.3`, `<2`, `>=3`. For details, see the user
-        /// guide's `Project information and metadata` section
+        /// Examples: `1.2.3`, `<2`, `>=3`
         #[clap(long, verbatim_doc_comment)]
         version_constraint: Option<VersionReq>,
 
@@ -325,7 +324,7 @@ pub struct LockSyncPrune {
 #[derive(clap::Args, Debug, Clone)]
 #[group(required = true, multiple = false)]
 pub struct AddProjectLocatorArgs {
-    /// Project identifier of the form `<publisher>/<name>`. `<publisher`
+    /// Project identifier of the form `<publisher>/<name>`. `<publisher>`
     /// and `<name>` can either exactly match those of the project being
     /// added, or use lowercase letters only and replace spaces with `-`
     /// Currently a failing placeholder, in the future will allow adding
@@ -359,7 +358,10 @@ pub struct AddProjectLocatorArgs {
     #[clap(
         long,
         default_value = None,
-        value_parser = parse_add_usage_locator,
+        value_parser = with_tip(
+            Iri::from_str,
+            "if you wanted to use a path, use `--dir`, `--kpar-path` or `--iri-path` instead"
+        ),
         verbatim_doc_comment
     )]
     pub iri: Option<Iri<String>>,
@@ -384,7 +386,7 @@ pub struct AddProjectLocatorArgs {
 #[derive(clap::Args, Debug, Clone)]
 #[group(required = true, multiple = false)]
 pub struct RemoveProjectLocatorArgs {
-    /// Project identifier of the form `<publisher>/<name>`. `<publisher`
+    /// Project identifier of the form `<publisher>/<name>`. `<publisher>`
     /// and `<name>` can either exactly match those of the project being
     /// removed, or use lowercase letters only and replace spaces with `-`
     #[clap(
@@ -399,7 +401,7 @@ pub struct RemoveProjectLocatorArgs {
     #[clap(
         long,
         default_value = None,
-        value_parser = parse_remove_usage_locator,
+        value_parser = with_tip(Iri::from_str, "if you wanted to use a path, use `--iri-path` instead"),
         verbatim_doc_comment
     )]
     pub iri: Option<Iri<String>>,
@@ -416,26 +418,41 @@ pub struct RemoveProjectLocatorArgs {
 #[derive(clap::Args, Debug, Clone)]
 #[group(required = true, multiple = false)]
 pub struct CloneProjectLocatorArgs {
-    /// Clone the project from a given locator, trying to parse it as an
-    /// IRI/URI/URL and otherwise falling back to using it as a path
+    /// Project identifier of the form `<publisher>/<name>`. `<publisher>`
+    /// and `<name>` can either exactly match those of the project being
+    /// cloned, or use lowercase letters only and replace spaces with `-`
+    /// Currently a failing placeholder, in the future will allow cloning
+    /// projects from indexes
     #[clap(
         default_value = None,
-        value_name = "LOCATOR",
+        value_name = "IDENTIFIER",
+        value_parser = with_tip(
+            parse_project_identifier,
+            "to clone from a directory, a KPAR or an IRI, use `--dir`, `--kpar-path` or `--iri` respectively"
+        ),
         verbatim_doc_comment
     )]
-    pub auto_location: Option<String>,
-    /// IRI/URI/URL identifying the project to be cloned
-    #[arg(long)]
-    pub iri: Option<Iri<String>>,
-    /// Path to clone the project from. If version is also
-    /// given, verifies that the project has the given version
-    // TODO: allow somehow requiring to use git here
+    pub identifier: Option<(ProjectPublisher, ProjectName)>,
+    /// Clone a project from a given directory path. Path can be relative
+    /// or absolute
+    #[arg(long, verbatim_doc_comment)]
+    pub dir: Option<Utf8PathBuf>,
+    /// Clone a project from a KPAR at a given path. Path can be relative
+    /// or absolute
+    #[arg(long, verbatim_doc_comment)]
+    pub kpar_path: Option<Utf8PathBuf>,
+    /// IRI/URI/URL identifying the project to be cloned. Use `--dir` or
+    /// `--kpar-path` for paths
     #[arg(
         long,
         default_value = None,
+        value_parser = with_tip(
+            Iri::from_str,
+            "if you wanted to use a path, use `--dir` or `--kpar-path` instead"
+        ),
         verbatim_doc_comment
     )]
-    pub path: Option<Utf8PathBuf>,
+    pub iri: Option<Iri<String>>,
 }
 
 #[derive(clap::ValueEnum, Default, Copy, Clone, Debug)]
@@ -667,6 +684,38 @@ impl clap::builder::TypedValueParser for IndexKeyParser {
         source: ValueSource,
     ) -> Result<Self::Value, clap::Error> {
         parse_index_value(cmd, arg, value, source, IndexKey::validate)
+    }
+}
+
+/// Wrap `inner` value parser, adding `tip` to its errors. The tip is
+/// rendered by clap after the error message
+fn with_tip<P>(inner: P, tip: &'static str) -> WithTip<P> {
+    WithTip { inner, tip }
+}
+
+/// See [`with_tip`]
+#[derive(Clone, Debug)]
+struct WithTip<P> {
+    inner: P,
+    tip: &'static str,
+}
+
+impl<P: clap::builder::TypedValueParser> clap::builder::TypedValueParser for WithTip<P> {
+    type Value = P::Value;
+
+    fn parse_ref(
+        &self,
+        cmd: &clap::Command,
+        arg: Option<&clap::Arg>,
+        value: &OsStr,
+    ) -> Result<Self::Value, clap::Error> {
+        self.inner.parse_ref(cmd, arg, value).map_err(|mut e| {
+            e.insert(
+                clap::error::ContextKind::Suggested,
+                clap::error::ContextValue::StyledStrs(vec![self.tip.into()]),
+            );
+            e
+        })
     }
 }
 
@@ -2034,45 +2083,20 @@ impl ValueEnum for MetamodelVersion {
 }
 
 /// Parse a `<publisher>/<name>` project identifier
-fn parse_project_identifier(s: &str) -> Result<(ProjectPublisher, ProjectName), &'static str> {
+fn parse_project_identifier(s: &str) -> Result<(ProjectPublisher, ProjectName), String> {
     let Some((publisher, name)) = s.split_once('/') else {
-        return Err("identifier is not of the form `<publisher>/<name>`");
+        return Err("identifier is not of the form `<publisher>/<name>`".to_owned());
     };
     Ok((
-        parse_project_publisher(publisher)?,
-        parse_project_name(name)?,
+        parse_project_publisher(publisher).map_err(|e| e.to_string())?,
+        parse_project_name(name).map_err(|e| e.to_string())?,
     ))
 }
 
-fn parse_project_publisher(s: &str) -> Result<ProjectPublisher, &'static str> {
+fn parse_project_publisher(s: &str) -> Result<ProjectPublisher, ProjectFieldError> {
     ProjectPublisher::parse(s.to_owned()).map_err(|(_, e)| e)
 }
 
-fn parse_project_name(s: &str) -> Result<ProjectName, &'static str> {
+fn parse_project_name(s: &str) -> Result<ProjectName, ProjectFieldError> {
     ProjectName::parse(s.to_owned()).map_err(|(_, e)| e)
-}
-
-fn parse_add_usage_locator(s: &str) -> Result<Iri<String>, String> {
-    parse_usage_locator(s, "`--dir`, `--kpar-path` or `--iri-path`")
-}
-
-fn parse_remove_usage_locator(s: &str) -> Result<Iri<String>, String> {
-    parse_usage_locator(s, "`--iri-path`")
-}
-
-/// Parse `s` as an IRI or `publisher/name` PURL shorthand. On failure,
-/// suggest the `path_options` in case a path was meant
-fn parse_usage_locator(s: &str, path_options: &str) -> Result<Iri<String>, String> {
-    use crate::style::USAGE;
-    let err = match Iri::parse(s) {
-        Ok(i) => return Ok(i.to_owned()),
-        Err(err) => match expand_sysand_purl_shorthand(s) {
-            Ok(Some(purl)) => return Ok(Iri::parse(purl).expect("BUG: Sysand PURL is invalid IRI")),
-            Ok(None) => err.to_string(),
-            Err(e) => e.to_string(),
-        },
-    };
-    Err(format!(
-        "{err}\n{USAGE}hint:{USAGE:#} if you wanted to use a path, use {path_options} instead"
-    ))
 }

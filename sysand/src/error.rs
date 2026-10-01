@@ -2,7 +2,9 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 use semver::VersionReq;
-use sysand_core::{info::InfoProjectError, resolve::file::FileResolverProjectError};
+use sysand_core::{
+    info::InfoProjectError, model::ProjectFieldError, resolve::file::FileResolverProjectError,
+};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -10,7 +12,7 @@ pub enum CliError {
     #[error("invalid directory: {0}")]
     InvalidDirectory(String),
     #[error("cannot use the directory name `{0}` as the project name: {1}; use `--name` to set it")]
-    InvalidDirectoryName(String, &'static str),
+    InvalidDirectoryName(String, ProjectFieldError),
     #[error("unable to find project with IRI `{0}`")]
     NoResolve(String),
     #[error("invalid project with IRI `{iri}`")]

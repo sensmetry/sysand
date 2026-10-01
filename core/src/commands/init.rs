@@ -8,7 +8,10 @@ use spdx;
 
 use crate::{
     env::utils::ErrorBound,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadata, ProjectName, ProjectPublisher},
+    model::{
+        InterchangeProjectInfoRaw, InterchangeProjectMetadata, ProjectFieldError, ProjectName,
+        ProjectPublisher,
+    },
     project::{ProjectMut, memory::InMemoryProject},
 };
 
@@ -20,9 +23,9 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum InitError<ProjectError: ErrorBound> {
     #[error("invalid project name `{0}`: {1}")]
-    NameParse(String, &'static str),
+    NameParse(String, ProjectFieldError),
     #[error("invalid project publisher `{0}`: {1}")]
-    PublisherParse(String, &'static str),
+    PublisherParse(String, ProjectFieldError),
     #[error("failed to parse `{0}` as a Semantic Version: {1}")]
     SemVerParse(Box<str>, semver::Error),
     #[error(transparent)]
