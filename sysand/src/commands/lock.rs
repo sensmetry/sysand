@@ -20,7 +20,7 @@ use sysand_core::{
     },
     resolve::{
         ResolveRead,
-        memory::{AcceptAll, MemoryResolver},
+        memory::{AcceptAll, AcceptResource, MemoryResolver},
         priority::PriorityResolver,
         standard::{StandardResolver, standard_resolver},
     },
@@ -36,7 +36,7 @@ use crate::{cli::ResolutionOptions, default_index_location, get_overrides};
 /// (the language bindings) can match the errors it produces.
 pub type CliResolver<Policy> = PriorityResolver<
     PriorityResolver<
-        MemoryResolver<AcceptAll, ProjectReference<AnyProject<Policy>>>,
+        MemoryResolver<AcceptResource, ProjectReference<AnyProject<Policy>>>,
         MemoryResolver<AcceptAll, InMemoryProject>,
     >,
     StandardResolver<Policy>,
@@ -153,7 +153,7 @@ pub fn create_resolver<R: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     PriorityResolver<
         PriorityResolver<
             MemoryResolver<
-                AcceptAll,
+                AcceptResource,
                 sysand_core::project::reference::ProjectReference<
                     sysand_core::project::any::AnyProject<Policy>,
                 >,
@@ -186,7 +186,7 @@ pub fn create_resolver<R: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     )?;
 
     let override_resolver = PriorityResolver::new(
-        MemoryResolver::from(overrides),
+        MemoryResolver::resources_only(overrides),
         MemoryResolver {
             iri_predicate: AcceptAll {},
             projects: provided_usages,

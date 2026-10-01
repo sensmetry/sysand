@@ -324,20 +324,25 @@ pub struct LockSyncPrune {
 #[derive(clap::Args, Debug, Clone)]
 #[group(required = true, multiple = false)]
 pub struct AddProjectLocatorArgs {
-    /// Project identifier of the form `<publisher>/<name>`. `<publisher>`
-    /// and `<name>` can either exactly match those of the project being
-    /// added, or use lowercase letters only and replace spaces with `-`
-    /// Currently a failing placeholder, in the future will allow adding
-    /// index usages
+    /// Project identifier of the form `<publisher>/<name>`, added as an
+    /// index usage. `<publisher>` and `<name>` can either exactly match
+    /// those of the project being added (e.g. `"Acme Labs/My Lib"`), or
+    /// use lowercase letters only and replace spaces with `-` (e.g.
+    /// `acme-labs/my-lib`) to take the project's spelling.
+    /// With `--no-lock`, the spelling is checked against, or taken from,
+    /// the versions installed in the local environment
     #[clap(
         default_value = None,
         value_name = "IDENTIFIER",
-        value_parser = parse_project_identifier,
+        value_parser = with_tip(
+            parse_project_identifier,
+            "to add from a directory, a KPAR or an IRI, use `--dir`, `--kpar-path` or `--iri` respectively"
+        ),
         verbatim_doc_comment,
         // conflict with iri/iri_path is currently a no-op, as multiple=false;
         // this is for the future when `--identifier` will be usable with
         // `--dir` and other types, but not `--iri`
-        conflicts_with_all = ["source", "iri", "iri_path", "version_constraint"]
+        conflicts_with_all = ["source", "iri", "iri_path"]
     )]
     pub identifier: Option<(ProjectPublisher, ProjectName)>,
     /// Add a project from a given directory path. Path can be relative
@@ -360,7 +365,8 @@ pub struct AddProjectLocatorArgs {
         default_value = None,
         value_parser = with_tip(
             Iri::from_str,
-            "if you wanted to use a path, use `--dir`, `--kpar-path` or `--iri-path` instead"
+            "if you wanted to use a path, use `--dir`, `--kpar-path` or `--iri-path` instead; \
+             for a project `<publisher>/<name>`, pass it without `--iri`"
         ),
         verbatim_doc_comment
     )]
@@ -392,7 +398,10 @@ pub struct RemoveProjectLocatorArgs {
     #[clap(
         default_value = None,
         value_name = "IDENTIFIER",
-        value_parser = parse_project_identifier,
+        value_parser = with_tip(
+            parse_project_identifier,
+            "to remove a usage by IRI, use `--iri` or `--iri-path`"
+        ),
         verbatim_doc_comment
     )]
     pub identifier: Option<(ProjectPublisher, ProjectName)>,
@@ -401,7 +410,11 @@ pub struct RemoveProjectLocatorArgs {
     #[clap(
         long,
         default_value = None,
-        value_parser = with_tip(Iri::from_str, "if you wanted to use a path, use `--iri-path` instead"),
+        value_parser = with_tip(
+            Iri::from_str,
+            "if you wanted to use a path, use `--iri-path` instead; \
+             for a project `<publisher>/<name>`, pass it without `--iri`"
+        ),
         verbatim_doc_comment
     )]
     pub iri: Option<Iri<String>>,
@@ -1855,7 +1868,7 @@ pub struct ResolutionOptions {
     pub include_std: bool,
 }
 
-#[derive(clap::Args, Debug, Clone)]
+#[derive(clap::Args, Debug, Clone, Default)]
 pub struct ProjectSourceOptions {
     /// Add usage as a local interchange project at PATH and
     /// update configuration file attempting to guess the

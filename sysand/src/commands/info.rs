@@ -78,7 +78,8 @@ pub fn pprint_interchange_project(
                     !excluded_iris.contains(resource)
                 }
                 InterchangeProjectUsageRaw::Directory { .. }
-                | InterchangeProjectUsageRaw::KparPath { .. } => true,
+                | InterchangeProjectUsageRaw::KparPath { .. }
+                | InterchangeProjectUsageRaw::Index { .. } => true,
             })
             .collect();
         let has_ignored_usages = info.usage.len() > usages_to_print.len();
@@ -159,7 +160,7 @@ pub fn command_info_uri<Policy: HTTPAuthentication>(
     // URI is invalid.
 
     let combined_resolver = PriorityResolver::new(
-        MemoryResolver::from(overrides),
+        MemoryResolver::resources_only(overrides),
         standard_resolver(ctx.env, Some(client), index_urls, runtime, auth_policy)?,
     );
 
@@ -237,7 +238,7 @@ pub fn command_info_verb_uri<Policy: HTTPAuthentication>(
     match verb {
         InfoCommandVerb::Get(get_verb) => {
             let combined_resolver = PriorityResolver::new(
-                MemoryResolver::from(overrides),
+                MemoryResolver::resources_only(overrides),
                 standard_resolver(ctx.env, Some(client), index_urls, runtime, auth_policy)?,
             );
 

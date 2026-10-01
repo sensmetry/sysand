@@ -79,7 +79,7 @@ pub fn command_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
                 )),
                 inner: e,
             }),
-            IndexAddError::NotAnIndex(_)
+            IndexAddError::NotAnIndex { .. }
             | IndexAddError::Io(_)
             | IndexAddError::IoWithCleanupSuccess { .. }
             | IndexAddError::MissingInfo(_)
@@ -95,7 +95,19 @@ pub fn command_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
             | IndexAddError::InvalidIri(_)
             | IndexAddError::DuplicateProject { .. }
             | IndexAddError::InvalidProject { .. }
+            | IndexAddError::InconsistentlySpelled { .. }
             | IndexAddError::IoWithCleanupFailure { .. } => Err(IndexError::new_bare(e)),
+            IndexAddError::SpelledDifferently { existing, .. } => {
+                let (publisher, name) = existing.split_once('/').unwrap_or((existing, ""));
+                Err(IndexError::new_with(
+                    format!(
+                        "spell them as the index does with:\n\
+                sysand info publisher --set \"{publisher}\"\n\
+                sysand info name --set \"{name}\"{REBUILD_KPAR}"
+                    ),
+                    e,
+                ))
+            }
             IndexAddError::InvalidJsonFile { .. } => Err(IndexError::new_with(
                 String::from(
                     "either fix the JSON file to be valid or recreate the index\n\

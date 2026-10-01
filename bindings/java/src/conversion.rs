@@ -33,6 +33,10 @@ pub(crate) const INTERCHANGE_PROJECT_USAGE_KPAR_PATH_CLASS: FieldSignature =
     jni_sig!(com.sensmetry.sysand.model.InterchangeProjectUsageKparPath);
 pub(crate) const INTERCHANGE_PROJECT_USAGE_KPAR_PATH_CLASS_CONSTRUCTOR: MethodSignature =
     jni_sig!((java.lang.String, java.lang.String, java.lang.String));
+pub(crate) const INTERCHANGE_PROJECT_USAGE_INDEX_CLASS: FieldSignature =
+    jni_sig!(com.sensmetry.sysand.model.InterchangeProjectUsageIndex);
+pub(crate) const INTERCHANGE_PROJECT_USAGE_INDEX_CLASS_CONSTRUCTOR: MethodSignature =
+    jni_sig!((java.lang.String, java.lang.String, java.lang.String));
 pub(crate) const INTERCHANGE_PROJECT_USAGE_CLASS: FieldSignature =
     jni_sig!(com.sensmetry.sysand.model.InterchangeProjectUsage);
 pub(crate) const INTERCHANGE_PROJECT_USAGE_CLASS_ARRAY: FieldSignature =
@@ -286,6 +290,15 @@ fn get_usage_array_field<'local>(
                 kpar_path,
                 publisher,
                 name,
+            });
+        } else if try_instance_of(env, &elem, &INTERCHANGE_PROJECT_USAGE_INDEX_CLASS, &label)? {
+            let publisher = get_string_field(env, &elem, jni_str!("publisher"))?;
+            let name = get_string_field(env, &elem, jni_str!("name"))?;
+            let version_constraint = get_string_field(env, &elem, jni_str!("versionConstraint"))?;
+            result.push(InterchangeProjectUsageRaw::Index {
+                publisher,
+                name,
+                version_constraint,
             });
         } else {
             env.throw_runtime_exception(format!("Unknown usage type for `{label}`"));
@@ -639,6 +652,28 @@ impl ToJObject for InterchangeProjectUsageRaw {
                         ],
                     ),
                     "Failed to create InterchangeProjectUsageKparPath"
+                )
+            }
+            Self::Index {
+                publisher,
+                name,
+                version_constraint,
+            } => {
+                let publisher = publisher.to_jstring(env)?;
+                let name = name.to_jstring(env)?;
+                let version_constraint = version_constraint.to_jstring(env)?;
+                unwrap_throw!(
+                    env,
+                    env.new_object(
+                        INTERCHANGE_PROJECT_USAGE_INDEX_CLASS.sig(),
+                        INTERCHANGE_PROJECT_USAGE_INDEX_CLASS_CONSTRUCTOR,
+                        &[
+                            JValue::from(&publisher),
+                            JValue::from(&name),
+                            JValue::from(&version_constraint),
+                        ],
+                    ),
+                    "Failed to create InterchangeProjectUsageIndex"
                 )
             }
         };

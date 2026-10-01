@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use std::{cmp::Reverse, collections::HashMap, num::NonZero, str::FromStr as _};
+use std::{
+    cmp::Reverse,
+    collections::{BTreeMap, HashMap},
+    num::NonZero,
+    str::FromStr as _,
+};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use semver::Version;
@@ -19,7 +24,7 @@ use crate::{
             IndexJson, IndexProject, ProjectStatus, VersionEntry, VersionStatus, VersionsJson,
         },
     },
-    model::InterchangeProjectValidationError,
+    model::{InterchangeProjectInfoRaw, InterchangeProjectValidationError},
     project::{
         CanonicalizationError, ProjectRead as _,
         local_kpar::{LocalKParError, LocalKParProjectRaw},
@@ -139,6 +144,29 @@ pub enum IndexAddError {
         "{iri} version {version} is removed so it cannot be added again; removed version can only stay removed"
     )]
     VersionRemoved { iri: Box<str>, version: Version },
+    /// The versions already in the index spell the project's publisher and
+    /// name differently from the one being added. Index usages have to
+    /// spell them as the project does, so an index keeps one spelling per
+    /// project
+    #[error(
+        "{iri} is spelled `{existing}` by the versions already in the index ({versions}),\n\
+         but version {version} in `{kpar_path}` spells it `{new}`"
+    )]
+    SpelledDifferently {
+        iri: Box<str>,
+        existing: Box<str>,
+        versions: Box<str>,
+        version: Box<str>,
+        new: Box<str>,
+        kpar_path: Box<Utf8Path>,
+    },
+    /// The versions already in the index disagree on the spelling of the
+    /// project's publisher and name, so there is no spelling to keep
+    #[error(
+        "the versions of {iri} already in the index spell its publisher and name \
+         differently: {spellings};\nno version can be added until they agree"
+    )]
+    InconsistentlySpelled { iri: Box<str>, spellings: Box<str> },
     #[error(
         "archive `{kpar_path}` does not contain a project at its root,\n\
          the project is at `{root_in_kpar}` within the archive;\n\
@@ -333,6 +361,17 @@ pub fn do_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
         }
         Err(ind) => ind,
     };
+    if let ParsedIri::Sysand { .. } = parsed_iri {
+        check_spelling(
+            &iri,
+            &project_path,
+            &versions_value.versions,
+            (info.publisher.as_deref(), &info.name),
+            semver,
+            &kpar_path_abs,
+        )?;
+    }
+
     versions_value.versions.insert(
         insert_ind,
         VersionEntry {
@@ -385,6 +424,69 @@ impl From<JsonFileError> for IndexAddError {
                 Self::InvalidJsonFile { path, source }
             }
         }
+    }
+}
+
+/// Check that the publisher and name `new` of version `version` are spelled
+/// the way every version of the project already in the index (in
+/// `project_path`, listed in `versions`) spells them. Removed versions are
+/// left out, since their files are gone.
+fn check_spelling(
+    iri: &str,
+    project_path: &Utf8Path,
+    versions: &[VersionEntry],
+    new: (Option<&str>, &str),
+    version: &Version,
+    kpar_path: &Utf8Path,
+) -> Result<(), IndexAddError> {
+    let spell =
+        |publisher: Option<&str>, name: &str| format!("{}/{name}", publisher.unwrap_or("<none>"));
+    // Each spelling, with the versions that use it
+    let mut spellings: BTreeMap<String, Vec<&str>> = BTreeMap::new();
+    for entry in versions {
+        if entry.status == VersionStatus::Removed {
+            continue;
+        }
+        let info_path = project_path.join(&entry.version).join(INFO_FILE_NAME);
+        let info_str = wrapfs::read_to_string(&info_path)?;
+        let info: InterchangeProjectInfoRaw =
+            serde_json::from_str(&info_str).map_err(|e| IndexAddError::InvalidJsonFile {
+                path: info_path.as_str().into(),
+                source: e,
+            })?;
+        spellings
+            .entry(spell(info.publisher.as_deref(), &info.name))
+            .or_default()
+            .push(&entry.version);
+    }
+    let list = |versions: &[&str]| versions.join(", ");
+    match spellings.len() {
+        0 => Ok(()),
+        1 => {
+            let (existing, versions) = spellings.pop_first().expect("BUG: one spelling");
+            let new = spell(new.0, new.1);
+            if existing == new {
+                Ok(())
+            } else {
+                Err(IndexAddError::SpelledDifferently {
+                    iri: iri.into(),
+                    existing: existing.into(),
+                    versions: list(&versions).into(),
+                    version: version.to_string().into(),
+                    new: new.into(),
+                    kpar_path: kpar_path.into(),
+                })
+            }
+        }
+        _ => Err(IndexAddError::InconsistentlySpelled {
+            iri: iri.into(),
+            spellings: spellings
+                .iter()
+                .map(|(spelling, versions)| format!("`{spelling}` ({})", list(versions)))
+                .collect::<Vec<_>>()
+                .join(", ")
+                .into(),
+        }),
     }
 }
 

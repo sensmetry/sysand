@@ -21,13 +21,19 @@ pub enum RemoveError<ProjectError> {
     /// found", which would be untrue, so that removing by identifier can
     /// later be relaxed into removing the typed usage instead.
     #[error(
-        "`{identifier}` is declared as a {kind} usage, not as a resource usage;\n\
-        remove it with `sysand remove <publisher>/<name>`"
+        "`{identifier}` is declared as {kind} usage, not as a resource usage;\n\
+        remove it with `{remove_with}`"
     )]
     UsageIsTyped {
         identifier: String,
         kind: &'static str,
+        /// The CLI command that removes it
+        remove_with: String,
     },
+    /// No usage has the given spelling, but one of the same project is
+    /// spelled differently
+    #[error("could not find usage for `{requested}`; did you mean `{existing}`?")]
+    UsageSpelledDifferently { requested: String, existing: String },
     #[error("project is missing project information")]
     MissingInfo,
 }
@@ -46,31 +52,91 @@ pub fn do_remove<P: ProjectMut>(
     };
     let popped = info.pop_usage(&usage);
 
-    if popped.is_empty() {
-        // The same project may be declared as a typed usage, which has the
-        // same `Identifier` but is not a resource usage. Saying "not found"
-        // there would be false.
-        if let UsageRef::Resource(iri) = usage
-            && let Some(kind) = info.usage.iter().find_map(|usage| {
-                (usage.is_typed()
-                    && Identifier::from_unvalidated_usage(usage)
-                        .is_some_and(|id| id.as_str() == iri.as_str()))
-                .then(|| usage.kind_noun())
-            })
-        {
-            return Err(RemoveError::UsageIsTyped {
-                identifier: iri.to_string(),
-                kind,
-            });
-        }
-        Err(RemoveError::UsageNotFound(
-            usage.to_string().into_boxed_str(),
-        ))
-    } else {
+    if !popped.is_empty() {
         project
             .put_info(&info, true)
             .map_err(RemoveError::Project)?;
-        Ok(popped)
+        return Ok(popped);
+    }
+
+    match usage {
+        // The same project may be declared as a typed usage, which has the
+        // same `Identifier` but is not a resource usage. Saying "not found"
+        // there would be false.
+        UsageRef::Resource(iri) => {
+            if let Some(usage) = info.usage.iter().find(|usage| {
+                usage.is_typed()
+                    && Identifier::from_unvalidated_usage(usage)
+                        .is_some_and(|id| id.as_str() == iri.as_str())
+            }) {
+                return Err(RemoveError::UsageIsTyped {
+                    identifier: iri.to_string(),
+                    kind: usage.kind_with_article(),
+                    remove_with: remove_command(usage),
+                });
+            }
+        }
+        // The same project may be declared as a typed usage, but with
+        // different spelling
+        // TODO: this only finds other spellings if Identifier is of
+        // `pkg:sysand` shape; otherwise currently no normalization
+        // is done on it
+        UsageRef::Typed(publisher, name) => {
+            let identifier = Identifier::from_pub_name(publisher, name);
+            if let Some(
+                InterchangeProjectUsageRaw::Directory {
+                    publisher: p,
+                    name: n,
+                    ..
+                }
+                | InterchangeProjectUsageRaw::KparPath {
+                    publisher: p,
+                    name: n,
+                    ..
+                }
+                | InterchangeProjectUsageRaw::Index {
+                    publisher: p,
+                    name: n,
+                    ..
+                },
+            ) = info.usage.iter().find(|usage| {
+                Identifier::from_unvalidated_usage(usage).is_some_and(|id| id == identifier)
+            }) {
+                return Err(RemoveError::UsageSpelledDifferently {
+                    requested: format!("{publisher}/{name}"),
+                    existing: format!("{p}/{n}"),
+                });
+            }
+        }
+    }
+    Err(RemoveError::UsageNotFound(
+        usage.to_string().into_boxed_str(),
+    ))
+}
+
+/// The CLI command that removes `usage`
+fn remove_command(usage: &InterchangeProjectUsageRaw) -> String {
+    /// Quote `arg` for a shell, if needed
+    fn quoted(arg: &str) -> String {
+        if arg.is_empty() || arg.contains(char::is_whitespace) {
+            format!("\"{arg}\"")
+        } else {
+            arg.to_owned()
+        }
+    }
+    match usage {
+        InterchangeProjectUsageRaw::Resource { resource, .. } => {
+            format!("sysand remove {}", quoted(resource))
+        }
+        InterchangeProjectUsageRaw::Directory {
+            publisher, name, ..
+        }
+        | InterchangeProjectUsageRaw::KparPath {
+            publisher, name, ..
+        }
+        | InterchangeProjectUsageRaw::Index {
+            publisher, name, ..
+        } => format!("sysand remove {}", quoted(&format!("{publisher}/{name}"))),
     }
 }
 

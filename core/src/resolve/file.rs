@@ -425,6 +425,9 @@ impl ResolveRead for FileResolver {
                     })
                 }
             }
+            InterchangeProjectUsage::Index { .. } => Ok(ResolutionOutcome::UnsupportedUsageType {
+                reason: String::from("not a path usage"),
+            }),
         }
     }
 }

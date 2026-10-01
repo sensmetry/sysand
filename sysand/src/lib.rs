@@ -670,6 +670,7 @@ fn run_cli_with(
                 default_index,
                 no_index,
                 include_std,
+                // `info` does not solve
             } = resolution_opts;
             let index_urls = if no_index {
                 None
@@ -791,7 +792,8 @@ fn run_cli_with(
             client,
             runtime,
             auth_policy,
-        ),
+        )
+        .map(|_added| ()),
         Command::Remove {
             locator,
             sync,

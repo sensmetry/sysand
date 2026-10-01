@@ -709,6 +709,16 @@ fn check_usage_accepts_valid_sysand_purl() {
 }
 
 #[test]
+fn check_usage_accepts_an_index_usage() {
+    check_usage(&InterchangeProjectUsageRaw::Index {
+        publisher: "Acme Labs".to_owned(),
+        name: "My Lib".to_owned(),
+        version_constraint: "^1".to_owned(),
+    })
+    .unwrap();
+}
+
+#[test]
 fn check_usage_accepts_all_known_std_libs() {
     for resource in [
         "https://www.omg.org/spec/KerML/20250201/Data-Type-Library.kpar",

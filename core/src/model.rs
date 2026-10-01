@@ -51,13 +51,16 @@ pub const LICENSE_EXPRESSION_HELP: &str = "\
 /// same `Identifier`. A solution contains one instance per identifier, which
 /// all usages of that identifier accept (in particular, it satisfies
 /// all version constraints)
+///
+/// `.project.json` stores every kind as a bare object with no kind key, so
+/// the kind is decided by which keys are present (see [`Usage`] for how).
 #[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Hash, Debug)]
 #[cfg_attr(
     feature = "python",
     derive(FromPyObject, IntoPyObject),
     pyo3(from_item_all)
 )]
-#[serde(untagged)]
+#[serde(untagged, from = "Usage<Iri, VersionReq, Path>")]
 pub enum InterchangeProjectUsageG<Iri, VersionReq, Path> {
     /// Untyped usage, the only shape KerML 1.0 specifies. Kept for
     /// compatibility with the spec. `resource` serves two roles at once: it is
@@ -98,6 +101,139 @@ pub enum InterchangeProjectUsageG<Iri, VersionReq, Path> {
         publisher: String,
         name: String,
     },
+    /// The project `publisher`/`name` from the configured indexes, or from
+    /// any other source that resolves by identity (the local environment,
+    /// workspace members). `publisher` and `name` must match the resolved
+    /// project's, without any normalization.
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "python", pyo3(from_item_all))]
+    Index {
+        publisher: String,
+        name: String,
+        version_constraint: VersionReq,
+    },
+}
+
+/// Check that an index usage can spell its project as `publisher`/`name`.
+/// Otherwise the usage's identifier would fall back to a percent-encoded IRI
+/// that no index routes
+pub fn check_index_usage_spelling(
+    publisher: &str,
+    name: &str,
+) -> Result<(), InterchangeProjectValidationError> {
+    if !crate::purl::is_valid_unnormalized_publisher(publisher) {
+        return Err(
+            InterchangeProjectValidationError::InvalidIndexUsagePublisher {
+                publisher: publisher.to_owned(),
+                name: name.to_owned(),
+            },
+        );
+    }
+    if !crate::purl::is_valid_unnormalized_name(name) {
+        return Err(InterchangeProjectValidationError::InvalidIndexUsageName {
+            publisher: publisher.to_owned(),
+            name: name.to_owned(),
+        });
+    }
+    Ok(())
+}
+
+/// How [`InterchangeProjectUsageG`] is read. The variants are tried in
+/// declaration order, and the first one that accepts the keys present wins.
+///
+/// Every typed kind rejects a key it does not know (`deny_unknown_fields`,
+/// which serde only offers per struct, hence the structs here). Without a
+/// kind key, an unknown key could otherwise change what an entry means
+/// unnoticed: a future kind that adds a source key (say, `git`) to an index
+/// usage's keys would be read as an index usage, and a future
+/// `versionConstraint` on a directory usage would be dropped. Such an entry
+/// matches no kind and fails to parse instead.
+///
+/// A resource usage, the shape KerML specifies, keeps ignoring unknown keys,
+/// as manifests written for sysand before typed usages rely on it. Its
+/// `resource` key names its source, so a key it ignores cannot turn it into
+/// another kind.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Usage<Iri, VersionReq, Path> {
+    Resource(ResourceUsage<Iri, VersionReq>),
+    Directory(DirectoryUsage<Path>),
+    KparPath(KparPathUsage<Path>),
+    Index(IndexUsage<VersionReq>),
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ResourceUsage<Iri, VersionReq> {
+    resource: Iri,
+    version_constraint: Option<VersionReq>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DirectoryUsage<Path> {
+    dir: Path,
+    publisher: String,
+    name: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct KparPathUsage<Path> {
+    kpar_path: Path,
+    publisher: String,
+    name: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct IndexUsage<VersionReq> {
+    publisher: String,
+    name: String,
+    version_constraint: VersionReq,
+}
+
+impl<Iri, VersionReq, Path> From<Usage<Iri, VersionReq, Path>>
+    for InterchangeProjectUsageG<Iri, VersionReq, Path>
+{
+    fn from(usage: Usage<Iri, VersionReq, Path>) -> Self {
+        match usage {
+            Usage::Resource(ResourceUsage {
+                resource,
+                version_constraint,
+            }) => Self::Resource {
+                resource,
+                version_constraint,
+            },
+            Usage::Directory(DirectoryUsage {
+                dir,
+                publisher,
+                name,
+            }) => Self::Directory {
+                dir,
+                publisher,
+                name,
+            },
+            Usage::KparPath(KparPathUsage {
+                kpar_path,
+                publisher,
+                name,
+            }) => Self::KparPath {
+                kpar_path,
+                publisher,
+                name,
+            },
+            Usage::Index(IndexUsage {
+                publisher,
+                name,
+                version_constraint,
+            }) => Self::Index {
+                publisher,
+                name,
+                version_constraint,
+            },
+        }
+    }
 }
 
 pub type InterchangeProjectUsageRaw = InterchangeProjectUsageG<String, String, String>;
@@ -176,6 +312,27 @@ impl InterchangeProjectUsageRaw {
                     source: e,
                 }),
             },
+            Self::Index {
+                publisher,
+                name,
+                version_constraint,
+            } => {
+                check_index_usage_spelling(publisher, name)?;
+                let version_constraint =
+                    semver::VersionReq::parse(version_constraint).map_err(|e| {
+                        InterchangeProjectValidationError::InvalidIndexUsageVersionConstraint {
+                            publisher: publisher.clone(),
+                            name: name.clone(),
+                            constraint: version_constraint.clone(),
+                            source: e,
+                        }
+                    })?;
+                Ok(InterchangeProjectUsage::Index {
+                    publisher: publisher.clone(),
+                    name: name.clone(),
+                    version_constraint,
+                })
+            }
         }
     }
 }
@@ -187,12 +344,14 @@ impl<Iri, VersionReq, Path> InterchangeProjectUsageG<Iri, VersionReq, Path> {
         !matches!(self, Self::Resource { .. })
     }
 
-    /// A short noun naming this usage's kind, for error messages.
-    pub fn kind_noun(&self) -> &'static str {
+    /// A short noun naming this usage's kind, with its indefinite article
+    /// (e.g. "an index"), for error messages.
+    pub fn kind_with_article(&self) -> &'static str {
         match self {
-            Self::Resource { .. } => "resource",
-            Self::Directory { .. } => "directory",
-            Self::KparPath { .. } => "KPAR path",
+            Self::Resource { .. } => "a resource",
+            Self::Directory { .. } => "a directory",
+            Self::KparPath { .. } => "a KPAR path",
+            Self::Index { .. } => "an index",
         }
     }
 }
@@ -224,6 +383,15 @@ impl From<InterchangeProjectUsage> for InterchangeProjectUsageRaw {
                 kpar_path: kpar_path.into_string(),
                 publisher,
                 name,
+            },
+            InterchangeProjectUsage::Index {
+                publisher,
+                name,
+                version_constraint,
+            } => Self::Index {
+                publisher,
+                name,
+                version_constraint: version_constraint.to_string(),
             },
         }
     }
@@ -265,6 +433,15 @@ impl From<InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq, 
                 publisher,
                 name,
             },
+            InterchangeProjectUsageG::Index {
+                publisher,
+                name,
+                version_constraint,
+            } => Self::Index {
+                publisher,
+                name,
+                version_constraint,
+            },
         }
     }
 }
@@ -296,6 +473,13 @@ impl<Iri: Display, VersionReq: Display, Path: Display> Display
                 name,
             } => {
                 write!(f, "`{publisher}/{name}` in `{kpar_path}`")?;
+            }
+            Self::Index {
+                publisher,
+                name,
+                version_constraint,
+            } => {
+                write!(f, "`{publisher}/{name}` ({version_constraint})")?;
             }
         }
         Ok(())
@@ -411,6 +595,11 @@ impl UsageRef<'_> {
                     ..
                 }
                 | InterchangeProjectUsageG::KparPath {
+                    publisher: p,
+                    name: n,
+                    ..
+                }
+                | InterchangeProjectUsageG::Index {
                     publisher: p,
                     name: n,
                     ..
@@ -813,6 +1002,26 @@ pub enum InterchangeProjectValidationError {
         name: String,
         source: RelativeUnixPathError,
     },
+    #[error(
+        "index usage `{publisher}/{name}` has an invalid publisher `{publisher}` \
+         (3-50 ASCII alphanumeric chars, with single ` ` or `-` separators between words)"
+    )]
+    InvalidIndexUsagePublisher { publisher: String, name: String },
+    #[error(
+        "index usage `{publisher}/{name}` has an invalid name `{name}` \
+         (3-50 ASCII alphanumeric chars, with single ` `, `-`, or `.` separators between words)"
+    )]
+    InvalidIndexUsageName { publisher: String, name: String },
+    #[error(
+        "failed to parse version constraint `{constraint}` of index usage\n\
+        `{publisher}/{name}` as a Semantic Version constraint"
+    )]
+    InvalidIndexUsageVersionConstraint {
+        publisher: String,
+        name: String,
+        constraint: String,
+        source: semver::Error,
+    },
     #[error("failed to parse `{0}` as RFC3339 datetime: {1}")]
     InvalidCreatedTime(Box<str>, jiff::Error),
     #[error(
@@ -832,7 +1041,7 @@ pub enum InterchangeProjectValidationError {
     },
     #[error("checksum `{cksum}`\ncontains invalid symbols (only `A-Fa-f0-9` are allowed)")]
     NonHexChecksumChars { cksum: Box<str> },
-    #[error("malformed `pkg:sysand` IRI `{iri}`: {source}")]
+    #[error("malformed `pkg:sysand` IRI `{iri}`")]
     MalformedUsageSysandPurl {
         iri: String,
         #[source]

@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
+use std::collections::BTreeMap;
+
 use thiserror::Error;
 
 use crate::{
+    env::ReadEnvironment,
     model::{
         InterchangeProjectUsageG, InterchangeProjectUsageRaw, InterchangeProjectValidationError,
     },
-    project::{ProjectMut, utils::Identifier},
+    project::{ProjectMut, ProjectRead, utils::Identifier},
+    purl::normalize_field,
     utils::SP,
 };
 
@@ -25,14 +29,169 @@ pub enum AddError<ProjectError> {
     ///
     /// [`Identifier`]: crate::project::utils::Identifier
     #[error(
-        "`{identifier}` is already declared as a {existing} usage;\n\
-        remove it before adding it as a {new} usage"
+        "`{identifier}` is already declared as {existing} usage;\n\
+        remove it before adding it as {new} usage"
     )]
     DuplicateIdentifier {
         identifier: String,
         existing: &'static str,
         new: &'static str,
     },
+    /// An index usage of the same project is already declared, but spelled
+    /// differently. Only one of the spellings can match the project's own.
+    #[error(
+        "`{new}` is already declared as the index usage `{existing}`;\n\
+        an index usage must spell the publisher and name exactly as the project does"
+    )]
+    IndexUsageSpelledDifferently { existing: String, new: String },
+}
+
+/// Whether `publisher` and `name` are both in normalized form, that is,
+/// what [`normalize_field`] makes of them. An index usage given this way names
+/// the project by its identifier only, and its actual spelling has to be
+/// recovered (see [`spell_index_usage`]); any other spelling has to be the
+/// project's own.
+pub fn is_normalized_spelling(publisher: &str, name: &str) -> bool {
+    normalize_field(publisher) == publisher && normalize_field(name) == name
+}
+
+/// Why [`spell_index_usage`] could not settle the spelling of an index usage
+#[derive(Error, Debug)]
+pub enum IndexSpellingError<EnvError, ProjectError> {
+    #[error(transparent)]
+    Env(EnvError),
+    #[error(transparent)]
+    Project(ProjectError),
+    #[error(
+        "{}: no version matching `{version_constraint}` is installed in the local environment",
+        if *.normalized {
+            format!("cannot find how the project `{usage}` spells its publisher and name")
+        } else {
+            format!("cannot check that `{usage}` is spelled as the project spells it")
+        }
+    )]
+    NotInstalled {
+        usage: String,
+        version_constraint: String,
+        normalized: bool,
+    },
+    #[error(
+        "versions of `{usage}` installed in the local environment spell it differently: \
+         {spellings};\ncannot tell which spelling an index usage of it has to use"
+    )]
+    InconsistentlySpelled { usage: String, spellings: String },
+    #[error(
+        "index usage `{usage}` cannot be used: version {version} installed in the local \
+         environment declares no publisher"
+    )]
+    NoPublisher { usage: String, version: String },
+    #[error(
+        "index usage `{usage}` is rejected because its spelling does not match the project's: \
+         version {version} installed in the local environment declares itself `{spelling}`;\n\
+         spell the usage exactly as `{spelling}`"
+    )]
+    Misspelled {
+        usage: String,
+        version: String,
+        spelling: String,
+    },
+}
+
+/// The publisher and name an index usage of `publisher`/`name` has to spell,
+/// read from the versions of the project installed in `env` that match
+/// `version_constraint`, without touching the network: the project's own
+/// spelling when `publisher`/`name` is normalized (see
+/// [`is_normalized_spelling`]), and `publisher`/`name` itself otherwise,
+/// once it has been checked to be that spelling.
+///
+/// Fails when no matching version is installed, since then there is nothing
+/// to check against, and when the matching versions disagree on the spelling.
+#[expect(clippy::type_complexity)]
+pub fn spell_index_usage<Env: ReadEnvironment>(
+    env: Option<&Env>,
+    publisher: &str,
+    name: &str,
+    version_constraint: &semver::VersionReq,
+) -> Result<
+    (String, String),
+    IndexSpellingError<Env::ReadError, <Env::InterchangeProjectRead as ProjectRead>::Error>,
+> {
+    let usage = format!("{publisher}/{name}");
+    let normalized = is_normalized_spelling(publisher, name);
+    let identifier = Identifier::from_pub_name(publisher, name);
+
+    // Each spelling, with the matching versions that use it
+    let mut spellings: BTreeMap<(Option<String>, String), Vec<semver::Version>> = BTreeMap::new();
+    if let Some(env) = env {
+        for version in env
+            .versions(identifier.as_str())
+            .map_err(IndexSpellingError::Env)?
+        {
+            let version = version.map_err(IndexSpellingError::Env)?;
+            let Ok(semver) = semver::Version::parse(&version) else {
+                log::debug!("skipping installed version `{version}` of `{identifier}`: not semver");
+                continue;
+            };
+            if !version_constraint.matches(&semver) {
+                continue;
+            }
+            let project = env
+                .get_project(identifier.as_str(), &version)
+                .map_err(IndexSpellingError::Env)?;
+            let Some(info) = project.get_info().map_err(IndexSpellingError::Project)? else {
+                log::debug!("skipping installed version `{version}` of `{identifier}`: no info");
+                continue;
+            };
+            spellings
+                .entry((info.publisher, info.name))
+                .or_default()
+                .push(semver);
+        }
+    }
+    for versions in spellings.values_mut() {
+        versions.sort_unstable();
+    }
+    let spell = |publisher: &Option<String>, name: &str| {
+        format!("{}/{name}", publisher.as_deref().unwrap_or("<none>"))
+    };
+    let mut spellings: Vec<_> = spellings.into_iter().collect();
+    if spellings.len() > 1 {
+        let spellings: Vec<String> = spellings
+            .iter()
+            .map(|((publisher, name), versions)| {
+                let versions: Vec<String> = versions.iter().map(ToString::to_string).collect();
+                format!("`{}` ({})", spell(publisher, name), versions.join(", "))
+            })
+            .collect();
+        return Err(IndexSpellingError::InconsistentlySpelled {
+            usage,
+            spellings: spellings.join(", "),
+        });
+    }
+    let Some(((found_publisher, found_name), versions)) = spellings.pop() else {
+        return Err(IndexSpellingError::NotInstalled {
+            usage,
+            version_constraint: version_constraint.to_string(),
+            normalized,
+        });
+    };
+    // The newest one, to name in errors
+    let version = versions
+        .last()
+        .expect("BUG: spelling without versions")
+        .to_string();
+    let Some(found_publisher) = found_publisher else {
+        return Err(IndexSpellingError::NoPublisher { usage, version });
+    };
+    if normalized || (found_publisher == publisher && found_name == name) {
+        Ok((found_publisher, found_name))
+    } else {
+        Err(IndexSpellingError::Misspelled {
+            usage,
+            version,
+            spelling: format!("{found_publisher}/{found_name}"),
+        })
+    }
 }
 
 /// Common merge logic for path-like usages (`Directory`, `KparPath`): if an
@@ -207,6 +366,53 @@ pub fn do_add<P: ProjectMut>(
                     }
                 }
             }
+            InterchangeProjectUsageRaw::Index {
+                publisher: new_publisher,
+                name: new_name,
+                version_constraint: new_vc,
+            } => {
+                let new_identifier = Identifier::from_pub_name(new_publisher, new_name);
+                for u in &mut info.usage {
+                    let InterchangeProjectUsageRaw::Index {
+                        publisher,
+                        name,
+                        version_constraint,
+                    } = u
+                    else {
+                        continue;
+                    };
+                    if publisher != new_publisher || name != new_name {
+                        if !publisher.is_empty()
+                            && !name.is_empty()
+                            && Identifier::from_pub_name(&*publisher, &*name) == new_identifier
+                        {
+                            return Err(AddError::IndexUsageSpelledDifferently {
+                                existing: format!("{publisher}/{name}"),
+                                new: format!("{new_publisher}/{new_name}"),
+                            });
+                        }
+                        continue;
+                    }
+                    // TODO: more intelligent merging of constraints
+                    if new_vc == version_constraint {
+                        log::warn!(
+                            "ignoring usage `{new_publisher}/{new_name}` with version constraint\n\
+                             {SP:>8} `{new_vc}`, since it is already present with identical version constraint",
+                        );
+                        return Ok(false);
+                    }
+                    log::warn!(
+                        "usage `{new_publisher}/{new_name}` is already present, but with version\n\
+                         {SP:>8} constraint `{version_constraint}`; new version constraint\n\
+                         {SP:>8} `{new_vc}` will be added to the existing ones; this may\n\
+                         {SP:>8} result in failed version resolution or conflicting symbol errors",
+                    );
+                    version_constraint.push_str(", ");
+                    version_constraint.push_str(new_vc);
+                    dont_add = true;
+                    break;
+                }
+            }
         }
         if !dont_add {
             // Every same-kind match has been merged above, so anything left
@@ -219,8 +425,8 @@ pub fn do_add<P: ProjectMut>(
             {
                 return Err(AddError::DuplicateIdentifier {
                     identifier: identifier.into_string(),
-                    existing: existing.kind_noun(),
-                    new: usage.kind_noun(),
+                    existing: existing.kind_with_article(),
+                    new: usage.kind_with_article(),
                 });
             }
             info.usage.push(usage);
