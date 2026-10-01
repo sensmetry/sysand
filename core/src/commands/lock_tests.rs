@@ -196,3 +196,160 @@ fn lock_reports_which_dependent_pins_a_conflicting_version() {
         "the root's own constraint must be named: {conflicts:?}"
     );
 }
+
+/// An index usage must spell the publisher and name of the project it
+/// resolves to exactly as that project does
+mod index_usage_spelling {
+    use super::*;
+    use crate::{
+        commands::lock::{DeclaredBy, IndexUsageMismatchError, LockProjectError},
+        model::{IndexUsage, InterchangeProjectUsageRaw},
+        project::utils::Identifier,
+        resolve::memory::{AcceptAll, MemoryResolver},
+    };
+
+    fn project(
+        publisher: Option<&str>,
+        name: &str,
+        usage: Vec<InterchangeProjectUsageRaw>,
+    ) -> InMemoryProject {
+        let mut project = InMemoryProject::from_info_meta(
+            InterchangeProjectInfoRaw {
+                name: name.into(),
+                publisher: publisher.map(Into::into),
+                version: "1.0.0".into(),
+                description: None,
+                license: None,
+                maintainer: vec![],
+                website: None,
+                topic: vec![],
+                usage,
+            },
+            InterchangeProjectMetadataRaw {
+                index: IndexMap::default(),
+                created: "2026-01-01T00:00:00Z".into(),
+                metamodel: None,
+                includes_derived: None,
+                includes_implied: None,
+                checksum: None,
+            },
+        );
+        project.nominal_sources = vec![Source::Editable {
+            editable: ".".into(),
+        }];
+        project
+    }
+
+    fn index(publisher: &str, name: &str) -> InterchangeProjectUsageRaw {
+        InterchangeProjectUsageRaw::Index(IndexUsage {
+            publisher: publisher.into(),
+            name: name.into(),
+            version_constraint: "^1".into(),
+        })
+    }
+
+    /// Lock `root` against `projects`, keyed by their normalized identifiers
+    fn lock(
+        root: &InMemoryProject,
+        projects: Vec<(&str, &str, InMemoryProject)>,
+    ) -> Result<Lock, Box<IndexUsageMismatchError>> {
+        let resolver = MemoryResolver {
+            iri_predicate: AcceptAll {},
+            projects: projects
+                .into_iter()
+                .map(|(publisher, name, project)| {
+                    (Identifier::from_pub_name(publisher, name), vec![project])
+                })
+                .collect(),
+        };
+        match do_lock_projects(
+            [(None, root)],
+            resolver,
+            &HashMap::new(),
+            &ProjectContext::default(),
+        ) {
+            Ok(outcome) => Ok(outcome.lock),
+            Err(LockProjectError::LockError(LockError::IndexUsageMismatch(e))) => Err(e),
+            Err(e) => panic!("{e}"),
+        }
+    }
+
+    fn root(usage: InterchangeProjectUsageRaw) -> InMemoryProject {
+        project(Some("Me"), "app", vec![usage])
+    }
+
+    #[test]
+    fn exact_spelling_locks() {
+        let lib = project(Some("Acme Labs"), "My Lib", vec![]);
+        let lock = lock(
+            &root(index("Acme Labs", "My Lib")),
+            vec![("acme labs", "my lib", lib)],
+        )
+        .unwrap();
+        assert_eq!(lock.projects.len(), 2);
+    }
+
+    #[test]
+    fn publisher_mismatch() {
+        let lib = project(Some("acme-labs"), "My Lib", vec![]);
+        let err = lock(
+            &root(index("Acme Labs", "My Lib")),
+            vec![("acme labs", "my lib", lib)],
+        )
+        .unwrap_err();
+        assert_eq!(err.publisher.as_deref(), Some("acme-labs"));
+        assert_eq!(err.declared_by, DeclaredBy::Input("`app` 1.0.0".to_owned()));
+        assert_eq!(
+            err.to_string(),
+            "index usage `Acme Labs/My Lib` in `app` 1.0.0 resolved to version 1.0.0 \
+             of `acme-labs/My Lib`, but is rejected because its spelling does not match the \
+             project's;\nspell the usage exactly as `acme-labs/My Lib`"
+        );
+    }
+
+    #[test]
+    fn name_mismatch_in_case_only() {
+        let lib = project(Some("Acme Labs"), "my lib", vec![]);
+        let err = lock(
+            &root(index("Acme Labs", "My Lib")),
+            vec![("acme labs", "my lib", lib)],
+        )
+        .unwrap_err();
+        assert_eq!(err.name, "my lib");
+    }
+
+    #[test]
+    fn target_without_publisher() {
+        let lib = project(None, "My Lib", vec![]);
+        let err = lock(
+            &root(index("Acme Labs", "My Lib")),
+            vec![("acme labs", "my lib", lib)],
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("resolved to version 1.0.0 of `<none>/My Lib`"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn mismatch_in_a_dependency() {
+        let mid = project(Some("Acme"), "Mid", vec![index("acme", "lib")]);
+        let lib = project(Some("Acme"), "Lib", vec![]);
+        let err = lock(
+            &root(index("Acme", "Mid")),
+            vec![("acme", "mid", mid), ("acme", "lib", lib)],
+        )
+        .unwrap_err();
+        assert_eq!(
+            err.declared_by,
+            DeclaredBy::Dependency("`Mid` 1.0.0 (`pkg:sysand/acme/mid`)".to_owned())
+        );
+        assert!(
+            err.to_string()
+                .ends_with("it has to be fixed by that dependency's publisher"),
+            "{err}"
+        );
+    }
+}

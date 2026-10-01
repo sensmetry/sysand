@@ -64,30 +64,152 @@ fn add_and_remove_without_lock() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn add_accepts_sysand_shorthand_without_lock() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("f", "add_shorthand", "1.2.3")?;
-
+fn add_publisher_name_writes_an_index_usage() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("f", "add_index_usage", "1.2.3")?;
     out.assert().success();
+    install_in_env(&cwd, "Acme Labs", "My Lib", "1.0.0")?;
 
-    let out = run_sysand_in(&cwd, ["add", "--no-lock", "acme-labs/my.project"], None)?;
+    let out = run_sysand_in(&cwd, ["add", "--no-lock", "Acme Labs/My Lib", "^1"], None)?;
+    out.assert()
+        .success()
+        .stderr(contains("Adding usage: `Acme Labs/My Lib` (^1)"));
 
-    out.assert().success().stderr(contains(
-        "Adding usage: IRI `pkg:sysand/acme-labs/my.project`",
-    ));
+    // Adding the same spelling again changes nothing
+    run_sysand_in(&cwd, ["add", "--no-lock", "Acme Labs/My Lib", "^1"], None)?
+        .assert()
+        .success();
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
-
     assert_eq!(
         info_json,
         r#"{
-  "name": "add_shorthand",
+  "name": "add_index_usage",
   "publisher": "f",
   "version": "1.2.3",
   "usage": [
     {
-      "resource": "pkg:sysand/acme-labs/my.project"
+      "publisher": "Acme Labs",
+      "name": "My Lib",
+      "versionConstraint": "^1"
     }
   ]
+}
+"#
+    );
+
+    // A different spelling of the same project is refused
+    run_sysand_in(&cwd, ["add", "--no-lock", "Acme labs/My Lib", "^1"], None)?
+        .assert()
+        .failure()
+        .stderr(contains(
+            "index usage `Acme labs/My Lib` is rejected because its spelling does not match \
+             the project's: version 1.0.0 installed in the local environment declares itself \
+             `Acme Labs/My Lib`;\nspell the usage exactly as `Acme Labs/My Lib`",
+        ));
+    assert_eq!(
+        std::fs::read_to_string(cwd.join(".project.json"))?,
+        info_json
+    );
+
+    Ok(())
+}
+
+#[test]
+fn add_index_usage_without_lock_needs_a_constraint() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("f", "add_index_no_constraint", "1.2.3")?;
+    out.assert().success();
+
+    run_sysand_in(&cwd, ["add", "--no-lock", "acme/lib"], None)?
+        .assert()
+        .failure()
+        .stderr(contains("an index usage needs a version constraint"));
+
+    Ok(())
+}
+
+#[test]
+fn add_rejects_an_invalid_publisher() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("g", "reject_add_shorthand", "1.2.3")?;
+    out.assert().success();
+
+    run_sysand_in(&cwd, ["add", "--no-lock", "A/My.Project", "^1"], None)?
+        .assert()
+        .failure()
+        .stderr(contains("`A` is not a valid publisher"));
+
+    Ok(())
+}
+
+/// Migrating a legacy PURL usage means removing it first
+#[test]
+fn add_index_usage_over_a_legacy_purl_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("g", "add_index_over_purl", "1.2.3")?;
+    out.assert().success();
+
+    run_sysand_in(
+        &cwd,
+        ["add", "--no-lock", "pkg:sysand/acme-labs/my-lib"],
+        None,
+    )?
+    .assert()
+    .success();
+    for args in [
+        &["add", "--no-lock", "Acme Labs/My Lib", "^1"][..],
+        &["add", "Acme Labs/My Lib"][..],
+    ] {
+        run_sysand_in(&cwd, args.iter().copied(), None)?
+            .assert()
+            .failure()
+            .stderr(contains(
+                "`pkg:sysand/acme-labs/my-lib` is already declared as a resource usage;\n\
+                 remove it before adding it as an index usage",
+            ));
+    }
+
+    Ok(())
+}
+
+#[test]
+fn remove_index_usage_by_exact_spelling() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("h", "remove_index_usage", "1.2.3")?;
+    out.assert().success();
+    install_in_env(&cwd, "Acme Labs", "My Lib", "1.0.0")?;
+
+    run_sysand_in(&cwd, ["add", "--no-lock", "Acme Labs/My Lib", "^1"], None)?
+        .assert()
+        .success();
+
+    run_sysand_in(&cwd, ["remove", "--no-lock", "acme labs/my lib"], None)?
+        .assert()
+        .failure()
+        .stderr(contains(
+            "could not find usage for `acme labs/my lib`; did you mean `Acme Labs/My Lib`?",
+        ));
+    run_sysand_in(
+        &cwd,
+        ["remove", "--no-lock", "pkg:sysand/acme-labs/my-lib"],
+        None,
+    )?
+    .assert()
+    .failure()
+    .stderr(contains(
+        "remove it with `sysand remove \"Acme Labs/My Lib\"`",
+    ));
+
+    run_sysand_in(&cwd, ["remove", "--no-lock", "Acme Labs/My Lib"], None)?
+        .assert()
+        .success()
+        .stderr(contains(
+            "Removed `Acme Labs/My Lib` with version constraints `^1`",
+        ));
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    assert_eq!(
+        info_json,
+        r#"{
+  "name": "remove_index_usage",
+  "publisher": "h",
+  "version": "1.2.3"
 }
 "#
     );
@@ -96,28 +218,42 @@ fn add_accepts_sysand_shorthand_without_lock() -> Result<(), Box<dyn std::error:
 }
 
 #[test]
-fn add_rejects_non_normalized_sysand_shorthand() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("g", "reject_add_shorthand", "1.2.3")?;
-
+fn remove_shorthand_removes_a_legacy_purl() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("h", "remove_shorthand_purl", "1.2.3")?;
     out.assert().success();
 
-    let out = run_sysand_in(&cwd, ["add", "--no-lock", "Acme Labs/My.Project"], None)?;
+    run_sysand_in(
+        &cwd,
+        ["add", "--no-lock", "pkg:sysand/acme-labs/my.project"],
+        None,
+    )?
+    .assert()
+    .success();
 
-    out.assert()
-        .failure()
-        .stderr(contains("Acme Labs/My.Project").and(contains("pkg:sysand/acme-labs/my.project")));
+    run_sysand_in(&cwd, ["remove", "--no-lock", "Acme Labs/My.Project"], None)?
+        .assert()
+        .success()
+        .stderr(contains("Removed `pkg:sysand/acme-labs/my.project`"));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
-
-    assert_eq!(
-        info_json,
-        r#"{
-  "name": "reject_add_shorthand",
-  "publisher": "g",
-  "version": "1.2.3"
-}
-"#
+    assert!(
+        !info_json.contains("pkg:sysand/acme-labs/my.project"),
+        "{info_json}"
     );
+
+    Ok(())
+}
+
+#[test]
+fn remove_nonexistent_shorthand() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) =
+        cli_init_project_basic("a", "remove_nonexistent_shorthand", "1.2.3")?;
+    out.assert().success();
+
+    run_sysand_in(&cwd, ["remove", "acme-labs/nonexistent"], None)?
+        .assert()
+        .failure()
+        .stderr(contains("could not find usage for `acme-labs/nonexistent`"));
 
     Ok(())
 }
@@ -129,81 +265,6 @@ fn add_path_like_positional_suggests_path_option() -> Result<(), Box<dyn std::er
     out.assert()
         .failure()
         .stderr(contains("use `--path` instead"));
-
-    Ok(())
-}
-
-#[test]
-fn remove_accepts_sysand_shorthand() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("h", "remove_shorthand", "1.2.3")?;
-
-    out.assert().success();
-
-    run_sysand_in(
-        &cwd,
-        ["add", "--no-lock", "pkg:sysand/acme-labs/my.project"],
-        None,
-    )?
-    .assert()
-    .success();
-
-    let out = run_sysand_in(&cwd, ["remove", "acme-labs/my.project"], None)?;
-
-    out.assert()
-        .success()
-        .stderr(contains("Removed `pkg:sysand/acme-labs/my.project`"));
-
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
-
-    assert_eq!(
-        info_json,
-        r#"{
-  "name": "remove_shorthand",
-  "publisher": "h",
-  "version": "1.2.3"
-}
-"#
-    );
-
-    Ok(())
-}
-
-#[test]
-fn remove_rejects_non_normalized_sysand_shorthand() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("h", "reject_remove_shorthand", "1.2.3")?;
-
-    out.assert().success();
-
-    run_sysand_in(
-        &cwd,
-        ["add", "--no-lock", "pkg:sysand/acme-labs/my.project"],
-        None,
-    )?
-    .assert()
-    .success();
-
-    let out = run_sysand_in(&cwd, ["remove", "Acme Labs/My.Project"], None)?;
-
-    out.assert()
-        .failure()
-        .stderr(contains("Acme Labs/My.Project").and(contains("pkg:sysand/acme-labs/my.project")));
-
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
-
-    assert_eq!(
-        info_json,
-        r#"{
-  "name": "reject_remove_shorthand",
-  "publisher": "h",
-  "version": "1.2.3",
-  "usage": [
-    {
-      "resource": "pkg:sysand/acme-labs/my.project"
-    }
-  ]
-}
-"#
-    );
 
     Ok(())
 }
@@ -1223,58 +1284,6 @@ fn add_and_remove_urn_with_slash_not_treated_as_shorthand() -> Result<(), Box<dy
     Ok(())
 }
 
-/// Adding via the `publisher/name` shorthand and removing via the full
-/// `pkg:sysand/publisher/name` PURL form must work — the stored resource is
-/// identical regardless of which form was used on input.
-#[test]
-fn add_shorthand_then_remove_full_purl() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("s", "shorthand_then_full_purl", "1.2.3")?;
-
-    out.assert().success();
-
-    run_sysand_in(&cwd, ["add", "--no-lock", "acme-labs/my.project"], None)?
-        .assert()
-        .success();
-
-    let out = run_sysand_in(&cwd, ["remove", "pkg:sysand/acme-labs/my.project"], None)?;
-
-    out.assert()
-        .success()
-        .stderr(contains("Removed `pkg:sysand/acme-labs/my.project`"));
-
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
-
-    assert_eq!(
-        info_json,
-        r#"{
-  "name": "shorthand_then_full_purl",
-  "publisher": "s",
-  "version": "1.2.3"
-}
-"#
-    );
-
-    Ok(())
-}
-
-/// When removing a shorthand that is not present, the error message must name
-/// the expanded PURL form so the user understands what was looked up.
-#[test]
-fn remove_nonexistent_shorthand() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) =
-        cli_init_project_basic("a", "remove_nonexistent_shorthand", "1.2.3")?;
-
-    out.assert().success();
-
-    let out = run_sysand_in(&cwd, ["remove", "acme-labs/nonexistent"], None)?;
-
-    out.assert().failure().stderr(contains(
-        "could not find usage for `pkg:sysand/acme-labs/nonexistent`",
-    ));
-
-    Ok(())
-}
-
 // The `env install` subcommand is commented out (see `EnvCommand` in cli.rs). Without the
 // preinstall step this test would duplicate `add_and_remove_as_local_src` and
 // `remove_keeps_lockfile_valid_and_syncs`, so it is commented out to match instead.
@@ -1883,6 +1892,261 @@ fn remove_no_prune_keeps_unneeded_dependency_and_still_syncs()
         env_lib.join("kpar.remove-no-prune-extra_1.0.0").is_dir(),
         "`--no-prune` must leave a project not present in the lockfile installed in `.sysand`"
     );
+
+    Ok(())
+}
+
+/// With no constraint, `add` writes `^` the version that locking chose, here
+/// a prerelease offered by a source override. The override is keyed by the
+/// project's identifier, not the usage's spelling
+#[test]
+fn add_index_usage_constrains_to_the_locked_version() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("main", "add_index_locked", "1.2.3")?;
+    out.assert().success();
+    cli_init_project_in(
+        &cwd,
+        Some("dep"),
+        "Acme Labs",
+        Some("My Lib"),
+        Some("0.1.0-dev"),
+        None,
+    )?
+    .assert()
+    .success();
+    let config_path = cwd.join("sysand.toml");
+
+    run_sysand_in(
+        &cwd,
+        ["add", "--no-sync", "Acme Labs/My Lib", "--from-path", "dep"],
+        Some(config_path.as_str()),
+    )?
+    .assert()
+    .success()
+    .stderr(contains("Adding usage: `Acme Labs/My Lib` (^0.1.0-dev)"));
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    assert!(
+        info_json.contains(
+            r#"{
+      "publisher": "Acme Labs",
+      "name": "My Lib",
+      "versionConstraint": "^0.1.0-dev"
+    }"#
+        ),
+        "{info_json}"
+    );
+    let config = std::fs::read_to_string(&config_path)?;
+    assert!(
+        config.contains(r#""pkg:sysand/acme-labs/my-lib","#),
+        "{config}"
+    );
+    let lock = std::fs::read_to_string(cwd.join("sysand-lock.toml"))?;
+    assert!(lock.contains(r#"version = "0.1.0-dev""#), "{lock}");
+
+    run_sysand_in(
+        &cwd,
+        ["remove", "--no-lock", "Acme Labs/My Lib"],
+        Some(config_path.as_str()),
+    )?
+    .assert()
+    .success();
+    assert!(!config_path.is_file());
+
+    Ok(())
+}
+
+/// A spelling that differs from the project's own is caught by locking, and
+/// the manifest is restored
+#[test]
+fn add_index_usage_spelled_unlike_the_project_fails() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("main", "add_index_misspelled", "1.2.3")?;
+    out.assert().success();
+    cli_init_project_in(
+        &cwd,
+        Some("dep"),
+        "Acme Labs",
+        Some("My Lib"),
+        Some("1.0.0"),
+        None,
+    )?
+    .assert()
+    .success();
+    let before = std::fs::read_to_string(cwd.join(".project.json"))?;
+
+    for args in [
+        &["add", "--no-sync", "Acme labs/My Lib", "--from-path", "dep"][..],
+        &[
+            "add",
+            "--no-sync",
+            "Acme labs/My Lib",
+            "^1",
+            "--from-path",
+            "dep",
+        ][..],
+    ] {
+        run_sysand_in(
+            &cwd,
+            args.iter().copied(),
+            Some(cwd.join("sysand.toml").as_str()),
+        )?
+        .assert()
+        .failure()
+        .stderr(contains(
+            "index usage `Acme labs/My Lib` in `add_index_misspelled` 1.2.3 resolved to \
+             version 1.0.0 of `Acme Labs/My Lib`, but is rejected because its spelling does \
+             not match the project's;\nspell the usage exactly as `Acme Labs/My Lib`",
+        ));
+        assert_eq!(std::fs::read_to_string(cwd.join(".project.json"))?, before);
+    }
+
+    Ok(())
+}
+
+/// A normalized spelling takes the spelling of the project that locking
+/// chooses, with or without a version constraint
+#[test]
+fn add_normalized_index_usage_takes_the_locked_spelling() -> Result<(), Box<dyn std::error::Error>>
+{
+    for (constraint, written) in [(Some("^1"), "^1"), (None, "^1.0.0")] {
+        let (_temp_dir, cwd, out) =
+            cli_init_project_basic("main", "add_index_normalized", "1.2.3")?;
+        out.assert().success();
+        cli_init_project_in(
+            &cwd,
+            Some("dep"),
+            "Acme Labs",
+            Some("My Lib"),
+            Some("1.0.0"),
+            None,
+        )?
+        .assert()
+        .success();
+
+        let mut args = vec!["add", "--no-sync", "acme-labs/my-lib"];
+        args.extend(constraint);
+        args.extend(["--from-path", "dep"]);
+        run_sysand_in(&cwd, args, Some(cwd.join("sysand.toml").as_str()))?
+            .assert()
+            .success()
+            .stderr(contains(format!(
+                "Adding usage: `Acme Labs/My Lib` ({written})"
+            )));
+
+        let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+        assert!(
+            info_json.contains(&format!(
+                r#"{{
+      "publisher": "Acme Labs",
+      "name": "My Lib",
+      "versionConstraint": "{written}"
+    }}"#
+            )),
+            "{info_json}"
+        );
+        assert!(!info_json.contains("acme-labs"), "{info_json}");
+    }
+
+    Ok(())
+}
+
+/// Without locking, a normalized spelling takes the spelling of the matching
+/// versions installed in the local environment
+#[test]
+fn add_normalized_index_usage_without_lock_takes_the_installed_spelling()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("f", "add_index_env_spelling", "1.2.3")?;
+    out.assert().success();
+    install_in_env(&cwd, "Acme Labs", "My Lib", "1.0.0")?;
+    // Does not match the constraint, so its spelling does not count
+    install_in_env(&cwd, "ACME Labs", "My Lib", "2.0.0")?;
+
+    run_sysand_in(&cwd, ["add", "--no-lock", "acme-labs/my-lib", "^1"], None)?
+        .assert()
+        .success()
+        .stderr(contains("Adding usage: `Acme Labs/My Lib` (^1)"));
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    assert!(
+        info_json.contains(
+            r#"{
+      "publisher": "Acme Labs",
+      "name": "My Lib",
+      "versionConstraint": "^1"
+    }"#
+        ),
+        "{info_json}"
+    );
+
+    // Adding it again the normalized way takes the declared spelling
+    run_sysand_in(&cwd, ["add", "--no-lock", "acme-labs/my-lib", "^1"], None)?
+        .assert()
+        .success();
+    assert_eq!(
+        std::fs::read_to_string(cwd.join(".project.json"))?,
+        info_json
+    );
+
+    Ok(())
+}
+
+/// Without locking, a spelling that cannot be checked against, or recovered
+/// from, the local environment is refused
+#[test]
+fn add_index_usage_without_lock_needs_it_installed() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("f", "add_index_not_installed", "1.2.3")?;
+    out.assert().success();
+    let before = std::fs::read_to_string(cwd.join(".project.json"))?;
+
+    for (spelling, message) in [
+        (
+            "Acme Labs/My Lib",
+            "cannot check that `Acme Labs/My Lib` is spelled as the project spells it",
+        ),
+        (
+            "acme-labs/my-lib",
+            "cannot find how the project `acme-labs/my-lib` spells its publisher and name",
+        ),
+    ] {
+        run_sysand_in(&cwd, ["add", "--no-lock", spelling, "^1"], None)?
+            .assert()
+            .failure()
+            .stderr(contains(format!(
+                "{message}: no version matching `^1` is installed in the local environment"
+            )))
+            .stderr(contains("leave out `--no-lock`"));
+    }
+
+    // Installed, but not in a version the constraint accepts
+    install_in_env(&cwd, "Acme Labs", "My Lib", "2.0.0")?;
+    run_sysand_in(&cwd, ["add", "--no-lock", "Acme Labs/My Lib", "^1"], None)?
+        .assert()
+        .failure()
+        .stderr(contains("no version matching `^1` is installed"));
+
+    assert_eq!(std::fs::read_to_string(cwd.join(".project.json"))?, before);
+
+    Ok(())
+}
+
+/// Without locking, matching installed versions that disagree on the
+/// spelling leave nothing to check against
+#[test]
+fn add_index_usage_without_lock_refuses_inconsistent_spellings()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("f", "add_index_inconsistent", "1.2.3")?;
+    out.assert().success();
+    install_in_env(&cwd, "Acme Labs", "My Lib", "1.0.0")?;
+    install_in_env(&cwd, "ACME Labs", "My Lib", "1.1.0")?;
+
+    for spelling in ["Acme Labs/My Lib", "acme-labs/my-lib"] {
+        run_sysand_in(&cwd, ["add", "--no-lock", spelling, "^1"], None)?
+            .assert()
+            .failure()
+            .stderr(contains(format!(
+                "versions of `{spelling}` installed in the local environment spell it \
+                 differently: `ACME Labs/My Lib` (1.1.0), `Acme Labs/My Lib` (1.0.0)"
+            )));
+    }
 
     Ok(())
 }

@@ -12,11 +12,11 @@ use clap::{ValueEnum, builder::StyledStr, crate_authors};
 use fluent_uri::Iri;
 use semver::{Version, VersionReq};
 use sysand_core::{
-    add::expand_sysand_purl_shorthand,
     build::KparCompressionMethod,
     commands::sources::Dependencies as CoreDependencies,
     index_location::IndexLocation,
     model::{KERML_SPEC_PREFIX, LICENSE_EXPRESSION_HELP, SYSML_SPEC_PREFIX},
+    purl::{is_valid_unnormalized_name, is_valid_unnormalized_publisher},
 };
 
 use crate::env_vars;
@@ -363,14 +363,18 @@ pub struct ExpAddProjectLocatorArgs {
 #[group(required = true, multiple = false)]
 pub struct AddProjectLocatorArgs {
     /// IRI/URI/URL identifying the project to be used, or
-    /// `<publisher>/<name>` shorthand for `pkg:sysand/<publisher>/<name>`.
-    /// Paths must use `--path`
+    /// `<publisher>/<name>` of a project to be found by index, spelled
+    /// exactly as the project spells them (e.g. `"Acme Labs/My Lib"`), or
+    /// normalized (e.g. `acme-labs/my-lib`) to take the project's spelling.
+    /// With `--no-lock`, the spelling is checked against, or taken from,
+    /// the versions installed in the local environment. Paths must use
+    /// `--path`
     #[clap(
         default_value = None,
         value_parser = parse_usage_locator_suggest_path,
         verbatim_doc_comment
     )]
-    pub iri: Option<Iri<String>>,
+    pub iri: Option<UsageLocator>,
     /// Path to the project to be added. Since every usage is identified by an
     /// IRI, `file://` URL will be used to refer to the project.
     ///
@@ -393,14 +397,16 @@ pub struct AddProjectLocatorArgs {
 #[group(required = true, multiple = false)]
 pub struct RemoveProjectLocatorArgs {
     /// IRI identifying the project usage to be removed, or
-    /// `<publisher>/<name>` shorthand for `pkg:sysand/<publisher>/<name>`.
+    /// `<publisher>/<name>` of the project, spelled exactly as the usage
+    /// spells them, or normalized (e.g. `acme-labs/my-lib`), which removes
+    /// its usages of every kind, `pkg:sysand` resource usages included.
     /// Paths must use `--path`
     #[clap(
         default_value = None,
         value_parser = parse_usage_locator_suggest_path,
         verbatim_doc_comment
     )]
-    pub iri: Option<Iri<String>>,
+    pub iri: Option<UsageLocator>,
     /// Path to the project to be removed from usages. Since every usage is
     /// identified by an IRI, the path will be transformed into a `file://` URL
     #[arg(
@@ -1695,7 +1701,7 @@ pub struct ResolutionOptions {
     pub include_std: bool,
 }
 
-#[derive(clap::Args, Debug, Clone)]
+#[derive(clap::Args, Debug, Clone, Default)]
 pub struct ProjectSourceOptions {
     /// Add usage as a local interchange project at PATH and
     /// update configuration file attempting to guess the
@@ -1922,12 +1928,24 @@ impl ValueEnum for MetamodelVersion {
     }
 }
 
-fn parse_usage_locator_suggest_path(s: &str) -> Result<Iri<String>, String> {
+/// How `add` and `remove` are told which usage to act on
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UsageLocator {
+    /// A resource usage of this IRI
+    Iri(Iri<String>),
+    /// An index usage of the project `publisher`/`name`, spelled as given
+    PublisherName { publisher: String, name: String },
+}
+
+fn parse_usage_locator_suggest_path(s: &str) -> Result<UsageLocator, String> {
     use crate::style::USAGE;
     match Iri::parse(s) {
-        Ok(i) => Ok(i.to_owned()),
-        Err(err) => match expand_sysand_purl_shorthand(s) {
-            Ok(Some(purl)) => Ok(Iri::parse(purl).expect("BUG: Sysand PURL is invalid IRI")),
+        Ok(i) => Ok(UsageLocator::Iri(i.to_owned())),
+        Err(err) => match parse_publisher_name_shorthand(s) {
+            Ok(Some((publisher, name))) => Ok(UsageLocator::PublisherName {
+                publisher: publisher.to_owned(),
+                name: name.to_owned(),
+            }),
             Ok(None) => Err(format!(
                 "{err}\n{USAGE}hint:{USAGE:#} if you wanted to use a path, use `--path` instead"
             )),
@@ -1936,4 +1954,32 @@ fn parse_usage_locator_suggest_path(s: &str) -> Result<Iri<String>, String> {
             )),
         },
     }
+}
+
+/// If `s` is of shape `publisher/name` (and not an IRI, which always has a
+/// `:`), return the two parts, or an error when either is not a valid
+/// publisher or name. `Ok(None)` means `s` is likely something else.
+fn parse_publisher_name_shorthand(s: &str) -> Result<Option<(&str, &str)>, String> {
+    if s.contains(':') {
+        return Ok(None);
+    }
+    let Some((publisher, name)) = s.split_once('/') else {
+        return Ok(None);
+    };
+    if name.contains('/') {
+        return Ok(None);
+    }
+    if !is_valid_unnormalized_publisher(publisher) {
+        return Err(format!(
+            "`{publisher}` is not a valid publisher \
+             (3-50 ASCII alphanumeric chars, with single ` ` or `-` separators between words)"
+        ));
+    }
+    if !is_valid_unnormalized_name(name) {
+        return Err(format!(
+            "`{name}` is not a valid project name \
+             (3-50 ASCII alphanumeric chars, with single ` `, `-`, or `.` separators between words)"
+        ));
+    }
+    Ok(Some((publisher, name)))
 }

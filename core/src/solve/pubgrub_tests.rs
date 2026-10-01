@@ -1693,3 +1693,220 @@ fn solve_backtracks_past_a_default_constraint_that_selects_nothing()
 // alternative candidate to fall back to, the solve still fails and names the
 // constraint that could not be met -- see
 // `no_matching_version_for_a_dependency_names_the_dependent_in_the_report`.
+
+mod index_usages {
+    use super::*;
+    use crate::{
+        model::IndexUsage,
+        solve::pubgrub::{CandidateFault, InternalSolverError, SolveConflict, SolverError},
+    };
+
+    const LIB: &str = "pkg:sysand/acme/lib";
+
+    fn index_usage(constraint: &str) -> InterchangeProjectUsage {
+        InterchangeProjectUsage::Index(IndexUsage {
+            publisher: "acme".to_owned(),
+            name: "lib".to_owned(),
+            version_constraint: VersionReq::parse(constraint).unwrap(),
+        })
+    }
+
+    fn directory_usage() -> InterchangeProjectUsage {
+        InterchangeProjectUsage::Directory {
+            dir: "lib".into(),
+            publisher: "acme".to_owned(),
+            name: "lib".to_owned(),
+        }
+    }
+
+    /// `lib` 1.0.0, and a 2.0.0 whose own usage fails validation
+    fn lib_with_broken_newest() -> MemoryResolver<AcceptAll, InMemoryProject> {
+        let good = trivial_memory_project("lib", "1.0.0", vec![]);
+        // Not normalized, so not a valid `pkg:sysand` PURL
+        let broken = trivial_memory_project("lib", "2.0.0", vec![("pkg:sysand/Acme/Lib", None)]);
+        memory_resolver(&[(LIB, &[good, broken])])
+    }
+
+    fn solved_version<R: ResolveRead + Debug + 'static>(
+        result: Result<HashMap<Identifier, R::ProjectStorage>, SolverError<R>>,
+    ) -> String {
+        let solution = result.unwrap_or_else(|e| panic!("{e}"));
+        solution[&Identifier::from_iri_unchecked_str(LIB)]
+            .version()
+            .unwrap()
+            .unwrap()
+    }
+
+    fn assert_fails_on_broken<R: ResolveRead + Debug + 'static>(
+        result: Result<HashMap<Identifier, R::ProjectStorage>, SolverError<R>>,
+    ) {
+        let Err(err) = result else {
+            panic!("solved");
+        };
+        assert!(
+            matches!(
+                err.inner.as_ref(),
+                pubgrub::PubGrubError::ErrorRetrievingDependencies {
+                    source: InternalSolverError::InvalidProject { .. },
+                    ..
+                }
+            ),
+            "{err:?}"
+        );
+    }
+
+    /// The error an index usage fails with on `lib_with_broken_newest`
+    fn assert_broken_index_version<R: ResolveRead + Debug + 'static>(
+        result: Result<HashMap<Identifier, R::ProjectStorage>, SolverError<R>>,
+    ) {
+        let Err(err) = result else {
+            panic!("solved");
+        };
+        assert!(
+            matches!(
+                err.inner.as_ref(),
+                pubgrub::PubGrubError::ErrorRetrievingDependencies {
+                    source: InternalSolverError::BrokenIndexVersion {
+                        version: Some(version),
+                        source: CandidateFault::InvalidProject { .. },
+                        ..
+                    },
+                    ..
+                } if version == "2.0.0"
+            ),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn broken_version_fails_the_solve() {
+        let err = super::super::solve(vec![index_usage("*")], None, lib_with_broken_newest())
+            .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "version 2.0.0 offered for index usage `acme/lib` (*) is not a valid project,\n\
+             and a broken version fails the solve instead of being skipped;\n\
+             exclude it with a version constraint, or have its publisher fix or yank it"
+        );
+        assert_eq!(
+            std::error::Error::source(&err).map(ToString::to_string),
+            Some("one of its usages is invalid".to_owned())
+        );
+        assert_broken_index_version(Err(err));
+    }
+
+    #[test]
+    fn broken_version_excluded_by_the_constraint_is_not_looked_at() {
+        let result = super::super::solve(vec![index_usage("^1")], None, lib_with_broken_newest());
+        assert_eq!(solved_version(result), "1.0.0");
+    }
+
+    #[test]
+    fn other_kinds_keep_their_own_handling() {
+        assert_fails_on_broken(super::super::solve(
+            vec![directory_usage()],
+            None,
+            lib_with_broken_newest(),
+        ));
+        let result =
+            super::super::solve(vec![root_usage(LIB, None)], None, lib_with_broken_newest());
+        assert_eq!(solved_version(result), "1.0.0");
+    }
+
+    /// Usages sharing an identifier share its candidates, so a usage that
+    /// may skip a broken version must not let an index usage get past it,
+    /// whichever comes first
+    #[test]
+    fn index_usage_of_a_shared_identifier_fails_in_either_order() {
+        let lenient = root_usage(LIB, None);
+        let index = index_usage("*");
+        for usages in [vec![lenient.clone(), index.clone()], vec![index, lenient]] {
+            assert_broken_index_version(super::super::solve(
+                usages,
+                None,
+                lib_with_broken_newest(),
+            ));
+        }
+    }
+
+    /// A broken version one index usage may skip, since its constraint rules
+    /// it out, still fails another whose constraint does not, in either order
+    #[test]
+    fn broken_version_skipped_for_one_constraint_fails_another() {
+        let narrow = index_usage("^1");
+        let wide = index_usage("*");
+        for usages in [vec![narrow.clone(), wide.clone()], vec![wide, narrow]] {
+            assert_broken_index_version(super::super::solve(
+                usages,
+                None,
+                lib_with_broken_newest(),
+            ));
+        }
+        let lenient = root_usage(LIB, None);
+        let narrow = index_usage("^1");
+        for usages in [vec![lenient.clone(), narrow.clone()], vec![narrow, lenient]] {
+            let result = super::super::solve(usages, None, lib_with_broken_newest());
+            assert_eq!(solved_version(result), "1.0.0");
+        }
+    }
+
+    /// A usage that may not skip a broken version fails on it even when it is
+    /// reached only through a dependency
+    #[test]
+    fn strictest_usage_wins_transitively() {
+        let app = memory_project(
+            "app",
+            "1.0.0",
+            vec![InterchangeProjectUsageRaw::Directory {
+                dir: "lib".to_owned(),
+                publisher: "acme".to_owned(),
+                name: "lib".to_owned(),
+            }],
+        );
+        let good = trivial_memory_project("lib", "1.0.0", vec![]);
+        let broken = trivial_memory_project("lib", "2.0.0", vec![("pkg:sysand/Acme/Lib", None)]);
+        let resolver = memory_resolver(&[("urn:kpar:app", &[app]), (LIB, &[good, broken])]);
+
+        assert_fails_on_broken(super::super::solve(
+            vec![
+                root_usage(LIB, Some("^1")),
+                root_usage("urn:kpar:app", None),
+            ],
+            None,
+            resolver,
+        ));
+    }
+
+    #[test]
+    fn constraint_selects_versions() {
+        let v1 = trivial_memory_project("lib", "1.0.0", vec![]);
+        let v2 = trivial_memory_project("lib", "2.0.0", vec![]);
+        let result = super::super::solve(
+            vec![index_usage("^1")],
+            None,
+            memory_resolver(&[(LIB, &[v1, v2])]),
+        );
+        assert_eq!(solved_version(result), "1.0.0");
+    }
+
+    #[test]
+    fn constraint_is_reported_in_conflicts() {
+        let v1 = trivial_memory_project("lib", "1.0.0", vec![]);
+        let err = super::super::solve(
+            vec![index_usage(">=3")],
+            None,
+            memory_resolver(&[(LIB, &[v1])]),
+        )
+        .unwrap_err();
+        assert_eq!(
+            err.conflicts(),
+            vec![SolveConflict::NoVersions {
+                iri: LIB.to_owned(),
+                constraint: ">=3".to_owned(),
+                defaulted: false,
+                found: vec!["1.0.0".to_owned()],
+                required_by: None,
+            }]
+        );
+    }
+}

@@ -28,7 +28,13 @@ fn unregistered_error_classes_raise_a_readable_runtime_error()
         // fails with `ProjectError` once the classes are registered.
         let err = core
             .getattr("do_set_usage_constraint_py")?
-            .call1((project_dir.path().as_str(), "pkg:sysand/example", "1.0.0"))
+            .call1((
+                project_dir.path().as_str(),
+                "pkg:sysand/example",
+                None::<&str>,
+                None::<&str>,
+                "1.0.0",
+            ))
             .expect_err("setting a constraint without a project must fail");
 
         assert!(
