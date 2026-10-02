@@ -51,24 +51,14 @@ fn assert_dir_empty(p: impl AsRef<Utf8Path>) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-// clone project from path locator, explicit path, `file`
-// iri locator or explicit `file` iri
+// clone project from directory or explicit `file` iri
 // should clone the project into cwd (it's the default target),
 // create lockfile and env
 #[test]
 fn clone_project_default_target() -> Result<(), Box<dyn std::error::Error>> {
     let test_path = fixture_path("test_lib");
     let test_path_str = test_path.as_str();
-    // auto path form locator
-    let (_temp_dir, cwd, out) = run_sysand(["clone", test_path_str], None)?;
-
-    out.assert()
-        .success()
-        .stderr(predicate::str::contains("Cloned `Lib test` 0.0.1"));
-    assert_libtest_cloned_synced(&cwd);
-
-    // explicit path
-    let (_temp_dir, cwd, out) = run_sysand(["clone", "--path", test_path_str], None)?;
+    let (_temp_dir, cwd, out) = run_sysand(["clone", "--dir", test_path_str], None)?;
 
     out.assert()
         .success()
@@ -76,14 +66,6 @@ fn clone_project_default_target() -> Result<(), Box<dyn std::error::Error>> {
     assert_libtest_cloned_synced(&cwd);
 
     let file_url = file_url_from_path(&test_path);
-    // auto path from `file` iri
-    let (_temp_dir, cwd, out) = run_sysand(["clone", &file_url], None)?;
-
-    out.assert()
-        .success()
-        .stderr(predicate::str::contains("Cloned `Lib test` 0.0.1"));
-    assert_libtest_cloned_synced(&cwd);
-
     // explicit `file` iri
     let (_temp_dir, cwd, out) = run_sysand(["clone", "--iri", &file_url], None)?;
 
@@ -100,14 +82,7 @@ fn clone_local_kpar_project_default_target() -> Result<(), Box<dyn std::error::E
     let test_path = fixture_path("test_lib.kpar");
     let test_path_str = test_path.as_str();
 
-    let (_temp_dir, cwd, out) = run_sysand(["clone", test_path_str], None)?;
-
-    out.assert()
-        .success()
-        .stderr(predicate::str::contains("Cloned `Lib test` 0.0.1"));
-    assert_libtest_cloned_synced(&cwd);
-
-    let (_temp_dir, cwd, out) = run_sysand(["clone", "--path", test_path_str], None)?;
+    let (_temp_dir, cwd, out) = run_sysand(["clone", "--kpar-path", test_path_str], None)?;
 
     out.assert()
         .success()
@@ -129,23 +104,11 @@ fn clone_local_kpar_project_default_target() -> Result<(), Box<dyn std::error::E
 fn clone_wrong_version() -> Result<(), Box<dyn std::error::Error>> {
     let test_path = fixture_path("test_lib");
     let test_path_str = test_path.as_str();
-    // auto path form locator
-    let (_temp_dir, cwd, out) = run_sysand(
-        ["clone", test_path_str, "--version-constraint", "0.0.2"],
-        None,
-    )?;
-
     let error = "project version 0.0.1 does not match the given version constraint `^0.0.2`";
-    out.assert()
-        .failure()
-        .stderr(predicate::str::contains(error));
-    assert_dir_empty(&cwd)?;
-
-    // explicit path
     let (_temp_dir, cwd, out) = run_sysand(
         [
             "clone",
-            "--path",
+            "--dir",
             test_path_str,
             "--version-constraint",
             "0.0.2",
@@ -158,16 +121,24 @@ fn clone_wrong_version() -> Result<(), Box<dyn std::error::Error>> {
         .stderr(predicate::str::contains(error));
     assert_dir_empty(&cwd)?;
 
-    let file_url = file_url_from_path(&test_path);
-    // auto path from `file` iri
-    let (_temp_dir, cwd, out) =
-        run_sysand(["clone", &file_url, "--version-constraint", "0.0.2"], None)?;
+    let kpar_path = fixture_path("test_lib.kpar");
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "clone",
+            "--kpar-path",
+            kpar_path.as_str(),
+            "--version-constraint",
+            "0.0.2",
+        ],
+        None,
+    )?;
 
-    out.assert().failure().stderr(predicate::str::contains(
-        "unable to find interchange project",
-    ));
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains(error));
     assert_dir_empty(&cwd)?;
 
+    let file_url = file_url_from_path(&test_path);
     // explicit `file` iri
     let (_temp_dir, cwd, out) = run_sysand(
         ["clone", "--iri", &file_url, "--version-constraint", "0.0.2"],
@@ -188,16 +159,14 @@ fn clone_not_found() -> Result<(), Box<dyn std::error::Error>> {
     // Directory exists, but does not contain project
     let test_path = fixture_path("");
     let test_path_str = test_path.as_str();
-    // auto path form locator
-    let (_temp_dir, cwd, out) = run_sysand(["clone", test_path_str], None)?;
+    let (_temp_dir, cwd, out) = run_sysand(["clone", "--dir", test_path_str], None)?;
 
     out.assert().failure().stderr(predicate::str::contains(
         "incomplete project: missing `.project.json` and `.meta.json`",
     ));
     assert_dir_empty(&cwd)?;
 
-    // explicit path
-    let (_temp_dir, cwd, out) = run_sysand(["clone", "--path", "../../does/not/exist"], None)?;
+    let (_temp_dir, cwd, out) = run_sysand(["clone", "--dir", "../../does/not/exist"], None)?;
 
     out.assert()
         .failure()
@@ -243,7 +212,7 @@ fn clone_std_deps_note() -> Result<(), Box<dyn std::error::Error>> {
     .success();
 
     let dep_path_str = cwd_dep.as_str();
-    let (_temp_dir, cwd, out) = run_sysand(["clone", dep_path_str], None)?;
+    let (_temp_dir, cwd, out) = run_sysand(["clone", "--dir", dep_path_str], None)?;
 
     out.assert()
         .success()
@@ -269,16 +238,7 @@ fn clone_std_deps_note() -> Result<(), Box<dyn std::error::Error>> {
 fn clone_no_deps() -> Result<(), Box<dyn std::error::Error>> {
     let test_path = fixture_path("test_lib");
     let test_path_str = test_path.as_str();
-    // auto path form locator
-    let (_temp_dir, cwd, out) = run_sysand(["clone", test_path_str, "--no-deps"], None)?;
-
-    out.assert()
-        .success()
-        .stderr(predicate::str::contains("Cloned `Lib test` 0.0.1"));
-    assert_only_libtest_cloned(&cwd);
-
-    // explicit path
-    let (_temp_dir, cwd, out) = run_sysand(["clone", "--path", test_path_str, "--no-deps"], None)?;
+    let (_temp_dir, cwd, out) = run_sysand(["clone", "--dir", test_path_str, "--no-deps"], None)?;
 
     out.assert()
         .success()
@@ -286,13 +246,6 @@ fn clone_no_deps() -> Result<(), Box<dyn std::error::Error>> {
     assert_only_libtest_cloned(&cwd);
 
     let file_url = file_url_from_path(&test_path);
-    // auto path from `file` iri
-    let (_temp_dir, cwd, out) = run_sysand(["clone", &file_url, "--no-deps"], None)?;
-
-    out.assert()
-        .success()
-        .stderr(predicate::str::contains("Cloned `Lib test` 0.0.1"));
-    assert_only_libtest_cloned(&cwd);
 
     // explicit `file` iri
     let (_temp_dir, cwd, out) = run_sysand(["clone", "--iri", &file_url, "--no-deps"], None)?;
@@ -319,7 +272,7 @@ fn clone_non_empty_target() -> Result<(), Box<dyn std::error::Error>> {
     let path = tmp.path();
     let file = path.join("test.txt");
     wrapfs::write(&file, "abc123")?;
-    let out = run_sysand_in(path, ["clone", "urn:kpar:does-not-matter"], None)?;
+    let out = run_sysand_in(path, ["clone", "--iri", "urn:kpar:does-not-matter"], None)?;
 
     out.assert()
         .failure()
@@ -335,13 +288,49 @@ fn clone_nonexsitent_nested_target() -> Result<(), Box<dyn std::error::Error>> {
     let test_path = fixture_path("test_lib");
     let test_path_str = test_path.as_str();
     let target = "path/to/target/dir";
-    // auto path form locator
-    let (_temp_dir, cwd, out) = run_sysand(["clone", test_path_str, "--target", target], None)?;
+    let (_temp_dir, cwd, out) =
+        run_sysand(["clone", "--dir", test_path_str, "--target", target], None)?;
 
     out.assert()
         .success()
         .stderr(predicate::str::contains("Cloned `Lib test` 0.0.1"));
     assert_libtest_cloned_synced(cwd.join(target));
+
+    Ok(())
+}
+
+// using the wrong path kind option gives a hint pointing to the right one
+#[test]
+fn clone_wrong_path_kind() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = fixture_path("test_lib");
+    let kpar = fixture_path("test_lib.kpar");
+
+    let (_temp_dir, cwd, out) = run_sysand(["clone", "--dir", kpar.as_str()], None)?;
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains("is not a directory"))
+        .stderr(predicate::str::contains("use `--kpar-path`"));
+    assert_dir_empty(&cwd)?;
+
+    let (_temp_dir, cwd, out) = run_sysand(["clone", "--kpar-path", dir.as_str()], None)?;
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains("is not a file"))
+        .stderr(predicate::str::contains("use `--dir`"));
+    assert_dir_empty(&cwd)?;
+
+    Ok(())
+}
+
+// `--iri` does not accept the `publisher/name` shorthand
+#[test]
+fn clone_iri_no_purl_shorthand() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(["clone", "--iri", "some-pub/some-name"], None)?;
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains("for '--iri <IRI>'"))
+        .stderr(predicate::str::contains("use `--dir` or `--kpar-path`"));
+    assert_dir_empty(&cwd)?;
 
     Ok(())
 }

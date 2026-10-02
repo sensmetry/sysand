@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use fluent_uri::Iri;
+
 use crate::{
     model::UsageRef,
     model::{InterchangeProjectInfoRaw, InterchangeProjectUsageRaw},
     project::memory::InMemoryProject,
-    remove::{do_remove, do_remove_guess},
+    remove::do_remove,
     utils::format_err,
 };
 
@@ -29,58 +31,12 @@ fn project_with_usage(resource: &str) -> InMemoryProject {
     }
 }
 
+fn resource(iri: &str) -> UsageRef<'_> {
+    UsageRef::Resource(Iri::parse(iri).unwrap())
+}
+
 fn project() -> InMemoryProject {
     project_with_usage("pkg:sysand/acme-labs/my.project")
-}
-
-#[test]
-fn remove_accepts_normalized_sysand_shorthand() {
-    let mut project = project();
-
-    let removed = do_remove_guess(&mut project, "acme-labs/my.project".to_owned()).unwrap();
-
-    assert_eq!(removed.len(), 1);
-    assert_eq!(
-        removed[0],
-        InterchangeProjectUsageRaw::Resource {
-            resource: "pkg:sysand/acme-labs/my.project".to_owned(),
-            version_constraint: None
-        }
-    );
-    assert_eq!(project.info.unwrap().usage, []);
-}
-
-#[test]
-fn remove_keeps_iri_resource() {
-    let mut project = project_with_usage("https://example.com/acme-labs/my.project");
-
-    let removed = do_remove_guess(
-        &mut project,
-        "https://example.com/acme-labs/my.project".to_owned(),
-    )
-    .unwrap();
-
-    assert_eq!(removed.len(), 1);
-    assert_eq!(
-        removed[0],
-        InterchangeProjectUsageRaw::Resource {
-            resource: "https://example.com/acme-labs/my.project".to_owned(),
-            version_constraint: None
-        }
-    );
-    assert_eq!(project.info.unwrap().usage, []);
-}
-
-#[test]
-fn remove_rejects_non_normalized_sysand_shorthand() {
-    let mut project = project();
-
-    let err = do_remove_guess(&mut project, "Acme Labs/My.Project".to_owned()).unwrap_err();
-
-    let err = format_err(err);
-    assert!(err.contains("`Acme Labs/My.Project`"), "{err}");
-    assert!(err.contains("`pkg:sysand/acme-labs/my.project`"), "{err}");
-    assert_eq!(project.info.unwrap().usage.len(), 1);
 }
 
 fn project_with_directory_usage(publisher: &str, name: &str) -> InMemoryProject {
@@ -94,28 +50,12 @@ fn project_with_directory_usage(publisher: &str, name: &str) -> InMemoryProject 
 }
 
 #[test]
-fn remove_refuses_a_typed_usage_rather_than_reporting_it_missing() {
-    let mut project = project_with_directory_usage("acme-labs", "my.project");
-
-    let err = do_remove_guess(&mut project, "acme-labs/my.project".to_owned()).unwrap_err();
-
-    let message = format_err(err);
-    assert!(
-        message.contains("declared as a directory usage"),
-        "{message}"
-    );
-    assert!(!message.contains("could not find"), "{message}");
-    // Nothing was removed.
-    assert_eq!(project.info.unwrap().usage.len(), 1);
-}
-
-#[test]
 fn remove_matches_a_typed_usage_through_the_normalized_identifier() {
     // `Directory` stores `publisher`/`name` unnormalized; the identifier does
     // not. Comparing the raw strings would report "not found" instead.
     let mut project = project_with_directory_usage("Acme Labs", "My.Project");
 
-    let err = do_remove_guess(&mut project, "acme-labs/my.project".to_owned()).unwrap_err();
+    let err = do_remove(&mut project, resource("pkg:sysand/acme-labs/my.project")).unwrap_err();
 
     let message = format_err(err);
     assert!(
@@ -126,13 +66,16 @@ fn remove_matches_a_typed_usage_through_the_normalized_identifier() {
         message.contains("declared as a directory usage"),
         "{message}"
     );
+    assert!(!message.contains("could not find"), "{message}");
+    // Nothing was removed.
+    assert_eq!(project.info.unwrap().usage.len(), 1);
 }
 
 #[test]
 fn remove_still_reports_a_genuinely_absent_usage_as_missing() {
     let mut project = project_with_directory_usage("acme-labs", "my.project");
 
-    let err = do_remove_guess(&mut project, "acme-labs/other".to_owned()).unwrap_err();
+    let err = do_remove(&mut project, resource("pkg:sysand/acme-labs/other")).unwrap_err();
 
     let message = format_err(err);
     assert!(

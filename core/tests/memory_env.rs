@@ -16,7 +16,7 @@ use sysand_core::{
         utils::{CloneError, clone_project},
     },
     info::do_info,
-    model::{InterchangeProjectInfo, InterchangeProjectMetadata},
+    model::{InterchangeProjectInfo, InterchangeProjectMetadata, ProjectName},
     project::{
         ProjectMut as _, ProjectRead as _,
         memory::{InMemoryError, InMemoryProject},
@@ -41,7 +41,7 @@ fn env_manual_install() -> Result<(), Box<dyn std::error::Error>> {
     let iri = Iri::parse("urn:sysand_test:1").unwrap().to_owned();
 
     let info = InterchangeProjectInfo {
-        name: "env_manual_install".to_owned(),
+        name: ProjectName::parse("env_manual_install".to_owned()).unwrap(),
         publisher: None,
         description: None,
         version: Version::new(1, 2, 3),

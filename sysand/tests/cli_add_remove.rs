@@ -64,56 +64,21 @@ fn add_and_remove_without_lock() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn add_accepts_sysand_shorthand_without_lock() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("f", "add_shorthand", "1.2.3")?;
+fn add_rejects_sysand_shorthand() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("f", "reject_add_shorthand", "1.2.3")?;
 
     out.assert().success();
 
-    let out = run_sysand_in(
-        &cwd,
-        ["add", "--no-lock", "--iri", "acme-labs/my.project"],
-        None,
-    )?;
+    for shorthand in ["acme-labs/my.project", "Acme Labs/My.Project"] {
+        let out = run_sysand_in(&cwd, ["add", "--no-lock", "--iri", shorthand], None)?;
 
-    out.assert().success().stderr(contains(
-        "Adding usage: IRI `pkg:sysand/acme-labs/my.project`",
-    ));
-
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
-
-    assert_eq!(
-        info_json,
-        r#"{
-  "name": "add_shorthand",
-  "publisher": "f",
-  "version": "1.2.3",
-  "usage": [
-    {
-      "resource": "pkg:sysand/acme-labs/my.project"
+        out.assert()
+            .failure()
+            .stderr(contains("for '--iri <IRI>'"))
+            .stderr(contains(
+                "use `--dir`, `--kpar-path` or `--iri-path` instead",
+            ));
     }
-  ]
-}
-"#
-    );
-
-    Ok(())
-}
-
-#[test]
-fn add_rejects_non_normalized_sysand_shorthand() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("g", "reject_add_shorthand", "1.2.3")?;
-
-    out.assert().success();
-
-    let out = run_sysand_in(
-        &cwd,
-        ["add", "--no-lock", "--iri", "Acme Labs/My.Project"],
-        None,
-    )?;
-
-    out.assert()
-        .failure()
-        .stderr(contains("Acme Labs/My.Project").and(contains("pkg:sysand/acme-labs/my.project")));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
 
@@ -121,7 +86,7 @@ fn add_rejects_non_normalized_sysand_shorthand() -> Result<(), Box<dyn std::erro
         info_json,
         r#"{
   "name": "reject_add_shorthand",
-  "publisher": "g",
+  "publisher": "f",
   "version": "1.2.3"
 }
 "#
@@ -142,47 +107,7 @@ fn add_path_like_iri_suggests_path_options() -> Result<(), Box<dyn std::error::E
 }
 
 #[test]
-fn remove_accepts_sysand_shorthand() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("h", "remove_shorthand", "1.2.3")?;
-
-    out.assert().success();
-
-    run_sysand_in(
-        &cwd,
-        [
-            "add",
-            "--no-lock",
-            "--iri",
-            "pkg:sysand/acme-labs/my.project",
-        ],
-        None,
-    )?
-    .assert()
-    .success();
-
-    let out = run_sysand_in(&cwd, ["remove", "--iri", "acme-labs/my.project"], None)?;
-
-    out.assert()
-        .success()
-        .stderr(contains("Removed `pkg:sysand/acme-labs/my.project`"));
-
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
-
-    assert_eq!(
-        info_json,
-        r#"{
-  "name": "remove_shorthand",
-  "publisher": "h",
-  "version": "1.2.3"
-}
-"#
-    );
-
-    Ok(())
-}
-
-#[test]
-fn remove_rejects_non_normalized_sysand_shorthand() -> Result<(), Box<dyn std::error::Error>> {
+fn remove_rejects_sysand_shorthand() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = cli_init_project_basic("h", "reject_remove_shorthand", "1.2.3")?;
 
     out.assert().success();
@@ -200,11 +125,14 @@ fn remove_rejects_non_normalized_sysand_shorthand() -> Result<(), Box<dyn std::e
     .assert()
     .success();
 
-    let out = run_sysand_in(&cwd, ["remove", "--iri", "Acme Labs/My.Project"], None)?;
+    for shorthand in ["acme-labs/my.project", "Acme Labs/My.Project"] {
+        let out = run_sysand_in(&cwd, ["remove", "--iri", shorthand], None)?;
 
-    out.assert()
-        .failure()
-        .stderr(contains("Acme Labs/My.Project").and(contains("pkg:sysand/acme-labs/my.project")));
+        out.assert()
+            .failure()
+            .stderr(contains("for '--iri <IRI>'"))
+            .stderr(contains("use `--iri-path` instead"));
+    }
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
 
@@ -1136,9 +1064,8 @@ fn add_from_http_kpar() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Passing the full `pkg:sysand/publisher/name` PURL form directly must not
-/// cause double-expansion. The scheme's colon prevents it from matching the
-/// `publisher/name` shorthand heuristic, so the value is stored verbatim.
+/// The full `pkg:sysand/publisher/name` PURL form is stored and removed
+/// verbatim.
 #[test]
 fn add_and_remove_full_purl_sysand_without_lock() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = cli_init_project_basic("q", "add_full_purl", "1.2.3")?;
@@ -1203,13 +1130,10 @@ fn add_and_remove_full_purl_sysand_without_lock() -> Result<(), Box<dyn std::err
     Ok(())
 }
 
-/// A `urn:` IRI whose path segment contains a slash has exactly two slash-separated
-/// parts (`urn:kpar:acme-labs` and `my.project`), making it superficially resemble
-/// `publisher/name` shorthand. The colon in the scheme must prevent any shorthand
-/// expansion so the IRI is stored and removed verbatim.
+/// A `urn:` IRI whose path segment contains a slash is stored and removed
+/// verbatim.
 #[test]
-fn add_and_remove_urn_with_slash_not_treated_as_shorthand() -> Result<(), Box<dyn std::error::Error>>
-{
+fn add_and_remove_urn_with_slash() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = cli_init_project_basic("r", "urn_slash", "1.2.3")?;
 
     out.assert().success();
@@ -1263,66 +1187,6 @@ fn add_and_remove_urn_with_slash_not_treated_as_shorthand() -> Result<(), Box<dy
 }
 "#
     );
-
-    Ok(())
-}
-
-/// Adding via the `publisher/name` shorthand and removing via the full
-/// `pkg:sysand/publisher/name` PURL form must work — the stored resource is
-/// identical regardless of which form was used on input.
-#[test]
-fn add_shorthand_then_remove_full_purl() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("s", "shorthand_then_full_purl", "1.2.3")?;
-
-    out.assert().success();
-
-    run_sysand_in(
-        &cwd,
-        ["add", "--no-lock", "--iri", "acme-labs/my.project"],
-        None,
-    )?
-    .assert()
-    .success();
-
-    let out = run_sysand_in(
-        &cwd,
-        ["remove", "--iri", "pkg:sysand/acme-labs/my.project"],
-        None,
-    )?;
-
-    out.assert()
-        .success()
-        .stderr(contains("Removed `pkg:sysand/acme-labs/my.project`"));
-
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
-
-    assert_eq!(
-        info_json,
-        r#"{
-  "name": "shorthand_then_full_purl",
-  "publisher": "s",
-  "version": "1.2.3"
-}
-"#
-    );
-
-    Ok(())
-}
-
-/// When removing a shorthand that is not present, the error message must name
-/// the expanded PURL form so the user understands what was looked up.
-#[test]
-fn remove_nonexistent_shorthand() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) =
-        cli_init_project_basic("a", "remove_nonexistent_shorthand", "1.2.3")?;
-
-    out.assert().success();
-
-    let out = run_sysand_in(&cwd, ["remove", "--iri", "acme-labs/nonexistent"], None)?;
-
-    out.assert().failure().stderr(contains(
-        "could not find usage for `pkg:sysand/acme-labs/nonexistent`",
-    ));
 
     Ok(())
 }
@@ -2681,14 +2545,8 @@ const INVALID_IDENTIFIERS: &[(&str, &str)] = &[
     ("acme-labs/my/project", "name cannot contain `/`"),
     ("acme:labs/my.project", "publisher cannot contain `:`"),
     ("acme-labs/my:project", "name cannot contain `:`"),
-    (
-        "acme\tlabs/my.project",
-        "publisher cannot contain control characters",
-    ),
-    (
-        "acme-labs/my\nproject",
-        "name cannot contain control characters",
-    ),
+    ("acme\tlabs/my.project", "publisher cannot contain `\\t`"),
+    ("acme-labs/my\nproject", "name cannot contain `\\n`"),
 ];
 
 /// A typed `sysand add <identifier>` should reject an invalid identifier

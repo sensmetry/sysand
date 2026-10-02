@@ -11,6 +11,10 @@ use std::{clone::Clone, collections::HashSet, fmt::Display, hash::Hash};
 
 use digest::array::{Array, typenum};
 use fluent_uri::Iri;
+use icu_properties::{
+    CodePointMapDataBorrowed, CodePointSetDataBorrowed,
+    props::{DefaultIgnorableCodePoint, GeneralCategory, GeneralCategoryGroup, XidContinue},
+};
 use indexmap::IndexMap;
 #[cfg(feature = "python")]
 use pyo3::{FromPyObject, IntoPyObject, pyclass};
@@ -305,11 +309,11 @@ impl<Iri: Display, VersionReq: Display, Path: Display> Display
     pyo3(from_item_all)
 )]
 #[serde(rename_all = "camelCase")]
-pub struct InterchangeProjectInfoG<Iri, Version, License, VersionReq, Path> {
-    pub name: String,
+pub struct InterchangeProjectInfoG<Iri, Version, License, VersionReq, Path, Name, Publisher> {
+    pub name: Name,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub publisher: Option<String>,
+    pub publisher: Option<Publisher>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -336,20 +340,22 @@ pub struct InterchangeProjectInfoG<Iri, Version, License, VersionReq, Path> {
 }
 
 pub type InterchangeProjectInfoRaw =
-    InterchangeProjectInfoG<String, String, String, String, String>;
+    InterchangeProjectInfoG<String, String, String, String, String, String, String>;
 pub type InterchangeProjectInfo = InterchangeProjectInfoG<
     fluent_uri::Iri<String>,
     semver::Version,
     spdx::Expression,
     semver::VersionReq,
     Utf8UnixPathBuf,
+    ProjectName,
+    ProjectPublisher,
 >;
 
 impl From<InterchangeProjectInfo> for InterchangeProjectInfoRaw {
     fn from(value: InterchangeProjectInfo) -> Self {
         InterchangeProjectInfoRaw {
-            name: value.name,
-            publisher: value.publisher,
+            name: value.name.into_string(),
+            publisher: value.publisher.map(ProjectPublisher::into_string),
             description: value.description,
             version: value.version.to_string(),
             license: value.license.map(|l| l.to_string()),
@@ -428,10 +434,10 @@ impl Display for UsageRef<'_> {
     }
 }
 
-impl<Iri: PartialEq + Clone, Version, License, VersionReq: Clone, Path>
-    InterchangeProjectInfoG<Iri, Version, License, VersionReq, Path>
+impl<Iri: PartialEq + Clone, Version, License, VersionReq: Clone, Path, Name, Publisher>
+    InterchangeProjectInfoG<Iri, Version, License, VersionReq, Path, Name, Publisher>
 {
-    pub fn minimal(name: String, version: Version) -> Self {
+    pub fn minimal(name: Name, version: Version) -> Self {
         Self {
             name,
             publisher: None,
@@ -469,8 +475,17 @@ impl InterchangeProjectInfoRaw {
         }
 
         Ok(InterchangeProjectInfo {
-            name: self.name.clone(),
-            publisher: self.publisher.clone(),
+            name: ProjectName::parse(self.name.clone()).map_err(|(name, e)| {
+                InterchangeProjectValidationError::InvalidProjectName(name.into(), e)
+            })?,
+            publisher: self
+                .publisher
+                .clone()
+                .map(ProjectPublisher::parse)
+                .transpose()
+                .map_err(|(publisher, e)| {
+                    InterchangeProjectValidationError::InvalidProjectPublisher(publisher.into(), e)
+                })?,
             description: self.description.clone(),
             version: semver::Version::parse(&self.version).map_err(|e| {
                 InterchangeProjectValidationError::InvalidProjectVersion(
@@ -766,6 +781,10 @@ pub enum InterchangeProjectValidationError {
     InvalidMetamodel(String, #[source] fluent_uri::ParseError),
     #[error("project has an invalid Semantic Version `{0}`")]
     InvalidProjectVersion(Box<str>, #[source] semver::Error),
+    #[error("project has an invalid name `{0}`")]
+    InvalidProjectName(Box<str>, #[source] ProjectFieldError),
+    #[error("project has an invalid publisher `{0}`")]
+    InvalidProjectPublisher(Box<str>, #[source] ProjectFieldError),
     // spdx::ParseError formatting requires placing the error (which already
     // contains the original expression) as a first thing on a new line, so
     // do the whole formatting here
@@ -1053,35 +1072,138 @@ pub fn project_hash_hex(
 
 // Impose basic requirements on publisher/name
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Reason a project publisher or name is invalid
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("{kind} {reason}")]
+pub struct ProjectFieldError {
+    /// `publisher` or `name`
+    kind: &'static str,
+    reason: ProjectFieldErrorReason,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum ProjectFieldErrorReason {
+    #[error("cannot be empty")]
+    Empty,
+    #[error("cannot be longer than {PROJECT_FIELD_MAX_LEN} bytes, but is {0} bytes long")]
+    TooLong(usize),
+    #[error("cannot contain `{0}`")]
+    Reserved(char),
+    #[error(
+        "cannot contain {}; only letters, digits, space, non-ASCII punctuation and `_-.&',+()` are allowed",
+        describe_char(*.0)
+    )]
+    Disallowed(char),
+    #[error("cannot start with {}", describe_char(*.0))]
+    Start(char),
+    #[error("cannot end with {}", describe_char(*.0))]
+    End(char),
+    #[error("must contain at least one letter or digit")]
+    NoAlphanumeric,
+}
+
+/// Describe `c` for an error message, also when it is invisible
+fn describe_char(c: char) -> String {
+    let escaped = c.escape_debug().to_string();
+    if c == '`' {
+        // Would be confusing inside backticks
+        "U+0060 (backtick)".to_owned()
+    } else if c.is_ascii_graphic() || c == ' ' {
+        format!("`{c}`")
+    } else if c.is_ascii() {
+        // Invisible/control
+        format!("`{escaped}`")
+    } else if escaped.len() == c.len_utf8() {
+        // Visible non-ASCII
+        format!("`{c}` (U+{:04X})", u32::from(c))
+    } else {
+        // Invisible non-ASCII
+        format!("U+{:04X}", u32::from(c))
+    }
+}
+
+/// ASCII punctuation allowed in publisher/name in addition to identifier
+/// chars, to allow common organization names (e.g. `ACME Inc.`, `AT&T`,
+/// `O'Reilly`, `Foo, Inc.`, `C++ Tools`, `Foo (EU)`). Other ASCII
+/// punctuation is excluded, as it needs quoting or escaping in shells, JSON
+/// or TOML. Non-ASCII punctuation is allowed without restrictions
+const PROJECT_FIELD_ASCII_PUNCTUATION: [char; 9] = [' ', '-', '.', '&', '\'', ',', '+', '(', ')'];
+
+/// Maximum length of publisher/name in bytes
+const PROJECT_FIELD_MAX_LEN: usize = 300;
+
+const XID_CONTINUE: CodePointSetDataBorrowed = CodePointSetDataBorrowed::new::<XidContinue>();
+const IGNORABLE: CodePointSetDataBorrowed =
+    CodePointSetDataBorrowed::new::<DefaultIgnorableCodePoint>();
+const GENERAL_CATEGORY: CodePointMapDataBorrowed<GeneralCategory> = CodePointMapDataBorrowed::new();
+
+/// Whether `c` is allowed anywhere in publisher/name, ignoring positional
+/// restrictions
+fn is_project_field_char(c: char) -> bool {
+    if c.is_ascii() {
+        // Identifier chars are `a-zA-Z0-9_`
+        XID_CONTINUE.contains(c) || PROJECT_FIELD_ASCII_PUNCTUATION.contains(&c)
+    } else {
+        // Allow all non-ASCII punctuation. Ignorable chars are excluded
+        // as they are invisible
+        (XID_CONTINUE.contains(c)
+            || GeneralCategoryGroup::Punctuation.contains(GENERAL_CATEGORY.get(c)))
+            && !IGNORABLE.contains(c)
+    }
+}
+
+/// Validate a publisher or name (`kind`). Allowed characters are those of
+/// Unicode identifiers (UAX #31 `XID_Continue`), except default ignorable
+/// ones (invisible), plus punctuation (see [`is_project_field_char`])
+fn validate_project_field(s: &str, kind: &'static str) -> Result<(), ProjectFieldError> {
+    use ProjectFieldErrorReason as R;
+    let err = |reason| Err(ProjectFieldError { kind, reason });
+    let Some(first) = s.chars().next() else {
+        return err(R::Empty);
+    };
+    let last = s.chars().next_back().unwrap();
+    if s.len() > PROJECT_FIELD_MAX_LEN {
+        return err(R::TooLong(s.len()));
+    }
+    let mut has_alphanumeric = false;
+    for c in s.chars() {
+        has_alphanumeric |= c.is_alphanumeric();
+        if matches!(c, '/' | ':' | '<' | '>') {
+            // Never allowed, regardless of the rules below:
+            // `/`: allows unambiguously using `publisher/name` notation
+            // `:`: not strictly necessary, but prevents using an IRI, which
+            // could be confusing
+            // `<`, `>`: useful for possible missing-publisher replacements
+            // (e.g. "<none>")
+            return err(R::Reserved(c));
+        }
+        if !is_project_field_char(c) {
+            // Invisible or otherwise problematic chars
+            return err(R::Disallowed(c));
+        }
+    }
+    if first.is_whitespace() {
+        return err(R::Start(first));
+    }
+    if last.is_whitespace() {
+        return err(R::End(last));
+    }
+    if !has_alphanumeric {
+        return err(R::NoAlphanumeric);
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
 pub struct ProjectPublisher(String);
 
 impl ProjectPublisher {
-    pub fn parse(publisher: String) -> Result<Self, (String, &'static str)> {
-        if publisher.is_empty() {
-            return Err((publisher, "publisher cannot be empty"));
+    pub fn parse(publisher: String) -> Result<Self, (String, ProjectFieldError)> {
+        match validate_project_field(&publisher, "publisher") {
+            Ok(()) => Ok(Self(publisher)),
+            Err(e) => Err((publisher, e)),
         }
-        for c in publisher.chars() {
-            if c.is_control() {
-                // Invisible chars that are not intended for display purposes
-                return Err((publisher, "publisher cannot contain control characters"));
-            } else if c.is_ascii_whitespace() && c != ' ' {
-                // ASCII whitespace is difficult to deal with in shells
-                // TODO: should non-ascii whitespace be forbidden as well?
-                return Err((
-                    publisher,
-                    "publisher cannot contain ASCII whitespace other than simple space",
-                ));
-            } else if c == '/' {
-                // Allows unambiguously using `publisher/name` notation
-                return Err((publisher, "publisher cannot contain `/`"));
-            } else if c == ':' {
-                // Not strictly necessary, but prevents using an IRI, which
-                // could be confusing
-                return Err((publisher, "publisher cannot contain `:`"));
-            }
-        }
-        Ok(Self(publisher))
     }
 
     pub fn as_str(&self) -> &str {
@@ -1093,35 +1215,16 @@ impl ProjectPublisher {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
 pub struct ProjectName(String);
 
 impl ProjectName {
-    pub fn parse(name: String) -> Result<Self, (String, &'static str)> {
-        if name.is_empty() {
-            return Err((name, "name cannot be empty"));
+    pub fn parse(name: String) -> Result<Self, (String, ProjectFieldError)> {
+        match validate_project_field(&name, "name") {
+            Ok(()) => Ok(Self(name)),
+            Err(e) => Err((name, e)),
         }
-        for c in name.chars() {
-            if c.is_control() {
-                // Invisible chars that are not intended for display purposes
-                return Err((name, "name cannot contain control characters"));
-            } else if c.is_ascii_whitespace() && c != ' ' {
-                // ASCII whitespace is difficult to deal with in shells
-                // TODO: should non-ascii whitespace be forbidden as well?
-                return Err((
-                    name,
-                    "name cannot contain ASCII whitespace other than simple space",
-                ));
-            } else if c == '/' {
-                // Allows unambiguously using `publisher/name` notation
-                return Err((name, "name cannot contain `/`"));
-            } else if c == ':' {
-                // Not strictly necessary, but prevents using an IRI, which
-                // could be confusing
-                return Err((name, "name cannot contain `:`"));
-            }
-        }
-        Ok(Self(name))
     }
 
     pub fn as_str(&self) -> &str {
@@ -1130,6 +1233,58 @@ impl ProjectName {
 
     pub fn into_string(self) -> String {
         self.0
+    }
+}
+
+impl TryFrom<String> for ProjectPublisher {
+    type Error = ProjectFieldError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::parse(value).map_err(|(_, e)| e)
+    }
+}
+
+impl From<ProjectPublisher> for String {
+    fn from(value: ProjectPublisher) -> Self {
+        value.0
+    }
+}
+
+impl AsRef<str> for ProjectPublisher {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Display for ProjectPublisher {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl TryFrom<String> for ProjectName {
+    type Error = ProjectFieldError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::parse(value).map_err(|(_, e)| e)
+    }
+}
+
+impl From<ProjectName> for String {
+    fn from(value: ProjectName) -> Self {
+        value.0
+    }
+}
+
+impl AsRef<str> for ProjectName {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Display for ProjectName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
     }
 }
 

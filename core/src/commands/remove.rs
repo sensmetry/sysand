@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use fluent_uri::Iri;
 use thiserror::Error;
 
 use crate::{
-    add::expand_sysand_purl_shorthand,
     model::{InterchangeProjectUsageRaw, InterchangeProjectValidationError, UsageRef},
     project::{ProjectMut, utils::Identifier},
 };
@@ -32,29 +30,6 @@ pub enum RemoveError<ProjectError> {
     },
     #[error("project is missing project information")]
     MissingInfo,
-}
-
-/// Like `do_remove`, but try to guess how `resource` should be interpreted.
-/// Currently it can be either an IRI or `publisher/name` PURL shorthand
-pub fn do_remove_guess<P: ProjectMut>(
-    project: &mut P,
-    resource: String,
-) -> Result<Vec<InterchangeProjectUsageRaw>, RemoveError<P::Error>> {
-    let iri = match expand_sysand_purl_shorthand(&resource) {
-        Ok(Some(purl)) => purl,
-        Ok(None) => resource,
-        Err(source) => {
-            return Err(RemoveError::Validation(
-                InterchangeProjectValidationError::MalformedUsageSysandPurl {
-                    iri: resource,
-                    source,
-                },
-            ));
-        }
-    };
-    let iri = Iri::parse(iri.as_str())
-        .map_err(|e| InterchangeProjectValidationError::InvalidUsageResource(iri.clone(), e))?;
-    do_remove(project, UsageRef::Resource(iri))
 }
 
 /// Remove the usages matching `usage` according to [`UsageRef::matches`]

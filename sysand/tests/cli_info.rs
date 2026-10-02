@@ -1912,12 +1912,7 @@ fn info_set_rejects_invalid_name_and_publisher() -> Result<(), Box<dyn Error>> {
         ("name", "NAME", "", "name cannot be empty"),
         ("name", "NAME", "a/b", "name cannot contain `/`"),
         ("name", "NAME", "a:b", "name cannot contain `:`"),
-        (
-            "name",
-            "NAME",
-            "a\tb",
-            "name cannot contain control characters",
-        ),
+        ("name", "NAME", "a\tb", "name cannot contain `\\t`"),
         ("publisher", "PUBLISHER", "", "publisher cannot be empty"),
         (
             "publisher",
@@ -1935,7 +1930,7 @@ fn info_set_rejects_invalid_name_and_publisher() -> Result<(), Box<dyn Error>> {
             "publisher",
             "PUBLISHER",
             "a\nb",
-            "publisher cannot contain control characters",
+            "publisher cannot contain `\\n`",
         ),
     ] {
         let out = run_sysand_in(&cwd, ["info", field, "--set", value], None)?;
