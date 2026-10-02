@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use crate::{CliError, cli::Dependencies};
+use crate::{
+    CliError,
+    cli::{Dependencies, EnvProjectLocatorArgs},
+};
 
 use anstream::println;
 use anyhow::{Context as _, Result, bail};
@@ -9,14 +12,14 @@ use semver::{Version, VersionReq};
 use sysand_core::{
     context::ProjectContext,
     env::{local_directory::LocalDirectoryEnvironment, null::NullEnvironment},
-    project::ProjectRead as _,
+    project::{ProjectRead as _, utils::Identifier},
     sources::{do_sources_local_src_project_no_deps, resolve_dependencies},
 };
 
 use sysand_core::env::ReadEnvironment as _;
 
-pub fn command_sources_env<S: AsRef<str>>(
-    iri: S,
+pub fn command_sources_env(
+    locator: EnvProjectLocatorArgs,
     version: Option<VersionReq>,
     no_own: bool,
     dependencies: Dependencies,
@@ -26,7 +29,24 @@ pub fn command_sources_env<S: AsRef<str>>(
         bail!("unable to identify local environment");
     };
 
-    let mut projects = env.candidate_projects(&iri)?.into_iter();
+    // `display` is what the user passed, `identifier` is what the env is keyed by.
+    // Typed usages are installed under the identifier derived from publisher and name
+    let (display, identifier) = match locator {
+        EnvProjectLocatorArgs {
+            identifier: Some((publisher, name)),
+            iri: None,
+        } => (
+            format!("{publisher}/{name}"),
+            Identifier::from_pub_name(publisher.as_str(), name.as_str()).to_string(),
+        ),
+        EnvProjectLocatorArgs {
+            identifier: None,
+            iri: Some(iri),
+        } => (iri.to_string(), iri.into_string()),
+        _ => unreachable!(),
+    };
+
+    let mut projects = env.candidate_projects(&identifier)?.into_iter();
 
     let Some(project) = (match &version {
         // No version constraints, so choose the first candidate
@@ -53,15 +73,8 @@ pub fn command_sources_env<S: AsRef<str>>(
         },
     }) else {
         match version {
-            Some(vr) => bail!(
-                "unable to find project `{}` ({}) in local environment",
-                iri.as_ref(),
-                vr
-            ),
-            None => bail!(
-                "unable to find project `{}` in local environment",
-                iri.as_ref()
-            ),
+            Some(vr) => bail!("unable to find project `{display}` ({vr}) in local environment"),
+            None => bail!("unable to find project `{display}` in local environment"),
         }
     };
 
@@ -78,7 +91,7 @@ pub fn command_sources_env<S: AsRef<str>>(
 
         let info = info
             .validate()
-            .with_context(|| format!("project `{}` has invalid metadata", iri.as_ref()))?;
+            .with_context(|| format!("project `{display}` has invalid metadata"))?;
         for dep in resolve_dependencies(info.usage, env, dependencies.into())? {
             for src_path in do_sources_local_src_project_no_deps(&dep, true)? {
                 println!("{}", src_path);

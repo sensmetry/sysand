@@ -921,3 +921,88 @@ fn env_install_no_deps_purl_named_prerelease_is_installed() -> Result<(), Box<dy
     Ok(())
 }
 */
+
+/// `sysand env sources` takes a `<publisher>/<name>` identifier as its
+/// positional argument, finding projects of both index and typed usages,
+/// and an IRI only via `--iri`
+#[test]
+fn env_sources_by_identifier_or_iri() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project(Some("main"), "acme", None, None, None)?;
+    out.assert().success();
+    let main = cwd.join("main");
+    // `Foo & Bar` normalizes to `foo-&-bar`, which is not valid in a
+    // `pkg:sysand` PURL, so the env records it under a `urn:sysand` identifier
+    for (dir, publisher, file) in [("dep", "Acme Labs", "A"), ("dep2", "Foo & Bar", "B")] {
+        cli_init_project_in(&cwd, Some(dir), publisher, Some("My Dep"), None, None)?
+            .assert()
+            .success();
+        std::fs::write(
+            cwd.join(dir).join(format!("{file}.sysml")),
+            format!("package {file};"),
+        )?;
+        run_sysand_in(&cwd.join(dir), ["include", &format!("{file}.sysml")], None)?
+            .assert()
+            .success();
+        run_sysand_in(
+            &main,
+            ["add", "--dir", &format!("../{dir}"), "--no-index"],
+            None,
+        )?
+        .assert()
+        .success();
+    }
+
+    for (args, file) in [
+        (&["env", "sources", "Acme Labs/My Dep"][..], "A.sysml"),
+        (&["env", "sources", "ACME LABS/my dep"], "A.sysml"),
+        (
+            &[
+                "env",
+                "sources",
+                "acme-labs/my-dep",
+                "--version-constraint",
+                "0.0.1",
+            ],
+            "A.sysml",
+        ),
+        (
+            &["env", "sources", "--iri", "pkg:sysand/acme-labs/my-dep"],
+            "A.sysml",
+        ),
+        (&["env", "sources", "Foo & Bar/My Dep"], "B.sysml"),
+    ] {
+        run_sysand_in(&main, args.iter().copied(), None)?
+            .assert()
+            .success()
+            .stdout(predicate::str::contains(file));
+    }
+
+    run_sysand_in(
+        &main,
+        [
+            "env",
+            "sources",
+            "acme-labs/my-dep",
+            "--version-constraint",
+            "2",
+        ],
+        None,
+    )?
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains(
+        "unable to find project `acme-labs/my-dep` (^2) in local environment",
+    ));
+
+    run_sysand_in(
+        &main,
+        ["env", "sources", "pkg:sysand/acme-labs/my-dep"],
+        None,
+    )?
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains("invalid value"))
+    .stderr(predicate::str::contains("use `--iri`"));
+
+    Ok(())
+}

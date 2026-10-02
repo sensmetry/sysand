@@ -257,20 +257,11 @@ pub enum Command {
     },
     /// Describe or modify a local project (either the current one
     /// or one at a given path) or resolve and describe a project
-    /// at a specified path or IRI/URL
+    /// at a specified IRI/URL
     #[clap(verbatim_doc_comment)]
     Info {
-        /// Use the project at the given path instead of the current project
-        #[arg(long, group = "location")]
-        path: Option<Utf8PathBuf>,
-        /// Use the project resolved from the given IRI/URI/URL instead
-        /// of the current project
-        #[arg(long, verbatim_doc_comment, group = "location")]
-        iri: Option<Iri<String>>,
-        /// Use the project with the given locator, trying to parse it as
-        /// an IRI/URI/URL and otherwise falling back to using it as a path
-        #[arg(long, value_name = "LOCATOR", group = "location", verbatim_doc_comment)]
-        auto_location: Option<String>,
+        #[clap(flatten)]
+        locator: InfoProjectLocatorArgs,
         // TODO: is this useful?
         // /// Do not try to normalise the IRI/URI when resolving
         // #[arg(long, visible_alias = "no-normalize")]
@@ -465,6 +456,67 @@ pub struct CloneProjectLocatorArgs {
         ),
         verbatim_doc_comment
     )]
+    pub iri: Option<Iri<String>>,
+}
+
+/// Selects the project to describe or modify. If none is given, the
+/// current project is used
+#[derive(clap::Args, Debug, Clone)]
+#[group(required = false, multiple = false)]
+pub struct InfoProjectLocatorArgs {
+    /// Project identifier of the form `<publisher>/<name>`. `<publisher>`
+    /// and `<name>` can either exactly match those of the project being
+    /// described, or use lowercase letters only and replace spaces with `-`
+    /// Currently a failing placeholder, in the future will allow describing
+    /// projects from indexes
+    #[clap(
+        default_value = None,
+        value_name = "IDENTIFIER",
+        value_parser = with_tip(
+            parse_project_identifier,
+            "to use a directory, a KPAR or an IRI, use `--dir`, `--kpar-path` or `--iri` respectively"
+        ),
+        verbatim_doc_comment
+    )]
+    pub identifier: Option<(ProjectPublisher, ProjectName)>,
+    /// Use the project in a given directory instead of the current project.
+    /// Path can be relative or absolute
+    #[arg(long, verbatim_doc_comment)]
+    pub dir: Option<Utf8PathBuf>,
+    /// Use the project from a KPAR at a given path instead of the current
+    /// project. Path can be relative or absolute
+    #[arg(long, verbatim_doc_comment)]
+    pub kpar_path: Option<Utf8PathBuf>,
+    /// IRI/URI/URL identifying the project to be resolved and used instead
+    /// of the current project. Use `--dir` or `--kpar-path` for paths
+    #[arg(
+        long,
+        default_value = None,
+        value_parser = with_tip(
+            Iri::from_str,
+            "if you wanted to use a path, use `--dir` or `--kpar-path` instead"
+        ),
+        verbatim_doc_comment
+    )]
+    pub iri: Option<Iri<String>>,
+}
+
+/// Selects a project installed in `.sysand`
+#[derive(clap::Args, Debug, Clone)]
+#[group(required = true, multiple = false)]
+pub struct EnvProjectLocatorArgs {
+    /// Project identifier of the form `<publisher>/<name>`. `<publisher>`
+    /// and `<name>` can either exactly match those of the installed
+    /// project, or use lowercase letters only and replace spaces with `-`
+    #[clap(
+        default_value = None,
+        value_name = "IDENTIFIER",
+        value_parser = with_tip(parse_project_identifier, "to use an IRI, use `--iri`"),
+        verbatim_doc_comment
+    )]
+    pub identifier: Option<(ProjectPublisher, ProjectName)>,
+    /// IRI identifying the installed project
+    #[arg(long, default_value = None)]
     pub iri: Option<Iri<String>>,
 }
 
@@ -1713,12 +1765,14 @@ pub enum EnvCommand {
     /// (optionally) its dependencies
     #[clap(verbatim_doc_comment)]
     Sources {
-        /// IRI of the (already installed) project for which
-        /// to enumerate source files
-        #[clap(verbatim_doc_comment)]
-        iri: Iri<String>,
-        /// Version of project to list sources for
-        version: Option<VersionReq>,
+        #[clap(flatten)]
+        locator: EnvProjectLocatorArgs,
+        /// Version constraint selecting the installed project to list
+        /// sources for. A bare version such as `1.2.3` means `^1.2.3`;
+        /// use `=1.2.3` for an exact version. Defaults to the first
+        /// installed version found
+        #[arg(long, verbatim_doc_comment)]
+        version_constraint: Option<VersionReq>,
 
         #[command(flatten)]
         sources_opts: SourcesOptions,
@@ -1738,9 +1792,9 @@ pub enum IndexCommand {
     /// Add a KPAR to a local sysand index
     #[clap(verbatim_doc_comment)]
     Add {
-        /// Project identifier. Default is `pkg:sysand/<publisher>/<name>`, if publisher is
-        /// specified in .project.json. Omitting both publisher and IRI is an error
-        #[clap(verbatim_doc_comment)]
+        /// IRI identifying the project. Default is `pkg:sysand/<publisher>/<name>`, if
+        /// publisher is specified in .project.json. Omitting both publisher and IRI is an error
+        #[arg(long, verbatim_doc_comment)]
         iri: Option<String>,
         // The type is str, not Iri so that a better error can be reported in some cases
         // for example when the publisher contains a space

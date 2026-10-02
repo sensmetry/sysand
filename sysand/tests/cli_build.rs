@@ -63,7 +63,7 @@ fn project_build() -> Result<(), Box<dyn std::error::Error>> {
 
     let out = run_sysand_in(
         &cwd,
-        ["info", "--path", cwd.join("test_build.kpar").as_str()],
+        ["info", "--kpar-path", cwd.join("test_build.kpar").as_str()],
         None,
     )?;
 
@@ -257,7 +257,7 @@ fn project_build_path_usage() -> Result<(), Box<dyn std::error::Error>> {
 
     let out = run_sysand_in(
         &cwd1,
-        ["info", "--path", cwd1.join("test_build.kpar").as_str()],
+        ["info", "--kpar-path", cwd1.join("test_build.kpar").as_str()],
         None,
     )?;
 
@@ -400,7 +400,7 @@ fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
             .join(format!("{}-1.2.3.kpar", project.name));
         assert!(kpar_path.is_file(), "kpar file does not exist: {kpar_path}");
 
-        let out = run_sysand_in(&cwd, ["info", "--path", kpar_path.as_str()], None)?;
+        let out = run_sysand_in(&cwd, ["info", "--kpar-path", kpar_path.as_str()], None)?;
 
         out.assert()
             .success()
@@ -442,7 +442,7 @@ fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
             .join(format!("{}-1.2.3.kpar", project.name));
         assert!(kpar_path.is_file(), "kpar file does not exist: {kpar_path}");
 
-        let out = run_sysand_in(&cwd, ["info", "--path", kpar_path.as_str()], None)?;
+        let out = run_sysand_in(&cwd, ["info", "--kpar-path", kpar_path.as_str()], None)?;
 
         out.assert()
             .success()
@@ -1257,7 +1257,7 @@ fn compression_method(compression: Option<&str>) -> Result<(), Box<dyn std::erro
 
     let out = run_sysand_in(
         &cwd,
-        ["info", "--path", cwd.join("test_build.kpar").as_str()],
+        ["info", "--kpar-path", cwd.join("test_build.kpar").as_str()],
         None,
     )?;
 

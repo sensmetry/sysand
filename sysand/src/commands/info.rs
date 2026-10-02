@@ -7,7 +7,7 @@ use crate::{
         GetMetaVerb, InfoCommandVerb, RemoveInfoVerb, RemoveMetaVerb, RemoveVerb, SetInfoVerb,
         SetMetaVerb, SetVerb,
     },
-    style::GOOD,
+    style::{GOOD, USAGE},
 };
 use camino::Utf8Path;
 use sysand_core::{
@@ -107,28 +107,51 @@ pub fn pprint_interchange_project(
     }
 }
 
-fn interpret_project_path<P: AsRef<Utf8Path>>(path: P) -> Result<FileResolverProject> {
+/// How a local project path given on the command line is to be interpreted
+#[derive(Clone, Copy, Debug)]
+pub enum LocalProjectKind {
+    Dir,
+    Kpar,
+}
+
+fn interpret_project_path<P: AsRef<Utf8Path>>(
+    path: P,
+    kind: LocalProjectKind,
+) -> Result<FileResolverProject> {
     let path = path.as_ref();
     let metadata = wrapfs::metadata(path)?;
-    Ok(if metadata.is_file() {
-        FileResolverProject::LocalKParProject(LocalKParProject::new_access(
-            path,
-            KparInnerPath::Guess,
-            None,
-        ))
-    } else if metadata.is_dir() {
-        FileResolverProject::LocalSrcProject(LocalSrcProject::new_access(path, None))
-    } else {
-        // TODO: NoResolve is for IRIs, this is a path
-        bail!(CliError::NoResolve(path.to_string()));
+    Ok(match kind {
+        LocalProjectKind::Dir => {
+            if !metadata.is_dir() {
+                bail!(
+                    "`{path}` is not a directory\n\
+                    {USAGE}hint:{USAGE:#} to use a KPAR, use `--kpar-path`"
+                );
+            }
+            FileResolverProject::LocalSrcProject(LocalSrcProject::new_access(path, None))
+        }
+        LocalProjectKind::Kpar => {
+            if !metadata.is_file() {
+                bail!(
+                    "`{path}` is not a file\n\
+                    {USAGE}hint:{USAGE:#} to use a directory, use `--dir`"
+                );
+            }
+            FileResolverProject::LocalKParProject(LocalKParProject::new_access(
+                path,
+                KparInnerPath::Guess,
+                None,
+            ))
+        }
     })
 }
 
 pub fn command_info_path<P: AsRef<Utf8Path>>(
     path: P,
+    kind: LocalProjectKind,
     excluded_iris: &HashSet<Identifier>,
 ) -> Result<()> {
-    let project = interpret_project_path(&path)?;
+    let project = interpret_project_path(&path, kind)?;
     match do_info_project(&project) {
         Ok((info, _)) => {
             pprint_interchange_project(&info, excluded_iris);
@@ -199,10 +222,11 @@ fn print_output(output: Option<Vec<String>>, numbered: bool) {
 
 pub fn command_info_verb_path<P: AsRef<Utf8Path>>(
     path: P,
+    kind: LocalProjectKind,
     verb: InfoCommandVerb,
     numbered: bool,
 ) -> Result<()> {
-    let project = interpret_project_path(&path)?;
+    let project = interpret_project_path(&path, kind)?;
 
     match project {
         FileResolverProject::LocalSrcProject(mut local_src_project) => match verb {

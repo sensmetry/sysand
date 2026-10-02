@@ -82,6 +82,7 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
         [
             "env",
             "sources",
+            "--iri",
             "urn:kpar:list_sources_dep",
             "--deps",
             "none",
