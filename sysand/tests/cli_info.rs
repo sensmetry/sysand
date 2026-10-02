@@ -105,25 +105,7 @@ fn info_prints_all_usage_types() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn info_basic(use_iri: bool, use_auto: bool) -> Result<(), Box<dyn Error>> {
-    fn add_iri_args<'a>(args: &mut Vec<&'a str>, use_auto: bool, path: &'a str) {
-        if use_auto {
-            args.push("--auto-location");
-        } else {
-            args.push("--iri");
-        }
-        args.push(path);
-    }
-
-    fn add_path_args<'a>(args: &mut Vec<&'a str>, use_auto: bool, path: &'a str) {
-        if use_auto {
-            args.push("--auto-location");
-        } else {
-            args.push("--path")
-        }
-        args.push(path);
-    }
-
+fn info_basic(use_iri: bool) -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd, out_init) =
         cli_init_project(Some("info_basic"), "a", None, Some("1.2.3"), None)?;
     out_init
@@ -146,9 +128,9 @@ fn info_basic(use_iri: bool, use_auto: bool) -> Result<(), Box<dyn Error>> {
         let out_relative = {
             let mut args = vec!["info"];
             if use_iri {
-                add_iri_args(&mut args, use_auto, "file://info_basic");
+                args.extend(["--iri", "file://info_basic"]);
             } else {
-                add_path_args(&mut args, use_auto, "info_basic");
+                args.extend(["--dir", "info_basic"]);
             }
             run_sysand_in(&cwd, args, None)?
         };
@@ -166,10 +148,10 @@ fn info_basic(use_iri: bool, use_auto: bool) -> Result<(), Box<dyn Error>> {
         #[expect(clippy::branches_sharing_code, reason = "does not compile otherwise")]
         if use_iri {
             let project_path_uri = url::Url::from_file_path(project_path).unwrap().to_string();
-            add_iri_args(&mut args, use_auto, &project_path_uri);
+            args.extend(["--iri", &project_path_uri]);
             run_sysand_in(&cwd, args, None)?
         } else {
-            add_path_args(&mut args, use_auto, project_path.as_str());
+            args.extend(["--dir", project_path.as_str()]);
             run_sysand_in(&cwd, args, None)?
         }
     };
@@ -185,22 +167,59 @@ fn info_basic(use_iri: bool, use_auto: bool) -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn info_basic_path_explicit() -> Result<(), Box<dyn Error>> {
-    info_basic(false, false)
-}
-
-#[test]
-fn info_basic_path_auto() -> Result<(), Box<dyn Error>> {
-    info_basic(false, true)
+    info_basic(false)
 }
 
 #[test]
 fn info_basic_iri_explicit() -> Result<(), Box<dyn Error>> {
-    info_basic(true, false)
+    info_basic(true)
+}
+
+/// The positional argument is a `<publisher>/<name>` identifier, never an
+/// IRI or a path
+#[test]
+fn info_positional_is_identifier() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd, _) = cli_init_project(Some("info_positional"), "acme", None, None, None)?;
+
+    run_sysand_in(&cwd, ["info", "acme/some-project"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "describing by `<publisher>/<name>` identifier is not supported yet",
+        ));
+
+    for not_identifier in ["urn:kpar:test", "info_positional", "c:/foo"] {
+        run_sysand_in(&cwd, ["info", not_identifier], None)?
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("invalid value"))
+            .stderr(predicate::str::contains(
+                "`--dir`, `--kpar-path` or `--iri`",
+            ));
+    }
+
+    Ok(())
 }
 
 #[test]
-fn info_basic_iri_auto() -> Result<(), Box<dyn Error>> {
-    info_basic(true, true)
+fn info_dir_and_kpar_path_are_not_interchangeable() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd, _) = cli_init_project(Some("info_kinds"), "acme", None, None, None)?;
+    let project = cwd.join("info_kinds");
+    let file = project.join(".project.json");
+
+    run_sysand_in(&cwd, ["info", "--kpar-path", project.as_str()], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("is not a file"))
+        .stderr(predicate::str::contains("use `--dir`"));
+
+    run_sysand_in(&cwd, ["info", "--dir", file.as_str()], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("is not a directory"))
+        .stderr(predicate::str::contains("use `--kpar-path`"));
+
+    Ok(())
 }
 
 #[test]
@@ -738,7 +757,7 @@ fn info_basic_local_kpar() -> Result<(), Box<dyn Error>> {
         zip.finish().unwrap();
     }
 
-    let (_, _, out) = run_sysand(["info", "--path", zip_path.as_str()], None)?;
+    let (_, _, out) = run_sysand(["info", "--kpar-path", zip_path.as_str()], None)?;
     out.assert()
         .success()
         .stdout(predicate::str::contains("Name: info_basic_local_kpar"))

@@ -1357,7 +1357,8 @@ fn describe_char(c: char) -> String {
 /// or TOML. Non-ASCII punctuation is allowed without restrictions
 const PROJECT_FIELD_ASCII_PUNCTUATION: [char; 9] = [' ', '-', '.', '&', '\'', ',', '+', '(', ')'];
 
-/// Maximum length of publisher/name in bytes
+/// Maximum length of publisher/name in bytes. No specific reason,
+/// but using longer names is probably a user error
 const PROJECT_FIELD_MAX_LEN: usize = 300;
 
 const XID_CONTINUE: CodePointSetDataBorrowed = CodePointSetDataBorrowed::new::<XidContinue>();

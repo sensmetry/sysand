@@ -174,7 +174,8 @@ pub fn command_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
             }
             IndexAddError::MissingPublisherAndIri => Err(IndexError::new_with(
                 format!(
-                    "set a project publisher with:\n\
+                    "either pass the project IRI with `--iri <IRI>`, or\n\
+                set a project publisher with:\n\
                 sysand info publisher --set <publisher>{REBUILD_KPAR}"
                 ),
                 e,

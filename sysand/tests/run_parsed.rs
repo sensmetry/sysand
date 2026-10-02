@@ -51,7 +51,7 @@ fn a_failing_command_exits_with_one() {
     let dir = tempdir().unwrap();
     let missing = dir.path().join("nothing");
 
-    let info = command(&["info", "--path", missing.as_str()]);
+    let info = command(&["info", "--dir", missing.as_str()]);
     let code = run_parsed(global_opts(), info, ProcessOwnership::Embedded);
 
     // The code `lib_main` reports for a command that fails after parsing.

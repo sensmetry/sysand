@@ -60,7 +60,10 @@ use crate::{
         exclude::command_exclude,
         include::command_include,
         index::{command_index_add, command_index_init, command_index_remove, command_index_yank},
-        info::{command_info_current_project, command_info_path, command_info_verb_path},
+        info::{
+            LocalProjectKind, command_info_current_project, command_info_path,
+            command_info_verb_path,
+        },
         init::command_init,
         lock::command_lock,
         print_root::command_print_root,
@@ -535,12 +538,12 @@ fn run_cli_with(
             // }
             Some(EnvCommand::List) => command_env_list(ctx.env),
             Some(EnvCommand::Sources {
-                iri,
-                version,
+                locator,
+                version_constraint,
                 sources_opts,
             }) => command_sources_env(
-                iri,
-                version,
+                locator,
+                version_constraint,
                 sources_opts.no_own,
                 sources_opts.deps,
                 ctx.env,
@@ -655,9 +658,7 @@ fn run_cli_with(
         }
         Command::PrintRoot => command_print_root(ctx.current_directory),
         Command::Info {
-            path,
-            iri,
-            auto_location,
+            locator,
             // no_normalise,
             resolution_opts,
             subcommand,
@@ -665,7 +666,7 @@ fn run_cli_with(
             enum Location {
                 WorkDir,
                 Iri(fluent_uri::Iri<String>),
-                Path(Utf8PathBuf),
+                Path(Utf8PathBuf, LocalProjectKind),
             }
 
             let cli::ResolutionOptions {
@@ -695,27 +696,40 @@ fn run_cli_with(
                 auth_policy.clone(),
             )?;
 
-            let location = if let Some(auto_location) = auto_location {
-                debug_assert!(path.is_none());
-                debug_assert!(iri.is_none());
-
-                if let Ok(iri) = fluent_uri::Iri::parse(auto_location.clone()) {
-                    Location::Iri(iri)
-                } else {
-                    Location::Path(auto_location.into())
+            let location = match locator {
+                cli::InfoProjectLocatorArgs {
+                    identifier: Some(_),
+                    dir: None,
+                    kpar_path: None,
+                    iri: None,
+                } => {
+                    bail!("describing by `<publisher>/<name>` identifier is not supported yet")
                 }
-            } else if let Some(path) = path {
-                debug_assert!(auto_location.is_none());
-                debug_assert!(iri.is_none());
-
-                Location::Path(path)
-            } else if let Some(iri) = iri {
-                debug_assert!(path.is_none());
-                debug_assert!(auto_location.is_none());
-
-                Location::Iri(iri)
-            } else {
-                Location::WorkDir
+                cli::InfoProjectLocatorArgs {
+                    identifier: None,
+                    dir: Some(dir),
+                    kpar_path: None,
+                    iri: None,
+                } => Location::Path(dir, LocalProjectKind::Dir),
+                cli::InfoProjectLocatorArgs {
+                    identifier: None,
+                    dir: None,
+                    kpar_path: Some(kpar_path),
+                    iri: None,
+                } => Location::Path(kpar_path, LocalProjectKind::Kpar),
+                cli::InfoProjectLocatorArgs {
+                    identifier: None,
+                    dir: None,
+                    kpar_path: None,
+                    iri: Some(iri),
+                } => Location::Iri(iri),
+                cli::InfoProjectLocatorArgs {
+                    identifier: None,
+                    dir: None,
+                    kpar_path: None,
+                    iri: None,
+                } => Location::WorkDir,
+                _ => unreachable!(),
             };
 
             match (location, subcommand) {
@@ -730,13 +744,15 @@ fn run_cli_with(
                                     numbered,
                                 )
                             }
-                            None => {
-                                command_info_path(current_project.root_path(), &excluded_usages)
-                            }
+                            None => command_info_path(
+                                current_project.root_path(),
+                                LocalProjectKind::Dir,
+                                &excluded_usages,
+                            ),
                         }
                     } else {
                         bail!(
-                            "run outside of an active project, did you mean to use `--path` or `--iri`?"
+                            "run outside of an active project, did you mean to use `--dir`, `--kpar-path` or `--iri`?"
                         )
                     }
                 }
@@ -766,11 +782,13 @@ fn run_cli_with(
                         ctx,
                     )
                 }
-                (Location::Path(path), None) => command_info_path(&path, &excluded_usages),
-                (Location::Path(path), Some(subcommand)) => {
+                (Location::Path(path, kind), None) => {
+                    command_info_path(&path, kind, &excluded_usages)
+                }
+                (Location::Path(path, kind), Some(subcommand)) => {
                     let numbered = subcommand.numbered();
 
-                    command_info_verb_path(&path, subcommand.as_verb(), numbered)
+                    command_info_verb_path(&path, kind, subcommand.as_verb(), numbered)
                 }
             }
         }
