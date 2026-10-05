@@ -100,9 +100,10 @@ def add(
         auth: How to authenticate to indexes.
 
     Returns:
-        ``True`` when a new usage was added, ``False`` when the project was
-        already declared and the call merged into (or ignored for) the
-        existing usage.
+        ``True`` when ``.project.json`` changed: the usage was added, or the
+        version constraint of the existing usage was replaced by
+        ``version_constraint``, as ``cargo add`` does. ``False`` when the
+        usage was already declared with that constraint.
 
     Raises:
         TypeError: neither form was given, both were, only one of

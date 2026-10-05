@@ -43,8 +43,9 @@ use crate::{
     style::{GOOD, USAGE},
 };
 
-/// Returns whether a usage was added: `false` when the usage was already
-/// present, and the call was merged into (or ignored for) it
+/// Returns whether `.project.json` changed: `false` when the usage was
+/// already present as given (or without a constraint, which keeps the
+/// existing one). Locks and syncs either way, unless `no_lock`/`no_sync`
 // TODO: Collect common arguments
 #[expect(clippy::fn_params_excessive_bools)]
 pub fn command_add<Policy: HTTPAuthentication>(
@@ -155,7 +156,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
                         existing: format!("{p}/{n}"),
                         new: format!("{publisher}/{name}"),
                     }),
-                    // `do_add` merges the constraints (or reports a different
+                    // `do_add` replaces the constraint (or reports a different
                     // spelling), and locking checks the spelling
                     Some(version_constraint) => {
                         UsageToAdd::Ready(index_usage(publisher, name, &version_constraint))

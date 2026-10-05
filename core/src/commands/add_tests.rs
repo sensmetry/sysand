@@ -156,17 +156,36 @@ fn add_writes_an_index_usage_as_spelled() {
     );
 }
 
+/// A different constraint replaces the existing one, as `cargo add` does,
+/// so a `*` is never combined with another comparator
 #[test]
-fn add_merges_an_index_usage_spelled_the_same() {
+fn add_replaces_the_constraint_of_a_usage_spelled_the_same() {
     let mut project = project_with_usage(index("Acme Labs", "My Lib", "^1"));
 
     assert!(!do_add(&mut project, &index("Acme Labs", "My Lib", "^1")).unwrap());
-    assert!(do_add(&mut project, &index("Acme Labs", "My Lib", "<1.5")).unwrap());
+    assert!(do_add(&mut project, &index("Acme Labs", "My Lib", "*")).unwrap());
+    assert!(do_add(&mut project, &index("Acme Labs", "My Lib", "^2")).unwrap());
 
     assert_eq!(
         project.info.unwrap().usage,
-        [index("Acme Labs", "My Lib", "^1, <1.5")]
+        [index("Acme Labs", "My Lib", "^2")]
     );
+}
+
+#[test]
+fn add_replaces_the_constraint_of_a_resource_usage() {
+    let constrained = |vc: &str| InterchangeProjectUsageRaw::Resource {
+        resource: "urn:kpar:lib".to_owned(),
+        version_constraint: Some(vc.to_owned()),
+    };
+    let mut project = project_with_usage(constrained("^1"));
+
+    assert!(do_add(&mut project, &constrained("*")).unwrap());
+    assert!(do_add(&mut project, &constrained("^2")).unwrap());
+    // Without a constraint, the existing one is kept
+    assert!(!do_add(&mut project, &resource("urn:kpar:lib")).unwrap());
+
+    assert_eq!(project.info.unwrap().usage, [constrained("^2")]);
 }
 
 #[test]

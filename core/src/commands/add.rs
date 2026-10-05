@@ -234,12 +234,13 @@ fn try_merge_path_usage(
     }
 }
 
-/// Ok(true) => usage added to project info
-/// Ok(false) => usage already present in project info
+/// Ok(true) => project info changed: the usage was added, or an existing
+/// usage of it was updated
+/// Ok(false) => usage already present in project info as given
 ///
-/// Accepts any usage kind. A usage of the same kind is merged (its path or
-/// version constraint is updated); a usage of a *different* kind that
-/// identifies the same project is refused with
+/// Accepts any usage kind. A usage of the same kind is updated: its path, or
+/// its version constraint, which is replaced as `cargo add` does; a usage of
+/// a *different* kind that identifies the same project is refused with
 /// [`AddError::DuplicateIdentifier`].
 pub fn do_add<P: ProjectMut>(
     project: &mut P,
@@ -292,7 +293,6 @@ pub fn do_add<P: ProjectMut>(
                                 dont_add = true;
                             }
                             (Some(vc_new), Some(vc_current)) => {
-                                // TODO: more intelligent merging of constraints
                                 if vc_new == vc_current {
                                     log::warn!(
                                         "ignoring usage `{new_resource}` with version constraint\n\
@@ -300,14 +300,12 @@ pub fn do_add<P: ProjectMut>(
                                     );
                                     return Ok(false);
                                 } else {
+                                    // Replaced, as `cargo add` does
                                     log::warn!(
-                                        "usage `{new_resource}` is already present, but with version\n\
-                                             {SP:>8} constraint `{vc_current}`; new version constraint\n\
-                                             {SP:>8} `{vc_new}` will be added to the existing ones; this may\n\
-                                             {SP:>8} result in failed version resolution or conflicting symbol errors",
+                                        "usage `{new_resource}` is already present with version constraint\n\
+                                             {SP:>8} `{vc_current}`, which is replaced by `{vc_new}`",
                                     );
-                                    vc_current.push_str(", ");
-                                    vc_current.push_str(vc_new);
+                                    vc_new.clone_into(vc_current);
                                     dont_add = true;
                                 }
                             }
@@ -389,7 +387,6 @@ pub fn do_add<P: ProjectMut>(
                     if publisher != new_publisher || name != new_name {
                         continue;
                     }
-                    // TODO: more intelligent merging of constraints
                     if new_vc == version_constraint {
                         log::warn!(
                             "ignoring usage `{new_publisher}/{new_name}` with version constraint\n\
@@ -397,14 +394,12 @@ pub fn do_add<P: ProjectMut>(
                         );
                         return Ok(false);
                     }
+                    // Replaced, as `cargo add` does
                     log::warn!(
-                        "usage `{new_publisher}/{new_name}` is already present, but with version\n\
-                         {SP:>8} constraint `{version_constraint}`; new version constraint\n\
-                         {SP:>8} `{new_vc}` will be added to the existing ones; this may\n\
-                         {SP:>8} result in failed version resolution or conflicting symbol errors",
+                        "usage `{new_publisher}/{new_name}` is already present with version\n\
+                         {SP:>8} constraint `{version_constraint}`, which is replaced by `{new_vc}`",
                     );
-                    version_constraint.push_str(", ");
-                    version_constraint.push_str(new_vc);
+                    new_vc.clone_into(version_constraint);
                     dont_add = true;
                     break;
                 }
