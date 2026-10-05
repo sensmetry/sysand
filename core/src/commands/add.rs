@@ -53,10 +53,10 @@ pub enum AddError<ProjectError> {
 }
 
 /// Whether `publisher` and `name` are both in normalized form, that is,
-/// what [`normalize_field`] makes of them. An index usage given this way names
+/// what [`normalize_field`] makes of them. A typed usage given this way names
 /// the project by its identifier only, and its actual spelling has to be
-/// recovered (see [`spell_index_usage`]); any other spelling has to be the
-/// project's own.
+/// recovered (for an index usage, see [`spell_index_usage`]); any other
+/// spelling has to be the project's own.
 pub fn is_normalized_spelling(publisher: &str, name: &str) -> bool {
     normalize_field(publisher) == publisher && normalize_field(name) == name
 }
