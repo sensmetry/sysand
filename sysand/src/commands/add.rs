@@ -148,7 +148,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
                              {SP:>8} since it is already present with version constraint\n\
                              {SP:>8} `{existing_constraint}`",
                         );
-                        return Ok(false);
+                        UsageToAdd::AlreadyPresent
                     }
                     None => bail!(AddError::<Infallible>::TypedUsageSpelledDifferently {
                         kind: "an index",
@@ -258,10 +258,13 @@ pub fn command_add<Policy: HTTPAuthentication>(
     };
 
     if no_lock {
-        let UsageToAdd::Ready(usage) = usage else {
-            unreachable!("without locking, an index usage is settled from the environment");
+        return match usage {
+            UsageToAdd::Ready(usage) => Ok(do_add(&mut current_project, &usage)?),
+            UsageToAdd::AlreadyPresent => Ok(false),
+            UsageToAdd::PendingIndex(_) => {
+                unreachable!("without locking, an index usage is settled from the environment")
+            }
         };
-        return Ok(do_add(&mut current_project, &usage)?);
     }
 
     let info_path = current_project.info_path();
@@ -297,13 +300,16 @@ pub fn command_add<Policy: HTTPAuthentication>(
         runtime.clone(),
         auth_policy.clone(),
     )?;
-    let usage = match usage {
-        UsageToAdd::Ready(usage) => usage,
-        UsageToAdd::PendingIndex(pending) => settle_index_usage(&resolver, pending)?,
+    // Even when nothing is added, lock and sync, since the environment may
+    // be missing or stale
+    let added = match usage {
+        UsageToAdd::Ready(usage) => do_add(&mut current_project, &usage)?,
+        UsageToAdd::PendingIndex(pending) => do_add(
+            &mut current_project,
+            &settle_index_usage(&resolver, pending)?,
+        )?,
+        UsageToAdd::AlreadyPresent => false,
     };
-    if !do_add(&mut current_project, &usage)? {
-        return Ok(false);
-    }
 
     let alias_iris = if let Some(w) = &ctx.current_workspace {
         w.projects()
@@ -326,7 +332,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
         provided_iris,
         ctx,
     ) {
-        Ok(()) => Ok(true),
+        Ok(()) => Ok(added),
         Err(e) => {
             // Restore old info
             wrapfs::write(&info_path, info_backup)?;
@@ -335,10 +341,12 @@ pub fn command_add<Policy: HTTPAuthentication>(
     }
 }
 
-/// The usage `add` adds, or the index usage it is yet to settle
+/// The usage `add` adds, the index usage it is yet to settle, or nothing to
+/// add, as the usage is already present
 enum UsageToAdd {
     Ready(InterchangeProjectUsageRaw),
     PendingIndex(PendingIndexUsage),
+    AlreadyPresent,
 }
 
 fn process_overrides<Policy: HTTPAuthentication>(
