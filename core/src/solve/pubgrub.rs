@@ -1028,10 +1028,44 @@ impl<R: ResolveRead + fmt::Debug + 'static> Display for SolverError<R> {
                 )
             }
             pubgrub::PubGrubError::ErrorRetrievingDependencies {
-                package, source, ..
+                package,
+                version: dependent_index,
+                source,
             } => match package {
+                // A dependency's usage, which the user cannot edit: name the
+                // dependency, in the version whose usages were being read.
+                // `Requested` holds the usages of the projects being locked,
+                // which are always read first, so a `Remote` package is never
+                // one of those projects. The usage is the dependency's own
+                // only if reading its candidates again failed, which the
+                // first read rules out; it is then reported as is
+                DependencyIdentifier::Remote(dependent)
+                    if let InternalSolverError::BrokenIndexVersion { usage, version, .. } =
+                        source
+                        && usage.id() != dependent.to_id() =>
+                {
+                    let dependent_id = dependent.to_id();
+                    let dependent_version = self
+                        .candidates
+                        .get(&dependent_id)
+                        .and_then(|candidates| {
+                            candidates.iter().find(|c| c.index == *dependent_index)
+                        })
+                        .map(|c| format!(" {}", c.version))
+                        .unwrap_or_default();
+                    write!(
+                        f,
+                        "{} offered for index usage {usage},\n\
+                         which dependency `{dependent_id}`{dependent_version} declares, \
+                         is not a valid project,\n\
+                         {BROKEN_NOT_SKIPPED};\n\
+                         the usage is not yours to edit: it has to be fixed by that \
+                         dependency's publisher, or the version by its own",
+                        broken_version_label(version.as_deref())
+                    )
+                }
                 // Says all there is to say about which usage failed, and why
-                DependencyIdentifier::Requested(_)
+                DependencyIdentifier::Requested(_) | DependencyIdentifier::Remote(_)
                     if matches!(source, InternalSolverError::BrokenIndexVersion { .. }) =>
                 {
                     write!(f, "{source}")
@@ -1063,9 +1097,9 @@ impl<R: ResolveRead + fmt::Debug + 'static> std::error::Error for SolverError<R>
     /// says nothing `Display` does not
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self.inner.as_ref() {
-            // `Display` already is this error, so skip to what caused it
+            // `Display` already says what this error does, so skip to what
+            // caused it
             pubgrub::PubGrubError::ErrorRetrievingDependencies {
-                package: DependencyIdentifier::Requested(_),
                 source: source @ InternalSolverError::BrokenIndexVersion { .. },
                 ..
             } => std::error::Error::source(source),
@@ -1074,6 +1108,17 @@ impl<R: ResolveRead + fmt::Debug + 'static> std::error::Error for SolverError<R>
             pubgrub::PubGrubError::NoSolution(_)
             | pubgrub::PubGrubError::ErrorInShouldCancel(_) => None,
         }
+    }
+}
+
+/// Why a broken version of an index usage fails the solve, for messages
+const BROKEN_NOT_SKIPPED: &str = "and a broken version fails the solve instead of being skipped";
+
+/// The broken version of an index usage, for messages
+fn broken_version_label(version: Option<&str>) -> String {
+    match version {
+        Some(version) => format!("version {version}"),
+        None => "a version".to_owned(),
     }
 }
 
@@ -1109,16 +1154,16 @@ pub enum InternalSolverError<R: ResolveRead> {
         reason: String,
     },
     /// A version offered for an index usage is not a valid project. It is
-    /// not skipped for another version, which would make what is locked
-    /// depend on which versions happen to be broken
+    /// not skipped for another version, which would make the choice of
+    /// projects depend on which versions happen to be broken.
+    ///
+    /// Displayed for a usage the user declares; [`SolverError`] says who
+    /// declares a dependency's usage instead.
     #[error(
         "{} offered for index usage {usage} is not a valid project,\n\
-         and a broken version fails the solve instead of being skipped;\n\
+         {BROKEN_NOT_SKIPPED};\n\
          exclude it with a version constraint, or have its publisher fix or yank it",
-        match version {
-            Some(version) => format!("version {version}"),
-            None => "a version".to_owned(),
-        }
+        broken_version_label(version.as_deref())
     )]
     BrokenIndexVersion {
         usage: ResolutionInfo,
