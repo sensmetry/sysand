@@ -8,7 +8,14 @@ from . import _sysand_core as sysand_rs
 from pathlib import Path
 
 
-def init(*, project_dir: str | Path, name: str, publisher: str, version: str) -> None:
+def init(
+    *,
+    project_dir: str | Path,
+    name: str,
+    publisher: str,
+    version: str,
+    license: str | None = None,
+) -> None:
     """Create a project named ``name`` in ``project_dir``, creating the
     directory if it does not exist.
 
@@ -18,11 +25,18 @@ def init(*, project_dir: str | Path, name: str, publisher: str, version: str) ->
         name: The project's name.
         publisher: The project's publisher.
         version: The project's version, a semver version such as ``"1.0.0"``.
+        license: The project's license, an SPDX license expression such as
+            ``"MIT OR Apache-2.0"``. Omitted from ``.project.json`` when
+            ``None``.
+
+    Raises:
+        ValueError: ``name``, ``publisher``, ``version`` or ``license`` is
+            not valid.
     """
     if not Path(project_dir).exists():
         Path(project_dir).mkdir()
 
-    sysand_rs.do_init_py_local_file(name, publisher, version, str(project_dir))
+    sysand_rs.do_init_py_local_file(name, publisher, version, str(project_dir), license)
 
 
 __all__ = ["init"]
