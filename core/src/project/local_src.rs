@@ -47,8 +47,6 @@ pub struct LocalSrcProject {
     // TODO: enforce that the project matches the checksum if provided
     // before reading; see LocalKparProject for example
     expected_checksum: Option<String>,
-    expected_publisher: Option<Option<String>>,
-    expected_name: Option<String>,
 }
 
 impl LocalSrcProject {
@@ -59,8 +57,6 @@ impl LocalSrcProject {
             nominal_path,
             project_path: path.into(),
             expected_checksum: None,
-            expected_publisher: None,
-            expected_name: None,
         }
     }
 
@@ -77,23 +73,6 @@ impl LocalSrcProject {
         Self {
             expected_checksum: Some(checksum),
             ..Self::new_access(path, nominal_path)
-        }
-    }
-
-    /// Construct from lockfile information, where everything is known
-    pub fn new_for_sync(
-        path: impl Into<Utf8PathBuf>,
-        nominal_path: Option<Utf8UnixPathBuf>,
-        publisher: Option<String>,
-        name: String,
-        checksum: String,
-    ) -> Self {
-        Self {
-            nominal_path,
-            project_path: path.into(),
-            expected_checksum: Some(checksum),
-            expected_publisher: Some(publisher),
-            expected_name: Some(name),
         }
     }
 
@@ -374,17 +353,6 @@ pub enum LocalSrcError {
         {0}"
     )]
     ImpossibleRelativePath(#[from] RelativizePathError),
-    #[error(
-        "project publisher `{}` does not match expected `{}`",
-        if let Some(a) = actual { a.as_str() } else { "<none>" },
-        if let Some(p) = expected { p.as_str() } else { "<none>" }
-    )]
-    PublisherMismatch {
-        expected: Option<String>,
-        actual: Option<String>,
-    },
-    #[error("project name `{actual}` does not match expected `{expected}`")]
-    NameMismatch { expected: String, actual: String },
 }
 
 impl From<FsIoError> for LocalSrcError {
@@ -431,23 +399,6 @@ impl ProjectRead for LocalSrcProject {
             let info: InterchangeProjectInfoRaw =
                 serde_json::from_reader(wrapfs::File::open(&info_json_path)?)
                     .map_err(|e| ProjectDeserializationError::new(".project.json", e))?;
-            // TODO: ensure this is checked in all functions
-            if let Some(expected) = &self.expected_publisher
-                && &info.publisher != expected
-            {
-                return Err(LocalSrcError::PublisherMismatch {
-                    expected: expected.to_owned(),
-                    actual: info.publisher,
-                });
-            }
-            if let Some(expected) = &self.expected_name
-                && &info.name != expected
-            {
-                return Err(LocalSrcError::NameMismatch {
-                    expected: expected.to_owned(),
-                    actual: info.name,
-                });
-            }
             Some(info)
         } else {
             None
@@ -580,7 +531,3 @@ fn relativize_path_in<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
         .ok()
         .map(camino::Utf8Path::to_path_buf)
 }
-
-#[cfg(test)]
-#[path = "./local_src_tests.rs"]
-mod tests;

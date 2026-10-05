@@ -153,9 +153,7 @@ fn do_init_py_local_file(
                     LocalSrcError::Io(_) | LocalSrcError::Path(_) => PyIOError::new_err(e),
                     LocalSrcError::Serialize(_)
                     | LocalSrcError::ImpossibleRelativePath(_)
-                    | LocalSrcError::Deserialize(_)
-                    | LocalSrcError::PublisherMismatch { .. }
-                    | LocalSrcError::NameMismatch { .. } => PyValueError::new_err(e),
+                    | LocalSrcError::Deserialize(_) => PyValueError::new_err(e),
                     LocalSrcError::MissingMeta | LocalSrcError::MissingInfoMeta => {
                         PyFileNotFoundError::new_err(e)
                     }
@@ -184,9 +182,7 @@ fn do_env_py_local_dir(path: String) -> PyResult<()> {
                 | LocalWriteError::Path(_)
                 | LocalWriteError::Serialize(_)
                 | LocalWriteError::ImpossibleRelativePath(_)
-                | LocalWriteError::PublisherMismatch { .. }
-                | LocalWriteError::ProjectNotFound(_)
-                | LocalWriteError::NameMismatch { .. } => PyValueError::new_err(e),
+                | LocalWriteError::ProjectNotFound(_) => PyValueError::new_err(e),
                 LocalWriteError::Io(_)
                 | LocalWriteError::TryMove(_)
                 | LocalWriteError::LocalRead(_)

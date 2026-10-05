@@ -222,7 +222,8 @@ fn sync_to_remote() -> Result<(), Box<dyn std::error::Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"sync_to_remote","version":"1.2.3"}"#)
-        .expect(2) // TODO: Reduce this to 1 after caching
+        // One more to check the project against the lockfile before installing
+        .expect(3) // TODO: Reduce this to 1 after caching
         .match_request(|r| r.has_header(header::USER_AGENT))
         .create();
 
@@ -312,7 +313,8 @@ fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
         .with_status(404)
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"sync_to_remote","version":"1.2.3"}"#)
-        .expect(2) // TODO: Reduce this to 1
+        // One more to check the project against the lockfile before installing
+        .expect(3) // TODO: Reduce this to 1
         .create();
 
     let info_mock_auth = server
@@ -324,7 +326,8 @@ fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"sync_to_remote","version":"1.2.3"}"#)
-        .expect(2) // TODO: Reduce this to 1
+        // One more to check the project against the lockfile before installing
+        .expect(3) // TODO: Reduce this to 1
         .create();
 
     let meta_mock = server
@@ -907,6 +910,123 @@ fn sync_no_prune_keeps_unneeded_dependency() -> Result<(), Box<dyn std::error::E
         env_toml.contains("no-prune-dep-drop"),
         "`--no-prune` must leave the unneeded dependency registered in env.toml"
     );
+
+    Ok(())
+}
+
+/// A locked directory dependency that no longer is the project the lockfile
+/// records fails the sync, naming what differs
+#[test]
+fn sync_fails_on_a_renamed_directory_dependency() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "renamed_dir", "1.2.3")?;
+    out.assert().success();
+    cli_init_project_in(
+        &cwd,
+        Some("dep"),
+        "Acme Labs",
+        Some("My Lib"),
+        Some("1.0.0"),
+        None,
+    )?
+    .assert()
+    .success();
+    run_sysand_in(
+        &cwd,
+        ["add", "--no-index", "--no-sync", "--dir", "dep"],
+        None,
+    )?
+    .assert()
+    .success();
+
+    rename_project(&cwd.join("dep"), "My Lib", "My Library")?;
+
+    run_sysand_in(&cwd, ["sync", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "from src_path `dep` has name `My Library`,\nbut the lockfile records name `My Lib`",
+        ));
+
+    Ok(())
+}
+
+/// A locked KPAR dependency rebuilt as another project fails the sync: the
+/// archive no longer has the size and digest the lockfile pins, which is
+/// checked before anything in it is read
+#[test]
+fn sync_fails_on_a_rebuilt_kpar_dependency() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "renamed_kpar", "1.2.3")?;
+    out.assert().success();
+    cli_init_project_in(
+        &cwd,
+        Some("dep"),
+        "Acme Labs",
+        Some("My Lib"),
+        Some("1.0.0"),
+        None,
+    )?
+    .assert()
+    .success();
+    let dep = cwd.join("dep");
+    run_sysand_in(&dep, ["build", "../lib.kpar"], None)?
+        .assert()
+        .success();
+    run_sysand_in(
+        &cwd,
+        ["add", "--no-index", "--no-sync", "--kpar-path", "lib.kpar"],
+        None,
+    )?
+    .assert()
+    .success();
+
+    rename_project(&dep, "My Lib", "My Library")?;
+    run_sysand_in(&dep, ["build", "../lib.kpar"], None)?
+        .assert()
+        .success();
+
+    run_sysand_in(&cwd, ["sync", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("but the expected size was"));
+
+    Ok(())
+}
+
+/// A lockfile whose recorded version is not the project's fails the sync
+#[test]
+fn sync_fails_on_a_lockfile_with_another_version() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "edited_lock", "1.2.3")?;
+    out.assert().success();
+    cli_init_project_in(
+        &cwd,
+        Some("dep"),
+        "Acme Labs",
+        Some("My Lib"),
+        Some("1.0.0"),
+        None,
+    )?
+    .assert()
+    .success();
+    run_sysand_in(
+        &cwd,
+        ["add", "--no-index", "--no-sync", "--dir", "dep"],
+        None,
+    )?
+    .assert()
+    .success();
+
+    let lock_path = cwd.join(DEFAULT_LOCKFILE_NAME);
+    let lock = fs::read_to_string(&lock_path)?;
+    let edited = lock.replacen(r#"version = "1.0.0""#, r#"version = "1.0.1""#, 1);
+    assert_ne!(lock, edited, "{lock}");
+    fs::write(&lock_path, edited)?;
+
+    run_sysand_in(&cwd, ["sync", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "has version `1.0.0`,\nbut the lockfile records version `1.0.1`",
+        ));
 
     Ok(())
 }

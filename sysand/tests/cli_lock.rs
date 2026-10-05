@@ -419,7 +419,9 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
     let c_url = mock_project(
         &mut server,
         &mut project_mocks,
-        [1, 7, 1, 5],
+        // A `.project.json` GET more for sync to check the project against
+        // the lockfile before installing it
+        [1, 8, 1, 5],
         "c",
         "lock_basic_http_deps_c",
         "1.0.0",
@@ -429,7 +431,9 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
     let a_url = mock_project(
         &mut server,
         &mut project_mocks,
-        [1, 7, 1, 5],
+        // A `.project.json` GET more for sync to check the project against
+        // the lockfile before installing it
+        [1, 8, 1, 5],
         "a",
         "lock_basic_http_deps_a",
         "1.0.0",
@@ -438,7 +442,9 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
     let b_url = mock_project(
         &mut server,
         &mut project_mocks,
-        [1, 7, 1, 5],
+        // A `.project.json` GET more for sync to check the project against
+        // the lockfile before installing it
+        [1, 8, 1, 5],
         "b",
         "lock_basic_http_deps_b",
         "1.0.0",
@@ -1158,24 +1164,6 @@ fn lock_fails_on_a_broken_index_version() -> Result<(), Box<dyn std::error::Erro
     let dep = lock_file.projects.iter().find(|p| p.name == "dep").unwrap();
     assert_eq!(dep.version, "0.1.0");
 
-    Ok(())
-}
-
-/// Rename the project in `dir` from `from` to `to`, by editing its `.project.json`
-fn rename_project(
-    dir: &camino::Utf8Path,
-    from: &str,
-    to: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let path = dir.join(".project.json");
-    let info = std::fs::read_to_string(&path)?;
-    let renamed = info.replacen(
-        &format!(r#""name": "{from}""#),
-        &format!(r#""name": "{to}""#),
-        1,
-    );
-    assert_ne!(info, renamed, "{info}");
-    std::fs::write(path, renamed)?;
     Ok(())
 }
 

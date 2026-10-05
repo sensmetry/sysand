@@ -170,19 +170,6 @@ pub enum FileResolverProjectError {
     },
     #[error("kpar at `{path}` is an empty file")]
     EmptyKpar { path: Box<str> },
-    #[error(
-        "project publisher `{}` does not match expected `{}`",
-        if let Some(a) = actual { a.as_str() } else { "<none>" },
-        if let Some(p) = expected { p.as_str() } else { "<none>" }
-    )]
-    PublisherMismatch {
-        expected: Option<String>,
-        actual: Option<String>,
-    },
-    #[error("project name `{actual}` does not match expected `{expected}`")]
-    NameMismatch { expected: String, actual: String },
-    #[error("project is missing project information file `.project.json`")]
-    MissingInfo,
     #[error("{0}")]
     Other(String),
 }
@@ -234,13 +221,6 @@ impl From<LocalKParError> for FileResolverProjectError {
                 actual,
             },
             LocalKParError::EmptyKpar { path } => Self::EmptyKpar { path },
-            LocalKParError::PublisherMismatch { expected, actual } => {
-                Self::PublisherMismatch { expected, actual }
-            }
-            LocalKParError::NameMismatch { expected, actual } => {
-                Self::NameMismatch { expected, actual }
-            }
-            LocalKParError::MissingInfo => Self::MissingInfo,
         }
     }
 }

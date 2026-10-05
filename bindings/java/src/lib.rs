@@ -132,10 +132,6 @@ fn init<'local>(
                     LocalSrcError::MissingMeta | LocalSrcError::MissingInfoMeta => {
                         env.throw_exception(ExceptionKind::SysandException, e)
                     }
-                    LocalSrcError::PublisherMismatch { .. }
-                    | LocalSrcError::NameMismatch { .. } => {
-                        env.throw_exception(ExceptionKind::ResolutionError, e)
-                    }
                 },
             }
             Ok(())
@@ -201,9 +197,7 @@ fn create_env<'local>(
                     }
                     LocalWriteError::MissingMeta
                     | LocalWriteError::ProjectNotFound(_)
-                    | LocalWriteError::MissingInfoMeta
-                    | LocalWriteError::PublisherMismatch { .. }
-                    | LocalWriteError::NameMismatch { .. } => {
+                    | LocalWriteError::MissingInfoMeta => {
                         env.throw_exception(ExceptionKind::SysandException, e)
                     }
                 },
