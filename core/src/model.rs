@@ -52,6 +52,10 @@ pub const LICENSE_EXPRESSION_HELP: &str = "\
 /// all usages of that identifier accept (in particular, it satisfies
 /// all version constraints)
 ///
+/// A typed usage (any kind but [`Self::Resource`]) names its project by
+/// `publisher` and `name`, which must match the project's own exactly,
+/// without any normalization; locking checks this.
+///
 /// `.project.json` stores every kind as a bare object with no kind key, so
 /// the kind is decided by which keys are present (see [`Usage`] for how).
 #[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Hash, Debug)]
@@ -81,8 +85,7 @@ pub enum InterchangeProjectUsageG<Iri, VersionReq, Path> {
         version_constraint: Option<VersionReq>,
     },
     /// The project in the directory `dir`, relative to the root
-    /// of the project declaring the usage. `publisher` and `name` must match the
-    /// actual values found at `dir`, without any normalization.
+    /// of the project declaring the usage.
     /// No version constraint, as the directory contains a single version
     // TODO: should absolute paths also be supported (like Cargo)?
     #[cfg_attr(feature = "python", pyo3(from_item_all))]
@@ -103,8 +106,7 @@ pub enum InterchangeProjectUsageG<Iri, VersionReq, Path> {
     },
     /// The project `publisher`/`name` from the configured indexes, or from
     /// any other source that resolves by identity (the local environment,
-    /// workspace members). `publisher` and `name` must match the resolved
-    /// project's, without any normalization.
+    /// workspace members).
     #[serde(rename_all = "camelCase")]
     #[cfg_attr(feature = "python", pyo3(from_item_all))]
     Index {
