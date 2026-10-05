@@ -122,11 +122,13 @@ fn expected_pub_name_check() -> Result<(), Box<dyn std::error::Error>> {
         zip.finish().unwrap();
     }
 
-    let project = super::LocalKParProject::new_for_solve(
+    let project = super::LocalKParProject::new_for_sync(
         &zip_path,
+        super::KparInnerPath::Root,
         None,
         Some("acme".to_owned()),
         "expected_pub_name_check".to_owned(),
+        None,
     );
 
     let (Some(info), Some(_meta)) = project.get_project()? else {
@@ -134,11 +136,13 @@ fn expected_pub_name_check() -> Result<(), Box<dyn std::error::Error>> {
     };
     assert_eq!(info.name, "expected_pub_name_check");
 
-    let mismatched = super::LocalKParProject::new_for_solve(
+    let mismatched = super::LocalKParProject::new_for_sync(
         &zip_path,
+        super::KparInnerPath::Root,
         None,
         Some("acme".to_owned()),
         "wrong-name".to_owned(),
+        None,
     );
     assert_matches!(
         mismatched.get_info(),

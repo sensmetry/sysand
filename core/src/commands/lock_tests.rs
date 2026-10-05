@@ -197,12 +197,12 @@ fn lock_reports_which_dependent_pins_a_conflicting_version() {
     );
 }
 
-/// An index usage must spell the publisher and name of the project it
+/// A typed usage must spell the publisher and name of the project it
 /// resolves to exactly as that project does
-mod index_usage_spelling {
+mod typed_usage_spelling {
     use super::*;
     use crate::{
-        commands::lock::{DeclaredBy, IndexUsageMismatchError, LockProjectError},
+        commands::lock::{DeclaredBy, LockProjectError, TypedUsageMismatchError},
         model::InterchangeProjectUsageRaw,
         project::utils::Identifier,
         resolve::memory::{AcceptAll, MemoryResolver},
@@ -248,11 +248,27 @@ mod index_usage_spelling {
         }
     }
 
+    fn directory(publisher: &str, name: &str) -> InterchangeProjectUsageRaw {
+        InterchangeProjectUsageRaw::Directory {
+            dir: "lib".into(),
+            publisher: publisher.into(),
+            name: name.into(),
+        }
+    }
+
+    fn kpar(publisher: &str, name: &str) -> InterchangeProjectUsageRaw {
+        InterchangeProjectUsageRaw::KparPath {
+            kpar_path: "lib.kpar".into(),
+            publisher: publisher.into(),
+            name: name.into(),
+        }
+    }
+
     /// Lock `root` against `projects`, keyed by their normalized identifiers
     fn lock(
         root: &InMemoryProject,
         projects: Vec<(&str, &str, InMemoryProject)>,
-    ) -> Result<Lock, Box<IndexUsageMismatchError>> {
+    ) -> Result<Lock, Box<TypedUsageMismatchError>> {
         let resolver = MemoryResolver {
             iri_predicate: AcceptAll {},
             projects: projects
@@ -269,7 +285,7 @@ mod index_usage_spelling {
             &ProjectContext::default(),
         ) {
             Ok(outcome) => Ok(outcome.lock),
-            Err(LockProjectError::LockError(LockError::IndexUsageMismatch(e))) => Err(e),
+            Err(LockProjectError::LockError(LockError::TypedUsageMismatch(e))) => Err(e),
             Err(e) => panic!("{e}"),
         }
     }
@@ -301,7 +317,7 @@ mod index_usage_spelling {
         assert_eq!(err.declared_by, DeclaredBy::Input("`app` 1.0.0".to_owned()));
         assert_eq!(
             err.to_string(),
-            "index usage `Acme Labs/My Lib` in `app` 1.0.0 resolved to version 1.0.0 \
+            "an index usage `Acme Labs/My Lib` in `app` 1.0.0 resolved to version 1.0.0 \
              of `acme-labs/My Lib`, but is rejected because its spelling does not match the \
              project's;\nspell the usage exactly as `acme-labs/My Lib`"
         );
@@ -350,6 +366,45 @@ mod index_usage_spelling {
             err.to_string()
                 .ends_with("it has to be fixed by that dependency's publisher"),
             "{err}"
+        );
+    }
+
+    /// Directory and KPAR usages are checked the same way as index usages
+    #[test]
+    fn path_usages_are_checked() {
+        for (usage, kind) in [
+            (directory("Acme Labs", "My Lib"), "a directory"),
+            (kpar("Acme Labs", "My Lib"), "a KPAR path"),
+        ] {
+            let lib = project(Some("Acme Labs"), "My Lib", vec![]);
+            lock(&root(usage.clone()), vec![("acme labs", "my lib", lib)]).unwrap();
+
+            let lib = project(Some("acme-labs"), "My Lib", vec![]);
+            let err = lock(&root(usage), vec![("acme labs", "my lib", lib)]).unwrap_err();
+            assert_eq!(err.kind, kind);
+            assert!(
+                err.to_string().starts_with(&format!(
+                    "{kind} usage `Acme Labs/My Lib` in `app` 1.0.0 resolved to version 1.0.0 \
+                     of `acme-labs/My Lib`"
+                )),
+                "{err}"
+            );
+        }
+    }
+
+    #[test]
+    fn path_usage_mismatch_in_a_dependency() {
+        let mid = project(Some("Acme"), "Mid", vec![directory("Acme", "Lib")]);
+        let lib = project(Some("Acme"), "lib", vec![]);
+        let err = lock(
+            &root(index("Acme", "Mid")),
+            vec![("acme", "mid", mid), ("acme", "lib", lib)],
+        )
+        .unwrap_err();
+        assert_eq!(err.kind, "a directory");
+        assert_eq!(
+            err.declared_by,
+            DeclaredBy::Dependency("`Mid` 1.0.0 (`pkg:sysand/acme/mid`)".to_owned())
         );
     }
 }

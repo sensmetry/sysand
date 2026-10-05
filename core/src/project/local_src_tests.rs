@@ -12,6 +12,18 @@ fn write_project_json(dir: &camino::Utf8Path, content: &str) {
     std::fs::write(dir.join(".project.json"), content).expect("write .project.json");
 }
 
+/// The project at `dir`, expected to be `publisher`/`name` as sync expects
+/// what the lockfile records. The checksum is not checked when reading
+fn expecting(dir: &camino::Utf8Path, publisher: Option<&str>, name: &str) -> LocalSrcProject {
+    LocalSrcProject::new_for_sync(
+        dir,
+        None,
+        publisher.map(Into::into),
+        name.into(),
+        String::new(),
+    )
+}
+
 #[test]
 fn publisher_match_succeeds() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
@@ -20,8 +32,7 @@ fn publisher_match_succeeds() -> Result<(), Box<dyn std::error::Error>> {
         r#"{"name":"my-project","publisher":"acme","version":"1.0.0"}"#,
     );
 
-    let project =
-        LocalSrcProject::new_for_solve(dir.path(), None, Some("acme".into()), "my-project".into());
+    let project = expecting(dir.path(), Some("acme"), "my-project");
 
     let (info, _) = project.get_project()?;
     assert_eq!(info.unwrap().publisher.as_deref(), Some("acme"));
@@ -36,12 +47,7 @@ fn publisher_mismatch_returns_error() -> Result<(), Box<dyn std::error::Error>> 
         r#"{"name":"my-project","publisher":"actual-publisher","version":"1.0.0"}"#,
     );
 
-    let project = LocalSrcProject::new_for_solve(
-        dir.path(),
-        None,
-        Some("expected-publisher".into()),
-        "my-project".into(),
-    );
+    let project = expecting(dir.path(), Some("expected-publisher"), "my-project");
 
     let err = project.get_project().unwrap_err();
     assert_matches!(
@@ -63,9 +69,8 @@ fn expects_no_publisher_but_project_has_one() -> Result<(), Box<dyn std::error::
         r#"{"name":"my-project","publisher":"surprise","version":"1.0.0"}"#,
     );
 
-    // new_for_solve with publisher=None sets expected_publisher=Some(None),
-    // i.e. the project is expected to have no publisher.
-    let project = LocalSrcProject::new_for_solve(dir.path(), None, None, "my-project".into());
+    // No publisher expected means the project is expected to have none
+    let project = expecting(dir.path(), None, "my-project");
 
     let err = project.get_project().unwrap_err();
     assert_matches!(
@@ -83,7 +88,7 @@ fn no_publisher_expected_and_absent_succeeds() -> Result<(), Box<dyn std::error:
     let dir = tempdir()?;
     write_project_json(dir.path(), r#"{"name":"my-project","version":"1.0.0"}"#);
 
-    let project = LocalSrcProject::new_for_solve(dir.path(), None, None, "my-project".into());
+    let project = expecting(dir.path(), None, "my-project");
 
     let (info, _) = project.get_project()?;
     assert!(info.unwrap().publisher.is_none());
@@ -95,7 +100,7 @@ fn name_match_succeeds() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
     write_project_json(dir.path(), r#"{"name":"correct-name","version":"1.0.0"}"#);
 
-    let project = LocalSrcProject::new_for_solve(dir.path(), None, None, "correct-name".into());
+    let project = expecting(dir.path(), None, "correct-name");
 
     let (info, _) = project.get_project()?;
     assert_eq!(info.unwrap().name, "correct-name");
@@ -107,7 +112,7 @@ fn name_mismatch_returns_error() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
     write_project_json(dir.path(), r#"{"name":"actual-name","version":"1.0.0"}"#);
 
-    let project = LocalSrcProject::new_for_solve(dir.path(), None, None, "expected-name".into());
+    let project = expecting(dir.path(), None, "expected-name");
 
     let err = project.get_project().unwrap_err();
     assert_matches!(
@@ -125,8 +130,7 @@ fn no_project_json_skips_checks() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
     // No .project.json written — publisher/name checks should not run.
 
-    let project =
-        LocalSrcProject::new_for_solve(dir.path(), None, Some("anyone".into()), "anything".into());
+    let project = expecting(dir.path(), Some("anyone"), "anything");
 
     let (info, _) = project.get_project()?;
     assert!(info.is_none());

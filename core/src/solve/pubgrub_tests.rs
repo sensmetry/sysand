@@ -752,32 +752,26 @@ fn typed_usage_usages_read_error_fails_resolution() {
 }
 
 /// When the project at a directory usage's path is rejected (e.g. its
-/// declared publisher does not match the usage), the rejection reason must
-/// surface in the solver error. A typed usage has exactly one place its
-/// project can come from, so silently skipping the candidate and reporting
-/// only "no valid candidates" hides the actual problem
+/// version is not a Semantic Version), the rejection reason must surface in
+/// the solver error. A typed usage has exactly one place its project can come
+/// from, so silently skipping the candidate and reporting only "no valid
+/// candidates" hides the actual problem
 #[cfg(feature = "filesystem")]
 #[test]
 fn directory_usage_candidate_rejection_reason_is_reported() -> Result<(), Box<dyn std::error::Error>>
 {
     use crate::project::local_src::LocalSrcProject;
 
-    // A real project on disk that declares a different publisher than
-    // the usage expects
+    // A real project on disk whose version is not a Semantic Version
     let tmp = camino_tempfile::tempdir()?;
     let mut info = memory_project("widget", "1.0.0", vec![]).info.unwrap();
-    info.publisher = Some("someone-else".to_owned());
+    info.version = "not-a-version".to_owned();
     std::fs::write(
         tmp.path().join(".project.json"),
         serde_json::to_string(&info)?,
     )?;
 
-    let project = LocalSrcProject::new_for_solve(
-        tmp.path().to_owned(),
-        None,
-        Some("acme".to_owned()),
-        "widget".to_owned(),
-    );
+    let project = LocalSrcProject::new_access(tmp.path().to_owned(), None);
 
     let resolver = MemoryResolver {
         iri_predicate: AcceptAll {},
@@ -794,12 +788,12 @@ fn directory_usage_candidate_rejection_reason_is_reported() -> Result<(), Box<dy
         resolver,
     );
 
-    let err = result.expect_err("the only candidate declares the wrong publisher");
-    // The rejection reason (`someone-else` does not match `acme`) must be part
-    // of the reported error, not only visible in debug logs
+    let err = result.expect_err("the only candidate has an invalid version");
+    // The rejection reason must be part of the reported error, not only
+    // visible in debug logs
     let msg = format!("{err:?}");
     assert!(
-        msg.contains("someone-else"),
+        msg.contains("InvalidResolvedVersion"),
         "solver error should carry the candidate's rejection reason, got: {msg}"
     );
 
