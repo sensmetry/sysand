@@ -1183,9 +1183,8 @@ impl Named {
 }
 
 /// Adds the usage `add()` names, with `version_constraint`, as `sysand add`
-/// does: then locks and syncs, unless `no_lock` or `no_sync`. Returns `true`
-/// when a new usage was added, `false` when it was merged into an existing
-/// one.
+/// does: then locks and syncs, unless `no_lock` or `no_sync`. Returns whether
+/// `.project.json` changed (see `add()`).
 #[pyfunction(name = "do_add_py")]
 #[pyo3(
     signature = (path, iri, publisher, name, version_constraint, no_lock, no_sync, no_prune, resolution, auth),
