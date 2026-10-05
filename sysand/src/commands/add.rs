@@ -150,7 +150,8 @@ pub fn command_add<Policy: HTTPAuthentication>(
                         );
                         return Ok(false);
                     }
-                    None => bail!(AddError::<Infallible>::IndexUsageSpelledDifferently {
+                    None => bail!(AddError::<Infallible>::TypedUsageSpelledDifferently {
+                        kind: "an index",
                         existing: format!("{p}/{n}"),
                         new: format!("{publisher}/{name}"),
                     }),

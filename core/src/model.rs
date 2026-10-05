@@ -346,6 +346,23 @@ impl<Iri, VersionReq, Path> InterchangeProjectUsageG<Iri, VersionReq, Path> {
         !matches!(self, Self::Resource { .. })
     }
 
+    /// The `publisher` and `name` of a typed usage; `None` for a resource
+    /// usage
+    pub fn typed_publisher_name(&self) -> Option<(&str, &str)> {
+        match self {
+            Self::Resource { .. } => None,
+            Self::Directory {
+                publisher, name, ..
+            }
+            | Self::KparPath {
+                publisher, name, ..
+            }
+            | Self::Index {
+                publisher, name, ..
+            } => Some((publisher, name)),
+        }
+    }
+
     /// A short noun naming this usage's kind, with its indefinite article
     /// (e.g. "an index"), for error messages.
     pub fn kind_with_article(&self) -> &'static str {
