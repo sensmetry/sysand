@@ -369,24 +369,20 @@ impl ResolveRead for FileResolver {
                     reason: String::from("resource is not a file URL"),
                 }),
             },
-            InterchangeProjectUsage::Directory {
-                publisher,
-                name,
-                dir,
-            } => {
+            InterchangeProjectUsage::Directory { dir, .. } => {
                 // TODO: should absolute paths be supported here? Cargo does.
                 if let Some(base) = resolve.base_path() {
                     let res = self.resolve_relative_path(base, dir.as_str())?;
                     Ok(res.map(|path| {
                         vec![Ok(FileResolverProject::LocalSrcProject(
-                            LocalSrcProject::new_for_solve(
+                            // The lock checks that the project is
+                            // `publisher`/`name`, as for every typed usage
+                            LocalSrcProject::new_access(
                                 path,
                                 // Can't use `dir` here, since `FileResolver` is used for env projects,
                                 // and in that case using `dir` would resolve relative to the project
                                 // inside `.sysand`, and the dependency would not be found
                                 None,
-                                Some(publisher.clone()),
-                                name.clone(),
                             ),
                         ))]
                     }))
@@ -399,21 +395,14 @@ impl ResolveRead for FileResolver {
                     })
                 }
             }
-            InterchangeProjectUsage::KparPath {
-                kpar_path,
-                publisher,
-                name,
-            } => {
+            InterchangeProjectUsage::KparPath { kpar_path, .. } => {
                 if let Some(base) = resolve.base_path() {
                     let res = self.resolve_relative_path(base, kpar_path.as_str())?;
                     Ok(res.map(|path| {
                         vec![Ok(FileResolverProject::LocalKParProject(
-                            LocalKParProject::new_for_solve(
-                                path,
-                                None,
-                                Some(publisher.to_owned()),
-                                name.to_owned(),
-                            ),
+                            // The lock checks that the project is
+                            // `publisher`/`name`, as for every typed usage
+                            LocalKParProject::new_access(path, KparInnerPath::Root, None),
                         ))]
                     }))
                 } else {

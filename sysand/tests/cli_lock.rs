@@ -1160,3 +1160,103 @@ fn lock_fails_on_a_broken_index_version() -> Result<(), Box<dyn std::error::Erro
 
     Ok(())
 }
+
+/// Rename the project in `dir` from `from` to `to`, by editing its `.project.json`
+fn rename_project(
+    dir: &camino::Utf8Path,
+    from: &str,
+    to: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = dir.join(".project.json");
+    let info = std::fs::read_to_string(&path)?;
+    let renamed = info.replacen(
+        &format!(r#""name": "{from}""#),
+        &format!(r#""name": "{to}""#),
+        1,
+    );
+    assert_ne!(info, renamed, "{info}");
+    std::fs::write(path, renamed)?;
+    Ok(())
+}
+
+/// A directory usage of a project that no longer spells its publisher and
+/// name as the usage does fails the lock
+#[test]
+fn lock_fails_on_a_misspelled_directory_usage() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "misspelled_dir", "1.2.3")?;
+    out.assert().success();
+    cli_init_project_in(
+        &cwd,
+        Some("dep"),
+        "Acme Labs",
+        Some("My Lib"),
+        Some("1.0.0"),
+        None,
+    )?
+    .assert()
+    .success();
+    run_sysand_in(
+        &cwd,
+        ["add", "--no-index", "--no-sync", "--dir", "dep"],
+        None,
+    )?
+    .assert()
+    .success();
+
+    rename_project(&cwd.join("dep"), "My Lib", "My Library")?;
+
+    run_sysand_in(&cwd, ["lock", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(contains(
+            "a directory usage `Acme Labs/My Lib` in `misspelled_dir` 1.2.3 resolved to version \
+             1.0.0 of `Acme Labs/My Library`, but is rejected because its spelling does not match \
+             the project's;\nspell the usage exactly as `Acme Labs/My Library`",
+        ));
+
+    Ok(())
+}
+
+/// A KPAR usage of a project that no longer spells its publisher and name as
+/// the usage does fails the lock
+#[test]
+fn lock_fails_on_a_misspelled_kpar_usage() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "misspelled_kpar", "1.2.3")?;
+    out.assert().success();
+    cli_init_project_in(
+        &cwd,
+        Some("dep"),
+        "Acme Labs",
+        Some("My Lib"),
+        Some("1.0.0"),
+        None,
+    )?
+    .assert()
+    .success();
+    let dep = cwd.join("dep");
+    run_sysand_in(&dep, ["build", "../lib.kpar"], None)?
+        .assert()
+        .success();
+    run_sysand_in(
+        &cwd,
+        ["add", "--no-index", "--no-sync", "--kpar-path", "lib.kpar"],
+        None,
+    )?
+    .assert()
+    .success();
+
+    rename_project(&dep, "My Lib", "My Library")?;
+    run_sysand_in(&dep, ["build", "../lib.kpar"], None)?
+        .assert()
+        .success();
+
+    run_sysand_in(&cwd, ["lock", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(contains(
+            "a KPAR path usage `Acme Labs/My Lib` in `misspelled_kpar` 1.2.3 resolved to version \
+             1.0.0 of `Acme Labs/My Library`",
+        ));
+
+    Ok(())
+}

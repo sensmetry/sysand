@@ -80,21 +80,6 @@ impl LocalSrcProject {
         }
     }
 
-    pub fn new_for_solve(
-        path: impl Into<Utf8PathBuf>,
-        nominal_path: Option<Utf8UnixPathBuf>,
-        publisher: Option<String>,
-        name: String,
-    ) -> Self {
-        Self {
-            nominal_path,
-            project_path: path.into(),
-            expected_checksum: None,
-            expected_publisher: Some(publisher),
-            expected_name: Some(name),
-        }
-    }
-
     /// Construct from lockfile information, where everything is known
     pub fn new_for_sync(
         path: impl Into<Utf8PathBuf>,

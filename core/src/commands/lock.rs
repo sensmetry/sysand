@@ -97,10 +97,12 @@ impl fmt::Display for DeclaredBy {
     }
 }
 
-/// An index usage resolved to a project whose publisher or name is spelled
+/// A typed usage resolved to a project whose publisher or name is spelled
 /// differently from the usage's.
 #[derive(Error, Debug)]
-pub struct IndexUsageMismatchError {
+pub struct TypedUsageMismatchError {
+    /// The usage's kind, with an article (e.g. "an index")
+    pub kind: &'static str,
     pub usage_publisher: String,
     pub usage_name: String,
     pub declared_by: DeclaredBy,
@@ -109,9 +111,10 @@ pub struct IndexUsageMismatchError {
     pub name: String,
 }
 
-impl fmt::Display for IndexUsageMismatchError {
+impl fmt::Display for TypedUsageMismatchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let Self {
+            kind,
             usage_publisher,
             usage_name,
             declared_by,
@@ -122,7 +125,7 @@ impl fmt::Display for IndexUsageMismatchError {
         let spelling = format!("{}/{name}", publisher.as_deref().unwrap_or("<none>"));
         writeln!(
             f,
-            "index usage `{usage_publisher}/{usage_name}` in {declared_by} resolved to version \
+            "{kind} usage `{usage_publisher}/{usage_name}` in {declared_by} resolved to version \
              {version} of `{spelling}`, but is rejected because its spelling does not match the \
              project's;"
         )?;
@@ -164,7 +167,7 @@ pub enum LockError<PD: ProjectRead, R: ResolveRead + Debug + 'static> {
     #[error(transparent)]
     Solver(SolverError<R>),
     #[error(transparent)]
-    IndexUsageMismatch(Box<IndexUsageMismatchError>),
+    TypedUsageMismatch(Box<TypedUsageMismatchError>),
     #[error(transparent)]
     NameCollision(Box<NameCollisionError>),
     #[error(transparent)]
@@ -289,17 +292,11 @@ pub fn do_lock_extend<
     ctx: &ProjectContext,
 ) -> Result<LockOutcome<PD>, LockError<PD, R>> {
     let (inputs, declared_by): (Vec<_>, Vec<_>) = usages.into_iter().unzip();
-    // Index usages, as publisher and name, to check against the projects they
-    // resolve to
-    let mut index_usages: Vec<(String, String, DeclaredBy)> = inputs
+    // Typed usages, to check against the projects they resolve to
+    let mut typed_usages: Vec<(TypedSpelling, DeclaredBy)> = inputs
         .iter()
         .zip(declared_by)
-        .filter_map(|(usage, declared_by)| match usage {
-            InterchangeProjectUsage::Index {
-                publisher, name, ..
-            } => Some((publisher.clone(), name.clone(), declared_by)),
-            _ => None,
-        })
+        .filter_map(|(usage, declared_by)| Some((TypedSpelling::of(usage)?, declared_by)))
         .collect();
     // Publisher, name and version of each solved project
     let mut solved = HashMap::new();
@@ -356,13 +353,9 @@ pub fn do_lock_extend<
             })?;
 
         for usage in &validated_info.usage {
-            if let InterchangeProjectUsage::Index {
-                publisher, name, ..
-            } = usage
-            {
-                index_usages.push((
-                    publisher.clone(),
-                    name.clone(),
+            if let Some(spelling) = TypedSpelling::of(usage) {
+                typed_usages.push((
+                    spelling,
                     DeclaredBy::Dependency(format!(
                         "`{}` {} (`{identifier}`)",
                         info.name, info.version
@@ -438,30 +431,62 @@ pub fn do_lock_extend<
         dependencies.push((identifier, project));
     }
 
-    check_index_usages(index_usages, &solved).map_err(LockError::IndexUsageMismatch)?;
+    check_typed_usages(typed_usages, &solved).map_err(LockError::TypedUsageMismatch)?;
 
     Ok(LockOutcome { lock, dependencies })
 }
 
-/// Check that each index usage's publisher and name are spelled exactly as
+/// A typed usage's kind, publisher and name
+struct TypedSpelling {
+    /// With an article, see
+    /// [`crate::model::InterchangeProjectUsageG::kind_with_article`]
+    kind: &'static str,
+    publisher: String,
+    name: String,
+}
+
+impl TypedSpelling {
+    /// `None` for a resource usage, which names no publisher or name
+    fn of(usage: &InterchangeProjectUsage) -> Option<Self> {
+        match usage {
+            InterchangeProjectUsage::Resource { .. } => None,
+            InterchangeProjectUsage::Directory {
+                publisher, name, ..
+            }
+            | InterchangeProjectUsage::KparPath {
+                publisher, name, ..
+            }
+            | InterchangeProjectUsage::Index {
+                publisher, name, ..
+            } => Some(Self {
+                kind: usage.kind_with_article(),
+                publisher: publisher.clone(),
+                name: name.clone(),
+            }),
+        }
+    }
+}
+
+/// Check that each typed usage's publisher and name are spelled exactly as
 /// the project it resolved to (in `solved`, as publisher, name and version)
 /// spells them. Normalization makes them resolve to the same project
 /// regardless, so this is the only place a misspelling is caught.
-fn check_index_usages(
-    index_usages: Vec<(String, String, DeclaredBy)>,
+fn check_typed_usages(
+    typed_usages: Vec<(TypedSpelling, DeclaredBy)>,
     solved: &HashMap<Identifier, (Option<String>, String, String)>,
-) -> Result<(), Box<IndexUsageMismatchError>> {
-    for (usage_publisher, usage_name, declared_by) in index_usages {
-        let identifier = Identifier::from_pub_name(&usage_publisher, &usage_name);
+) -> Result<(), Box<TypedUsageMismatchError>> {
+    for (usage, declared_by) in typed_usages {
+        let identifier = Identifier::from_pub_name(&usage.publisher, &usage.name);
         // Not being in the solution is not a mismatch: e.g. a project the
         // caller provides, or one already in the lock
         let Some((publisher, name, version)) = solved.get(&identifier) else {
             continue;
         };
-        if publisher.as_deref() != Some(usage_publisher.as_str()) || *name != usage_name {
-            return Err(Box::new(IndexUsageMismatchError {
-                usage_publisher,
-                usage_name,
+        if publisher.as_deref() != Some(usage.publisher.as_str()) || *name != usage.name {
+            return Err(Box::new(TypedUsageMismatchError {
+                kind: usage.kind,
+                usage_publisher: usage.publisher,
+                usage_name: usage.name,
                 declared_by,
                 version: version.clone(),
                 publisher: publisher.clone(),

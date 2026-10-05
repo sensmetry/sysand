@@ -181,23 +181,6 @@ impl LocalKParProject {
         }
     }
 
-    /// Assumes the project is at archive root
-    pub fn new_for_solve(
-        path: impl Into<Utf8PathBuf>,
-        nominal_path: Option<Utf8UnixPathBuf>,
-        publisher: Option<String>,
-        name: String,
-    ) -> Self {
-        Self {
-            nominal_path,
-            root: KparInnerPath::Root,
-            init: OnceCell::new(),
-            archive_path: path.into(),
-            expected: None,
-            expected_pub_name: Some((publisher, name)),
-        }
-    }
-
     /// Construct from lockfile information, where everything is known
     pub fn new_for_sync(
         path: impl Into<Utf8PathBuf>,
