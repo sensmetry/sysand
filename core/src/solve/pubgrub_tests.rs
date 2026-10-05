@@ -1786,6 +1786,83 @@ mod index_usages {
         assert_broken_index_version(Err(err));
     }
 
+    /// A dependency's index usage of a broken version names the dependency,
+    /// in its version, and that the usage is not the user's to edit
+    #[test]
+    fn broken_version_of_a_dependency_names_the_dependency() {
+        let mid = memory_project(
+            "mid",
+            "1.3.0",
+            vec![InterchangeProjectUsageRaw::Index {
+                publisher: "acme".to_owned(),
+                name: "lib".to_owned(),
+                version_constraint: "*".to_owned(),
+            }],
+        );
+        let mut resolver = lib_with_broken_newest();
+        resolver
+            .projects
+            .insert(Identifier::from_pub_name("acme", "mid"), vec![mid]);
+        let root = InterchangeProjectUsage::Index {
+            publisher: "acme".to_owned(),
+            name: "mid".to_owned(),
+            version_constraint: VersionReq::parse("^1").unwrap(),
+        };
+
+        let err = super::super::solve(vec![root], None, resolver).unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "version 2.0.0 offered for index usage `acme/lib` (*),\n\
+             which dependency `pkg:sysand/acme/mid` 1.3.0 declares, is not a valid project,\n\
+             and a broken version fails the solve instead of being skipped;\n\
+             the usage is not yours to edit: it has to be fixed by that dependency's \
+             publisher, or the version by its own"
+        );
+        assert_eq!(
+            std::error::Error::source(&err).map(ToString::to_string),
+            Some("one of its usages is invalid".to_owned())
+        );
+        assert_broken_index_version(Err(err));
+    }
+
+    /// The usages of the projects being locked are read first, so a broken
+    /// version that one of them declares is reported as the user's own, even
+    /// when a dependency declares the same usage (e.g. a workspace member
+    /// that another member uses)
+    #[test]
+    fn broken_version_of_a_requested_usage_is_reported_as_the_users_own() {
+        let mid = memory_project(
+            "mid",
+            "1.3.0",
+            vec![InterchangeProjectUsageRaw::Index {
+                publisher: "acme".to_owned(),
+                name: "lib".to_owned(),
+                version_constraint: "*".to_owned(),
+            }],
+        );
+        let mut resolver = lib_with_broken_newest();
+        resolver
+            .projects
+            .insert(Identifier::from_pub_name("acme", "mid"), vec![mid]);
+        let mid_usage = InterchangeProjectUsage::Index {
+            publisher: "acme".to_owned(),
+            name: "mid".to_owned(),
+            version_constraint: VersionReq::parse("^1").unwrap(),
+        };
+
+        let err =
+            super::super::solve(vec![mid_usage, index_usage("*")], None, resolver).unwrap_err();
+
+        assert!(
+            err.to_string().ends_with(
+                "exclude it with a version constraint, or have its publisher fix or yank it"
+            ),
+            "{err}"
+        );
+        assert!(!err.to_string().contains("dependency"), "{err}");
+    }
+
     #[test]
     fn broken_version_excluded_by_the_constraint_is_not_looked_at() {
         let result = super::super::solve(vec![index_usage("^1")], None, lib_with_broken_newest());
