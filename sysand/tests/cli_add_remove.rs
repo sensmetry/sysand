@@ -3299,3 +3299,81 @@ fn add_index_usage_without_lock_refuses_inconsistent_spellings()
 
     Ok(())
 }
+
+/// Adding a usage that is already present still locks and syncs, since the
+/// environment may be missing or stale
+#[test]
+fn add_already_present_usage_still_syncs() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("main", "add_present_syncs", "1.2.3")?;
+    out.assert().success();
+    cli_init_project_in(&cwd, Some("dep"), "Acme", Some("Dep"), Some("1.0.0"), None)?
+        .assert()
+        .success();
+    let config_path = cwd.join("sysand.toml");
+    run_sysand_in(
+        &cwd,
+        [
+            "add",
+            "--no-index",
+            "--iri",
+            "urn:kpar:dep",
+            "--from-path",
+            "dep",
+        ],
+        Some(config_path.as_str()),
+    )?
+    .assert()
+    .success();
+    let env = cwd.join(DEFAULT_ENV_NAME);
+    assert!(env.is_dir());
+    std::fs::remove_dir_all(&env)?;
+
+    run_sysand_in(
+        &cwd,
+        ["add", "--no-index", "--iri", "urn:kpar:dep"],
+        Some(config_path.as_str()),
+    )?
+    .assert()
+    .success()
+    .stderr(contains("since it is already present"));
+
+    assert!(env.is_dir(), "the environment must be synced again");
+
+    Ok(())
+}
+
+/// Adding an index usage that is already present, without a constraint,
+/// leaves it as it is but still locks
+#[test]
+fn add_already_present_index_usage_still_locks() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("main", "add_present_locks", "1.2.3")?;
+    out.assert().success();
+    install_in_env(&cwd, "Acme Labs", "My Lib", "1.0.0")?;
+    run_sysand_in(
+        &cwd,
+        ["add", "--no-sync", "--no-index", "Acme Labs/My Lib"],
+        None,
+    )?
+    .assert()
+    .success();
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let lock_path = cwd.join("sysand-lock.toml");
+    std::fs::remove_file(&lock_path)?;
+
+    run_sysand_in(
+        &cwd,
+        ["add", "--no-sync", "--no-index", "Acme Labs/My Lib"],
+        None,
+    )?
+    .assert()
+    .success()
+    .stderr(contains("since it is already present"));
+
+    assert_eq!(
+        std::fs::read_to_string(cwd.join(".project.json"))?,
+        info_json
+    );
+    assert!(lock_path.is_file(), "the lockfile must be written again");
+
+    Ok(())
+}
