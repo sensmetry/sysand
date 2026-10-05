@@ -41,6 +41,22 @@ fn index(publisher: &str, name: &str, constraint: &str) -> InterchangeProjectUsa
     }
 }
 
+fn directory(dir: &str, publisher: &str, name: &str) -> InterchangeProjectUsageRaw {
+    InterchangeProjectUsageRaw::Directory {
+        dir: dir.to_owned(),
+        publisher: publisher.to_owned(),
+        name: name.to_owned(),
+    }
+}
+
+fn kpar(kpar_path: &str, publisher: &str, name: &str) -> InterchangeProjectUsageRaw {
+    InterchangeProjectUsageRaw::KparPath {
+        kpar_path: kpar_path.to_owned(),
+        publisher: publisher.to_owned(),
+        name: name.to_owned(),
+    }
+}
+
 fn project_with_usage(usage: InterchangeProjectUsageRaw) -> InMemoryProject {
     let mut project = project();
     project.info.as_mut().unwrap().usage = vec![usage];
@@ -161,7 +177,7 @@ fn add_refuses_an_index_usage_spelled_differently() {
 
     assert_matches!(
         err,
-        AddError::IndexUsageSpelledDifferently { existing, new }
+        AddError::TypedUsageSpelledDifferently { kind: "an index", existing, new }
             if existing == "Acme Labs/My Lib" && new == "acme labs/my lib"
     );
     assert_eq!(project.info.unwrap().usage.len(), 1);
@@ -193,5 +209,50 @@ fn add_refuses_a_legacy_purl_over_an_index_usage() {
             existing: "an index",
             ..
         }
+    );
+}
+
+/// Directory and KPAR usages of the same project, spelled differently and
+/// from another path, are refused the way index usages are
+#[test]
+fn add_refuses_a_path_usage_spelled_differently() {
+    for (existing, new, kind) in [
+        (
+            directory("lib", "Acme Labs", "My Lib"),
+            directory("other", "acme labs", "my lib"),
+            "a directory",
+        ),
+        (
+            kpar("lib.kpar", "Acme Labs", "My Lib"),
+            kpar("other.kpar", "acme labs", "my lib"),
+            "a KPAR path",
+        ),
+    ] {
+        let mut project = project_with_usage(existing.clone());
+
+        let err = do_add(&mut project, &new).unwrap_err();
+
+        assert_eq!(
+            format_err(&err),
+            format!(
+                "`acme labs/my lib` is already declared as {kind} usage `Acme Labs/My Lib`;\n\
+                 a typed usage must spell the publisher and name exactly as the project does"
+            )
+        );
+        assert_eq!(project.info.unwrap().usage, [existing]);
+    }
+}
+
+/// From the same path, the project was renamed, so the usage takes the new
+/// spelling
+#[test]
+fn add_respells_a_path_usage_from_the_same_path() {
+    let mut project = project_with_usage(directory("lib", "Acme Labs", "My Lib"));
+
+    do_add(&mut project, &directory("lib", "acme labs", "my lib")).unwrap();
+
+    assert_eq!(
+        project.info.unwrap().usage,
+        [directory("lib", "acme labs", "my lib")]
     );
 }

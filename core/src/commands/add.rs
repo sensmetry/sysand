@@ -37,13 +37,19 @@ pub enum AddError<ProjectError> {
         existing: &'static str,
         new: &'static str,
     },
-    /// An index usage of the same project is already declared, but spelled
-    /// differently. Only one of the spellings can match the project's own.
+    /// A typed usage of the same kind and project is already declared, but
+    /// spelled differently. Only one of the spellings can match the
+    /// project's own.
     #[error(
-        "`{new}` is already declared as the index usage `{existing}`;\n\
-        an index usage must spell the publisher and name exactly as the project does"
+        "`{new}` is already declared as {kind} usage `{existing}`;\n\
+        a typed usage must spell the publisher and name exactly as the project does"
     )]
-    IndexUsageSpelledDifferently { existing: String, new: String },
+    TypedUsageSpelledDifferently {
+        /// With an article, e.g. "an index"
+        kind: &'static str,
+        existing: String,
+        new: String,
+    },
 }
 
 /// Whether `publisher` and `name` are both in normalized form, that is,
@@ -371,7 +377,6 @@ pub fn do_add<P: ProjectMut>(
                 name: new_name,
                 version_constraint: new_vc,
             } => {
-                let new_identifier = Identifier::from_pub_name(new_publisher, new_name);
                 for u in &mut info.usage {
                     let InterchangeProjectUsageRaw::Index {
                         publisher,
@@ -382,15 +387,6 @@ pub fn do_add<P: ProjectMut>(
                         continue;
                     };
                     if publisher != new_publisher || name != new_name {
-                        if !publisher.is_empty()
-                            && !name.is_empty()
-                            && Identifier::from_pub_name(&*publisher, &*name) == new_identifier
-                        {
-                            return Err(AddError::IndexUsageSpelledDifferently {
-                                existing: format!("{publisher}/{name}"),
-                                new: format!("{new_publisher}/{new_name}"),
-                            });
-                        }
                         continue;
                     }
                     // TODO: more intelligent merging of constraints
@@ -415,14 +411,26 @@ pub fn do_add<P: ProjectMut>(
             }
         }
         if !dont_add {
-            // Every same-kind match has been merged above, so anything left
-            // sharing this usage's identity is a usage of a different kind:
-            // the same project declared twice, from two sources.
+            // Every same-kind usage spelled the same has been merged above, so
+            // anything left sharing this usage's identity is either of the
+            // same kind but spelled differently, or of a different kind: the
+            // same project declared twice, from two sources.
             if let Some(identifier) = Identifier::from_unvalidated_usage(&usage)
                 && let Some(existing) = info.usage.iter().find(|u| {
                     Identifier::from_unvalidated_usage(u).is_some_and(|id| id == identifier)
                 })
             {
+                if let (Some((publisher, name)), Some((new_publisher, new_name))) = (
+                    existing.typed_publisher_name(),
+                    usage.typed_publisher_name(),
+                ) && std::mem::discriminant(existing) == std::mem::discriminant(&usage)
+                {
+                    return Err(AddError::TypedUsageSpelledDifferently {
+                        kind: usage.kind_with_article(),
+                        existing: format!("{publisher}/{name}"),
+                        new: format!("{new_publisher}/{new_name}"),
+                    });
+                }
                 return Err(AddError::DuplicateIdentifier {
                     identifier: identifier.into_string(),
                     existing: existing.kind_with_article(),
