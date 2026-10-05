@@ -14,7 +14,7 @@ use typed_path::Utf8UnixPathBuf;
 use crate::{
     commands::env::do_env_install_project,
     env::{ProjectChecksumResult, ReadEnvironment, WriteEnvironment, utils::ErrorBound},
-    lock::{Lock, Source},
+    lock::{Lock, Project, Source},
     project::{ProjectChecksum, ProjectRead},
     utils::{ProvidedProjects, format_err},
 };
@@ -35,6 +35,8 @@ pub enum SyncError<
         expected: ProjectChecksum,
         actual: ProjectChecksum,
     },
+    #[error(transparent)]
+    ProjectMismatch(Box<ProjectMismatchError>),
     #[error("project with identifiers {0:?} has no known sources in lockfile")]
     MissingSource(Box<[String]>),
     #[error("no IRI given for project with src_path = `{0}` in lockfile")]
@@ -96,6 +98,23 @@ pub enum SyncError<
     EnvRead(Env::ReadError),
     #[error("environment write error")]
     EnvWrite(Env::WriteError),
+}
+
+/// What a source provides is not the project the lockfile records
+#[derive(Error, Debug)]
+#[error(
+    "project `{id}` from {source_kind} `{source_location}` has {field} `{actual}`,\n\
+    but the lockfile records {field} `{expected}`"
+)]
+pub struct ProjectMismatchError {
+    pub id: String,
+    /// The lockfile's key for the source, e.g. `src_path`
+    pub source_kind: &'static str,
+    pub source_location: String,
+    /// `publisher`, `name` or `version`
+    pub field: &'static str,
+    pub expected: String,
+    pub actual: String,
 }
 
 /// One project `do_sync` installed, pruned or kept, by its first identifier.
@@ -166,12 +185,11 @@ pub fn do_sync<
 ) -> Result<(), SyncError<UrlParseError, GitError, Environment>>
 where
     Environment: ReadEnvironment + WriteEnvironment,
-    CreateSrcPathStorage: Fn(Utf8UnixPathBuf, Option<String>, String, String) -> SrcPathStorage,
+    CreateSrcPathStorage: Fn(Utf8UnixPathBuf, String) -> SrcPathStorage,
     SrcPathStorage: ProjectRead,
     CreateRemoteSrcStorage: Fn(String, String) -> Result<RemoteSrcStorage, UrlParseError>,
     RemoteSrcStorage: ProjectRead,
-    CreateKParPathStorage:
-        Fn(Utf8UnixPathBuf, NonZeroU64, String, Option<String>, String) -> KParPathStorage,
+    CreateKParPathStorage: Fn(Utf8UnixPathBuf, NonZeroU64, String) -> KParPathStorage,
     KParPathStorage: ProjectRead,
     CreateRemoteKParStorage:
         Fn(String, NonZeroU64, String) -> Result<RemoteKParStorage, UrlParseError>,
@@ -263,13 +281,15 @@ where
                     let src_path_storage = src_path_storage
                         .as_ref()
                         .ok_or_else(|| SyncError::MissingSrcPathStorage(uri.as_str().into()))?;
-                    let storage = src_path_storage(
-                        src_path.clone(),
-                        project.publisher.clone(),
-                        project.name.clone(),
-                        checksum.clone(),
-                    );
+                    let storage = src_path_storage(src_path.clone(), checksum.clone());
                     log::debug!("trying to install `{uri}` from src_path `{src_path}`");
+                    check_against_lock(
+                        uri,
+                        project,
+                        ("src_path", src_path.as_str()),
+                        &storage,
+                        true,
+                    )?;
                     try_install(
                         uri,
                         &project.version,
@@ -294,6 +314,13 @@ where
                             SyncError::InvalidRemoteSource(remote_src.as_str().into(), e)
                         })?;
                     log::debug!("trying to install `{uri}` from remote_src: {remote_src}");
+                    check_against_lock(
+                        uri,
+                        project,
+                        ("remote_src", remote_src.as_str()),
+                        &storage,
+                        true,
+                    )?;
                     try_install(
                         uri,
                         &project.version,
@@ -313,14 +340,16 @@ where
                     let kpar_path_storage = kpar_path_storage.as_ref().ok_or_else(|| {
                         SyncError::MissingLocalKparStorage(kpar_path.as_str().into())
                     })?;
-                    let storage = kpar_path_storage(
-                        kpar_path.clone(),
-                        *kpar_size,
-                        kpar_digest.to_owned(),
-                        project.publisher.clone(),
-                        project.name.clone(),
-                    );
+                    let storage =
+                        kpar_path_storage(kpar_path.clone(), *kpar_size, kpar_digest.to_owned());
                     log::debug!("trying to install `{uri}` from kpar_path: {kpar_path}");
+                    check_against_lock(
+                        uri,
+                        project,
+                        ("kpar_path", kpar_path.as_str()),
+                        &storage,
+                        true,
+                    )?;
                     try_install(
                         uri,
                         &project.version,
@@ -347,6 +376,13 @@ where
                     )
                     .map_err(|e| SyncError::InvalidRemoteSource(remote_kpar.as_str().into(), e))?;
                     log::debug!("trying to install `{uri}` from remote_kpar: {remote_kpar}");
+                    check_against_lock(
+                        uri,
+                        project,
+                        ("remote_kpar", remote_kpar.as_str()),
+                        &storage,
+                        true,
+                    )?;
                     try_install(
                         uri,
                         &project.version,
@@ -372,6 +408,13 @@ where
                                 SyncError::InvalidRemoteSource(index_kpar.as_str().into(), e)
                             })?;
                     log::debug!("trying to install `{uri}` from index_kpar: {index_kpar}");
+                    check_against_lock(
+                        uri,
+                        project,
+                        ("index_kpar", index_kpar.as_str()),
+                        &storage,
+                        true,
+                    )?;
                     try_install(
                         uri,
                         &project.version,
@@ -395,6 +438,15 @@ where
                     let storage = remote_git_storage(remote_git.to_string())
                         .map_err(|e| SyncError::GitDownload(remote_git.as_str().into(), e))?;
                     log::debug!("trying to install `{uri}` from remote_git: {remote_git}");
+                    // Not the version: the lockfile does not pin a commit, so
+                    // the version at the URL may have changed since locking
+                    check_against_lock(
+                        uri,
+                        project,
+                        ("remote_git", remote_git.as_str()),
+                        &storage,
+                        false,
+                    )?;
                     do_env_install_project(uri, &project.version, &storage, None, env, true, true)
                         .map_err(|e| SyncError::InstallFail {
                             id: uri.to_owned(),
@@ -470,6 +522,51 @@ where
 
     if !updated {
         log::info!("{:>12} nothing to do: env is already up to date", ' ');
+    }
+    Ok(())
+}
+
+/// Check that `storage`, from `source` (its kind and location), is the
+/// project `project` records in the lockfile: the same publisher, name and,
+/// with `check_version`, version. The checksum, where a source has one, is
+/// checked when installing.
+fn check_against_lock<U: ErrorBound, G: ErrorBound, E: ReadEnvironment + WriteEnvironment>(
+    id: &str,
+    project: &Project,
+    (source_kind, source_location): (&'static str, &str),
+    storage: &impl ProjectRead,
+    check_version: bool,
+) -> Result<(), SyncError<U, G, E>> {
+    let info = storage
+        .get_info()
+        .map_err(|e| SyncError::ProjectRead(format_err(e)))?
+        .ok_or_else(|| {
+            SyncError::ProjectRead(format!(
+                "project `{id}` from {source_kind} `{source_location}` has no project information"
+            ))
+        })?;
+    let mismatch = |field, expected: &str, actual: &str| {
+        SyncError::ProjectMismatch(Box::new(ProjectMismatchError {
+            id: id.to_owned(),
+            source_kind,
+            source_location: source_location.to_owned(),
+            field,
+            expected: expected.to_owned(),
+            actual: actual.to_owned(),
+        }))
+    };
+    if info.publisher != project.publisher {
+        return Err(mismatch(
+            "publisher",
+            project.publisher.as_deref().unwrap_or("<none>"),
+            info.publisher.as_deref().unwrap_or("<none>"),
+        ));
+    }
+    if info.name != project.name {
+        return Err(mismatch("name", &project.name, &info.name));
+    }
+    if check_version && info.version != project.version {
+        return Err(mismatch("version", &project.version, &info.version));
     }
     Ok(())
 }

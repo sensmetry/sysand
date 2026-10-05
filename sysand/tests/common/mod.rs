@@ -353,3 +353,21 @@ pub fn build_index_kpar_bytes(
 
     (buf, info, meta)
 }
+
+/// Rename the project in `dir` from `from` to `to`, by editing its `.project.json`
+pub fn rename_project(
+    dir: &camino::Utf8Path,
+    from: &str,
+    to: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = dir.join(".project.json");
+    let info = std::fs::read_to_string(&path)?;
+    let renamed = info.replacen(
+        &format!(r#""name": "{from}""#),
+        &format!(r#""name": "{to}""#),
+        1,
+    );
+    assert_ne!(info, renamed, "{info}");
+    std::fs::write(path, renamed)?;
+    Ok(())
+}

@@ -201,8 +201,7 @@ fn has_version_verified_version_not_found_for_known_uri() {
 // --- do_sync outcome ------------------------------------------------------
 
 type NoRemoteSrc = fn(String, String) -> Result<InMemoryProject, Infallible>;
-type NoKparPath =
-    fn(Utf8UnixPathBuf, NonZeroU64, String, Option<String>, String) -> InMemoryProject;
+type NoKparPath = fn(Utf8UnixPathBuf, NonZeroU64, String) -> InMemoryProject;
 type NoRemoteKpar = fn(String, NonZeroU64, String) -> Result<InMemoryProject, Infallible>;
 type NoGit = fn(String) -> Result<InMemoryProject, Infallible>;
 
@@ -248,12 +247,7 @@ fn run_sync(
     let result = do_sync(
         lock,
         env,
-        Some(
-            |_src_path: Utf8UnixPathBuf,
-             _publisher: Option<String>,
-             _name: String,
-             _checksum: String| storage_example(),
-        ),
+        Some(|_src_path: Utf8UnixPathBuf, _checksum: String| storage_example()),
         None::<NoRemoteSrc>,
         None::<NoKparPath>,
         None::<NoRemoteKpar>,
@@ -328,4 +322,117 @@ fn sync_outcome_reports_pruned_unless_no_prune() {
     assert_eq!(outcome.pruned, vec![synced("urn:kpar:extra", "0.1.0")]);
     assert_eq!(outcome.kept, vec![synced(URI, "1.2.3")]);
     assert_eq!(env_uris(&env), vec![URI]);
+}
+
+// --- do_sync checks against the lockfile ---------------------------------
+
+/// Sync `lock`, whose projects all come from git, each the project
+/// `storage_example()` gives
+fn run_sync_git(
+    lock: &Lock,
+    env: &mut MemoryStorageEnvironment<InMemoryProject>,
+) -> Result<(), SyncError<Infallible, Infallible, MemoryStorageEnvironment<InMemoryProject>>> {
+    do_sync(
+        lock,
+        env,
+        None::<fn(Utf8UnixPathBuf, String) -> InMemoryProject>,
+        None::<NoRemoteSrc>,
+        None::<NoKparPath>,
+        None::<NoRemoteKpar>,
+        None::<NoRemoteKpar>,
+        Some(
+            |_remote_git: String| -> Result<InMemoryProject, Infallible> { Ok(storage_example()) },
+        ),
+        &HashMap::default(),
+        false,
+        &mut SyncOutcome::default(),
+    )
+}
+
+fn git_entry() -> Project {
+    Project {
+        sources: vec![Source::RemoteGit {
+            remote_git: fluent_uri::Iri::parse("https://example.com/install_test.git".to_owned())
+                .unwrap(),
+        }],
+        ..local_src_entry()
+    }
+}
+
+#[test]
+fn sync_refuses_a_project_unlike_the_lock() {
+    for (entry, field, expected, actual) in [
+        (
+            Project {
+                publisher: Some("acme".into()),
+                ..local_src_entry()
+            },
+            "publisher",
+            "acme",
+            "<none>",
+        ),
+        (
+            Project {
+                name: "other".into(),
+                ..local_src_entry()
+            },
+            "name",
+            "other",
+            "install_test",
+        ),
+        (
+            Project {
+                version: "9.9.9".into(),
+                ..local_src_entry()
+            },
+            "version",
+            "9.9.9",
+            "1.2.3",
+        ),
+    ] {
+        let mut env = new_env();
+        let (result, outcome) = run_sync(&lock_of(vec![entry]), &mut env, false);
+        match result {
+            Err(SyncError::ProjectMismatch(mismatch)) => {
+                assert_eq!(
+                    (
+                        mismatch.field,
+                        mismatch.expected.as_str(),
+                        mismatch.actual.as_str()
+                    ),
+                    (field, expected, actual)
+                );
+                assert_eq!(mismatch.source_kind, "src_path");
+            }
+            other => panic!("{field}: {other:?}"),
+        }
+        assert!(!outcome.wrote(), "{field}");
+        assert!(env_uris(&env).is_empty(), "{field}");
+    }
+}
+
+/// The lockfile does not pin a git source to a commit, so the version at the
+/// URL may have changed since locking; the publisher and name may not
+#[test]
+fn sync_checks_a_git_project_but_not_its_version() {
+    let mut env = new_env();
+    let moved = Project {
+        version: "9.9.9".into(),
+        ..git_entry()
+    };
+    run_sync_git(&lock_of(vec![moved]), &mut env).unwrap();
+
+    let renamed = Project {
+        name: "other".into(),
+        ..git_entry()
+    };
+    match run_sync_git(&lock_of(vec![renamed]), &mut new_env()) {
+        Err(SyncError::ProjectMismatch(mismatch)) => {
+            assert_eq!(
+                (mismatch.field, mismatch.source_kind),
+                ("name", "remote_git")
+            );
+        }
+        other => panic!("{other:?}"),
+    }
 }

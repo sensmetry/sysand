@@ -4,10 +4,7 @@
 use camino_tempfile::tempdir;
 use zip::write::SimpleFileOptions;
 
-use std::{
-    assert_matches,
-    io::{Read as _, Write as _},
-};
+use std::io::{Read as _, Write as _};
 
 use crate::project::local_kpar::KparInnerPath;
 
@@ -95,59 +92,6 @@ fn nested_kpar_archive() -> Result<(), Box<dyn std::error::Error>> {
         .read_to_string(&mut src)?;
 
     assert_eq!(src, "package Test;");
-
-    Ok(())
-}
-
-#[test]
-fn expected_pub_name_check() -> Result<(), Box<dyn std::error::Error>> {
-    let cwd = tempdir()?;
-    let zip_path = cwd.path().join("test.kpar");
-
-    {
-        let file = std::fs::File::create(&zip_path).unwrap();
-        let mut zip = zip::ZipWriter::new(file);
-
-        let options = SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Stored)
-            .unix_permissions(0o755);
-
-        zip.start_file(".project.json", options)?;
-        zip.write_all(
-            br#"{"publisher":"acme","name":"expected_pub_name_check","version":"1.2.3"}"#,
-        )?;
-        zip.start_file(".meta.json", options)?;
-        zip.write_all(br#"{"index":{},"created":"123"}"#)?;
-
-        zip.finish().unwrap();
-    }
-
-    let project = super::LocalKParProject::new_for_sync(
-        &zip_path,
-        super::KparInnerPath::Root,
-        None,
-        Some("acme".to_owned()),
-        "expected_pub_name_check".to_owned(),
-        None,
-    );
-
-    let (Some(info), Some(_meta)) = project.get_project()? else {
-        panic!();
-    };
-    assert_eq!(info.name, "expected_pub_name_check");
-
-    let mismatched = super::LocalKParProject::new_for_sync(
-        &zip_path,
-        super::KparInnerPath::Root,
-        None,
-        Some("acme".to_owned()),
-        "wrong-name".to_owned(),
-        None,
-    );
-    assert_matches!(
-        mismatched.get_info(),
-        Err(super::LocalKParError::NameMismatch { .. })
-    );
 
     Ok(())
 }

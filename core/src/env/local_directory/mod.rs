@@ -403,17 +403,6 @@ pub enum LocalWriteError {
     MissingMeta,
     #[error("project is missing `.project.json` and/or `.meta.json` files")]
     MissingInfoMeta,
-    #[error(
-        "project publisher `{}` does not match expected `{}`",
-        if let Some(a) = actual { a.as_str() } else { "<none>" },
-        if let Some(p) = expected { p.as_str() } else { "<none>" }
-    )]
-    PublisherMismatch {
-        expected: Option<String>,
-        actual: Option<String>,
-    },
-    #[error("project name `{actual}` does not match expected `{expected}`")]
-    NameMismatch { expected: String, actual: String },
     #[error("project `{0}` not found in env")]
     ProjectNotFound(String),
 }
@@ -444,12 +433,6 @@ impl From<LocalSrcError> for LocalWriteError {
             LocalSrcError::ImpossibleRelativePath(err) => Self::ImpossibleRelativePath(err),
             LocalSrcError::MissingMeta => Self::MissingMeta,
             LocalSrcError::MissingInfoMeta => Self::MissingInfoMeta,
-            LocalSrcError::PublisherMismatch { expected, actual } => {
-                Self::PublisherMismatch { expected, actual }
-            }
-            LocalSrcError::NameMismatch { expected, actual } => {
-                Self::NameMismatch { expected, actual }
-            }
         }
     }
 }

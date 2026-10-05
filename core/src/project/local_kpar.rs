@@ -67,9 +67,6 @@ pub struct LocalKParProject {
     /// Should be absolute.
     archive_path: Utf8PathBuf,
     expected: Option<KparMeta>,
-    // Separate from `expected`, since usages know publisher+name,
-    // but not size/checksum
-    expected_pub_name: Option<(Option<String>, String)>,
     /// Optionally specify name of project directory inside archive.
     /// If none, currently always tries to guess before reading
     /// any project files.
@@ -120,19 +117,6 @@ pub enum LocalKParError {
     },
     #[error("kpar at `{path}` is an empty file")]
     EmptyKpar { path: Box<str> },
-    #[error(
-        "project publisher `{}` does not match expected `{}`",
-        if let Some(a) = actual { a.as_str() } else { "<none>" },
-        if let Some(p) = expected { p.as_str() } else { "<none>" }
-    )]
-    PublisherMismatch {
-        expected: Option<String>,
-        actual: Option<String>,
-    },
-    #[error("project name `{actual}` does not match expected `{expected}`")]
-    NameMismatch { expected: String, actual: String },
-    #[error("project is missing project information file `.project.json`")]
-    MissingInfo,
 }
 
 impl From<FsIoError> for LocalKParError {
@@ -177,26 +161,20 @@ impl LocalKParProject {
             init: OnceCell::new(),
             archive_path: path.into(),
             expected: None,
-            expected_pub_name: None,
         }
     }
 
-    /// Construct from lockfile information, where everything is known
-    pub fn new_for_sync(
+    /// Like [`Self::new_access`], but the archive must have the size and
+    /// digest `expected`, e.g. those a lockfile records
+    pub fn new_with_expected(
         path: impl Into<Utf8PathBuf>,
         root: KparInnerPath,
         nominal_path: Option<Utf8UnixPathBuf>,
-        publisher: Option<String>,
-        name: String,
-        expected: Option<KparMeta>,
+        expected: KparMeta,
     ) -> Self {
         Self {
-            nominal_path,
-            root,
-            init: OnceCell::new(),
-            archive_path: path.into(),
-            expected,
-            expected_pub_name: Some((publisher, name)),
+            expected: Some(expected),
+            ..Self::new_access(path, root, nominal_path)
         }
     }
 
@@ -226,24 +204,6 @@ impl LocalKParProject {
                         path: self.archive_path.as_str().into(),
                         expected: expected.sha256_hex.clone(),
                         computed: meta.sha256_hex,
-                    });
-                }
-            }
-            // No need to check publisher/name if checksum is already verified,
-            // but this will ensure that e.g. lockfile is accurate
-            if let Some((expected_publisher, expected_name)) = &self.expected_pub_name {
-                let Some(info) = inner.get_info()? else {
-                    return Err(LocalKParError::MissingInfo);
-                };
-                if expected_publisher != &info.publisher {
-                    return Err(LocalKParError::PublisherMismatch {
-                        expected: expected_publisher.to_owned(),
-                        actual: info.publisher,
-                    });
-                } else if expected_name != &info.name {
-                    return Err(LocalKParError::NameMismatch {
-                        expected: expected_name.to_owned(),
-                        actual: info.name,
                     });
                 }
             }
