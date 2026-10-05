@@ -645,9 +645,9 @@ fn parse_index_value<T, E: Display>(
     })
 }
 
-/// Parses an [`IndexLocation`], see [`parse_index_value`]
+/// Parses an [`IndexLocation`], see [`parse_index_value`].
 #[derive(Clone, Debug)]
-struct IndexLocationParser;
+pub struct IndexLocationParser;
 
 impl clap::builder::TypedValueParser for IndexLocationParser {
     type Value = IndexLocation;
@@ -1985,10 +1985,12 @@ fn parse_https_iri(s: &str) -> Result<Iri<String>, fluent_uri::ParseError> {
     })
 }
 
+/// Parse an SPDX license expression.
+///
 /// `spdx::ParseError` is a multiline diagram (the expression with a caret
 /// under the offending term), so it must start on a line of its own to
 /// stay aligned; clap puts the parser's error right after `...': `.
-fn parse_spdx_expression(s: &str) -> Result<spdx::Expression, String> {
+pub fn parse_spdx_expression(s: &str) -> Result<spdx::Expression, String> {
     use crate::style::USAGE;
     spdx::Expression::parse(s).map_err(|err| {
         format!(
@@ -2096,7 +2098,7 @@ impl ValueEnum for MetamodelVersion {
 }
 
 /// Parse a `<publisher>/<name>` project identifier
-fn parse_project_identifier(s: &str) -> Result<(ProjectPublisher, ProjectName), String> {
+pub fn parse_project_identifier(s: &str) -> Result<(ProjectPublisher, ProjectName), String> {
     let Some((publisher, name)) = s.split_once('/') else {
         return Err("identifier is not of the form `<publisher>/<name>`".to_owned());
     };
@@ -2106,10 +2108,12 @@ fn parse_project_identifier(s: &str) -> Result<(ProjectPublisher, ProjectName), 
     ))
 }
 
-fn parse_project_publisher(s: &str) -> Result<ProjectPublisher, ProjectFieldError> {
+/// Parse a project publisher
+pub fn parse_project_publisher(s: &str) -> Result<ProjectPublisher, ProjectFieldError> {
     ProjectPublisher::parse(s.to_owned()).map_err(|(_, e)| e)
 }
 
-fn parse_project_name(s: &str) -> Result<ProjectName, ProjectFieldError> {
+/// Parse a project name
+pub fn parse_project_name(s: &str) -> Result<ProjectName, ProjectFieldError> {
     ProjectName::parse(s.to_owned()).map_err(|(_, e)| e)
 }
