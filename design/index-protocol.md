@@ -432,6 +432,14 @@ A conforming sysand index server MUST uphold:
   them exactly as the project does, so a project spelled two ways could not
   be named by any one index usage. A new version spelled differently from
   the project's existing versions MUST be refused.
+- **Index usages spelled as the projects they name.** A new version whose
+  `usage` contains an index usage ([§8]) of a project the index holds MUST
+  be refused unless that usage spells `publisher` and `name` exactly as the
+  project's versions whose `status` is not `removed` do. A published
+  version's `usage` never changes (see version persistence, below), so a
+  misspelled index usage would fail every lock that reaches it, and no one
+  downstream could fix it. Index usages of projects the index does not hold
+  are not checked, as they may resolve from another index.
 - **Version file presence.** Every version listed in `versions.json` with
   `status` other than `removed` has all three per-version files
   available for retrieval.
