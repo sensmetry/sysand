@@ -275,3 +275,89 @@ fn add_respells_a_path_usage_from_the_same_path() {
         [directory("lib", "acme labs", "my lib")]
     );
 }
+
+mod spell_index_usage {
+    use std::{assert_matches, collections::HashMap};
+
+    use crate::{
+        add::{IndexSpellingError, spell_index_usage},
+        env::memory::MemoryStorageEnvironment,
+        model::InterchangeProjectInfoRaw,
+        project::{memory::InMemoryProject, utils::Identifier},
+    };
+
+    fn installed(publisher: &str, version: &str) -> InMemoryProject {
+        InMemoryProject {
+            info: Some(InterchangeProjectInfoRaw {
+                name: "My Lib".to_owned(),
+                publisher: Some(publisher.to_owned()),
+                description: None,
+                version: version.to_owned(),
+                license: None,
+                maintainer: vec![],
+                topic: vec![],
+                usage: vec![],
+                website: None,
+            }),
+            ..InMemoryProject::default()
+        }
+    }
+
+    fn env(versions: Vec<(&str, InMemoryProject)>) -> MemoryStorageEnvironment<InMemoryProject> {
+        MemoryStorageEnvironment {
+            projects: HashMap::from([(
+                Identifier::from_pub_name("acme-labs", "my-lib").into_string(),
+                versions
+                    .into_iter()
+                    .map(|(version, project)| (version.to_owned(), project))
+                    .collect(),
+            )]),
+        }
+    }
+
+    /// The installed spelling, whatever version and constraint
+    #[test]
+    fn takes_the_installed_spelling() {
+        let env = env(vec![("2.0.0", installed("ACME Labs", "2.0.0"))]);
+        assert_eq!(
+            spell_index_usage(Some(&env), "acme-labs", "my-lib").unwrap(),
+            ("ACME Labs".to_owned(), "My Lib".to_owned())
+        );
+        assert_matches!(
+            spell_index_usage(Some(&env), "Acme Labs", "My Lib"),
+            Err(IndexSpellingError::Misspelled { spelling, .. }) if spelling == "ACME Labs/My Lib"
+        );
+    }
+
+    #[test]
+    fn fails_without_project_information() {
+        let env = env(vec![("1.0.0", InMemoryProject::default())]);
+        assert_matches!(
+            spell_index_usage(Some(&env), "acme-labs", "my-lib"),
+            Err(IndexSpellingError::MissingInfo { version, .. }) if version == "1.0.0"
+        );
+    }
+
+    #[test]
+    fn fails_when_not_installed() {
+        let env = env(vec![]);
+        assert_matches!(
+            spell_index_usage(Some(&env), "acme-labs", "my-lib"),
+            Err(IndexSpellingError::NotInstalled {
+                normalized: true,
+                ..
+            })
+        );
+        assert_matches!(
+            spell_index_usage::<MemoryStorageEnvironment<InMemoryProject>>(
+                None,
+                "Acme Labs",
+                "My Lib"
+            ),
+            Err(IndexSpellingError::NotInstalled {
+                normalized: false,
+                ..
+            })
+        );
+    }
+}

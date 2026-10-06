@@ -3217,16 +3217,14 @@ fn source_override_reaches_an_index_usage_of_the_same_project_through_coalescing
     Ok(())
 }
 
-/// Without locking, a normalized spelling takes the spelling of the matching
-/// versions installed in the local environment
+/// Without locking, a normalized spelling takes the spelling of the version
+/// installed in the local environment
 #[test]
 fn add_normalized_index_usage_without_lock_takes_the_installed_spelling()
 -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = cli_init_project_basic("f", "add_index_env_spelling", "1.2.3")?;
     out.assert().success();
     install_in_env(&cwd, "Acme Labs", "My Lib", "1.0.0")?;
-    // Does not match the constraint, so its spelling does not count
-    install_in_env(&cwd, "ACME Labs", "My Lib", "2.0.0")?;
 
     run_sysand_in(
         &cwd,
@@ -3303,12 +3301,13 @@ fn add_index_usage_without_lock_needs_it_installed() -> Result<(), Box<dyn std::
         .assert()
         .failure()
         .stderr(contains(format!(
-            "{message}: no version matching `^1` is installed in the local environment"
+            "{message}: it is not installed in the local environment"
         )))
         .stderr(contains("leave out `--no-lock`"));
     }
+    assert_eq!(std::fs::read_to_string(cwd.join(".project.json"))?, before);
 
-    // Installed, but not in a version the constraint accepts
+    // Any installed version gives the spelling, whatever the constraint
     install_in_env(&cwd, "Acme Labs", "My Lib", "2.0.0")?;
     run_sysand_in(
         &cwd,
@@ -3322,26 +3321,21 @@ fn add_index_usage_without_lock_needs_it_installed() -> Result<(), Box<dyn std::
         None,
     )?
     .assert()
-    .failure()
-    .stderr(contains("no version matching `^1` is installed"));
-
-    assert_eq!(std::fs::read_to_string(cwd.join(".project.json"))?, before);
+    .success();
 
     Ok(())
 }
 
-/// Without locking, the spelling is that of the highest matching version
-/// installed in the local environment: a project spells itself the same way
-/// in every version
+/// Without locking, the spelling is that of a version installed in the
+/// local environment, whatever the constraint: a project spells itself the
+/// same way in every version
 #[test]
-fn add_index_usage_without_lock_takes_the_highest_installed_spelling()
+fn add_index_usage_without_lock_takes_the_installed_spelling_whatever_the_constraint()
 -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("f", "add_index_highest_spelling", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("f", "add_index_any_version", "1.2.3")?;
     out.assert().success();
-    install_in_env(&cwd, "Acme Labs", "My Lib", "1.0.0")?;
-    install_in_env(&cwd, "ACME Labs", "My Lib", "1.1.0")?;
-    // Does not match the constraint, so it does not count
-    install_in_env(&cwd, "acme labs", "My Lib", "2.0.0")?;
+    // Not accepted by the constraint
+    install_in_env(&cwd, "ACME Labs", "My Lib", "2.0.0")?;
 
     run_sysand_in(
         &cwd,
@@ -3361,10 +3355,9 @@ fn add_index_usage_without_lock_takes_the_highest_installed_spelling()
     // An exact spelling is checked against it, in a project that does not
     // declare the usage yet
     let (_other_dir, cwd, out) =
-        cli_init_project_basic("f", "add_index_highest_spelling_exact", "1.2.3")?;
+        cli_init_project_basic("f", "add_index_any_version_exact", "1.2.3")?;
     out.assert().success();
-    install_in_env(&cwd, "Acme Labs", "My Lib", "1.0.0")?;
-    install_in_env(&cwd, "ACME Labs", "My Lib", "1.1.0")?;
+    install_in_env(&cwd, "ACME Labs", "My Lib", "2.0.0")?;
     run_sysand_in(
         &cwd,
         [
@@ -3379,7 +3372,7 @@ fn add_index_usage_without_lock_takes_the_highest_installed_spelling()
     .assert()
     .failure()
     .stderr(contains(
-        "version 1.1.0 installed in the local environment declares itself `ACME Labs/My Lib`",
+        "version 2.0.0 installed in the local environment declares itself `ACME Labs/My Lib`",
     ));
 
     Ok(())

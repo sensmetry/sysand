@@ -441,7 +441,7 @@ fn sync_to_remote_incorrect_auth() -> Result<(), Box<dyn std::error::Error>> {
         .mock("GET", "/.meta.json")
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
-        .expect(1)
+        .expect(0)
         .create();
 
     let meta_mock_auth = server
