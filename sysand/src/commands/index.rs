@@ -98,15 +98,22 @@ pub fn command_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
             | IndexAddError::InconsistentlySpelled { .. }
             | IndexAddError::IoWithCleanupFailure { .. } => Err(IndexError::new_bare(e)),
             IndexAddError::SpelledDifferently { existing, .. } => {
-                let (publisher, name) = existing.split_once('/').unwrap_or((existing, ""));
-                Err(IndexError::new_with(
-                    format!(
+                let existing_name = &existing.name;
+                let hint = match &existing.publisher {
+                    Some(publisher) => format!(
                         "spell them as the index does with:\n\
-                sysand info publisher --set \"{publisher}\"\n\
-                sysand info name --set \"{name}\"{REBUILD_KPAR}"
+                        sysand info publisher --set \"{publisher}\"\n\
+                        sysand info name --set \"{existing_name}\"{REBUILD_KPAR}"
                     ),
-                    e,
-                ))
+                    // `sysand info` cannot unset the publisher
+                    None => format!(
+                        "the versions in the index declare no publisher, so this one cannot\n\
+                        declare one either: remove `publisher` from `.project.json`, set the\n\
+                        name with:\n\
+                        sysand info name --set \"{existing_name}\"{REBUILD_KPAR}"
+                    ),
+                };
+                Err(IndexError::new_with(hint, e))
             }
             IndexAddError::InvalidJsonFile { .. } => Err(IndexError::new_with(
                 String::from(

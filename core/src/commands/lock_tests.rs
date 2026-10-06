@@ -342,10 +342,11 @@ mod typed_usage_spelling {
             vec![("acme labs", "my lib", lib)],
         )
         .unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("resolved to version 1.0.0 of `<none>/My Lib`"),
-            "{err}"
+        assert_eq!(
+            err.to_string(),
+            "an index usage `Acme Labs/My Lib` in `app` 1.0.0 resolved to version 1.0.0 of \
+             `My Lib`, which declares no publisher, so no typed usage can name it;\n\
+             use a resource usage of it instead (e.g. `sysand add --iri <IRI>`)"
         );
     }
 

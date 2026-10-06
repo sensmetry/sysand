@@ -149,15 +149,15 @@ pub enum IndexAddError {
     /// spell them as the project does, so an index keeps one spelling per
     /// project
     #[error(
-        "{iri} is spelled `{existing}` by the versions already in the index ({versions}),\n\
-         but version {version} in `{kpar_path}` spells it `{new}`"
+        "{iri} is spelled {existing} by the versions already in the index ({versions}),\n\
+         but version {version} in `{kpar_path}` spells it {new}"
     )]
     SpelledDifferently {
         iri: Box<str>,
-        existing: Box<str>,
+        existing: Box<ProjectSpelling>,
         versions: Box<str>,
         version: Box<str>,
-        new: Box<str>,
+        new: Box<ProjectSpelling>,
         kpar_path: Box<Utf8Path>,
     },
     /// The versions already in the index disagree on the spelling of the
@@ -427,6 +427,24 @@ impl From<JsonFileError> for IndexAddError {
     }
 }
 
+/// How a project spells its publisher and name
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ProjectSpelling {
+    /// `None` when the project declares no publisher
+    pub publisher: Option<String>,
+    pub name: String,
+}
+
+impl std::fmt::Display for ProjectSpelling {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self { publisher, name } = self;
+        match publisher {
+            Some(publisher) => write!(f, "`{publisher}/{name}`"),
+            None => write!(f, "`{name}` (no publisher)"),
+        }
+    }
+}
+
 /// Check that the publisher and name `new` of version `version` are spelled
 /// the way every version of the project already in the index (in
 /// `project_path`, listed in `versions`) spells them. Removed versions are
@@ -439,10 +457,8 @@ fn check_spelling(
     version: &Version,
     kpar_path: &Utf8Path,
 ) -> Result<(), IndexAddError> {
-    let spell =
-        |publisher: Option<&str>, name: &str| format!("{}/{name}", publisher.unwrap_or("<none>"));
     // Each spelling, with the versions that use it
-    let mut spellings: BTreeMap<String, Vec<&str>> = BTreeMap::new();
+    let mut spellings: BTreeMap<ProjectSpelling, Vec<&str>> = BTreeMap::new();
     for entry in versions {
         if entry.status == VersionStatus::Removed {
             continue;
@@ -455,7 +471,10 @@ fn check_spelling(
                 source: e,
             })?;
         spellings
-            .entry(spell(info.publisher.as_deref(), &info.name))
+            .entry(ProjectSpelling {
+                publisher: info.publisher,
+                name: info.name,
+            })
             .or_default()
             .push(&entry.version);
     }
@@ -464,16 +483,18 @@ fn check_spelling(
         0 => Ok(()),
         1 => {
             let (existing, versions) = spellings.pop_first().expect("BUG: one spelling");
-            let new = spell(new.0, new.1);
-            if existing == new {
+            if (existing.publisher.as_deref(), existing.name.as_str()) == new {
                 Ok(())
             } else {
                 Err(IndexAddError::SpelledDifferently {
                     iri: iri.into(),
-                    existing: existing.into(),
+                    existing: Box::new(existing),
                     versions: list(&versions).into(),
                     version: version.to_string().into(),
-                    new: new.into(),
+                    new: Box::new(ProjectSpelling {
+                        publisher: new.0.map(ToOwned::to_owned),
+                        name: new.1.to_owned(),
+                    }),
                     kpar_path: kpar_path.into(),
                 })
             }
@@ -482,7 +503,7 @@ fn check_spelling(
             iri: iri.into(),
             spellings: spellings
                 .iter()
-                .map(|(spelling, versions)| format!("`{spelling}` ({})", list(versions)))
+                .map(|(spelling, versions)| format!("{spelling} ({})", list(versions)))
                 .collect::<Vec<_>>()
                 .join(", ")
                 .into(),
