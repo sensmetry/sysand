@@ -634,7 +634,7 @@ def test_publisher_and_name_are_kept_as_spelled(tmp_path: Path) -> None:
     before = manifest.read_text()
     with pytest.raises(
         sysand.ProjectError,
-        match="spell the usage exactly as `Acme Labs/My.Project`",
+        match="already declared as an index usage `Acme Labs/My.Project`",
     ):
         sysand.add(
             project_dir=tmp_path,

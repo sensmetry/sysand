@@ -120,26 +120,9 @@ pub fn command_add<Policy: HTTPAuthentication>(
                     version_constraint: version_constraint.to_string(),
                 }
             };
-            if no_lock {
-                let Some(version_constraint) = version_constraint else {
-                    bail!(
-                        "an index usage needs a version constraint: pass one, or leave out\n\
-                         `--no-lock` to use the version that locking chooses"
-                    );
-                };
-                // Without locking, the spelling can only be checked against, or
-                // recovered from, what is installed
-                let (publisher, name) =
-                    spell_index_usage(ctx.env.as_ref(), &publisher, &name, &version_constraint)
-                        .map_err(|err| match err {
-                            IndexSpellingError::NotInstalled { .. } => anyhow!(
-                                "{err}\n{USAGE}hint:{USAGE:#} leave out `--no-lock` to look the \
-                         project up in the indexes"
-                            ),
-                            err => err.into(),
-                        })?;
-                UsageToAdd::Ready(index_usage(publisher, name, &version_constraint))
-            } else if let Some(InterchangeProjectUsageRaw::Index {
+            // Already declared: nothing to resolve or look up, with or without
+            // locking
+            if let Some(InterchangeProjectUsageRaw::Index {
                 publisher: p,
                 name: n,
                 version_constraint: existing_constraint,
@@ -160,11 +143,30 @@ pub fn command_add<Policy: HTTPAuthentication>(
                         new: format!("{publisher}/{name}"),
                     }),
                     // `do_add` replaces the constraint (or reports a different
-                    // spelling), and locking checks the spelling
+                    // spelling), and locking, if any, checks the spelling
                     Some(version_constraint) => {
                         UsageToAdd::Ready(index_usage(publisher, name, &version_constraint))
                     }
                 }
+            } else if no_lock {
+                let Some(version_constraint) = version_constraint else {
+                    bail!(
+                        "an index usage needs a version constraint: pass one, or leave out\n\
+                         `--no-lock` to use the version that locking chooses"
+                    );
+                };
+                // Without locking, the spelling can only be checked against, or
+                // recovered from, what is installed
+                let (publisher, name) =
+                    spell_index_usage(ctx.env.as_ref(), &publisher, &name, &version_constraint)
+                        .map_err(|err| match err {
+                            IndexSpellingError::NotInstalled { .. } => anyhow!(
+                                "{err}\n{USAGE}hint:{USAGE:#} leave out `--no-lock` to look the \
+                         project up in the indexes"
+                            ),
+                            err => err.into(),
+                        })?;
+                UsageToAdd::Ready(index_usage(publisher, name, &version_constraint))
             } else if let Some(version_constraint) = &version_constraint
                 && !is_normalized_spelling(&publisher, &name)
             {

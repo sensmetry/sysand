@@ -2718,9 +2718,8 @@ fn add_publisher_name_writes_an_index_usage() -> Result<(), Box<dyn std::error::
     .assert()
     .failure()
     .stderr(contains(
-        "index usage `Acme labs/My Lib` is rejected because its spelling does not match \
-             the project's: version 1.0.0 installed in the local environment declares itself \
-             `Acme Labs/My Lib`;\nspell the usage exactly as `Acme Labs/My Lib`",
+        "`Acme labs/My Lib` is already declared as an index usage `Acme Labs/My Lib`;\n\
+         a typed usage must spell the publisher and name exactly as the project does",
     ));
     assert_eq!(
         std::fs::read_to_string(cwd.join(".project.json"))?,
@@ -3359,6 +3358,13 @@ fn add_index_usage_without_lock_takes_the_highest_installed_spelling()
     .success()
     .stderr(contains("Adding usage: `ACME Labs/My Lib` (^1)"));
 
+    // An exact spelling is checked against it, in a project that does not
+    // declare the usage yet
+    let (_other_dir, cwd, out) =
+        cli_init_project_basic("f", "add_index_highest_spelling_exact", "1.2.3")?;
+    out.assert().success();
+    install_in_env(&cwd, "Acme Labs", "My Lib", "1.0.0")?;
+    install_in_env(&cwd, "ACME Labs", "My Lib", "1.1.0")?;
     run_sysand_in(
         &cwd,
         [
@@ -3453,6 +3459,67 @@ fn add_already_present_index_usage_still_locks() -> Result<(), Box<dyn std::erro
         info_json
     );
     assert!(lock_path.is_file(), "the lockfile must be written again");
+
+    Ok(())
+}
+
+/// Without locking, an index usage already declared gives the spelling, so
+/// nothing has to be installed to re-add it, by its normalized spelling too
+#[test]
+fn add_without_lock_of_a_declared_index_usage_needs_nothing_installed()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("f", "add_declared_no_lock", "1.2.3")?;
+    out.assert().success();
+    install_in_env(&cwd, "Acme Labs", "My Lib", "1.0.0")?;
+    run_sysand_in(
+        &cwd,
+        [
+            "add",
+            "--no-lock",
+            "Acme Labs/My Lib",
+            "--version-constraint",
+            "^1",
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+    std::fs::remove_dir_all(cwd.join(DEFAULT_ENV_NAME))?;
+
+    run_sysand_in(
+        &cwd,
+        [
+            "add",
+            "--no-lock",
+            "acme-labs/my-lib",
+            "--version-constraint",
+            "<1.5",
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    assert!(
+        info_json.contains(
+            r#"{
+      "publisher": "Acme Labs",
+      "name": "My Lib",
+      "versionConstraint": "<1.5"
+    }"#
+        ),
+        "{info_json}"
+    );
+
+    // Without a constraint, the declared one is kept
+    run_sysand_in(&cwd, ["add", "--no-lock", "acme-labs/my-lib"], None)?
+        .assert()
+        .success()
+        .stderr(contains("since it is already present"));
+    assert_eq!(
+        std::fs::read_to_string(cwd.join(".project.json"))?,
+        info_json
+    );
 
     Ok(())
 }
