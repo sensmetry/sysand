@@ -7,8 +7,10 @@ use crate::{
     env::ReadEnvironment,
     model::{
         InterchangeProjectUsageG, InterchangeProjectUsageRaw, InterchangeProjectValidationError,
+        check_index_usage_spelling,
     },
     project::{ProjectMut, ProjectRead, utils::Identifier},
+    purl::is_normalized_spelling,
     utils::SP,
 };
 
@@ -92,7 +94,7 @@ pub enum IndexSpellingError<EnvError, ProjectError> {
 /// read from a version of the project installed in `env` (the first it
 /// lists: a project spells itself the same way in every version), without
 /// touching the network: the project's own spelling when `publisher`/`name`
-/// is normalized (see [`crate::purl::is_normalized_spelling`]), and `publisher`/`name`
+/// is normalized (see [`is_normalized_spelling`]), and `publisher`/`name`
 /// itself otherwise, once it has been checked to be that spelling.
 /// `normalized` is whether `publisher`/`name` is normalized, which the
 /// caller has already found out.
@@ -180,6 +182,119 @@ fn try_merge_path_usage(
     } else {
         false
     }
+}
+
+/// The usage that `usages` declare of the project `identifier`, if any.
+/// `add` never declares a project twice.
+fn declared<'a>(
+    usages: &'a [InterchangeProjectUsageRaw],
+    identifier: &Identifier,
+) -> Option<&'a InterchangeProjectUsageRaw> {
+    usages
+        .iter()
+        .find(|u| Identifier::from_unvalidated_usage(u).is_some_and(|id| id == *identifier))
+}
+
+/// Why a usage of the project `identifier`, of `kind` (with an article, see
+/// [`InterchangeProjectUsageRaw::kind_with_article`]) and, if typed, spelled
+/// `spelling`, cannot be added where `existing` already declares the project
+/// and the two are not merged: spelled differently if they are of the same
+/// kind, or the same project declared twice, from two sources, otherwise.
+fn refusal<E>(
+    identifier: Identifier,
+    existing: &InterchangeProjectUsageRaw,
+    kind: &'static str,
+    spelling: Option<(&str, &str)>,
+) -> AddError<E> {
+    match (existing.typed_publisher_name(), spelling) {
+        (Some((publisher, name)), Some((new_publisher, new_name)))
+            if existing.kind_with_article() == kind =>
+        {
+            AddError::TypedUsageSpelledDifferently {
+                kind,
+                existing: format!("{publisher}/{name}"),
+                new: format!("{new_publisher}/{new_name}"),
+            }
+        }
+        _ => AddError::DuplicateIdentifier {
+            identifier: identifier.into_string(),
+            existing: existing.kind_with_article(),
+            new: kind,
+        },
+    }
+}
+
+/// What adding an index usage amounts to, decided by [`index_usage_to_add`]
+/// before anything is resolved
+#[derive(Debug, PartialEq, Eq)]
+pub enum IndexUsageToAdd {
+    /// Declared with that spelling, and no constraint given: nothing to add
+    AlreadyPresent,
+    /// A complete usage, for [`do_add`]: spelled as declared, with the
+    /// constraint given, which replaces the declared one
+    Ready(InterchangeProjectUsageRaw),
+    /// Not declared yet: its spelling, if normalized (see
+    /// [`is_normalized_spelling`]), and its constraint, if missing, have to
+    /// be settled by the caller
+    New {
+        publisher: String,
+        name: String,
+        version_constraint: Option<semver::VersionReq>,
+        normalized: bool,
+    },
+}
+
+/// What adding an index usage of `publisher`/`name`, with
+/// `version_constraint` if given, to a project declaring `usages` amounts
+/// to, before anything is resolved or looked up: a normalized spelling of
+/// a project already declared takes the declared spelling, and the same
+/// refusals as [`do_add`] apply.
+pub fn index_usage_to_add<E>(
+    usages: &[InterchangeProjectUsageRaw],
+    publisher: String,
+    name: String,
+    version_constraint: Option<semver::VersionReq>,
+) -> Result<IndexUsageToAdd, AddError<E>> {
+    check_index_usage_spelling(&publisher, &name)?;
+    let normalized = is_normalized_spelling(&publisher, &name);
+    let identifier = Identifier::from_pub_name(&publisher, &name);
+    let Some(existing) = declared(usages, &identifier) else {
+        return Ok(IndexUsageToAdd::New {
+            publisher,
+            name,
+            version_constraint,
+            normalized,
+        });
+    };
+    let spelling = (publisher.as_str(), name.as_str());
+    let InterchangeProjectUsageRaw::Index {
+        publisher: declared_publisher,
+        name: declared_name,
+        version_constraint: declared_constraint,
+    } = existing
+    else {
+        return Err(refusal(identifier, existing, "an index", Some(spelling)));
+    };
+    // A normalized spelling names the project by its identifier only, so the
+    // declared usage says how it is spelled
+    if !normalized && (declared_publisher.as_str(), declared_name.as_str()) != spelling {
+        return Err(refusal(identifier, existing, "an index", Some(spelling)));
+    }
+    Ok(match version_constraint {
+        None => {
+            log::warn!(
+                "ignoring usage `{declared_publisher}/{declared_name}` without a version \
+                 constraint,\n{SP:>8} since it is already present with version constraint\n\
+                 {SP:>8} `{declared_constraint}`",
+            );
+            IndexUsageToAdd::AlreadyPresent
+        }
+        Some(version_constraint) => IndexUsageToAdd::Ready(InterchangeProjectUsageRaw::Index {
+            publisher: declared_publisher.clone(),
+            name: declared_name.clone(),
+            version_constraint: version_constraint.to_string(),
+        }),
+    })
 }
 
 /// Ok(true) => project info changed: the usage was added, or an existing
@@ -359,26 +474,14 @@ pub fn do_add<P: ProjectMut>(
             // same kind but spelled differently, or of a different kind: the
             // same project declared twice, from two sources.
             if let Some(identifier) = Identifier::from_unvalidated_usage(&usage)
-                && let Some(existing) = info.usage.iter().find(|u| {
-                    Identifier::from_unvalidated_usage(u).is_some_and(|id| id == identifier)
-                })
+                && let Some(existing) = declared(&info.usage, &identifier)
             {
-                if let (Some((publisher, name)), Some((new_publisher, new_name))) = (
-                    existing.typed_publisher_name(),
+                return Err(refusal(
+                    identifier,
+                    existing,
+                    usage.kind_with_article(),
                     usage.typed_publisher_name(),
-                ) && std::mem::discriminant(existing) == std::mem::discriminant(&usage)
-                {
-                    return Err(AddError::TypedUsageSpelledDifferently {
-                        kind: usage.kind_with_article(),
-                        existing: format!("{publisher}/{name}"),
-                        new: format!("{new_publisher}/{new_name}"),
-                    });
-                }
-                return Err(AddError::DuplicateIdentifier {
-                    identifier: identifier.into_string(),
-                    existing: existing.kind_with_article(),
-                    new: usage.kind_with_article(),
-                });
+                ));
             }
             info.usage.push(usage);
         }

@@ -362,3 +362,109 @@ mod spell_index_usage {
         );
     }
 }
+
+mod index_usage_to_add {
+    use std::{assert_matches, convert::Infallible};
+
+    use semver::VersionReq;
+
+    use super::index;
+    use crate::{
+        add::{AddError, IndexUsageToAdd, index_usage_to_add},
+        model::InterchangeProjectUsageRaw,
+    };
+
+    fn to_add(
+        usages: &[InterchangeProjectUsageRaw],
+        spelling: (&str, &str),
+        constraint: Option<&str>,
+    ) -> Result<IndexUsageToAdd, AddError<Infallible>> {
+        index_usage_to_add(
+            usages,
+            spelling.0.to_owned(),
+            spelling.1.to_owned(),
+            constraint.map(|c| VersionReq::parse(c).unwrap()),
+        )
+    }
+
+    #[test]
+    fn a_project_not_declared_is_new() {
+        assert_eq!(
+            to_add(&[], ("acme-labs", "my-lib"), None).unwrap(),
+            IndexUsageToAdd::New {
+                publisher: "acme-labs".to_owned(),
+                name: "my-lib".to_owned(),
+                version_constraint: None,
+                normalized: true,
+            }
+        );
+        assert_matches!(
+            to_add(&[], ("Acme Labs", "My Lib"), Some("^1")),
+            Ok(IndexUsageToAdd::New {
+                normalized: false,
+                ..
+            })
+        );
+    }
+
+    #[test]
+    fn a_declared_usage_without_a_constraint_is_already_present() {
+        let declared = [index("Acme Labs", "My Lib", "^1")];
+        for spelling in [("Acme Labs", "My Lib"), ("acme-labs", "my-lib")] {
+            assert_eq!(
+                to_add(&declared, spelling, None).unwrap(),
+                IndexUsageToAdd::AlreadyPresent
+            );
+        }
+    }
+
+    /// With a constraint, the usage is spelled as declared, also when given
+    /// normalized
+    #[test]
+    fn a_declared_usage_with_a_constraint_is_ready_spelled_as_declared() {
+        let declared = [index("Acme Labs", "My Lib", "^1")];
+        for spelling in [("Acme Labs", "My Lib"), ("acme-labs", "my-lib")] {
+            assert_eq!(
+                to_add(&declared, spelling, Some("^2")).unwrap(),
+                IndexUsageToAdd::Ready(index("Acme Labs", "My Lib", "^2"))
+            );
+        }
+    }
+
+    #[test]
+    fn another_spelling_of_a_declared_usage_is_refused() {
+        let declared = [index("Acme Labs", "My Lib", "^1")];
+        for constraint in [None, Some("^2")] {
+            assert_matches!(
+                to_add(&declared, ("ACME Labs", "My Lib"), constraint),
+                Err(AddError::TypedUsageSpelledDifferently { kind: "an index", existing, new })
+                    if existing == "Acme Labs/My Lib" && new == "ACME Labs/My Lib"
+            );
+        }
+    }
+
+    #[test]
+    fn a_project_declared_as_another_kind_is_refused() {
+        let declared = [InterchangeProjectUsageRaw::Directory {
+            dir: "lib".to_owned(),
+            publisher: "Acme Labs".to_owned(),
+            name: "My Lib".to_owned(),
+        }];
+        assert_matches!(
+            to_add(&declared, ("Acme Labs", "My Lib"), Some("^1")),
+            Err(AddError::DuplicateIdentifier {
+                existing: "a directory",
+                new: "an index",
+                ..
+            })
+        );
+    }
+
+    #[test]
+    fn a_spelling_no_index_usage_can_have_is_refused() {
+        assert_matches!(
+            to_add(&[], ("A", "My Lib"), Some("^1")),
+            Err(AddError::Validation(_))
+        );
+    }
+}
