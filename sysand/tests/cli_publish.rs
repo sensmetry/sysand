@@ -36,7 +36,7 @@ fn run_sysand_ok(cwd: &Utf8Path, args: &[&str], cfg: Option<&str>) -> TestResult
 fn include_basic_model(cwd: &Utf8Path) -> TestResult {
     std::fs::write(cwd.join("test.sysml"), "package P;\n")?;
     run_sysand_ok(cwd, &["include", "--no-index-symbols", "test.sysml"], None)?;
-    run_sysand_ok(cwd, &["info", "metamodel", "--set", "sysml"], None)
+    run_sysand_ok(cwd, &["edit", "--metamodel", "sysml"], None)
 }
 
 fn build_default_kpar(cwd: &Utf8Path) -> TestResult {
@@ -67,7 +67,7 @@ fn setup_built_project_at(
 }
 
 fn set_project_field(cwd: &Utf8Path, field: &str, value: &str) -> TestResult {
-    run_sysand_ok(cwd, &["info", field, "--set", value], None)
+    run_sysand_ok(cwd, &["edit", &format!("--{field}"), value], None)
 }
 
 fn bearer_env_for_url(url: &str) -> IndexMap<String, String> {

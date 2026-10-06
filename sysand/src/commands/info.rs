@@ -2,11 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 use crate::{
     CliError,
-    cli::{
-        AddInfoVerb, AddMetaVerb, AddVerb, ClearInfoVerb, ClearMetaVerb, ClearVerb, GetInfoVerb,
-        GetMetaVerb, InfoCommandVerb, RemoveInfoVerb, RemoveMetaVerb, RemoveVerb, SetInfoVerb,
-        SetMetaVerb, SetVerb,
-    },
+    cli::InfoField,
     style::{GOOD, USAGE},
 };
 use camino::Utf8Path;
@@ -206,52 +202,27 @@ pub fn log_license_files_note() {
     )
 }
 
-fn print_output(output: Option<Vec<String>>, numbered: bool) {
-    if let Some(lines) = output {
-        if numbered {
-            for (line_number, line) in lines.iter().enumerate() {
-                println!("{}: {}", line_number + 1, line);
-            }
-        } else {
-            for line in lines {
-                println!("{}", line);
-            }
-        }
-    }
+/// Prints the value of `field` of `project`, a list field one entry per line
+pub fn command_info_field<Project: ProjectRead>(project: &Project, field: InfoField) -> Result<()> {
+    print_lines(field_lines(
+        field,
+        || get_info_or_bail(project),
+        || get_meta_or_bail(project),
+    )?);
+    Ok(())
 }
 
-pub fn command_info_verb_path<P: AsRef<Utf8Path>>(
+pub fn command_info_field_path<P: AsRef<Utf8Path>>(
     path: P,
     kind: LocalProjectKind,
-    verb: InfoCommandVerb,
-    numbered: bool,
+    field: InfoField,
 ) -> Result<()> {
-    let project = interpret_project_path(&path, kind)?;
-
-    match project {
-        FileResolverProject::LocalSrcProject(mut local_src_project) => match verb {
-            InfoCommandVerb::Get(get_verb) => apply_get(&get_verb, &local_src_project, numbered),
-            InfoCommandVerb::Set(set_verb) => apply_set(set_verb, &mut local_src_project),
-            InfoCommandVerb::Clear(clear_verb) => apply_clear(&clear_verb, &mut local_src_project),
-            InfoCommandVerb::Add(add_verb) => apply_add(&add_verb, &mut local_src_project),
-            InfoCommandVerb::Remove(remove_verb) => {
-                apply_remove(&remove_verb, &mut local_src_project)
-            }
-        },
-        FileResolverProject::LocalKParProject(local_kpar_project) => match verb {
-            InfoCommandVerb::Get(get_verb) => apply_get(&get_verb, &local_kpar_project, numbered),
-            InfoCommandVerb::Set(_) => bail!("`set` cannot be used with kpar archives"),
-            InfoCommandVerb::Clear(_) => bail!("`clear` cannot be used with kpar archives"),
-            InfoCommandVerb::Add(_) => bail!("`add` cannot be used with kpar archives"),
-            InfoCommandVerb::Remove(_) => bail!("`remove` cannot be used with kpar archives"),
-        },
-    }
+    command_info_field(&interpret_project_path(&path, kind)?, field)
 }
 
-pub fn command_info_verb_uri<Policy: HTTPAuthentication>(
+pub fn command_info_field_uri<Policy: HTTPAuthentication>(
     uri: Iri<String>,
-    verb: InfoCommandVerb,
-    numbered: bool,
+    field: InfoField,
     client: reqwest_middleware::ClientWithMiddleware,
     index_urls: Option<Vec<IndexLocation>>,
     overrides: Vec<(Identifier, Vec<OverrideProject<Policy>>)>,
@@ -259,48 +230,71 @@ pub fn command_info_verb_uri<Policy: HTTPAuthentication>(
     auth_policy: Arc<Policy>,
     ctx: ProjectContext,
 ) -> Result<()> {
-    match verb {
-        InfoCommandVerb::Get(get_verb) => {
-            let combined_resolver = PriorityResolver::new(
-                MemoryResolver::resources_only(overrides),
-                standard_resolver(ctx.env, Some(client), index_urls, runtime, auth_policy)?,
-            );
-
-            match get_verb {
-                crate::cli::GetVerb::GetInfoVerb(get_info_verb) => {
-                    let (info, _meta) = do_info(&uri, &combined_resolver)?;
-                    apply_get_info(&get_info_verb, info, numbered)
-                }
-                crate::cli::GetVerb::GetMetaVerb(get_meta_verb) => {
-                    let (_info, meta) = do_info(&uri, &combined_resolver)?;
-                    apply_get_meta(&get_meta_verb, meta, numbered)
-                }
-            }
-        }
-        InfoCommandVerb::Set(_) => bail!("`set` cannot be used with remote projects"),
-        InfoCommandVerb::Clear(_) => bail!("`clear` cannot be used with remote projects"),
-        InfoCommandVerb::Add(_) => bail!("`add` cannot be used with remote projects"),
-        InfoCommandVerb::Remove(_) => bail!("`remove` cannot be used with remote projects"),
-    }
-
+    let combined_resolver = PriorityResolver::new(
+        MemoryResolver::resources_only(overrides),
+        standard_resolver(ctx.env, Some(client), index_urls, runtime, auth_policy)?,
+    );
+    let (info, meta) = do_info(&uri, &combined_resolver)?;
+    print_lines(field_lines(field, || Ok(info), || Ok(meta))?);
     Ok(())
 }
 
-pub fn command_info_current_project(
-    mut current_project: LocalSrcProject,
-    verb: InfoCommandVerb,
-    numbered: bool,
-) -> Result<()> {
-    match verb {
-        InfoCommandVerb::Get(get_verb) => apply_get(&get_verb, &current_project, numbered),
-        InfoCommandVerb::Set(set_verb) => apply_set(set_verb, &mut current_project),
-        InfoCommandVerb::Clear(clear_verb) => apply_clear(&clear_verb, &mut current_project),
-        InfoCommandVerb::Add(add_verb) => apply_add(&add_verb, &mut current_project),
-        InfoCommandVerb::Remove(remove_verb) => apply_remove(&remove_verb, &mut current_project),
+fn print_lines(lines: Vec<String>) {
+    for line in lines {
+        println!("{line}");
     }
 }
 
-fn get_info_or_bail<Project: ProjectRead>(project: &Project) -> Result<InterchangeProjectInfoRaw> {
+/// The value of `field`, a list field one entry per line, nothing if not set.
+/// Only the manifest holding the field is read
+fn field_lines(
+    field: InfoField,
+    info: impl FnOnce() -> Result<InterchangeProjectInfoRaw>,
+    meta: impl FnOnce() -> Result<InterchangeProjectMetadataRaw>,
+) -> Result<Vec<String>> {
+    Ok(match field {
+        InfoField::Name => vec![info()?.name],
+        InfoField::Publisher => info()?.publisher.into_iter().collect(),
+        InfoField::Description => info()?.description.into_iter().collect(),
+        InfoField::Version => vec![info()?.version],
+        InfoField::License => info()?.license.into_iter().collect(),
+        InfoField::Maintainer => info()?.maintainer,
+        InfoField::Website => info()?.website.into_iter().collect(),
+        InfoField::Topic => info()?.topic,
+        InfoField::Usage => info()?.usage.iter().map(ToString::to_string).collect(),
+        InfoField::Index => meta()?
+            .index
+            .into_iter()
+            .map(|(symbol, path)| format!("`{symbol}` in `{path}`"))
+            .collect(),
+        InfoField::Created => vec![meta()?.created],
+        InfoField::Metamodel => meta()?.metamodel.into_iter().collect(),
+        InfoField::IncludesDerived => meta()?
+            .includes_derived
+            .map(|x| x.to_string())
+            .into_iter()
+            .collect(),
+        InfoField::IncludesImplied => meta()?
+            .includes_implied
+            .map(|x| x.to_string())
+            .into_iter()
+            .collect(),
+        InfoField::Checksum => meta()?
+            .checksum
+            .into_iter()
+            .flatten()
+            .map(
+                |(path, InterchangeProjectChecksumRaw { value, algorithm })| {
+                    format!("{algorithm}({path}) = {value}")
+                },
+            )
+            .collect(),
+    })
+}
+
+pub(crate) fn get_info_or_bail<Project: ProjectRead>(
+    project: &Project,
+) -> Result<InterchangeProjectInfoRaw> {
     match project.get_info() {
         Ok(Some(info)) => Ok(info),
         Ok(None) => bail!("project does not appear to have a valid `.project.json`"),
@@ -310,7 +304,7 @@ fn get_info_or_bail<Project: ProjectRead>(project: &Project) -> Result<Interchan
     }
 }
 
-fn get_meta_or_bail<Project: ProjectRead>(
+pub(crate) fn get_meta_or_bail<Project: ProjectRead>(
     project: &Project,
 ) -> Result<InterchangeProjectMetadataRaw> {
     match project.get_meta() {
@@ -322,7 +316,7 @@ fn get_meta_or_bail<Project: ProjectRead>(
     }
 }
 
-fn set_info_or_bail<Project: ProjectMut>(
+pub(crate) fn set_info_or_bail<Project: ProjectMut>(
     project: &mut Project,
     info: &InterchangeProjectInfoRaw,
 ) -> Result<()> {
@@ -333,7 +327,7 @@ fn set_info_or_bail<Project: ProjectMut>(
     Ok(())
 }
 
-fn set_meta_or_bail<Project: ProjectMut>(
+pub(crate) fn set_meta_or_bail<Project: ProjectMut>(
     project: &mut Project,
     meta: &InterchangeProjectMetadataRaw,
 ) -> Result<()> {
@@ -342,346 +336,4 @@ fn set_meta_or_bail<Project: ProjectMut>(
     }
 
     Ok(())
-}
-
-fn apply_get<Project: ProjectRead>(
-    get_verb: &crate::cli::GetVerb,
-    project: &Project,
-    numbered: bool,
-) -> Result<()> {
-    match get_verb {
-        crate::cli::GetVerb::GetInfoVerb(get_info_verb) => {
-            apply_get_info(get_info_verb, get_info_or_bail(project)?, numbered)
-        }
-        crate::cli::GetVerb::GetMetaVerb(get_meta_verb) => {
-            apply_get_meta(get_meta_verb, get_meta_or_bail(project)?, numbered)
-        }
-    }
-    Ok(())
-}
-
-fn apply_get_info(get_info_verb: &GetInfoVerb, info: InterchangeProjectInfoRaw, numbered: bool) {
-    match get_info_verb {
-        GetInfoVerb::GetName => print_output(Some(vec![info.name]), numbered),
-        GetInfoVerb::GetPublisher => print_output(info.publisher.map(|x| vec![x]), numbered),
-        GetInfoVerb::GetDescription => print_output(info.description.map(|x| vec![x]), numbered),
-        GetInfoVerb::GetVersion => print_output(Some(vec![info.version]), numbered),
-        GetInfoVerb::GetLicense => print_output(info.license.map(|x| vec![x]), numbered),
-        GetInfoVerb::GetMaintainer => print_output(Some(info.maintainer), numbered),
-        GetInfoVerb::GetWebsite => print_output(info.website.map(|x| vec![x]), numbered),
-        GetInfoVerb::GetTopic => print_output(Some(info.topic), numbered),
-        GetInfoVerb::GetUsage => print_output(
-            Some(info.usage.iter().map(ToString::to_string).collect()),
-            numbered,
-        ),
-    }
-}
-
-fn apply_get_meta(
-    get_meta_verb: &GetMetaVerb,
-    meta: InterchangeProjectMetadataRaw,
-    numbered: bool,
-) {
-    match get_meta_verb {
-        GetMetaVerb::GetIndex => print_output(
-            Some(
-                meta.index
-                    .into_iter()
-                    .map(|(symbol, path)| format!("`{symbol}` in `{path}`"))
-                    .collect(),
-            ),
-            numbered,
-        ),
-        GetMetaVerb::GetCreated => print_output(Some(vec![meta.created]), numbered),
-        GetMetaVerb::GetMetamodel => print_output(meta.metamodel.map(|x| vec![x]), numbered),
-        GetMetaVerb::GetIncludesDerived => print_output(
-            meta.includes_derived.map(|x| vec![format!("{}", x)]),
-            numbered,
-        ),
-        GetMetaVerb::GetIncludesImplied => print_output(
-            meta.includes_implied.map(|x| vec![format!("{}", x)]),
-            numbered,
-        ),
-        GetMetaVerb::GetChecksum => print_output(
-            meta.checksum.map(|xs| {
-                xs.into_iter()
-                    .map(
-                        |(path, InterchangeProjectChecksumRaw { value, algorithm })| {
-                            format!("{algorithm}({path}) = {value}")
-                        },
-                    )
-                    .collect()
-            }),
-            numbered,
-        ),
-    }
-}
-
-fn apply_set<Project: ProjectRead + ProjectMut>(
-    set_verb: SetVerb,
-    project: &mut Project,
-) -> Result<()> {
-    match set_verb {
-        crate::cli::SetVerb::SetInfoVerb(set_info_verb) => {
-            let new_info = set_info(set_info_verb, get_info_or_bail(project)?);
-
-            set_info_or_bail(project, &new_info)
-        }
-        crate::cli::SetVerb::SetMetaVerb(set_meta_verb) => {
-            let new_meta = set_meta(&set_meta_verb, get_meta_or_bail(project)?);
-
-            set_meta_or_bail(project, &new_meta)
-        }
-    }
-}
-
-fn set_info(
-    set_info_verb: SetInfoVerb,
-    mut info: InterchangeProjectInfoRaw,
-) -> InterchangeProjectInfoRaw {
-    match set_info_verb {
-        SetInfoVerb::SetName(value) => {
-            info.name = value.into_string();
-        }
-        SetInfoVerb::SetPublisher(value) => {
-            info.publisher = Some(value.into_string());
-        }
-        SetInfoVerb::SetDescription(value) => {
-            info.description = Some(value);
-        }
-        SetInfoVerb::SetVersion(value) => {
-            info.version = value.to_string();
-        }
-        SetInfoVerb::SetLicense(value) => {
-            info.license = Some(value.to_string());
-            log_license_files_note();
-        }
-        SetInfoVerb::SetMaintainer(value) => {
-            info.maintainer = value;
-        }
-        SetInfoVerb::SetWebsite(value) => {
-            info.website = Some(value);
-        }
-        SetInfoVerb::SetTopic(value) => {
-            info.topic = value;
-        }
-    }
-
-    info
-}
-
-fn set_meta(
-    set_meta_verb: &SetMetaVerb,
-    mut meta: InterchangeProjectMetadataRaw,
-) -> InterchangeProjectMetadataRaw {
-    match set_meta_verb {
-        SetMetaVerb::SetMetamodel(value) => {
-            meta.metamodel = Some(value.into());
-        }
-        SetMetaVerb::SetIncludesDerived(value) => {
-            meta.includes_derived = Some(*value);
-        }
-        SetMetaVerb::SetIncludesImplied(value) => {
-            meta.includes_implied = Some(*value);
-        }
-    }
-
-    meta
-}
-
-fn apply_clear<Project: ProjectRead + ProjectMut>(
-    clear_verb: &ClearVerb,
-    project: &mut Project,
-) -> Result<()> {
-    match clear_verb {
-        crate::cli::ClearVerb::ClearInfoVerb(clear_info_verb) => {
-            let new_info = clear_info(clear_info_verb, get_info_or_bail(project)?);
-
-            set_info_or_bail(project, &new_info)
-        }
-        crate::cli::ClearVerb::ClearMetaVerb(clear_meta_verb) => {
-            let new_meta = clear_meta(clear_meta_verb, get_meta_or_bail(project)?);
-
-            set_meta_or_bail(project, &new_meta)
-        }
-    }
-}
-
-fn clear_info(
-    clear_info_verb: &ClearInfoVerb,
-    mut info: InterchangeProjectInfoRaw,
-) -> InterchangeProjectInfoRaw {
-    match clear_info_verb {
-        ClearInfoVerb::ClearPublisher => {
-            info.publisher = None;
-        }
-        ClearInfoVerb::ClearDescription => {
-            info.description = None;
-        }
-        ClearInfoVerb::ClearLicense => {
-            info.license = None;
-        }
-        ClearInfoVerb::ClearMaintainer => {
-            info.maintainer = vec![];
-        }
-        ClearInfoVerb::ClearWebsite => {
-            info.website = None;
-        }
-        ClearInfoVerb::ClearTopic => {
-            info.topic = vec![];
-        }
-    }
-
-    info
-}
-
-fn clear_meta(
-    clear_meta_verb: &ClearMetaVerb,
-    mut meta: InterchangeProjectMetadataRaw,
-) -> InterchangeProjectMetadataRaw {
-    match clear_meta_verb {
-        ClearMetaVerb::ClearMetamodel => {
-            meta.metamodel = None;
-        }
-        ClearMetaVerb::ClearIncludesDerived => {
-            meta.includes_derived = None;
-        }
-        ClearMetaVerb::ClearIncludesImplied => {
-            meta.includes_implied = None;
-        }
-    }
-
-    meta
-}
-
-fn apply_add<Project: ProjectRead + ProjectMut>(
-    add_verb: &AddVerb,
-    project: &mut Project,
-) -> Result<()> {
-    match add_verb {
-        crate::cli::AddVerb::AddInfoVerb(add_info_verb) => {
-            let new_info = add_info(add_info_verb, get_info_or_bail(project)?);
-
-            set_info_or_bail(project, &new_info)
-        }
-        crate::cli::AddVerb::AddMetaVerb(add_meta_verb) => {
-            let new_meta = add_meta(add_meta_verb, get_meta_or_bail(project)?);
-
-            set_meta_or_bail(project, &new_meta)
-        }
-    }
-}
-
-fn add_info(
-    add_info_verb: &AddInfoVerb,
-    mut info: InterchangeProjectInfoRaw,
-) -> InterchangeProjectInfoRaw {
-    match add_info_verb {
-        AddInfoVerb::AddMaintainer(items) => {
-            info.maintainer.extend(items.iter().cloned());
-        }
-        AddInfoVerb::AddTopic(items) => {
-            info.topic.extend(items.iter().cloned());
-        }
-    }
-
-    info
-}
-
-fn add_meta(
-    add_meta_verb: &AddMetaVerb,
-    _meta: InterchangeProjectMetadataRaw,
-) -> InterchangeProjectMetadataRaw {
-    match *add_meta_verb {}
-}
-
-fn apply_remove<Project: ProjectRead + ProjectMut>(
-    remove_verb: &RemoveVerb,
-    project: &mut Project,
-) -> Result<()> {
-    match remove_verb {
-        crate::cli::RemoveVerb::RemoveInfoVerb(remove_info_verb) => {
-            let new_info = remove_info(remove_info_verb, get_info_or_bail(project)?)?;
-
-            set_info_or_bail(project, &new_info)
-        }
-        crate::cli::RemoveVerb::RemoveMetaVerb(remove_meta_verb) => {
-            let new_meta = remove_meta(remove_meta_verb, get_meta_or_bail(project)?)?;
-
-            set_meta_or_bail(project, &new_meta)
-        }
-    }
-}
-
-fn remove_info(
-    remove_info_verb: &RemoveInfoVerb,
-    mut info: InterchangeProjectInfoRaw,
-) -> Result<InterchangeProjectInfoRaw> {
-    enum RemoveFailure {
-        ZeroIndex,
-        EmptyFailure(usize),
-        //SingularFailure,
-        PluralFailure(usize, usize),
-    }
-
-    fn remove(idx: usize, xs: &mut Vec<String>) -> std::result::Result<(), RemoveFailure> {
-        if idx == 0 {
-            Err(RemoveFailure::ZeroIndex)
-        } else if idx > xs.len() {
-            if xs.is_empty() {
-                Err(RemoveFailure::EmptyFailure(idx))
-            }
-            /* else if xs.len() == 1 {
-                Err(RemoveFailure::SingularFailure)
-            } */
-            else {
-                Err(RemoveFailure::PluralFailure(idx, xs.len()))
-            }
-        } else {
-            xs.remove(idx - 1);
-            Ok(())
-        }
-    }
-
-    match remove_info_verb {
-        RemoveInfoVerb::RemoveMaintainer(idx) => {
-            if let Err(err) = remove(*idx, &mut info.maintainer) {
-                match err {
-                    RemoveFailure::ZeroIndex => {
-                        bail!("0 is an invalid index, maintainers are indexed from 1")
-                    }
-                    RemoveFailure::EmptyFailure(idx) => {
-                        bail!("trying to remove maintainer {idx}, but project has none")
-                    }
-                    RemoveFailure::PluralFailure(idx, len) => {
-                        bail!("trying to remove maintainer {idx}, but project has only {len}")
-                    }
-                }
-            }
-        }
-        RemoveInfoVerb::RemoveTopic(idx) => {
-            if let Err(err) = remove(*idx, &mut info.topic) {
-                match err {
-                    RemoveFailure::ZeroIndex => {
-                        bail!("0 is an invalid index, topics are indexed from 1")
-                    }
-                    RemoveFailure::EmptyFailure(idx) => {
-                        bail!("trying to remove topic {idx}, but project has none")
-                    }
-                    RemoveFailure::PluralFailure(idx, len) => {
-                        bail!("trying to remove topic {idx}, but project has only {len}")
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(info)
-}
-
-fn remove_meta(
-    remove_meta_verb: &RemoveMetaVerb,
-    _meta: InterchangeProjectMetadataRaw,
-) -> Result<InterchangeProjectMetadataRaw> {
-    match *remove_meta_verb {}
 }

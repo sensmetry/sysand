@@ -188,20 +188,13 @@ fn info_positional_is_identifier() -> Result<(), Box<dyn Error>> {
             "describing by `<publisher>/<name>` identifier is not supported yet",
         ));
 
-    // Without `/` it is far more likely a mistyped subcommand
-    for not_identifier in ["naem", "urn:kpar:test", "info_positional"] {
-        run_sysand_in(&cwd, ["info", not_identifier], None)?
-            .assert()
-            .failure()
-            .stderr(predicate::str::contains(format!(
-                "unrecognized subcommand '{not_identifier}'"
-            )))
-            .stderr(predicate::str::contains(
-                "`--dir`, `--kpar-path` or `--iri`",
-            ));
-    }
-
-    for invalid_identifier in ["c:/foo", "a/b/c"] {
+    for invalid_identifier in [
+        "name",
+        "urn:kpar:test",
+        "info_positional",
+        "c:/foo",
+        "a/b/c",
+    ] {
         run_sysand_in(&cwd, ["info", invalid_identifier], None)?
             .assert()
             .failure()
@@ -210,7 +203,8 @@ fn info_positional_is_identifier() -> Result<(), Box<dyn Error>> {
             )))
             .stderr(predicate::str::contains(
                 "`--dir`, `--kpar-path` or `--iri`",
-            ));
+            ))
+            .stderr(predicate::str::contains("`--get <FIELD>`"));
     }
 
     Ok(())
@@ -1603,216 +1597,208 @@ fn info_multi_index_url_config() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn info_detailed_verbs() -> Result<(), Box<dyn Error>> {
-    let (_tmp, cwd, out) =
-        cli_init_project(Some("info_detailed_verbs"), "a", None, Some("1.2.3"), None)?;
+fn info_get_and_edit_fields() -> Result<(), Box<dyn Error>> {
+    let (_tmp, cwd, out) = cli_init_project(Some("info_fields"), "a", None, Some("1.2.3"), None)?;
+    out.assert().success();
+    let project_path = &cwd.join("info_fields");
+
+    let get = |field: &str| -> Result<String, Box<dyn Error>> {
+        let out = run_sysand_in(project_path, ["info", "--get", field], None)?;
+        let stdout = out.assert().success().get_output().stdout.clone();
+        Ok(String::from_utf8(stdout)?)
+    };
+    let edit = |args: &[&str]| -> Result<(), Box<dyn Error>> {
+        run_sysand_in(
+            project_path,
+            std::iter::once("edit").chain(args.iter().copied()),
+            None,
+        )?
+        .assert()
+        .success();
+        Ok(())
+    };
+
+    assert_eq!(get("name")?, "info_fields\n");
+    edit(&["--name", "info_fields_alt"])?;
+    assert_eq!(get("name")?, "info_fields_alt\n");
+
+    assert_eq!(get("publisher")?, "a\n");
+    edit(&["--publisher", "a_alt"])?;
+    assert_eq!(get("publisher")?, "a_alt\n");
+
+    assert_eq!(get("version")?, "1.2.3\n");
+    edit(&["--version", "3.2.1"])?;
+    assert_eq!(get("version")?, "3.2.1\n");
+
+    assert_eq!(get("description")?, "");
+    edit(&["--description", "description"])?;
+    assert_eq!(get("description")?, "description\n");
+    edit(&["--clear-description"])?;
+    assert_eq!(get("description")?, "");
+
+    for (set, clear) in [
+        ("--license", "--clear-license"),
+        ("--licence", "--clear-licence"),
+    ] {
+        edit(&[set, "BSD-4-Clause"])?;
+        assert_eq!(get("license")?, "BSD-4-Clause\n");
+        assert_eq!(get("licence")?, "BSD-4-Clause\n");
+        edit(&[clear])?;
+        assert_eq!(get("license")?, "");
+    }
+
+    for (value, expected) in [
+        ("www.example.com", "https://www.example.com\n"),
+        ("http://www.example.com", "http://www.example.com\n"),
+        ("https://www.example.com", "https://www.example.com\n"),
+    ] {
+        edit(&["--website", value])?;
+        assert_eq!(get("website")?, expected);
+    }
+    edit(&["--clear-website"])?;
+    assert_eq!(get("website")?, "");
+
+    for (field, add, remove, clear) in [
+        (
+            "maintainer",
+            "--add-maintainer",
+            "--remove-maintainer",
+            "--clear-maintainers",
+        ),
+        ("topic", "--add-topic", "--remove-topic", "--clear-topics"),
+    ] {
+        assert_eq!(get(field)?, "");
+        edit(&[add, "x1", add, "x2", add, "x3"])?;
+        assert_eq!(get(field)?, "x1\nx2\nx3\n");
+        edit(&[remove, "x2"])?;
+        assert_eq!(get(field)?, "x1\nx3\n");
+        // Clearing is applied before adding, replacing the list
+        edit(&[clear, add, "y"])?;
+        assert_eq!(get(field)?, "y\n");
+        // Removing a value that is not there fails and changes nothing
+        run_sysand_in(project_path, ["edit", remove, "nope"], None)?
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(format!(
+                "project has no {field} `nope`"
+            )));
+        assert_eq!(get(field)?, "y\n");
+        edit(&[clear])?;
+        assert_eq!(get(field)?, "");
+    }
+
+    for (field, value) in [("includes-derived", "true"), ("includes-implied", "false")] {
+        assert_eq!(get(field)?, "");
+        edit(&[&format!("--{field}"), value])?;
+        assert_eq!(get(field)?, format!("{value}\n"));
+        edit(&[&format!("--clear-{field}")])?;
+        assert_eq!(get(field)?, "");
+    }
+
+    // Several fields at once, across `.project.json` and `.meta.json`
+    edit(&[
+        "--description",
+        "d",
+        "--add-topic",
+        "t",
+        "--includes-implied",
+        "true",
+    ])?;
+    assert_eq!(get("description")?, "d\n");
+    assert_eq!(get("topic")?, "t\n");
+    assert_eq!(get("includes-implied")?, "true\n");
+
+    // Fields that are not edited directly
+    for field in ["usage", "index", "checksum", "metamodel"] {
+        assert_eq!(get(field)?, "", "field: {field}");
+    }
+    assert!(!get("created")?.is_empty());
+    for flag in ["--usage", "--index", "--created", "--checksum"] {
+        run_sysand_in(project_path, ["edit", flag, "x"], None)?
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("unexpected argument"));
+    }
+
+    // A mistyped field is rejected by clap
+    run_sysand_in(project_path, ["info", "--get", "naem"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "invalid value 'naem' for '--get <FIELD>'",
+        ));
+
+    Ok(())
+}
+
+/// `sysand edit` alone prints its help; with other arguments but no edits
+/// it fails
+#[test]
+fn edit_requires_an_edit() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "edit_nothing", "1.2.3")?;
     out.assert().success();
 
-    let project_path = &cwd.join("info_detailed_verbs");
+    // Not through `run_sysand_in`, which appends `--no-config`
+    std::process::Command::new(assert_cmd::cargo::cargo_bin!("sysand"))
+        .arg("edit")
+        .current_dir(&cwd)
+        .env("NO_COLOR", "1")
+        .assert()
+        .failure()
+        // The program name differs between platforms (e.g. `sysand.exe`)
+        .stderr(predicate::str::is_match(r"(?m)^Usage: \S+ edit ")?);
+    for args in [&["edit"][..], &["edit", "--dir", "."]] {
+        run_sysand_in(&cwd, args.iter().copied(), None)?
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("no edits given"));
+    }
 
-    let get_field =
-        |field: &'static str, expected: Option<String>| -> Result<String, Box<dyn Error>> {
-            let out = run_sysand_in(project_path, ["info", field], None)?;
-            let stdout = out.stdout.clone();
-            if let Some(expected) = expected {
-                out.assert().success().stdout(expected);
-            }
-            Ok(String::from_utf8(stdout)?)
-        };
+    Ok(())
+}
 
-    // Check that a field does/does not get cleared
-    let try_clear = |field: &'static str, expected: bool| -> Result<(), Box<dyn Error>> {
-        let before = get_field(field, None)?;
+/// `sysand edit --dir` edits the project in the given directory
+#[test]
+fn edit_dir() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project(Some("edit_dir"), "a", None, None, None)?;
+    out.assert().success();
 
-        let out = run_sysand_in(project_path, ["info", field, "--clear"], None)?;
-        if expected {
-            out.assert().success();
-            get_field(field, Some(String::new()))?;
-        } else {
-            out.assert()
-                .stderr(predicates::str::contains("unexpected argument"));
-            get_field(field, Some(before))?;
-        }
-        Ok(())
-    };
+    run_sysand_in(
+        &cwd,
+        ["edit", "--dir", "edit_dir", "--version", "2.0.0"],
+        None,
+    )?
+    .assert()
+    .success();
+    run_sysand_in(
+        &cwd,
+        ["info", "--dir", "edit_dir", "--get", "version"],
+        None,
+    )?
+    .assert()
+    .success()
+    .stdout("2.0.0\n");
 
-    let try_set = |field: &'static str,
-                   value: &'static str,
-                   expected: bool,
-                   expected_different: Option<&'static str>|
-     -> Result<(), Box<dyn Error>> {
-        let before = get_field(field, None)?;
-        let out = run_sysand_in(project_path, ["info", field, "--set", value], None)?;
-        if expected {
-            out.assert().success();
-            let mut expected_output = {
-                if let Some(dif) = expected_different {
-                    dif.to_owned()
-                } else {
-                    value.to_owned()
-                }
-            };
-            expected_output.push('\n');
-            get_field(field, Some(expected_output))?;
-        } else {
-            out.assert()
-                .failure()
-                .stderr(predicates::str::contains("unexpected argument"));
-            get_field(field, Some(before))?;
-        }
-        Ok(())
-    };
-
-    let try_add =
-        |field: &'static str, value: &'static str, expected: bool| -> Result<(), Box<dyn Error>> {
-            let before = get_field(field, None)?;
-            let out = run_sysand_in(project_path, ["info", field, "--add", value], None)?;
-            if expected {
-                out.assert().success();
-                let mut expected_output = before;
-                expected_output.push_str(value);
-                expected_output.push('\n');
-                get_field(field, Some(expected_output))?;
-            } else {
-                out.assert()
-                    .failure()
-                    .stderr(predicates::str::contains("unexpected argument"));
-                get_field(field, Some(before))?;
-            }
-            Ok(())
-        };
-
-    let try_remove =
-        |field: &'static str, index: &'static str, expected: bool| -> Result<(), Box<dyn Error>> {
-            let before = get_field(field, None)?;
-            let out = run_sysand_in(project_path, ["info", field, "--remove", index], None)?;
-            if expected {
-                out.assert().success();
-                let skipped = index.parse::<usize>()? - 1;
-                let mut expected_output = String::new();
-                for (i, line) in before.lines().enumerate() {
-                    if i != skipped {
-                        expected_output.push_str(line);
-                        expected_output.push('\n');
-                    }
-                }
-                get_field(field, Some(expected_output))?;
-            } else {
-                out.assert()
-                    .failure()
-                    .stderr(predicates::str::contains("unexpected argument"));
-                get_field(field, Some(before))?;
-            }
-            Ok(())
-        };
-
-    get_field("name", Some("info_detailed_verbs\n".to_owned()))?;
-    try_set("name", "info_detailed_verbs_alt", true, None)?;
-    try_clear("name", false)?;
-    try_add("name", "name_1", false)?;
-    try_remove("name", "1", false)?;
-    get_field("publisher", Some("a\n".to_owned()))?;
-    try_set("publisher", "a_alt", true, None)?;
-    try_clear("publisher", false)?;
-    try_add("publisher", "pub_1", false)?;
-    try_remove("publisher", "1", false)?;
-    get_field("version", Some("1.2.3\n".to_owned()))?;
-    try_set("version", "3.2.1", true, None)?;
-    try_clear("version", false)?;
-    try_add("version", "version_1", false)?;
-    try_remove("version", "1", false)?;
-    get_field("description", Some(String::new()))?;
-    try_set("description", "description", true, None)?;
-    try_clear("description", true)?;
-    try_add("description", "description_1", false)?;
-    try_remove("description", "1", false)?;
-    get_field("licence", Some(String::new()))?;
-    try_set("licence", "BSD-4-Clause", true, None)?;
-    try_clear("licence", true)?;
-    try_add("licence", "licence_1", false)?;
-    try_remove("licence", "1", false)?;
-    get_field("license", Some(String::new()))?;
-    try_set("license", "BSD-4-Clause", true, None)?;
-    try_clear("license", true)?;
-    try_add("license", "license_1", false)?;
-    try_remove("license", "1", false)?;
-    get_field("maintainer", Some(String::new()))?;
-    try_set("maintainer", "maintainer", true, None)?;
-    try_clear("maintainer", true)?;
-    try_add("maintainer", "maintainer_1", true)?;
-    try_add("maintainer", "maintainer_2", true)?;
-    try_add("maintainer", "maintainer_3", true)?;
-    try_remove("maintainer", "2", true)?;
-    get_field("website", Some(String::new()))?;
-    try_set(
-        "website",
-        "www.example.com",
-        true,
-        Some("https://www.example.com"),
-    )?;
-    try_set(
-        "website",
-        "http://www.example.com",
-        true,
-        Some("http://www.example.com"),
-    )?;
-    try_set(
-        "website",
-        "https://www.example.com",
-        true,
-        Some("https://www.example.com"),
-    )?;
-    try_clear("website", true)?;
-    try_add("website", "website_1", false)?;
-    try_remove("website", "1", false)?;
-    get_field("topic", Some(String::new()))?;
-    try_set("topic", "example", true, None)?;
-    try_clear("topic", true)?;
-    try_add("topic", "topic_1", true)?;
-    try_add("topic", "topic_2", true)?;
-    try_add("topic", "topic_3", true)?;
-    try_remove("topic", "2", true)?;
-    get_field("usage", Some(String::new()))?;
-    try_set("usage", "usage", false, None)?;
-    try_clear("usage", false)?;
-    try_add("usage", "usage_1", false)?;
-    try_remove("usage", "1", false)?;
-    get_field("index", Some(String::new()))?;
-    try_set("index", "index", false, None)?;
-    try_clear("index", false)?;
-    try_add("index", "index_1", false)?;
-    try_remove("index", "1", false)?;
-    // get_field("created", Some("".to_string()))?;
-    try_set("created", "created", false, None)?;
-    try_clear("created", false)?;
-    try_add("created", "created_1", false)?;
-    try_remove("created", "1", false)?;
-    // setting the metamodel has its own test
-    get_field("metamodel", Some(String::new()))?;
-    try_clear("metamodel", true)?;
-    try_add("metamodel", "kerml", false)?;
-    try_remove("metamodel", "1", false)?;
-    get_field("includes-derived", Some(String::new()))?;
-    try_set("includes-derived", "true", true, None)?;
-    try_clear("includes-derived", true)?;
-    try_add("includes-derived", "includes_1", false)?;
-    try_remove("includes-derived", "1", false)?;
-    get_field("includes-implied", Some(String::new()))?;
-    try_set("includes-implied", "false", true, None)?;
-    try_clear("includes-implied", true)?;
-    try_add("includes-implied", "includes_1", false)?;
-    try_remove("includes-implied", "1", false)?;
-    get_field("checksum", Some(String::new()))?;
-    try_set("checksum", "checksum", false, None)?;
-    try_clear("checksum", false)?;
-    try_add("checksum", "checksum_1", false)?;
-    try_remove("checksum", "1", false)?;
+    run_sysand_in(
+        &cwd,
+        [
+            "edit",
+            "--dir",
+            "edit_dir/.project.json",
+            "--version",
+            "3.0.0",
+        ],
+        None,
+    )?
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains("is not a directory"));
 
     Ok(())
 }
 
 #[test]
-fn info_set_metamodel() -> Result<(), Box<dyn Error>> {
+fn edit_metamodel() -> Result<(), Box<dyn Error>> {
     let (_tmp, cwd, out) = cli_init_project(
         Some("info_custom_metamodel"),
         "a",
@@ -1823,10 +1809,9 @@ fn info_set_metamodel() -> Result<(), Box<dyn Error>> {
     out.assert().success();
 
     let project_path = &cwd.join("info_custom_metamodel");
-    let field = "metamodel";
 
     let get_metamodel = |expected: Option<String>| -> Result<String, Box<dyn Error>> {
-        let out = run_sysand_in(project_path, ["info", field], None)?;
+        let out = run_sysand_in(project_path, ["info", "--get", "metamodel"], None)?;
         let stdout = out.stdout.clone();
         if let Some(v) = expected {
             out.assert().success().stdout(v);
@@ -1840,9 +1825,7 @@ fn info_set_metamodel() -> Result<(), Box<dyn Error>> {
         let before = get_metamodel(None)?;
         let out = run_sysand_in(
             project_path,
-            ["info", field]
-                .into_iter()
-                .chain(flags_values.iter().copied()),
+            std::iter::once("edit").chain(flags_values.iter().copied()),
             None,
         )?;
         match expected_value_err {
@@ -1862,82 +1845,103 @@ fn info_set_metamodel() -> Result<(), Box<dyn Error>> {
 
     // Default release
     try_set(
-        &["--set", "sysml"],
+        &["--metamodel", "sysml"],
         Ok("https://www.omg.org/spec/SysML/20250201"),
     )?;
     try_set(
-        &["--set", "kerml"],
+        &["--metamodel", "kerml"],
         Ok("https://www.omg.org/spec/KerML/20250201"),
     )?;
     // Explicitly specified release
     try_set(
-        &["--set", "sysml", "--release", "20250201"],
+        &["--metamodel", "sysml", "--metamodel-release", "20250201"],
         Ok("https://www.omg.org/spec/SysML/20250201"),
     )?;
     try_set(
-        &["--set", "kerml", "--release", "20250201"],
+        &["--metamodel", "kerml", "--metamodel-release", "20250201"],
         Ok("https://www.omg.org/spec/KerML/20250201"),
     )?;
     // Unknown release
     try_set(
-        &["--set", "sysml", "--release", "20230201"],
+        &["--metamodel", "sysml", "--metamodel-release", "20230201"],
         Err("invalid value '20230201'"),
     )?;
     // Custom release
     try_set(
-        &["--set", "sysml", "--release-custom", "123"],
+        &["--metamodel", "sysml", "--metamodel-release-custom", "123"],
         Ok("https://www.omg.org/spec/SysML/123"),
     )?;
     try_set(
-        &["--set", "kerml", "--release-custom", "456"],
+        &["--metamodel", "kerml", "--metamodel-release-custom", "456"],
         Ok("https://www.omg.org/spec/KerML/456"),
     )?;
     // Invalid custom release
     try_set(
-        &["--set", "kerml", "--release-custom", "abc"],
-        Err("invalid value 'abc' for '--release-custom"),
+        &["--metamodel", "kerml", "--metamodel-release-custom", "abc"],
+        Err("invalid value 'abc' for '--metamodel-release-custom"),
     )?;
     // Custom metamodel
-    try_set(&["--set-custom", "mm1"], Ok("mm1"))?;
+    try_set(&["--custom-metamodel", "mm1"], Ok("mm1"))?;
+    // Release without a metamodel
+    try_set(
+        &["--metamodel-release", "20250201"],
+        Err("the following required arguments were not provided"),
+    )?;
 
     // Flag conflicts
     try_set(
-        &["--set", "kerml", "--set-custom", "abc123"],
-        Err("the argument '--set <KIND>' cannot be used with '--set-custom"),
+        &["--metamodel", "kerml", "--custom-metamodel", "abc123"],
+        Err("the argument '--metamodel <KIND>' cannot be used with '--custom-metamodel"),
     )?;
     try_set(
         &[
-            "--set",
+            "--metamodel",
             "kerml",
-            "--release",
+            "--metamodel-release",
             "20250201",
-            "--release-custom",
+            "--metamodel-release-custom",
             "123",
         ],
-        Err("the argument '--release <YYYYMMXX>' cannot be used with '--release-custom"),
-    )?;
-    try_set(
-        &["--release", "20250201", "--release-custom", "123"],
-        Err("the argument '--release <YYYYMMXX>' cannot be used with '--release-custom"),
-    )?;
-    try_set(
-        &["--set-custom", "abc123", "--release-custom", "123"],
         Err(
-            "the argument '--set-custom <METAMODEL>' cannot be used with '--release-custom <YYYYMMXX>'",
+            "the argument '--metamodel-release <YYYYMMXX>' cannot be used with '--metamodel-release-custom",
         ),
     )?;
     try_set(
-        &["--set-custom", "abc123", "--release", "20250201"],
-        Err("the argument '--set-custom <METAMODEL>' cannot be used with '--release <YYYYMMXX>'"),
+        &[
+            "--custom-metamodel",
+            "abc123",
+            "--metamodel-release-custom",
+            "123",
+        ],
+        Err(
+            "the argument '--custom-metamodel <METAMODEL>' cannot be used with '--metamodel-release-custom <YYYYMMXX>'",
+        ),
     )?;
+    try_set(
+        &[
+            "--custom-metamodel",
+            "abc123",
+            "--metamodel-release",
+            "20250201",
+        ],
+        Err(
+            "the argument '--custom-metamodel <METAMODEL>' cannot be used with '--metamodel-release <YYYYMMXX>'",
+        ),
+    )?;
+
+    run_sysand_in(project_path, ["edit", "--clear-metamodel"], None)?
+        .assert()
+        .success();
+    // An unset field prints nothing, not even an empty line
+    get_metamodel(Some(String::new()))?;
 
     Ok(())
 }
 
-/// `sysand info name --set` and `sysand info publisher --set` should reject
-/// invalid values and leave `.project.json` unchanged
+/// `sysand edit --name` and `--publisher` should reject invalid values and
+/// leave `.project.json` unchanged
 #[test]
-fn info_set_rejects_invalid_name_and_publisher() -> Result<(), Box<dyn Error>> {
+fn edit_rejects_invalid_name_and_publisher() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd, out) = cli_init_project_basic("a", "info_set_invalid", "1.2.3")?;
     out.assert().success();
     let original = std::fs::read_to_string(cwd.join(".project.json"))?;
@@ -1967,11 +1971,11 @@ fn info_set_rejects_invalid_name_and_publisher() -> Result<(), Box<dyn Error>> {
             "publisher cannot contain `\\n`",
         ),
     ] {
-        let out = run_sysand_in(&cwd, ["info", field, "--set", value], None)?;
+        let out = run_sysand_in(&cwd, ["edit", &format!("--{field}"), value], None)?;
 
         out.assert().failure().stderr(
             predicate::str::contains(format!(
-                "invalid value '{value}' for '--set <{value_name}>'"
+                "invalid value '{value}' for '--{field} <{value_name}>'"
             ))
             .and(predicate::str::contains(msg)),
         );
@@ -1985,19 +1989,20 @@ fn info_set_rejects_invalid_name_and_publisher() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// `sysand info name --set` and `sysand info publisher --set` should accept
-/// values containing spaces
+/// `sysand edit --name` and `--publisher` should accept values containing
+/// spaces
 #[test]
-fn info_set_accepts_spaces_in_name_and_publisher() -> Result<(), Box<dyn Error>> {
+fn edit_accepts_spaces_in_name_and_publisher() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd, out) = cli_init_project_basic("a", "info_set_spaces", "1.2.3")?;
     out.assert().success();
 
-    run_sysand_in(&cwd, ["info", "name", "--set", "My Project"], None)?
-        .assert()
-        .success();
-    run_sysand_in(&cwd, ["info", "publisher", "--set", "Acme Labs"], None)?
-        .assert()
-        .success();
+    run_sysand_in(
+        &cwd,
+        ["edit", "--name", "My Project", "--publisher", "Acme Labs"],
+        None,
+    )?
+    .assert()
+    .success();
 
     assert_eq!(
         std::fs::read_to_string(cwd.join(".project.json"))?,

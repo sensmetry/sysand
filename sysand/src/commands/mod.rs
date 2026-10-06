@@ -5,6 +5,7 @@ pub mod add;
 pub mod auth;
 pub mod build;
 pub mod clone;
+pub mod edit;
 pub mod env;
 pub mod exclude;
 pub mod include;

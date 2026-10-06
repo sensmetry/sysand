@@ -1,22 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{
-    convert::Infallible,
-    error::Error as _,
-    ffi::OsStr,
-    fmt::{Display, Write as _},
-    str::FromStr as _,
-};
+use std::{ffi::OsStr, fmt::Display, str::FromStr as _};
 
 use camino::Utf8PathBuf;
-use clap::{
-    ValueEnum,
-    builder::{PossibleValue, StyledStr},
-    crate_authors,
-    error::{ContextKind, ContextValue, ErrorKind},
-    parser::ValueSource,
-};
+use clap::{ValueEnum, builder::PossibleValue, crate_authors, parser::ValueSource};
 use fluent_uri::Iri;
 use semver::{Version, VersionReq};
 use sysand_core::{
@@ -262,13 +250,17 @@ pub enum Command {
         #[arg(long)]
         no_prune: bool,
     },
-    /// Describe or modify a local project (either the current one
-    /// or one at a given path) or resolve and describe a project
-    /// at a specified IRI/URL
+    /// Describe a local project (either the current one or one at a
+    /// given path) or resolve and describe a project at a specified
+    /// IRI/URL. Use `sysand edit` to modify a local project
     #[clap(verbatim_doc_comment)]
     Info {
         #[clap(flatten)]
         locator: InfoProjectLocatorArgs,
+        /// Print only the value of the given field (a list field one entry
+        /// per line). Prints nothing if the field is not set
+        #[arg(long, value_name = "FIELD", value_enum, verbatim_doc_comment)]
+        get: Option<InfoField>,
         // TODO: is this useful?
         // /// Do not try to normalise the IRI/URI when resolving
         // #[arg(long, visible_alias = "no-normalize")]
@@ -277,8 +269,18 @@ pub enum Command {
         //       into consideration
         #[command(flatten)]
         resolution_opts: ResolutionOptions,
-        #[command(subcommand)]
-        subcommand: Option<InfoCommand>,
+    },
+    /// Modify the information (`.project.json`) and metadata (`.meta.json`)
+    /// of a local project: the current one, or the one in `--dir`.
+    /// Several fields can be edited at once
+    #[clap(verbatim_doc_comment, arg_required_else_help = true)]
+    Edit {
+        /// Edit the project in the given directory instead of the current
+        /// project. Path can be relative or absolute
+        #[arg(long, verbatim_doc_comment)]
+        dir: Option<Utf8PathBuf>,
+        #[command(flatten)]
+        edits: Box<EditArgs>,
     },
     /// List source files for the current project and (optionally)
     /// its dependencies available in `.sysand`. Requires that
@@ -480,8 +482,9 @@ pub struct InfoProjectLocatorArgs {
         default_value = None,
         value_name = "IDENTIFIER",
         value_parser = with_tip(
-            InfoIdentifierParser,
-            "to use a directory, a KPAR or an IRI, use `--dir`, `--kpar-path` or `--iri` respectively"
+            parse_project_identifier,
+            "to use a directory, a KPAR or an IRI, use `--dir`, `--kpar-path` or `--iri`; \
+            to print a single field, use `--get <FIELD>`"
         ),
         verbatim_doc_comment
     )]
@@ -604,51 +607,6 @@ impl From<KparCompressionMethod> for KparCompressionMethodCli {
             #[cfg(feature = "kpar-ppmd")]
             KparCompressionMethod::Ppmd => Self::Ppmd,
         }
-    }
-}
-
-#[derive(Clone, Debug)]
-struct InvalidCommand {
-    message: String,
-}
-
-fn invalid_command<S: AsRef<str>>(message: S) -> InvalidCommand {
-    InvalidCommand {
-        message: message.as_ref().to_owned(),
-    }
-}
-
-impl clap::builder::TypedValueParser for InvalidCommand {
-    type Value = Infallible;
-
-    fn parse_ref(
-        &self,
-        cmd: &clap::Command,
-        arg: Option<&clap::Arg>,
-        value: &OsStr,
-    ) -> Result<Self::Value, clap::Error> {
-        let mut err = clap::Error::new(clap::error::ErrorKind::UnknownArgument).with_cmd(cmd);
-        if let Some(arg) = arg {
-            err.insert(
-                clap::error::ContextKind::InvalidArg,
-                clap::error::ContextValue::String(arg.to_string()),
-            );
-        }
-        err.insert(
-            clap::error::ContextKind::InvalidValue,
-            clap::error::ContextValue::String(value.to_string_lossy().to_string()),
-        );
-
-        // NOTE: https://github.com/clap-rs/clap/discussions/5318
-        // Only works with StyledStrs
-        let mut styled = StyledStr::new();
-        styled.write_str(&self.message)?;
-        err.insert(
-            clap::error::ContextKind::Suggested,
-            clap::error::ContextValue::StyledStrs(vec![styled]),
-        );
-
-        Err(err)
     }
 }
 
@@ -791,901 +749,201 @@ impl<P: clap::builder::TypedValueParser> clap::builder::TypedValueParser for Wit
     }
 }
 
-#[derive(clap::Subcommand, Debug, Clone)]
-pub enum InfoCommand {
-    /// Get or set the name of the project
-    #[group(required = false, multiple = false)]
-    Name {
-        #[arg(long, value_name = "NAME", value_parser = parse_project_name, default_value=None)]
-        set: Option<ProjectName>,
-        // Only for better error messages
-        #[arg(hide = true, long, num_args=0, default_missing_value="None", value_parser=
-            invalid_command("`name` cannot be unset"))]
-        clear: Option<Infallible>,
-        // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=
-            invalid_command("`name` is not a list, consider using `sysand info name --set`?"))]
-        add: Option<Infallible>,
-        // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=
-            invalid_command("`name` is not a list, and cannot be unset"))]
-        remove: Option<Infallible>,
-    },
-    /// Get or set the publisher of the project
-    #[group(required = false, multiple = false)]
-    Publisher {
-        #[arg(long, value_name = "PUBLISHER", value_parser = parse_project_publisher, default_value=None)]
-        set: Option<ProjectPublisher>,
-        #[arg(hide = true, long, num_args=0, default_missing_value="None", value_parser=
-            invalid_command("`publisher` cannot be unset"))]
-        clear: Option<Infallible>,
-        // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=
-            invalid_command("`publisher` is not a list, consider using `sysand info publisher --set`?"))]
-        add: Option<Infallible>,
-        // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=
-            invalid_command("`publisher` is not a list, and cannot be unset"))]
-        remove: Option<Infallible>,
-    },
-    /// Get or set the description of the project
-    #[group(required = false, multiple = false)]
-    Description {
-        #[arg(long, value_name = "DESCRIPTION", default_value=None)]
-        set: Option<String>,
-        #[arg(long, default_value = None)]
-        clear: bool,
-        // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "`description` is not a list, consider using `sysand info description --set`?"
-        ))]
-        add: Option<Infallible>,
-        // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "`description` is not a list, consider using `sysand info description --clear`?"
-        ))]
-        remove: Option<Infallible>,
-    },
-    /// Get or set the version of the project
-    #[group(required = false, multiple = false)]
-    Version {
-        /// Set the version in SemVer 2.0 format
-        #[arg(long, value_name = "VERSION", default_value=None)]
-        set: Option<Version>,
-        // Only for better error messages
-        #[arg(
-            hide = true,
-            long,
-            num_args=0,
-            default_missing_value="None",
-            default_value = None,
-            value_parser=invalid_command("`version` cannot be unset")
-        )]
-        clear: Option<Infallible>,
-        // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "`version` is not a list, consider using `sysand info version --set`?"
-        ))]
-        add: Option<Infallible>,
-        // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "`version` is not a list, and cannot be unset"
-        ))]
-        remove: Option<Infallible>,
-    },
-    /// Get or set the license of the project
-    #[command(visible_alias = "licence")]
-    #[group(required = false, multiple = false)]
-    License {
-        /// Set the license in the form of an SPDX license expression
-        #[arg(long, value_name = "LICENSE", value_parser = parse_spdx_expression, default_value=None)]
-        set: Option<spdx::Expression>,
-        /// Remove the project's license
-        #[arg(long, default_value = None)]
-        clear: bool,
-        // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "`license` is not a list, consider using `sysand info license --set`?"
-        ))]
-        add: Option<Infallible>,
-        // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "`license` is not a list, consider using `sysand info license --clear`?"
-        ))]
-        remove: Option<Infallible>,
-    },
-    /// Get or manipulate the list of maintainers of the project
-    #[group(required = false, multiple = false)]
-    Maintainer {
-        #[arg(long, value_name = "MAINTAINER", default_value=None)]
-        set: Option<String>,
-        #[arg(long, default_value = None)]
-        clear: bool,
-        #[arg(long, default_value=None)]
-        add: Option<String>,
-        #[arg(long, default_value=None)]
-        remove: Option<usize>,
-        /// Prints a numbered list
-        #[arg(long)]
-        numbered: bool,
-    },
-    /// Get or set the website of the project
-    #[group(required = false, multiple = false)]
-    Website {
-        /// Set the website. Must be a valid IRI/URI/URL
-        #[arg(long, value_name = "URI", value_parser = parse_https_iri, default_value=None)]
-        set: Option<Iri<String>>,
-        #[arg(long, default_value = None)]
-        clear: bool,
-        // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "`website` is not a list, consider using `sysand info website --set`?"
-        ))]
-        add: Option<Infallible>,
-        // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "`website` is not a list, consider using `sysand info website --clear`?"
-        ))]
-        remove: Option<Infallible>,
-    },
-    /// Get or manipulate the list of topics of the project
-    #[group(required = false, multiple = false)]
-    Topic {
-        #[arg(long, value_name = "TOPIC", default_value=None)]
-        set: Option<String>,
-        #[arg(long, default_value = None)]
-        clear: bool,
-        #[arg(long, value_name = "TOPIC", default_value=None)]
-        add: Option<String>,
-        #[arg(long, default_value=None)]
-        remove: Option<usize>,
-        /// Prints a numbered list
-        #[arg(long)]
-        numbered: bool,
-    },
-    /// Print project usages
-    #[group(required = false, multiple = false)]
-    Usage {
-        // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "`usage` cannot be set directly, please use `sysand add` and `sysand remove`"
-        ))]
-        set: Option<Infallible>,
-        // Only for better error messages
-        #[arg(
-            hide = true,
-            long,
-            num_args=0,
-            default_missing_value="None",
-            value_parser=invalid_command(
-              "`usage` cannot be cleared directly, please use `sysand remove`"
-            )
-        )]
-        clear: Option<Infallible>,
-        // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "`usage` cannot be added to directly, please use `sysand add`"
-        ))]
-        add: Option<Infallible>,
-        // Only for Infallible error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "`usage` cannot be removed from directly, please use `sysand remove`"
-        ))]
-        remove: Option<Infallible>,
-        /// Prints a numbered list
-        #[arg(long)]
-        numbered: bool,
-    },
-    /// Get project index
-    #[group(required = false, multiple = false)]
-    Index {
-        // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "`index` cannot be set directly, please use `sysand include` and `sysand exclude`"
-        ))]
-        set: Option<Infallible>,
-        // Only for better error messages
-        #[arg(
-            hide = true,
-            long,
-            num_args=0,
-            default_missing_value="None",
-            value_parser=invalid_command(
-              "`index` cannot be cleared directly, please use `sysand exclude`"
-            )
-        )]
-        clear: Option<Infallible>,
-        // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "`index` cannot be added to directly, please use `sysand include` and `sysand exclude`"
-        ))]
-        add: Option<Infallible>,
-        // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "`index` cannot be removed from directly, please use `sysand exclude`"
-        ))]
-        remove: Option<Infallible>,
-        /// Prints a numbered list
-        #[arg(long)]
-        numbered: bool,
-    },
-    /// Get project metadata manifest creation time
-    #[group(required = false, multiple = false)]
-    Created {
-        // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "`created` cannot be set directly, it is automatically updated"
-        ))]
-        set: Option<Infallible>,
-        // Only for better error messages
-        #[arg(
-            hide = true,
-            long,
-            num_args=0,
-            default_missing_value="None",
-            value_parser=invalid_command(
-              "`created` cannot be cleared, it is automatically updated"
-            )
-        )]
-        clear: Option<Infallible>,
-        // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "`created` cannot be added to, it is automatically updated"
-        ))]
-        add: Option<Infallible>,
-        // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "`created` cannot be removed from, it is automatically updated"
-        ))]
-        remove: Option<Infallible>,
-    },
-    /// Get or set the metamodel of the project
-    #[group(required = false)]
-    Metamodel {
-        // It would be nicer to have Option<Metamodel> here,
-        // but that would introduce an additional level of
-        // nesting, as clap does not support flatten with Option
-        /// Set a SysML v2 or KerML metamodel. To set a custom metamodel, use `--set-custom`
-        #[arg(long, value_name = "KIND", value_enum, default_value=None)]
-        set: Option<MetamodelKind>,
-        /// Choose the release of the SysML v2 or KerML metamodel.
-        /// SysML 2.0 and KerML 1.0 have the same release dates
-        #[arg(
-            long,
-            value_name = "YYYYMMXX",
-            requires = "set",
-            value_enum,
-            verbatim_doc_comment,
-            default_value=MetamodelVersion::RELEASE
-        )]
-        release: MetamodelVersion,
-        /// Choose a custom release of the SysML v2 or KerML metamodel.
-        #[arg(
-            long,
-            value_name = "YYYYMMXX",
-            requires = "set",
-            conflicts_with = "release",
-            default_value=None,
-        )]
-        release_custom: Option<u32>,
-        /// Set a custom metamodel. To set a SysML v2 or KerML metamodel, use `--set`
-        #[arg(
-            long,
-            value_name = "METAMODEL",
-            conflicts_with_all = ["set", "release", "release_custom"],
-            default_value=None
-        )]
-        set_custom: Option<String>,
-        #[arg(long, num_args = 0, conflicts_with = "set")]
-        clear: bool,
-        // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "`metamodel` is not a list, consider using `sysand info metamodel --set`?"
-        ))]
-        add: Option<Infallible>,
-        // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "`metamodel` is not a list, consider using `sysand info metamodel --clear`?"
-        ))]
-        remove: Option<Infallible>,
-    },
-    /// Get or set whether the project includes derived properties
-    #[group(required = false, multiple = false)]
-    IncludesDerived {
-        #[arg(long, value_name = "INCLUDES_DERIVED", num_args=1, default_value=None)]
-        set: Option<bool>,
-        #[arg(long, default_value = None)]
-        clear: bool,
-        // Only for better error messages
-        #[arg(
-            hide=true,
-            long,
-            default_value=None,
-            value_parser=invalid_command(
-            "`include_derived` is not a list, consider using `sysand info include_derived --set`?"
-            )
-        )]
-        add: Option<Infallible>,
-        // Only for better error messages
-        #[arg(hide=true,
-          long,
-          default_value=None,
-          value_parser=invalid_command(
-          "`include_derived` is not a list, consider using `sysand info include_derived --clear`?"
-          )
-        )]
-        remove: Option<Infallible>,
-    },
-    /// Get or set whether the project includes implied properties
-    #[group(required = false, multiple = false)]
-    IncludesImplied {
-        #[arg(long, value_name = "INCLUDES_IMPLIED", num_args=1, default_value=None)]
-        set: Option<bool>,
-        #[arg(long, default_value = None)]
-        clear: bool,
-        // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "`include_implied` is not a list, consider using `sysand info include_implied --set`?"
-        ))]
-        add: Option<Infallible>,
-        // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "`include_implied` is not a list, consider using `sysand info include_implied --clear`?"
-        ))]
-        remove: Option<Infallible>,
-    },
-    /// Get project source file checksums
-    #[group(required = false, multiple = false)]
-    Checksum {
-        // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "`checksum` cannot be set directly, please use `sysand include` and `sysand exclude`"
-        ))]
-        set: Option<Infallible>,
-        // Only for better error messages
-        #[arg(
-            hide = true,
-            long,
-            num_args=0,
-            default_missing_value="None",
-            value_parser=invalid_command(
-              "`checksum` cannot be cleared directly, please use `sysand exclude`"
-            )
-        )]
-        clear: Option<Infallible>,
-        // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "`checksum` cannot be added to directly, please use `sysand include`"
-        ))]
-        add: Option<Infallible>,
-        // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "`checksum` cannot be removed from directly, please use `sysand exclude`"
-        ))]
-        remove: Option<Infallible>,
-        /// Prints a numbered list
-        #[arg(long)]
-        numbered: bool,
-    },
+/// A field of the project information (`.project.json`) or metadata
+/// (`.meta.json`)
+#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InfoField {
+    /// Project name
+    Name,
+    /// Project publisher
+    Publisher,
+    /// Project description
+    Description,
+    /// Project version
+    Version,
+    /// Project license (SPDX license expression)
+    #[value(alias = "licence")]
+    License,
+    /// Project maintainers, one per line
+    Maintainer,
+    /// Project website
+    Website,
+    /// Project topics, one per line
+    Topic,
+    /// Project usages (dependencies), one per line
+    Usage,
+    /// Symbols exported by the project, one per line
+    Index,
+    /// Creation time of the project metadata
+    Created,
+    /// Metamodel of the project
+    Metamodel,
+    /// Whether the project includes derived properties
+    IncludesDerived,
+    /// Whether the project includes implied properties
+    IncludesImplied,
+    /// Checksums of the project source files, one per line
+    Checksum,
 }
 
-#[derive(Debug, Clone)]
-pub enum InfoCommandVerb {
-    Get(GetVerb),
-    Set(SetVerb),
-    Clear(ClearVerb),
-    Add(AddVerb),
-    Remove(RemoveVerb),
-}
-
-#[derive(Debug, Clone)]
-pub enum GetVerb {
-    GetInfoVerb(GetInfoVerb),
-    GetMetaVerb(GetMetaVerb),
-}
-
-#[derive(Debug, Clone)]
+/// Edits of a local project. Edits of different fields can be combined;
+/// the project information and metadata are each written once
+#[derive(clap::Args, Debug, Clone)]
 #[expect(
-    clippy::large_enum_variant,
-    reason = "caused by spdx::Expression; does not matter"
+    clippy::struct_excessive_bools,
+    reason = "each `--clear-*` flag is an independent CLI switch"
 )]
-pub enum SetVerb {
-    SetInfoVerb(SetInfoVerb),
-    SetMetaVerb(SetMetaVerb),
-}
-
-#[derive(Debug, Clone)]
-pub enum ClearVerb {
-    ClearInfoVerb(ClearInfoVerb),
-    ClearMetaVerb(ClearMetaVerb),
-}
-
-#[derive(Debug, Clone)]
-pub enum AddVerb {
-    AddInfoVerb(AddInfoVerb),
-    AddMetaVerb(AddMetaVerb),
-}
-
-#[derive(Debug, Clone)]
-pub enum RemoveVerb {
-    RemoveInfoVerb(RemoveInfoVerb),
-    RemoveMetaVerb(RemoveMetaVerb),
-}
-
-#[derive(Debug, Clone)]
-pub enum GetInfoVerb {
-    GetName,
-    GetPublisher,
-    GetDescription,
-    GetVersion,
-    GetLicense,
-    GetMaintainer,
-    GetWebsite,
-    GetTopic,
-    GetUsage,
-}
-
-#[derive(Debug, Clone)]
-pub enum SetInfoVerb {
-    SetName(ProjectName),
-    SetPublisher(ProjectPublisher),
-    SetDescription(String),
-    SetVersion(Version),
-    SetLicense(spdx::Expression),
-    SetMaintainer(Vec<String>),
-    SetWebsite(String),
-    SetTopic(Vec<String>),
-}
-
-#[derive(Debug, Clone)]
-pub enum ClearInfoVerb {
-    ClearPublisher,
-    ClearDescription,
-    ClearLicense,
-    ClearMaintainer,
-    ClearWebsite,
-    ClearTopic,
-}
-
-#[derive(Debug, Clone)]
-pub enum AddInfoVerb {
-    AddMaintainer(Vec<String>),
-    AddTopic(Vec<String>),
-}
-
-#[derive(Debug, Clone)]
-pub enum RemoveInfoVerb {
-    RemoveMaintainer(usize),
-    RemoveTopic(usize),
-}
-
-#[derive(Debug, Clone)]
-pub enum GetMetaVerb {
-    GetIndex,
-    GetCreated,
-    GetMetamodel,
-    GetIncludesDerived,
-    GetIncludesImplied,
-    GetChecksum,
-}
-
-#[derive(Debug, Clone)]
-pub enum SetMetaVerb {
-    SetMetamodel(String),
-    SetIncludesDerived(bool),
-    SetIncludesImplied(bool),
-}
-
-#[derive(Debug, Clone)]
-pub enum ClearMetaVerb {
-    ClearMetamodel,
-    ClearIncludesDerived,
-    ClearIncludesImplied,
-}
-
-#[derive(Debug, Clone)]
-pub enum AddMetaVerb {
-    // Currently nothing
-}
-
-#[derive(Debug, Clone)]
-pub enum RemoveMetaVerb {
-    // Currently nothing
-}
-
-impl InfoCommand {
-    pub fn as_verb(self) -> InfoCommandVerb {
-        fn pack(
-            get: GetVerb,
-            set: Option<SetVerb>,
-            clear: Option<ClearVerb>,
-            add: Option<AddVerb>,
-            remove: Option<RemoveVerb>,
-        ) -> InfoCommandVerb {
-            match (set, clear, add, remove) {
-                (None, None, None, None) => InfoCommandVerb::Get(get),
-                (Some(set), None, None, None) => InfoCommandVerb::Set(set),
-                (None, Some(clear), None, None) => InfoCommandVerb::Clear(clear),
-                (None, None, Some(add), None) => InfoCommandVerb::Add(add),
-                (None, None, None, Some(remove)) => InfoCommandVerb::Remove(remove),
-                _ => unreachable!("internal error: invalid CLI command produced"),
-            }
-        }
-
-        fn pack_info(
-            get: GetInfoVerb,
-            set: Option<SetInfoVerb>,
-            clear: Option<ClearInfoVerb>,
-            add: Option<AddInfoVerb>,
-            remove: Option<RemoveInfoVerb>,
-        ) -> InfoCommandVerb {
-            pack(
-                GetVerb::GetInfoVerb(get),
-                set.map(SetVerb::SetInfoVerb),
-                clear.map(ClearVerb::ClearInfoVerb),
-                add.map(AddVerb::AddInfoVerb),
-                remove.map(RemoveVerb::RemoveInfoVerb),
-            )
-        }
-
-        fn pack_meta(
-            get: GetMetaVerb,
-            set: Option<SetMetaVerb>,
-            clear: Option<ClearMetaVerb>,
-            add: Option<AddMetaVerb>,
-            remove: Option<RemoveMetaVerb>,
-        ) -> InfoCommandVerb {
-            pack(
-                GetVerb::GetMetaVerb(get),
-                set.map(SetVerb::SetMetaVerb),
-                clear.map(ClearVerb::ClearMetaVerb),
-                add.map(AddVerb::AddMetaVerb),
-                remove.map(RemoveVerb::RemoveMetaVerb),
-            )
-        }
-
-        #[expect(clippy::single_option_map)]
-        fn impossible<T>(impossible: Option<Infallible>) -> Option<T> {
-            impossible.map(|x| match x {})
-        }
-
-        match self {
-            Self::Name {
-                set,
-                clear,
-                add,
-                remove,
-            } => pack_info(
-                GetInfoVerb::GetName,
-                set.map(SetInfoVerb::SetName),
-                impossible(clear),
-                impossible(add),
-                impossible(remove),
-            ),
-            Self::Publisher {
-                set,
-                clear,
-                add,
-                remove,
-            } => pack_info(
-                GetInfoVerb::GetPublisher,
-                set.map(SetInfoVerb::SetPublisher),
-                impossible(clear),
-                impossible(add),
-                impossible(remove),
-            ),
-            Self::Description {
-                set,
-                clear,
-                add,
-                remove,
-            } => pack_info(
-                GetInfoVerb::GetDescription,
-                set.map(SetInfoVerb::SetDescription),
-                if clear {
-                    Some(ClearInfoVerb::ClearDescription)
-                } else {
-                    None
-                },
-                impossible(add),
-                impossible(remove),
-            ),
-            Self::Version {
-                set,
-                clear,
-                add,
-                remove,
-            } => pack_info(
-                GetInfoVerb::GetVersion,
-                set.map(SetInfoVerb::SetVersion),
-                impossible(clear),
-                impossible(add),
-                impossible(remove),
-            ),
-            Self::License {
-                set,
-                clear,
-                add,
-                remove,
-            } => pack_info(
-                GetInfoVerb::GetLicense,
-                set.map(SetInfoVerb::SetLicense),
-                if clear {
-                    Some(ClearInfoVerb::ClearLicense)
-                } else {
-                    None
-                },
-                impossible(add),
-                impossible(remove),
-            ),
-            Self::Maintainer {
-                set,
-                clear,
-                add,
-                remove,
-                numbered: _,
-            } => pack_info(
-                GetInfoVerb::GetMaintainer,
-                set.map(|x| SetInfoVerb::SetMaintainer(vec![x])),
-                if clear {
-                    Some(ClearInfoVerb::ClearMaintainer)
-                } else {
-                    None
-                },
-                add.map(|x| AddInfoVerb::AddMaintainer(vec![x])),
-                remove.map(RemoveInfoVerb::RemoveMaintainer),
-            ),
-            Self::Website {
-                set,
-                clear,
-                add,
-                remove,
-            } => pack_info(
-                GetInfoVerb::GetWebsite,
-                set.map(|i| SetInfoVerb::SetWebsite(i.into_string())),
-                if clear {
-                    Some(ClearInfoVerb::ClearWebsite)
-                } else {
-                    None
-                },
-                impossible(add),
-                impossible(remove),
-            ),
-            Self::Topic {
-                set,
-                clear,
-                add,
-                remove,
-                numbered: _,
-            } => pack_info(
-                GetInfoVerb::GetTopic,
-                set.map(|x| SetInfoVerb::SetTopic(vec![x])),
-                if clear {
-                    Some(ClearInfoVerb::ClearTopic)
-                } else {
-                    None
-                },
-                add.map(|x| AddInfoVerb::AddTopic(vec![x])),
-                remove.map(RemoveInfoVerb::RemoveTopic),
-            ),
-            Self::Usage {
-                set,
-                clear,
-                add,
-                remove,
-                numbered: _,
-            } => pack_info(
-                GetInfoVerb::GetUsage,
-                impossible(set),
-                impossible(clear),
-                impossible(add),
-                impossible(remove),
-            ),
-            Self::Index {
-                set,
-                clear,
-                add,
-                remove,
-                numbered: _,
-            } => pack_meta(
-                GetMetaVerb::GetIndex,
-                impossible(set),
-                impossible(clear),
-                impossible(add),
-                impossible(remove),
-            ),
-            Self::Created {
-                set,
-                clear,
-                add,
-                remove,
-            } => pack_meta(
-                GetMetaVerb::GetCreated,
-                impossible(set),
-                impossible(clear),
-                impossible(add),
-                impossible(remove),
-            ),
-            Self::Metamodel {
-                set,
-                release,
-                release_custom,
-                set_custom,
-                clear,
-                add,
-                remove,
-            } => {
-                let metamodel = match set {
-                    Some(mk) => match release_custom {
-                        Some(rc) => Some(format!("{mk}{rc}")),
-                        None => Some(Metamodel(mk, release).into()),
-                    },
-                    None => set_custom,
-                };
-                pack_meta(
-                    GetMetaVerb::GetMetamodel,
-                    metamodel.map(SetMetaVerb::SetMetamodel),
-                    if clear {
-                        Some(ClearMetaVerb::ClearMetamodel)
-                    } else {
-                        None
-                    },
-                    impossible(add),
-                    impossible(remove),
-                )
-            }
-            Self::IncludesDerived {
-                set,
-                clear,
-                add,
-                remove,
-            } => pack_meta(
-                GetMetaVerb::GetIncludesDerived,
-                set.map(SetMetaVerb::SetIncludesDerived),
-                if clear {
-                    Some(ClearMetaVerb::ClearIncludesDerived)
-                } else {
-                    None
-                },
-                impossible(add),
-                impossible(remove),
-            ),
-            Self::IncludesImplied {
-                set,
-                clear,
-                add,
-                remove,
-            } => pack_meta(
-                GetMetaVerb::GetIncludesImplied,
-                set.map(SetMetaVerb::SetIncludesImplied),
-                if clear {
-                    Some(ClearMetaVerb::ClearIncludesImplied)
-                } else {
-                    None
-                },
-                impossible(add),
-                impossible(remove),
-            ),
-            Self::Checksum {
-                set,
-                clear,
-                add,
-                remove,
-                numbered: _,
-            } => pack_meta(
-                GetMetaVerb::GetChecksum,
-                impossible(set),
-                impossible(clear),
-                impossible(add),
-                impossible(remove),
-            ),
-        }
-    }
-
-    pub fn numbered(&self) -> bool {
-        // NOTE: Avoid using { .. } here, in order to not accidentally miss the introduction of
-        //       relevant flags in the future.
-        match self {
-            Self::Name {
-                set: _,
-                clear: _,
-                add: _,
-                remove: _,
-            } => false,
-            Self::Publisher {
-                set: _,
-                clear: _,
-                add: _,
-                remove: _,
-            } => false,
-            Self::Description {
-                set: _,
-                clear: _,
-                add: _,
-                remove: _,
-            } => false,
-            Self::Version {
-                set: _,
-                clear: _,
-                add: _,
-                remove: _,
-            } => false,
-            Self::License {
-                set: _,
-                clear: _,
-                add: _,
-                remove: _,
-            } => false,
-            Self::Maintainer {
-                numbered,
-                set: _,
-                clear: _,
-                add: _,
-                remove: _,
-            } => *numbered,
-            Self::Website {
-                set: _,
-                clear: _,
-                add: _,
-                remove: _,
-            } => false,
-            Self::Topic {
-                numbered,
-                set: _,
-                clear: _,
-                add: _,
-                remove: _,
-            } => *numbered,
-            Self::Usage {
-                numbered,
-                set: _,
-                clear: _,
-                add: _,
-                remove: _,
-            } => *numbered,
-            Self::Index {
-                numbered,
-                set: _,
-                clear: _,
-                add: _,
-                remove: _,
-            } => *numbered,
-            Self::Created {
-                set: _,
-                clear: _,
-                add: _,
-                remove: _,
-            } => false,
-            Self::Metamodel {
-                set: _,
-                release: _,
-                release_custom: _,
-                set_custom: _,
-                clear: _,
-                add: _,
-                remove: _,
-            } => false,
-            Self::IncludesDerived {
-                set: _,
-                clear: _,
-                add: _,
-                remove: _,
-            } => false,
-            Self::IncludesImplied {
-                set: _,
-                clear: _,
-                add: _,
-                remove: _,
-            } => false,
-            Self::Checksum {
-                numbered,
-                set: _,
-                clear: _,
-                add: _,
-                remove: _,
-            } => *numbered,
-        }
-    }
+pub struct EditArgs {
+    /// Set the name
+    #[arg(long, value_parser = parse_project_name, help_heading = "Project information")]
+    pub name: Option<ProjectName>,
+    /// Set the publisher
+    #[arg(long, value_parser = parse_project_publisher, help_heading = "Project information")]
+    pub publisher: Option<ProjectPublisher>,
+    /// Set the version in SemVer 2.0 format
+    #[arg(long, help_heading = "Project information")]
+    pub version: Option<Version>,
+    /// Set the description
+    #[arg(
+        long,
+        value_name = "TEXT",
+        conflicts_with = "clear_description",
+        help_heading = "Project information"
+    )]
+    pub description: Option<String>,
+    /// Remove the description
+    #[arg(long, help_heading = "Project information")]
+    pub clear_description: bool,
+    /// Set the license in the form of an SPDX license expression
+    #[arg(
+        long,
+        alias = "licence",
+        value_name = "LICENSE",
+        value_parser = parse_spdx_expression,
+        conflicts_with = "clear_license",
+        help_heading = "Project information"
+    )]
+    pub license: Option<spdx::Expression>,
+    /// Remove the license
+    #[arg(long, alias = "clear-licence", help_heading = "Project information")]
+    pub clear_license: bool,
+    /// Set the website. Must be a valid IRI/URI/URL; `https://` is assumed
+    /// if it has no scheme
+    #[arg(
+        long,
+        value_name = "URI",
+        value_parser = parse_https_iri,
+        conflicts_with = "clear_website",
+        verbatim_doc_comment,
+        help_heading = "Project information"
+    )]
+    pub website: Option<Iri<String>>,
+    /// Remove the website
+    #[arg(long, help_heading = "Project information")]
+    pub clear_website: bool,
+    /// Add a maintainer. Can be repeated
+    #[arg(long, value_name = "MAINTAINER", help_heading = "Project information")]
+    pub add_maintainer: Vec<String>,
+    /// Remove a maintainer (every entry equal to the value). Can be repeated
+    #[arg(long, value_name = "MAINTAINER", help_heading = "Project information")]
+    pub remove_maintainer: Vec<String>,
+    /// Remove all maintainers. Applied before `--add-maintainer`, so the two
+    /// together replace the maintainers
+    #[arg(
+        long,
+        conflicts_with = "remove_maintainer",
+        verbatim_doc_comment,
+        help_heading = "Project information"
+    )]
+    pub clear_maintainers: bool,
+    /// Add a topic. Can be repeated
+    #[arg(long, value_name = "TOPIC", help_heading = "Project information")]
+    pub add_topic: Vec<String>,
+    /// Remove a topic (every entry equal to the value). Can be repeated
+    #[arg(long, value_name = "TOPIC", help_heading = "Project information")]
+    pub remove_topic: Vec<String>,
+    /// Remove all topics. Applied before `--add-topic`, so the two together
+    /// replace the topics
+    #[arg(
+        long,
+        conflicts_with = "remove_topic",
+        verbatim_doc_comment,
+        help_heading = "Project information"
+    )]
+    pub clear_topics: bool,
+    // It would be nicer to have Option<Metamodel> here,
+    // but that would introduce an additional level of
+    // nesting, as clap does not support flatten with Option
+    /// Set a SysML v2 or KerML metamodel. To set a custom metamodel, use
+    /// `--custom-metamodel`
+    #[arg(
+        long,
+        value_name = "KIND",
+        value_enum,
+        verbatim_doc_comment,
+        help_heading = "Project metadata"
+    )]
+    pub metamodel: Option<MetamodelKind>,
+    /// Choose the release of the SysML v2 or KerML metamodel.
+    /// SysML 2.0 and KerML 1.0 have the same release dates
+    #[arg(
+        long,
+        value_name = "YYYYMMXX",
+        requires = "metamodel",
+        value_enum,
+        verbatim_doc_comment,
+        default_value = MetamodelVersion::RELEASE,
+        help_heading = "Project metadata"
+    )]
+    pub metamodel_release: MetamodelVersion,
+    /// Choose a custom release of the SysML v2 or KerML metamodel
+    #[arg(
+        long,
+        value_name = "YYYYMMXX",
+        requires = "metamodel",
+        conflicts_with = "metamodel_release",
+        help_heading = "Project metadata"
+    )]
+    pub metamodel_release_custom: Option<u32>,
+    /// Set a custom metamodel. To set a SysML v2 or KerML metamodel, use
+    /// `--metamodel`
+    #[arg(
+        long,
+        value_name = "METAMODEL",
+        conflicts_with_all = ["metamodel", "metamodel_release", "metamodel_release_custom"],
+        verbatim_doc_comment,
+        help_heading = "Project metadata"
+    )]
+    pub custom_metamodel: Option<String>,
+    /// Remove the metamodel
+    #[arg(
+        long,
+        conflicts_with_all = ["metamodel", "custom_metamodel"],
+        help_heading = "Project metadata"
+    )]
+    pub clear_metamodel: bool,
+    /// Set whether the project includes derived properties
+    #[arg(
+        long,
+        value_name = "BOOL",
+        conflicts_with = "clear_includes_derived",
+        help_heading = "Project metadata"
+    )]
+    pub includes_derived: Option<bool>,
+    /// Remove whether the project includes derived properties
+    #[arg(long, help_heading = "Project metadata")]
+    pub clear_includes_derived: bool,
+    /// Set whether the project includes implied properties
+    #[arg(
+        long,
+        value_name = "BOOL",
+        conflicts_with = "clear_includes_implied",
+        help_heading = "Project metadata"
+    )]
+    pub includes_implied: Option<bool>,
+    /// Remove whether the project includes implied properties
+    #[arg(long, help_heading = "Project metadata")]
+    pub clear_includes_implied: bool,
 }
 
 #[derive(clap::Subcommand, Debug, Clone)]
@@ -2180,66 +1438,15 @@ impl ValueEnum for MetamodelVersion {
     }
 }
 
-/// Why a `<publisher>/<name>` identifier is not valid
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum IdentifierParseError {
-    #[error("identifier is not of the form `<publisher>/<name>`")]
-    NotIdentifier,
-    #[error(transparent)]
-    Field(#[from] ProjectFieldError),
-}
-
 /// Parse a `<publisher>/<name>` project identifier
-pub fn parse_project_identifier(
-    s: &str,
-) -> Result<(ProjectPublisher, ProjectName), IdentifierParseError> {
+pub fn parse_project_identifier(s: &str) -> Result<(ProjectPublisher, ProjectName), String> {
     let Some((publisher, name)) = s.split_once('/') else {
-        return Err(IdentifierParseError::NotIdentifier);
+        return Err("identifier is not of the form `<publisher>/<name>`".to_owned());
     };
     Ok((
-        parse_project_publisher(publisher)?,
-        parse_project_name(name)?,
+        parse_project_publisher(publisher).map_err(|e| e.to_string())?,
+        parse_project_name(name).map_err(|e| e.to_string())?,
     ))
-}
-
-/// Parses the optional positional identifier of `info`, which shares the
-/// position with its subcommands. A value without `/` is reported as an
-/// unrecognized subcommand, as it is far more likely a mistyped subcommand
-/// than an identifier
-#[derive(Clone, Debug)]
-struct InfoIdentifierParser;
-
-impl clap::builder::TypedValueParser for InfoIdentifierParser {
-    type Value = (ProjectPublisher, ProjectName);
-
-    fn parse_ref(
-        &self,
-        cmd: &clap::Command,
-        arg: Option<&clap::Arg>,
-        value: &OsStr,
-    ) -> Result<Self::Value, clap::Error> {
-        parse_project_identifier
-            .parse_ref(cmd, arg, value)
-            .map_err(|e| {
-                // clap keeps the parser's error only as a type-erased source
-                if e.source()
-                    .and_then(|source| source.downcast_ref::<IdentifierParseError>())
-                    == Some(&IdentifierParseError::NotIdentifier)
-                {
-                    return e;
-                }
-                let mut e = clap::Error::new(ErrorKind::InvalidSubcommand).with_cmd(cmd);
-                e.insert(
-                    ContextKind::InvalidSubcommand,
-                    ContextValue::String(value.to_string_lossy().into_owned()),
-                );
-                e.insert(
-                    ContextKind::Usage,
-                    ContextValue::StyledStr(cmd.clone().render_usage()),
-                );
-                e
-            })
-    }
 }
 
 /// Parse a project publisher
