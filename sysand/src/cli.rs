@@ -475,9 +475,9 @@ pub struct CloneProjectLocatorArgs {
 pub struct InfoProjectLocatorArgs {
     /// Project identifier of the form `<publisher>/<name>`. `<publisher>`
     /// and `<name>` can either exactly match those of the project being
-    /// described, or use lowercase letters only and replace spaces with `-`
-    /// Currently a failing placeholder, in the future will allow describing
-    /// projects from indexes
+    /// described, or use lowercase letters only and replace spaces with `-`.
+    /// The project is resolved as an index usage, and its highest version
+    /// is described
     #[clap(
         default_value = None,
         value_name = "IDENTIFIER",

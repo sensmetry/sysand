@@ -181,11 +181,18 @@ fn info_basic_iri_explicit() -> Result<(), Box<dyn Error>> {
 fn info_positional_is_identifier() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd, _) = cli_init_project(Some("info_positional"), "acme", None, None, None)?;
 
-    run_sysand_in(&cwd, ["info", "acme/some-project"], None)?
+    run_sysand_in(&cwd, ["info", "acme/some-project", "--no-index"], None)?
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "describing by `<publisher>/<name>` identifier is not supported yet",
+            "`acme/some-project` (*) was not found",
+        ));
+    // Only spellings an index can route are accepted
+    run_sysand_in(&cwd, ["info", "Foo & Bar/some-project", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "index usage `Foo & Bar/some-project` has an invalid publisher",
         ));
 
     for invalid_identifier in [
@@ -1077,6 +1084,83 @@ fn info_index_purl_takes_the_highest_version_including_a_prerelease() -> Result<
 
     config_mock.assert();
     mocks[0].assert();
+
+    Ok(())
+}
+
+/// `info <publisher>/<name>` resolves the project as an index usage, in any
+/// spelling that normalizes to it, and describes the highest version
+#[test]
+fn info_index_identifier_takes_the_highest_version_including_a_prerelease()
+-> Result<(), Box<dyn Error>> {
+    let mut server = mockito::Server::new();
+    let config_mock = mock_index_config_absent(&mut server, 1);
+
+    let mocks = mock_index_project(
+        &mut server,
+        "/acme/widget",
+        "widget",
+        &["3.0.0-beta.1", "2.0.0"],
+    );
+
+    let (_, _, out) = run_sysand(
+        ["info", "ACME/Widget", "--default-index", &server.url()],
+        None,
+    )?;
+
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains("Name: widget"))
+        .stdout(predicate::str::contains("Version: 3.0.0-beta.1"));
+
+    config_mock.assert();
+    mocks[0].assert();
+
+    Ok(())
+}
+
+/// `info <publisher>/<name>` also finds a project installed in the local
+/// environment, without any index
+#[test]
+fn info_identifier_from_local_env() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project(Some("main"), "acme", None, None, None)?;
+    out.assert().success();
+    cli_init_project_in(
+        &cwd,
+        Some("dep"),
+        "Acme Labs",
+        Some("My Dep"),
+        Some("1.2.0"),
+        None,
+    )?
+    .assert()
+    .success();
+    let main = cwd.join("main");
+    run_sysand_in(&main, ["add", "--dir", "../dep", "--no-index"], None)?
+        .assert()
+        .success();
+
+    for identifier in ["Acme Labs/My Dep", "acme-labs/my-dep"] {
+        run_sysand_in(&main, ["info", identifier, "--no-index"], None)?
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("Name: My Dep"))
+            .stdout(predicate::str::contains("Version: 1.2.0"));
+    }
+    run_sysand_in(
+        &main,
+        [
+            "info",
+            "acme-labs/my-dep",
+            "--no-index",
+            "--get",
+            "publisher",
+        ],
+        None,
+    )?
+    .assert()
+    .success()
+    .stdout("Acme Labs\n");
 
     Ok(())
 }

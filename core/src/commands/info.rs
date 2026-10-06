@@ -62,13 +62,23 @@ pub enum InfoError<Error: ErrorBound> {
     Resolution(#[from] Error),
 }
 
+/// Same as [`do_info_usage`], for the project identified by `uri`
 #[expect(clippy::result_large_err)]
 pub fn do_info<R: ResolveRead>(
     uri: &Iri<String>,
     resolver: &R,
 ) -> Result<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw), InfoError<R::Error>> {
-    // TODO: support other usage types
-    let resolve = ResolutionInfo::iri(uri.to_owned());
+    do_info_usage(ResolutionInfo::iri(uri.to_owned()), resolver)
+}
+
+/// Resolves `resolve` and returns the information and metadata of the
+/// highest (semantic) version found. The version constraint of the usage,
+/// if any, is not applied
+#[expect(clippy::result_large_err)]
+pub fn do_info_usage<R: ResolveRead>(
+    resolve: ResolutionInfo,
+    resolver: &R,
+) -> Result<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw), InfoError<R::Error>> {
     let outcome = resolver.resolve_read(&resolve)?;
 
     match outcome {

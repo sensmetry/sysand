@@ -18,8 +18,8 @@ use sysand_core::{
         ProjectMut, ProjectRead, any::OverrideProject, local_kpar::KparInnerPath, utils::Identifier,
     },
     resolve::{
-        file::FileResolverProject, memory::MemoryResolver, priority::PriorityResolver,
-        standard::standard_resolver,
+        ResolutionInfo, file::FileResolverProject, memory::MemoryResolver,
+        priority::PriorityResolver, standard::standard_resolver,
     },
     style,
     utils::{ProvidedIdentifiers, format_err},
@@ -27,10 +27,9 @@ use sysand_core::{
 
 use anstream::println;
 use anyhow::{Result, bail};
-use fluent_uri::Iri;
 use std::{collections::HashSet, sync::Arc};
 use sysand_core::{
-    info::{do_info, do_info_project},
+    info::{do_info_project, do_info_usage},
     project::utils::wrapfs,
     project::{local_kpar::LocalKParProject, local_src::LocalSrcProject},
 };
@@ -161,8 +160,8 @@ pub fn command_info_path<P: AsRef<Utf8Path>>(
     }
 }
 
-pub fn command_info_uri<Policy: HTTPAuthentication>(
-    uri: Iri<String>,
+pub fn command_info_resolve<Policy: HTTPAuthentication>(
+    resolve: ResolutionInfo,
     _normalise: bool,
     client: reqwest_middleware::ClientWithMiddleware,
     index_urls: Option<Vec<IndexLocation>>,
@@ -183,7 +182,7 @@ pub fn command_info_uri<Policy: HTTPAuthentication>(
         standard_resolver(ctx.env, Some(client), index_urls, runtime, auth_policy)?,
     );
 
-    let (info, _) = do_info(&uri, &combined_resolver)?;
+    let (info, _) = do_info_usage(resolve, &combined_resolver)?;
     pprint_interchange_project(&info, excluded_iris);
     Ok(())
 }
@@ -220,8 +219,8 @@ pub fn command_info_field_path<P: AsRef<Utf8Path>>(
     command_info_field(&interpret_project_path(&path, kind)?, field)
 }
 
-pub fn command_info_field_uri<Policy: HTTPAuthentication>(
-    uri: Iri<String>,
+pub fn command_info_field_resolve<Policy: HTTPAuthentication>(
+    resolve: ResolutionInfo,
     field: InfoField,
     client: reqwest_middleware::ClientWithMiddleware,
     index_urls: Option<Vec<IndexLocation>>,
@@ -234,7 +233,7 @@ pub fn command_info_field_uri<Policy: HTTPAuthentication>(
         MemoryResolver::resources_only(overrides),
         standard_resolver(ctx.env, Some(client), index_urls, runtime, auth_policy)?,
     );
-    let (info, meta) = do_info(&uri, &combined_resolver)?;
+    let (info, meta) = do_info_usage(resolve, &combined_resolver)?;
     print_lines(field_lines(field, || Ok(info), || Ok(meta))?);
     Ok(())
 }

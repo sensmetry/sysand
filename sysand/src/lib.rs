@@ -36,13 +36,14 @@ use sysand_core::{
     index::RemoveTarget,
     index_location::IndexLocation,
     lock::Lock,
+    model::InterchangeProjectUsageRaw,
     project::{
         any::{AnyProject, OverrideProject},
         local_src::LocalSrcProject,
         reference::ProjectReference,
         utils::{Identifier, wrapfs},
     },
-    resolve::net_utils::create_reqwest_client,
+    resolve::{ResolutionInfo, net_utils::create_reqwest_client},
     stdlib::known_std_libs,
     utils::format_err,
     workspace::Workspace,
@@ -663,7 +664,7 @@ fn run_cli_with(
         } => {
             enum Location {
                 WorkDir,
-                Iri(fluent_uri::Iri<String>),
+                Resolve(ResolutionInfo),
                 Path(Utf8PathBuf, LocalProjectKind),
             }
 
@@ -696,13 +697,20 @@ fn run_cli_with(
 
             let location = match locator {
                 cli::InfoProjectLocatorArgs {
-                    identifier: Some(_),
+                    identifier: Some((publisher, name)),
                     dir: None,
                     kpar_path: None,
                     iri: None,
-                } => {
-                    bail!("describing by `<publisher>/<name>` identifier is not supported yet")
-                }
+                } => Location::Resolve(ResolutionInfo::new(
+                    InterchangeProjectUsageRaw::Index {
+                        publisher: publisher.into_string(),
+                        name: name.into_string(),
+                        // Any version, the highest is described
+                        version_constraint: semver::VersionReq::STAR.to_string(),
+                    }
+                    .validate()?,
+                    None,
+                )),
                 cli::InfoProjectLocatorArgs {
                     identifier: None,
                     dir: Some(dir),
@@ -720,7 +728,7 @@ fn run_cli_with(
                     dir: None,
                     kpar_path: None,
                     iri: Some(iri),
-                } => Location::Iri(iri),
+                } => Location::Resolve(ResolutionInfo::iri(iri)),
                 cli::InfoProjectLocatorArgs {
                     identifier: None,
                     dir: None,
@@ -746,8 +754,8 @@ fn run_cli_with(
                         ),
                     }
                 }
-                (Location::Iri(iri), None) => crate::commands::info::command_info_uri(
-                    iri,
+                (Location::Resolve(resolve), None) => crate::commands::info::command_info_resolve(
+                    resolve,
                     true, // !no_normalise,
                     client,
                     index_urls,
@@ -757,16 +765,18 @@ fn run_cli_with(
                     auth_policy,
                     ctx,
                 ),
-                (Location::Iri(iri), Some(field)) => crate::commands::info::command_info_field_uri(
-                    iri,
-                    field,
-                    client,
-                    index_urls,
-                    overrides,
-                    runtime,
-                    auth_policy,
-                    ctx,
-                ),
+                (Location::Resolve(resolve), Some(field)) => {
+                    crate::commands::info::command_info_field_resolve(
+                        resolve,
+                        field,
+                        client,
+                        index_urls,
+                        overrides,
+                        runtime,
+                        auth_policy,
+                        ctx,
+                    )
+                }
                 (Location::Path(path, kind), None) => {
                     command_info_path(&path, kind, &excluded_usages)
                 }
