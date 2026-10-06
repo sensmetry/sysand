@@ -363,22 +363,26 @@ pub enum CandidateError<R: ResolveRead> {
         source: InterchangeProjectValidationError,
     },
     #[error("it does not declare its usages")]
-    MissingUsage,
+    MissingUsage { version: Version },
     #[error("its usages cannot be read")]
-    UsageObtain(#[source] StorageError<R>),
+    UsageObtain {
+        version: Version,
+        #[source]
+        source: StorageError<R>,
+    },
 }
 
 impl<R: ResolveRead> CandidateError<R> {
     /// The version of the candidate, when it is known
     fn version(&self) -> Option<&Version> {
         match self {
-            Self::InvalidProject { version, .. } => Some(version),
+            Self::InvalidProject { version, .. }
+            | Self::MissingUsage { version }
+            | Self::UsageObtain { version, .. } => Some(version),
             Self::Resolved(_)
             | Self::InvalidVersion { .. }
             | Self::MissingVersion
-            | Self::VersionObtain(_)
-            | Self::MissingUsage
-            | Self::UsageObtain(_) => None,
+            | Self::VersionObtain(_) => None,
         }
     }
 
@@ -404,8 +408,8 @@ impl<R: ResolveRead> CandidateError<R> {
                 version,
                 source,
             },
-            Self::MissingUsage => InternalSolverError::MissingUsage { usage },
-            Self::UsageObtain(source) => InternalSolverError::UsageObtain { usage, source },
+            Self::MissingUsage { .. } => InternalSolverError::MissingUsage { usage },
+            Self::UsageObtain { source, .. } => InternalSolverError::UsageObtain { usage, source },
         }
     }
 }
@@ -433,8 +437,8 @@ fn read_candidate<R: ResolveRead>(
                 version: version.clone(),
                 source,
             })?,
-        Ok(None) => return Err(CandidateError::MissingUsage),
-        Err(e) => return Err(CandidateError::UsageObtain(e)),
+        Ok(None) => return Err(CandidateError::MissingUsage { version }),
+        Err(source) => return Err(CandidateError::UsageObtain { version, source }),
     };
     let relative_root = project.project_root().map(camino::Utf8Path::to_path_buf);
     let usage = usage
