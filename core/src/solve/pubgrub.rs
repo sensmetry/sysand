@@ -389,7 +389,11 @@ impl<R: ResolveRead> CandidateError<R> {
     /// The error for `resolve`, which may not skip this candidate
     fn into_error(self, resolve: &CoalescingUsage) -> InternalSolverError<R> {
         let usage = resolve.to_usage();
-        if let InterchangeProjectUsage::Index { .. } = resolve.usage().usage() {
+        // A candidate that could not be read at all is not known to be
+        // broken: that is reported as the read error below
+        if let InterchangeProjectUsage::Index { .. } = resolve.usage().usage()
+            && !matches!(self, Self::Resolved(_))
+        {
             return InternalSolverError::BrokenIndexVersion {
                 usage,
                 version: self.version().map(Version::to_string),
@@ -753,14 +757,6 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
             | pubgrub::PubGrubError::ErrorRetrievingDependencies {
                 source: InternalSolverError::ResolvedError { source: err, .. },
                 ..
-            }
-            | pubgrub::PubGrubError::ErrorRetrievingDependencies {
-                source:
-                    InternalSolverError::BrokenIndexVersion {
-                        source: CandidateError::Resolved(err),
-                        ..
-                    },
-                ..
             } => Some(err),
             _ => None,
         }
@@ -776,12 +772,7 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
                 self.walk(derivation_tree, &mut conflicts);
             }
             pubgrub::PubGrubError::ErrorRetrievingDependencies { source, .. } => match source {
-                InternalSolverError::Resolution(_)
-                | InternalSolverError::ResolvedError { .. }
-                | InternalSolverError::BrokenIndexVersion {
-                    source: CandidateError::Resolved(_),
-                    ..
-                } => {}
+                InternalSolverError::Resolution(_) | InternalSolverError::ResolvedError { .. } => {}
                 InternalSolverError::NotFound(usage, _)
                 | InternalSolverError::NoValidCandidates(usage)
                 | InternalSolverError::UnsupportedUsageType { usage, .. }
@@ -1064,7 +1055,8 @@ impl<R: ResolveRead + fmt::Debug + 'static> Display for SolverError<R> {
                          is not a valid project,\n\
                          {BROKEN_NOT_SKIPPED};\n\
                          the usage is not yours to edit: it has to be fixed by that \
-                         dependency's publisher, or the version by its own",
+                         dependency's publisher, or the version where it comes from:\n\
+                         {FIXED_WHERE_IT_COMES_FROM}",
                         broken_version_label(version.as_deref())
                     )
                 }
@@ -1118,6 +1110,12 @@ impl<R: ResolveRead + fmt::Debug + 'static> std::error::Error for SolverError<R>
 /// Why a broken version of an index usage fails the solve, for messages
 const BROKEN_NOT_SKIPPED: &str = "and a broken version fails the solve instead of being skipped";
 
+/// Where a broken version of an index usage can be fixed, for messages. The
+/// solver cannot tell whether an index offered it, or the local environment
+/// holds a broken copy of it
+const FIXED_WHERE_IT_COMES_FROM: &str = "its publisher can fix or yank it in an index, \
+     and a broken copy can be removed from the local environment";
+
 /// The broken version of an index usage, for messages
 fn broken_version_label(version: Option<&str>) -> String {
     match version {
@@ -1166,7 +1164,8 @@ pub enum InternalSolverError<R: ResolveRead> {
     #[error(
         "{} offered for index usage {usage} is not a valid project,\n\
          {BROKEN_NOT_SKIPPED};\n\
-         exclude it with a version constraint, or have its publisher fix or yank it",
+         exclude it with a version constraint, or have the version fixed where it comes from:\n\
+         {FIXED_WHERE_IT_COMES_FROM}",
         broken_version_label(version.as_deref())
     )]
     BrokenIndexVersion {

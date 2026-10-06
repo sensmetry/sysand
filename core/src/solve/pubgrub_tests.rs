@@ -676,6 +676,27 @@ fn typed_usage_error_candidate_fails_resolution() {
     assert!(msg.contains("candidate exploded"), "got: {msg}");
 }
 
+/// A candidate of an index usage that cannot be read at all is not known to
+/// be broken, so it is reported as the read error, not as a broken version
+/// whose publisher has to fix it
+#[test]
+fn index_usage_unreadable_candidate_is_a_read_error() {
+    let err = super::solve(
+        vec![InterchangeProjectUsage::Index {
+            publisher: "acme".to_owned(),
+            name: "widget".to_owned(),
+            version_constraint: VersionReq::STAR,
+        }],
+        None,
+        ErrorCandidateResolver,
+    )
+    .expect_err("an unreadable candidate fails the solve");
+    let msg = format!("{err:?}");
+    assert!(msg.contains("ResolvedError"), "got: {msg}");
+    assert!(!msg.contains("BrokenIndexVersion"), "got: {msg}");
+    assert!(err.resolution_error().is_some(), "got: {msg}");
+}
+
 /// Typed usage resolving to a project whose version is not valid semver
 /// fails resolution
 #[test]
@@ -1798,7 +1819,9 @@ mod index_usages {
             err.to_string(),
             "version 2.0.0 offered for index usage `acme/lib` (*) is not a valid project,\n\
              and a broken version fails the solve instead of being skipped;\n\
-             exclude it with a version constraint, or have its publisher fix or yank it"
+             exclude it with a version constraint, or have the version fixed where it comes from:\n\
+             its publisher can fix or yank it in an index, and a broken copy can be removed from \
+             the local environment"
         );
         assert_eq!(
             std::error::Error::source(&err).map(ToString::to_string),
@@ -1838,7 +1861,9 @@ mod index_usages {
              which dependency `pkg:sysand/acme/mid` 1.3.0 declares, is not a valid project,\n\
              and a broken version fails the solve instead of being skipped;\n\
              the usage is not yours to edit: it has to be fixed by that dependency's \
-             publisher, or the version by its own"
+             publisher, or the version where it comes from:\n\
+             its publisher can fix or yank it in an index, and a broken copy can be removed from \
+             the local environment"
         );
         assert_eq!(
             std::error::Error::source(&err).map(ToString::to_string),
@@ -1876,9 +1901,8 @@ mod index_usages {
             super::super::solve(vec![mid_usage, index_usage("*")], None, resolver).unwrap_err();
 
         assert!(
-            err.to_string().ends_with(
-                "exclude it with a version constraint, or have its publisher fix or yank it"
-            ),
+            err.to_string()
+                .contains("exclude it with a version constraint, or have the version fixed"),
             "{err}"
         );
         assert!(!err.to_string().contains("dependency"), "{err}");
