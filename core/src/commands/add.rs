@@ -9,7 +9,6 @@ use crate::{
         InterchangeProjectUsageG, InterchangeProjectUsageRaw, InterchangeProjectValidationError,
     },
     project::{ProjectMut, ProjectRead, utils::Identifier},
-    purl::normalize_field,
     utils::SP,
 };
 
@@ -49,15 +48,6 @@ pub enum AddError<ProjectError> {
         existing: String,
         new: String,
     },
-}
-
-/// Whether `publisher` and `name` are both in normalized form, that is,
-/// what [`normalize_field`] makes of them. A typed usage given this way names
-/// the project by its identifier only, and its actual spelling has to be
-/// recovered (for an index usage, see [`spell_index_usage`]); any other
-/// spelling has to be the project's own.
-pub fn is_normalized_spelling(publisher: &str, name: &str) -> bool {
-    normalize_field(publisher) == publisher && normalize_field(name) == name
 }
 
 /// Why [`spell_index_usage`] could not settle the spelling of an index usage
@@ -102,8 +92,10 @@ pub enum IndexSpellingError<EnvError, ProjectError> {
 /// read from a version of the project installed in `env` (the first it
 /// lists: a project spells itself the same way in every version), without
 /// touching the network: the project's own spelling when `publisher`/`name`
-/// is normalized (see [`is_normalized_spelling`]), and `publisher`/`name`
+/// is normalized (see [`crate::purl::is_normalized_spelling`]), and `publisher`/`name`
 /// itself otherwise, once it has been checked to be that spelling.
+/// `normalized` is whether `publisher`/`name` is normalized, which the
+/// caller has already found out.
 ///
 /// Fails when no version is installed, since then there is nothing to check
 /// against.
@@ -112,12 +104,12 @@ pub fn spell_index_usage<Env: ReadEnvironment>(
     env: Option<&Env>,
     publisher: &str,
     name: &str,
+    normalized: bool,
 ) -> Result<
     (String, String),
     IndexSpellingError<Env::ReadError, <Env::InterchangeProjectRead as ProjectRead>::Error>,
 > {
     let usage = format!("{publisher}/{name}");
-    let normalized = is_normalized_spelling(publisher, name);
     let identifier = Identifier::from_pub_name(publisher, name);
 
     let version = match env {

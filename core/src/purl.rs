@@ -110,6 +110,20 @@ pub fn normalize_field(s: &str) -> String {
     s.to_ascii_lowercase().replace(' ', "-")
 }
 
+/// Whether `s` is already what [`normalize_field`] makes of it: it has no
+/// ASCII uppercase letter and no space
+pub fn is_normalized_field(s: &str) -> bool {
+    !s.bytes().any(|b| b.is_ascii_uppercase() || b == b' ')
+}
+
+/// Whether `publisher` and `name` are both normalized (see
+/// [`is_normalized_field`]). A typed usage given this way names the project
+/// by its identifier only, and its actual spelling has to be recovered; any
+/// other spelling has to be the project's own.
+pub fn is_normalized_spelling(publisher: &str, name: &str) -> bool {
+    is_normalized_field(publisher) && is_normalized_field(name)
+}
+
 /// Reason a `pkg:sysand/...` IRI failed [`parse_sysand_purl`]. Used to
 /// build human-readable validation errors that explain the rejection
 /// without leaking parser internals.
