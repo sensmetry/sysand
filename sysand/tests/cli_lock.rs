@@ -1146,7 +1146,9 @@ fn lock_fails_on_a_broken_index_version() -> Result<(), Box<dyn std::error::Erro
         .stderr(contains(
             "error: version 0.2.0 offered for index usage `mock/dep` (*) is not a valid project,\n\
              and a broken version fails the solve instead of being skipped;\n\
-             exclude it with a version constraint, or have its publisher fix or yank it\n",
+             exclude it with a version constraint, or have the version fixed where it comes from:\n\
+             its publisher can fix or yank it in an index, and a broken copy can be removed from \
+             the local environment\n",
         ))
         .stderr(contains("caused by: one of its usages is invalid\n"))
         .stderr(contains(
