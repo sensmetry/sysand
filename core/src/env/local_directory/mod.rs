@@ -399,6 +399,16 @@ pub enum LocalWriteError {
         {0}"
     )]
     ImpossibleRelativePath(#[from] RelativizePathError),
+    #[error(
+        "cannot install `{identifier}` {version}: the environment already has this version\n\
+        as {kind} project, which cannot be overwritten"
+    )]
+    OverwriteNotInstalled {
+        identifier: Box<str>,
+        version: Box<str>,
+        /// "an editable" or "a workspace"
+        kind: &'static str,
+    },
     #[error("project is missing metadata file `.meta.json`")]
     MissingMeta,
     #[error("project is missing `.project.json` and/or `.meta.json` files")]
@@ -465,11 +475,23 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
             LocalSrcProject::new_access(project_temp.path().to_path_buf(), None);
 
         if let Some(existing) = self.metadata.find_project_version_mut(identifier, version) {
-            // Create a temp clone and change it to avoid modifying env in case of errors
-            // TODO: how to handle editable projects here?
-            assert!(!existing.editable);
-            assert!(!existing.workspace);
+            // Editable and workspace projects are not managed by the env, so
+            // they cannot be replaced by an installed copy
+            if existing.editable || existing.workspace {
+                return Err(PutProjectError::Write(
+                    LocalWriteError::OverwriteNotInstalled {
+                        identifier: identifier.into(),
+                        version: version.into(),
+                        kind: if existing.workspace {
+                            "a workspace"
+                        } else {
+                            "an editable"
+                        },
+                    },
+                ));
+            }
 
+            // Create a temp clone and change it to avoid modifying env in case of errors
             write_project(&mut tentative_project).map_err(PutProjectError::Callback)?;
             // Project is not editable, so this is always correct
             let absolute_path = self.root_dir.join(existing.path.as_str());

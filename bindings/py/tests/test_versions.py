@@ -59,7 +59,7 @@ def test_versions_not_found(mock_index: MockIndex) -> None:
     assert excinfo.value.wrote is False
 
     with pytest.raises(sysand.NotFoundError):
-        sysand.versions(iri=IRI, resolution=sysand.Resolution(no_index=True))
+        sysand.versions(iri=IRI, resolution=sysand.Resolution(use_index=False))
     assert mock_index.requests("*/versions.json") == [
         MockIndex.versions_path("urn:kpar:absent")
     ]

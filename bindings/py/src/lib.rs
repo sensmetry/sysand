@@ -13,7 +13,7 @@ use pyo3::{
     prelude::*,
     types::{PyAny, PyDict},
 };
-use semver::{Version, VersionReq};
+use semver::Version;
 use sysand::{
     CliAuthPolicy,
     cli::{AddProjectLocatorArgs, ResolutionOptions},
@@ -28,7 +28,10 @@ use sysand_core::{
     auth::{GlobMapResult, StandardHTTPAuthenticationBuilder},
     build::{KParBuildError, KparCompressionMethod, do_build_kpar},
     commands::{
-        env::{EnvError, do_env_local_dir},
+        env::{
+            EnvError, EnvInstallError, EnvInstallPathError, do_env_install_path_parse,
+            do_env_local_dir,
+        },
         init::do_init_local_file,
         lock::{DEFAULT_LOCKFILE_NAME, LockError, LockProjectError},
         sync::SyncOutcome,
@@ -40,14 +43,14 @@ use sysand_core::{
     context::ProjectContext,
     discover::{discover_project, discover_workspace},
     env::{
-        DEFAULT_ENV_NAME, ReadEnvironment as _, WriteEnvironment as _,
+        DEFAULT_ENV_NAME, PutProjectError,
         discovery::DiscoveryError,
         index::{HttpFetchError, IndexEnvironmentError},
         local_directory::{
-            LocalDirectoryEnvironment, LocalReadError, LocalWriteError,
+            LocalDirectoryEnvironment, LocalWriteError,
             metadata::{EnvMetadataError, EnvProject, EnvProjectChecksum},
         },
-        utils::clone_project,
+        utils::CloneError,
     },
     exclude::do_exclude,
     include::do_include,
@@ -62,7 +65,6 @@ use sysand_core::{
     },
     project::{
         ProjectRead as _,
-        local_kpar::{KparInnerPath, LocalKParProject},
         local_src::{LocalSrcError, LocalSrcProject},
         memory::InMemoryProject,
         utils::{Identifier, wrapfs},
@@ -77,7 +79,10 @@ use sysand_core::{
     },
     root::do_root,
     solve::pubgrub::SolveConflict,
-    sources::{Dependencies, do_sources_local_src_project_no_deps, resolve_dependencies},
+    sources::{
+        Dependencies, SourcesEnvError, do_sources_env_parse, do_sources_local_src_project_no_deps,
+        resolve_dependencies,
+    },
     stdlib::known_std_libs,
     usage::{ConstraintChange, do_set_index_usage_constraint_local, do_set_usage_constraint_local},
     utils::ProvidedProjects,
@@ -185,7 +190,8 @@ fn do_env_py_local_dir(path: String) -> PyResult<()> {
                 | LocalWriteError::Path(_)
                 | LocalWriteError::Serialize(_)
                 | LocalWriteError::ImpossibleRelativePath(_)
-                | LocalWriteError::ProjectNotFound(_) => PyValueError::new_err(e),
+                | LocalWriteError::ProjectNotFound(_)
+                | LocalWriteError::OverwriteNotInstalled { .. } => PyValueError::new_err(e),
                 LocalWriteError::Io(_)
                 | LocalWriteError::TryMove(_)
                 | LocalWriteError::LocalRead(_)
@@ -262,8 +268,7 @@ struct ResolutionSpec {
     index: Vec<String>,
     #[pyo3(default)]
     default_index: Vec<String>,
-    #[pyo3(default)]
-    no_index: bool,
+    use_index: bool,
     #[pyo3(default)]
     include_std: bool,
     use_config: bool,
@@ -312,7 +317,7 @@ fn build_auth_policy(spec: &AuthSpec) -> PyResult<Arc<CliAuthPolicy>> {
 }
 
 /// The index URLs a call resolves against: `None` means "no index" (the
-/// `no_index` flag, or no `Resolution` at all), otherwise the CLI's merge of
+/// `use_index=False`, or no `Resolution` at all), otherwise the CLI's merge of
 /// explicit indexes, configuration files, and the default index.
 fn index_locations(
     spec: Option<&ResolutionSpec>,
@@ -321,7 +326,7 @@ fn index_locations(
     let Some(spec) = spec else {
         return Ok(None);
     };
-    if spec.no_index {
+    if !spec.use_index {
         return Ok(None);
     }
     let config = config_for(spec, project_root.unwrap_or_else(|| Utf8Path::new(".")))?;
@@ -551,7 +556,7 @@ fn resolution_options(spec: &ResolutionSpec) -> PyResult<ResolutionOptions> {
     Ok(ResolutionOptions {
         index: parse_index_locations(&spec.index)?,
         default_index: parse_index_locations(&spec.default_index)?,
-        no_index: spec.no_index,
+        no_index: !spec.use_index,
         include_std: spec.include_std,
     })
 }
@@ -951,122 +956,52 @@ fn collect_dependency_sources(
 
 #[pyfunction(name = "do_sources_env_py")]
 #[pyo3(
-    signature = (env_path, iri, version, no_own, dependencies),
+    signature = (env_path, iri, version, include_own, dependencies),
 )]
 pub fn do_sources_env_py(
     env_path: String,
     iri: String,
     version: Option<String>,
-    no_own: bool,
+    include_own: bool,
     dependencies: String,
 ) -> PyResult<Vec<String>> {
-    fn local_read_to_pyerr(err: LocalReadError) -> PyErr {
-        let e = format_err(&err);
-        match err {
-            LocalReadError::Io(_) => PyIOError::new_err(e),
-            LocalReadError::ProjectNotFound(_) => PyValueError::new_err(e),
-        }
-    }
-
     common_init();
 
     let dependencies = Dependencies::try_from(dependencies.as_str())
         .map_err(|e| PyValueError::new_err(format_err(e)))?;
 
-    let version = match version {
-        Some(version) => Some(
-            VersionReq::parse(&version).map_err(|err| PyValueError::new_err(format_err(err)))?,
-        ),
-        None => None,
-    };
-
-    let mut result = vec![];
-
     let env = LocalDirectoryEnvironment::read(&env_path).map_err(env_read_to_pyerr)?;
 
-    let mut projects = env
-        .candidate_projects(&iri)
-        .map_err(local_read_to_pyerr)?
-        .into_iter();
-
-    let Some(project) = (match &version {
-        None => projects.next(),
-        Some(vr) => loop {
-            if let Some(candidate) = projects.next() {
-                if let Some(v) = candidate
-                    .get_info()
-                    .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
-                    .and_then(|x| match Version::parse(&x.version) {
-                        Ok(v) => Some(v),
-                        Err(e) => {
-                            log::debug!("ignoring env project `{}` because it has invalid semver version:\n{e}", x.name);
-                            None
-                        },
-                    })
-                    && vr.matches(&v)
-                {
-                    break Some(candidate);
+    let sources =
+        do_sources_env_parse(env, iri, version, !include_own, dependencies).map_err(|err| {
+            let e = format_err(&err);
+            match err {
+                SourcesEnvError::IriParse(..) | SourcesEnvError::VersionReqParse(..) => {
+                    PyValueError::new_err(e)
                 }
-            } else {
-                break None;
+                SourcesEnvError::NotFound { .. } => PyNotFoundError::new_err(e),
+                // The installed project (or its dependencies) cannot be read,
+                // is malformed, or is missing from the env: the env is broken
+                // or out of date
+                SourcesEnvError::EnvRead(_)
+                | SourcesEnvError::ProjectRead(_)
+                | SourcesEnvError::MissingInfo(_)
+                | SourcesEnvError::InvalidMetadata { .. }
+                | SourcesEnvError::Sources(_)
+                | SourcesEnvError::Dependencies { .. } => PyEnvError::new_err(e),
             }
-        },
-    }) else {
-        match version {
-            Some(vr) => {
-                return Err(PyRuntimeError::new_err(format!(
-                    "unable to find project `{iri}` ({vr}) in local environment"
-                )));
-            }
-            None => {
-                return Err(PyRuntimeError::new_err(format!(
-                    "unable to find project `{iri}` in local environment"
-                )));
-            }
-        }
-    };
+        })?;
 
-    if !no_own {
-        for src_path in do_sources_local_src_project_no_deps(&project, true)
-            .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
-        {
-            result.push(src_path.into_string());
-        }
-    }
-
-    if dependencies != Dependencies::None {
-        let Some(info) = project
-            .get_info()
-            .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
-        else {
-            return Err(PyRuntimeError::new_err(
-                "project is missing project information",
-            ));
-        };
-
-        let usages = info
-            .validate()
-            .map_err(|e| {
-                PyRuntimeError::new_err(format!(
-                    "project `{iri}` has invalid metadata:\n{}",
-                    format_err(e)
-                ))
-            })?
-            .usage;
-
-        result.extend(collect_dependency_sources(env, usages, dependencies)?);
-    }
-
-    Ok(result)
+    Ok(sources.into_iter().map(Utf8PathBuf::into_string).collect())
 }
 
 #[pyfunction(name = "do_sources_project_py")]
 #[pyo3(
-    signature = (path, no_own, dependencies, env_path),
+    signature = (path, include_own, dependencies, env_path),
 )]
 pub fn do_sources_project_py(
     path: String,
-    no_own: bool,
+    include_own: bool,
     dependencies: String,
     env_path: Option<String>,
 ) -> PyResult<Vec<String>> {
@@ -1079,7 +1014,7 @@ pub fn do_sources_project_py(
 
     let current_project = LocalSrcProject::new_access(path, None);
 
-    if !no_own {
+    if include_own {
         for src_path in do_sources_local_src_project_no_deps(&current_project, true)
             .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
         {
@@ -1553,58 +1488,38 @@ fn do_exclude_py(path: String, src_path: String) -> PyResult<()> {
 fn do_env_install_path_py(env_path: String, iri: String, location: String) -> PyResult<()> {
     common_init();
 
-    let location: Utf8PathBuf = location.into();
-
     let mut env = LocalDirectoryEnvironment::read(env_path).map_err(env_read_to_pyerr)?;
 
-    let metadata =
-        wrapfs::metadata(&location).map_err(|e| PyErr::new::<PyIOError, _>(format_err(e)))?;
-    if metadata.is_file() {
-        let project = LocalKParProject::new_access(&location, KparInnerPath::Guess, None);
-
-        let Some(version) = project
-            .version()
-            .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
-        else {
-            return Err(PyRuntimeError::new_err(format!(
-                "project at `{location}` lacks project information"
-            )));
-        };
-
-        let checksum = project
-            .checksum_canonical_variant()
-            .map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
-        env.put_project(iri, version, Some(checksum), |to| {
-            clone_project(&project, to, true).map(|_| ())
-        })
-        .map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
-    } else if metadata.is_dir() {
-        let project = LocalSrcProject::new_access(location, None);
-
-        let Some(version) = project
-            .version()
-            .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
-        else {
-            return Err(PyRuntimeError::new_err(format!(
-                "project at {} lacks project information",
-                project.root_path()
-            )));
-        };
-        let checksum = project
-            .checksum_canonical_variant()
-            .map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
-
-        env.put_project(iri, version, Some(checksum), |to| {
-            clone_project(&project, to, true).map(|_| ())
-        })
-        .map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
-    } else {
-        return Err(PyRuntimeError::new_err(format!(
-            "unable to find project at `{location}`"
-        )));
-    }
-
-    Ok(())
+    // Like the env sync, replace an installation of the same version
+    do_env_install_path_parse(iri, Utf8Path::new(&location), &mut env, true, true).map_err(|err| {
+        let e = format_err(&err);
+        match err {
+            EnvInstallPathError::IriParse(..) => PyValueError::new_err(e),
+            // The project at `location` is missing, unreadable or malformed
+            EnvInstallPathError::Io(_)
+            | EnvInstallPathError::NotFound(_)
+            | EnvInstallPathError::MissingInfo(_)
+            | EnvInstallPathError::ProjectRead(_)
+            | EnvInstallPathError::Installation(
+                EnvInstallError::ProjectRead(_)
+                | EnvInstallError::Installation(PutProjectError::Callback(
+                    CloneError::ProjectRead(_) | CloneError::IncompleteSource(_),
+                )),
+            ) => ProjectError::new_err(e),
+            EnvInstallPathError::Installation(
+                EnvInstallError::AlreadyInstalled(_)
+                | EnvInstallError::AlreadyInstalledVersion(..)
+                | EnvInstallError::AlreadyInstalledUnknownVersion(_)
+                | EnvInstallError::EnvRead(_)
+                | EnvInstallError::MissingSpec
+                | EnvInstallError::Installation(
+                    PutProjectError::Write(_)
+                    | PutProjectError::IriParse(..)
+                    | PutProjectError::Callback(CloneError::EnvWrite(_) | CloneError::Io(_)),
+                ),
+            ) => PyEnvError::new_err(e),
+        }
+    })
 }
 
 #[pymodule(name = "_sysand_core")]

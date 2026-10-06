@@ -188,11 +188,26 @@ fn info_positional_is_identifier() -> Result<(), Box<dyn Error>> {
             "describing by `<publisher>/<name>` identifier is not supported yet",
         ));
 
-    for not_identifier in ["urn:kpar:test", "info_positional", "c:/foo"] {
+    // Without `/` it is far more likely a mistyped subcommand
+    for not_identifier in ["naem", "urn:kpar:test", "info_positional"] {
         run_sysand_in(&cwd, ["info", not_identifier], None)?
             .assert()
             .failure()
-            .stderr(predicate::str::contains("invalid value"))
+            .stderr(predicate::str::contains(format!(
+                "unrecognized subcommand '{not_identifier}'"
+            )))
+            .stderr(predicate::str::contains(
+                "`--dir`, `--kpar-path` or `--iri`",
+            ));
+    }
+
+    for invalid_identifier in ["c:/foo", "a/b/c"] {
+        run_sysand_in(&cwd, ["info", invalid_identifier], None)?
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(format!(
+                "invalid value '{invalid_identifier}' for '[IDENTIFIER]'"
+            )))
             .stderr(predicate::str::contains(
                 "`--dir`, `--kpar-path` or `--iri`",
             ));

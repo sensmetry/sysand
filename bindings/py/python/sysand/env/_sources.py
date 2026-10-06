@@ -14,29 +14,38 @@ def sources(
     env_path: str | Path,
     iri: str,
     version: str | None = None,
-    no_own: bool = False,
+    include_own: bool = True,
     dependencies: Dependencies = Dependencies.NONE,
 ) -> List[Path]:
     """List the source files of an (already installed) project in an environment.
 
-    By default only the project's own sources are listed. ``no_own`` excludes
-    them, and ``dependencies`` selects which dependency sources to add. Every
-    combination of ``no_own`` and ``dependencies`` is valid.
+    By default only the project's own sources are listed. ``include_own=False``
+    excludes them, and ``dependencies`` selects which dependency sources to
+    add. Every combination of ``include_own`` and ``dependencies`` is valid.
 
     Args:
         env_path: Path to the environment in which the project is installed.
         iri: IRI of the installed project to list sources for.
         version: Version constraint selecting which installed project to use.
             Defaults to the first matching candidate.
-        no_own: Exclude the project's own sources.
+        include_own: Include the project's own sources.
         dependencies: Which dependency sources to list (see :class:`Dependencies`).
             Defaults to :attr:`Dependencies.NONE` (no dependencies).
 
     Returns:
         The source file paths as a list of :class:`~pathlib.Path`.
+
+    Raises:
+        ValueError: ``iri`` is not an IRI (``publisher/name`` is not one), or
+            ``version`` is not a semver requirement.
+        NotFoundError: no installed version of the project (matching
+            ``version``) is in the environment.
+        EnvError: the environment is missing, unreadable or malformed, or
+            the installed project or its dependencies are (the environment
+            may need a :func:`~sysand.sync`).
     """
     return sysand_rs.do_sources_env_py(  # type: ignore
-        str(env_path), iri, version, no_own, dependencies.name
+        str(env_path), iri, version, include_own, dependencies.name
     )
 
 

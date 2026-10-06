@@ -902,6 +902,41 @@ def test_env_sources_is_exported(tmp_path: Path) -> None:
     assert "sources" in sysand.env.__all__
 
 
+def test_env_functions_reject_non_iri(tmp_path: Path) -> None:
+    root, env_dir = _project_with_dir_usage(tmp_path)
+    before = sysand.env.projects(env_path=env_dir)
+
+    # `publisher/name` is not an IRI: refused, not looked up or stored as one
+    with pytest.raises(ValueError, match="invalid IRI `acme/kpar-dep`"):
+        sysand.env.sources(env_path=env_dir, iri="acme/kpar-dep")
+    with pytest.raises(ValueError, match="invalid IRI `acme/kpar-dep`"):
+        sysand.env.install_path(
+            env_path=env_dir, iri="acme/kpar-dep", location=tmp_path / "kpar-dep"
+        )
+    assert sysand.env.projects(env_path=env_dir) == before
+
+    with pytest.raises(ValueError, match="invalid version constraint"):
+        sysand.env.sources(env_path=env_dir, iri="urn:kpar:dep", version="nope")
+
+
+def test_env_functions_error_types(tmp_path: Path) -> None:
+    _, env_dir = _project_with_dir_usage(tmp_path)
+
+    with pytest.raises(sysand.NotFoundError, match="urn:kpar:absent"):
+        sysand.env.sources(env_path=env_dir, iri="urn:kpar:absent")
+    with pytest.raises(sysand.NotFoundError, match=r"\(\^2"):
+        sysand.env.sources(env_path=env_dir, iri="urn:kpar:dep", version="2")
+
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    with pytest.raises(sysand.ProjectError, match="lacks project information"):
+        sysand.env.install_path(env_path=env_dir, iri="urn:kpar:x", location=empty)
+    with pytest.raises(sysand.ProjectError):
+        sysand.env.install_path(
+            env_path=env_dir, iri="urn:kpar:x", location=tmp_path / "nope"
+        )
+
+
 def test_env_projects_missing_env(tmp_path: Path) -> None:
     with pytest.raises(sysand.EnvError) as excinfo:
         sysand.env.projects(env_path=tmp_path / "nope")
@@ -1282,21 +1317,21 @@ def test_end_to_end_install_sources() -> None:
         compare_sources(
             sysand.sources(
                 project_dir=tmp_main,
-                no_own=True,
+                include_own=False,
                 dependencies=sysand.Dependencies.DEPS,
                 env_path=env_path,
             ),
             [str(dep_src)],
         )
-        # no_own without dependencies yields nothing.
-        compare_sources(sysand.sources(project_dir=tmp_main, no_own=True), [])
+        # Neither own sources nor dependencies yields nothing.
+        compare_sources(sysand.sources(project_dir=tmp_main, include_own=False), [])
 
         # DEPS_STD includes both the dependency and the std lib.
         compare_sources(
             sorted(
                 sysand.sources(
                     project_dir=tmp_main,
-                    no_own=True,
+                    include_own=False,
                     dependencies=sysand.Dependencies.DEPS_STD,
                     env_path=env_path,
                 ),
@@ -1308,7 +1343,7 @@ def test_end_to_end_install_sources() -> None:
         compare_sources(
             sysand.sources(
                 project_dir=tmp_main,
-                no_own=True,
+                include_own=False,
                 dependencies=sysand.Dependencies.STD,
                 env_path=env_path,
             ),
@@ -1328,7 +1363,7 @@ def test_end_to_end_install_sources() -> None:
         compare_sources(
             sysand.sources(
                 project_dir=tmp_main,
-                no_own=True,
+                include_own=False,
                 dependencies=sysand.Dependencies.DEPS,
                 env_path=env_path,
             ),

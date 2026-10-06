@@ -20,7 +20,9 @@ use camino::Utf8PathBuf;
 use thiserror::Error;
 
 mod install;
-pub use install::do_env_install_project;
+pub use install::{EnvInstallError, EnvInstallProjectError, do_env_install_project};
+#[cfg(feature = "filesystem")]
+pub use install::{EnvInstallPathError, do_env_install_path, do_env_install_path_parse};
 
 mod uninstall;
 pub use uninstall::do_env_uninstall;
