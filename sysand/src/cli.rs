@@ -433,9 +433,8 @@ pub struct RemoveProjectLocatorArgs {
 pub struct CloneProjectLocatorArgs {
     /// Project identifier of the form `<publisher>/<name>`. `<publisher>`
     /// and `<name>` can either exactly match those of the project being
-    /// cloned, or use lowercase letters only and replace spaces with `-`
-    /// Currently a failing placeholder, in the future will allow cloning
-    /// projects from indexes
+    /// cloned, or use lowercase letters only and replace spaces with `-`.
+    /// The project is resolved as an index usage
     #[clap(
         default_value = None,
         value_name = "IDENTIFIER",

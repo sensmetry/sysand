@@ -6,8 +6,9 @@ use std::path::Path;
 use assert_cmd::prelude::*;
 use camino::Utf8Path;
 use camino_tempfile::tempdir;
+use mockito::Server;
 use predicates::prelude::*;
-use sysand_core::{env::DEFAULT_ENV_NAME, project::utils::wrapfs};
+use sysand_core::{env::DEFAULT_ENV_NAME, project::utils::wrapfs, utils::sha256_lowercase_hex};
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
 mod common;
@@ -331,6 +332,131 @@ fn clone_iri_no_purl_shorthand() -> Result<(), Box<dyn std::error::Error>> {
         .stderr(predicate::str::contains("for '--iri <IRI>'"))
         .stderr(predicate::str::contains("use `--dir` or `--kpar-path`"));
     assert_dir_empty(&cwd)?;
+
+    Ok(())
+}
+
+/// `clone <publisher>/<name>` resolves the project as an index usage, in any
+/// spelling that normalizes to it. Without `--version-constraint` it clones
+/// the highest release, like an unconstrained usage: `*` excludes prereleases
+#[test]
+fn clone_identifier_from_index_ignores_prereleases() -> Result<(), Box<dyn std::error::Error>> {
+    let mut server = Server::new();
+
+    let (kpar_bytes, info, meta) = build_index_kpar_bytes("widget", "2.0.0");
+    let (_, prerelease_info, prerelease_meta) = build_index_kpar_bytes("widget", "3.0.0-beta.1");
+
+    let config_mock = server
+        .mock("GET", "/sysand-index-config.json")
+        .with_status(404)
+        .expect_at_least(1)
+        .create();
+
+    // Descending order, as the index protocol requires.
+    let versions_mock = server
+        .mock("GET", "/acme/widget/versions.json")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(versions_json_body(&[
+            versions_json_entry_body(
+                "3.0.0-beta.1",
+                42,
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            ),
+            versions_json_entry_body(
+                "2.0.0",
+                kpar_bytes.len(),
+                &sha256_lowercase_hex(&kpar_bytes),
+            ),
+        ]))
+        .expect_at_least(1)
+        .create();
+
+    for (version, version_info, version_meta) in [
+        ("3.0.0-beta.1", &prerelease_info, &prerelease_meta),
+        ("2.0.0", &info, &meta),
+    ] {
+        server
+            .mock(
+                "GET",
+                format!("/acme/widget/{version}/.project.json").as_str(),
+            )
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(serde_json::to_string(version_info)?)
+            .create();
+        server
+            .mock("GET", format!("/acme/widget/{version}/.meta.json").as_str())
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(serde_json::to_string(version_meta)?)
+            .create();
+    }
+
+    let kpar_mock = server
+        .mock("GET", "/acme/widget/2.0.0/project.kpar")
+        .with_status(200)
+        .with_header("content-type", "application/zip")
+        .with_body(&kpar_bytes)
+        .expect_at_least(1)
+        .create();
+    let prerelease_kpar_mock = server
+        .mock("GET", "/acme/widget/3.0.0-beta.1/project.kpar")
+        .expect(0)
+        .create();
+
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "clone",
+            "ACME/Widget",
+            "--target",
+            "widget",
+            "--no-deps",
+            "--default-index",
+            &server.url(),
+        ],
+        None,
+    )?;
+    out.assert().success();
+
+    let project_json = std::fs::read_to_string(cwd.join("widget").join(".project.json"))?;
+    assert!(
+        project_json.contains(r#""version": "2.0.0""#),
+        "expected 2.0.0 to be cloned; .project.json:\n{project_json}"
+    );
+
+    config_mock.assert();
+    versions_mock.assert();
+    kpar_mock.assert();
+    prerelease_kpar_mock.assert();
+
+    Ok(())
+}
+
+/// `clone <publisher>/<name>` refuses a spelling an index cannot route, and
+/// reports a project no index knows
+#[test]
+fn clone_identifier_errors() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+
+    run_sysand_in(
+        &cwd,
+        ["clone", "Foo & Bar/x", "--target", "a", "--no-index"],
+        None,
+    )?
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains(
+        "index usage `Foo & Bar/x` has an invalid publisher",
+    ));
+    run_sysand_in(
+        &cwd,
+        ["clone", "acme/nope", "--target", "b", "--no-index"],
+        None,
+    )?
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains("`acme/nope` (*) was not found"));
 
     Ok(())
 }

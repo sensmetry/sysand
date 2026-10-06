@@ -17,7 +17,7 @@ use sysand_core::{
     config::Config,
     context::ProjectContext,
     env::{local_directory::utils::clean_dir, utils::clone_project},
-    model::InterchangeProjectUsage,
+    model::{InterchangeProjectUsage, InterchangeProjectUsageRaw},
     project::{
         ProjectRead, editable::EditableProject, local_kpar::LocalKParProjectRaw,
         local_src::LocalSrcProject, utils::wrapfs,
@@ -42,6 +42,11 @@ use crate::{
 
 pub enum ProjectLocator {
     Iri(Iri<String>),
+    /// An index usage, resolved with its version constraint
+    Index {
+        resolve: ResolutionInfo,
+        version_constraint: VersionReq,
+    },
     Dir(Utf8PathBuf),
     KparPath(Utf8PathBuf),
 }
@@ -132,6 +137,10 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         let project = EditableProject::new(".".into(), local_project);
         let identifiers = match locator {
             ProjectLocator::Iri(iri) => Some(vec![iri]),
+            // The `pkg:sysand` PURL the index usage resolved by
+            ProjectLocator::Index { resolve, .. } => Some(vec![
+                Iri::parse(resolve.id().into_string()).map_err(|(e, _)| anyhow!(e))?,
+            ]),
             ProjectLocator::Dir(_) | ProjectLocator::KparPath(_) => None,
         };
         let LockOutcome {
@@ -217,12 +226,26 @@ fn obtain_project<Policy: HTTPAuthentication>(
     };
     let locator = match locator {
         CloneProjectLocatorArgs {
-            identifier: Some(_),
+            identifier: Some((publisher, name)),
             dir: None,
             kpar_path: None,
             iri: None,
         } => {
-            bail!("cloning by `<publisher>/<name>` identifier is not supported yet")
+            // Like the solver, an unconstrained index usage selects every
+            // release but no prerelease
+            let version_constraint = version_constraint
+                .clone()
+                .unwrap_or(DEFAULT_INDEX_CONSTRAINT);
+            let usage = InterchangeProjectUsageRaw::Index {
+                publisher: publisher.into_string(),
+                name: name.into_string(),
+                version_constraint: version_constraint.to_string(),
+            }
+            .validate()?;
+            ProjectLocator::Index {
+                resolve: ResolutionInfo::new(usage, None),
+                version_constraint,
+            }
         }
         CloneProjectLocatorArgs {
             identifier: None,
@@ -269,6 +292,25 @@ fn obtain_project<Policy: HTTPAuthentication>(
             let resolve = ResolutionInfo::iri(iri.to_owned());
             let (_version, storage) =
                 get_project_version(&resolve, version_constraint, &std_resolver)?;
+            let (info, _meta) = clone_project(&storage, &mut local_project, true)?;
+            log::info!(
+                "{header}{cloned:>12}{header:#} `{}` {}",
+                info.name,
+                info.version
+            );
+        }
+        ProjectLocator::Index {
+            resolve,
+            version_constraint,
+        } => {
+            log::info!(
+                "{header}{cloning:>12}{header:#} {resolve} to\n\
+                {:>12} `{}`",
+                ' ',
+                local_project.root_path(),
+            );
+            let (_version, storage) =
+                get_project_version(resolve, Some(version_constraint.clone()), &std_resolver)?;
             let (info, _meta) = clone_project(&storage, &mut local_project, true)?;
             log::info!(
                 "{header}{cloned:>12}{header:#} `{}` {}",
