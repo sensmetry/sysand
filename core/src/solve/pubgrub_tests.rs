@@ -751,6 +751,46 @@ fn typed_usage_usages_read_error_fails_resolution() {
     assert!(msg.contains("cannot read usages"), "got: {msg}");
 }
 
+/// An index version whose usages cannot be read is skipped when the
+/// constraint rules its (known) version out, and fails the solve otherwise
+#[test]
+fn index_usage_skips_an_unreadable_version_it_rules_out() {
+    let resolver = || MemoryResolver {
+        iri_predicate: AcceptAll {},
+        projects: [(
+            Identifier::from_pub_name("acme", "widget"),
+            vec![
+                StubProject {
+                    version: Ok(Some("2.0.0".to_owned())),
+                    usage: Ok(Some(vec![])),
+                },
+                StubProject {
+                    version: Ok(Some("0.1.0".to_owned())),
+                    usage: Err("cannot read usages".to_owned()),
+                },
+            ],
+        )]
+        .into(),
+    };
+    let index_usage = |constraint: &str| InterchangeProjectUsage::Index {
+        publisher: "acme".to_owned(),
+        name: "widget".to_owned(),
+        version_constraint: VersionReq::parse(constraint).unwrap(),
+    };
+
+    let solution = super::solve(vec![index_usage("^2")], None, resolver()).unwrap();
+    assert_eq!(
+        solution[&Identifier::from_pub_name("acme", "widget")]
+            .version()
+            .unwrap()
+            .unwrap(),
+        "2.0.0"
+    );
+
+    let err = super::solve(vec![index_usage("*")], None, resolver()).unwrap_err();
+    assert!(err.to_string().contains("version 0.1.0"), "{err}");
+}
+
 /// When the project at a directory usage's path is rejected (e.g. its
 /// version is not a Semantic Version), the rejection reason must surface in
 /// the solver error. A typed usage has exactly one place its project can come
