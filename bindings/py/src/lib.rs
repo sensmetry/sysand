@@ -1209,7 +1209,7 @@ fn do_add_py(
         Named::Iri(iri) => {
             let usage = InterchangeProjectUsageRaw::Resource {
                 resource: iri.as_str().to_owned(),
-                version_constraint: Some(version_constraint.clone()),
+                version_constraint: Some(version_constraint),
             };
             let locator = AddProjectLocatorArgs {
                 identifier: None,
@@ -1224,7 +1224,7 @@ fn do_add_py(
             let usage = InterchangeProjectUsageRaw::Index {
                 publisher: publisher.as_str().to_owned(),
                 name: name.as_str().to_owned(),
-                version_constraint: version_constraint.clone(),
+                version_constraint,
             };
             let locator = AddProjectLocatorArgs {
                 identifier: Some((publisher, name)),
@@ -1237,11 +1237,18 @@ fn do_add_py(
         }
     };
     // With the same message as the manifest would give for it
-    usage
+    let (InterchangeProjectUsage::Resource {
+        version_constraint: Some(version_constraint),
+        ..
+    }
+    | InterchangeProjectUsage::Index {
+        version_constraint, ..
+    }) = usage
         .validate()
-        .map_err(|e| ProjectError::new_err(format_err(e)))?;
-    let version_constraint = VersionReq::parse(&version_constraint)
-        .expect("BUG: a validated usage has a valid version constraint");
+        .map_err(|e| ProjectError::new_err(format_err(e)))?
+    else {
+        unreachable!("built above as a constrained resource or index usage");
+    };
 
     let outcome: Result<bool, Failure> = py.detach(|| {
         let auth = auth.unwrap_or_default();
