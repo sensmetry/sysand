@@ -190,3 +190,24 @@ fn parse_sysand_purl_rejects_non_ascii_and_invalid_chars() {
         Err(SysandPurlError::InvalidPublisher { .. })
     );
 }
+
+/// `is_normalized_field` agrees with what `normalize_field` leaves unchanged
+#[test]
+fn is_normalized_field_agrees_with_normalize_field() {
+    for (s, normalized) in [
+        ("acme-labs", true),
+        ("my.lib_1", true),
+        ("Acme Labs", false),
+        ("acme labs", false),
+        ("ACME", false),
+        // Only ASCII is lowercased
+        ("ąžuolas", true),
+        ("Ąžuolas", true),
+        ("", true),
+    ] {
+        assert_eq!(is_normalized_field(s), normalized, "{s:?}");
+        assert_eq!(normalize_field(s) == s, normalized, "{s:?}");
+    }
+    assert!(is_normalized_spelling("acme-labs", "my-lib"));
+    assert!(!is_normalized_spelling("acme-labs", "My Lib"));
+}

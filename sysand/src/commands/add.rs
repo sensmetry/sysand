@@ -9,7 +9,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 use fluent_uri::Iri;
 use semver::VersionReq;
 use sysand_core::{
-    add::{AddError, IndexSpellingError, do_add, is_normalized_spelling, spell_index_usage},
+    add::{AddError, IndexSpellingError, do_add, spell_index_usage},
     auth::HTTPAuthentication,
     commands::{
         lock::{
@@ -31,6 +31,7 @@ use sysand_core::{
         local_src::LocalSrcProject,
         utils::{Identifier, relativize_path, wrapfs},
     },
+    purl::is_normalized_spelling,
     resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead as _, standard::standard_resolver},
     utils::{ProvidedProjects, SP, format_err},
 };
@@ -85,6 +86,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
             assert_no_overrides(&source_overrides);
             let (publisher, name) = (publisher.into_string(), name.into_string());
             check_index_usage_spelling(&publisher, &name)?;
+            let normalized = is_normalized_spelling(&publisher, &name);
             let identifier = Identifier::from_pub_name(&publisher, &name).into_string();
             let Some(info) = current_project.get_info()? else {
                 bail!(CliError::MissingProjectCurrentDir);
@@ -99,7 +101,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
                     publisher: p,
                     name: n,
                     ..
-                }) if is_normalized_spelling(&publisher, &name) => (p.clone(), n.clone()),
+                }) if normalized => (p.clone(), n.clone()),
                 _ => (publisher, name),
             };
             // Report a clash with a usage of another kind before resolving
@@ -157,17 +159,19 @@ pub fn command_add<Policy: HTTPAuthentication>(
                 };
                 // Without locking, the spelling can only be checked against, or
                 // recovered from, what is installed
-                let (publisher, name) = spell_index_usage(ctx.env.as_ref(), &publisher, &name)
-                    .map_err(|err| match err {
-                        IndexSpellingError::NotInstalled { .. } => anyhow!(
-                            "{err}\n{USAGE}hint:{USAGE:#} leave out `--no-lock` to look the \
+                let (publisher, name) =
+                    spell_index_usage(ctx.env.as_ref(), &publisher, &name, normalized).map_err(
+                        |err| match err {
+                            IndexSpellingError::NotInstalled { .. } => anyhow!(
+                                "{err}\n{USAGE}hint:{USAGE:#} leave out `--no-lock` to look the \
                          project up in the indexes"
-                        ),
-                        err => err.into(),
-                    })?;
+                            ),
+                            err => err.into(),
+                        },
+                    )?;
                 UsageToAdd::Ready(index_usage(publisher, name, &version_constraint))
             } else if let Some(version_constraint) = &version_constraint
-                && !is_normalized_spelling(&publisher, &name)
+                && !normalized
             {
                 // Locking checks the spelling
                 UsageToAdd::Ready(index_usage(publisher, name, version_constraint))
@@ -175,7 +179,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
                 // The spelling or the version constraint is settled from the
                 // lock, see `settle_from_lock`
                 UsageToAdd::PendingIndex(PendingIndexUsage {
-                    recover_spelling: is_normalized_spelling(&publisher, &name),
+                    recover_spelling: normalized,
                     publisher,
                     name,
                     version_constraint,
