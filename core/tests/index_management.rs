@@ -340,6 +340,45 @@ fn inconsistently_spelled_index_is_refused() {
     );
 }
 
+/// A project spelled without a publisher by the versions in the index is
+/// shown as such, not as a spelling to use
+#[test]
+fn spelled_differently_without_a_publisher_says_so() {
+    let cwd_dir = tempdir().unwrap();
+    let cwd = cwd_dir.path();
+    let kpar = |file: &str, version: &str| {
+        let path = cwd.join(file);
+        write_kpar(
+            &path,
+            "Acme Labs",
+            "My Lib",
+            version,
+            "2026-05-15T12:35:57.053279000Z",
+            json!([]),
+        );
+        path
+    };
+    let index_root = cwd.join("index");
+    do_index_init(&index_root).unwrap();
+    do_index_add::<&str, _, _>(None, kpar("v1.kpar", "1.0.0"), &index_root).unwrap();
+    // As an index holding a version that declares no publisher would be
+    let info_path = index_root.join("acme-labs/my-lib/1.0.0/.project.json");
+    let mut info = read_json(info_path.clone());
+    info.as_object_mut().unwrap().remove("publisher");
+    fs::write(&info_path, info.to_string()).unwrap();
+
+    let v2 = kpar("v2.kpar", "2.0.0");
+    let err = do_index_add::<&str, _, _>(None, &v2, &index_root).unwrap_err();
+    assert_error_contains(
+        err,
+        &format!(
+            "pkg:sysand/acme-labs/my-lib is spelled `My Lib` (no publisher) by the versions \
+             already in the index (1.0.0),\nbut version 2.0.0 in `{v2}` spells it \
+             `Acme Labs/My Lib`"
+        ),
+    );
+}
+
 fn write_kpar(
     kpar_path: &Utf8Path,
     publisher: &str,

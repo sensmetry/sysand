@@ -26,7 +26,12 @@ fn corrupt_index_at(index_root: &Utf8Path) {
 /// Writes a minimal KPAR with just enough of `.project.json`/`.meta.json`
 /// for `do_index_add` to reach the publisher/name/iri checks.
 fn write_kpar(kpar_path: &Utf8Path, publisher: &str, name: &str) {
-    let info = json!({"name": name, "publisher": publisher, "version": "1.0.0"});
+    write_kpar_of_version(kpar_path, publisher, name, "1.0.0");
+}
+
+/// [`write_kpar`] of version `version`
+fn write_kpar_of_version(kpar_path: &Utf8Path, publisher: &str, name: &str, version: &str) {
+    let info = json!({"name": name, "publisher": publisher, "version": version});
     let meta = json!({"index": {}, "created": "0000-01-01T00:00:00Z"});
 
     let file = fs::File::create(kpar_path).unwrap();
@@ -188,4 +193,33 @@ fn add_with_iri_name_inconsistent_with_project_mentions_the_naming_rules() {
     )
     .unwrap_err();
     assert_suggests_the_naming_rules(err);
+}
+
+/// The fix offered for a version spelled unlike the index's does not ask to
+/// set the publisher to a placeholder when the index's versions declare none
+#[test]
+fn add_spelled_unlike_publisherless_versions_offers_a_fitting_fix() {
+    let tmp = tempdir().unwrap();
+    let index_root = tmp.path().join("index");
+    command_index_init(&index_root).unwrap();
+    let v1 = tmp.path().join("v1.kpar");
+    write_kpar(&v1, "Acme Labs", "My Lib");
+    command_index_add::<&str, _, _>(None, &v1, &index_root).unwrap();
+    // As an index holding a version that declares no publisher would be
+    let info_path = index_root.join("acme-labs/my-lib/1.0.0/.project.json");
+    let mut info: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&info_path).unwrap()).unwrap();
+    info.as_object_mut().unwrap().remove("publisher");
+    fs::write(&info_path, info.to_string()).unwrap();
+
+    // Another version of the same project, which declares a publisher
+    let v2 = tmp.path().join("v2.kpar");
+    write_kpar_of_version(&v2, "Acme Labs", "My Lib", "2.0.0");
+
+    let err = command_index_add::<&str, _, _>(None, &v2, &index_root).unwrap_err();
+    let suggestion = err.suggestion.expect("expected a suggestion to be offered");
+    assert!(
+        suggestion.contains("declare no publisher") && !suggestion.contains("<none>"),
+        "suggestion was: {suggestion}"
+    );
 }

@@ -122,16 +122,28 @@ impl fmt::Display for TypedUsageMismatchError {
             publisher,
             name,
         } = self;
-        let spelling = format!("{}/{name}", publisher.as_deref().unwrap_or("<none>"));
-        writeln!(
-            f,
-            "{kind} usage `{usage_publisher}/{usage_name}` in {declared_by} resolved to version \
-             {version} of `{spelling}`, but is rejected because its spelling does not match the \
-             project's;"
-        )?;
-        match declared_by {
-            DeclaredBy::Input(_) => write!(f, "spell the usage exactly as `{spelling}`"),
-            DeclaredBy::Dependency(_) => f.write_str(
+        let usage = format!("{kind} usage `{usage_publisher}/{usage_name}` in {declared_by}");
+        match publisher {
+            Some(publisher) => writeln!(
+                f,
+                "{usage} resolved to version {version} of `{publisher}/{name}`, but is rejected \
+                 because its spelling does not match the project's;"
+            )?,
+            // No spelling can name it
+            None => writeln!(
+                f,
+                "{usage} resolved to version {version} of `{name}`, which declares no \
+                 publisher, so no typed usage can name it;"
+            )?,
+        }
+        match (declared_by, publisher) {
+            (DeclaredBy::Input(_), Some(publisher)) => {
+                write!(f, "spell the usage exactly as `{publisher}/{name}`")
+            }
+            (DeclaredBy::Input(_), None) => {
+                f.write_str("use a resource usage of it instead (e.g. `sysand add --iri <IRI>`)")
+            }
+            (DeclaredBy::Dependency(_), _) => f.write_str(
                 "the usage is not yours to edit: it has to be fixed by that dependency's publisher",
             ),
         }
