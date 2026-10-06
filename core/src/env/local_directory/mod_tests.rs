@@ -163,3 +163,45 @@ fn installed_project_reports_a_source_that_may_offer_multiple_versions() {
          project it hands back reports a source that cannot"
     );
 }
+
+/// Installing over an editable or workspace entry of the same identifier and
+/// version is an error, not a panic, and leaves the entry untouched
+#[test]
+fn put_project_refuses_to_overwrite_editable_or_workspace_project() {
+    for (flags, kind) in [
+        ("editable = true", "an editable"),
+        ("editable = true\nworkspace = true", "a workspace"),
+    ] {
+        let toml = format!(
+            r#"version = "0.1"
+
+[[project]]
+name = "example"
+version = "1.0.0"
+path = "../example"
+identifiers = ["urn:kpar:example"]
+{flags}
+"#
+        );
+        let mut env = LocalDirectoryEnvironment {
+            root_dir: Utf8PathBuf::from("/env"),
+            metadata: EnvMetadata::from_str(&toml).unwrap(),
+        };
+
+        let result = env.put_project("urn:kpar:example", "1.0.0", None, |_| {
+            Err::<(), _>("the project must not be written")
+        });
+
+        let Err(PutProjectError::Write(err @ LocalWriteError::OverwriteNotInstalled { .. })) =
+            result
+        else {
+            panic!("expected `OverwriteNotInstalled`, got {result:?}");
+        };
+        assert!(err.to_string().contains(kind), "{err}");
+        let [existing] = env.projects() else {
+            panic!("expected one project, got {:?}", env.projects());
+        };
+        assert!(existing.editable);
+        assert_eq!(existing.path.as_str(), "../example");
+    }
+}

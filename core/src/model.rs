@@ -574,21 +574,22 @@ impl From<InterchangeProjectInfo> for InterchangeProjectInfoRaw {
     }
 }
 
-/// Info to find the usage by
+/// Reference to a project, by IRI or by publisher and name
 #[derive(Debug, Clone, Copy)]
 pub enum UsageRef<'a> {
-    /// A `Resource` usage of exactly this IRI
+    /// The project identified by this IRI
     Resource(Iri<&'a str>),
-    /// `publisher`, `name` of a typed usage or of a `pkg:sysand` resource
-    /// usage. For a typed usage, each may be given either exactly as the
-    /// project declares it, or normalized (see
-    /// [`crate::purl::normalize_field`]). A `pkg:sysand` IRI only holds the
-    /// normalized form, so for such a resource usage any spelling that
-    /// normalizes to it matches
+    /// The project with this `publisher` and `name`
     Typed(&'a str, &'a str),
 }
 
 impl UsageRef<'_> {
+    /// Whether `usage` refers to this project. A `Resource` matches a
+    /// resource usage of exactly this IRI. `Typed` matches a typed usage
+    /// whose publisher and name are each given either exactly as declared,
+    /// or normalized (see [`crate::purl::normalize_field`]); it also matches
+    /// a `pkg:sysand` resource usage in any spelling that normalizes to it,
+    /// as the PURL only holds the normalized form
     pub fn matches<Iri: AsRef<str>, VersionReq, Path>(
         &self,
         usage: &InterchangeProjectUsageG<Iri, VersionReq, Path>,

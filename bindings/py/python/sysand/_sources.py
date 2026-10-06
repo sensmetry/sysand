@@ -12,19 +12,19 @@ from . import _sysand_core as sysand_rs
 def sources(
     *,
     project_dir: str | Path,
-    no_own: bool = False,
+    include_own: bool = True,
     dependencies: Dependencies = Dependencies.NONE,
     env_path: str | Path | None = None,
 ) -> List[Path]:
     """List the source files of the project in ``project_dir``.
 
-    By default only the project's own sources are listed. ``no_own`` excludes
-    them, and ``dependencies`` selects which dependency sources to add. Every
-    combination of ``no_own`` and ``dependencies`` is valid.
+    By default only the project's own sources are listed. ``include_own=False``
+    excludes them, and ``dependencies`` selects which dependency sources to
+    add. Every combination of ``include_own`` and ``dependencies`` is valid.
 
     Args:
         project_dir: The project directory, the one holding ``.project.json``.
-        no_own: Exclude the project's own sources.
+        include_own: Include the project's own sources.
         dependencies: Which dependency sources to list (see :class:`Dependencies`).
             Defaults to :attr:`Dependencies.NONE` (no dependencies).
         env_path: Path to the environment in which dependencies are installed.
@@ -37,7 +37,7 @@ def sources(
         env_path = str(env_path)
 
     return sysand_rs.do_sources_project_py(  # type: ignore
-        str(project_dir), no_own, dependencies.name, env_path
+        str(project_dir), include_own, dependencies.name, env_path
     )
 
 

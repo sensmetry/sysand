@@ -47,14 +47,14 @@ def test_resolution_defaults_and_validation() -> None:
     default = sysand.Resolution()
     assert default.index == []
     assert default.default_index == []
-    assert default.no_index is False
+    assert default.use_index is True
     assert default.include_std is False
     assert default.use_config is True
     assert default.config_file is None
     assert "use_config=True" in repr(default)
 
     with pytest.raises(ValueError):
-        sysand.Resolution(no_index=True, index=["https://example.org"])
+        sysand.Resolution(use_index=False, index=["https://example.org"])
     with pytest.raises(TypeError):
         sysand.Resolution(["https://example.org"])  # type: ignore[misc]
 

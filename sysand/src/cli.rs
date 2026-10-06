@@ -3,13 +3,20 @@
 
 use std::{
     convert::Infallible,
+    error::Error as _,
     ffi::OsStr,
     fmt::{Display, Write as _},
     str::FromStr as _,
 };
 
 use camino::Utf8PathBuf;
-use clap::{ValueEnum, builder::StyledStr, crate_authors, parser::ValueSource};
+use clap::{
+    ValueEnum,
+    builder::{PossibleValue, StyledStr},
+    crate_authors,
+    error::{ContextKind, ContextValue, ErrorKind},
+    parser::ValueSource,
+};
 use fluent_uri::Iri;
 use semver::{Version, VersionReq};
 use sysand_core::{
@@ -22,7 +29,7 @@ use sysand_core::{
     },
 };
 
-use crate::env_vars;
+use crate::{env_vars, style::USAGE};
 
 /// A package manager for SysML v2 and KerML
 ///
@@ -473,7 +480,7 @@ pub struct InfoProjectLocatorArgs {
         default_value = None,
         value_name = "IDENTIFIER",
         value_parser = with_tip(
-            parse_project_identifier,
+            InfoIdentifierParser,
             "to use a directory, a KPAR or an IRI, use `--dir`, `--kpar-path` or `--iri` respectively"
         ),
         verbatim_doc_comment
@@ -1792,12 +1799,12 @@ pub enum IndexCommand {
     /// Add a KPAR to a local sysand index
     #[clap(verbatim_doc_comment)]
     Add {
+        // The type is String, not Iri so that a better error can be reported in some cases
+        // for example when the publisher contains a space
         /// IRI identifying the project. Default is `pkg:sysand/<publisher>/<name>`, if
         /// publisher is specified in .project.json. Omitting both publisher and IRI is an error
         #[arg(long, verbatim_doc_comment)]
         iri: Option<String>,
-        // The type is str, not Iri so that a better error can be reported in some cases
-        // for example when the publisher contains a space
         /// Path to KPAR
         #[arg(long, verbatim_doc_comment)]
         kpar_path: Utf8PathBuf,
@@ -1810,7 +1817,8 @@ pub enum IndexCommand {
     /// A yanked version cannot be un-yanked
     #[clap(verbatim_doc_comment)]
     Yank {
-        /// Project identifier
+        /// IRI identifying the project
+        #[arg(long)]
         iri: String,
         // It's String and not semver::Version because it's good to allow yanking a non-semantic
         // version
@@ -1827,7 +1835,8 @@ pub enum IndexCommand {
     /// Project or version removal cannot be undone
     #[clap(verbatim_doc_comment)]
     Remove {
-        /// Project identifier
+        /// IRI identifying the project
+        #[arg(long)]
         iri: String,
         #[clap(flatten)]
         target: IndexRemoveTarget,
@@ -2051,8 +2060,6 @@ pub struct GlobalOptions {
 /// Parse an IRI. Tolerates missing IRI scheme, uses
 /// `https://` scheme in that case.
 fn parse_https_iri(s: &str) -> Result<Iri<String>, fluent_uri::ParseError> {
-    use fluent_uri::Iri;
-
     Iri::parse(s).map(Into::into).or_else(|original_err| {
         let scheme = "https://";
         let mut https = String::with_capacity(scheme.len() + s.len());
@@ -2069,7 +2076,6 @@ fn parse_https_iri(s: &str) -> Result<Iri<String>, fluent_uri::ParseError> {
 /// under the offending term), so it must start on a line of its own to
 /// stay aligned; clap puts the parser's error right after `...': `.
 pub fn parse_spdx_expression(s: &str) -> Result<spdx::Expression, String> {
-    use crate::style::USAGE;
     spdx::Expression::parse(s).map_err(|err| {
         format!(
             "not a valid SPDX license expression:\n{err}\n\
@@ -2166,7 +2172,6 @@ impl ValueEnum for MetamodelVersion {
     }
 
     fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
-        use clap::builder::PossibleValue;
         Some(match self {
             Self::Release_20250201 => {
                 PossibleValue::new(Self::RELEASE).help("SysMLv2/KerML Release or Beta4")
@@ -2175,15 +2180,66 @@ impl ValueEnum for MetamodelVersion {
     }
 }
 
+/// Why a `<publisher>/<name>` identifier is not valid
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum IdentifierParseError {
+    #[error("identifier is not of the form `<publisher>/<name>`")]
+    NotIdentifier,
+    #[error(transparent)]
+    Field(#[from] ProjectFieldError),
+}
+
 /// Parse a `<publisher>/<name>` project identifier
-pub fn parse_project_identifier(s: &str) -> Result<(ProjectPublisher, ProjectName), String> {
+pub fn parse_project_identifier(
+    s: &str,
+) -> Result<(ProjectPublisher, ProjectName), IdentifierParseError> {
     let Some((publisher, name)) = s.split_once('/') else {
-        return Err("identifier is not of the form `<publisher>/<name>`".to_owned());
+        return Err(IdentifierParseError::NotIdentifier);
     };
     Ok((
-        parse_project_publisher(publisher).map_err(|e| e.to_string())?,
-        parse_project_name(name).map_err(|e| e.to_string())?,
+        parse_project_publisher(publisher)?,
+        parse_project_name(name)?,
     ))
+}
+
+/// Parses the optional positional identifier of `info`, which shares the
+/// position with its subcommands. A value without `/` is reported as an
+/// unrecognized subcommand, as it is far more likely a mistyped subcommand
+/// than an identifier
+#[derive(Clone, Debug)]
+struct InfoIdentifierParser;
+
+impl clap::builder::TypedValueParser for InfoIdentifierParser {
+    type Value = (ProjectPublisher, ProjectName);
+
+    fn parse_ref(
+        &self,
+        cmd: &clap::Command,
+        arg: Option<&clap::Arg>,
+        value: &OsStr,
+    ) -> Result<Self::Value, clap::Error> {
+        parse_project_identifier
+            .parse_ref(cmd, arg, value)
+            .map_err(|e| {
+                // clap keeps the parser's error only as a type-erased source
+                if e.source()
+                    .and_then(|source| source.downcast_ref::<IdentifierParseError>())
+                    == Some(&IdentifierParseError::NotIdentifier)
+                {
+                    return e;
+                }
+                let mut e = clap::Error::new(ErrorKind::InvalidSubcommand).with_cmd(cmd);
+                e.insert(
+                    ContextKind::InvalidSubcommand,
+                    ContextValue::String(value.to_string_lossy().into_owned()),
+                );
+                e.insert(
+                    ContextKind::Usage,
+                    ContextValue::StyledStr(cmd.clone().render_usage()),
+                );
+                e
+            })
+    }
 }
 
 /// Parse a project publisher

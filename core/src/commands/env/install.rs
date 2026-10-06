@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+#[cfg(feature = "filesystem")]
+use camino::{Utf8Path, Utf8PathBuf};
+#[cfg(feature = "filesystem")]
+use fluent_uri::Iri;
 use thiserror::Error;
 
 use crate::{
@@ -9,6 +13,15 @@ use crate::{
         utils::{CloneError, clone_project},
     },
     project::{ProjectChecksum, ProjectRead},
+};
+#[cfg(feature = "filesystem")]
+use crate::{
+    project::{
+        local_kpar::{KparInnerPath, LocalKParProject},
+        local_src::LocalSrcProject,
+        utils::{FsIoError, Identifier, wrapfs},
+    },
+    resolve::file::{FileResolverProject, FileResolverProjectError},
 };
 
 #[derive(Error, Debug)]
@@ -84,6 +97,17 @@ pub enum EnvInstallError<EnvReadError, ProjectReadError, InstallationError> {
 type InstallationError<EnvWriteError, ProjectReadError, ProjectWriteError> =
     PutProjectError<EnvWriteError, CloneError<ProjectReadError, ProjectWriteError>>;
 
+/// The error of [`do_env_install_project`] installing `P` into `E`
+pub type EnvInstallProjectError<E, P> = EnvInstallError<
+    <E as ReadEnvironment>::ReadError,
+    <P as ProjectRead>::Error,
+    InstallationError<
+        <E as WriteEnvironment>::WriteError,
+        <P as ProjectRead>::Error,
+        <<E as WriteEnvironment>::InterchangeProjectMut as ProjectRead>::Error,
+    >,
+>;
+
 impl<EnvReadError, ProjectReadError, I> From<CheckInstallError<EnvReadError>>
     for EnvInstallError<EnvReadError, ProjectReadError, I>
 {
@@ -140,4 +164,79 @@ pub fn do_env_install_project<
     .map_err(EnvInstallError::Installation)?;
 
     Ok(())
+}
+
+#[cfg(feature = "filesystem")]
+#[derive(Error, Debug)]
+pub enum EnvInstallPathError<InstallError> {
+    #[error("invalid IRI `{0}`")]
+    IriParse(Box<str>, #[source] fluent_uri::ParseError),
+    #[error(transparent)]
+    Io(#[from] Box<FsIoError>),
+    #[error("unable to find project at `{0}`")]
+    NotFound(Utf8PathBuf),
+    #[error("project at `{0}` lacks project information")]
+    MissingInfo(Utf8PathBuf),
+    #[error(transparent)]
+    ProjectRead(#[from] FileResolverProjectError),
+    #[error(transparent)]
+    Installation(InstallError),
+}
+
+/// Same as [`do_env_install_project`], but installs the project at `location`
+/// (a KPAR or a project directory), with the version and checksum it has
+#[cfg(feature = "filesystem")]
+pub fn do_env_install_path<E: WriteEnvironment + ReadEnvironment>(
+    identifier: &Identifier,
+    location: &Utf8Path,
+    env: &mut E,
+    allow_overwrite: bool,
+    allow_multiple: bool,
+) -> Result<(), EnvInstallPathError<EnvInstallProjectError<E, FileResolverProject>>> {
+    let metadata = wrapfs::metadata(location)?;
+    let project = if metadata.is_file() {
+        FileResolverProject::LocalKParProject(LocalKParProject::new_access(
+            location,
+            KparInnerPath::Guess,
+            None,
+        ))
+    } else if metadata.is_dir() {
+        FileResolverProject::LocalSrcProject(LocalSrcProject::new_access(location, None))
+    } else {
+        return Err(EnvInstallPathError::NotFound(location.to_owned()));
+    };
+
+    let Some(version) = project.version()? else {
+        return Err(EnvInstallPathError::MissingInfo(location.to_owned()));
+    };
+    let checksum = project.checksum_canonical_variant()?;
+    do_env_install_project(
+        identifier,
+        &version,
+        &project,
+        Some(checksum),
+        env,
+        allow_overwrite,
+        allow_multiple,
+    )
+    .map_err(EnvInstallPathError::Installation)
+}
+
+/// Same as [`do_env_install_path`], but takes an unparsed IRI
+#[cfg(feature = "filesystem")]
+pub fn do_env_install_path_parse<E: WriteEnvironment + ReadEnvironment>(
+    iri: String,
+    location: &Utf8Path,
+    env: &mut E,
+    allow_overwrite: bool,
+    allow_multiple: bool,
+) -> Result<(), EnvInstallPathError<EnvInstallProjectError<E, FileResolverProject>>> {
+    let iri = Iri::parse(iri).map_err(|(e, iri)| EnvInstallPathError::IriParse(iri.into(), e))?;
+    do_env_install_path(
+        &Identifier::from_iri_owned(iri),
+        location,
+        env,
+        allow_overwrite,
+        allow_multiple,
+    )
 }

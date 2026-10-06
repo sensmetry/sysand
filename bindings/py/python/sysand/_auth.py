@@ -106,7 +106,8 @@ class AuthPolicy:
 
 class Resolution:
     """Which indexes a call resolves against, mirroring the CLI's
-    ``--index`` / ``--default-index`` / ``--no-index`` / ``--include-std``.
+    ``--index`` / ``--default-index`` / ``--no-index`` (``use_index=False``) /
+    ``--include-std``.
 
     With ``use_config`` (the default) sysand's configuration files are
     loaded and merged as the CLI does. ``config_file`` names one more
@@ -123,7 +124,7 @@ class Resolution:
     __slots__ = (
         "index",
         "default_index",
-        "no_index",
+        "use_index",
         "include_std",
         "use_config",
         "config_file",
@@ -134,16 +135,18 @@ class Resolution:
         *,
         index: typing.Sequence[str] = (),
         default_index: typing.Sequence[str] = (),
-        no_index: bool = False,
+        use_index: bool = True,
         include_std: bool = False,
         use_config: bool = True,
         config_file: str | os.PathLike[str] | None = None,
     ) -> None:
-        if no_index and (index or default_index):
-            raise ValueError("no_index cannot be combined with index or default_index")
+        if not use_index and (index or default_index):
+            raise ValueError(
+                "use_index=False cannot be combined with index or default_index"
+            )
         self.index = list(index)
         self.default_index = list(default_index)
-        self.no_index = no_index
+        self.use_index = use_index
         self.include_std = include_std
         self.use_config = use_config
         self.config_file = None if config_file is None else os.fspath(config_file)
@@ -152,7 +155,7 @@ class Resolution:
         return {
             "index": self.index,
             "default_index": self.default_index,
-            "no_index": self.no_index,
+            "use_index": self.use_index,
             "include_std": self.include_std,
             "use_config": self.use_config,
             "config_file": self.config_file,
@@ -161,7 +164,7 @@ class Resolution:
     def __repr__(self) -> str:
         return (
             f"Resolution(index={self.index!r}, default_index={self.default_index!r}, "
-            f"no_index={self.no_index!r}, include_std={self.include_std!r}, "
+            f"use_index={self.use_index!r}, include_std={self.include_std!r}, "
             f"use_config={self.use_config!r}, config_file={self.config_file!r})"
         )
 

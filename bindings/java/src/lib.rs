@@ -197,7 +197,8 @@ fn create_env<'local>(
                     }
                     LocalWriteError::MissingMeta
                     | LocalWriteError::ProjectNotFound(_)
-                    | LocalWriteError::MissingInfoMeta => {
+                    | LocalWriteError::MissingInfoMeta
+                    | LocalWriteError::OverwriteNotInstalled { .. } => {
                         env.throw_exception(ExceptionKind::SysandException, e)
                     }
                 },

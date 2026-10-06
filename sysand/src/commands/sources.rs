@@ -8,15 +8,14 @@ use crate::{
 
 use anstream::println;
 use anyhow::{Context as _, Result, bail};
-use semver::{Version, VersionReq};
+use semver::VersionReq;
 use sysand_core::{
     context::ProjectContext,
     env::{local_directory::LocalDirectoryEnvironment, null::NullEnvironment},
-    project::{ProjectRead as _, utils::Identifier},
-    sources::{do_sources_local_src_project_no_deps, resolve_dependencies},
+    model::UsageRef,
+    project::ProjectRead as _,
+    sources::{do_sources_env, do_sources_local_src_project_no_deps, resolve_dependencies},
 };
-
-use sysand_core::env::ReadEnvironment as _;
 
 pub fn command_sources_env(
     locator: EnvProjectLocatorArgs,
@@ -29,74 +28,21 @@ pub fn command_sources_env(
         bail!("unable to identify local environment");
     };
 
-    // `display` is what the user passed, `identifier` is what the env is keyed by.
-    // Typed usages are installed under the identifier derived from publisher and name
-    let (display, identifier) = match locator {
+    let project = match &locator {
         EnvProjectLocatorArgs {
             identifier: Some((publisher, name)),
             iri: None,
-        } => (
-            format!("{publisher}/{name}"),
-            Identifier::from_pub_name(publisher.as_str(), name.as_str()).to_string(),
-        ),
+        } => UsageRef::Typed(publisher.as_str(), name.as_str()),
         EnvProjectLocatorArgs {
             identifier: None,
             iri: Some(iri),
-        } => (iri.to_string(), iri.into_string()),
+        } => UsageRef::Resource(iri.borrow()),
         _ => unreachable!(),
     };
 
-    let mut projects = env.candidate_projects(&identifier)?.into_iter();
-
-    let Some(project) = (match &version {
-        // No version constraints, so choose the first candidate
-        None => projects.next(),
-        Some(vr) => loop {
-            if let Some(candidate) = projects.next() {
-                if let Some(v) = candidate
-                    .get_info()?
-                    // projects with non-semver versions cannot match the constraint
-                    .and_then(|x| match Version::parse(&x.version) {
-                        Ok(v) => Some(v),
-                        Err(e) => {
-                            log::debug!("ignoring env project `{}` because it has invalid semver version:\n{e}", x.name);
-                            None
-                        },
-                    })
-                    && vr.matches(&v)
-                {
-                    break Some(candidate);
-                }
-            } else {
-                break None;
-            }
-        },
-    }) else {
-        match version {
-            Some(vr) => bail!("unable to find project `{display}` ({vr}) in local environment"),
-            None => bail!("unable to find project `{display}` in local environment"),
-        }
-    };
-
-    if !no_own {
-        for src_path in do_sources_local_src_project_no_deps(&project, true)? {
-            println!("{}", src_path);
-        }
-    }
-
-    if dependencies != Dependencies::None {
-        let Some(info) = project.get_info()? else {
-            bail!("project is missing project information")
-        };
-
-        let info = info
-            .validate()
-            .with_context(|| format!("project `{display}` has invalid metadata"))?;
-        for dep in resolve_dependencies(info.usage, env, dependencies.into())? {
-            for src_path in do_sources_local_src_project_no_deps(&dep, true)? {
-                println!("{}", src_path);
-            }
-        }
+    let sources = do_sources_env(env, project, version.as_ref(), no_own, dependencies.into())?;
+    for src_path in sources {
+        println!("{src_path}");
     }
 
     Ok(())
