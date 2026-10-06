@@ -206,6 +206,24 @@ pub fn do_lock_projects<
     provided_usages: &ProvidedProjects,
     ctx: &ProjectContext,
 ) -> Result<LockOutcome<PD>, LockProjectError<PI, PD, R>> {
+    lock_projects(projects, resolver, provided_usages, ctx, None)
+}
+
+/// [`do_lock_projects`], with the spelling of the typed usage of `respelled`
+/// that the projects declare not checked (see [`check_typed_usages`])
+fn lock_projects<
+    'a,
+    PI: ProjectRead + Debug + 'a,
+    PD: ProjectRead + Debug,
+    I: IntoIterator<Item = (Option<Vec<Iri<String>>>, &'a PI)>,
+    R: ResolveRead<ProjectStorage = PD> + Debug,
+>(
+    projects: I,
+    resolver: R,
+    provided_usages: &ProvidedProjects,
+    ctx: &ProjectContext,
+    respelled: Option<&Identifier>,
+) -> Result<LockOutcome<PD>, LockProjectError<PI, PD, R>> {
     let mut lock = Lock::default();
 
     let mut all_deps = vec![];
@@ -264,7 +282,7 @@ pub fn do_lock_projects<
         );
     }
 
-    let lock_outcome = do_lock_extend(lock, all_deps, resolver, provided_usages, ctx)?;
+    let lock_outcome = lock_extend(lock, all_deps, resolver, provided_usages, ctx, respelled)?;
 
     Ok(lock_outcome)
 }
@@ -285,11 +303,28 @@ pub fn do_lock_extend<
     I: IntoIterator<Item = (InterchangeProjectUsage, DeclaredBy)>,
     R: ResolveRead<ProjectStorage = PD> + Debug,
 >(
+    lock: Lock,
+    usages: I,
+    resolver: R,
+    provided_usages: &ProvidedProjects,
+    ctx: &ProjectContext,
+) -> Result<LockOutcome<PD>, LockError<PD, R>> {
+    lock_extend(lock, usages, resolver, provided_usages, ctx, None)
+}
+
+/// [`do_lock_extend`], with the spelling of the typed usage of `respelled`
+/// among the inputs not checked (see [`check_typed_usages`])
+fn lock_extend<
+    PD: ProjectRead + Debug,
+    I: IntoIterator<Item = (InterchangeProjectUsage, DeclaredBy)>,
+    R: ResolveRead<ProjectStorage = PD> + Debug,
+>(
     mut lock: Lock,
     usages: I,
     resolver: R,
     provided_usages: &ProvidedProjects,
     ctx: &ProjectContext,
+    respelled: Option<&Identifier>,
 ) -> Result<LockOutcome<PD>, LockError<PD, R>> {
     let (inputs, declared_by): (Vec<_>, Vec<_>) = usages.into_iter().unzip();
     // Typed usages, to check against the projects they resolve to
@@ -431,7 +466,7 @@ pub fn do_lock_extend<
         dependencies.push((identifier, project));
     }
 
-    check_typed_usages(typed_usages, &solved).map_err(LockError::TypedUsageMismatch)?;
+    check_typed_usages(typed_usages, &solved, respelled).map_err(LockError::TypedUsageMismatch)?;
 
     Ok(LockOutcome { lock, dependencies })
 }
@@ -471,12 +506,20 @@ impl TypedSpelling {
 /// the project it resolved to (in `solved`, as publisher, name and version)
 /// spells them. Normalization makes them resolve to the same project
 /// regardless, so this is the only place a misspelling is caught.
+///
+/// The typed usage of `respelled` that the projects being locked declare is
+/// not checked: its caller takes the spelling from the project it resolved to
+/// (see `sysand add`). Dependencies' usages of it are checked as any other.
 fn check_typed_usages(
     typed_usages: Vec<(TypedSpelling, DeclaredBy)>,
     solved: &HashMap<Identifier, (Option<String>, String, String)>,
+    respelled: Option<&Identifier>,
 ) -> Result<(), Box<TypedUsageMismatchError>> {
     for (usage, declared_by) in typed_usages {
         let identifier = Identifier::from_pub_name(&usage.publisher, &usage.name);
+        if matches!(declared_by, DeclaredBy::Input(_)) && respelled == Some(&identifier) {
+            continue;
+        }
         // Not being in the solution is not a mismatch: e.g. a project the
         // caller provides, or one already in the lock
         let Some((publisher, name, version)) = solved.get(&identifier) else {
@@ -499,6 +542,41 @@ fn check_typed_usages(
 
 #[cfg(feature = "filesystem")]
 pub type EditableLocalSrcProject = EditableProject<LocalSrcProject>;
+
+/// [`do_lock_local_editable`], with the spelling of the project's typed usage
+/// of `respelled` not checked: the caller takes it from the project that the
+/// usage resolved to, as recorded in the lock (see `sysand add`)
+#[cfg(feature = "filesystem")]
+pub fn do_lock_local_editable_respelling<
+    P: AsRef<Utf8UnixPath>,
+    PR: AsRef<Utf8Path>,
+    PD: ProjectRead + Debug,
+    R: ResolveRead<ProjectStorage = PD> + Debug,
+>(
+    path: P,
+    project_root: PR,
+    identifiers: Option<Vec<Iri<String>>>,
+    provided_usages: &ProvidedProjects,
+    resolver: R,
+    ctx: &ProjectContext,
+    respelled: &Identifier,
+) -> Result<LockOutcome<PD>, LockProjectError<EditableLocalSrcProject, PD, R>> {
+    let project = EditableProject::new(
+        path.as_ref().to_owned(),
+        LocalSrcProject::new_access(
+            wrapfs::canonicalize(&project_root).map_err(LockError::Io)?,
+            None,
+        ),
+    );
+
+    lock_projects(
+        [(identifiers, &project)],
+        resolver,
+        provided_usages,
+        ctx,
+        Some(respelled),
+    )
+}
 
 /// Treats a project at `path` as an editable project and solves for its dependencies.
 #[cfg(feature = "filesystem")]

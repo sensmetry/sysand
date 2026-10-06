@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
-use std::collections::BTreeMap;
 
 use thiserror::Error;
 
@@ -82,11 +81,6 @@ pub enum IndexSpellingError<EnvError, ProjectError> {
         normalized: bool,
     },
     #[error(
-        "versions of `{usage}` installed in the local environment spell it differently: \
-         {spellings};\ncannot tell which spelling an index usage of it has to use"
-    )]
-    InconsistentlySpelled { usage: String, spellings: String },
-    #[error(
         "index usage `{usage}` cannot be used: version {version} installed in the local \
          environment declares no publisher"
     )]
@@ -104,14 +98,14 @@ pub enum IndexSpellingError<EnvError, ProjectError> {
 }
 
 /// The publisher and name an index usage of `publisher`/`name` has to spell,
-/// read from the versions of the project installed in `env` that match
-/// `version_constraint`, without touching the network: the project's own
-/// spelling when `publisher`/`name` is normalized (see
+/// read from the highest version of the project installed in `env` that
+/// matches `version_constraint`, without touching the network: the project's
+/// own spelling when `publisher`/`name` is normalized (see
 /// [`is_normalized_spelling`]), and `publisher`/`name` itself otherwise,
 /// once it has been checked to be that spelling.
 ///
 /// Fails when no matching version is installed, since then there is nothing
-/// to check against, and when the matching versions disagree on the spelling.
+/// to check against.
 #[expect(clippy::type_complexity)]
 pub fn spell_index_usage<Env: ReadEnvironment>(
     env: Option<&Env>,
@@ -126,66 +120,55 @@ pub fn spell_index_usage<Env: ReadEnvironment>(
     let normalized = is_normalized_spelling(publisher, name);
     let identifier = Identifier::from_pub_name(publisher, name);
 
-    // Each spelling, with the matching versions that use it
-    let mut spellings: BTreeMap<(Option<String>, String), Vec<semver::Version>> = BTreeMap::new();
+    let mut matching = Vec::new();
     if let Some(env) = env {
         for version in env
             .versions(identifier.as_str())
             .map_err(IndexSpellingError::Env)?
         {
             let version = version.map_err(IndexSpellingError::Env)?;
-            let Ok(semver) = semver::Version::parse(&version) else {
-                log::debug!("skipping installed version `{version}` of `{identifier}`: not semver");
-                continue;
-            };
-            if !version_constraint.matches(&semver) {
-                continue;
+            match semver::Version::parse(&version) {
+                Ok(semver) if version_constraint.matches(&semver) => {
+                    matching.push((semver, version))
+                }
+                Ok(_) => {}
+                Err(_) => {
+                    log::debug!(
+                        "skipping installed version `{version}` of `{identifier}`: not semver"
+                    );
+                }
             }
+        }
+    }
+    // The highest one that declares its information; a project spells
+    // itself the same way in every version
+    matching.sort_unstable_by(|(a, _), (b, _)| b.cmp(a));
+    let mut found = None;
+    if let Some(env) = env {
+        for (_, version) in matching {
             let project = env
                 .get_project(identifier.as_str(), &version)
                 .map_err(IndexSpellingError::Env)?;
-            let Some(info) = project.get_info().map_err(IndexSpellingError::Project)? else {
-                log::debug!("skipping installed version `{version}` of `{identifier}`: no info");
-                continue;
-            };
-            spellings
-                .entry((info.publisher, info.name))
-                .or_default()
-                .push(semver);
+            match project.get_info().map_err(IndexSpellingError::Project)? {
+                Some(info) => {
+                    found = Some((info.publisher, info.name, version));
+                    break;
+                }
+                None => {
+                    log::debug!(
+                        "skipping installed version `{version}` of `{identifier}`: no info"
+                    );
+                }
+            }
         }
     }
-    for versions in spellings.values_mut() {
-        versions.sort_unstable();
-    }
-    let spell = |publisher: &Option<String>, name: &str| {
-        format!("{}/{name}", publisher.as_deref().unwrap_or("<none>"))
-    };
-    let mut spellings: Vec<_> = spellings.into_iter().collect();
-    if spellings.len() > 1 {
-        let spellings: Vec<String> = spellings
-            .iter()
-            .map(|((publisher, name), versions)| {
-                let versions: Vec<String> = versions.iter().map(ToString::to_string).collect();
-                format!("`{}` ({})", spell(publisher, name), versions.join(", "))
-            })
-            .collect();
-        return Err(IndexSpellingError::InconsistentlySpelled {
-            usage,
-            spellings: spellings.join(", "),
-        });
-    }
-    let Some(((found_publisher, found_name), versions)) = spellings.pop() else {
+    let Some((found_publisher, found_name, version)) = found else {
         return Err(IndexSpellingError::NotInstalled {
             usage,
             version_constraint: version_constraint.to_string(),
             normalized,
         });
     };
-    // The newest one, to name in errors
-    let version = versions
-        .last()
-        .expect("BUG: spelling without versions")
-        .to_string();
     let Some(found_publisher) = found_publisher else {
         return Err(IndexSpellingError::NoPublisher { usage, version });
     };

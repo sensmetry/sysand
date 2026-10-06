@@ -2912,10 +2912,11 @@ fn remove_nonexistent_identifier() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// With no constraint, `add` writes `^` the highest release it resolves,
-/// here from the local environment. A prerelease is not a release
+/// With no constraint, `add` writes `^` the version that locking chose, here
+/// from the local environment. A prerelease is not chosen without a
+/// constraint naming one
 #[test]
-fn add_index_usage_constrains_to_the_highest_release() -> Result<(), Box<dyn std::error::Error>> {
+fn add_index_usage_constrains_to_the_locked_version() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = cli_init_project_basic("main", "add_index_highest", "1.2.3")?;
     out.assert().success();
     for version in ["1.0.0", "1.2.0", "2.0.0-dev"] {
@@ -2929,7 +2930,7 @@ fn add_index_usage_constrains_to_the_highest_release() -> Result<(), Box<dyn std
     )?
     .assert()
     .success()
-    .stderr(contains("Adding usage: `Acme Labs/My Lib` (^1.2.0)"));
+    .stderr(contains("Settled usage: `Acme Labs/My Lib` (^1.2.0)"));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
     assert!(
@@ -2944,6 +2945,63 @@ fn add_index_usage_constrains_to_the_highest_release() -> Result<(), Box<dyn std
     );
     let lock = std::fs::read_to_string(cwd.join("sysand-lock.toml"))?;
     assert!(lock.contains(r#"version = "1.2.0""#), "{lock}");
+
+    Ok(())
+}
+
+/// The version that locking chooses takes the rest of the dependency graph
+/// into account: here a dependency requires `^1`, so `^1.4.0` is written
+/// although 2.0.0 is available
+#[test]
+fn add_index_usage_constrains_to_a_version_the_graph_allows()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("main", "add_index_graph", "1.2.3")?;
+    out.assert().success();
+    for version in ["1.4.0", "2.0.0"] {
+        install_in_env(&cwd, "Acme Labs", "My Lib", version)?;
+    }
+    install_in_env_with_usage(
+        &cwd,
+        "Acme Labs",
+        "Mid",
+        "1.0.0",
+        &[r#"{"publisher": "Acme Labs", "name": "My Lib", "versionConstraint": "^1"}"#],
+    )?;
+    run_sysand_in(
+        &cwd,
+        [
+            "add",
+            "--no-sync",
+            "--no-index",
+            "Acme Labs/Mid",
+            "--version-constraint",
+            "^1",
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+
+    run_sysand_in(
+        &cwd,
+        ["add", "--no-sync", "--no-index", "acme-labs/my-lib"],
+        None,
+    )?
+    .assert()
+    .success()
+    .stderr(contains("Settled usage: `Acme Labs/My Lib` (^1.4.0)"));
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    assert!(
+        info_json.contains(
+            r#"{
+      "publisher": "Acme Labs",
+      "name": "My Lib",
+      "versionConstraint": "^1.4.0"
+    }"#
+        ),
+        "{info_json}"
+    );
 
     Ok(())
 }
@@ -3001,7 +3059,7 @@ fn add_normalized_index_usage_takes_the_resolved_spelling() -> Result<(), Box<dy
             .assert()
             .success()
             .stderr(contains(format!(
-                "Adding usage: `Acme Labs/My Lib` ({written})"
+                "Settled usage: `Acme Labs/My Lib` ({written})"
             )));
 
         let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
@@ -3072,7 +3130,7 @@ sources = [{ src_path = "dep" }]
     )?
     .assert()
     .success()
-    .stderr(contains("Adding usage: `Acme Labs/My Lib` (^1.0.0)"));
+    .stderr(contains("Settled usage: `Acme Labs/My Lib` (^1.0.0)"));
 
     let lock = std::fs::read_to_string(cwd.join("sysand-lock.toml"))?;
     assert!(lock.contains(r#"version = "1.0.0""#), "{lock}");
@@ -3273,29 +3331,50 @@ fn add_index_usage_without_lock_needs_it_installed() -> Result<(), Box<dyn std::
     Ok(())
 }
 
-/// Without locking, matching installed versions that disagree on the
-/// spelling leave nothing to check against
+/// Without locking, the spelling is that of the highest matching version
+/// installed in the local environment: a project spells itself the same way
+/// in every version
 #[test]
-fn add_index_usage_without_lock_refuses_inconsistent_spellings()
+fn add_index_usage_without_lock_takes_the_highest_installed_spelling()
 -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("f", "add_index_inconsistent", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("f", "add_index_highest_spelling", "1.2.3")?;
     out.assert().success();
     install_in_env(&cwd, "Acme Labs", "My Lib", "1.0.0")?;
     install_in_env(&cwd, "ACME Labs", "My Lib", "1.1.0")?;
+    // Does not match the constraint, so it does not count
+    install_in_env(&cwd, "acme labs", "My Lib", "2.0.0")?;
 
-    for spelling in ["Acme Labs/My Lib", "acme-labs/my-lib"] {
-        run_sysand_in(
-            &cwd,
-            ["add", "--no-lock", spelling, "--version-constraint", "^1"],
-            None,
-        )?
-        .assert()
-        .failure()
-        .stderr(contains(format!(
-            "versions of `{spelling}` installed in the local environment spell it \
-                 differently: `ACME Labs/My Lib` (1.1.0), `Acme Labs/My Lib` (1.0.0)"
-        )));
-    }
+    run_sysand_in(
+        &cwd,
+        [
+            "add",
+            "--no-lock",
+            "acme-labs/my-lib",
+            "--version-constraint",
+            "^1",
+        ],
+        None,
+    )?
+    .assert()
+    .success()
+    .stderr(contains("Adding usage: `ACME Labs/My Lib` (^1)"));
+
+    run_sysand_in(
+        &cwd,
+        [
+            "add",
+            "--no-lock",
+            "Acme Labs/My Lib",
+            "--version-constraint",
+            "^1",
+        ],
+        None,
+    )?
+    .assert()
+    .failure()
+    .stderr(contains(
+        "version 1.1.0 installed in the local environment declares itself `ACME Labs/My Lib`",
+    ));
 
     Ok(())
 }

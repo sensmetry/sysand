@@ -181,6 +181,18 @@ pub fn install_in_env(
     name: &str,
     version: &str,
 ) -> Result<(), Box<dyn Error>> {
+    install_in_env_with_usage(root, publisher, name, version, &[])
+}
+
+/// Like [`install_in_env`], with the project declaring `usage`, each a JSON
+/// object of a usage as `.project.json` holds it
+pub fn install_in_env_with_usage(
+    root: &Utf8Path,
+    publisher: &str,
+    name: &str,
+    version: &str,
+    usage: &[&str],
+) -> Result<(), Box<dyn Error>> {
     use assert_cmd::prelude::OutputAssertExt as _;
     use sysand_core::{
         commands::env::{do_env_install_project, do_env_local_dir},
@@ -192,6 +204,17 @@ pub fn install_in_env(
     cli_init_project_in(&source, None, publisher, Some(name), Some(version), None)?
         .assert()
         .success();
+    if !usage.is_empty() {
+        let info_path = source.join(".project.json");
+        let info = std::fs::read_to_string(&info_path)?;
+        let with_usage = info.replacen(
+            &format!(r#""version": "{version}""#),
+            &format!(r#""version": "{version}", "usage": [{}]"#, usage.join(", ")),
+            1,
+        );
+        assert_ne!(info, with_usage, "{info}");
+        std::fs::write(info_path, with_usage)?;
+    }
     let env_path = root.join(DEFAULT_ENV_NAME);
     let mut env = if env_path.exists() {
         LocalDirectoryEnvironment::read(&env_path)?

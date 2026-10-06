@@ -7,12 +7,15 @@ use anyhow::{Result, anyhow, bail};
 use camino::{Utf8Path, Utf8PathBuf};
 
 use fluent_uri::Iri;
-use semver::{Version, VersionReq};
+use semver::VersionReq;
 use sysand_core::{
     add::{AddError, IndexSpellingError, do_add, is_normalized_spelling, spell_index_usage},
     auth::HTTPAuthentication,
     commands::{
-        lock::{DEFAULT_LOCKFILE_NAME, LockOutcome, do_lock_local_editable},
+        lock::{
+            DEFAULT_LOCKFILE_NAME, LockOutcome, do_lock_local_editable,
+            do_lock_local_editable_respelling,
+        },
         sync::SyncOutcome,
     },
     config::{
@@ -20,15 +23,15 @@ use sysand_core::{
         local_fs::{CONFIG_FILE, add_project_source_to_config},
     },
     context::ProjectContext,
+    lock::Lock,
     model::{InterchangeProjectUsage, InterchangeProjectUsageRaw, check_index_usage_spelling},
     project::{
-        ProjectRead as _,
+        ProjectMut as _, ProjectRead as _,
         local_kpar::{KparInnerPath, LocalKParProject},
         local_src::LocalSrcProject,
         utils::{Identifier, relativize_path, wrapfs},
     },
-    resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead, standard::standard_resolver},
-    solve::pubgrub::DEFAULT_INDEX_CONSTRAINT,
+    resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead as _, standard::standard_resolver},
     utils::{ProvidedProjects, SP, format_err},
 };
 
@@ -168,8 +171,8 @@ pub fn command_add<Policy: HTTPAuthentication>(
                 // Locking checks the spelling
                 UsageToAdd::Ready(index_usage(publisher, name, version_constraint))
             } else {
-                // The spelling or the version constraint is settled by
-                // resolving it, see `settle_index_usage`
+                // The spelling or the version constraint is settled from the
+                // lock, see `settle_from_lock`
                 UsageToAdd::PendingIndex(PendingIndexUsage {
                     recover_spelling: is_normalized_spelling(&publisher, &name),
                     publisher,
@@ -289,8 +292,6 @@ pub fn command_add<Policy: HTTPAuthentication>(
         sysml_std
     };
 
-    // One resolver for settling the usage and for locking, so that what is
-    // fetched to settle it is reused by the lock
     let resolver = create_resolver(
         resolution_opts,
         &config,
@@ -303,13 +304,17 @@ pub fn command_add<Policy: HTTPAuthentication>(
     )?;
     // Even when nothing is added, lock and sync, since the environment may
     // be missing or stale
-    let added = match usage {
-        UsageToAdd::Ready(usage) => do_add(&mut current_project, &usage)?,
-        UsageToAdd::PendingIndex(pending) => do_add(
-            &mut current_project,
-            &settle_index_usage(&resolver, pending)?,
-        )?,
-        UsageToAdd::AlreadyPresent => false,
+    let (added, pending) = match usage {
+        UsageToAdd::Ready(usage) => (do_add(&mut current_project, &usage)?, None),
+        UsageToAdd::AlreadyPresent => (false, None),
+        // Added as given, and settled once locked
+        UsageToAdd::PendingIndex(pending) => {
+            let placeholder = pending.placeholder();
+            (
+                do_add(&mut current_project, &placeholder)?,
+                Some((placeholder, pending)),
+            )
+        }
     };
 
     let alias_iris = if let Some(w) = &ctx.current_workspace {
@@ -321,18 +326,38 @@ pub fn command_add<Policy: HTTPAuthentication>(
         None
     };
 
-    match resolve_deps(
-        no_sync,
-        no_prune,
-        resolver,
-        client,
-        runtime,
-        auth_policy,
-        current_project.root_path(),
-        alias_iris,
-        provided_iris,
-        ctx,
-    ) {
+    let project_root = current_project.root_path().to_owned();
+    let locked = (|| {
+        let respelled = pending
+            .as_ref()
+            .and_then(|(_, pending)| pending.respelled());
+        let lock = lock_project(
+            resolver,
+            &project_root,
+            alias_iris,
+            &provided_iris,
+            &ctx,
+            respelled.as_ref(),
+        )?;
+        if let Some((placeholder, pending)) = pending {
+            settle_from_lock(&mut current_project, &lock, &placeholder, pending)?;
+        }
+        Ok::<_, anyhow::Error>(lock)
+    })();
+    let result = locked.and_then(|lock| {
+        write_lock_and_sync(
+            &lock,
+            no_sync,
+            no_prune,
+            client,
+            runtime,
+            auth_policy,
+            &project_root,
+            &provided_iris,
+            ctx,
+        )
+    });
+    match result {
         Ok(()) => Ok(added),
         Err(e) => {
             // Restore old info
@@ -491,129 +516,150 @@ fn process_overrides<Policy: HTTPAuthentication>(
     Ok(())
 }
 
-/// An index usage that `add` settles by resolving it (see
-/// [`settle_index_usage`])
+/// An index usage that `add` settles from the lock (see [`settle_from_lock`])
 struct PendingIndexUsage {
     publisher: String,
     name: String,
-    /// Taken from the version resolved when `None`
+    /// Taken from the lock when `None`
     version_constraint: Option<VersionReq>,
     /// Whether `publisher`/`name` is normalized, and the usage is to take
-    /// the spelling of the project resolved instead
+    /// the spelling of the project it locks to instead
     recover_spelling: bool,
 }
 
-/// The index usage `pending` names, settled by resolving it. Index usages
-/// resolve by identifier, whatever their spelling, so this finds the
-/// project's versions either way. Of those `pending` accepts (or, without a
-/// constraint, of the releases), the highest is taken: the usage's version
-/// constraint, when it has none, is `^` that version, as `cargo add` does,
-/// and its spelling, when it is normalized, is that version's.
-///
-/// The rest of the dependency graph is not considered: if another project
-/// requires an older version (e.g. `^1` while the highest is 2.0.0), the
-/// usage written does not lock, and `add` fails, even though a lower
-/// version would work.
-fn settle_index_usage<R: ResolveRead>(
-    resolver: &R,
+impl PendingIndexUsage {
+    /// The usage as given, added before locking: an unconstrained one
+    /// accepts any release
+    fn placeholder(&self) -> InterchangeProjectUsageRaw {
+        InterchangeProjectUsageRaw::Index {
+            publisher: self.publisher.clone(),
+            name: self.name.clone(),
+            version_constraint: self
+                .version_constraint
+                .as_ref()
+                .map_or_else(|| "*".to_owned(), ToString::to_string),
+        }
+    }
+
+    /// The identifier whose spelling the lock is not to check, when the
+    /// spelling is to be taken from the lock instead
+    fn respelled(&self) -> Option<Identifier> {
+        self.recover_spelling
+            .then(|| Identifier::from_pub_name(&self.publisher, &self.name))
+    }
+}
+
+/// Replace `placeholder`, the usage `pending` added as given, in `project`:
+/// spelled as the project it locked to when it was normalized, and
+/// constrained to `^` the locked version when it had no constraint, as
+/// `cargo add` does. Nothing has to be resolved for it beforehand, since an
+/// index usage resolves by identifier, whatever its spelling.
+fn settle_from_lock(
+    project: &mut LocalSrcProject,
+    lock: &Lock,
+    placeholder: &InterchangeProjectUsageRaw,
     pending: PendingIndexUsage,
-) -> Result<InterchangeProjectUsageRaw> {
+) -> Result<()> {
     let PendingIndexUsage {
         publisher,
         name,
         version_constraint,
         recover_spelling,
     } = pending;
-    let constraint = version_constraint
-        .clone()
-        .unwrap_or(DEFAULT_INDEX_CONSTRAINT);
-    let resolve = ResolutionInfo::new(
-        InterchangeProjectUsage::Index {
-            publisher: publisher.clone(),
-            name: name.clone(),
-            version_constraint: constraint.clone(),
-        },
-        None,
-    );
-    let candidates = match resolver.resolve_read(&resolve)? {
-        ResolutionOutcome::Resolved(candidates) => candidates,
-        ResolutionOutcome::NotFound { reason }
-        | ResolutionOutcome::Unresolvable { reason }
-        | ResolutionOutcome::UnsupportedUsageType { reason } => {
-            bail!("cannot find `{publisher}/{name}`: {reason}")
-        }
-    };
-    let mut highest: Option<(Version, Option<String>, String)> = None;
-    for candidate in candidates {
-        let info = match candidate.map(|project| project.get_info()) {
-            Ok(Ok(Some(info))) => info,
-            Ok(Ok(None)) => continue,
-            Ok(Err(err)) => {
-                log::debug!("skipping candidate for {resolve}: {}", format_err(err));
-                continue;
-            }
-            Err(err) => {
-                log::debug!("skipping candidate for {resolve}: {}", format_err(err));
-                continue;
-            }
-        };
-        let Ok(version) = Version::parse(&info.version) else {
-            continue;
-        };
-        if constraint.matches(&version)
-            && highest
-                .as_ref()
-                .is_none_or(|(highest, ..)| version > *highest)
-        {
-            highest = Some((version, info.publisher, info.name));
-        }
-    }
-    let Some((version, resolved_publisher, resolved_name)) = highest else {
-        bail!("no version of `{publisher}/{name}` matching `{constraint}` is found");
+    let identifier = Identifier::from_pub_name(&publisher, &name);
+    let Some(locked) = lock
+        .projects
+        .iter()
+        .find(|p| p.identifiers.iter().any(|id| id == identifier.as_str()))
+    else {
+        bail!("`{publisher}/{name}` is missing from the lock");
     };
     let (publisher, name) = if recover_spelling {
-        let Some(resolved_publisher) = resolved_publisher else {
+        let Some(locked_publisher) = &locked.publisher else {
             bail!(
-                "`{publisher}/{name}` resolved to version {version} of a project that declares \
-                 no publisher, which an index usage cannot name"
+                "`{publisher}/{name}` locked to version {} of a project that declares no \
+                 publisher, which an index usage cannot name",
+                locked.version
             );
         };
-        (resolved_publisher, resolved_name)
+        (locked_publisher.clone(), locked.name.clone())
     } else {
         (publisher, name)
     };
     let version_constraint =
-        version_constraint.map_or_else(|| format!("^{version}"), |vc| vc.to_string());
-    Ok(InterchangeProjectUsageRaw::Index {
+        version_constraint.map_or_else(|| format!("^{}", locked.version), |vc| vc.to_string());
+    let settled = InterchangeProjectUsageRaw::Index {
         publisher,
         name,
         version_constraint,
-    })
+    };
+    let settling = "Settled";
+    let header = sysand_core::style::get_style_config().header;
+    log::info!("{header}{settling:>12}{header:#} usage: {settled}");
+    if settled == *placeholder {
+        return Ok(());
+    }
+    let mut info = project
+        .get_info()?
+        .ok_or(CliError::MissingProjectCurrentDir)?;
+    for usage in &mut info.usage {
+        if usage == placeholder {
+            *usage = settled.clone();
+        }
+    }
+    project.put_info(&info, true)?;
+    Ok(())
 }
 
-/// Lock with `resolver` (see [`create_resolver`]), and sync unless `no_sync`
-pub fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
+/// Lock the project at `project_root` with `resolver` (see
+/// [`create_resolver`]), without writing the lockfile. The spelling of its
+/// typed usage of `respelled` is not checked, see
+/// [`do_lock_local_editable_respelling`]
+fn lock_project<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
+    resolver: CliResolver<Policy>,
+    project_root: P,
+    project_identifiers: Option<Vec<Iri<String>>>,
+    provided_iris: &ProvidedProjects,
+    ctx: &ProjectContext,
+    respelled: Option<&Identifier>,
+) -> Result<Lock> {
+    // FIXME: use project path relative to and under the workspace root.
+    let LockOutcome { lock, .. } = match respelled {
+        None => do_lock_local_editable(
+            ".",
+            &project_root,
+            project_identifiers,
+            provided_iris,
+            resolver,
+            ctx,
+        )?,
+        Some(respelled) => do_lock_local_editable_respelling(
+            ".",
+            &project_root,
+            project_identifiers,
+            provided_iris,
+            resolver,
+            ctx,
+            respelled,
+        )?,
+    };
+    Ok(lock.canonicalize())
+}
+
+/// Write `lock` as the lockfile of the project at `project_root`, and sync
+/// unless `no_sync`
+#[expect(clippy::too_many_arguments)]
+fn write_lock_and_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
+    lock: &Lock,
     no_sync: bool,
     no_prune: bool,
-    resolver: CliResolver<Policy>,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
     project_root: P,
-    project_identifiers: Option<Vec<Iri<String>>>,
-    provided_iris: ProvidedProjects,
+    provided_iris: &ProvidedProjects,
     ctx: ProjectContext,
 ) -> Result<(), anyhow::Error> {
-    // FIXME: use project path relative to and under the workspace root.
-    let LockOutcome { lock, .. } = do_lock_local_editable(
-        ".",
-        &project_root,
-        project_identifiers,
-        &provided_iris,
-        resolver,
-        &ctx,
-    )?;
-    let lock = lock.canonicalize();
     wrapfs::write(
         project_root.as_ref().join(DEFAULT_LOCKFILE_NAME),
         lock.to_string(),
@@ -626,11 +672,11 @@ pub fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
             ctx.current_directory,
         )?;
         command_sync(
-            &lock,
+            lock,
             project_root,
             &mut env,
             client,
-            &provided_iris,
+            provided_iris,
             runtime,
             auth_policy,
             ctx.current_workspace.as_ref(),
@@ -639,6 +685,41 @@ pub fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         )?;
     }
     Ok(())
+}
+
+/// Lock with `resolver` (see [`create_resolver`]), and sync unless `no_sync`
+#[expect(clippy::too_many_arguments)]
+pub fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
+    no_sync: bool,
+    no_prune: bool,
+    resolver: CliResolver<Policy>,
+    client: reqwest_middleware::ClientWithMiddleware,
+    runtime: Arc<tokio::runtime::Runtime>,
+    auth_policy: Arc<Policy>,
+    project_root: P,
+    project_identifiers: Option<Vec<Iri<String>>>,
+    provided_iris: ProvidedProjects,
+    ctx: ProjectContext,
+) -> Result<(), anyhow::Error> {
+    let lock = lock_project(
+        resolver,
+        &project_root,
+        project_identifiers,
+        &provided_iris,
+        &ctx,
+        None,
+    )?;
+    write_lock_and_sync(
+        &lock,
+        no_sync,
+        no_prune,
+        client,
+        runtime,
+        auth_policy,
+        project_root,
+        &provided_iris,
+        ctx,
+    )
 }
 
 /// `project_root` must be absolute. On Windows, its kind (DOS/UNC)
