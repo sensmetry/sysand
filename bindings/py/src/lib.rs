@@ -33,7 +33,10 @@ use sysand_core::{
         lock::{DEFAULT_LOCKFILE_NAME, LockError, LockProjectError},
         sync::SyncOutcome,
     },
-    config::{Config, local_fs::load_configs},
+    config::{
+        Config,
+        local_fs::{load_configs, read_config},
+    },
     context::ProjectContext,
     discover::{discover_project, discover_workspace},
     env::{
@@ -264,6 +267,8 @@ struct ResolutionSpec {
     #[pyo3(default)]
     include_std: bool,
     use_config: bool,
+    #[pyo3(default)]
+    config_file: Option<String>,
 }
 
 /// Every `AuthPolicy` variant becomes the same concrete policy type as the
@@ -319,12 +324,7 @@ fn index_locations(
     if spec.no_index {
         return Ok(None);
     }
-    let config = if spec.use_config {
-        load_configs(project_root.unwrap_or_else(|| Utf8Path::new(".")))
-            .map_err(|e| ProjectError::new_err(format_err(e)))?
-    } else {
-        Config::default()
-    };
+    let config = config_for(spec, project_root.unwrap_or_else(|| Utf8Path::new(".")))?;
     let locations = config.index_urls(
         parse_index_locations(&spec.index)?,
         vec![default_index_location()],
@@ -556,12 +556,18 @@ fn resolution_options(spec: &ResolutionSpec) -> PyResult<ResolutionOptions> {
     })
 }
 
+/// The CLI's configuration merge: the named `config_file` first, then, with
+/// `use_config`, the user's and the project's configuration files.
 fn config_for(spec: &ResolutionSpec, project_root: &Utf8Path) -> PyResult<Config> {
+    let to_err = |e| ProjectError::new_err(format_err(e));
+    let mut config = match &spec.config_file {
+        Some(path) => read_config(path).map_err(to_err)?,
+        None => Config::default(),
+    };
     if spec.use_config {
-        load_configs(project_root).map_err(|e| ProjectError::new_err(format_err(e)))
-    } else {
-        Ok(Config::default())
+        config.merge(load_configs(project_root).map_err(to_err)?);
     }
+    Ok(config)
 }
 
 /// A failure computed without the GIL, turned into a Python exception once

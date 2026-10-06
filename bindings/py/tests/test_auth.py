@@ -50,6 +50,7 @@ def test_resolution_defaults_and_validation() -> None:
     assert default.no_index is False
     assert default.include_std is False
     assert default.use_config is True
+    assert default.config_file is None
     assert "use_config=True" in repr(default)
 
     with pytest.raises(ValueError):

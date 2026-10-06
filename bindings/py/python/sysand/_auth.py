@@ -11,6 +11,7 @@ calls.
 
 from __future__ import annotations
 
+import os
 import typing
 
 _REDACTED = "<redacted>"
@@ -108,15 +109,25 @@ class Resolution:
     ``--index`` / ``--default-index`` / ``--no-index`` / ``--include-std``.
 
     With ``use_config`` (the default) sysand's configuration files are
-    loaded and merged as the CLI does. Only the files: the CLI's environment
-    overrides (``SYSAND_INDEX``, ``SYSAND_DEFAULT_INDEX``,
-    ``SYSAND_CONFIG_FILE``, ``SYSAND_NO_CONFIG``) are not read.
+    loaded and merged as the CLI does. ``config_file`` names one more
+    configuration file to read first, like the CLI's ``--config-file``; it
+    is read even without ``use_config``, and must exist. Only
+    the arguments count: the CLI's environment overrides (``SYSAND_INDEX``,
+    ``SYSAND_DEFAULT_INDEX``, ``SYSAND_CONFIG_FILE``, ``SYSAND_NO_CONFIG``)
+    are not read.
     ``default_index`` replaces the built-in default (``https://sysand.com``)
     and any default marked in the configuration; ``index`` adds indexes that
     are tried before the defaults.
     """
 
-    __slots__ = ("index", "default_index", "no_index", "include_std", "use_config")
+    __slots__ = (
+        "index",
+        "default_index",
+        "no_index",
+        "include_std",
+        "use_config",
+        "config_file",
+    )
 
     def __init__(
         self,
@@ -126,6 +137,7 @@ class Resolution:
         no_index: bool = False,
         include_std: bool = False,
         use_config: bool = True,
+        config_file: str | os.PathLike[str] | None = None,
     ) -> None:
         if no_index and (index or default_index):
             raise ValueError("no_index cannot be combined with index or default_index")
@@ -134,6 +146,7 @@ class Resolution:
         self.no_index = no_index
         self.include_std = include_std
         self.use_config = use_config
+        self.config_file = None if config_file is None else os.fspath(config_file)
 
     def _spec(self) -> dict[str, typing.Any]:
         return {
@@ -142,13 +155,14 @@ class Resolution:
             "no_index": self.no_index,
             "include_std": self.include_std,
             "use_config": self.use_config,
+            "config_file": self.config_file,
         }
 
     def __repr__(self) -> str:
         return (
             f"Resolution(index={self.index!r}, default_index={self.default_index!r}, "
             f"no_index={self.no_index!r}, include_std={self.include_std!r}, "
-            f"use_config={self.use_config!r})"
+            f"use_config={self.use_config!r}, config_file={self.config_file!r})"
         )
 
 

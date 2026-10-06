@@ -262,3 +262,51 @@ def test_lock_index_usage_spelled_unlike_the_project(
         match="resolved to version .* of `mock/dep`, but is rejected because its spelling",
     ):
         sysand.lock(path=root, resolution=resolution(mock_index), write=False)
+
+
+def test_lock_reads_the_named_config_file(
+    tmp_path: Path, mock_index: MockIndex
+) -> None:
+    mock_index.publish(DEP, "1.0.0")
+    root = project_with(tmp_path, [usage(DEP, ">=1.0.0")])
+    config = tmp_path / "named.toml"
+    config.write_text(f'[[index]]\nurl = "{mock_index.url}"\ndefault = true\n')
+
+    # The named file is read even without `use_config`, as with the CLI's
+    # `--no-config --config-file`.
+    res = sysand.Resolution(config_file=config, use_config=False)
+    result = sysand.lock(path=root, resolution=res, write=False)
+
+    assert by_name(result, "dep")["version"] == "1.0.0"
+    assert f"config_file={str(config)!r}" in repr(res)
+
+
+def test_lock_rejects_an_invalid_named_config_file(
+    tmp_path: Path, mock_index: MockIndex
+) -> None:
+    root = project_with(tmp_path, [])
+    config = tmp_path / "named.toml"
+    config.write_text("[[index]\n")
+
+    with pytest.raises(sysand.ProjectError, match="named.toml"):
+        sysand.lock(
+            path=root,
+            resolution=sysand.Resolution(config_file=config, use_config=False),
+            write=False,
+        )
+
+
+@pytest.mark.parametrize("name", ["missing.toml", "."])
+def test_lock_rejects_a_named_config_file_it_cannot_read(
+    tmp_path: Path, mock_index: MockIndex, name: str
+) -> None:
+    root = project_with(tmp_path, [])
+    # Missing, or a directory.
+    config = tmp_path / name
+
+    with pytest.raises(sysand.ProjectError, match="failed to read file"):
+        sysand.lock(
+            path=root,
+            resolution=sysand.Resolution(config_file=config, use_config=False),
+            write=False,
+        )
