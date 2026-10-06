@@ -163,7 +163,7 @@ def test_add_without_lock_checks_against_the_environment(
     # not asked
     with pytest.raises(
         sysand.ProjectError,
-        match="no version matching `\\^1` is installed in the local environment",
+        match="it is not installed in the local environment",
     ):
         sysand.add(
             project_dir=root,

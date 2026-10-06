@@ -68,18 +68,19 @@ pub enum IndexSpellingError<EnvError, ProjectError> {
     #[error(transparent)]
     Project(ProjectError),
     #[error(
-        "{}: no version matching `{version_constraint}` is installed in the local environment",
+        "{}: it is not installed in the local environment",
         if *.normalized {
             format!("cannot find how the project `{usage}` spells its publisher and name")
         } else {
             format!("cannot check that `{usage}` is spelled as the project spells it")
         }
     )]
-    NotInstalled {
-        usage: String,
-        version_constraint: String,
-        normalized: bool,
-    },
+    NotInstalled { usage: String, normalized: bool },
+    #[error(
+        "version {version} of `{usage}` installed in the local environment has no project \
+         information"
+    )]
+    MissingInfo { usage: String, version: String },
     #[error(
         "index usage `{usage}` cannot be used: version {version} installed in the local \
          environment declares no publisher"
@@ -98,20 +99,19 @@ pub enum IndexSpellingError<EnvError, ProjectError> {
 }
 
 /// The publisher and name an index usage of `publisher`/`name` has to spell,
-/// read from the highest version of the project installed in `env` that
-/// matches `version_constraint`, without touching the network: the project's
-/// own spelling when `publisher`/`name` is normalized (see
-/// [`is_normalized_spelling`]), and `publisher`/`name` itself otherwise,
-/// once it has been checked to be that spelling.
+/// read from a version of the project installed in `env` (the first it
+/// lists: a project spells itself the same way in every version), without
+/// touching the network: the project's own spelling when `publisher`/`name`
+/// is normalized (see [`is_normalized_spelling`]), and `publisher`/`name`
+/// itself otherwise, once it has been checked to be that spelling.
 ///
-/// Fails when no matching version is installed, since then there is nothing
-/// to check against.
+/// Fails when no version is installed, since then there is nothing to check
+/// against.
 #[expect(clippy::type_complexity)]
 pub fn spell_index_usage<Env: ReadEnvironment>(
     env: Option<&Env>,
     publisher: &str,
     name: &str,
-    version_constraint: &semver::VersionReq,
 ) -> Result<
     (String, String),
     IndexSpellingError<Env::ReadError, <Env::InterchangeProjectRead as ProjectRead>::Error>,
@@ -120,58 +120,31 @@ pub fn spell_index_usage<Env: ReadEnvironment>(
     let normalized = is_normalized_spelling(publisher, name);
     let identifier = Identifier::from_pub_name(publisher, name);
 
-    let mut matching = Vec::new();
-    if let Some(env) = env {
-        for version in env
+    let version = match env {
+        Some(env) => env
             .versions(identifier.as_str())
             .map_err(IndexSpellingError::Env)?
-        {
-            let version = version.map_err(IndexSpellingError::Env)?;
-            match semver::Version::parse(&version) {
-                Ok(semver) if version_constraint.matches(&semver) => {
-                    matching.push((semver, version))
-                }
-                Ok(_) => {}
-                Err(_) => {
-                    log::debug!(
-                        "skipping installed version `{version}` of `{identifier}`: not semver"
-                    );
-                }
-            }
-        }
-    }
-    // The highest one that declares its information; a project spells
-    // itself the same way in every version
-    matching.sort_unstable_by(|(a, _), (b, _)| b.cmp(a));
-    let mut found = None;
-    if let Some(env) = env {
-        for (_, version) in matching {
-            let project = env
-                .get_project(identifier.as_str(), &version)
-                .map_err(IndexSpellingError::Env)?;
-            match project.get_info().map_err(IndexSpellingError::Project)? {
-                Some(info) => {
-                    found = Some((info.publisher, info.name, version));
-                    break;
-                }
-                None => {
-                    log::debug!(
-                        "skipping installed version `{version}` of `{identifier}`: no info"
-                    );
-                }
-            }
-        }
-    }
-    let Some((found_publisher, found_name, version)) = found else {
-        return Err(IndexSpellingError::NotInstalled {
-            usage,
-            version_constraint: version_constraint.to_string(),
-            normalized,
-        });
+            .into_iter()
+            .next()
+            .transpose()
+            .map_err(IndexSpellingError::Env)?,
+        None => None,
     };
-    let Some(found_publisher) = found_publisher else {
+    let (Some(env), Some(version)) = (env, version) else {
+        return Err(IndexSpellingError::NotInstalled { usage, normalized });
+    };
+    let info = env
+        .get_project(identifier.as_str(), &version)
+        .map_err(IndexSpellingError::Env)?
+        .get_info()
+        .map_err(IndexSpellingError::Project)?;
+    let Some(info) = info else {
+        return Err(IndexSpellingError::MissingInfo { usage, version });
+    };
+    let Some(found_publisher) = info.publisher else {
         return Err(IndexSpellingError::NoPublisher { usage, version });
     };
+    let found_name = info.name;
     if normalized || (found_publisher == publisher && found_name == name) {
         Ok((found_publisher, found_name))
     } else {
