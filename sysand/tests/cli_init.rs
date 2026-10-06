@@ -152,7 +152,7 @@ fn init_explicit_name() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// An invalid license is rejected by both `sysand init --license` and
-/// `sysand info license --set` with the same message, where the SPDX
+/// `sysand edit --license` with the same message, where the SPDX
 /// caret diagram starts on its own line so that it stays aligned.
 #[test]
 fn invalid_license_error_is_consistent() -> Result<(), Box<dyn std::error::Error>> {
@@ -168,7 +168,7 @@ fn invalid_license_error_is_consistent() -> Result<(), Box<dyn std::error::Error
 
     let out = run_sysand_in(&cwd, ["init", "--publisher", "a"], None)?;
     out.assert().success();
-    let out = run_sysand_in(&cwd, ["info", "license", "--set", "MIT ANDD foo"], None)?;
+    let out = run_sysand_in(&cwd, ["edit", "--license", "MIT ANDD foo"], None)?;
     out.assert()
         .failure()
         .stderr(predicate::str::contains(expected));

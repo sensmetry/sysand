@@ -56,14 +56,12 @@ use crate::{
         auth::{command_auth_login, command_auth_logout, command_auth_status, command_auth_whoami},
         build::{command_build_for_project, command_build_for_workspace},
         clone::command_clone,
+        edit::command_edit,
         env::{command_env, command_env_list},
         exclude::command_exclude,
         include::command_include,
         index::{command_index_add, command_index_init, command_index_remove, command_index_yank},
-        info::{
-            LocalProjectKind, command_info_current_project, command_info_path,
-            command_info_verb_path,
-        },
+        info::{LocalProjectKind, command_info_field, command_info_field_path, command_info_path},
         init::command_init,
         lock::command_lock,
         print_root::command_print_root,
@@ -659,9 +657,9 @@ fn run_cli_with(
         Command::PrintRoot => command_print_root(ctx.current_directory),
         Command::Info {
             locator,
+            get,
             // no_normalise,
             resolution_opts,
-            subcommand,
         } => {
             enum Location {
                 WorkDir,
@@ -732,28 +730,20 @@ fn run_cli_with(
                 _ => unreachable!(),
             };
 
-            match (location, subcommand) {
-                (Location::WorkDir, subcommand) => {
-                    if let Some(current_project) = ctx.current_project {
-                        match subcommand {
-                            Some(subcommand) => {
-                                let numbered = subcommand.numbered();
-                                command_info_current_project(
-                                    current_project,
-                                    subcommand.as_verb(),
-                                    numbered,
-                                )
-                            }
-                            None => command_info_path(
-                                current_project.root_path(),
-                                LocalProjectKind::Dir,
-                                &excluded_usages,
-                            ),
-                        }
-                    } else {
+            match (location, get) {
+                (Location::WorkDir, get) => {
+                    let Some(current_project) = ctx.current_project else {
                         bail!(
                             "run outside of an active project, did you mean to use `--dir`, `--kpar-path` or `--iri`?"
                         )
+                    };
+                    match get {
+                        Some(field) => command_info_field(&current_project, field),
+                        None => command_info_path(
+                            current_project.root_path(),
+                            LocalProjectKind::Dir,
+                            &excluded_usages,
+                        ),
                     }
                 }
                 (Location::Iri(iri), None) => crate::commands::info::command_info_uri(
@@ -767,30 +757,37 @@ fn run_cli_with(
                     auth_policy,
                     ctx,
                 ),
-                (Location::Iri(iri), Some(subcommand)) => {
-                    let numbered = subcommand.numbered();
-
-                    crate::commands::info::command_info_verb_uri(
-                        iri,
-                        subcommand.as_verb(),
-                        numbered,
-                        client,
-                        index_urls,
-                        overrides,
-                        runtime,
-                        auth_policy,
-                        ctx,
-                    )
-                }
+                (Location::Iri(iri), Some(field)) => crate::commands::info::command_info_field_uri(
+                    iri,
+                    field,
+                    client,
+                    index_urls,
+                    overrides,
+                    runtime,
+                    auth_policy,
+                    ctx,
+                ),
                 (Location::Path(path, kind), None) => {
                     command_info_path(&path, kind, &excluded_usages)
                 }
-                (Location::Path(path, kind), Some(subcommand)) => {
-                    let numbered = subcommand.numbered();
-
-                    command_info_verb_path(&path, kind, subcommand.as_verb(), numbered)
+                (Location::Path(path, kind), Some(field)) => {
+                    command_info_field_path(&path, kind, field)
                 }
             }
+        }
+        Command::Edit { dir, edits } => {
+            let project = match dir {
+                Some(dir) => {
+                    if !wrapfs::metadata(&dir)?.is_dir() {
+                        bail!("`{dir}` is not a directory");
+                    }
+                    LocalSrcProject::new_access(dir, None)
+                }
+                None => ctx
+                    .current_project
+                    .ok_or(CliError::MissingProjectCurrentDir)?,
+            };
+            command_edit(project, *edits)
         }
         Command::Add {
             locator,

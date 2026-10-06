@@ -102,15 +102,14 @@ pub fn command_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
                 let hint = match &existing.publisher {
                     Some(publisher) => format!(
                         "spell them as the index does with:\n\
-                        sysand info publisher --set \"{publisher}\"\n\
-                        sysand info name --set \"{existing_name}\"{REBUILD_KPAR}"
+                        sysand edit --publisher \"{publisher}\" --name \"{existing_name}\"{REBUILD_KPAR}"
                     ),
-                    // `sysand info` cannot unset the publisher
+                    // `sysand edit` cannot unset the publisher
                     None => format!(
                         "the versions in the index declare no publisher, so this one cannot\n\
                         declare one either: remove `publisher` from `.project.json`, set the\n\
                         name with:\n\
-                        sysand info name --set \"{existing_name}\"{REBUILD_KPAR}"
+                        sysand edit --name \"{existing_name}\"{REBUILD_KPAR}"
                     ),
                 };
                 Err(IndexError::new_with(hint, e))
@@ -125,8 +124,11 @@ pub fn command_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
             IndexAddError::VersionHasBuildMetadata { version, .. } => Err(IndexError::new_with(
                 format!(
                     "remove the build metadata by running in the original project:\n\
-                sysand info version --set {}{}{}{}{REBUILD_KPAR}",
-                    version.major, version.minor, version.patch, version.pre
+                sysand edit --version {}{REBUILD_KPAR}",
+                    semver::Version {
+                        build: semver::BuildMetadata::EMPTY,
+                        ..version.clone()
+                    }
                 ),
                 e,
             )),
@@ -137,7 +139,7 @@ pub fn command_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
                 - starts and ends with a letter or number\n\
                 - may contain single spaces or hyphens (`-`)\n\
                 set the publisher that follows the above rules with:
-                sysand info publisher --set <publisher>{REBUILD_KPAR}"
+                sysand edit --publisher <publisher>{REBUILD_KPAR}"
                 ),
                 e,
             )),
@@ -147,8 +149,8 @@ pub fn command_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
                 - between 3 and 50 ASCII characters long\n\
                 - starts and ends with a letter or number\n\
                 - may contain single spaces, dots or hyphens (`-`)\n\
-                set the publisher that follows the above rules with:
-                sysand info name --set <name>{REBUILD_KPAR}"
+                set the name that follows the above rules with:
+                sysand edit --name <name>{REBUILD_KPAR}"
                 ),
                 e,
             )),
@@ -167,7 +169,7 @@ pub fn command_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
                 Err(IndexError::new_with(
                     format!(
                         "set a project publisher with:\n\
-                sysand info publisher --set {iri_publisher}{REBUILD_KPAR}"
+                sysand edit --publisher {iri_publisher}{REBUILD_KPAR}"
                     ),
                     e,
                 ))
@@ -176,7 +178,7 @@ pub fn command_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
                 format!(
                     "either pass the project IRI with `--iri <IRI>`, or\n\
                 set a project publisher with:\n\
-                sysand info publisher --set <publisher>{REBUILD_KPAR}"
+                sysand edit --publisher <publisher>{REBUILD_KPAR}"
                 ),
                 e,
             )),
