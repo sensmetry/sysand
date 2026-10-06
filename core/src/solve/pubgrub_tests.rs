@@ -1491,10 +1491,10 @@ fn directory_usage_admits_a_prerelease() -> Result<(), Box<dyn std::error::Error
 /// Candidate order is a preference rank, not an accident — `CombinedResolver`
 /// emits authoritative sources first and appends unmatched local cache copies
 /// last — so ranking by index is the right thing to do. What it relies on is
-/// every source listing its own versions in descending order, which the index
-/// protocol enforces (see
-/// `index_order_makes_the_lowest_candidate_index_the_highest_version`) but
-/// `LocalDirectoryEnvironment` does not: it yields install order.
+/// every source listing its own versions in descending order, which
+/// `EnvResolver` ensures for every environment (see
+/// `constrained_usage_picks_the_highest_matching_version_within_one_source`).
+/// This fixture's `MemoryResolver` keeps the order it is given.
 ///
 /// Spelled out here with prereleases because that is where it bites hardest:
 /// out of descending order, `^1.0.0-alpha` picks `1.0.0-alpha.1` over the
@@ -1524,33 +1524,20 @@ fn constrained_usage_picks_by_candidate_order_not_by_version()
     Ok(())
 }
 
-/// Documents a known shortcoming: within one source, the highest matching
-/// version should win, and today it does not.
+/// Within one source, the highest matching version wins.
 ///
 /// Candidate order *across* sources is deliberate — `CombinedResolver` ranks
 /// authoritative sources ahead of local cache copies, and `choose_version()`
-/// honouring that rank is correct. What is missing is the other half: each
-/// source should list its own versions in descending order, so that the rank
-/// and the version agree. The index protocol requires exactly that, but
-/// `LocalDirectoryEnvironment::versions` yields `sysand_env.json` install
-/// order, which this fixture stands in for — install `1.0.0`, then `1.2.0`,
-/// ask for `^1`, and resolution settles on `1.0.0`.
-///
-/// It decides anything only where the local environment is the sole source of
-/// a project: offline, or a project no index advertises. Anywhere an
-/// authoritative source also has it, matching versions are folded together by
-/// checksum and the leftovers are last-resort by design.
-///
-/// The fix belongs in the environment, not here — sorting in
-/// `choose_version()` would flatten the cross-source rank and let a stale
-/// cached copy outrank an index. Drop the `#[should_panic]` when the
-/// environment sorts.
+/// honours that rank. Within one source, `EnvResolver` lists versions highest
+/// first, so that the rank and the version agree even for an environment that
+/// does not list them in order: `LocalDirectoryEnvironment::versions` yields
+/// install order, which this fixture stands in for — install `1.0.0`, then
+/// `1.2.0`, ask for `^1`, and resolution settles on `1.2.0`.
 #[test]
-#[should_panic(expected = "resolved to `1.0.0`, not the highest matching version")]
-fn constrained_usage_should_pick_the_highest_matching_version_within_one_source() {
+fn constrained_usage_picks_the_highest_matching_version_within_one_source() {
     // The order a local environment hands over: install order, not descending.
     let candidates = ["1.0.0", "1.2.0"].map(|v| trivial_memory_project("widget", v, vec![]));
-    let resolver = memory_resolver(&[("urn:kpar:widget", &candidates)]);
+    let resolver = simple_resolver_environment(&[("urn:kpar:widget", &candidates)]);
 
     let solution = super::solve(
         vec![root_usage("urn:kpar:widget", Some("^1"))],
@@ -1560,21 +1547,15 @@ fn constrained_usage_should_pick_the_highest_matching_version_within_one_source(
     .unwrap();
 
     let install = &solution[&Identifier::from_iri_unchecked_str("urn:kpar:widget")];
-    let version = install.version().unwrap().unwrap();
-    assert_eq!(
-        version, "1.2.0",
-        "resolved to `{version}`, not the highest matching version"
-    );
+    assert_eq!(install.version().unwrap().unwrap(), "1.2.0");
 }
 
-/// Why the preceding shortcoming is invisible over an index: `versions.json`
-/// MUST be in strictly descending semver precedence (`validate_versions`
-/// rejects anything else with `VersionsOutOfOrder`), and `EnvResolver` hands
-/// that order to the solver unchanged, so candidate index 0 is the highest
-/// version and `choose_version()`'s lowest-index pick lands on it.
+/// Over an index, candidate index 0 is the highest version, which
+/// `choose_version()`'s lowest-index pick lands on: `versions.json` MUST be
+/// in strictly descending semver precedence (`validate_versions` rejects
+/// anything else with `VersionsOutOfOrder`), so `EnvResolver`'s sort, highest
+/// first, keeps the index's order.
 ///
-/// The two rules are load-bearing together: relaxing the ordering rule at the
-/// protocol boundary would silently change which version gets resolved.
 /// Descending order also puts a release ahead of its own prereleases, since
 /// `1.0.0-alpha.1 < 1.0.0`, so an opt-in constraint still prefers the release.
 #[test]
