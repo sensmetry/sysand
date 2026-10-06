@@ -572,13 +572,12 @@ fn settle_from_lock(
         recover_spelling,
     } = pending;
     let identifier = Identifier::from_pub_name(&publisher, &name);
-    let Some(locked) = lock
+    // It was just locked
+    let locked = lock
         .projects
         .iter()
         .find(|p| p.identifiers.iter().any(|id| id == identifier.as_str()))
-    else {
-        bail!("`{publisher}/{name}` is missing from the lock");
-    };
+        .expect("BUG: the usage locked is missing from the lock");
     let (publisher, name) = if recover_spelling {
         let Some(locked_publisher) = &locked.publisher else {
             bail!(

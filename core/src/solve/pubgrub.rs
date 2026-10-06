@@ -1031,27 +1031,32 @@ impl<R: ResolveRead + fmt::Debug + 'static> Display for SolverError<R> {
                 // dependency, in the version whose usages were being read.
                 // `Requested` holds the usages of the projects being locked,
                 // which are always read first, so a `Remote` package is never
-                // one of those projects. The usage is the dependency's own
-                // only if reading its candidates again failed, which the
-                // first read rules out; it is then reported as is
+                // one of those projects
                 DependencyIdentifier::Remote(dependent)
                     if let InternalSolverError::BrokenIndexVersion { usage, version, .. } =
-                        source
-                        && usage.id() != dependent.to_id() =>
+                        source =>
                 {
                     let dependent_id = dependent.to_id();
-                    let dependent_version = self
+                    // Reading `Remote(X)`'s dependencies first looks X's own
+                    // candidates up again, which already passed when X's usage
+                    // was first resolved, so the broken usage is one X declares
+                    assert_ne!(
+                        usage.id(),
+                        dependent_id,
+                        "BUG: a broken version of a dependency's own usage"
+                    );
+                    let dependent_version = &self
                         .candidates
                         .get(&dependent_id)
                         .and_then(|candidates| {
                             candidates.iter().find(|c| c.index == *dependent_index)
                         })
-                        .map(|c| format!(" {}", c.version))
-                        .unwrap_or_default();
+                        .expect("BUG: the dependent's candidate is not recorded")
+                        .version;
                     write!(
                         f,
                         "{} offered for index usage {usage},\n\
-                         which dependency `{dependent_id}`{dependent_version} declares, \
+                         which dependency `{dependent_id}` {dependent_version} declares, \
                          is not a valid project,\n\
                          {BROKEN_NOT_SKIPPED};\n\
                          the usage is not yours to edit: it has to be fixed by that \
@@ -1061,7 +1066,7 @@ impl<R: ResolveRead + fmt::Debug + 'static> Display for SolverError<R> {
                     )
                 }
                 // Says all there is to say about which usage failed, and why
-                DependencyIdentifier::Requested(_) | DependencyIdentifier::Remote(_)
+                DependencyIdentifier::Requested(_)
                     if matches!(source, InternalSolverError::BrokenIndexVersion { .. }) =>
                 {
                     write!(f, "{source}")
