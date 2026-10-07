@@ -468,3 +468,103 @@ fn index_publisher_and_name_follow_the_unnormalized_purl_rules() {
     );
     serde_json::from_str::<IndexPublisher>(r#""Foo & Bar""#).unwrap_err();
 }
+
+#[test]
+fn index_publisher_and_name_normalize() {
+    use crate::model::{IndexName, IndexPublisher};
+
+    let publisher = |s: &str| IndexPublisher::parse(s.to_owned()).unwrap();
+    let name = |s: &str| IndexName::parse(s.to_owned()).unwrap();
+
+    assert_eq!(publisher("ACME LABS").normalized(), "acme-labs");
+    assert_eq!(name("My.Project Alpha").normalized(), "my.project-alpha");
+
+    for (s, normalized) in [
+        ("acme-labs", true),
+        ("Acme Labs", false),
+        ("acme labs", false),
+        ("ACME", false),
+    ] {
+        assert_eq!(publisher(s).is_normalized(), normalized, "{s:?}");
+        assert_eq!(publisher(s).normalized() == s, normalized, "{s:?}");
+    }
+    assert!(name("my.lib").is_normalized());
+    assert!(!name("My Lib").is_normalized());
+}
+
+#[test]
+fn project_publisher_and_name_are_not_normalized_yet() {
+    assert_eq!(
+        ProjectPublisher::parse("Foo & Bar".to_owned())
+            .unwrap()
+            .normalized(),
+        "Foo & Bar"
+    );
+    assert_eq!(
+        ProjectName::parse("My Lib".to_owned())
+            .unwrap()
+            .normalized(),
+        "My Lib"
+    );
+}
+
+/// A typed usage's spelling normalizes as an index spells it when it can,
+/// and otherwise as a project does
+#[test]
+fn typed_spellings_normalize_as_index_or_project() {
+    use super::{normalize_typed_name, normalize_typed_publisher};
+
+    assert_eq!(normalize_typed_publisher("Acme Labs"), "acme-labs");
+    assert_eq!(normalize_typed_name("My.Lib v2"), "my.lib-v2");
+    // Not valid in an index: not normalized, as projects are not yet
+    assert_eq!(normalize_typed_publisher("Foo & Bar"), "Foo & Bar");
+    assert_eq!(normalize_typed_name("My_Lib"), "My_Lib");
+    // Not even a valid project field: kept as it is
+    assert_eq!(normalize_typed_publisher("a/b"), "a/b");
+}
+
+/// A validated directory or KPAR usage holds a project publisher and name,
+/// so an invalid one is refused
+#[test]
+fn directory_and_kpar_usages_validate_their_spelling() {
+    use crate::model::{InterchangeProjectUsageRaw, InterchangeProjectValidationError};
+
+    let dir = |publisher: &str, name: &str| InterchangeProjectUsageRaw::Directory {
+        dir: "../dep".to_owned(),
+        publisher: publisher.to_owned(),
+        name: name.to_owned(),
+    };
+    let kpar = |publisher: &str, name: &str| InterchangeProjectUsageRaw::KparPath {
+        kpar_path: "dep.kpar".to_owned(),
+        publisher: publisher.to_owned(),
+        name: name.to_owned(),
+    };
+
+    // Valid for a project, though not for an index
+    let crate::model::InterchangeProjectUsage::Directory {
+        publisher, name, ..
+    } = dir("Foo & Bar", "My_Lib").validate().unwrap()
+    else {
+        panic!("a directory usage validates to a directory usage");
+    };
+    assert_eq!((publisher.as_str(), name.as_str()), ("Foo & Bar", "My_Lib"));
+
+    for usage in [dir("a/b", "lib"), kpar("a/b", "lib")] {
+        assert!(
+            matches!(
+                usage.validate(),
+                Err(InterchangeProjectValidationError::InvalidUsagePublisher { .. })
+            ),
+            "{usage:?}"
+        );
+    }
+    for usage in [dir("acme", ""), kpar("acme", "")] {
+        assert!(
+            matches!(
+                usage.validate(),
+                Err(InterchangeProjectValidationError::InvalidUsageName { .. })
+            ),
+            "{usage:?}"
+        );
+    }
+}

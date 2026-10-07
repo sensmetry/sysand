@@ -224,8 +224,8 @@ fn directory_usage_env_single_version() -> Result<(), Box<dyn std::error::Error>
     let solution = super::solve(
         vec![InterchangeProjectUsage::Directory {
             dir: "some/dir".into(),
-            publisher: "acme".to_owned(),
-            name: "widget".to_owned(),
+            publisher: crate::model::ProjectPublisher::parse("acme".to_owned()).unwrap(),
+            name: crate::model::ProjectName::parse("widget".to_owned()).unwrap(),
         }],
         None,
         resolver,
@@ -253,8 +253,8 @@ fn directory_usage_env_multiple_versions_selects_highest() -> Result<(), Box<dyn
     let solution = super::solve(
         vec![InterchangeProjectUsage::Directory {
             dir: "some/dir".into(),
-            publisher: "acme".to_owned(),
-            name: "widget".to_owned(),
+            publisher: crate::model::ProjectPublisher::parse("acme".to_owned()).unwrap(),
+            name: crate::model::ProjectName::parse("widget".to_owned()).unwrap(),
         }],
         None,
         resolver,
@@ -336,8 +336,8 @@ fn directory_and_resource_usage_same_project() -> Result<(), Box<dyn std::error:
             // Same project as `app` uses via its resource IRI
             InterchangeProjectUsage::Directory {
                 dir: "some/dir".into(),
-                publisher: "acme".to_owned(),
-                name: "widget".to_owned(),
+                publisher: crate::model::ProjectPublisher::parse("acme".to_owned()).unwrap(),
+                name: crate::model::ProjectName::parse("widget".to_owned()).unwrap(),
             },
         ],
         None,
@@ -648,8 +648,8 @@ where
     let result = super::solve(
         vec![InterchangeProjectUsage::Directory {
             dir: "some/dir".into(),
-            publisher: "acme".to_owned(),
-            name: "widget".to_owned(),
+            publisher: crate::model::ProjectPublisher::parse("acme".to_owned()).unwrap(),
+            name: crate::model::ProjectName::parse("widget".to_owned()).unwrap(),
         }],
         None,
         resolver,
@@ -842,8 +842,8 @@ fn directory_usage_candidate_rejection_reason_is_reported() -> Result<(), Box<dy
     let result = super::solve(
         vec![InterchangeProjectUsage::Directory {
             dir: "widget".into(),
-            publisher: "acme".to_owned(),
-            name: "widget".to_owned(),
+            publisher: crate::model::ProjectPublisher::parse("acme".to_owned()).unwrap(),
+            name: crate::model::ProjectName::parse("widget".to_owned()).unwrap(),
         }],
         None,
         resolver,
@@ -890,8 +890,8 @@ fn directory_usage_copy_satisfies_constraints_of_other_dependents()
         vec![
             InterchangeProjectUsage::Directory {
                 dir: "some/dir".into(),
-                publisher: "acme".to_owned(),
-                name: "widget".to_owned(),
+                publisher: crate::model::ProjectPublisher::parse("acme".to_owned()).unwrap(),
+                name: crate::model::ProjectName::parse("widget".to_owned()).unwrap(),
             },
             InterchangeProjectUsage::Resource {
                 resource: Iri::parse("pkg:sysand/acme/app")?.into(),
@@ -945,8 +945,8 @@ fn directory_usage_copy_violating_constraints_is_an_error() -> Result<(), Box<dy
         vec![
             InterchangeProjectUsage::Directory {
                 dir: "some/dir".into(),
-                publisher: "acme".to_owned(),
-                name: "widget".to_owned(),
+                publisher: crate::model::ProjectPublisher::parse("acme".to_owned()).unwrap(),
+                name: crate::model::ProjectName::parse("widget".to_owned()).unwrap(),
             },
             InterchangeProjectUsage::Resource {
                 resource: Iri::parse("pkg:sysand/acme/app")?.into(),
@@ -987,8 +987,8 @@ fn same_project_version_from_different_storages_and_usage_forms_installs_once()
             // The same project, used via a directory usage
             InterchangeProjectUsage::Directory {
                 dir: "some/dir".into(),
-                publisher: "acme".to_owned(),
-                name: "widget".to_owned(),
+                publisher: crate::model::ProjectPublisher::parse("acme".to_owned()).unwrap(),
+                name: crate::model::ProjectName::parse("widget".to_owned()).unwrap(),
             },
         ],
         None,
@@ -1529,8 +1529,8 @@ fn directory_usage_admits_a_prerelease() -> Result<(), Box<dyn std::error::Error
     let solution = super::solve(
         vec![InterchangeProjectUsage::Directory {
             dir: "some/dir".into(),
-            publisher: "acme".to_owned(),
-            name: "widget".to_owned(),
+            publisher: crate::model::ProjectPublisher::parse("acme".to_owned()).unwrap(),
+            name: crate::model::ProjectName::parse("widget".to_owned()).unwrap(),
         }],
         None,
         resolver,
@@ -1747,8 +1747,8 @@ mod index_usages {
     fn directory_usage() -> InterchangeProjectUsage {
         InterchangeProjectUsage::Directory {
             dir: "lib".into(),
-            publisher: "acme".to_owned(),
-            name: "lib".to_owned(),
+            publisher: crate::model::ProjectPublisher::parse("acme".to_owned()).unwrap(),
+            name: crate::model::ProjectName::parse("lib".to_owned()).unwrap(),
         }
     }
 

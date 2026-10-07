@@ -1084,8 +1084,8 @@ fn usage_from_resource_usage_is_its_iri() {
 fn usage_from_directory_usage_is_sysand_purl() {
     let interchange = InterchangeProjectUsage::Directory {
         dir: Utf8UnixPathBuf::from("dep"),
-        publisher: "acme-corp".to_owned(),
-        name: "my-lib".to_owned(),
+        publisher: crate::model::ProjectPublisher::parse("acme-corp".to_owned()).unwrap(),
+        name: crate::model::ProjectName::parse("my-lib".to_owned()).unwrap(),
     };
     let usage = Usage::from(&interchange);
     assert_eq!(usage.inner(), "pkg:sysand/acme-corp/my-lib");
@@ -1096,8 +1096,8 @@ fn usage_from_directory_usage_with_short_publisher_is_urn_sysand() {
     // Short publisher → Arbitrary form → urn:sysand: (non-PURL, non-URL)
     let interchange = InterchangeProjectUsage::Directory {
         dir: Utf8UnixPathBuf::from("dep"),
-        publisher: "ab".to_owned(),
-        name: "my-lib".to_owned(),
+        publisher: crate::model::ProjectPublisher::parse("ab".to_owned()).unwrap(),
+        name: crate::model::ProjectName::parse("my-lib".to_owned()).unwrap(),
     };
     let usage = Usage::from(&interchange);
     assert_eq!(usage.inner(), "urn:sysand:ab/my-lib");

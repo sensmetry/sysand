@@ -9,7 +9,6 @@ use crate::{
         IndexName, IndexPublisher, InterchangeProjectUsageRaw, InterchangeProjectValidationError,
     },
     project::{ProjectMut, ProjectRead, utils::Identifier},
-    purl::is_normalized_spelling,
     utils::SP,
 };
 
@@ -87,13 +86,22 @@ pub enum IndexSpellingError<EnvError, ProjectError> {
         version: String,
         spelling: String,
     },
+    #[error(
+        "index usage `{usage}` cannot be used: version {version} installed in the local \
+         environment declares itself `{spelling}`, which an index usage cannot spell"
+    )]
+    NotIndexSpelling {
+        usage: String,
+        version: String,
+        spelling: String,
+    },
 }
 
 /// The publisher and name an index usage of `publisher`/`name` has to spell,
 /// read from a version of the project installed in `env` (the first it
 /// lists: a project spells itself the same way in every version), without
 /// touching the network: the project's own spelling when `publisher`/`name`
-/// is normalized (see [`is_normalized_spelling`]), and `publisher`/`name`
+/// is normalized (see [`IndexPublisher::is_normalized`]), and `publisher`/`name`
 /// itself otherwise, once it has been checked to be that spelling.
 /// `normalized` is whether `publisher`/`name` is normalized, which the
 /// caller has already found out.
@@ -103,15 +111,15 @@ pub enum IndexSpellingError<EnvError, ProjectError> {
 #[expect(clippy::type_complexity)]
 pub fn spell_index_usage<Env: ReadEnvironment>(
     env: Option<&Env>,
-    publisher: &str,
-    name: &str,
+    publisher: &IndexPublisher,
+    name: &IndexName,
     normalized: bool,
 ) -> Result<
-    (String, String),
+    (IndexPublisher, IndexName),
     IndexSpellingError<Env::ReadError, <Env::InterchangeProjectRead as ProjectRead>::Error>,
 > {
     let usage = format!("{publisher}/{name}");
-    let identifier = Identifier::from_pub_name(publisher, name);
+    let identifier = Identifier::from_index(publisher, name);
 
     let version = match env {
         Some(env) => env
@@ -138,8 +146,19 @@ pub fn spell_index_usage<Env: ReadEnvironment>(
         return Err(IndexSpellingError::NoPublisher { usage, version });
     };
     let found_name = info.name;
-    if normalized || (found_publisher == publisher && found_name == name) {
-        Ok((found_publisher, found_name))
+    if normalized || (found_publisher == publisher.as_str() && found_name == name.as_str()) {
+        let spelling = format!("{found_publisher}/{found_name}");
+        match (
+            IndexPublisher::parse(found_publisher),
+            IndexName::parse(found_name),
+        ) {
+            (Ok(publisher), Ok(name)) => Ok((publisher, name)),
+            _ => Err(IndexSpellingError::NotIndexSpelling {
+                usage,
+                version,
+                spelling,
+            }),
+        }
     } else {
         Err(IndexSpellingError::Misspelled {
             usage,
@@ -233,8 +252,8 @@ pub enum IndexUsageToAdd {
     /// constraint given, which replaces the declared one
     Ready(InterchangeProjectUsageRaw),
     /// Not declared yet: its spelling, if normalized (see
-    /// [`is_normalized_spelling`]), and its constraint, if missing, have to
-    /// be settled by the caller
+    /// [`IndexPublisher::is_normalized`]), and its constraint, if missing,
+    /// have to be settled by the caller
     New {
         publisher: IndexPublisher,
         name: IndexName,
@@ -254,8 +273,8 @@ pub fn index_usage_to_add<E>(
     name: IndexName,
     version_constraint: Option<semver::VersionReq>,
 ) -> Result<IndexUsageToAdd, AddError<E>> {
-    let normalized = is_normalized_spelling(publisher.as_str(), name.as_str());
-    let identifier = Identifier::from_pub_name(publisher.as_str(), name.as_str());
+    let normalized = publisher.is_normalized() && name.is_normalized();
+    let identifier = Identifier::from_index(&publisher, &name);
     let Some(existing) = declared(usages, &identifier) else {
         return Ok(IndexUsageToAdd::New {
             publisher,

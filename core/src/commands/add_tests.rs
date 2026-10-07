@@ -320,11 +320,20 @@ mod spell_index_usage {
     fn takes_the_installed_spelling() {
         let env = env(vec![("2.0.0", installed("ACME Labs", "2.0.0"))]);
         assert_eq!(
-            spell_index_usage(Some(&env), "acme-labs", "my-lib", true).unwrap(),
-            ("ACME Labs".to_owned(), "My Lib".to_owned())
+            spell_index_usage(
+                Some(&env),
+                &crate::model::IndexPublisher::parse("acme-labs".to_owned()).unwrap(),
+                &crate::model::IndexName::parse("my-lib".to_owned()).unwrap(),
+                true
+            )
+            .unwrap(),
+            (
+                crate::model::IndexPublisher::parse("ACME Labs".to_owned()).unwrap(),
+                crate::model::IndexName::parse("My Lib".to_owned()).unwrap()
+            )
         );
         assert_matches!(
-            spell_index_usage(Some(&env), "Acme Labs", "My Lib", false),
+            spell_index_usage(Some(&env), &crate::model::IndexPublisher::parse("Acme Labs".to_owned()).unwrap(), &crate::model::IndexName::parse("My Lib".to_owned()).unwrap(), false),
             Err(IndexSpellingError::Misspelled { spelling, .. }) if spelling == "ACME Labs/My Lib"
         );
     }
@@ -333,7 +342,7 @@ mod spell_index_usage {
     fn fails_without_project_information() {
         let env = env(vec![("1.0.0", InMemoryProject::default())]);
         assert_matches!(
-            spell_index_usage(Some(&env), "acme-labs", "my-lib", true),
+            spell_index_usage(Some(&env), &crate::model::IndexPublisher::parse("acme-labs".to_owned()).unwrap(), &crate::model::IndexName::parse("my-lib".to_owned()).unwrap(), true),
             Err(IndexSpellingError::MissingInfo { version, .. }) if version == "1.0.0"
         );
     }
@@ -342,7 +351,12 @@ mod spell_index_usage {
     fn fails_when_not_installed() {
         let env = env(vec![]);
         assert_matches!(
-            spell_index_usage(Some(&env), "acme-labs", "my-lib", true),
+            spell_index_usage(
+                Some(&env),
+                &crate::model::IndexPublisher::parse("acme-labs".to_owned()).unwrap(),
+                &crate::model::IndexName::parse("my-lib".to_owned()).unwrap(),
+                true
+            ),
             Err(IndexSpellingError::NotInstalled {
                 normalized: true,
                 ..
@@ -351,8 +365,8 @@ mod spell_index_usage {
         assert_matches!(
             spell_index_usage::<MemoryStorageEnvironment<InMemoryProject>>(
                 None,
-                "Acme Labs",
-                "My Lib",
+                &crate::model::IndexPublisher::parse("Acme Labs".to_owned()).unwrap(),
+                &crate::model::IndexName::parse("My Lib".to_owned()).unwrap(),
                 false
             ),
             Err(IndexSpellingError::NotInstalled {

@@ -213,8 +213,8 @@ fn identifier_from_resource_usage_returns_iri_as_is() {
 fn identifier_from_directory_usage_purl_safe() {
     let usage = InterchangeProjectUsage::Directory {
         dir: Utf8UnixPathBuf::from("dep"),
-        publisher: "acme-corp".to_owned(),
-        name: "my-lib".to_owned(),
+        publisher: crate::model::ProjectPublisher::parse("acme-corp".to_owned()).unwrap(),
+        name: crate::model::ProjectName::parse("my-lib".to_owned()).unwrap(),
     };
     assert_eq!(
         Identifier::from(usage).as_str(),
@@ -227,8 +227,8 @@ fn identifier_from_directory_usage_arbitrary_publisher_gives_urn() {
     // Short publisher → Arbitrary form → urn:sysand: (non-PURL, non-URL)
     let usage = InterchangeProjectUsage::Directory {
         dir: Utf8UnixPathBuf::from("dep"),
-        publisher: "ab".to_owned(),
-        name: "my-lib".to_owned(),
+        publisher: crate::model::ProjectPublisher::parse("ab".to_owned()).unwrap(),
+        name: crate::model::ProjectName::parse("my-lib".to_owned()).unwrap(),
     };
     assert_eq!(Identifier::from(usage).as_str(), "urn:sysand:ab/my-lib");
 }
@@ -237,8 +237,8 @@ fn identifier_from_directory_usage_arbitrary_publisher_gives_urn() {
 fn identifier_from_kpar_path_usage_purl_safe() {
     let usage = InterchangeProjectUsage::KparPath {
         kpar_path: Utf8UnixPathBuf::from("dep.kpar"),
-        publisher: "acme-corp".to_owned(),
-        name: "my-lib".to_owned(),
+        publisher: crate::model::ProjectPublisher::parse("acme-corp".to_owned()).unwrap(),
+        name: crate::model::ProjectName::parse("my-lib".to_owned()).unwrap(),
     };
     assert_eq!(
         Identifier::from(usage).as_str(),

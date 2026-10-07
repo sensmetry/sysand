@@ -20,8 +20,11 @@ use typed_path::Utf8UnixPathBuf;
 use zip::{self, result::ZipError};
 
 use crate::{
-    model::{InterchangeProjectUsage, InterchangeProjectUsageRaw},
-    purl::{is_valid_purl_name, is_valid_purl_publisher, normalize_field},
+    model::{
+        IndexName, IndexPublisher, InterchangeProjectUsage, InterchangeProjectUsageRaw,
+        ProjectName, ProjectPublisher,
+    },
+    purl::PKG_SYSAND_PREFIX,
 };
 
 /// A file that is guaranteed to exist as long as the lifetime.
@@ -548,6 +551,9 @@ impl From<&InterchangeProjectUsage> for Identifier {
     fn from(value: &InterchangeProjectUsage) -> Self {
         match value {
             InterchangeProjectUsage::Resource { resource, .. } => Self(resource.to_string()),
+            InterchangeProjectUsage::Index {
+                publisher, name, ..
+            } => Self::from_index(publisher, name),
             typed => {
                 let (publisher, name) = typed
                     .typed_publisher_name()
@@ -570,6 +576,16 @@ impl From<InterchangeProjectUsage> for Identifier {
 impl Identifier {
     pub fn from_pub_name(publisher: &str, name: &str) -> Self {
         Self::make_identifier_iri(publisher, name)
+    }
+
+    /// The `pkg:sysand` PURL of the project spelled `publisher`/`name`, as an
+    /// index usage spells it; always valid, so nothing has to be checked
+    pub fn from_index(publisher: &IndexPublisher, name: &IndexName) -> Self {
+        Self(format!(
+            "{PKG_SYSAND_PREFIX}{}/{}",
+            publisher.normalized(),
+            name.normalized()
+        ))
     }
 
     /// The (possibly not well-formed) identifier of a usage that has *not*
@@ -653,19 +669,22 @@ impl Identifier {
         debug_assert_ne!(publisher, "");
         debug_assert_ne!(name, "");
 
-        let normalized_pub = normalize_field(publisher);
-        let normalized_name = normalize_field(name);
-
-        let iri =
-            if is_valid_purl_publisher(&normalized_pub) && is_valid_purl_name(&normalized_name) {
-                format!("pkg:sysand/{normalized_pub}/{normalized_name}")
-            } else {
-                let mut enc_pub = EString::<IData>::new();
-                enc_pub.encode_str::<IData>(publisher);
-                let mut enc_name = EString::<IData>::new();
-                enc_name.encode_str::<IData>(name);
-                format!("urn:sysand:{enc_pub}/{enc_name}")
-            };
+        if let (Ok(publisher), Ok(name)) = (
+            IndexPublisher::parse(publisher.to_owned()),
+            IndexName::parse(name.to_owned()),
+        ) {
+            return Self::from_index(&publisher, &name);
+        }
+        // Not spelled as an index usage can spell it: as a project does
+        let publisher = ProjectPublisher::parse(publisher.to_owned())
+            .map_or_else(|(publisher, _)| publisher, |p| p.normalized());
+        let name =
+            ProjectName::parse(name.to_owned()).map_or_else(|(name, _)| name, |n| n.normalized());
+        let mut enc_pub = EString::<IData>::new();
+        enc_pub.encode_str::<IData>(&publisher);
+        let mut enc_name = EString::<IData>::new();
+        enc_name.encode_str::<IData>(&name);
+        let iri = format!("urn:sysand:{enc_pub}/{enc_name}");
         Self(iri)
     }
 }

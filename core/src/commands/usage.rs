@@ -224,6 +224,7 @@ pub fn do_set_index_usage_constraint(
     name: &IndexName,
     constraint: &str,
 ) -> Result<ConstraintChange, SetConstraintError> {
+    let identifier = Identifier::from_index(publisher, name);
     let (publisher, name) = (publisher.as_str(), name.as_str());
     semver::VersionReq::parse(constraint)
         .map_err(|e| SetConstraintError::InvalidConstraint(constraint.to_owned(), e))?;
@@ -237,7 +238,6 @@ pub fn do_set_index_usage_constraint(
         Some(_) => return Err(SetConstraintError::UsageNotAnArray),
     };
 
-    let identifier = Identifier::from_pub_name(publisher, name);
     let mut exact = vec![];
     let mut same_project = None;
     for (index, usage) in usages.iter().enumerate() {
