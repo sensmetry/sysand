@@ -278,10 +278,9 @@ pub enum SourcesEnvError {
 /// matching it is used, otherwise the first installed version.
 ///
 /// The project is looked up by the identifier it is installed under: the
-/// IRI, or the identifier derived from publisher and name. The latter is
-/// a `pkg:sysand` PURL, matched by any spelling that normalizes to it, unless
-/// publisher or name are not valid in a PURL; then only the spelling the
-/// project declares matches
+/// IRI, or the identifier derived from publisher and name (see
+/// [`Identifier::from_pub_name`]), so any spelling that gives the same
+/// identifier finds it
 #[cfg(feature = "filesystem")]
 pub fn do_sources_env(
     env: LocalDirectoryEnvironment,
@@ -292,6 +291,12 @@ pub fn do_sources_env(
 ) -> Result<Vec<Utf8PathBuf>, SourcesEnvError> {
     let identifier = match project {
         UsageRef::Resource(iri) => Identifier::from_iri(&iri),
+        // FIXME: a spelling only finds the project if it gets the same kind of
+        // identifier as the spelling the project was installed under (see
+        // `Identifier::from_project`). E.g. a directory usage of
+        // `ACME Inc./Foo` is installed as `urn:sysand:acme-inc/foo`, so
+        // `acme-inc/foo`, although its normalized form, looks up
+        // `pkg:sysand/acme-inc/foo` and does not find it
         UsageRef::Typed(publisher, name) => Identifier::from_pub_name(publisher, name),
     };
     let mut candidates = env.candidate_projects(&identifier)?.into_iter();

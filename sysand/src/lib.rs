@@ -541,7 +541,7 @@ fn run_cli_with(
                 version_constraint,
                 sources_opts,
             }) => command_sources_env(
-                locator,
+                *locator,
                 version_constraint,
                 sources_opts.no_own,
                 sources_opts.deps,

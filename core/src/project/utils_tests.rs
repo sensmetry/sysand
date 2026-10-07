@@ -284,3 +284,32 @@ fn identifier_from_iri_owned() {
     let iri = Iri::parse("urn:kpar:test".to_owned()).unwrap();
     assert_eq!(Identifier::from_iri_owned(iri).as_str(), "urn:kpar:test");
 }
+
+/// Whether a project spelling gets a `pkg:sysand` identifier is decided by
+/// the spelling as given, not by its normalized form (see
+/// [`Identifier::from_project`]): `ACME Inc./Foo` normalizes to the index
+/// spelling `acme-inc/foo`, but is a different project
+#[test]
+fn identifier_from_project_decides_by_the_spelling_as_given() {
+    use crate::model::{IndexName, IndexPublisher, ProjectName, ProjectPublisher};
+
+    let project = Identifier::from_project(
+        &ProjectPublisher::parse("ACME Inc.".to_owned()).unwrap(),
+        &ProjectName::parse("Foo".to_owned()).unwrap(),
+    );
+    assert_eq!(project.as_str(), "urn:sysand:acme-inc/foo");
+
+    let index = Identifier::from_index(
+        &IndexPublisher::parse("acme-inc".to_owned()).unwrap(),
+        &IndexName::parse("foo".to_owned()).unwrap(),
+    );
+    assert_eq!(index.as_str(), "pkg:sysand/acme-inc/foo");
+    assert_ne!(project, index);
+
+    // An index spelling given as a project spelling is the same project
+    let project = Identifier::from_project(
+        &ProjectPublisher::parse("ACME Inc".to_owned()).unwrap(),
+        &ProjectName::parse("Foo".to_owned()).unwrap(),
+    );
+    assert_eq!(project, index);
+}

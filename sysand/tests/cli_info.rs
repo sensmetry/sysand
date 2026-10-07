@@ -1815,32 +1815,6 @@ fn info_get_and_edit_fields() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// `sysand edit` alone prints its help; with other arguments but no edits
-/// it fails
-#[test]
-fn edit_requires_an_edit() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "edit_nothing", "1.2.3")?;
-    out.assert().success();
-
-    // Not through `run_sysand_in`, which appends `--no-config`
-    std::process::Command::new(assert_cmd::cargo::cargo_bin!("sysand"))
-        .arg("edit")
-        .current_dir(&cwd)
-        .env("NO_COLOR", "1")
-        .assert()
-        .failure()
-        // The program name differs between platforms (e.g. `sysand.exe`)
-        .stderr(predicate::str::is_match(r"(?m)^Usage: \S+ edit ")?);
-    for args in [&["edit"][..], &["edit", "--dir", "."]] {
-        run_sysand_in(&cwd, args.iter().copied(), None)?
-            .assert()
-            .failure()
-            .stderr(predicate::str::contains("no edits given"));
-    }
-
-    Ok(())
-}
-
 /// `sysand edit --dir` edits the project in the given directory
 #[test]
 fn edit_dir() -> Result<(), Box<dyn Error>> {

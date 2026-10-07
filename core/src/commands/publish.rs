@@ -1088,8 +1088,6 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
         return Err(PublishError::MissingLicense);
     };
     let meta = meta.ok_or(PublishError::MissingMeta)?;
-    // TODO: maybe use parse_sysand_purl() in validate() for usages? This would give better errors
-    // than generic IRI parsing
     let validated_meta = meta
         .validate()
         .map_err(|e| PublishError::InfoMetaValidation {
