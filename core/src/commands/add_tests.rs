@@ -379,10 +379,11 @@ mod index_usage_to_add {
         spelling: (&str, &str),
         constraint: Option<&str>,
     ) -> Result<IndexUsageToAdd, AddError<Infallible>> {
+        let (publisher, name) = crate::model::parse_index_usage_spelling(spelling.0, spelling.1)?;
         index_usage_to_add(
             usages,
-            spelling.0.to_owned(),
-            spelling.1.to_owned(),
+            publisher,
+            name,
             constraint.map(|c| VersionReq::parse(c).unwrap()),
         )
     }
@@ -392,8 +393,8 @@ mod index_usage_to_add {
         assert_eq!(
             to_add(&[], ("acme-labs", "my-lib"), None).unwrap(),
             IndexUsageToAdd::New {
-                publisher: "acme-labs".to_owned(),
-                name: "my-lib".to_owned(),
+                publisher: crate::model::IndexPublisher::parse("acme-labs".to_owned()).unwrap(),
+                name: crate::model::IndexName::parse("my-lib".to_owned()).unwrap(),
                 version_constraint: None,
                 normalized: true,
             }

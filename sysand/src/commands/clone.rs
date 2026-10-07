@@ -17,7 +17,7 @@ use sysand_core::{
     config::Config,
     context::ProjectContext,
     env::{local_directory::utils::clean_dir, utils::clone_project},
-    model::{InterchangeProjectUsage, InterchangeProjectUsageRaw},
+    model::InterchangeProjectUsage,
     project::{
         ProjectRead, editable::EditableProject, local_kpar::LocalKParProjectRaw,
         local_src::LocalSrcProject, utils::wrapfs,
@@ -236,12 +236,11 @@ fn obtain_project<Policy: HTTPAuthentication>(
             let version_constraint = version_constraint
                 .clone()
                 .unwrap_or(DEFAULT_INDEX_CONSTRAINT);
-            let usage = InterchangeProjectUsageRaw::Index {
-                publisher: publisher.into_string(),
-                name: name.into_string(),
-                version_constraint: version_constraint.to_string(),
-            }
-            .validate()?;
+            let usage = InterchangeProjectUsage::Index {
+                publisher,
+                name,
+                version_constraint: version_constraint.clone(),
+            };
             ProjectLocator::Index {
                 resolve: ResolutionInfo::new(usage, None),
                 version_constraint,

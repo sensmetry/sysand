@@ -546,41 +546,24 @@ impl Borrow<String> for Identifier {
 
 impl From<&InterchangeProjectUsage> for Identifier {
     fn from(value: &InterchangeProjectUsage) -> Self {
-        let (publisher, name) = match value {
-            InterchangeProjectUsage::Resource { resource, .. } => {
-                return Self(resource.to_string());
+        match value {
+            InterchangeProjectUsage::Resource { resource, .. } => Self(resource.to_string()),
+            typed => {
+                let (publisher, name) = typed
+                    .typed_publisher_name()
+                    .expect("a non-resource usage is typed");
+                Self::make_identifier_iri(publisher, name)
             }
-            InterchangeProjectUsage::Directory {
-                publisher, name, ..
-            }
-            | InterchangeProjectUsage::KparPath {
-                publisher, name, ..
-            }
-            | InterchangeProjectUsage::Index {
-                publisher, name, ..
-            } => (publisher, name),
-        };
-        Self::make_identifier_iri(publisher, name)
+        }
     }
 }
 
 impl From<InterchangeProjectUsage> for Identifier {
     fn from(value: InterchangeProjectUsage) -> Self {
-        let (publisher, name) = match value {
-            InterchangeProjectUsage::Resource { resource, .. } => {
-                return Self(resource.into_string());
-            }
-            InterchangeProjectUsage::Directory {
-                publisher, name, ..
-            }
-            | InterchangeProjectUsage::KparPath {
-                publisher, name, ..
-            }
-            | InterchangeProjectUsage::Index {
-                publisher, name, ..
-            } => (publisher, name),
-        };
-        Self::make_identifier_iri(publisher, name)
+        match value {
+            InterchangeProjectUsage::Resource { resource, .. } => Self(resource.into_string()),
+            typed => Self::from(&typed),
+        }
     }
 }
 

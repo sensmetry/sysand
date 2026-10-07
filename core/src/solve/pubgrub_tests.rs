@@ -683,8 +683,8 @@ fn typed_usage_error_candidate_fails_resolution() {
 fn index_usage_unreadable_candidate_is_a_read_error() {
     let err = super::solve(
         vec![InterchangeProjectUsage::Index {
-            publisher: "acme".to_owned(),
-            name: "widget".to_owned(),
+            publisher: crate::model::IndexPublisher::parse("acme".to_owned()).unwrap(),
+            name: crate::model::IndexName::parse("widget".to_owned()).unwrap(),
             version_constraint: VersionReq::STAR,
         }],
         None,
@@ -794,8 +794,8 @@ fn index_usage_skips_an_unreadable_version_it_rules_out() {
         .into(),
     };
     let index_usage = |constraint: &str| InterchangeProjectUsage::Index {
-        publisher: "acme".to_owned(),
-        name: "widget".to_owned(),
+        publisher: crate::model::IndexPublisher::parse("acme".to_owned()).unwrap(),
+        name: crate::model::IndexName::parse("widget".to_owned()).unwrap(),
         version_constraint: VersionReq::parse(constraint).unwrap(),
     };
 
@@ -1738,8 +1738,8 @@ mod index_usages {
 
     fn index_usage(constraint: &str) -> InterchangeProjectUsage {
         InterchangeProjectUsage::Index {
-            publisher: "acme".to_owned(),
-            name: "lib".to_owned(),
+            publisher: crate::model::IndexPublisher::parse("acme".to_owned()).unwrap(),
+            name: crate::model::IndexName::parse("lib".to_owned()).unwrap(),
             version_constraint: VersionReq::parse(constraint).unwrap(),
         }
     }
@@ -1848,8 +1848,8 @@ mod index_usages {
             .projects
             .insert(Identifier::from_pub_name("acme", "mid"), vec![mid]);
         let root = InterchangeProjectUsage::Index {
-            publisher: "acme".to_owned(),
-            name: "mid".to_owned(),
+            publisher: crate::model::IndexPublisher::parse("acme".to_owned()).unwrap(),
+            name: crate::model::IndexName::parse("mid".to_owned()).unwrap(),
             version_constraint: VersionReq::parse("^1").unwrap(),
         };
 
@@ -1892,8 +1892,8 @@ mod index_usages {
             .projects
             .insert(Identifier::from_pub_name("acme", "mid"), vec![mid]);
         let mid_usage = InterchangeProjectUsage::Index {
-            publisher: "acme".to_owned(),
-            name: "mid".to_owned(),
+            publisher: crate::model::IndexPublisher::parse("acme".to_owned()).unwrap(),
+            name: crate::model::IndexName::parse("mid".to_owned()).unwrap(),
             version_constraint: VersionReq::parse("^1").unwrap(),
         };
 

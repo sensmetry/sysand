@@ -404,7 +404,18 @@ mod filesystem {
 
 mod index_usage {
     use super::*;
-    use crate::commands::usage::do_set_index_usage_constraint;
+    use crate::{
+        commands::usage::do_set_index_usage_constraint,
+        model::{IndexName, IndexPublisher},
+    };
+
+    fn index_publisher(publisher: &str) -> IndexPublisher {
+        IndexPublisher::parse(publisher.to_owned()).unwrap()
+    }
+
+    fn index_name(name: &str) -> IndexName {
+        IndexName::parse(name.to_owned()).unwrap()
+    }
 
     /// Keys in a non-canonical order, to check they stay so
     const INDEX_MANIFEST: &str = r#"{
@@ -427,7 +438,13 @@ mod index_usage {
     fn edits_the_constraint_in_place() {
         let mut d = doc(INDEX_MANIFEST);
 
-        let change = do_set_index_usage_constraint(&mut d, "Acme Labs", "My Lib", "^2").unwrap();
+        let change = do_set_index_usage_constraint(
+            &mut d,
+            &index_publisher("Acme Labs"),
+            &index_name("My Lib"),
+            "^2",
+        )
+        .unwrap();
 
         assert_eq!(
             change,
@@ -449,7 +466,13 @@ mod index_usage {
     fn not_found() {
         let mut d = doc(INDEX_MANIFEST);
 
-        let change = do_set_index_usage_constraint(&mut d, "Acme Labs", "Other", "^2").unwrap();
+        let change = do_set_index_usage_constraint(
+            &mut d,
+            &index_publisher("Acme Labs"),
+            &index_name("Other"),
+            "^2",
+        )
+        .unwrap();
 
         assert_eq!(change, ConstraintChange::NotFound);
         assert_eq!(render(&d), INDEX_MANIFEST);
@@ -459,7 +482,13 @@ mod index_usage {
     fn different_spelling_is_refused() {
         let mut d = doc(INDEX_MANIFEST);
 
-        let err = do_set_index_usage_constraint(&mut d, "acme labs", "my lib", "^2").unwrap_err();
+        let err = do_set_index_usage_constraint(
+            &mut d,
+            &index_publisher("acme labs"),
+            &index_name("my lib"),
+            "^2",
+        )
+        .unwrap_err();
 
         assert_matches!(
             err,
@@ -473,7 +502,13 @@ mod index_usage {
     fn legacy_purl_is_not_matched_by_publisher_and_name() {
         let mut d = doc(INDEX_MANIFEST);
 
-        let err = do_set_index_usage_constraint(&mut d, "mock", "library", "^2").unwrap_err();
+        let err = do_set_index_usage_constraint(
+            &mut d,
+            &index_publisher("mock"),
+            &index_name("library"),
+            "^2",
+        )
+        .unwrap_err();
 
         assert_matches!(err, SetConstraintError::NotAnIndexUsage { identifier } if identifier == LIBRARY);
         assert_eq!(render(&d), INDEX_MANIFEST);

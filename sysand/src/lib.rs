@@ -36,7 +36,7 @@ use sysand_core::{
     index::RemoveTarget,
     index_location::IndexLocation,
     lock::Lock,
-    model::InterchangeProjectUsageRaw,
+    model::InterchangeProjectUsage,
     project::{
         any::{AnyProject, OverrideProject},
         local_src::LocalSrcProject,
@@ -702,13 +702,12 @@ fn run_cli_with(
                     kpar_path: None,
                     iri: None,
                 } => Location::Resolve(ResolutionInfo::new(
-                    InterchangeProjectUsageRaw::Index {
-                        publisher: publisher.into_string(),
-                        name: name.into_string(),
+                    InterchangeProjectUsage::Index {
+                        publisher,
+                        name,
                         // Any version, the highest is described
-                        version_constraint: semver::VersionReq::STAR.to_string(),
-                    }
-                    .validate()?,
+                        version_constraint: semver::VersionReq::STAR,
+                    },
                     None,
                 )),
                 cli::InfoProjectLocatorArgs {

@@ -447,7 +447,7 @@ fn clone_identifier_errors() -> Result<(), Box<dyn std::error::Error>> {
     .assert()
     .failure()
     .stderr(predicate::str::contains(
-        "index usage `Foo & Bar/x` has an invalid publisher",
+        "invalid value 'Foo & Bar/x' for '[IDENTIFIER]': publisher must be 3-50",
     ));
     run_sysand_in(
         &cwd,

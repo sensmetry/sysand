@@ -12,8 +12,8 @@ use sysand_core::{
     commands::{auth::IndexKey, sources::Dependencies as CoreDependencies},
     index_location::IndexLocation,
     model::{
-        KERML_SPEC_PREFIX, LICENSE_EXPRESSION_HELP, ProjectFieldError, ProjectName,
-        ProjectPublisher, SYSML_SPEC_PREFIX,
+        IndexName, IndexPublisher, KERML_SPEC_PREFIX, LICENSE_EXPRESSION_HELP, ProjectFieldError,
+        ProjectName, ProjectPublisher, SYSML_SPEC_PREFIX,
     },
 };
 
@@ -335,7 +335,7 @@ pub struct AddProjectLocatorArgs {
         default_value = None,
         value_name = "IDENTIFIER",
         value_parser = with_tip(
-            parse_project_identifier,
+            parse_index_identifier,
             "to add from a directory, a KPAR or an IRI, use `--dir`, `--kpar-path` or `--iri` respectively"
         ),
         verbatim_doc_comment,
@@ -344,7 +344,7 @@ pub struct AddProjectLocatorArgs {
         // `--dir` and other types, but not `--iri`
         conflicts_with_all = ["source", "iri", "iri_path"]
     )]
-    pub identifier: Option<(ProjectPublisher, ProjectName)>,
+    pub identifier: Option<(IndexPublisher, IndexName)>,
     /// Add a project from a given directory path. Path can be relative
     /// or absolute
     #[arg(long, verbatim_doc_comment,
@@ -439,12 +439,12 @@ pub struct CloneProjectLocatorArgs {
         default_value = None,
         value_name = "IDENTIFIER",
         value_parser = with_tip(
-            parse_project_identifier,
+            parse_index_identifier,
             "to clone from a directory, a KPAR or an IRI, use `--dir`, `--kpar-path` or `--iri` respectively"
         ),
         verbatim_doc_comment
     )]
-    pub identifier: Option<(ProjectPublisher, ProjectName)>,
+    pub identifier: Option<(IndexPublisher, IndexName)>,
     /// Clone a project from a given directory path. Path can be relative
     /// or absolute
     #[arg(long, verbatim_doc_comment)]
@@ -481,13 +481,13 @@ pub struct InfoProjectLocatorArgs {
         default_value = None,
         value_name = "IDENTIFIER",
         value_parser = with_tip(
-            parse_project_identifier,
+            parse_index_identifier,
             "to use a directory, a KPAR or an IRI, use `--dir`, `--kpar-path` or `--iri`; \
             to print a single field, use `--get <FIELD>`"
         ),
         verbatim_doc_comment
     )]
-    pub identifier: Option<(ProjectPublisher, ProjectName)>,
+    pub identifier: Option<(IndexPublisher, IndexName)>,
     /// Use the project in a given directory instead of the current project.
     /// Path can be relative or absolute
     #[arg(long, verbatim_doc_comment)]
@@ -1445,6 +1445,18 @@ pub fn parse_project_identifier(s: &str) -> Result<(ProjectPublisher, ProjectNam
     Ok((
         parse_project_publisher(publisher).map_err(|e| e.to_string())?,
         parse_project_name(name).map_err(|e| e.to_string())?,
+    ))
+}
+
+/// Parse a `<publisher>/<name>` identifier of a project resolved as an index
+/// usage, so spelled as an index usage can spell it
+pub fn parse_index_identifier(s: &str) -> Result<(IndexPublisher, IndexName), String> {
+    let Some((publisher, name)) = s.split_once('/') else {
+        return Err("identifier is not of the form `<publisher>/<name>`".to_owned());
+    };
+    Ok((
+        IndexPublisher::parse(publisher.to_owned()).map_err(|(_, e)| e.to_string())?,
+        IndexName::parse(name.to_owned()).map_err(|(_, e)| e.to_string())?,
     ))
 }
 

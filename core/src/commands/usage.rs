@@ -11,7 +11,10 @@
 
 use thiserror::Error;
 
-use crate::{model::InterchangeProjectUsageRaw, project::utils::Identifier};
+use crate::{
+    model::{IndexName, IndexPublisher, InterchangeProjectUsageRaw},
+    project::utils::Identifier,
+};
 
 /// Outcome of a constraint edit, so callers can report precisely.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -217,10 +220,11 @@ pub fn do_set_usage_constraint(
 /// [`ConstraintChange::NotFound`].
 pub fn do_set_index_usage_constraint(
     doc: &mut serde_json::Value,
-    publisher: &str,
-    name: &str,
+    publisher: &IndexPublisher,
+    name: &IndexName,
     constraint: &str,
 ) -> Result<ConstraintChange, SetConstraintError> {
+    let (publisher, name) = (publisher.as_str(), name.as_str());
     semver::VersionReq::parse(constraint)
         .map_err(|e| SetConstraintError::InvalidConstraint(constraint.to_owned(), e))?;
 
@@ -314,8 +318,8 @@ pub fn do_set_index_usage_constraint(
 #[cfg(feature = "filesystem")]
 pub fn do_set_index_usage_constraint_local(
     project: &mut crate::project::local_src::LocalSrcProject,
-    publisher: &str,
-    name: &str,
+    publisher: &IndexPublisher,
+    name: &IndexName,
     constraint: &str,
 ) -> Result<ConstraintChange, crate::project::local_src::EditInfoError<SetConstraintError>> {
     project
