@@ -17,9 +17,10 @@ def versions(
 ) -> VersionListing:
     """List the published versions of the project ``iri``.
 
-    The sibling of :func:`info`: the same resolution, but every candidate's
-    version is collected instead of keeping the best one. Over an index this
-    costs one ``versions.json`` request per index.
+    The sibling of :func:`info`: the same resolution, from the current
+    directory, but every candidate's version is collected instead of keeping
+    the best one. Over an index this costs one ``versions.json`` request per
+    index.
 
     ``resolution`` defaults to :class:`Resolution` ``()``, i.e. the CLI's
     behaviour: configuration files plus the default index. Pass an explicit

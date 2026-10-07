@@ -50,8 +50,20 @@ def isolate_sysand_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
-def _sysand_isolation(monkeypatch: pytest.MonkeyPatch) -> None:
+def _sysand_isolation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> None:
     isolate_sysand_env(monkeypatch)
+    # Hide the developer's user configuration file, whose indexes and
+    # overrides would otherwise apply wherever a call loads configuration.
+    # It is found through `dirs::config_dir()`, which follows these on
+    # Linux and macOS but not on Windows (the Known Folder API ignores the
+    # environment). TODO: consider a `SYSAND_USER_CONFIG` environment
+    # variable naming the user configuration file (as `GIT_CONFIG_GLOBAL`
+    # or `NPM_CONFIG_USERCONFIG` do), which would work on every platform.
+    home = tmp_path_factory.mktemp("home")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
 
 
 @pytest.fixture

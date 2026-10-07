@@ -32,7 +32,10 @@ use sysand_core::{
     },
     context::ProjectContext,
     discover::{discover_project, discover_workspace},
-    env::{DEFAULT_ENV_NAME, local_directory::LocalDirectoryEnvironment},
+    env::{
+        DEFAULT_ENV_NAME,
+        local_directory::{LocalDirectoryEnvironment, metadata::EnvMetadataError},
+    },
     index::RemoveTarget,
     index_location::IndexLocation,
     lock::Lock,
@@ -953,9 +956,10 @@ pub fn iri_or_path_to_iri(
 }
 
 /// Read `root/.sysand/` metadata
-pub fn get_env(root: impl AsRef<Utf8Path>) -> Result<Option<LocalDirectoryEnvironment>> {
-    let environment_path = root.as_ref().join(DEFAULT_ENV_NAME);
-    LocalDirectoryEnvironment::try_read(environment_path).map_err(anyhow::Error::from)
+pub fn get_env(
+    root: impl AsRef<Utf8Path>,
+) -> Result<Option<LocalDirectoryEnvironment>, EnvMetadataError> {
+    LocalDirectoryEnvironment::try_read(root.as_ref().join(DEFAULT_ENV_NAME))
 }
 
 /// Unpack `env`, or create an empty environment otherwise
