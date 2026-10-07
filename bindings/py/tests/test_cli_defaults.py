@@ -8,7 +8,7 @@ directory: the enclosing project's environment, the configuration's
 overrides, then the indexes. `sources` lists dependency sources by default,
 and `build` refuses `file://` usages unless told otherwise.
 
-The user configuration file is redirected to an empty directory, and every
+The user configuration file is hidden (see `conftest.py`), and every
 index is the mock one, so no test reaches the public index."""
 
 from __future__ import annotations
@@ -23,11 +23,6 @@ from mockindex import MockIndex, usage
 
 IRI = "urn:kpar:defaults_probe"
 NO_INDEX = sysand.Resolution(use_index=False)
-
-
-@pytest.fixture(autouse=True)
-def _no_user_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "user-config"))
 
 
 def project(root: Path, name: str = "proj") -> Path:
