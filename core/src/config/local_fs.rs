@@ -46,7 +46,7 @@ pub fn get_config<P: AsRef<Utf8Path>>(path: P) -> Result<Config, ConfigReadError
 pub fn read_config<P: AsRef<Utf8Path>>(path: P) -> Result<Config, ConfigReadError> {
     let path = path.as_ref();
     let contents =
-        wrapfs::read_to_string(path).map_err(|e| Box::new(FsIoError::ReadFile(path.to_owned(), e)))?;
+        wrapfs::read_to_string(path)?;
     toml::from_str(&contents).map_err(|e| ConfigReadError::Toml(path.into(), e))
 }
 
