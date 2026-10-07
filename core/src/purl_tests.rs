@@ -56,12 +56,6 @@ fn name_field_validation() {
 }
 
 #[test]
-fn normalize_field_preserves_dot() {
-    assert_eq!(normalize_field("My.Project Alpha"), "my.project-alpha");
-    assert_eq!(normalize_field("ACME LABS"), "acme-labs");
-}
-
-#[test]
 fn parse_sysand_purl_recognises_other_schemes_as_not_sysand_purl() {
     assert_eq!(parse_sysand_purl("urn:kpar:foo"), Ok(None));
     assert_eq!(parse_sysand_purl("https://example.com/x"), Ok(None));
@@ -191,23 +185,44 @@ fn parse_sysand_purl_rejects_non_ascii_and_invalid_chars() {
     );
 }
 
-/// `is_normalized_field` agrees with what `normalize_field` leaves unchanged
+/// Checking an unnormalized field directly agrees with normalizing it and
+/// checking the result, which it replaces
 #[test]
-fn is_normalized_field_agrees_with_normalize_field() {
-    for (s, normalized) in [
-        ("acme-labs", true),
-        ("my.lib_1", true),
-        ("Acme Labs", false),
-        ("acme labs", false),
-        ("ACME", false),
-        // Only ASCII is lowercased
-        ("ąžuolas", true),
-        ("Ąžuolas", true),
-        ("", true),
+fn unnormalized_check_agrees_with_normalizing_first() {
+    let normalize = |s: &str| s.to_ascii_lowercase().replace(' ', "-");
+    for s in [
+        "acme",
+        "Acme Labs",
+        "ACME-LABS",
+        "acme labs",
+        "acme  labs",
+        "acme -labs",
+        "acme- labs",
+        " acme",
+        "acme ",
+        "-acme",
+        "acme-",
+        "ab",
+        "a b",
+        "my.lib",
+        "My.Lib",
+        "my. lib",
+        "My..Lib",
+        "my_lib",
+        "ąžuolas",
+        "Ąžuolas",
+        "4cme",
+        "",
     ] {
-        assert_eq!(is_normalized_field(s), normalized, "{s:?}");
-        assert_eq!(normalize_field(s) == s, normalized, "{s:?}");
+        assert_eq!(
+            is_valid_unnormalized_publisher(s),
+            is_valid_purl_publisher(&normalize(s)),
+            "{s:?}"
+        );
+        assert_eq!(
+            is_valid_unnormalized_name(s),
+            is_valid_purl_name(&normalize(s)),
+            "{s:?}"
+        );
     }
-    assert!(is_normalized_spelling("acme-labs", "my-lib"));
-    assert!(!is_normalized_spelling("acme-labs", "My Lib"));
 }

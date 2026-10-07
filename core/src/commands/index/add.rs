@@ -232,6 +232,24 @@ pub fn do_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
         });
     }
 
+    // The project's publisher and name, which must be spelled as an index
+    // spells them
+    let index_publisher = |publisher: &str| {
+        IndexPublisher::parse(publisher.to_owned()).map_err(|(publisher, _)| {
+            IndexAddError::InvalidPublisherInProject {
+                publisher,
+                kpar_path: kpar_path.into(),
+            }
+        })
+    };
+    let index_name = || {
+        IndexName::parse(info.name.clone()).map_err(|(name, _)| {
+            IndexAddError::InvalidNameInProject {
+                name,
+                kpar_path: kpar_path.into(),
+            }
+        })
+    };
     let parsed_iri = match (iri, &info.publisher) {
         (Some(iri), publisher) => {
             let iri = iri.as_ref();
@@ -242,7 +260,7 @@ pub fn do_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
             } = &parsed_iri
             {
                 if let Some(publisher) = publisher {
-                    let normalized_publisher = normalize_publisher(publisher, kpar_path)?;
+                    let normalized_publisher = index_publisher(publisher)?.normalized();
                     if *iri_publisher != normalized_publisher {
                         return Err(IndexAddError::InconsistentPublisher {
                             iri: iri.into(),
@@ -256,7 +274,7 @@ pub fn do_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
                         iri_publisher: iri_publisher.to_owned(),
                     });
                 }
-                let normalized_name = normalize_name(&info.name, kpar_path)?;
+                let normalized_name = index_name()?.normalized();
                 if *iri_name != normalized_name {
                     return Err(IndexAddError::InconsistentName {
                         iri: iri.into(),
@@ -268,8 +286,8 @@ pub fn do_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
             parsed_iri
         }
         (None, Some(publisher)) => ParsedIri::Sysand {
-            publisher: normalize_publisher(publisher, kpar_path)?,
-            name: normalize_name(&info.name, kpar_path)?,
+            publisher: index_publisher(publisher)?.normalized(),
+            name: index_name()?.normalized(),
         },
         (None, None) => {
             return Err(IndexAddError::MissingPublisherAndIri);
@@ -514,22 +532,4 @@ fn check_spelling(
 
 fn to_explicit_digest(digest: &str) -> String {
     format!("sha256:{digest}")
-}
-
-fn normalize_publisher(publisher: &str, kpar_path: &Utf8Path) -> Result<String, IndexAddError> {
-    IndexPublisher::parse(publisher.to_owned())
-        .map(|publisher| publisher.normalized())
-        .map_err(|(publisher, _)| IndexAddError::InvalidPublisherInProject {
-            publisher,
-            kpar_path: kpar_path.into(),
-        })
-}
-
-fn normalize_name(name: &str, kpar_path: &Utf8Path) -> Result<String, IndexAddError> {
-    IndexName::parse(name.to_owned())
-        .map(|name| name.normalized())
-        .map_err(|(name, _)| IndexAddError::InvalidNameInProject {
-            name,
-            kpar_path: kpar_path.into(),
-        })
 }

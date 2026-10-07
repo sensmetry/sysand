@@ -6,12 +6,17 @@
 //! Sysand uses the `pkg:sysand/<publisher>/<name>` scheme as its canonical
 //! project identifier, following the [Package URL specification][purl-spec].
 //! This module defines the rules that publisher and name segments must
-//! satisfy and provides the normalization function that maps valid
-//! human-supplied values to their canonical form.
+//! satisfy. Normalizing a human-supplied value to its canonical form is
+//! done by [`IndexPublisher::normalized`] and [`IndexName::normalized`].
 //!
 //! [purl-spec]: https://github.com/package-url/purl-spec
 
 use thiserror::Error;
+
+use crate::{
+    model::{IndexName, IndexPublisher},
+    utils::{PURL_NAME_SEPARATOR, PURL_SEPARATOR, UNNORMALIZED_PURL_SEPARATOR},
+};
 
 /// The `pkg:sysand/` URI scheme prefix. A `pkg:sysand` IRI is required to
 /// have exactly two slash-separated segments (`<publisher>/<name>`) after
@@ -34,48 +39,51 @@ impl FieldKind {
     }
 }
 
-/// Validates a publisher or name field for `pkg:sysand` project IDs.
-///
-/// Rules: 3-50 ASCII alphanumeric characters, with single separators (space,
-/// hyphen, and — for names — dot) allowed between words. Must
-/// start and end with an alphanumeric character.
-fn is_valid_unnormalized_field(s: &str, kind: FieldKind) -> bool {
-    is_valid_sysand_purl_part(&normalize_field(s), kind)
-}
-
-/// Whether `s` can, after normalization, be used as Sysand PURL publisher.
-pub fn is_valid_unnormalized_publisher(s: &str) -> bool {
-    is_valid_unnormalized_field(s, FieldKind::Publisher)
-}
-
-/// Whether `s` can, after normalization, be used as Sysand PURL name.
-pub fn is_valid_unnormalized_name(s: &str) -> bool {
-    is_valid_unnormalized_field(s, FieldKind::Name)
+/// Whether a publisher or name is checked as the `pkg:sysand` PURL holds it,
+/// or as spelled before normalization
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Spelling {
+    /// As in the PURL: lowercase, with `-` (and, for names, `.`) separators
+    Normalized,
+    /// Before normalization: ASCII letters of any case, and also ` ` as a
+    /// separator, which normalization turns into `-`
+    Unnormalized,
 }
 
 /// Validates a publisher or name field for `pkg:sysand` project IDs.
 ///
-/// Rules: 3-50 ASCII alphanumeric characters, with single separators (space,
-/// hyphen, and — for names — dot) allowed between words. Must
-/// start and end with an alphanumeric character.
-fn is_valid_sysand_purl_part(s: &str, kind: FieldKind) -> bool {
-    let is_lower_or_digit = |b: u8| b.is_ascii_lowercase() || b.is_ascii_digit();
+/// Rules: 3-50 ASCII alphanumeric characters, with single separators
+/// (hyphen, space if `spelling` is [`Spelling::Unnormalized`], and — for
+/// names — dot) allowed between words. Must start and end with an
+/// alphanumeric character. A [`Spelling::Normalized`] field must not contain
+/// uppercase letters.
+///
+/// An unnormalized field is valid exactly when its normalized form is, as
+/// normalization keeps the length and maps letters to letters and ` ` to
+/// `-`; checking it directly avoids normalizing it first.
+fn is_valid_sysand_purl_part(s: &str, kind: FieldKind, spelling: Spelling) -> bool {
+    let is_alphanumeric = |b: u8| match spelling {
+        Spelling::Normalized => b.is_ascii_lowercase() || b.is_ascii_digit(),
+        Spelling::Unnormalized => b.is_ascii_alphanumeric(),
+    };
     let bytes = s.as_bytes();
 
     if !(3..=50).contains(&bytes.len()) {
         return false;
     }
 
-    if !is_lower_or_digit(bytes[0]) || !is_lower_or_digit(bytes[bytes.len() - 1]) {
+    if !is_alphanumeric(bytes[0]) || !is_alphanumeric(bytes[bytes.len() - 1]) {
         return false;
     }
 
     for &[b_previous, b] in bytes[..bytes.len() - 1].array_windows() {
-        if is_lower_or_digit(b) {
+        if is_alphanumeric(b) {
             continue;
         }
 
-        let is_separator = b == b'-' || (kind.allows_dot_separator() && b == b'.');
+        let is_separator = b == PURL_SEPARATOR
+            || (spelling == Spelling::Unnormalized && b == UNNORMALIZED_PURL_SEPARATOR)
+            || (kind.allows_dot_separator() && b == PURL_NAME_SEPARATOR);
         // This will also catch all non-ASCII
         if !is_separator {
             return false;
@@ -83,7 +91,7 @@ fn is_valid_sysand_purl_part(s: &str, kind: FieldKind) -> bool {
 
         // only isolated separators — knowing first/last is alphanumeric,
         // this is sufficient
-        if !is_lower_or_digit(b_previous) {
+        if !is_alphanumeric(b_previous) {
             return false;
         }
     }
@@ -93,35 +101,26 @@ fn is_valid_sysand_purl_part(s: &str, kind: FieldKind) -> bool {
 
 /// Whether `s` is a valid Sysand PURL publisher segment.
 pub fn is_valid_purl_publisher(s: &str) -> bool {
-    is_valid_sysand_purl_part(s, FieldKind::Publisher)
+    is_valid_sysand_purl_part(s, FieldKind::Publisher, Spelling::Normalized)
 }
 
 /// Whether `s` is a valid Sysand PURL project name segment.
 pub fn is_valid_purl_name(s: &str) -> bool {
-    is_valid_sysand_purl_part(s, FieldKind::Name)
+    is_valid_sysand_purl_part(s, FieldKind::Name, Spelling::Normalized)
 }
 
-/// Canonicalizes a publisher or name by lowercasing ASCII and replacing spaces
-/// with hyphens. The result is what ends up embedded in a `pkg:sysand` IRI;
-/// callers should validate the input with
-/// [`is_valid_unnormalized_publisher`] or [`is_valid_unnormalized_name`], or
-/// the result with [`is_valid_purl_publisher`] or [`is_valid_purl_name`].
-pub fn normalize_field(s: &str) -> String {
-    s.to_ascii_lowercase().replace(' ', "-")
+/// Whether `s` can, after normalization, be used as Sysand PURL publisher.
+/// Only for [`crate::model::IndexPublisher::parse`], which everything else
+/// uses instead
+pub(crate) fn is_valid_unnormalized_publisher(s: &str) -> bool {
+    is_valid_sysand_purl_part(s, FieldKind::Publisher, Spelling::Unnormalized)
 }
 
-/// Whether `s` is already what [`normalize_field`] makes of it: it has no
-/// ASCII uppercase letter and no space
-pub fn is_normalized_field(s: &str) -> bool {
-    !s.bytes().any(|b| b.is_ascii_uppercase() || b == b' ')
-}
-
-/// Whether `publisher` and `name` are both normalized (see
-/// [`is_normalized_field`]). A typed usage given this way names the project
-/// by its identifier only, and its actual spelling has to be recovered; any
-/// other spelling has to be the project's own.
-pub fn is_normalized_spelling(publisher: &str, name: &str) -> bool {
-    is_normalized_field(publisher) && is_normalized_field(name)
+/// Whether `s` can, after normalization, be used as Sysand PURL name. Only
+/// for [`crate::model::IndexName::parse`], which everything else uses
+/// instead
+pub(crate) fn is_valid_unnormalized_name(s: &str) -> bool {
+    is_valid_sysand_purl_part(s, FieldKind::Name, Spelling::Unnormalized)
 }
 
 /// Reason a `pkg:sysand/...` IRI failed [`parse_sysand_purl`]. Used to
@@ -190,11 +189,14 @@ pub fn parse_sysand_purl(iri: &str) -> Result<Option<(&str, &str)>, SysandPurlEr
     let invalid_publisher = !is_valid_purl_publisher(publisher);
     let invalid_name = !is_valid_purl_name(name);
     if invalid_publisher || invalid_name {
-        if is_valid_unnormalized_name(name) && is_valid_unnormalized_publisher(publisher) {
+        if let (Ok(publisher), Ok(name)) = (
+            IndexPublisher::parse((*publisher).to_owned()),
+            IndexName::parse((*name).to_owned()),
+        ) {
             return Err(SysandPurlError::NotNormalized {
                 purl: iri.to_owned(),
-                norm_publisher: normalize_field(publisher),
-                norm_name: normalize_field(name),
+                norm_publisher: publisher.normalized(),
+                norm_name: name.normalized(),
             });
         }
 

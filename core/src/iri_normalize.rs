@@ -3,20 +3,17 @@
 
 use std::{char::REPLACEMENT_CHARACTER, fmt::Write as _};
 
-use crate::purl::parse_sysand_purl;
 #[cfg(feature = "filesystem")]
 use crate::utils::scheme::{SCHEME_HTTP, SCHEME_HTTPS};
+use crate::{
+    purl::parse_sysand_purl,
+    utils::{BIDI_CONTROL, CASE_MAPPER, IGNORABLE, NFC_NORMALIZER},
+};
 #[cfg(feature = "filesystem")]
 use fluent_uri::component::Host;
 use fluent_uri::{
     Iri,
     pct_enc::{self, DecodedChunk, EStr},
-};
-use icu_casemap::CaseMapperBorrowed;
-use icu_normalizer::ComposingNormalizerBorrowed;
-use icu_properties::{
-    CodePointSetDataBorrowed,
-    props::{BidiControl, DefaultIgnorableCodePoint},
 };
 use idna::punycode;
 
@@ -116,12 +113,6 @@ pub enum IriNormalizeError {
     #[error("host `{host}` is not a valid IDN and cannot be converted to Punycode")]
     IdnConversion { host: String },
 }
-
-const CASE_MAPPER: CaseMapperBorrowed = CaseMapperBorrowed::new();
-const NFC_NORMALIZER: ComposingNormalizerBorrowed = ComposingNormalizerBorrowed::new_nfc();
-const BIDI_CONTROL: CodePointSetDataBorrowed = CodePointSetDataBorrowed::new::<BidiControl>();
-const IGNORABLE: CodePointSetDataBorrowed =
-    CodePointSetDataBorrowed::new::<DefaultIgnorableCodePoint>();
 
 const MAX_VERSION_LEN_BYTES: u8 = 30;
 const MAX_IRI_LEN_BYTES: u8 = 120;

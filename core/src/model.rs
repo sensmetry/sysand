@@ -11,10 +11,7 @@ use std::{clone::Clone, collections::HashSet, fmt::Display, hash::Hash};
 
 use digest::array::{Array, typenum};
 use fluent_uri::Iri;
-use icu_properties::{
-    CodePointMapDataBorrowed, CodePointSetDataBorrowed,
-    props::{DefaultIgnorableCodePoint, GeneralCategory, GeneralCategoryGroup, XidContinue},
-};
+use icu_properties::props::GeneralCategoryGroup;
 use indexmap::IndexMap;
 #[cfg(feature = "python")]
 use pyo3::{FromPyObject, IntoPyObject, pyclass};
@@ -22,9 +19,11 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
-use crate::purl::{normalize_field, parse_sysand_purl};
+use crate::purl::parse_sysand_purl;
 use crate::utils::{
-    RelativePathKind, RelativeUnixPathError, lowercase_hex, parse_relative_unix_path,
+    GENERAL_CATEGORY, IGNORABLE, PROJECT_FIELD_ASCII_PUNCTUATION, PURL_SEPARATOR, RelativePathKind,
+    RelativeUnixPathError, UNNORMALIZED_PURL_SEPARATOR, XID_CONTINUE, lowercase_hex,
+    parse_relative_unix_path,
 };
 
 // pub struct RawIri(String);
@@ -64,8 +63,11 @@ pub const LICENSE_EXPRESSION_HELP: &str = "\
     derive(FromPyObject, IntoPyObject),
     pyo3(from_item_all)
 )]
-#[serde(untagged, from = "Usage<Iri, VersionReq, Path, IdxPublisher, IdxName>")]
-pub enum InterchangeProjectUsageG<Iri, VersionReq, Path, IdxPublisher, IdxName> {
+#[serde(
+    untagged,
+    from = "Usage<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName>"
+)]
+pub enum InterchangeProjectUsageG<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName> {
     /// Untyped usage, the only shape KerML 1.0 specifies. Kept for
     /// compatibility with the spec. `resource` serves two roles at once: it is
     /// the project's identity (i.e. directly used as its `Identifier`), and,
@@ -91,8 +93,8 @@ pub enum InterchangeProjectUsageG<Iri, VersionReq, Path, IdxPublisher, IdxName> 
     #[cfg_attr(feature = "python", pyo3(from_item_all))]
     Directory {
         dir: Path,
-        publisher: String,
-        name: String,
+        publisher: Publisher,
+        name: Name,
     },
     /// The project KPAR at `kpar_path`, relative to the root of
     /// the project declaring the usage.
@@ -101,8 +103,8 @@ pub enum InterchangeProjectUsageG<Iri, VersionReq, Path, IdxPublisher, IdxName> 
     #[cfg_attr(feature = "python", pyo3(from_item_all))]
     KparPath {
         kpar_path: Path,
-        publisher: String,
-        name: String,
+        publisher: Publisher,
+        name: Name,
     },
     /// The project `publisher`/`name` from the configured indexes, or from
     /// any other source that resolves by identity (the local environment,
@@ -114,6 +116,30 @@ pub enum InterchangeProjectUsageG<Iri, VersionReq, Path, IdxPublisher, IdxName> 
         name: IdxName,
         version_constraint: VersionReq,
     },
+}
+
+/// Parse how a directory or KPAR usage spells its project, as
+/// `publisher`/`name`
+fn parse_project_usage_spelling(
+    publisher: &str,
+    name: &str,
+) -> Result<(ProjectPublisher, ProjectName), InterchangeProjectValidationError> {
+    let project_publisher =
+        ProjectPublisher::parse(publisher.to_owned()).map_err(|(publisher, source)| {
+            InterchangeProjectValidationError::InvalidUsagePublisher {
+                publisher,
+                name: name.to_owned(),
+                source,
+            }
+        })?;
+    let project_name = ProjectName::parse(name.to_owned()).map_err(|(name, source)| {
+        InterchangeProjectValidationError::InvalidUsageName {
+            publisher: publisher.to_owned(),
+            name,
+            source,
+        }
+    })?;
+    Ok((project_publisher, project_name))
 }
 
 /// Parse how an index usage spells its project, as `publisher`/`name`.
@@ -156,10 +182,10 @@ pub fn parse_index_usage_spelling(
 /// another kind.
 #[derive(Deserialize)]
 #[serde(untagged)]
-enum Usage<Iri, VersionReq, Path, IdxPublisher, IdxName> {
+enum Usage<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName> {
     Resource(ResourceUsage<Iri, VersionReq>),
-    Directory(DirectoryUsage<Path>),
-    KparPath(KparPathUsage<Path>),
+    Directory(DirectoryUsage<Path, Publisher, Name>),
+    KparPath(KparPathUsage<Path, Publisher, Name>),
     Index(IndexUsage<VersionReq, IdxPublisher, IdxName>),
 }
 
@@ -172,18 +198,18 @@ struct ResourceUsage<Iri, VersionReq> {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct DirectoryUsage<Path> {
+struct DirectoryUsage<Path, Publisher, Name> {
     dir: Path,
-    publisher: String,
-    name: String,
+    publisher: Publisher,
+    name: Name,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct KparPathUsage<Path> {
+struct KparPathUsage<Path, Publisher, Name> {
     kpar_path: Path,
-    publisher: String,
-    name: String,
+    publisher: Publisher,
+    name: Name,
 }
 
 #[derive(Deserialize)]
@@ -194,11 +220,11 @@ struct IndexUsage<VersionReq, IdxPublisher, IdxName> {
     version_constraint: VersionReq,
 }
 
-impl<Iri, VersionReq, Path, IdxPublisher, IdxName>
-    From<Usage<Iri, VersionReq, Path, IdxPublisher, IdxName>>
-    for InterchangeProjectUsageG<Iri, VersionReq, Path, IdxPublisher, IdxName>
+impl<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName>
+    From<Usage<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName>>
+    for InterchangeProjectUsageG<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName>
 {
-    fn from(usage: Usage<Iri, VersionReq, Path, IdxPublisher, IdxName>) -> Self {
+    fn from(usage: Usage<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName>) -> Self {
         match usage {
             Usage::Resource(ResourceUsage {
                 resource,
@@ -239,11 +265,13 @@ impl<Iri, VersionReq, Path, IdxPublisher, IdxName>
 }
 
 pub type InterchangeProjectUsageRaw =
-    InterchangeProjectUsageG<String, String, String, String, String>;
+    InterchangeProjectUsageG<String, String, String, String, String, String, String>;
 pub type InterchangeProjectUsage = InterchangeProjectUsageG<
     fluent_uri::Iri<String>,
     semver::VersionReq,
     Utf8UnixPathBuf,
+    ProjectPublisher,
+    ProjectName,
     IndexPublisher,
     IndexName,
 >;
@@ -293,11 +321,14 @@ impl InterchangeProjectUsageRaw {
                 publisher,
                 name,
             } => match parse_relative_unix_path(path, RelativePathKind::Directory) {
-                Ok(p) => Ok(InterchangeProjectUsage::Directory {
-                    dir: p.to_owned(),
-                    publisher: publisher.clone(),
-                    name: name.clone(),
-                }),
+                Ok(p) => {
+                    let (publisher, name) = parse_project_usage_spelling(publisher, name)?;
+                    Ok(InterchangeProjectUsage::Directory {
+                        dir: p.to_owned(),
+                        publisher,
+                        name,
+                    })
+                }
                 Err(e) => Err(InterchangeProjectValidationError::InvalidUsagePath {
                     publisher: publisher.clone(),
                     name: name.clone(),
@@ -309,11 +340,14 @@ impl InterchangeProjectUsageRaw {
                 publisher,
                 name,
             } => match parse_relative_unix_path(kpar_path, RelativePathKind::File) {
-                Ok(p) => Ok(InterchangeProjectUsage::KparPath {
-                    kpar_path: p.to_owned(),
-                    publisher: publisher.clone(),
-                    name: name.clone(),
-                }),
+                Ok(p) => {
+                    let (publisher, name) = parse_project_usage_spelling(publisher, name)?;
+                    Ok(InterchangeProjectUsage::KparPath {
+                        kpar_path: p.to_owned(),
+                        publisher,
+                        name,
+                    })
+                }
                 Err(e) => Err(InterchangeProjectValidationError::InvalidUsagePath {
                     publisher: publisher.clone(),
                     name: name.clone(),
@@ -345,8 +379,8 @@ impl InterchangeProjectUsageRaw {
     }
 }
 
-impl<Iri, VersionReq, Path, IdxPublisher, IdxName>
-    InterchangeProjectUsageG<Iri, VersionReq, Path, IdxPublisher, IdxName>
+impl<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName>
+    InterchangeProjectUsageG<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName>
 {
     /// Typed usages (all non-`Resource`) are treated specially in some places,
     /// as e.g. if they resolve to invalid projects, it can't be ignored
@@ -358,6 +392,8 @@ impl<Iri, VersionReq, Path, IdxPublisher, IdxName>
     /// usage
     pub fn typed_publisher_name(&self) -> Option<(&str, &str)>
     where
+        Publisher: AsRef<str>,
+        Name: AsRef<str>,
         IdxPublisher: AsRef<str>,
         IdxName: AsRef<str>,
     {
@@ -368,7 +404,7 @@ impl<Iri, VersionReq, Path, IdxPublisher, IdxName>
             }
             | Self::KparPath {
                 publisher, name, ..
-            } => Some((publisher, name)),
+            } => Some((publisher.as_ref(), name.as_ref())),
             Self::Index {
                 publisher, name, ..
             } => Some((publisher.as_ref(), name.as_ref())),
@@ -403,8 +439,8 @@ impl From<InterchangeProjectUsage> for InterchangeProjectUsageRaw {
                 name,
             } => Self::Directory {
                 dir: dir.into_string(),
-                publisher,
-                name,
+                publisher: publisher.into_string(),
+                name: name.into_string(),
             },
             InterchangeProjectUsage::KparPath {
                 kpar_path,
@@ -412,8 +448,8 @@ impl From<InterchangeProjectUsage> for InterchangeProjectUsageRaw {
                 name,
             } => Self::KparPath {
                 kpar_path: kpar_path.into_string(),
-                publisher,
-                name,
+                publisher: publisher.into_string(),
+                name: name.into_string(),
             },
             InterchangeProjectUsage::Index {
                 publisher,
@@ -433,6 +469,8 @@ impl From<InterchangeProjectUsage>
         String,
         semver::VersionReq,
         Utf8UnixPathBuf,
+        ProjectPublisher,
+        ProjectName,
         IndexPublisher,
         IndexName,
     >
@@ -477,8 +515,16 @@ impl From<InterchangeProjectUsage>
     }
 }
 
-impl<Iri: Display, VersionReq: Display, Path: Display, IdxPublisher: Display, IdxName: Display>
-    Display for InterchangeProjectUsageG<Iri, VersionReq, Path, IdxPublisher, IdxName>
+impl<
+    Iri: Display,
+    VersionReq: Display,
+    Path: Display,
+    Publisher: Display,
+    Name: Display,
+    IdxPublisher: Display,
+    IdxName: Display,
+> Display
+    for InterchangeProjectUsageG<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName>
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -561,7 +607,9 @@ pub struct InterchangeProjectInfoG<
 
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[serde(default)]
-    pub usage: Vec<InterchangeProjectUsageG<Iri, VersionReq, Path, IdxPublisher, IdxName>>,
+    pub usage: Vec<
+        InterchangeProjectUsageG<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName>,
+    >,
 }
 
 pub type InterchangeProjectInfoRaw =
@@ -611,18 +659,29 @@ impl UsageRef<'_> {
     /// Whether `usage` refers to this project. A `Resource` matches a
     /// resource usage of exactly this IRI. `Typed` matches a typed usage
     /// whose publisher and name are each given either exactly as declared,
-    /// or normalized (see [`crate::purl::normalize_field`]); it also matches
-    /// a `pkg:sysand` resource usage in any spelling that normalizes to it,
-    /// as the PURL only holds the normalized form
+    /// or normalized (see [`normalize_typed_publisher`] and
+    /// [`normalize_typed_name`]); it also matches a `pkg:sysand` resource
+    /// usage in any spelling that normalizes to it, as the PURL only holds
+    /// the normalized form
     pub fn matches<
         Iri: AsRef<str>,
         VersionReq,
         Path,
+        Publisher: AsRef<str>,
+        Name: AsRef<str>,
         IdxPublisher: AsRef<str>,
         IdxName: AsRef<str>,
     >(
         &self,
-        usage: &InterchangeProjectUsageG<Iri, VersionReq, Path, IdxPublisher, IdxName>,
+        usage: &InterchangeProjectUsageG<
+            Iri,
+            VersionReq,
+            Path,
+            Publisher,
+            Name,
+            IdxPublisher,
+            IdxName,
+        >,
     ) -> bool {
         match self {
             Self::Resource(iri) => matches!(
@@ -634,17 +693,16 @@ impl UsageRef<'_> {
                     // A `pkg:sysand` IRI only holds the normalized form
                     return parse_sysand_purl(resource.as_ref()).is_ok_and(|parsed| {
                         parsed.is_some_and(|(p, n)| {
-                            p == normalize_field(publisher) && n == normalize_field(name)
+                            p == normalize_typed_publisher(publisher)
+                                && n == normalize_typed_name(name)
                         })
                     });
                 }
                 let (p, n) = usage
                     .typed_publisher_name()
                     .expect("a non-resource usage is typed");
-                let field_matches = |declared: &str, given: &str| {
-                    given == declared || given == normalize_field(declared)
-                };
-                field_matches(p, publisher) && field_matches(n, name)
+                (*publisher == p || *publisher == normalize_typed_publisher(p))
+                    && (*name == n || *name == normalize_typed_name(n))
             }
         }
     }
@@ -703,9 +761,11 @@ impl<
     pub fn pop_usage(
         &mut self,
         usage: &UsageRef<'_>,
-    ) -> Vec<InterchangeProjectUsageG<Iri, VersionReq, Path, IdxPublisher, IdxName>>
+    ) -> Vec<InterchangeProjectUsageG<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName>>
     where
         Iri: AsRef<str>,
+        Publisher: AsRef<str>,
+        Name: AsRef<str>,
         IdxPublisher: AsRef<str>,
         IdxName: AsRef<str>,
     {
@@ -1060,6 +1120,18 @@ pub enum InterchangeProjectValidationError {
         name: String,
         source: RelativeUnixPathError,
     },
+    #[error("path usage for `{publisher}`/`{name}` has an invalid publisher")]
+    InvalidUsagePublisher {
+        publisher: String,
+        name: String,
+        source: ProjectFieldError,
+    },
+    #[error("path usage for `{publisher}`/`{name}` has an invalid name")]
+    InvalidUsageName {
+        publisher: String,
+        name: String,
+        source: ProjectFieldError,
+    },
     #[error(
         "index usage `{publisher}/{name}` has an invalid publisher `{publisher}` \
          (3-50 ASCII alphanumeric chars, with single ` ` or `-` separators between words)"
@@ -1389,21 +1461,9 @@ fn describe_char(c: char) -> String {
     }
 }
 
-/// ASCII punctuation allowed in publisher/name in addition to identifier
-/// chars, to allow common organization names (e.g. `ACME Inc.`, `AT&T`,
-/// `O'Reilly`, `Foo, Inc.`, `C++ Tools`, `Foo (EU)`). Other ASCII
-/// punctuation is excluded, as it needs quoting or escaping in shells, JSON
-/// or TOML. Non-ASCII punctuation is allowed without restrictions
-const PROJECT_FIELD_ASCII_PUNCTUATION: [char; 9] = [' ', '-', '.', '&', '\'', ',', '+', '(', ')'];
-
 /// Maximum length of publisher/name in bytes. No specific reason,
 /// but using longer names is probably a user error
 const PROJECT_FIELD_MAX_LEN: usize = 300;
-
-const XID_CONTINUE: CodePointSetDataBorrowed = CodePointSetDataBorrowed::new::<XidContinue>();
-const IGNORABLE: CodePointSetDataBorrowed =
-    CodePointSetDataBorrowed::new::<DefaultIgnorableCodePoint>();
-const GENERAL_CATEGORY: CodePointMapDataBorrowed<GeneralCategory> = CodePointMapDataBorrowed::new();
 
 /// Whether `c` is allowed anywhere in publisher/name, ignoring positional
 /// restrictions
@@ -1474,6 +1534,11 @@ impl ProjectPublisher {
         }
     }
 
+    /// The normalized publisher. Not normalized yet: the publisher as it is
+    pub fn normalized(&self) -> String {
+        self.0.clone()
+    }
+
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -1493,6 +1558,11 @@ impl ProjectName {
             Ok(()) => Ok(Self(name)),
             Err(e) => Err((name, e)),
         }
+    }
+
+    /// The normalized name. Not normalized yet: the name as it is
+    pub fn normalized(&self) -> String {
+        self.0.clone()
     }
 
     pub fn as_str(&self) -> &str {
@@ -1521,7 +1591,7 @@ pub enum IndexFieldError {
 }
 
 /// The publisher of a project as an index usage, and an index, spell it:
-/// valid, once normalized (see [`crate::purl::normalize_field`]), as the
+/// valid, once normalized (see [`Self::normalized`]), as the
 /// publisher of a `pkg:sysand` PURL. Every such publisher is also a valid
 /// [`ProjectPublisher`], but not the other way around
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -1547,12 +1617,17 @@ impl IndexPublisher {
 
     /// The publisher as the `pkg:sysand` PURL holds it
     pub fn normalized(&self) -> String {
-        normalize_field(&self.0)
+        normalize_index_field(&self.0)
+    }
+
+    /// Whether the publisher is spelled as [`Self::normalized`] makes it
+    pub fn is_normalized(&self) -> bool {
+        is_normalized_index_field(&self.0)
     }
 }
 
 /// The name of a project as an index usage, and an index, spell it: valid,
-/// once normalized (see [`crate::purl::normalize_field`]), as the name of a
+/// once normalized (see [`Self::normalized`]), as the name of a
 /// `pkg:sysand` PURL. Every such name is also a valid [`ProjectName`], but
 /// not the other way around
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -1578,7 +1653,59 @@ impl IndexName {
 
     /// The name as the `pkg:sysand` PURL holds it
     pub fn normalized(&self) -> String {
-        normalize_field(&self.0)
+        normalize_index_field(&self.0)
+    }
+
+    /// Whether the name is spelled as [`Self::normalized`] makes it
+    pub fn is_normalized(&self) -> bool {
+        is_normalized_index_field(&self.0)
+    }
+}
+
+/// Lowercases ASCII and replaces spaces with hyphens. Only for the
+/// normalization of [`IndexPublisher`] and [`IndexName`]
+fn normalize_index_field(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c == char::from(UNNORMALIZED_PURL_SEPARATOR) {
+                char::from(PURL_SEPARATOR)
+            } else {
+                c.to_ascii_lowercase()
+            }
+        })
+        .collect()
+}
+
+/// Whether `s` is already what [`normalize_index_field`] makes of it: it has
+/// no ASCII uppercase letter and no space
+fn is_normalized_index_field(s: &str) -> bool {
+    !s.bytes()
+        .any(|b| b.is_ascii_uppercase() || b == UNNORMALIZED_PURL_SEPARATOR)
+}
+
+/// How the publisher of a typed usage of any kind normalizes: as
+/// [`IndexPublisher::normalized`] if it is spelled as an index usage can
+/// spell it, otherwise as [`ProjectPublisher::normalized`]. A publisher that
+/// is not even a valid project publisher is kept as it is
+pub(crate) fn normalize_typed_publisher(publisher: &str) -> String {
+    match IndexPublisher::parse(publisher.to_owned()) {
+        Ok(publisher) => publisher.normalized(),
+        Err((publisher, _)) => match ProjectPublisher::parse(publisher) {
+            Ok(publisher) => publisher.normalized(),
+            Err((publisher, _)) => publisher,
+        },
+    }
+}
+
+/// How the name of a typed usage of any kind normalizes, as
+/// [`normalize_typed_publisher`] does for the publisher
+pub(crate) fn normalize_typed_name(name: &str) -> String {
+    match IndexName::parse(name.to_owned()) {
+        Ok(name) => name.normalized(),
+        Err((name, _)) => match ProjectName::parse(name) {
+            Ok(name) => name.normalized(),
+            Err((name, _)) => name,
+        },
     }
 }
 

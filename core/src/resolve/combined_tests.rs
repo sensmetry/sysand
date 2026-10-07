@@ -357,8 +357,8 @@ fn directory_usage_missing_path_falls_back_to_env_resolver() {
 
     let usage = InterchangeProjectUsage::Directory {
         dir: "../widget".into(),
-        publisher: "acme".to_owned(),
-        name: "widget".to_owned(),
+        publisher: crate::model::ProjectPublisher::parse("acme".to_owned()).unwrap(),
+        name: crate::model::ProjectName::parse("widget".to_owned()).unwrap(),
     };
     let resolution = ResolutionInfo::new(usage, Some(base));
 

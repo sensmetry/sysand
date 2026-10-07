@@ -24,7 +24,10 @@ use sysand_core::{
     },
     context::ProjectContext,
     lock::Lock,
-    model::{InterchangeProjectUsage, InterchangeProjectUsageRaw},
+    model::{
+        IndexName, IndexPublisher, InterchangeProjectUsage, InterchangeProjectUsageRaw,
+        ProjectName, ProjectPublisher,
+    },
     project::{
         ProjectMut as _, ProjectRead as _,
         local_kpar::{KparInnerPath, LocalKParProject},
@@ -117,20 +120,20 @@ pub fn command_add<Policy: HTTPAuthentication>(
                     };
                     // Without locking, the spelling can only be checked against,
                     // or recovered from, what is installed
-                    let (publisher, name) = spell_index_usage(
-                        ctx.env.as_ref(),
-                        publisher.as_str(),
-                        name.as_str(),
-                        normalized,
-                    )
-                    .map_err(|err| match err {
-                        IndexSpellingError::NotInstalled { .. } => anyhow!(
-                            "{err}\n{USAGE}hint:{USAGE:#} leave out `--no-lock` to look \
+                    let (publisher, name) =
+                        spell_index_usage(ctx.env.as_ref(), &publisher, &name, normalized)
+                            .map_err(|err| match err {
+                                IndexSpellingError::NotInstalled { .. } => anyhow!(
+                                    "{err}\n{USAGE}hint:{USAGE:#} leave out `--no-lock` to look \
                                      the project up in the indexes"
-                        ),
-                        err => err.into(),
-                    })?;
-                    UsageToAdd::Ready(index_usage(publisher, name, &version_constraint))
+                                ),
+                                err => err.into(),
+                            })?;
+                    UsageToAdd::Ready(index_usage(
+                        publisher.into_string(),
+                        name.into_string(),
+                        &version_constraint,
+                    ))
                 }
                 IndexUsageToAdd::New {
                     publisher,
@@ -155,8 +158,8 @@ pub fn command_add<Policy: HTTPAuthentication>(
                     // the lock, see `settle_from_lock`
                     UsageToAdd::PendingIndex(PendingIndexUsage {
                         recover_spelling: normalized,
-                        publisher: publisher.into_string(),
-                        name: name.into_string(),
+                        publisher,
+                        name,
                         version_constraint,
                     })
                 }
@@ -180,10 +183,12 @@ pub fn command_add<Policy: HTTPAuthentication>(
             let publisher = info.publisher.ok_or_else(|| {
                 CliError::MissingPublisherForUsage(project.root_path().to_string())
             })?;
+            let (publisher, name) =
+                parse_project_spelling(publisher, info.name, project.root_path().as_str())?;
             let usage = InterchangeProjectUsage::Directory {
                 dir: relative,
                 publisher,
-                name: info.name,
+                name,
             };
             UsageToAdd::Ready(usage.into())
         }
@@ -205,10 +210,12 @@ pub fn command_add<Policy: HTTPAuthentication>(
             let publisher = info
                 .publisher
                 .ok_or_else(|| CliError::MissingPublisherForUsage(abs_path.to_string()))?;
+            let (publisher, name) =
+                parse_project_spelling(publisher, info.name, abs_path.as_str())?;
             let usage = InterchangeProjectUsage::KparPath {
                 kpar_path: relative,
                 publisher,
-                name: info.name,
+                name,
             };
             UsageToAdd::Ready(usage.into())
         }
@@ -497,10 +504,25 @@ fn process_overrides<Policy: HTTPAuthentication>(
     Ok(())
 }
 
-/// An index usage that `add` settles from the lock (see [`settle_from_lock`])
-struct PendingIndexUsage {
+/// The publisher and name of the project at `path`, which a directory or KPAR
+/// usage of it spells
+fn parse_project_spelling(
     publisher: String,
     name: String,
+    path: &str,
+) -> Result<(ProjectPublisher, ProjectName)> {
+    let publisher = ProjectPublisher::parse(publisher).map_err(|(publisher, e)| {
+        anyhow!("project `{path}` has an invalid publisher `{publisher}`: {e}")
+    })?;
+    let name = ProjectName::parse(name)
+        .map_err(|(name, e)| anyhow!("project `{path}` has an invalid name `{name}`: {e}"))?;
+    Ok((publisher, name))
+}
+
+/// An index usage that `add` settles from the lock (see [`settle_from_lock`])
+struct PendingIndexUsage {
+    publisher: IndexPublisher,
+    name: IndexName,
     /// Taken from the lock when `None`
     version_constraint: Option<VersionReq>,
     /// Whether `publisher`/`name` is normalized, and the usage is to take
@@ -513,8 +535,8 @@ impl PendingIndexUsage {
     /// accepts any release
     fn placeholder(&self) -> InterchangeProjectUsageRaw {
         InterchangeProjectUsageRaw::Index {
-            publisher: self.publisher.clone(),
-            name: self.name.clone(),
+            publisher: self.publisher.as_str().to_owned(),
+            name: self.name.as_str().to_owned(),
             version_constraint: self
                 .version_constraint
                 .as_ref()
@@ -526,7 +548,7 @@ impl PendingIndexUsage {
     /// spelling is to be taken from the lock instead
     fn respelled(&self) -> Option<Identifier> {
         self.recover_spelling
-            .then(|| Identifier::from_pub_name(&self.publisher, &self.name))
+            .then(|| Identifier::from_index(&self.publisher, &self.name))
     }
 }
 
@@ -547,7 +569,7 @@ fn settle_from_lock(
         version_constraint,
         recover_spelling,
     } = pending;
-    let identifier = Identifier::from_pub_name(&publisher, &name);
+    let identifier = Identifier::from_index(&publisher, &name);
     // It was just locked
     let locked = lock
         .projects
@@ -562,15 +584,26 @@ fn settle_from_lock(
                 locked.version
             );
         };
-        (locked_publisher.clone(), locked.name.clone())
+        match (
+            IndexPublisher::parse(locked_publisher.clone()),
+            IndexName::parse(locked.name.clone()),
+        ) {
+            (Ok(publisher), Ok(name)) => (publisher, name),
+            _ => bail!(
+                "`{publisher}/{name}` locked to version {} of a project spelled \
+                 `{locked_publisher}/{}`, which an index usage cannot spell",
+                locked.version,
+                locked.name
+            ),
+        }
     } else {
         (publisher, name)
     };
     let version_constraint =
         version_constraint.map_or_else(|| format!("^{}", locked.version), |vc| vc.to_string());
     let settled = InterchangeProjectUsageRaw::Index {
-        publisher,
-        name,
+        publisher: publisher.into_string(),
+        name: name.into_string(),
         version_constraint,
     };
     let settling = "Settled";

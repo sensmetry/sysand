@@ -8,6 +8,12 @@ use std::{
 };
 
 use digest::{array::Array, typenum};
+use icu_casemap::CaseMapperBorrowed;
+use icu_normalizer::ComposingNormalizerBorrowed;
+use icu_properties::{
+    CodePointMapDataBorrowed, CodePointSetDataBorrowed,
+    props::{BidiControl, DefaultIgnorableCodePoint, GeneralCategory, XidContinue},
+};
 use indexmap::IndexSet;
 use serde::Serialize;
 use sha2::{Digest as _, Sha256};
@@ -18,6 +24,46 @@ use crate::project::{memory::InMemoryProject, utils::Identifier};
 
 pub type ProvidedProjects = HashMap<Identifier, Vec<InMemoryProject>>;
 pub type ProvidedIdentifiers = HashSet<Identifier>;
+
+// Normalization, case folding and character sets, shared by everything that
+// validates or canonicalizes text
+
+/// Full Unicode case folding
+pub(crate) const CASE_MAPPER: CaseMapperBorrowed = CaseMapperBorrowed::new();
+/// Unicode Normalization Form C
+pub(crate) const NFC_NORMALIZER: ComposingNormalizerBorrowed =
+    ComposingNormalizerBorrowed::new_nfc();
+/// `Bidi_Control` characters: invisible directional formatting
+pub(crate) const BIDI_CONTROL: CodePointSetDataBorrowed =
+    CodePointSetDataBorrowed::new::<BidiControl>();
+/// `Default_Ignorable_Code_Point` characters: normally invisible
+pub(crate) const IGNORABLE: CodePointSetDataBorrowed =
+    CodePointSetDataBorrowed::new::<DefaultIgnorableCodePoint>();
+/// `XID_Continue` characters: those that can continue a Unicode identifier
+/// (UAX #31)
+pub(crate) const XID_CONTINUE: CodePointSetDataBorrowed =
+    CodePointSetDataBorrowed::new::<XidContinue>();
+/// The `General_Category` of every character
+pub(crate) const GENERAL_CATEGORY: CodePointMapDataBorrowed<GeneralCategory> =
+    CodePointMapDataBorrowed::new();
+
+/// ASCII punctuation allowed in publisher/name in addition to identifier
+/// chars, to allow common organization names (e.g. `ACME Inc.`, `AT&T`,
+/// `O'Reilly`, `Foo, Inc.`, `C++ Tools`, `Foo (EU)`). Other ASCII
+/// punctuation is excluded, as it needs quoting or escaping in shells, JSON
+/// or TOML. Non-ASCII punctuation is allowed without restrictions
+pub(crate) const PROJECT_FIELD_ASCII_PUNCTUATION: [char; 9] =
+    [' ', '-', '.', '&', '\'', ',', '+', '(', ')'];
+
+/// The separator between the words of a `pkg:sysand` PURL publisher or name
+pub(crate) const PURL_SEPARATOR: u8 = b'-';
+/// The separator between the words of a `pkg:sysand` PURL name, in addition
+/// to [`PURL_SEPARATOR`]
+pub(crate) const PURL_NAME_SEPARATOR: u8 = b'.';
+/// The separator between the words of a not yet normalized `pkg:sysand` PURL
+/// publisher or name, in addition to [`PURL_SEPARATOR`]; normalization turns
+/// it into [`PURL_SEPARATOR`]
+pub(crate) const UNNORMALIZED_PURL_SEPARATOR: u8 = b' ';
 
 #[cfg(feature = "filesystem")]
 pub(crate) mod scheme {
