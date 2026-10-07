@@ -68,6 +68,32 @@ def test_basic_init(caplog: pytest.LogCaptureFixture) -> None:
             )
 
 
+def test_init_license(tmp_path: Path) -> None:
+    sysand.init(
+        project_dir=tmp_path,
+        name="test_init_license",
+        publisher="a",
+        version="1.2.3",
+        license="MIT OR Apache-2.0",
+    )
+
+    info = json.loads((tmp_path / ".project.json").read_text())
+    assert info["license"] == "MIT OR Apache-2.0"
+
+
+def test_init_invalid_license(tmp_path: Path) -> None:
+    with pytest.raises(ValueError):
+        sysand.init(
+            project_dir=tmp_path,
+            name="test_init_invalid_license",
+            publisher="a",
+            version="1.2.3",
+            license="not a license",
+        )
+
+    assert not (tmp_path / ".project.json").exists()
+
+
 def test_basic_env() -> None:
     with tempfile.TemporaryDirectory() as tmpdirname:
         env_path = Path(tmpdirname) / sysand.env.DEFAULT_ENV_NAME
