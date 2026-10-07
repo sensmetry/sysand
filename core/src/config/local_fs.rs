@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{fs, io::ErrorKind, str::FromStr as _};
+use std::{io::ErrorKind, str::FromStr as _};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use fluent_uri::Iri;
