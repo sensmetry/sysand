@@ -28,7 +28,7 @@ use sysand_core::{
     commands::{lock::DEFAULT_LOCKFILE_NAME, sync::SyncOutcome},
     config::{
         Config,
-        local_fs::{get_config, load_configs},
+        local_fs::{get_config, load_configs, read_config},
     },
     context::ProjectContext,
     discover::{discover_project, discover_workspace},
@@ -418,10 +418,13 @@ fn run_cli_with(
         load_configs(project_root.as_deref().unwrap_or(Utf8Path::new(".")))?
     };
 
-    let mut config = if let Some(config_file) = &global_opts.config_file {
-        get_config(config_file)?
-    } else {
-        Config::default()
+    let mut config = match &global_opts.config_file {
+        // `add` creates the file to write the source to.
+        Some(config_file) if matches!(&command, Command::Add { source_opts, .. } if source_opts.is_given()) => {
+            get_config(config_file)?
+        }
+        Some(config_file) => read_config(config_file)?,
+        None => Config::default(),
     };
 
     config.merge(auto_config);

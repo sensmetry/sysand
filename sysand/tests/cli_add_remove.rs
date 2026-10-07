@@ -229,6 +229,31 @@ fn add_and_remove_path() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn config_file_must_be_readable() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) =
+        cli_init_project_basic("j", "config_file_must_be_readable", "1.2.3")?;
+    out.assert().success();
+
+    // Missing, or a directory. Only `add` with a source creates it, as
+    // `add_and_remove_as_editable` shows.
+    let missing = cwd.join("missing.toml");
+    for config_path in [missing.as_str(), cwd.as_str()] {
+        for args in [
+            &["lock"][..],
+            &["add", "--no-lock", "--iri", "urn:kpar:test"],
+        ] {
+            let out = run_sysand_in(&cwd, args.iter().copied(), Some(config_path))?;
+            out.assert()
+                .failure()
+                .stderr(contains(format!("failed to read file\n  `{config_path}`")));
+        }
+    }
+    assert!(!missing.exists());
+
+    Ok(())
+}
+
+#[test]
 fn add_and_remove_as_editable() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = cli_init_project_basic("j", "add_and_remove", "1.2.3")?;
 
