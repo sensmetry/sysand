@@ -87,6 +87,21 @@ pub enum Command {
             verbatim_doc_comment
         )]
         license: Option<spdx::Expression>,
+        /// Set a SysML v2 or KerML metamodel. Defaults to omitting the
+        /// metamodel field
+        #[arg(long, value_name = "KIND", value_enum, verbatim_doc_comment)]
+        metamodel: Option<MetamodelKind>,
+        /// Choose the release of the SysML v2 or KerML metamodel.
+        /// SysML 2.0 and KerML 1.0 have the same release dates
+        #[arg(
+            long,
+            value_name = "YYYYMMXX",
+            requires = "metamodel",
+            value_enum,
+            verbatim_doc_comment,
+            default_value = MetamodelVersion::RELEASE
+        )]
+        metamodel_release: MetamodelVersion,
     },
     // Only for better error messages
     #[command(hide = true)]

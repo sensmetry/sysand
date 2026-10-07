@@ -48,6 +48,7 @@ pub fn do_init_js_local_storage(
         publisher,
         version,
         license,
+        None,
         &mut io::local_storage::ProjectLocalBrowserStorage {
             vfs: local_storage_utils::get_local_browser_storage(prefix)
                 .map_err(|e| JsValue::from_str(&format_err(e)))?,

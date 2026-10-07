@@ -71,6 +71,7 @@ fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
         "a".into(),
         "1.2.3".to_owned(),
         Some("Apache-2.0 OR MIT".to_owned()),
+        None,
         &mut memory_storage,
     );
 
@@ -127,12 +128,60 @@ fn init_invalid_name_leaves_storage_empty() {
         "e".to_owned(),
         "1.2.3".to_owned(),
         None,
+        None,
         &mut storage,
     );
 
     assert_matches!(
         result,
         Err(sysand_core::commands::init::InitError::NameParse(..))
+    );
+    assert!(storage.info.is_none());
+    assert!(storage.meta.is_none());
+}
+
+/// `do_init_parse` should write the metamodel given to `.meta.json`
+#[test]
+fn init_metamodel() -> Result<(), Box<dyn std::error::Error>> {
+    let mut storage = sysand_core::project::memory::InMemoryProject::default();
+
+    do_init_parse(
+        "n".to_owned(),
+        "e".to_owned(),
+        "1.2.3".to_owned(),
+        None,
+        Some("https://www.omg.org/spec/SysML/20250201".to_owned()),
+        &mut storage,
+    )?;
+
+    assert_eq!(
+        storage.meta.unwrap().metamodel.as_deref(),
+        Some("https://www.omg.org/spec/SysML/20250201")
+    );
+    Ok(())
+}
+
+/// `do_init_parse` should reject a metamodel that is not an IRI, reporting
+/// it, and leave the storage untouched
+#[test]
+fn init_rejects_invalid_metamodel() {
+    let mut storage = sysand_core::project::memory::InMemoryProject::default();
+
+    let result = do_init_parse(
+        "n".to_owned(),
+        "e".to_owned(),
+        "1.2.3".to_owned(),
+        None,
+        Some("not an iri".to_owned()),
+        &mut storage,
+    );
+
+    let Err(err @ sysand_core::commands::init::InitError::MetamodelParse(..)) = result else {
+        panic!("expected `MetamodelParse`, got {result:?}");
+    };
+    assert!(
+        err.to_string()
+            .starts_with("invalid metamodel `not an iri`")
     );
     assert!(storage.info.is_none());
     assert!(storage.meta.is_none());

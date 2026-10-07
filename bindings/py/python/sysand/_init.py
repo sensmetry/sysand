@@ -15,6 +15,7 @@ def init(
     publisher: str,
     version: str,
     license: str | None = None,
+    metamodel: str | None = None,
 ) -> None:
     """Create a project named ``name`` in ``project_dir``, creating the
     directory if it does not exist.
@@ -28,15 +29,20 @@ def init(
         license: The project's license, an SPDX license expression such as
             ``"MIT OR Apache-2.0"``. Omitted from ``.project.json`` when
             ``None``.
+        metamodel: The project's metamodel, an IRI such as
+            ``"https://www.omg.org/spec/SysML/20250201"``. Omitted from
+            ``.meta.json`` when ``None``.
 
     Raises:
-        ValueError: ``name``, ``publisher``, ``version`` or ``license`` is
-            not valid.
+        ValueError: ``name``, ``publisher``, ``version``, ``license`` or
+            ``metamodel`` is not valid.
     """
     if not Path(project_dir).exists():
         Path(project_dir).mkdir()
 
-    sysand_rs.do_init_py_local_file(name, publisher, version, str(project_dir), license)
+    sysand_rs.do_init_py_local_file(
+        name, publisher, version, str(project_dir), license, metamodel
+    )
 
 
 __all__ = ["init"]

@@ -378,3 +378,57 @@ fn init_rejects_invalid_directory_name() -> Result<(), Box<dyn std::error::Error
 
     Ok(())
 }
+
+/// `sysand init --metamodel` should write the metamodel of the current
+/// release to `.meta.json`, and `--metamodel-release` should choose it
+#[test]
+fn init_metamodel() -> Result<(), Box<dyn std::error::Error>> {
+    for (args, metamodel) in [
+        (
+            &["--metamodel", "sysml"][..],
+            "https://www.omg.org/spec/SysML/20250201",
+        ),
+        (
+            &["--metamodel", "kerml", "--metamodel-release", "20250201"][..],
+            "https://www.omg.org/spec/KerML/20250201",
+        ),
+    ] {
+        let (_temp_dir, cwd, out) = run_sysand(
+            ["init", "--publisher", "a", "p"]
+                .into_iter()
+                .chain(args.iter().copied()),
+            None,
+        )?;
+
+        out.assert().success();
+        let meta: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(cwd.join("p/.meta.json"))?)?;
+        assert_eq!(meta["metamodel"], metamodel, "args: {args:?}");
+    }
+
+    Ok(())
+}
+
+/// `sysand init` should reject `--metamodel-release` without `--metamodel`
+/// before creating anything
+#[test]
+fn init_metamodel_release_requires_metamodel() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--publisher",
+            "a",
+            "--metamodel-release",
+            "20250201",
+            "p",
+        ],
+        None,
+    )?;
+
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains("--metamodel <KIND>"));
+    assert!(!cwd.join("p").exists());
+
+    Ok(())
+}

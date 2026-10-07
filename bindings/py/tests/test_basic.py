@@ -97,6 +97,32 @@ def test_init_invalid_license(tmp_path: Path) -> None:
     assert not (tmp_path / ".project.json").exists()
 
 
+def test_init_metamodel(tmp_path: Path) -> None:
+    sysand.init(
+        project_dir=tmp_path,
+        name="test_init_metamodel",
+        publisher="a",
+        version="1.2.3",
+        metamodel="https://www.omg.org/spec/KerML/20250201",
+    )
+
+    meta = json.loads((tmp_path / ".meta.json").read_text())
+    assert meta["metamodel"] == "https://www.omg.org/spec/KerML/20250201"
+
+
+def test_init_invalid_metamodel(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="invalid metamodel"):
+        sysand.init(
+            project_dir=tmp_path,
+            name="test_init_invalid_metamodel",
+            publisher="a",
+            version="1.2.3",
+            metamodel="not an iri",
+        )
+
+    assert not (tmp_path / ".project.json").exists()
+
+
 def test_basic_env() -> None:
     with tempfile.TemporaryDirectory() as tmpdirname:
         env_path = Path(tmpdirname) / sysand.env.DEFAULT_ENV_NAME

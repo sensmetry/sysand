@@ -131,7 +131,7 @@ fn render_long_help(prog: &str, args: Vec<String>) -> String {
 
 #[pyfunction(name = "do_init_py_local_file")]
 #[pyo3(
-    signature = (name, publisher, version, path, license=None),
+    signature = (name, publisher, version, path, license=None, metamodel=None),
 )]
 fn do_init_py_local_file(
     name: String,
@@ -139,6 +139,7 @@ fn do_init_py_local_file(
     version: String,
     path: String,
     license: Option<String>,
+    metamodel: Option<String>,
 ) -> PyResult<()> {
     // Initialize logger in each function independently to avoid setting up a
     // logger before `run_cli()` is called (CLI sets up its own logger). This
@@ -150,27 +151,34 @@ fn do_init_py_local_file(
     // and the CLI keeps the level without complaining about the formatting.
     common_init();
 
-    do_init_local_file(name, publisher, version, license, Utf8PathBuf::from(path)).map_err(
-        |err| {
-            let e = format_err(&err);
-            match err {
-                InitError::NameParse(..)
-                | InitError::PublisherParse(..)
-                | InitError::SemVerParse(..)
-                | InitError::SPDXLicenseParse(..) => PyValueError::new_err(e),
-                InitError::Project(err) => match err {
-                    LocalSrcError::AlreadyExists(_) => PyFileExistsError::new_err(e),
-                    LocalSrcError::Io(_) | LocalSrcError::Path(_) => PyIOError::new_err(e),
-                    LocalSrcError::Serialize(_)
-                    | LocalSrcError::ImpossibleRelativePath(_)
-                    | LocalSrcError::Deserialize(_) => PyValueError::new_err(e),
-                    LocalSrcError::MissingMeta | LocalSrcError::MissingInfoMeta => {
-                        PyFileNotFoundError::new_err(e)
-                    }
-                },
-            }
-        },
-    )?;
+    do_init_local_file(
+        name,
+        publisher,
+        version,
+        license,
+        metamodel,
+        Utf8PathBuf::from(path),
+    )
+    .map_err(|err| {
+        let e = format_err(&err);
+        match err {
+            InitError::NameParse(..)
+            | InitError::PublisherParse(..)
+            | InitError::SemVerParse(..)
+            | InitError::SPDXLicenseParse(..)
+            | InitError::MetamodelParse(..) => PyValueError::new_err(e),
+            InitError::Project(err) => match err {
+                LocalSrcError::AlreadyExists(_) => PyFileExistsError::new_err(e),
+                LocalSrcError::Io(_) | LocalSrcError::Path(_) => PyIOError::new_err(e),
+                LocalSrcError::Serialize(_)
+                | LocalSrcError::ImpossibleRelativePath(_)
+                | LocalSrcError::Deserialize(_) => PyValueError::new_err(e),
+                LocalSrcError::MissingMeta | LocalSrcError::MissingInfoMeta => {
+                    PyFileNotFoundError::new_err(e)
+                }
+            },
+        }
+    })?;
 
     Ok(())
 }
