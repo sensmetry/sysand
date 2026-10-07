@@ -6,8 +6,7 @@ use thiserror::Error;
 use crate::{
     env::ReadEnvironment,
     model::{
-        InterchangeProjectUsageG, InterchangeProjectUsageRaw, InterchangeProjectValidationError,
-        check_index_usage_spelling,
+        IndexName, IndexPublisher, InterchangeProjectUsageRaw, InterchangeProjectValidationError,
     },
     project::{ProjectMut, ProjectRead, utils::Identifier},
     purl::is_normalized_spelling,
@@ -237,8 +236,8 @@ pub enum IndexUsageToAdd {
     /// [`is_normalized_spelling`]), and its constraint, if missing, have to
     /// be settled by the caller
     New {
-        publisher: String,
-        name: String,
+        publisher: IndexPublisher,
+        name: IndexName,
         version_constraint: Option<semver::VersionReq>,
         normalized: bool,
     },
@@ -251,13 +250,12 @@ pub enum IndexUsageToAdd {
 /// refusals as [`do_add`] apply.
 pub fn index_usage_to_add<E>(
     usages: &[InterchangeProjectUsageRaw],
-    publisher: String,
-    name: String,
+    publisher: IndexPublisher,
+    name: IndexName,
     version_constraint: Option<semver::VersionReq>,
 ) -> Result<IndexUsageToAdd, AddError<E>> {
-    check_index_usage_spelling(&publisher, &name)?;
-    let normalized = is_normalized_spelling(&publisher, &name);
-    let identifier = Identifier::from_pub_name(&publisher, &name);
+    let normalized = is_normalized_spelling(publisher.as_str(), name.as_str());
+    let identifier = Identifier::from_pub_name(publisher.as_str(), name.as_str());
     let Some(existing) = declared(usages, &identifier) else {
         return Ok(IndexUsageToAdd::New {
             publisher,
@@ -310,7 +308,7 @@ pub fn do_add<P: ProjectMut>(
     // TODO: take non-raw, CLI has it
     usage_raw: &InterchangeProjectUsageRaw,
 ) -> Result<bool, AddError<P::Error>> {
-    let usage: InterchangeProjectUsageG<String, String, String> = usage_raw.validate()?.into();
+    let usage: InterchangeProjectUsageRaw = usage_raw.validate()?.into();
 
     let adding = "Adding";
     let header = crate::style::get_style_config().header;

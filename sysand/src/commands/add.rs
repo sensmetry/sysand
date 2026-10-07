@@ -97,8 +97,8 @@ pub fn command_add<Policy: HTTPAuthentication>(
             // anything is resolved or looked up
             match index_usage_to_add::<Infallible>(
                 &info.usage,
-                publisher.into_string(),
-                name.into_string(),
+                publisher,
+                name,
                 version_constraint,
             )? {
                 IndexUsageToAdd::AlreadyPresent => UsageToAdd::AlreadyPresent,
@@ -117,15 +117,19 @@ pub fn command_add<Policy: HTTPAuthentication>(
                     };
                     // Without locking, the spelling can only be checked against,
                     // or recovered from, what is installed
-                    let (publisher, name) =
-                        spell_index_usage(ctx.env.as_ref(), &publisher, &name, normalized)
-                            .map_err(|err| match err {
-                                IndexSpellingError::NotInstalled { .. } => anyhow!(
-                                    "{err}\n{USAGE}hint:{USAGE:#} leave out `--no-lock` to look \
+                    let (publisher, name) = spell_index_usage(
+                        ctx.env.as_ref(),
+                        publisher.as_str(),
+                        name.as_str(),
+                        normalized,
+                    )
+                    .map_err(|err| match err {
+                        IndexSpellingError::NotInstalled { .. } => anyhow!(
+                            "{err}\n{USAGE}hint:{USAGE:#} leave out `--no-lock` to look \
                                      the project up in the indexes"
-                                ),
-                                err => err.into(),
-                            })?;
+                        ),
+                        err => err.into(),
+                    })?;
                     UsageToAdd::Ready(index_usage(publisher, name, &version_constraint))
                 }
                 IndexUsageToAdd::New {
@@ -135,7 +139,11 @@ pub fn command_add<Policy: HTTPAuthentication>(
                     normalized: false,
                 } => {
                     // Locking checks the spelling
-                    UsageToAdd::Ready(index_usage(publisher, name, &version_constraint))
+                    UsageToAdd::Ready(index_usage(
+                        publisher.into_string(),
+                        name.into_string(),
+                        &version_constraint,
+                    ))
                 }
                 IndexUsageToAdd::New {
                     publisher,
@@ -147,8 +155,8 @@ pub fn command_add<Policy: HTTPAuthentication>(
                     // the lock, see `settle_from_lock`
                     UsageToAdd::PendingIndex(PendingIndexUsage {
                         recover_spelling: normalized,
-                        publisher,
-                        name,
+                        publisher: publisher.into_string(),
+                        name: name.into_string(),
                         version_constraint,
                     })
                 }

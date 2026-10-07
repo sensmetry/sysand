@@ -2551,6 +2551,50 @@ const INVALID_IDENTIFIERS: &[(&str, &str)] = &[
     ("acme-labs/my\nproject", "name cannot contain `\\n`"),
 ];
 
+/// Identifiers `add` refuses: it adds an index usage, so publisher and name
+/// must be spelled as an index usage can spell them, a stricter rule than
+/// the one `remove` checks (see [`INVALID_IDENTIFIERS`])
+const INVALID_INDEX_IDENTIFIERS: &[(&str, &str)] = &[
+    (
+        "acme-labs",
+        "identifier is not of the form `<publisher>/<name>`",
+    ),
+    (
+        "/my.project",
+        "publisher must be 3-50 ASCII alphanumeric chars",
+    ),
+    ("acme-labs/", "name must be 3-50 ASCII alphanumeric chars"),
+    (
+        "acme-labs/my/project",
+        "name must be 3-50 ASCII alphanumeric chars",
+    ),
+    (
+        "acme:labs/my.project",
+        "publisher must be 3-50 ASCII alphanumeric chars",
+    ),
+    (
+        "acme-labs/my:project",
+        "name must be 3-50 ASCII alphanumeric chars",
+    ),
+    (
+        "acme\tlabs/my.project",
+        "publisher must be 3-50 ASCII alphanumeric chars",
+    ),
+    (
+        "acme-labs/my\nproject",
+        "name must be 3-50 ASCII alphanumeric chars",
+    ),
+    // Valid for a directory or KPAR usage, but not for an index usage
+    (
+        "Foo & Bar/my.project",
+        "publisher must be 3-50 ASCII alphanumeric chars",
+    ),
+    (
+        "acme-labs/my_project",
+        "name must be 3-50 ASCII alphanumeric chars",
+    ),
+];
+
 /// A typed `sysand add <identifier>` should reject an invalid identifier
 /// while parsing arguments, before adding anything
 #[test]
@@ -2559,7 +2603,7 @@ fn add_identifier_rejects_invalid_identifiers() -> Result<(), Box<dyn std::error
     out.assert().success();
     let original = fs::read_to_string(cwd.join(".project.json"))?;
 
-    for &(identifier, msg) in INVALID_IDENTIFIERS {
+    for &(identifier, msg) in INVALID_INDEX_IDENTIFIERS {
         let out = run_sysand_in(&cwd, ["add", "--no-lock", identifier], None)?;
 
         out.assert().failure().stderr(
@@ -2786,7 +2830,7 @@ fn add_rejects_an_invalid_publisher() -> Result<(), Box<dyn std::error::Error>> 
     .assert()
     .failure()
     .stderr(contains(
-        "index usage `A/My.Project` has an invalid publisher `A`",
+        "invalid value 'A/My.Project' for '[IDENTIFIER]': publisher must be 3-50",
     ));
 
     Ok(())

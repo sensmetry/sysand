@@ -24,13 +24,14 @@ use crate::{
             IndexJson, IndexProject, ProjectStatus, VersionEntry, VersionStatus, VersionsJson,
         },
     },
-    model::{InterchangeProjectInfoRaw, InterchangeProjectValidationError},
+    model::{
+        IndexName, IndexPublisher, InterchangeProjectInfoRaw, InterchangeProjectValidationError,
+    },
     project::{
         CanonicalizationError, ProjectRead as _,
         local_kpar::{LocalKParError, LocalKParProjectRaw},
         utils::{FsIoError, wrapfs},
     },
-    purl::{is_valid_unnormalized_name, is_valid_unnormalized_publisher, normalize_field},
     utils::to_pretty_json_string,
 };
 
@@ -516,23 +517,19 @@ fn to_explicit_digest(digest: &str) -> String {
 }
 
 fn normalize_publisher(publisher: &str, kpar_path: &Utf8Path) -> Result<String, IndexAddError> {
-    if is_valid_unnormalized_publisher(publisher) {
-        Ok(normalize_field(publisher))
-    } else {
-        Err(IndexAddError::InvalidPublisherInProject {
-            publisher: publisher.into(),
+    IndexPublisher::parse(publisher.to_owned())
+        .map(|publisher| publisher.normalized())
+        .map_err(|(publisher, _)| IndexAddError::InvalidPublisherInProject {
+            publisher,
             kpar_path: kpar_path.into(),
         })
-    }
 }
 
 fn normalize_name(name: &str, kpar_path: &Utf8Path) -> Result<String, IndexAddError> {
-    if is_valid_unnormalized_name(name) {
-        Ok(normalize_field(name))
-    } else {
-        Err(IndexAddError::InvalidNameInProject {
-            name: name.into(),
+    IndexName::parse(name.to_owned())
+        .map(|name| name.normalized())
+        .map_err(|(name, _)| IndexAddError::InvalidNameInProject {
+            name,
             kpar_path: kpar_path.into(),
         })
-    }
 }

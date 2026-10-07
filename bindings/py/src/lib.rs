@@ -59,9 +59,9 @@ use sysand_core::{
     init::InitError,
     lock::{Lock, Project as LockedProject},
     model::{
-        InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
-        InterchangeProjectUsage, InterchangeProjectUsageRaw, ProjectFieldError, ProjectName,
-        ProjectPublisher, UsageRef, check_index_usage_spelling,
+        IndexName, IndexPublisher, InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw,
+        InterchangeProjectMetadataRaw, InterchangeProjectUsage, InterchangeProjectUsageRaw,
+        ProjectFieldError, ProjectName, ProjectPublisher, UsageRef, parse_index_usage_spelling,
     },
     project::{
         ProjectRead as _,
@@ -1059,10 +1059,8 @@ pub fn do_sources_project_py(
     Ok(result)
 }
 
-/// The usage an `add`, `remove` or `set_usage_constraint` call names: the
-/// resource usage of `iri`, taken literally, or the usage of
-/// `publisher`/`name` (for `add` and `set_usage_constraint`, an index usage;
-/// for `remove`, a usage of any kind).
+/// The usage a `remove` call names: the resource usage of `iri`, taken
+/// literally, or the usage of any kind of `publisher`/`name`
 enum Named {
     Iri(Iri<String>),
     PublisherName {
@@ -1071,23 +1069,38 @@ enum Named {
     },
 }
 
-impl Named {
-    /// For `add` and `set_usage_constraint`: `publisher`/`name` must be
-    /// spelled as an index usage can spell them, as `sysand add` checks
-    fn index_usage(
+/// The usage an `add` or `set_usage_constraint` call names: the resource
+/// usage of `iri`, taken literally, or the index usage of `publisher`/`name`
+enum NamedIndex {
+    Iri(Iri<String>),
+    PublisherName {
+        publisher: IndexPublisher,
+        name: IndexName,
+    },
+}
+
+impl NamedIndex {
+    /// `publisher`/`name` must be spelled as an index usage can spell them,
+    /// as `sysand add` checks
+    fn parse(
         function: &str,
         iri: Option<String>,
         publisher: Option<String>,
         name: Option<String>,
     ) -> PyResult<Self> {
-        let named = Self::any_usage(function, iri, publisher, name)?;
-        if let Self::PublisherName { publisher, name } = &named {
-            check_index_usage_spelling(publisher.as_str(), name.as_str())
-                .map_err(|e| ProjectError::new_err(format_err(e)))?;
-        }
-        Ok(named)
+        Ok(match Named::any_usage(function, iri, publisher, name)? {
+            Named::Iri(iri) => Self::Iri(iri),
+            Named::PublisherName { publisher, name } => {
+                let (publisher, name) =
+                    parse_index_usage_spelling(publisher.as_str(), name.as_str())
+                        .map_err(|e| ProjectError::new_err(format_err(e)))?;
+                Self::PublisherName { publisher, name }
+            }
+        })
     }
+}
 
+impl Named {
     /// For `remove`: `publisher`/`name` are checked as `sysand remove`
     /// checks them, so that a usage of any kind can be named, whether or not
     /// an index usage could spell it
@@ -1146,8 +1159,8 @@ fn do_add_py(
 ) -> PyResult<bool> {
     common_init();
 
-    let (locator, usage) = match Named::index_usage("add", iri, publisher, name)? {
-        Named::Iri(iri) => {
+    let (locator, usage) = match NamedIndex::parse("add", iri, publisher, name)? {
+        NamedIndex::Iri(iri) => {
             let usage = InterchangeProjectUsageRaw::Resource {
                 resource: iri.as_str().to_owned(),
                 version_constraint: Some(version_constraint),
@@ -1161,7 +1174,7 @@ fn do_add_py(
             };
             (locator, usage)
         }
-        Named::PublisherName { publisher, name } => {
+        NamedIndex::PublisherName { publisher, name } => {
             let usage = InterchangeProjectUsageRaw::Index {
                 publisher: publisher.as_str().to_owned(),
                 name: name.as_str().to_owned(),
@@ -1379,19 +1392,16 @@ fn do_set_usage_constraint_py(
 ) -> PyResult<(bool, bool, Option<String>, Option<String>)> {
     common_init();
 
-    let named = Named::index_usage("set_usage_constraint", iri, publisher, name)?;
+    let named = NamedIndex::parse("set_usage_constraint", iri, publisher, name)?;
     let mut project = LocalSrcProject::new_access(path, None);
 
     let changed = match &named {
-        Named::Iri(iri) => {
+        NamedIndex::Iri(iri) => {
             do_set_usage_constraint_local(&mut project, iri.as_str(), &version_constraint)
         }
-        Named::PublisherName { publisher, name } => do_set_index_usage_constraint_local(
-            &mut project,
-            publisher.as_str(),
-            name.as_str(),
-            &version_constraint,
-        ),
+        NamedIndex::PublisherName { publisher, name } => {
+            do_set_index_usage_constraint_local(&mut project, publisher, name, &version_constraint)
+        }
     };
     match changed {
         Ok(ConstraintChange::Replaced { old, new }) => Ok((true, true, old, Some(new))),

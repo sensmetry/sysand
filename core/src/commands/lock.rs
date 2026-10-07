@@ -495,22 +495,12 @@ struct TypedSpelling {
 impl TypedSpelling {
     /// `None` for a resource usage, which names no publisher or name
     fn of(usage: &InterchangeProjectUsage) -> Option<Self> {
-        match usage {
-            InterchangeProjectUsage::Resource { .. } => None,
-            InterchangeProjectUsage::Directory {
-                publisher, name, ..
-            }
-            | InterchangeProjectUsage::KparPath {
-                publisher, name, ..
-            }
-            | InterchangeProjectUsage::Index {
-                publisher, name, ..
-            } => Some(Self {
-                kind: usage.kind_with_article(),
-                publisher: publisher.clone(),
-                name: name.clone(),
-            }),
-        }
+        let (publisher, name) = usage.typed_publisher_name()?;
+        Some(Self {
+            kind: usage.kind_with_article(),
+            publisher: publisher.to_owned(),
+            name: name.to_owned(),
+        })
     }
 }
 

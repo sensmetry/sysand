@@ -192,7 +192,7 @@ fn info_positional_is_identifier() -> Result<(), Box<dyn Error>> {
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "index usage `Foo & Bar/some-project` has an invalid publisher",
+            "invalid value 'Foo & Bar/some-project' for '[IDENTIFIER]': publisher must be 3-50",
         ));
 
     for invalid_identifier in [

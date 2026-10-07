@@ -29,18 +29,15 @@ use crate::{
     include::{IncludeError, extract_symbols},
     index_location::IndexLocation,
     model::{
-        InterchangeProjectUsageRaw, InterchangeProjectValidationError, KERML_SPEC_PREFIX,
-        KerMlChecksumAlg, SYSML_SPEC_PREFIX,
+        IndexName, IndexPublisher, InterchangeProjectUsageRaw, InterchangeProjectValidationError,
+        KERML_SPEC_PREFIX, KerMlChecksumAlg, SYSML_SPEC_PREFIX,
     },
     project::{
         ProjectRead as _,
         local_kpar::{LocalKParError, LocalKParProjectRaw},
         utils::{FsIoError, wrapfs},
     },
-    purl::{
-        SysandPurlError, is_valid_unnormalized_name, is_valid_unnormalized_publisher,
-        normalize_field, parse_sysand_purl,
-    },
+    purl::{SysandPurlError, parse_sysand_purl},
     symbols::Language,
     utils::{
         RelativePathKind, RelativeUnixPathError, license_file_stems, parse_relative_unix_path,
@@ -1110,16 +1107,14 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
         .publisher
         .as_deref()
         .ok_or(PublishError::MissingPublisher)?;
-    if !is_valid_unnormalized_publisher(publisher) {
-        return Err(PublishError::InvalidPublisher(publisher.into()));
-    }
-    let normalized_publisher = normalize_field(publisher);
+    let normalized_publisher = IndexPublisher::parse(publisher.to_owned())
+        .map_err(|(publisher, _)| PublishError::InvalidPublisher(publisher.into()))?
+        .normalized();
 
     let name = &info.name;
-    if !is_valid_unnormalized_name(name) {
-        return Err(PublishError::InvalidName(name.as_str().into()));
-    }
-    let normalized_name = normalize_field(name);
+    let normalized_name = IndexName::parse(name.clone())
+        .map_err(|(name, _)| PublishError::InvalidName(name.into()))?
+        .normalized();
 
     let version = &info.version;
     if !validated_info.version.build.is_empty() {

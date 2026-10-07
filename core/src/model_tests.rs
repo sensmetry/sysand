@@ -361,8 +361,8 @@ mod index_usage {
         assert_eq!(
             valid,
             InterchangeProjectUsage::Index {
-                publisher: "Acme Labs".to_owned(),
-                name: "My.Lib".to_owned(),
+                publisher: crate::model::IndexPublisher::parse("Acme Labs".to_owned()).unwrap(),
+                name: crate::model::IndexName::parse("My.Lib".to_owned()).unwrap(),
                 version_constraint: semver::VersionReq::parse("^1.2").unwrap(),
             }
         );
@@ -409,4 +409,62 @@ mod index_usage {
             })
         );
     }
+}
+
+#[test]
+fn index_publisher_and_name_follow_the_unnormalized_purl_rules() {
+    use crate::model::{IndexFieldError, IndexName, IndexPublisher};
+
+    for publisher in ["acme", "Acme Labs", "acme-labs", "ACME 2"] {
+        let parsed = IndexPublisher::parse(publisher.to_owned()).unwrap();
+        assert_eq!(parsed.as_str(), publisher);
+    }
+    assert_eq!(
+        IndexPublisher::parse("Acme Labs".to_owned())
+            .unwrap()
+            .normalized(),
+        "acme-labs"
+    );
+    // `Foo & Bar` and `Ünï Labs` are valid project publishers, but not
+    // valid in an index
+    for publisher in [
+        "ab",
+        "Foo & Bar",
+        "acme.labs",
+        "acme  labs",
+        "-acme",
+        "Ünï Labs",
+    ] {
+        assert_eq!(
+            IndexPublisher::parse(publisher.to_owned()),
+            Err((publisher.to_owned(), IndexFieldError::Publisher)),
+            "{publisher}"
+        );
+    }
+    ProjectPublisher::parse("Foo & Bar".to_owned()).unwrap();
+
+    for name in ["lib", "My.Lib", "my-lib v2"] {
+        let parsed = IndexName::parse(name.to_owned()).unwrap();
+        assert_eq!(parsed.as_str(), name);
+    }
+    assert_eq!(
+        IndexName::parse("My.Lib".to_owned()).unwrap().normalized(),
+        "my.lib"
+    );
+    for name in ["ab", "my_lib", "my..lib", "my/lib"] {
+        assert_eq!(
+            IndexName::parse(name.to_owned()),
+            Err((name.to_owned(), IndexFieldError::Name)),
+            "{name}"
+        );
+    }
+
+    // Serialized as the plain string, and validated when deserialized
+    let publisher = IndexPublisher::parse("Acme Labs".to_owned()).unwrap();
+    assert_eq!(serde_json::to_string(&publisher).unwrap(), r#""Acme Labs""#);
+    assert_eq!(
+        serde_json::from_str::<IndexPublisher>(r#""Acme Labs""#).unwrap(),
+        publisher
+    );
+    serde_json::from_str::<IndexPublisher>(r#""Foo & Bar""#).unwrap_err();
 }
