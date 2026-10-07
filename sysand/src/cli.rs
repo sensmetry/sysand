@@ -276,7 +276,7 @@ pub enum Command {
     #[clap(verbatim_doc_comment, arg_required_else_help = true)]
     Edit {
         /// Edit the project in the given directory instead of the current
-        /// project. Path can be relative or absolute
+        /// project
         #[arg(long, verbatim_doc_comment)]
         dir: Option<Utf8PathBuf>,
         #[command(flatten)]
@@ -345,13 +345,11 @@ pub struct AddProjectLocatorArgs {
         conflicts_with_all = ["source", "iri", "iri_path"]
     )]
     pub identifier: Option<(IndexPublisher, IndexName)>,
-    /// Add a project from a given directory path. Path can be relative
-    /// or absolute
+    /// Add a project from a given directory path
     #[arg(long, verbatim_doc_comment,
         conflicts_with_all = ["source", "iri", "iri_path", "version_constraint"])]
     pub dir: Option<Utf8PathBuf>,
-    /// Add a project from a KPAR at a given path. Path can be relative
-    /// or absolute
+    /// Add a project from a KPAR at a given path
     #[arg(long, verbatim_doc_comment,
         conflicts_with_all = ["source", "iri", "iri_path", "version_constraint"])]
     pub kpar_path: Option<Utf8PathBuf>,
@@ -394,7 +392,9 @@ pub struct AddProjectLocatorArgs {
 pub struct RemoveProjectLocatorArgs {
     /// Project identifier of the form `<publisher>/<name>`. `<publisher>`
     /// and `<name>` can either exactly match those of the project being
-    /// removed, or use lowercase letters only and replace spaces with `-`
+    /// removed, or be normalized: lowercase, with each run of spaces and
+    /// punctuation replaced by `-` (a single `.` is kept) and removed at
+    /// either end
     #[clap(
         default_value = None,
         value_name = "IDENTIFIER",
@@ -445,12 +445,10 @@ pub struct CloneProjectLocatorArgs {
         verbatim_doc_comment
     )]
     pub identifier: Option<(IndexPublisher, IndexName)>,
-    /// Clone a project from a given directory path. Path can be relative
-    /// or absolute
+    /// Clone a project from a given directory path
     #[arg(long, verbatim_doc_comment)]
     pub dir: Option<Utf8PathBuf>,
-    /// Clone a project from a KPAR at a given path. Path can be relative
-    /// or absolute
+    /// Clone a project from a KPAR at a given path
     #[arg(long, verbatim_doc_comment)]
     pub kpar_path: Option<Utf8PathBuf>,
     /// IRI/URI/URL identifying the project to be cloned. Use `--dir` or
@@ -489,11 +487,10 @@ pub struct InfoProjectLocatorArgs {
     )]
     pub identifier: Option<(IndexPublisher, IndexName)>,
     /// Use the project in a given directory instead of the current project.
-    /// Path can be relative or absolute
     #[arg(long, verbatim_doc_comment)]
     pub dir: Option<Utf8PathBuf>,
     /// Use the project from a KPAR at a given path instead of the current
-    /// project. Path can be relative or absolute
+    /// project
     #[arg(long, verbatim_doc_comment)]
     pub kpar_path: Option<Utf8PathBuf>,
     /// IRI/URI/URL identifying the project to be resolved and used instead
@@ -516,7 +513,9 @@ pub struct InfoProjectLocatorArgs {
 pub struct EnvProjectLocatorArgs {
     /// Project identifier of the form `<publisher>/<name>`. `<publisher>`
     /// and `<name>` can either exactly match those of the installed
-    /// project, or use lowercase letters only and replace spaces with `-`
+    /// project, or be normalized: lowercase, with each run of spaces and
+    /// punctuation replaced by `-` (a single `.` is kept) and removed at
+    /// either end
     #[clap(
         default_value = None,
         value_name = "IDENTIFIER",
@@ -792,6 +791,7 @@ pub enum InfoField {
     clippy::struct_excessive_bools,
     reason = "each `--clear-*` flag is an independent CLI switch"
 )]
+#[group(required = true, multiple = true)]
 pub struct EditArgs {
     /// Set the name
     #[arg(long, value_parser = parse_project_name, help_heading = "Project information")]
@@ -1030,7 +1030,7 @@ pub enum EnvCommand {
     #[clap(verbatim_doc_comment)]
     Sources {
         #[clap(flatten)]
-        locator: EnvProjectLocatorArgs,
+        locator: Box<EnvProjectLocatorArgs>,
         /// Version constraint selecting the installed project to list
         /// sources for. A bare version such as `1.2.3` means `^1.2.3`;
         /// use `=1.2.3` for an exact version. Defaults to the first
@@ -1448,8 +1448,7 @@ pub fn parse_project_identifier(s: &str) -> Result<(ProjectPublisher, ProjectNam
     ))
 }
 
-/// Parse a `<publisher>/<name>` identifier of a project resolved as an index
-/// usage, so spelled as an index usage can spell it
+/// Parse a `<publisher>/<name>` identifier for an index project
 pub fn parse_index_identifier(s: &str) -> Result<(IndexPublisher, IndexName), String> {
     let Some((publisher, name)) = s.split_once('/') else {
         return Err("identifier is not of the form `<publisher>/<name>`".to_owned());

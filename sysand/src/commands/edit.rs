@@ -20,7 +20,7 @@ use crate::{
 pub fn command_edit(mut project: LocalSrcProject, edits: EditArgs) -> Result<()> {
     let (edits_info, edits_meta) = (edits_info(&edits), edits_meta(&edits));
     if !edits_info && !edits_meta {
-        bail!("no edits given, see `sysand edit --help` for the fields that can be edited");
+        unreachable!()
     }
     if edits_info {
         let mut info = get_info_or_bail(&project)?;

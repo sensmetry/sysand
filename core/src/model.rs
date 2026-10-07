@@ -21,7 +21,8 @@ use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
 use crate::purl::parse_sysand_purl;
 use crate::utils::{
-    GENERAL_CATEGORY, IGNORABLE, PROJECT_FIELD_ASCII_PUNCTUATION, PURL_SEPARATOR, RelativePathKind,
+    CASE_MAPPER, GENERAL_CATEGORY, IGNORABLE, NFKC_NORMALIZER, NFKD_NORMALIZER,
+    PROJECT_FIELD_ASCII_PUNCTUATION, PURL_NAME_SEPARATOR, PURL_SEPARATOR, RelativePathKind,
     RelativeUnixPathError, UNNORMALIZED_PURL_SEPARATOR, XID_CONTINUE, lowercase_hex,
     parse_relative_unix_path,
 };
@@ -1439,6 +1440,20 @@ pub enum ProjectFieldErrorReason {
     End(char),
     #[error("must contain at least one letter or digit")]
     NoAlphanumeric,
+    /// Valid as given, but not once normalized. As separators (including
+    /// e.g. a fullwidth `／`) are folded into `-`, this only happens when
+    /// compatibility decomposition makes it too long, e.g. U+0F77 expands
+    /// into three characters
+    #[error("normalizes to `{}`, which {}", .0.normalized, .0.reason)]
+    Normalized(Box<NormalizedFieldError>),
+}
+
+/// Why a publisher or name is not valid once normalized, see
+/// [`ProjectFieldErrorReason::Normalized`]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NormalizedFieldError {
+    pub normalized: String,
+    pub reason: ProjectFieldErrorReason,
 }
 
 /// Describe `c` for an error message, also when it is invisible
@@ -1522,55 +1537,100 @@ fn validate_project_field(s: &str, kind: &'static str) -> Result<(), ProjectFiel
     Ok(())
 }
 
+/// Validate a publisher or name (`kind`), and its normalized form, which
+/// must be valid too. Returns the normalized form
+fn parse_project_field(s: &str, kind: &'static str) -> Result<String, ProjectFieldError> {
+    validate_project_field(s, kind)?;
+    // TODO: add a fast path for index-compliant spellings (the common case):
+    // normalize them with `normalize_index_field`, which is equivalent for
+    // them, and skip re-validating the result, which is then always valid.
+    // Then `normalize_typed_publisher`/`normalize_typed_name` and
+    // `Identifier::make_identifier_iri` would no longer need to try the
+    // index types first to avoid the full Unicode normalization
+    let normalized = normalize(s);
+    validate_project_field(&normalized, kind).map_err(|e| ProjectFieldError {
+        kind,
+        reason: ProjectFieldErrorReason::Normalized(Box::new(NormalizedFieldError {
+            normalized: normalized.clone(),
+            reason: e.reason,
+        })),
+    })?;
+    Ok(normalized)
+}
+
+/// The publisher of a project, as spelled and normalized
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
-pub struct ProjectPublisher(String);
+pub struct ProjectPublisher {
+    spelling: String,
+    normalized: String,
+}
 
 impl ProjectPublisher {
     pub fn parse(publisher: String) -> Result<Self, (String, ProjectFieldError)> {
-        match validate_project_field(&publisher, "publisher") {
-            Ok(()) => Ok(Self(publisher)),
+        match parse_project_field(&publisher, "publisher") {
+            Ok(normalized) => Ok(Self {
+                spelling: publisher,
+                normalized,
+            }),
             Err(e) => Err((publisher, e)),
         }
     }
 
-    /// The normalized publisher. Not normalized yet: the publisher as it is
-    pub fn normalized(&self) -> String {
-        self.0.clone()
+    /// The normalized publisher
+    pub fn normalized(&self) -> &str {
+        &self.normalized
+    }
+
+    /// The normalized publisher
+    pub fn into_normalized(self) -> String {
+        self.normalized
     }
 
     pub fn as_str(&self) -> &str {
-        &self.0
+        &self.spelling
     }
 
     pub fn into_string(self) -> String {
-        self.0
+        self.spelling
     }
 }
 
+/// The name of a project, as spelled and normalized
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
-pub struct ProjectName(String);
+pub struct ProjectName {
+    spelling: String,
+    normalized: String,
+}
 
 impl ProjectName {
     pub fn parse(name: String) -> Result<Self, (String, ProjectFieldError)> {
-        match validate_project_field(&name, "name") {
-            Ok(()) => Ok(Self(name)),
+        match parse_project_field(&name, "name") {
+            Ok(normalized) => Ok(Self {
+                spelling: name,
+                normalized,
+            }),
             Err(e) => Err((name, e)),
         }
     }
 
-    /// The normalized name. Not normalized yet: the name as it is
-    pub fn normalized(&self) -> String {
-        self.0.clone()
+    /// The normalized name
+    pub fn normalized(&self) -> &str {
+        &self.normalized
+    }
+
+    /// The normalized name
+    pub fn into_normalized(self) -> String {
+        self.normalized
     }
 
     pub fn as_str(&self) -> &str {
-        &self.0
+        &self.spelling
     }
 
     pub fn into_string(self) -> String {
-        self.0
+        self.spelling
     }
 }
 
@@ -1662,27 +1722,6 @@ impl IndexName {
     }
 }
 
-/// Lowercases ASCII and replaces spaces with hyphens. Only for the
-/// normalization of [`IndexPublisher`] and [`IndexName`]
-fn normalize_index_field(s: &str) -> String {
-    s.chars()
-        .map(|c| {
-            if c == char::from(UNNORMALIZED_PURL_SEPARATOR) {
-                char::from(PURL_SEPARATOR)
-            } else {
-                c.to_ascii_lowercase()
-            }
-        })
-        .collect()
-}
-
-/// Whether `s` is already what [`normalize_index_field`] makes of it: it has
-/// no ASCII uppercase letter and no space
-fn is_normalized_index_field(s: &str) -> bool {
-    !s.bytes()
-        .any(|b| b.is_ascii_uppercase() || b == UNNORMALIZED_PURL_SEPARATOR)
-}
-
 /// How the publisher of a typed usage of any kind normalizes: as
 /// [`IndexPublisher::normalized`] if it is spelled as an index usage can
 /// spell it, otherwise as [`ProjectPublisher::normalized`]. A publisher that
@@ -1691,7 +1730,7 @@ pub(crate) fn normalize_typed_publisher(publisher: &str) -> String {
     match IndexPublisher::parse(publisher.to_owned()) {
         Ok(publisher) => publisher.normalized(),
         Err((publisher, _)) => match ProjectPublisher::parse(publisher) {
-            Ok(publisher) => publisher.normalized(),
+            Ok(publisher) => publisher.into_normalized(),
             Err((publisher, _)) => publisher,
         },
     }
@@ -1703,7 +1742,7 @@ pub(crate) fn normalize_typed_name(name: &str) -> String {
     match IndexName::parse(name.to_owned()) {
         Ok(name) => name.normalized(),
         Err((name, _)) => match ProjectName::parse(name) {
-            Ok(name) => name.normalized(),
+            Ok(name) => name.into_normalized(),
             Err((name, _)) => name,
         },
     }
@@ -1752,19 +1791,19 @@ impl TryFrom<String> for ProjectPublisher {
 
 impl From<ProjectPublisher> for String {
     fn from(value: ProjectPublisher) -> Self {
-        value.0
+        value.spelling
     }
 }
 
 impl AsRef<str> for ProjectPublisher {
     fn as_ref(&self) -> &str {
-        &self.0
+        &self.spelling
     }
 }
 
 impl Display for ProjectPublisher {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
+        f.write_str(&self.spelling)
     }
 }
 
@@ -1778,20 +1817,96 @@ impl TryFrom<String> for ProjectName {
 
 impl From<ProjectName> for String {
     fn from(value: ProjectName) -> Self {
-        value.0
+        value.spelling
     }
 }
 
 impl AsRef<str> for ProjectName {
     fn as_ref(&self) -> &str {
-        &self.0
+        &self.spelling
     }
 }
 
 impl Display for ProjectName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
+        f.write_str(&self.spelling)
     }
+}
+
+/// Normalize a non-index field. For index-compliant strings this
+/// is equivalent to [`normalize_index_field`] (and must remain so),
+/// but it's very expensive and so the simplified version remains
+///
+/// After NFKC_Casefold, each run of separators (see [`is_word_char`])
+/// becomes a single [`PURL_SEPARATOR`], except a run of a single
+/// [`PURL_NAME_SEPARATOR`], which is kept, and runs at either end are
+/// dropped. The result only contains word characters, [`PURL_SEPARATOR`]
+/// and [`PURL_NAME_SEPARATOR`]. An index-compliant string only has single
+/// separators between words, which stay as [`normalize_index_field`] makes
+/// them
+fn normalize(input: &str) -> String {
+    // Implements Unicode D147 (Identifier normalization for comparison),
+    // aka NFKC_Casefold(NFD(X)), which icu4x does not provide.
+    // Since IGNORABLE codepoints are not present, this simplifies to
+    // NFKC(CaseFold(NFKD(X)))
+    let decomp = NFKD_NORMALIZER.normalize(input);
+    let folded = CASE_MAPPER.fold_string(&decomp);
+    let composed = NFKC_NORMALIZER.normalize(&folded);
+
+    let mut normalized = String::with_capacity(composed.len());
+    // Length of the current run of separators, and whether it starts with
+    // `PURL_NAME_SEPARATOR`
+    let mut run = 0usize;
+    let mut run_starts_with_dot = false;
+    for c in composed.chars() {
+        if is_word_char(c) {
+            // A run at the start is dropped
+            if run > 0 && !normalized.is_empty() {
+                normalized.push(char::from(if run == 1 && run_starts_with_dot {
+                    PURL_NAME_SEPARATOR
+                } else {
+                    PURL_SEPARATOR
+                }));
+            }
+            run = 0;
+            normalized.push(c);
+        } else {
+            if run == 0 {
+                run_starts_with_dot = c == char::from(PURL_NAME_SEPARATOR);
+            }
+            run += 1;
+        }
+    }
+    // A run at the end is dropped by never being pushed
+    normalized
+}
+
+/// Whether `c` is part of a word of a normalized publisher or name: an
+/// identifier character (`XID_Continue`) other than punctuation, such as
+/// `_`. Everything else separates words
+fn is_word_char(c: char) -> bool {
+    XID_CONTINUE.contains(c) && !GeneralCategoryGroup::Punctuation.contains(GENERAL_CATEGORY.get(c))
+}
+
+/// Lowercases ASCII and replaces spaces with hyphens. Only for the
+/// normalization of [`IndexPublisher`] and [`IndexName`]
+fn normalize_index_field(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c == char::from(UNNORMALIZED_PURL_SEPARATOR) {
+                char::from(PURL_SEPARATOR)
+            } else {
+                c.to_ascii_lowercase()
+            }
+        })
+        .collect()
+}
+
+/// Whether `s` is already what [`normalize_index_field`] makes of it: it has
+/// no ASCII uppercase letter and no space
+fn is_normalized_index_field(s: &str) -> bool {
+    !s.bytes()
+        .any(|b| b.is_ascii_uppercase() || b == UNNORMALIZED_PURL_SEPARATOR)
 }
 
 #[cfg(test)]

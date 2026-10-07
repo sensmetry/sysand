@@ -2486,12 +2486,12 @@ fn remove_iri_of_a_typed_usage_suggests_identifier() -> Result<(), Box<dyn std::
     Ok(())
 }
 
-/// Removing a typed usage spelled as an index usage cannot spell it (here
-/// the publisher's `.`) must also remove it from the lockfile, which records
-/// its `urn:sysand` identifier. Such a spelling only normalizes as a project
-/// does, which does not normalize yet, so only the declared spelling names it
+/// Removing a typed usage by its normalized spelling must also remove it
+/// from the lockfile. When the spelling is not one an index usage can spell
+/// (here the publisher's `.`), the lock records a `urn:sysand` identifier of
+/// the normalized spelling, in which the `.` at the end is dropped
 #[test]
-fn remove_typed_with_non_index_spelling_updates_lockfile() -> Result<(), Box<dyn std::error::Error>>
+fn remove_typed_by_normalized_spelling_updates_lockfile() -> Result<(), Box<dyn std::error::Error>>
 {
     let (_temp_dir, cwd, out) = cli_init_project_basic("a", "remove_norm_app", "1.0.0")?;
     out.assert().success();
@@ -2516,23 +2516,18 @@ fn remove_typed_with_non_index_spelling_updates_lockfile() -> Result<(), Box<dyn
     let lockfile_path = cwd.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME);
     let lockfile = fs::read_to_string(&lockfile_path)?;
     assert!(
-        lockfile.contains("urn:sysand:ACME%20Inc./Foo"),
+        lockfile.contains("urn:sysand:acme-inc/foo"),
         "lockfile must reference the added dependency: {lockfile}"
     );
 
-    run_sysand_in(&cwd, ["remove", "--no-index", "acme-inc./foo"], None)?
-        .assert()
-        .failure()
-        .stderr(contains("could not find usage for `acme-inc./foo`"));
-
-    run_sysand_in(&cwd, ["remove", "--no-index", "ACME Inc./Foo"], None)?
+    run_sysand_in(&cwd, ["remove", "--no-index", "acme-inc/foo"], None)?
         .assert()
         .success()
         .stderr(contains("Removed `ACME Inc./Foo` (path `dep`)"));
 
     let lockfile = fs::read_to_string(&lockfile_path)?;
     assert!(
-        !lockfile.contains("urn:sysand:ACME%20Inc./Foo"),
+        !lockfile.contains("urn:sysand:acme-inc/foo"),
         "lockfile must not reference the removed dependency: {lockfile}"
     );
 

@@ -9,7 +9,7 @@ use std::{
 
 use digest::{array::Array, typenum};
 use icu_casemap::CaseMapperBorrowed;
-use icu_normalizer::ComposingNormalizerBorrowed;
+use icu_normalizer::{ComposingNormalizerBorrowed, DecomposingNormalizerBorrowed};
 use icu_properties::{
     CodePointMapDataBorrowed, CodePointSetDataBorrowed,
     props::{BidiControl, DefaultIgnorableCodePoint, GeneralCategory, XidContinue},
@@ -30,20 +30,22 @@ pub type ProvidedIdentifiers = HashSet<Identifier>;
 
 /// Full Unicode case folding
 pub(crate) const CASE_MAPPER: CaseMapperBorrowed = CaseMapperBorrowed::new();
-/// Unicode Normalization Form C
 pub(crate) const NFC_NORMALIZER: ComposingNormalizerBorrowed =
     ComposingNormalizerBorrowed::new_nfc();
-/// `Bidi_Control` characters: invisible directional formatting
+pub(crate) const NFKC_NORMALIZER: ComposingNormalizerBorrowed =
+    ComposingNormalizerBorrowed::new_nfkc();
+pub(crate) const NFKD_NORMALIZER: DecomposingNormalizerBorrowed =
+    DecomposingNormalizerBorrowed::new_nfkd();
+/// `Bidi_Control` characters are invisible directional formatting
 pub(crate) const BIDI_CONTROL: CodePointSetDataBorrowed =
     CodePointSetDataBorrowed::new::<BidiControl>();
-/// `Default_Ignorable_Code_Point` characters: normally invisible
+/// `Default_Ignorable_Code_Point` characters are normally invisible
 pub(crate) const IGNORABLE: CodePointSetDataBorrowed =
     CodePointSetDataBorrowed::new::<DefaultIgnorableCodePoint>();
-/// `XID_Continue` characters: those that can continue a Unicode identifier
-/// (UAX #31)
+/// Unicode identifier continuation (UAX #31)
 pub(crate) const XID_CONTINUE: CodePointSetDataBorrowed =
     CodePointSetDataBorrowed::new::<XidContinue>();
-/// The `General_Category` of every character
+/// Character Unicode category
 pub(crate) const GENERAL_CATEGORY: CodePointMapDataBorrowed<GeneralCategory> =
     CodePointMapDataBorrowed::new();
 

@@ -492,20 +492,100 @@ fn index_publisher_and_name_normalize() {
     assert!(!name("My Lib").is_normalized());
 }
 
+/// A project publisher or name keeps its spelling, and stores its normalized
+/// form
 #[test]
-fn project_publisher_and_name_are_not_normalized_yet() {
-    assert_eq!(
-        ProjectPublisher::parse("Foo & Bar".to_owned())
-            .unwrap()
-            .normalized(),
-        "Foo & Bar"
-    );
-    assert_eq!(
-        ProjectName::parse("My Lib".to_owned())
-            .unwrap()
-            .normalized(),
-        "My Lib"
-    );
+fn project_publisher_and_name_store_their_normalized_form() {
+    let publisher = ProjectPublisher::parse("Foo & Bar".to_owned()).unwrap();
+    assert_eq!(publisher.as_str(), "Foo & Bar");
+    assert_eq!(publisher.to_string(), "Foo & Bar");
+    assert_eq!(publisher.normalized(), "foo-bar");
+    assert_eq!(publisher.clone().into_normalized(), "foo-bar");
+    assert_eq!(publisher.into_string(), "Foo & Bar");
+
+    let name = ProjectName::parse("Ａｃｍｅ Lib".to_owned()).unwrap();
+    assert_eq!(name.as_str(), "Ａｃｍｅ Lib");
+    assert_eq!(name.normalized(), "acme-lib");
+
+    // Serialized as spelled; the normalized form is recomputed when read
+    let json = serde_json::to_string(&name).unwrap();
+    assert_eq!(json, r#""Ａｃｍｅ Lib""#);
+    assert_eq!(serde_json::from_str::<ProjectName>(&json).unwrap(), name);
+}
+
+/// Normalization folds every run of separators into a single `-` (keeping a
+/// lone `.`), and drops them at either end
+#[test]
+fn project_fields_normalize_separators() {
+    use super::normalize;
+
+    for (spelling, normalized) in [
+        ("Acme Labs", "acme-labs"),
+        ("My.Lib v2", "my.lib-v2"),
+        ("ACME Inc.", "acme-inc"),
+        ("AT&T", "at-t"),
+        ("C++ Tools", "c-tools"),
+        ("Foo (EU)", "foo-eu"),
+        ("O'Reilly", "o-reilly"),
+        ("Foo, Inc.", "foo-inc"),
+        ("my_lib", "my-lib"),
+        ("a. b", "a-b"),
+        ("a..b", "a-b"),
+        ("v1.0 (beta)", "v1.0-beta"),
+        // Fullwidth punctuation, which NFKC makes ASCII, separates words too
+        ("Acme／Labs", "acme-labs"),
+        ("Acme：Labs", "acme-labs"),
+        // Fullwidth letters are folded to their ASCII lowercase
+        ("Ａｃｍｅ", "acme"),
+        // Non-ASCII words are kept, case folded
+        ("Ąžuolas Ūkis", "ąžuolas-ūkis"),
+    ] {
+        assert_eq!(normalize(spelling), normalized, "{spelling:?}");
+    }
+}
+
+/// An index spelling normalizes as a project spelling the same way it does
+/// as an index spelling
+#[test]
+fn project_normalization_agrees_with_index_normalization() {
+    use super::{normalize, normalize_index_field};
+
+    for spelling in [
+        "acme",
+        "Acme Labs",
+        "ACME-LABS-42",
+        "My.Project Alpha",
+        "my.lib-v2",
+        "1.2",
+        "4cme",
+    ] {
+        crate::model::IndexName::parse(spelling.to_owned()).unwrap();
+        assert_eq!(
+            normalize(spelling),
+            normalize_index_field(spelling),
+            "{spelling:?}"
+        );
+    }
+}
+
+/// A publisher or name must be valid once normalized too, e.g. not get too
+/// long, as NFKC can expand some characters
+#[test]
+fn project_publisher_and_name_must_be_valid_once_normalized() {
+    // U+0F77 is an identifier character that NFKC triples in length
+    let field = format!("a{}", "\u{0F77}".repeat(99));
+    assert!(field.len() <= 300);
+    for err in [
+        ProjectPublisher::parse(field.clone()).unwrap_err(),
+        ProjectName::parse(field.clone()).unwrap_err(),
+    ] {
+        assert_eq!(err.0, field);
+        let message = err.1.to_string();
+        assert!(
+            message.contains("normalizes to `a") && message.contains("cannot be longer than 300"),
+            "{message}"
+        );
+    }
 }
 
 /// A typed usage's spelling normalizes as an index spells it when it can,
@@ -516,9 +596,9 @@ fn typed_spellings_normalize_as_index_or_project() {
 
     assert_eq!(normalize_typed_publisher("Acme Labs"), "acme-labs");
     assert_eq!(normalize_typed_name("My.Lib v2"), "my.lib-v2");
-    // Not valid in an index: not normalized, as projects are not yet
-    assert_eq!(normalize_typed_publisher("Foo & Bar"), "Foo & Bar");
-    assert_eq!(normalize_typed_name("My_Lib"), "My_Lib");
+    // Not valid in an index: normalized as a project
+    assert_eq!(normalize_typed_publisher("Foo & Bar"), "foo-bar");
+    assert_eq!(normalize_typed_name("My_Lib"), "my-lib");
     // Not even a valid project field: kept as it is
     assert_eq!(normalize_typed_publisher("a/b"), "a/b");
 }

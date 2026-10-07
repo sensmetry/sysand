@@ -551,15 +551,15 @@ impl From<&InterchangeProjectUsage> for Identifier {
     fn from(value: &InterchangeProjectUsage) -> Self {
         match value {
             InterchangeProjectUsage::Resource { resource, .. } => Self(resource.to_string()),
+            InterchangeProjectUsage::Directory {
+                publisher, name, ..
+            }
+            | InterchangeProjectUsage::KparPath {
+                publisher, name, ..
+            } => Self::from_project(publisher, name),
             InterchangeProjectUsage::Index {
                 publisher, name, ..
             } => Self::from_index(publisher, name),
-            typed => {
-                let (publisher, name) = typed
-                    .typed_publisher_name()
-                    .expect("a non-resource usage is typed");
-                Self::make_identifier_iri(publisher, name)
-            }
         }
     }
 }
@@ -586,6 +586,38 @@ impl Identifier {
             publisher.normalized(),
             name.normalized()
         ))
+    }
+
+    /// The identifier of the project spelled `publisher`/`name`: as
+    /// [`Self::from_index`] makes it if an index usage can spell it so,
+    /// otherwise a `urn:sysand` IRI of the normalized publisher and name
+    ///
+    /// Which of the two is decided by the spelling as given, not by the
+    /// normalized form: e.g. `ACME Inc./Foo` (not an index spelling, due to
+    /// the `.`) is `urn:sysand:acme-inc/foo`, although its normalized form
+    /// `acme-inc/foo` is a valid index spelling, which is
+    /// `pkg:sysand/acme-inc/foo`. So a directory or KPAR usage of
+    /// `ACME Inc./Foo` and an index usage of `acme-inc/foo` are different
+    /// projects. Deciding by the normalized form instead would make them the
+    /// same project, at the cost of changing the identifiers of such spellings
+    /// from `urn:sysand` to `pkg:sysand`
+    pub fn from_project(publisher: &ProjectPublisher, name: &ProjectName) -> Self {
+        if let (Ok(publisher), Ok(name)) = (
+            IndexPublisher::parse(publisher.as_str().to_owned()),
+            IndexName::parse(name.as_str().to_owned()),
+        ) {
+            return Self::from_index(&publisher, &name);
+        }
+        Self::urn(publisher.normalized(), name.normalized())
+    }
+
+    /// The `urn:sysand` IRI of `publisher`/`name`
+    fn urn(publisher: &str, name: &str) -> Self {
+        let mut enc_pub = EString::<IData>::new();
+        enc_pub.encode_str::<IData>(publisher);
+        let mut enc_name = EString::<IData>::new();
+        enc_name.encode_str::<IData>(name);
+        Self(format!("urn:sysand:{enc_pub}/{enc_name}"))
     }
 
     /// The (possibly not well-formed) identifier of a usage that has *not*
@@ -669,23 +701,22 @@ impl Identifier {
         debug_assert_ne!(publisher, "");
         debug_assert_ne!(name, "");
 
-        if let (Ok(publisher), Ok(name)) = (
-            IndexPublisher::parse(publisher.to_owned()),
-            IndexName::parse(name.to_owned()),
+        match (
+            ProjectPublisher::parse(publisher.to_owned()),
+            ProjectName::parse(name.to_owned()),
         ) {
-            return Self::from_index(&publisher, &name);
+            (Ok(publisher), Ok(name)) => Self::from_project(&publisher, &name),
+            // Not a valid project spelling (only from an unvalidated usage):
+            // what of it is valid normalized, the rest as it is
+            (publisher, name) => {
+                let publisher = publisher.map_or_else(
+                    |(publisher, _)| publisher,
+                    ProjectPublisher::into_normalized,
+                );
+                let name = name.map_or_else(|(name, _)| name, ProjectName::into_normalized);
+                Self::urn(&publisher, &name)
+            }
         }
-        // Not spelled as an index usage can spell it: as a project does
-        let publisher = ProjectPublisher::parse(publisher.to_owned())
-            .map_or_else(|(publisher, _)| publisher, |p| p.normalized());
-        let name =
-            ProjectName::parse(name.to_owned()).map_or_else(|(name, _)| name, |n| n.normalized());
-        let mut enc_pub = EString::<IData>::new();
-        enc_pub.encode_str::<IData>(&publisher);
-        let mut enc_name = EString::<IData>::new();
-        enc_name.encode_str::<IData>(&name);
-        let iri = format!("urn:sysand:{enc_pub}/{enc_name}");
-        Self(iri)
     }
 }
 

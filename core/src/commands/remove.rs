@@ -78,9 +78,12 @@ pub fn do_remove<P: ProjectMut>(
         }
         // The same project may be declared as a typed usage, but with
         // different spelling
-        // TODO: this only finds other spellings if Identifier is of
-        // `pkg:sysand` shape; otherwise currently no normalization
-        // is done on it
+        // FIXME: a respelling is only found when it gets the same kind of
+        // identifier as the declared spelling (see
+        // `Identifier::from_project`). E.g. with `ACME Inc./Foo` declared
+        // (`urn:sysand:acme-inc/foo`), `Acme Inc./FOO` is reported as spelled
+        // differently, but `ACME Inc/Foo` (`pkg:sysand/acme-inc/foo`) only as
+        // not found
         UsageRef::Typed(publisher, name) => {
             let identifier = Identifier::from_pub_name(publisher, name);
             if let Some(
