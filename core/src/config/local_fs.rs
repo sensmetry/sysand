@@ -32,17 +32,22 @@ impl From<FsIoError> for ConfigReadError {
     }
 }
 
+/// Read the configuration file at `path`, or the default configuration if
+/// there is no file there
 pub fn get_config<P: AsRef<Utf8Path>>(path: P) -> Result<Config, ConfigReadError> {
     if wrapfs::is_file(path.as_ref())? {
-        let contents = {
-            fs::read_to_string(path.as_ref())
-                .map_err(|e| Box::new(FsIoError::ReadFile(path.as_ref().to_owned(), e)))
-        }?;
-        Ok(toml::from_str(&contents)
-            .map_err(|e| ConfigReadError::Toml(path.as_ref().to_owned().into(), e))?)
+        read_config(path)
     } else {
         Ok(Config::default())
     }
+}
+
+/// Read the configuration file at `path`, which must exist
+pub fn read_config<P: AsRef<Utf8Path>>(path: P) -> Result<Config, ConfigReadError> {
+    let path = path.as_ref();
+    let contents =
+        fs::read_to_string(path).map_err(|e| Box::new(FsIoError::ReadFile(path.to_owned(), e)))?;
+    toml::from_str(&contents).map_err(|e| ConfigReadError::Toml(path.into(), e))
 }
 
 pub fn load_configs<P: AsRef<Utf8Path>>(working_dir: P) -> Result<Config, ConfigReadError> {

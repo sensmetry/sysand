@@ -1906,6 +1906,30 @@ pub struct ProjectSourceOptions {
     pub as_remote_git: Option<Iri<String>>,
 }
 
+impl ProjectSourceOptions {
+    /// Whether a source is given, which `add` writes to the configuration file
+    pub fn is_given(&self) -> bool {
+        let Self {
+            from_path,
+            from_url,
+            as_editable,
+            as_local_src,
+            as_local_kpar,
+            as_remote_src,
+            as_remote_kpar,
+            as_remote_git,
+        } = self;
+        from_path.is_some()
+            || from_url.is_some()
+            || as_editable.is_some()
+            || as_local_src.is_some()
+            || as_local_kpar.is_some()
+            || as_remote_src.is_some()
+            || as_remote_kpar.is_some()
+            || as_remote_git.is_some()
+    }
+}
+
 #[derive(clap::Args, Debug, Clone)]
 pub struct SourcesOptions {
     /// Do not include sources for dependencies

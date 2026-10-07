@@ -74,6 +74,25 @@ fn load_configs_merges_user_config_before_working_dir() -> Result<(), Box<dyn Er
 }
 
 #[test]
+fn get_config_defaults_where_read_config_fails() -> Result<(), Box<dyn Error>> {
+    let dir = tempdir()?;
+    let missing = dir.path().join(local_fs::CONFIG_FILE);
+
+    // A directory is not a configuration file either.
+    for path in [missing.as_path(), dir.path()] {
+        assert_eq!(local_fs::get_config(path)?, Config::default());
+        let err = local_fs::read_config(path).unwrap_err();
+        assert!(
+            matches!(err, local_fs::ConfigReadError::Io(_)),
+            "{path}: {err:?}"
+        );
+        assert!(err.to_string().contains(path.as_str()), "{err}");
+    }
+
+    Ok(())
+}
+
+#[test]
 fn add_project_source_to_config() -> Result<(), Box<dyn Error>> {
     let dir = tempdir()?;
     let config_path = dir.path().join(local_fs::CONFIG_FILE);
