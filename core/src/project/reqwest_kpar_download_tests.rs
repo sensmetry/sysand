@@ -306,3 +306,27 @@ fn remote_kpar_sources_keep_userinfo_verbatim() -> Result<(), Box<dyn std::error
     );
     Ok(())
 }
+
+#[test]
+fn bad_http_status_message_explains_not_found() {
+    let render = |status: u16| {
+        ReqwestKparDownloadedError::BadHttpStatus {
+            url: "https://index.example/p/1.0.0/project.kpar".into(),
+            status: reqwest::StatusCode::from_u16(status).unwrap(),
+        }
+        .to_string()
+    };
+
+    let not_found = render(404);
+    let (first, rest) = not_found.split_once('\n').expect("hint on its own line");
+    assert_eq!(
+        first,
+        "HTTP request to `https://index.example/p/1.0.0/project.kpar` returned status 404 Not Found"
+    );
+    assert!(rest.contains("may not exist on this index"), "{rest}");
+
+    assert_eq!(
+        render(500),
+        "HTTP request to `https://index.example/p/1.0.0/project.kpar` returned status 500 Internal Server Error"
+    );
+}
