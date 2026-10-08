@@ -12,9 +12,11 @@ use typed_path::Utf8UnixPathBuf;
 
 use crate::utils::format_err;
 use crate::{
+    commands::lock::DEFAULT_LOCKFILE_NAME,
     lock::{
-        CURRENT_LOCK_VERSION, LOCKFILE_PREFIX, Lock, Project, RemoveUsageOutcome, Source, Usage,
-        ValidationError, VersionError, check_lock_version,
+        CURRENT_LOCK_VERSION, LOCKFILE_PREFIX, Lock, LockRepr, Lockfile, LockfileError, ParseError,
+        Project, RemoveUsageOutcome, Source, Usage, ValidationError, VersionError,
+        check_lock_version,
     },
     project::ProjectChecksum,
 };
@@ -61,7 +63,7 @@ sources = [{{ registry = "https://example.org" }}]
 "#
     );
 
-    let Err(err) = Lock::from_str(&lockfile) else {
+    let Err(err) = Lock::parse(&lockfile) else {
         panic!()
     };
     let crate::lock::ParseError::Version(VersionError::Unsupported(s)) = &err else {
@@ -86,7 +88,7 @@ sources = [{{ index_kpar = "https://example.org/project.kpar", kpar_size = 0, kp
 "#
     );
 
-    let Err(err) = Lock::from_str(&lockfile) else {
+    let Err(err) = Lock::parse(&lockfile) else {
         panic!()
     };
     let crate::lock::ParseError::Toml(_) = err else {
@@ -109,7 +111,7 @@ fn to_toml_matches_expected<D: Display>(projects: Vec<Project>, toml: D) {
         projects,
     };
     let expected = format!("{LOCKFILE_PREFIX}lock_version = \"{CURRENT_LOCK_VERSION}\"\n{toml}");
-    assert_eq!(lock.to_string(), expected);
+    assert_eq!(lock.to_toml().to_string(), expected);
 }
 
 #[test]
@@ -429,8 +431,8 @@ usages = [
 
 fn roundtrip_makes_no_changes<D: Display>(toml: D) {
     let expected = format!("{LOCKFILE_PREFIX}lock_version = \"{CURRENT_LOCK_VERSION}\"\n{toml}");
-    let lockfile: Lock = toml::from_str(&expected).unwrap();
-    assert_eq!(lockfile.to_string(), expected);
+    let lockfile = Lock::from(toml::from_str::<LockRepr>(&expected).unwrap());
+    assert_eq!(lockfile.to_toml().to_string(), expected);
 }
 
 #[test]
@@ -1189,7 +1191,7 @@ version = "1.0.0"
 "#
     );
 
-    let Err(err) = Lock::from_str(&lockfile) else {
+    let Err(err) = Lock::parse(&lockfile) else {
         panic!()
     };
     let crate::lock::ParseError::Version(VersionError::Unsupported(s)) = &err else {
@@ -1209,7 +1211,7 @@ version = "1.0.0"
 "#
     );
 
-    let Err(err) = Lock::from_str(&lockfile) else {
+    let Err(err) = Lock::parse(&lockfile) else {
         panic!()
     };
     let crate::lock::ParseError::Version(VersionError::Unsupported(s)) = &err else {
@@ -1565,4 +1567,93 @@ fn remove_usage_keeps_sibling_usage_and_its_own_subtree() {
         root.usages.iter().map(Usage::inner).collect::<Vec<_>>(),
         vec!["urn:c"]
     );
+}
+
+#[test]
+fn lockfile_try_read_missing_is_none() {
+    let dir = camino_tempfile::tempdir().unwrap();
+    assert!(Lockfile::try_read(dir.path()).unwrap().is_none());
+}
+
+#[test]
+fn lockfile_write_then_read_roundtrips() {
+    let dir = camino_tempfile::tempdir().unwrap();
+    let lock = Lock {
+        lock_version: CURRENT_LOCK_VERSION.to_owned(),
+        projects: vec![Project {
+            publisher: None,
+            name: "Root".to_owned(),
+            version: "1.0.0".to_owned(),
+            exports: vec![],
+            identifiers: vec![],
+            usages: vec![],
+            sources: vec![Source::Editable {
+                editable: ".".into(),
+            }],
+        }],
+    };
+    let text = Lockfile::to_text(&lock);
+    let lockfile = Lockfile::new(dir.path(), lock);
+    lockfile.write().unwrap();
+    assert_eq!(
+        std::fs::read_to_string(lockfile.path()).unwrap(),
+        text,
+        "`write` and `to_text` must agree"
+    );
+
+    let read = Lockfile::read(dir.path()).unwrap();
+    assert_eq!(read.path(), lockfile.path());
+    assert_eq!(read.lock(), lockfile.lock());
+    assert_eq!(
+        Lockfile::try_read(dir.path()).unwrap().unwrap().into_lock(),
+        read.into_lock()
+    );
+}
+
+#[test]
+fn lockfile_parse_error_includes_path() {
+    let dir = camino_tempfile::tempdir().unwrap();
+    let path = dir.path().join(DEFAULT_LOCKFILE_NAME);
+    std::fs::write(&path, r#"lock_version = "0.5""#).unwrap();
+
+    let Err(err) = Lockfile::try_read(dir.path()) else {
+        panic!()
+    };
+    let LockfileError::Parse(err_path, ParseError::Version(VersionError::Unsupported(v))) = &err
+    else {
+        panic!("expected parse error, got {err:?}")
+    };
+    assert_eq!(err_path, &path);
+    assert_eq!(v, "0.5");
+    assert!(matches!(
+        Lockfile::read(dir.path()),
+        Err(LockfileError::Parse(..))
+    ));
+}
+
+#[test]
+fn lockfile_errors_mention_path_and_cause_once() {
+    let dir = camino_tempfile::tempdir().unwrap();
+    let path = dir.path().join(DEFAULT_LOCKFILE_NAME);
+    for (text, cause) in [
+        ("garbage = [", "unclosed array"),
+        (
+            "lock_version = \"0.5\"",
+            "lockfile version `0.5` is not supported",
+        ),
+        (
+            "lock_version = \"0.6\"\n[[project]]\nname = 1\n",
+            "invalid type: integer `1`, expected a string",
+        ),
+    ] {
+        std::fs::write(&path, text).unwrap();
+        let message = format_err(Lockfile::read(dir.path()).unwrap_err());
+        assert_eq!(message.matches(path.as_str()).count(), 1, "{message}");
+        assert_eq!(message.matches(cause).count(), 1, "{message}");
+    }
+
+    std::fs::remove_file(&path).unwrap();
+    std::fs::create_dir(&path).unwrap();
+    let message = format_err(Lockfile::read(dir.path()).unwrap_err());
+    assert_eq!(message.matches(path.as_str()).count(), 1, "{message}");
 }

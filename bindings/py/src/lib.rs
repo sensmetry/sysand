@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{iter, str::FromStr as _, sync::Arc};
+use std::{iter, sync::Arc};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use fluent_uri::Iri;
@@ -33,7 +33,7 @@ use sysand_core::{
             do_env_local_dir,
         },
         init::do_init_local_file,
-        lock::{DEFAULT_LOCKFILE_NAME, LockError, LockProjectError},
+        lock::{LockError, LockProjectError},
         sync::SyncOutcome,
     },
     config::{
@@ -58,7 +58,7 @@ use sysand_core::{
     index_location::IndexLocation,
     info::{InfoError, InfoProjectError, do_info, do_info_project},
     init::InitError,
-    lock::{Lock, Project as LockedProject},
+    lock::{Lock, Lockfile, Project as LockedProject},
     model::{
         IndexName, IndexPublisher, InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw,
         InterchangeProjectMetadataRaw, InterchangeProjectUsage, InterchangeProjectUsageRaw,
@@ -798,11 +798,16 @@ fn do_lock_py(
         )
         .map_err(|e| lock_error_to_failure(e, &auth, &auth_policy))?;
 
-        let text = lock.to_string();
-        if write {
-            wrapfs::write(project_root.join(DEFAULT_LOCKFILE_NAME), &text)
+        let text = Lockfile::to_text(&lock);
+        let lock = if write {
+            let lockfile = Lockfile::new(&project_root, lock);
+            lockfile
+                .write()
                 .map_err(|e| Failure::Wrote(format_err(e)))?;
-        }
+            lockfile.into_lock()
+        } else {
+            lock
+        };
         Ok((text, lock.projects))
     });
     outcome.map_err(|failure| failure.into_pyerr(py))
@@ -859,26 +864,20 @@ fn do_sync_py(
 
         // The lockfile is read, or written, before the environment is
         // created, so a failure to lock leaves no environment behind.
-        let lockfile_path = project_root.join(DEFAULT_LOCKFILE_NAME);
-        let parse = |text: &str| {
-            Lock::from_str(text).map_err(|e| {
-                ProjectError::new_err(format!(
-                    "invalid lockfile `{lockfile_path}`:\n{}",
-                    format_err(e)
-                ))
-            })
-        };
         let (lock, wrote_lock) = match lock_text {
             Some(text) => (
-                Lock::from_str(&text).map_err(|e| {
+                Lockfile::parse_text(&text).map_err(|e| {
                     ProjectError::new_err(format!("invalid lockfile: {}", format_err(e)))
                 })?,
                 false,
             ),
-            None => match std::fs::read_to_string(&lockfile_path) {
-                Ok(text) => (parse(&text)?, false),
-                // As the CLI: without a lockfile, lock first and write it.
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            None => {
+                if let Some(lockfile) = Lockfile::try_read(&project_root)
+                    .map_err(|e| ProjectError::new_err(format_err(e)))?
+                {
+                    (lockfile.into_lock(), false)
+                } else {
+                    // As the CLI: without a lockfile, lock first and write it.
                     let config = config_for(&resolution, &project_root)?;
                     let lock = resolve_lock(
                         ".",
@@ -892,17 +891,13 @@ fn do_sync_py(
                         &ctx,
                     )
                     .map_err(|e| lock_error_to_failure(e, &auth, &auth_policy))?;
-                    wrapfs::write(&lockfile_path, lock.to_string())
+                    let lockfile = Lockfile::new(&project_root, lock);
+                    lockfile
+                        .write()
                         .map_err(|e| Failure::Wrote(format_err(e)))?;
-                    (lock, true)
+                    (lockfile.into_lock(), true)
                 }
-                Err(e) => {
-                    return Err(ProjectError::new_err(format!(
-                        "failed to read lockfile `{lockfile_path}`: {e}"
-                    ))
-                    .into());
-                }
-            },
+            }
         };
 
         let mut provided = if resolution.include_std {

@@ -14,7 +14,7 @@ use sysand_core::{
         DEFAULT_ENV_NAME,
         local_directory::{LocalDirectoryEnvironment, METADATA_PATH},
     },
-    lock::{Lock, Source},
+    lock::{Lockfile, Source},
 };
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
@@ -657,8 +657,7 @@ fn sync_kpar_path_usage_transitive() -> Result<(), Box<dyn std::error::Error>> {
     let out = run_sysand_in(&cwd, ["lock"], None)?;
     out.assert().success();
 
-    let lock_file: Lock =
-        toml::from_str(&std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?)?;
+    let lock_file = Lockfile::read(&cwd)?.into_lock();
     let projects = lock_file.projects;
 
     assert_eq!(

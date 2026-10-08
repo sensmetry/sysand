@@ -11,7 +11,7 @@ use sysand_core::{
     commands::lock::DEFAULT_LOCKFILE_NAME,
     config::{self, ConfigProject, OverrideSource},
     env::{DEFAULT_ENV_NAME, local_directory::LocalDirectoryEnvironment},
-    lock::{Lock, Source},
+    lock::{Lockfile, Source},
     model::{InterchangeProjectInfoRaw, InterchangeProjectUsageRaw},
     purl::PKG_SYSAND_PREFIX,
     utils::sha256_lowercase_hex,
@@ -34,8 +34,7 @@ fn lock_trivial() -> Result<(), Box<dyn std::error::Error>> {
 
     out.assert().success().stdout(predicate::str::is_empty());
 
-    let lock_file: Lock =
-        toml::from_str(&std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?)?;
+    let lock_file = Lockfile::read(&cwd)?.into_lock();
     let projects = lock_file.projects;
 
     assert_eq!(projects.len(), 1);
@@ -88,8 +87,7 @@ fn lock_local_source() -> Result<(), Box<dyn std::error::Error>> {
 
     out.assert().success().stdout(predicate::str::is_empty());
 
-    let lock_file: Lock =
-        toml::from_str(&std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?)?;
+    let lock_file = Lockfile::read(&cwd)?.into_lock();
     let projects = lock_file.projects;
 
     assert_eq!(projects.len(), 2);
@@ -137,8 +135,7 @@ fn lock_local_source_with_a_prerelease_version() -> Result<(), Box<dyn std::erro
     let out = run_sysand_in(&cwd, ["lock"], Some(cfg_path.as_str()))?;
     out.assert().success().stdout(predicate::str::is_empty());
 
-    let lock_file: Lock =
-        toml::from_str(&std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?)?;
+    let lock_file = Lockfile::read(&cwd)?.into_lock();
     let projects = lock_file.projects;
 
     assert_eq!(projects.len(), 2, "got: {projects:#?}");
@@ -203,8 +200,7 @@ fn lock_purl_local_source_override_with_a_prerelease_version()
     let out = run_sysand_in(&cwd, ["lock", "--no-index"], Some(cfg_path.as_str()))?;
     out.assert().success().stdout(predicate::str::is_empty());
 
-    let lock_file: Lock =
-        toml::from_str(&std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?)?;
+    let lock_file = Lockfile::read(&cwd)?.into_lock();
     let projects = lock_file.projects;
 
     assert_eq!(projects.len(), 2, "got: {projects:#?}");
@@ -244,8 +240,7 @@ fn lock_directory_usage_with_a_prerelease_version() -> Result<(), Box<dyn std::e
     let out = run_sysand_in(&cwd, ["lock"], None)?;
     out.assert().success();
 
-    let lock_file: Lock =
-        toml::from_str(&std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?)?;
+    let lock_file = Lockfile::read(&cwd)?.into_lock();
     let projects = lock_file.projects;
 
     let widget = projects
@@ -296,8 +291,7 @@ fn lock_std_lib() -> Result<(), Box<dyn std::error::Error>> {
 
     out.assert().success().stdout(predicate::str::is_empty());
 
-    let lock_file: Lock =
-        toml::from_str(&std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?)?;
+    let lock_file = Lockfile::read(&cwd)?.into_lock();
     let projects = lock_file.projects;
 
     assert_eq!(projects.len(), 4);
@@ -460,8 +454,7 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
     let out = run_sysand_in(&cwd, ["lock"], None)?;
     out.assert().success().stdout(predicate::str::is_empty());
 
-    let lock_file: Lock =
-        toml::from_str(&std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?)?;
+    let lock_file = Lockfile::read(&cwd)?.into_lock();
     let projects = lock_file.projects;
 
     assert_eq!(projects.len(), 4);
@@ -587,8 +580,7 @@ fn lock_and_sync_against_mock_index() -> Result<(), Box<dyn std::error::Error>> 
     let out = run_sysand_in(&cwd, ["lock", "--default-index", &server_url], None)?;
     out.assert().success().stdout(predicate::str::is_empty());
 
-    let lock_file: Lock =
-        toml::from_str(&std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?)?;
+    let lock_file = Lockfile::read(&cwd)?.into_lock();
     let projects = lock_file.projects;
     assert_eq!(projects.len(), 2, "root + single dep expected");
 
@@ -702,8 +694,7 @@ fn sync_hard_fails_on_kpar_digest_drift_from_lockfile() -> Result<(), Box<dyn st
     out.assert().success().stdout(predicate::str::is_empty());
 
     // Sanity-check: lockfile recorded the advertised kpar_digest.
-    let lock_file: Lock =
-        toml::from_str(&std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?)?;
+    let lock_file = Lockfile::read(&cwd)?.into_lock();
     let dep = lock_file
         .projects
         .iter()
@@ -822,8 +813,7 @@ fn lock_directory_usage_transitive() -> Result<(), Box<dyn std::error::Error>> {
     let out = run_sysand_in(&cwd, ["lock"], None)?;
     out.assert().success();
 
-    let lock_file: Lock =
-        toml::from_str(&std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?)?;
+    let lock_file = Lockfile::read(&cwd)?.into_lock();
     let projects = lock_file.projects;
 
     assert_eq!(
@@ -915,8 +905,7 @@ fn lock_directory_usage_env_installed_dependency() -> Result<(), Box<dyn std::er
     let out = run_sysand_in(&cwd, ["lock", "--no-index"], None)?;
     out.assert().success();
 
-    let lock_file: Lock =
-        toml::from_str(&std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?)?;
+    let lock_file = Lockfile::read(&cwd)?.into_lock();
     let projects = lock_file.projects;
 
     assert_eq!(
@@ -1161,8 +1150,7 @@ fn lock_fails_on_a_broken_index_version() -> Result<(), Box<dyn std::error::Erro
     std::fs::write(cwd.join(".project.json"), project.to_string())?;
     let out = run_sysand_in(&cwd, ["lock", "--default-index", &server_url], None)?;
     out.assert().success();
-    let lock_file: Lock =
-        toml::from_str(&std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?)?;
+    let lock_file = Lockfile::read(&cwd)?.into_lock();
     let dep = lock_file.projects.iter().find(|p| p.name == "dep").unwrap();
     assert_eq!(dep.version, "0.1.0");
 

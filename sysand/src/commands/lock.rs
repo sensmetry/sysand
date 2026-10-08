@@ -10,14 +10,12 @@ use camino::Utf8Path;
 use sysand_core::{
     auth::HTTPAuthentication,
     commands::lock::{
-        DEFAULT_LOCKFILE_NAME, EditableLocalSrcProject, LockOutcome, LockProjectError,
-        do_lock_local_editable,
+        EditableLocalSrcProject, LockOutcome, LockProjectError, do_lock_local_editable,
     },
     config::Config,
     context::ProjectContext,
-    project::{
-        any::AnyProject, memory::InMemoryProject, reference::ProjectReference, utils::wrapfs,
-    },
+    lock::Lockfile,
+    project::{any::AnyProject, memory::InMemoryProject, reference::ProjectReference},
     resolve::{
         ResolveRead,
         memory::{AcceptAll, AcceptResource, MemoryResolver},
@@ -132,12 +130,10 @@ pub fn command_lock<P: AsRef<Utf8UnixPath>, Policy: HTTPAuthentication, R: AsRef
         auth_policy,
         ctx,
     )?;
-    wrapfs::write(
-        Utf8Path::new(path.as_ref().as_str()).join(DEFAULT_LOCKFILE_NAME),
-        canonical.to_string(),
-    )?;
+    let lockfile = Lockfile::new(Utf8Path::new(path.as_ref().as_str()), canonical);
+    lockfile.write()?;
 
-    Ok(canonical)
+    Ok(lockfile.into_lock())
 }
 
 pub fn create_resolver<R: AsRef<Utf8Path>, Policy: HTTPAuthentication>(

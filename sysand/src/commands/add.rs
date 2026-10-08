@@ -12,10 +12,7 @@ use sysand_core::{
     add::{IndexSpellingError, IndexUsageToAdd, do_add, index_usage_to_add, spell_index_usage},
     auth::HTTPAuthentication,
     commands::{
-        lock::{
-            DEFAULT_LOCKFILE_NAME, LockOutcome, do_lock_local_editable,
-            do_lock_local_editable_respelling,
-        },
+        lock::{LockOutcome, do_lock_local_editable, do_lock_local_editable_respelling},
         sync::SyncOutcome,
     },
     config::{
@@ -23,7 +20,7 @@ use sysand_core::{
         local_fs::{CONFIG_FILE, add_project_source_to_config},
     },
     context::ProjectContext,
-    lock::Lock,
+    lock::{Lock, Lockfile},
     model::{
         IndexName, IndexPublisher, InterchangeProjectUsage, InterchangeProjectUsageRaw,
         ProjectName, ProjectPublisher,
@@ -334,7 +331,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
     })();
     let result = locked.and_then(|lock| {
         write_lock_and_sync(
-            &lock,
+            lock,
             no_sync,
             no_prune,
             client,
@@ -664,7 +661,7 @@ fn lock_project<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
 /// unless `no_sync`
 #[expect(clippy::too_many_arguments)]
 fn write_lock_and_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
-    lock: &Lock,
+    lock: Lock,
     no_sync: bool,
     no_prune: bool,
     client: reqwest_middleware::ClientWithMiddleware,
@@ -674,10 +671,8 @@ fn write_lock_and_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     provided_iris: &ProvidedProjects,
     ctx: ProjectContext,
 ) -> Result<(), anyhow::Error> {
-    wrapfs::write(
-        project_root.as_ref().join(DEFAULT_LOCKFILE_NAME),
-        lock.to_string(),
-    )?;
+    let lockfile = Lockfile::new(&project_root, lock);
+    lockfile.write()?;
     if !no_sync {
         let mut env = crate::get_or_create_env(
             ctx.env,
@@ -686,7 +681,7 @@ fn write_lock_and_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
             ctx.current_directory,
         )?;
         command_sync(
-            lock,
+            lockfile.lock(),
             project_root,
             &mut env,
             client,
@@ -724,7 +719,7 @@ pub fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         None,
     )?;
     write_lock_and_sync(
-        &lock,
+        lock,
         no_sync,
         no_prune,
         client,

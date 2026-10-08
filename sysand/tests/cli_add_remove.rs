@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{fs, io::Write as _, str::FromStr as _};
+use std::{fs, io::Write as _};
 
 use assert_cmd::prelude::*;
 use mockito::Server;
 use predicates::prelude::{predicate::str::contains, *};
-use sysand_core::env::{DEFAULT_ENV_NAME, local_directory::METADATA_PATH};
+use sysand_core::{
+    env::{DEFAULT_ENV_NAME, local_directory::METADATA_PATH},
+    lock::{Lock, Lockfile},
+};
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
 mod common;
@@ -2687,9 +2690,7 @@ fn remove_still_needed_dependency_updates_root_usages_in_lockfile()
         .assert()
         .success();
 
-    let lockfile_path = cwd.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME);
-    let root_usages = |lockfile: &str| -> Vec<String> {
-        let lock = sysand_core::lock::Lock::from_str(lockfile).unwrap();
+    let root_usages = |lock: &Lock| -> Vec<String> {
         let root = lock
             .projects
             .iter()
@@ -2697,9 +2698,9 @@ fn remove_still_needed_dependency_updates_root_usages_in_lockfile()
             .unwrap();
         root.usages.iter().map(|u| u.to_string()).collect()
     };
-    let lockfile = fs::read_to_string(&lockfile_path)?;
+    let lock = Lockfile::read(&cwd)?.into_lock();
     assert_eq!(
-        root_usages(&lockfile),
+        root_usages(&lock),
         ["pkg:sysand/acme/dep-a", "pkg:sysand/acme/dep-b"]
     );
 
@@ -2707,11 +2708,11 @@ fn remove_still_needed_dependency_updates_root_usages_in_lockfile()
         .assert()
         .success();
 
-    let lockfile = fs::read_to_string(&lockfile_path)?;
-    assert_eq!(root_usages(&lockfile), ["pkg:sysand/acme/dep-a"]);
+    let lock = Lockfile::read(&cwd)?.into_lock();
+    assert_eq!(root_usages(&lock), ["pkg:sysand/acme/dep-a"]);
     assert!(
-        lockfile.contains("name = \"dep-b\""),
-        "`dep-b` is still needed by `dep-a`, so it must stay locked: {lockfile}"
+        lock.projects.iter().any(|p| p.name == "dep-b"),
+        "`dep-b` is still needed by `dep-a`, so it must stay locked: {lock:?}"
     );
 
     Ok(())
