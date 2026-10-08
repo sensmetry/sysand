@@ -2819,3 +2819,46 @@ mod discovery {
         Ok(())
     }
 }
+
+/// A 4xx from the index keeps the raw status line and adds a user-facing
+/// explanation underneath, so a missing project can be told apart from a
+/// credential problem; other statuses are reported as before.
+#[test]
+fn bad_http_status_message_explains_client_errors() {
+    let render = |status: u16| {
+        HttpFetchError::BadHttpStatus {
+            url: "https://index.example/versions.json".into(),
+            status: reqwest::StatusCode::from_u16(status).unwrap(),
+        }
+        .to_string()
+    };
+
+    let not_found = render(404);
+    let (first, rest) = not_found.split_once('\n').expect("hint on its own line");
+    assert_eq!(
+        first,
+        "HTTP request to `https://index.example/versions.json` returned status 404 Not Found"
+    );
+    assert!(rest.contains("may not exist on this index"), "{rest}");
+    assert!(rest.contains("credentials"), "{rest}");
+
+    let unauthorized = render(401);
+    assert!(
+        unauthorized.contains("requires authentication"),
+        "{unauthorized}"
+    );
+    assert!(unauthorized.contains("SYSAND_CRED_*"), "{unauthorized}");
+
+    let forbidden = render(403);
+    assert!(forbidden.contains("refused access"), "{forbidden}");
+
+    // Core states the condition only; CLI subcommands are named by frontends.
+    for message in [&not_found, &unauthorized, &forbidden] {
+        assert!(!message.contains("sysand auth"), "{message}");
+    }
+
+    assert_eq!(
+        render(503),
+        "HTTP request to `https://index.example/versions.json` returned status 503 Service Unavailable"
+    );
+}
