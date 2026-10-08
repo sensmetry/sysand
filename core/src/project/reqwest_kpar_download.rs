@@ -101,7 +101,10 @@ pub struct ReqwestIndexKparDownloadedProject<Policy> {
 // TODO: reduce size of errors here and elsewhere
 #[derive(Error, Debug)]
 pub enum ReqwestKparDownloadedError {
-    #[error("HTTP request to `{url}` returned status {status}")]
+    #[error(
+        "HTTP request to `{url}` returned status {status}{hint}",
+        hint = crate::utils::http_status_hint(status.as_u16())
+    )]
     BadHttpStatus {
         url: Box<str>,
         status: reqwest::StatusCode,
