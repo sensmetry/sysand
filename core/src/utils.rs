@@ -307,6 +307,32 @@ pub fn to_pretty_json_string<T: Serialize>(value: &T) -> String {
 
 pub const SP: char = ' ';
 
+/// A user-facing explanation appended (on its own line) to errors that
+/// report an HTTP 4xx status from an index or download URL, so the user can
+/// tell a missing project apart from a credential problem. Returns an empty
+/// string for statuses that need no explanation. States the condition only:
+/// frontends add their own command-specific remediation.
+#[cfg(feature = "networking")]
+pub(crate) fn http_status_hint(status: u16) -> &'static str {
+    match status {
+        401 => {
+            "\nthe server requires authentication; if this is a private index, \
+             check that credentials for this URL are configured \
+             (e.g. via `SYSAND_CRED_*` environment variables)"
+        }
+        403 => {
+            "\nthe server refused access; the configured credentials may be \
+             invalid, expired, or lack permission for this resource"
+        }
+        404 => {
+            "\nthe requested project or file may not exist on this index; \
+             if this is a private index, credentials may also be missing or \
+             incorrect, since some servers answer 404 to unauthorized requests"
+        }
+        _ => "",
+    }
+}
+
 /// Render an expiry timestamp for display, without sub-second
 /// noise (`11:39:28.149443` reads as `11:39:28`).
 pub fn format_expiry_utc(expires_at: &jiff::Timestamp) -> String {
