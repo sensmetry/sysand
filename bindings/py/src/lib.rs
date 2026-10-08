@@ -801,11 +801,12 @@ fn do_lock_py(
 }
 
 /// `command_sync`'s failure as the exception to raise, with what had been
-/// done before it. Environment failures, including writing its metadata
-/// after the sync loop, are `EnvError`s; anything else is a `SyncError`.
-fn sync_failure(err: CommandSyncError, outcome: SyncOutcome) -> Failure {
+/// done before it, `wrote_lock` being whether a lockfile was written first.
+/// Environment failures, including writing its metadata after the sync
+/// loop, are `EnvError`s; anything else is a `SyncError`.
+fn sync_failure(err: CommandSyncError, outcome: SyncOutcome, wrote_lock: bool) -> Failure {
     let message = format_err(&err);
-    let wrote = outcome.wrote();
+    let wrote = wrote_lock || outcome.wrote();
     match err {
         CommandSyncError::Sync(CliSyncError::EnvRead(_) | CliSyncError::EnvWrite(_))
         | CommandSyncError::WriteMetadata(_) => Failure::Env { message, wrote },
@@ -839,20 +840,62 @@ fn do_sync_py(
         let auth = auth.unwrap_or_default();
         let (mut ctx, project_root) = project_context(Utf8Path::new(&path))?;
 
-        // The lockfile is read before the environment is created, so a
-        // missing lockfile leaves nothing behind. No implicit `lock`.
+        let client = create_reqwest_client().map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
+        let runtime = Arc::new(
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(PyErr::from)?,
+        );
+        let auth_policy = build_auth_policy(&auth)?;
+
+        // The lockfile is read, or written, before the environment is
+        // created, so a failure to lock leaves no environment behind.
         let lockfile_path = project_root.join(DEFAULT_LOCKFILE_NAME);
-        let lock_text = match lock_text {
-            Some(text) => text,
-            None => wrapfs::read_to_string(&lockfile_path).map_err(|e| {
+        let parse = |text: &str| {
+            Lock::from_str(text).map_err(|e| {
                 ProjectError::new_err(format!(
-                    "no lockfile at `{lockfile_path}`; run `lock` first ({})",
+                    "invalid lockfile `{lockfile_path}`:\n{}",
                     format_err(e)
                 ))
-            })?,
+            })
         };
-        let lock = Lock::from_str(&lock_text)
-            .map_err(|e| ProjectError::new_err(format!("invalid lockfile: {}", format_err(e))))?;
+        let (lock, wrote_lock) = match lock_text {
+            Some(text) => (
+                Lock::from_str(&text).map_err(|e| {
+                    ProjectError::new_err(format!("invalid lockfile: {}", format_err(e)))
+                })?,
+                false,
+            ),
+            None => match std::fs::read_to_string(&lockfile_path) {
+                Ok(text) => (parse(&text)?, false),
+                // As the CLI: without a lockfile, lock first and write it.
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    let config = config_for(&resolution, &project_root)?;
+                    let lock = resolve_lock(
+                        ".",
+                        resolution_options(&resolution)?,
+                        &config,
+                        &project_root,
+                        extra_provided.clone(),
+                        client.clone(),
+                        runtime.clone(),
+                        auth_policy.clone(),
+                        &ctx,
+                    )
+                    .map_err(|e| lock_error_to_failure(e, &auth, &auth_policy))?;
+                    wrapfs::write(&lockfile_path, lock.to_string())
+                        .map_err(|e| Failure::Wrote(format_err(e)))?;
+                    (lock, true)
+                }
+                Err(e) => {
+                    return Err(ProjectError::new_err(format!(
+                        "failed to read lockfile `{lockfile_path}`: {e}"
+                    ))
+                    .into());
+                }
+            },
+        };
 
         let mut provided = if resolution.include_std {
             ProvidedProjects::default()
@@ -869,17 +912,8 @@ fn do_sync_py(
         )
         .map_err(|e| Failure::Env {
             message: format_err(&*e),
-            wrote: false,
+            wrote: wrote_lock,
         })?;
-
-        let client = create_reqwest_client().map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
-        let runtime = Arc::new(
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(PyErr::from)?,
-        );
-        let auth_policy = build_auth_policy(&auth)?;
 
         let mut outcome = SyncOutcome::default();
         if let Err(err) = command_sync(
@@ -895,7 +929,7 @@ fn do_sync_py(
             false,
             &mut outcome,
         ) {
-            return Err(sync_failure(err, outcome));
+            return Err(sync_failure(err, outcome, wrote_lock));
         }
         Ok((outcome, env.projects().to_vec()))
     });

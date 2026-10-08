@@ -37,12 +37,12 @@ def sync(
     """Install what the lockfile says into the project's ``.sysand``
     environment, as ``sysand sync`` does, and report every change.
 
-    ``path`` is where discovery starts (see :func:`lock`). Unlike the CLI,
-    a missing lockfile is an error, not an implicit ``lock``: the caller is
-    expected to have seen the resolution first. ``lock`` may be the
-    :class:`LockResult` of a previous :func:`lock` call (its ``text`` is
+    ``path`` is where discovery starts (see :func:`lock`). ``lock`` may be
+    the :class:`LockResult` of a previous :func:`lock` call (its ``text`` is
     used) or lockfile text; by default ``sysand-lock.toml`` is read from the
-    project or workspace root.
+    project or workspace root. As with the CLI, if there is no such file,
+    the project is locked first, as :func:`lock` does with the same
+    ``resolution``, ``auth`` and ``provided``, and the lockfile is written.
 
     Projects no longer in the lockfile are removed from the environment.
 
@@ -50,7 +50,7 @@ def sync(
         path: Where to start discovery. Defaults to the current directory.
         lock: The lockfile to install: a :class:`LockResult` or lockfile
             text. Defaults to the project's or workspace's
-            ``sysand-lock.toml``.
+            ``sysand-lock.toml``, written first if it does not exist.
         resolution: Where to fetch projects from.
         auth: How to authenticate to indexes.
         provided: Projects that are already present and never installed.
@@ -59,10 +59,16 @@ def sync(
         The projects that were installed, pruned and kept.
 
     Raises:
-        ProjectError: not inside a project, or no lockfile.
+        ProjectError: not inside a project, the lockfile is invalid or could
+            not be read, or (with ``wrote=True``) a new lockfile could not be
+            written after a successful solve.
+        SolveError: there was no lockfile, and no compatible set of versions
+            exists (see :func:`lock`).
+        AuthError, IndexProtocolError, ResolutionError: an index could not be
+            used.
         SyncError: installation failed part-way; ``partial`` lists what was
             installed and pruned before the failure and ``wrote`` says
-            whether anything was.
+            whether anything was, the lockfile included.
         EnvError: the environment could not be read or written.
     """
     if resolution is None:

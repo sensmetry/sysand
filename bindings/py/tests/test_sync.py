@@ -91,25 +91,60 @@ def test_sync_prunes_projects_not_in_lockfile(
     )
 
 
-def test_sync_requires_a_lockfile(tmp_path: Path, mock_index: MockIndex) -> None:
+def test_sync_locks_without_a_lockfile(tmp_path: Path, mock_index: MockIndex) -> None:
     mock_index.publish(DEP, "1.0.0")
     root = project_with(tmp_path, [usage(DEP, ">=1.0.0")])
     res = resolution(mock_index)
 
-    with pytest.raises(sysand.ProjectError) as excinfo:
+    # As `sysand sync`: lock first, write the lockfile, then install.
+    outcome = sysand.sync(path=root, resolution=res)
+    assert changed(outcome["installed"]) == {(DEP, "1.0.0")}
+    assert (root / "sysand-lock.toml").read_text() == sysand.lock(
+        path=root, resolution=res, write=False
+    )["text"]
+
+
+def test_sync_without_a_lockfile_fails_to_lock(
+    tmp_path: Path, mock_index: MockIndex
+) -> None:
+    root = project_with(tmp_path, [usage(DEP, ">=1.0.0")])
+    res = resolution(mock_index)
+
+    with pytest.raises(sysand.SolveError) as excinfo:
         sysand.sync(path=root, resolution=res)
     assert excinfo.value.wrote is False
-    assert "lock" in str(excinfo.value)
+    assert not (root / "sysand-lock.toml").exists()
     assert not (root / sysand.env.DEFAULT_ENV_NAME).exists(), (
-        "nothing is created without a lockfile"
+        "nothing is created when locking fails"
     )
 
+
+def test_sync_reports_the_written_lockfile_on_failure(
+    tmp_path: Path, mock_index: MockIndex
+) -> None:
+    mock_index.publish(DEP, "1.0.0")
+    root = project_with(tmp_path, [usage(DEP, ">=1.0.0")])
+    mock_index.fail_next(MockIndex.kpar_path(DEP, "1.0.0"), 500)
+
+    with pytest.raises(sysand.SyncError) as excinfo:
+        sysand.sync(path=root, resolution=resolution(mock_index))
+    assert excinfo.value.wrote is True
+    assert excinfo.value.partial is not None
+    assert excinfo.value.partial["installed"] == []
+    assert (root / "sysand-lock.toml").is_file()
+
+
+def test_sync_takes_the_lock_given(tmp_path: Path, mock_index: MockIndex) -> None:
+    mock_index.publish(DEP, "1.0.0")
+    root = project_with(tmp_path, [usage(DEP, ">=1.0.0")])
+    res = resolution(mock_index)
+
     result = sysand.lock(path=root, resolution=res, write=False)
-    assert not (root / "sysand-lock.toml").exists()
     outcome = sysand.sync(path=root, lock=result, resolution=res)
     assert changed(outcome["installed"]) == {(DEP, "1.0.0")}
     outcome = sysand.sync(path=root, lock=result["text"], resolution=res)
     assert changed(outcome["kept"]) == {(DEP, "1.0.0")}
+    assert not (root / "sysand-lock.toml").exists(), "a given lock is not written"
 
 
 def test_sync_half_synced(tmp_path: Path, mock_index: MockIndex) -> None:
