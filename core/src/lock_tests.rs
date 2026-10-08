@@ -1199,6 +1199,26 @@ version = "1.0.0"
 }
 
 #[test]
+fn old_lockfile_version_0_5_is_rejected() {
+    let lockfile = format!(
+        r#"{LOCKFILE_PREFIX}lock_version = "0.5"
+
+[[project]]
+name = "Old project"
+version = "1.0.0"
+"#
+    );
+
+    let Err(err) = Lock::from_str(&lockfile) else {
+        panic!()
+    };
+    let crate::lock::ParseError::Version(VersionError::Unsupported(s)) = &err else {
+        panic!("expected unsupported version error, got {err:?}")
+    };
+    assert_eq!(s, "0.5");
+}
+
+#[test]
 fn source_to_checksum_editable_is_none() {
     let source = Source::Editable {
         editable: Utf8UnixPathBuf::from("."),

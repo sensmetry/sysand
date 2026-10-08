@@ -9,7 +9,7 @@ use crate::context::ProjectContext;
 fn env_with(projects: &[(&str, &str)]) -> LocalDirectoryEnvironment {
     use std::fmt::Write as _;
 
-    let mut toml = String::from("version = \"0.1\"\n");
+    let mut toml = String::from("version = \"0.2\"\n");
     for (iri, version) in projects {
         write!(
             toml,
@@ -83,7 +83,7 @@ fn env_with_installed_project(
 
     let checksum_line = recorded_checksum.map_or_else(String::new, |c| format!("{c}\n"));
     let toml = format!(
-        r#"version = "0.1"
+        r#"version = "0.2"
 
 [[project]]
 name = "example"
@@ -173,7 +173,7 @@ fn put_project_refuses_to_overwrite_editable_or_workspace_project() {
         ("editable = true\nworkspace = true", "a workspace"),
     ] {
         let toml = format!(
-            r#"version = "0.1"
+            r#"version = "0.2"
 
 [[project]]
 name = "example"

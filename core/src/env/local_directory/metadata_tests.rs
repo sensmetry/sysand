@@ -6,7 +6,7 @@ use std::assert_matches;
 
 fn minimal_toml(path: &str, editable: bool) -> String {
     format!(
-        r#"version = "0.1"
+        r#"version = "0.2"
 
 [[project]]
 name = "Example"
@@ -73,11 +73,22 @@ fn unsupported_version_is_rejected() {
     );
 }
 
+#[test]
+fn old_version_0_1_is_rejected() {
+    let toml = r#"version = "0.1""#;
+    let err = EnvMetadata::from_str(toml).unwrap_err();
+    assert_matches!(
+        &err,
+        ParseError::UnsupportedVersion(v) if v == "0.1",
+        "unexpected error: {err}"
+    );
+}
+
 // --- Env identifiers ---
 
 #[test]
 fn env_project_with_urn_kpar_identifier_is_found() {
-    let toml = r#"version = "0.1"
+    let toml = r#"version = "0.2"
 
 [[project]]
 name = "my-dep"
@@ -97,7 +108,7 @@ identifiers = [
 fn env_project_with_urn_sysand_identifier_is_found() {
     // urn:sysand: is the non-PURL, non-URL form produced by typed usages
     // with publishers/names that cannot be represented as a PURL (e.g. too short)
-    let toml = r#"version = "0.1"
+    let toml = r#"version = "0.2"
 
 [[project]]
 publisher = "ab"
@@ -118,7 +129,7 @@ identifiers = [
 
 #[test]
 fn env_project_with_urn_sysand_identifier_has_correct_usages() {
-    let toml = r#"version = "0.1"
+    let toml = r#"version = "0.2"
 
 [[project]]
 name = "consumer"
