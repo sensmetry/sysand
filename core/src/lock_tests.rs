@@ -1201,26 +1201,6 @@ version = "1.0.0"
 }
 
 #[test]
-fn old_lockfile_version_0_5_is_rejected() {
-    let lockfile = format!(
-        r#"{LOCKFILE_PREFIX}lock_version = "0.5"
-
-[[project]]
-name = "Old project"
-version = "1.0.0"
-"#
-    );
-
-    let Err(err) = Lock::parse(&lockfile) else {
-        panic!()
-    };
-    let crate::lock::ParseError::Version(VersionError::Unsupported(s)) = &err else {
-        panic!("expected unsupported version error, got {err:?}")
-    };
-    assert_eq!(s, "0.5");
-}
-
-#[test]
 fn source_to_checksum_editable_is_none() {
     let source = Source::Editable {
         editable: Utf8UnixPathBuf::from("."),
@@ -1614,7 +1594,7 @@ fn lockfile_write_then_read_roundtrips() {
 fn lockfile_parse_error_includes_path() {
     let dir = camino_tempfile::tempdir().unwrap();
     let path = dir.path().join(DEFAULT_LOCKFILE_NAME);
-    std::fs::write(&path, r#"lock_version = "0.5""#).unwrap();
+    std::fs::write(&path, r#"lock_version = "0.4""#).unwrap();
 
     let Err(err) = Lockfile::try_read(dir.path()) else {
         panic!()
@@ -1624,7 +1604,7 @@ fn lockfile_parse_error_includes_path() {
         panic!("expected parse error, got {err:?}")
     };
     assert_eq!(err_path, &path);
-    assert_eq!(v, "0.5");
+    assert_eq!(v, "0.4");
     assert!(matches!(
         Lockfile::read(dir.path()),
         Err(LockfileError::Parse(..))
@@ -1638,8 +1618,8 @@ fn lockfile_errors_mention_path_and_cause_once() {
     for (text, cause) in [
         ("garbage = [", "unclosed array"),
         (
-            "lock_version = \"0.5\"",
-            "lockfile version `0.5` is not supported",
+            "lock_version = \"0.4\"",
+            "lockfile version `0.4` is not supported",
         ),
         (
             "lock_version = \"0.6\"\n[[project]]\nname = 1\n",

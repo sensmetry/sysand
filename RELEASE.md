@@ -155,7 +155,8 @@ Everything else is outside it:
 separately:
 
 - `sysand-lock.toml` carries `lock_version` and `env.toml` has `version`.
-  Sysand currently supports only the latest version it knows about, any
+  Sysand always writes the latest version it knows about. Reading some
+  older versions may be supported, but this is not guaranteed; any
   unsupported versions always produce an error on read.
   Any change to the shape (or semantics) of either file needs its version
   bumped before a release is made.
