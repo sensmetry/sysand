@@ -54,7 +54,7 @@ use sysand_core::{
 use url::Url;
 
 use crate::{
-    cli::{Args, AuthCommand, Command, EnvCommand, IndexCommand},
+    cli::{Args, AuthCommand, Command, EnvCommand, IndexCommand, Metamodel},
     commands::{
         add::command_add,
         auth::{command_auth_login, command_auth_logout, command_auth_status, command_auth_whoami},
@@ -481,7 +481,17 @@ fn run_cli_with(
             publisher,
             version,
             license,
-        } => command_init(name, publisher, version, license, path, ctx),
+            metamodel,
+            metamodel_release,
+        } => command_init(
+            name,
+            publisher,
+            version,
+            license,
+            metamodel.map(|kind| Metamodel(kind, metamodel_release)),
+            path,
+            ctx,
+        ),
         Command::New { .. } => bail!("use `init` instead of `new`"),
         Command::Env { command } => match command {
             None => {

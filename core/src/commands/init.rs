@@ -3,6 +3,7 @@
 
 #[cfg(feature = "filesystem")]
 use camino::Utf8PathBuf;
+use fluent_uri::Iri;
 use semver::Version;
 use spdx;
 
@@ -32,6 +33,8 @@ pub enum InitError<ProjectError: ErrorBound> {
     Project(#[from] ProjectError),
     #[error("failed to parse `{0}` as an SPDX license expression:\n{1}")]
     SPDXLicenseParse(Box<str>, spdx::error::ParseError),
+    #[error("invalid metamodel `{0}`: {1}")]
+    MetamodelParse(Box<str>, fluent_uri::ParseError),
 }
 
 pub fn do_init<P: ProjectMut>(
@@ -39,6 +42,7 @@ pub fn do_init<P: ProjectMut>(
     publisher: ProjectPublisher,
     version: Version,
     license: Option<spdx::Expression>,
+    metamodel: Option<Iri<String>>,
     storage: &mut P,
 ) -> Result<(), InitError<P::Error>> {
     let creating = "Creating";
@@ -63,7 +67,7 @@ pub fn do_init<P: ProjectMut>(
         &InterchangeProjectMetadata {
             index: indexmap::IndexMap::new(),
             created: jiff::Timestamp::now(),
-            metamodel: None,
+            metamodel,
             includes_derived: None,
             includes_implied: None,
             checksum: None,
@@ -81,6 +85,7 @@ pub fn do_init_parse<P: ProjectMut>(
     publisher: String,
     version: String,
     license: Option<String>,
+    metamodel: Option<String>,
     storage: &mut P,
 ) -> Result<(), InitError<P::Error>> {
     let name = ProjectName::parse(name).map_err(|(name, e)| InitError::NameParse(name, e))?;
@@ -95,7 +100,11 @@ pub fn do_init_parse<P: ProjectMut>(
     } else {
         None
     };
-    do_init(name, publisher, version, license, storage)
+    let metamodel = metamodel
+        .map(Iri::parse)
+        .transpose()
+        .map_err(|(e, m)| InitError::MetamodelParse(m.into(), e))?;
+    do_init(name, publisher, version, license, metamodel, storage)
 }
 
 pub fn do_init_memory<N: AsRef<str>, P: AsRef<str>, V: AsRef<str>>(
@@ -111,6 +120,7 @@ pub fn do_init_memory<N: AsRef<str>, P: AsRef<str>, V: AsRef<str>>(
         publisher.as_ref().to_owned(),
         version.as_ref().to_owned(),
         license,
+        None,
         &mut storage,
     )?;
 
@@ -123,10 +133,11 @@ pub fn do_init_local_file(
     publisher: String,
     version: String,
     license: Option<String>,
+    metamodel: Option<String>,
     path: Utf8PathBuf,
 ) -> Result<LocalSrcProject, InitError<LocalSrcError>> {
     let mut storage = LocalSrcProject::new_access(path, None);
-    do_init_parse(name, publisher, version, license, &mut storage)?;
+    do_init_parse(name, publisher, version, license, metamodel, &mut storage)?;
 
     Ok(storage)
 }

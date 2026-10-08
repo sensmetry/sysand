@@ -99,13 +99,15 @@ fn init<'local>(
     };
 
     let command_result =
-        commands::init::do_init_local_file(name, publisher, version, license, path.into());
+        commands::init::do_init_local_file(name, publisher, version, license, None, path.into());
     match command_result {
         Ok(_) => Ok(()),
         Err(error) => {
             let e = format_err(&error);
             match error {
-                InitError::NameParse(..) | InitError::PublisherParse(..) => {
+                InitError::NameParse(..)
+                | InitError::PublisherParse(..)
+                | InitError::MetamodelParse(..) => {
                     env.throw_exception(ExceptionKind::InvalidValue, e)
                 }
                 InitError::SemVerParse(..) => {
