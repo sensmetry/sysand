@@ -648,3 +648,38 @@ fn directory_and_kpar_usages_validate_their_spelling() {
         );
     }
 }
+
+#[test]
+fn urn_sysand_resource_usage_is_rejected() {
+    use crate::model::{InterchangeProjectUsageRaw, InterchangeProjectValidationError};
+
+    for resource in [
+        "urn:sysand:acme-inc/foo",
+        "URN:Sysand:acme-inc/foo",
+        "urn:sysand:",
+    ] {
+        let usage = InterchangeProjectUsageRaw::Resource {
+            resource: resource.to_owned(),
+            version_constraint: None,
+        };
+        let err = usage.validate().unwrap_err();
+        assert!(
+            matches!(&err, InterchangeProjectValidationError::UrnSysandUsage(r) if r == resource),
+            "{err:?}"
+        );
+    }
+
+    // Only the `urn:sysand` namespace is internal
+    for resource in [
+        "urn:sysandx:acme-inc/foo",
+        "urn:kpar:sysand",
+        "urn:x:urn:sysand:a/b",
+    ] {
+        InterchangeProjectUsageRaw::Resource {
+            resource: resource.to_owned(),
+            version_constraint: None,
+        }
+        .validate()
+        .unwrap();
+    }
+}

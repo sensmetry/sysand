@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use super::{CURRENT_LOCK_VERSION, Project};
 use crate::{
     model::{ProjectName, ProjectPublisher},
-    project::utils::Identifier,
+    project::utils::{Identifier, URN_SYSAND_PREFIX},
 };
 
 /// Migration of a lockfile from version `from` to version `to`
@@ -31,7 +31,7 @@ const MIGRATIONS: &[Migration] = &[Migration {
     // Version 0.5 put `publisher` and `name` in `urn:sysand` identifiers as
     // spelled (percent-encoded), since 0.6 they are normalized. `pkg:sysand`
     // identifiers are derived the same in both
-    migrate: |projects| rederive_identifiers(projects, |id| id.starts_with("urn:sysand:")),
+    migrate: |projects| rederive_identifiers(projects, |id| id.starts_with(URN_SYSAND_PREFIX)),
 }];
 
 /// Whether a lockfile of `version` can be migrated to [`CURRENT_LOCK_VERSION`]

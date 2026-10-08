@@ -297,6 +297,13 @@ impl InterchangeProjectUsageRaw {
                         source: e,
                     }
                 })?;
+                // `urn:sysand` identifiers are internal to Sysand; a project
+                // is used by its publisher and name instead
+                if crate::project::utils::is_urn_sysand(resource) {
+                    return Err(InterchangeProjectValidationError::UrnSysandUsage(
+                        resource.clone(),
+                    ));
+                }
 
                 Ok(InterchangeProjectUsage::Resource {
                     resource: fluent_uri::Iri::parse(resource.clone()).map_err(|(e, val)| {
@@ -1178,6 +1185,11 @@ pub enum InterchangeProjectValidationError {
         #[source]
         source: crate::purl::SysandPurlError,
     },
+    #[error(
+        "usage `{0}` is an identifier internal to Sysand; \
+        use the project by its publisher and name instead"
+    )]
+    UrnSysandUsage(String),
 }
 
 impl Default for InterchangeProjectMetadataRaw {

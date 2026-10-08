@@ -573,6 +573,19 @@ impl From<InterchangeProjectUsage> for Identifier {
     }
 }
 
+/// The prefix of the identifiers Sysand derives from publishers and names
+/// that are not spelled as an index usage can spell them (see
+/// [`Identifier::from_project`]). These are internal to Sysand and never
+/// written by users
+pub const URN_SYSAND_PREFIX: &str = "urn:sysand:";
+
+/// Whether `iri` is an `urn:sysand` IRI. Both the URN scheme and namespace
+/// are case-insensitive (RFC 8141)
+pub fn is_urn_sysand(iri: &str) -> bool {
+    iri.get(..URN_SYSAND_PREFIX.len())
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(URN_SYSAND_PREFIX))
+}
+
 impl Identifier {
     pub fn from_pub_name(publisher: &str, name: &str) -> Self {
         Self::make_identifier_iri(publisher, name)
@@ -617,7 +630,7 @@ impl Identifier {
         enc_pub.encode_str::<IData>(publisher);
         let mut enc_name = EString::<IData>::new();
         enc_name.encode_str::<IData>(name);
-        Self(format!("urn:sysand:{enc_pub}/{enc_name}"))
+        Self(format!("{URN_SYSAND_PREFIX}{enc_pub}/{enc_name}"))
     }
 
     /// The (possibly not well-formed) identifier of a usage that has *not*
