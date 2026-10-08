@@ -74,14 +74,105 @@ fn unsupported_version_is_rejected() {
 }
 
 #[test]
-fn old_version_0_1_is_rejected() {
-    let toml = r#"version = "0.1""#;
+fn old_version_0_0_is_rejected() {
+    let toml = r#"version = "0.0""#;
     let err = EnvMetadata::from_str(toml).unwrap_err();
     assert_matches!(
         &err,
-        ParseError::UnsupportedVersion(v) if v == "0.1",
+        ParseError::UnsupportedVersion(v) if v == "0.0",
         "unexpected error: {err}"
     );
+}
+
+const METADATA_0_1: &str = r#"version = "0.1"
+
+[[project]]
+publisher = "ACME Inc."
+name = "App"
+version = "1.0.0"
+path = "."
+usages = [
+    "urn:sysand:ACME%20Inc./Lib",
+    "pkg:sysand/acme-labs/util",
+]
+editable = true
+workspace = true
+
+[[project]]
+publisher = "ACME Inc."
+name = "Lib"
+version = "1.0.0"
+path = "lib/ACME Inc..Lib_1.0.0"
+identifiers = [
+    "urn:sysand:ACME%20Inc./Lib",
+    "urn:kpar:lib",
+]
+usages = ["urn:sysand:Ąžuolas/Šaknis"]
+
+[[project]]
+publisher = "Ąžuolas"
+name = "Šaknis"
+version = "1.0.0"
+path = "lib/Ąžuolas.Šaknis_1.0.0"
+identifiers = ["urn:sysand:Ąžuolas/Šaknis"]
+
+[[project]]
+publisher = "Acme Labs"
+name = "Util"
+version = "1.0.0"
+path = "lib/acme-labs.util_1.0.0"
+identifiers = ["pkg:sysand/acme-labs/util"]
+"#;
+
+#[test]
+fn version_0_1_is_migrated_to_current_version() {
+    let meta = EnvMetadata::from_str(METADATA_0_1).unwrap();
+    assert_eq!(meta.version, CURRENT_METADATA_VERSION);
+
+    let identifiers: Vec<_> = meta
+        .projects
+        .iter()
+        .map(|p| p.identifiers.as_slice())
+        .collect();
+    assert_eq!(
+        identifiers,
+        [
+            &[][..],
+            &[
+                "urn:sysand:acme-inc/lib".to_owned(),
+                "urn:kpar:lib".to_owned()
+            ],
+            &["urn:sysand:ąžuolas/šaknis".to_owned()],
+            &["pkg:sysand/acme-labs/util".to_owned()],
+        ]
+    );
+    let usages: Vec<_> = meta.projects.iter().map(|p| p.usages.as_slice()).collect();
+    assert_eq!(
+        usages,
+        [
+            &[
+                "urn:sysand:acme-inc/lib".to_owned(),
+                "pkg:sysand/acme-labs/util".to_owned()
+            ][..],
+            &["urn:sysand:ąžuolas/šaknis".to_owned()],
+            &[],
+            &[],
+        ]
+    );
+    // Installed projects stay where they are
+    assert_eq!(meta.projects[1].path, "lib/ACME Inc..Lib_1.0.0");
+
+    // Found by the new identifier, and written as the current version
+    assert!(
+        meta.find_project_version("urn:sysand:acme-inc/lib", "1.0.0")
+            .is_some()
+    );
+    let text = meta.to_string();
+    assert!(
+        text.contains(&format!("version = \"{CURRENT_METADATA_VERSION}\"")),
+        "{text}"
+    );
+    assert!(!text.contains("ACME%20Inc."), "{text}");
 }
 
 // --- Env identifiers ---
