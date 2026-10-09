@@ -312,7 +312,7 @@ pub const SP: char = ' ';
 /// tell a missing project apart from a credential problem. Returns an empty
 /// string for statuses that need no explanation. States the condition only:
 /// frontends add their own command-specific remediation.
-#[cfg(feature = "networking")]
+#[cfg(all(feature = "filesystem", feature = "networking"))]
 pub(crate) fn http_status_hint(status: u16) -> &'static str {
     match status {
         401 => {
