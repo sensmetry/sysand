@@ -7,10 +7,7 @@ compile_error!("`std` feature is currently required to build `sysand`");
 use std::{
     collections::{HashMap, HashSet},
     ffi::OsString,
-    fs,
-    io::ErrorKind,
     iter,
-    str::FromStr as _,
     sync::{Arc, LazyLock},
 };
 
@@ -25,7 +22,7 @@ use sysand_core::{
         HTTPAuthentication, StandardHTTPAuthentication, StandardHTTPAuthenticationBuilder,
         StandardLazyHTTPAuthentication,
     },
-    commands::{lock::DEFAULT_LOCKFILE_NAME, sync::SyncOutcome},
+    commands::sync::SyncOutcome,
     config::{
         Config,
         local_fs::{get_config, load_configs, read_config},
@@ -38,7 +35,7 @@ use sysand_core::{
     },
     index::RemoveTarget,
     index_location::IndexLocation,
-    lock::Lock,
+    lock::Lockfile,
     model::InterchangeProjectUsage,
     project::{
         any::{AnyProject, OverrideProject},
@@ -48,7 +45,6 @@ use sysand_core::{
     },
     resolve::{ResolutionInfo, net_utils::create_reqwest_client},
     stdlib::known_std_libs,
-    utils::format_err,
     workspace::Workspace,
 };
 use url::Url;
@@ -621,29 +617,18 @@ fn run_cli_with(
             };
 
             let project_root = project_root.unwrap_or_else(|| ctx.current_directory.clone());
-            let lockfile = project_root.join(DEFAULT_LOCKFILE_NAME);
-            let lock = match fs::read_to_string(&lockfile) {
-                Ok(l) => match Lock::from_str(&l) {
-                    Ok(l) => l,
-                    // Include file path in errors
-                    Err(e) => bail!("invalid lockfile `{lockfile}`:\n{}", format_err(e)),
-                },
-                Err(e) => {
-                    if e.kind() == ErrorKind::NotFound {
-                        command_lock(
-                            ".",
-                            resolution_opts,
-                            &config,
-                            &project_root,
-                            client.clone(),
-                            runtime.clone(),
-                            auth_policy.clone(),
-                            &ctx,
-                        )?
-                    } else {
-                        bail!("failed to read lockfile `{lockfile}`: {}", format_err(e))
-                    }
-                }
+            let lock = match Lockfile::try_read(&project_root)? {
+                Some(lockfile) => lockfile.into_lock(),
+                None => command_lock(
+                    ".",
+                    resolution_opts,
+                    &config,
+                    &project_root,
+                    client.clone(),
+                    runtime.clone(),
+                    auth_policy.clone(),
+                    &ctx,
+                )?,
             };
             let mut local_environment = get_or_create_env(
                 ctx.env,

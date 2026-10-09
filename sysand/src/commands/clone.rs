@@ -10,13 +10,11 @@ use std::{collections::HashMap, fs, io::ErrorKind, sync::Arc};
 
 use sysand_core::{
     auth::HTTPAuthentication,
-    commands::{
-        lock::{DEFAULT_LOCKFILE_NAME, LockOutcome},
-        sync::SyncOutcome,
-    },
+    commands::{lock::LockOutcome, sync::SyncOutcome},
     config::Config,
     context::ProjectContext,
     env::{local_directory::utils::clean_dir, utils::clone_project},
+    lock::Lockfile,
     model::InterchangeProjectUsage,
     project::{
         ProjectRead, editable::EditableProject, local_kpar::LocalKParProjectRaw,
@@ -166,11 +164,8 @@ pub fn command_clone<Policy: HTTPAuthentication>(
                 {SP:>5} run `sysand sync --include-std`"
             );
         }
-        let lock = lock.canonicalize();
-        wrapfs::write(
-            project.inner().root_path().join(DEFAULT_LOCKFILE_NAME),
-            lock.to_string(),
-        )?;
+        let lockfile = Lockfile::new(project.inner().root_path(), lock.canonicalize());
+        lockfile.write()?;
 
         let mut env = get_or_create_env(
             ctx.env,
@@ -179,7 +174,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
             ctx.current_directory,
         )?;
         command_sync(
-            &lock,
+            lockfile.lock(),
             project.inner().root_path(),
             &mut env,
             client,

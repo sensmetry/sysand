@@ -12,9 +12,11 @@ use typed_path::Utf8UnixPathBuf;
 
 use crate::utils::format_err;
 use crate::{
+    commands::lock::DEFAULT_LOCKFILE_NAME,
     lock::{
-        CURRENT_LOCK_VERSION, LOCKFILE_PREFIX, Lock, Project, RemoveUsageOutcome, Source, Usage,
-        ValidationError, VersionError, check_lock_version,
+        CURRENT_LOCK_VERSION, LOCKFILE_PREFIX, Lock, LockRepr, Lockfile, LockfileError, ParseError,
+        Project, RemoveUsageOutcome, Source, Usage, ValidationError, VersionError,
+        check_lock_version,
     },
     project::ProjectChecksum,
 };
@@ -61,7 +63,7 @@ sources = [{{ registry = "https://example.org" }}]
 "#
     );
 
-    let Err(err) = Lock::from_str(&lockfile) else {
+    let Err(err) = Lock::parse(&lockfile) else {
         panic!()
     };
     let crate::lock::ParseError::Version(VersionError::Unsupported(s)) = &err else {
@@ -86,7 +88,7 @@ sources = [{{ index_kpar = "https://example.org/project.kpar", kpar_size = 0, kp
 "#
     );
 
-    let Err(err) = Lock::from_str(&lockfile) else {
+    let Err(err) = Lock::parse(&lockfile) else {
         panic!()
     };
     let crate::lock::ParseError::Toml(_) = err else {
@@ -109,7 +111,7 @@ fn to_toml_matches_expected<D: Display>(projects: Vec<Project>, toml: D) {
         projects,
     };
     let expected = format!("{LOCKFILE_PREFIX}lock_version = \"{CURRENT_LOCK_VERSION}\"\n{toml}");
-    assert_eq!(lock.to_string(), expected);
+    assert_eq!(lock.to_toml().to_string(), expected);
 }
 
 #[test]
@@ -429,8 +431,8 @@ usages = [
 
 fn roundtrip_makes_no_changes<D: Display>(toml: D) {
     let expected = format!("{LOCKFILE_PREFIX}lock_version = \"{CURRENT_LOCK_VERSION}\"\n{toml}");
-    let lockfile: Lock = toml::from_str(&expected).unwrap();
-    assert_eq!(lockfile.to_string(), expected);
+    let lockfile = Lock::from(toml::from_str::<LockRepr>(&expected).unwrap());
+    assert_eq!(lockfile.to_toml().to_string(), expected);
 }
 
 #[test]
@@ -1189,7 +1191,7 @@ version = "1.0.0"
 "#
     );
 
-    let Err(err) = Lock::from_str(&lockfile) else {
+    let Err(err) = Lock::parse(&lockfile) else {
         panic!()
     };
     let crate::lock::ParseError::Version(VersionError::Unsupported(s)) = &err else {
@@ -1544,5 +1546,209 @@ fn remove_usage_keeps_sibling_usage_and_its_own_subtree() {
     assert_eq!(
         root.usages.iter().map(Usage::inner).collect::<Vec<_>>(),
         vec!["urn:c"]
+    );
+}
+
+#[test]
+fn lockfile_try_read_missing_is_none() {
+    let dir = camino_tempfile::tempdir().unwrap();
+    assert!(Lockfile::try_read(dir.path()).unwrap().is_none());
+}
+
+#[test]
+fn lockfile_write_then_read_roundtrips() {
+    let dir = camino_tempfile::tempdir().unwrap();
+    let lock = Lock {
+        lock_version: CURRENT_LOCK_VERSION.to_owned(),
+        projects: vec![Project {
+            publisher: None,
+            name: "Root".to_owned(),
+            version: "1.0.0".to_owned(),
+            exports: vec![],
+            identifiers: vec![],
+            usages: vec![],
+            sources: vec![Source::Editable {
+                editable: ".".into(),
+            }],
+        }],
+    };
+    let text = Lockfile::to_text(&lock);
+    let lockfile = Lockfile::new(dir.path(), lock);
+    lockfile.write().unwrap();
+    assert_eq!(
+        std::fs::read_to_string(lockfile.path()).unwrap(),
+        text,
+        "`write` and `to_text` must agree"
+    );
+
+    let read = Lockfile::read(dir.path()).unwrap();
+    assert_eq!(read.path(), lockfile.path());
+    assert_eq!(read.lock(), lockfile.lock());
+    assert_eq!(
+        Lockfile::try_read(dir.path()).unwrap().unwrap().into_lock(),
+        read.into_lock()
+    );
+}
+
+#[test]
+fn lockfile_parse_error_includes_path() {
+    let dir = camino_tempfile::tempdir().unwrap();
+    let path = dir.path().join(DEFAULT_LOCKFILE_NAME);
+    std::fs::write(&path, r#"lock_version = "0.4""#).unwrap();
+
+    let Err(err) = Lockfile::try_read(dir.path()) else {
+        panic!()
+    };
+    let LockfileError::Parse(err_path, ParseError::Version(VersionError::Unsupported(v))) = &err
+    else {
+        panic!("expected parse error, got {err:?}")
+    };
+    assert_eq!(err_path, &path);
+    assert_eq!(v, "0.4");
+    assert!(matches!(
+        Lockfile::read(dir.path()),
+        Err(LockfileError::Parse(..))
+    ));
+}
+
+#[test]
+fn lockfile_errors_mention_path_and_cause_once() {
+    let dir = camino_tempfile::tempdir().unwrap();
+    let path = dir.path().join(DEFAULT_LOCKFILE_NAME);
+    for (text, cause) in [
+        ("garbage = [", "unclosed array"),
+        (
+            "lock_version = \"0.4\"",
+            "lockfile version `0.4` is not supported",
+        ),
+        (
+            "lock_version = \"0.6\"\n[[project]]\nname = 1\n",
+            "invalid type: integer `1`, expected a string",
+        ),
+    ] {
+        std::fs::write(&path, text).unwrap();
+        let message = format_err(Lockfile::read(dir.path()).unwrap_err());
+        assert_eq!(message.matches(path.as_str()).count(), 1, "{message}");
+        assert_eq!(message.matches(cause).count(), 1, "{message}");
+    }
+
+    std::fs::remove_file(&path).unwrap();
+    std::fs::create_dir(&path).unwrap();
+    let message = format_err(Lockfile::read(dir.path()).unwrap_err());
+    assert_eq!(message.matches(path.as_str()).count(), 1, "{message}");
+}
+
+// --- Migration from older versions ---
+
+fn lockfile_0_5() -> String {
+    format!(
+        r#"{LOCKFILE_PREFIX}lock_version = "0.5"
+
+[[project]]
+publisher = "ACME Inc."
+name = "App"
+version = "1.0.0"
+identifiers = ["urn:sysand:ACME%20Inc./App"]
+usages = [
+    "urn:sysand:ACME%20Inc./Lib",
+    "urn:sysand:Ąžuolas/Šaknis",
+    "pkg:sysand/acme-labs/util",
+    "urn:kpar:other",
+]
+sources = [{{ editable = "." }}]
+
+[[project]]
+publisher = "ACME Inc."
+name = "Lib"
+version = "1.0.0"
+identifiers = [
+    "urn:sysand:ACME%20Inc./Lib",
+    "urn:kpar:lib",
+]
+sources = [{{ editable = "lib" }}]
+
+[[project]]
+publisher = "Ąžuolas"
+name = "Šaknis"
+version = "1.0.0"
+identifiers = ["urn:sysand:Ąžuolas/Šaknis"]
+sources = [{{ editable = "saknis" }}]
+
+[[project]]
+publisher = "Acme Labs"
+name = "Util"
+version = "1.0.0"
+identifiers = ["pkg:sysand/acme-labs/util"]
+sources = [{{ editable = "util" }}]
+
+[[project]]
+name = "Other"
+version = "1.0.0"
+identifiers = ["urn:kpar:other"]
+sources = [{{ editable = "other" }}]
+"#
+    )
+}
+
+#[test]
+fn lockfile_0_5_is_migrated_to_current_version() {
+    let lock = Lock::parse(&lockfile_0_5()).unwrap();
+    assert_eq!(lock.lock_version, CURRENT_LOCK_VERSION);
+
+    let identifiers: Vec<_> = lock
+        .projects
+        .iter()
+        .map(|p| p.identifiers.as_slice())
+        .collect();
+    assert_eq!(
+        identifiers,
+        [
+            &["urn:sysand:acme-inc/app".to_owned()][..],
+            &[
+                "urn:sysand:acme-inc/lib".to_owned(),
+                "urn:kpar:lib".to_owned()
+            ],
+            &["urn:sysand:ąžuolas/šaknis".to_owned()],
+            &["pkg:sysand/acme-labs/util".to_owned()],
+            &["urn:kpar:other".to_owned()],
+        ]
+    );
+    assert_eq!(
+        lock.projects[0].usages,
+        [
+            Usage::from_str_unchecked("urn:sysand:acme-inc/lib"),
+            Usage::from_str_unchecked("urn:sysand:ąžuolas/šaknis"),
+            Usage::from_str_unchecked("pkg:sysand/acme-labs/util"),
+            Usage::from_str_unchecked("urn:kpar:other"),
+        ]
+    );
+}
+
+#[test]
+fn migrated_lockfile_is_written_as_current_version() {
+    let text = Lock::parse(&lockfile_0_5()).unwrap().to_toml().to_string();
+    assert!(
+        text.starts_with(&format!(
+            "{LOCKFILE_PREFIX}lock_version = \"{CURRENT_LOCK_VERSION}\"\n"
+        )),
+        "{text}"
+    );
+    assert!(!text.contains("ACME%20Inc."), "{text}");
+    // Migrating the result changes nothing
+    assert_eq!(Lock::parse(&text).unwrap().to_toml().to_string(), text);
+}
+
+#[test]
+fn current_lockfile_is_not_migrated() {
+    // Identifiers as 0.5 derived them are taken as they are in a lockfile of
+    // the current version
+    let lockfile = lockfile_0_5().replace(
+        r#"lock_version = "0.5""#,
+        &format!(r#"lock_version = "{CURRENT_LOCK_VERSION}""#),
+    );
+    let lock = Lock::parse(&lockfile).unwrap();
+    assert_eq!(
+        lock.projects[0].identifiers,
+        ["urn:sysand:ACME%20Inc./App".to_owned()]
     );
 }

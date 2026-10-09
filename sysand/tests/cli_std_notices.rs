@@ -8,7 +8,7 @@ use predicates::prelude::{predicate::str::contains, *};
 // `is_empty` and the `config` imports are only used by the `env install`
 // tests commented out below.
 // use predicates::prelude::predicate::str::is_empty;
-use sysand_core::{commands::lock::DEFAULT_LOCKFILE_NAME, lock::Lock};
+use sysand_core::lock::Lockfile;
 // use sysand_core::config::{self, ConfigProject, OverrideSource};
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
@@ -52,8 +52,7 @@ fn add_std_lib_direct_note_still_locks_skips_sync() -> Result<(), Box<dyn std::e
         )
     );
 
-    let lock_file: Lock =
-        toml::from_str(&std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?)?;
+    let lock_file = Lockfile::read(&cwd)?.into_lock();
     let std_project = lock_file
         .projects
         .iter()

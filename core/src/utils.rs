@@ -54,8 +54,8 @@ pub(crate) const GENERAL_CATEGORY: CodePointMapDataBorrowed<GeneralCategory> =
 /// `O'Reilly`, `Foo, Inc.`, `C++ Tools`, `Foo (EU)`). Other ASCII
 /// punctuation is excluded, as it needs quoting or escaping in shells, JSON
 /// or TOML. Non-ASCII punctuation is allowed without restrictions
-pub(crate) const PROJECT_FIELD_ASCII_PUNCTUATION: [char; 9] =
-    [' ', '-', '.', '&', '\'', ',', '+', '(', ')'];
+pub(crate) const PROJECT_FIELD_ASCII_PUNCTUATION: [char; 10] =
+    [' ', '-', '_', '.', '&', '\'', ',', '+', '(', ')'];
 
 /// The separator between the words of a `pkg:sysand` PURL publisher or name
 pub(crate) const PURL_SEPARATOR: u8 = b'-';

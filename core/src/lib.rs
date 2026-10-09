@@ -20,6 +20,7 @@ pub mod index;
 pub mod index_location;
 mod iri_normalize;
 pub mod lock;
+mod migrate;
 pub mod project;
 pub mod purl;
 pub mod resolve;
