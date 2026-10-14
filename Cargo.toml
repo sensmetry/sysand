@@ -11,7 +11,7 @@ members = [
 default-members = ["core", "sysand"]
 
 [workspace.package]
-version = "0.2.1"
+version = "0.3.0"
 authors = ["Sensmetry <opensource@sensmetry.com>"]
 edition = "2024"
 rust-version = "1.98"
