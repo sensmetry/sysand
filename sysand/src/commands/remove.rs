@@ -102,7 +102,10 @@ pub fn command_remove<Policy: HTTPAuthentication>(
     // aliases for PURL projects
     if let Some(path) = config_path {
         for usage in &removed {
-            if let InterchangeProjectUsageRaw::Resource { resource, .. } = usage
+            if let InterchangeProjectUsageRaw::Resource {
+                resource,
+                version_constraint: _,
+            } = usage
                 && let Ok(iri) = Iri::parse(resource.as_str())
             {
                 remove_project_source_from_config(&path, iri)?;

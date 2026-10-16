@@ -114,7 +114,7 @@ fn lock_wait_is_bounded() {
     let err = store
         .upsert(record("https://a.example/", "tok"))
         .unwrap_err();
-    assert_matches!(err, CredentialStoreError::LockTimeout { .. });
+    assert_matches!(err, CredentialStoreError::LockTimeout { path: _ });
     file.unlock().unwrap();
 
     // Once released, the operation succeeds.
@@ -173,7 +173,7 @@ fn shared_lock_lets_reads_through_but_blocks_writes() {
     let err = store
         .upsert(record("https://b.example/", "tok"))
         .unwrap_err();
-    assert_matches!(err, CredentialStoreError::LockTimeout { .. });
+    assert_matches!(err, CredentialStoreError::LockTimeout { path: _ });
     file.unlock().unwrap();
 }
 
@@ -196,7 +196,7 @@ fn exclusive_lock_blocks_reads() {
     // A writer holds the exclusive lock: the shared read must wait it out
     // (bounded), never read a half-written store.
     let err = store.list().unwrap_err();
-    assert_matches!(err, CredentialStoreError::LockTimeout { .. });
+    assert_matches!(err, CredentialStoreError::LockTimeout { path: _ });
     file.unlock().unwrap();
     assert_eq!(store.list().unwrap(), []);
 }
@@ -213,12 +213,12 @@ fn map_keyring_error_covers_the_taxonomy() {
     // usable backend": callers may fall back to `SYSAND_CRED_*`.
     assert_matches!(
         map_keyring_error(keyring::Error::PlatformFailure("no daemon".into())),
-        CredentialStoreError::BackendAbsent { .. }
+        CredentialStoreError::BackendAbsent { source: _ }
     );
     // A present-but-locked/denied backend must be surfaced.
     assert_matches!(
         map_keyring_error(keyring::Error::NoStorageAccess("locked".into())),
-        CredentialStoreError::BackendDenied { .. }
+        CredentialStoreError::BackendDenied { source: _ }
     );
     // The platform size backstop maps to the same error as the size gate.
     assert_matches!(
@@ -237,7 +237,7 @@ fn map_keyring_error_covers_the_taxonomy() {
     // Anything else is surfaced as a denied backend, never a fallback.
     assert_matches!(
         map_keyring_error(keyring::Error::NoDefaultStore),
-        CredentialStoreError::BackendDenied { .. }
+        CredentialStoreError::BackendDenied { source: _ }
     );
 }
 

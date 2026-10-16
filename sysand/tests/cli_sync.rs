@@ -673,7 +673,13 @@ fn sync_kpar_path_usage_transitive() -> Result<(), Box<dyn std::error::Error>> {
         .find(|p| p.name == "widget")
         .unwrap_or_else(|| panic!("`widget` missing from lockfile: {projects:#?}"));
     assert_eq!(widget.version, "1.0.0");
-    let [Source::LocalSrc { src_path, .. }] = widget.sources.as_slice() else {
+    let [
+        Source::LocalSrc {
+            src_path,
+            checksum: _,
+        },
+    ] = widget.sources.as_slice()
+    else {
         panic!("expected a single local src source for `widget`, got: {widget:#?}");
     };
     assert_eq!(src_path.as_str(), "deps/widget");
@@ -683,7 +689,14 @@ fn sync_kpar_path_usage_transitive() -> Result<(), Box<dyn std::error::Error>> {
         .find(|p| p.name == "gadget")
         .unwrap_or_else(|| panic!("`gadget` missing from lockfile: {projects:#?}"));
     assert_eq!(gadget.version, "2.0.0");
-    let [Source::LocalKpar { kpar_path, .. }] = gadget.sources.as_slice() else {
+    let [
+        Source::LocalKpar {
+            kpar_path,
+            kpar_size: _,
+            kpar_digest: _,
+        },
+    ] = gadget.sources.as_slice()
+    else {
         panic!("expected a single local kpar source for `gadget`, got: {gadget:#?}");
     };
     assert_eq!(kpar_path.as_str(), "deps/gadget.kpar");

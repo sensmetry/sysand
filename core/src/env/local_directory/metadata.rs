@@ -354,7 +354,7 @@ impl EnvProject {
     pub fn src_checksum(&self) -> Option<&str> {
         match &self.checksum {
             Some(EnvProjectChecksum::Project { src_cksum }) => Some(src_cksum),
-            Some(EnvProjectChecksum::Kpar { .. }) | None => None,
+            Some(EnvProjectChecksum::Kpar { kpar_cksum: _ }) | None => None,
         }
     }
 

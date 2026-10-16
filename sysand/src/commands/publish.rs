@@ -40,7 +40,10 @@ pub fn command_publish(
     // are matched against the actual upload URL. Discovery uses the full
     // auth policy because the discovery document may itself be auth-gated.
     let endpoints = runtime.block_on(fetch_index_config(&client, &*auth_policy, &index))?;
-    let ResolvedEndpoints { api_root, .. } = endpoints;
+    let ResolvedEndpoints {
+        api_root,
+        index_root: _,
+    } = endpoints;
     // No advertised `api_root` means a files-only index with nothing to
     // upload to; check before credential handling so this clearer error
     // is not masked by credential problems.
@@ -100,20 +103,22 @@ pub fn command_publish(
 /// login hint is copy-pasteable.
 fn publish_error_with_hint(err: PublishError, index: &str) -> anyhow::Error {
     let hint = match &err {
-        PublishError::NoPublishBearer { .. } => {
+        PublishError::NoPublishBearer { upload_url: _ } => {
             Some(format!("or run `sysand auth login {index}` to store one"))
         }
-        PublishError::StoredCredentialExpired { key, .. } => Some(format!(
+        PublishError::StoredCredentialExpired { key, expires_at: _ } => Some(format!(
             "re-run `sysand auth login {key}` to store a fresh token"
         )),
         PublishError::PublishAuthFailed {
-            status, provenance, ..
+            status,
+            provenance,
+            detail: _,
         } => {
             // Re-login refreshes a stored credential but not an env one
             // (the core message explains the shadowing). A 403 is
             // authorization: point at the credential's subject.
             let mut lines = Vec::new();
-            if let PublishBearerProvenance::Stored { key, .. } = provenance {
+            if let PublishBearerProvenance::Stored { key, expires_at: _ } = provenance {
                 lines.push(format!(
                     "re-run `sysand auth login {key}` to store a fresh token"
                 ));

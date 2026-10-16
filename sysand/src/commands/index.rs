@@ -79,25 +79,48 @@ pub fn command_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
                 )),
                 inner: e,
             }),
-            IndexAddError::NotAnIndex { .. }
+            IndexAddError::NotAnIndex { 0: _ }
             | IndexAddError::Io(_)
-            | IndexAddError::IoWithCleanupSuccess { .. }
+            | IndexAddError::IoWithCleanupSuccess { source: _ }
             | IndexAddError::MissingInfo(_)
-            | IndexAddError::ProjectRemoved { .. }
+            | IndexAddError::ProjectRemoved { iri: _ }
             | IndexAddError::MissingMeta(_)
             | IndexAddError::ProjectDigest(_)
             | IndexAddError::ProjectRead(_)
-            | IndexAddError::DuplicateVersion { .. }
-            | IndexAddError::VersionAlreadyExists { .. }
-            | IndexAddError::VersionYanked { .. }
-            | IndexAddError::VersionRemoved { .. }
-            | IndexAddError::InvalidExistingVersion { .. }
+            | IndexAddError::DuplicateVersion {
+                version: _,
+                path: _,
+            }
+            | IndexAddError::VersionAlreadyExists { iri: _, version: _ }
+            | IndexAddError::VersionYanked { iri: _, version: _ }
+            | IndexAddError::VersionRemoved { iri: _, version: _ }
+            | IndexAddError::InvalidExistingVersion {
+                version: _,
+                versions_path: _,
+                source: _,
+            }
             | IndexAddError::InvalidIri(_)
-            | IndexAddError::DuplicateProject { .. }
-            | IndexAddError::InvalidProject { .. }
-            | IndexAddError::InconsistentlySpelled { .. }
-            | IndexAddError::IoWithCleanupFailure { .. } => Err(IndexError::new_bare(e)),
-            IndexAddError::SpelledDifferently { existing, .. } => {
+            | IndexAddError::DuplicateProject { iri: _ }
+            | IndexAddError::InvalidProject {
+                kpar_path: _,
+                source: _,
+            }
+            | IndexAddError::InconsistentlySpelled {
+                iri: _,
+                spellings: _,
+            }
+            | IndexAddError::IoWithCleanupFailure {
+                source: _,
+                cleanup_error: _,
+            } => Err(IndexError::new_bare(e)),
+            IndexAddError::SpelledDifferently {
+                existing,
+                iri: _,
+                versions: _,
+                version: _,
+                new: _,
+                kpar_path: _,
+            } => {
                 let existing_name = &existing.name;
                 let hint = match &existing.publisher {
                     Some(publisher) => format!(
@@ -114,14 +137,17 @@ pub fn command_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
                 };
                 Err(IndexError::new_with(hint, e))
             }
-            IndexAddError::InvalidJsonFile { .. } => Err(IndexError::new_with(
+            IndexAddError::InvalidJsonFile { path: _, source: _ } => Err(IndexError::new_with(
                 String::from(
                     "either fix the JSON file to be valid or recreate the index\n\
                     from the same kpar archives",
                 ),
                 e,
             )),
-            IndexAddError::VersionHasBuildMetadata { version, .. } => Err(IndexError::new_with(
+            IndexAddError::VersionHasBuildMetadata {
+                version,
+                kpar_path: _,
+            } => Err(IndexError::new_with(
                 format!(
                     "remove the build metadata by running in the original project:\n\
                 sysand edit --version {}{REBUILD_KPAR}",
@@ -132,7 +158,10 @@ pub fn command_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
                 ),
                 e,
             )),
-            IndexAddError::InvalidPublisherInProject { .. } => Err(IndexError::new_with(
+            IndexAddError::InvalidPublisherInProject {
+                publisher: _,
+                kpar_path: _,
+            } => Err(IndexError::new_with(
                 format!(
                     "publisher has to follow the following rules:\n\
                 - between 3 and 50 ASCII characters long\n\
@@ -143,7 +172,10 @@ pub fn command_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
                 ),
                 e,
             )),
-            IndexAddError::InvalidNameInProject { .. } => Err(IndexError::new_with(
+            IndexAddError::InvalidNameInProject {
+                name: _,
+                kpar_path: _,
+            } => Err(IndexError::new_with(
                 format!(
                     "name has to follow the following rules:\n\
                 - between 3 and 50 ASCII characters long\n\
@@ -154,8 +186,16 @@ pub fn command_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
                 ),
                 e,
             )),
-            IndexAddError::InconsistentName { .. }
-            | IndexAddError::InconsistentPublisher { .. } => Err(IndexError::new_with(
+            IndexAddError::InconsistentName {
+                iri: _,
+                iri_name: _,
+                normalized_name: _,
+            }
+            | IndexAddError::InconsistentPublisher {
+                iri: _,
+                iri_publisher: _,
+                normalized_publisher: _,
+            } => Err(IndexError::new_with(
                 String::from(
                     "no need to specify the IRI, as it will be derived from\n\
                     the project publisher and name if both follow Sysand naming rules, which are:\n\
@@ -165,15 +205,16 @@ pub fn command_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
                 ),
                 e,
             )),
-            IndexAddError::MissingPublisherSpecifiedInIri { iri_publisher, .. } => {
-                Err(IndexError::new_with(
-                    format!(
-                        "set a project publisher with:\n\
+            IndexAddError::MissingPublisherSpecifiedInIri {
+                iri_publisher,
+                iri: _,
+            } => Err(IndexError::new_with(
+                format!(
+                    "set a project publisher with:\n\
                 sysand edit --publisher {iri_publisher}{REBUILD_KPAR}"
-                    ),
-                    e,
-                ))
-            }
+                ),
+                e,
+            )),
             IndexAddError::MissingPublisherAndIri => Err(IndexError::new_with(
                 format!(
                     "either pass the project IRI with `--iri <IRI>`, or\n\
@@ -182,7 +223,10 @@ pub fn command_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
                 ),
                 e,
             )),
-            IndexAddError::ProjectNotAtRoot { kpar_path, .. } => Err(IndexError::new_with(
+            IndexAddError::ProjectNotAtRoot {
+                kpar_path,
+                root_in_kpar: _,
+            } => Err(IndexError::new_with(
                 format!(
                     "to fix this, rebuild the kpar with sysand:\n\
                 if you have access to the original project, run:
@@ -208,13 +252,18 @@ pub fn command_index_yank<I: AsRef<str>, V: AsRef<str>, R: AsRef<Utf8Path>>(
         Ok(()) => Ok(()),
         Err(e) => match &e {
             IndexYankError::IndexRootNotFound(_)
-            | IndexYankError::NotAnIndex { .. }
-            | IndexYankError::ProjectNotFound { .. }
+            | IndexYankError::NotAnIndex {
+                index_root: _,
+                source: _,
+            }
+            | IndexYankError::ProjectNotFound { iri: _ }
             | IndexYankError::Io(_)
             | IndexYankError::InvalidIri(_)
-            | IndexYankError::VersionRemoved { .. }
-            | IndexYankError::VersionNotFound { .. } => Err(IndexError::new_bare(e)),
-            IndexYankError::InvalidJsonFile { .. } => Err(IndexError::new_with(
+            | IndexYankError::VersionRemoved { iri: _, version: _ }
+            | IndexYankError::VersionNotFound { iri: _, version: _ } => {
+                Err(IndexError::new_bare(e))
+            }
+            IndexYankError::InvalidJsonFile { path: _, source: _ } => Err(IndexError::new_with(
                 String::from(
                     "either fix the JSON file to be valid or recreate the index\n\
                     from the same kpar archives",
@@ -234,12 +283,17 @@ pub fn command_index_remove<I: AsRef<str>, R: AsRef<Utf8Path>>(
         Ok(()) => Ok(()),
         Err(e) => match &e {
             IndexRemoveError::IndexRootNotFound(_)
-            | IndexRemoveError::NotAnIndex { .. }
-            | IndexRemoveError::ProjectNotFound { .. }
+            | IndexRemoveError::NotAnIndex {
+                index_root: _,
+                source: _,
+            }
+            | IndexRemoveError::ProjectNotFound { iri: _ }
             | IndexRemoveError::Io(_)
             | IndexRemoveError::InvalidIri(_)
-            | IndexRemoveError::VersionNotFound { .. } => Err(IndexError::new_bare(e)),
-            IndexRemoveError::InvalidJsonFile { .. } => Err(IndexError::new_with(
+            | IndexRemoveError::VersionNotFound { iri: _, version: _ } => {
+                Err(IndexError::new_bare(e))
+            }
+            IndexRemoveError::InvalidJsonFile { path: _, source: _ } => Err(IndexError::new_with(
                 String::from(
                     "either fix the JSON file to be valid or recreate the index\n\
                     from the same kpar archives",

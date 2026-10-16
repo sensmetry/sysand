@@ -83,7 +83,7 @@ fn only_non_semver_versions_is_not_an_error() {
 
     let listing = do_versions(&iri(), &resolver).unwrap();
 
-    assert!(listing.versions.is_empty());
+    assert_eq!(listing.versions, [] as [semver::Version; 0]);
     assert_eq!(listing.ignored, vec!["nightly", "latest"]);
 }
 
@@ -94,7 +94,7 @@ fn candidates_without_a_version_are_skipped() {
     let listing = do_versions(&iri(), &resolver).unwrap();
 
     assert_eq!(listing.versions, vec![v("1.0.0")]);
-    assert!(listing.ignored.is_empty());
+    assert_eq!(listing.ignored, [] as [std::string::String; 0]);
 }
 
 #[test]
@@ -114,6 +114,9 @@ fn unknown_iri_is_not_found() {
 
     assert_matches!(
         do_versions(&other, &resolver).unwrap_err(),
-        InfoError::NotFound { .. }
+        InfoError::NotFound {
+            usage: _,
+            reason: _
+        }
     );
 }

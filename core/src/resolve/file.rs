@@ -349,7 +349,11 @@ impl ResolveRead for FileResolver {
                     reason: String::from("resource is not a file URL"),
                 }),
             },
-            InterchangeProjectUsage::Directory { dir, .. } => {
+            InterchangeProjectUsage::Directory {
+                dir,
+                publisher: _,
+                name: _,
+            } => {
                 // TODO: should absolute paths be supported here? Cargo does.
                 if let Some(base) = resolve.base_path() {
                     let res = self.resolve_relative_path(base, dir.as_str())?;
@@ -375,7 +379,11 @@ impl ResolveRead for FileResolver {
                     })
                 }
             }
-            InterchangeProjectUsage::KparPath { kpar_path, .. } => {
+            InterchangeProjectUsage::KparPath {
+                kpar_path,
+                publisher: _,
+                name: _,
+            } => {
                 if let Some(base) = resolve.base_path() {
                     let res = self.resolve_relative_path(base, kpar_path.as_str())?;
                     Ok(res.map(|path| {
@@ -394,7 +402,11 @@ impl ResolveRead for FileResolver {
                     })
                 }
             }
-            InterchangeProjectUsage::Index { .. } => Ok(ResolutionOutcome::UnsupportedUsageType {
+            InterchangeProjectUsage::Index {
+                publisher: _,
+                name: _,
+                version_constraint: _,
+            } => Ok(ResolutionOutcome::UnsupportedUsageType {
                 reason: String::from("not a path usage"),
             }),
         }

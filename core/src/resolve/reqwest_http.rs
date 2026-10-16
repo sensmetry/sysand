@@ -366,7 +366,10 @@ impl<Policy: HTTPAuthentication> ResolveReadAsync for HTTPResolverAsync<Policy> 
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         // Try to resolve as a HTTP src project.
         let outcome = match resolve.usage() {
-            InterchangeProjectUsage::Resource { resource: iri, .. } => {
+            InterchangeProjectUsage::Resource {
+                resource: iri,
+                version_constraint: _,
+            } => {
                 if iri.scheme() == SCHEME_HTTP || iri.scheme() == SCHEME_HTTPS {
                     match reqwest::Url::parse(iri.as_str()) {
                         Ok(url) => {

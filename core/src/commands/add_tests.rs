@@ -226,7 +226,8 @@ fn add_refuses_a_legacy_purl_over_an_index_usage() {
         err,
         AddError::DuplicateIdentifier {
             existing: "an index",
-            ..
+            identifier: _,
+            new: _
         }
     );
 }
@@ -334,7 +335,7 @@ mod spell_index_usage {
         );
         assert_matches!(
             spell_index_usage(Some(&env), &crate::model::IndexPublisher::parse("Acme Labs".to_owned()).unwrap(), &crate::model::IndexName::parse("My Lib".to_owned()).unwrap(), false),
-            Err(IndexSpellingError::Misspelled { spelling, .. }) if spelling == "ACME Labs/My Lib"
+            Err(IndexSpellingError::Misspelled { spelling, usage: _, version: _ }) if spelling == "ACME Labs/My Lib"
         );
     }
 
@@ -343,7 +344,7 @@ mod spell_index_usage {
         let env = env(vec![("1.0.0", InMemoryProject::default())]);
         assert_matches!(
             spell_index_usage(Some(&env), &crate::model::IndexPublisher::parse("acme-labs".to_owned()).unwrap(), &crate::model::IndexName::parse("my-lib".to_owned()).unwrap(), true),
-            Err(IndexSpellingError::MissingInfo { version, .. }) if version == "1.0.0"
+            Err(IndexSpellingError::MissingInfo { version, usage: _ }) if version == "1.0.0"
         );
     }
 
@@ -359,7 +360,7 @@ mod spell_index_usage {
             ),
             Err(IndexSpellingError::NotInstalled {
                 normalized: true,
-                ..
+                usage: _
             })
         );
         assert_matches!(
@@ -371,7 +372,7 @@ mod spell_index_usage {
             ),
             Err(IndexSpellingError::NotInstalled {
                 normalized: false,
-                ..
+                usage: _
             })
         );
     }
@@ -417,7 +418,9 @@ mod index_usage_to_add {
             to_add(&[], ("Acme Labs", "My Lib"), Some("^1")),
             Ok(IndexUsageToAdd::New {
                 normalized: false,
-                ..
+                publisher: _,
+                name: _,
+                version_constraint: _
             })
         );
     }
@@ -470,7 +473,7 @@ mod index_usage_to_add {
             Err(AddError::DuplicateIdentifier {
                 existing: "a directory",
                 new: "an index",
-                ..
+                identifier: _
             })
         );
     }

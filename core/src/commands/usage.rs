@@ -103,7 +103,9 @@ fn match_usage(usage: &serde_json::Value, identifier: &str) -> Option<MatchedKin
     }
     Some(match usage {
         InterchangeProjectUsageRaw::Index {
-            publisher, name, ..
+            publisher,
+            name,
+            version_constraint: _,
         } => MatchedKind::Index { publisher, name },
         usage => MatchedKind::Typed(usage.kind_with_article()),
     })
@@ -248,7 +250,7 @@ pub fn do_set_index_usage_constraint(
             InterchangeProjectUsageRaw::Index {
                 publisher: p,
                 name: n,
-                ..
+                version_constraint: _,
             } if p == publisher && n == name => exact.push(index),
             _ if Identifier::from_unvalidated_usage(&usage).is_some_and(|id| id == identifier) => {
                 same_project.get_or_insert(usage);
@@ -265,16 +267,17 @@ pub fn do_set_index_usage_constraint(
                 InterchangeProjectUsageRaw::Index {
                     publisher: p,
                     name: n,
-                    ..
+                    version_constraint: _,
                 } => SetConstraintError::IndexUsageSpelledDifferently {
                     requested: format!("{publisher}/{name}"),
                     existing: format!("{p}/{n}"),
                 },
-                InterchangeProjectUsageRaw::Resource { .. } => {
-                    SetConstraintError::NotAnIndexUsage {
-                        identifier: identifier.into_string(),
-                    }
-                }
+                InterchangeProjectUsageRaw::Resource {
+                    resource: _,
+                    version_constraint: _,
+                } => SetConstraintError::NotAnIndexUsage {
+                    identifier: identifier.into_string(),
+                },
                 usage => SetConstraintError::UsageCannotHoldConstraint {
                     identifier: identifier.into_string(),
                     kind: usage.kind_with_article(),

@@ -112,8 +112,21 @@ impl IRIPredicate for Serves {
     fn accept(&self, usage: &ResolutionInfo) -> bool {
         #[expect(clippy::match_like_matches_macro)]
         match (self, usage.usage()) {
-            (Self::DirectoryUsages, InterchangeProjectUsage::Directory { .. }) => true,
-            (Self::ResourceUsages, InterchangeProjectUsage::Resource { .. }) => true,
+            (
+                Self::DirectoryUsages,
+                InterchangeProjectUsage::Directory {
+                    dir: _,
+                    publisher: _,
+                    name: _,
+                },
+            ) => true,
+            (
+                Self::ResourceUsages,
+                InterchangeProjectUsage::Resource {
+                    resource: _,
+                    version_constraint: _,
+                },
+            ) => true,
             _ => false,
         }
     }
@@ -1085,7 +1098,7 @@ fn conflicts_name_the_dependents_that_pin_transitively() {
     assert!(
         conflicts
             .iter()
-            .all(|c| !matches!(c, SolveConflict::NotFound { .. })),
+            .all(|c| !matches!(c, SolveConflict::NotFound { iri: _, reason: _ })),
         "{conflicts:?}"
     );
 }
@@ -1186,7 +1199,7 @@ fn found_versions_are_sorted_by_semver_and_listed_once() {
 
     assert_matches!(
         err.conflicts().as_slice(),
-        [SolveConflict::NoVersions { found, .. }] if *found == ["1.9.0", "1.10.0", "2.0.0"]
+        [SolveConflict::NoVersions { found, iri: _, constraint: _, defaulted: _, required_by: _ }] if *found == ["1.9.0", "1.10.0", "2.0.0"]
     );
 }
 
@@ -1200,7 +1213,7 @@ fn unknown_project_is_a_not_found_conflict() {
     assert!(err.resolution_error().is_none());
     assert_matches!(
         err.conflicts().as_slice(),
-        [SolveConflict::NotFound { iri, .. }] if iri == "urn:kpar:absent"
+        [SolveConflict::NotFound { iri, reason: _ }] if iri == "urn:kpar:absent"
     );
 }
 
@@ -1780,8 +1793,13 @@ mod index_usages {
             matches!(
                 err.inner.as_ref(),
                 pubgrub::PubGrubError::ErrorRetrievingDependencies {
-                    source: InternalSolverError::InvalidProject { .. },
-                    ..
+                    source: InternalSolverError::InvalidProject {
+                        usage: _,
+                        version: _,
+                        source: _
+                    },
+                    package: _,
+                    version: _
                 }
             ),
             "{err:?}"
@@ -1801,10 +1819,10 @@ mod index_usages {
                 pubgrub::PubGrubError::ErrorRetrievingDependencies {
                     source: InternalSolverError::BrokenIndexVersion {
                         version: Some(version),
-                        source: CandidateError::InvalidProject { .. },
-                        ..
+                        source: CandidateError::InvalidProject { version: _, source: _ },
+                        usage: _
                     },
-                    ..
+                    package: _, version: _
                 } if version == "2.0.0"
             ),
             "{err:?}"

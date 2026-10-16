@@ -97,7 +97,7 @@ fn logout_of_non_http_url_errors_without_touching_the_store() {
 
     let err = logout(&mut store, "file:///srv/index").unwrap_err();
 
-    assert_matches!(&err, AuthCommandError::NotHttpIndex { .. });
+    assert_matches!(&err, AuthCommandError::NotHttpIndex { url: _ });
     assert!(
         err.to_string().contains("not an HTTP(S) index"),
         "was: {err}"
@@ -307,7 +307,7 @@ fn status_surfaces_a_denied_backend_as_an_error() {
 
     assert_matches!(
         err,
-        AuthCommandError::Store(CredentialStoreError::BackendDenied { .. })
+        AuthCommandError::Store(CredentialStoreError::BackendDenied { source: _ })
     );
 }
 
@@ -386,7 +386,11 @@ mod login {
                 globs,
                 validated,
             } => (key, globs, validated),
-            other @ AuthLoginOutcome::BackendUnavailable { .. } => {
+            other @ AuthLoginOutcome::BackendUnavailable {
+                key: _,
+                globs: _,
+                reason: _,
+            } => {
                 panic!("expected Stored, got {other:?}")
             }
         }
@@ -618,7 +622,7 @@ mod login {
         assert!(
             notices
                 .iter()
-                .any(|n| matches!(n, AuthLoginNotice::DiscoveryUnreachable { .. }))
+                .any(|n| matches!(n, AuthLoginNotice::DiscoveryUnreachable { error: _ }))
         );
         let set = matcher(&globs);
         assert!(set.is_match("https://[::1]:1/index.json"));
@@ -634,7 +638,7 @@ mod login {
         assert!(
             !first_notices
                 .iter()
-                .any(|n| matches!(n, AuthLoginNotice::ReplacingExisting { .. }))
+                .any(|n| matches!(n, AuthLoginNotice::ReplacingExisting { key: _ }))
         );
 
         let (second, second_notices) = run_login(&mut store, "http://127.0.0.1:1/", "new-tok");
@@ -663,7 +667,11 @@ mod login {
                 assert_eq!(globs, vec![format!("{}**", globset::escape(&key))]);
                 assert_eq!(reason, "no secret service");
             }
-            other @ AuthLoginOutcome::Stored { .. } => {
+            other @ AuthLoginOutcome::Stored {
+                key: _,
+                globs: _,
+                validated: _,
+            } => {
                 panic!("expected BackendUnavailable, got {other:?}")
             }
         }
@@ -699,7 +707,7 @@ mod login {
     fn template_key_keeps_the_non_http_rejection() {
         let err = IndexKey::validate("ftp://files.example.com/{path}").unwrap_err();
 
-        assert_matches!(&err, AuthCommandError::NotHttpIndex { .. });
+        assert_matches!(&err, AuthCommandError::NotHttpIndex { url: _ });
     }
 
     #[test]
@@ -770,7 +778,7 @@ mod login {
         assert!(
             notices
                 .iter()
-                .any(|n| matches!(n, AuthLoginNotice::DiscoveryUnreachable { .. }))
+                .any(|n| matches!(n, AuthLoginNotice::DiscoveryUnreachable { error: _ }))
         );
         // `status` reports the key in the exact form `logout` accepts.
         let status = do_auth_status(&store, vec![], None).unwrap();
@@ -872,7 +880,7 @@ mod login {
         assert!(
             notices
                 .iter()
-                .any(|n| matches!(n, AuthLoginNotice::DiscoveryUnreachable { .. }))
+                .any(|n| matches!(n, AuthLoginNotice::DiscoveryUnreachable { error: _ }))
         );
         // `logout` accepts the normalized key `status` would print.
         assert_eq!(logout(&mut store, &key).unwrap(), key);
@@ -1101,7 +1109,7 @@ mod login {
         assert!(
             notices
                 .iter()
-                .any(|n| matches!(n, AuthLoginNotice::DiscoveryUnreachable { .. }))
+                .any(|n| matches!(n, AuthLoginNotice::DiscoveryUnreachable { error: _ }))
         );
     }
 
@@ -1146,7 +1154,7 @@ mod login {
         assert!(
             !notices
                 .iter()
-                .any(|n| matches!(n, AuthLoginNotice::ReplacingExisting { .. })),
+                .any(|n| matches!(n, AuthLoginNotice::ReplacingExisting { key: _ })),
             "a refused login must not announce a replacement: {notices:?}"
         );
         assert_eq!(store.list().unwrap()[0].secret, "old-tok");
@@ -1203,7 +1211,7 @@ mod login {
 
         let err = outcome.unwrap_err();
         assert_matches!(&err,
-        AuthCommandError::ValidationRejected { rejected, .. }
+        AuthCommandError::ValidationRejected { rejected, index: _, challenge_schemes: _ }
             if rejected == &vec![(ProbeSurface::Api, 401)]);
         let message = err.to_string();
         assert!(
@@ -1231,7 +1239,7 @@ mod login {
 
         let err = outcome.unwrap_err();
         assert_matches!(&err,
-        AuthCommandError::ValidationRejected { rejected, .. }
+        AuthCommandError::ValidationRejected { rejected, index: _, challenge_schemes: _ }
             if rejected == &vec![(ProbeSurface::Read, 404)]);
         let message = err.to_string();
         assert!(
@@ -1259,7 +1267,7 @@ mod login {
 
         let err = outcome.unwrap_err();
         assert_matches!(&err,
-        AuthCommandError::ValidationRejected { rejected, .. }
+        AuthCommandError::ValidationRejected { rejected, index: _, challenge_schemes: _ }
             if rejected == &vec![(ProbeSurface::Read, 403)]);
         let message = err.to_string();
         assert!(
@@ -1382,7 +1390,7 @@ mod login {
                 n,
                 AuthLoginNotice::ProbeUnreachable {
                     surface: ProbeSurface::Read,
-                    ..
+                    error: _
                 }
             )),
             "expected an unreachable notice, got {notices:?}"
@@ -1441,7 +1449,7 @@ mod login {
         assert_matches!(&err,
         AuthCommandError::ValidationRejected {
             challenge_schemes,
-            ..
+            index: _, rejected: _
         } if challenge_schemes == &vec!["Basic".to_owned()]);
         let message = err.to_string();
         assert!(
@@ -1475,7 +1483,7 @@ mod login {
         assert_matches!(&err,
         AuthCommandError::ValidationRejected {
             challenge_schemes,
-            ..
+            index: _, rejected: _
         } if challenge_schemes == &vec!["Bearer".to_owned()]);
         // Bearer is the expected scheme: no basic routing and no
         // unsupported-scheme follow-up.
@@ -1504,7 +1512,7 @@ mod login {
         assert_matches!(&err,
         AuthCommandError::ValidationRejected {
             challenge_schemes,
-            ..
+            index: _, rejected: _
         } if challenge_schemes == &vec!["Negotiate".to_owned()]);
         let message = err.to_string();
         assert!(
@@ -1540,7 +1548,7 @@ mod login {
         assert_matches!(&err,
         AuthCommandError::ValidationRejected {
             challenge_schemes,
-            ..
+            index: _, rejected: _
         } if challenge_schemes == &vec!["Negotiate".to_owned(), "Basic".to_owned()]);
         let message = err.to_string();
         assert!(
@@ -1749,7 +1757,7 @@ mod login {
 
         let err = outcome.unwrap_err();
         assert_matches!(&err,
-        AuthCommandError::ValidationRejected { rejected, .. }
+        AuthCommandError::ValidationRejected { rejected, index: _, challenge_schemes: _ }
             if rejected == &vec![(ProbeSurface::Read, 404), (ProbeSurface::Api, 401)]);
         let message = err.to_string();
         assert!(
@@ -1901,7 +1909,7 @@ mod login {
         let (outcome, notices) = run_login(&mut store, &server.url(), "bad-tok");
 
         assert_matches!(outcome.unwrap_err(),
-        AuthCommandError::ValidationRejected { rejected, .. }
+        AuthCommandError::ValidationRejected { rejected, index: _, challenge_schemes: _ }
             if rejected == vec![(ProbeSurface::Read, 401)]);
         assert!(
             notices.iter().any(|n| matches!(
@@ -1993,7 +2001,7 @@ mod login {
         assert!(
             notices
                 .iter()
-                .any(|n| matches!(n, AuthLoginNotice::DiscoveryUnreachable { .. }))
+                .any(|n| matches!(n, AuthLoginNotice::DiscoveryUnreachable { error: _ }))
         );
         baseline.assert();
         forced.assert();
@@ -2138,7 +2146,11 @@ mod whoami {
         let err = select_whoami_credential(&env, &[], &whoami_url(), INDEX_KEY).unwrap_err();
 
         match &err {
-            AuthCommandError::AmbiguousWhoamiCredential { candidates, .. } => {
+            AuthCommandError::AmbiguousWhoamiCredential {
+                candidates,
+                url: _,
+                source_name: _,
+            } => {
                 assert_eq!(
                     candidates,
                     &["SYSAND_CRED_A".to_owned(), "SYSAND_CRED_B".to_owned()]
@@ -2181,7 +2193,11 @@ mod whoami {
         let err = select_whoami_credential(&env, &records, &whoami_url(), INDEX_KEY).unwrap_err();
 
         match &err {
-            AuthCommandError::AmbiguousWhoamiCredential { candidates, .. } => {
+            AuthCommandError::AmbiguousWhoamiCredential {
+                candidates,
+                url: _,
+                source_name: _,
+            } => {
                 assert_eq!(
                     candidates.len(),
                     2,
@@ -2224,7 +2240,10 @@ mod whoami {
 
         let err = select_whoami_credential(&env, &[], &whoami_url(), INDEX_KEY).unwrap_err();
 
-        assert_matches!(&err, AuthCommandError::NoWhoamiCredential { .. });
+        assert_matches!(
+            &err,
+            AuthCommandError::NoWhoamiCredential { url: _, index: _ }
+        );
         // The core message states the bare condition; all remediation
         // (the `sysand auth login` hint and the `SYSAND_CRED_*` CI path)
         // belongs to the frontend.

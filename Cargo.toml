@@ -166,6 +166,8 @@ unwrap_used = "allow"
 verbose_file_reads = "allow"
 # may want to enable this
 wildcard_enum_match_arm = "allow"
+# TODO: consider enabling this
+definition_in_module_root = "allow"
 
 # Style
 

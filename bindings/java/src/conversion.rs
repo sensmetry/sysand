@@ -858,7 +858,7 @@ pub(crate) fn handle_build_error(env: &mut Env<'_>, error: &KParBuildError<Local
         KParBuildError::Io(_) => {
             env.throw_exception(ExceptionKind::SysandException, format!("IO error: {e}"));
         }
-        KParBuildError::Validation { .. } => {
+        KParBuildError::Validation { name: _, source: _ } => {
             env.throw_exception(
                 ExceptionKind::SysandException,
                 format!("Validation error: {e}"),
@@ -909,7 +909,12 @@ pub(crate) fn handle_build_error(env: &mut Env<'_>, error: &KParBuildError<Local
                 format!("Workspace read error: {e}"),
             );
         }
-        KParBuildError::PathUsage(_) | KParBuildError::WorkspaceMetamodelConflict { .. } => {
+        KParBuildError::PathUsage(_)
+        | KParBuildError::WorkspaceMetamodelConflict {
+            workspace_metamodel: _,
+            project_metamodel: _,
+            project_path: _,
+        } => {
             env.throw_exception(ExceptionKind::SysandException, e);
         }
         KParBuildError::MissingIndexSymbol(_, _) => {
