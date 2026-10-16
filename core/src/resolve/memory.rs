@@ -65,7 +65,13 @@ pub struct AcceptResource;
 
 impl IRIPredicate for AcceptResource {
     fn accept(&self, usage: &ResolutionInfo) -> bool {
-        matches!(usage.usage(), InterchangeProjectUsage::Resource { .. })
+        matches!(
+            usage.usage(),
+            InterchangeProjectUsage::Resource {
+                resource: _,
+                version_constraint: _
+            }
+        )
     }
 }
 
@@ -91,9 +97,21 @@ impl IRIPredicate for AcceptScheme<'_> {
                 resource,
                 version_constraint: _,
             } => resource.scheme() == self.scheme,
-            InterchangeProjectUsage::Directory { .. }
-            | InterchangeProjectUsage::KparPath { .. }
-            | InterchangeProjectUsage::Index { .. } => false,
+            InterchangeProjectUsage::Directory {
+                dir: _,
+                publisher: _,
+                name: _,
+            }
+            | InterchangeProjectUsage::KparPath {
+                kpar_path: _,
+                publisher: _,
+                name: _,
+            }
+            | InterchangeProjectUsage::Index {
+                publisher: _,
+                name: _,
+                version_constraint: _,
+            } => false,
         }
     }
 }

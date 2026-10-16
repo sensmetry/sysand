@@ -136,7 +136,10 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         let identifiers = match locator {
             ProjectLocator::Iri(iri) => Some(vec![iri]),
             // The `pkg:sysand` PURL the index usage resolved by
-            ProjectLocator::Index { resolve, .. } => Some(vec![
+            ProjectLocator::Index {
+                resolve,
+                version_constraint: _,
+            } => Some(vec![
                 Iri::parse(resolve.id().into_string()).map_err(|(e, _)| anyhow!(e))?,
             ]),
             ProjectLocator::Dir(_) | ProjectLocator::KparPath(_) => None,
@@ -411,19 +414,31 @@ pub fn get_project_version<R: ResolveRead>(
                 (Some(_), _) => false,
                 (
                     None,
-                    InterchangeProjectUsage::Directory { .. }
-                    | InterchangeProjectUsage::KparPath { .. }
-                    | InterchangeProjectUsage::Index { .. }
+                    InterchangeProjectUsage::Directory {
+                        dir: _,
+                        publisher: _,
+                        name: _,
+                    }
+                    | InterchangeProjectUsage::KparPath {
+                        kpar_path: _,
+                        publisher: _,
+                        name: _,
+                    }
+                    | InterchangeProjectUsage::Index {
+                        publisher: _,
+                        name: _,
+                        version_constraint: _,
+                    }
                     | InterchangeProjectUsage::Resource {
                         version_constraint: Some(_),
-                        ..
+                        resource: _,
                     },
                 ) => false,
                 (
                     None,
                     InterchangeProjectUsage::Resource {
                         version_constraint: None,
-                        ..
+                        resource: _,
                     },
                 ) => true,
             };

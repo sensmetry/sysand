@@ -314,15 +314,28 @@ impl<'a> OnBrokenCandidate<'a> {
         match usage {
             // Resource usages may produce invalid candidates that should not fail
             // the whole resolution (e.g. both src and kpar variants for paths and http)
-            InterchangeProjectUsage::Resource { .. } => Self::Skip,
+            InterchangeProjectUsage::Resource {
+                resource: _,
+                version_constraint: _,
+            } => Self::Skip,
             // Path usages name one project outright, so it must be a valid one
-            InterchangeProjectUsage::Directory { .. }
-            | InterchangeProjectUsage::KparPath { .. } => Self::Fail,
+            InterchangeProjectUsage::Directory {
+                dir: _,
+                publisher: _,
+                name: _,
+            }
+            | InterchangeProjectUsage::KparPath {
+                kpar_path: _,
+                publisher: _,
+                name: _,
+            } => Self::Fail,
             // A version an index offers is one its publisher published, so a
             // broken one is a fault of the index to report, not to paper over
             // by quietly picking another version
             InterchangeProjectUsage::Index {
-                version_constraint, ..
+                version_constraint,
+                publisher: _,
+                name: _,
             } => Self::FailIfSelectable(version_constraint),
         }
     }
@@ -376,11 +389,14 @@ impl<R: ResolveRead> CandidateError<R> {
     /// The version of the candidate, when it is known
     fn version(&self) -> Option<&Version> {
         match self {
-            Self::InvalidProject { version, .. }
+            Self::InvalidProject { version, source: _ }
             | Self::MissingUsage { version }
-            | Self::UsageObtain { version, .. } => Some(version),
+            | Self::UsageObtain { version, source: _ } => Some(version),
             Self::Resolved(_)
-            | Self::InvalidVersion { .. }
+            | Self::InvalidVersion {
+                version: _,
+                source: _,
+            }
             | Self::MissingVersion
             | Self::VersionObtain(_) => None,
         }
@@ -391,7 +407,11 @@ impl<R: ResolveRead> CandidateError<R> {
         let usage = resolve.to_usage();
         // A candidate that could not be read at all is not known to be
         // broken: that is reported as the read error below
-        if let InterchangeProjectUsage::Index { .. } = resolve.usage().usage()
+        if let InterchangeProjectUsage::Index {
+            publisher: _,
+            name: _,
+            version_constraint: _,
+        } = resolve.usage().usage()
             && !matches!(self, Self::Resolved(_))
         {
             return InternalSolverError::BrokenIndexVersion {
@@ -402,7 +422,7 @@ impl<R: ResolveRead> CandidateError<R> {
         }
         match self {
             Self::Resolved(source) => InternalSolverError::ResolvedError { usage, source },
-            Self::InvalidVersion { source, .. } => {
+            Self::InvalidVersion { source, version: _ } => {
                 InternalSolverError::InvalidResolvedVersion { usage, source }
             }
             Self::MissingVersion => InternalSolverError::MissingVersion { usage },
@@ -412,8 +432,10 @@ impl<R: ResolveRead> CandidateError<R> {
                 version,
                 source,
             },
-            Self::MissingUsage { .. } => InternalSolverError::MissingUsage { usage },
-            Self::UsageObtain { source, .. } => InternalSolverError::UsageObtain { usage, source },
+            Self::MissingUsage { version: _ } => InternalSolverError::MissingUsage { usage },
+            Self::UsageObtain { source, version: _ } => {
+                InternalSolverError::UsageObtain { usage, source }
+            }
         }
     }
 }
@@ -569,7 +591,8 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
 
         match usage.usage().usage() {
             InterchangeProjectUsage::Resource {
-                version_constraint, ..
+                version_constraint,
+                resource: _,
             } => {
                 // A constraint that selects nothing is neither an error nor a
                 // `Dependencies::Unavailable`, since the dependencies are known.
@@ -585,7 +608,9 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
                 deps.push((DependencyIdentifier::Remote(usage.to_owned()), selected));
             }
             InterchangeProjectUsage::Index {
-                version_constraint, ..
+                version_constraint,
+                publisher: _,
+                name: _,
             } => {
                 let selected = selected_by(
                     numbered(&candidates).map(|(index, c)| (index, &c.version)),
@@ -595,8 +620,16 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
 
                 deps.push((DependencyIdentifier::Remote(usage.to_owned()), selected));
             }
-            InterchangeProjectUsage::Directory { .. }
-            | InterchangeProjectUsage::KparPath { .. } => {
+            InterchangeProjectUsage::Directory {
+                dir: _,
+                publisher: _,
+                name: _,
+            }
+            | InterchangeProjectUsage::KparPath {
+                kpar_path: _,
+                publisher: _,
+                name: _,
+            } => {
                 // Usually `candidates` will contain a single candidate for these types,
                 // but e.g. environment may have multiple project versions, and will
                 // return all of them based on the identifier
@@ -713,11 +746,12 @@ fn constraint_of(usage: &CoalescingUsage) -> String {
     match usage.usage().usage() {
         InterchangeProjectUsage::Resource {
             version_constraint: Some(constraint),
-            ..
+            resource: _,
         }
         | InterchangeProjectUsage::Index {
             version_constraint: constraint,
-            ..
+            publisher: _,
+            name: _,
         } => constraint.to_string(),
         _ => "*".to_owned(),
     }
@@ -739,8 +773,15 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
     pub fn kind(&self) -> &'static str {
         match self.inner.as_ref() {
             pubgrub::PubGrubError::NoSolution(_) => "no_solution",
-            pubgrub::PubGrubError::ErrorRetrievingDependencies { .. } => "retrieval",
-            pubgrub::PubGrubError::ErrorChoosingVersion { .. }
+            pubgrub::PubGrubError::ErrorRetrievingDependencies {
+                package: _,
+                version: _,
+                source: _,
+            } => "retrieval",
+            pubgrub::PubGrubError::ErrorChoosingVersion {
+                package: _,
+                source: _,
+            }
             | pubgrub::PubGrubError::ErrorInShouldCancel(_) => "choosing_version",
         }
     }
@@ -751,12 +792,14 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
     pub fn resolution_error(&self) -> Option<&R::Error> {
         match self.inner.as_ref() {
             pubgrub::PubGrubError::ErrorRetrievingDependencies {
-                source: InternalSolverError::Resolution(err),
-                ..
-            }
-            | pubgrub::PubGrubError::ErrorRetrievingDependencies {
-                source: InternalSolverError::ResolvedError { source: err, .. },
-                ..
+                source:
+                    InternalSolverError::Resolution(err)
+                    | InternalSolverError::ResolvedError {
+                        source: err,
+                        usage: _,
+                    },
+                package: _,
+                version: _,
             } => Some(err),
             _ => None,
         }
@@ -771,26 +814,45 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
             pubgrub::PubGrubError::NoSolution(derivation_tree) => {
                 self.walk(derivation_tree, &mut conflicts);
             }
-            pubgrub::PubGrubError::ErrorRetrievingDependencies { source, .. } => match source {
-                InternalSolverError::Resolution(_) | InternalSolverError::ResolvedError { .. } => {}
+            pubgrub::PubGrubError::ErrorRetrievingDependencies {
+                source,
+                package: _,
+                version: _,
+            } => match source {
+                InternalSolverError::Resolution(_)
+                | InternalSolverError::ResolvedError {
+                    usage: _,
+                    source: _,
+                } => {}
                 InternalSolverError::NotFound(usage, _)
                 | InternalSolverError::NoValidCandidates(usage)
-                | InternalSolverError::UnsupportedUsageType { usage, .. }
-                | InternalSolverError::Unresolvable { usage, .. }
-                | InternalSolverError::InvalidProject { usage, .. }
-                | InternalSolverError::BrokenIndexVersion { usage, .. }
+                | InternalSolverError::UnsupportedUsageType { usage, reason: _ }
+                | InternalSolverError::Unresolvable { usage, reason: _ }
+                | InternalSolverError::InvalidProject {
+                    usage,
+                    version: _,
+                    source: _,
+                }
+                | InternalSolverError::BrokenIndexVersion {
+                    usage,
+                    version: _,
+                    source: _,
+                }
                 | InternalSolverError::MissingVersion { usage }
                 | InternalSolverError::MissingUsage { usage }
-                | InternalSolverError::InvalidResolvedVersion { usage, .. }
-                | InternalSolverError::VersionObtain { usage, .. }
-                | InternalSolverError::UsageObtain { usage, .. } => {
+                | InternalSolverError::InvalidResolvedVersion { usage, source: _ }
+                | InternalSolverError::VersionObtain { usage, source: _ }
+                | InternalSolverError::UsageObtain { usage, source: _ } => {
                     conflicts.push(SolveConflict::NotFound {
                         iri: usage.id().to_string(),
                         reason: format_err(source),
                     });
                 }
             },
-            pubgrub::PubGrubError::ErrorChoosingVersion { .. }
+            pubgrub::PubGrubError::ErrorChoosingVersion {
+                package: _,
+                source: _,
+            }
             | pubgrub::PubGrubError::ErrorInShouldCancel(_) => {}
         }
         conflicts
@@ -908,7 +970,7 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
             usage.usage().usage(),
             InterchangeProjectUsage::Resource {
                 version_constraint: None,
-                ..
+                resource: _
             }
         ) && self.candidates.get(usage.id()).is_some_and(|candidates| {
             candidates
@@ -943,11 +1005,12 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
         let selects_set = |usage: &CoalescingUsage| match usage.usage().usage() {
             InterchangeProjectUsage::Resource {
                 version_constraint: Some(constraint),
-                ..
+                resource: _,
             }
             | InterchangeProjectUsage::Index {
                 version_constraint: constraint,
-                ..
+                publisher: _,
+                name: _,
             } => selected_by(
                 candidates.iter().map(|c| (c.index, &c.version)),
                 Some(constraint),
@@ -992,7 +1055,7 @@ impl<R: ResolveRead + fmt::Debug + 'static> Display for SolverError<R> {
                         constraint,
                         defaulted,
                         found,
-                        ..
+                        required_by: _,
                     },
                 ] = self.conflicts().as_slice()
                 {
@@ -1033,8 +1096,11 @@ impl<R: ResolveRead + fmt::Debug + 'static> Display for SolverError<R> {
                 // which are always read first, so a `Remote` package is never
                 // one of those projects
                 DependencyIdentifier::Remote(dependent)
-                    if let InternalSolverError::BrokenIndexVersion { usage, version, .. } =
-                        source =>
+                    if let InternalSolverError::BrokenIndexVersion {
+                        usage,
+                        version,
+                        source: _,
+                    } = source =>
                 {
                     let dependent_id = dependent.to_id();
                     // Reading `Remote(X)`'s dependencies first looks X's own
@@ -1067,7 +1133,14 @@ impl<R: ResolveRead + fmt::Debug + 'static> Display for SolverError<R> {
                 }
                 // Says all there is to say about which usage failed, and why
                 DependencyIdentifier::Requested(_)
-                    if matches!(source, InternalSolverError::BrokenIndexVersion { .. }) =>
+                    if matches!(
+                        source,
+                        InternalSolverError::BrokenIndexVersion {
+                            usage: _,
+                            version: _,
+                            source: _
+                        }
+                    ) =>
                 {
                     write!(f, "{source}")
                 }
@@ -1076,7 +1149,7 @@ impl<R: ResolveRead + fmt::Debug + 'static> Display for SolverError<R> {
                     write!(f, "failed to retrieve usages of `{iri}`")
                 }
             },
-            pubgrub::PubGrubError::ErrorChoosingVersion { package, .. } => match package {
+            pubgrub::PubGrubError::ErrorChoosingVersion { package, source: _ } => match package {
                 DependencyIdentifier::Requested(_) => {
                     // `fn choose_version()` is infallible in this path
                     unreachable!();
@@ -1101,11 +1174,21 @@ impl<R: ResolveRead + fmt::Debug + 'static> std::error::Error for SolverError<R>
             // `Display` already says what this error does, so skip to what
             // caused it
             pubgrub::PubGrubError::ErrorRetrievingDependencies {
-                source: source @ InternalSolverError::BrokenIndexVersion { .. },
-                ..
+                source:
+                    source @ InternalSolverError::BrokenIndexVersion {
+                        usage: _,
+                        version: _,
+                        source: _,
+                    },
+                package: _,
+                version: _,
             } => std::error::Error::source(source),
-            pubgrub::PubGrubError::ErrorRetrievingDependencies { source, .. }
-            | pubgrub::PubGrubError::ErrorChoosingVersion { source, .. } => Some(source),
+            pubgrub::PubGrubError::ErrorRetrievingDependencies {
+                source,
+                package: _,
+                version: _,
+            }
+            | pubgrub::PubGrubError::ErrorChoosingVersion { source, package: _ } => Some(source),
             pubgrub::PubGrubError::NoSolution(_)
             | pubgrub::PubGrubError::ErrorInShouldCancel(_) => None,
         }

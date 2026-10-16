@@ -421,7 +421,7 @@ fn run_cli_with(
 
     let mut config = match &global_opts.config_file {
         // `add` creates the file to write the source to.
-        Some(config_file) if matches!(&command, Command::Add { source_opts, .. } if source_opts.is_given()) => {
+        Some(config_file) if matches!(&command, Command::Add { source_opts, locator: _, version_constraint: _, sync: _, resolution_opts: _ } if source_opts.is_given()) => {
             get_config(config_file)?
         }
         Some(config_file) => read_config(config_file)?,
@@ -488,7 +488,7 @@ fn run_cli_with(
             path,
             ctx,
         ),
-        Command::New { .. } => bail!("use `init` instead of `new`"),
+        Command::New { args: _ } => bail!("use `init` instead of `new`"),
         Command::Env { command } => match command {
             None => {
                 let env_dir = {
@@ -650,7 +650,7 @@ fn run_cli_with(
             )?;
             Ok(())
         }
-        Command::Auth { .. } => {
+        Command::Auth { command: _ } => {
             unreachable!("`auth` is dispatched before the auth policy is built")
         }
         Command::PrintRoot => command_print_root(ctx.current_directory),

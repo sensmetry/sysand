@@ -103,7 +103,12 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
 
     let ast = parse_macro_input!(input as DeriveInput);
 
-    let Data::Enum(DataEnum { variants, .. }) = &ast.data else {
+    let Data::Enum(DataEnum {
+        variants,
+        enum_token: _,
+        brace_token: _,
+    }) = &ast.data
+    else {
         return syn::Error::new_spanned(&ast.ident, "ProjectRead can only be derived on an enum")
             .to_compile_error()
             .into();
@@ -479,7 +484,12 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
 pub fn project_mut_derive(input: TokenStream) -> TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
 
-    let Data::Enum(DataEnum { variants, .. }) = &ast.data else {
+    let Data::Enum(DataEnum {
+        variants,
+        enum_token: _,
+        brace_token: _,
+    }) = &ast.data
+    else {
         return syn::Error::new_spanned(&ast.ident, "ProjectMut can only be derived on an enum")
             .to_compile_error()
             .into();

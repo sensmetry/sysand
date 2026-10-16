@@ -69,12 +69,25 @@ pub fn pprint_interchange_project(
             .usage
             .iter()
             .filter(|u| match u {
-                InterchangeProjectUsageRaw::Resource { resource, .. } => {
-                    !excluded_iris.contains(resource)
+                InterchangeProjectUsageRaw::Resource {
+                    resource,
+                    version_constraint: _,
+                } => !excluded_iris.contains(resource),
+                InterchangeProjectUsageRaw::Directory {
+                    dir: _,
+                    publisher: _,
+                    name: _,
                 }
-                InterchangeProjectUsageRaw::Directory { .. }
-                | InterchangeProjectUsageRaw::KparPath { .. }
-                | InterchangeProjectUsageRaw::Index { .. } => true,
+                | InterchangeProjectUsageRaw::KparPath {
+                    kpar_path: _,
+                    publisher: _,
+                    name: _,
+                }
+                | InterchangeProjectUsageRaw::Index {
+                    publisher: _,
+                    name: _,
+                    version_constraint: _,
+                } => true,
             })
             .collect();
         let has_ignored_usages = info.usage.len() > usages_to_print.len();
