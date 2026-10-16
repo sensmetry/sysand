@@ -201,7 +201,11 @@ fn do_env_py_local_dir(path: String) -> PyResult<()> {
                 | LocalWriteError::Serialize(_)
                 | LocalWriteError::ImpossibleRelativePath(_)
                 | LocalWriteError::ProjectNotFound(_)
-                | LocalWriteError::OverwriteNotInstalled { .. } => PyValueError::new_err(e),
+                | LocalWriteError::OverwriteNotInstalled {
+                    identifier: _,
+                    version: _,
+                    kind: _,
+                } => PyValueError::new_err(e),
                 LocalWriteError::Io(_)
                 | LocalWriteError::TryMove(_)
                 | LocalWriteError::LocalRead(_)
@@ -400,7 +404,10 @@ fn info_error_to_pyerr<OverrideError: ErrorBound>(
 ) -> PyErr {
     let message = format_err(&err);
     match &err {
-        InfoError::NotFound { .. } => PyNotFoundError::new_err(message),
+        InfoError::NotFound {
+            usage: _,
+            reason: _,
+        } => PyNotFoundError::new_err(message),
         InfoError::Resolution(PriorityError::Lower(inner)) => {
             combined_error_to_pyerr(inner, message, auth, policy)
         }
@@ -425,10 +432,10 @@ fn combined_error_to_pyerr<F, L, R>(
                 PyAuthError::new_err(format!("{message}\n  {}", auth_hint(auth, policy, url)))
             }
             // Connection-level failures are not the index's fault.
-            HttpFetchError::Request { .. } => PyResolutionError::new_err(message),
+            HttpFetchError::Request { url: _, source: _ } => PyResolutionError::new_err(message),
             _ => PyIndexProtocolError::new_err(message),
         },
-        CombinedResolverError::Index { .. } => PyIndexProtocolError::new_err(message),
+        CombinedResolverError::Index { 0: _ } => PyIndexProtocolError::new_err(message),
         _ => PyResolutionError::new_err(message),
     }
 }
@@ -980,14 +987,18 @@ fn do_build_py(
         Err(err) => Err({
             let e = format_err(&err);
             match err {
-                KParBuildError::Validation { .. }
+                KParBuildError::Validation { name: _, source: _ }
                 | KParBuildError::Extract(_)
                 | KParBuildError::UnknownFormat(_)
                 | KParBuildError::MissingInfo
                 | KParBuildError::MissingMeta
                 | KParBuildError::MissingInfoMeta
                 | KParBuildError::Serialize(..)
-                | KParBuildError::WorkspaceMetamodelConflict { .. }
+                | KParBuildError::WorkspaceMetamodelConflict {
+                    workspace_metamodel: _,
+                    project_metamodel: _,
+                    project_path: _,
+                }
                 | KParBuildError::MissingIndexSymbol(_, _) => PyValueError::new_err(e),
                 KParBuildError::PathUsage(_) => PyValueError::new_err(format!(
                     "{e}\nto build anyway, pass `allow_path_usage=True`"
@@ -1048,16 +1059,25 @@ pub fn do_sources_env_py(
                 SourcesEnvError::IriParse(..) | SourcesEnvError::VersionReqParse(..) => {
                     PyValueError::new_err(e)
                 }
-                SourcesEnvError::NotFound { .. } => PyNotFoundError::new_err(e),
+                SourcesEnvError::NotFound {
+                    project: _,
+                    version: _,
+                } => PyNotFoundError::new_err(e),
                 // The installed project (or its dependencies) cannot be read,
                 // is malformed, or is missing from the env: the env is broken
                 // or out of date
                 SourcesEnvError::EnvRead(_)
                 | SourcesEnvError::ProjectRead(_)
                 | SourcesEnvError::MissingInfo(_)
-                | SourcesEnvError::InvalidMetadata { .. }
+                | SourcesEnvError::InvalidMetadata {
+                    project: _,
+                    source: _,
+                }
                 | SourcesEnvError::Sources(_)
-                | SourcesEnvError::Dependencies { .. } => PyEnvError::new_err(e),
+                | SourcesEnvError::Dependencies {
+                    project: _,
+                    source: _,
+                } => PyEnvError::new_err(e),
             }
         })?;
 
@@ -1273,10 +1293,12 @@ fn do_add_py(
     // With the same message as the manifest would give for it
     let (InterchangeProjectUsage::Resource {
         version_constraint: Some(version_constraint),
-        ..
+        resource: _,
     }
     | InterchangeProjectUsage::Index {
-        version_constraint, ..
+        version_constraint,
+        publisher: _,
+        name: _,
     }) = usage
         .validate()
         .map_err(|e| ProjectError::new_err(format_err(e)))?
@@ -1331,7 +1353,10 @@ fn validate_iri(iri: String) -> PyResult<Iri<String>> {
     })
     .validate()
     {
-        Ok(InterchangeProjectUsage::Resource { resource, .. }) => Ok(resource),
+        Ok(InterchangeProjectUsage::Resource {
+            resource,
+            version_constraint: _,
+        }) => Ok(resource),
         Ok(_) => unreachable!("a resource usage validates to a resource usage"),
         Err(e) => Err(ProjectError::new_err(format_err(e))),
     }
@@ -1520,7 +1545,9 @@ fn do_remove_py(
     removed.map_err(|err| match err {
         // The core message points at a CLI command, which is no help here.
         RemoveError::UsageIsTyped {
-            identifier, kind, ..
+            identifier,
+            kind,
+            remove_with: _,
         } => ProjectError::new_err(format!(
             "`{identifier}` is declared as {kind} usage; name it by `publisher` and `name`"
         )),

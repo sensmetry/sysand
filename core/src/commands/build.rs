@@ -284,7 +284,10 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
 
     if let Some(path_usage) = info.usage.iter().find_map(|x| {
         match x {
-            InterchangeProjectUsageRaw::Resource { resource, .. } => {
+            InterchangeProjectUsageRaw::Resource {
+                resource,
+                version_constraint: _,
+            } => {
                 // Case-insensitively match `file:` scheme
                 if let Some(scheme) = resource.get(..5)
                     && scheme.eq_ignore_ascii_case("file:")
@@ -305,7 +308,11 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
                 name: _,
             } => Some(kpar_path),
             // Portable: resolved by identity wherever the KPAR is used
-            InterchangeProjectUsageRaw::Index { .. } => None,
+            InterchangeProjectUsageRaw::Index {
+                publisher: _,
+                name: _,
+                version_constraint: _,
+            } => None,
         }
     }) {
         if allow_path_usage {

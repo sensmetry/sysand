@@ -263,7 +263,7 @@ pub fn command_auth_login(
             }
             bail!("credential not stored: no OS keyring backend on this host");
         }
-        Err(AuthCommandError::Store(err @ CredentialStoreError::BackendDenied { .. })) => {
+        Err(AuthCommandError::Store(err @ CredentialStoreError::BackendDenied { source: _ })) => {
             Err(err).context(KEYRING_LOCKED_HINT)
         }
         Err(AuthCommandError::Store(CredentialStoreError::BlobTooLarge)) => {
@@ -398,13 +398,13 @@ pub fn command_auth_logout(index_url: Option<IndexKey>, config: &Config) -> Resu
              stored credentials; credentials here come from `SYSAND_CRED_*`\n\
              environment variables"
         ),
-        Err(AuthCommandError::Store(err @ CredentialStoreError::BackendDenied { .. })) => {
+        Err(AuthCommandError::Store(err @ CredentialStoreError::BackendDenied { source: _ })) => {
             Err(err).context(KEYRING_LOCKED_HINT)
         }
         // Idempotent: a warning and exit 0, so cleanup scripts need not
         // swallow a failure. The CLI adds the `auth status` pointer (a
         // logout target must match the stored key exactly).
-        Err(err @ AuthCommandError::NoStoredCredential { .. }) => {
+        Err(err @ AuthCommandError::NoStoredCredential { index: _ }) => {
             log::warn!(
                 "{err}; run `sysand auth status` to list the stored logins and their exact keys"
             );
@@ -429,7 +429,12 @@ pub fn command_auth_status(config: &Config) -> Result<()> {
             );
             None
         }
-        Err(e @ DefaultIndexError::InvalidEnv { .. }) => {
+        Err(
+            e @ DefaultIndexError::InvalidEnv {
+                empty: _,
+                reason: _,
+            },
+        ) => {
             log::warn!(
                 "ignoring invalid default index configuration: {}",
                 format_err(e)
@@ -442,7 +447,9 @@ pub fn command_auth_status(config: &Config) -> Result<()> {
     let status = match open_cli_credential_store() {
         Ok(store) => match do_auth_status(&store, env, default_key) {
             Ok(status) => status,
-            Err(AuthCommandError::Store(err @ CredentialStoreError::BackendDenied { .. })) => {
+            Err(AuthCommandError::Store(
+                err @ CredentialStoreError::BackendDenied { source: _ },
+            )) => {
                 return Err(err).context(KEYRING_LOCKED_HINT);
             }
             Err(err) => return Err(err.into()),
@@ -685,8 +692,8 @@ pub fn command_auth_whoami(
         // No keyring backend: only env credentials can apply. A locked
         // backend is a hard error instead: "no credential, run login"
         // would be the wrong remediation for an unlockable store.
-        Err(CredentialStoreError::BackendAbsent { .. }) => Vec::new(),
-        Err(err @ CredentialStoreError::BackendDenied { .. }) => {
+        Err(CredentialStoreError::BackendAbsent { source: _ }) => Vec::new(),
+        Err(err @ CredentialStoreError::BackendDenied { source: _ }) => {
             return Err(err).context(KEYRING_LOCKED_HINT);
         }
         Err(err) => return Err(err.into()),
@@ -706,8 +713,8 @@ pub fn command_auth_whoami(
         Ok(outcome) => outcome,
         // Core states the condition; the CLI adds the `auth login`
         // remediation, with `SYSAND_CRED_*` second as the CI path.
-        Err(err @ AuthCommandError::NoWhoamiCredential { .. }) => {
-            let AuthCommandError::NoWhoamiCredential { index, .. } = &err else {
+        Err(err @ AuthCommandError::NoWhoamiCredential { url: _, index: _ }) => {
+            let AuthCommandError::NoWhoamiCredential { index, url: _ } = &err else {
                 unreachable!()
             };
             return Err(anyhow::anyhow!(

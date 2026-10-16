@@ -513,7 +513,7 @@ impl HTTPAuthentication for StandardInnerAuthentication {
                     .request_with_authentication(request, renew_request)
                     .await
             }
-            Self::BearerAuth { auth, .. } => {
+            Self::BearerAuth { auth, env_label: _ } => {
                 auth.request_with_authentication(request, renew_request)
                     .await
             }
@@ -962,7 +962,10 @@ where
                 log::debug!("stored credential matches `{url}`; retrying with forced bearer auth");
                 vec![bearer]
             }
-            BearerSelection::Ambiguous { deduped, .. } => {
+            BearerSelection::Ambiguous {
+                deduped,
+                matched: _,
+            } => {
                 log::warn!("URL {url} matches multiple stored credentials; trying each in order");
                 deduped
             }

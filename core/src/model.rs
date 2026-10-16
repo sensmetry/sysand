@@ -393,7 +393,13 @@ impl<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName>
     /// Typed usages (all non-`Resource`) are treated specially in some places,
     /// as e.g. if they resolve to invalid projects, it can't be ignored
     pub fn is_typed(&self) -> bool {
-        !matches!(self, Self::Resource { .. })
+        !matches!(
+            self,
+            Self::Resource {
+                resource: _,
+                version_constraint: _
+            }
+        )
     }
 
     /// The `publisher` and `name` of a typed usage; `None` for a resource
@@ -406,15 +412,24 @@ impl<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName>
         IdxName: AsRef<str>,
     {
         match self {
-            Self::Resource { .. } => None,
+            Self::Resource {
+                resource: _,
+                version_constraint: _,
+            } => None,
             Self::Directory {
-                publisher, name, ..
+                publisher,
+                name,
+                dir: _,
             }
             | Self::KparPath {
-                publisher, name, ..
+                publisher,
+                name,
+                kpar_path: _,
             } => Some((publisher.as_ref(), name.as_ref())),
             Self::Index {
-                publisher, name, ..
+                publisher,
+                name,
+                version_constraint: _,
             } => Some((publisher.as_ref(), name.as_ref())),
         }
     }
@@ -423,10 +438,25 @@ impl<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName>
     /// (e.g. "an index"), for error messages.
     pub fn kind_with_article(&self) -> &'static str {
         match self {
-            Self::Resource { .. } => "a resource",
-            Self::Directory { .. } => "a directory",
-            Self::KparPath { .. } => "a KPAR path",
-            Self::Index { .. } => "an index",
+            Self::Resource {
+                resource: _,
+                version_constraint: _,
+            } => "a resource",
+            Self::Directory {
+                dir: _,
+                publisher: _,
+                name: _,
+            } => "a directory",
+            Self::KparPath {
+                kpar_path: _,
+                publisher: _,
+                name: _,
+            } => "a KPAR path",
+            Self::Index {
+                publisher: _,
+                name: _,
+                version_constraint: _,
+            } => "an index",
         }
     }
 }
@@ -694,10 +724,14 @@ impl UsageRef<'_> {
         match self {
             Self::Resource(iri) => matches!(
                 usage,
-                InterchangeProjectUsageG::Resource { resource, .. } if resource.as_ref() == iri.as_str()
+                InterchangeProjectUsageG::Resource { resource, version_constraint: _ } if resource.as_ref() == iri.as_str()
             ),
             Self::Typed(publisher, name) => {
-                if let InterchangeProjectUsageG::Resource { resource, .. } = usage {
+                if let InterchangeProjectUsageG::Resource {
+                    resource,
+                    version_constraint: _,
+                } = usage
+                {
                     // A `pkg:sysand` IRI only holds the normalized form
                     return parse_sysand_purl(resource.as_ref()).is_ok_and(|parsed| {
                         parsed.is_some_and(|(p, n)| {

@@ -346,8 +346,8 @@ pub enum PublishBearerConflict {
 impl PublishBearerConflict {
     fn source_name(&self) -> &'static str {
         match self {
-            Self::Env { .. } => "`SYSAND_CRED_*` environment variables",
-            Self::Stored { .. } => "stored credentials",
+            Self::Env { variables: _ } => "`SYSAND_CRED_*` environment variables",
+            Self::Stored { keys: _ } => "stored credentials",
         }
     }
 
@@ -366,10 +366,10 @@ impl PublishBearerConflict {
 
     fn hint(&self) -> &'static str {
         match self {
-            Self::Env { .. } => {
+            Self::Env { variables: _ } => {
                 "refine `SYSAND_CRED_<X>` URL patterns so exactly one bearer token matches"
             }
-            Self::Stored { .. } => {
+            Self::Stored { keys: _ } => {
                 "remove or narrow overlapping stored credentials so exactly one bearer token matches"
             }
         }
@@ -513,7 +513,10 @@ fn lookup_publish_bearer<'a, T>(
 ) -> Result<Option<&'a T>, PublishError> {
     match select_bearer(map, upload_url.as_str(), token) {
         BearerSelection::Unique(entry) => Ok(Some(entry)),
-        BearerSelection::Ambiguous { matched, .. } => Err(PublishError::AmbiguousPublishBearer {
+        BearerSelection::Ambiguous {
+            matched,
+            deduped: _,
+        } => Err(PublishError::AmbiguousPublishBearer {
             upload_url: upload_url.as_str().into(),
             conflict: conflict(&matched),
         }),
@@ -1456,7 +1459,7 @@ fn publish_auth_failed_message(
             )
             .unwrap();
         }
-        PublishBearerProvenance::Stored { key, .. } => {
+        PublishBearerProvenance::Stored { key, expires_at: _ } => {
             write!(
                 message,
                 "\nthe publish credential came from the stored credential for `{key}`"
@@ -1518,25 +1521,38 @@ fn check_usage(usage: &InterchangeProjectUsageRaw) -> Result<(), PublishError> {
     }
 
     match usage {
-        InterchangeProjectUsageRaw::Resource { resource, .. } => {
-            match parse_sysand_purl(resource) {
-                Ok(Some(_)) => Ok(()),
-                Ok(None) => Err(PublishError::DisallowedUsage {
-                    name: resource.as_str().into(),
-                }),
-                Err(e) => Err(PublishError::InvalidPurl {
-                    name: resource.as_str().into(),
-                    source: e,
-                }),
-            }
-        }
-        InterchangeProjectUsageRaw::Directory { dir, .. } => Err(PublishError::PathUsage {
+        InterchangeProjectUsageRaw::Resource {
+            resource,
+            version_constraint: _,
+        } => match parse_sysand_purl(resource) {
+            Ok(Some(_)) => Ok(()),
+            Ok(None) => Err(PublishError::DisallowedUsage {
+                name: resource.as_str().into(),
+            }),
+            Err(e) => Err(PublishError::InvalidPurl {
+                name: resource.as_str().into(),
+                source: e,
+            }),
+        },
+        InterchangeProjectUsageRaw::Directory {
+            dir,
+            publisher: _,
+            name: _,
+        } => Err(PublishError::PathUsage {
             path: dir.as_str().into(),
         }),
-        InterchangeProjectUsageRaw::KparPath { kpar_path, .. } => Err(PublishError::PathUsage {
+        InterchangeProjectUsageRaw::KparPath {
+            kpar_path,
+            publisher: _,
+            name: _,
+        } => Err(PublishError::PathUsage {
             path: kpar_path.as_str().into(),
         }),
-        InterchangeProjectUsageRaw::Index { .. } => Ok(()),
+        InterchangeProjectUsageRaw::Index {
+            publisher: _,
+            name: _,
+            version_constraint: _,
+        } => Ok(()),
     }
 }
 
@@ -1578,9 +1594,21 @@ fn check_std_libs(
             }
             Ok(false)
         }
-        InterchangeProjectUsageRaw::Directory { .. }
-        | InterchangeProjectUsageRaw::KparPath { .. }
-        | InterchangeProjectUsageRaw::Index { .. } => Ok(false),
+        InterchangeProjectUsageRaw::Directory {
+            dir: _,
+            publisher: _,
+            name: _,
+        }
+        | InterchangeProjectUsageRaw::KparPath {
+            kpar_path: _,
+            publisher: _,
+            name: _,
+        }
+        | InterchangeProjectUsageRaw::Index {
+            publisher: _,
+            name: _,
+            version_constraint: _,
+        } => Ok(false),
     }
 }
 

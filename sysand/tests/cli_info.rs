@@ -1796,7 +1796,7 @@ fn info_get_and_edit_fields() -> Result<(), Box<dyn Error>> {
     for field in ["usage", "index", "checksum", "metamodel"] {
         assert_eq!(get(field)?, "", "field: {field}");
     }
-    assert!(!get("created")?.is_empty());
+    assert_ne!(get("created")?, "");
     for flag in ["--usage", "--index", "--created", "--checksum"] {
         run_sysand_in(project_path, ["edit", flag, "x"], None)?
             .assert()

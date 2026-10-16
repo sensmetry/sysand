@@ -380,7 +380,11 @@ pub fn do_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
         }
         Err(ind) => ind,
     };
-    if let ParsedIri::Sysand { .. } = parsed_iri {
+    if let ParsedIri::Sysand {
+        publisher: _,
+        name: _,
+    } = parsed_iri
+    {
         check_spelling(
             &iri,
             &project_path,

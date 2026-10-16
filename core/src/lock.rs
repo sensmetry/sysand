@@ -429,7 +429,10 @@ impl Lock {
                 // Paths and IRIs
                 match source {
                     Source::Editable { editable: path }
-                    | Source::LocalSrc { src_path: path, .. } => {
+                    | Source::LocalSrc {
+                        src_path: path,
+                        checksum: _,
+                    } => {
                         if let Err(e) =
                             parse_relative_unix_path(path.as_str(), RelativePathKind::Directory)
                         {
@@ -439,7 +442,11 @@ impl Lock {
                             });
                         }
                     }
-                    Source::LocalKpar { kpar_path, .. } => {
+                    Source::LocalKpar {
+                        kpar_path,
+                        kpar_size: _,
+                        kpar_digest: _,
+                    } => {
                         if let Err(e) =
                             parse_relative_unix_path(kpar_path.as_str(), RelativePathKind::File)
                         {
@@ -450,13 +457,18 @@ impl Lock {
                         }
                     }
                     Source::RemoteKpar {
-                        remote_kpar: url, ..
+                        remote_kpar: url,
+                        kpar_size: _,
+                        kpar_digest: _,
                     }
                     | Source::IndexKpar {
-                        index_kpar: url, ..
+                        index_kpar: url,
+                        kpar_size: _,
+                        kpar_digest: _,
                     }
                     | Source::RemoteSrc {
-                        remote_src: url, ..
+                        remote_src: url,
+                        checksum: _,
                     }
                     | Source::RemoteGit { remote_git: url } => {
                         if let Err(e) = Iri::parse(url.as_str()) {
@@ -470,11 +482,29 @@ impl Lock {
 
                 // Digest composition and length
                 let (c, kind) = match source {
-                    Source::LocalSrc { checksum: c, .. }
-                    | Source::RemoteSrc { checksum: c, .. } => (c, "project canonical"),
-                    Source::LocalKpar { kpar_digest: c, .. }
-                    | Source::RemoteKpar { kpar_digest: c, .. }
-                    | Source::IndexKpar { kpar_digest: c, .. } => (c, "kpar"),
+                    Source::LocalSrc {
+                        checksum: c,
+                        src_path: _,
+                    }
+                    | Source::RemoteSrc {
+                        checksum: c,
+                        remote_src: _,
+                    } => (c, "project canonical"),
+                    Source::LocalKpar {
+                        kpar_digest: c,
+                        kpar_path: _,
+                        kpar_size: _,
+                    }
+                    | Source::RemoteKpar {
+                        kpar_digest: c,
+                        remote_kpar: _,
+                        kpar_size: _,
+                    }
+                    | Source::IndexKpar {
+                        kpar_digest: c,
+                        index_kpar: _,
+                        kpar_size: _,
+                    } => (c, "kpar"),
                     Source::RemoteGit { remote_git: _ } | Source::Editable { editable: _ } => {
                         continue;
                     }
@@ -525,11 +555,29 @@ impl Lock {
             // project.checksum.make_ascii_lowercase();
             for source in &mut project.sources {
                 match source {
-                    Source::LocalSrc { checksum: c, .. }
-                    | Source::LocalKpar { kpar_digest: c, .. }
-                    | Source::RemoteKpar { kpar_digest: c, .. }
-                    | Source::IndexKpar { kpar_digest: c, .. }
-                    | Source::RemoteSrc { checksum: c, .. } => c.make_ascii_lowercase(),
+                    Source::LocalSrc {
+                        checksum: c,
+                        src_path: _,
+                    }
+                    | Source::LocalKpar {
+                        kpar_digest: c,
+                        kpar_path: _,
+                        kpar_size: _,
+                    }
+                    | Source::RemoteKpar {
+                        kpar_digest: c,
+                        remote_kpar: _,
+                        kpar_size: _,
+                    }
+                    | Source::IndexKpar {
+                        kpar_digest: c,
+                        index_kpar: _,
+                        kpar_size: _,
+                    }
+                    | Source::RemoteSrc {
+                        checksum: c,
+                        remote_src: _,
+                    } => c.make_ascii_lowercase(),
                     Source::RemoteGit { remote_git: _ } | Source::Editable { editable: _ } => (),
                 }
             }
