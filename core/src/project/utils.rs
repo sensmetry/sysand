@@ -550,15 +550,24 @@ impl Borrow<String> for Identifier {
 impl From<&InterchangeProjectUsage> for Identifier {
     fn from(value: &InterchangeProjectUsage) -> Self {
         match value {
-            InterchangeProjectUsage::Resource { resource, .. } => Self(resource.to_string()),
+            InterchangeProjectUsage::Resource {
+                resource,
+                version_constraint: _,
+            } => Self(resource.to_string()),
             InterchangeProjectUsage::Directory {
-                publisher, name, ..
+                publisher,
+                name,
+                dir: _,
             }
             | InterchangeProjectUsage::KparPath {
-                publisher, name, ..
+                publisher,
+                name,
+                kpar_path: _,
             } => Self::from_project(publisher, name),
             InterchangeProjectUsage::Index {
-                publisher, name, ..
+                publisher,
+                name,
+                version_constraint: _,
             } => Self::from_index(publisher, name),
         }
     }
@@ -567,7 +576,10 @@ impl From<&InterchangeProjectUsage> for Identifier {
 impl From<InterchangeProjectUsage> for Identifier {
     fn from(value: InterchangeProjectUsage) -> Self {
         match value {
-            InterchangeProjectUsage::Resource { resource, .. } => Self(resource.into_string()),
+            InterchangeProjectUsage::Resource {
+                resource,
+                version_constraint: _,
+            } => Self(resource.into_string()),
             typed => Self::from(&typed),
         }
     }
@@ -645,15 +657,24 @@ impl Identifier {
     /// identity without having to trust the manifest first.
     pub fn from_unvalidated_usage(usage: &InterchangeProjectUsageRaw) -> Option<Self> {
         match usage {
-            InterchangeProjectUsageRaw::Resource { resource, .. } => Some(Self(resource.clone())),
+            InterchangeProjectUsageRaw::Resource {
+                resource,
+                version_constraint: _,
+            } => Some(Self(resource.clone())),
             InterchangeProjectUsageRaw::Directory {
-                publisher, name, ..
+                publisher,
+                name,
+                dir: _,
             }
             | InterchangeProjectUsageRaw::KparPath {
-                publisher, name, ..
+                publisher,
+                name,
+                kpar_path: _,
             }
             | InterchangeProjectUsageRaw::Index {
-                publisher, name, ..
+                publisher,
+                name,
+                version_constraint: _,
             } => {
                 if publisher.is_empty() || name.is_empty() {
                     None
@@ -666,17 +687,26 @@ impl Identifier {
 
     pub fn from_interchange_usage_unchecked(usage: &InterchangeProjectUsageRaw) -> Self {
         let (publisher, name) = match usage {
-            InterchangeProjectUsageRaw::Resource { resource, .. } => {
+            InterchangeProjectUsageRaw::Resource {
+                resource,
+                version_constraint: _,
+            } => {
                 return Self(resource.clone());
             }
             InterchangeProjectUsageRaw::Directory {
-                publisher, name, ..
+                publisher,
+                name,
+                dir: _,
             }
             | InterchangeProjectUsageRaw::KparPath {
-                publisher, name, ..
+                publisher,
+                name,
+                kpar_path: _,
             }
             | InterchangeProjectUsageRaw::Index {
-                publisher, name, ..
+                publisher,
+                name,
+                version_constraint: _,
             } => (publisher, name),
         };
         Self::make_identifier_iri(publisher, name)

@@ -368,15 +368,30 @@ mod index_usage {
         );
         assert!(matches!(
             index("A", "My Lib", "^1").validate(),
-            Err(InterchangeProjectValidationError::InvalidIndexUsagePublisher { .. })
+            Err(
+                InterchangeProjectValidationError::InvalidIndexUsagePublisher {
+                    publisher: _,
+                    name: _
+                }
+            )
         ));
         assert!(matches!(
             index("Acme", "my..lib", "^1").validate(),
-            Err(InterchangeProjectValidationError::InvalidIndexUsageName { .. })
+            Err(InterchangeProjectValidationError::InvalidIndexUsageName {
+                publisher: _,
+                name: _
+            })
         ));
         assert!(matches!(
             index("Acme", "My Lib", "not a constraint").validate(),
-            Err(InterchangeProjectValidationError::InvalidIndexUsageVersionConstraint { .. })
+            Err(
+                InterchangeProjectValidationError::InvalidIndexUsageVersionConstraint {
+                    publisher: _,
+                    name: _,
+                    constraint: _,
+                    source: _
+                }
+            )
         ));
     }
 
@@ -622,7 +637,9 @@ fn directory_and_kpar_usages_validate_their_spelling() {
 
     // Valid for a project, though not for an index
     let crate::model::InterchangeProjectUsage::Directory {
-        publisher, name, ..
+        publisher,
+        name,
+        dir: _,
     } = dir("Foo & Bar", "My_Lib").validate().unwrap()
     else {
         panic!("a directory usage validates to a directory usage");
@@ -633,7 +650,11 @@ fn directory_and_kpar_usages_validate_their_spelling() {
         assert!(
             matches!(
                 usage.validate(),
-                Err(InterchangeProjectValidationError::InvalidUsagePublisher { .. })
+                Err(InterchangeProjectValidationError::InvalidUsagePublisher {
+                    publisher: _,
+                    name: _,
+                    source: _
+                })
             ),
             "{usage:?}"
         );
@@ -642,7 +663,11 @@ fn directory_and_kpar_usages_validate_their_spelling() {
         assert!(
             matches!(
                 usage.validate(),
-                Err(InterchangeProjectValidationError::InvalidUsageName { .. })
+                Err(InterchangeProjectValidationError::InvalidUsageName {
+                    publisher: _,
+                    name: _,
+                    source: _
+                })
             ),
             "{usage:?}"
         );

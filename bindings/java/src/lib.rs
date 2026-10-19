@@ -2,6 +2,10 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 #![expect(clippy::needless_pass_by_value)]
+#![expect(
+    deprecated,
+    reason = "jni's `native_method!` expands to `AtomicBool::fetch_update`, deprecated in Rust 1.99"
+)]
 
 use std::{ffi::c_void, sync::Arc};
 
@@ -200,9 +204,11 @@ fn create_env<'local>(
                     LocalWriteError::MissingMeta
                     | LocalWriteError::ProjectNotFound(_)
                     | LocalWriteError::MissingInfoMeta
-                    | LocalWriteError::OverwriteNotInstalled { .. } => {
-                        env.throw_exception(ExceptionKind::SysandException, e)
-                    }
+                    | LocalWriteError::OverwriteNotInstalled {
+                        identifier: _,
+                        version: _,
+                        kind: _,
+                    } => env.throw_exception(ExceptionKind::SysandException, e),
                 },
             }
             Ok(())

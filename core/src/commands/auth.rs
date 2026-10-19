@@ -360,7 +360,7 @@ impl From<IndexLocation> for IndexKey {
 impl From<IndexLocationError> for AuthCommandError {
     fn from(err: IndexLocationError) -> Self {
         match err {
-            IndexLocationError::UnsupportedScheme { url, .. } => {
+            IndexLocationError::UnsupportedScheme { url, scheme: _ } => {
                 Self::NotHttpIndex { url: url.into() }
             }
             // The index-location errors already name the URL; no
@@ -881,7 +881,7 @@ fn fetch_login_endpoints(
         location,
     )) {
         Ok(endpoints) => Some(endpoints),
-        Err(DiscoveryError::Fetch(HttpFetchError::BadHttpStatus { status, .. }))
+        Err(DiscoveryError::Fetch(HttpFetchError::BadHttpStatus { status, url: _ }))
             if status.is_client_error() && status != reqwest::StatusCode::TOO_MANY_REQUESTS =>
         {
             forced_discovery_fetch(location, secret, runtime, notify)
@@ -1241,7 +1241,10 @@ fn select_whoami_credential(
                 entry.auth.token().to_owned(),
             ));
         }
-        BearerSelection::Ambiguous { matched, .. } => {
+        BearerSelection::Ambiguous {
+            matched,
+            deduped: _,
+        } => {
             return Err(AuthCommandError::AmbiguousWhoamiCredential {
                 url: whoami_url.as_str().to_owned(),
                 source_name: "`SYSAND_CRED_*` environment variables",
@@ -1263,15 +1266,16 @@ fn select_whoami_credential(
             },
             entry.auth().token().to_owned(),
         )),
-        BearerSelection::Ambiguous { matched, .. } => {
-            Err(AuthCommandError::AmbiguousWhoamiCredential {
-                url: whoami_url.as_str().to_owned(),
-                source_name: "stored credentials",
-                candidates: crate::commands::publish::dedup_in_order(
-                    matched.iter().map(|entry| format!("`{}`", entry.key())),
-                ),
-            })
-        }
+        BearerSelection::Ambiguous {
+            matched,
+            deduped: _,
+        } => Err(AuthCommandError::AmbiguousWhoamiCredential {
+            url: whoami_url.as_str().to_owned(),
+            source_name: "stored credentials",
+            candidates: crate::commands::publish::dedup_in_order(
+                matched.iter().map(|entry| format!("`{}`", entry.key())),
+            ),
+        }),
         BearerSelection::None => Err(AuthCommandError::NoWhoamiCredential {
             url: whoami_url.as_str().to_owned(),
             index: index_key.to_owned(),

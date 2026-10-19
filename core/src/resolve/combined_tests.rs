@@ -274,7 +274,8 @@ fn unsupported_iri() {
         index_resolver: NO_RESOLVER,
     };
 
-    let Ok(ResolutionOutcome::UnsupportedUsageType { .. }) = resolve(&resolver, example_uri) else {
+    let Ok(ResolutionOutcome::UnsupportedUsageType { reason: _ }) = resolve(&resolver, example_uri)
+    else {
         panic!()
     };
 }
@@ -290,7 +291,7 @@ fn unresolved_iri() {
         index_resolver: empty_any_resolver(),
     };
 
-    let Ok(ResolutionOutcome::NotFound { .. }) = resolve(&resolver, example_uri) else {
+    let Ok(ResolutionOutcome::NotFound { reason: _ }) = resolve(&resolver, example_uri) else {
         panic!()
     };
 }

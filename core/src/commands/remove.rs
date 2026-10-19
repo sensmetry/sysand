@@ -90,17 +90,17 @@ pub fn do_remove<P: ProjectMut>(
                 InterchangeProjectUsageRaw::Directory {
                     publisher: p,
                     name: n,
-                    ..
+                    dir: _,
                 }
                 | InterchangeProjectUsageRaw::KparPath {
                     publisher: p,
                     name: n,
-                    ..
+                    kpar_path: _,
                 }
                 | InterchangeProjectUsageRaw::Index {
                     publisher: p,
                     name: n,
-                    ..
+                    version_constraint: _,
                 },
             ) = info.usage.iter().find(|usage| {
                 Identifier::from_unvalidated_usage(usage).is_some_and(|id| id == identifier)
@@ -128,17 +128,26 @@ fn remove_command(usage: &InterchangeProjectUsageRaw) -> String {
         }
     }
     match usage {
-        InterchangeProjectUsageRaw::Resource { resource, .. } => {
+        InterchangeProjectUsageRaw::Resource {
+            resource,
+            version_constraint: _,
+        } => {
             format!("sysand remove {}", quoted(resource))
         }
         InterchangeProjectUsageRaw::Directory {
-            publisher, name, ..
+            publisher,
+            name,
+            dir: _,
         }
         | InterchangeProjectUsageRaw::KparPath {
-            publisher, name, ..
+            publisher,
+            name,
+            kpar_path: _,
         }
         | InterchangeProjectUsageRaw::Index {
-            publisher, name, ..
+            publisher,
+            name,
+            version_constraint: _,
         } => format!("sysand remove {}", quoted(&format!("{publisher}/{name}"))),
     }
 }

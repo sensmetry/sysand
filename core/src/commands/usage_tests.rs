@@ -193,7 +193,13 @@ fn directory_usage_matches_through_the_normalized_identifier() {
 
     let err = do_set_usage_constraint(&mut d, LOCAL_LIB, "1").unwrap_err();
 
-    assert_matches!(err, SetConstraintError::UsageCannotHoldConstraint { .. });
+    assert_matches!(
+        err,
+        SetConstraintError::UsageCannotHoldConstraint {
+            identifier: _,
+            kind: _
+        }
+    );
     assert_eq!(d, before);
 }
 
@@ -212,7 +218,7 @@ fn kpar_path_usage_is_refused_by_its_identifier() {
         err,
         SetConstraintError::UsageCannotHoldConstraint {
             kind: "a KPAR path",
-            ..
+            identifier: _
         }
     );
 }
@@ -336,7 +342,7 @@ mod filesystem {
 
         let change = do_set_usage_constraint_local(&mut project, LIBRARY, LEGACY).unwrap();
 
-        assert_matches!(change, ConstraintChange::Unchanged { .. });
+        assert_matches!(change, ConstraintChange::Unchanged { constraint: _ });
         assert_eq!(filetime_of(&path), old_mtime);
         assert_eq!(std::fs::read_to_string(&path).unwrap(), MANIFEST);
     }
@@ -492,7 +498,7 @@ mod index_usage {
 
         assert_matches!(
             err,
-            SetConstraintError::IndexUsageSpelledDifferently { existing, .. }
+            SetConstraintError::IndexUsageSpelledDifferently { existing, requested: _ }
                 if existing == "Acme Labs/My Lib"
         );
         assert_eq!(render(&d), INDEX_MANIFEST);
@@ -522,7 +528,7 @@ mod index_usage {
 
         assert_matches!(
             err,
-            SetConstraintError::IndexUsageMatchedByIdentifier { publisher, name, .. }
+            SetConstraintError::IndexUsageMatchedByIdentifier { publisher, name, identifier: _ }
                 if publisher == "Acme Labs" && name == "My Lib"
         );
     }

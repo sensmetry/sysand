@@ -222,7 +222,9 @@ fn expected_size_mismatch_rejects_download() -> Result<(), Box<dyn std::error::E
     runtime.block_on(async {
         match project.ensure_downloaded_verified().await {
             Err(ReqwestKparDownloadedError::SizeMismatch {
-                expected, actual, ..
+                expected,
+                actual,
+                url: _,
             }) => {
                 assert_eq!(expected, wrong_size.get());
                 assert_eq!(actual, kpar_bytes.len() as u64);

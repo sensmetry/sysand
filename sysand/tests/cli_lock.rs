@@ -594,7 +594,7 @@ fn lock_and_sync_against_mock_index() -> Result<(), Box<dyn std::error::Error>> 
                 source,
                 Source::IndexKpar {
                     kpar_digest,
-                    ..
+                    index_kpar: _, kpar_size: _
                 } if kpar_digest == &kpar_sha256_hex
             )
         }),
@@ -706,7 +706,7 @@ fn sync_hard_fails_on_kpar_digest_drift_from_lockfile() -> Result<(), Box<dyn st
                 source,
                 Source::IndexKpar {
                     kpar_digest,
-                    ..
+                    index_kpar: _, kpar_size: _
                 } if kpar_digest == &kpar_digest_hex
             )
         }),
@@ -833,7 +833,13 @@ fn lock_directory_usage_transitive() -> Result<(), Box<dyn std::error::Error>> {
             .find(|p| p.name == name)
             .unwrap_or_else(|| panic!("`{name}` missing from lockfile: {projects:#?}"));
         assert_eq!(project.version, version);
-        let [Source::LocalSrc { src_path, .. }] = project.sources.as_slice() else {
+        let [
+            Source::LocalSrc {
+                src_path,
+                checksum: _,
+            },
+        ] = project.sources.as_slice()
+        else {
             panic!("expected a single local source for `{name}`, got: {project:#?}");
         };
         assert_eq!(src_path.as_str(), expected_src_path);

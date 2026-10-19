@@ -812,7 +812,10 @@ fn sort_empty() {
         projects: vec![],
     };
     lock.sort();
-    let Lock { projects, .. } = lock;
+    let Lock {
+        projects,
+        lock_version: _,
+    } = lock;
     assert_eq!(projects, vec![]);
 }
 
@@ -824,7 +827,10 @@ fn sort_single_trivial() {
         projects: vec![project.clone()],
     };
     lock.sort();
-    let Lock { projects, .. } = lock;
+    let Lock {
+        projects,
+        lock_version: _,
+    } = lock;
     assert_eq!(projects, vec![project]);
 }
 
@@ -837,7 +843,10 @@ fn sort_exports() {
         projects: vec![project1],
     };
     lock.sort();
-    let Lock { projects, .. } = lock;
+    let Lock {
+        projects,
+        lock_version: _,
+    } = lock;
     assert_eq!(projects, vec![project2]);
 }
 
@@ -854,7 +863,10 @@ fn sort_does_not_reorder_identifiers() {
         projects: vec![project.clone()],
     };
     lock.sort();
-    let Lock { projects, .. } = lock;
+    let Lock {
+        projects,
+        lock_version: _,
+    } = lock;
     assert_eq!(projects, vec![project]);
 }
 
@@ -907,7 +919,10 @@ fn sort_sources() {
         projects: vec![project1],
     };
     lock.sort();
-    let Lock { projects, .. } = lock;
+    let Lock {
+        projects,
+        lock_version: _,
+    } = lock;
     assert_eq!(projects, vec![project2]);
 }
 
@@ -929,7 +944,10 @@ fn sort_sources_with_constraints() {
         projects: vec![project1],
     };
     lock.sort();
-    let Lock { projects, .. } = lock;
+    let Lock {
+        projects,
+        lock_version: _,
+    } = lock;
     assert_eq!(projects, vec![project2]);
 }
 
@@ -942,7 +960,10 @@ fn sort_projects_by_name() {
         projects: vec![project2.clone(), project1.clone()],
     };
     lock.sort();
-    let Lock { projects, .. } = lock;
+    let Lock {
+        projects,
+        lock_version: _,
+    } = lock;
     assert_eq!(projects, vec![project1, project2]);
 }
 
@@ -955,7 +976,10 @@ fn sort_projects_by_exports() {
         projects: vec![project2.clone(), project1.clone()],
     };
     lock.sort();
-    let Lock { projects, .. } = lock;
+    let Lock {
+        projects,
+        lock_version: _,
+    } = lock;
     assert_eq!(projects, vec![project1, project2]);
 }
 
@@ -968,7 +992,10 @@ fn sort_projects_by_identifiers() {
         projects: vec![project2.clone(), project1.clone()],
     };
     lock.sort();
-    let Lock { projects, .. } = lock;
+    let Lock {
+        projects,
+        lock_version: _,
+    } = lock;
     assert_eq!(projects, vec![project1, project2]);
 }
 
@@ -981,7 +1008,10 @@ fn sort_projects_by_version() {
         projects: vec![project2.clone(), project1.clone()],
     };
     lock.sort();
-    let Lock { projects, .. } = lock;
+    let Lock {
+        projects,
+        lock_version: _,
+    } = lock;
     assert_eq!(projects, vec![project1, project2]);
 }
 
@@ -1033,40 +1063,66 @@ fn canonicalize_checksums() {
         }],
     };
     lock.canonicalize_checksums();
-    let Lock { projects, .. } = lock;
+    let Lock {
+        projects,
+        lock_version: _,
+    } = lock;
     let [project] = projects.as_slice() else {
         panic!()
     };
 
-    let Source::LocalSrc { checksum, .. } = &project.sources[0] else {
+    let Source::LocalSrc {
+        checksum,
+        src_path: _,
+    } = &project.sources[0]
+    else {
         panic!()
     };
     assert_eq!(checksum, LOWER);
 
-    let Source::RemoteSrc { checksum, .. } = &project.sources[1] else {
+    let Source::RemoteSrc {
+        checksum,
+        remote_src: _,
+    } = &project.sources[1]
+    else {
         panic!()
     };
     assert_eq!(checksum, LOWER);
 
-    let Source::LocalKpar { kpar_digest, .. } = &project.sources[2] else {
+    let Source::LocalKpar {
+        kpar_digest,
+        kpar_path: _,
+        kpar_size: _,
+    } = &project.sources[2]
+    else {
         panic!()
     };
     assert_eq!(kpar_digest, LOWER);
 
-    let Source::RemoteKpar { kpar_digest, .. } = &project.sources[3] else {
+    let Source::RemoteKpar {
+        kpar_digest,
+        remote_kpar: _,
+        kpar_size: _,
+    } = &project.sources[3]
+    else {
         panic!()
     };
     assert_eq!(kpar_digest, LOWER);
 
-    let Source::IndexKpar { kpar_digest, .. } = &project.sources[4] else {
+    let Source::IndexKpar {
+        kpar_digest,
+        index_kpar: _,
+        kpar_size: _,
+    } = &project.sources[4]
+    else {
         panic!()
     };
     assert_eq!(kpar_digest, LOWER);
 
     // Editable and RemoteGit carry no checksum; their presence here confirms
     // canonicalize_checksums does not panic on them.
-    assert_matches!(&project.sources[5], Source::Editable { .. });
-    assert_matches!(&project.sources[6], Source::RemoteGit { .. });
+    assert_matches!(&project.sources[5], Source::Editable { editable: _ });
+    assert_matches!(&project.sources[6], Source::RemoteGit { remote_git: _ });
 }
 
 // --- Lock identifiers ---

@@ -112,5 +112,5 @@ fn unknown_subcommand_returns_claps_error() {
 
 #[test]
 fn no_arguments_is_not_a_panic() {
-    assert!(!render_long_help("sysand", Vec::<String>::new()).is_empty());
+    assert_ne!(render_long_help("sysand", Vec::<String>::new()), "");
 }

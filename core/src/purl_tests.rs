@@ -101,7 +101,10 @@ fn parse_sysand_purl_rejects_wrong_segment_count() {
     // is too short, so we reject on InvalidPublisher rather than WrongShape.
     assert_matches!(
         parse_sysand_purl("pkg:sysand/a/"),
-        Err(SysandPurlError::InvalidPublisher { .. })
+        Err(SysandPurlError::InvalidPublisher {
+            purl: _,
+            publisher: _
+        })
     );
 }
 
@@ -109,15 +112,24 @@ fn parse_sysand_purl_rejects_wrong_segment_count() {
 fn parse_sysand_purl_rejects_traversal_and_dot_publishers() {
     assert_matches!(
         parse_sysand_purl("pkg:sysand/../attacker"),
-        Err(SysandPurlError::WrongShape { .. } | SysandPurlError::InvalidPublisher { .. })
+        Err(SysandPurlError::WrongShape {
+            purl: _,
+            segments: _
+        } | SysandPurlError::InvalidPublisher {
+            purl: _,
+            publisher: _
+        })
     );
     assert_matches!(
         parse_sysand_purl("pkg:sysand/.hidden/proj"),
-        Err(SysandPurlError::InvalidPublisher { .. })
+        Err(SysandPurlError::InvalidPublisher {
+            purl: _,
+            publisher: _
+        })
     );
     assert_matches!(
         parse_sysand_purl("pkg:sysand/pub/.hidden"),
-        Err(SysandPurlError::InvalidName { .. })
+        Err(SysandPurlError::InvalidName { purl: _, name: _ })
     );
 }
 
@@ -169,19 +181,31 @@ fn parse_sysand_purl_error_messages_include_input_purl() {
 fn parse_sysand_purl_rejects_non_ascii_and_invalid_chars() {
     assert_matches!(
         parse_sysand_purl("pkg:sysand/Åcme/proj"),
-        Err(SysandPurlError::InvalidPublisher { .. })
+        Err(SysandPurlError::InvalidPublisher {
+            purl: _,
+            publisher: _
+        })
     );
     assert_matches!(
         parse_sysand_purl("pkg:sysand/pub\t/proj"),
-        Err(SysandPurlError::InvalidPublisher { .. })
+        Err(SysandPurlError::InvalidPublisher {
+            purl: _,
+            publisher: _
+        })
     );
     assert_matches!(
         parse_sysand_purl("pkg:sysand/ab/proj0"),
-        Err(SysandPurlError::InvalidPublisher { .. })
+        Err(SysandPurlError::InvalidPublisher {
+            purl: _,
+            publisher: _
+        })
     );
     assert_matches!(
         parse_sysand_purl("pkg:sysand/aąčb/oroūj0"),
-        Err(SysandPurlError::InvalidPublisher { .. })
+        Err(SysandPurlError::InvalidPublisher {
+            purl: _,
+            publisher: _
+        })
     );
 }
 

@@ -70,13 +70,23 @@ impl ResolveRead for GitResolver {
                     .map_err(std::convert::Into::into),
                 )))
             }
-            InterchangeProjectUsage::Directory { .. }
-            | InterchangeProjectUsage::KparPath { .. }
-            | InterchangeProjectUsage::Index { .. } => {
-                Ok(ResolutionOutcome::UnsupportedUsageType {
-                    reason: String::from("not a git usage"),
-                })
+            InterchangeProjectUsage::Directory {
+                dir: _,
+                publisher: _,
+                name: _,
             }
+            | InterchangeProjectUsage::KparPath {
+                kpar_path: _,
+                publisher: _,
+                name: _,
+            }
+            | InterchangeProjectUsage::Index {
+                publisher: _,
+                name: _,
+                version_constraint: _,
+            } => Ok(ResolutionOutcome::UnsupportedUsageType {
+                reason: String::from("not a git usage"),
+            }),
         }
     }
 }

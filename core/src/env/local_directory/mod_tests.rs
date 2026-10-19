@@ -104,7 +104,12 @@ fn src_checksum_of(env: &LocalDirectoryEnvironment) -> String {
     let project = env.get_project("urn:kpar:example", "1.0.0").unwrap();
     let sources = project.sources(&ProjectContext::default()).unwrap();
     match sources.as_slice() {
-        [Source::LocalSrc { checksum, .. }] => checksum.clone(),
+        [
+            Source::LocalSrc {
+                checksum,
+                src_path: _,
+            },
+        ] => checksum.clone(),
         other => panic!("expected a single local src source, got: {other:?}"),
     }
 }
@@ -192,8 +197,13 @@ identifiers = ["urn:kpar:example"]
             Err::<(), _>("the project must not be written")
         });
 
-        let Err(PutProjectError::Write(err @ LocalWriteError::OverwriteNotInstalled { .. })) =
-            result
+        let Err(PutProjectError::Write(
+            err @ LocalWriteError::OverwriteNotInstalled {
+                identifier: _,
+                version: _,
+                kind: _,
+            },
+        )) = result
         else {
             panic!("expected `OverwriteNotInstalled`, got {result:?}");
         };

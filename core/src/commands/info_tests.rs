@@ -136,6 +136,9 @@ fn unknown_iri_is_not_found() {
 
     assert_matches!(
         do_info(&iri("urn:kpar:other"), &resolver).unwrap_err(),
-        InfoError::NotFound { .. }
+        InfoError::NotFound {
+            usage: _,
+            reason: _
+        }
     );
 }

@@ -30,7 +30,7 @@ fn plain_url_parses_as_root_with_trailing_slash() {
 fn relative_url_is_rejected() {
     assert_matches!(
         IndexLocation::parse("example.org/index"),
-        Err(IndexLocationError::RelativeUrl { .. })
+        Err(IndexLocationError::RelativeUrl { url: _ })
     );
 }
 
@@ -110,7 +110,7 @@ fn raw_template_encodes_within_segments() {
 fn mixing_both_placeholders_is_rejected() {
     assert_matches!(
         IndexLocation::parse("https://example.org/{path}/{path_raw}"),
-        Err(IndexLocationError::PlaceholderCount { count: 2, .. })
+        Err(IndexLocationError::PlaceholderCount { count: 2, url: _ })
     );
 }
 
@@ -141,7 +141,7 @@ fn resolve_on_root_matches_append_semantics() {
 fn unknown_placeholder_is_rejected() {
     let error = IndexLocation::parse("https://example.org/{file}/raw").unwrap_err();
     assert_matches!(&error,
-    IndexLocationError::UnknownPlaceholder { placeholder, .. } if placeholder.as_ref() == "{file}");
+    IndexLocationError::UnknownPlaceholder { placeholder, url: _, hint: _ } if placeholder.as_ref() == "{file}");
 }
 
 #[test]
@@ -155,11 +155,11 @@ fn case_typo_placeholder_gets_hint() {
 fn missing_placeholder_with_braces_is_rejected() {
     assert_matches!(
         IndexLocation::parse("https://example.org/files/{path"),
-        Err(IndexLocationError::StrayBrace { .. })
+        Err(IndexLocationError::StrayBrace { url: _ })
     );
     assert_matches!(
         IndexLocation::parse("https://example.org/files/path}"),
-        Err(IndexLocationError::StrayBrace { .. })
+        Err(IndexLocationError::StrayBrace { url: _ })
     );
 }
 
@@ -167,7 +167,7 @@ fn missing_placeholder_with_braces_is_rejected() {
 fn duplicate_placeholder_is_rejected() {
     assert_matches!(
         IndexLocation::parse("https://example.org/{path}/{path}"),
-        Err(IndexLocationError::PlaceholderCount { count: 2, .. })
+        Err(IndexLocationError::PlaceholderCount { count: 2, url: _ })
     );
 }
 
@@ -175,7 +175,7 @@ fn duplicate_placeholder_is_rejected() {
 fn pre_encoded_placeholder_is_rejected_with_hint() {
     let error =
         IndexLocation::parse("https://example.org/files/%7Bpath%7D/raw?ref=main").unwrap_err();
-    assert_matches!(&error, IndexLocationError::PreEncodedPlaceholder { .. });
+    assert_matches!(&error, IndexLocationError::PreEncodedPlaceholder { url: _ });
     assert!(error.to_string().contains("{path}"));
 }
 
@@ -192,7 +192,7 @@ fn non_http_root_is_rejected_at_parse() {
     // deferring to resolution.
     assert_matches!(
         IndexLocation::parse("mailto:foo@example.org"),
-        Err(IndexLocationError::UnsupportedScheme { .. })
+        Err(IndexLocationError::UnsupportedScheme { url: _, scheme: _ })
     );
 }
 
@@ -200,7 +200,7 @@ fn non_http_root_is_rejected_at_parse() {
 fn template_fragment_is_rejected() {
     assert_matches!(
         IndexLocation::parse("https://example.org/files/{path}#frag"),
-        Err(IndexLocationError::Fragment { .. })
+        Err(IndexLocationError::Fragment { url: _ })
     );
 }
 
@@ -210,7 +210,7 @@ fn root_fragment_is_rejected() {
     // server, so on an index location it is always a mistake.
     assert_matches!(
         IndexLocation::parse("https://example.org/idx#frag"),
-        Err(IndexLocationError::Fragment { .. })
+        Err(IndexLocationError::Fragment { url: _ })
     );
 }
 
@@ -218,7 +218,7 @@ fn root_fragment_is_rejected() {
 fn root_userinfo_is_rejected() {
     assert_matches!(
         IndexLocation::parse("https://user:pass@example.org/idx"),
-        Err(IndexLocationError::Userinfo { .. })
+        Err(IndexLocationError::Userinfo { url: _ })
     );
 }
 
@@ -250,7 +250,7 @@ fn parse_errors_never_echo_an_embedded_password() {
 fn template_in_host_is_rejected() {
     assert_matches!(
         IndexLocation::parse("https://{path}.example.org/files"),
-        Err(IndexLocationError::InvalidTemplate { .. })
+        Err(IndexLocationError::InvalidTemplate { url: _, source: _ })
     );
 }
 
@@ -258,7 +258,7 @@ fn template_in_host_is_rejected() {
 fn template_non_http_scheme_is_rejected() {
     assert_matches!(
         IndexLocation::parse("ftp://example.org/files/{path}"),
-        Err(IndexLocationError::UnsupportedScheme { .. })
+        Err(IndexLocationError::UnsupportedScheme { url: _, scheme: _ })
     );
 }
 
@@ -266,7 +266,7 @@ fn template_non_http_scheme_is_rejected() {
 fn template_userinfo_is_rejected() {
     assert_matches!(
         IndexLocation::parse("https://user:pass@example.org/files/{path}"),
-        Err(IndexLocationError::Userinfo { .. })
+        Err(IndexLocationError::Userinfo { url: _ })
     );
 }
 
@@ -274,7 +274,7 @@ fn template_userinfo_is_rejected() {
 fn schemeless_template_is_rejected_as_relative() {
     assert_matches!(
         IndexLocation::parse("example.org/files/{path}"),
-        Err(IndexLocationError::RelativeTemplate { .. })
+        Err(IndexLocationError::RelativeTemplate { url: _ })
     );
 }
 

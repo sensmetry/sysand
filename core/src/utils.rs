@@ -132,7 +132,7 @@ pub(crate) fn license_file_stems(expression: &spdx::Expression) -> IndexSet<Stri
     let mut stems: IndexSet<String> = IndexSet::new();
     for req in expression.requirements() {
         let license_name = match &req.req.license {
-            spdx::LicenseItem::Spdx { id, .. } => id.name.to_owned(),
+            spdx::LicenseItem::Spdx { id, or_later: _ } => id.name.to_owned(),
             spdx::LicenseItem::Other(license_ref) => license_ref.to_string(),
         };
         stems.insert(license_name);

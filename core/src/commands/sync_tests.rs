@@ -314,7 +314,7 @@ fn sync_outcome_reports_pruned_unless_no_prune() {
 
     let (result, outcome) = run_sync(&lock, &mut env, true);
     result.unwrap();
-    assert!(outcome.pruned.is_empty());
+    assert_eq!(outcome.pruned, [] as [SyncedProject; 0]);
     assert_eq!(env_uris(&env), vec!["urn:kpar:extra", URI]);
 
     let (result, outcome) = run_sync(&lock, &mut env, false);

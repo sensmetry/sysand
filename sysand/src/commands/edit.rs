@@ -55,7 +55,15 @@ fn edits_info(edits: &EditArgs) -> bool {
         add_topic,
         remove_topic,
         clear_topics,
-        ..
+        metamodel: _,
+        metamodel_release: _,
+        metamodel_release_custom: _,
+        custom_metamodel: _,
+        clear_metamodel: _,
+        includes_derived: _,
+        clear_includes_derived: _,
+        includes_implied: _,
+        clear_includes_implied: _,
     } = edits;
     name.is_some()
         || publisher.is_some()
@@ -83,7 +91,23 @@ fn edits_meta(edits: &EditArgs) -> bool {
         clear_includes_derived,
         includes_implied,
         clear_includes_implied,
-        ..
+        name: _,
+        publisher: _,
+        version: _,
+        description: _,
+        clear_description: _,
+        license: _,
+        clear_license: _,
+        website: _,
+        clear_website: _,
+        add_maintainer: _,
+        remove_maintainer: _,
+        clear_maintainers: _,
+        add_topic: _,
+        remove_topic: _,
+        clear_topics: _,
+        metamodel_release: _,
+        metamodel_release_custom: _,
     } = edits;
     metamodel.is_some()
         || custom_metamodel.is_some()

@@ -120,7 +120,10 @@ pub fn command_add<Policy: HTTPAuthentication>(
                     let (publisher, name) =
                         spell_index_usage(ctx.env.as_ref(), &publisher, &name, normalized)
                             .map_err(|err| match err {
-                                IndexSpellingError::NotInstalled { .. } => anyhow!(
+                                IndexSpellingError::NotInstalled {
+                                    usage: _,
+                                    normalized: _,
+                                } => anyhow!(
                                     "{err}\n{USAGE}hint:{USAGE:#} leave out `--no-lock` to look \
                                      the project up in the indexes"
                                 ),
@@ -263,7 +266,10 @@ pub fn command_add<Policy: HTTPAuthentication>(
         HashMap::default()
     } else {
         let sysml_std = crate::known_std_libs();
-        if let UsageToAdd::Ready(InterchangeProjectUsageRaw::Resource { resource, .. }) = &usage
+        if let UsageToAdd::Ready(InterchangeProjectUsageRaw::Resource {
+            resource,
+            version_constraint: _,
+        }) = &usage
             && sysml_std.contains_key(resource.as_str())
         {
             log::info!(
@@ -635,7 +641,10 @@ fn lock_project<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     respelled: Option<&Identifier>,
 ) -> Result<Lock> {
     // FIXME: use project path relative to and under the workspace root.
-    let LockOutcome { lock, .. } = match respelled {
+    let LockOutcome {
+        lock,
+        dependencies: _,
+    } = match respelled {
         None => do_lock_local_editable(
             ".",
             &project_root,
