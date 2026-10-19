@@ -76,13 +76,13 @@ toml = { version = "1.0.6", features = ["fast_hash"] }
 typed-path = { version = "0.12.3", default-features = false }
 # walkdir = "2.5.0"
 # wasm-bindgen = { version = "0.2.114", default-features = false, optional = true }
-zip = { version = "8.0.0", default-features = false, optional = true, features = [
+zip = { version = "9.0.5", default-features = false, optional = true, features = [
   "deflate",
   "jiff-02"
 ] }
 url = { version = "2.5.8", default-features = false }
 percent-encoding = { version = "2.3.2", default-features = false, features = ["alloc"] }
-gix = { version = "0.87.0", default-features = false, optional = true, features = [
+gix = { version = "0.89.0", default-features = false, optional = true, features = [
   "blocking-http-transport-reqwest",
   "blocking-network-client",
   "worktree-mutation",

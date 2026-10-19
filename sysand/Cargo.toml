@@ -65,7 +65,7 @@ mockito = "1.7.2"
 predicates = "3.1.4"
 camino-tempfile = "1.4"
 url = "2.5.8"
-zip = "8.0.0"
+zip = "9.0.5"
 # silence output in tests
 anstream = { version = "1.0.0", features = ["test"] }
 
