@@ -424,7 +424,7 @@ fn index_source_classifies_paths() {
     // A bare name is neither: no scheme, no path marker.
     assert_matches!(
         IndexSource::parse("mirror"),
-        Err(IndexLocationError::RelativeUrl { .. })
+        Err(IndexLocationError::RelativeUrl { url: _ })
     );
     // Braces in a path are a path's business, not a template's.
     assert_eq!(
@@ -448,7 +448,7 @@ fn index_source_file_url() {
     // A `file://` URL with a host names no local path.
     assert_matches!(
         IndexSource::parse("file://host/share"),
-        Err(IndexLocationError::FileUrlNotPath { .. })
+        Err(IndexLocationError::FileUrlNotPath { url: _ })
     );
 }
 
@@ -462,11 +462,11 @@ fn index_source_file_url_windows() {
 }
 
 #[test]
-fn p2_b1_index_source_relative_hint() {
-    // The historical refusal stands (`relative_url_is_rejected`), and the
-    // message now says how a filesystem index is spelled.
+fn index_source_relative_hint() {
+    // A relative URL is refused (`relative_url_is_rejected`), and the
+    // message says how a filesystem index is spelled.
     let error = IndexSource::parse("example.org/index").unwrap_err();
-    assert_matches!(error, IndexLocationError::RelativeUrl { .. });
+    assert_matches!(error, IndexLocationError::RelativeUrl { url: _ });
     let text = error.to_string();
     assert!(text.contains("./<dir>"), "{text}");
     assert!(text.contains("file:///"), "{text}");

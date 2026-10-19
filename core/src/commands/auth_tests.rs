@@ -689,7 +689,7 @@ mod login {
     fn auth_refuses_filesystem_index() {
         assert_matches!(
             IndexKey::validate("file:///srv/mirror"),
-            Err(AuthCommandError::NotHttpIndex { .. })
+            Err(AuthCommandError::NotHttpIndex { url: _ })
         );
         assert_matches!(
             IndexKey::validate("./mirror"),

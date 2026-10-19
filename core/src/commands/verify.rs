@@ -210,7 +210,7 @@ pub fn do_verify(
         if project
             .sources
             .iter()
-            .any(|source| matches!(source, Source::Editable { .. }))
+            .any(|source| matches!(source, Source::Editable { editable: _ }))
         {
             continue;
         }

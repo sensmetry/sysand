@@ -707,7 +707,7 @@ mod versions {
             super::IndexEnvironmentError::Versions(VersionsJsonError::VersionsOutOfOrder {
                 prev,
                 curr,
-                ..
+                location: _,
             }) => {
                 assert_eq!(prev, "1.0.0");
                 assert_eq!(curr, "2.0.0");
@@ -743,7 +743,7 @@ mod versions {
             super::IndexEnvironmentError::Versions(VersionsJsonError::VersionsOutOfOrder {
                 prev,
                 curr,
-                ..
+                location: _,
             }) => {
                 assert_eq!(prev, "10.0.0-beta.1");
                 assert_eq!(curr, "10.0.0");
@@ -775,7 +775,7 @@ mod versions {
             .expect_err("build metadata must be rejected as a protocol violation");
         match inner(err) {
             super::IndexEnvironmentError::Versions(
-                VersionsJsonError::VersionHasBuildMetadata { value, .. },
+                VersionsJsonError::VersionHasBuildMetadata { value, location: _ },
             ) => {
                 assert_eq!(value, "1.2.3+build.42");
             }
@@ -831,7 +831,8 @@ mod versions {
         match inner(err) {
             super::IndexEnvironmentError::Versions(VersionsJsonError::InvalidSemverVersion {
                 value,
-                ..
+                location: _,
+                source: _,
             }) => {
                 assert_eq!(value, "not-a-version");
             }
@@ -962,7 +963,7 @@ mod versions {
         match inner(err) {
             super::IndexEnvironmentError::Versions(VersionsJsonError::DuplicateVersion {
                 version,
-                ..
+                location: _,
             }) => {
                 assert_eq!(version, "1.0.0");
             }
@@ -1988,7 +1989,7 @@ mod digest {
                 version,
                 field,
                 value,
-                ..
+                location: _,
             }) => {
                 assert_eq!(version, "0.3.0");
                 assert_eq!(field, "kpar_digest");
@@ -2029,7 +2030,7 @@ mod digest {
                 version,
                 field,
                 value,
-                ..
+                location: _,
             }) => {
                 assert_eq!(version, "0.3.0");
                 assert_eq!(field, "kpar_digest");
@@ -2392,7 +2393,11 @@ mod sources {
             .expect("invalid zip must error, but not with DigestMismatch");
         if matches!(
             inner(err),
-            IndexEntryProjectError::Downloaded(ReqwestKparDownloadedError::DigestMismatch { .. })
+            IndexEntryProjectError::Downloaded(ReqwestKparDownloadedError::DigestMismatch {
+                url: _,
+                expected: _,
+                computed: _
+            })
         ) {
             panic!("digest matched; DigestMismatch should not surface");
         }

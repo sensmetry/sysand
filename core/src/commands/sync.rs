@@ -161,7 +161,7 @@ pub enum MismatchKind {
 impl MismatchKind {
     pub fn name(&self) -> &'static str {
         match self {
-            Self::Checksum { .. } => "checksum",
+            Self::Checksum { file: _ } => "checksum",
             Self::MissingFromDisk => "missing",
             Self::NotRecorded => "not-recorded",
         }
@@ -230,7 +230,10 @@ pub enum StaleKind {
 impl StaleKind {
     pub fn name(&self) -> &'static str {
         match self {
-            Self::Constraint { .. } => "constraint",
+            Self::Constraint {
+                constraint: _,
+                locked: _,
+            } => "constraint",
             Self::Added => "added",
             Self::Removed => "removed",
             Self::ManifestMissing => "manifest-missing",

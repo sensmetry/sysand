@@ -160,7 +160,7 @@ pub fn command_sync_verify<Policy: HTTPAuthentication>(
     let header = sysand_core::style::get_style_config().header;
     for mismatch in &report.mismatched {
         match mismatch.kind {
-            MismatchKind::Checksum { .. } | MismatchKind::MissingFromDisk => {
+            MismatchKind::Checksum { file: _ } | MismatchKind::MissingFromDisk => {
                 log::info!(
                     "{header}{repairing:>12}{header:#} `{}` {}: {}",
                     mismatch.iri,

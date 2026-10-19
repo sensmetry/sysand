@@ -276,7 +276,7 @@ fn do_env_py_local_dir(path: String) -> PyResult<()> {
         .map_or_else(|| Utf8PathBuf::from("."), Utf8Path::to_path_buf);
     let _lock =
         WorkspaceLock::try_acquire(&root, LockMode::Exclusive).map_err(|err| match err {
-            WorkspaceLockError::Held { .. } => PyLockHeldError::new_err(format_err(err)),
+            WorkspaceLockError::Held { root: _ } => PyLockHeldError::new_err(format_err(err)),
             WorkspaceLockError::Io(_) => PyIOError::new_err(format_err(err)),
         })?;
     do_env_local_dir(path).map_err(|err| {
@@ -534,8 +534,8 @@ fn combined_error_to_pyerr<F, L, R>(
         // connection; a directory that is an index but breaks the
         // protocol's rules is malformed, like a bad `versions.json`.
         CombinedResolverError::Index(Cancellable::Inner(AnyIndexError::Filesystem(
-            LocalIndexError::NeitherIndexNorFolder { .. }
-            | LocalIndexError::NotADirectory { .. }
+            LocalIndexError::NeitherIndexNorFolder { path: _ }
+            | LocalIndexError::NotADirectory { path: _ }
             | LocalIndexError::Io(_),
         ))) => PyResolutionError::new_err(message),
         CombinedResolverError::Index(_) => PyIndexProtocolError::new_err(message),
@@ -781,7 +781,7 @@ fn project_context(start: &Utf8Path, scope: Scope, lock: Option<LockMode>) -> Py
     let workspace_lock = match lock {
         Some(mode) => Some(Arc::new(WorkspaceLock::try_acquire(&root, mode).map_err(
             |err| match err {
-                WorkspaceLockError::Held { .. } => PyLockHeldError::new_err(format_err(err)),
+                WorkspaceLockError::Held { root: _ } => PyLockHeldError::new_err(format_err(err)),
                 WorkspaceLockError::Io(_) => PyIOError::new_err(format_err(err)),
             },
         )?)),
@@ -853,11 +853,12 @@ enum Failure {
     },
     /// The lockfile write itself failed after a successful solve.
     Wrote(String),
-    /// `sync` failed part-way; `partial` is what it had done.
+    /// `sync` failed part-way; `partial` is what it had done. Boxed: the
+    /// outcome carries several lists, and the enum travels in `Result`s.
     Sync {
         message: String,
         wrote: bool,
-        partial: SyncOutcome,
+        partial: Box<SyncOutcome>,
     },
     /// The environment could not be read or written.
     Env {
@@ -947,7 +948,7 @@ impl Failure {
             } => {
                 let kwargs = PyDict::new(py);
                 let result = kwargs
-                    .set_item("partial", partial)
+                    .set_item("partial", *partial)
                     .and_then(|()| kwargs.set_item("wrote", wrote));
                 match result {
                     Ok(()) => PySyncError::new_err_with(py, message, &kwargs),
@@ -1100,11 +1101,11 @@ fn sync_failure(err: CommandSyncError, outcome: SyncOutcome, wrote_lock: bool) -
         // `--verify` reading the environment, or `--repair` removing a
         // mismatched installation from it.
         | CommandSyncError::Verify(_)
-        | CommandSyncError::Remove { .. } => Failure::Env { message, wrote },
+        | CommandSyncError::Remove { path: _, source: _ } => Failure::Env { message, wrote },
         CommandSyncError::Sync(_) | CommandSyncError::IncludeStd(_) => Failure::Sync {
             message,
             wrote,
-            partial: outcome,
+            partial: Box::new(outcome),
         },
     }
 }
@@ -1177,8 +1178,8 @@ fn do_sync_py(
                         &config,
                         &project_root,
                         extra_provided.clone(),
-                        client.clone(),
-                        runtime.clone(),
+                        client,
+                        runtime,
                         auth_policy.clone(),
                         &ctx,
                     )
