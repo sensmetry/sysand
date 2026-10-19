@@ -7,14 +7,6 @@
 //! IMPORTANT: when updating any of these types, update the corresponding
 //! bindings' types (in `_model.py` for Python and various Java classes)
 
-// `pyclass(from_py_object)` on `KerMlChecksumAlg` generates a sibling
-// `FromPyObject` impl that calls `Clone::clone` on a `Copy` type; item-level
-// attributes don't reach it, so the expectation has to live at module level
-#![cfg_attr(
-    feature = "python",
-    expect(clippy::clone_on_copy, reason = "fires on pyo3-generated code")
-)]
-
 use std::{clone::Clone, collections::HashSet, fmt::Display, hash::Hash};
 
 use digest::array::{Array, typenum};

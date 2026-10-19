@@ -1148,7 +1148,10 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
             .by_index_raw(i)
             .map_err(|e| PublishError::KparReadZip(path.as_str().into(), e))?;
 
-        let name = f.name();
+        let name = f
+            .name()
+            .map_err(|e| PublishError::KparReadZip(path.as_str().into(), e))?;
+        let name = name.as_ref();
         parse_relative_unix_path(name, RelativePathKind::SubDirectory)
             .map_err(PublishError::InvalidPathInArchive)?;
 

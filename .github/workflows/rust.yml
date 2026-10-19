@@ -85,21 +85,21 @@ jobs:
       - name: cargo clippy ... (no features)
         run: cargo clippy -p sysand-core --locked --all-targets -- --deny warnings
 
-      - name: cargo clippy --features std,filesystem,alltests ...  (specific feature set 1)
-        run: cargo clippy -p sysand-core --locked --all-targets --no-default-features --features std,filesystem,alltests -- --deny warnings
+      - name: cargo clippy --features filesystem,alltests ...  (specific feature set 1)
+        run: cargo clippy -p sysand-core --locked --all-targets --features filesystem,alltests -- --deny warnings
 
-      - name: cargo clippy --features std,networking,alltests ... (specific feature set 2)
-        run: cargo clippy -p sysand-core --locked --all-targets --no-default-features --features std,networking,alltests -- --deny warnings
+      - name: cargo clippy --features networking,alltests ... (specific feature set 2)
+        run: cargo clippy -p sysand-core --locked --all-targets --features networking,alltests -- --deny warnings
 
-      - name: cargo clippy --features std,keyring,alltests ... (specific feature set 3)
-        run: cargo clippy -p sysand-core --locked --all-targets --no-default-features --features std,keyring,alltests -- --deny warnings
+      - name: cargo clippy --features keyring,alltests ... (specific feature set 3)
+        run: cargo clippy -p sysand-core --locked --all-targets --features keyring,alltests -- --deny warnings
 
       # since we use --no-dev-deps below (as recommended), we don't do
       # --all-targets to include tests with required development dependencies
       - name: cargo hack clippy --each-feature ... (individual features)
         run: |
-          cargo hack clippy -p sysand-core --each-feature --no-dev-deps --features std --ignore-unknown-features -- --deny warnings
-          cargo hack clippy -p sysand --each-feature --no-dev-deps --features std --ignore-unknown-features -- --deny warnings
+          cargo hack clippy -p sysand-core --each-feature --no-dev-deps -- --deny warnings
+          cargo hack clippy -p sysand --each-feature --no-dev-deps -- --deny warnings
 
   test:
     needs: [plan]

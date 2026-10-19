@@ -1343,7 +1343,10 @@ mod prepare_publish {
     #[test]
     fn exec_in_archive() {
         let (proj, meta) = pre_loop_entries();
-        let exec = deflate().unix_permissions(0o100755);
+        // Set the system explicitly, as `zip` defaults to `System::Dos` on Windows
+        let exec = deflate()
+            .system(zip::System::Unix)
+            .unix_permissions(0o100755);
         let (_tmp, path) = write_zip(&[
             (".project.json", proj.as_slice(), deflate()),
             (".meta.json", meta.as_slice(), deflate()),
@@ -1351,6 +1354,28 @@ mod prepare_publish {
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
         assert_matches!(err, PublishError::ExecInArchive { path: _ });
+    }
+
+    #[test]
+    fn exec_bits_ignored_for_dos_entry() {
+        // `zip` crate derives the mode of `System::Dos` entries from the DOS
+        // attribute byte only, ignoring Unix permissions in the upper 16 bits
+        // of external attributes. This is consistent with libarchive and many
+        // other tools, so allowing exec bits here is acceptable. It also helps
+        // in cases where these bits contain garbage, see
+        // https://github.com/zip-rs/zip2/issues/737
+        let content = b"package Test;";
+        let (proj, meta) = valid_entries(content);
+        let exec = deflate()
+            .system(zip::System::Dos)
+            .unix_permissions(0o100755);
+        let (_tmp, path) = write_zip(&[
+            (".project.json", proj.as_slice(), deflate()),
+            (".meta.json", meta.as_slice(), deflate()),
+            ("LICENSES/MIT.txt", b"MIT License", deflate()),
+            ("test.sysml", content, exec),
+        ]);
+        prepare_publish_payload(&path).expect("expected Ok");
     }
 
     #[test]

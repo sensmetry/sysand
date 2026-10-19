@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-#[cfg(not(feature = "std"))]
-compile_error!("`std` feature is currently required to build `sysand`");
-
 use std::{
     collections::{HashMap, HashSet},
     ffi::OsString,
