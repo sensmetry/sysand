@@ -164,7 +164,7 @@ fn lock_and_sync_against_structured_directory_index() -> Result<(), Box<dyn Erro
         Source::LocalKpar {
             kpar_path,
             kpar_digest,
-            ..
+            kpar_size: _,
         } => {
             assert_eq!(kpar_path.as_str(), "../index/mock/dep/0.2.0/project.kpar");
             assert_eq!(kpar_digest, sha256_lowercase_hex(&newest));

@@ -118,6 +118,13 @@ impl TryFrom<&str> for Sha256HexDigest {
 #[derive(Debug, Clone)]
 pub(crate) struct AdvertisedVersion {
     pub(crate) version: Version,
+    #[cfg_attr(
+        not(feature = "networking"),
+        expect(
+            dead_code,
+            reason = "read by the HTTP index entry, which `networking` enables"
+        )
+    )]
     pub(crate) usage: Vec<InterchangeProjectUsageRaw>,
     pub(crate) kpar_size: NonZeroU64,
     pub(crate) kpar_digest: Sha256HexDigest,

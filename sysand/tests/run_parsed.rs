@@ -12,7 +12,7 @@ use camino_tempfile::tempdir;
 use clap::Parser as _;
 use sysand::{
     ProcessOwnership,
-    cli::{Args, Command, GlobalOptions},
+    cli::{Args, Command, GlobalOptions, OutputFormat},
     run_parsed,
 };
 

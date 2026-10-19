@@ -37,7 +37,7 @@ fn shared_is_blocked_by_exclusive() {
     let _held = WorkspaceLock::try_acquire(dir.path(), LockMode::Exclusive).unwrap();
     assert_matches!(
         WorkspaceLock::try_acquire(dir.path(), LockMode::Shared),
-        Err(LockError::Held { .. })
+        Err(LockError::Held { root: _ })
     );
 }
 
@@ -47,7 +47,7 @@ fn exclusive_is_blocked_by_shared() {
     let _held = WorkspaceLock::try_acquire(dir.path(), LockMode::Shared).unwrap();
     assert_matches!(
         WorkspaceLock::try_acquire(dir.path(), LockMode::Exclusive),
-        Err(LockError::Held { .. })
+        Err(LockError::Held { root: _ })
     );
 }
 

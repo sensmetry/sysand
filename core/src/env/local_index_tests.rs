@@ -145,11 +145,20 @@ fn structured_index_missing_versions_is_empty_stream() {
     let error = rt
         .block_on(env.get_project_async("pkg:sysand/mock/other", "1.0.0"))
         .unwrap_err();
-    assert_matches!(error, LocalIndexError::ProjectNotInIndex { .. });
+    assert_matches!(
+        error,
+        LocalIndexError::ProjectNotInIndex { file: _, iri: _ }
+    );
     let error = rt
         .block_on(env.get_project_async(DEP, "9.9.9"))
         .unwrap_err();
-    assert_matches!(error, LocalIndexError::VersionNotInIndex { .. });
+    assert_matches!(
+        error,
+        LocalIndexError::VersionNotInIndex {
+            file: _,
+            version: _
+        }
+    );
 }
 
 #[test]
@@ -166,7 +175,14 @@ fn structured_index_digest_mismatch_is_refused() {
     let env = LocalIndexEnvironment::new(&root);
     let project = rt.block_on(env.get_project_async(DEP, "0.2.0")).unwrap();
     let error = rt.block_on(project.get_project_async()).unwrap_err();
-    assert_matches!(error, LocalKParError::SizeMismatch { .. });
+    assert_matches!(
+        error,
+        LocalKParError::SizeMismatch {
+            path: _,
+            expected: _,
+            actual: _
+        }
+    );
 }
 
 #[test]
@@ -201,7 +217,7 @@ fn folder_index_enumerates_case_insensitively() {
     let sources = rt.block_on(project.sources_async(&ctx)).unwrap();
     assert_matches!(
         sources.as_slice(),
-        [Source::LocalKpar { kpar_path, .. }] if kpar_path.as_str() == "folder/B.KPAR"
+        [Source::LocalKpar { kpar_path, kpar_size: _, kpar_digest: _ }] if kpar_path.as_str() == "folder/B.KPAR"
     );
 }
 
@@ -236,7 +252,7 @@ fn folder_non_semver_version_is_refused() {
     let rt = runtime();
     let env = LocalIndexEnvironment::new(&root);
     let error = rt.block_on(env.uris_async()).unwrap_err();
-    assert_matches!(error, LocalIndexError::NonSemverArchiveVersion { value, .. } if value == "latest");
+    assert_matches!(error, LocalIndexError::NonSemverArchiveVersion { value, archive: _, source: _ } if value == "latest");
 }
 
 #[test]
@@ -279,7 +295,7 @@ fn neither_index_nor_folder_is_refused() {
     // A missing directory is its own message, not `NeitherIndexNorFolder`.
     let env = LocalIndexEnvironment::new(cwd.path().join("absent"));
     let error = rt.block_on(env.versions_async(DEP)).unwrap_err();
-    assert_matches!(error, LocalIndexError::NotADirectory { .. });
+    assert_matches!(error, LocalIndexError::NotADirectory { path: _ });
 }
 
 #[test]
