@@ -12,6 +12,7 @@ from pathlib import Path
 
 import sysand
 
+
 def write_dep(root: Path) -> None:
     root.mkdir(parents=True)
     model = "package dep { }\n"
