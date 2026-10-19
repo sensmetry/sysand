@@ -130,7 +130,7 @@ pub fn install_default_crypto_provider() {
 
 // Both tests assert that a provider is installed, so they only make sense
 // when a `tls-*` feature selected one. Gating on `networking` alone would
-// assert it in `--features std,networking`, which deliberately has none.
+// assert it in `--features networking`, which deliberately has none.
 #[cfg(all(test, any(feature = "tls-aws-lc-rs", feature = "tls-ring")))]
 #[path = "./net_utils_tests.rs"]
 mod tests;

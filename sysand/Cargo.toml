@@ -12,8 +12,7 @@ documentation.workspace = true
 homepage.workspace = true
 
 [features]
-default = ["std", "tls-aws-lc-rs"]
-std = ["anyhow/std", "clap/std", "fluent-uri/std", "log/std", "toml/std", "typed-path/std"]
+default = ["tls-aws-lc-rs"]
 tls-aws-lc-rs = ["sysand-core/tls-aws-lc-rs"]
 tls-ring = ["sysand-core/tls-ring"]
 alltests = []
@@ -26,11 +25,12 @@ kpar-ppmd = ["sysand-core/kpar-ppmd"]
 [dependencies]
 # General
 camino.workspace = true
-camino-tempfile = "1.4"
-anstream = "1.0.0"
-anyhow = "1.0.102"
+camino-tempfile = { version = "1.4", default-features = false }
+anstream = { version = "1.0.0", default-features = false, features = ["auto", "wincon"] }
+anyhow = { version = "1.0.102", default-features = false, features = ["std"] }
 jiff = { version = "0.2", default-features = false, features = ["std"] }
 clap = { version = "4.5.60", default-features = false, features = [
+  "std",
   "derive",
   "help",
   "cargo",
@@ -40,38 +40,38 @@ clap = { version = "4.5.60", default-features = false, features = [
   "usage"
 ] }
 env_logger.workspace = true
-log.workspace = true
-sysand-core = { path = "../core", features = ["std", "filesystem", "networking", "keyring"] }
-thiserror = "2.0.18"
-toml = { version = "1.0.6", features = ["fast_hash"] }
-semver = "1.0.27"
-serde_json = { version = "1.0.149", default-features = false }
-spdx = "0.13.4"
+log = { workspace = true, features = ["std"] }
+sysand-core = { path = "../core", features = ["filesystem", "networking", "keyring"] }
+thiserror = { version = "2.0.18", default-features = false, features = ["std"] }
+toml = { version = "1.0.6", default-features = false, features = ["std", "fast_hash"] }
+semver = { version = "1.0.27", default-features = false, features = ["std"] }
+serde_json = { version = "1.0.149", default-features = false, features = ["std"] }
+spdx = { version = "0.13.4", default-features = false, features = ["std"] }
 fluent-uri.workspace = true
-typed-path = { version = "0.12.3", default-features = false }
-url = { version = "2.5.8", default-features = false }
-indexmap = "2.13.0"
+typed-path = { version = "0.12.3", default-features = false, features = ["std"] }
+url = { version = "2.5.8", default-features = false, features = ["std"] }
+indexmap = { version = "2.13.0", default-features = false, features = ["std"] }
 tokio = { version = "1.50.0", default-features = false }
-reqwest-middleware = "0.5.1"
-rpassword = "7.5.4"
+reqwest-middleware = { version = "0.5.1", default-features = false }
+rpassword = { version = "7.5.4", default-features = false }
 
 [target."cfg(windows)".dependencies]
-glob = "0.3.3"
+glob = { version = "0.3.3", default-features = false }
 
 [dev-dependencies]
-assert_cmd = "2.1.2"
-glob = "0.3.3"
-mockito = "1.7.2"
-predicates = "3.1.4"
-camino-tempfile = "1.4"
-url = "2.5.8"
-zip = "8.0.0"
+assert_cmd = { version = "2.1.2", default-features = false }
+glob = { version = "0.3.3", default-features = false }
+mockito = { version = "1.7.2", default-features = false, features = ["color"] }
+predicates = { version = "3.1.4", default-features = false, features = ["regex", "color"] }
+camino-tempfile = { version = "1.4", default-features = false }
+url = { version = "2.5.8", default-features = false, features = ["std"] }
+zip = { version = "9.0.5", default-features = false, features = ["deflate"] }
 # silence output in tests
-anstream = { version = "1.0.0", features = ["test"] }
+anstream = { version = "1.0.0", default-features = false, features = ["test"] }
 
 [target."cfg(not(windows))".dev-dependencies]
-rexpect = "0.7.0"
-nix = { version = "0.31.2", features = ["process"] }
+rexpect = { version = "0.7.0", default-features = false }
+nix = { version = "0.31.2", default-features = false, features = ["process"] }
 
 [lints]
 workspace = true

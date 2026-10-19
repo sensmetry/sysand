@@ -590,7 +590,8 @@ fn guess_root(archive: &mut ZipArchive<fs::File>) -> Result<Utf8UnixPathBuf, Loc
         // To work around this, we check that the sanitized path can be produced,
         // but then use the raw path, as it's always Unix-style per zip spec
         if file.enclosed_name().is_some() {
-            let p = Utf8UnixPath::new(file.name());
+            let name = file.name().map_err(ZipArchiveError::FileMeta)?;
+            let p = Utf8UnixPath::new(name.as_ref());
             if let Some(root) = project_root_from_zip_entry_path(p)? {
                 maybe_root = Some(root);
                 break;

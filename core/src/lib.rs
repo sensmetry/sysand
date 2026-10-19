@@ -36,9 +36,6 @@ pub mod workspace;
 #[cfg(feature = "filesystem")]
 pub mod discover;
 
-#[cfg(not(feature = "std"))]
-compile_error!("`std` feature is currently required to build `sysand`");
-
 // #[cfg(feature = "python")]
 // use pyo3::prelude::*;
 

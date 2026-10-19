@@ -14,9 +14,15 @@ proc-macro = true
 
 [dependencies]
 itertools = { version = "0.15.0", default-features = false }
-proc-macro2 = "1.0.106"
-quote = "1.0.45"
-syn = "3.0"
+proc-macro2 = { version = "1.0.106", default-features = false, features = ["proc-macro"] }
+quote = { version = "1.0.45", default-features = false, features = ["proc-macro"] }
+syn = { version = "3.0", default-features = false, features = [
+  "derive",
+  "parsing",
+  "printing",
+  "clone-impls",
+  "proc-macro"
+] }
 
 [lints]
 workspace = true

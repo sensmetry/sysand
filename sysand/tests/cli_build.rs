@@ -1223,6 +1223,7 @@ fn assert_kpar_no_licenses_dir(kpar_path: &camino::Utf8Path) {
     let file = std::fs::File::open(kpar_path).unwrap();
     let archive = zip::ZipArchive::new(file).unwrap();
     for name in archive.file_names() {
+        let name = name.unwrap();
         assert!(
             !name.starts_with("LICENSES/"),
             "KPAR should not contain any LICENSES/ entries but found {name}: {kpar_path}"
