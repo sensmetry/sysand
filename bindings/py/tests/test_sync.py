@@ -12,6 +12,9 @@ import pytest
 
 import sysand
 from mockindex import MockIndex, usage
+from conftest import write_legacy_project
+
+SYSML = "https://www.omg.org/spec/SysML/20250201"
 
 DEP = "pkg:sysand/mock/dep"
 OTHER = "pkg:sysand/mock/other"
@@ -24,7 +27,7 @@ def resolution(index: MockIndex) -> sysand.Resolution:
 def project_with(tmp_path: Path, usages: list[dict]) -> Path:
     root = tmp_path / "proj"
     root.mkdir()
-    sysand.init(project_dir=root, name="proj", publisher="acme", version="1.0.0")
+    write_legacy_project(root, "acme", "proj", "1.0.0")
     manifest = json.loads((root / ".project.json").read_text())
     manifest["usage"] = usages
     (root / ".project.json").write_text(json.dumps(manifest, indent=2) + "\n")
@@ -72,7 +75,8 @@ def test_sync_prunes_projects_not_in_lockfile(
 
     extra = tmp_path / "extra"
     extra.mkdir()
-    sysand.init(project_dir=extra, name="extra", publisher="acme", version="0.1.0")
+    Path(extra).mkdir(parents=True, exist_ok=True)
+    write_legacy_project(Path(extra), "acme", "extra", "0.1.0")
     sysand.env.install_path(env_path=env_dir, iri="urn:kpar:extra", location=extra)
 
     assert any(

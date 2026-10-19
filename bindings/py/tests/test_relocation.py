@@ -64,10 +64,14 @@ import vendor.project as project
 
 # A call that reaches the extension and succeeds.
 project.init(
-    name="relocated", publisher="a", version="1.0.0", project_dir=sys.argv[1]
+    name="relocated",
+    publisher="acme",
+    version="1.0.0",
+    project_dir=sys.argv[1],
+    metamodel="https://www.omg.org/spec/SysML/20250201",
 )
 assert (
-    pathlib.Path(sys.argv[1]) / ".project.json"
+    pathlib.Path(sys.argv[1]) / "model.toml"
 ).is_file(), "init did not write the project"
 
 # A call that fails, to pin the error classes to *this* copy of the tree.

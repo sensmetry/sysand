@@ -87,48 +87,50 @@ def test_basic_init(caplog: pytest.LogCaptureFixture) -> None:
 def test_init_license(tmp_path: Path) -> None:
     sysand.init(
         project_dir=tmp_path,
-        name="test_init_license",
-        publisher="a",
+        name="test-init-license",
+        publisher="acme",
         version="1.2.3",
         license="MIT OR Apache-2.0",
+        metamodel=SYSML,
     )
 
-    info = json.loads((tmp_path / ".project.json").read_text())
-    assert info["license"] == "MIT OR Apache-2.0"
+    manifest = (tmp_path / "model.toml").read_text()
+    assert 'license = "MIT OR Apache-2.0"' in manifest
 
 
 def test_init_invalid_license(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         sysand.init(
             project_dir=tmp_path,
-            name="test_init_invalid_license",
-            publisher="a",
+            name="test-init-invalid-license",
+            publisher="acme",
             version="1.2.3",
             license="not a license",
+            metamodel=SYSML,
         )
 
-    assert not (tmp_path / ".project.json").exists()
+    assert not (tmp_path / "model.toml").exists()
 
 
 def test_init_metamodel(tmp_path: Path) -> None:
     sysand.init(
         project_dir=tmp_path,
-        name="test_init_metamodel",
-        publisher="a",
+        name="test-init-metamodel",
+        publisher="acme",
         version="1.2.3",
         metamodel="https://www.omg.org/spec/KerML/20250201",
     )
 
-    meta = json.loads((tmp_path / ".meta.json").read_text())
-    assert meta["metamodel"] == "https://www.omg.org/spec/KerML/20250201"
+    manifest = (tmp_path / "model.toml").read_text()
+    assert 'metamodel = "https://www.omg.org/spec/KerML/20250201"' in manifest
 
 
 def test_init_invalid_metamodel(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="invalid metamodel"):
+    with pytest.raises(ValueError, match="is not a metamodel Sysand recognizes"):
         sysand.init(
             project_dir=tmp_path,
-            name="test_init_invalid_metamodel",
-            publisher="a",
+            name="test-init-invalid-metamodel",
+            publisher="acme",
             version="1.2.3",
             metamodel="not an iri",
         )
@@ -513,9 +515,7 @@ def test_set_usage_constraint_refuses_a_usage_that_cannot_hold_one(
 
 
 def test_remove_returns_the_removed_usages(tmp_path: Path) -> None:
-    sysand.init(
-        project_dir=tmp_path, name="test_remove_returns", publisher="a", version="1.2.3"
-    )
+    write_legacy_project(Path(tmp_path), "acme", "test_remove_returns", "1.2.3")
     _install_in_env(tmp_path, "acme-labs", "my.project")
     sysand.add(
         project_dir=tmp_path,
@@ -539,7 +539,7 @@ def test_remove_returns_the_removed_usages(tmp_path: Path) -> None:
 
 
 def test_usages_read_back_by_how_they_are_found(tmp_path: Path) -> None:
-    sysand.init(project_dir=tmp_path, name="proj", publisher="acme", version="1.0.0")
+    write_legacy_project(Path(tmp_path), "acme", "proj", "1.0.0")
     _install_in_env(tmp_path, "acme-labs", "by.index")
     sysand.add(
         project_dir=tmp_path,
@@ -592,7 +592,8 @@ def test_remove_by_publisher_and_name_removes_a_directory_usage(
     tmp_path: Path,
 ) -> None:
     root = tmp_path / "proj"
-    sysand.init(project_dir=root, name="proj", publisher="acme", version="1.0.0")
+    Path(root).mkdir(parents=True, exist_ok=True)
+    write_legacy_project(Path(root), "acme", "proj", "1.0.0")
     _declare_dir_usage(root)
 
     removed = sysand.remove(project_dir=root, publisher="acme-labs", name="my.project")
@@ -608,7 +609,8 @@ def test_remove_by_publisher_and_name_needs_no_index_usage_spelling(
     # `ab` is too short for an index usage, but a directory usage may declare
     # it: `remove` names what is declared, as `sysand remove ab/my.project`
     root = tmp_path / "proj"
-    sysand.init(project_dir=root, name="proj", publisher="acme", version="1.0.0")
+    Path(root).mkdir(parents=True, exist_ok=True)
+    write_legacy_project(Path(root), "acme", "proj", "1.0.0")
     manifest_path = root / ".project.json"
     manifest = json.loads(manifest_path.read_text())
     manifest["usage"] = [{"dir": "../dep", "publisher": "ab", "name": "my.project"}]
@@ -622,7 +624,13 @@ def test_remove_by_publisher_and_name_needs_no_index_usage_spelling(
 
 
 def test_remove_refuses_what_no_usage_can_declare(tmp_path: Path) -> None:
-    sysand.init(project_dir=tmp_path, name="proj", publisher="acme", version="1.0.0")
+    sysand.init(
+        project_dir=tmp_path,
+        name="proj",
+        publisher="acme",
+        version="1.0.0",
+        metamodel=SYSML,
+    )
 
     for publisher, name, message in [
         ("acme/labs", "lib", "`acme/labs` is invalid: publisher cannot contain `/`"),
@@ -634,7 +642,13 @@ def test_remove_refuses_what_no_usage_can_declare(tmp_path: Path) -> None:
 
 
 def test_remove_still_reports_an_absent_usage(tmp_path: Path) -> None:
-    sysand.init(project_dir=tmp_path, name="proj", publisher="acme", version="1.0.0")
+    sysand.init(
+        project_dir=tmp_path,
+        name="proj",
+        publisher="acme",
+        version="1.0.0",
+        metamodel=SYSML,
+    )
 
     with pytest.raises(sysand.ProjectError) as excinfo:
         sysand.remove(project_dir=tmp_path, publisher="acme-labs", name="absent")
@@ -645,7 +659,8 @@ def test_add_refuses_a_project_already_declared_as_another_kind(
     tmp_path: Path,
 ) -> None:
     root = tmp_path / "proj"
-    sysand.init(project_dir=root, name="proj", publisher="acme", version="1.0.0")
+    Path(root).mkdir(parents=True, exist_ok=True)
+    write_legacy_project(Path(root), "acme", "proj", "1.0.0")
     _declare_dir_usage(root)
 
     with pytest.raises(sysand.ProjectError) as excinfo:
@@ -665,7 +680,7 @@ def test_add_refuses_a_project_already_declared_as_another_kind(
 
 
 def test_publisher_and_name_are_kept_as_spelled(tmp_path: Path) -> None:
-    sysand.init(project_dir=tmp_path, name="proj", publisher="acme", version="1.0.0")
+    write_legacy_project(Path(tmp_path), "acme", "proj", "1.0.0")
     manifest = tmp_path / ".project.json"
     _install_in_env(tmp_path, "Acme Labs", "My.Project")
 
@@ -743,7 +758,7 @@ def test_publisher_and_name_are_kept_as_spelled(tmp_path: Path) -> None:
 
 
 def test_a_legacy_purl_is_removed_by_publisher_and_name(tmp_path: Path) -> None:
-    sysand.init(project_dir=tmp_path, name="proj", publisher="acme", version="1.0.0")
+    write_legacy_project(Path(tmp_path), "acme", "proj", "1.0.0")
     sysand.add(
         project_dir=tmp_path,
         iri="pkg:sysand/acme-labs/lib",
@@ -775,7 +790,13 @@ def test_a_legacy_purl_is_removed_by_publisher_and_name(tmp_path: Path) -> None:
 
 
 def test_add_refuses_an_invalid_publisher_or_name(tmp_path: Path) -> None:
-    sysand.init(project_dir=tmp_path, name="proj", publisher="acme", version="1.0.0")
+    sysand.init(
+        project_dir=tmp_path,
+        name="proj",
+        publisher="acme",
+        version="1.0.0",
+        metamodel=SYSML,
+    )
 
     # With the messages `sysand add <publisher>/<name>` gives
     for publisher, name, message in [
@@ -833,7 +854,7 @@ def test_the_dependency_is_named_exactly_once(
 ) -> None:
     # Overloads make each of these a type error too; this pins the runtime
     # behaviour for callers who are not type-checked.
-    sysand.init(project_dir=tmp_path, name="proj", publisher="acme", version="1.0.0")
+    write_legacy_project(Path(tmp_path), "acme", "proj", "1.0.0")
     before = (tmp_path / ".project.json").read_text()
 
     with pytest.raises(TypeError):
@@ -843,7 +864,13 @@ def test_the_dependency_is_named_exactly_once(
 
 
 def test_add_needs_a_version_constraint(tmp_path: Path) -> None:
-    sysand.init(project_dir=tmp_path, name="proj", publisher="acme", version="1.0.0")
+    sysand.init(
+        project_dir=tmp_path,
+        name="proj",
+        publisher="acme",
+        version="1.0.0",
+        metamodel=SYSML,
+    )
 
     for kwargs in [
         {"publisher": "acme", "name": "lib"},

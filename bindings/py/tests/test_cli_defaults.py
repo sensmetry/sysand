@@ -20,6 +20,9 @@ import pytest
 
 import sysand
 from mockindex import MockIndex, usage
+from conftest import write_legacy_project
+
+SYSML = "https://www.omg.org/spec/SysML/20250201"
 
 IRI = "urn:kpar:defaults_probe"
 NO_INDEX = sysand.Resolution(use_index=False)
@@ -27,7 +30,8 @@ NO_INDEX = sysand.Resolution(use_index=False)
 
 def project(root: Path, name: str = "proj") -> Path:
     root.mkdir(parents=True)
-    sysand.init(project_dir=root, name=name, publisher="acme", version="1.0.0")
+    Path(root).mkdir(parents=True, exist_ok=True)
+    write_legacy_project(Path(root), "acme", name, "1.0.0")
     return root
 
 

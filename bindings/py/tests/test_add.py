@@ -14,6 +14,9 @@ import pytest
 
 import sysand
 from mockindex import MockIndex
+from conftest import write_legacy_project
+
+SYSML = "https://www.omg.org/spec/SysML/20250201"
 
 DEP = "pkg:sysand/acme-labs/my-lib"
 
@@ -37,7 +40,8 @@ def _log_everything(caplog: pytest.LogCaptureFixture) -> None:
 
 def init(tmp_path: Path) -> Path:
     root = tmp_path / "app"
-    sysand.init(project_dir=root, name="app", publisher="acme", version="1.0.0")
+    Path(root).mkdir(parents=True, exist_ok=True)
+    write_legacy_project(Path(root), "acme", "app", "1.0.0")
     return root
 
 
