@@ -862,22 +862,21 @@ fn run_cli_with(
                             "run outside of an active project, did you mean to use `--dir`, `--kpar-path` or `--iri`?"
                         )
                     };
-                    match get {
-                        Some(field) => command_info_field(&current_project, field),
-                        None => {
-                            // The project is the one `run_cli`
-                            // discovered, which carries the workspace
-                            // table a member needs; `command_info_path`
-                            // would re-open the directory and throw it
-                            // away. The root is copied out before the
-                            // project moves.
-                            let root = current_project.root_path().to_owned();
-                            command_info_project(
-                                FileResolverProject::LocalSrcProject(current_project),
-                                &root,
-                                &excluded_usages,
-                            )
-                        }
+                    if let Some(field) = get {
+                        command_info_field(&current_project, field)
+                    } else {
+                        // The project is the one `run_cli`
+                        // discovered, which carries the workspace
+                        // table a member needs; `command_info_path`
+                        // would re-open the directory and throw it
+                        // away. The root is copied out before the
+                        // project moves.
+                        let root = current_project.root_path().to_owned();
+                        command_info_project(
+                            FileResolverProject::LocalSrcProject(current_project),
+                            &root,
+                            &excluded_usages,
+                        )
                     }
                 }
                 (Location::Resolve(resolve), None) => crate::commands::info::command_info_resolve(
@@ -1285,14 +1284,15 @@ fn consults_the_workspace(command: &cli::Command) -> bool {
         }
         | cli::Command::Env { command: _ }
         | cli::Command::PrintRoot => true,
-        cli::Command::Init { .. }
+        cli::Command::Init { path: _, name: _, publisher: _, version: _, license: _, metamodel: _, metamodel_release: _ }
         // Deliberately not: a discovery error would be fatal, and an
         // unlisted json project under a workspace root is exactly the
-        // one a user wants to migrate. Row 45 is decided in the command.
-        | cli::Command::Migrate { .. }
-        | cli::Command::Clone { .. }
-        | cli::Command::Index { .. }
-        | cli::Command::Auth { .. } => false,
+        // one a user wants to migrate. A bare `migrate` at a workspace
+        // root is refused by the command itself.
+        | cli::Command::Migrate { path: _, publisher: _, allow_dirty: _, allow_no_vcs: _, resolution_opts: _ }
+        | cli::Command::Clone { locator: _, target: _, version_constraint: _, no_deps: _, resolution_opts: _ }
+        | cli::Command::Index { command: _ }
+        | cli::Command::Auth { command: _ } => false,
     }
 }
 
