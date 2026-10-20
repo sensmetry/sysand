@@ -1,0 +1,25 @@
+# osv-scanner.toml configures the OSV-Scanner CI workflow
+# (.github/workflows/dependencies.yml). osv-scanner only reads this file for
+# lockfiles in the same directory, so it applies to Cargo.lock only.
+#
+# Config reference: https://google.github.io/osv-scanner/configuration/
+#
+# Every ignore must have an `ignoreUntil` date, so that it gets revisited.
+
+# zvariant, zvariant_derive and zbus_names were merged into zbus 6. They come in
+# through keyring -> zbus-secret-service-keyring-store -> secret-service -> zbus 5,
+# which we can't change until secret-service moves to zbus 6.
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0370"
+ignoreUntil = 2027-04-20
+reason = "unmaintained `zvariant`, pulled in by `keyring` via zbus 5; no upgrade path yet"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0371"
+ignoreUntil = 2027-04-20
+reason = "unmaintained `zbus_names`, pulled in by `keyring` via zbus 5; no upgrade path yet"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0372"
+ignoreUntil = 2027-04-20
+reason = "unmaintained `zvariant_derive`, pulled in by `keyring` via zbus 5; no upgrade path yet"

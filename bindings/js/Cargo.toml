@@ -15,23 +15,23 @@ homepage.workspace = true
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-sysand-core = { path = "../../core", features = ["js"] }
+sysand-core = { workspace = true, features = ["js"] }
 camino.workspace = true
-serde_json = { version = "1.0.149", default-features = false }
-thiserror = { version = "2.0.18", default-features = false, features = ["std"] }
+serde_json.workspace = true
+thiserror.workspace = true
 wasm-bindgen = { version = "0.2.114", default-features = false, features = ["std"] }
 web-sys = { version = "0.3.91", default-features = false, optional = true, features = [
   "Window",
   "Storage"
 ] }
-serde = { version = "1.0.228", default-features = false }
+serde.workspace = true
 console_log = { version = "1.0.0", default-features = false }
 log.workspace = true
-typed-path = { version = "0.12.3", default-features = false }
+typed-path.workspace = true
 
 [dev-dependencies]
 regex = { version = "1.12.3", default-features = false, features = ["unicode-perl"] }
-semver = { version = "1.0.27", default-features = false }
+semver.workspace = true
 wasm-bindgen-test = { version = "0.3.64", default-features = false, features = ["std"] }
 
 [features]

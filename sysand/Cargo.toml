@@ -25,10 +25,10 @@ kpar-ppmd = ["sysand-core/kpar-ppmd"]
 [dependencies]
 # General
 camino.workspace = true
-camino-tempfile = { version = "1.4", default-features = false }
-anstream = { version = "1.0.0", default-features = false, features = ["auto", "wincon"] }
-anyhow = { version = "1.0.102", default-features = false, features = ["std"] }
-jiff = { version = "0.2", default-features = false, features = ["std"] }
+camino-tempfile.workspace = true
+anstream = { workspace = true, features = ["auto", "wincon"] }
+anyhow.workspace = true
+jiff.workspace = true
 clap = { version = "4.5.60", default-features = false, features = [
   "std",
   "derive",
@@ -41,33 +41,33 @@ clap = { version = "4.5.60", default-features = false, features = [
 ] }
 env_logger.workspace = true
 log = { workspace = true, features = ["std"] }
-sysand-core = { path = "../core", features = ["filesystem", "networking", "keyring"] }
-thiserror = { version = "2.0.18", default-features = false, features = ["std"] }
-toml = { version = "1.0.6", default-features = false, features = ["std", "fast_hash"] }
-semver = { version = "1.0.27", default-features = false, features = ["std"] }
-serde_json = { version = "1.0.149", default-features = false, features = ["std"] }
-spdx = { version = "0.13.4", default-features = false, features = ["std"] }
+sysand-core = { workspace = true, features = ["filesystem", "networking", "keyring"] }
+thiserror.workspace = true
+toml.workspace = true
+semver = { workspace = true, features = ["std"] }
+serde_json = { workspace = true, features = ["std"] }
+spdx.workspace = true
 fluent-uri.workspace = true
-typed-path = { version = "0.12.3", default-features = false, features = ["std"] }
-url = { version = "2.5.8", default-features = false, features = ["std"] }
-indexmap = { version = "2.13.0", default-features = false, features = ["std"] }
-tokio = { version = "1.50.0", default-features = false }
-reqwest-middleware = { version = "0.5.1", default-features = false }
+typed-path = { workspace = true, features = ["std"] }
+url = { workspace = true, features = ["std"] }
+indexmap = { workspace = true, features = ["std"] }
+tokio.workspace = true
+reqwest-middleware.workspace = true
 rpassword = { version = "7.5.4", default-features = false }
 
 [target."cfg(windows)".dependencies]
-glob = { version = "0.3.3", default-features = false }
+glob.workspace = true
 
 [dev-dependencies]
-assert_cmd = { version = "2.1.2", default-features = false }
-glob = { version = "0.3.3", default-features = false }
-mockito = { version = "1.7.2", default-features = false, features = ["color"] }
-predicates = { version = "3.1.4", default-features = false, features = ["regex", "color"] }
-camino-tempfile = { version = "1.4", default-features = false }
-url = { version = "2.5.8", default-features = false, features = ["std"] }
-zip = { version = "9.0.5", default-features = false, features = ["deflate"] }
+assert_cmd.workspace = true
+glob.workspace = true
+mockito.workspace = true
+predicates.workspace = true
+camino-tempfile.workspace = true
+url = { workspace = true, features = ["std"] }
+zip.workspace = true
 # silence output in tests
-anstream = { version = "1.0.0", default-features = false, features = ["test"] }
+anstream = { workspace = true, features = ["test"] }
 
 [target."cfg(not(windows))".dev-dependencies]
 rexpect = { version = "0.7.0", default-features = false }

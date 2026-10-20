@@ -43,42 +43,33 @@ alltests = []
 [dependencies]
 # General
 camino.workspace = true
-camino-tempfile = { version = "1.4", default-features = false, optional = true }
+camino-tempfile = { workspace = true, optional = true }
 anstyle = { version = "1.0.13", default-features = false, features = ["std"] }
-jiff = { version = "0.2", default-features = false, features = ["std", "serde"] }
+jiff = { workspace = true, features = ["serde"] }
 digest = { version = "0.11", default-features = false }
 sha2.workspace = true
 hex.workspace = true
 dirs = { version = "7.0.0", default-features = false, optional = true }
 fluent-uri.workspace = true
 idna = { version = "1.1.0", default-features = false, features = ["std", "compiled_data"] }
-indexmap = { version = "2.13.0", default-features = false, features = ["std", "serde"] }
+indexmap = { workspace = true, features = ["std", "serde"] }
 log = { workspace = true, features = ["std"] }
 pubgrub = { version = "0.4.0", default-features = false }
 # partialzip = { version = "5.0.0", default-features = false, optional = true }
-pyo3 = { version = "0.29.0", default-features = false, features = ["macros", "jiff-02", "indexmap"], optional = true }
-reqwest-middleware = { version = "0.5.1", default-features = false, features = ["multipart"] }
-semver = { version = "1.0.27", default-features = false, features = ["std"] }
-serde = { version = "1.0.228", default-features = false, features = ["std", "derive"] }
-serde_json = { version = "1.0.149", default-features = false, features = ["std", "preserve_order"] }
+pyo3 = { workspace = true, optional = true, features = ["jiff-02", "indexmap"] }
+reqwest-middleware = { workspace = true, features = ["multipart"] }
+semver = { workspace = true, features = ["std"] }
+serde = { workspace = true, features = ["std", "derive"] }
+serde_json = { workspace = true, features = ["std", "preserve_order"] }
 sysand-macros = { path = "../macros" }
-spdx = { version = "0.13.4", default-features = false, features = ["std"] }
-thiserror = { version = "2.0.18", default-features = false, features = ["std"] }
-toml = { version = "1.0.6", default-features = false, features = [
-  "std",
-  "serde",
-  "parse",
-  "display",
-  "fast_hash"
-] }
-typed-path = { version = "0.12.3", default-features = false, features = ["std"] }
+spdx.workspace = true
+thiserror.workspace = true
+toml = { workspace = true, features = ["serde", "parse", "display"] }
+typed-path = { workspace = true, features = ["std"] }
 # walkdir = "2.5.0"
 # wasm-bindgen = { version = "0.2.114", default-features = false, optional = true }
-zip = { version = "9.0.5", default-features = false, optional = true, features = [
-  "deflate",
-  "jiff-02"
-] }
-url = { version = "2.5.8", default-features = false, features = ["std"] }
+zip = { workspace = true, optional = true, features = ["jiff-02"] }
+url = { workspace = true, features = ["std"] }
 percent-encoding = { version = "2.3.2", default-features = false, features = ["std"] }
 gix = { version = "0.89.0", default-features = false, optional = true, features = [
   "blocking-http-transport-reqwest",
@@ -88,7 +79,7 @@ gix = { version = "0.89.0", default-features = false, optional = true, features 
 ] }
 logos = { version = "0.16.1", default-features = false, features = ["std", "export_derive"] }
 futures = { version = "0.3.32", default-features = false, features = ["std", "async-await"] }
-tokio = { version = "1.50.0", default-features = false, features = ["rt", "io-util", "sync"] }
+tokio = { workspace = true, features = ["rt", "io-util", "sync"] }
 bytes = { version = "1.11.1", default-features = false, features = ["std"] }
 toml_edit = { version = "0.25.4", default-features = false, features = ["parse", "display", "serde"] }
 globset = { version = "0.4.18", default-features = false }
@@ -123,11 +114,11 @@ icu_properties = { version = "2.1.2", default-features = false, features = ["com
 keyring = { version = "4.1.5", optional = true, default-features = false, features = ["v1"] }
 
 [dev-dependencies]
-assert_cmd = { version = "2.1.2", default-features = false }
-mockito = { version = "1.7.2", default-features = false, features = ["color"] }
+assert_cmd.workspace = true
+mockito.workspace = true
 port_check = { version = "0.3.0", default-features = false }
-predicates = { version = "3.1.4", default-features = false, features = ["regex", "color"] }
-camino-tempfile = { version = "1.4", default-features = false }
+predicates.workspace = true
+camino-tempfile.workspace = true
 
 [lints]
 workspace = true

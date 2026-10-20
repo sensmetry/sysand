@@ -1,62 +1,76 @@
 # cargo-deny is a tool to lint Rust dependencies for license compliance,
-# security advisories, duplicate crates, and untrusted sources.
+# banned or duplicate crates, and untrusted sources. It is run by
+# .github/workflows/dependencies.yml.
 #
-# It is independent of cargo-about (see about.toml), which generates license
-# attribution reports for distribution. Use both: deny to gate, about to document.
+# Security advisories are checked by osv-scanner (see osv-scanner.toml) for all
+# ecosystems in the repo, so the `advisories` check is not used, to keep a single
+# list of ignored advisories.
 #
 # Config reference: https://embarkstudios.github.io/cargo-deny/checks/index.html
 #
 # Common tasks
 #
-# - Check licenses:   cargo deny check licenses
-# - Check advisories: cargo deny check advisories
-# - Run all checks:   cargo deny check
-#
-# FIXME:
-#
-# - we currently don't pass cargo deny check
-# - this file is outdated and does not list all targets that we support
-# - our CI system doesn't care about it currently
-#
+# - Run the checks used in CI: cargo deny check bans licenses sources
+# - Check licenses only:       cargo deny check licenses
+
 [graph]
+# All targets we ship binaries, wheels, jars, or wasm for.
 targets = [
   "aarch64-apple-darwin",
+  "aarch64-pc-windows-msvc",
+  "aarch64-unknown-linux-gnu",
+  "aarch64-unknown-linux-musl",
+  "wasm32-unknown-unknown",
   "x86_64-apple-darwin",
   "x86_64-pc-windows-msvc",
   "x86_64-unknown-linux-gnu",
+  "x86_64-unknown-linux-musl",
 ]
+# Most functionality is behind features; check the dependencies of all of them
+all-features = true
 
 [licenses]
 allow = [
-  "MIT",
-  "MIT-0",
   "Apache-2.0",
   "Apache-2.0 WITH LLVM-exception",
+  "BSD-3-Clause",
+  "bzip2-1.0.6",
+  "CC0-1.0",
+  "CDLA-Permissive-2.0",
+  "ISC",
+  "MIT",
+  "MIT-0",
+  "MPL-2.0",
   "Unicode-3.0",
   "Zlib",
-  "MPL-2.0",
-  "BSD-3-Clause",
-  "CC0-1.0",
-  "bzip2-1.0.6",
-  # "ISC",
 ]
+# Fail on licenses that no dependency uses anymore, so the list stays minimal
+unused-allowed-license = "deny"
 
 [licenses.private]
 ignore = true
 
 [bans]
 multiple-versions = "warn"
+# Require version requirements for registry dependencies; workspace path
+# dependencies don't need one
+wildcards = "deny"
+allow-wildcard-paths = true
+deny = [
+  # TLS is provided by rustls only, see design/architecture.md
+  { crate = "native-tls", reason = "use rustls" },
+  { crate = "openssl-sys", reason = "use rustls" },
+]
+
+[bans.workspace-dependencies]
+# Dependencies used by several workspace members (or several times in one)
+# should be declared once in `[workspace.dependencies]`
+duplicates = "deny"
+# Fail on `[workspace.dependencies]` entries that no member uses
+unused = "deny"
 
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
-# List of URLs for allowed Git repositories
-# allow-git = []
-
-[sources.allow-org]
-# github.com organizations to allow git sources for
-github = []
-# gitlab.com organizations to allow git sources for
-gitlab = []
-# bitbucket.org organizations to allow git sources for
-bitbucket = []
+# Git dependencies (none currently) must pin a commit
+required-git-spec = "rev"
