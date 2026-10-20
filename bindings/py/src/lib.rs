@@ -1012,10 +1012,22 @@ fn do_build_py(
                 | KParBuildError::MissingInfo
                 | KParBuildError::MissingMeta
                 | KParBuildError::MissingInfoMeta
-                | KParBuildError::TomlStdlibUnmatched { .. }
-                | KParBuildError::TomlTargetMissing { .. }
-                | KParBuildError::TomlTargetVersion { .. }
-                | KParBuildError::TomlTargetRead { .. }
+                | KParBuildError::TomlStdlibUnmatched {
+                    usage: _,
+                    constraint: _,
+                    embedded: _,
+                }
+                | KParBuildError::TomlTargetMissing { usage: _, path: _ }
+                | KParBuildError::TomlTargetVersion {
+                    usage: _,
+                    path: _,
+                    version: _,
+                }
+                | KParBuildError::TomlTargetRead {
+                    usage: _,
+                    path: _,
+                    reason: _,
+                }
                 | KParBuildError::Serialize(..)
                 | KParBuildError::WorkspaceMetamodelConflict {
                     workspace_metamodel: _,

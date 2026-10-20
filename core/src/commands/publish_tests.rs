@@ -784,7 +784,7 @@ fn check_usage_rejects_an_unknown_std_lib_with_a_constraint() {
         "^1.0.0",
     ))
     .unwrap_err();
-    assert_matches!(err, PublishError::UnknownStdLib { .. });
+    assert_matches!(err, PublishError::UnknownStdLib { name: _ });
 }
 
 #[test]
@@ -794,13 +794,19 @@ fn check_usage_rejects_an_invalid_std_lib_version_with_a_constraint() {
         "^1.0.0",
     ))
     .unwrap_err();
-    assert_matches!(err, PublishError::InvalidStdLibVersion { .. });
+    assert_matches!(
+        err,
+        PublishError::InvalidStdLibVersion {
+            name: _,
+            std_version: _
+        }
+    );
 }
 
 #[test]
 fn check_usage_rejects_a_plain_url_with_a_constraint() {
     let err = check_usage(&usage_with_vc("https://example.com/dep.kpar", "^1.0.0")).unwrap_err();
-    assert_matches!(err, PublishError::DisallowedUsage { .. });
+    assert_matches!(err, PublishError::DisallowedUsage { name: _ });
 }
 
 #[test]
