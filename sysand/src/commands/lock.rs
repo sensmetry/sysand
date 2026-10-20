@@ -139,9 +139,11 @@ pub fn command_lock_workspace<Policy: HTTPAuthentication>(
         auth_policy,
     )?;
 
-    let LockOutcome { lock, .. } =
-        do_lock_workspace(&workspace, wrapped_resolver, &provided_iris, ctx)
-            .map_err(|error| anyhow::anyhow!("{error}"))?;
+    let LockOutcome {
+        lock,
+        dependencies: _,
+    } = do_lock_workspace(&workspace, wrapped_resolver, &provided_iris, ctx)
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
     let lockfile = Lockfile::new(root, lock.canonicalize());
     lockfile.write()?;
     Ok(lockfile.into_lock())
