@@ -605,7 +605,7 @@ fn toml_replace_touches_exactly_one_line() {
 fn toml_identity_matches_the_declaration() {
     let mut doc = toml_doc(TOML);
     let change = by_identity(&mut doc, "acme", "other", ">=3, <5").expect("ok");
-    assert_matches!(change, ConstraintChange::Replaced { .. });
+    assert_matches!(change, ConstraintChange::Replaced { old: _, new: _ });
     assert!(doc.to_string().contains("version = \">=3, <5\""));
 }
 
@@ -633,7 +633,7 @@ fn toml_unchanged_and_not_found_leave_the_document_alone() {
 fn a_toml_index_usage_keeps_a_constraint() {
     let mut doc = toml_doc(TOML);
     let change = by_identity(&mut doc, "acme", "lib", "*").expect("ok");
-    assert_matches!(change, ConstraintChange::Replaced { .. });
+    assert_matches!(change, ConstraintChange::Replaced { old: _, new: _ });
     let rendered = doc.to_string();
     let (before, after) = one_line_diff(TOML, &rendered);
     assert_eq!(before, "version = \"^1\"");
@@ -666,7 +666,10 @@ fn a_toml_usage_is_addressed_by_identity() {
     // A PURL whose parts are not normalized is malformed, as in the json arm.
     let error =
         do_set_usage_constraint_toml(&mut doc, "pkg:sysand/Acme/Lib", "^1").expect_err("malformed");
-    assert_matches!(error, SetConstraintError::MalformedPurl { .. });
+    assert_matches!(
+        error,
+        SetConstraintError::MalformedPurl { iri: _, source: _ }
+    );
     assert_eq!(doc.to_string(), TOML);
 }
 
@@ -686,5 +689,5 @@ fn a_stdlib_usage_is_reached_under_omg() {
         .expect_err("a kpar-url usage has no constraint");
     assert_matches!(error, SetConstraintError::TomlUsageHasNoConstraint(_));
     let change = by_identity(&mut doc, "omg", "widgets", "^2").expect("ok");
-    assert_matches!(change, ConstraintChange::Replaced { .. });
+    assert_matches!(change, ConstraintChange::Replaced { old: _, new: _ });
 }

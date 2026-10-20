@@ -496,7 +496,7 @@ fn edit_toml_manifest(
         }
     })?;
     let outcome = edit(&mut document).map_err(SetConstraintLocalError::Edit)?;
-    if matches!(outcome, ConstraintChange::Replaced { .. }) {
+    if matches!(outcome, ConstraintChange::Replaced { old: _, new: _ }) {
         project
             .put_manifest_document(&document, true)
             .map_err(SetConstraintLocalError::ManifestWrite)?;
