@@ -677,7 +677,13 @@ fn an_index_usage_needs_a_constraint() {
     let error = usage_of_raw(&raw_resource("pkg:sysand/acme/lib", None), ".project.json")
         .expect_err("no constraint");
 
-    assert!(matches!(error, NoManifestForm::NoConstraint { .. }));
+    assert!(matches!(
+        error,
+        NoManifestForm::NoConstraint {
+            publisher: _,
+            name: _
+        }
+    ));
     assert!(
         error
             .to_string()
@@ -710,7 +716,14 @@ fn a_directory_usage_becomes_a_dir_entry() {
     )
     .expect("a dir usage");
 
-    assert!(matches!(usage, Usage::SourcePath { .. }));
+    assert!(matches!(
+        usage,
+        Usage::SourcePath {
+            publisher: _,
+            name: _,
+            dir: _
+        }
+    ));
 }
 
 #[test]
@@ -725,7 +738,14 @@ fn a_kpar_path_usage_becomes_a_kpar_path_entry() {
     )
     .expect("a kpar-path usage");
 
-    assert!(matches!(usage, Usage::KparPath { .. }));
+    assert!(matches!(
+        usage,
+        Usage::KparPath {
+            publisher: _,
+            name: _,
+            kpar_path: _
+        }
+    ));
 }
 
 #[test]
@@ -743,7 +763,13 @@ fn a_target_whose_identifiers_the_rule_refuses_names_its_file() {
     )
     .expect_err("an identifier a manifest cannot hold");
 
-    assert!(matches!(error, NoManifestForm::Identifier { .. }));
+    assert!(matches!(
+        error,
+        NoManifestForm::Identifier {
+            file: _,
+            problem: _
+        }
+    ));
     assert!(error.to_string().contains("../lib/.project.json"));
 }
 

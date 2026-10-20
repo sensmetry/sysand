@@ -352,7 +352,9 @@ fn add_toml<P: ProjectMut>(
     if edit::usage_constraint(&document, &identity).is_some() {
         let new = match &usage {
             Usage::Index {
-                version_constraint, ..
+                version_constraint,
+                publisher: _,
+                name: _,
             } => Some(version_constraint.clone()),
             _ => None,
         };

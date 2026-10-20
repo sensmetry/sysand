@@ -17,9 +17,6 @@ mod browser_tests {
     use typed_path::Utf8UnixPath;
     use wasm_bindgen_test::wasm_bindgen_test;
 
-    use regex::Regex;
-    use semver::Version;
-
     #[wasm_bindgen_test(unsupported = test)]
     fn basic_init() -> Result<(), Box<dyn Error>> {
         do_init_js_local_storage(
