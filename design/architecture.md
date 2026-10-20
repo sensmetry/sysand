@@ -156,25 +156,24 @@ compiled in:
 
 | Feature          | What it enables                                                              |
 | ---------------- | ---------------------------------------------------------------------------- |
-| `std` (default)  | Standard library support in dependencies. Must be enabled.                   |
 | `python`         | PyO3 dependency; enables `FromPyObject`/`IntoPyObject` derives on core types |
-| `js`             | `wasm-bindgen` dependency for WASM/JavaScript support                        |
+| `js`             | WASM/JavaScript support (`jiff/js`)                                          |
 | `filesystem`     | Local file I/O, KPAR reading/writing (`zip`, `camino-tempfile`, `dirs`)      |
 | `networking`     | HTTP requests and git cloning (`reqwest`, `gix`, `rustls`)                   |
+| `keyring`        | OS-keyring-backed credential store (`keyring`); not for WASM                 |
 | `tls-aws-lc-rs`  | Installs the `aws-lc-rs` rustls crypto provider (see below)                  |
 | `tls-ring`       | Installs the `ring` rustls crypto provider instead                           |
 | `lenient_checks` | More lenient validation where the KerML spec is vague                        |
 | `kpar-*`         | Additional KPAR compression methods (bzip2, zstd, xz, ppmd)                  |
 
-Each binding crate enables different features on `sysand-core` (all also get
-`std` via default features):
+Each binding crate enables different features on `sysand-core`:
 
-| Crate          | Features enabled on `sysand-core`                         |
-| -------------- | --------------------------------------------------------- |
-| `sysand` (CLI) | `filesystem`, `networking` (+ optional `kpar-*`)          |
-| `sysand-py`    | `python`, `filesystem`, `networking`                      |
-| `sysand-java`  | `filesystem`, `networking`                                |
-| `sysand-js`    | `js` only (no filesystem or networking — runs in browser) |
+| Crate          | Features enabled on `sysand-core`                           |
+| -------------- | ----------------------------------------------------------- |
+| `sysand` (CLI) | `filesystem`, `networking`, `keyring` (+ optional `kpar-*`) |
+| `sysand-py`    | `python`, `filesystem`, `networking`                        |
+| `sysand-java`  | `filesystem`, `networking`                                  |
+| `sysand-js`    | `js` only (no filesystem or networking — runs in browser)   |
 
 `sysand-core` takes `reqwest` with `rustls-no-provider` and names **no**
 crypto provider itself, because Cargo features are additive: one named in a

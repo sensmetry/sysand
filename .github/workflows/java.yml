@@ -7,12 +7,19 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      publish_snapshot:
+        description: Deploy a SNAPSHOT to Maven Central (only when run on main)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
+# Manual runs get their own group so a push to main can't cancel a snapshot
+# deploy midway.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 defaults:
@@ -70,7 +77,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      # No caches on tag builds, see cache-poisoning in .github/zizmor.yml
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         with:
           key: ${{ matrix.os }}
 
@@ -84,8 +95,6 @@ jobs:
       - name: Create version.txt
         if: matrix.os == 'ubuntu-24.04'
         run: python bindings/java/scripts/java-builder.py create-version-file
-        env:
-          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE }}
       - name: Upload version.txt
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: matrix.os == 'ubuntu-24.04'
@@ -112,6 +121,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.14"
@@ -119,39 +130,36 @@ jobs:
         with:
           java-version: "25" # our compiler target is Java 8
           distribution: temurin
-          gpg-private-key: ${{ secrets.MAVEN_CENTRAL_GPG_PRIVATE_KEY }}
-          gpg-passphrase: MAVEN_GPG_PASSPHRASE
 
       - name: Download version.txt
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: version
+      # java-builder.py reads each library from its exact artifact directory,
+      # so extra artifacts matching the pattern are ignored.
       - name: Download native bindings
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
+          pattern: native-bindings-*
           path: native-bindings
       - name: List native bindings
         run: ls -la native-bindings/*
 
+      # Artifacts are left unsigned here; `mvn deploy` in the release job signs
+      # them, so the signing key is only exposed to that job.
       - name: Build JAR
         run: |
           python bindings/java/scripts/java-builder.py \
               ${{ startsWith(github.ref, 'refs/tags/') && '--release-jar-version' || '' }} \
               build \
               --use-existing-native-libs native-bindings \
-              --use-release-build \
-              ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE && '--sign-artifacts' || '' }}
-        env:
-          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE }}
+              --use-release-build
 
       - name: Build Sysand Maven plugin and run integration tests
         run: |
           python bindings/java/scripts/java-builder.py \
               ${{ startsWith(github.ref, 'refs/tags/') && '--release-jar-version' || '' }} \
-              build-plugin \
-              ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE && '--sign-artifacts' || '' }}
-        env:
-          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE }}
+              build-plugin
 
       - name: Upload JARs
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -187,6 +195,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.14"
@@ -196,8 +206,6 @@ jobs:
           #       https://github.com/adoptium/adoptium-support/issues/1402
           java-version: ${{ matrix.os == 'windows-11-arm' && '21' || '25' }} # our build target is Java 8+
           distribution: temurin
-          gpg-private-key: ${{ secrets.MAVEN_CENTRAL_GPG_PRIVATE_KEY }}
-          gpg-passphrase: MAVEN_GPG_PASSPHRASE
 
       - name: Download JARs
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -221,8 +229,6 @@ jobs:
           python bindings/java/scripts/java-builder.py \
               ${{ startsWith(github.ref, 'refs/tags/') && '--release-jar-version' || '' }} \
               test
-        env:
-          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE }}
 
   ci-gate:
     name: Java CI Gate
@@ -239,7 +245,9 @@ jobs:
     # Nightly tags do not trigger CI since they are created in CI
     name: Release
     needs: [build-jar, test-jar]
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+    # Releases deploy on v* tags; SNAPSHOTs only when requested manually
+    if: startsWith(github.ref, 'refs/tags/') || inputs.publish_snapshot
+    environment: maven-central
     runs-on: ubuntu-24.04
     permissions:
       id-token: write # for actions/attest
@@ -248,6 +256,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.14"
@@ -280,14 +290,18 @@ jobs:
           find . -iname "*.jar"
           find target/java-plugin/target/it/
 
-      - name: Generate artifact attestation
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
-        with:
-          subject-path: "target/java/target/*.jar"
-
       - name: Deploy Java bindings
         run: python bindings/java/scripts/java-builder.py deploy
         env:
           MAVEN_USERNAME: ${{ secrets.MAVEN_CENTRAL_TOKEN_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.MAVEN_CENTRAL_TOKEN_PASSWORD }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE }}
+
+      # After deploy: `mvn deploy` reruns the package phase, which may rebuild
+      # the jars, so attest the files that were actually uploaded.
+      - name: Generate artifact attestation
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            target/java/target/*.jar
+            target/java-plugin/target/*.jar
