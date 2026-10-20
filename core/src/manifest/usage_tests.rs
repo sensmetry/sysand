@@ -67,7 +67,12 @@ fn member(body: &str) -> MemberUsage {
 fn accepted(body: &str) -> Usage {
     match member(body) {
         MemberUsage::Declared(usage) => usage,
-        other @ MemberUsage::Inherited { .. } => {
+        other @ MemberUsage::Inherited {
+            publisher: _,
+            name: _,
+            from: _,
+            at: _,
+        } => {
             panic!("expected a declared usage, got `{other:?}`")
         }
     }
@@ -678,7 +683,7 @@ fn a_workspace_marker_makes_an_entry_an_opt_in() {
             publisher: p,
             name: n,
             from: InheritFrom::DefaultGroup,
-            ..
+            at: _
         } if p == Some(publisher("acme")) && n == name("lib")
     ));
     assert!(matches!(
@@ -687,7 +692,7 @@ fn a_workspace_marker_makes_an_entry_an_opt_in() {
             publisher: p,
             name: n,
             from: InheritFrom::Group(group),
-            ..
+            at: _
         } if p == Some(publisher("acme")) && n == name("lib") && group == "legacy"
     ));
 }
@@ -1031,7 +1036,10 @@ fn a_url_key_is_unknown() {
 fn a_publisher_less_opt_in_is_accepted() {
     let member = member("name = \"Kernel Semantic Library\"\nworkspace = true\n");
     let MemberUsage::Inherited {
-        publisher, name, ..
+        publisher,
+        name,
+        from: _,
+        at: _,
     } = &member
     else {
         panic!("expected an opt-in, got `{member:?}`")

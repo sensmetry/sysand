@@ -545,7 +545,9 @@ fn migrate_resource(
                 // Only the constraint is the json project's.
                 match target(resource) {
                     Ok(Usage::Index {
-                        publisher, name, ..
+                        publisher,
+                        name,
+                        version_constraint: _,
                     }) => Some(Usage::Index {
                         publisher,
                         name,

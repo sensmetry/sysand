@@ -379,7 +379,11 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
                 "a workspace-based usage needs `resolve_local_path`"
             );
             match &located.usage {
-                Usage::SourcePath { dir, .. } if !allow_path_usage => {
+                Usage::SourcePath {
+                    dir,
+                    publisher: _,
+                    name: _,
+                } if !allow_path_usage => {
                     *raw =
                         local_target_usage(root, &located.usage, dir.as_str(), false, workspace)?;
                 }

@@ -1561,7 +1561,14 @@ mod prepare_publish {
                 (file, b"content", deflate()),
             ]);
             let err = prepare_publish_payload(&path).expect_err("expected Err");
-            assert_matches!(err, PublishError::IncorrectFileFormat { .. }, "{file}");
+            assert_matches!(
+                err,
+                PublishError::IncorrectFileFormat {
+                    path: _,
+                    metamodel_iri: _
+                },
+                "{file}"
+            );
         }
     }
 

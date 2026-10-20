@@ -114,10 +114,9 @@ ALLOWED: tuple[Allowed, ...] = (
     # --- rule 2 -----------------------------------------------------
     Allowed(
         "core/src/manifest/usage_tests.rs",
-        1016,
+        1021,
         "url = ",
-        "appendix A2 row 7's own test: the fixture that proves the "
-        "pre-review `url` usage key is now an unknown key",
+        "the fixture that proves a `url` usage key is an unknown key",
     ),
 )
 

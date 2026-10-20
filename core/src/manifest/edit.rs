@@ -793,17 +793,17 @@ pub fn include_source(doc: &mut DocumentMut, path: &str) -> Result<Utf8UnixPathB
 /// which is about workspace members and says nothing about `sources`.
 fn strict_entry(path: &str) -> Result<Utf8UnixPathBuf, EditError> {
     crate::utils::normalize_relative(path).map_err(|error| match error {
-        crate::utils::NormalizeRelativeError::EscapesRoot { .. }
-        | crate::utils::NormalizeRelativeError::IsRoot { .. } => {
+        crate::utils::NormalizeRelativeError::EscapesRoot { path: _ }
+        | crate::utils::NormalizeRelativeError::IsRoot { path: _ } => {
             EditError::SourceOutsideProject(path.to_owned())
         }
-        crate::utils::NormalizeRelativeError::Absolute { .. } => {
+        crate::utils::NormalizeRelativeError::Absolute { path: _ } => {
             EditError::Sources(SourcesError::NotRelative(path.to_owned()))
         }
-        crate::utils::NormalizeRelativeError::ContainsBackslash { .. } => {
+        crate::utils::NormalizeRelativeError::ContainsBackslash { path: _ } => {
             EditError::Sources(SourcesError::ContainsBackslash(path.to_owned()))
         }
-        crate::utils::NormalizeRelativeError::ContainsNull { .. } => {
+        crate::utils::NormalizeRelativeError::ContainsNull { path: _ } => {
             EditError::Sources(SourcesError::ContainsNull(path.to_owned()))
         }
     })

@@ -1191,10 +1191,22 @@ fn do_build_py(
                 | KParBuildError::MissingInfo
                 | KParBuildError::MissingMeta
                 | KParBuildError::MissingInfoMeta
-                | KParBuildError::TomlTargetMissing { .. }
-                | KParBuildError::TomlTargetVersion { .. }
-                | KParBuildError::TomlTargetSpelling { .. }
-                | KParBuildError::TomlTargetRead { .. }
+                | KParBuildError::TomlTargetMissing { usage: _, path: _ }
+                | KParBuildError::TomlTargetVersion {
+                    usage: _,
+                    path: _,
+                    version: _,
+                }
+                | KParBuildError::TomlTargetSpelling {
+                    usage: _,
+                    path: _,
+                    declared: _,
+                }
+                | KParBuildError::TomlTargetRead {
+                    usage: _,
+                    path: _,
+                    reason: _,
+                }
                 | KParBuildError::Serialize(..)
                 | KParBuildError::MissingIndexSymbol(_, _) => PyValueError::new_err(e),
                 KParBuildError::PathUsage(_) => PyValueError::new_err(format!(

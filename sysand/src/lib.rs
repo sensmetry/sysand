@@ -1288,7 +1288,7 @@ fn consults_the_workspace(command: &cli::Command) -> bool {
         // unlisted json project under a workspace root is exactly the
         // one a user wants to migrate. A bare `migrate` at a workspace
         // root is refused by the command itself.
-        | cli::Command::Migrate { path: _, publisher: _, allow_dirty: _, allow_no_vcs: _, resolution_opts: _ }
+        | cli::Command::Migrate { path: _, publisher: _, metamodel: _, allow_dirty: _, allow_no_vcs: _, resolution_opts: _ }
         | cli::Command::Clone { locator: _, target: _, version_constraint: _, no_deps: _, resolution_opts: _ }
         | cli::Command::Index { command: _ }
         | cli::Command::Auth { command: _ } => false,

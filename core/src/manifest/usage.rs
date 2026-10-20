@@ -96,10 +96,26 @@ impl Usage {
     /// [`Self::identity`] is where the fallback belongs.
     pub fn publisher(&self) -> Option<&IndexPublisher> {
         match self {
-            Self::SourcePath { publisher, .. }
-            | Self::KparPath { publisher, .. }
-            | Self::Index { publisher, .. } => Some(publisher),
-            Self::RemoteKpar { publisher, .. } => publisher.as_ref(),
+            Self::SourcePath {
+                publisher,
+                name: _,
+                dir: _,
+            }
+            | Self::KparPath {
+                publisher,
+                name: _,
+                kpar_path: _,
+            }
+            | Self::Index {
+                publisher,
+                name: _,
+                version_constraint: _,
+            } => Some(publisher),
+            Self::RemoteKpar {
+                publisher,
+                name: _,
+                url: _,
+            } => publisher.as_ref(),
         }
     }
 
@@ -143,7 +159,8 @@ impl Usage {
             self,
             Self::RemoteKpar {
                 publisher: None,
-                ..
+                name: _,
+                url: _
             }
         )
     }
@@ -280,7 +297,10 @@ impl MemberUsage {
             // and must therefore collide with a `kpar-url` entry for the
             // same library, which workspaces.md requires.
             Self::Inherited {
-                publisher, name, ..
+                publisher,
+                name,
+                from: _,
+                at: _,
             } => normalized_identity(publisher.as_ref().unwrap_or(&OMG_PUBLISHER), name),
         }
     }
@@ -317,12 +337,14 @@ impl UsageEntry for MemberUsage {
             Self::Inherited {
                 publisher: Some(publisher),
                 name,
-                ..
+                from: _,
+                at: _,
             } => format!("{publisher}/{name}"),
             Self::Inherited {
                 publisher: None,
                 name,
-                ..
+                from: _,
+                at: _,
             } => name.to_string(),
         }
     }
