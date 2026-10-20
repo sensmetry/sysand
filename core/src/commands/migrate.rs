@@ -617,9 +617,15 @@ pub fn check_vcs(root: &camino::Utf8Path) -> Result<VcsState, VcsError> {
             if matches!(
                 error.downcast_any_ref::<gix::discover::upwards::Error>(),
                 Some(
-                    gix::discover::upwards::Error::NoGitRepository { .. }
-                        | gix::discover::upwards::Error::NoGitRepositoryWithinCeiling { .. }
-                        | gix::discover::upwards::Error::NoGitRepositoryWithinFs { .. }
+                    gix::discover::upwards::Error::NoGitRepository { path: _ }
+                        | gix::discover::upwards::Error::NoGitRepositoryWithinCeiling {
+                            path: _,
+                            ceiling_height: _
+                        }
+                        | gix::discover::upwards::Error::NoGitRepositoryWithinFs {
+                            path: _,
+                            limit: _
+                        }
                 )
             ) {
                 return Ok(VcsState::NoRepository);
@@ -672,19 +678,36 @@ pub fn check_vcs(root: &camino::Utf8Path) -> Result<VcsState, VcsError> {
         let counts = match &item {
             // Staged.
             Item::TreeIndex(_) => true,
-            Item::IndexWorktree(IndexWorktreeItem::Modification { status, .. }) => {
+            Item::IndexWorktree(IndexWorktreeItem::Modification {
+                status,
+                entry: _,
+                entry_index: _,
+                rela_path: _,
+            }) => {
                 // `NeedsUpdate` is a stat-cache refresh hint and
                 // `IntentToAdd` is documented as no change; counting
                 // either gives a machine-dependent false `Dirty`.
                 matches!(
                     status,
-                    EntryStatus::Change(_) | EntryStatus::Conflict { .. }
+                    EntryStatus::Change(_)
+                        | EntryStatus::Conflict {
+                            summary: _,
+                            entries: _
+                        }
                 )
             }
-            Item::IndexWorktree(IndexWorktreeItem::DirectoryContents { entry, .. }) => {
-                entry.status == DirStatus::Untracked
-            }
-            Item::IndexWorktree(IndexWorktreeItem::Rewrite { .. }) => true,
+            Item::IndexWorktree(IndexWorktreeItem::DirectoryContents {
+                entry,
+                collapsed_directory_status: _,
+            }) => entry.status == DirStatus::Untracked,
+            Item::IndexWorktree(IndexWorktreeItem::Rewrite {
+                source: _,
+                dirwalk_entry: _,
+                dirwalk_entry_collapsed_directory_status: _,
+                dirwalk_entry_id: _,
+                diff: _,
+                copy: _,
+            }) => true,
         };
         if counts {
             dirty.push(item.location().to_str_lossy().into_owned());

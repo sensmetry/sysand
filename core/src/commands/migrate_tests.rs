@@ -409,7 +409,12 @@ fn one_usage(usage: InterchangeProjectUsageRaw) -> crate::manifest::usage::Usage
     raw.usage = vec![usage];
     match migrated(&raw, &meta()).inline_usages.remove(0) {
         crate::manifest::usage::MemberUsage::Declared(usage) => usage,
-        crate::manifest::usage::MemberUsage::Inherited { .. } => {
+        crate::manifest::usage::MemberUsage::Inherited {
+            publisher: _,
+            name: _,
+            from: _,
+            at: _,
+        } => {
             panic!("migrate declares usages, it does not inherit them")
         }
     }
@@ -423,7 +428,14 @@ fn a_directory_usage_converts() {
         name: "dep".to_owned(),
     });
     assert!(
-        matches!(usage, crate::manifest::usage::Usage::SourcePath { .. }),
+        matches!(
+            usage,
+            crate::manifest::usage::Usage::SourcePath {
+                publisher: _,
+                name: _,
+                dir: _
+            }
+        ),
         "{usage:?}"
     );
 }
@@ -436,7 +448,14 @@ fn a_kpar_path_usage_converts() {
         name: "dep".to_owned(),
     });
     assert!(
-        matches!(usage, crate::manifest::usage::Usage::KparPath { .. }),
+        matches!(
+            usage,
+            crate::manifest::usage::Usage::KparPath {
+                publisher: _,
+                name: _,
+                kpar_path: _
+            }
+        ),
         "{usage:?}"
     );
 }
@@ -499,7 +518,14 @@ fn a_constrained_purl_usage_becomes_an_index_usage() {
         version_constraint: Some("^1.0.0".to_owned()),
     });
     assert!(
-        matches!(usage, crate::manifest::usage::Usage::Index { .. }),
+        matches!(
+            usage,
+            crate::manifest::usage::Usage::Index {
+                publisher: _,
+                name: _,
+                version_constraint: _
+            }
+        ),
         "{usage:?}"
     );
 }
