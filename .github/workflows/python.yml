@@ -104,13 +104,19 @@ jobs:
 
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: ${{ matrix.python.version }}
           architecture: ${{ matrix.platform.target }}
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          enable-cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
+      # No caches on tag builds, see cache-poisoning in .github/zizmor.yml
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
       - name: cargo test ... (Python bindings)
         run: |
@@ -123,7 +129,7 @@ jobs:
           target: ${{ matrix.platform.rust_target }}
           working-directory: bindings/py
           args: --release --out ../../dist --compatibility pypi ${{ matrix.python.args_suffix }}
-          sccache: true
+          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
       - name: Upload wheels
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -153,12 +159,18 @@ jobs:
 
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.14"
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          enable-cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
+      # No caches on tag builds, see cache-poisoning in .github/zizmor.yml
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         with:
           key: ${{ matrix.platform.runner }}
 
@@ -172,7 +184,7 @@ jobs:
           working-directory: bindings/py
           args: --release --out ../../dist --compatibility pypi
           manylinux: manylinux2014
-          sccache: true
+          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
       - name: Build wheels (musllinux)
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
@@ -180,7 +192,7 @@ jobs:
           working-directory: bindings/py
           args: --release --out ../../dist --compatibility pypi
           manylinux: musllinux_1_2
-          sccache: true
+          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
       - name: Build free-threaded wheels (manylinux)
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
@@ -189,7 +201,7 @@ jobs:
           working-directory: bindings/py
           args: --release --out ../../dist --compatibility pypi --interpreter python3.14t
           manylinux: manylinux2014 # TODO: don't use default cross-compile containers for aarch64
-          sccache: true
+          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
       - name: Build free-threaded wheels (musllinux)
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
@@ -197,7 +209,7 @@ jobs:
           working-directory: bindings/py
           args: --release --out ../../dist --compatibility pypi --interpreter python3.14t
           manylinux: musllinux_1_2
-          sccache: true
+          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
       - name: Upload wheels
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -230,12 +242,18 @@ jobs:
 
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.14"
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          enable-cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
+      # No caches on tag builds, see cache-poisoning in .github/zizmor.yml
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
       - name: cargo test ... (Python bindings)
         run: cargo test --locked --package sysand-py --no-default-features --features tls-aws-lc-rs
@@ -246,7 +264,7 @@ jobs:
           target: ${{ matrix.platform.target }}
           working-directory: bindings/py
           args: --release --out ../../dist --compatibility pypi
-          sccache: true
+          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
       - name: Build free-threaded wheels
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
@@ -254,7 +272,7 @@ jobs:
           target: ${{ matrix.platform.target }}
           working-directory: bindings/py
           args: --release --out ../../dist --compatibility pypi --interpreter python3.14t
-          sccache: true
+          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
       - name: Upload wheels
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -272,6 +290,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Maturin workaround
         # Maturin-action blindly downloads the specified toolchain without
@@ -317,11 +337,33 @@ jobs:
 
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: wheels-*
+          path: downloads
 
-      - name: Collect packages
+      - name: Check and collect packages
         run: |
+          # Any job in this run can upload artifacts, so accept exactly the
+          # expected set rather than whatever matches the pattern.
+          expected="$(printf '%s\n' \
+              wheels-windows-x64-3.14-free-threaded \
+              wheels-windows-x64-3.10 \
+              wheels-windows-arm64-3.11 \
+              wheels-linux-x86_64 \
+              wheels-linux-aarch64 \
+              wheels-macos-x86_64 \
+              wheels-macos-aarch64 \
+              wheels-sdist \
+              | sort)"
+          actual="$(find downloads -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "unexpected set of artifacts (keep in sync with the windows/linux/macos/sdist matrix):" >&2
+            diff <(echo "$expected") <(echo "$actual") >&2
+            exit 1
+          fi
+
           mkdir dist
-          cp wheels-*/* dist/
+          cp downloads/*/* dist/
 
       - name: Generate artifact attestation
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2

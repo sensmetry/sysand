@@ -65,6 +65,8 @@ jobs:
             profile: .zshrc
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Check shell syntax
         run: sh -n scripts/install.sh
@@ -207,6 +209,8 @@ jobs:
         run: ${{ matrix.setup }}
 
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Run installer against fake musl release
         run: |
@@ -280,6 +284,8 @@ jobs:
             runtime: win-arm64
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Check PowerShell syntax
         run: |

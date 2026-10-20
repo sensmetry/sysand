@@ -20,20 +20,16 @@ on:
 permissions: {}
 
 jobs:
-  publish-images:
-    runs-on: ubuntu-24.04
-    # TODO: break up the job so permissions can be tightened
+  # Kept separate so the third-party tag calculator never runs alongside the
+  # id-token and packages write permissions of publish-images.
+  image-tags:
+    runs-on: ubuntu-slim
     permissions:
       contents: read
-      id-token: write # for cosign and actions/attest
-      attestations: write # for actions/attest
-      artifact-metadata: write # for actions/attest
-      packages: write
+    outputs:
+      tags: ${{ steps.tags.outputs.tags }}
+      tags-alpine: ${{ steps.tags-alpine.outputs.tags }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          ref: ${{ inputs.use_default_branch_dockerfile && github.event.repository.default_branch || inputs.tag || github.event.release.tag_name }}
-
       # For builds triggered for a git tag 1.2.3, we calculate image tags like:
       # [{prefix}:1.2.3, {prefix}:1.2, {prefix}:1, {prefix}:latest]
       #
@@ -65,6 +61,21 @@ jobs:
           newTag: ${{ steps.repo-tags.outputs.new }}
           prefix: "ghcr.io/${{ github.repository }}:"
           suffix: "-alpine"
+
+  publish-images:
+    needs: [image-tags]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write # for cosign and actions/attest
+      attestations: write # for actions/attest
+      artifact-metadata: write # for actions/attest
+      packages: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.use_default_branch_dockerfile && github.event.repository.default_branch || inputs.tag || github.event.release.tag_name }}
 
       - name: Wait for release assets to be uploaded
         env:
@@ -118,6 +129,27 @@ jobs:
           tar -xzf sysand-linux-x86_64-musl.tar.gz -C sysand-amd64-musl
           tar -xzf sysand-linux-arm64-musl.tar.gz -C sysand-arm64-musl
 
+      # Release assets are uploaded outside CI. The Linux binaries are the
+      # unmodified nightly ones, so check they carry the nightly-release
+      # attestation for the commit this tag points at.
+      - name: Verify release binaries' provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+        run: |
+          # Resolve the tag rather than using GITHUB_SHA: on workflow_dispatch
+          # that is the dispatching branch's HEAD, while TAG may be older.
+          tag_commit="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha)"
+
+          for binary in sysand-{amd64,arm64,amd64-musl,arm64-musl}/sysand; do
+            gh attestation verify "$binary" \
+                --repo "$GITHUB_REPOSITORY" \
+                --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/rust.yml" \
+                --source-ref refs/heads/main \
+                --source-digest "$tag_commit" \
+                --deny-self-hosted-runners
+          done
+
       - name: Set up QEMU (for docker buildx)
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
 
@@ -141,7 +173,7 @@ jobs:
           push: true
           provenance: mode=max
           sbom: true
-          tags: ${{ join(fromJson(steps.tags.outputs.tags)) }}
+          tags: ${{ join(fromJson(needs.image-tags.outputs.tags)) }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
 
@@ -155,7 +187,7 @@ jobs:
           push: true
           provenance: mode=max
           sbom: true
-          tags: ${{ join(fromJson(steps.tags-alpine.outputs.tags)) }}
+          tags: ${{ join(fromJson(needs.image-tags.outputs.tags-alpine)) }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
 
