@@ -192,11 +192,11 @@ fn a_kpar_with_a_model_toml_beside_the_pair_is_refused() -> Result<(), Box<dyn s
     );
     assert_matches!(
         project.get_info().expect_err("a toml manifest"),
-        super::LocalKParError::TomlInKpar { .. }
+        super::LocalKParError::TomlInKpar { archive: _ }
     );
     assert_matches!(
         project.get_meta().expect_err("a toml manifest"),
-        super::LocalKParError::TomlInKpar { .. }
+        super::LocalKParError::TomlInKpar { archive: _ }
     );
 
     Ok(())
@@ -215,7 +215,7 @@ fn a_kpar_with_only_a_model_toml_is_refused_by_the_guess() -> Result<(), Box<dyn
     let project = super::LocalKParProject::new_access(zip_path, KparInnerPath::Guess, None);
     assert_matches!(
         project.get_project().expect_err("a toml manifest"),
-        super::LocalKParError::TomlInKpar { .. }
+        super::LocalKParError::TomlInKpar { archive: _ }
     );
 
     Ok(())

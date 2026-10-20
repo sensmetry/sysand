@@ -267,9 +267,8 @@ impl ProjectRead for InMemoryProject {
     }
 
     fn manifest(&self) -> Result<ResolvedProject, ManifestError<InMemoryError>> {
-        let text = match &self.model_toml {
-            Some(text) => text,
-            None => return Err(ManifestError::NoTomlManifest),
+        let Some(text) = &self.model_toml else {
+            return Err(ManifestError::NoTomlManifest);
         };
         kpar_view::resolved_of_text(MODEL_TOML_FILE, text)
             .map_err(|error| ManifestError::Project(InMemoryError::Manifest(error)))

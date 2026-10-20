@@ -104,7 +104,11 @@ pub fn usage(usage: &Usage) -> InterchangeProjectUsageRaw {
         },
         // "remote-kpar: use the URL as-is"; the kind takes no version
         // constraint.
-        Usage::RemoteKpar { url, .. } => InterchangeProjectUsageRaw::Resource {
+        Usage::RemoteKpar {
+            url,
+            publisher: _,
+            name: _,
+        } => InterchangeProjectUsageRaw::Resource {
             resource: url.as_str().to_owned(),
             version_constraint: None,
         },

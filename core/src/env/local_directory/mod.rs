@@ -451,11 +451,11 @@ impl From<LocalSrcError> for LocalWriteError {
             // Flattened rather than re-spelled: the message names
             // which manifests are missing, which an env writer cannot
             // improve on.
-            error @ LocalSrcError::MissingInfoMeta { .. } => Self::Format(error),
-            error @ (LocalSrcError::AmbiguousFormat { .. }
+            error @ LocalSrcError::MissingInfoMeta { missing: _ } => Self::Format(error),
+            error @ (LocalSrcError::AmbiguousFormat { dir: _, json: _ }
             | LocalSrcError::Symbols(_)
-            | LocalSrcError::JsonWriteToTomlProject { .. }
-            | LocalSrcError::TomlWriteToJsonProject { .. }) => Self::Format(error),
+            | LocalSrcError::JsonWriteToTomlProject { dir: _, file: _ }
+            | LocalSrcError::TomlWriteToJsonProject { dir: _ }) => Self::Format(error),
         }
     }
 }

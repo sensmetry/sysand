@@ -855,10 +855,10 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
                 }
                 | InternalSolverError::MissingVersion { usage }
                 | InternalSolverError::MissingUsage { usage }
-                | InternalSolverError::InvalidResolvedVersion { usage, .. }
-                | InternalSolverError::VersionObtain { usage, .. }
-                | InternalSolverError::UsageObtain { usage, .. }
-                | InternalSolverError::FormatObtain { usage, .. } => {
+                | InternalSolverError::InvalidResolvedVersion { usage, source: _ }
+                | InternalSolverError::VersionObtain { usage, source: _ }
+                | InternalSolverError::UsageObtain { usage, source: _ }
+                | InternalSolverError::FormatObtain { usage, source: _ } => {
                     conflicts.push(SolveConflict::NotFound {
                         iri: usage.id().to_string(),
                         reason: format_err(source),

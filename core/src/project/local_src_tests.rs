@@ -456,7 +456,7 @@ fn a_model_toml_project_refuses_a_json_meta_write() {
         toml_project(dir.path())
             .put_meta(&InterchangeProjectMetadataRaw::default(), true)
             .expect_err("a json write into a toml project"),
-        LocalSrcError::JsonWriteToTomlProject { .. }
+        LocalSrcError::JsonWriteToTomlProject { dir: _, file: _ }
     );
 }
 

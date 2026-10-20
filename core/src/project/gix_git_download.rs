@@ -78,11 +78,11 @@ impl From<LocalSrcError> for GixDownloadedError {
             LocalSrcError::Serialize(error) => Self::Serialize(error),
             LocalSrcError::ImpossibleRelativePath(err) => Self::ImpossibleRelativePath(err),
             LocalSrcError::MissingMeta => Self::MissingMeta,
-            error @ LocalSrcError::MissingInfoMeta { .. } => Self::Other(error.to_string()),
-            error @ (LocalSrcError::AmbiguousFormat { .. }
+            error @ LocalSrcError::MissingInfoMeta { missing: _ } => Self::Other(error.to_string()),
+            error @ (LocalSrcError::AmbiguousFormat { dir: _, json: _ }
             | LocalSrcError::Symbols(_)
-            | LocalSrcError::JsonWriteToTomlProject { .. }
-            | LocalSrcError::TomlWriteToJsonProject { .. }) => Self::Other(error.to_string()),
+            | LocalSrcError::JsonWriteToTomlProject { dir: _, file: _ }
+            | LocalSrcError::TomlWriteToJsonProject { dir: _ }) => Self::Other(error.to_string()),
         }
     }
 }

@@ -172,9 +172,9 @@ impl<Policy: HTTPAuthentication> IndexEntryProject<Policy> {
                         .check(info.publisher.as_deref(), &info.name)
                         .map_err(|mismatch| match mismatch {
                             // No origin reaches an index resolver, so a
-                            // publisher-less entry is the row 29 mismatch
-                            // rather than row 21
-                            IdentityMismatch::NoPublisher { .. } => {
+                            // publisher-less entry is a plain publisher
+                            // mismatch rather than `NoPublisher`
+                            IdentityMismatch::NoPublisher { name: _ } => {
                                 IndexEntryProjectError::PublisherMismatch {
                                     expected: expected.publisher().map(ToOwned::to_owned),
                                     actual: None,
