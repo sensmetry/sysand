@@ -1,0 +1,84 @@
+name: Dependencies (vulnerabilities & licenses)
+
+# - osv-scanner: checks every lockfile/manifest in the repo (Cargo, uv, npm,
+#   Maven) against the OSV database. New advisories appear without any change
+#   to dependencies; every push to main picks them up.
+# - cargo-deny: enforces the license, banned/duplicate crate and source
+#   policy for Rust dependencies (deny.toml).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    paths:
+      - "**/Cargo.lock"
+      - "**/Cargo.toml"
+      - "**/uv.lock"
+      - "**/pyproject.toml"
+      - "**/package-lock.json"
+      - "**/package.json"
+      - "**/pom.xml"
+      - "deny.toml"
+      - "osv-scanner.toml"
+      - ".github/workflows/dependencies.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_NET_RETRY: 10
+  RUSTUP_MAX_RETRIES: 10
+
+jobs:
+  osv-scanner:
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2.87.27
+        with:
+          tool: osv-scanner
+          fallback: none # only install tools with checksums from the pinned manifest
+
+      # `--no-resolve`: the Maven poms are templates (`VERSION` is substituted by
+      # bindings/java/scripts/java-builder.py) depending on our own unpublished
+      # artefacts, so transitive resolution always fails. Only the direct
+      # dependencies declared in the poms are scanned.
+      #
+      # osv-scanner only warns about ignores in osv-scanner.toml that no longer
+      # match anything; fail on them so stale ignores get removed once the
+      # dependency is bumped.
+      - name: Scan dependencies
+        shell: bash # implies `-o pipefail`
+        run: |
+          osv-scanner scan source --recursive --no-resolve . 2>&1 | tee "$RUNNER_TEMP/osv-scanner.log"
+          if grep -q "has unused ignores" "$RUNNER_TEMP/osv-scanner.log"; then
+            echo "::error::osv-scanner.toml has unused ignores, remove them"
+            exit 1
+          fi
+
+  cargo-deny:
+    # not ubuntu-slim: cargo-deny needs cargo, which only the full image has
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2.87.27
+        with:
+          tool: cargo-deny
+          fallback: none # only install tools with checksums from the pinned manifest
+
+      # advisories are checked by osv-scanner, see deny.toml
+      - name: Check bans, licenses and sources
+        run: cargo deny --locked check bans licenses sources

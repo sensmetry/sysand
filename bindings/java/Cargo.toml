@@ -29,13 +29,13 @@ kpar-xz = ["sysand-core/kpar-xz"]
 kpar-ppmd = ["sysand-core/kpar-ppmd"]
 
 [dependencies]
-sysand-core = { path = "../../core", features = ["filesystem", "networking"] }
+sysand-core = { workspace = true, features = ["filesystem", "networking"] }
 camino.workspace = true
 fluent-uri.workspace = true
 env_logger.workspace = true
 jni = { version = "0.22.4", default-features = false }
-indexmap = { version = "2.13.0", default-features = false }
-tokio = { version = "1.50.0", default-features = false, features = ["rt"] }
+indexmap.workspace = true
+tokio = { workspace = true, features = ["rt"] }
 
 [lints]
 workspace = true
