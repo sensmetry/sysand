@@ -1580,7 +1580,10 @@ fn check_std_libs(
     prefix: &str,
 ) -> Result<bool, PublishError> {
     match usage {
-        InterchangeProjectUsageRaw::Resource { resource, .. } => {
+        InterchangeProjectUsageRaw::Resource {
+            resource,
+            version_constraint: _,
+        } => {
             if let Some(stripped) = resource.strip_prefix(prefix) {
                 for s in lib_names {
                     if let Some(metamodel_version) = stripped.strip_suffix(s) {

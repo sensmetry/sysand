@@ -305,7 +305,14 @@ fn an_unsatisfiable_stdlib_constraint_is_refused() -> Result<(), Box<dyn std::er
          version = \"^9\"\n",
     )?;
     let error = built(&dir, false).expect_err("no embedded release satisfies `^9`");
-    assert!(matches!(error, KParBuildError::TomlStdlibUnmatched { .. }));
+    assert!(matches!(
+        error,
+        KParBuildError::TomlStdlibUnmatched {
+            usage: _,
+            constraint: _,
+            embedded: _
+        }
+    ));
     let text = error.to_string();
     assert!(text.contains("^9"), "{text}");
     assert!(text.contains("1.0.0"), "{text}");
@@ -321,7 +328,14 @@ fn an_unknown_stdlib_name_is_refused() -> Result<(), Box<dyn std::error::Error>>
          version = \"^1\"\n",
     )?;
     let error = built(&dir, false).expect_err("no such library is embedded");
-    assert!(matches!(error, KParBuildError::TomlStdlibUnmatched { .. }));
+    assert!(matches!(
+        error,
+        KParBuildError::TomlStdlibUnmatched {
+            usage: _,
+            constraint: _,
+            embedded: _
+        }
+    ));
     assert!(
         error.to_string().contains("no release of that name"),
         "{error}"
@@ -535,7 +549,10 @@ fn a_dir_usage_normalizes_the_purl() -> Result<(), Box<dyn std::error::Error>> {
 fn a_missing_target_defines_no_project() -> Result<(), Box<dyn std::error::Error>> {
     let dir = toml_project(DIR_USAGE)?;
     let error = built(&dir, false).expect_err("there is no `dep`");
-    assert!(matches!(error, KParBuildError::TomlTargetMissing { .. }));
+    assert!(matches!(
+        error,
+        KParBuildError::TomlTargetMissing { usage: _, path: _ }
+    ));
     let text = error.to_string();
     assert!(text.contains("acme/dep"), "{text}");
     assert!(text.contains("defines no project"), "{text}");
@@ -547,7 +564,10 @@ fn an_empty_target_defines_no_project() -> Result<(), Box<dyn std::error::Error>
     let dir = toml_project(DIR_USAGE)?;
     std::fs::create_dir_all(dir.path().join("dep"))?;
     let error = built(&dir, false).expect_err("`dep` holds no manifest");
-    assert!(matches!(error, KParBuildError::TomlTargetMissing { .. }));
+    assert!(matches!(
+        error,
+        KParBuildError::TomlTargetMissing { usage: _, path: _ }
+    ));
     Ok(())
 }
 
@@ -558,7 +578,14 @@ fn a_non_semver_target_is_refused_with_a_hint() -> Result<(), Box<dyn std::error
     let dir = toml_project(DIR_USAGE)?;
     json_target(&dir, "dep", "2025-02-01");
     let error = built(&dir, false).expect_err("`2025-02-01` is not semver");
-    assert!(matches!(error, KParBuildError::TomlTargetVersion { .. }));
+    assert!(matches!(
+        error,
+        KParBuildError::TomlTargetVersion {
+            usage: _,
+            path: _,
+            version: _
+        }
+    ));
     let text = error.to_string();
     assert!(text.contains("2025-02-01"), "{text}");
     assert!(text.contains("--allow-path-usage"), "{text}");
@@ -575,7 +602,14 @@ fn a_target_that_does_not_read_is_its_own_error() -> Result<(), Box<dyn std::err
     json_target(&dir, "dep", "1.0.0");
     toml_target(&dir, "dep", "1.0.0", "");
     let error = built(&dir, false).expect_err("`dep` holds both manifests");
-    assert!(matches!(error, KParBuildError::TomlTargetRead { .. }));
+    assert!(matches!(
+        error,
+        KParBuildError::TomlTargetRead {
+            usage: _,
+            path: _,
+            reason: _
+        }
+    ));
     Ok(())
 }
 
@@ -691,7 +725,10 @@ fn a_target_of_the_wrong_kind_defines_no_project() -> Result<(), Box<dyn std::er
     std::fs::create_dir_all(dir.path().join("dep"))?;
     let error = built(&dir, false).expect_err("a directory is not an archive");
     assert!(
-        matches!(error, KParBuildError::TomlTargetMissing { .. }),
+        matches!(
+            error,
+            KParBuildError::TomlTargetMissing { usage: _, path: _ }
+        ),
         "{error}"
     );
 
@@ -699,7 +736,10 @@ fn a_target_of_the_wrong_kind_defines_no_project() -> Result<(), Box<dyn std::er
     std::fs::write(other.path().join("dep"), b"not a directory\n")?;
     let error = built(&other, false).expect_err("a file is not a project directory");
     assert!(
-        matches!(error, KParBuildError::TomlTargetMissing { .. }),
+        matches!(
+            error,
+            KParBuildError::TomlTargetMissing { usage: _, path: _ }
+        ),
         "{error}"
     );
     Ok(())
