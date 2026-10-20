@@ -395,27 +395,24 @@ pub fn command_info_workspace(
 
     for (at, member) in workspace.members().iter().enumerate() {
         let project = LocalSrcProject::new_member(member.dir.clone(), None, table.clone());
-        match field {
-            Some(field) => {
-                let lines = field_lines(
-                    field,
-                    || get_info_or_bail(&project),
-                    || get_meta_or_bail(&project),
-                )?;
-                for line in lines {
-                    println!("{}: {line}", member.project.name);
-                }
+        if let Some(field) = field {
+            let lines = field_lines(
+                field,
+                || get_info_or_bail(&project),
+                || get_meta_or_bail(&project),
+            )?;
+            for line in lines {
+                println!("{}: {line}", member.project.name);
             }
-            None => {
-                if at > 0 {
-                    println!();
-                }
-                command_info_project(
-                    FileResolverProject::LocalSrcProject(project),
-                    &member.dir,
-                    excluded_iris,
-                )?;
+        } else {
+            if at > 0 {
+                println!();
             }
+            command_info_project(
+                FileResolverProject::LocalSrcProject(project),
+                &member.dir,
+                excluded_iris,
+            )?;
         }
     }
 

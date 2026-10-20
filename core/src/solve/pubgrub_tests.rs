@@ -1258,7 +1258,11 @@ fn ambiguous_constraints_are_not_attributed() {
     let named: Vec<&str> = conflicts
         .iter()
         .filter_map(|c| match c {
-            SolveConflict::Constraint { required_by, .. } => required_by.as_deref(),
+            SolveConflict::Constraint {
+                required_by,
+                iri: _,
+                constraint: _,
+            } => required_by.as_deref(),
             _ => None,
         })
         .collect();

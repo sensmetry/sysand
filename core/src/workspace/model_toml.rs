@@ -978,7 +978,12 @@ fn member_cycles(members: &[Member]) -> Vec<Diagnostic> {
     }
     for member in members {
         for located in &member.project.usages {
-            if let Usage::SourcePath { dir, .. } = &located.usage {
+            if let Usage::SourcePath {
+                dir,
+                publisher: _,
+                name: _,
+            } = &located.usage
+            {
                 let target = wrapfs::canonicalize(member.dir.join(dir.as_str()))
                     .unwrap_or_else(|_| member.dir.join(dir.as_str()));
                 graph.add_edge(&member.dir, &target);
