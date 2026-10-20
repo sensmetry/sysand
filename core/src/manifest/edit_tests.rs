@@ -881,7 +881,10 @@ fn including_a_path_that_is_already_listed_is_refused() {
     let error = include_source(&mut doc, "./Base.kerml").expect_err("a duplicate");
     assert!(matches!(
         error,
-        EditError::Sources(SourcesError::Duplicate { .. })
+        EditError::Sources(SourcesError::Duplicate {
+            first: _,
+            second: _
+        })
     ));
 }
 

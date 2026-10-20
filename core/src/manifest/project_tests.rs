@@ -1246,8 +1246,14 @@ fn a_built_manifest_resolves_like_one_that_was_read() {
         &[typed_path::Utf8UnixPathBuf::from("Widgets.sysml")]
     );
     assert!(resolved.metamodel.is_none());
-    assert!(resolved.usages.is_empty());
-    assert!(warnings.is_empty());
+    assert_eq!(
+        resolved.usages,
+        [] as [crate::manifest::usage::LocatedUsage; 0]
+    );
+    assert_eq!(
+        warnings,
+        [] as [crate::manifest::diagnostics::Diagnostic; 0]
+    );
 }
 
 #[test]

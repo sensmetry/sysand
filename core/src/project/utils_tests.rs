@@ -371,7 +371,10 @@ fn a_recorded_identity_is_compared_literally() {
         ExpectedIdentity::recorded(Some("Acme Corp".to_owned()), "widgets".to_owned())
             .check(Some("acme-corp"), "widgets")
             .expect_err("the lockfile recorded the other spelling"),
-        IdentityMismatch::Publisher { .. }
+        IdentityMismatch::Publisher {
+            expected: _,
+            actual: _
+        }
     );
 }
 
