@@ -2033,7 +2033,14 @@ mod prepare_publish {
         );
         let (_tmp, path) = syside_zip(&meta, &[]);
         let err = prepare_publish_payload(&path).expect_err("a wrong readme hash");
-        assert_matches!(err, PublishError::IncorrectFileChecksum { .. });
+        assert_matches!(
+            err,
+            PublishError::IncorrectFileChecksum {
+                path: _,
+                expected: _,
+                actual: _
+            }
+        );
     }
 
     #[test]
@@ -2041,7 +2048,13 @@ mod prepare_publish {
         let meta = syside_entries(&["Main"], SYSIDE_KERML);
         let (_tmp, path) = syside_zip(&meta, &[]);
         let err = prepare_publish_payload(&path).expect_err("a .sysml file in a KerML project");
-        assert_matches!(err, PublishError::IncorrectFileFormat { .. });
+        assert_matches!(
+            err,
+            PublishError::IncorrectFileFormat {
+                path: _,
+                metamodel_iri: _
+            }
+        );
     }
 
     /// The reader's rule holds at publish: an `index` beside the shape is

@@ -80,7 +80,10 @@ mod browser_tests {
         assert!(meta.checksum.is_none());
         assert!(meta.includes_derived.is_none());
         assert!(meta.includes_implied.is_none());
-        assert!(meta.index.is_empty());
+        // `IndexMap` is not a dependency of this crate, so the closure stays
+        #[expect(clippy::redundant_closure_for_method_calls)]
+        let index_is_empty = meta.index.as_ref().is_some_and(|index| index.is_empty());
+        assert!(index_is_empty);
         assert!(meta.metamodel.is_none());
 
         // Local storage is not automatically cleared between tests.
