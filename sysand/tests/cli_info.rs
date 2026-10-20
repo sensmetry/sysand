@@ -815,6 +815,12 @@ fn project_json_for(name: &str, version: &str) -> String {
     format!(r#"{{"name":"{name}","version":"{version}"}}"#)
 }
 
+/// [`project_json_for`] for a project served under a `pkg:sysand` route,
+/// which names a publisher the entry has to agree with.
+fn project_json_with_publisher_for(publisher: &str, name: &str, version: &str) -> String {
+    format!(r#"{{"name":"{name}","publisher":"{publisher}","version":"{version}"}}"#)
+}
+
 /// Render a minimal `.meta.json` body. The fixed timestamp keeps any test
 /// that hashes the body reproducible.
 const TEST_META_JSON_BODY: &str = r#"{"index":{},"created":"2026-01-01T00:00:00.000000000Z"}"#;
