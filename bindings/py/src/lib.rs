@@ -1202,7 +1202,7 @@ fn do_build_py(
                 | KParBuildError::MissingInfo
                 | KParBuildError::MissingMeta
                 | KParBuildError::MissingInfoMeta
-                | KParBuildError::InheritedLocalUsage { .. }
+                | KParBuildError::InheritedLocalUsage { usage: _, path: _ }
                 | KParBuildError::TomlTargetMissing { usage: _, path: _ }
                 | KParBuildError::TomlTargetVersion {
                     usage: _,

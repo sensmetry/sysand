@@ -419,9 +419,10 @@ fn lock_projects<
 
         all_deps.extend(validated_info.usage.into_iter().map(|usage| {
             let declared_identity = match &usage {
-                crate::model::InterchangeProjectUsage::Resource { resource, .. } => {
-                    declared_identities.get(&resource.to_string()).cloned()
-                }
+                crate::model::InterchangeProjectUsage::Resource {
+                    resource,
+                    version_constraint: _,
+                } => declared_identities.get(&resource.to_string()).cloned(),
                 _ => None,
             };
             (

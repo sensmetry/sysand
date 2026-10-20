@@ -641,14 +641,30 @@ fn resolve_candidates<R: ResolveRead + fmt::Debug>(
 fn local_target(resolve: &CoalescingUsage) -> Option<Utf8PathBuf> {
     let info = resolve.usage();
     let relative = match info.usage() {
-        InterchangeProjectUsage::Directory { dir, .. } => dir.as_str(),
-        InterchangeProjectUsage::KparPath { kpar_path, .. } => kpar_path.as_str(),
+        InterchangeProjectUsage::Directory {
+            dir,
+            publisher: _,
+            name: _,
+        } => dir.as_str(),
+        InterchangeProjectUsage::KparPath {
+            kpar_path,
+            publisher: _,
+            name: _,
+        } => kpar_path.as_str(),
         // A `file:` resource names a place too, but comparing one
         // against a path usage needs the URL-to-path conversion that
         // lives in `resolve::file` and is private to it. Left out
-        // deliberately: the two cases this reports are the two that were
-        // measured silently wrong. An index usage names no local place.
-        InterchangeProjectUsage::Resource { .. } | InterchangeProjectUsage::Index { .. } => {
+        // deliberately: only two path usages are compared. An index
+        // usage names no local place.
+        InterchangeProjectUsage::Resource {
+            resource: _,
+            version_constraint: _,
+        }
+        | InterchangeProjectUsage::Index {
+            publisher: _,
+            name: _,
+            version_constraint: _,
+        } => {
             return None;
         }
     };
@@ -941,14 +957,14 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
                 }
                 | InternalSolverError::MissingVersion { usage }
                 | InternalSolverError::MissingUsage { usage }
-                | InternalSolverError::InvalidResolvedVersion { usage, .. }
-                | InternalSolverError::VersionObtain { usage, .. }
-                | InternalSolverError::UsageObtain { usage, .. }
-                | InternalSolverError::FormatObtain { usage, .. }
+                | InternalSolverError::InvalidResolvedVersion { usage, version: _, source: _ }
+                | InternalSolverError::VersionObtain { usage, source: _ }
+                | InternalSolverError::UsageObtain { usage, source: _ }
+                | InternalSolverError::FormatObtain { usage, source: _ }
                 // Two local sources for one identity: the usage is
                 // what the reader has to look at, and the message
                 // carries both paths.
-                | InternalSolverError::ConflictingLocalSources { usage, .. } => {
+                | InternalSolverError::ConflictingLocalSources { usage, first: _, second: _ } => {
                     conflicts.push(SolveConflict::NotFound {
                         iri: usage.id().to_string(),
                         reason: format_err(source),

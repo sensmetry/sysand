@@ -209,7 +209,7 @@ fn members_that_are_different_projects_still_load() {
 /// against.
 fn table_diagnostics(fixture: &Fixture) -> Vec<Diagnostic> {
     match fixture.load() {
-        Err(LoadError::Root(ProjectDeserializationError::Invalid { report, .. })) => {
+        Err(LoadError::Root(ProjectDeserializationError::Invalid { report, path: _ })) => {
             report.diagnostics().to_vec()
         }
         Err(other) => panic!("expected root-table diagnostics, got `{other}`"),
@@ -1764,7 +1764,10 @@ fn member_index_refuses_a_project_nested_inside_a_member() {
     assert!(
         matches!(
             super::start_region(&root, &table, fixture.under("app/dep")),
-            Err(super::DiscoverError::Unlisted { .. })
+            Err(super::DiscoverError::Unlisted {
+                project: _,
+                root: _
+            })
         ),
         "a project inside a member is not that member"
     );
@@ -1910,7 +1913,13 @@ fn a_project_nested_in_a_member_is_not_given_the_table() {
     let error = super::project_at_path(fixture.under("app/sub"), None)
         .expect_err("a project inside a member is not a member");
     assert!(
-        matches!(error, super::DiscoverError::Unlisted { .. }),
+        matches!(
+            error,
+            super::DiscoverError::Unlisted {
+                project: _,
+                root: _
+            }
+        ),
         "and it is under the root in neither list, which is row 25: {error:?}"
     );
 }
@@ -1978,7 +1987,13 @@ fn an_unlisted_project_at_a_path_is_refused() {
     let error = super::project_at_path(fixture.under("stray"), None)
         .expect_err("a project under the root in neither list is refused");
     assert!(
-        matches!(error, super::DiscoverError::Unlisted { .. }),
+        matches!(
+            error,
+            super::DiscoverError::Unlisted {
+                project: _,
+                root: _
+            }
+        ),
         "with row 25 and not some other failure: {error:?}"
     );
 }

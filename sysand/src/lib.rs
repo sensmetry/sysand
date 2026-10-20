@@ -454,16 +454,56 @@ fn run_cli_with(
     // settled rather than inside each arm. `Current` for every command
     // that takes no selector, and for every invocation that gives none.
     let selector = match &command {
-        Command::Build { selector, .. }
-        | Command::Publish { selector, .. }
-        | Command::Info { selector, .. }
-        | Command::Sources { selector, .. } => selector.selector(),
-        Command::Add { selector, .. }
-        | Command::Remove { selector, .. }
-        | Command::Include { selector, .. }
-        | Command::Exclude { selector, .. }
+        Command::Build {
+            selector,
+            path: _,
+            compression: _,
+            allow_path_usage: _,
+            keep_index: _,
+        }
+        | Command::Publish {
+            selector,
+            path: _,
+            index: _,
+            trusted_publishing: _,
+        }
+        | Command::Info {
+            selector,
+            locator: _,
+            get: _,
+            resolution_opts: _,
+        }
+        | Command::Sources {
+            selector,
+            sources_opts: _,
+        } => selector.selector(),
+        Command::Add {
+            selector,
+            locator: _,
+            version_constraint: _,
+            sync: _,
+            resolution_opts: _,
+            source_opts: _,
+        }
+        | Command::Remove {
+            selector,
+            locator: _,
+            sync: _,
+            resolution_opts: _,
+        }
+        | Command::Include {
+            selector,
+            paths: _,
+            compute_checksum: _,
+            no_index_symbols: _,
+        }
+        | Command::Exclude { selector, paths: _ }
         | Command::PrintRoot { selector }
-        | Command::Edit { selector, .. } => selector.selector(),
+        | Command::Edit {
+            selector,
+            dir: _,
+            edits: _,
+        } => selector.selector(),
         _ => Selector::Current,
     };
     let selected = selected_member(&cwd, workspace_root.as_deref(), selector)?;
@@ -490,11 +530,31 @@ fn run_cli_with(
     // belongs to the row.
     let needs_a_member = matches!(
         &command,
-        Command::Add { .. }
-            | Command::Remove { .. }
-            | Command::Include { .. }
-            | Command::Exclude { .. }
-            | Command::Edit { dir: None, .. }
+        Command::Add {
+            selector: _,
+            locator: _,
+            version_constraint: _,
+            sync: _,
+            resolution_opts: _,
+            source_opts: _
+        } | Command::Remove {
+            selector: _,
+            locator: _,
+            sync: _,
+            resolution_opts: _
+        } | Command::Include {
+            selector: _,
+            paths: _,
+            compute_checksum: _,
+            no_index_symbols: _
+        } | Command::Exclude {
+            selector: _,
+            paths: _
+        } | Command::Edit {
+            dir: None,
+            selector: _,
+            edits: _
+        }
     );
     if needs_a_member && current_project.is_none() && workspace_root.is_some() {
         return Err(DiscoverError::NeedsProject.into());
@@ -1301,22 +1361,19 @@ pub type Overrides<Policy> = Vec<(Identifier, Vec<OverrideProject<Policy>>)>;
 /// identifier, which is looked up in the indexes.
 fn reads_configuration(command: &cli::Command) -> bool {
     match command {
-        cli::Command::Lock { .. }
-        | cli::Command::Sync { .. }
-        | cli::Command::Add { .. }
-        | cli::Command::Remove { .. }
-        | cli::Command::Clone { .. }
-        | cli::Command::Env { .. }
-        | cli::Command::Publish { .. }
-        // `plan-phase1.md:682` enumerates this list and leaves `migrate`
-        // out, while the same sentence gives the principle -- "the
-        // operations that build a resolver or read `[[index]]`" -- and
-        // WP-7 has `migrate` resolving `http(s)` and `pkg:sysand` usages
-        // through an index. The enumeration and the principle disagree;
-        // the principle wins, and a one-time conversion is a bad place
-        // to be quiet about configuration that is no longer read.
-        | cli::Command::Migrate { .. } => true,
-        cli::Command::Info { locator, .. } => locator.iri.is_some() || locator.identifier.is_some(),
+        cli::Command::Lock { resolution_opts: _ }
+        | cli::Command::Sync { resolution_opts: _, no_prune: _ }
+        | cli::Command::Add { selector: _, locator: _, version_constraint: _, sync: _, resolution_opts: _, source_opts: _ }
+        | cli::Command::Remove { selector: _, locator: _, sync: _, resolution_opts: _ }
+        | cli::Command::Clone { locator: _, target: _, version_constraint: _, no_deps: _, resolution_opts: _ }
+        | cli::Command::Env { command: _ }
+        | cli::Command::Publish { selector: _, path: _, index: _, trusted_publishing: _ }
+        // `migrate` builds a resolver: it resolves `http(s)` and
+        // `pkg:sysand` usages through an index. A one-time conversion is
+        // also a bad place to be quiet about configuration that is not
+        // read.
+        | cli::Command::Migrate { path: _, publisher: _, metamodel: _, allow_dirty: _, allow_no_vcs: _, resolution_opts: _ } => true,
+        cli::Command::Info { locator, selector: _, get: _, resolution_opts: _ } => locator.iri.is_some() || locator.identifier.is_some(),
         _ => false,
     }
 }
@@ -1349,21 +1406,21 @@ fn reads_configuration(command: &cli::Command) -> bool {
 /// extending the check to commands that have no scope.
 fn consults_the_workspace(command: &cli::Command) -> bool {
     match command {
-        cli::Command::Build { .. }
-        | cli::Command::Sources { .. }
-        | cli::Command::Info { .. }
-        | cli::Command::Edit { .. }
-        | cli::Command::Publish { .. }
-        | cli::Command::Add { .. }
-        | cli::Command::Remove { .. }
-        | cli::Command::Include { .. }
-        | cli::Command::Exclude { .. }
-        | cli::Command::Experimental { .. }
-        | cli::Command::Lock { .. }
-        | cli::Command::Sync { .. }
-        | cli::Command::Env { .. }
-        | cli::Command::PrintRoot { .. } => true,
-        cli::Command::Init { .. }
+        cli::Command::Build { selector: _, path: _, compression: _, allow_path_usage: _, keep_index: _ }
+        | cli::Command::Sources { selector: _, sources_opts: _ }
+        | cli::Command::Info { selector: _, locator: _, get: _, resolution_opts: _ }
+        | cli::Command::Edit { dir: _, selector: _, edits: _ }
+        | cli::Command::Publish { selector: _, path: _, index: _, trusted_publishing: _ }
+        | cli::Command::Add { selector: _, locator: _, version_constraint: _, sync: _, resolution_opts: _, source_opts: _ }
+        | cli::Command::Remove { selector: _, locator: _, sync: _, resolution_opts: _ }
+        | cli::Command::Include { selector: _, paths: _, compute_checksum: _, no_index_symbols: _ }
+        | cli::Command::Exclude { selector: _, paths: _ }
+        | cli::Command::Experimental {  }
+        | cli::Command::Lock { resolution_opts: _ }
+        | cli::Command::Sync { resolution_opts: _, no_prune: _ }
+        | cli::Command::Env { command: _ }
+        | cli::Command::PrintRoot { selector: _ } => true,
+        cli::Command::Init { path: _, name: _, publisher: _, version: _, license: _, metamodel: _, metamodel_release: _ }
         // Deliberately not: a discovery error would be fatal, and an
         // unlisted json project under a workspace root is exactly the
         // one a user wants to migrate. A bare `migrate` at a workspace
