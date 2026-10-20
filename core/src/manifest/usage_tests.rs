@@ -521,7 +521,11 @@ fn diagnostics_come_back_in_document_order() {
 fn a_member_entry_without_a_marker_is_declared() {
     assert!(matches!(
         member("publisher = \"acme\"\nname = \"lib\"\ndir = \"../lib\"\n"),
-        MemberUsage::Declared(Usage::SourcePath { .. })
+        MemberUsage::Declared(Usage::SourcePath {
+            publisher: _,
+            name: _,
+            dir: _
+        })
     ));
 }
 
@@ -540,7 +544,7 @@ fn a_workspace_marker_makes_an_entry_an_opt_in() {
             publisher: p,
             name: n,
             from: InheritFrom::DefaultGroup,
-            ..
+            at: _
         } if p == publisher("acme") && n == name("lib")
     ));
     assert!(matches!(
@@ -549,7 +553,7 @@ fn a_workspace_marker_makes_an_entry_an_opt_in() {
             publisher: p,
             name: n,
             from: InheritFrom::Group(group),
-            ..
+            at: _
         } if p == publisher("acme") && n == name("lib") && group == "legacy"
     ));
 }
@@ -559,8 +563,12 @@ fn a_workspace_marker_makes_an_entry_an_opt_in() {
 /// key long after the file's text is gone.
 #[test]
 fn an_opt_in_records_where_its_marker_is() {
-    let MemberUsage::Inherited { at, .. } =
-        member("publisher = \"acme\"\nname = \"lib\"\nworkspace = true\n")
+    let MemberUsage::Inherited {
+        at,
+        publisher: _,
+        name: _,
+        from: _,
+    } = member("publisher = \"acme\"\nname = \"lib\"\nworkspace = true\n")
     else {
         panic!("an opt-in");
     };

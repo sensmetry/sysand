@@ -392,22 +392,22 @@ fn member_paths(
 /// written, rather than where it points, read as `sources` reads them.
 fn path_message(key: &str, raw: &str, error: &NormalizeRelativeError) -> String {
     match error {
-        NormalizeRelativeError::Absolute { .. } => format!(
+        NormalizeRelativeError::Absolute { path: _ } => format!(
             "`{key}` path `{raw}` is absolute; `members` and `exclude` are relative to the \
              workspace root"
         ),
-        NormalizeRelativeError::ContainsBackslash { .. } => format!(
+        NormalizeRelativeError::ContainsBackslash { path: _ } => format!(
             "`{key}` path `{raw}` contains a backslash `\\`;\n\
              entries are `/`-separated, so that a manifest reads the same way\n\
              on every operating system"
         ),
-        NormalizeRelativeError::ContainsNull { .. } => {
+        NormalizeRelativeError::ContainsNull { path: _ } => {
             format!("`{key}` path `{raw}` contains a NULL character")
         }
-        NormalizeRelativeError::EscapesRoot { .. } => {
+        NormalizeRelativeError::EscapesRoot { path: _ } => {
             format!("`{key}` path `{raw}` escapes the workspace root")
         }
-        NormalizeRelativeError::IsRoot { .. } => {
+        NormalizeRelativeError::IsRoot { path: _ } => {
             format!("`{key}` path `{raw}` is the workspace root, which must not contain a project")
         }
     }
