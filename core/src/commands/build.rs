@@ -400,11 +400,19 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
                     let embedded = std_libs.get_or_insert_with(known_std_libs);
                     *raw = stdlib_index_usage(embedded, &located.usage, name, version_constraint)?;
                 }
-                Usage::SourcePath { dir, .. } if !allow_path_usage => {
+                Usage::SourcePath {
+                    dir,
+                    publisher: _,
+                    name: _,
+                } if !allow_path_usage => {
                     *raw =
                         local_target_usage(root, &located.usage, dir.as_str(), false, workspace)?;
                 }
-                Usage::KparPath { kpar_path, .. } if !allow_path_usage => {
+                Usage::KparPath {
+                    kpar_path,
+                    publisher: _,
+                    name: _,
+                } if !allow_path_usage => {
                     *raw = local_target_usage(
                         root,
                         &located.usage,

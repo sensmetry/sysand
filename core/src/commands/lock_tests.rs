@@ -895,7 +895,14 @@ fn an_inherited_local_usage_is_refused() {
     );
     let error = lock_workspace(&dir).expect_err("an inherited local usage");
     assert!(
-        matches!(error, LockProjectError::InheritedLocalUsage { .. }),
+        matches!(
+            error,
+            LockProjectError::InheritedLocalUsage {
+                member: _,
+                usage: _,
+                path: _
+            }
+        ),
         "{error}"
     );
     let text = error.to_string();
@@ -920,7 +927,14 @@ fn an_inherited_index_usage_is_not_refused() {
     );
     let error = lock_workspace(&dir).expect_err("`acme/shared` resolves nowhere here");
     assert!(
-        !matches!(error, LockProjectError::InheritedLocalUsage { .. }),
+        !matches!(
+            error,
+            LockProjectError::InheritedLocalUsage {
+                member: _,
+                usage: _,
+                path: _
+            }
+        ),
         "an index usage must not be refused as a local one: {error}"
     );
 }
@@ -962,7 +976,10 @@ fn a_dependency_src_path_is_relative_to_the_workspace_root()
         .iter()
         .flat_map(|p| &p.sources)
         .filter_map(|s| match s {
-            Source::LocalSrc { src_path, .. } => Some(src_path.as_str()),
+            Source::LocalSrc {
+                src_path,
+                checksum: _,
+            } => Some(src_path.as_str()),
             _ => None,
         })
         .collect();

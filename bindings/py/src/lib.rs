@@ -460,12 +460,28 @@ fn cli_resolver_for(
     let project_error = |e: String| ProjectError::new_err(e);
     let cwd = wrapfs::canonicalize(".").map_err(|e| project_error(format_err(e)))?;
     let current_project = discover_project(&cwd).map_err(|e| project_error(format_err(e)))?;
-    let current_workspace = discover_workspace(&cwd).map_err(|e| project_error(format_err(e)))?;
-    let env_root = match (&current_workspace, &current_project) {
-        (Some(workspace), _) => workspace.root_path(),
-        (None, Some(project)) => project.root_path(),
-        (None, None) => cwd.as_path(),
+    // The environment is the workspace's when the path is inside one, as
+    // `run_cli` roots it; an unlisted or excluded project keeps its own
+    let model_workspace_root = match sysand_core::workspace::model_toml::discover_table(&cwd) {
+        Ok(Some((root, table))) => {
+            match sysand_core::workspace::model_toml::start_region(&root, &table, &cwd) {
+                Ok(
+                    sysand_core::workspace::model_toml::StartRegion::Member(_)
+                    | sysand_core::workspace::model_toml::StartRegion::Workspace,
+                ) => Some(root),
+                _ => None,
+            }
+        }
+        _ => None,
     };
+    let env_root = model_workspace_root
+        .as_deref()
+        .or_else(|| {
+            current_project
+                .as_ref()
+                .map(sysand_core::project::local_src::LocalSrcProject::root_path)
+        })
+        .unwrap_or(cwd.as_path());
     let env = get_env(env_root).map_err(|e| project_error(format_err(e)))?;
     let project_root = current_project
         .as_ref()
@@ -934,7 +950,7 @@ fn do_sync_py(
 
         let mut env = get_or_create_env(
             ctx.env.take(),
-            ctx.current_workspace.as_ref(),
+            ctx.model_workspace_root.as_deref(),
             ctx.current_project.as_ref(),
             &ctx.current_directory,
         )
@@ -952,7 +968,6 @@ fn do_sync_py(
             &provided,
             runtime,
             auth_policy,
-            ctx.current_workspace.as_ref(),
             // Always prune: `no_prune` is not exposed.
             false,
             &mut outcome,
@@ -1166,11 +1181,26 @@ pub fn do_sources_project_py(
         } else {
             // As the CLI: the environment of the project's workspace, or
             // else its own, if there is one.
-            let workspace =
-                discover_workspace(&path).map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
-            let env_root = workspace
-                .as_ref()
-                .map_or_else(|| Utf8Path::new(&path), |workspace| workspace.root_path());
+            let workspace_root =
+                match sysand_core::workspace::model_toml::discover_table(Utf8Path::new(&path)) {
+                    Ok(Some((root, table))) => {
+                        match sysand_core::workspace::model_toml::start_region(
+                            &root,
+                            &table,
+                            Utf8Path::new(&path),
+                        ) {
+                            Ok(
+                                sysand_core::workspace::model_toml::StartRegion::Member(_)
+                                | sysand_core::workspace::model_toml::StartRegion::Workspace,
+                            ) => Some(root),
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                };
+            let env_root = workspace_root
+                .as_deref()
+                .unwrap_or_else(|| Utf8Path::new(&path));
             get_env(env_root).map_err(env_read_to_pyerr)?
         };
         result.extend(match env {
