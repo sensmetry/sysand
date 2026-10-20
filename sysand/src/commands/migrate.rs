@@ -579,8 +579,16 @@ fn spell_path_usages_as_targets(manifest: &mut ModelToml, dir: &Utf8Path) {
             continue;
         };
         let relative = match usage {
-            Usage::SourcePath { dir, .. } => dir.clone(),
-            Usage::KparPath { kpar_path, .. } => kpar_path.clone(),
+            Usage::SourcePath {
+                dir,
+                publisher: _,
+                name: _,
+            } => dir.clone(),
+            Usage::KparPath {
+                kpar_path,
+                publisher: _,
+                name: _,
+            } => kpar_path.clone(),
             _ => continue,
         };
         let target = dir.join(
@@ -607,12 +615,12 @@ fn spell_path_usages_as_targets(manifest: &mut ModelToml, dir: &Utf8Path) {
             Usage::SourcePath {
                 publisher: p,
                 name: n,
-                ..
+                dir: _,
             }
             | Usage::KparPath {
                 publisher: p,
                 name: n,
-                ..
+                kpar_path: _,
             } if *p != publisher || *n != name => {
                 log::info!(
                     "usage `{p}/{n}` is written as `{publisher}/{name}`, which is how its \

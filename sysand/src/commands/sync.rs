@@ -154,13 +154,18 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         no_prune,
         outcome,
     )
-    // Appendix A2 row 39's second half. `plan-phase1.md`: "where a hint
-    // names a command, the CLI appends it" -- the bindings reach the
-    // same error and have no `--include-std` to pass.
+    // A hint that names a command is appended by the CLI: the bindings
+    // reach the same error and have no `--include-std` to pass.
     .map_err(|error| match &error {
-        SyncError::UnknownStdLib { .. } | SyncError::InvalidProvidedVersion { .. } => {
-            CommandSyncError::IncludeStd(error)
+        SyncError::UnknownStdLib {
+            name: _,
+            version: _,
         }
+        | SyncError::InvalidProvidedVersion {
+            iri: _,
+            version: _,
+            provided_versions: _,
+        } => CommandSyncError::IncludeStd(error),
         _ => CommandSyncError::Sync(error),
     })?;
 

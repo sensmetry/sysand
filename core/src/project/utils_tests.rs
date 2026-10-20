@@ -475,6 +475,9 @@ fn a_recorded_pair_mismatch_is_not_a_spelling_mismatch() {
         ExpectedIdentity::recorded(Some("Acme Corp".to_owned()), "My.Project".to_owned())
             .check(Some("acme-corp"), "My.Project")
             .expect_err("the installed copy declares another spelling"),
-        IdentityMismatch::Publisher { .. }
+        IdentityMismatch::Publisher {
+            expected: _,
+            actual: _
+        }
     );
 }

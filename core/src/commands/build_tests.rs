@@ -487,7 +487,14 @@ fn a_target_that_declares_another_project_is_refused() -> Result<(), Box<dyn std
     let error = built(&dir, false).expect_err("the target declares `acme`/`dep`");
     let text = error.to_string();
     assert!(
-        matches!(error, KParBuildError::TomlTargetSpelling { .. }),
+        matches!(
+            error,
+            KParBuildError::TomlTargetSpelling {
+                usage: _,
+                path: _,
+                declared: _
+            }
+        ),
         "{text}"
     );
     assert!(text.contains("which declares `acme/dep`"), "{text}");
