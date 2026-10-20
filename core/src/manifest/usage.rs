@@ -81,19 +81,51 @@ pub enum Usage {
 impl Usage {
     pub fn publisher(&self) -> &IndexPublisher {
         match self {
-            Self::SourcePath { publisher, .. }
-            | Self::KparPath { publisher, .. }
-            | Self::Index { publisher, .. }
-            | Self::RemoteKpar { publisher, .. } => publisher,
+            Self::SourcePath {
+                publisher,
+                name: _,
+                dir: _,
+            }
+            | Self::KparPath {
+                publisher,
+                name: _,
+                kpar_path: _,
+            }
+            | Self::Index {
+                publisher,
+                name: _,
+                version_constraint: _,
+            }
+            | Self::RemoteKpar {
+                publisher,
+                name: _,
+                url: _,
+            } => publisher,
         }
     }
 
     pub fn name(&self) -> &IndexName {
         match self {
-            Self::SourcePath { name, .. }
-            | Self::KparPath { name, .. }
-            | Self::Index { name, .. }
-            | Self::RemoteKpar { name, .. } => name,
+            Self::SourcePath {
+                name,
+                publisher: _,
+                dir: _,
+            }
+            | Self::KparPath {
+                name,
+                publisher: _,
+                kpar_path: _,
+            }
+            | Self::Index {
+                name,
+                publisher: _,
+                version_constraint: _,
+            }
+            | Self::RemoteKpar {
+                name,
+                publisher: _,
+                url: _,
+            } => name,
         }
     }
 
@@ -106,9 +138,26 @@ impl Usage {
     /// The `dir`/`kpar-path` of a local usage, as written.
     pub fn local_path(&self) -> Option<&Utf8UnixPathBuf> {
         match self {
-            Self::SourcePath { dir, .. } => Some(dir),
-            Self::KparPath { kpar_path, .. } => Some(kpar_path),
-            Self::Index { .. } | Self::RemoteKpar { .. } => None,
+            Self::SourcePath {
+                dir,
+                publisher: _,
+                name: _,
+            } => Some(dir),
+            Self::KparPath {
+                kpar_path,
+                publisher: _,
+                name: _,
+            } => Some(kpar_path),
+            Self::Index {
+                publisher: _,
+                name: _,
+                version_constraint: _,
+            }
+            | Self::RemoteKpar {
+                publisher: _,
+                name: _,
+                url: _,
+            } => None,
         }
     }
 }
@@ -209,7 +258,10 @@ impl MemberUsage {
         match self {
             Self::Declared(usage) => usage.identity(),
             Self::Inherited {
-                publisher, name, ..
+                publisher,
+                name,
+                from: _,
+                at: _,
             } => normalized_identity(publisher, name),
         }
     }
@@ -243,7 +295,10 @@ impl UsageEntry for MemberUsage {
         match self {
             Self::Declared(usage) => usage.label(),
             Self::Inherited {
-                publisher, name, ..
+                publisher,
+                name,
+                from: _,
+                at: _,
             } => format!("{publisher}/{name}"),
         }
     }
@@ -433,7 +488,12 @@ impl UsageRaw {
             MemberUsage::Declared(usage) => Ok(usage),
             // A marker is refused while validating, so an entry of a
             // group's array never comes back inherited.
-            MemberUsage::Inherited { .. } => unreachable!("a group entry cannot carry a marker"),
+            MemberUsage::Inherited {
+                publisher: _,
+                name: _,
+                from: _,
+                at: _,
+            } => unreachable!("a group entry cannot carry a marker"),
         }
     }
 
@@ -854,12 +914,26 @@ impl From<Usage> for UsageRaw {
             ..Self::default()
         };
         match usage {
-            Usage::SourcePath { dir, .. } => raw.dir = Some(dir.to_string()),
-            Usage::KparPath { kpar_path, .. } => raw.kpar_path = Some(kpar_path.to_string()),
+            Usage::SourcePath {
+                dir,
+                publisher: _,
+                name: _,
+            } => raw.dir = Some(dir.to_string()),
+            Usage::KparPath {
+                kpar_path,
+                publisher: _,
+                name: _,
+            } => raw.kpar_path = Some(kpar_path.to_string()),
             Usage::Index {
-                version_constraint, ..
+                version_constraint,
+                publisher: _,
+                name: _,
             } => raw.version = Some(version_constraint.to_string()),
-            Usage::RemoteKpar { url, .. } => raw.url = Some(url.to_string()),
+            Usage::RemoteKpar {
+                url,
+                publisher: _,
+                name: _,
+            } => raw.url = Some(url.to_string()),
         }
         raw
     }
