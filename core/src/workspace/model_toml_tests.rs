@@ -131,8 +131,8 @@ impl Fixture {
 /// The diagnostics raised against the *root* manifest.
 fn root_diagnostics(failure: &LoadFailure) -> &[Diagnostic] {
     match failure.root.as_ref().expect("root diagnostics") {
-        ProjectDeserializationError::Invalid { report, .. } => report.diagnostics(),
-        other @ ProjectDeserializationError::Syntax { .. } => {
+        ProjectDeserializationError::Invalid { report, path: _ } => report.diagnostics(),
+        other @ ProjectDeserializationError::Syntax { path: _, err: _ } => {
             panic!("expected an invalid-manifest error, got `{other}`")
         }
     }
@@ -774,7 +774,7 @@ fn a_nested_workspace_is_refused() {
     fixture.above("model.toml", EMPTY_WORKSPACE);
 
     match confirm_root(fixture.root()) {
-        Err(error @ DiscoverError::Nested { .. }) => assert_eq!(
+        Err(error @ DiscoverError::Nested { inner: _, outer: _ }) => assert_eq!(
             error.to_string(),
             format!(
                 "the workspace at `{}` lies inside the workspace at `{}`, which does not \
@@ -829,7 +829,7 @@ fn an_outer_workspace_far_above_is_still_found() {
     fixture.above("model.toml", EMPTY_WORKSPACE);
     assert!(matches!(
         confirm_root(fixture.root()),
-        Err(DiscoverError::Nested { .. })
+        Err(DiscoverError::Nested { inner: _, outer: _ })
     ));
 }
 
@@ -1016,7 +1016,7 @@ fn a_directory_outside_the_workspace_is_refused() {
     let workspace = fixture.loaded();
     assert!(matches!(
         workspace.start(fixture.base()),
-        Err(DiscoverError::NotUnderRoot { .. })
+        Err(DiscoverError::NotUnderRoot { dir: _, root: _ })
     ));
 }
 
@@ -1068,8 +1068,12 @@ fn a_member_path_is_matched_as_written() {
 
     assert_eq!(workspace.member("app").expect("a member").path.raw, "app");
     assert!(matches!(
-        workspace.member("app"),
-        Err(SelectError::NoSuchMember { .. })
+        workspace.member("./app/"),
+        Err(SelectError::NoSuchMember {
+            root: _,
+            selector: _,
+            known: _
+        })
     ));
 }
 
@@ -1089,7 +1093,12 @@ fn a_value_that_is_one_members_path_and_anothers_name_is_ambiguous() {
     let workspace = fixture.loaded();
 
     match workspace.member("app") {
-        Err(error @ SelectError::AmbiguousMember { .. }) => assert_eq!(
+        Err(
+            error @ SelectError::AmbiguousMember {
+                selector: _,
+                matches: _,
+            },
+        ) => assert_eq!(
             error.to_string(),
             "`app` is ambiguous: it matches the path `app` and the name of the member at `lib`"
         ),
@@ -1106,7 +1115,10 @@ fn two_members_with_the_same_name_are_ambiguous() {
 
     assert!(matches!(
         workspace.member("alpha"),
-        Err(SelectError::AmbiguousMember { .. })
+        Err(SelectError::AmbiguousMember {
+            selector: _,
+            matches: _
+        })
     ));
 }
 
@@ -1125,7 +1137,13 @@ fn a_member_named_by_both_its_path_and_its_name_is_not_ambiguous() {
 fn an_unknown_member_lists_the_ones_that_exist() {
     let workspace = two_members().loaded();
     match workspace.member("nope") {
-        Err(error @ SelectError::NoSuchMember { .. }) => {
+        Err(
+            error @ SelectError::NoSuchMember {
+                root: _,
+                selector: _,
+                known: _,
+            },
+        ) => {
             let text = error.to_string();
             assert!(
                 text.ends_with("has no member `nope`; it has `app`, `lib`"),
@@ -1279,7 +1297,10 @@ fn an_unlisted_project_is_refused_by_select() {
     let workspace = fixture.loaded();
     assert!(matches!(
         workspace.select(fixture.under("stray"), Selector::Current),
-        Err(DiscoverError::Unlisted { .. })
+        Err(DiscoverError::Unlisted {
+            project: _,
+            root: _
+        })
     ));
 }
 
@@ -1292,7 +1313,10 @@ fn an_unlisted_project_is_refused_by_select_with_a_selector() {
     let workspace = fixture.loaded();
     assert!(matches!(
         workspace.select(fixture.under("stray"), Selector::Member("app")),
-        Err(DiscoverError::Unlisted { .. })
+        Err(DiscoverError::Unlisted {
+            project: _,
+            root: _
+        })
     ));
 }
 
@@ -1504,7 +1528,7 @@ fn a_discovered_table_is_still_checked_for_nesting() {
     fixture.above("model.toml", EMPTY_WORKSPACE);
     assert!(matches!(
         super::discover_table(fixture.root()),
-        Err(DiscoverError::Nested { .. })
+        Err(DiscoverError::Nested { inner: _, outer: _ })
     ));
 }
 
