@@ -188,12 +188,6 @@ of dependencies for known vulnerabilities and fix them if possible.
    ```sh
    # updates lockfile minimalistically
    cargo check
-
-   # do a last minute security audit
-   cargo audit
-
-   # and bump manually to address known vulnerabilities
-   cargo update -p vulnerable-crate-1 [--precise 1.2.3]
    ```
 
 2. Update `version` in `bindings/js/package.json` manually, and the lockfile by
@@ -204,17 +198,31 @@ of dependencies for known vulnerabilities and fix them if possible.
 
    # updates lockfile minimalistically
    npm install --package-lock-only --ignore-scripts
-
-   # do a last minute security audit
-   npm audit
-
-   # and bump minimalistically to address known vulnerabilities
-   npm audit fix
    ```
 
-3. Audit the Python package dependencies:
+3. Do a last minute security audit of all dependencies (Cargo, uv, npm and
+   Maven) with [`osv-scanner`], the same way the `Dependencies` CI workflow
+   does:
 
    ```sh
-   cd bindings/py
-   uv audit
+   osv-scanner scan source --recursive --no-resolve .
    ```
+
+   Bump dependencies minimalistically to address known vulnerabilities:
+
+   ```sh
+   # Rust
+   cargo update -p vulnerable-crate-1 [--precise 1.2.3]
+
+   # JavaScript
+   (cd bindings/js/ && npm audit fix)
+
+   # Python
+   (cd bindings/py/ && uv lock --upgrade-package vulnerable-package-1)
+   ```
+
+   Advisories that cannot be fixed yet can be ignored in an `osv-scanner.toml`
+   next to the affected lockfile (with a `reason` and an `ignoreUntil` date).
+   Remove any ignores that `osv-scanner` reports as unused.
+
+[`osv-scanner`]: https://google.github.io/osv-scanner/
