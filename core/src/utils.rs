@@ -18,7 +18,7 @@ use indexmap::IndexSet;
 use serde::Serialize;
 use sha2::{Digest as _, Sha256};
 use thiserror::Error;
-use typed_path::{Utf8UnixPath, Utf8WindowsPath};
+use typed_path::{Utf8UnixPath, Utf8UnixPathBuf, Utf8WindowsPath};
 
 use crate::project::{memory::InMemoryProject, utils::Identifier};
 
@@ -297,6 +297,86 @@ pub fn parse_relative_unix_path(
     Ok(Utf8UnixPath::new(path))
 }
 
+/// Why a `/`-separated path relative to some root is not one, as
+/// [`normalize_relative`] decides it.
+///
+/// This is the normalizing sibling of [`RelativeUnixPathError`]: that one
+/// rejects `.` and `..` components outright (and is what
+/// [`parse_relative_unix_path`] reports), while this one resolves them and
+/// then complains only about what the resolved path says — that it leaves
+/// the root, or that it *is* the root.
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
+pub enum NormalizeRelativeError {
+    #[error("path `{path}` is absolute, but a path relative to the root was expected")]
+    Absolute { path: String },
+    #[error(
+        "path `{path}` contains a backslash `\\`;\n\
+        backslash is not allowed in paths to preserve consistent\n\
+        interpretation across different operating systems;\n\
+        backslash could be present because the path is Windows path"
+    )]
+    ContainsBackslash { path: String },
+    #[error("path `{path}` contains a NULL character")]
+    ContainsNull { path: String },
+    #[error("path `{path}` points above the root it is relative to")]
+    EscapesRoot { path: String },
+    #[error("path `{path}` is the root it is relative to, not a path inside it")]
+    IsRoot { path: String },
+}
+
+/// Lexically normalize a `/`-separated relative path: a leading `./` and
+/// inner `.`/`..` components are resolved, repeated slashes are collapsed
+/// and a trailing slash is dropped, without touching the filesystem.
+///
+/// A manifest admits `members`/`exclude` entries only in the form this
+/// produces, and the commands that write them convert what they are given
+/// into it with this. Unlike [`parse_relative_unix_path`] it resolves `.`
+/// and `..` components rather than rejecting them, which is what a
+/// command needs for a path a user typed. Absolute paths (Unix and
+/// Windows alike), backslashes and NUL characters are rejected here
+/// exactly as they are there, so that no path this crate accepts depends
+/// on the platform it is read on.
+pub fn normalize_relative(path: &str) -> Result<Utf8UnixPathBuf, NormalizeRelativeError> {
+    if Utf8WindowsPath::new(&path).is_absolute() || path.starts_with('/') {
+        return Err(NormalizeRelativeError::Absolute {
+            path: path.to_owned(),
+        });
+    }
+    for c in path.bytes() {
+        if c == b'\0' {
+            return Err(NormalizeRelativeError::ContainsNull {
+                path: path.to_owned(),
+            });
+        } else if c == b'\\' {
+            return Err(NormalizeRelativeError::ContainsBackslash {
+                path: path.to_owned(),
+            });
+        }
+    }
+
+    let mut segments: Vec<&str> = Vec::new();
+    for segment in path.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                if segments.pop().is_none() {
+                    return Err(NormalizeRelativeError::EscapesRoot {
+                        path: path.to_owned(),
+                    });
+                }
+            }
+            segment => segments.push(segment),
+        }
+    }
+    if segments.is_empty() {
+        return Err(NormalizeRelativeError::IsRoot {
+            path: path.to_owned(),
+        });
+    }
+
+    Ok(Utf8UnixPathBuf::from(segments.join("/")))
+}
+
 pub fn to_pretty_json_string<T: Serialize>(value: &T) -> String {
     // If this fails, it's a bug
     let mut serialized = serde_json::to_string_pretty(value).unwrap();
@@ -312,3 +392,7 @@ pub const SP: char = ' ';
 pub fn format_expiry_utc(expires_at: &jiff::Timestamp) -> String {
     expires_at.strftime("%Y-%m-%d %H:%M:%S UTC").to_string()
 }
+
+#[cfg(test)]
+#[path = "./utils_tests.rs"]
+mod tests;
