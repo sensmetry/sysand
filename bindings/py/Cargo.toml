@@ -14,7 +14,7 @@ homepage.workspace = true
 [features]
 default = ["extension-module", "abi3", "tls-aws-lc-rs"]
 extension-module = ["pyo3/extension-module"]
-abi3 = ["pyo3/abi3", "pyo3/abi3-py310"]
+abi3 = ["pyo3/abi3-py310", "pyo3/abi3t-py315"]
 tls-aws-lc-rs = ["sysand-core/tls-aws-lc-rs", "sysand/tls-aws-lc-rs"]
 tls-ring = ["sysand-core/tls-ring", "sysand/tls-ring"]
 kpar-bzip2 = ["sysand-core/kpar-bzip2", "sysand/kpar-bzip2"]
