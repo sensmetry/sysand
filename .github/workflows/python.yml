@@ -75,13 +75,13 @@ jobs:
           # - runner: windows-11-arm
           #   target: arm64 # not aarch64 because expected by setup-python
           #   rust_target: aarch64-pc-windows-msvc
-        # It is sufficient to build wheels for the lowest supported Python
-        # version, but we need to build wheels for each supported free-threaded
-        # version.
+        # Two wheels cover all supported Python versions:
+        # - abi3 for the lowest supported version (GIL-enabled 3.10+)
+        # - abi3t for 3.15 (GIL-enabled and free-threaded 3.15+)
         python:
-          - version: "3.14t"
-            label: 3.14-free-threaded
-            args_suffix: --interpreter python3.14t
+          - version: "3.15t"
+            label: 3.15-abi3t
+            args_suffix: --interpreter python3.15t
         include:
           # Since Python 3.10 isn't available on the arm runners, we need to
           # provide a 3.10 job for x64 and a 3.11 job for arm64.
@@ -194,20 +194,20 @@ jobs:
           manylinux: musllinux_1_2
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
-      - name: Build free-threaded wheels (manylinux)
+      - name: Build abi3t wheels (manylinux)
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           target: ${{ matrix.platform.target }}
           working-directory: bindings/py
-          args: --release --out ../../dist --compatibility pypi --interpreter python3.14t
+          args: --release --out ../../dist --compatibility pypi --interpreter python3.15
           manylinux: manylinux2014 # TODO: don't use default cross-compile containers for aarch64
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
-      - name: Build free-threaded wheels (musllinux)
+      - name: Build abi3t wheels (musllinux)
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           target: ${{ matrix.platform.target }}
           working-directory: bindings/py
-          args: --release --out ../../dist --compatibility pypi --interpreter python3.14t
+          args: --release --out ../../dist --compatibility pypi --interpreter python3.15
           manylinux: musllinux_1_2
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
@@ -220,6 +220,8 @@ jobs:
 
       - name: pytest (manylinux)
         run: .github/scripts/run-pytest.sh
+      - name: pytest (manylinux, abi3t)
+        run: UV_PYTHON=3.15t .github/scripts/run-pytest.sh
 
       - name: pytest (musllinux)
         run: |
@@ -266,12 +268,12 @@ jobs:
           args: --release --out ../../dist --compatibility pypi
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
-      - name: Build free-threaded wheels
+      - name: Build abi3t wheels
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           target: ${{ matrix.platform.target }}
           working-directory: bindings/py
-          args: --release --out ../../dist --compatibility pypi --interpreter python3.14t
+          args: --release --out ../../dist --compatibility pypi --interpreter python3.15
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
       - name: Upload wheels
@@ -283,6 +285,8 @@ jobs:
 
       - name: pytest
         run: .github/scripts/run-pytest.sh
+      - name: pytest (abi3t)
+        run: UV_PYTHON=3.15t .github/scripts/run-pytest.sh
 
   sdist:
     needs: [plan]
