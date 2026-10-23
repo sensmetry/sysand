@@ -47,8 +47,6 @@ pub enum AnyProject<Policy: HTTPAuthentication> {
 
 #[derive(Error, Debug)]
 pub enum TryFromSourceError {
-    #[error("unsupported source\n{0}")]
-    UnsupportedSource(String),
     #[error(transparent)]
     LocalKpar(Box<FsIoError>),
     #[error(transparent)]

@@ -22,7 +22,7 @@ use crate::{
     lock::{Lock, Project, Usage, hash_str},
     model::{InterchangeProjectUsage, InterchangeProjectValidationError},
     project::{
-        CanonicalizationError, ProjectRead,
+        ProjectRead,
         utils::{FsIoError, Identifier},
     },
     resolve::{ResolveRead, UsageOrigin},
@@ -51,8 +51,6 @@ impl fmt::Display for IncompleteField {
 pub enum LockProjectError<PI: ProjectRead, PD: ProjectRead, R: ResolveRead + Debug + 'static> {
     #[error(transparent)]
     InputProjectError(PI::Error),
-    #[error(transparent)]
-    InputProjectCanonicalizationError(CanonicalizationError<PI::Error>),
     #[error(transparent)]
     LockError(#[from] LockError<PD, R>),
     /// A member inherits a group usage that names a local path.
@@ -170,8 +168,6 @@ impl fmt::Display for TypedUsageMismatchError {
 pub enum LockError<PD: ProjectRead, R: ResolveRead + Debug + 'static> {
     #[error(transparent)]
     DependencyProject(PD::Error),
-    #[error(transparent)]
-    DependencyProjectCanonicalization(CanonicalizationError<PD::Error>),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
     #[error("incomplete project {project_label}: missing {field}")]
