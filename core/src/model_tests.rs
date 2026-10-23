@@ -778,6 +778,12 @@ fn metamodel_family_prefixes_and_names() {
         MetamodelFamily::Syside.prefix(),
         "https://www.sysand.com/spec/"
     );
+    for family in [MetamodelFamily::Omg, MetamodelFamily::Syside] {
+        assert_eq!(
+            family.prefix(),
+            format!("https://www.{}/spec/", family.host())
+        );
+    }
     assert_eq!(MetamodelFamily::Omg.to_string(), "OMG");
     assert_eq!(MetamodelFamily::Syside.to_string(), "Syside");
 }

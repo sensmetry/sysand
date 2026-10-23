@@ -17,7 +17,7 @@ use std::ops::Range;
 use serde::de::{IgnoredAny, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::model::MetamodelFamily;
+use crate::model::{KnownMetamodel, MetamodelFamily};
 
 /// Whether a diagnostic stops the operation that produced it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -460,11 +460,24 @@ impl Display for ReadWarning {
                 "`{key}` in {location} is only supported by the {supported_by} metamodel \
                  and is ignored here"
             ),
-            Self::UnknownMetamodel { location, value } => write!(
-                f,
-                "{location} declares metamodel `{value}`, which this version of Sysand does \
-                 not recognize"
-            ),
+            Self::UnknownMetamodel { location, value } => {
+                write!(
+                    f,
+                    "{location} declares metamodel `{value}`,\n\
+                     {SP:>8} which this version of Sysand does not recognize",
+                    SP = ' '
+                )?;
+                if in_family_host(value) {
+                    write!(
+                        f,
+                        ";\n\
+                         {SP:>8} Sysand recognizes {list}",
+                        SP = ' ',
+                        list = KnownMetamodel::RECOGNIZED
+                    )?;
+                }
+                Ok(())
+            }
             Self::IgnoredSourceOverrides { path } => write!(
                 f,
                 "`{path}` is not at the workspace root, so it is ignored as a whole \
@@ -484,6 +497,24 @@ pub fn unsupported_metamodel_suffix(metamodel: &str) -> String {
         "; this may be because the project uses a metamodel this version of Sysand does not \
          support: `{metamodel}`"
     )
+}
+
+/// Whether `value` is on the host of a recognized metamodel family, where
+/// an unrecognized value is most likely a misspelled recognized one. The
+/// scheme, letter case and a `www.` prefix are ignored, so that the usual
+/// misspellings of the host itself count too.
+fn in_family_host(value: &str) -> bool {
+    let Some((_scheme, rest)) = value.split_once("://") else {
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let host = match authority.split_at_checked(4) {
+        Some((www, host)) if www.eq_ignore_ascii_case("www.") => host,
+        _ => authority,
+    };
+    [MetamodelFamily::Omg, MetamodelFamily::Syside]
+        .into_iter()
+        .any(|family| family.host().eq_ignore_ascii_case(host))
 }
 
 #[cfg(test)]
