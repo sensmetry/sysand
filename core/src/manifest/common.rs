@@ -122,12 +122,14 @@ impl<'de> Deserialize<'de> for StdlibStem {
 /// model-toml.md only recognizes a single maintainer shape ("array of
 /// strings, each of the form `name <email>`; both parts are mandatory"),
 /// so this is a plain struct. Each entry stays a string rather than a
-/// `{name, email}` table so that the round-trip to a KPAR's
-/// `.project.json` `maintainer` array is the identity.
+/// `{name, email}` table, and serializes as the text it was parsed from,
+/// so that the round-trip to a KPAR's `.project.json` `maintainer` array
+/// is the identity.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Maintainer {
     pub name: String,
     pub email: String,
+    raw: String,
 }
 
 /// The only way a maintainer string can fail: it is not `name <email>`
@@ -141,31 +143,35 @@ pub struct MaintainerError {
 impl Maintainer {
     /// Both parts are mandatory, so a bare name, a bare `<email>`, or
     /// malformed text like `some <some-email> strings` is not a
-    /// maintainer at all.
+    /// maintainer at all. The name has no surrounding whitespace and is
+    /// followed by a single space, the email is a single word with an `@`,
+    /// and the string has exactly one `<` and one `>`, which ends it.
     pub fn parse(raw: &str) -> Result<Self, MaintainerError> {
-        let trimmed = raw.trim();
-        if let (Some(open), Some(close)) = (trimmed.find('<'), trimmed.rfind('>'))
-            && open < close
-            && close == trimmed.len() - 1
+        if let Some((before, rest)) = raw.split_once('<')
+            && before.len() >= 2
+            && let Some(name) = before.strip_suffix(' ')
+            && name.trim() == name
+            && let Some(email) = rest.strip_suffix('>')
+            && !name.contains('>')
+            && email.contains('@')
+            && !email.contains(['<', '>'])
+            && !email.contains(char::is_whitespace)
         {
-            let name = trimmed[..open].trim();
-            let email = &trimmed[open + 1..close];
-            if !name.is_empty() && !email.is_empty() {
-                return Ok(Self {
-                    name: name.to_owned(),
-                    email: email.to_owned(),
-                });
-            }
+            return Ok(Self {
+                name: name.to_owned(),
+                email: email.to_owned(),
+                raw: raw.to_owned(),
+            });
         }
         Err(MaintainerError {
-            raw: trimmed.to_owned(),
+            raw: raw.to_owned(),
         })
     }
 }
 
 impl Display for Maintainer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} <{}>", self.name, self.email)
+        f.write_str(&self.raw)
     }
 }
 
