@@ -29,6 +29,7 @@ assert_cmd = { version = "2.1.2", default-features = false }
 camino = { version = "1.2", default-features = false, features = ["serde1"] }
 camino-tempfile = { version = "1.4", default-features = false }
 env_logger = { version = "0.11.9", default-features = false, features = ["auto-color"] }
+gix = { version = "0.89.0", default-features = false }
 fluent-uri = { version = "0.4.1", default-features = false, features = ["std", "net", "serde"] }
 glob = { version = "0.3.3", default-features = false }
 hex = { version = "0.4.3", default-features = false, features = ["std"] }

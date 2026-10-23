@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-#[cfg(feature = "alltests")]
-use std::process::Command;
-
 use std::{error::Error, io::Write as _};
 
 use assert_cmd::prelude::*;
@@ -787,50 +784,16 @@ fn info_basic_local_kpar() -> Result<(), Box<dyn Error>> {
 fn info_basic_file_git() -> Result<(), Box<dyn Error>> {
     let cwd = Utf8TempDir::new()?;
 
-    {
-        git_init(cwd.path())?;
-
-        // TODO: Replace by commands::*::do_* when sufficiently complete, also use gix to create repo?
-        std::fs::write(
-            cwd.path().join(".project.json"),
-            r#"{"name":"info_basic_file_git","version":"1.2.3"}"#,
-        )?;
-        Command::new("git")
-            .arg("add")
-            .arg(".project.json")
-            .current_dir(cwd.path())
-            .output()?
-            .assert()
-            .success();
-
-        std::fs::write(
-            cwd.path().join(".meta.json"),
-            r#"{"index":{},"created":"123"}"#,
-        )?;
-        Command::new("git")
-            .arg("add")
-            .arg(".meta.json")
-            .current_dir(cwd.path())
-            .output()?
-            .assert()
-            .success();
-
-        // std::fs::write(cwd.path().join("test.sysml"), "package Test;")?;
-        // Command::new("git")
-        //     .arg("add")
-        //     .arg("test.sysml")
-        //     .current_dir(cwd.path())
-        //     .output()?
-        //     .assert()
-        //     .success();
-
-        Command::new("git")
-            .args(["commit", "-m", "test_commit"])
-            .current_dir(cwd.path())
-            .output()?
-            .assert()
-            .success();
-    }
+    git_commit_files(
+        cwd.path(),
+        &[
+            (
+                ".project.json",
+                r#"{"name":"info_basic_file_git","version":"1.2.3"}"#,
+            ),
+            (".meta.json", r#"{"index":{},"created":"123"}"#),
+        ],
+    )?;
 
     let (_, _, out) = run_sysand(
         [

@@ -91,9 +91,20 @@ pub fn create_reqwest_client()
 -> Result<reqwest_middleware::ClientWithMiddleware, ReqwestClientBuildError> {
     install_default_crypto_provider();
 
-    let client = reqwest::Client::builder().user_agent(USER_AGENT).build()?;
+    let client = client_builder().build()?;
 
     Ok(reqwest_middleware::ClientBuilder::new(client).build())
+}
+
+/// A client builder with Sysand's user agent, the base of every client.
+///
+/// Unit tests talk only to local mock servers, so their clients never use
+/// a proxy, whether from the environment or the system settings.
+pub(crate) fn client_builder() -> reqwest::ClientBuilder {
+    let builder = reqwest::Client::builder().user_agent(USER_AGENT);
+    #[cfg(test)]
+    let builder = builder.no_proxy();
+    builder
 }
 
 /// Install the crypto provider selected by this crate's `tls-*` features as

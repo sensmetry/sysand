@@ -625,8 +625,7 @@ struct ProbeOutcome {
 fn probe_client() -> Result<reqwest::Client, reqwest::Error> {
     crate::resolve::net_utils::install_default_crypto_provider();
 
-    reqwest::Client::builder()
-        .user_agent(crate::resolve::net_utils::USER_AGENT)
+    crate::resolve::net_utils::client_builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(std::time::Duration::from_secs(30))
         .build()

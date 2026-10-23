@@ -3873,6 +3873,7 @@ dependencies = [
  "clap",
  "env_logger",
  "fluent-uri",
+ "gix",
  "glob",
  "indexmap",
  "jiff",
