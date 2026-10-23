@@ -3,9 +3,8 @@
 
 #![allow(unused_imports)]
 
-use std::{io::Read as _, process::Command};
+use std::io::Read as _;
 
-use assert_cmd::prelude::*;
 #[cfg(feature = "alltests")]
 use camino::Utf8Path;
 use camino_tempfile::tempdir;
@@ -17,85 +16,81 @@ use crate::{
 };
 //use predicates::prelude::*;
 
-/// Initializes a git repository at `path` with a pre-configured test user.
+/// Writes `files` (relative path, content) into `dir`, makes `dir` a git
+/// repository and commits them, leaving an index that matches the commit.
+///
+/// Built with gix in isolation rather than with the `git` binary: no
+/// system, user or environment git configuration is read, so nothing on
+/// the machine running the tests (commit signing, hooks, a default branch)
+/// changes the repository.
 #[cfg(feature = "alltests")]
-fn git_init(path: &Utf8Path) -> Result<(), Box<dyn std::error::Error>> {
-    Command::new("git")
-        .arg("init")
-        .current_dir(path)
-        .output()?
-        .assert()
-        .success();
-    Command::new("git")
-        .args(["config", "user.email", "user@sysand.com"])
-        .current_dir(path)
-        .output()?
-        .assert()
-        .success();
-    Command::new("git")
-        .args(["config", "user.name", "Test User"])
-        .current_dir(path)
-        .output()?
-        .assert()
-        .success();
+fn git_commit_files(
+    dir: &Utf8Path,
+    files: &[(&str, &str)],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let repo = gix::ThreadSafeRepository::init_opts(
+        dir,
+        gix::create::Kind::WithWorktree,
+        gix::create::Options::default(),
+        gix::open::Options::isolated(),
+    )?
+    .to_thread_local();
+    let mut tree = repo.edit_tree(gix::ObjectId::empty_tree(repo.object_hash()))?;
+    for (path, content) in files {
+        let file = dir.join(path);
+        if let Some(parent) = file.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(file, content)?;
+        tree.upsert(
+            *path,
+            gix::object::tree::EntryKind::Blob,
+            repo.write_blob(content)?,
+        )?;
+    }
+    let tree = tree.write()?.detach();
+    let signature = gix::actor::SignatureRef {
+        name: "Test User".into(),
+        email: "user@sysand.com".into(),
+        time: "0 +0000",
+    };
+    repo.commit_as(
+        signature,
+        signature,
+        "HEAD",
+        "test_commit",
+        tree,
+        gix::commit::NO_PARENT_IDS,
+    )?;
+    repo.index_from_tree(&tree)?
+        .write(gix::index::write::Options::default())?;
     Ok(())
 }
 
+/// Not isolated from the machine's git configuration: the clone runs gix
+/// in the test process, and the `git upload-pack` it starts for `file://`
+/// inherits the test's environment, so both read the system and user git
+/// config. Isolating them needs a cleared environment, which is only sound
+/// before any thread exists; as an integration test that means its own
+/// `main` (`harness = false`, a `[[test]]` entry, `unsafe` environment
+/// edits), which is too much special-casing for one test.
 #[cfg(feature = "alltests")]
 #[test]
 pub fn basic_gix_access() -> Result<(), Box<dyn std::error::Error>> {
     use crate::project::utils::wrapfs;
 
     let repo_dir = tempdir()?;
-    git_init(repo_dir.path())?;
-
-    // TODO: Replace by commands::*::do_* when sufficiently complete, also use gix to create repo?
-    std::fs::write(
-        repo_dir.path().join(".project.json"),
-        r#"{"name":"basic_gix_access","version":"1.2.3"}"#,
+    git_commit_files(
+        repo_dir.path(),
+        &[
+            (
+                ".project.json",
+                r#"{"name":"basic_gix_access","version":"1.2.3"}"#,
+            ),
+            (".meta.json", r#"{"index":{},"created":"123"}"#),
+            ("test.sysml", "package Test;"),
+        ],
     )?;
-    Command::new("git")
-        .arg("add")
-        .arg(".project.json")
-        .current_dir(repo_dir.path())
-        .output()?
-        .assert()
-        .success();
-
-    std::fs::write(
-        repo_dir.path().join(".meta.json"),
-        r#"{"index":{},"created":"123"}"#,
-    )?;
-    Command::new("git")
-        .arg("add")
-        .arg(".meta.json")
-        .current_dir(repo_dir.path())
-        .output()?
-        .assert()
-        .success();
-
-    std::fs::write(repo_dir.path().join("test.sysml"), "package Test;")?;
-    Command::new("git")
-        .arg("add")
-        .arg("test.sysml")
-        .current_dir(repo_dir.path())
-        .output()?
-        .assert()
-        .success();
-
-    Command::new("git")
-        .args(["commit", "-m", "test_commit"])
-        .current_dir(repo_dir.path())
-        .output()?
-        .assert()
-        .success();
-
-    Command::new("git")
-        .arg("update-server-info")
-        .current_dir(repo_dir.path())
-        .output()?
-        .assert()
-        .success();
 
     // NOTE: Gix does not support the "dumb" HTTP protocol
 

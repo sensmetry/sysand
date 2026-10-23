@@ -22,28 +22,50 @@ pub const DEFAULT_ENV_FILE_CONTENTS: &str =
 version = \"0.2\"
 ";
 
-/// Initializes a git repository at `path` with a pre-configured test user.
-pub fn git_init(path: &Utf8Path) -> Result<(), Box<dyn Error>> {
-    use assert_cmd::prelude::*;
-
-    Command::new("git")
-        .arg("init")
-        .current_dir(path)
-        .output()?
-        .assert()
-        .success();
-    Command::new("git")
-        .args(["config", "user.email", "user@sysand.com"])
-        .current_dir(path)
-        .output()?
-        .assert()
-        .success();
-    Command::new("git")
-        .args(["config", "user.name", "Test User"])
-        .current_dir(path)
-        .output()?
-        .assert()
-        .success();
+/// Writes `files` (relative path, content) into `dir`, makes `dir` a git
+/// repository and commits them, leaving an index that matches the commit.
+///
+/// Built with gix in isolation rather than with the `git` binary: no
+/// system, user or environment git configuration is read, so nothing on
+/// the machine running the tests (commit signing, hooks, a default branch)
+/// changes the repository.
+pub fn git_commit_files(dir: &Utf8Path, files: &[(&str, &str)]) -> Result<(), Box<dyn Error>> {
+    let repo = gix::ThreadSafeRepository::init_opts(
+        dir,
+        gix::create::Kind::WithWorktree,
+        gix::create::Options::default(),
+        gix::open::Options::isolated(),
+    )?
+    .to_thread_local();
+    let mut tree = repo.edit_tree(gix::ObjectId::empty_tree(repo.object_hash()))?;
+    for (path, content) in files {
+        let file = dir.join(path);
+        if let Some(parent) = file.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(file, content)?;
+        tree.upsert(
+            *path,
+            gix::object::tree::EntryKind::Blob,
+            repo.write_blob(content)?,
+        )?;
+    }
+    let tree = tree.write()?.detach();
+    let signature = gix::actor::SignatureRef {
+        name: "Test User".into(),
+        email: "user@sysand.com".into(),
+        time: "0 +0000",
+    };
+    repo.commit_as(
+        signature,
+        signature,
+        "HEAD",
+        "test_commit",
+        tree,
+        gix::commit::NO_PARENT_IDS,
+    )?;
+    repo.index_from_tree(&tree)?
+        .write(gix::index::write::Options::default())?;
     Ok(())
 }
 
@@ -87,17 +109,41 @@ pub fn sysand_cmd_in_with<'a, I: IntoIterator<Item = &'a str>>(
     // NOTE had trouble getting test-temp-dir crate working, but would be better
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("sysand"));
 
-    cmd.env("NO_COLOR", "1");
-    // A developer's ambient `SYSAND_*` overrides (default index, config,
-    // credentials, and whatever is added later) must not leak into tests:
-    // they would inject markers or ambiguity notes into asserted output or
-    // authenticate against the wrong index. Tests that need one set it
-    // explicitly via `env`, which is applied after this sweep.
-    for (name, _) in std::env::vars_os() {
-        if name.to_string_lossy().starts_with("SYSAND_") {
-            cmd.env_remove(name);
+    // Nothing from the developer's environment reaches the binary unless it
+    // is listed here: `SYSAND_*` overrides, `RUST_LOG`, proxies, CI tokens
+    // and git's variables would all change what a test sees. Tests that
+    // need a variable set it explicitly via `env`, applied last.
+    cmd.env_clear();
+    for name in [
+        // gix runs `git upload-pack` for `file://` git sources
+        "PATH",
+        "TMPDIR",
+        // Windows: temporary files, and networking needs `SystemRoot`
+        "TEMP",
+        "TMP",
+        "SystemRoot",
+        // coverage of the spawned binary
+        "LLVM_PROFILE_FILE",
+    ] {
+        if let Some(value) = std::env::var_os(name) {
+            cmd.env(name, value);
         }
     }
+    cmd.env("NO_COLOR", "1");
+    // reqwest also reads the macOS and Windows system proxy settings, but
+    // never in place of an environment `NO_PROXY`, so every request goes
+    // direct.
+    cmd.env("NO_PROXY", "*");
+    // git reads the user config through `HOME` and `XDG_CONFIG_HOME`, so
+    // both point at a directory with no config, and skips the system one.
+    let home = concat!(env!("CARGO_TARGET_TMPDIR"), "/empty-home");
+    std::fs::create_dir_all(home)?;
+    cmd.env("GIT_CONFIG_NOSYSTEM", "1");
+    cmd.env("HOME", home);
+    cmd.env(
+        "XDG_CONFIG_HOME",
+        concat!(env!("CARGO_TARGET_TMPDIR"), "/empty-home/.config"),
+    );
     // Default the debug-only credential store seam
     // (sysand/src/credential_store.rs) to a simulated-absent keyring so
     // no test ever reads the developer's real OS keyring (which could

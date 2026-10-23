@@ -11,8 +11,11 @@ use sysand::render_long_help;
 /// The bare binary, deliberately not `common::sysand_cmd_in_with`: that
 /// helper appends `--no-config` after the caller's arguments and injects
 /// environment, neither of which belongs in a byte comparison of help text.
+/// The environment is cleared all the same, since clap shows the value of
+/// each set variable an option reads (`[env: SYSAND_INDEX=...]`).
 fn binary_help() -> String {
     let output = Command::new(assert_cmd::cargo::cargo_bin!("sysand"))
+        .env_clear()
         .arg("--help")
         .output()
         .expect("failed to run the sysand binary");

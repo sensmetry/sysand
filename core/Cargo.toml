@@ -71,7 +71,7 @@ typed-path = { workspace = true, features = ["std"] }
 zip = { workspace = true, optional = true, features = ["jiff-02"] }
 url = { workspace = true, features = ["std"] }
 percent-encoding = { version = "2.3.2", default-features = false, features = ["std"] }
-gix = { version = "0.89.0", default-features = false, optional = true, features = [
+gix = { workspace = true, optional = true, features = [
   "blocking-http-transport-reqwest",
   "blocking-network-client",
   "worktree-mutation",

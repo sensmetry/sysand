@@ -1326,7 +1326,18 @@ fn add_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
 
     out.assert().success();
 
-    let out = run_sysand_in(&cwd, ["add", "--iri", "urn:kpar:add_nonexistent"], None)?;
+    // An unreachable index, so the default one is never queried
+    let out = run_sysand_in(
+        &cwd,
+        [
+            "add",
+            "--iri",
+            "urn:kpar:add_nonexistent",
+            "--default-index",
+            "http://127.0.0.1:1",
+        ],
+        None,
+    )?;
 
     out.assert()
         .failure()
