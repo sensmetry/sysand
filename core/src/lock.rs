@@ -198,14 +198,6 @@ fn project_with<D: Display>(name: Option<D>) -> String {
     }
 }
 
-#[derive(Debug, Error)]
-pub enum ResolutionError<EnvironmentError> {
-    #[error(transparent)]
-    CandidateProjects(EnvironmentError),
-    #[error("missing projects: {0:?}")]
-    MissingProjects(Vec<Project>),
-}
-
 // TODO: probably better use IRIs instead of names where possible
 #[derive(Debug, Error)]
 pub enum ValidationError {

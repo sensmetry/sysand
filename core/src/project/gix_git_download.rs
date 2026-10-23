@@ -61,8 +61,6 @@ pub enum GixDownloadedError {
     ImpossibleRelativePath(#[from] RelativizePathError),
     #[error("project is missing metadata file `.meta.json`")]
     MissingMeta,
-    #[error("project is missing `.project.json` and/or `.meta.json` files")]
-    MissingInfoMeta,
     #[error("{0}")]
     Other(String),
 }

@@ -193,18 +193,6 @@ impl<E: ErrorBound> ManifestError<E> {
     }
 }
 
-#[derive(Debug, Error)]
-pub enum IntoProjectError<ReadError: ErrorBound, W: ProjectMut> {
-    #[error(transparent)]
-    ProjectRead(ReadError),
-    #[error(transparent)]
-    ProjectWrite(W::Error),
-    #[error("missing project information file `.project.json`")]
-    MissingInfo,
-    #[error("missing project metadata file `.meta.json`")]
-    MissingMeta,
-}
-
 // TODO: serialize this as "kpar:<hex>" or "meta:<hex>" to avoid having two fields,
 // which can't be both populated
 #[derive(Debug, Clone, PartialEq, Eq)]

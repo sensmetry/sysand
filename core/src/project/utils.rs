@@ -113,9 +113,6 @@ pub enum FsIoError {
     OpenFile(Utf8PathBuf, io::Error),
     #[error("failed to get metadata for\n  `{0}`:\n  {1}")]
     Metadata(Utf8PathBuf, io::Error),
-    /// Same as `Self::Metadata`, but path is unknown when using file handle
-    #[error("failed to get metadata for file: {0}")]
-    MetadataHandle(io::Error),
     #[error("failed to create a temporary file: {0}")]
     CreateTempFile(io::Error),
     #[error("failed to create a temporary directory: {0}")]
@@ -145,8 +142,6 @@ pub enum FsIoError {
     CurrentDir(io::Error),
     #[error("failed to get metadata to determine if\n  `{0}` is a regular file:\n  {1}")]
     IsFile(Utf8PathBuf, io::Error),
-    #[error("failed to get metadata to determine if\n  `{0}` is a directory:\n  {1}")]
-    IsDir(Utf8PathBuf, io::Error),
     #[error("failed to seek file `{0}` to {1}:\n  {2}")]
     Seek(Utf8PathBuf, u64, io::Error),
 }

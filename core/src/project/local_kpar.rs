@@ -140,28 +140,6 @@ impl From<FsIoError> for LocalKParError {
     }
 }
 
-#[derive(Debug, Error)]
-pub enum IntoKparError<ReadError> {
-    #[error("missing project information file `.project.json`")]
-    MissingInfo,
-    #[error("missing project metadata file `.meta.json`")]
-    MissingMeta,
-    #[error(transparent)]
-    ProjectRead(ReadError),
-    #[error(transparent)]
-    Zip(#[from] ZipArchiveError),
-    #[error(transparent)]
-    Io(#[from] Box<FsIoError>),
-    #[error("project serialization error: {0}: {1}")]
-    Serialize(&'static str, serde_json::Error),
-}
-
-impl<ReadError> From<FsIoError> for IntoKparError<ReadError> {
-    fn from(v: FsIoError) -> Self {
-        Self::Io(Box::new(v))
-    }
-}
-
 impl LocalKParProject {
     /// Access the project. No invariants will be checked. If `nominal_path` is provided,
     /// `sources()` will work.
