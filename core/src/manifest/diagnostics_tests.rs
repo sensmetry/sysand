@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::manifest::diagnostics::{
     Diagnostic, KeyLocation, Position, ReadWarning, Report, Severity, missing_key,
 };
-use crate::model::MetamodelFamily;
+use crate::model::{KnownMetamodel, MetamodelFamily};
 
 #[derive(Debug, Deserialize, Serialize)]
 struct Table {
@@ -99,9 +99,55 @@ fn unknown_metamodel_warning_text() {
     };
     assert_eq!(
         warning.to_string(),
-        "`[project]` declares metamodel `https://example.com/spec/Other/1`, which this version \
-         of Sysand does not recognize"
+        "`[project]` declares metamodel `https://example.com/spec/Other/1`,\n         \
+         which this version of Sysand does not recognize"
     );
+}
+
+/// An unrecognized value on a recognized family's host is most likely a
+/// misspelling, so the warning lists the recognized values.
+#[test]
+fn unknown_metamodel_warning_on_a_family_host_lists_the_recognized_ones() {
+    for value in [
+        "https://www.omg.org/spec/sysml/20250201",
+        "https://www.omg.org/spec/SysMl/20250201",
+        "http://www.omg.org/spec/SysML/20250201",
+        "https://omg.org/spec/KerML/20250201",
+        "HTTPS://WWW.OMG.ORG/spec/SysML/20250201",
+        "https://www.omg.org/spec/UML/20250201",
+        "https://www.sysand.com/spec/sysml/20250201",
+        "https://sysand.com/spec/KerML/20250201",
+    ] {
+        let warning = ReadWarning::UnknownMetamodel {
+            location: KeyLocation::Table("project".to_owned()),
+            value: value.to_owned(),
+        };
+        assert_eq!(
+            warning.to_string(),
+            format!(
+                "`[project]` declares metamodel `{value}`,\n         \
+                 which this version of Sysand does not recognize;\n         \
+                 Sysand recognizes {}",
+                KnownMetamodel::RECOGNIZED
+            ),
+            "{value}"
+        );
+    }
+
+    for value in [
+        "https://example.com/spec/SysML/20250201",
+        "https://omg.org.example.com/spec/SysML/20250201",
+        "urn:example:metamodel",
+    ] {
+        let warning = ReadWarning::UnknownMetamodel {
+            location: KeyLocation::Table("project".to_owned()),
+            value: value.to_owned(),
+        };
+        assert!(
+            !warning.to_string().contains("Sysand recognizes"),
+            "{value}: {warning}"
+        );
+    }
 }
 
 /// workspaces.md "Source overrides".

@@ -61,6 +61,14 @@ impl MetamodelFamily {
             Self::Syside => "https://www.sysand.com/spec/",
         }
     }
+
+    /// The host of [`Self::prefix`], without its `www.`.
+    pub fn host(self) -> &'static str {
+        match self {
+            Self::Omg => "omg.org",
+            Self::Syside => "sysand.com",
+        }
+    }
 }
 
 impl Display for MetamodelFamily {
@@ -156,9 +164,10 @@ pub enum MetamodelParseError {
 ///
 /// A value of the form `<family prefix><spec-kind>/<release>` is `Known`.
 /// A value with a recognized `<family prefix><spec-kind>/` but anything
-/// other than a release after it does not parse, so that a typo in a
-/// recognized metamodel is not mistaken for some other metamodel. Every
-/// other IRI is `Other`.
+/// other than a release after it does not parse, so that a typo in the
+/// release is not mistaken for some other metamodel. Every other IRI is
+/// `Other`, including a misspelled prefix or spec kind; the warning for an
+/// unrecognized value on a family's host lists the recognized ones.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Metamodel {
     Known(KnownMetamodel),
