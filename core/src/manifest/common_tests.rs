@@ -114,7 +114,23 @@ fn maintainer_string_must_match_name_email_format() {
         "unexpected error: {error}"
     );
 
-    for bad in ["<a@b.c>", "A B <>", "A B", "A B <a@b.c> trailing"] {
+    for bad in [
+        "<a@b.c>",
+        "A B <>",
+        "A B",
+        "A B <a@b.c> trailing",
+        "A <x> trailing <y>",
+        "A <<b>>",
+        "A < b >",
+        "A <b c>",
+        "A> <b>",
+        "A<b>",
+        " <b>",
+        "A   <b>",
+        " A <b>",
+        "A\t <b>",
+        "A <b>",
+    ] {
         assert!(Maintainer::parse(bad).is_err(), "{bad} is not a maintainer");
     }
 
@@ -122,6 +138,23 @@ fn maintainer_string_must_match_name_email_format() {
     assert_eq!(maintainer.name, "A B");
     assert_eq!(maintainer.email, "a@b.c");
     assert_eq!(maintainer.to_string(), "A B <a@b.c>");
+}
+
+/// A maintainer serializes as the text it was parsed from, so the
+/// `.project.json` `maintainer` array keeps its spelling.
+#[test]
+fn maintainer_keeps_its_spelling() {
+    for raw in ["A <b@c>", "A B <a@b.c>"] {
+        let maintainer = Maintainer::parse(raw).expect("a maintainer");
+        assert_eq!(maintainer.to_string(), raw);
+        assert_eq!(
+            serde_json::to_string(&maintainer).expect("serializes"),
+            serde_json::to_string(raw).expect("serializes")
+        );
+    }
+    let maintainer = Maintainer::parse("A <b@c>").expect("a maintainer");
+    assert_eq!(maintainer.name, "A");
+    assert_eq!(maintainer.email, "b@c");
 }
 
 /// model-toml.md "Standard library": the `stdlib` value is "the last
