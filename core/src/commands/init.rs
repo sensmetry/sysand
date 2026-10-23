@@ -10,8 +10,8 @@ use spdx;
 use crate::{
     env::utils::ErrorBound,
     model::{
-        InterchangeProjectInfoRaw, InterchangeProjectMetadata, ProjectFieldError, ProjectName,
-        ProjectPublisher,
+        InterchangeProjectInfoRaw, InterchangeProjectMetadata, Metamodel, MetamodelParseError,
+        ProjectFieldError, ProjectName, ProjectPublisher,
     },
     project::{ProjectMut, memory::InMemoryProject},
 };
@@ -35,6 +35,8 @@ pub enum InitError<ProjectError: ErrorBound> {
     SPDXLicenseParse(Box<str>, spdx::error::ParseError),
     #[error("invalid metamodel `{0}`: {1}")]
     MetamodelParse(Box<str>, fluent_uri::ParseError),
+    #[error(transparent)]
+    MalformedMetamodel(MetamodelParseError),
 }
 
 pub fn do_init<P: ProjectMut>(
@@ -42,7 +44,7 @@ pub fn do_init<P: ProjectMut>(
     publisher: ProjectPublisher,
     version: Version,
     license: Option<spdx::Expression>,
-    metamodel: Option<Iri<String>>,
+    metamodel: Option<Metamodel>,
     storage: &mut P,
 ) -> Result<(), InitError<P::Error>> {
     let creating = "Creating";
@@ -103,7 +105,10 @@ pub fn do_init_parse<P: ProjectMut>(
     let metamodel = metamodel
         .map(Iri::parse)
         .transpose()
-        .map_err(|(e, m)| InitError::MetamodelParse(m.into(), e))?;
+        .map_err(|(e, m)| InitError::MetamodelParse(m.into(), e))?
+        .map(Metamodel::parse)
+        .transpose()
+        .map_err(InitError::MalformedMetamodel)?;
     do_init(name, publisher, version, license, metamodel, storage)
 }
 

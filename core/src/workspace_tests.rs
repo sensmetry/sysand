@@ -18,7 +18,7 @@ fn deserialize_with_meta_metamodel() {
     let info = WorkspaceInfo::try_from(raw).unwrap();
     assert!(info.meta.is_some());
     assert_eq!(
-        info.meta.unwrap().metamodel.unwrap().as_str(),
+        info.meta.unwrap().metamodel.unwrap().to_string(),
         "https://www.omg.org/spec/SysML/20250201"
     );
 }
@@ -48,4 +48,19 @@ fn deserialize_invalid_metamodel_iri() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert_matches!(err, WorkspaceValidationError::InvalidIri(..));
+}
+
+#[test]
+fn deserialize_malformed_metamodel_release() {
+    let json = r#"{
+            "projects": [],
+            "meta": {
+                "metamodel": "https://www.omg.org/spec/SysML/2025"
+            }
+        }"#;
+    let raw: WorkspaceInfoRaw = serde_json::from_str(json).unwrap();
+    assert_matches!(
+        WorkspaceInfo::try_from(raw),
+        Err(WorkspaceValidationError::MalformedMetamodel(_))
+    );
 }
