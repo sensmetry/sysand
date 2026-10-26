@@ -111,7 +111,8 @@ fn init<'local>(
             match error {
                 InitError::NameParse(..)
                 | InitError::PublisherParse(..)
-                | InitError::MetamodelParse(..) => {
+                | InitError::MetamodelParse(..)
+                | InitError::MalformedMetamodel(..) => {
                     env.throw_exception(ExceptionKind::InvalidValue, e)
                 }
                 InitError::SemVerParse(..) => {

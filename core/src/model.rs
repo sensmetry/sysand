@@ -31,11 +31,6 @@ use crate::utils::{
 // pub struct ParsedIri(fluent_uri::Iri<String>);
 // pub struct NormalisedIri(fluent_uri::Iri<String>);
 
-pub const KNOWN_METAMODELS: [&str; 2] = [
-    "https://www.omg.org/spec/SysML/20250201",
-    "https://www.omg.org/spec/KerML/20250201",
-];
-
 /// The two families of `metamodel` values Sysand recognizes: the OMG
 /// specifications, and the Syside metamodels that extend them and mirror
 /// the OMG value they extend.
@@ -69,6 +64,228 @@ impl Display for MetamodelFamily {
             Self::Omg => "OMG",
             Self::Syside => "Syside",
         })
+    }
+}
+
+/// The specification a metamodel value names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SpecKind {
+    SysMl,
+    KerMl,
+}
+
+impl SpecKind {
+    /// The segment a metamodel value spells this specification with.
+    pub fn segment(self) -> &'static str {
+        match self {
+            Self::SysMl => "SysML",
+            Self::KerMl => "KerML",
+        }
+    }
+
+    /// The extension every source file of a project with this
+    /// specification has.
+    pub fn file_ext(self) -> &'static str {
+        match self {
+            Self::SysMl => ".sysml",
+            Self::KerMl => ".kerml",
+        }
+    }
+
+    /// The language its source files are written in, as messages name it.
+    pub fn lang(self) -> &'static str {
+        match self {
+            Self::SysMl => "SysMLv2",
+            Self::KerMl => "KerML",
+        }
+    }
+
+    fn parse(segment: &str) -> Option<Self> {
+        match segment {
+            "SysML" => Some(Self::SysMl),
+            "KerML" => Some(Self::KerMl),
+            _ => None,
+        }
+    }
+}
+
+impl Display for SpecKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.segment())
+    }
+}
+
+/// A metamodel value that has the prefix of a recognized metamodel but not
+/// a release after it.
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
+#[error(
+    "metamodel `{metamodel}` has an invalid release `{release}`; a release is eight digits \
+     `20YYMMNN`, with month `MM` between `01` and `12`"
+)]
+pub struct MetamodelParseError {
+    pub metamodel: String,
+    pub release: String,
+}
+
+/// A project's `metamodel`, parsed.
+///
+/// A value of the form `<family prefix><spec-kind>/<release>` is `Known`.
+/// A value with a recognized `<family prefix><spec-kind>/` but anything
+/// other than a release after it does not parse, so that a typo in a
+/// recognized metamodel is not mistaken for some other metamodel. Every
+/// other IRI is `Other`.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Metamodel {
+    Known(KnownMetamodel),
+    Other(Iri<String>),
+}
+
+impl Metamodel {
+    /// Nothing is trimmed: a trailing `/` makes the release invalid, so
+    /// that a value is recognized under exactly one spelling and `Display`
+    /// returns the value it was parsed from.
+    pub fn parse(metamodel: Iri<String>) -> Result<Self, MetamodelParseError> {
+        let Some((family, spec, release)) = Self::split_known(metamodel.as_str()) else {
+            return Ok(Self::Other(metamodel));
+        };
+        let Some(release) = MetamodelRelease::parse(release) else {
+            return Err(MetamodelParseError {
+                release: release.to_owned(),
+                metamodel: metamodel.into_string(),
+            });
+        };
+        Ok(Self::Known(KnownMetamodel {
+            family,
+            spec,
+            release,
+        }))
+    }
+
+    fn split_known(metamodel: &str) -> Option<(MetamodelFamily, SpecKind, &str)> {
+        [MetamodelFamily::Omg, MetamodelFamily::Syside]
+            .into_iter()
+            .find_map(|family| {
+                let (spec, release) = metamodel.strip_prefix(family.prefix())?.split_once('/')?;
+                Some((family, SpecKind::parse(spec)?, release))
+            })
+    }
+
+    pub fn known(&self) -> Option<&KnownMetamodel> {
+        match self {
+            Self::Known(known) => Some(known),
+            Self::Other(_) => None,
+        }
+    }
+
+    /// The schema a project's manifest is validated against: the OMG one
+    /// unless the project declares a recognized Syside metamodel.
+    ///
+    /// model-toml.md: "A project without a `metamodel` is treated as an
+    /// OMG-metamodel project"; an unrecognized value is validated against
+    /// the OMG schema too (rule (a)).
+    pub fn schema_family(metamodel: Option<&Self>) -> MetamodelFamily {
+        metamodel
+            .and_then(Self::known)
+            .map_or(MetamodelFamily::Omg, |known| known.family)
+    }
+
+    /// How a message names a project's metamodel: "the OMG metamodel
+    /// `<url>`", "no declared metamodel (OMG assumed)" or "the unrecognized
+    /// metamodel `<url>`". Written to follow "uses" in a sentence, so the
+    /// article belongs here rather than in the sentence.
+    pub fn describe(metamodel: Option<&Self>) -> String {
+        match metamodel {
+            Some(Self::Known(known)) => format!("the {} metamodel `{known}`", known.family),
+            Some(Self::Other(iri)) => format!("the unrecognized metamodel `{iri}`"),
+            None => "no declared metamodel (OMG assumed)".to_owned(),
+        }
+    }
+}
+
+impl Display for Metamodel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Known(known) => known.fmt(f),
+            Self::Other(iri) => f.write_str(iri.as_str()),
+        }
+    }
+}
+
+impl From<Metamodel> for String {
+    fn from(value: Metamodel) -> Self {
+        match value {
+            Metamodel::Known(known) => known.to_string(),
+            Metamodel::Other(iri) => iri.into_string(),
+        }
+    }
+}
+
+/// A recognized metamodel: `<family prefix><spec-kind>/<release>`. Every
+/// field is valid on its own, so any combination is a valid metamodel.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct KnownMetamodel {
+    pub family: MetamodelFamily,
+    pub spec: SpecKind,
+    pub release: MetamodelRelease,
+}
+
+impl Display for KnownMetamodel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}{}/{}",
+            self.family.prefix(),
+            self.spec.segment(),
+            self.release
+        )
+    }
+}
+
+/// A metamodel release: `20yymmxx`, where `yy` and `xx` are pairs of
+/// digits and `1 <= mm <= 12`. The last pair is unspecified: releases are
+/// not necessarily on a given day.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum MetamodelRelease {
+    /// The SysML v2 / KerML release of 2025-02-01.
+    Release20250201,
+    /// A well-formed release this version of Sysand does not know.
+    Other(UnknownRelease),
+}
+
+/// The value of [`MetamodelRelease::Other`], well formed by construction.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct UnknownRelease(String);
+
+impl MetamodelRelease {
+    pub fn parse(release: &str) -> Option<Self> {
+        if release == "20250201" {
+            return Some(Self::Release20250201);
+        }
+        let rest = release.strip_prefix("20")?;
+        let &[_, _, tens, ones, _, _] = rest.as_bytes() else {
+            return None;
+        };
+        if !rest.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        let month = (tens - b'0') * 10 + (ones - b'0');
+        if !(1..=12).contains(&month) {
+            return None;
+        }
+        Some(Self::Other(UnknownRelease(release.to_owned())))
+    }
+
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Release20250201 => "20250201",
+            Self::Other(UnknownRelease(release)) => release,
+        }
+    }
+}
+
+impl Display for MetamodelRelease {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
@@ -186,17 +403,16 @@ pub fn parse_index_usage_spelling(
     publisher: &str,
     name: &str,
 ) -> Result<(IndexPublisher, IndexName), InterchangeProjectValidationError> {
-    let index_publisher =
-        IndexPublisher::parse(publisher.to_owned()).map_err(|(publisher, _)| {
-            InterchangeProjectValidationError::InvalidIndexUsagePublisher {
-                publisher,
-                name: name.to_owned(),
-            }
-        })?;
-    let index_name = IndexName::parse(name.to_owned()).map_err(|(name, _)| {
+    let index_publisher = IndexPublisher::parse(publisher).map_err(|e| {
+        InterchangeProjectValidationError::InvalidIndexUsagePublisher {
+            publisher: e.value,
+            name: name.to_owned(),
+        }
+    })?;
+    let index_name = IndexName::parse(name).map_err(|e| {
         InterchangeProjectValidationError::InvalidIndexUsageName {
             publisher: publisher.to_owned(),
-            name,
+            name: e.value,
         }
     })?;
     Ok((index_publisher, index_name))
@@ -1085,13 +1301,13 @@ pub struct InterchangeProjectChecksumRaw {
     pyo3(from_item_all)
 )]
 #[serde(rename_all = "camelCase")]
-pub struct InterchangeProjectMetadataG<Iri, Path: Eq + Hash, DateTime, IPC> {
+pub struct InterchangeProjectMetadataG<MM, Path: Eq + Hash, DateTime, IPC> {
     pub index: IndexMap<String, Path>,
 
     pub created: DateTime,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub metamodel: Option<Iri>,
+    pub metamodel: Option<MM>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub includes_derived: Option<bool>,
@@ -1106,7 +1322,7 @@ pub struct InterchangeProjectMetadataG<Iri, Path: Eq + Hash, DateTime, IPC> {
 pub type InterchangeProjectMetadataRaw =
     InterchangeProjectMetadataG<String, String, String, InterchangeProjectChecksumRaw>;
 pub type InterchangeProjectMetadata = InterchangeProjectMetadataG<
-    fluent_uri::Iri<String>,
+    Metamodel,
     Utf8UnixPathBuf,
     jiff::Timestamp,
     InterchangeProjectChecksum,
@@ -1136,7 +1352,7 @@ impl From<InterchangeProjectMetadata> for InterchangeProjectMetadataRaw {
                 .map(|(k, v)| (k, v.into_string()))
                 .collect(),
             created: format_created(&value.created),
-            metamodel: value.metamodel.map(fluent_uri::Iri::into_string),
+            metamodel: value.metamodel.map(String::from),
             includes_derived: value.includes_derived,
             includes_implied: value.includes_implied,
             checksum: value.checksum.map(|m| {
@@ -1164,6 +1380,8 @@ pub enum InterchangeProjectValidationError {
     InvalidUsageResource(String, #[source] fluent_uri::ParseError),
     #[error("invalid metamodel (`metamodel` field in `.meta.json`) `{0}`")]
     InvalidMetamodel(String, #[source] fluent_uri::ParseError),
+    #[error("invalid metamodel (`metamodel` field in `.meta.json`)")]
+    MalformedMetamodel(#[source] MetamodelParseError),
     #[error("project has an invalid Semantic Version `{0}`")]
     InvalidProjectVersion(Box<str>, #[source] semver::Error),
     #[error("project has an invalid name `{0}`")]
@@ -1328,15 +1546,14 @@ impl InterchangeProjectMetadataRaw {
         };
 
         let metamodel = if let Some(m) = &self.metamodel {
-            if !KNOWN_METAMODELS.contains(&m.as_str()) {
-                log::warn!("project uses an unknown metamodel `{m}`");
+            let iri = fluent_uri::Iri::parse(m.to_owned())
+                .map_err(|(e, val)| InterchangeProjectValidationError::InvalidMetamodel(val, e))?;
+            let metamodel = Metamodel::parse(iri)
+                .map_err(InterchangeProjectValidationError::MalformedMetamodel)?;
+            if let Metamodel::Other(iri) = &metamodel {
+                log::warn!("project uses an unknown metamodel `{iri}`");
             }
-            match fluent_uri::Iri::parse(m.to_owned()) {
-                Ok(i) => Some(i),
-                Err((e, val)) => {
-                    return Err(InterchangeProjectValidationError::InvalidMetamodel(val, e));
-                }
-            }
+            Some(metamodel)
         } else {
             None
         };
@@ -1716,36 +1933,63 @@ impl ProjectName {
     }
 }
 
-/// Why a publisher or name cannot spell a project in an index usage (or an
-/// index), see [`IndexPublisher`] and [`IndexName`]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
-pub enum IndexFieldError {
-    #[error(
-        "publisher must be 3-50 ASCII alphanumeric chars, with single ` ` or `-` separators \
-         between words"
-    )]
+/// A publisher or a name: which identifier rule applies, and which
+/// identifier an [`IdentifierError`] is about
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IdentifierKind {
     Publisher,
-    #[error(
-        "name must be 3-50 ASCII alphanumeric chars, with single ` `, `-`, or `.` separators \
-         between words"
-    )]
     Name,
 }
 
-/// The publisher of a project as an index usage, and an index, spell it:
-/// valid, once normalized (see [`Self::normalized`]), as the
-/// publisher of a `pkg:sysand` PURL. Every such publisher is also a valid
-/// [`ProjectPublisher`], but not the other way around
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// Why a publisher or name cannot spell a project in a `model.toml`, an
+/// index usage or an index, see [`IndexPublisher`] and [`IndexName`]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("{}", .kind.rule())]
+pub struct IdentifierError {
+    pub kind: IdentifierKind,
+    /// The value as given
+    pub value: String,
+}
+
+impl IdentifierKind {
+    /// Publishers disallow dots, but names permit them so that dotted
+    /// product names (e.g. `foo.bar`) are expressible
+    pub(crate) fn allows_dot_separator(self) -> bool {
+        self == Self::Name
+    }
+
+    fn rule(self) -> &'static str {
+        match self {
+            Self::Publisher => {
+                "publisher must be 3-50 ASCII alphanumeric chars, with single ` ` or `-` \
+                 separators between words"
+            }
+            Self::Name => {
+                "name must be 3-50 ASCII alphanumeric chars, with single ` `, `-`, or `.` \
+                 separators between words"
+            }
+        }
+    }
+}
+
+/// The publisher of a project as a `model.toml`, an index usage and an
+/// index spell it: valid, once normalized (see [`Self::normalized`]), as
+/// the publisher of a `pkg:sysand` PURL. Every such publisher is also a
+/// valid [`ProjectPublisher`], but not the other way around
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct IndexPublisher(String);
 
 impl IndexPublisher {
-    pub fn parse(publisher: String) -> Result<Self, (String, IndexFieldError)> {
+    pub fn parse(publisher: impl Into<String>) -> Result<Self, IdentifierError> {
+        let publisher = publisher.into();
         if crate::purl::is_valid_unnormalized_publisher(&publisher) {
             Ok(Self(publisher))
         } else {
-            Err((publisher, IndexFieldError::Publisher))
+            Err(IdentifierError {
+                kind: IdentifierKind::Publisher,
+                value: publisher,
+            })
         }
     }
 
@@ -1768,20 +2012,24 @@ impl IndexPublisher {
     }
 }
 
-/// The name of a project as an index usage, and an index, spell it: valid,
-/// once normalized (see [`Self::normalized`]), as the name of a
-/// `pkg:sysand` PURL. Every such name is also a valid [`ProjectName`], but
-/// not the other way around
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// The name of a project as a `model.toml`, an index usage and an index
+/// spell it: valid, once normalized (see [`Self::normalized`]), as the
+/// name of a `pkg:sysand` PURL. Every such name is also a valid
+/// [`ProjectName`], but not the other way around
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct IndexName(String);
 
 impl IndexName {
-    pub fn parse(name: String) -> Result<Self, (String, IndexFieldError)> {
+    pub fn parse(name: impl Into<String>) -> Result<Self, IdentifierError> {
+        let name = name.into();
         if crate::purl::is_valid_unnormalized_name(&name) {
             Ok(Self(name))
         } else {
-            Err((name, IndexFieldError::Name))
+            Err(IdentifierError {
+                kind: IdentifierKind::Name,
+                value: name,
+            })
         }
     }
 
@@ -1809,9 +2057,9 @@ impl IndexName {
 /// spell it, otherwise as [`ProjectPublisher::normalized`]. A publisher that
 /// is not even a valid project publisher is kept as it is
 pub(crate) fn normalize_typed_publisher(publisher: &str) -> String {
-    match IndexPublisher::parse(publisher.to_owned()) {
+    match IndexPublisher::parse(publisher) {
         Ok(publisher) => publisher.normalized(),
-        Err((publisher, _)) => match ProjectPublisher::parse(publisher) {
+        Err(e) => match ProjectPublisher::parse(e.value) {
             Ok(publisher) => publisher.into_normalized(),
             Err((publisher, _)) => publisher,
         },
@@ -1821,9 +2069,9 @@ pub(crate) fn normalize_typed_publisher(publisher: &str) -> String {
 /// How the name of a typed usage of any kind normalizes, as
 /// [`normalize_typed_publisher`] does for the publisher
 pub(crate) fn normalize_typed_name(name: &str) -> String {
-    match IndexName::parse(name.to_owned()) {
+    match IndexName::parse(name) {
         Ok(name) => name.normalized(),
-        Err((name, _)) => match ProjectName::parse(name) {
+        Err(e) => match ProjectName::parse(e.value) {
             Ok(name) => name.into_normalized(),
             Err((name, _)) => name,
         },
@@ -1833,10 +2081,10 @@ pub(crate) fn normalize_typed_name(name: &str) -> String {
 macro_rules! index_field_impls {
     ($ty:ty) => {
         impl TryFrom<String> for $ty {
-            type Error = IndexFieldError;
+            type Error = IdentifierError;
 
             fn try_from(value: String) -> Result<Self, Self::Error> {
-                Self::parse(value).map_err(|(_, e)| e)
+                Self::parse(value)
             }
         }
 

@@ -9,7 +9,7 @@ use pyo3::{FromPyObject, IntoPyObject};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::model::KNOWN_METAMODELS;
+use crate::model::{Metamodel, MetamodelParseError};
 use crate::project::utils::{FsIoError, wrapfs};
 
 #[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Debug)]
@@ -23,31 +23,33 @@ pub struct WorkspaceProjectInfoG<Iri> {
 #[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Debug, Default)]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 #[serde(rename_all = "camelCase")]
-pub struct WorkspaceMetaG<Iri> {
+pub struct WorkspaceMetaG<MM> {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub metamodel: Option<Iri>,
+    pub metamodel: Option<MM>,
 }
 
 pub type WorkspaceMetaRaw = WorkspaceMetaG<String>;
-pub type WorkspaceMeta = WorkspaceMetaG<Iri<String>>;
+pub type WorkspaceMeta = WorkspaceMetaG<Metamodel>;
 
 #[derive(Error, Debug)]
 pub enum WorkspaceValidationError {
     #[error("failed to parse `{0}` as IRI: {1}")]
     InvalidIri(String, fluent_uri::ParseError),
+    #[error(transparent)]
+    MalformedMetamodel(#[from] MetamodelParseError),
 }
 
 #[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Debug)]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 #[serde(rename_all = "camelCase")]
-pub struct WorkspaceInfoG<Iri> {
+pub struct WorkspaceInfoG<Iri, MM> {
     pub projects: Vec<WorkspaceProjectInfoG<Iri>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub meta: Option<WorkspaceMetaG<Iri>>,
+    pub meta: Option<WorkspaceMetaG<MM>>,
 }
 
-pub type WorkspaceInfoRaw = WorkspaceInfoG<String>;
-pub type WorkspaceInfo = WorkspaceInfoG<Iri<String>>;
+pub type WorkspaceInfoRaw = WorkspaceInfoG<String, String>;
+pub type WorkspaceInfo = WorkspaceInfoG<Iri<String>, Metamodel>;
 pub type WorkspaceProjectInfoRaw = WorkspaceProjectInfoG<String>;
 pub type WorkspaceProjectInfo = WorkspaceProjectInfoG<Iri<String>>;
 
@@ -75,14 +77,16 @@ impl TryFrom<WorkspaceInfoRaw> for WorkspaceInfo {
                 let metamodel = raw_meta
                     .metamodel
                     .map(|m| {
-                        if !KNOWN_METAMODELS.contains(&m.as_str()) {
-                            log::warn!("workspace uses an unknown metamodel `{m}`");
+                        let iri = Iri::parse(m)
+                            .map_err(|(e, iri)| WorkspaceValidationError::InvalidIri(iri, e))?;
+                        let metamodel = Metamodel::parse(iri)?;
+                        if let Metamodel::Other(iri) = &metamodel {
+                            log::warn!("workspace uses an unknown metamodel `{iri}`");
                         }
-                        Iri::parse(m)
-                            .map_err(|(e, iri)| WorkspaceValidationError::InvalidIri(iri, e))
+                        Ok::<_, WorkspaceValidationError>(metamodel)
                     })
                     .transpose()?;
-                Ok(WorkspaceMeta { metamodel })
+                Ok::<_, WorkspaceValidationError>(WorkspaceMeta { metamodel })
             })
             .transpose()?;
 
@@ -153,7 +157,7 @@ impl Workspace {
         self.info.meta.as_ref()
     }
 
-    pub fn metamodel(&self) -> Option<&Iri<String>> {
+    pub fn metamodel(&self) -> Option<&Metamodel> {
         let m = self.info.meta.as_ref()?;
         m.metamodel.as_ref()
     }

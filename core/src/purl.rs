@@ -14,7 +14,7 @@
 use thiserror::Error;
 
 use crate::{
-    model::{IndexName, IndexPublisher},
+    model::{IdentifierKind, IndexName, IndexPublisher},
     utils::{PURL_NAME_SEPARATOR, PURL_SEPARATOR, UNNORMALIZED_PURL_SEPARATOR},
 };
 
@@ -23,21 +23,6 @@ use crate::{
 /// this prefix, both satisfying the field rules enforced by
 /// [`is_valid_purl_publisher`] and [`is_valid_purl_name`].
 pub const PKG_SYSAND_PREFIX: &str = "pkg:sysand/";
-
-/// Which kind of `pkg:sysand` segment to validate. Publishers disallow dots,
-/// but names permit them so that dotted product names (e.g.
-/// `foo.bar`) are expressible.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum FieldKind {
-    Publisher,
-    Name,
-}
-
-impl FieldKind {
-    fn allows_dot_separator(self) -> bool {
-        self == Self::Name
-    }
-}
 
 /// Whether a publisher or name is checked as the `pkg:sysand` PURL holds it,
 /// or as spelled before normalization
@@ -61,7 +46,7 @@ enum Spelling {
 /// An unnormalized field is valid exactly when its normalized form is, as
 /// normalization keeps the length and maps letters to letters and ` ` to
 /// `-`; checking it directly avoids normalizing it first.
-fn is_valid_sysand_purl_part(s: &str, kind: FieldKind, spelling: Spelling) -> bool {
+fn is_valid_sysand_purl_part(s: &str, kind: IdentifierKind, spelling: Spelling) -> bool {
     let is_alphanumeric = |b: u8| match spelling {
         Spelling::Normalized => b.is_ascii_lowercase() || b.is_ascii_digit(),
         Spelling::Unnormalized => b.is_ascii_alphanumeric(),
@@ -101,26 +86,26 @@ fn is_valid_sysand_purl_part(s: &str, kind: FieldKind, spelling: Spelling) -> bo
 
 /// Whether `s` is a valid Sysand PURL publisher segment.
 pub fn is_valid_purl_publisher(s: &str) -> bool {
-    is_valid_sysand_purl_part(s, FieldKind::Publisher, Spelling::Normalized)
+    is_valid_sysand_purl_part(s, IdentifierKind::Publisher, Spelling::Normalized)
 }
 
 /// Whether `s` is a valid Sysand PURL project name segment.
 pub fn is_valid_purl_name(s: &str) -> bool {
-    is_valid_sysand_purl_part(s, FieldKind::Name, Spelling::Normalized)
+    is_valid_sysand_purl_part(s, IdentifierKind::Name, Spelling::Normalized)
 }
 
 /// Whether `s` can, after normalization, be used as Sysand PURL publisher.
 /// Only for [`crate::model::IndexPublisher::parse`], which everything else
 /// uses instead
 pub(crate) fn is_valid_unnormalized_publisher(s: &str) -> bool {
-    is_valid_sysand_purl_part(s, FieldKind::Publisher, Spelling::Unnormalized)
+    is_valid_sysand_purl_part(s, IdentifierKind::Publisher, Spelling::Unnormalized)
 }
 
 /// Whether `s` can, after normalization, be used as Sysand PURL name. Only
 /// for [`crate::model::IndexName::parse`], which everything else uses
 /// instead
 pub(crate) fn is_valid_unnormalized_name(s: &str) -> bool {
-    is_valid_sysand_purl_part(s, FieldKind::Name, Spelling::Unnormalized)
+    is_valid_sysand_purl_part(s, IdentifierKind::Name, Spelling::Unnormalized)
 }
 
 /// Reason a `pkg:sysand/...` IRI failed [`parse_sysand_purl`]. Used to

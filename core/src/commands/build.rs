@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use camino::{Utf8Path, Utf8PathBuf};
-use fluent_uri::Iri;
 use indexmap::IndexMap;
 use jiff::tz::TimeZone;
 use thiserror::Error;
@@ -501,7 +500,7 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
     update_index: bool,
     allow_path_usage: bool,
 ) -> Result<Vec<LocalKParProjectRaw>, KParBuildError<LocalSrcError>> {
-    let ws_metamodel = workspace.metamodel().map(Iri::as_str);
+    let ws_metamodel = workspace.metamodel().map(ToString::to_string);
 
     let mut result = Vec::new();
     for project_root in workspace.projects() {
@@ -515,7 +514,7 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
             compression,
             update_index,
             allow_path_usage,
-            ws_metamodel,
+            ws_metamodel.as_deref(),
         ) {
             Ok(p) => p,
             Err(e) => {

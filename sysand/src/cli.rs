@@ -1469,8 +1469,8 @@ pub fn parse_index_identifier(s: &str) -> Result<(IndexPublisher, IndexName), St
         return Err("identifier is not of the form `<publisher>/<name>`".to_owned());
     };
     Ok((
-        IndexPublisher::parse(publisher.to_owned()).map_err(|(_, e)| e.to_string())?,
-        IndexName::parse(name.to_owned()).map_err(|(_, e)| e.to_string())?,
+        IndexPublisher::parse(publisher).map_err(|e| e.to_string())?,
+        IndexName::parse(name).map_err(|e| e.to_string())?,
     ))
 }
 

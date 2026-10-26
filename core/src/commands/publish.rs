@@ -30,7 +30,8 @@ use crate::{
     index_location::IndexLocation,
     model::{
         IndexName, IndexPublisher, InterchangeProjectUsageRaw, InterchangeProjectValidationError,
-        KERML_SPEC_PREFIX, KerMlChecksumAlg, SYSML_SPEC_PREFIX,
+        KERML_SPEC_PREFIX, KerMlChecksumAlg, Metamodel, MetamodelFamily, MetamodelRelease,
+        SYSML_SPEC_PREFIX, SpecKind,
     },
     project::{
         ProjectRead as _,
@@ -776,7 +777,7 @@ pub enum PublishError {
     IncorrectFileFormat {
         path: Box<str>,
         metamodel_iri: Box<str>,
-        metamodel: AllowedMetamodelKind,
+        metamodel: SpecKind,
     },
     #[error(
         "archive does not include license file `{path}`, required because\n\
@@ -792,17 +793,12 @@ pub enum PublishError {
         license: Box<spdx::Expression>,
     },
     #[error(
-        "metamodel `{metamodel}` cannot be used; only SysML/KerML\n\
+        "metamodel `{metamodel}` cannot be used; only OMG SysML/KerML\n\
         metamodels are currently allowed in the index"
     )]
     UnsupportedMetamodel { metamodel: String },
     #[error("project does not have a metamodel set")]
     MissingMetamodel,
-    #[error("project metamodel `{metamodel}` has invalid version `{version}`")]
-    InvalidMetamodelVersion {
-        metamodel: Box<str>,
-        version: Box<str>,
-    },
     #[error("project usage includes unknown standard library `{name}`")]
     UnknownStdLib { name: Box<str> },
     #[error("project usage of standard library `{name}` specifies invalid version `{std_version}`")]
@@ -1109,12 +1105,12 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
         .as_deref()
         .ok_or(PublishError::MissingPublisher)?;
     let normalized_publisher = IndexPublisher::parse(publisher.to_owned())
-        .map_err(|(publisher, _)| PublishError::InvalidPublisher(publisher.into()))?
+        .map_err(|e| PublishError::InvalidPublisher(e.value.into()))?
         .normalized();
 
     let name = &info.name;
     let normalized_name = IndexName::parse(name.clone())
-        .map_err(|(name, _)| PublishError::InvalidName(name.into()))?
+        .map_err(|e| PublishError::InvalidName(e.value.into()))?
         .normalized();
 
     let version = &info.version;
@@ -1124,11 +1120,10 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
         });
     }
 
-    let (metamodel, metamodel_kind) = if let Some(m) = &meta.metamodel {
-        (m, check_metamodel(m)?)
-    } else {
+    let Some(metamodel) = &validated_meta.metamodel else {
         return Err(PublishError::MissingMetamodel);
     };
+    let metamodel_kind = check_metamodel(metamodel)?;
 
     // Get archive file list, all file presence/format checking will be done on that
     let mut archive = kpar_project
@@ -1247,7 +1242,7 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
         if !src_file.as_str().ends_with(metamodel_kind.file_ext()) {
             return Err(PublishError::IncorrectFileFormat {
                 path: src_file.as_str().into(),
-                metamodel_iri: metamodel.as_str().into(),
+                metamodel_iri: metamodel.to_string().into(),
                 metamodel: metamodel_kind,
             });
         }
@@ -1286,7 +1281,7 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
                 }
 
                 let actual_symbols =
-                    extract_symbols(&src_file, &source, Some(metamodel_kind.lang_kind()))
+                    extract_symbols(&src_file, &source, Some(language(metamodel_kind)))
                         .map_err(|e| PublishError::IndexFail { source: e })?;
                 // Actual symbols must be a superset of recorded
                 if let Some(symbols) = symbols_for_files.get(&src_file) {
@@ -1363,27 +1358,14 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
     })
 }
 
-/// `Ok(_)` - valid SysML/KerML metamodel
-/// `Err` - invalid SysML/KerML or other
-fn check_metamodel(metamodel: &str) -> Result<AllowedMetamodelKind, PublishError> {
-    for (prefix, kind) in [
-        (SYSML_SPEC_PREFIX, AllowedMetamodelKind::SysML),
-        (KERML_SPEC_PREFIX, AllowedMetamodelKind::KerML),
-    ] {
-        if let Some(metamodel_version) = metamodel.strip_prefix(prefix) {
-            if is_valid_metamodel_version(metamodel_version) {
-                return Ok(kind);
-            } else {
-                return Err(PublishError::InvalidMetamodelVersion {
-                    metamodel: metamodel.into(),
-                    version: metamodel_version.into(),
-                });
-            }
-        }
+/// The index only holds projects of the OMG SysML/KerML metamodels.
+fn check_metamodel(metamodel: &Metamodel) -> Result<SpecKind, PublishError> {
+    match metamodel.known() {
+        Some(known) if known.family == MetamodelFamily::Omg => Ok(known.spec),
+        Some(_) | None => Err(PublishError::UnsupportedMetamodel {
+            metamodel: metamodel.to_string(),
+        }),
     }
-    Err(PublishError::UnsupportedMetamodel {
-        metamodel: metamodel.to_owned(),
-    })
 }
 
 /// Maps an HTTP status and body to a `PublishResponse` or `PublishError`.
@@ -1575,7 +1557,7 @@ fn check_std_libs(
             if let Some(stripped) = resource.strip_prefix(prefix) {
                 for s in lib_names {
                     if let Some(metamodel_version) = stripped.strip_suffix(s) {
-                        if is_valid_metamodel_version(metamodel_version) {
+                        if MetamodelRelease::parse(metamodel_version).is_some() {
                             if let Some(vc) = version_constraint.as_deref() {
                                 return Err(PublishError::StdWithVersionConstraint {
                                     name: resource.as_str().into(),
@@ -1615,53 +1597,10 @@ fn check_std_libs(
     }
 }
 
-/// Check that `v` is a number of the form `20yymmxx`, where `yy` and `xx` are pairs
-/// of digits, and `1 <= mm <= 12`
-fn is_valid_metamodel_version(v: &str) -> bool {
-    let first_release = "20250201";
-    if v.len() != first_release.len() || !v.starts_with("20") {
-        return false;
-    }
-
-    let number: u32 = match v.parse() {
-        Ok(n) => n,
-        Err(_) => return false,
-    };
-
-    // Year is already constrained to start with 20,
-    // and release format is unspecified number
-    let month = (number / 100) % 100;
-
-    (1..=12).contains(&month)
-}
-
-/// All metamodels allowed by the index
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum AllowedMetamodelKind {
-    SysML,
-    KerML,
-}
-
-impl AllowedMetamodelKind {
-    fn file_ext(self) -> &'static str {
-        match self {
-            Self::SysML => ".sysml",
-            Self::KerML => ".kerml",
-        }
-    }
-
-    fn lang(self) -> &'static str {
-        match self {
-            Self::SysML => "SysMLv2",
-            Self::KerML => "KerML",
-        }
-    }
-
-    fn lang_kind(self) -> Language {
-        match self {
-            Self::SysML => Language::SysML,
-            Self::KerML => Language::KerML,
-        }
+fn language(spec: SpecKind) -> Language {
+    match spec {
+        SpecKind::SysMl => Language::SysML,
+        SpecKind::KerMl => Language::KerML,
     }
 }
 

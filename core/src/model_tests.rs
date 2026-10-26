@@ -1,12 +1,17 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use std::assert_matches;
+
+use fluent_uri::Iri;
 use indexmap::IndexMap;
 
 use crate::{
     model::{
-        InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, KERML_SPEC_PREFIX,
-        MetamodelFamily, PROJECT_FIELD_MAX_LEN, ProjectName, ProjectPublisher, SYSML_SPEC_PREFIX,
+        InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
+        InterchangeProjectValidationError, KERML_SPEC_PREFIX, KnownMetamodel, Metamodel,
+        MetamodelFamily, MetamodelParseError, MetamodelRelease, PROJECT_FIELD_MAX_LEN, ProjectName,
+        ProjectPublisher, SYSML_SPEC_PREFIX, SpecKind,
     },
     utils::lowercase_hex,
 };
@@ -428,7 +433,7 @@ mod index_usage {
 
 #[test]
 fn index_publisher_and_name_follow_the_unnormalized_purl_rules() {
-    use crate::model::{IndexFieldError, IndexName, IndexPublisher};
+    use crate::model::{IdentifierError, IdentifierKind, IndexName, IndexPublisher};
 
     for publisher in ["acme", "Acme Labs", "acme-labs", "ACME 2"] {
         let parsed = IndexPublisher::parse(publisher.to_owned()).unwrap();
@@ -452,7 +457,10 @@ fn index_publisher_and_name_follow_the_unnormalized_purl_rules() {
     ] {
         assert_eq!(
             IndexPublisher::parse(publisher.to_owned()),
-            Err((publisher.to_owned(), IndexFieldError::Publisher)),
+            Err(IdentifierError {
+                kind: IdentifierKind::Publisher,
+                value: publisher.to_owned(),
+            }),
             "{publisher}"
         );
     }
@@ -469,7 +477,10 @@ fn index_publisher_and_name_follow_the_unnormalized_purl_rules() {
     for name in ["ab", "my_lib", "my..lib", "my/lib"] {
         assert_eq!(
             IndexName::parse(name.to_owned()),
-            Err((name.to_owned(), IndexFieldError::Name)),
+            Err(IdentifierError {
+                kind: IdentifierKind::Name,
+                value: name.to_owned(),
+            }),
             "{name}"
         );
     }
@@ -720,4 +731,198 @@ fn metamodel_family_prefixes_and_names() {
     );
     assert_eq!(MetamodelFamily::Omg.to_string(), "OMG");
     assert_eq!(MetamodelFamily::Syside.to_string(), "Syside");
+}
+
+const OMG_SYSML: &str = "https://www.omg.org/spec/SysML/20250201";
+const OMG_KERML: &str = "https://www.omg.org/spec/KerML/20250201";
+const SYSIDE_SYSML: &str = "https://www.sysand.com/spec/SysML/20250201";
+const SYSIDE_KERML: &str = "https://www.sysand.com/spec/KerML/20250201";
+
+/// model-toml.md "Metamodel": a recognized value is
+/// `<family prefix><spec-kind>/<date>`, in either of the two families.
+#[test]
+fn metamodel_parses_both_families() {
+    for (value, family, spec) in [
+        (OMG_SYSML, MetamodelFamily::Omg, SpecKind::SysMl),
+        (OMG_KERML, MetamodelFamily::Omg, SpecKind::KerMl),
+        (SYSIDE_SYSML, MetamodelFamily::Syside, SpecKind::SysMl),
+        (SYSIDE_KERML, MetamodelFamily::Syside, SpecKind::KerMl),
+    ] {
+        assert_eq!(
+            metamodel(value),
+            Metamodel::Known(KnownMetamodel {
+                family,
+                spec,
+                release: MetamodelRelease::Release20250201
+            })
+        );
+    }
+}
+
+/// The value is rebuilt from the parts when a standard-library usage IRI
+/// is composed from the target's metamodel, so it has to be the value that
+/// was read.
+#[test]
+fn metamodel_round_trips_through_display() {
+    for value in [
+        OMG_SYSML,
+        OMG_KERML,
+        SYSIDE_SYSML,
+        SYSIDE_KERML,
+        "https://example.com/x",
+    ] {
+        assert_eq!(metamodel(value).to_string(), value);
+        assert_eq!(String::from(metamodel(value)), value);
+    }
+}
+
+/// Values without the prefix of a recognized metamodel are some other
+/// metamodel; a well-formed release that does not exist is still known.
+#[test]
+fn metamodel_parses_other_values() {
+    for value in [
+        "https://example.com/spec/SysML/20250201",
+        "http://www.omg.org/spec/SysML/20250201",
+        "https://www.omg.org/spec/UML/20250201",
+        "https://www.omg.org/spec/SysML",
+    ] {
+        assert_eq!(
+            metamodel(value),
+            Metamodel::Other(Iri::parse(value.to_owned()).unwrap()),
+            "{value} should not be recognized"
+        );
+    }
+
+    assert_eq!(
+        metamodel("https://www.omg.org/spec/SysML/20991299")
+            .known()
+            .map(|known| known.release.as_str()),
+        Some("20991299")
+    );
+}
+
+/// A recognized prefix followed by anything other than a release date is
+/// an error, reported with the date exactly as written.
+#[test]
+fn metamodel_rejects_a_malformed_release() {
+    for (value, release) in [
+        ("https://www.omg.org/spec/SysML/", ""),
+        ("https://www.omg.org/spec/SysML/2025020", "2025020"),
+        ("https://www.omg.org/spec/SysML/2025020a", "2025020a"),
+        ("https://www.omg.org/spec/KerML/20251301", "20251301"),
+        ("https://www.omg.org/spec/KerML/20250001", "20250001"),
+        ("https://www.sysand.com/spec/SysML/19250201", "19250201"),
+        ("https://www.omg.org/spec/SysML/20250201/", "20250201/"),
+        (
+            "https://www.omg.org/spec/SysML/20250201/extra",
+            "20250201/extra",
+        ),
+    ] {
+        assert_eq!(
+            Metamodel::parse(Iri::parse(value.to_owned()).unwrap()),
+            Err(MetamodelParseError {
+                metamodel: value.to_owned(),
+                release: release.to_owned()
+            }),
+            "{value} should have an invalid release"
+        );
+    }
+}
+
+/// model-toml.md "Metamodel": "A project without a `metamodel` is treated
+/// as an OMG-metamodel project"; an unrecognized value is validated
+/// against the OMG schema (rule (a)).
+#[test]
+fn metamodel_schema_family_of_a_project() {
+    assert_eq!(Metamodel::schema_family(None), MetamodelFamily::Omg);
+    assert_eq!(
+        Metamodel::schema_family(Some(&metamodel(OMG_SYSML))),
+        MetamodelFamily::Omg
+    );
+    assert_eq!(
+        Metamodel::schema_family(Some(&metamodel(SYSIDE_KERML))),
+        MetamodelFamily::Syside
+    );
+    let other = metamodel("https://example.com/x");
+    assert_eq!(Metamodel::schema_family(Some(&other)), MetamodelFamily::Omg);
+    assert_eq!(other.known(), None);
+}
+
+/// Validation parses the metamodel; only a malformed release of a
+/// recognized metamodel is an error.
+#[test]
+fn validate_parses_the_metamodel() {
+    let raw = |value: &str| InterchangeProjectMetadataRaw {
+        index: IndexMap::new(),
+        created: "2026-01-01T00:00:00Z".to_owned(),
+        metamodel: Some(value.to_owned()),
+        includes_derived: None,
+        includes_implied: None,
+        checksum: None,
+    };
+    for value in [
+        "https://www.omg.org/spec/SysML/20250601",
+        SYSIDE_KERML,
+        "https://example.com/x",
+    ] {
+        let validated = raw(value).validate().expect("a valid metadata document");
+        assert_eq!(validated.metamodel, Some(metamodel(value)));
+    }
+
+    assert_matches!(
+        raw("https://www.omg.org/spec/SysML/2025").validate(),
+        Err(InterchangeProjectValidationError::MalformedMetamodel(_))
+    );
+}
+
+/// The phrase a message uses to name a project's metamodel; it follows
+/// "uses" in the direction error, so it carries its own article.
+#[test]
+fn metamodel_describes_itself() {
+    assert_eq!(
+        Metamodel::describe(Some(&metamodel(OMG_SYSML))),
+        "the OMG metamodel `https://www.omg.org/spec/SysML/20250201`"
+    );
+    assert_eq!(
+        Metamodel::describe(Some(&metamodel(SYSIDE_KERML))),
+        "the Syside metamodel `https://www.sysand.com/spec/KerML/20250201`"
+    );
+    assert_eq!(
+        Metamodel::describe(None),
+        "no declared metamodel (OMG assumed)"
+    );
+    assert_eq!(
+        Metamodel::describe(Some(&metamodel("https://example.com/x"))),
+        "the unrecognized metamodel `https://example.com/x`"
+    );
+}
+
+#[test]
+fn metamodel_release_shape() {
+    assert_eq!(
+        MetamodelRelease::parse("20250201"),
+        Some(MetamodelRelease::Release20250201)
+    );
+    for date in ["20991299", "20000100"] {
+        let release = MetamodelRelease::parse(date).expect("a well-formed release");
+        assert_matches!(release, MetamodelRelease::Other(_));
+        assert_eq!(release.as_str(), date);
+    }
+    for date in [
+        "",
+        "2025020",
+        "202502011",
+        "19250201",
+        "20251301",
+        "20250001",
+        "2025+101",
+        "2025-201",
+        "+0250201",
+    ] {
+        assert!(MetamodelRelease::parse(date).is_none(), "{date}");
+    }
+}
+
+fn metamodel(value: &str) -> Metamodel {
+    Metamodel::parse(Iri::parse(value.to_owned()).unwrap()).expect("a well-formed metamodel")
 }
