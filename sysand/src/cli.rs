@@ -4,7 +4,7 @@
 use std::{ffi::OsStr, fmt::Display, str::FromStr as _};
 
 use camino::Utf8PathBuf;
-use clap::{ValueEnum, builder::PossibleValue, crate_authors, parser::ValueSource};
+use clap::{crate_authors, parser::ValueSource};
 use fluent_uri::Iri;
 use semver::{Version, VersionReq};
 use sysand_core::{
@@ -13,9 +13,8 @@ use sysand_core::{
     index_location::{IndexLocation, IndexSource},
     manifest::common::root_path,
     model::{
-        IndexName, IndexPublisher, KERML_SPEC_PREFIX, KnownMetamodel, LICENSE_EXPRESSION_HELP,
-        MetamodelFamily, MetamodelRelease, ProjectFieldError, ProjectName, ProjectPublisher,
-        SYSML_SPEC_PREFIX, SpecKind,
+        IndexName, IndexPublisher, LICENSE_EXPRESSION_HELP, MetamodelRelease, ProjectFieldError,
+        ProjectName, ProjectPublisher, SpecKind,
     },
     workspace::model_toml::Selector,
 };
@@ -112,7 +111,7 @@ pub enum Command {
             requires = "metamodel",
             value_enum,
             verbatim_doc_comment,
-            default_value = MetamodelVersion::RELEASE
+            default_value_t = MetamodelVersion::Release20250201
         )]
         metamodel_release: MetamodelVersion,
     },
@@ -1012,8 +1011,8 @@ pub struct EditArgs {
         help_heading = "Project information"
     )]
     pub clear_topics: bool,
-    // It would be nicer to have Option<Metamodel> here,
-    // but that would introduce an additional level of
+    // It would be nicer to have one optional group of the kind and the
+    // release here, but that would introduce an additional level of
     // nesting, as clap does not support flatten with Option
     /// Set a SysML v2 or KerML metamodel. To set a custom metamodel, use
     /// `--custom-metamodel`
@@ -1033,7 +1032,7 @@ pub struct EditArgs {
         requires = "metamodel",
         value_enum,
         verbatim_doc_comment,
-        default_value = MetamodelVersion::RELEASE,
+        default_value_t = MetamodelVersion::Release20250201,
         help_heading = "Project metadata"
     )]
     pub metamodel_release: MetamodelVersion,
@@ -1043,9 +1042,10 @@ pub struct EditArgs {
         value_name = "YYYYMMXX",
         requires = "metamodel",
         conflicts_with = "metamodel_release",
+        value_parser = parse_metamodel_release,
         help_heading = "Project metadata"
     )]
-    pub metamodel_release_custom: Option<u32>,
+    pub metamodel_release_custom: Option<MetamodelRelease>,
     /// Set a custom metamodel. To set a SysML v2 or KerML metamodel, use
     /// `--metamodel`
     #[arg(
@@ -1595,114 +1595,27 @@ pub enum MetamodelKind {
     KerML,
 }
 
-impl From<&MetamodelKind> for &'static str {
-    fn from(value: &MetamodelKind) -> Self {
-        match value {
-            MetamodelKind::SysML => SYSML_SPEC_PREFIX,
-            MetamodelKind::KerML => KERML_SPEC_PREFIX,
-        }
-    }
-}
-
-impl From<MetamodelKind> for &'static str {
-    fn from(value: MetamodelKind) -> Self {
-        Self::from(&value)
-    }
-}
-
 impl From<MetamodelKind> for SpecKind {
-    fn from(value: MetamodelKind) -> Self {
-        match value {
+    fn from(kind: MetamodelKind) -> Self {
+        match kind {
             MetamodelKind::SysML => Self::SysMl,
             MetamodelKind::KerML => Self::KerMl,
         }
     }
 }
 
-impl Display for MetamodelKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.into())
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Metamodel(pub MetamodelKind, pub MetamodelVersion);
-
-impl From<&Metamodel> for String {
-    fn from(value: &Metamodel) -> Self {
-        let mut s = Self::new();
-        s.push_str(value.0.into());
-        s.push_str(value.1.into());
-        s
-    }
-}
-
-impl Display for Metamodel {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.0.into())?;
-        f.write_str(self.1.into())
-    }
-}
-
-impl From<Metamodel> for sysand_core::model::Metamodel {
-    fn from(value: Metamodel) -> Self {
-        Self::Known(KnownMetamodel {
-            family: MetamodelFamily::Omg,
-            spec: value.0.into(),
-            release: value.1.into(),
-        })
-    }
-}
-
-impl From<Metamodel> for String {
-    fn from(value: Metamodel) -> Self {
-        Self::from(&value)
-    }
-}
-
-#[expect(non_camel_case_types)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MetamodelVersion {
-    Release_20250201 = 20250201,
-}
-
-impl From<&MetamodelVersion> for &'static str {
-    fn from(value: &MetamodelVersion) -> Self {
-        match value {
-            MetamodelVersion::Release_20250201 => MetamodelVersion::RELEASE,
-        }
-    }
-}
-
-impl From<MetamodelVersion> for &'static str {
-    fn from(value: MetamodelVersion) -> Self {
-        Self::from(&value)
-    }
+    /// SysMLv2/KerML Release or Beta4
+    #[value(name = "20250201")]
+    Release20250201,
 }
 
 impl From<MetamodelVersion> for MetamodelRelease {
-    fn from(value: MetamodelVersion) -> Self {
-        match value {
-            MetamodelVersion::Release_20250201 => Self::Release20250201,
+    fn from(version: MetamodelVersion) -> Self {
+        match version {
+            MetamodelVersion::Release20250201 => Self::Release20250201,
         }
-    }
-}
-
-impl MetamodelVersion {
-    pub const RELEASE: &str = "20250201";
-}
-
-impl ValueEnum for MetamodelVersion {
-    fn value_variants<'a>() -> &'a [Self] {
-        &[Self::Release_20250201]
-    }
-
-    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
-        Some(match self {
-            Self::Release_20250201 => {
-                PossibleValue::new(Self::RELEASE).help("SysMLv2/KerML Release or Beta4")
-            }
-        })
     }
 }
 
@@ -1736,4 +1649,11 @@ pub fn parse_project_publisher(s: &str) -> Result<ProjectPublisher, ProjectField
 /// Parse a project name
 pub fn parse_project_name(s: &str) -> Result<ProjectName, ProjectFieldError> {
     ProjectName::parse(s.to_owned()).map_err(|(_, e)| e)
+}
+
+/// Parse a metamodel release
+pub fn parse_metamodel_release(s: &str) -> Result<MetamodelRelease, String> {
+    MetamodelRelease::parse(s).ok_or_else(|| {
+        "a release is eight digits `20YYMMNN`, with month `MM` between `01` and `12`".to_owned()
+    })
 }
