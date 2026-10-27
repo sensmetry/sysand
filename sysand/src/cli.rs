@@ -9,7 +9,7 @@ use fluent_uri::Iri;
 use semver::{Version, VersionReq};
 use sysand_core::{
     build::KparCompressionMethod,
-    commands::{auth::IndexKey, sources::Dependencies as CoreDependencies},
+    commands::{auth::IndexKey, publish::TrustedPublishingMode, sources::Dependencies},
     index_location::{IndexLocation, IndexSource},
     manifest::common::root_path,
     model::{
@@ -111,9 +111,9 @@ pub enum Command {
             requires = "metamodel",
             value_enum,
             verbatim_doc_comment,
-            default_value_t = MetamodelVersion::Release20250201
+            default_value_t = MetamodelVersionCli::Release20250201
         )]
-        metamodel_release: MetamodelVersion,
+        metamodel_release: MetamodelVersionCli,
     },
     /// Add usage to project information
     Add {
@@ -284,7 +284,7 @@ pub enum Command {
             default_value = "auto",
             verbatim_doc_comment
         )]
-        trusted_publishing: TrustedPublishingMode,
+        trusted_publishing: TrustedPublishingModeCli,
     },
     /// Manage stored credentials for package indexes
     Auth {
@@ -677,30 +677,8 @@ impl From<KparCompressionMethodCli> for KparCompressionMethod {
     }
 }
 
-#[derive(clap::ValueEnum, Copy, Clone, Debug, PartialEq, Eq)]
-#[clap(rename_all = "lowercase")]
-pub enum TrustedPublishingMode {
-    /// Use trusted publishing in supported CI environments
-    Auto,
-    /// Require trusted publishing and fail outside supported CI environments
-    Always,
-    /// Disable trusted publishing and require explicitly configured publish credentials
-    #[value(alias = "false")]
-    Never,
-}
-
-impl From<TrustedPublishingMode> for sysand_core::commands::publish::TrustedPublishingMode {
-    fn from(value: TrustedPublishingMode) -> Self {
-        match value {
-            TrustedPublishingMode::Auto => Self::Auto,
-            TrustedPublishingMode::Always => Self::Always,
-            TrustedPublishingMode::Never => Self::Never,
-        }
-    }
-}
-
-// This is implemented mainly so that if KparCompressionMethod gets a new member
-// and KparCompressionMethodCli isn't updated it would give a compilation error
+// Never called: a variant added to core fails to compile here until the
+// CLI offers it.
 impl From<KparCompressionMethod> for KparCompressionMethodCli {
     fn from(value: KparCompressionMethod) -> Self {
         match value {
@@ -714,6 +692,40 @@ impl From<KparCompressionMethod> for KparCompressionMethodCli {
             KparCompressionMethod::Xz => Self::Xz,
             #[cfg(feature = "kpar-ppmd")]
             KparCompressionMethod::Ppmd => Self::Ppmd,
+        }
+    }
+}
+
+#[derive(clap::ValueEnum, Copy, Clone, Debug, PartialEq, Eq)]
+#[clap(rename_all = "lowercase")]
+pub enum TrustedPublishingModeCli {
+    /// Use trusted publishing in supported CI environments
+    Auto,
+    /// Require trusted publishing and fail outside supported CI environments
+    Always,
+    /// Disable trusted publishing and require explicitly configured publish credentials
+    #[value(alias = "false")]
+    Never,
+}
+
+impl From<TrustedPublishingModeCli> for TrustedPublishingMode {
+    fn from(value: TrustedPublishingModeCli) -> Self {
+        match value {
+            TrustedPublishingModeCli::Auto => Self::Auto,
+            TrustedPublishingModeCli::Always => Self::Always,
+            TrustedPublishingModeCli::Never => Self::Never,
+        }
+    }
+}
+
+// Never called: a variant added to core fails to compile here until the
+// CLI offers it.
+impl From<TrustedPublishingMode> for TrustedPublishingModeCli {
+    fn from(value: TrustedPublishingMode) -> Self {
+        match value {
+            TrustedPublishingMode::Auto => Self::Auto,
+            TrustedPublishingMode::Always => Self::Always,
+            TrustedPublishingMode::Never => Self::Never,
         }
     }
 }
@@ -1023,7 +1035,7 @@ pub struct EditArgs {
         verbatim_doc_comment,
         help_heading = "Project metadata"
     )]
-    pub metamodel: Option<MetamodelKind>,
+    pub metamodel: Option<MetamodelKindCli>,
     /// Choose the release of the SysML v2 or KerML metamodel.
     /// SysML 2.0 and KerML 1.0 have the same release dates
     #[arg(
@@ -1032,10 +1044,10 @@ pub struct EditArgs {
         requires = "metamodel",
         value_enum,
         verbatim_doc_comment,
-        default_value_t = MetamodelVersion::Release20250201,
+        default_value_t = MetamodelVersionCli::Release20250201,
         help_heading = "Project metadata"
     )]
-    pub metamodel_release: MetamodelVersion,
+    pub metamodel_release: MetamodelVersionCli,
     /// Choose a custom release of the SysML v2 or KerML metamodel
     #[arg(
         long,
@@ -1469,7 +1481,7 @@ impl ProjectSourceOptions {
 pub struct SourcesOptions {
     /// Do not include sources for dependencies
     #[arg(long, default_value = "deps")]
-    pub deps: Dependencies,
+    pub deps: DependenciesCli,
     /// Do not include the project's own sources
     #[arg(long)]
     pub no_own: bool,
@@ -1478,7 +1490,7 @@ pub struct SourcesOptions {
 /// Selects which dependency sources a sources enumeration should yield. Whether
 /// the project's own sources are listed is controlled separately.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
-pub enum Dependencies {
+pub enum DependenciesCli {
     /// No dependency sources.
     None,
     /// Dependency sources, excluding SysML v2/KerML standard libraries.
@@ -1489,7 +1501,20 @@ pub enum Dependencies {
     Std,
 }
 
-impl From<Dependencies> for CoreDependencies {
+impl From<DependenciesCli> for Dependencies {
+    fn from(val: DependenciesCli) -> Self {
+        match val {
+            DependenciesCli::None => Self::None,
+            DependenciesCli::Deps => Self::Deps,
+            DependenciesCli::DepsStd => Self::DepsStd,
+            DependenciesCli::Std => Self::Std,
+        }
+    }
+}
+
+// Never called: a variant added to core fails to compile here until the
+// CLI offers it.
+impl From<Dependencies> for DependenciesCli {
     fn from(val: Dependencies) -> Self {
         match val {
             Dependencies::None => Self::None,
@@ -1588,33 +1613,57 @@ pub fn parse_spdx_expression(s: &str) -> Result<spdx::Expression, String> {
 // Therefore, we don't provide a default here.
 #[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
 #[clap(rename_all = "lowercase")]
-pub enum MetamodelKind {
+pub enum MetamodelKindCli {
     /// SysML v2 metamodel. Identifier: `https://www.omg.org/spec/SysML/<release>`
     SysML,
     /// KerML metamodel. Identifier: `https://www.omg.org/spec/KerML/<release>`
     KerML,
 }
 
-impl From<MetamodelKind> for SpecKind {
-    fn from(kind: MetamodelKind) -> Self {
+impl From<MetamodelKindCli> for SpecKind {
+    fn from(kind: MetamodelKindCli) -> Self {
         match kind {
-            MetamodelKind::SysML => Self::SysMl,
-            MetamodelKind::KerML => Self::KerMl,
+            MetamodelKindCli::SysML => Self::SysMl,
+            MetamodelKindCli::KerML => Self::KerMl,
+        }
+    }
+}
+
+// Never called: a variant added to core fails to compile here until the
+// CLI offers it.
+impl From<SpecKind> for MetamodelKindCli {
+    fn from(kind: SpecKind) -> Self {
+        match kind {
+            SpecKind::SysMl => Self::SysML,
+            SpecKind::KerMl => Self::KerML,
         }
     }
 }
 
 #[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MetamodelVersion {
+pub enum MetamodelVersionCli {
     /// SysMLv2/KerML Release or Beta4
     #[value(name = "20250201")]
     Release20250201,
 }
 
-impl From<MetamodelVersion> for MetamodelRelease {
-    fn from(version: MetamodelVersion) -> Self {
+impl From<MetamodelVersionCli> for MetamodelRelease {
+    fn from(version: MetamodelVersionCli) -> Self {
         match version {
-            MetamodelVersion::Release20250201 => Self::Release20250201,
+            MetamodelVersionCli::Release20250201 => Self::Release20250201,
+        }
+    }
+}
+
+// Never called: a release added to core fails to compile here until the
+// CLI offers it. A release core does not know is handed back.
+impl TryFrom<MetamodelRelease> for MetamodelVersionCli {
+    type Error = MetamodelRelease;
+
+    fn try_from(release: MetamodelRelease) -> Result<Self, Self::Error> {
+        match release {
+            MetamodelRelease::Release20250201 => Ok(Self::Release20250201),
+            MetamodelRelease::Other(_) => Err(release),
         }
     }
 }

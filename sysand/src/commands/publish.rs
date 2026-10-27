@@ -18,12 +18,12 @@ use sysand_core::{
     workspace::model_toml::{MemberChecks, Workspace},
 };
 
-use crate::{CliAuthPolicy, CliError, cli::TrustedPublishingMode};
+use crate::{CliAuthPolicy, CliError, cli::TrustedPublishingModeCli};
 
 pub fn command_publish(
     path: Option<Utf8PathBuf>,
     index: IndexSource,
-    trusted_publishing: TrustedPublishingMode,
+    trusted_publishing: TrustedPublishingModeCli,
     ctx: &ProjectContext,
     auth_policy: Arc<CliAuthPolicy>,
     client: reqwest_middleware::ClientWithMiddleware,

@@ -3,7 +3,7 @@
 
 use crate::{
     CliError,
-    cli::{MetamodelKind, MetamodelVersion},
+    cli::{MetamodelKindCli, MetamodelVersionCli},
     commands::info::log_license_files_note,
 };
 use anyhow::{Result, bail};
@@ -108,8 +108,8 @@ pub fn command_init(
 
 /// The metamodel `--metamodel` names: `sysml` or `kerml` the OMG
 /// metamodel of `release`, anything else one of the recognized IRIs.
-pub fn parse_metamodel(value: &str, release: MetamodelVersion) -> Result<KnownMetamodel> {
-    match MetamodelKind::from_str(value, false) {
+pub fn parse_metamodel(value: &str, release: MetamodelVersionCli) -> Result<KnownMetamodel> {
+    match MetamodelKindCli::from_str(value, false) {
         Ok(kind) => Ok(KnownMetamodel::omg(kind.into(), release.into())),
         Err(_) => crate::commands::check_metamodel(value),
     }

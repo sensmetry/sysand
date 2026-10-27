@@ -16,7 +16,7 @@ use sysand_core::{
 };
 
 use crate::{
-    cli::{EditArgs, MetamodelKind},
+    cli::{EditArgs, MetamodelKindCli},
     commands::info::{
         get_info_or_bail, get_meta_or_bail, log_license_files_note, set_info_or_bail,
         set_meta_or_bail,
@@ -495,7 +495,7 @@ fn edit_toml_list(
 
 /// The OMG metamodel of `kind` that `--metamodel` names, at the release
 /// `--metamodel-release-custom` or `--metamodel-release` gives.
-fn omg_metamodel(kind: MetamodelKind, edits: &EditArgs) -> KnownMetamodel {
+fn omg_metamodel(kind: MetamodelKindCli, edits: &EditArgs) -> KnownMetamodel {
     let release = edits
         .metamodel_release_custom
         .clone()
