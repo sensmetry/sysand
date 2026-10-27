@@ -3,7 +3,7 @@
 
 use crate::{
     CliError,
-    cli::{Dependencies, EnvProjectLocatorArgs},
+    cli::{DependenciesCli, EnvProjectLocatorArgs},
 };
 
 use anstream::println;
@@ -21,7 +21,7 @@ pub fn command_sources_env(
     locator: EnvProjectLocatorArgs,
     version: Option<VersionReq>,
     no_own: bool,
-    dependencies: Dependencies,
+    dependencies: DependenciesCli,
     env: Option<LocalDirectoryEnvironment>,
 ) -> Result<()> {
     let Some(env) = env else {
@@ -50,7 +50,7 @@ pub fn command_sources_env(
 
 pub fn command_sources_project(
     no_own: bool,
-    dependencies: Dependencies,
+    dependencies: DependenciesCli,
     ctx: ProjectContext,
 ) -> Result<()> {
     let current_project = ctx
@@ -73,7 +73,7 @@ pub fn command_sources_project(
         }
     }
 
-    if dependencies != Dependencies::None {
+    if dependencies != DependenciesCli::None {
         let dependencies = dependencies.into();
         let deps = if let Some(env) = ctx.env {
             resolve_dependencies(info.usage, env, dependencies)?
@@ -112,7 +112,7 @@ pub fn command_sources_project(
 pub fn command_sources_workspace(
     root: &camino::Utf8Path,
     no_own: bool,
-    dependencies: Dependencies,
+    dependencies: DependenciesCli,
     ctx: ProjectContext,
 ) -> Result<()> {
     use std::collections::HashSet;
@@ -165,7 +165,7 @@ pub fn command_sources_workspace(
             }
         }
 
-        if dependencies != Dependencies::None {
+        if dependencies != DependenciesCli::None {
             let Some(info) = project.get_info()? else {
                 bail!("member `{}` is missing project information", member.dir)
             };
