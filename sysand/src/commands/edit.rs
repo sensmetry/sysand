@@ -7,13 +7,16 @@ use sysand_core::{
         common::Maintainer,
         edit::{self, Array, DocumentMut, ListKey, ProjectKey, Value},
     },
-    model::{IndexName, IndexPublisher, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    model::{
+        IndexName, IndexPublisher, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
+        KnownMetamodel, MetamodelFamily,
+    },
     project::{ProjectFormat, ProjectMut, ProjectRead, local_src::LocalSrcProject},
     utils::format_err,
 };
 
 use crate::{
-    cli::{EditArgs, Metamodel},
+    cli::{EditArgs, MetamodelKind},
     commands::info::{
         get_info_or_bail, get_meta_or_bail, log_license_files_note, set_info_or_bail,
         set_meta_or_bail,
@@ -248,10 +251,7 @@ fn refuse_computed_field<Project: ProjectRead>(
 
 fn edit_meta(edits: &EditArgs, meta: &mut InterchangeProjectMetadataRaw) {
     if let Some(kind) = edits.metamodel {
-        meta.metamodel = Some(match edits.metamodel_release_custom {
-            Some(release) => format!("{kind}{release}"),
-            None => Metamodel(kind, edits.metamodel_release).into(),
-        });
+        meta.metamodel = Some(omg_metamodel(kind, edits).to_string());
     } else if let Some(metamodel) = &edits.custom_metamodel {
         meta.metamodel = Some(metamodel.clone());
     } else if edits.clear_metamodel {
@@ -384,18 +384,15 @@ fn edit_toml(project: &mut LocalSrcProject, edits: &EditArgs) -> Result<()> {
     } else if edits.clear_root {
         edit::clear_project_key(&mut document, ProjectKey::Root)?;
     }
-    let metamodel: Option<String> = match (edits.metamodel, &edits.custom_metamodel) {
-        (Some(kind), _) => Some(match edits.metamodel_release_custom {
-            Some(release) => format!("{kind}{release}"),
-            None => Metamodel(kind, edits.metamodel_release).into(),
-        }),
-        (None, Some(metamodel)) => Some(metamodel.clone()),
+    let metamodel = match (edits.metamodel, &edits.custom_metamodel) {
+        (Some(kind), _) => Some(omg_metamodel(kind, edits)),
+        // model-toml.md "Metamodel": a `model.toml` holds one of four
+        // values
+        (None, Some(metamodel)) => Some(crate::commands::check_metamodel(metamodel)?),
         (None, None) => None,
     };
-    if let Some(value) = metamodel {
-        // model-toml.md "Metamodel": a `model.toml` holds one of four
-        // values, and a custom release can spell anything
-        crate::commands::check_metamodel(&value)?;
+    if let Some(metamodel) = metamodel {
+        let value = metamodel.to_string();
         // design/syside-metamodel.md, "Commands": a switch that changes
         // the required keys is refused when the target schema's key is
         // missing, and warns when it leaves a key behind that the target
@@ -404,9 +401,8 @@ fn edit_toml(project: &mut LocalSrcProject, edits: &EditArgs) -> Result<()> {
             .get("project")
             .and_then(|project| project.get("root"))
             .is_some();
-        let target = sysand_core::model::KnownMetamodel::recognize(&value).map(|kind| kind.family);
-        match target {
-            Some(sysand_core::model::MetamodelFamily::Syside) if !has_root => {
+        match metamodel.family {
+            MetamodelFamily::Syside if !has_root => {
                 bail!(
                     "changing the metamodel to `{value}` requires `root`; `model.toml` does not \
                      have it\n\
@@ -414,7 +410,7 @@ fn edit_toml(project: &mut LocalSrcProject, edits: &EditArgs) -> Result<()> {
                     SP = ' ',
                 );
             }
-            Some(sysand_core::model::MetamodelFamily::Omg) if has_root => {
+            MetamodelFamily::Omg if has_root => {
                 log::warn!(
                     "`root` is only supported by the Syside metamodel and will be ignored under \
                      `{value}`; `sysand edit --clear-root` removes it"
@@ -495,4 +491,14 @@ fn edit_toml_list(
         }
     }
     Ok(())
+}
+
+/// The OMG metamodel of `kind` that `--metamodel` names, at the release
+/// `--metamodel-release-custom` or `--metamodel-release` gives.
+fn omg_metamodel(kind: MetamodelKind, edits: &EditArgs) -> KnownMetamodel {
+    let release = edits
+        .metamodel_release_custom
+        .clone()
+        .unwrap_or_else(|| edits.metamodel_release.into());
+    KnownMetamodel::omg(kind.into(), release)
 }

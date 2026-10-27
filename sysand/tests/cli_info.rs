@@ -1895,18 +1895,37 @@ fn edit_metamodel() -> Result<(), Box<dyn Error>> {
     )?;
     // Custom release
     try_set(
-        &["--metamodel", "sysml", "--metamodel-release-custom", "123"],
-        Ok("https://www.omg.org/spec/SysML/123"),
+        &[
+            "--metamodel",
+            "sysml",
+            "--metamodel-release-custom",
+            "20260301",
+        ],
+        Ok("https://www.omg.org/spec/SysML/20260301"),
     )?;
     try_set(
-        &["--metamodel", "kerml", "--metamodel-release-custom", "456"],
-        Ok("https://www.omg.org/spec/KerML/456"),
+        &[
+            "--metamodel",
+            "kerml",
+            "--metamodel-release-custom",
+            "20231299",
+        ],
+        Ok("https://www.omg.org/spec/KerML/20231299"),
     )?;
     // Invalid custom release
-    try_set(
-        &["--metamodel", "kerml", "--metamodel-release-custom", "abc"],
-        Err("invalid value 'abc' for '--metamodel-release-custom"),
-    )?;
+    for release in ["abc", "123", "2025020", "20251301", "19990101"] {
+        try_set(
+            &[
+                "--metamodel",
+                "kerml",
+                "--metamodel-release-custom",
+                release,
+            ],
+            Err(&format!(
+                "invalid value '{release}' for '--metamodel-release-custom"
+            )),
+        )?;
+    }
     // Custom metamodel
     try_set(&["--custom-metamodel", "mm1"], Ok("mm1"))?;
     // Release without a metamodel
@@ -1927,7 +1946,7 @@ fn edit_metamodel() -> Result<(), Box<dyn Error>> {
             "--metamodel-release",
             "20250201",
             "--metamodel-release-custom",
-            "123",
+            "20260301",
         ],
         Err(
             "the argument '--metamodel-release <YYYYMMXX>' cannot be used with '--metamodel-release-custom",
@@ -1938,7 +1957,7 @@ fn edit_metamodel() -> Result<(), Box<dyn Error>> {
             "--custom-metamodel",
             "abc123",
             "--metamodel-release-custom",
-            "123",
+            "20260301",
         ],
         Err(
             "the argument '--custom-metamodel <METAMODEL>' cannot be used with '--metamodel-release-custom <YYYYMMXX>'",
@@ -2158,32 +2177,42 @@ fn edit_sets_and_clears_metamodel_on_a_toml_project() -> Result<(), Box<dyn Erro
     Ok(())
 }
 
-/// The other half of the same rule: `--custom-metamodel` and
-/// `--metamodel-release-custom` can spell anything, and a `model.toml`
-/// holds one of four values.
+/// The other half of the same rule: `--custom-metamodel` can spell
+/// anything, and a `model.toml` holds one of four values.
 #[test]
 fn edit_refuses_an_unrecognized_metamodel_on_a_toml_project() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd) = toml_project_cwd()?;
     let before = std::fs::read_to_string(cwd.join("model.toml"))?;
 
-    for args in [
-        vec!["edit", "--custom-metamodel", "urn:example:metamodel"],
-        vec![
+    run_sysand_in(
+        &cwd,
+        ["edit", "--custom-metamodel", "urn:example:metamodel"],
+        None,
+    )?
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains(
+        "`--metamodel` is not a metamodel Sysand recognizes",
+    ));
+    assert_eq!(std::fs::read_to_string(cwd.join("model.toml"))?, before);
+
+    run_sysand_in(
+        &cwd,
+        [
             "edit",
             "--metamodel",
             "sysml",
             "--metamodel-release-custom",
             "123",
         ],
-    ] {
-        run_sysand_in(&cwd, args.clone(), None)?
-            .assert()
-            .failure()
-            .stderr(predicate::str::contains(
-                "`--metamodel` is not a metamodel Sysand recognizes",
-            ));
-        assert_eq!(std::fs::read_to_string(cwd.join("model.toml"))?, before);
-    }
+        None,
+    )?
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains(
+        "invalid value '123' for '--metamodel-release-custom",
+    ));
+    assert_eq!(std::fs::read_to_string(cwd.join("model.toml"))?, before);
 
     Ok(())
 }
