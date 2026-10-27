@@ -4,7 +4,6 @@
 use crate::{CliError, cli::Metamodel, commands::info::log_license_files_note};
 use anyhow::Result;
 use camino::{Utf8Path, Utf8PathBuf};
-use fluent_uri::Iri;
 use semver::Version;
 use sysand_core::{
     context::ProjectContext,
@@ -42,10 +41,7 @@ pub fn command_init(
     };
 
     let metamodel = metamodel
-        .map(|m| Iri::parse(String::from(m)))
-        .transpose()
-        .map_err(|(e, _)| e)?
-        .map(sysand_core::model::Metamodel::parse)
+        .map(|m| sysand_core::model::Metamodel::parse(&String::from(m)))
         .transpose()?;
     let has_license = license.is_some();
     sysand_core::init::do_init(

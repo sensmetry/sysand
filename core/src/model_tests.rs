@@ -862,8 +862,8 @@ fn metamodel_rejects_a_malformed_release() {
         ),
     ] {
         assert_eq!(
-            Metamodel::parse(Iri::parse(value.to_owned()).unwrap()),
-            Err(MetamodelParseError {
+            Metamodel::parse(value),
+            Err(MetamodelParseError::InvalidRelease {
                 metamodel: value.to_owned(),
                 release: release.to_owned()
             }),
@@ -914,7 +914,18 @@ fn validate_parses_the_metamodel() {
 
     assert_matches!(
         raw("https://www.omg.org/spec/SysML/2025").validate(),
-        Err(InterchangeProjectValidationError::MalformedMetamodel(_))
+        Err(InterchangeProjectValidationError::InvalidMetamodel(
+            MetamodelParseError::InvalidRelease {
+                metamodel: _,
+                release: _
+            }
+        ))
+    );
+    assert_matches!(
+        raw("not a url").validate(),
+        Err(InterchangeProjectValidationError::InvalidMetamodel(
+            MetamodelParseError::NotUrl { value: _, error: _ }
+        ))
     );
 }
 
@@ -967,5 +978,5 @@ fn metamodel_release_shape() {
 }
 
 fn metamodel(value: &str) -> Metamodel {
-    Metamodel::parse(Iri::parse(value.to_owned()).unwrap()).expect("a well-formed metamodel")
+    Metamodel::parse(value).expect("a well-formed metamodel")
 }

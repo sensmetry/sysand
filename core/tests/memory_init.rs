@@ -176,13 +176,10 @@ fn init_rejects_invalid_metamodel() {
         &mut storage,
     );
 
-    let Err(err @ sysand_core::commands::init::InitError::MetamodelParse(..)) = result else {
-        panic!("expected `MetamodelParse`, got {result:?}");
+    let Err(err @ sysand_core::commands::init::InitError::MalformedMetamodel(..)) = result else {
+        panic!("expected `MalformedMetamodel`, got {result:?}");
     };
-    assert!(
-        err.to_string()
-            .starts_with("invalid metamodel `not an iri`")
-    );
+    assert!(err.to_string().starts_with("`not an iri` is not a URL"));
     assert!(storage.info.is_none());
     assert!(storage.meta.is_none());
 }

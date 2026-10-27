@@ -177,8 +177,7 @@ fn dependency_order_handles_a_long_chain_without_overflowing() {
 // The metamodel rules over one edge
 
 fn metamodel(value: &str) -> Metamodel {
-    Metamodel::parse(fluent_uri::Iri::parse(value.to_owned()).unwrap())
-        .expect("a well-formed metamodel")
+    Metamodel::parse(value).expect("a well-formed metamodel")
 }
 
 /// model-toml.md "Metamodel": "only Syside-metamodel projects may depend

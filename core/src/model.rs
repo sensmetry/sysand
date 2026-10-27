@@ -116,16 +116,20 @@ impl Display for SpecKind {
     }
 }
 
-/// A metamodel value that has the prefix of a recognized metamodel but not
-/// a release after it.
+/// Why a `metamodel` value is not a metamodel.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
-#[error(
-    "metamodel `{metamodel}` has an invalid release `{release}`; a release is eight digits \
-     `20YYMMNN`, with month `MM` between `01` and `12`"
-)]
-pub struct MetamodelParseError {
-    pub metamodel: String,
-    pub release: String,
+pub enum MetamodelParseError {
+    #[error("`{value}` is not a URL: {error}")]
+    NotUrl {
+        value: String,
+        error: fluent_uri::ParseError,
+    },
+    /// The prefix of a recognized metamodel, but not a release after it.
+    #[error(
+        "metamodel `{metamodel}` has an invalid release `{release}`; a release is eight digits \
+         `20YYMMNN`, with month `MM` between `01` and `12`"
+    )]
+    InvalidRelease { metamodel: String, release: String },
 }
 
 /// A project's `metamodel`, parsed.
@@ -145,14 +149,16 @@ impl Metamodel {
     /// Nothing is trimmed: a trailing `/` makes the release invalid, so
     /// that a value is recognized under exactly one spelling and `Display`
     /// returns the value it was parsed from.
-    pub fn parse(metamodel: Iri<String>) -> Result<Self, MetamodelParseError> {
-        let Some((family, spec, release)) = Self::split_known(metamodel.as_str()) else {
-            return Ok(Self::Other(metamodel));
+    pub fn parse(metamodel: &str) -> Result<Self, MetamodelParseError> {
+        let Some((family, spec, release)) = Self::split_known(metamodel) else {
+            return Iri::parse(metamodel.to_owned())
+                .map(Self::Other)
+                .map_err(|(error, value)| MetamodelParseError::NotUrl { value, error });
         };
         let Some(release) = MetamodelRelease::parse(release) else {
-            return Err(MetamodelParseError {
+            return Err(MetamodelParseError::InvalidRelease {
+                metamodel: metamodel.to_owned(),
                 release: release.to_owned(),
-                metamodel: metamodel.into_string(),
             });
         };
         Ok(Self::Known(KnownMetamodel {
@@ -1392,10 +1398,8 @@ pub enum InterchangeProjectValidationError {
     /// dependency once, with one version constraint.
     #[error("usage `{0}` is listed more than once")]
     DuplicateUsage(String),
-    #[error("invalid metamodel (`metamodel` field in `.meta.json`) `{0}`")]
-    InvalidMetamodel(String, #[source] fluent_uri::ParseError),
     #[error("invalid metamodel (`metamodel` field in `.meta.json`)")]
-    MalformedMetamodel(#[source] MetamodelParseError),
+    InvalidMetamodel(#[source] MetamodelParseError),
     #[error("project has an invalid Semantic Version `{0}`")]
     InvalidProjectVersion(Box<str>, #[source] semver::Error),
     #[error("project has an invalid name `{0}`")]
@@ -1560,10 +1564,8 @@ impl InterchangeProjectMetadataRaw {
         };
 
         let metamodel = if let Some(m) = &self.metamodel {
-            let iri = fluent_uri::Iri::parse(m.to_owned())
-                .map_err(|(e, val)| InterchangeProjectValidationError::InvalidMetamodel(val, e))?;
-            let metamodel = Metamodel::parse(iri)
-                .map_err(InterchangeProjectValidationError::MalformedMetamodel)?;
+            let metamodel =
+                Metamodel::parse(m).map_err(InterchangeProjectValidationError::InvalidMetamodel)?;
             if let Metamodel::Other(iri) = &metamodel {
                 log::warn!("project uses an unknown metamodel `{iri}`");
             }
