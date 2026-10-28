@@ -12,8 +12,9 @@ use sysand_core::{
     commands::{auth::IndexKey, sources::Dependencies as CoreDependencies},
     index_location::IndexLocation,
     model::{
-        IndexName, IndexPublisher, KERML_SPEC_PREFIX, LICENSE_EXPRESSION_HELP, ProjectFieldError,
-        ProjectName, ProjectPublisher, SYSML_SPEC_PREFIX,
+        IndexName, IndexPublisher, KERML_SPEC_PREFIX, KnownMetamodel, LICENSE_EXPRESSION_HELP,
+        MetamodelFamily, MetamodelRelease, ProjectFieldError, ProjectName, ProjectPublisher,
+        SYSML_SPEC_PREFIX, SpecKind,
     },
 };
 
@@ -1383,6 +1384,15 @@ impl From<MetamodelKind> for &'static str {
     }
 }
 
+impl From<MetamodelKind> for SpecKind {
+    fn from(value: MetamodelKind) -> Self {
+        match value {
+            MetamodelKind::SysML => Self::SysMl,
+            MetamodelKind::KerML => Self::KerMl,
+        }
+    }
+}
+
 impl Display for MetamodelKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.into())
@@ -1405,6 +1415,16 @@ impl Display for Metamodel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.0.into())?;
         f.write_str(self.1.into())
+    }
+}
+
+impl From<Metamodel> for sysand_core::model::Metamodel {
+    fn from(value: Metamodel) -> Self {
+        Self::Known(KnownMetamodel {
+            family: MetamodelFamily::Omg,
+            spec: value.0.into(),
+            release: value.1.into(),
+        })
     }
 }
 
@@ -1431,6 +1451,14 @@ impl From<&MetamodelVersion> for &'static str {
 impl From<MetamodelVersion> for &'static str {
     fn from(value: MetamodelVersion) -> Self {
         Self::from(&value)
+    }
+}
+
+impl From<MetamodelVersion> for MetamodelRelease {
+    fn from(value: MetamodelVersion) -> Self {
+        match value {
+            MetamodelVersion::Release_20250201 => Self::Release20250201,
+        }
     }
 }
 

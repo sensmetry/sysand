@@ -40,9 +40,7 @@ pub fn command_init(
         None => default_name_from_path(&target)?,
     };
 
-    let metamodel = metamodel
-        .map(|m| sysand_core::model::Metamodel::parse(&String::from(m)))
-        .transpose()?;
+    let metamodel = metamodel.map(sysand_core::model::Metamodel::from);
     let has_license = license.is_some();
     sysand_core::init::do_init(
         name,
