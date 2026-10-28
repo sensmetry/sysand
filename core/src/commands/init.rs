@@ -32,7 +32,7 @@ pub enum InitError<ProjectError: ErrorBound> {
     Project(#[from] ProjectError),
     #[error("failed to parse `{0}` as an SPDX license expression:\n{1}")]
     SPDXLicenseParse(Box<str>, spdx::error::ParseError),
-    #[error(transparent)]
+    #[error("invalid metamodel: {0}")]
     MalformedMetamodel(MetamodelParseError),
 }
 
