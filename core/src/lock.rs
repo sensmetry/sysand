@@ -8,7 +8,6 @@ use std::{
     hash::{DefaultHasher, Hash, Hasher as _},
     num::NonZeroU64,
     ops::Deref,
-    str::FromStr as _,
 };
 
 use camino::{Utf8Path, Utf8PathBuf};
@@ -18,7 +17,9 @@ use pyo3::IntoPyObject;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use toml_edit::{ArrayOfTables, DocumentMut, Formatted, InlineTable, Item, Table, Value, value};
+use toml_edit::{
+    ArrayOfTables, Document, DocumentMut, Formatted, InlineTable, Item, Table, Value, value,
+};
 use typed_path::Utf8UnixPathBuf;
 
 use crate::{
@@ -91,7 +92,7 @@ pub enum VersionError {
 
 /// Check that the lockfile is of the current version, or of one that can be
 /// migrated to it
-fn check_lock_version(document: &DocumentMut) -> Result<(), VersionError> {
+fn check_lock_version(document: &Table) -> Result<(), VersionError> {
     if let Some(Item::Value(Value::String(lock_version))) = document.get("lock_version") {
         let version = lock_version.value();
         if version == CURRENT_LOCK_VERSION || migrate::is_migratable(MIGRATIONS, version) {
@@ -107,7 +108,7 @@ fn check_lock_version(document: &DocumentMut) -> Result<(), VersionError> {
 #[derive(Debug, Error)]
 pub enum ParseError {
     #[error(transparent)]
-    Toml(#[from] toml::de::Error),
+    Toml(#[from] toml_edit::de::Error),
     #[error(transparent)]
     TomlEdit(#[from] toml_edit::TomlError),
     #[error(transparent)]
@@ -120,15 +121,16 @@ impl Lock {
     /// Parse a lockfile of the current version, or of an older one, which is
     /// migrated to the current version
     fn parse(s: &str) -> Result<Self, ParseError> {
-        let document = DocumentMut::from_str(s)?;
-        check_lock_version(&document)?;
+        let document = Document::parse(s.to_owned())?;
+        let table = document.as_table();
+        check_lock_version(table)?;
 
-        for (field, _) in document.iter() {
+        for (field, _) in table {
             if !LOCKFILE_ENTRIES.contains(&field) {
                 log::warn!("unknown field `{field}` in lockfile");
             }
         }
-        for (field, value, name) in document
+        for (field, value, name) in table
             .get("project")
             .and_then(Item::as_array_of_tables)
             .into_iter()
@@ -165,11 +167,10 @@ impl Lock {
             }
         }
 
-        // TODO: find a way to not reparse
         let LockRepr {
             lock_version,
             mut projects,
-        } = toml::from_str(s)?;
+        } = toml_edit::de::from_document(document)?;
         migrate::migrate(
             MIGRATIONS,
             CURRENT_LOCK_VERSION,
