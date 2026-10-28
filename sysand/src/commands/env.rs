@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{collections::HashMap, str::FromStr as _, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{Result, anyhow, bail};
 
@@ -151,7 +151,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
         // from a manifest, so it takes the json origin.
         let usages = [(
             InterchangeProjectUsage::Resource {
-                resource: fluent_uri::Iri::from_str(iri.as_ref())?,
+                resource: iri,
                 version_constraint,
             },
             DeclaredBy::Input("the command line".to_owned()),
