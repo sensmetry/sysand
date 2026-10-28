@@ -701,7 +701,10 @@ fn settle_from_lock(
         else {
             unreachable!("the placeholder is the index usage added above");
         };
-        do_remove(project, UsageRef::Typed(publisher, name))?;
+        // An index spelling is always a valid project spelling
+        let publisher = ProjectPublisher::parse(publisher.clone()).map_err(|(_, e)| anyhow!(e))?;
+        let name = ProjectName::parse(name.clone()).map_err(|(_, e)| anyhow!(e))?;
+        do_remove(project, UsageRef::Typed(&publisher, &name))?;
         do_add(project, &settled)?;
         return Ok(());
     }

@@ -695,7 +695,7 @@ impl TypedSpelling {
             kind: usage.kind_with_article(),
             publisher: publisher.to_owned(),
             name: name.to_owned(),
-            identifier: Identifier::from_pub_name(publisher, name),
+            identifier: Identifier::from(usage),
         })
     }
 

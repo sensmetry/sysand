@@ -32,7 +32,7 @@ pub fn command_sources_env(
         EnvProjectLocatorArgs {
             identifier: Some((publisher, name)),
             iri: None,
-        } => UsageRef::Typed(publisher.as_str(), name.as_str()),
+        } => UsageRef::Typed(publisher, name),
         EnvProjectLocatorArgs {
             identifier: None,
             iri: Some(iri),

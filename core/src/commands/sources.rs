@@ -311,7 +311,7 @@ pub fn do_sources_env(
         // `ACME Inc./Foo` is installed as `urn:sysand:acme-inc/foo`, so
         // `acme-inc/foo`, although its normalized form, looks up
         // `pkg:sysand/acme-inc/foo` and does not find it
-        UsageRef::Typed(publisher, name) => Identifier::from_pub_name(publisher, name),
+        UsageRef::Typed(publisher, name) => Identifier::from_project(publisher, name),
     };
     let mut candidates = env.candidate_projects(&identifier)?.into_iter();
 

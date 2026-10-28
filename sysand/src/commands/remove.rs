@@ -51,7 +51,7 @@ pub fn command_remove<Policy: HTTPAuthentication>(
     } = locator;
     let resolved_iri;
     let usage = if let Some((publisher, name)) = &identifier {
-        UsageRef::Typed(publisher.as_str(), name.as_str())
+        UsageRef::Typed(publisher, name)
     } else {
         resolved_iri = iri_or_path_to_iri(iri, iri_path)?;
         UsageRef::Resource(resolved_iri.borrow())

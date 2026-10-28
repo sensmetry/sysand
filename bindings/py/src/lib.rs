@@ -1909,10 +1909,9 @@ fn do_remove_py(
 
     let removed = match named {
         Named::Iri(iri) => do_remove(&mut project, UsageRef::Resource(iri.borrow())),
-        Named::PublisherName { publisher, name } => do_remove(
-            &mut project,
-            UsageRef::Typed(publisher.as_str(), name.as_str()),
-        ),
+        Named::PublisherName { publisher, name } => {
+            do_remove(&mut project, UsageRef::Typed(&publisher, &name))
+        }
     };
     removed.map_err(|err| match err {
         // The core message points at a CLI command, which is no help here.

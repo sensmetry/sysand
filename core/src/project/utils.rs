@@ -659,6 +659,9 @@ pub fn is_urn_sysand(iri: &str) -> bool {
 }
 
 impl Identifier {
+    /// The identifier of the project spelled `publisher`/`name`, which are
+    /// validated here; callers that hold a [`ProjectPublisher`] and
+    /// [`ProjectName`] should use [`Self::from_project`]
     pub fn from_pub_name(publisher: &str, name: &str) -> Self {
         Self::make_identifier_iri(publisher, name)
     }

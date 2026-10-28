@@ -1161,7 +1161,7 @@ pub enum UsageRef<'a> {
     /// The project identified by this IRI
     Resource(Iri<&'a str>),
     /// The project with this `publisher` and `name`
-    Typed(&'a str, &'a str),
+    Typed(&'a ProjectPublisher, &'a ProjectName),
 }
 
 impl UsageRef<'_> {
@@ -1206,16 +1206,15 @@ impl UsageRef<'_> {
                     // A `pkg:sysand` IRI only holds the normalized form
                     return parse_sysand_purl(resource.as_ref()).is_ok_and(|parsed| {
                         parsed.is_some_and(|(p, n)| {
-                            p == normalize_typed_publisher(publisher)
-                                && n == normalize_typed_name(name)
+                            p == publisher.normalized() && n == name.normalized()
                         })
                     });
                 }
                 let (p, n) = usage
                     .typed_publisher_name()
                     .expect("a non-resource usage is typed");
-                (*publisher == p || *publisher == normalize_typed_publisher(p))
-                    && (*name == n || *name == normalize_typed_name(n))
+                (publisher.as_str() == p || publisher.as_str() == normalize_typed_publisher(p))
+                    && (name.as_str() == n || name.as_str() == normalize_typed_name(n))
             }
         }
     }
