@@ -1994,10 +1994,7 @@ pub fn get_overrides<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
                     runtime.clone(),
                 )?));
             }
-            overrides.push((
-                Identifier::from_iri(&Iri::parse(identifier.as_str())?),
-                projects,
-            ));
+            overrides.push((Identifier::from_iri_owned(identifier.clone()), projects));
         }
     }
     Ok(overrides)
