@@ -19,6 +19,10 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
+use crate::manifest::diagnostics::{
+    Diagnostic, KeyLocation, ReadWarning, Report, UnknownKeys, Validated, missing_key,
+};
+use crate::project::utils::Identifier;
 use crate::purl::parse_sysand_purl;
 use crate::utils::{
     CASE_MAPPER, GENERAL_CATEGORY, IGNORABLE, NFKC_NORMALIZER, NFKD_NORMALIZER,
@@ -115,16 +119,20 @@ impl Display for SpecKind {
     }
 }
 
-/// A metamodel value that has the prefix of a recognized metamodel but not
-/// a release after it.
+/// Why a `metamodel` value is not a metamodel.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
-#[error(
-    "metamodel `{metamodel}` has an invalid release `{release}`; a release is eight digits \
-     `20YYMMNN`, with month `MM` between `01` and `12`"
-)]
-pub struct MetamodelParseError {
-    pub metamodel: String,
-    pub release: String,
+pub enum MetamodelParseError {
+    #[error("`{value}` is not a URL: {error}")]
+    NotUrl {
+        value: String,
+        error: fluent_uri::ParseError,
+    },
+    /// The prefix of a recognized metamodel, but not a release after it.
+    #[error(
+        "metamodel `{metamodel}` has an invalid release `{release}`; a release is eight digits \
+         `20YYMMNN`, with month `MM` between `01` and `12`"
+    )]
+    InvalidRelease { metamodel: String, release: String },
 }
 
 /// A project's `metamodel`, parsed.
@@ -144,14 +152,16 @@ impl Metamodel {
     /// Nothing is trimmed: a trailing `/` makes the release invalid, so
     /// that a value is recognized under exactly one spelling and `Display`
     /// returns the value it was parsed from.
-    pub fn parse(metamodel: Iri<String>) -> Result<Self, MetamodelParseError> {
-        let Some((family, spec, release)) = Self::split_known(metamodel.as_str()) else {
-            return Ok(Self::Other(metamodel));
+    pub fn parse(metamodel: &str) -> Result<Self, MetamodelParseError> {
+        let Some((family, spec, release)) = Self::split_known(metamodel) else {
+            return Iri::parse(metamodel.to_owned())
+                .map(Self::Other)
+                .map_err(|(error, value)| MetamodelParseError::NotUrl { value, error });
         };
         let Some(release) = MetamodelRelease::parse(release) else {
-            return Err(MetamodelParseError {
+            return Err(MetamodelParseError::InvalidRelease {
+                metamodel: metamodel.to_owned(),
                 release: release.to_owned(),
-                metamodel: metamodel.into_string(),
             });
         };
         Ok(Self::Known(KnownMetamodel {
@@ -229,6 +239,18 @@ pub struct KnownMetamodel {
     pub release: MetamodelRelease,
 }
 
+impl KnownMetamodel {
+    /// The recognized metamodel a raw `metamodel` value names: `None` when
+    /// the value is not an IRI, names some other metamodel, or has a
+    /// malformed release.
+    pub fn recognize(value: &str) -> Option<Self> {
+        match Metamodel::parse(value).ok()? {
+            Metamodel::Known(known) => Some(known),
+            Metamodel::Other(_) => None,
+        }
+    }
+}
+
 impl Display for KnownMetamodel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -289,6 +311,12 @@ impl Display for MetamodelRelease {
     }
 }
 
+/// The file a project's information is written to, in a KPAR and in a
+/// json project directory alike.
+pub const PROJECT_JSON_FILE: &str = ".project.json";
+/// The file a project's metadata is written to.
+pub const META_JSON_FILE: &str = ".meta.json";
+
 /// Prefix shared between SysML v2 metamodel and standard libs
 pub const SYSML_SPEC_PREFIX: &str = "https://www.omg.org/spec/SysML/";
 /// Prefix shared between KerML metamodel and standard libs
@@ -301,9 +329,12 @@ pub const LICENSE_EXPRESSION_HELP: &str = "\
 
 /// A dependency on another interchange project. In the dependency solver,
 /// usages are treated as referring to the same project iff they derive the
-/// same `Identifier`. A solution contains one instance per identifier, which
-/// all usages of that identifier accept (in particular, it satisfies
-/// all version constraints)
+/// same `Identifier`. A project declares each dependency once: two of its
+/// usages that derive the same `Identifier` are refused when it is
+/// validated ([`InterchangeProjectValidationError::DuplicateUsage`]). A
+/// solution contains one instance per identifier, which the usages of every
+/// project depending on it accept (in particular, it satisfies all their
+/// version constraints)
 ///
 /// A typed usage (any kind but [`Self::Resource`]) names its project by
 /// `publisher` and `name`, which must match the project's own exactly,
@@ -902,6 +933,72 @@ pub struct InterchangeProjectInfoG<
     >,
 }
 
+/// A `.project.json` as read, before Sysand validates it.
+///
+/// Every key is optional here, and unrecognized ones are kept, so that
+/// validation is Sysand's rather than serde's: a document missing several
+/// keys is reported in one message that names them all, and one carrying
+/// a key this version does not know about is a warning rather than a
+/// silent omission. A value of the *wrong type* is still serde's to
+/// report, since it knows where the value is.
+#[derive(Eq, Clone, PartialEq, Deserialize, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct InterchangeProjectInfoPartial {
+    pub name: Option<String>,
+    pub publisher: Option<String>,
+    pub description: Option<String>,
+    pub version: Option<String>,
+    pub license: Option<String>,
+    pub maintainer: Option<Vec<String>>,
+    pub website: Option<String>,
+    pub topic: Option<Vec<String>>,
+    pub usage: Option<Vec<InterchangeProjectUsageRaw>>,
+    #[serde(flatten)]
+    pub unknown: UnknownKeys,
+}
+
+impl InterchangeProjectInfoPartial {
+    /// The document as a `.project.json`, or every reason it is not one.
+    ///
+    /// `file` is what a message names the document by, and `metamodel` is
+    /// the value the sibling `.meta.json` declares, when the caller has
+    /// it: a metamodel this version does not recognize may be why a key
+    /// it requires is absent.
+    pub fn validate(
+        self,
+        file: &str,
+        metamodel: Option<&str>,
+    ) -> Result<Validated<InterchangeProjectInfoRaw>, Report> {
+        let location = KeyLocation::File(file.to_owned());
+        let unsupported = unsupported_metamodel(metamodel);
+        let mut report = Report::new();
+
+        let name = require(&mut report, self.name, "name", &location, unsupported);
+        let version = require(&mut report, self.version, "version", &location, unsupported);
+        report.extend(
+            self.unknown
+                .warnings_with_metamodel(&location, unsupported)
+                .into_iter()
+                .map(Diagnostic::from),
+        );
+
+        let (Some(name), Some(version)) = (name, version) else {
+            return Err(report);
+        };
+        report.into_result(InterchangeProjectInfoRaw {
+            name,
+            publisher: self.publisher,
+            description: self.description,
+            version,
+            license: self.license,
+            maintainer: self.maintainer.unwrap_or_default(),
+            website: self.website,
+            topic: self.topic.unwrap_or_default(),
+            usage: self.usage.unwrap_or_default(),
+        })
+    }
+}
+
 pub type InterchangeProjectInfoRaw =
     InterchangeProjectInfoG<String, String, String, String, String, String, String, String, String>;
 pub type InterchangeProjectInfo = InterchangeProjectInfoG<
@@ -1049,9 +1146,6 @@ impl<
     }
 
     /// Remove and return all usages matching `usage`.
-    /// Note that sysand will never add multiple usages of the same resource
-    /// to the project, but it does tolerate such usages.
-    // TODO: the spec does not say anything about this and should be clarified
     pub fn pop_usage(
         &mut self,
         usage: &UsageRef<'_>,
@@ -1071,8 +1165,17 @@ impl InterchangeProjectInfoRaw {
     /// Caller is responsible for identifying the project when reporting the error
     pub fn validate(&self) -> Result<InterchangeProjectInfo, InterchangeProjectValidationError> {
         let mut usage = vec![];
+        let mut identifiers = HashSet::new();
         for a_usage in &self.usage {
-            usage.push(a_usage.to_owned().validate()?);
+            let a_usage = a_usage.to_owned().validate()?;
+            let identifier = Identifier::from(&a_usage).into_string();
+            if identifiers.contains(&identifier) {
+                return Err(InterchangeProjectValidationError::DuplicateUsage(
+                    identifier,
+                ));
+            }
+            identifiers.insert(identifier);
+            usage.push(a_usage);
         }
 
         Ok(InterchangeProjectInfo {
@@ -1319,6 +1422,104 @@ pub struct InterchangeProjectMetadataG<MM, Path: Eq + Hash, DateTime, IPC> {
     pub checksum: Option<IndexMap<Path, IPC>>,
 }
 
+/// The partial form of a json manifest document: what a reader parses
+/// into before Sysand validates it.
+///
+/// The two documents are read by the same generic code in more than one
+/// reader (a KPAR archive holds both), so the step from partial to
+/// validated is a trait rather than two inherent methods.
+pub trait PartialManifest: serde::de::DeserializeOwned {
+    /// The document this one validates into.
+    type Validated;
+
+    /// The file a message names this document by.
+    const FILE: &'static str;
+
+    fn validate_manifest(
+        self,
+        metamodel: Option<&str>,
+    ) -> Result<Validated<Self::Validated>, Report>;
+}
+
+impl PartialManifest for InterchangeProjectInfoPartial {
+    type Validated = InterchangeProjectInfoRaw;
+
+    const FILE: &'static str = PROJECT_JSON_FILE;
+
+    fn validate_manifest(
+        self,
+        metamodel: Option<&str>,
+    ) -> Result<Validated<Self::Validated>, Report> {
+        self.validate(Self::FILE, metamodel)
+    }
+}
+
+impl PartialManifest for InterchangeProjectMetadataPartial {
+    type Validated = InterchangeProjectMetadataRaw;
+
+    const FILE: &'static str = META_JSON_FILE;
+
+    fn validate_manifest(
+        self,
+        metamodel: Option<&str>,
+    ) -> Result<Validated<Self::Validated>, Report> {
+        self.validate(Self::FILE, metamodel)
+    }
+}
+
+/// A `.meta.json` as read, before Sysand validates it. See
+/// [`InterchangeProjectInfoPartial`].
+#[derive(Eq, Clone, PartialEq, Deserialize, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct InterchangeProjectMetadataPartial {
+    pub index: Option<IndexMap<String, String>>,
+    pub created: Option<String>,
+    pub metamodel: Option<String>,
+    pub includes_derived: Option<bool>,
+    pub includes_implied: Option<bool>,
+    pub checksum: Option<IndexMap<String, InterchangeProjectChecksumRaw>>,
+    #[serde(flatten)]
+    pub unknown: UnknownKeys,
+}
+
+impl InterchangeProjectMetadataPartial {
+    /// The document as a `.meta.json`, or every reason it is not one.
+    ///
+    /// The metamodel of the suffix is this document's own; `metamodel`
+    /// overrides it where a caller knows better.
+    pub fn validate(
+        self,
+        file: &str,
+        metamodel: Option<&str>,
+    ) -> Result<Validated<InterchangeProjectMetadataRaw>, Report> {
+        let location = KeyLocation::File(file.to_owned());
+        let declared = metamodel.or(self.metamodel.as_deref());
+        let unsupported = unsupported_metamodel(declared);
+        let mut report = Report::new();
+
+        let index = require(&mut report, self.index, "index", &location, unsupported);
+        let created = require(&mut report, self.created, "created", &location, unsupported);
+        report.extend(
+            self.unknown
+                .warnings_with_metamodel(&location, unsupported)
+                .into_iter()
+                .map(Diagnostic::from),
+        );
+
+        let (Some(index), Some(created)) = (index, created) else {
+            return Err(report);
+        };
+        report.into_result(InterchangeProjectMetadataRaw {
+            index,
+            created,
+            metamodel: self.metamodel,
+            includes_derived: self.includes_derived,
+            includes_implied: self.includes_implied,
+            checksum: self.checksum,
+        })
+    }
+}
+
 pub type InterchangeProjectMetadataRaw =
     InterchangeProjectMetadataG<String, String, String, InterchangeProjectChecksumRaw>;
 pub type InterchangeProjectMetadata = InterchangeProjectMetadataG<
@@ -1378,10 +1579,12 @@ pub enum InterchangeProjectValidationError {
     InvalidWebsite(String, #[source] fluent_uri::ParseError),
     #[error("invalid usage resource `{0}`")]
     InvalidUsageResource(String, #[source] fluent_uri::ParseError),
-    #[error("invalid metamodel (`metamodel` field in `.meta.json`) `{0}`")]
-    InvalidMetamodel(String, #[source] fluent_uri::ParseError),
+    /// Two usages that derive the same identifier: a project declares each
+    /// dependency once, with one version constraint.
+    #[error("usage `{0}` is listed more than once")]
+    DuplicateUsage(String),
     #[error("invalid metamodel (`metamodel` field in `.meta.json`)")]
-    MalformedMetamodel(#[source] MetamodelParseError),
+    InvalidMetamodel(#[source] MetamodelParseError),
     #[error("project has an invalid Semantic Version `{0}`")]
     InvalidProjectVersion(Box<str>, #[source] semver::Error),
     #[error("project has an invalid name `{0}`")]
@@ -1546,12 +1749,16 @@ impl InterchangeProjectMetadataRaw {
         };
 
         let metamodel = if let Some(m) = &self.metamodel {
-            let iri = fluent_uri::Iri::parse(m.to_owned())
-                .map_err(|(e, val)| InterchangeProjectValidationError::InvalidMetamodel(val, e))?;
-            let metamodel = Metamodel::parse(iri)
-                .map_err(InterchangeProjectValidationError::MalformedMetamodel)?;
+            let metamodel =
+                Metamodel::parse(m).map_err(InterchangeProjectValidationError::InvalidMetamodel)?;
             if let Metamodel::Other(iri) = &metamodel {
-                log::warn!("project uses an unknown metamodel `{iri}`");
+                log::warn!(
+                    "{}",
+                    ReadWarning::UnknownMetamodel {
+                        location: KeyLocation::File(META_JSON_FILE.to_owned()),
+                        value: iri.to_string(),
+                    }
+                );
             }
             Some(metamodel)
         } else {
@@ -2237,6 +2444,27 @@ fn normalize_index_field(s: &str) -> String {
 fn is_normalized_index_field(s: &str) -> bool {
     !s.bytes()
         .any(|b| b.is_ascii_uppercase() || b == UNNORMALIZED_PURL_SEPARATOR)
+}
+
+/// The metamodel to name in the "this may be because" suffix: only a
+/// value this version does not recognize is worth naming, since a
+/// recognized one cannot be the reason a key is missing.
+fn unsupported_metamodel(metamodel: Option<&str>) -> Option<&str> {
+    metamodel.filter(|value| KnownMetamodel::recognize(value).is_none())
+}
+
+/// Takes a required key, or records that it is missing.
+fn require<T>(
+    report: &mut Report,
+    value: Option<T>,
+    key: &str,
+    location: &KeyLocation,
+    metamodel: Option<&str>,
+) -> Option<T> {
+    if value.is_none() {
+        report.push(missing_key(key, location, metamodel));
+    }
+    value
 }
 
 #[cfg(test)]

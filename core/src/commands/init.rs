@@ -3,7 +3,6 @@
 
 #[cfg(feature = "filesystem")]
 use camino::Utf8PathBuf;
-use fluent_uri::Iri;
 use semver::Version;
 use spdx;
 
@@ -33,9 +32,7 @@ pub enum InitError<ProjectError: ErrorBound> {
     Project(#[from] ProjectError),
     #[error("failed to parse `{0}` as an SPDX license expression:\n{1}")]
     SPDXLicenseParse(Box<str>, spdx::error::ParseError),
-    #[error("invalid metamodel `{0}`: {1}")]
-    MetamodelParse(Box<str>, fluent_uri::ParseError),
-    #[error(transparent)]
+    #[error("invalid metamodel: {0}")]
     MalformedMetamodel(MetamodelParseError),
 }
 
@@ -103,9 +100,7 @@ pub fn do_init_parse<P: ProjectMut>(
         None
     };
     let metamodel = metamodel
-        .map(Iri::parse)
-        .transpose()
-        .map_err(|(e, m)| InitError::MetamodelParse(m.into(), e))?
+        .as_deref()
         .map(Metamodel::parse)
         .transpose()
         .map_err(InitError::MalformedMetamodel)?;

@@ -41,6 +41,32 @@ fn expected_index() -> IndexMap<String, String> {
     IndexMap::from([("P".to_owned(), "test.sysml".to_owned())])
 }
 
+/// A key Sysand does not know about is dropped when a KPAR is built, with
+/// a warning that says so.
+#[test]
+fn build_warns_about_an_unknown_key() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "test_unknown", "1.2.3")?;
+    out.assert().success();
+
+    let info_path = cwd.join(".project.json");
+    let info = fs::read_to_string(&info_path)?;
+    fs::write(
+        &info_path,
+        info.replacen('{', "{\n  \"x-unknown\": \"kept for later\",", 1),
+    )?;
+
+    let out = run_sysand_in(&cwd, ["build", "./test_unknown.kpar"], None)?;
+    out.assert().success().stderr(predicate::str::contains(
+        "unknown key `x-unknown` in `.project.json`",
+    ));
+
+    let kpar_project = LocalKParProjectRaw::new_guess_root(cwd.join("test_unknown.kpar"))?;
+    let (Some(_), Some(_)) = kpar_project.get_project()? else {
+        panic!("failed to get built project info/meta");
+    };
+    Ok(())
+}
+
 #[test]
 fn project_build() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = cli_init_project_basic("a", "test_build", "1.2.3")?;
@@ -565,9 +591,10 @@ fn workspace_build_with_unknown_metamodel() -> Result<(), Box<dyn std::error::Er
     out.assert().success();
 
     let out = run_sysand_in(&cwd, ["build"], None)?;
-    out.assert()
-        .success()
-        .stderr(predicate::str::contains("unknown metamodel"));
+    out.assert().success().stderr(predicate::str::contains(
+        "`.workspace.json` declares metamodel `https://example.com/spec/SysML/20251201`, \
+         which this version of Sysand does not recognize",
+    ));
 
     let kpar_path = cwd.join("output").join("project1-1.0.0.kpar");
     assert!(kpar_path.is_file(), "kpar file does not exist: {kpar_path}");

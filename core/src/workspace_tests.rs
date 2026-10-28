@@ -47,7 +47,13 @@ fn deserialize_invalid_metamodel_iri() {
     let result = WorkspaceInfo::try_from(raw);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert_matches!(err, WorkspaceValidationError::InvalidIri(..));
+    assert_matches!(
+        err,
+        WorkspaceValidationError::MalformedMetamodel(MetamodelParseError::NotUrl {
+            value: _,
+            error: _
+        })
+    );
 }
 
 #[test]

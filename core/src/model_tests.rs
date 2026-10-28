@@ -8,7 +8,8 @@ use indexmap::IndexMap;
 
 use crate::{
     model::{
-        InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
+        InterchangeProjectInfoPartial, InterchangeProjectInfoRaw,
+        InterchangeProjectMetadataPartial, InterchangeProjectMetadataRaw,
         InterchangeProjectValidationError, KERML_SPEC_PREFIX, KnownMetamodel, Metamodel,
         MetamodelFamily, MetamodelParseError, MetamodelRelease, PROJECT_FIELD_MAX_LEN, ProjectName,
         ProjectPublisher, SYSML_SPEC_PREFIX, SpecKind,
@@ -685,6 +686,49 @@ fn directory_and_kpar_usages_validate_their_spelling() {
     }
 }
 
+/// A project declares each dependency once: two usages that derive the
+/// same identifier are refused, whatever their version constraints or
+/// sources, since a lock records one edge per identifier.
+#[test]
+fn a_dependency_declared_twice_is_refused() {
+    use crate::model::{InterchangeProjectUsageRaw, InterchangeProjectValidationError};
+
+    let resource = |constraint: &str| InterchangeProjectUsageRaw::Resource {
+        resource: "https://example.com/lib.kpar".to_owned(),
+        version_constraint: Some(constraint.to_owned()),
+    };
+    let dir = |dir: &str| InterchangeProjectUsageRaw::Directory {
+        dir: dir.to_owned(),
+        publisher: "acme".to_owned(),
+        name: "lib".to_owned(),
+    };
+    for usage in [
+        vec![resource(">=1.0"), resource("<2.0")],
+        vec![dir("../lib"), dir("../other/lib")],
+    ] {
+        let info = InterchangeProjectInfoRaw {
+            name: "app".to_owned(),
+            publisher: None,
+            description: None,
+            version: "1.0.0".to_owned(),
+            license: None,
+            maintainer: vec![],
+            website: None,
+            topic: vec![],
+            usage,
+        };
+        let error = info.validate().expect_err("a duplicate usage");
+        assert!(
+            matches!(&error, InterchangeProjectValidationError::DuplicateUsage(_)),
+            "{error}"
+        );
+        assert!(
+            error.to_string().ends_with("is listed more than once"),
+            "{error}"
+        );
+    }
+}
+
 #[test]
 fn urn_sysand_resource_usage_is_rejected() {
     use crate::model::{InterchangeProjectUsageRaw, InterchangeProjectValidationError};
@@ -819,8 +863,8 @@ fn metamodel_rejects_a_malformed_release() {
         ),
     ] {
         assert_eq!(
-            Metamodel::parse(Iri::parse(value.to_owned()).unwrap()),
-            Err(MetamodelParseError {
+            Metamodel::parse(value),
+            Err(MetamodelParseError::InvalidRelease {
                 metamodel: value.to_owned(),
                 release: release.to_owned()
             }),
@@ -871,7 +915,18 @@ fn validate_parses_the_metamodel() {
 
     assert_matches!(
         raw("https://www.omg.org/spec/SysML/2025").validate(),
-        Err(InterchangeProjectValidationError::MalformedMetamodel(_))
+        Err(InterchangeProjectValidationError::InvalidMetamodel(
+            MetamodelParseError::InvalidRelease {
+                metamodel: _,
+                release: _
+            }
+        ))
+    );
+    assert_matches!(
+        raw("not a url").validate(),
+        Err(InterchangeProjectValidationError::InvalidMetamodel(
+            MetamodelParseError::NotUrl { value: _, error: _ }
+        ))
     );
 }
 
@@ -924,5 +979,158 @@ fn metamodel_release_shape() {
 }
 
 fn metamodel(value: &str) -> Metamodel {
-    Metamodel::parse(Iri::parse(value.to_owned()).unwrap()).expect("a well-formed metamodel")
+    Metamodel::parse(value).expect("a well-formed metamodel")
+}
+
+// ----------------------------------------------------------------------
+// The partial parse of a json manifest
+
+fn info_partial(json: &str) -> InterchangeProjectInfoPartial {
+    serde_json::from_str(json).expect("valid json")
+}
+
+fn meta_partial(json: &str) -> InterchangeProjectMetadataPartial {
+    serde_json::from_str(json).expect("valid json")
+}
+
+const COMPLETE_INFO: &str = r#"{
+    "name": "widgets",
+    "publisher": "acme",
+    "description": "a project",
+    "version": "1.2.3",
+    "license": "MIT",
+    "maintainer": ["A B <a@b.c>"],
+    "website": "https://example.com/",
+    "topic": ["parts"],
+    "usage": [{"resource": "pkg:sysand/acme/other"}]
+}"#;
+
+const COMPLETE_META: &str = r#"{
+    "index": {"P": "main.sysml"},
+    "created": "2026-01-01T00:00:00Z",
+    "metamodel": "https://www.omg.org/spec/SysML/20250201",
+    "includesDerived": false,
+    "includesImplied": true,
+    "checksum": {"main.sysml": {"value": "ab", "algorithm": "sha256"}}
+}"#;
+
+/// A document that parsed before parses to the same value, by the longer
+/// route.
+#[test]
+fn partial_info_validates_into_raw() {
+    let direct: InterchangeProjectInfoRaw =
+        serde_json::from_str(COMPLETE_INFO).expect("a complete document");
+    let validated = info_partial(COMPLETE_INFO)
+        .validate(".project.json", None)
+        .expect("a complete document validates");
+
+    assert_eq!(validated.value, direct);
+    assert_eq!(
+        validated.warnings,
+        [] as [crate::manifest::diagnostics::Diagnostic; 0]
+    );
+}
+
+#[test]
+fn partial_meta_keeps_every_field_it_parsed() {
+    let direct: InterchangeProjectMetadataRaw =
+        serde_json::from_str(COMPLETE_META).expect("a complete document");
+    let validated = meta_partial(COMPLETE_META)
+        .validate(".meta.json", None)
+        .expect("a complete document validates");
+
+    assert_eq!(validated.value, direct);
+}
+
+/// Every missing key is reported, in one report.
+#[test]
+fn partial_info_reports_every_missing_key_together() {
+    let report = info_partial("{}")
+        .validate(".project.json", None)
+        .expect_err("an empty document is not a project");
+
+    assert_eq!(
+        report.to_string(),
+        "missing key `name` in `.project.json`\n\
+         missing key `version` in `.project.json`"
+    );
+}
+
+#[test]
+fn partial_meta_reports_every_missing_key_together() {
+    let report = meta_partial("{}")
+        .validate(".meta.json", None)
+        .expect_err("an empty document is not metadata");
+
+    assert_eq!(
+        report.to_string(),
+        "missing key `index` in `.meta.json`\n\
+         missing key `created` in `.meta.json`"
+    );
+}
+
+/// The missing-key suffix: the reason may be a metamodel whose schema
+/// this version does not know.
+#[test]
+fn missing_key_names_an_unrecognized_metamodel() {
+    let unrecognized = meta_partial(r#"{"metamodel": "https://example.com/x"}"#)
+        .validate(".meta.json", None)
+        .expect_err("no index, no created");
+    assert!(
+        unrecognized
+            .to_string()
+            .contains("this may be because the project uses a metamodel"),
+        "unexpected report: {unrecognized}"
+    );
+
+    let recognized = meta_partial(r#"{"metamodel": "https://www.omg.org/spec/SysML/20250201"}"#)
+        .validate(".meta.json", None)
+        .expect_err("no index, no created");
+    assert_eq!(
+        recognized.to_string(),
+        "missing key `index` in `.meta.json`\n\
+         missing key `created` in `.meta.json`"
+    );
+}
+
+/// workspaces.md "Unknown keys", for the json manifests too: a key this
+/// version does not know is a warning, not a silent omission.
+#[test]
+fn partial_collects_unknown_keys_as_warnings() {
+    let validated = info_partial(r#"{"name": "n", "version": "1.0.0", "shiny": 1}"#)
+        .validate(".project.json", None)
+        .expect("an unknown key does not stop the read");
+
+    assert_eq!(validated.warnings.len(), 1);
+    assert_eq!(
+        validated.warnings[0].message,
+        "unknown key `shiny` in `.project.json`"
+    );
+}
+
+/// A value of the wrong type is still serde's to report: it knows where
+/// the value is, and says what it expected.
+#[test]
+fn partial_still_fails_on_a_wrong_type() {
+    let error = serde_json::from_str::<InterchangeProjectInfoPartial>(
+        "{\n  \"name\": 3,\n  \"version\": \"1.0.0\"\n}",
+    )
+    .expect_err("a name is a string");
+
+    assert!(
+        error.to_string().contains("invalid type"),
+        "unexpected error: {error}"
+    );
+    assert_eq!(error.line(), 2);
+}
+
+/// A null list is an empty list, not a type error.
+#[test]
+fn a_null_list_is_an_empty_list() {
+    let validated = info_partial(r#"{"name": "n", "version": "1.0.0", "usage": null}"#)
+        .validate(".project.json", None)
+        .expect("a null list is a list of nothing");
+
+    assert_eq!(validated.value.usage, []);
+    assert_eq!(validated.value.maintainer, [] as [String; 0]);
 }

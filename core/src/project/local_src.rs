@@ -17,7 +17,11 @@ use crate::{
     context::ProjectContext,
     env::utils::{CloneError, clone_project},
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    model::{
+        InterchangeProjectInfoPartial, InterchangeProjectInfoRaw,
+        InterchangeProjectMetadataPartial, InterchangeProjectMetadataRaw, META_JSON_FILE,
+        PROJECT_JSON_FILE,
+    },
     project::{
         ProjectMut, ProjectRead,
         utils::{RelativizePathError, ToPathBuf as _, ToUnixPathBuf as _, relativize_path, wrapfs},
@@ -26,7 +30,7 @@ use crate::{
 
 use super::{
     CanonicalizationError, ProjectChecksum,
-    utils::{FsIoError, ProjectDeserializationError, ProjectSerializationError},
+    utils::{FsIoError, ProjectDeserializationError, ProjectSerializationError, validate_manifest},
 };
 
 /// Project stored in a local directory as an extracted KPAR archive.
@@ -394,23 +398,34 @@ impl ProjectRead for LocalSrcProject {
         LocalSrcError,
     > {
         let info_json_path = self.info_path();
+        let meta_json_path = self.meta_path();
 
-        let info_json = if info_json_path.exists() {
-            let info: InterchangeProjectInfoRaw =
-                serde_json::from_reader(wrapfs::File::open(&info_json_path)?)
-                    .map_err(|e| ProjectDeserializationError::new(".project.json", e))?;
-            Some(info)
+        // The metadata is read first because it carries the metamodel,
+        // which a message about the other document may need to name.
+        let meta_json = if meta_json_path.exists() {
+            let partial: InterchangeProjectMetadataPartial =
+                serde_json::from_reader(wrapfs::File::open(&meta_json_path)?)
+                    .map_err(|e| ProjectDeserializationError::new(META_JSON_FILE, e))?;
+            Some(validate_manifest(
+                META_JSON_FILE,
+                partial.validate(META_JSON_FILE, None),
+            )?)
         } else {
             None
         };
+        let metamodel = meta_json
+            .as_ref()
+            .and_then(|meta: &InterchangeProjectMetadataRaw| meta.metamodel.as_deref());
 
-        let meta_json_path = self.meta_path();
-
-        let meta_json = if meta_json_path.exists() {
-            Some(
-                serde_json::from_reader(wrapfs::File::open(&meta_json_path)?)
-                    .map_err(|e| ProjectDeserializationError::new(".meta.json", e))?,
-            )
+        let info_json = if info_json_path.exists() {
+            let partial: InterchangeProjectInfoPartial =
+                serde_json::from_reader(wrapfs::File::open(&info_json_path)?)
+                    .map_err(|e| ProjectDeserializationError::new(PROJECT_JSON_FILE, e))?;
+            let info = validate_manifest(
+                PROJECT_JSON_FILE,
+                partial.validate(PROJECT_JSON_FILE, metamodel),
+            )?;
+            Some(info)
         } else {
             None
         };
@@ -531,3 +546,7 @@ fn relativize_path_in<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
         .ok()
         .map(camino::Utf8Path::to_path_buf)
 }
+
+#[cfg(test)]
+#[path = "./local_src_tests.rs"]
+mod tests;

@@ -1041,9 +1041,9 @@ pub struct PublishPreparation {
     metadata: String,
 }
 
-// TODO:
-// - warn if unknown fields present in .project.json/.meta.json - this will require
-//   a large refactoring to keep track of consistently
+// An unknown field in `.project.json`/`.meta.json` is warned about when
+// the document is read, so it is reported before a publish as well as
+// before a build.
 //
 // All of the publish checks will need to be revisited when we start supporting
 // publishing to other indexes, many of them will not apply

@@ -658,8 +658,7 @@ fn error_body_to_string_reports_empty_body() {
 // --- check_metamodel ---
 
 fn metamodel(value: &str) -> Metamodel {
-    Metamodel::parse(fluent_uri::Iri::parse(value.to_owned()).unwrap())
-        .expect("a well-formed metamodel")
+    Metamodel::parse(value).expect("a well-formed metamodel")
 }
 
 #[test]

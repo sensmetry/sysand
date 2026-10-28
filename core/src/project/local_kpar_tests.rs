@@ -106,3 +106,37 @@ fn project_root_uses_zip_path_separators() {
 
     assert_eq!(root, typed_path::Utf8UnixPath::new("some_root_dir"));
 }
+
+/// A KPAR whose metadata is missing a key names the key, as a project
+/// directory does.
+#[test]
+fn kpar_with_a_malformed_meta_names_the_key() -> Result<(), Box<dyn std::error::Error>> {
+    let cwd = tempdir()?;
+    let zip_path = cwd.path().join("test.kpar");
+
+    {
+        let file = std::fs::File::create(&zip_path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let options = SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored)
+            .unix_permissions(0o755);
+
+        zip.start_file(".project.json", options)?;
+        zip.write_all(br#"{"name":"p","version":"1.2.3"}"#)?;
+        zip.start_file(".meta.json", options)?;
+        zip.write_all(br#"{"created":"123"}"#)?;
+        zip.finish().unwrap();
+    }
+
+    let project = super::LocalKParProject::new_access(zip_path, KparInnerPath::Guess, None);
+    let error = project
+        .get_project()
+        .expect_err("the metadata is not valid")
+        .to_string();
+
+    assert!(
+        error.contains("missing key `index` in `.meta.json`"),
+        "unexpected error: {error}"
+    );
+    Ok(())
+}
