@@ -3,15 +3,16 @@
 
 use pyo3::prelude::*;
 
-use sysand_py::sysand_py;
+mod common;
+
+use common::import_core;
 
 #[test]
 fn renders_help_for_a_foreign_program_name() -> Result<(), Box<dyn std::error::Error>> {
-    pyo3::append_to_inittab!(sysand_py);
     Python::initialize();
 
     Python::attach(|py| -> PyResult<()> {
-        let render = py.import("_sysand_core")?.getattr("_render_long_help")?;
+        let render = import_core(py)?.getattr("_render_long_help")?;
 
         let root: String = render.call1(("sysand", Vec::<String>::new()))?.extract()?;
         assert!(root.contains("Usage: sysand"), "{root}");

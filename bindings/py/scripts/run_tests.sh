@@ -20,7 +20,8 @@ uv run maturin develop
 
 source ../../scripts/py_path.sh
 # `--no-default-features` drops `extension-module` so the test binary
-# links, but it also drops the crypto provider, which the tests need.
-cargo test --no-default-features --features tls-aws-lc-rs
+# links, but it also drops the crypto provider, which the tests need, and
+# `abi3`, which is kept to test what the wheels are built with.
+cargo test --no-default-features --features abi3,tls-aws-lc-rs
 
 uv run pytest

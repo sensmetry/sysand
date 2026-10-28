@@ -5,18 +5,18 @@ use predicates::prelude::*;
 use pyo3::prelude::*;
 
 use camino_tempfile::Utf8TempDir;
-use sysand_py::sysand_py;
+mod common;
+
+use common::import_core;
 
 #[test]
 fn basic_init() -> Result<(), Box<dyn std::error::Error>> {
     let proj_dir = Utf8TempDir::new()?;
     let proj_dir_path = proj_dir.path();
 
-    pyo3::append_to_inittab!(sysand_py);
     Python::initialize();
     Python::attach(|py| {
-        let do_init_py_local_file_fn = py
-            .import("_sysand_core")
+        let do_init_py_local_file_fn = import_core(py)
             .expect("Failed to import _sysand_core")
             .getattr("do_init_py_local_file")
             .expect("Failed to get do_init_py_local_file function");

@@ -10,7 +10,9 @@ use std::fs;
 use pyo3::prelude::*;
 
 use camino_tempfile::Utf8TempDir;
-use sysand_py::sysand_py;
+mod common;
+
+use common::import_core;
 
 #[test]
 fn run_cli_expands_glob_pattern() -> Result<(), Box<dyn std::error::Error>> {
@@ -26,11 +28,10 @@ fn run_cli_expands_glob_pattern() -> Result<(), Box<dyn std::error::Error>> {
     // `_run_cli` glob-expands relative to CWD.
     std::env::set_current_dir(proj_dir_path)?;
 
-    pyo3::append_to_inittab!(sysand_py);
     Python::initialize();
 
     let exit_code: u8 = Python::attach(|py| -> PyResult<u8> {
-        let core = py.import("_sysand_core")?;
+        let core = import_core(py)?;
 
         core.getattr("do_init_py_local_file")?.call1((
             "windows_glob",

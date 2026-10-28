@@ -11,18 +11,19 @@
 use camino_tempfile::Utf8TempDir;
 use pyo3::{exceptions::PyRuntimeError, prelude::*};
 
-use sysand_py::sysand_py;
+mod common;
+
+use common::import_core;
 
 #[test]
 fn unregistered_error_classes_raise_a_readable_runtime_error()
 -> Result<(), Box<dyn std::error::Error>> {
     let project_dir = Utf8TempDir::new()?;
 
-    pyo3::append_to_inittab!(sysand_py);
     Python::initialize();
 
     Python::attach(|py| -> PyResult<()> {
-        let core = py.import("_sysand_core")?;
+        let core = import_core(py)?;
 
         // No project exists in the directory, so this can only fail, and it
         // fails with `ProjectError` once the classes are registered.
