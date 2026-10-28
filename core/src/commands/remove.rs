@@ -58,7 +58,9 @@ fn remove_toml<P: ProjectMut>(
 
     let not_found = || RemoveError::UsageNotFound(usage.to_string().into_boxed_str());
     let (publisher, name) = match usage {
-        UsageRef::Typed(publisher, name) => ((*publisher).to_owned(), (*name).to_owned()),
+        UsageRef::Typed(publisher, name) => {
+            (publisher.as_str().to_owned(), name.as_str().to_owned())
+        }
         UsageRef::Resource(iri) => match crate::purl::parse_sysand_purl(iri.as_str()) {
             Ok(Some((publisher, name))) => (publisher.to_owned(), name.to_owned()),
             _ => return Err(not_found()),
@@ -140,7 +142,7 @@ pub fn do_remove<P: ProjectMut>(
         // differently, but `ACME Inc/Foo` (`pkg:sysand/acme-inc/foo`) only as
         // not found
         UsageRef::Typed(publisher, name) => {
-            let identifier = Identifier::from_pub_name(publisher, name);
+            let identifier = Identifier::from_project(publisher, name);
             if let Some(
                 InterchangeProjectUsageRaw::Directory {
                     publisher: p,

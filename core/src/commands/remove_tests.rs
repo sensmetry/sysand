@@ -2,9 +2,12 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use crate::{
-    model::{InterchangeProjectInfoRaw, InterchangeProjectUsageRaw, UsageRef},
-    project::memory::InMemoryProject,
-    remove::do_remove,
+    model::{
+        InterchangeProjectInfoRaw, InterchangeProjectUsageRaw, ProjectName, ProjectPublisher,
+        UsageRef,
+    },
+    project::{ProjectMut, memory::InMemoryProject},
+    remove::{RemoveError, do_remove},
     utils::format_err,
 };
 use fluent_uri::Iri;
@@ -31,6 +34,16 @@ fn project_with_usage(resource: &str) -> InMemoryProject {
 
 fn resource(iri: &str) -> UsageRef<'_> {
     UsageRef::Resource(Iri::parse(iri).unwrap())
+}
+
+fn remove_typed<P: ProjectMut>(
+    project: &mut P,
+    publisher: &str,
+    name: &str,
+) -> Result<Vec<InterchangeProjectUsageRaw>, RemoveError<P::Error>> {
+    let publisher = ProjectPublisher::parse(publisher.to_owned()).unwrap();
+    let name = ProjectName::parse(name.to_owned()).unwrap();
+    do_remove(project, UsageRef::Typed(&publisher, &name))
 }
 
 fn project() -> InMemoryProject {
@@ -123,7 +136,7 @@ fn remove_still_reports_a_genuinely_absent_usage_as_missing() {
 fn remove_typed_matches_the_declared_publisher_and_name_exactly() {
     let mut project = project_with_directory_usage("Acme Labs", "My.Project");
 
-    let removed = do_remove(&mut project, UsageRef::Typed("Acme Labs", "My.Project")).unwrap();
+    let removed = remove_typed(&mut project, "Acme Labs", "My.Project").unwrap();
 
     assert_eq!(removed.len(), 1);
     assert_eq!(project.info.unwrap().usage, []);
@@ -133,7 +146,7 @@ fn remove_typed_matches_the_declared_publisher_and_name_exactly() {
 fn remove_typed_matches_the_normalized_publisher_and_name() {
     let mut project = project_with_directory_usage("Acme Labs", "My.Project");
 
-    let removed = do_remove(&mut project, UsageRef::Typed("acme-labs", "my.project")).unwrap();
+    let removed = remove_typed(&mut project, "acme-labs", "my.project").unwrap();
 
     assert_eq!(removed.len(), 1);
     assert_eq!(project.info.unwrap().usage, []);
@@ -143,7 +156,7 @@ fn remove_typed_matches_the_normalized_publisher_and_name() {
 fn remove_typed_rejects_other_spellings_of_a_typed_usage() {
     let mut project = project_with_directory_usage("Acme Labs", "My.Project");
 
-    let err = do_remove(&mut project, UsageRef::Typed("ACME Labs", "My.Project")).unwrap_err();
+    let err = remove_typed(&mut project, "ACME Labs", "My.Project").unwrap_err();
 
     let message = format_err(err);
     assert!(
@@ -167,7 +180,7 @@ fn remove_typed_also_removes_the_sysand_purl_resource_usage() {
             name: "My.Project".to_owned(),
         });
 
-    let removed = do_remove(&mut project, UsageRef::Typed("Acme Labs", "My.Project")).unwrap();
+    let removed = remove_typed(&mut project, "Acme Labs", "My.Project").unwrap();
 
     assert_eq!(removed.len(), 2);
     assert_eq!(project.info.unwrap().usage, []);
@@ -177,7 +190,7 @@ fn remove_typed_also_removes_the_sysand_purl_resource_usage() {
 fn remove_typed_keeps_other_projects() {
     let mut project = project_with_directory_usage("acme-labs", "my.project");
 
-    let err = do_remove(&mut project, UsageRef::Typed("acme-labs", "other")).unwrap_err();
+    let err = remove_typed(&mut project, "acme-labs", "other").unwrap_err();
 
     let message = format_err(err);
     assert!(
@@ -205,7 +218,7 @@ fn project_with_index_usage(publisher: &str, name: &str) -> InMemoryProject {
 fn remove_typed_index_usage_by_exact_spelling() {
     let mut project = project_with_index_usage("Acme Labs", "My Lib");
 
-    let removed = do_remove(&mut project, UsageRef::Typed("Acme Labs", "My Lib")).unwrap();
+    let removed = remove_typed(&mut project, "Acme Labs", "My Lib").unwrap();
 
     assert_eq!(removed, [index("Acme Labs", "My Lib")]);
     assert_eq!(project.info.unwrap().usage, []);
@@ -215,7 +228,7 @@ fn remove_typed_index_usage_by_exact_spelling() {
 fn remove_typed_index_usage_by_normalized_spelling() {
     let mut project = project_with_index_usage("Acme Labs", "My Lib");
 
-    let removed = do_remove(&mut project, UsageRef::Typed("acme-labs", "my-lib")).unwrap();
+    let removed = remove_typed(&mut project, "acme-labs", "my-lib").unwrap();
 
     assert_eq!(removed, [index("Acme Labs", "My Lib")]);
 }
@@ -224,7 +237,7 @@ fn remove_typed_index_usage_by_normalized_spelling() {
 fn remove_typed_spelled_differently_suggests_the_spelling() {
     let mut project = project_with_index_usage("Acme Labs", "My Lib");
 
-    let err = do_remove(&mut project, UsageRef::Typed("acme labs", "my lib")).unwrap_err();
+    let err = remove_typed(&mut project, "acme labs", "my lib").unwrap_err();
 
     assert_eq!(
         format_err(err),
@@ -245,7 +258,7 @@ fn remove_typed_removes_directory_kpar_and_index_usages() {
     usages.push(index("Acme Labs", "My Lib"));
     usages.push(index("Acme Labs", "Other"));
 
-    let removed = do_remove(&mut project, UsageRef::Typed("Acme Labs", "My Lib")).unwrap();
+    let removed = remove_typed(&mut project, "Acme Labs", "My Lib").unwrap();
 
     assert_eq!(removed.len(), 3);
     assert_eq!(project.info.unwrap().usage, [index("Acme Labs", "Other")]);
