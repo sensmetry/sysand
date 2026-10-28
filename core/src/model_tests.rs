@@ -685,6 +685,49 @@ fn directory_and_kpar_usages_validate_their_spelling() {
     }
 }
 
+/// A project declares each dependency once: two usages that derive the
+/// same identifier are refused, whatever their version constraints or
+/// sources, since a lock records one edge per identifier.
+#[test]
+fn a_dependency_declared_twice_is_refused() {
+    use crate::model::{InterchangeProjectUsageRaw, InterchangeProjectValidationError};
+
+    let resource = |constraint: &str| InterchangeProjectUsageRaw::Resource {
+        resource: "https://example.com/lib.kpar".to_owned(),
+        version_constraint: Some(constraint.to_owned()),
+    };
+    let dir = |dir: &str| InterchangeProjectUsageRaw::Directory {
+        dir: dir.to_owned(),
+        publisher: "acme".to_owned(),
+        name: "lib".to_owned(),
+    };
+    for usage in [
+        vec![resource(">=1.0"), resource("<2.0")],
+        vec![dir("../lib"), dir("../other/lib")],
+    ] {
+        let info = InterchangeProjectInfoRaw {
+            name: "app".to_owned(),
+            publisher: None,
+            description: None,
+            version: "1.0.0".to_owned(),
+            license: None,
+            maintainer: vec![],
+            website: None,
+            topic: vec![],
+            usage,
+        };
+        let error = info.validate().expect_err("a duplicate usage");
+        assert!(
+            matches!(&error, InterchangeProjectValidationError::DuplicateUsage(_)),
+            "{error}"
+        );
+        assert!(
+            error.to_string().ends_with("is listed more than once"),
+            "{error}"
+        );
+    }
+}
+
 #[test]
 fn urn_sysand_resource_usage_is_rejected() {
     use crate::model::{InterchangeProjectUsageRaw, InterchangeProjectValidationError};

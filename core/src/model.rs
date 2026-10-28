@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
+use crate::project::utils::Identifier;
 use crate::purl::parse_sysand_purl;
 use crate::utils::{
     CASE_MAPPER, GENERAL_CATEGORY, IGNORABLE, NFKC_NORMALIZER, NFKD_NORMALIZER,
@@ -301,9 +302,12 @@ pub const LICENSE_EXPRESSION_HELP: &str = "\
 
 /// A dependency on another interchange project. In the dependency solver,
 /// usages are treated as referring to the same project iff they derive the
-/// same `Identifier`. A solution contains one instance per identifier, which
-/// all usages of that identifier accept (in particular, it satisfies
-/// all version constraints)
+/// same `Identifier`. A project declares each dependency once: two of its
+/// usages that derive the same `Identifier` are refused when it is
+/// validated ([`InterchangeProjectValidationError::DuplicateUsage`]). A
+/// solution contains one instance per identifier, which the usages of every
+/// project depending on it accept (in particular, it satisfies all their
+/// version constraints)
 ///
 /// A typed usage (any kind but [`Self::Resource`]) names its project by
 /// `publisher` and `name`, which must match the project's own exactly,
@@ -1049,9 +1053,6 @@ impl<
     }
 
     /// Remove and return all usages matching `usage`.
-    /// Note that sysand will never add multiple usages of the same resource
-    /// to the project, but it does tolerate such usages.
-    // TODO: the spec does not say anything about this and should be clarified
     pub fn pop_usage(
         &mut self,
         usage: &UsageRef<'_>,
@@ -1071,8 +1072,17 @@ impl InterchangeProjectInfoRaw {
     /// Caller is responsible for identifying the project when reporting the error
     pub fn validate(&self) -> Result<InterchangeProjectInfo, InterchangeProjectValidationError> {
         let mut usage = vec![];
+        let mut identifiers = HashSet::new();
         for a_usage in &self.usage {
-            usage.push(a_usage.to_owned().validate()?);
+            let a_usage = a_usage.to_owned().validate()?;
+            let identifier = Identifier::from(&a_usage).into_string();
+            if identifiers.contains(&identifier) {
+                return Err(InterchangeProjectValidationError::DuplicateUsage(
+                    identifier,
+                ));
+            }
+            identifiers.insert(identifier);
+            usage.push(a_usage);
         }
 
         Ok(InterchangeProjectInfo {
@@ -1378,6 +1388,10 @@ pub enum InterchangeProjectValidationError {
     InvalidWebsite(String, #[source] fluent_uri::ParseError),
     #[error("invalid usage resource `{0}`")]
     InvalidUsageResource(String, #[source] fluent_uri::ParseError),
+    /// Two usages that derive the same identifier: a project declares each
+    /// dependency once, with one version constraint.
+    #[error("usage `{0}` is listed more than once")]
+    DuplicateUsage(String),
     #[error("invalid metamodel (`metamodel` field in `.meta.json`) `{0}`")]
     InvalidMetamodel(String, #[source] fluent_uri::ParseError),
     #[error("invalid metamodel (`metamodel` field in `.meta.json`)")]
