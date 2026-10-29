@@ -509,10 +509,11 @@ fn toml_project() -> InMemoryProject {
     project
 }
 
-fn index_usage(project: &str, constraint: Option<&str>) -> InterchangeProjectUsageRaw {
-    InterchangeProjectUsageRaw::Resource {
-        resource: format!("pkg:sysand/acme/{project}"),
-        version_constraint: constraint.map(str::to_owned),
+fn index_usage(project: &str, constraint: &str) -> InterchangeProjectUsageRaw {
+    InterchangeProjectUsageRaw::Index {
+        publisher: "acme".to_owned(),
+        name: project.to_owned(),
+        version_constraint: constraint.to_owned(),
     }
 }
 
@@ -520,7 +521,7 @@ fn index_usage(project: &str, constraint: Option<&str>) -> InterchangeProjectUsa
 fn adding_an_index_usage_appends_an_entry() {
     let mut project = toml_project();
 
-    assert!(do_add(&mut project, &index_usage("other", Some("^2"))).expect("a new usage"));
+    assert!(do_add(&mut project, &index_usage("other", "^2")).expect("a new usage"));
 
     let manifest = project.model_toml.clone().expect("a manifest");
     assert!(manifest.contains("name = \"other\""));
@@ -534,14 +535,14 @@ fn adding_a_duplicate_is_not_an_error() {
     // `false` means the usage was already there and nothing was written.
     let mut project = toml_project();
 
-    assert!(!do_add(&mut project, &index_usage("lib", Some("^1"))).expect("already present"));
+    assert!(!do_add(&mut project, &index_usage("lib", "^1")).expect("already present"));
 }
 
 #[test]
 fn adding_a_different_constraint_sets_it() {
     let mut project = toml_project();
 
-    assert!(do_add(&mut project, &index_usage("lib", Some("^2"))).expect("the constraint changes"));
+    assert!(do_add(&mut project, &index_usage("lib", "^2")).expect("the constraint changes"));
 
     let manifest = project.model_toml.clone().expect("a manifest");
     assert!(manifest.contains("version = \"^2\""));
@@ -549,26 +550,24 @@ fn adding_a_different_constraint_sets_it() {
 }
 
 #[test]
-fn adding_an_index_usage_without_a_constraint_is_refused() {
+fn adding_a_resource_usage_is_refused() {
     let mut project = toml_project();
 
-    let error = do_add(&mut project, &index_usage("other", None)).expect_err("no constraint");
-    assert!(error.to_string().contains("needs a version constraint"));
-}
-
-#[test]
-fn adding_an_untyped_iri_is_refused() {
-    let mut project = toml_project();
-
-    let error = do_add(
-        &mut project,
-        &InterchangeProjectUsageRaw::Resource {
-            resource: "urn:kpar:something".to_owned(),
-            version_constraint: None,
-        },
-    )
-    .expect_err("no manifest form");
-    assert!(error.to_string().contains("publisher and name"));
+    for resource in ["urn:kpar:something", "pkg:sysand/acme/other"] {
+        let error = do_add(
+            &mut project,
+            &InterchangeProjectUsageRaw::Resource {
+                resource: resource.to_owned(),
+                version_constraint: Some("^1".to_owned()),
+            },
+        )
+        .expect_err("no manifest form");
+        assert!(
+            error
+                .to_string()
+                .contains("cannot declare a resource usage")
+        );
+    }
 }
 
 #[test]

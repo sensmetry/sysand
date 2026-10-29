@@ -20,7 +20,6 @@
 //! project needs, and it is free of Cargo features so that the bindings
 //! without a filesystem can produce it too.
 
-use fluent_uri::Iri;
 use indexmap::IndexMap;
 use thiserror::Error;
 use typed_path::Utf8UnixPath;
@@ -75,42 +74,19 @@ pub enum ViewError<E> {
 
 /// Why a json usage has no `model.toml` form.
 ///
-/// Three different refusals, because a caller has three different
-/// things to tell the user. A single "cannot be expressed" would be
-/// useless: one is fixed by typing a constraint, one by editing the
-/// target's `.project.json`, and one cannot be fixed at all in v1.
+/// Two different refusals, because a caller has two different things
+/// to tell the user: a resource usage is declared another way, and an
+/// identifier is fixed by editing the target's `.project.json`.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum NoManifestForm {
-    /// model-toml.md "Usages": an index usage "requires a `version`
-    /// constraint", and a `pkg:sysand` PURL carries none.
-    ///
-    /// The specification resolves this at migration time by asking the
-    /// index for the version and pinning `^<version>`. Inside `sysand
-    /// add` that would be a network call in the middle of a manifest
-    /// edit, so the constraint is asked for instead.
+    /// A resource usage: a manifest declares none, and mapping one is
+    /// migration's job.
     #[error(
-        "a `model.toml` index usage needs a version constraint;\n\
-        {SP:>8} try `sysand add {publisher}/{name} <constraint>`",
+        "a `model.toml` project cannot declare a resource usage (`{0}`):\n\
+        {SP:>8} use an index usage, `dir` or `kpar-path`",
         SP = ' '
     )]
-    NoConstraint { publisher: String, name: String },
-    /// An untyped usage that is not a `pkg:sysand` PURL. model-toml.md:
-    /// identity in a manifest "is always publisher+name", and there is
-    /// nothing here to take them from.
-    #[error(
-        "`{0}` cannot be written into a `model.toml`:\n\
-        {SP:>8} a manifest usage is named by its publisher and name, which this IRI does not carry",
-        SP = ' '
-    )]
-    UntypedIri(String),
-    /// A `kpar-url` usage takes no version constraint, and a
-    /// standard-library usage is written as one.
-    #[error(
-        "`{0}` cannot be written into a `model.toml` with a version constraint:\n\
-        {SP:>8} it is a standard-library IRI, and a `kpar-url` usage takes no version constraint",
-        SP = ' '
-    )]
-    StdlibConstraint(String),
+    Resource(String),
     /// The target declares a publisher or name a manifest cannot hold.
     #[error(
         "`{file}` declares {problem};\n\
@@ -148,65 +124,8 @@ pub fn usage_of_raw(raw: &InterchangeProjectUsageRaw, file: &str) -> Result<Usag
     match raw {
         InterchangeProjectUsageRaw::Resource {
             resource,
-            version_constraint,
-        } => {
-            // model-toml.md "Standard library": "A json project's
-            // `resource` usage of such an IRI is the same usage under
-            // the same spelling" -- the publisher-less `kpar-url` form.
-            if let Some(stem) = crate::model::omg_stdlib_stem(resource) {
-                if version_constraint.is_some() {
-                    return Err(NoManifestForm::StdlibConstraint(resource.clone()));
-                }
-                // The name is the one the KPAR declares, not the IRI's
-                // stem -- `Kernel Semantic Library`, not
-                // `Semantic-Library`. The stem is the fallback for a
-                // release this Sysand does not embed, where there is
-                // nothing else to go on and `--include-std` is the
-                // point; it is also the fallback for an embedded name
-                // that is somehow not a valid `IndexName`, which no current
-                // release is.
-                let declared = crate::stdlib::std_lib_name(resource)
-                    .and_then(|declared| IndexName::parse(declared).ok());
-                let name = match declared {
-                    Some(name) => name,
-                    None => IndexName::parse(stem).map_err(|e| NoManifestForm::Identifier {
-                        file: file.to_owned(),
-                        problem: format!("`{}`: {e}", e.value),
-                    })?,
-                };
-                let url = Iri::parse(resource.to_owned()).map_err(|(e, _)| {
-                    NoManifestForm::Identifier {
-                        file: file.to_owned(),
-                        problem: format!("`{resource}`: {e}"),
-                    }
-                })?;
-                return Ok(Usage::RemoteKpar {
-                    publisher: None,
-                    name,
-                    url,
-                });
-            }
-            let Ok(Some((publisher, name))) = crate::purl::parse_sysand_purl(resource) else {
-                return Err(NoManifestForm::UntypedIri(resource.clone()));
-            };
-            let Some(constraint) = version_constraint else {
-                return Err(NoManifestForm::NoConstraint {
-                    publisher: publisher.to_owned(),
-                    name: name.to_owned(),
-                });
-            };
-            let (publisher, name) = identity(publisher, name)?;
-            let version_constraint =
-                semver::VersionReq::parse(constraint).map_err(|e| NoManifestForm::Identifier {
-                    file: file.to_owned(),
-                    problem: format!("version constraint `{constraint}`: {e}"),
-                })?;
-            Ok(Usage::Index {
-                publisher,
-                name,
-                version_constraint,
-            })
-        }
+            version_constraint: _,
+        } => Err(NoManifestForm::Resource(resource.clone())),
         InterchangeProjectUsageRaw::Directory {
             dir,
             publisher,

@@ -628,9 +628,6 @@ fn migrate_resource(
                 // dropped: the IRI names one release, and silently
                 // discarding the constraint would throw away the only
                 // statement the author made about which one they wanted.
-                // `kpar_view::usage_of_raw` refuses the same document
-                // with `NoManifestForm::StdlibConstraint`; one document,
-                // one answer.
                 if crate::model::is_omg_stdlib_iri(resource) {
                     report.push(Diagnostic::error(format!(
                         "usage `{resource}` carries `version` `{constraint}`, which a `kpar-url` \

@@ -661,56 +661,22 @@ fn raw_resource(resource: &str, constraint: Option<&str>) -> InterchangeProjectU
 }
 
 #[test]
-fn a_sysand_purl_with_a_constraint_is_an_index_usage() {
-    let usage = usage_of_raw(
-        &raw_resource("pkg:sysand/acme/lib", Some("^1.2")),
-        ".project.json",
-    )
-    .expect("an index usage");
+fn a_resource_usage_has_no_manifest_form() {
+    for resource in [
+        "pkg:sysand/acme/lib",
+        "urn:kpar:something",
+        "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar",
+    ] {
+        let error = usage_of_raw(&raw_resource(resource, Some("^1")), ".project.json")
+            .expect_err("a resource usage");
 
-    assert_eq!(
-        usage,
-        Usage::Index {
-            publisher: crate::model::IndexPublisher::parse("acme").expect("a publisher"),
-            name: crate::model::IndexName::parse("lib").expect("a name"),
-            version_constraint: semver::VersionReq::parse("^1.2").expect("a constraint"),
-        }
-    );
-}
-
-#[test]
-fn an_index_usage_needs_a_constraint() {
-    // `Usage::Index` carries a `VersionReq` and the reader refuses an
-    // entry without one. The specification resolves this from the index
-    // at migration time; this refusal asks for it instead.
-    let error = usage_of_raw(&raw_resource("pkg:sysand/acme/lib", None), ".project.json")
-        .expect_err("no constraint");
-
-    assert!(matches!(
-        error,
-        NoManifestForm::NoConstraint {
-            publisher: _,
-            name: _
-        }
-    ));
-    assert!(
-        error
-            .to_string()
-            .contains("sysand add acme/lib <constraint>")
-    );
-}
-
-#[test]
-fn an_iri_that_is_not_a_sysand_purl_has_no_manifest_form() {
-    let error = usage_of_raw(&raw_resource("urn:kpar:something", None), ".project.json")
-        .expect_err("untyped");
-
-    assert!(matches!(error, NoManifestForm::UntypedIri(_)));
-    assert!(
-        error
-            .to_string()
-            .contains("named by its publisher and name")
-    );
+        assert!(matches!(&error, NoManifestForm::Resource(r) if r == resource));
+        assert!(
+            error
+                .to_string()
+                .contains("cannot declare a resource usage")
+        );
+    }
 }
 
 #[test]
@@ -829,69 +795,6 @@ fn resolved_of_text_still_refuses_without_a_table() {
         .expect_err("no table, no inheritance");
     assert!(
         error.to_string().contains("not a member of any workspace"),
-        "{error}"
-    );
-}
-
-// ------------------- the standard-library IRI
-
-/// model-toml.md "Standard library": "A json project's `resource` usage
-/// of such an IRI is the same usage under the same spelling" -- the
-/// publisher-less `kpar-url` form. Without this `sysand add <the IRI>`
-/// could not write a `model.toml` entry at all.
-#[test]
-fn a_json_resource_at_an_omg_iri_becomes_a_publisher_less_kpar_url() {
-    let raw = crate::model::InterchangeProjectUsageRaw::Resource {
-        resource: "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar".to_owned(),
-        version_constraint: None,
-    };
-    let usage = usage_of_raw(&raw, ".project.json").expect("a standard-library usage");
-    assert!(usage.is_stdlib(), "{usage:?}");
-    // "the name the KPAR declares" -- which is not the IRI's stem.
-    assert_eq!(usage.name().as_str(), "Kernel Semantic Library");
-    assert_eq!(usage.identity().publisher, "omg");
-    assert_eq!(usage.identity().name, "kernel-semantic-library");
-}
-
-/// A well-formed standard-library IRI of a release this Sysand does not
-/// embed has no declared name to take, so the stem is what is left --
-/// and such an IRI is what `--include-std` exists for.
-#[test]
-fn an_unembedded_omg_iri_falls_back_to_the_stem() {
-    let raw = crate::model::InterchangeProjectUsageRaw::Resource {
-        resource: "https://www.omg.org/spec/KerML/20301231/Semantic-Library.kpar".to_owned(),
-        version_constraint: None,
-    };
-    let usage = usage_of_raw(&raw, ".project.json").expect("a standard-library usage");
-    assert_eq!(usage.name().as_str(), "Semantic-Library");
-}
-
-/// A `kpar-url` usage takes no version constraint,
-/// so a json usage that carries one has no manifest form.
-#[test]
-fn a_constrained_omg_iri_has_no_manifest_form() {
-    let raw = crate::model::InterchangeProjectUsageRaw::Resource {
-        resource: "https://www.omg.org/spec/SysML/20250201/Systems-Library.kpar".to_owned(),
-        version_constraint: Some("^2".to_owned()),
-    };
-    let error = usage_of_raw(&raw, ".project.json").expect_err("no manifest form");
-    assert!(
-        error.to_string().contains("takes no version constraint"),
-        "{error}"
-    );
-}
-
-/// The exemption is the IRI's: any other untyped IRI is still refused,
-/// because a manifest usage is named by its publisher and name.
-#[test]
-fn another_untyped_iri_is_still_refused() {
-    let raw = crate::model::InterchangeProjectUsageRaw::Resource {
-        resource: "https://example.com/lib.kpar".to_owned(),
-        version_constraint: None,
-    };
-    let error = usage_of_raw(&raw, ".project.json").expect_err("no manifest form");
-    assert!(
-        matches!(&error, NoManifestForm::UntypedIri(iri) if iri == "https://example.com/lib.kpar"),
         "{error}"
     );
 }
