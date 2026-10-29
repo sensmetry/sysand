@@ -55,7 +55,7 @@ use crate::{
         local_kpar::{KparInnerPath, LocalKParError, LocalKParProject, LocalKParProjectRaw},
         utils::{FsIoError, wrapfs},
     },
-    purl::PKG_SYSAND_PREFIX,
+    purl::{PKG_SYSAND_PREFIX, sysand_purl},
 };
 
 #[derive(Error, Debug)]
@@ -298,7 +298,7 @@ impl LocalIndexEnvironment {
                     source,
                 }
             })?;
-            let iri = format!("{PKG_SYSAND_PREFIX}{publisher}/{}", info.name);
+            let iri = sysand_purl(&publisher, &info.name);
             let held = table.entry(iri.clone()).or_default();
             if let Some((_, first)) = held.iter().find(|(c, _)| c.version == version) {
                 return Err(LocalIndexError::DuplicateArchive {

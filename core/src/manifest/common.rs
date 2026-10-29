@@ -15,7 +15,7 @@ use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
 use crate::manifest::diagnostics::Diagnostic;
 use crate::model::{IndexName, IndexPublisher, KnownMetamodel};
-use crate::purl::PKG_SYSAND_PREFIX;
+use crate::purl::sysand_purl;
 use crate::symbols::Language;
 
 /// The publisher a standard-library usage is resolved under.
@@ -53,7 +53,7 @@ pub struct NormalizedIdentity {
 
 impl NormalizedIdentity {
     pub fn lock_identifier(&self) -> String {
-        format!("{PKG_SYSAND_PREFIX}{}/{}", self.publisher, self.name)
+        sysand_purl(&self.publisher, &self.name)
     }
 }
 

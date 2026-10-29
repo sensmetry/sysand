@@ -148,6 +148,13 @@ pub enum SysandPurlError {
     },
 }
 
+/// The `pkg:sysand/<publisher>/<name>` IRI of `publisher` and `name`, which
+/// are put in as they are: the caller is responsible for them being valid
+/// (see [`parse_sysand_purl`], which reads it back)
+pub fn sysand_purl(publisher: &str, name: &str) -> String {
+    format!("{PKG_SYSAND_PREFIX}{publisher}/{name}")
+}
+
 /// Parse a `pkg:sysand/<publisher>/<name>` IRI into its `(publisher, name)`
 /// segments. Returns `Ok(None)` for IRIs that do not start with the
 /// `pkg:sysand/` prefix, `Ok(Some(..))` for conforming Sysand PURLs,

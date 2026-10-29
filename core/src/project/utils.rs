@@ -25,7 +25,7 @@ use crate::{
         IndexName, IndexPublisher, InterchangeProjectUsage, InterchangeProjectUsageRaw,
         ProjectName, ProjectPublisher, normalize_typed_name, normalize_typed_publisher,
     },
-    purl::PKG_SYSAND_PREFIX,
+    purl::sysand_purl,
     resolve::UsageOrigin,
     utils::SP,
 };
@@ -669,11 +669,7 @@ impl Identifier {
     /// The `pkg:sysand` PURL of the project spelled `publisher`/`name`, as an
     /// index usage spells it; always valid, so nothing has to be checked
     pub fn from_index(publisher: &IndexPublisher, name: &IndexName) -> Self {
-        Self(format!(
-            "{PKG_SYSAND_PREFIX}{}/{}",
-            publisher.normalized(),
-            name.normalized()
-        ))
+        Self(sysand_purl(&publisher.normalized(), &name.normalized()))
     }
 
     /// The identifier of the project spelled `publisher`/`name`: as
