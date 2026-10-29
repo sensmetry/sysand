@@ -334,7 +334,8 @@ publisher invalidates the usages that refer to it.
   kind detection is unaffected, but because a v1 reader would warn about
   it and silently resolve against its own indexes, adding it bumps
   `manifest-version` (see Manifest version). An index name cannot
-  survive into a KPAR, whose usages are PURLs (see TOML to KPAR); the
+  survive into a KPAR, whose index usages are typed index usages with no
+  index name (see TOML to KPAR); the
   lockfile records the index URL, as it does today
 - source path: dir, publisher, name. `dir` is relative to the directory
   of the `model.toml` the entry is written in: the project root for a
@@ -361,7 +362,8 @@ publisher invalidates the usages that refer to it.
 - `resource` (the KerML usage type carried by json projects, see
   `InterchangeProjectInfo`) is legacy and is not supported directly:
   it cannot be declared in `model.toml`. It only appears on the KPAR
-  side, as what the kinds above are turned into when building one
+  side, as what a remote-kpar usage, and a local usage of a `stdlib`
+  target, are turned into when building one
 - Remote source is not included for simplicity; very few legitimate uses exist;
   supporting this is slow, and with now two supported metadata formats,
   both need to be checked, and this increases the latency; file system
@@ -419,9 +421,8 @@ Normalization exists for the solver, and for nothing else. All projects
 are resolved by their *normalized* identity, regardless of how the usage
 is declared, so that the PURL usages of existing json projects resolve
 consistently with usages that spell publisher and name out. Resolution
-is the only place that normalizes -- index lookups, the lockfile
-identifier `pkg:sysand/<publisher>/<name>` and the PURLs built when
-packaging a KPAR included. Every other comparison is literal string
+is the only place that normalizes -- index lookups and the lockfile
+identifier `pkg:sysand/<publisher>/<name>` included. Every other comparison is literal string
 equality: whether a project satisfies a usage (see Usages) and workspace
 group matching (see workspaces.md, Common usages) among them, so an
 opt-in entry has to spell publisher and name exactly as the group entry
@@ -550,7 +551,7 @@ normal rules):
 - a usage whose target carries `stdlib` is written as
   `resource = "<target's metamodel>/<target's stdlib>.kpar"` -- the
   metamodel supplies the prefix and release date -- with its version
-  constraint, instead of as a PURL
+  constraint, instead of as a typed index usage
 - `publisher` is omitted from the `.project.json` of a project that
   carries the key
 
@@ -616,25 +617,24 @@ name that is not alphanumeric replaced by `_`.
     which is what keeps the union above equal to `sources`
 - usages are transformed from the `[[inline-usages]]` array, after any
   workspace opt-ins have been replaced by their group entries:
-  - index: turn into a PURL (`pkg:sysand/<publisher>/<name>`) with the
+  - index: turn into a typed index usage (`publisher`, `name`) with the
     version constraint as declared
-  - source path, kpar path: turn into a PURL constrained to
+  - source path, kpar path: turn into a typed index usage constrained to
     `^<version>`, where `<version>` is the target project's version at
-    build time. There is no fallback: a publisher/name pair that cannot
-    be encoded into a PURL is a build error, and so is a target whose
-    version is not semver -- possible for a json target, since
-    `model.toml` constrains only its own version -- since then there is
-    no `^<version>` to emit. `sysand build --allow-path-usage`, the
+    build time. There is no fallback: a target whose version is not
+    semver -- possible for a json target, since `model.toml` constrains
+    only its own version -- is a build error, since then there is no
+    `^<version>` to emit. `sysand build --allow-path-usage`, the
     existing flag whose meaning is "I accept a KPAR that only resolves
     on this machine", is the opt-out: with it, local usages are emitted
     as the typed usages `Directory` (source path) and `KparPath` (kpar
-    path), which preserve the path as written and cannot be expressed
-    via `resource`, with the existing warning that the result is not
-    portable. A typed usage carries `publisher` and `name` exactly as
-    the manifest spells them, without normalization, because Sysand
-    requires them to match the values found at the target
+    path), which preserve the path as written, with the existing warning
+    that the result is not portable. A typed usage carries `publisher`
+    and `name` exactly as the manifest spells them, without
+    normalization, because Sysand requires them to match the values found
+    at the target
   - a source path or kpar path usage whose target carries `stdlib`: the
-    OMG IRI instead of the PURL (see Standard library). Only a local
+    OMG IRI instead of the typed index usage (see Standard library). Only a local
     usage can reach such a target, `stdlib` being a `model.toml` key that
     no KPAR and no index carries. Under `--allow-path-usage` a local
     usage stays a typed path usage, stdlib target or not; a remote-kpar
@@ -721,6 +721,9 @@ Field by field:
       - (for all of these, may just use the resolver + `sources()`)
       - error out if any other type is encountered or if the missing
         data could not be populated due to any error
+    - index (`publisher`, `name`, `versionConstraint`): used as-is. The
+      usage already spells the target's real publisher and name, so
+      nothing is looked up
     - source path (`Directory`), kpar path (`KparPath`): the path,
       rewritten into the form a `dir` or `kpar-path` requires (see
       Usages) -- a leading `./`, a `.` component and a trailing slash
@@ -796,8 +799,9 @@ Which manifests a directory holds decides what it is:
 
 TLDR:
 - KPARs will continue to exclusively use `.project.json`/`.meta.json`
-  (along with typed usages, which remain available behind
-  `--allow-path-usage`, as these can't be expressed via `resource`)
+  (along with typed usages: an index usage stands in for a source path
+  or kpar path, which stay typed path usages behind
+  `--allow-path-usage`, so that the path is preserved)
 - if toml config present in a KPAR, error out
 - source projects can be either toml or json, but if both present errors out
 - only toml projects support workspaces: a `members` entry that resolves

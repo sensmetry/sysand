@@ -175,16 +175,15 @@ fn a_toml_build_records_the_build_time() -> Result<(), Box<dyn std::error::Error
 }
 
 #[test]
-fn a_toml_index_usage_becomes_a_purl() -> Result<(), Box<dyn std::error::Error>> {
+fn a_toml_index_usage_becomes_a_typed_index_usage() -> Result<(), Box<dyn std::error::Error>> {
     let dir = toml_project(
         "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\nversion = \"^1.2\"\n",
     )?;
     let (info, _) = built(&dir, false)?;
     assert_eq!(info.usage.len(), 1);
-    assert!(
-        format!("{:?}", info.usage[0]).contains("pkg:sysand/acme/dep"),
-        "{:?}",
-        info.usage[0]
+    assert_eq!(
+        index_usage(&info.usage[0]),
+        ("acme".to_owned(), "dep".to_owned(), "^1.2".to_owned())
     );
     Ok(())
 }
@@ -260,7 +259,10 @@ fn a_non_omg_index_usage_is_untouched() -> Result<(), Box<dyn std::error::Error>
         "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\nversion = \"^1\"\n",
     )?;
     let (info, _) = built(&dir, false)?;
-    assert_eq!(resource(&info.usage[0]).0, "pkg:sysand/acme/dep");
+    assert_eq!(
+        index_usage(&info.usage[0]),
+        ("acme".to_owned(), "dep".to_owned(), "^1".to_owned())
+    );
     Ok(())
 }
 
@@ -440,14 +442,26 @@ fn resource(raw: &crate::model::InterchangeProjectUsageRaw) -> (String, Option<S
     }
 }
 
+/// A typed index usage: publisher, name and constraint.
+fn index_usage(usage: &crate::model::InterchangeProjectUsageRaw) -> (String, String, String) {
+    match usage {
+        crate::model::InterchangeProjectUsageRaw::Index {
+            publisher,
+            name,
+            version_constraint,
+        } => (publisher.clone(), name.clone(), version_constraint.clone()),
+        other => panic!("expected an index usage, got `{other:?}`"),
+    }
+}
+
 #[test]
-fn a_dir_usage_becomes_a_caret_purl() -> Result<(), Box<dyn std::error::Error>> {
+fn a_dir_usage_becomes_a_caret_index_usage() -> Result<(), Box<dyn std::error::Error>> {
     let dir = toml_project(DIR_USAGE)?;
     json_target(&dir, "dep", "1.2.3");
     let (info, _) = built(&dir, false)?;
     assert_eq!(
-        resource(&info.usage[0]),
-        ("pkg:sysand/acme/dep".to_owned(), Some("^1.2.3".to_owned()))
+        index_usage(&info.usage[0]),
+        ("acme".to_owned(), "dep".to_owned(), "^1.2.3".to_owned())
     );
     Ok(())
 }
@@ -457,21 +471,24 @@ fn a_dir_usage_reads_a_toml_target() -> Result<(), Box<dyn std::error::Error>> {
     let dir = toml_project(DIR_USAGE)?;
     toml_target(&dir, "dep", "4.5.6", "");
     let (info, _) = built(&dir, false)?;
-    assert_eq!(resource(&info.usage[0]).1, Some("^4.5.6".to_owned()));
+    assert_eq!(index_usage(&info.usage[0]).2, "^4.5.6");
     Ok(())
 }
 
-/// The PURL form normalizes; the typed form does not. That asymmetry is
-/// the specification's -- but the usage still has to name the project
-/// the target declares, which is what it is normalized *from*.
+/// The index usage a local usage becomes carries the publisher and name
+/// as the manifest spells them, which the target has to declare.
 #[test]
-fn a_dir_usage_normalizes_the_purl() -> Result<(), Box<dyn std::error::Error>> {
+fn a_dir_usage_keeps_the_manifest_spelling() -> Result<(), Box<dyn std::error::Error>> {
     let dir = toml_project(
         "\n[[inline-usages]]\npublisher = \"Acme Labs\"\nname = \"Wid Gets\"\ndir = \"dep\"\n",
     )?;
     json_target_named(&dir, "dep", "Acme Labs", "Wid Gets", "1.0.0");
     let (info, _) = built(&dir, false)?;
-    assert_eq!(resource(&info.usage[0]).0, "pkg:sysand/acme-labs/wid-gets");
+    let (publisher, name, _) = index_usage(&info.usage[0]);
+    assert_eq!(
+        (publisher.as_str(), name.as_str()),
+        ("Acme Labs", "Wid Gets")
+    );
     Ok(())
 }
 
@@ -621,12 +638,12 @@ fn the_typed_and_raw_usage_lists_correspond() -> Result<(), Box<dyn std::error::
     // The index usage keeps its own constraint: only the local one is
     // rewritten, and it is rewritten in its own slot.
     assert_eq!(
-        resource(&info.usage[0]),
-        ("pkg:sysand/acme/idx".to_owned(), Some("^2".to_owned()))
+        index_usage(&info.usage[0]),
+        ("acme".to_owned(), "idx".to_owned(), "^2".to_owned())
     );
     assert_eq!(
-        resource(&info.usage[1]),
-        ("pkg:sysand/acme/dep".to_owned(), Some("^1.2.3".to_owned()))
+        index_usage(&info.usage[1]),
+        ("acme".to_owned(), "dep".to_owned(), "^1.2.3".to_owned())
     );
     assert_eq!(resource(&info.usage[2]).0, "https://example.com/r.kpar");
     Ok(())
@@ -638,9 +655,9 @@ fn the_typed_and_raw_usage_lists_correspond() -> Result<(), Box<dyn std::error::
 /// The target here is built from a **stdlib** project, so this also
 /// pins that rule 3 cannot reach an archive: a KPAR carries no
 /// `model.toml` (one at its root is `TomlInKpar`), so a publisher-less
-/// standard-library archive still gets rule 2's PURL.
+/// standard-library archive still gets rule 2's index usage.
 #[test]
-fn a_kpar_path_usage_becomes_a_caret_purl() -> Result<(), Box<dyn std::error::Error>> {
+fn a_kpar_path_usage_becomes_a_caret_index_usage() -> Result<(), Box<dyn std::error::Error>> {
     let dir = toml_project(
         "\n[[inline-usages]]\npublisher = \"omg\"\nname = \"dep\"\nkpar-path = \"dep.kpar\"\n",
     )?;
@@ -664,8 +681,8 @@ fn a_kpar_path_usage_becomes_a_caret_purl() -> Result<(), Box<dyn std::error::Er
 
     let (info, _) = built(&dir, false)?;
     assert_eq!(
-        resource(&info.usage[0]),
-        ("pkg:sysand/omg/dep".to_owned(), Some("^7.8.9".to_owned()))
+        index_usage(&info.usage[0]),
+        ("omg".to_owned(), "dep".to_owned(), "^7.8.9".to_owned())
     );
     Ok(())
 }

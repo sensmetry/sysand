@@ -230,6 +230,14 @@ pub fn command_add<Policy: HTTPAuthentication>(
             iri,
             iri_path,
         } => {
+            // A resource usage has no `model.toml` form
+            if current_project.format()? == ProjectFormat::Toml {
+                bail!(
+                    "`--iri` and `--iri-path` add a resource usage, which a `model.toml` project\n\
+                     cannot declare: name the dependency as `<publisher>/<name>`, or use\n\
+                     `--dir` or `--kpar-path`"
+                );
+            }
             let iri = iri_or_path_to_iri(iri, iri_path)?;
             pending_override = Some((source_overrides, iri.clone()));
             let usage = InterchangeProjectUsage::Resource {

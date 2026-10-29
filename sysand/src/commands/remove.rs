@@ -3,7 +3,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use camino::Utf8PathBuf;
 
 use fluent_uri::Iri;
@@ -18,7 +18,7 @@ use sysand_core::{
     context::ProjectContext,
     lock::{Lockfile, RemoveUsageOutcome},
     model::{InterchangeProjectUsageRaw, UsageRef},
-    project::{ProjectRead as _, utils::Identifier},
+    project::{ProjectFormat, ProjectRead as _, utils::Identifier},
     remove::do_remove,
 };
 
@@ -61,6 +61,12 @@ pub fn command_remove<Policy: HTTPAuthentication>(
         .current_project
         .as_mut()
         .ok_or(CliError::MissingProjectCurrentDir)?;
+    if identifier.is_none() && current_project.format()? == ProjectFormat::Toml {
+        bail!(
+            "`--iri` and `--iri-path` name a resource usage, which a `model.toml` project\n\
+             cannot declare: name the dependency as `<publisher>/<name>`"
+        );
+    }
     let project_root = current_project.root_path().to_owned();
     let config_path =
         config_file.or_else(|| (!no_config).then(|| ctx.config_root.join(CONFIG_FILE)));

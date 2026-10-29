@@ -10,8 +10,8 @@
 //! the archive's alone, and each is marked "the archive" below:
 //!
 //! 1. `publisher` is omitted from a `stdlib` project's `.project.json`;
-//! 2. `dir` and `kpar-path` usages become PURLs constrained to
-//!    `^<target version>`;
+//! 2. `dir` and `kpar-path` usages become typed index usages constrained
+//!    to `^<target version>`;
 //! 3. a usage whose target carries `stdlib` becomes an OMG IRI.
 //!
 //! All three need something this module does not have -- the project's
@@ -123,11 +123,10 @@ pub enum NoManifestForm {
 /// Read a json usage as a manifest usage.
 ///
 /// The reverse of [`usage`], and deliberately not its inverse: the
-/// forward map writes an index usage as the *normalized* PURL, so a
-/// publisher written `ACME` comes back `acme`; and it turns a `kpar-url`
-/// usage into a bare IRI, dropping the publisher and name a manifest
-/// needs. Nothing can therefore produce a `kpar-url` entry from json, which
-/// is a gap in v1 rather than in this function.
+/// forward map turns a `kpar-url` usage into a bare IRI, dropping the
+/// publisher and name a manifest needs. Nothing can therefore produce a
+/// `kpar-url` entry from json, which is a gap in v1 rather than in this
+/// function.
 ///
 /// `file` names the document the raw usage came from, for the one
 /// refusal whose fix is in another project's manifest.
@@ -258,34 +257,30 @@ pub fn usage_of_raw(raw: &InterchangeProjectUsageRaw, file: &str) -> Result<Usag
 
 /// One usage as a `.project.json` carries it.
 ///
-/// model-toml.md "TOML to KPAR": an index usage becomes a PURL with the
-/// constraint as declared, and a remote-kpar usage its URL as-is. The
-/// two local kinds become *typed* usages here, which is where the view
-/// and the archive part company: the archive rewrites them into PURLs
-/// constrained to the target's version at build time, which needs the
-/// target's manifest, and the resolver needs the path in any case (a
-/// `model.toml` `dir` usage always resolves to an editable project).
+/// model-toml.md "TOML to KPAR": an index usage becomes a typed index
+/// usage with the constraint as declared, and a remote-kpar usage its URL
+/// as-is. The two local kinds become typed *path* usages here, which is
+/// where the view and the archive part company: the archive rewrites them
+/// into typed index usages constrained to the target's version at build
+/// time, which needs the target's manifest, and the resolver needs the
+/// path in any case (a `model.toml` `dir` usage always resolves to an
+/// editable project).
 ///
 /// A typed usage "carries `publisher` and `name` exactly as the manifest
 /// spells them, without normalization, because Sysand requires them to
-/// match the values found at the target". That is about what is
-/// *written*; the identity check when the usage resolves normalizes
-/// both sides, as model-toml.md "Normalization" requires. A PURL is built from the
-/// normalized pair instead, and cannot fail: `IndexPublisher` and `IndexName`
-/// accept only values that are valid PURL segments once normalized (see
-/// `purl::is_valid_unnormalized_publisher`), so the identity a usage
-/// holds is always encodable. It is spelled by the same function the
-/// lockfile uses, so the two cannot drift apart.
+/// match the values found at the target". The identity check when the
+/// usage resolves normalizes both sides, as model-toml.md "Normalization"
+/// requires.
 pub fn usage(usage: &Usage) -> InterchangeProjectUsageRaw {
     match usage {
         Usage::Index {
             publisher,
             name,
             version_constraint,
-        } => InterchangeProjectUsageRaw::Resource {
-            resource: crate::manifest::common::normalized_identity(publisher, name)
-                .lock_identifier(),
-            version_constraint: Some(version_constraint.to_string()),
+        } => InterchangeProjectUsageRaw::Index {
+            publisher: publisher.as_str().to_owned(),
+            name: name.as_str().to_owned(),
+            version_constraint: version_constraint.to_string(),
         },
         // "remote-kpar: use the URL as-is"; the kind takes no version
         // constraint.

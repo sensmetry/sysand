@@ -297,7 +297,7 @@ per-version file:
     {
       "version": "2.3.4",
       "usage": [
-        { "resource": "pkg:sysand/abc/dep", "versionConstraint": "<2" },
+        { "publisher": "Abc", "name": "Dep", "versionConstraint": "<2" },
         { "publisher": "Abc", "name": "Other Dep", "versionConstraint": "^1" }
       ],
       "kpar_size": 12345,

@@ -48,30 +48,31 @@ fn url(raw_publisher: &str, raw_name: &str, iri: &str) -> Usage {
     }
 }
 
-/// model-toml.md "TOML to KPAR": "index: turn into a PURL
-/// (`pkg:sysand/<publisher>/<name>`) with the version constraint as
-/// declared".
+/// model-toml.md "TOML to KPAR": "index: turn into a typed index usage
+/// (`publisher`, `name`) with the version constraint as declared".
 #[test]
-fn an_index_usage_becomes_a_purl_resource() {
+fn an_index_usage_becomes_a_typed_index_usage() {
     assert_eq!(
         usage(&index("acme", "widgets", "^1.2.3")),
-        InterchangeProjectUsageRaw::Resource {
-            resource: "pkg:sysand/acme/widgets".to_owned(),
-            version_constraint: Some("^1.2.3".to_owned()),
+        InterchangeProjectUsageRaw::Index {
+            publisher: "acme".to_owned(),
+            name: "widgets".to_owned(),
+            version_constraint: "^1.2.3".to_owned(),
         }
     );
 }
 
-/// A PURL is built from the *normalized* pair: model-toml.md
-/// "Normalization", "All projects are resolved by their normalized
-/// identity, regardless of how the usage is declared."
+/// A typed usage carries `publisher` and `name` as the manifest spells
+/// them: model-toml.md "Normalization", "a normalized value is used only
+/// where a non-normalized one does not exist".
 #[test]
-fn a_purl_resource_is_built_from_the_normalized_pair() {
+fn a_typed_index_usage_keeps_the_manifest_spelling() {
     assert_eq!(
         usage(&index("Acme Corp", "Wid Get", "^1")),
-        InterchangeProjectUsageRaw::Resource {
-            resource: "pkg:sysand/acme-corp/wid-get".to_owned(),
-            version_constraint: Some("^1".to_owned()),
+        InterchangeProjectUsageRaw::Index {
+            publisher: "Acme Corp".to_owned(),
+            name: "Wid Get".to_owned(),
+            version_constraint: "^1".to_owned(),
         }
     );
 }
@@ -90,9 +91,9 @@ fn a_kpar_url_usage_becomes_a_resource_with_no_constraint() {
     );
 }
 
-/// The view keeps a local usage typed, where the archive would rewrite
-/// it into a PURL constrained to the target's version -- which needs the
-/// target, and the resolver needs the path.
+/// The view keeps a local usage typed as a path usage, where the archive
+/// rewrites it into a typed index usage constrained to the target's
+/// version -- which needs the target, and the resolver needs the path.
 #[test]
 fn a_dir_usage_becomes_a_typed_directory_usage() {
     assert_eq!(
@@ -343,9 +344,10 @@ fn usages_are_mapped_in_manifest_order() {
     assert_eq!(
         info.usage,
         [
-            InterchangeProjectUsageRaw::Resource {
-                resource: "pkg:sysand/acme/first".to_owned(),
-                version_constraint: Some("^1".to_owned()),
+            InterchangeProjectUsageRaw::Index {
+                publisher: "acme".to_owned(),
+                name: "first".to_owned(),
+                version_constraint: "^1".to_owned(),
             },
             InterchangeProjectUsageRaw::Directory {
                 dir: "../second".to_owned(),
@@ -781,9 +783,8 @@ fn a_target_whose_identifiers_the_rule_refuses_names_its_file() {
 }
 
 #[test]
-fn the_forward_map_normalizes_and_this_one_does_not() {
-    // Not an inverse: `usage` writes the normalized PURL, so a
-    // publisher written `ACME` comes back `acme`.
+fn the_forward_map_keeps_the_manifest_spelling() {
+    // A publisher written `ACME` comes back `ACME`.
     let shouted = Usage::Index {
         publisher: crate::model::IndexPublisher::parse("ACME").expect("a publisher"),
         name: crate::model::IndexName::parse("Lib").expect("a name"),
@@ -791,8 +792,8 @@ fn the_forward_map_normalizes_and_this_one_does_not() {
     };
 
     let back = usage_of_raw(&super::usage(&shouted), ".project.json").expect("an index usage");
-    assert_eq!(back.publisher().expect("a publisher").as_str(), "acme");
-    assert_eq!(back.name().as_str(), "lib");
+    assert_eq!(back.publisher().expect("a publisher").as_str(), "ACME");
+    assert_eq!(back.name().as_str(), "Lib");
 }
 
 // ------------------- resolving against a workspace table

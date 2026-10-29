@@ -385,10 +385,8 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
             ManifestError::NoTomlManifest => unreachable!("a toml project has a manifest"),
         })?;
 
-        // Over the *typed* usages, not `info.usage`: at the raw level an
-        // index usage and a remote-kpar usage are both `Resource`, and a
-        // remote-kpar `kpar-url` that happens to be a `pkg:sysand` IRI would
-        // be misread as the first.
+        // Over the *typed* usages, which know each usage's kind and its
+        // target.
         //
         // `zip` and not an index range: `kpar_view::info` builds the raw
         // list as `project.usages.iter().map(usage).collect()`, 1:1 and
@@ -689,8 +687,8 @@ fn read_optional_project_file(
     }
 }
 
-/// model-toml.md "TOML to KPAR": a local usage "turn[s] into a PURL
-/// constrained to `^<version>`, where `<version>` is the target
+/// model-toml.md "TOML to KPAR": a local usage "turn[s] into a typed index
+/// usage constrained to `^<version>`, where `<version>` is the target
 /// project's version at build time".
 ///
 /// "`build` never resolves usages, so building needs neither network nor
@@ -792,10 +790,11 @@ fn local_target_usage<E: ErrorBound>(
                 // target carries `stdlib` is written as `resource =
                 // \"<target's metamodel>/<target's stdlib>.kpar\"` --
                 // the metamodel supplies the prefix and release date --
-                // with its version constraint, instead of as a PURL".
+                // with its version constraint, instead of as a typed
+                // index usage".
                 //
-                // Only the resource changes: "instead of the PURL"
-                // names one substitution, so the constraint stays the
+                // Only the usage's form changes: "instead of the typed
+                // index usage" names one substitution, so the constraint stays the
                 // `^<version>` every other local target gets.
                 if let Some(stem) = &manifest.stdlib {
                     // A resolved project declares one of the four
@@ -830,9 +829,13 @@ fn local_target_usage<E: ErrorBound>(
         }
     };
 
-    Ok(InterchangeProjectUsageRaw::Resource {
-        resource: usage.identity().lock_identifier(),
-        version_constraint: Some(caret(&version, usage, relative)?),
+    let Some(publisher) = usage.publisher() else {
+        unreachable!("a local usage names its publisher");
+    };
+    Ok(InterchangeProjectUsageRaw::Index {
+        publisher: publisher.as_str().to_owned(),
+        name: usage.name().as_str().to_owned(),
+        version_constraint: caret(&version, usage, relative)?,
     })
 }
 

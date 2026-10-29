@@ -11,6 +11,8 @@
 //! These use [`run_sysand_discovering`], which leaves configuration
 //! discovery on: where `sysand.toml` is *found* is the question.
 
+use std::fmt::Write as _;
+
 use assert_cmd::prelude::*;
 use camino::{Utf8Path, Utf8PathBuf};
 use predicates::prelude::*;
@@ -58,10 +60,19 @@ const ROOT: &str = "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"app\
 /// A `sysand.toml` whose one override points `urn:kpar:local-dep` at
 /// `src_path`, written at `at`.
 fn write_config(at: &Utf8Path, src_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    write_config_for(at, src_path, USAGE)
+}
+
+/// [`write_config`] for the override of `identifier`.
+fn write_config_for(
+    at: &Utf8Path,
+    src_path: &str,
+    identifier: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     let cfg = toml::to_string(&config::Config {
         indexes: vec![],
         projects: vec![ConfigProject {
-            identifiers: vec![fluent_uri::Iri::parse(USAGE.to_owned()).unwrap()],
+            identifiers: vec![fluent_uri::Iri::parse(identifier.to_owned()).unwrap()],
             sources: vec![OverrideSource::LocalSrc {
                 src_path: src_path.into(),
             }],
@@ -91,6 +102,24 @@ const USAGE: &str = "pkg:sysand/acme/local-dep";
 /// A `model.toml` index usage needs a version constraint.
 const CONSTRAINT: &str = "1";
 
+/// The IRI of a `kpar-url` usage. Of the usages a `model.toml` declares,
+/// only this kind is a resource usage, which is what an override is keyed
+/// by: an index usage is resolved by its publisher and name, as in a json
+/// project.
+const OVERRIDDEN: &str = "https://example.com/local-dep.kpar";
+
+/// Declare the `kpar-url` usage of [`OVERRIDDEN`] in `member`'s manifest.
+fn declare_overridden_usage(member: &Utf8Path) -> Result<(), Box<dyn std::error::Error>> {
+    let path = member.join("model.toml");
+    let mut text = std::fs::read_to_string(&path)?;
+    write!(
+        text,
+        "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"local-dep\"\nkpar-url = \"{OVERRIDDEN}\"\n"
+    )?;
+    std::fs::write(&path, text)?;
+    Ok(())
+}
+
 fn locked_projects(member: &Utf8Path) -> Result<usize, Box<dyn std::error::Error>> {
     Ok(Lockfile::read(member)?.into_lock().projects.len())
 }
@@ -102,21 +131,8 @@ fn a_config_at_the_workspace_root_is_used() -> Result<(), Box<dyn std::error::Er
     let dir = workspace(ROOT)?;
     let member = dir.path().join("app");
     dependency(dir.path(), "local-dep")?;
-    run_sysand_in(
-        &member,
-        [
-            "add",
-            "--iri",
-            USAGE,
-            "--version-constraint",
-            CONSTRAINT,
-            "--no-lock",
-        ],
-        None,
-    )?
-    .assert()
-    .success();
-    write_config(dir.path(), "local-dep")?;
+    declare_overridden_usage(&member)?;
+    write_config_for(dir.path(), "local-dep", OVERRIDDEN)?;
 
     run_sysand_discovering(&member, ["lock"])?
         .assert()
@@ -131,21 +147,8 @@ fn a_config_in_a_member_is_ignored() -> Result<(), Box<dyn std::error::Error>> {
     let dir = workspace(ROOT)?;
     let member = dir.path().join("app");
     dependency(&member, "local-dep")?;
-    run_sysand_in(
-        &member,
-        [
-            "add",
-            "--iri",
-            USAGE,
-            "--version-constraint",
-            CONSTRAINT,
-            "--no-lock",
-        ],
-        None,
-    )?
-    .assert()
-    .success();
-    write_config(&member, "local-dep")?;
+    declare_overridden_usage(&member)?;
+    write_config_for(&member, "local-dep", OVERRIDDEN)?;
 
     // No override resolves, so the lock cannot be completed.
     run_sysand_discovering(&member, ["lock"])?
@@ -166,21 +169,8 @@ fn a_relative_override_is_relative_to_the_workspace_root() -> Result<(), Box<dyn
     // only if the base path is the root.
     dependency(dir.path(), "local-dep")?;
     std::fs::create_dir_all(member.join("local-dep"))?;
-    run_sysand_in(
-        &member,
-        [
-            "add",
-            "--iri",
-            USAGE,
-            "--version-constraint",
-            CONSTRAINT,
-            "--no-lock",
-        ],
-        None,
-    )?
-    .assert()
-    .success();
-    write_config(dir.path(), "local-dep")?;
+    declare_overridden_usage(&member)?;
+    write_config_for(dir.path(), "local-dep", OVERRIDDEN)?;
 
     run_sysand_discovering(&member, ["lock"])?
         .assert()
@@ -326,21 +316,8 @@ fn the_root_config_is_not_reported_as_a_stray() -> Result<(), Box<dyn std::error
     let dir = workspace(ROOT)?;
     let member = dir.path().join("app");
     dependency(dir.path(), "local-dep")?;
-    run_sysand_in(
-        &member,
-        [
-            "add",
-            "--iri",
-            USAGE,
-            "--version-constraint",
-            CONSTRAINT,
-            "--no-lock",
-        ],
-        None,
-    )?
-    .assert()
-    .success();
-    write_config(dir.path(), "local-dep")?;
+    declare_overridden_usage(&member)?;
+    write_config_for(dir.path(), "local-dep", OVERRIDDEN)?;
 
     run_sysand_discovering(&member, ["lock"])?
         .assert()
@@ -870,20 +847,9 @@ fn sync_without_a_lockfile_locks_the_workspace() -> Result<(), Box<dyn std::erro
 fn add_in_a_member_keeps_every_member() -> Result<(), Box<dyn std::error::Error>> {
     let dir = two_member_workspace()?;
     dependency(dir.path(), "local-dep")?;
-    run_sysand_discovering(
-        &dir.path().join("app"),
-        [
-            "add",
-            "--iri",
-            USAGE,
-            "--version-constraint",
-            CONSTRAINT,
-            "--as-local-src",
-            "local-dep",
-        ],
-    )?
-    .assert()
-    .success();
+    run_sysand_discovering(&dir.path().join("app"), ["add", "--dir", "../local-dep"])?
+        .assert()
+        .success();
 
     let text = std::fs::read_to_string(dir.path().join(DEFAULT_LOCKFILE_NAME))?;
     assert!(text.contains("pkg:sysand/acme/gamma"), "{text}");
