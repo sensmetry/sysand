@@ -5,7 +5,7 @@ use thiserror::Error;
 
 use crate::{
     iri_normalize::{IriNormalizeError, canonicalize_iri},
-    purl::{PKG_SYSAND_PREFIX, SysandPurlError, parse_sysand_purl},
+    purl::{SysandPurlError, parse_sysand_purl, sysand_purl},
     utils::sha256_lowercase_hex,
 };
 
@@ -81,9 +81,7 @@ impl ParsedIri {
 
     pub(crate) fn get_iri(&self) -> String {
         match self {
-            Self::Sysand { publisher, name } => {
-                format!("{PKG_SYSAND_PREFIX}{publisher}/{name}")
-            }
+            Self::Sysand { publisher, name } => sysand_purl(publisher, name),
             Self::Other { normalized_iri } => normalized_iri.clone(),
         }
     }
