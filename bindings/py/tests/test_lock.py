@@ -35,6 +35,25 @@ def by_name(result: sysand.LockResult, name: str) -> sysand.LockedProject:
     return project
 
 
+def test_lock_names_the_way_out_of_an_environment_a_newer_release_wrote(
+    tmp_path: Path, mock_index: MockIndex
+) -> None:
+    root = project_with(tmp_path, [])
+    env_dir = root / sysand.env.DEFAULT_ENV_NAME
+    env_dir.mkdir()
+    (env_dir / "env.toml").write_text('version = "99.0"\n')
+
+    with pytest.raises(sysand.ProjectError) as raised:
+        sysand.lock(path=root, resolution=resolution(mock_index))
+
+    message = str(raised.value)
+    assert (
+        "env metadata version `99.0` is newer than the latest this release reads"
+        in message
+    )
+    assert "call `sync()`" in message
+
+
 def test_lock_write_false_leaves_no_lockfile(
     tmp_path: Path, mock_index: MockIndex
 ) -> None:
