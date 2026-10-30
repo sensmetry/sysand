@@ -992,6 +992,29 @@ fn sync_fails_on_a_rebuilt_kpar_dependency() -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
+/// A lockfile of a format version this release does not know is a newer
+/// release's: the error says so, and the hint names the way out in this
+/// command line's own words
+#[test]
+fn sync_refuses_a_lockfile_a_newer_release_wrote() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "newer_lock", "1.2.3")?;
+    out.assert().success();
+    fs::write(cwd.join(DEFAULT_LOCKFILE_NAME), "lock_version = \"99.0\"\n")?;
+
+    run_sysand_in(&cwd, ["sync", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "lockfile version `99.0` is newer than the latest this release reads",
+        ))
+        .stderr(predicate::str::contains(
+            "hint: upgrade to the release that wrote `sysand-lock.toml`",
+        ))
+        .stderr(predicate::str::contains("`sysand lock`"));
+
+    Ok(())
+}
+
 /// A lockfile whose recorded version is not the project's fails the sync
 #[test]
 fn sync_fails_on_a_lockfile_with_another_version() -> Result<(), Box<dyn std::error::Error>> {
