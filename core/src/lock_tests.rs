@@ -886,11 +886,8 @@ fn sort_exports() {
     assert_eq!(projects, vec![project2]);
 }
 
-// `identifiers` must not be sorted by `Lock::sort()`
-// (unlike `exports`, `usages` and `sources`, which are). Other projects'
-// `usages` entries are assumed to reference a project's *first*
-// identifier (see `validate_usages` and `remove_usage`), so
-// reordering `identifiers` would desync that reference
+// `Lock::sort()` must not reorder `identifiers`: other projects' `usages`
+// refer to a project's first identifier.
 #[test]
 fn sort_does_not_reorder_identifiers() {
     let project = make_project("a", None, "0.0.1", &[], &["urn:kpar:b", "urn:kpar:a"], &[]);
@@ -906,7 +903,6 @@ fn sort_does_not_reorder_identifiers() {
     assert_eq!(projects, vec![project]);
 }
 
-// End-to-end test for the same invariant as `sort_does_not_reorder_identifiers`
 #[test]
 fn canonicalize_preserves_first_identifier_used_by_usage() {
     let dep = make_project(
@@ -1156,8 +1152,7 @@ fn canonicalize_checksums() {
     };
     assert_eq!(kpar_digest, LOWER);
 
-    // Editable and RemoteGit carry no checksum; their presence here confirms
-    // canonicalize_checksums does not panic on them.
+    // Editable and RemoteGit carry no checksum.
     assert_matches!(&project.sources[5], Source::Editable { editable: _ });
     assert_matches!(&project.sources[6], Source::RemoteGit { remote_git: _ });
 }
@@ -1384,14 +1379,12 @@ fn project_with_sources(sources: Vec<Source>) -> Project {
     }
 }
 
-/// A root project (the project being operated on directly), as produced by
-/// `do_lock_local_editable(".", ...)` for an ordinary, non-workspace project.
+/// A root project, as the lock entry of an ordinary non-workspace project.
 fn root_project(publisher: Option<&str>, name: &str, usages: &[&str]) -> Project {
     workspace_root_project(publisher, name, ".", usages)
 }
 
-/// A root project living at a workspace-relative subpath, as a workspace
-/// member's own lock entry would be represented.
+/// A root project at a workspace-relative subpath.
 fn workspace_root_project(
     publisher: Option<&str>,
     name: &str,
@@ -1442,8 +1435,7 @@ fn project_names(lock: &Lock) -> Vec<String> {
 
 #[test]
 fn is_root_true_for_dot_editable() {
-    // The nominal path used for the current project's own lock entry
-    // (see `EditableProject`/`do_lock_local_editable(".", ...)`).
+    // The nominal path of the current project's own lock entry.
     let project = project_with_sources(vec![Source::Editable {
         editable: Utf8UnixPathBuf::from("."),
     }]);
@@ -1902,9 +1894,7 @@ fn edge_pair(dependent_metamodel: &str, dependency_metamodel: &str) -> String {
     )
 }
 
-/// Over a lockfile: an OMG project may not depend on
-/// a Syside one. The reverse is allowed, which is what makes the rule
-/// directional.
+/// Over a lockfile: an OMG project may not depend on a Syside one.
 #[test]
 fn validate_rejects_a_metamodel_direction_error() {
     let text = edge_pair(

@@ -3,12 +3,9 @@
 
 //! Sibling unit tests for `index_entry.rs`.
 //!
-//! Network-dependent paths (pre-expose `kpar_digest` check,
-//! post-download digest drift, `.project.json`/`.meta.json` fetch error
-//! mapping) live in `core/src/env/index_tests.rs` because they need
-//! mockito to drive the HTTP side. These tests pin the network-free
-//! contracts on the advertised tier: advertised fields are returned
-//! without I/O, and before any download the checksum is too.
+//! These tests pin the network-free contracts on the advertised tier:
+//! advertised fields are returned without I/O, and before any download the
+//! checksum is too.
 
 use std::sync::Arc;
 
@@ -23,12 +20,9 @@ use crate::{
     resolve::net_utils::create_reqwest_client,
 };
 
-/// Construct an `IndexEntryProject` whose advertised tier has known
-/// values and whose archive is never downloaded. The returned project
-/// exposes `archive.is_downloaded_and_verified() == false`, so
-/// advertised-tier reads that honour the "no I/O before download"
-/// contract must succeed without touching the network (which the
-/// unreachable mock URL would otherwise error on).
+/// Construct an `IndexEntryProject` whose advertised tier has known values and
+/// whose archive is never downloaded, so advertised-tier reads must succeed
+/// without touching the (unreachable) mock URL.
 fn make_fixture() -> IndexEntryProject<Unauthenticated> {
     // `test.invalid` is reserved by RFC 2606; any accidental fetch
     // fails DNS resolution rather than hitting a live host.

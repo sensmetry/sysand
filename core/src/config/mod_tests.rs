@@ -139,9 +139,7 @@ fn index_urls_with_override() {
 
 #[test]
 fn index_urls_accepts_templates_everywhere() {
-    // URL templates are valid wherever an index URL can be configured:
-    // `--index` values, `sysand.toml` `[[index]]` entries, and default
-    // overrides all funnel through the same parser.
+    // URL templates are valid wherever an index URL can be configured.
     let config = Config {
         indexes: vec![Index::new_url(loc(
             "https://gitlab.com/api/v4/projects/123/repository/files/{path}/raw?ref=main",

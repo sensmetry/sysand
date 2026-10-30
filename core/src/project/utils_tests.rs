@@ -288,9 +288,9 @@ fn identifier_from_iri_owned() {
 }
 
 /// Whether a project spelling gets a `pkg:sysand` identifier is decided by
-/// the spelling as given, not by its normalized form (see
-/// [`Identifier::from_project`]): `ACME Inc./Foo` normalizes to the index
-/// spelling `acme-inc/foo`, but is a different project
+/// the spelling as given, not by its normalized form: `ACME Inc./Foo`
+/// normalizes to the index spelling `acme-inc/foo`, but is a different
+/// project
 #[test]
 fn identifier_from_project_decides_by_the_spelling_as_given() {
     use crate::model::{IndexName, IndexPublisher, ProjectName, ProjectPublisher};
@@ -328,10 +328,8 @@ fn an_identity_matches_after_normalization() {
         .expect("and the other way round");
 }
 
-/// "Two identities are equal when their publishers *and names* are equal
-/// after normalization." Normalizing one and not the other would refuse
-/// `My Lib` at a target named `my-lib` while accepting `Acme Corp` at
-/// `acme-corp`.
+/// Two identities are equal when their publishers and names are equal after
+/// normalization.
 #[test]
 fn a_name_is_normalized_too() {
     ExpectedIdentity::resolving(Some("acme".to_owned()), "My Lib".to_owned())
@@ -398,10 +396,8 @@ fn only_a_toml_usage_gets_the_message_that_names_the_fix() {
     );
 }
 
-/// A usage that expects a target with no publisher is not the same
-/// thing as a target that is missing one: `expects_no_publisher_but_
-/// project_has_one` pins the direction that stays a mismatch, and this
-/// pins the direction that is a match.
+/// A usage that expects a target with no publisher is not the same thing as a
+/// target that is missing one; this pins the direction that is a match.
 #[test]
 fn a_usage_may_expect_a_target_with_no_publisher() {
     ExpectedIdentity::resolving(None, "widgets".to_owned())

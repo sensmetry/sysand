@@ -124,9 +124,6 @@ fn prefer_file_resolver_when_successful() {
 // FileResolver will get the wrong absolute path (due to current env read design,
 // base_path will be the env-internal project path, not the original
 // source of it), and return NotFound, which will abort the resolution.
-// See lock_directory_usage_env_installed_dependency and
-// directory_usage_missing_path_falls_back_to_env_resolver
-// which conflict with this test
 //
 // #[test]
 // fn prefer_file_resolver_even_when_unresolved() {
@@ -318,13 +315,11 @@ fn skip_non_semantic_versions() {
     assert_eq!(info.name, "a");
 }
 
-/// A dependency obtained from an environment (or an index/kpar copy) may
-/// declare a `Directory` usage whose relative path only exists in its
-/// original source tree. When the file resolver cannot find that path on
-/// disk, resolution must fall through to the remaining resolvers, which
-/// resolve the usage by the identifier derived from its publisher/name. A typed usage
-/// that hard-fails here would abort the whole solve even though the project
-/// is installed in the environment.
+/// A dependency from an environment (or an index/kpar copy) may declare a
+/// `Directory` usage whose relative path only exists in its original source
+/// tree. When the file resolver cannot find that path, resolution must fall
+/// through to the remaining resolvers, which resolve the usage by its
+/// publisher/name identifier.
 #[cfg(feature = "filesystem")]
 #[test]
 fn directory_usage_missing_path_falls_back_to_env_resolver() {

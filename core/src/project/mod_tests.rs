@@ -95,12 +95,8 @@ fn canonicalization_no_checksums() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// A project that keeps the default `format` answers json without
-/// saying anything.
-///
-/// The vehicle has to be a project that says nothing. `InMemoryProject`
-/// is not one: it can hold a `model.toml`, so it answers from what it
-/// holds -- and an empty one holds neither manifest.
+/// A project that keeps the default `format` answers json without saying
+/// anything.
 #[test]
 fn a_project_that_does_not_say_is_json() {
     assert_eq!(Silent.format().expect("infallible"), ProjectFormat::Json);
@@ -153,7 +149,7 @@ impl ProjectRead for Silent {
     }
 }
 
-/// A wrapper must forward `format` rather than take the json default.
+/// A wrapper must forward `format`.
 #[test]
 fn a_reference_reports_the_format_of_what_it_wraps() {
     let wrapped = ProjectReference::new(Toml);
@@ -161,7 +157,6 @@ fn a_reference_reports_the_format_of_what_it_wraps() {
 }
 
 /// A project that says it is toml, with nothing else in it. The point of
-/// the tests below is the forwarding, not the reading.
 #[derive(Debug)]
 struct Toml;
 

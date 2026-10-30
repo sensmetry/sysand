@@ -30,8 +30,8 @@ fn order(graph: &DependencyGraph<String>) -> Vec<String> {
     graph.dependency_order().into_iter().cloned().collect()
 }
 
-/// workspaces.md "Build output": members are published in dependency
-/// order, a topological sort of their `dir` usages of each other.
+/// Members are published in dependency order, a topological sort of their
+/// `dir` usages of each other.
 #[test]
 fn dependency_order_is_dependencies_first() {
     assert_eq!(
@@ -56,7 +56,7 @@ fn dependency_order_keeps_a_cycle_in_insertion_order() {
     assert_eq!(order(&graph), ["a", "b", "c"]);
 }
 
-/// workspaces.md: "A dependency cycle is a hard error listing the cycle".
+/// A dependency cycle is a hard error listing the cycle.
 #[test]
 fn cycles_name_the_component_and_a_path_through_it() {
     let graph = graph(
@@ -164,8 +164,8 @@ fn metamodel(value: &str) -> Metamodel {
     Metamodel::parse(value).expect("a well-formed metamodel")
 }
 
-/// model-toml.md "Metamodel": "only Syside-metamodel projects may depend
-/// on Syside-metamodel projects" -- the rule is one-way.
+/// Only Syside-metamodel projects may depend on Syside-metamodel projects;
+/// the rule is one-way.
 #[test]
 fn metamodel_pair_allows_an_omg_dependency_of_a_syside_project() {
     assert_eq!(
@@ -177,8 +177,8 @@ fn metamodel_pair_allows_an_omg_dependency_of_a_syside_project() {
     );
 }
 
-/// model-toml.md: "a `<date>` that differs between a project and one of
-/// its dependencies is a warning".
+/// A `<date>` that differs between a project and one of its dependencies is
+/// a warning.
 #[test]
 fn metamodel_pair_warns_on_a_different_release() {
     let mismatch = check_metamodel_pair(
@@ -195,8 +195,7 @@ fn metamodel_pair_warns_on_a_different_release() {
     );
 }
 
-/// model-toml.md: "an OMG-metamodel project must not depend on a
-/// Syside-metamodel project. This is an error".
+/// An OMG-metamodel project must not depend on a Syside-metamodel project.
 #[test]
 fn metamodel_pair_rejects_an_omg_project_depending_on_syside() {
     let error = check_metamodel_pair(
@@ -214,9 +213,8 @@ fn metamodel_pair_rejects_an_omg_project_depending_on_syside() {
     );
 }
 
-/// model-toml.md: a project without a `metamodel` "is treated as OMG with
-/// an unknown date: the direction rule applies, the release warning does
-/// not".
+/// A project without a `metamodel` is treated as OMG with an unknown date:
+/// the direction rule applies, the release warning does not.
 #[test]
 fn metamodel_pair_of_a_project_without_a_metamodel() {
     let none = None;

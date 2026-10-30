@@ -49,7 +49,7 @@ fn a_model_toml_that_is_not_toml_is_still_this_directorys_manifest() {
     assert_eq!(found.root_path(), dir.path());
 }
 
-/// workspaces.md: a workspace root holds a `model.toml` that defines no
+/// A workspace root holds a `model.toml` that defines no
 /// project. The walk goes past it.
 #[test]
 fn a_model_toml_workspace_is_walked_past() {

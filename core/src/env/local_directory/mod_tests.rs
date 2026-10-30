@@ -146,13 +146,11 @@ fn installed_project_sources_ignore_a_recorded_kpar_checksum() {
     assert_eq!(src_checksum_of(&env), computed);
 }
 
-/// Documents a known gap: an
-/// environment holds every installed version of a project and `EnvResolver`
-/// hands all of them to the solver, so resolving through one *is* a version
-/// choice and should default a version constraint the way an index does. What
-/// comes back is a plain `LocalSrcProject`, which answers for the path it is
-/// rather than for the environment that produced it, so a `pkg:sysand` usage
-/// met only by the environment admits a prerelease where the index would not.
+/// Known gap: an environment holds every installed version of a project, so
+/// resolving through one is a version choice and should default a version
+/// constraint the way an index does. The project handed back answers only for
+/// its path, so a `pkg:sysand` usage met only by the environment admits a
+/// prerelease where the index would not.
 ///
 /// Drop the `#[should_panic]` when the environment says so itself.
 #[test]

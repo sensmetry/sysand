@@ -47,9 +47,8 @@ fn write_environment() {
     .unwrap();
 
     assert_eq!(env.projects.len(), 1);
-    // Not the same project value: `clone_project` copies through
-    // `put_project`, so a `model.toml` source becomes a json copy in the
-    // environment. What has to survive is what the copy *reads as*.
+    // Not the same project value: a `model.toml` source becomes a json copy
+    // in the environment. What has to survive is what the copy reads as.
     assert_eq!(
         env.projects[&uri1][&version].get_project().unwrap(),
         project1.get_project().unwrap()

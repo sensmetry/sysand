@@ -290,13 +290,11 @@ fn a_model_toml_project_has_a_fixed_created() {
     assert_eq!(meta.created, "1970-01-01T00:00:00Z");
 }
 
-/// The property the fixed `created` exists for. Asserted across two
-/// project values, since one would answer from its cache either way.
+/// The property the fixed `created` exists for, asserted across two project
+/// values since one would answer from its cache either way.
 ///
-/// This one cannot enforce the decision on its own: `format_created`
-/// truncates to whole seconds, so two reads inside the same second would
-/// agree even against a clock. `a_model_toml_project_has_a_fixed_created`
-/// is what pins it; this records what the pinning is *for*.
+/// `format_created` truncates to whole seconds, so two reads inside the same
+/// second would agree even against a clock; this cannot enforce it alone.
 #[test]
 fn two_reads_of_one_model_toml_project_agree_on_its_checksum() {
     let dir = tempdir().expect("a temporary directory");
@@ -399,9 +397,8 @@ fn a_model_toml_that_inherits_outside_a_workspace_says_so() {
     );
 }
 
-/// `sources` does not check that its files exist -- that is "only
-/// checked for build/publish" -- so a missing one is found when the view
-/// is built, and the message is the reader's own.
+/// `sources` does not check that its files exist, so a missing one is found
+/// when the view is built, and the message is the reader's own.
 #[test]
 fn a_source_that_cannot_be_read_names_the_file_on_disk() {
     let dir = tempdir().expect("a temporary directory");
@@ -880,9 +877,7 @@ fn a_member_project_prefers_its_own_values() {
 }
 
 /// The extracted form of a Syside archive is a json project like any
-/// other. Detection looks at which files are there, not at their shape;
-/// how a `model.toml` beside a lone `.meta.json` is classified is a
-/// different question.
+/// other. Detection looks at which files are there, not at their shape.
 #[test]
 fn a_root_shaped_json_pair_is_detected_as_a_json_project() {
     let dir = tempdir().expect("a temporary directory");

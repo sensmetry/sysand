@@ -7,7 +7,7 @@ use super::{Difference, compare_at};
 use serde_json::{Value, json};
 
 /// The comparator's JSON half, without building an archive: the rules
-/// under test are about values, and a KPAR would add nothing but IO.
+/// under test are about values.
 fn differences(built: &Value, published: &Value, ignored: &[&str]) -> Vec<Difference> {
     let mut out = Vec::new();
     compare_at(".project.json", "", built, published, ignored, &mut out);
@@ -34,8 +34,7 @@ fn key_order_is_ignored() {
 }
 
 /// The published constraints are bare `1.0.0`; a build writes `^1.0.0`.
-/// They are the same requirement, and a string comparison would call
-/// all ten libraries different.
+/// They are the same requirement.
 #[test]
 fn a_bare_constraint_equals_a_caret_constraint() {
     let built = json!({"usage": [{"resource": "x", "versionConstraint": "^1.0.0"}]});

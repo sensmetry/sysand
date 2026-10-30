@@ -280,7 +280,7 @@ fn never_empty() -> Result<(), Box<dyn Error>> {
         // No authority, empty path, no query: nothing to work with.
         "a:",
         // Authority present but host empty, path empty: host is skipped
-        // (host.is_empty() check) and there's no path/query to fall back on.
+        // and there's no path/query to fall back on.
         "file://",
         // Path is entirely ASCII punctuation, which is trimmed from both ends.
         "a:-",

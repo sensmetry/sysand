@@ -95,9 +95,9 @@ fn memory_project(
     }
 }
 
-/// Like [`trivial_memory_project`], but standing in for a source that names a
-/// single project outright -- a path, a URL, a source override -- where there
-/// is no version to choose between and so no default constraint.
+/// A source that names a single project outright -- a path, a URL, a source
+/// override -- where there is no version to choose between and so no default
+/// constraint.
 fn single_project_source<'a>(
     name: &str,
     version: &str,
@@ -590,13 +590,8 @@ impl ProjectRead for StubProject {
     }
 }
 
-/// Multiple versions of the same dependency are not allowed.
-/// Pubgrub does not allow multiple versions of the same project in
-/// the dependency graph, unless we implement it ourselves (e.g.
-/// make package identifier include a major version, so different
-/// major versions will be treated as different packages by pubgrub).
-/// SysMLv2 spec seemingly disallows having multiple versions of the
-/// same project in the dependency graph, but we may want to support
+/// Multiple versions of the same dependency are not allowed: pubgrub does
+/// not allow multiple versions of the same project in the dependency graph.
 /// it anyway
 #[test]
 fn usages_multiple_versions_of_same_project() {
@@ -1308,8 +1303,8 @@ fn no_solution_summarises_contradicting_constraints() {
     );
 }
 
-/// Without declarers the sentence is still said, and still true -- a
-/// single-project lock reaches this path.
+/// Without declarers the sentence is still said; a single-project lock
+/// reaches this path.
 #[test]
 fn the_summary_survives_without_declarers() {
     let err = solve(
@@ -1793,10 +1788,8 @@ fn unconstrained_transitive_purl_usage_ignores_prereleases()
 /// The default follows the source, not the IRI. A source that names one
 /// project -- a local path, an HTTP URL, a git repository, a source override
 /// -- has no version to choose between, so whatever is there is taken as it
-/// is, prerelease and all. Defaulting to `*` would refuse such a project
-/// outright, and no constraint the user could add to the usage would express
-/// "whatever is at this location" again. That holds for a `pkg:sysand` IRI
-/// pinned to such a source just as much as for any other form.
+/// is, prerelease and all. That holds for a `pkg:sysand` IRI pinned to such a
+/// source just as much as for any other form.
 #[test]
 fn unconstrained_usage_of_a_single_project_source_admits_a_prerelease()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -1900,12 +1893,10 @@ fn directory_usage_admits_a_prerelease() -> Result<(), Box<dyn std::error::Error
 /// first matching candidate the resolver listed, not the highest matching
 /// version.
 ///
-/// Candidate order is a preference rank, not an accident: the resolver
-/// emits authoritative sources first and appends unmatched local cache copies
-/// last, so ranking by index is right. This relies on every source listing
-/// its own versions in descending order (see
-/// `constrained_usage_picks_the_highest_matching_version_within_one_source`).
-/// This fixture's resolver keeps the order it is given.
+/// Candidate order is a preference rank: the resolver emits authoritative
+/// sources first and appends unmatched local cache copies last. This relies
+/// on every source listing its own versions in descending order. This
+/// fixture's resolver keeps the order it is given.
 ///
 /// With prereleases: out of descending order, `^1.0.0-alpha` picks
 /// `1.0.0-alpha.1` over the finished `1.0.0`.
@@ -1939,11 +1930,11 @@ fn constrained_usage_picks_by_candidate_order_not_by_version()
 
 /// Within one source, the highest matching version wins.
 ///
-/// Candidate order *across* sources is deliberate: authoritative sources
-/// rank ahead of local cache copies. Within one source, versions are listed
-/// highest first, so the rank and the version agree even for an environment
-/// that yields install order, which this fixture stands in for: install
-/// `1.0.0`, then `1.2.0`, ask for `^1`, and resolution settles on `1.2.0`.
+/// Candidate order *across* sources ranks authoritative sources ahead of
+/// local cache copies. Within one source, versions are listed highest first,
+/// so the rank and the version agree even for an environment that yields
+/// install order, which this fixture stands in for: install `1.0.0`, then
+/// `1.2.0`, ask for `^1`, and resolution settles on `1.2.0`.
 #[test]
 fn constrained_usage_picks_the_highest_matching_version_within_one_source() {
     // The order a local environment hands over: install order, not descending.
@@ -1962,10 +1953,9 @@ fn constrained_usage_picks_the_highest_matching_version_within_one_source() {
 }
 
 /// Over an index, candidate index 0 is the highest version, which
-/// `choose_version()`'s lowest-index pick lands on: `versions.json` MUST be
-/// in strictly descending semver precedence (`validate_versions` rejects
-/// anything else with `VersionsOutOfOrder`), so `EnvResolver`'s sort, highest
-/// first, keeps the index's order.
+/// `choose_version()`'s lowest-index pick lands on: `versions.json` is in
+/// strictly descending semver precedence, so the resolver's sort keeps the
+/// index's order.
 ///
 /// Descending order also puts a release ahead of its own prereleases, since
 /// `1.0.0-alpha.1 < 1.0.0`, so an opt-in constraint still prefers the release.
@@ -2019,11 +2009,9 @@ fn index_order_makes_the_lowest_candidate_index_the_highest_version()
 // --- backtracking ---------------------------------------------------------
 
 /// A constraint that selects none of the candidates is handed to pubgrub as
-/// an empty dependency set, which rules out only the candidate that stated it.
-/// An `Err` out of `get_dependencies` would instead abort `pubgrub::resolve`
-/// outright, so the solver would never try the other candidates. It does:
-/// it backtracks past a dependency whose own constraint cannot be met rather
-/// than failing a solve that has an answer.
+/// an empty dependency set, which rules out only the candidate that stated it,
+/// so the solver backtracks past it instead of failing a solve that has an
+/// answer.
 ///
 /// Here `app` 2.0.0 wants a `widget` that was never published, while `app`
 /// 1.0.0 wants one that was: `app` 1.0.0 with `widget` 1.0.0 is the solution.
@@ -2081,11 +2069,6 @@ fn solve_backtracks_past_a_default_constraint_that_selects_nothing()
 
     Ok(())
 }
-
-// Backtracking does not paper over a genuinely unsolvable case: with no
-// alternative candidate to fall back to, the solve still fails and names the
-// constraint that could not be met -- see
-// `no_matching_version_for_a_dependency_names_the_dependent_in_the_report`.
 
 mod index_usages {
     use super::*;

@@ -3,8 +3,7 @@
 
 //! Tests for the index-protocol HTTP client.
 //!
-//! Cross-cutting protocol assumptions these tests exercise (hoisted here
-//! so per-test comments can focus on what each test adds):
+//! Protocol assumptions these tests exercise:
 //!
 //! - **404 handling splits by document.** `index.json` and the
 //!   per-version `.project.json` / `.meta.json` 404s remain hard
@@ -123,9 +122,6 @@ fn index_env_async(
 ) -> Result<super::IndexEnvironmentAsync<Unauthenticated>, Box<dyn std::error::Error>> {
     let base = url::Url::parse(base_url)?;
     // Flat topology: index_root = discovery root, api_root unset.
-    // Tests that specifically cover discovery construct their own env
-    // via `index_env_sync_discovery`, which goes through the real
-    // `fetch_index_config` against a mock server.
     let endpoints = ResolvedEndpoints::flat(IndexLocation::Root(with_trailing_slash(base)));
     Ok(super::IndexEnvironmentAsync::new(
         create_reqwest_client()?,
@@ -333,7 +329,7 @@ mod uris {
     fn non_normalized_sysand_purl_error_suggests_normalized_form()
     -> Result<(), Box<dyn std::error::Error>> {
         // The error message for the "valid but not normalized" case must include
-        // the suggested normalized IRI, which makes the error actionable.
+        // the suggested normalized IRI.
         let env = index_env_async("https://www.example.com/index/")?;
         let err = resolved_endpoints(&env)
             .kpar_url(purl("Acme Labs/My.Project"), "1.0.0")
@@ -633,13 +629,9 @@ mod versions {
 
     #[test]
     fn versions_async_filters_retired_entries() -> Result<(), Box<dyn std::error::Error>> {
-        // Retired versions are never selected for a new resolution. A
-        // mixed-status fixture verifies two things in one document:
-        //   1. Wire-level parsing accepts every `status` value plus
-        //      the omitted default (`available`).
-        //   2. The resolver-facing `versions()` stream exposes only
-        //      `available` entries; `yanked` and `removed` are filtered
-        //      so solve/lock can't pick them.
+        // Retired versions are never selected for a new resolution. The fixture
+        // mixes statuses: wire parsing accepts every `status` value plus the omitted
+        // default, and `versions()` exposes only `available` entries.
         let mut server = mockito::Server::new();
 
         let env = index_env_sync(&server)?;
@@ -851,10 +843,8 @@ mod versions {
     #[test]
     fn missing_versions_json_surfaces_as_empty_at_resolver_boundary()
     -> Result<(), Box<dyn std::error::Error>> {
-        // A 404 on `versions.json` means the project is not in this
-        // index. `versions_async` yields an empty stream so a
-        // resolver chain falls through to the next source; non-404
-        // errors still propagate as hard errors.
+        // A 404 on `versions.json` means the project is not in this index:
+        // `versions_async` yields an empty stream; non-404 errors still propagate.
         let mut server = mockito::Server::new();
 
         let env = index_env_sync(&server)?;
@@ -914,8 +904,7 @@ mod versions {
     #[test]
     fn missing_required_field_errors() -> Result<(), Box<dyn std::error::Error>> {
         // An entry omitting any required field (here `kpar_digest`)
-        // rejects the whole document at parse time rather than
-        // silently degrading.
+        // rejects the whole document at parse time.
         let mut server = mockito::Server::new();
 
         let env = index_env_sync(&server)?;
@@ -1101,12 +1090,8 @@ mod get_project {
     #[test]
     fn get_project_on_versions_json_404_surfaces_project_not_in_index()
     -> Result<(), Box<dyn std::error::Error>> {
-        // A `versions.json` 404 means the project is not in this
-        // index. `get_project_async` surfaces a distinct
-        // `ProjectNotInIndex` error so a direct caller can tell "not
-        // here" apart from a transport failure or from the
-        // version-listed-but-missing case
-        // (`VersionNotInIndex`).
+        // A `versions.json` 404 surfaces as `ProjectNotInIndex`, distinct from a
+        // transport failure.
         let mut server = mockito::Server::new();
 
         let env = index_env_sync(&server)?;
@@ -1139,9 +1124,8 @@ mod get_project {
 
     #[test]
     fn get_project_on_versions_json_5xx_is_hard_error() -> Result<(), Box<dyn std::error::Error>> {
-        // Direct `get_project` has the same boundary as
-        // `versions_async`: 404 is "not in this index", but 5xx is a
-        // hard server failure.
+        // Direct `get_project`: 404 is "not in this index", 5xx is a hard server
+        // failure.
         let mut server = mockito::Server::new();
 
         let env = index_env_sync(&server)?;
@@ -1174,14 +1158,8 @@ mod get_project {
     #[test]
     fn get_project_on_removed_version_fails_with_version_removed()
     -> Result<(), Box<dyn std::error::Error>> {
-        // When a lockfile replay (or any direct `get_project`) hits a
-        // version whose `versions.json` entry carries
-        // `status: "removed"`, the client surfaces a
-        // distinct "removed upstream" diagnostic rather than the
-        // generic 404 on the per-version files. We assert the
-        // `VersionRemoved` variant is produced before any file fetch
-        // is issued: no other mocks are registered, so any unexpected fetch
-        // would surface as a mockito miss.
+        // A `removed` entry surfaces `VersionRemoved` before any file fetch: no
+        // other mocks are registered, so an unexpected fetch would miss.
         let mut server = mockito::Server::new();
 
         let env = index_env_sync(&server)?;
@@ -1218,10 +1196,7 @@ mod get_project {
     fn get_project_on_yanked_version_still_serves_files() -> Result<(), Box<dyn std::error::Error>>
     {
         // A `yanked` entry's per-version files remain served so existing
-        // lockfiles still `sync` cleanly; only new resolutions are
-        // affected (they are filtered out of the `versions_async`
-        // stream). Direct `get_project` on a yanked version behaves
-        // exactly like `available`.
+        // lockfiles still `sync`; `get_project` behaves like `available`.
         let mut server = mockito::Server::new();
 
         let env = index_env_sync(&server)?;
@@ -1542,12 +1517,9 @@ mod get_project {
     #[test]
     fn get_project_returns_real_info_meta_from_per_version_files()
     -> Result<(), Box<dyn std::error::Error>> {
-        // Fixture uses values no IRI-derived heuristic could invent,
-        // so a regression that re-introduces synthesis would fail. The
-        // route is the `_iri/<sha256>` one of `get_project_iri_hash_route`
-        // rather than a PURL: a `pkg:sysand` identifier *is* an identity,
-        // and an entry that disagrees with it is refused, which would
-        // stop this fixture ever reaching the assertions it exists for.
+        // Fixture uses values no IRI-derived heuristic could invent. It uses the
+        // `_iri/<sha256>` route: a `pkg:sysand` identifier is an identity, and an
+        // entry that disagrees with it is refused.
         const IRI: &str = "urn:kpar:b";
         const HASH: &str = "621a5fdf587a3ecc878a98c8be2240dd5bbe561860d11f4da1ece4a4fe2fb8b5";
         let mut server = mockito::Server::new();
@@ -1851,8 +1823,6 @@ mod iri {
 
         let env = index_env_sync(&server)?;
 
-        // Compute the expected bucket hash rather than hard-coding it,
-        // so the test documents its own derivation.
         let normalized_iri = "http://example.com/~user";
         let raw_request_iri = "HTTP://Example.COM/%7euser";
 
@@ -1973,9 +1943,7 @@ mod digest {
 
     #[test]
     fn malformed_kpar_digest_errors() -> Result<(), Box<dyn std::error::Error>> {
-        // Non-`sha256:<hex>` advertised value: surface as a protocol
-        // error rather than silently recomputing (which would break
-        // lock/sync cross-checks downstream).
+        // Non-`sha256:<hex>` advertised value: surface as a protocol error.
         let mut server = mockito::Server::new();
 
         let env = index_env_sync(&server)?;
@@ -2051,12 +2019,9 @@ mod digest {
     #[test]
     fn get_project_accepts_canonical_digest_with_mixed_case_sha256_meta()
     -> Result<(), Box<dyn std::error::Error>> {
-        // Regression guard: the old raw-hash reconciliation hashed
-        // `.meta.json` as-written and produced a spurious
-        // `AdvertisedDigestDrift` against the server's canonical
-        // (lowercased) digest. The fix uses the canonical-inline
-        // digest on both sides; this happy path must succeed without
-        // downloading the kpar.
+        // Hashing `.meta.json` as-written must not produce a spurious
+        // `AdvertisedDigestDrift` against the server's canonical (lowercased)
+        // digest; this must succeed without downloading the kpar.
         let mut server = mockito::Server::new();
 
         let env = index_env_sync(&server)?;
@@ -2190,8 +2155,7 @@ mod caching {
 
     #[test]
     fn versions_json_404_refetched_on_every_call() -> Result<(), Box<dyn std::error::Error>> {
-        // The "not in this index" 404 outcome is not cached (the slot is
-        // only populated on a successful validate), so each retry
+        // The "not in this index" 404 outcome is not cached, so each retry
         // re-issues the fetch.
         let mut server = mockito::Server::new();
 
@@ -2238,9 +2202,8 @@ mod sources {
 
     #[test]
     fn kpar_digest_mismatch_surfaces_error() -> Result<(), Box<dyn std::error::Error>> {
-        // First call that forces `ensure_downloaded` (here
-        // `read_source`) must surface `DigestMismatch` rather than
-        // silently accepting the archive.
+        // The first call that forces `ensure_downloaded` (here `read_source`)
+        // must surface `DigestMismatch`.
         let mut server = mockito::Server::new();
 
         let env = index_env_sync(&server)?;
@@ -2298,9 +2261,8 @@ mod sources {
 
     #[test]
     fn kpar_digest_mismatch_does_not_persist_archive() -> Result<(), Box<dyn std::error::Error>> {
-        // Defense in depth: the atomic-rename path must never install
-        // a mismatched body at `archive_path`, so a retry re-downloads
-        // rather than short-circuiting on a stale tampered file.
+        // The atomic-rename path must never install a mismatched body at
+        // `archive_path`, so a retry re-downloads.
         let mut server = mockito::Server::new();
 
         let env = index_env_sync(&server)?;
@@ -2734,23 +2696,15 @@ mod discovery {
 
     #[test]
     fn discovery_remapped_versions_5xx_is_hard_error() -> Result<(), Box<dyn std::error::Error>> {
-        // Companion to `test_discovery_5xx_is_hard_error` (which covers a
-        // 5xx on the discovery endpoint itself). Here the discovery
-        // document succeeds and remaps `index_root` to a separate path
-        // prefix; the 5xx happens on the *remapped* `versions.json`.
-        // We want to pin that `versions_async`'s 404→empty-stream
-        // downgrade does NOT extend to 5xx on the remapped root: a
-        // broken per-project endpoint must propagate as a hard error so
-        // the caller sees the failure rather than getting an empty
-        // version list.
+        // Companion to `test_discovery_5xx_is_hard_error`: the discovery document
+        // succeeds and remaps `index_root`; the 5xx happens on the remapped
+        // `versions.json` and must propagate, not become an empty stream.
         let mut server = mockito::Server::new();
 
         let config_body = format!(r#"{{"index_root":"{}/index/"}}"#, server.url());
         let config_mock = mock_json_get(&mut server, "/sysand-index-config.json", config_body);
 
-        // Remap target returns 503, a transient server error that is
-        // indistinguishable from a misconfiguration and so cannot be
-        // silently swallowed.
+        // Remap target returns 503.
         let remap_mock = server
             .mock("GET", "/index/admin/proj0/versions.json")
             .with_status(503)
@@ -2917,8 +2871,8 @@ mod discovery {
     #[test]
     fn discovery_config_remaps_index_root_to_template() -> Result<(), Box<dyn std::error::Error>> {
         // A plain discovery root whose discovery document redirects
-        // index reads through a URL template (issue #438's original
-        // ask).
+        // A plain discovery root whose discovery document redirects index reads
+        // through a URL template.
         let mut server = mockito::Server::new();
 
         let config_body = format!(r#"{{"index_root":"{}/files/{{path}}/raw"}}"#, server.url());

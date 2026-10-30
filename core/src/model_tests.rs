@@ -1102,8 +1102,7 @@ fn missing_key_names_an_unrecognized_metamodel() {
     );
 }
 
-/// workspaces.md "Unknown keys", for the json manifests too: a key this
-/// version does not know is a warning.
+/// A key this version does not know is a warning, for the json manifests too.
 #[test]
 fn partial_collects_unknown_keys_as_warnings() {
     let validated = info_partial(r#"{"name": "n", "version": "1.0.0", "shiny": 1}"#)
@@ -1173,8 +1172,7 @@ fn a_sysml_metamodel_admits_both() {
 }
 
 /// Both families answer this the same way, the Syside metamodels
-/// mirroring the OMG spec kind they extend. The family and the release
-/// date decide other things; they do not decide this one.
+/// mirroring the OMG spec kind they extend.
 #[test]
 fn the_two_families_admit_the_same_languages() {
     for spec in ["KerML", "SysML"] {
@@ -1328,7 +1326,7 @@ fn an_empty_index_in_a_syside_document_is_warned_about_too() {
     assert_eq!(validated.value.index, None);
 }
 
-/// The json side of the foreign-key rule -- `root` or `exports` under an
+/// The json side of the foreign-key rule: `root` or `exports` under an
 /// OMG or absent metamodel is a warning naming the key, and the value is
 /// dropped.
 #[test]
@@ -1396,7 +1394,7 @@ fn a_syside_meta_json_root_is_held_to_the_sources_entry_checks() {
     );
 }
 
-/// An unrecognized metamodel selects the OMG shape, as it always has:
+/// An unrecognized metamodel selects the OMG shape:
 /// `index` is required with the suffix naming the value, and `root` is a
 /// foreign key.
 #[test]
@@ -1506,7 +1504,7 @@ fn source_paths_of_a_root_shaped_document_are_its_model_files() {
     paths.sort();
     assert_eq!(paths, ["main.sysml"]);
 
-    // An OMG document's keys are all sources, as they always were.
+    // An OMG document's keys are all sources.
     let omg = syside_meta(COMPLETE_META).expect("validates").value;
     assert_eq!(omg.source_paths(true).len(), 1);
 }

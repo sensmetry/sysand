@@ -6,10 +6,8 @@ use super::ProjectContext;
 
 // ------------------- the sources root
 
-/// `workspaces.md` "Locking": one lockfile for the whole workspace at
-/// its root, recording "every project of the solved graph ... members
-/// included". Every `src_path` in it is therefore relative to that
-/// root, not to whichever member happened to run `lock`.
+/// One lockfile for the whole workspace, at its root. Every `src_path` in it
+/// is relative to that root, not to the member that ran `lock`.
 #[cfg(feature = "filesystem")]
 #[test]
 fn the_model_workspace_root_wins_as_the_sources_root() {
@@ -42,7 +40,7 @@ fn without_a_workspace_the_sources_root_is_the_project() {
     );
 }
 
-/// With neither there is no root (`LocalSrcProject::sources` panics).
+/// With neither there is no root.
 #[cfg(feature = "filesystem")]
 #[test]
 fn with_neither_there_is_no_sources_root() {

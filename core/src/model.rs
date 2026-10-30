@@ -652,12 +652,9 @@ impl InterchangeProjectUsageRaw {
                 resource,
                 version_constraint,
             } => {
-                // `pkg:sysand/<publisher>/<name>` is the canonical sysand project
-                // identifier; the index protocol routes it directly under
-                // `<publisher>/<name>/`. Reject malformed or non-normalized
-                // `pkg:sysand` IRIs at validation time so users get an actionable
-                // error (with a suggested normalized form) instead of a downstream
-                // "not found".
+                // Reject malformed or non-normalized `pkg:sysand` IRIs here, so
+                // users get an actionable error with a suggested normalized form
+                // instead of a downstream "not found".
                 crate::purl::parse_sysand_purl(resource).map_err(|e| {
                     InterchangeProjectValidationError::MalformedUsageSysandPurl {
                         iri: resource.clone(),
@@ -1655,8 +1652,8 @@ impl InterchangeProjectMetadataPartial {
                 (index, None, None, ok)
             }
             MetamodelFamily::Syside => {
-                // An `index` is not used and does
-                // not stand in for the two keys the shape requires.
+                // An `index` does not stand in for the two keys the shape
+                // requires.
                 if self.index.is_some() {
                     report.push(Diagnostic::warning(format!(
                         "`index` in {location} is not used by the Syside metamodel and is \

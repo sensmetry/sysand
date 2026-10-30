@@ -117,9 +117,8 @@ fn basic_project_urls_http_src() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Userinfo in a remote src URL is kept verbatim in the lockfile source.
-/// Intended: the URL (password included) is exactly what the user wrote in
-/// `.project.json` or `sysand.toml`, which are not secret, and sysand's own
-/// credentials are sent as headers, never put into URLs.
+/// Intended: the URL (password included) is what the user wrote in
+/// `.project.json` or `sysand.toml`, which are not secret.
 #[test]
 fn sources_keep_userinfo_verbatim() -> Result<(), Box<dyn std::error::Error>> {
     let remote_src = "https://user:pass@example.com/project/";

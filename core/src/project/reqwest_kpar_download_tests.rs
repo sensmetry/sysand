@@ -92,19 +92,14 @@ fn basic_download_request() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Two concurrent `ensure_downloaded_verified` calls on the same
-/// project must fan in to a single download. Without the per-project
-/// download lock, both tasks truncate the destination archive and
-/// interleave writes: each task's hasher passes against its own stream
-/// but the file on disk is corrupt.
+/// Two concurrent `ensure_downloaded_verified` calls on the same project must
+/// fan in to a single download. Without the per-project download lock, both
+/// tasks truncate the destination archive and interleave writes: each task's
+/// hasher passes against its own stream but the file on disk is corrupt.
 ///
-/// This goes through a real `reqwest`/`mockito` round-trip, so both
-/// futures race through the same code paths a real caller would hit.
-/// We assert:
-///   - both futures resolve `Ok(())`,
-///   - the server observed exactly one kpar fetch (`expect(1)`),
-///   - the archive on disk parses and exposes the expected project,
-///     i.e. the bytes weren't interleaved.
+/// Asserts that both futures resolve `Ok(())`, the server saw exactly one
+/// kpar fetch, and the archive on disk parses and exposes the expected
+/// project.
 #[test]
 fn concurrent_downloads_fan_in_to_single_fetch() -> Result<(), Box<dyn std::error::Error>> {
     let kpar_bytes = {
@@ -273,9 +268,8 @@ fn index_kpar_source_roundtrips_digest_and_size() -> Result<(), Box<dyn std::err
 }
 
 /// Userinfo in a remote kpar URL is kept verbatim in the lockfile source.
-/// Intended: the URL (password included) is exactly what the user wrote in
-/// `.project.json` or `sysand.toml`, which are not secret, and sysand's own
-/// credentials are sent as headers, never put into URLs.
+/// Intended: the URL (password included) is what the user wrote in
+/// `.project.json` or `sysand.toml`, which are not secret.
 #[test]
 fn remote_kpar_sources_keep_userinfo_verbatim() -> Result<(), Box<dyn std::error::Error>> {
     let remote_kpar = "https://user:pass@example.com/project.kpar";

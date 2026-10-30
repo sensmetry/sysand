@@ -63,13 +63,10 @@ pub(crate) fn git_commit_files(
     Ok(())
 }
 
-/// Not isolated from the machine's git configuration: the clone runs gix
-/// in the test process, and the `git upload-pack` it starts for `file://`
-/// inherits the test's environment, so both read the system and user git
-/// config. Isolating them needs a cleared environment, which is only sound
-/// before any thread exists; as an integration test that means its own
-/// `main` (`harness = false`, a `[[test]]` entry, `unsafe` environment
-/// edits), which is too much special-casing for one test.
+/// Not isolated from the machine's git configuration: gix in the test process
+/// and the `git upload-pack` it starts for `file://` both read the system and
+/// user git config. Isolating them needs a cleared environment, which is only
+/// sound before any thread exists.
 #[cfg(feature = "alltests")]
 #[test]
 pub fn basic_gix_access() -> Result<(), Box<dyn std::error::Error>> {

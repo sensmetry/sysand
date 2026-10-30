@@ -33,12 +33,10 @@ fn write_kpar(path: &Utf8Path, publisher: &str, name: &str, version: &str) {
     zip.finish().unwrap();
 }
 
-/// Indexes are a union: every configured index is asked (the sequential
-/// resolver queries them together and propagates any error), so a
-/// folder next to an HTTP index adds candidates and the HTTP index is
-/// still contacted. A remote that does not hold the project (its
-/// `versions.json` is 404) contributes nothing and the folder's archive
-/// is the resolution.
+/// Indexes are a union: every configured index is asked, so a folder next to
+/// an HTTP index adds candidates and the HTTP index is still contacted. A
+/// remote that does not hold the project (its `versions.json` is 404)
+/// contributes nothing and the folder's archive is the resolution.
 #[test]
 fn standard_index_resolver_unions_remote_and_filesystem() {
     let cwd = tempdir().unwrap();
@@ -92,10 +90,9 @@ fn standard_index_resolver_unions_remote_and_filesystem() {
     versions.assert();
 }
 
-/// A filesystem-only configuration opens no socket: with every proxy
-/// variable pointing at a closed port, the folder still resolves. The
-/// same environment breaks an HTTP index (the control), so the
-/// assertion is about denial, not non-use.
+/// A filesystem-only configuration opens no socket: with every proxy variable
+/// pointing at a closed port, the folder still resolves. An HTTP index under
+/// the same environment fails (the control).
 #[test]
 fn filesystem_only_resolution_needs_no_network() {
     let cwd = tempdir().unwrap();
