@@ -47,8 +47,10 @@ use sysand_core::{
         discovery::DiscoveryError,
         index::{HttpFetchError, IndexEnvironmentError},
         local_directory::{
-            LocalDirectoryEnvironment, LocalWriteError,
-            metadata::{EnvMetadataError, EnvProject, EnvProjectChecksum},
+            LocalDirectoryEnvironment, LocalWriteError, METADATA_PATH,
+            metadata::{
+                EnvMetadataError, EnvProject, EnvProjectChecksum, ParseError as EnvParseError,
+            },
         },
         null::NullEnvironment,
         utils::{CloneError, ErrorBound},
@@ -58,7 +60,10 @@ use sysand_core::{
     index_location::IndexLocation,
     info::{InfoError, InfoProjectError, do_info, do_info_project},
     init::InitError,
-    lock::{Lock, Project as LockedProject},
+    lock::{
+        CURRENT_LOCK_VERSION, Lock, ParseError as LockParseError, Project as LockedProject,
+        VersionError,
+    },
     model::{
         IndexName, IndexPublisher, InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw,
         InterchangeProjectMetadataRaw, InterchangeProjectUsage, InterchangeProjectUsageRaw,
@@ -454,7 +459,7 @@ fn cli_resolver_for(
         (None, Some(project)) => project.root_path(),
         (None, None) => cwd.as_path(),
     };
-    let env = get_env(env_root).map_err(|e| project_error(format_err(e)))?;
+    let env = get_env(env_root).map_err(env_error)?;
     let project_root = current_project
         .as_ref()
         .map_or(cwd.as_path(), |project| project.root_path());
@@ -575,7 +580,7 @@ fn project_context(start: &Utf8Path) -> PyResult<(ProjectContext, Utf8PathBuf)> 
     let env_root = current_workspace
         .as_ref()
         .map_or_else(|| project_root.clone(), |w| w.root_path().to_owned());
-    let env = get_env(&env_root).map_err(|e| project_error(format_err(e)))?;
+    let env = get_env(&env_root).map_err(env_error)?;
     Ok((
         ProjectContext {
             env,
@@ -860,19 +865,11 @@ fn do_sync_py(
         // The lockfile is read, or written, before the environment is
         // created, so a failure to lock leaves no environment behind.
         let lockfile_path = project_root.join(DEFAULT_LOCKFILE_NAME);
-        let parse = |text: &str| {
-            Lock::from_str(text).map_err(|e| {
-                ProjectError::new_err(format!(
-                    "invalid lockfile `{lockfile_path}`:\n{}",
-                    format_err(e)
-                ))
-            })
-        };
+        let parse =
+            |text: &str| Lock::from_str(text).map_err(|e| lockfile_error(Some(&lockfile_path), e));
         let (lock, wrote_lock) = match lock_text {
             Some(text) => (
-                Lock::from_str(&text).map_err(|e| {
-                    ProjectError::new_err(format!("invalid lockfile: {}", format_err(e)))
-                })?,
+                Lock::from_str(&text).map_err(|e| lockfile_error(None, e))?,
                 false,
             ),
             None => match std::fs::read_to_string(&lockfile_path) {
@@ -1649,8 +1646,56 @@ pub fn sysand_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
+/// The way out of an environment a newer release wrote, in this API's words
+/// (the CLI prints the same beneath its error, naming its commands).
+fn newer_environment_hint(err: &EnvMetadataError) -> Option<String> {
+    matches!(
+        err,
+        EnvMetadataError::Parse(_, EnvParseError::NewerVersion(_))
+    )
+    .then(|| {
+        format!(
+            "upgrade to the release that wrote `{DEFAULT_ENV_NAME}/{METADATA_PATH}`, or delete \
+             the `{DEFAULT_ENV_NAME}` directory and call `sync()` to recreate it for this release"
+        )
+    })
+}
+
+/// `message`, with the way out beneath it when there is one.
+fn with_hint(message: String, hint: Option<String>) -> String {
+    match hint {
+        Some(hint) => format!("{}\n{hint}", message.trim_end()),
+        None => message,
+    }
+}
+
+/// `ProjectError` for an environment that could not be read.
+fn env_error(err: EnvMetadataError) -> PyErr {
+    let hint = newer_environment_hint(&err);
+    ProjectError::new_err(with_hint(format_err(err), hint))
+}
+
+/// `EnvError` for an environment that could not be read, where the
+/// environment itself is the subject of the call.
 fn env_read_to_pyerr(err: EnvMetadataError) -> PyErr {
-    PyEnvError::new_err(format_err(err))
+    let hint = newer_environment_hint(&err);
+    PyEnvError::new_err(with_hint(format_err(err), hint))
+}
+
+/// `ProjectError` for a lockfile that could not be parsed: the one at `path`,
+/// or text the caller supplied.
+fn lockfile_error(path: Option<&Utf8Path>, err: LockParseError) -> PyErr {
+    let hint = matches!(err, LockParseError::Version(VersionError::Newer(_))).then(|| {
+        format!(
+            "upgrade to the release that wrote the lockfile, or call `lock()`, which writes \
+             version `{CURRENT_LOCK_VERSION}` and reverts the file for everyone who shares it"
+        )
+    });
+    let message = match path {
+        Some(path) => format!("invalid lockfile `{path}`:\n{}", format_err(err)),
+        None => format!("invalid lockfile: {}", format_err(err)),
+    };
+    ProjectError::new_err(with_hint(message, hint))
 }
 
 /// The entries of the environment's `env.toml`, each converted to a dict by
