@@ -31,7 +31,7 @@ fn create_reqwest_client_needs_no_provider_from_the_caller() {
 /// Installing must stay idempotent. `install_default` returns `Err` once a
 /// provider is set, and discarding that error is what lets an application
 /// install its own provider first and keep it -- so a second call must be
-/// harmless rather than a panic or an override.
+/// harmless.
 #[test]
 fn install_default_crypto_provider_is_idempotent() {
     install_default_crypto_provider();

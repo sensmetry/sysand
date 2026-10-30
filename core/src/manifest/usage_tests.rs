@@ -115,7 +115,7 @@ fn name(raw: &str) -> IndexName {
 // The raw shape.
 
 /// `git`/`rev`/`tag`/`branch` are recognized so that declaring one can be
-/// refused as the postponement it is, rather than as an unknown key.
+/// refused as the postponement it is.
 #[test]
 fn a_usage_entry_deserializes_every_recognized_key() {
     let (raws, _) = read(&one(concat!(
@@ -147,7 +147,7 @@ fn a_usage_entry_deserializes_every_recognized_key() {
 }
 
 /// Parsing never fails on content, so an unknown key is collected and a value of the wrong
-/// shape is carried to validation rather than stopping the read.
+/// shape is carried to validation.
 #[test]
 fn unaccepted_keys_are_collected_not_dropped() {
     let (raws, _) = read(&one(concat!(
@@ -162,8 +162,7 @@ fn unaccepted_keys_are_collected_not_dropped() {
 }
 
 /// A value of the wrong TOML *type* is a diagnostic like any other, so
-/// it accumulates with what else the entry gets wrong rather than
-/// stopping the read of the rest of the file.
+/// it accumulates with what else the entry gets wrong.
 #[test]
 fn a_toml_type_error_accumulates_like_every_other() {
     let report = rejected("name = 3\npublisher = \"a !b\"\n");
@@ -367,7 +366,7 @@ fn only_index_usages_take_a_version_constraint() {
 
 /// An index usage takes a publisher, a name and a version constraint. An
 /// entry with no kind key is an index usage, so a missing `version` is a
-/// missing constraint rather than a missing kind.
+/// missing constraint.
 #[test]
 fn an_index_usage_requires_a_version() {
     let report = rejected("publisher = \"acme\"\nname = \"lib\"\n");
@@ -491,7 +490,7 @@ fn an_omg_iri_with_a_version_is_refused() {
 }
 
 /// The shape decides whether an entry may omit its publisher, so it is
-/// pinned rather than approximated.
+/// pinned.
 #[test]
 fn the_omg_stdlib_iri_shape() {
     use crate::model::is_omg_stdlib_iri;

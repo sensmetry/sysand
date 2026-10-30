@@ -966,7 +966,7 @@ def test_env_functions_reject_non_iri(tmp_path: Path) -> None:
     _root, env_dir = _project_with_dir_usage(tmp_path)
     before = sysand.env.projects(env_path=env_dir)
 
-    # `publisher/name` is not an IRI: refused, not looked up or stored as one
+    # `publisher/name` is not an IRI: refused
     with pytest.raises(ValueError, match="invalid IRI `acme/kpar-dep`"):
         sysand.env.sources(env_path=env_dir, iri="acme/kpar-dep")
     with pytest.raises(ValueError, match="invalid IRI `acme/kpar-dep`"):

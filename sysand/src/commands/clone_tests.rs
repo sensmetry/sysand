@@ -151,8 +151,8 @@ fn purl_with_a_named_prerelease_picks_it() {
     );
 }
 
-/// A PURL project that has only ever published prereleases fails rather than
-/// installing one behind the user's back, as the solver does.
+/// A PURL project that has only ever published prereleases fails, as the
+/// solver does.
 /// The versions found are named, highest first, so the user can pass one.
 #[test]
 fn purl_with_only_prereleases_is_an_error_naming_them() {

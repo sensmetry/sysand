@@ -89,7 +89,7 @@ pub struct IndexEnvironmentAsync<Policy> {
     /// fetches are reused for a stable view of each fetched project.
     /// Cached values are already validated (see [`validate_versions`]);
     /// the raw wire form is not retained. Transport, validation, and
-    /// not-found outcomes are not cached — retries re-fetch.
+    /// not-found outcomes are not cached, so retries re-fetch.
     ///
     // This is a Mutex to enable caching in &self methods of ReadEnvironment
     // trait.
@@ -206,10 +206,9 @@ pub enum HttpFetchError {
 }
 
 /// Whether a 404 on the requested URL is a successful "no such document"
-/// signal (`AllowNotFound` — e.g. `versions.json`, where 404 means the
-/// project is not in this index) or a hard error
-/// (`RequirePresent` — e.g. the per-version `.project.json` that must
-/// exist once a version has been selected).
+/// signal (`AllowNotFound`, e.g. a missing project in the index) or a hard
+/// error (`RequirePresent`, e.g. a document that must exist once a version
+/// has been selected).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MissingPolicy {
     AllowNotFound,
@@ -347,10 +346,9 @@ impl<Policy: HTTPAuthentication> IndexEnvironmentAsync<Policy> {
 /// delayed surprise downstream.
 ///
 /// Ordering is checked at ingest on the parsed `semver::Version`, not
-/// lexically — violations surface as
-/// [`VersionsJsonError::VersionsOutOfOrder`]. pubgrub's internal
-/// sorting during solving does not mask the bug at the protocol
-/// boundary.
+/// lexically; violations surface as
+/// [`VersionsJsonError::VersionsOutOfOrder`]. Sorting during solving
+/// would otherwise mask the bug at the protocol boundary.
 fn validate_versions(
     url: &url::Url,
     vs: VersionsJson,

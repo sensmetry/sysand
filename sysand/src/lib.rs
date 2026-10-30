@@ -136,8 +136,7 @@ pub enum ProcessOwnership {
     Owned,
     /// A host owns the process and may have installed a logger before the
     /// first command ran (for example a log bridge installed by the Python
-    /// bindings). That is the embedder's arrangement
-    /// rather than an accident, so it is not reported; the level
+    /// bindings). That is the embedder's arrangement, so it is not reported; the level
     /// `--verbose`/`--quiet` select still applies to the host's logger, and
     /// only the formatting and the `RUST_LOG` filters are lost. Sysand panic
     /// hook is not installed.
@@ -188,8 +187,7 @@ where
 /// which are only given as clap macro attributes.
 ///
 /// For an embedder with a command line of its own, which parses into
-/// [`cli::GlobalOptions`] and [`cli::Command`] itself rather than handing
-/// Sysand an argument list. Everything after parsing is as in
+/// [`cli::GlobalOptions`] and [`cli::Command`] itself. Everything after parsing is as in
 /// [`lib_main_with`]: the error, if any, is printed to standard error and the
 /// code is 1; otherwise it is 0.
 ///
@@ -292,7 +290,7 @@ fn claim_process(ownership: ProcessOwnership) {
 /// `args` may name a subcommand path (`["env", "install"]`), and the help
 /// returned is that subcommand's. When the arguments are not a valid command
 /// line the result is clap's own error text, complete with its usage hint,
-/// rather than an empty string, as a user would have seen.
+/// as a user would have seen.
 ///
 /// The text is unstyled. The caller prints it through a writer we know
 /// nothing about, so emitting ANSI escapes here would put them into pipes
@@ -863,7 +861,7 @@ fn run_cli_with(
 
     // These commands need a project, so `--member` is required at the
     // root. Checked once
-    // here rather than in each command, because the condition is one
+    // here, because the condition is one
     // condition: in a workspace, with no member to act on.
     //
     // `edit --dir` names its project directly, so only a bare `edit`

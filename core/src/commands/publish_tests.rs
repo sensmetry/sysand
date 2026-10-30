@@ -109,10 +109,9 @@ fn github_env(token: &str, url: &str) -> TrustedPublishingEnvironment {
 
 #[test]
 fn build_upload_url_appends_endpoint_path() {
-    // `build_upload_url` takes the resolved `api_root` (already normalized
-    // by discovery to end with `/`), not the discovery root. Well-known
-    // discovery has already chosen `api_root` — this helper just composes
-    // `v1/upload` onto it.
+    // Takes the resolved `api_root` (already normalized by discovery to end
+    // with `/`), not the discovery root, and just composes `v1/upload`
+    // onto it.
     assert_eq!(
         build_upload_url(&Url::parse("https://example.org").unwrap()).as_str(),
         "https://example.org/v1/upload"
@@ -1231,7 +1230,7 @@ mod prepare_publish {
 
     #[test]
     fn kpar_read_rejects_zip_without_project_json() {
-        // A valid ZIP but containing no .project.json — guess_root fails.
+        // A valid ZIP but containing no .project.json, so root detection fails.
         let (_tmp, path) = write_zip(&[("unrelated.txt", b"hello", deflate())]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
         assert_matches!(err, PublishError::KparRead(..));

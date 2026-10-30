@@ -1104,7 +1104,7 @@ fn missing_key_names_an_unrecognized_metamodel() {
 }
 
 /// workspaces.md "Unknown keys", for the json manifests too: a key this
-/// version does not know is a warning, not a silent omission.
+/// version does not know is a warning.
 #[test]
 fn partial_collects_unknown_keys_as_warnings() {
     let validated = info_partial(r#"{"name": "n", "version": "1.0.0", "shiny": 1}"#)

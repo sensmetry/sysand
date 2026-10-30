@@ -7,7 +7,7 @@
 The fixture is derived, never hand-edited: the next OMG release is a new
 `stdlib_assets/<date>/` directory and a re-run of this script.
 
-Three things are read rather than assumed:
+Three things are read from the release:
 
 * the **stems** come from `core/src/stdlib.rs`'s `known_std_libs` table,
   because they are not derivable from the asset filenames --

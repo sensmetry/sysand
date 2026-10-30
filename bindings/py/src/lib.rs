@@ -110,8 +110,8 @@ use typed_path::Utf8UnixPathBuf;
 #[pyfunction(name = "_run_cli")]
 fn run_cli(py: Python<'_>, args: Vec<String>) -> u8 {
     // The CLI can run for seconds and talk to the network; holding the GIL
-    // would block every other Python thread meanwhile — including an HTTP
-    // server the CLI is talking to (the Python test suite's mock index).
+    // would block every other Python thread meanwhile, including an HTTP
+    // server the CLI is talking to.
     py.detach(|| run_cli_blocking(args))
 }
 
@@ -125,8 +125,7 @@ fn run_cli_blocking(args: Vec<String>) -> u8 {
 
 /// Clap's long help for the command `args` names, as a string.
 ///
-/// For an embedding CLI that must *return* help text rather than let it be
-/// printed: clap writes to the process's file descriptors, which a Python
+/// For an embedding CLI that that needs help text as a string: clap writes to the process's file descriptors, which a Python
 /// stream redirect of `sys.stdout`/`sys.stderr` does not capture. `prog` is the
 /// program name to spell in usage lines.
 ///
@@ -521,7 +520,7 @@ fn combined_error_to_pyerr<F, L, R>(
 ) -> PyErr {
     match err {
         // The binding hands out no token, so a cancelled bridge cannot
-        // happen here; mapped rather than left unmatched.
+        // happen here; the variant is still mapped.
         CombinedResolverError::Index(Cancellable::Cancelled) => PyResolutionError::new_err(message),
         CombinedResolverError::Index(Cancellable::Inner(AnyIndexError::Remote(
             IndexEnvironmentError::Discovery(DiscoveryError::Fetch(fetch))
@@ -715,8 +714,7 @@ fn provided_projects(specs: Vec<ProvidedSpec>) -> PyResult<ProvidedProjects> {
 /// The answer differs per command: `lock` acts on the whole workspace,
 /// while `migrate` deliberately does not -- an unlisted json project
 /// under a workspace root is exactly the one a user wants to migrate.
-/// So the scope is a parameter here rather than a property of the
-/// context.
+/// So the scope is a parameter here.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Scope {
     /// The enclosing workspace, when the path is in one: its lockfile,
@@ -1748,7 +1746,7 @@ fn validate_iri(iri: String) -> PyResult<Iri<String>> {
 
 /// The exception classes live in Python (`_errors.py`) so that `mypy` sees
 /// their attributes; the Rust side only needs to raise them, and is handed
-/// them by `_register_errors` rather than importing them by module path.
+/// them by `_register_errors`.
 #[expect(
     dead_code,
     reason = "the macro gives every class both constructors, and most classes \
@@ -1766,8 +1764,7 @@ mod py_errors {
     /// Raised in place of the intended class when nothing registered one.
     ///
     /// Reachable only by importing this extension without the Python package
-    /// that owns it, so the message names that missing import rather than
-    /// leaving an embedder with a class it has never heard of.
+    /// that owns it, so the message names that missing import.
     fn unregistered(message: &str) -> PyErr {
         PyRuntimeError::new_err(format!(
             "{message}\n\nnote: sysand's exception classes have not been\n\
@@ -1866,10 +1863,9 @@ use py_errors::{
 /// for the usage `set_usage_constraint()` names.
 ///
 /// Every failure raises `ProjectError` (`wrote` stays `False`: nothing is
-/// written unless the edit succeeds), matching `do_add_py` and
-/// `do_remove_py`, which reject a non-IRI or an invalid version requirement
-/// the same way. A missing usage is *not* an error here —
-/// `found` is `False` and the Python side decides.
+/// written unless the edit succeeds), as for add and remove. A missing
+/// usage is *not* an error here: `found` is `False` and the Python side
+/// decides.
 #[pyfunction(name = "do_set_usage_constraint_py")]
 #[pyo3(
     signature = (path, iri, publisher, name, version_constraint),

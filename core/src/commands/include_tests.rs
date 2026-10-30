@@ -285,8 +285,7 @@ fn a_json_project_hashes_and_indexes() {
 }
 
 /// Before the manifest is touched, `include`
-/// refuses a file the project's metamodel does not admit, rather than
-/// writing an entry the next read would report.
+/// refuses a file the project's metamodel does not admit.
 #[test]
 fn including_a_language_the_metamodel_does_not_admit_is_refused() {
     let mut project = InMemoryProject {

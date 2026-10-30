@@ -32,7 +32,7 @@ use crate::utils::{NormalizeRelativeError, normalize_relative};
 /// The keys a group gives, the default group and a named one alike.
 ///
 /// `sources` is here although a group may not carry it: it is an error
-/// that says so, rather than an unknown-key warning, which it can only
+/// that says so, which it can only
 /// be if the reader recognizes the key.
 ///
 /// `stdlib` and `manifest-version` are deliberately absent -- in a
@@ -368,7 +368,7 @@ fn group_usages(reader: &TableReader<'_>, table: &str, report: &mut Report) -> V
 ///
 /// An entry is taken exactly as written, as a `sources` entry is: it is
 /// refused unless it already is the one form [`normalize_relative`]
-/// would produce, rather than normalized into it. A path that leaves the
+/// would produce. A path that leaves the
 /// root or is the root still gets the message that says so, which is
 /// more use than "not in normal form" for `..` or `.`.
 ///
@@ -500,7 +500,7 @@ pub(crate) fn prefix_depth(path: &Utf8UnixPath, entry: &Utf8UnixPath) -> Option<
 }
 
 /// The three conditions that are about how a path is
-/// written, rather than where it points, read as `sources` reads them.
+/// written, read as `sources` reads them.
 fn path_message(key: &str, raw: &str, error: &NormalizeRelativeError) -> String {
     match error {
         NormalizeRelativeError::Absolute { path: _ } => format!(

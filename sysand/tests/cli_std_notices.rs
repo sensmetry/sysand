@@ -67,7 +67,7 @@ fn add_std_lib_direct_note_still_locks_skips_sync() -> Result<(), Box<dyn std::e
         });
     assert!(
         std_project.sources.is_empty(),
-        "std lib entry should have no sources, since it is provided rather than installed"
+        "std lib entry should have no sources, since it is provided"
     );
 
     Ok(())

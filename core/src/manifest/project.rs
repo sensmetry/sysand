@@ -168,8 +168,7 @@ impl ResolvedProject {
 }
 
 impl ProjectTable {
-    /// A `[project]` table built from values rather than read from a
-    /// file: the three keys every metamodel requires, and nothing else.
+    /// A `[project]` table built from values: the three keys every metamodel requires, and nothing else.
     ///
     /// This is where a command that *writes* a manifest starts one.
     /// Every other key is public, so the caller sets
@@ -177,8 +176,8 @@ impl ProjectTable {
     /// and read far worse.
     ///
     /// `publisher` and `version` are wrapped as
-    /// [`MetaProperty::Provided`]: a generated file gives its values
-    /// rather than inheriting them. A caller that wants a marker assigns
+    /// [`MetaProperty::Provided`]: a generated file gives its values.
+    /// A caller that wants a marker assigns
     /// the field.
     ///
     /// The returned table has **no `sources`**, which for the OMG
@@ -496,7 +495,7 @@ impl ProjectManifest {
     /// Markers do not establish membership, but a project carrying one
     /// cannot be read outside a workspace, while a marker-free non-member
     /// reads as an ordinary standalone project. That is the one question
-    /// to ask before resolving rather than by catching an error.
+    /// to ask before resolving.
     pub fn inherits(&self) -> bool {
         let project = &self.project;
         project.publisher.inherited().is_some()

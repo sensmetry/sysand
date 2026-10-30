@@ -25,7 +25,7 @@
 //! Templates: `{path}` behaves like RFC 6570 simple string expansion of
 //! a single value and `{path_raw}` like reserved expansion (`{+path}`),
 //! but only these two fixed names are accepted so that typos fail at
-//! parse time instead of producing wrong URLs. Fixed custom markers in a
+//! parse time. Fixed custom markers in a
 //! package-index template follow crates.io's `config.json` `dl` field
 //! (`{crate}`, `{version}`).
 //!

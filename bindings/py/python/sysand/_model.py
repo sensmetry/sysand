@@ -154,7 +154,7 @@ class Mismatch(typing.TypedDict):
     """``"checksum"`` (files or manifests differ), ``"missing"`` (recorded
     in ``env.toml`` but not on disk) or ``"not-recorded"`` (in the lockfile
     but not in ``env.toml``)."""
-    file: typing.Optional[str]
+    file: str | None
     """The first file whose digest differs, when the kind is ``checksum``
     and a file is known."""
     message: str
@@ -181,16 +181,16 @@ class SyncOutcome(typing.TypedDict):
     pruned: list[SyncedProject]
     kept: list[SyncedProject]
     """Lockfile entries that were already installed and verified."""
-    verified: typing.List[SyncedProject]
+    verified: list[SyncedProject]
     """``verify``: entries read back from disk that match."""
-    mismatched: typing.List[Mismatch]
+    mismatched: list[Mismatch]
     """``verify``: entries that do not."""
-    unrecorded: typing.List[str]
+    unrecorded: list[str]
     """``verify``: directories under ``lib/`` that ``env.toml`` does not
     record, relative to the environment."""
-    repaired: typing.List[SyncedProject]
+    repaired: list[SyncedProject]
     """``repair``: entries reinstalled."""
-    stale: typing.List[StaleUsage]
+    stale: list[StaleUsage]
     """``verify``: manifest usages the lockfile does not reflect."""
 
 
@@ -206,7 +206,7 @@ class LockedProject(typing.TypedDict):
     identifiers: list[str]
     exports: list[str]
     usages: list[str]
-    """The usages this project declares, as lockfile usage strings — names
+    """The usages this project declares, as lockfile usage strings, naming
     who pins what."""
     sources: list[str]
     """Where the project can be obtained from, as the lockfile renders each

@@ -69,7 +69,7 @@ fn highest_version_is_described() {
     assert_eq!(info.version, "2.0.0");
 }
 
-/// Non-semver candidates are skipped rather than compared as strings.
+/// Non-semver candidates are skipped.
 #[test]
 fn non_semver_versions_are_skipped() {
     let resolver = resolver(IRI, &["nightly", "1.0.0"]);

@@ -40,8 +40,7 @@ fn places(report: &Report) -> Vec<(usize, usize)> {
 /// The one conversion the whole module rests on: a parsed document
 /// becomes plain values Sysand can judge, and the spans survive it.
 /// Every TOML type arrives as itself, a datetime included -- which is
-/// what lets a wrong-typed key say what it found instead of failing to
-/// deserialize.
+/// what lets a wrong-typed key say what it found.
 #[test]
 fn a_document_becomes_a_table_and_an_index() {
     const TEXT: &str = "\
@@ -272,8 +271,7 @@ shape = \"round\"
 }
 
 /// Inheritance goes in one direction only. A marker where
-/// a plain value belongs is a mistake worth naming, rather than a table
-/// where a string was expected.
+/// a plain value belongs is a mistake worth naming.
 #[test]
 fn a_marker_where_a_value_belongs_says_so() {
     const TEXT: &str = "publisher = { workspace = true }\n";

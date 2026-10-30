@@ -1030,7 +1030,7 @@ fn directory_usage_copy_satisfies_constraints_of_other_dependents()
 }
 
 /// When the copy pinned by a directory usage cannot satisfy another
-/// dependent's version constraint, resolution must fail, not silently
+/// dependent's version constraint, resolution must fail rather than
 /// fall back to a satisfying copy of the project from another source
 #[test]
 fn directory_usage_copy_violating_constraints_is_an_error() -> Result<(), Box<dyn std::error::Error>>
@@ -2189,8 +2189,7 @@ mod index_usages {
         .unwrap_err();
         assert_eq!(
             err.to_string(),
-            "version 2.0.0 offered for index usage `acme/lib` (*) is not a valid project,\n\
-             and a broken version fails the solve instead of being skipped;\n\
+            "version 2.0.0 offered for index usage `acme/lib` (*) is not a valid project;\n\
              exclude it with a version constraint, or have the version fixed where it comes from:\n\
              its publisher can fix or yank it in an index, and a broken copy can be removed from \
              the local environment"
@@ -2230,8 +2229,7 @@ mod index_usages {
         assert_eq!(
             err.to_string(),
             "version 2.0.0 offered for index usage `acme/lib` (*),\n\
-             which dependency `pkg:sysand/acme/mid` 1.3.0 declares, is not a valid project,\n\
-             and a broken version fails the solve instead of being skipped;\n\
+             which dependency `pkg:sysand/acme/mid` 1.3.0 declares, is not a valid project;\n\
              the usage is not yours to edit: it has to be fixed by that dependency's \
              publisher, or the version where it comes from:\n\
              its publisher can fix or yank it in an index, and a broken copy can be removed from \

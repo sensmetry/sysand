@@ -380,7 +380,7 @@ pub const LICENSE_EXPRESSION_HELP: &str = "\
 /// The standard libraries are published at
 /// `https://www.omg.org/spec/<KerML|SysML>/<date>/<stem>.kpar`.
 /// A usage naming one of those IRIs may omit its `publisher`, and no
-/// other usage may, so the shape is pinned rather than approximated:
+/// other usage may, so the shape is pinned:
 /// exactly one eight-digit date segment, exactly one non-empty stem
 /// ending in `.kpar`, and nothing after it. A query or a fragment lands
 /// in the stem and so fails the suffix, which is the intent -- the
@@ -1055,8 +1055,7 @@ pub struct InterchangeProjectInfoG<
 /// Every key is optional here, and unrecognized ones are kept, so that
 /// validation is Sysand's rather than serde's: a document missing several
 /// keys is reported in one message that names them all, and one carrying
-/// a key this version does not know about is a warning rather than a
-/// silent omission. A value of the *wrong type* is still serde's to
+/// a key this version does not know about is a warning. A value of the *wrong type* is still serde's to
 /// report, since it knows where the value is.
 #[derive(Eq, Clone, PartialEq, Deserialize, Debug, Default)]
 #[serde(rename_all = "camelCase")]

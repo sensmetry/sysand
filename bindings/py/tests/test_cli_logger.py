@@ -90,8 +90,7 @@ sys.exit(0 if any(r.levelno == logging.DEBUG for r in records) else 3)
 
 
 def test_verbosity_still_reaches_the_host_logger(tmp_path: Path) -> None:
-    # What the warning was warning about, and the reason it can be dropped
-    # rather than merely hidden: `--verbose` still applies, through whatever
+    # What the warning was warning about, and the reason it can be dropped: `--verbose` still applies, through whatever
     # logger the host installed. The records arrive as Python logging records,
     # because the bridge is what is installed.
     (tmp_path / "claim").mkdir()

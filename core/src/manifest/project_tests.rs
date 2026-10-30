@@ -1098,7 +1098,7 @@ fn a_marker_outside_a_workspace_is_an_error() {
         ]
     );
 
-    // An opt-in usage names itself rather than a key.
+    // An opt-in usage names itself.
     let text = format!(
         "[project]\n{RESOLVABLE}\n\
          [[inline-usages]]\npublisher = \"acme\"\nname = \"lib\"\nworkspace = \"legacy\"\n"
@@ -1539,8 +1539,7 @@ fn a_metamodel_is_required() {
 }
 
 /// Exactly four values are recognized -- two families, two spec kinds
-/// each. All four resolve, and the resolved project carries the kind
-/// rather than the string it was written as.
+/// each. All four resolve, and the resolved project carries the kind.
 #[test]
 fn each_of_the_four_metamodels_resolves() {
     for (value, family, spec) in [

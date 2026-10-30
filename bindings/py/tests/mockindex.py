@@ -65,8 +65,7 @@ def _semver_key(version: str) -> tuple[int, int, int]:
     m = _SEMVER.match(version)
     if m is None:
         # The index protocol rejects non-semver (and pre-release/build)
-        # entries at ingest (`core/src/env/index.rs::validate_versions`),
-        # so the fixture refuses them rather than serving an invalid index.
+        # entries at ingest, so the fixture refuses them.
         raise ValueError(
             f"mock index only publishes plain X.Y.Z versions, got {version!r}"
         )
@@ -162,7 +161,7 @@ class MockIndex:
         reads) and mirrored into the archive's ``.project.json``.
 
         ``files`` go into the archive and, unless ``index`` is given, are
-        listed in ``.meta.json``'s symbol index under their stem — ``sync``
+        listed in ``.meta.json``'s symbol index under their stem, since ``sync``
         installs only indexed source files.
         """
         if index is None:

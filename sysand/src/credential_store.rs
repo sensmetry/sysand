@@ -42,7 +42,7 @@ pub const TEST_STORE_ABSENT: &str = ":absent:";
 /// real use, a plain file or a simulated-absent backend under the test
 /// seam. The plaintext-writing test variants are compiled only in debug
 /// builds, so the cleartext path is physically absent from release
-/// binaries (not merely refused at runtime).
+/// binaries.
 #[derive(Debug)]
 pub enum CliBlobBackend {
     Keyring(OsKeyringBackend),

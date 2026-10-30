@@ -116,8 +116,7 @@ pub fn parse_metamodel(value: &str, release: MetamodelVersionCli) -> Result<Know
 /// group's, which is the one case where none given is not an error.
 ///
 /// An argument that is given wins over the workspace: a group is what a
-/// project inherits when it says nothing, not something that overrides
-/// what it was told.
+/// project inherits when it says nothing.
 fn metamodel_for(
     metamodel: Option<KnownMetamodel>,
     member: Option<&Member>,
@@ -245,7 +244,7 @@ fn default_name_from_path<P: AsRef<Utf8Path>>(path: P) -> Result<ProjectName> {
 }
 
 /// Warn about a project above `target`. A workspace above it is
-/// [`workspace_member`]'s concern, which acts rather than warns.
+/// [`workspace_member`]'s concern, which acts on it.
 pub fn warn_parent_project(target: &Utf8Path, ctx: &ProjectContext) -> Result<()> {
     if parse_relative_unix_path(target.as_str(), RelativePathKind::SubDirectory).is_ok() {
         // Target is a subdirectory of cwd

@@ -23,8 +23,7 @@ pub const BLOB_VERSION: u32 = 1;
 ///
 /// The taxonomy distinguishes an *absent* keyring backend (callers may fall
 /// back to `SYSAND_CRED_*` environment variables) from a
-/// *present-but-locked/denied* backend (callers must surface the error and
-/// never silently degrade).
+/// *present-but-locked/denied* backend (callers must surface the error).
 #[derive(Debug, Error)]
 pub enum CredentialStoreError {
     /// The stored blob failed to parse. This fails closed: a corrupt
@@ -259,8 +258,7 @@ impl Default for CredentialBlob {
     }
 }
 
-/// Parse a credential blob. Both failure modes fail closed (the blob is
-/// never silently treated as empty): a parse failure as
+/// Parse a credential blob. Both failure modes fail closed: a parse failure as
 /// [`CredentialStoreError::Unreadable`], an unknown `version` as
 /// [`CredentialStoreError::UnsupportedBlobVersion`].
 pub fn parse_blob(raw: &str) -> Result<CredentialBlob, CredentialStoreError> {
@@ -282,8 +280,8 @@ pub fn serialize_blob(blob: &CredentialBlob) -> String {
 }
 
 /// Test doubles shared by several core test modules (auth, commands::auth,
-/// keyring_store), which is why they live here rather than in one test
-/// file. Test-only so they never reach the library's public API.
+/// keyring_store), which is why they live here. Test-only so they never
+/// reach the library's public API.
 #[cfg(test)]
 pub(crate) mod test_support {
     #[cfg(feature = "networking")]

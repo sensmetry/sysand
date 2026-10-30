@@ -1348,8 +1348,7 @@ impl<R: ResolveRead + fmt::Debug + 'static> Display for SolverError<R> {
                         f,
                         "{} offered for index usage {usage},\n\
                          which dependency `{dependent_id}` {dependent_version} declares, \
-                         is not a valid project,\n\
-                         {BROKEN_NOT_SKIPPED};\n\
+                         is not a valid project;\n\
                          the usage is not yours to edit: it has to be fixed by that \
                          dependency's publisher, or the version where it comes from:\n\
                          {FIXED_WHERE_IT_COMES_FROM}",
@@ -1424,9 +1423,6 @@ impl<R: ResolveRead + fmt::Debug + 'static> std::error::Error for SolverError<R>
     }
 }
 
-/// Why a broken version of an index usage fails the solve, for messages
-const BROKEN_NOT_SKIPPED: &str = "and a broken version fails the solve instead of being skipped";
-
 /// Where a broken version of an index usage can be fixed, for messages. The
 /// solver cannot tell whether an index offered it, or the local environment
 /// holds a broken copy of it
@@ -1498,8 +1494,7 @@ pub enum InternalSolverError<R: ResolveRead> {
     /// Displayed for a usage the user declares; [`SolverError`] says who
     /// declares a dependency's usage instead.
     #[error(
-        "{} offered for index usage {usage} is not a valid project,\n\
-         {BROKEN_NOT_SKIPPED};\n\
+        "{} offered for index usage {usage} is not a valid project;\n\
          exclude it with a version constraint, or have the version fixed where it comes from:\n\
          {FIXED_WHERE_IT_COMES_FROM}",
         broken_version_label(version.as_deref())

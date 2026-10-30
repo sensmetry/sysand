@@ -384,7 +384,7 @@ fn fold<T>(result: Result<Validated<T>, Report>, report: &mut Report) -> Option<
     }
 }
 
-/// A diagnostic about the file rather than about anything in it.
+/// A diagnostic about the file itself.
 ///
 /// The span index is keyed by paths of at least one segment, so the file
 /// as a whole has no span to point at. Left unpositioned such a

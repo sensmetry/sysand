@@ -31,9 +31,8 @@ pub struct VersionListing {
 /// List the versions of `iri` known to `resolver`.
 ///
 /// The sibling of [`crate::info::do_info`]: the same resolution, but every
-/// candidate's version is collected instead of keeping the best one. Over an
-/// index this costs the per-project `versions.json` request only — each
-/// candidate answers `version()` from the advertised entry.
+/// candidate's version is collected. Over an
+/// index this costs only the per-project `versions.json` request.
 ///
 /// Candidates that fail to load, or report no version, are skipped with a
 /// log line, as `do_info` skips them. If every candidate was skipped the

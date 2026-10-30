@@ -117,9 +117,8 @@ impl<'de> Deserialize<'de> for StdlibStem {
 }
 
 /// A maintainer is a string of the form `name <email>`; both parts are
-/// mandatory. Each entry stays a string rather than a
-/// `{name, email}` table, and serializes as the text it was parsed from,
-/// so that the round-trip to a KPAR's `.project.json` `maintainer` array
+/// mandatory. Each entry is a string and serializes as the text it was
+/// parsed from, so that the round-trip to a KPAR's `.project.json` `maintainer` array
 /// is the identity.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Maintainer {
@@ -283,9 +282,8 @@ pub enum SourcesError {
     ContainsBackslash(String),
     #[error("`sources` entry `{0}` contains a NULL character")]
     ContainsNull(String),
-    /// Entries are taken exactly as written: rather than normalize a path
-    /// and then check where it landed, the manifest admits only the one
-    /// form Sysand itself writes.
+    /// Entries are taken exactly as written: the manifest admits only the
+    /// one form Sysand itself writes.
     ///
     /// Nothing is resolved, which is why there is no "escapes the
     /// project root" and no "is the project root": an entry that would
@@ -304,7 +302,7 @@ pub enum SourcesError {
     IsDirectory(String),
     /// "Two equal entries are a duplicate and rejected." Equal, not
     /// equivalent: nothing is resolved, so there is one spelling to
-    /// report rather than two.
+    /// report.
     #[error("`sources` entry `{0}` is listed more than once")]
     Duplicate(String),
     /// "Every entry names a KerML (`.kerml`) or SysML (`.sysml`) file, the
@@ -463,7 +461,7 @@ impl Sources {
     /// for build/publish, as with the license file, so reading a manifest
     /// never touches them.
     ///
-    /// Nothing is resolved: a `..` is an error rather than a step, so no
+    /// Nothing is resolved: a `..` is an error, so no
     /// entry can escape the project root and none can name it.
     pub fn new(paths: Vec<Utf8UnixPathBuf>) -> Result<Self, SourcesError> {
         Self::check(paths).map_err(|mut problems| problems.swap_remove(0).1)

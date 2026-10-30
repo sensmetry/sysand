@@ -538,9 +538,8 @@ pub enum StartRegion {
 /// members and for nothing else, so the gate that admits them has to
 /// ask for identity.
 ///
-/// `dir` is a project directory rather than a starting point: no upward
-/// walk, and anything that is not a member answers `None` instead of an
-/// error. A `dir` outside `root` answers `None` too, because no
+/// `dir` is a project directory, not a starting point: no upward
+/// walk, and anything that is not a member answers `None`. A `dir` outside `root` answers `None` too, because no
 /// `members` entry contains a `..` component for its relative path to
 /// equal.
 pub fn member_index(
@@ -565,8 +564,7 @@ pub fn member_index(
 /// [`WorkspaceTable`] and a root path.
 ///
 /// The project `from` sits in is the one [`crate::discover::discover_project`]
-/// would find, so it is found with the same predicate rather than a
-/// second spelling of the question. The search is bounded at the root: a
+/// would find, so it is found with the same predicate. The search is bounded at the root: a
 /// project above the root is a different project, which this workspace
 /// has no opinion about.
 ///
@@ -716,7 +714,7 @@ pub fn candidate_root(from: impl AsRef<Utf8Path>) -> Result<Option<Utf8PathBuf>,
 ///
 /// The three steps are [`candidate_root`], the parse, and
 /// [`confirm_root`], in that order, so that a file carrying both tables
-/// fails as *that* rather than as nesting (see [`Workspace::discover`]). A bad
+/// fails with that error (see [`Workspace::discover`]). A bad
 /// candidate therefore arrives as [`DiscoverError::Manifest`], where
 /// [`Workspace::discover`] would report [`DiscoverError::Load`].
 pub fn discover_table(
@@ -1069,8 +1067,7 @@ mod tests;
 /// directory discovers the workspace first and gets a table; this gives
 /// one that takes a path the same table.
 ///
-/// In `core` rather than in the CLI so that the CLI and both bindings
-/// can share it.
+/// In `core` so that the CLI and both bindings can share it.
 ///
 /// [`discover_table`] and [`region_of`], deliberately, and not
 /// [`Workspace::load_with`] with [`Workspace::classify`]:
@@ -1131,9 +1128,9 @@ pub fn project_at_path(
 }
 
 /// Where a path sits relative to a workspace, for a caller that holds
-/// the path rather than having walked to it.
+/// the path.
 ///
-/// Three answers and not two, because "not a member" hides the
+/// Three answers, because "not a member" hides the
 /// distinction that matters: an excluded project is *deliberately*
 /// standalone -- the only kind of non-member project that may sit under a
 /// workspace root -- while an unlisted one is a hard error. Reading both table-less would make `sysand info

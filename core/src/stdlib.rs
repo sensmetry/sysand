@@ -177,9 +177,8 @@ pub fn known_std_libs() -> ProvidedProjects {
 /// A usage's `name` must be the name the KPAR declares. That name is not
 /// the IRI's stem -- `SysML Quantities and Units Library` is published at
 /// `.../Quantities-and-Units-Domain-Library.kpar`, and several others
-/// differ by more than punctuation -- so a usage's name is taken from here
-/// rather than guessed, and two spellings of one library cannot become
-/// two identities.
+/// differ by more than punctuation -- so a usage's name is taken from here,
+/// and two spellings of one library cannot become two identities.
 ///
 /// Built from the ten `.project.json` documents alone: `known_std_libs`
 /// would also parse ten `.meta.json` documents and build ten

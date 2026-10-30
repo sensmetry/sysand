@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 //! Explicit inheritance: a `[project]` key that takes its value from a
-//! workspace group instead of giving one.
+//! workspace group.
 //!
 //! To inherit a key from the default group, `<key>.workspace = true` is
 //! used; to inherit from a non-default group,
@@ -121,9 +121,8 @@ pub fn inheritable_table<T>(
 /// Read a key that may *not* be inherited.
 ///
 /// Some `[project]` keys are deliberately outside inheritance. A marker on one of them says so,
-/// rather than reporting a table where an array or a string was expected
-/// -- and, unlike an inheritable key, `workspace = false` gets the same
-/// answer, since what is wrong is the attempt and not the marker's value.
+/// and, unlike an inheritable key, `workspace = false` gets the same
+/// answer, since what is wrong is the attempt.
 ///
 /// `reason` completes "cannot be inherited from the workspace; ...".
 pub fn own<T>(

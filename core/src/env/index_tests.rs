@@ -59,8 +59,8 @@ fn inner<E>(error: crate::cancel::Cancellable<E>) -> E {
 use super::{HttpFetchError, IndexEnvironmentError};
 use crate::index::model::VersionsJsonError;
 
-/// Placeholder sha256 value acceptable by `parse_sha256_digest` — used in
-/// tests that exercise flow but don't care about the specific digest bytes.
+/// Placeholder sha256 value for tests that exercise flow but don't care
+/// about the specific digest bytes.
 /// All-`a`s so it's visibly distinct from real-digest tests below.
 const FILLER_DIGEST: &str =
     "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -135,8 +135,7 @@ fn index_env_async(
 }
 
 /// Shorthand: resolve the endpoints on a test env. Tests that don't
-/// cover discovery specifically use this rather than calling `endpoints`
-/// on the env repeatedly.
+/// cover discovery specifically use this.
 fn resolved_endpoints(env: &super::IndexEnvironmentAsync<Unauthenticated>) -> &ResolvedEndpoints {
     env.endpoints
         .get()
@@ -165,9 +164,8 @@ fn index_env_sync_discovery(
 }
 
 /// Build a sync-facing unauthenticated index environment rooted at `server`,
-/// with a runtime owned by the test. This is the shape most tests want — a
-/// mock `server` plus a single blocking handle to call `.get_project(...)` /
-/// `.uris()` / `.versions(...)` against it.
+/// with a runtime owned by the test. This is the shape most tests want: a
+/// mock `server` plus a single blocking handle to call the environment against.
 fn index_env_sync(
     server: &mockito::Server,
 ) -> Result<
@@ -178,7 +176,7 @@ fn index_env_sync(
 }
 
 /// Register a mock for `{method} {path}` asserting it must never be called.
-/// Body/status are immaterial — any match would fail `mock.assert()`.
+/// Body/status are immaterial; any match fails `mock.assert()`.
 fn expect_untouched(server: &mut mockito::Server, method: &str, path: &str) -> mockito::Mock {
     server.mock(method, path).expect(0).create()
 }
@@ -338,8 +336,7 @@ mod uris {
     fn non_normalized_sysand_purl_error_suggests_normalized_form()
     -> Result<(), Box<dyn std::error::Error>> {
         // The error message for the "valid but not normalized" case must include
-        // the suggested normalized IRI — that's what makes the error actionable
-        // (otherwise the user just sees "rejected" with no path forward).
+        // the suggested normalized IRI, which makes the error actionable.
         let env = index_env_async("https://www.example.com/index/")?;
         let err = resolved_endpoints(&env)
             .kpar_url(purl("Acme Labs/My.Project"), "1.0.0")
@@ -514,8 +511,7 @@ mod uris {
 
     #[test]
     fn empty_but_live_index_yields_no_uris() -> Result<(), Box<dyn std::error::Error>> {
-        // The 200-with-empty-list path — distinct from the 404-is-hard-error
-        // path above.
+        // The 200-with-empty-list path, distinct from the 404 error path above.
         let mut server = mockito::Server::new();
 
         let env = index_env_sync(&server)?;
@@ -827,8 +823,8 @@ mod versions {
 
     #[test]
     fn versions_json_non_semver_version_errors() -> Result<(), Box<dyn std::error::Error>> {
-        // Without a parsable semver the client cannot order entries —
-        // reject the whole document.
+        // Without a parsable semver the client cannot order entries,
+        // so reject the whole document.
         let mut server = mockito::Server::new();
 
         let env = index_env_sync(&server)?;
@@ -958,9 +954,8 @@ mod versions {
 
     #[test]
     fn duplicate_versions_are_rejected() -> Result<(), Box<dyn std::error::Error>> {
-        // Rejected at ingest rather than silently preserved — "pick the
-        // better duplicate" has no principled answer when the two
-        // entries might carry different digests.
+        // Rejected rather than silently preserved: there is no principled
+        // way to pick between duplicates that might carry different digests.
         let mut server = mockito::Server::new();
 
         let env = index_env_sync(&server)?;
@@ -992,7 +987,7 @@ mod versions {
     #[test]
     fn versions_json_with_artifact_metadata_parses() -> Result<(), Box<dyn std::error::Error>> {
         // Unknown fields at both entry and document level must be
-        // ignored — the forward-compat rule is load-bearing.
+        // ignored (forward compatibility).
         let mut server = mockito::Server::new();
 
         let env = index_env_sync(&server)?;
@@ -1093,8 +1088,7 @@ mod versions {
     }
 }
 
-/// Tests for `get_project` — selecting a concrete version and exposing
-/// its artifacts.
+/// Tests for selecting a concrete version and exposing its artifacts.
 ///
 /// Rules exercised here (see module-level doc for cross-cutting ones):
 /// - A `versions.json` 404 surfaces as `ProjectNotInIndex`: the
@@ -1195,9 +1189,8 @@ mod get_project {
         // distinct "removed upstream" diagnostic rather than the
         // generic 404 on the per-version files. We assert the
         // `VersionRemoved` variant is produced before any file fetch
-        // is issued — no `.project.json` / `.meta.json` / kpar mocks
-        // are registered, so any unexpected fetch would surface as a
-        // mockito miss.
+        // is issued: no other mocks are registered, so any unexpected fetch
+        // would surface as a mockito miss.
         let mut server = mockito::Server::new();
 
         let env = index_env_sync(&server)?;
@@ -1506,9 +1499,8 @@ mod get_project {
     #[test]
     fn get_project_ignores_textual_usage_drift() -> Result<(), Box<dyn std::error::Error>> {
         // Textual drift between advertised and fetched
-        // `usage` must be ignored — the server is authoritative, and a
-        // drifted textual field would produce a different canonical
-        // digest anyway, which is what verification actually compares.
+        // `usage` must be ignored: the server is authoritative, and verification
+        // compares the canonical digest anyway.
         let mut server = mockito::Server::new();
 
         let env = index_env_sync(&server)?;
@@ -1813,7 +1805,7 @@ mod get_project {
     #[test]
     fn get_project_version_not_in_versions_json_errors() -> Result<(), Box<dyn std::error::Error>> {
         // A version not in `versions.json` must surface as
-        // `VersionNotInIndex` — no kpar-only fallback.
+        // `VersionNotInIndex`; there is no kpar-only fallback.
         let mut server = mockito::Server::new();
 
         let env = index_env_sync(&server)?;
@@ -1847,7 +1839,7 @@ mod get_project {
 }
 
 /// Tests that the `_iri/<sha256_hex(normalized_iri)>/` bucket is
-/// computed from the RFC-3986-normalized IRI — so two byte-distinct
+/// computed from the RFC-3986-normalized IRI, so two byte-distinct
 /// but semantically equivalent IRIs land in the same bucket. Each
 /// test seeds the mock for the normalized form and issues a
 /// non-normalized request; a missing normalization step would miss
@@ -1923,9 +1915,9 @@ mod iri {
     }
 }
 
-/// Tests for digest verification — both the pre-expose check on
-/// `.project.json` / `.meta.json` and the post-download authoritative
-/// check on the kpar-derived canonical digest.
+/// Tests for digest verification, both the pre-expose check on the
+/// project documents and the post-download check on the kpar-derived
+/// canonical digest.
 ///
 /// Invariants these tests pin (see module-level doc for the overall
 /// digest-verification rule):
@@ -1942,9 +1934,9 @@ mod iri {
 ///   loudly.
 /// - Digest shape (`sha256:<64-hex>`) is validated at ingest on
 ///   `versions.json` itself, not just when a specific version is
-///   materialized — the cache is shared, so deferring validation
-///   would let `versions_async` hand out strings from a document
-///   that `get_project_async` will later reject.
+///   materialized; the cache is shared, so deferring validation
+///   would let version listing hand out strings from a document
+///   that project loading will later reject.
 mod digest {
 
     use crate::project::ProjectChecksum;
@@ -2035,7 +2027,7 @@ mod digest {
         // `versions_async` and `get_project_async` share the cache, a
         // deferred check would let `versions_async` happily stream
         // strings from a document that a later `get_project_async`
-        // would reject — a surprise much later.
+        // would reject, a surprise much later.
         let mut server = mockito::Server::new();
 
         let env = index_env_sync(&server)?;
@@ -2082,7 +2074,7 @@ mod digest {
         let env = index_env_sync(&server)?;
 
         let info_json = project_json_body("proj0", Some("admin"), "0.3.0", "[]");
-        // 64-char hex with uppercase digits — a legal SHA256 value that
+        // 64-char hex with uppercase digits, a legal SHA256 value that
         // canonicalization lowercases before hashing.
         let meta_json = r#"{"index":{"Sym":"foo.sysml"},"created":"2026-01-01T00:00:00.000000000Z","checksum":{"foo.sysml":{"value":"ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789","algorithm":"SHA256"}}}"#;
 
@@ -2117,8 +2109,8 @@ mod digest {
 
 /// Tests for the two caching layers: `fetched_info_meta`'s per-project
 /// `OnceCell` (info/meta fetch+verify fan-in) and the env-scoped
-/// `versions_cache` (per-IRI `versions.json` fan-in). Failures — including
-/// 404s — are not cached, so retries re-issue the fetch.
+/// `versions_cache` (per-IRI `versions.json` fan-in). Failures, including
+/// 404s, are not cached, so retries re-issue the fetch.
 mod caching {
     use super::*;
 
@@ -2211,8 +2203,8 @@ mod caching {
     #[test]
     fn versions_json_404_refetched_on_every_call() -> Result<(), Box<dyn std::error::Error>> {
         // The "not in this index" 404 outcome is intentionally
-        // not cached — the cache slot is only populated on a
-        // successful validate — so a later publish to the same index
+        // not cached (the cache slot is only populated on a
+        // successful validate), so a later publish to the same index
         // becomes visible without restart. Each retry re-issues the
         // fetch even though the resolver boundary surfaces it as an
         // empty stream.
@@ -2243,7 +2235,7 @@ mod caching {
     }
 }
 
-/// Tests for `read_source` / `sources` — the kpar-backed paths.
+/// Tests for the kpar-backed source paths.
 ///
 /// Shared shape these tests pin:
 /// - Mismatch between advertised `kpar_digest` and served bytes
@@ -2251,10 +2243,9 @@ mod caching {
 ///   on disk (so retries re-download and re-verify).
 /// - `sources_async` takes `kpar_size` from the inline advertised
 ///   value and MUST NOT issue a HEAD.
-/// - `read_source` and `sources` are purely archive-backed — the
-///   per-version `.project.json` / `.meta.json` endpoints are not
-///   on this code path, and every test here pins that with
-///   `expect(0)` so a regression that reaches for them fails
+/// - Source reading is purely archive-backed: the per-version project
+///   document endpoints are not on this code path, and every test pins
+///   that with `expect(0)` so a regression that reaches for them fails
 ///   loudly.
 mod sources {
 
@@ -2378,7 +2369,7 @@ mod sources {
     fn kpar_digest_match_allows_download() -> Result<(), Box<dyn std::error::Error>> {
         // Matching `kpar_digest`: verification passes and the eventual
         // error is a downstream kpar-parser error on the intentionally
-        // invalid zip body — the absence of `DigestMismatch` is what
+        // invalid zip body; the absence of `DigestMismatch` is what
         // proves the digest check passed.
 
         let mut server = mockito::Server::new();
@@ -2563,8 +2554,8 @@ mod discovery {
     fn discovery_normalizes_api_root_trailing_slash() -> Result<(), Box<dyn std::error::Error>> {
         // A discovery document may supply `api_root` without a trailing
         // slash. Discovery is the single place that normalizes it, so the
-        // resolved `api_root` always ends with `/` — later `Url::join` of
-        // the upload path then appends rather than replacing the last
+        // resolved `api_root` always ends with `/`, so a later `Url::join` of
+        // the upload path appends rather than replacing the last
         // segment.
         let mut server = mockito::Server::new();
         let config_body = format!(r#"{{"api_root":"{}/api"}}"#, server.url());
@@ -2773,9 +2764,9 @@ mod discovery {
         let config_body = format!(r#"{{"index_root":"{}/index/"}}"#, server.url());
         let config_mock = mock_json_get(&mut server, "/sysand-index-config.json", config_body);
 
-        // Remap target returns 503 — a transient server error that is
-        // indistinguishable from a misconfiguration and therefore
-        // cannot be silently swallowed.
+        // Remap target returns 503, a transient server error that is
+        // indistinguishable from a misconfiguration and so cannot be
+        // silently swallowed.
         let remap_mock = server
             .mock("GET", "/index/admin/proj0/versions.json")
             .with_status(503)
@@ -2861,8 +2852,8 @@ mod discovery {
     -> Result<(), Box<dyn std::error::Error>> {
         // A `{path}` template as the discovery root: the discovery
         // document and versions.json are fetched mid-URL with `/`
-        // percent-encoded as `%2F` and the query string preserved — the
-        // GitLab repository files API shape.
+        // percent-encoded as `%2F` and the query string preserved (the
+        // GitLab repository files API shape).
         let mut server = mockito::Server::new();
         let files = "/api/v4/projects/123/repository/files";
 

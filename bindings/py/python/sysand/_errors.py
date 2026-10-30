@@ -125,8 +125,8 @@ class LockHeldError(SysandError):
 
 # Hand the classes to the extension, which raises them but does not import
 # them: this tree is vendored under other parent packages, where an absolute
-# `sysand._errors` import would either fail or — with a standalone sysand
-# also installed — pick up a *different* copy of these classes, so `except
+# `sysand._errors` import would either fail or, with a standalone sysand
+# also installed, pick up a *different* copy of these classes, so `except
 # ProjectError` would silently miss.
 _sysand_rs._register_errors(
     project=ProjectError,

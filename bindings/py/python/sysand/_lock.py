@@ -33,7 +33,7 @@ def lock(
     With ``write=True`` (the default, matching the CLI) ``sysand-lock.toml``
     is written at the project root; the returned ``text`` is exactly what
     was written. With ``write=False`` nothing is written and ``text`` is
-    what would have been — call it first, show the user the delta, then
+    what would have been, so call it first, show the user the delta, then
     lock again with ``write=True``.
 
     ``resolution`` defaults to :class:`Resolution` ``()`` (the CLI's

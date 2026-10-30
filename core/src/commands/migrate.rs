@@ -6,7 +6,7 @@
 //!
 //! This module is the conversion alone -- no filesystem, no network, no
 //! working-tree check. What it cannot decide from the two documents is
-//! reported as an error rather than guessed, except for three `resource`
+//! reported as an error, except for three `resource`
 //! usage shapes that need the target read: those go to the caller's
 //! [`TargetLookup`].
 //!
@@ -64,7 +64,7 @@ pub struct MigrateOptions {
 /// Convert a json project's documents into a `model.toml` manifest.
 ///
 /// All-or-nothing: every problem is collected, so a project with three
-/// mistakes is reported once rather than three times.
+/// mistakes is reported once.
 pub fn migrate_project(
     info: &InterchangeProjectInfoRaw,
     meta: &InterchangeProjectMetadataRaw,

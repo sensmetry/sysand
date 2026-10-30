@@ -235,8 +235,7 @@ pub fn command_auth_login(
             globs,
             validated,
         }) => {
-            // The claim is scoped to the surfaces that accepted; never a
-            // bare "validated".
+            // The claim is scoped to the surfaces that accepted.
             let claim = if validated.is_empty() {
                 "stored, not validated".to_owned()
             } else {

@@ -725,7 +725,7 @@ fn a_git_usage_is_refused() {
 // ------------------------------------------------------ all-or-nothing
 
 /// Every problem in one report: a user with four mistakes runs `migrate`
-/// once, not four times.
+/// once.
 #[test]
 fn every_problem_is_reported_together() {
     let mut raw = info("widgets", Some("acme"), "2023-11");

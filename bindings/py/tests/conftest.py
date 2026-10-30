@@ -157,8 +157,8 @@ def make_baseline(tmp_path: Path, mock_index: MockIndex) -> MakeBaseline:
     key, an unknown key inside the usage, and non-canonical key order (the
     input the manifest-fidelity scenario needs), which the typed `add` path
     would not preserve. The lockfile and environment are then produced by the
-    shipped CLI, in-process, so the 0.10.3 state is real rather than
-    hand-written and depends on none of the APIs the scenarios exercise.
+    shipped CLI, in-process, so the 0.10.3 state is real and
+    depends on none of the APIs the scenarios exercise.
     """
 
     def make(

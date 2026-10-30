@@ -41,8 +41,7 @@ def remove(
 
     When no usage matches, but the project is declared anyway (as a usage
     that ``iri`` does not name, or spelled differently), that raises
-    :class:`ProjectError` saying how it is declared, rather than reporting it
-    missing.
+    :class:`ProjectError` saying how it is declared.
 
     Args:
         project_dir: The project directory, the one holding ``.project.json``.

@@ -661,7 +661,7 @@ fn probe_request(
 
 /// The redirect target for a 3xx probe response, for the "not tested"
 /// warning. Kept verbatim (possibly relative); a missing `Location`
-/// header is named as such rather than printed empty.
+/// header is named as such.
 fn redirect_target(response: &reqwest::Response) -> &str {
     response
         .headers()
@@ -880,7 +880,7 @@ fn probe_api_surface(
 /// GitLab-style 404) unauthenticated either way, and only the
 /// credentialed answer settles it.
 ///
-/// Discovery is about topology, not validation; its outcome never refuses
+/// Discovery is about topology; its outcome never refuses
 /// a login. `None` means "no usable document" and the caller falls back
 /// to the URL-derived glob after a
 /// [`AuthLoginNotice::DiscoveryUnreachable`] notice.

@@ -121,7 +121,7 @@ pub fn command_migrate<Policy: HTTPAuthentication>(
     }
 
     // Through the `Partial` types and `validate_manifest`, so unknown
-    // keys are warned about rather than dropped silently.
+    // keys are warned about.
     //
     // The metadata comes first because `validate` takes the metamodel,
     // and the metamodel is in `.meta.json`.
@@ -168,7 +168,7 @@ pub fn command_migrate<Policy: HTTPAuthentication>(
             return resolve_file_target(resource, &dir);
         }
         // Before the resolver is built, so that "a standard-library
-        // usage needs no network" is structural rather than incidental:
+        // usage needs no network" is structural:
         // the IRI names the release and there is no publisher to ask a
         // target for.
         if sysand_core::model::is_omg_stdlib_iri(resource) {

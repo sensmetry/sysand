@@ -343,7 +343,7 @@ impl UsageEntry for MemberUsage {
 /// named by its dotted path (`inline-usages`,
 /// `workspace.group.legacy.inline-usages`), and its index in that array.
 ///
-/// Carried per entry rather than derived from a position in a list,
+/// Carried per entry,
 /// because what reaches a duplicate check is the entries that *validated*
 /// and one rejected entry would shift every later index.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -393,7 +393,7 @@ fn borrowed(segments: &[String]) -> Vec<&str> {
 /// The alternative, validating inside `Deserialize`, makes one bad value
 /// anywhere abort the read of the whole file.
 ///
-/// `git`, `rev`, `tag` and `branch` are fields rather than unknown keys
+/// `git`, `rev`, `tag` and `branch` are recognized fields
 /// because the git kind is reserved; a reader that called them unknown
 /// would say they will never exist.
 ///
@@ -617,7 +617,7 @@ impl UsageRaw {
         // Two exemptions: a `kpar-url` at an OMG standard-library IRI,
         // and an opt-in, which takes its publisher -- or its absence --
         // from the group entry it names. Keyed on the raw `workspace`
-        // key rather than on a validated marker, because `checked_marker`
+        // key, because `checked_marker`
         // runs later, after this has already reported.
         let exempt = self.workspace.is_some()
             || matches!(
@@ -956,7 +956,7 @@ impl Kind {
 /// entries agree on kind or constraint. The arrays are counted
 /// separately, since a workspace config holds several.
 ///
-/// Every colliding pair is reported, not just the first, so that one edit
+/// Every colliding pair is reported, so that one edit
 /// round fixes the file; each diagnostic points at the later of the two,
 /// which is the entry the reader would delete.
 pub fn check_duplicates<E: UsageEntry>(
@@ -995,7 +995,7 @@ pub fn duplicate_message(first: &str, later: &str) -> String {
 /// The pairs of entries whose identities are equal, as `(earlier,
 /// later)` indices.
 ///
-/// Every colliding pair, not just the first, so that one edit round
+/// Every colliding pair, so that one edit round
 /// fixes the file; the later index is the entry a reader would delete.
 /// Positions are the caller's business; this sees only the items.
 pub fn duplicate_pairs<T, I: PartialEq>(

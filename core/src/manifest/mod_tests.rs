@@ -253,9 +253,8 @@ fn both_tables_in_one_file_are_refused() {
     );
 }
 
-/// A `model.toml` with neither table is an error rather than a file that
-/// defines nothing -- which is what a mistyped table name would otherwise
-/// become.
+/// A `model.toml` with neither table is an error: a mistyped table name would
+/// otherwise become a file that defines nothing.
 #[test]
 fn neither_table_is_refused() {
     let report = rejected("manifest-version = \"1.0\"\n[projct]\nname = \"typo\"\n");
@@ -355,7 +354,7 @@ fn an_unknown_top_level_key_is_a_warning() {
 }
 
 /// The exclusivity check runs before either table is read, so a file
-/// with both is refused once rather than described twice.
+/// with both is refused once.
 #[test]
 fn both_tables_are_refused_before_either_is_read() {
     let report = rejected(
@@ -411,7 +410,7 @@ fn a_syntax_error_is_still_one_diagnostic() {
 }
 
 /// A caller that opened a file expecting one of the two says so once,
-/// here, rather than in each of the two places that do it.
+/// here.
 #[test]
 fn the_wrong_variant_says_so() {
     let workspace = accepted(WORKSPACE).into_parts().0;
@@ -460,7 +459,7 @@ fn peek_on_a_file_with_neither_table_is_none() {
 // repeated here, each with a comment saying what it shows, because a
 // test cannot read a fenced block out of a document.
 //
-// Most are fragments rather than whole files. A fragment is completed
+// Most are fragments. A fragment is completed
 // with the smallest frame that makes it one, and there are two frames:
 // a project fragment gets `manifest-version` and the three required
 // `[project]` keys, a workspace fragment gets `manifest-version` alone --
@@ -487,7 +486,7 @@ fn as_workspace_file(fragment: &str) -> String {
 fn every_example_in_model_toml_parses() {
     // design: model-toml.md #1
     // The manifest version. A `[project]` with only a comment in it, so
-    // the required keys complete it rather than frame it.
+    // the required keys complete it.
     accepted(
         "manifest-version = \"1.0\"\n\n\
          [project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\n",

@@ -321,8 +321,7 @@ fn member_paths_are_taken_as_written() {
     assert_eq!(raw, paths);
 }
 
-/// An entry is admitted only in its normalized form, rather than
-/// normalized into it.
+/// An entry is admitted only in its normalized form.
 #[test]
 fn a_member_path_not_in_normal_form_is_refused() {
     let report = rejected(
@@ -505,8 +504,7 @@ fn named_groups_are_read_under_their_names() {
 }
 
 /// A group whose name is not a bare TOML key could never be named by a
-/// marker, so it is refused where it is defined -- once, rather than
-/// once per member that tries to use it -- and its body is not read.
+/// marker, so it is refused where it is defined -- once -- and its body is not read.
 #[test]
 fn a_group_name_that_is_not_a_bare_key_is_refused() {
     let report = rejected(concat!(
@@ -524,7 +522,7 @@ fn a_group_name_that_is_not_a_bare_key_is_refused() {
 }
 
 /// `sources` is the key people are most likely to try, so it is an error
-/// that says so rather than an unknown-key warning.
+/// that says so.
 #[test]
 fn sources_in_the_default_group_is_an_error() {
     let report = rejected("sources = [\"src/main.sysml\"]\n");

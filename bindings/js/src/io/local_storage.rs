@@ -81,7 +81,7 @@ pub enum Error {
     #[error("this is a `model.toml` project; `{0}` cannot be written into one")]
     JsonWriteToTomlProject(&'static str),
     /// The mirror: `sysand migrate` is the way across, and it replaces
-    /// both files rather than adding one.
+    /// both files.
     #[error(
         "this is a `.project.json` project; `model.toml` cannot be written into one \
          (see `sysand migrate`)"

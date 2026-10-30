@@ -1198,9 +1198,6 @@ fn sync_warns_on_a_non_semver_version() -> Result<(), Box<dyn std::error::Error>
 
 /// On the read side, a metamodel release mismatch is a warning, and
 /// `sync` still runs.
-///
-/// The counterpart of
-/// `cli_lock.rs::lock_warns_on_a_metamodel_release_mismatch`.
 #[test]
 fn sync_warns_on_a_metamodel_release_mismatch() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;

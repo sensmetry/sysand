@@ -138,8 +138,7 @@ fn graph_deduplicates_nodes_and_edges() {
     assert_eq!(order(&graph), ["b", "a"]);
 }
 
-/// The traversal is iterative, so a deep chain is a matter of memory
-/// rather than of stack depth.
+/// The traversal is iterative, so a deep chain costs only memory.
 #[test]
 fn dependency_order_handles_a_long_chain_without_overflowing() {
     const LENGTH: usize = 50_000;

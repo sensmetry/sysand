@@ -31,7 +31,7 @@ where
 // reason the default exists. The cost is that
 // `Variant3`, an `InMemoryProject` that *can* store a manifest, refuses
 // one through this wrapper; `a_hand_written_project_refuses_a_manifest`
-// pins exactly that, so the divergence is visible rather than latent.
+// pins exactly that.
 
 #[derive(Debug, Error)]
 pub enum GenericProjectError<Variant1, Variant2, Variant3> {

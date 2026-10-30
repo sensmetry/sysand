@@ -375,7 +375,7 @@ pub(crate) fn java_metadata_to_raw<'local>(
         {
             // `iter.next` and `entry.key`/`entry.value` each create a new local
             // reference per call; wrap them so they're released at the end of
-            // each iteration instead of accumulating for the whole map.
+            // each iteration.
             let entry = entry.auto();
             let key = unwrap_throw!(
                 env,
@@ -817,7 +817,7 @@ pub(crate) fn java_map_to_index_map<'local>(
     ) {
         // `iter.next` and `entry.key`/`entry.value` each create a new local
         // reference per call; wrap them so they're released at the end of
-        // each iteration instead of accumulating for the whole map.
+        // each iteration.
         let entry = entry.auto();
         let key = unwrap_throw!(env, entry.key(env), "Failed to get key of `index` entry");
         let value = unwrap_throw!(

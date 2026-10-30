@@ -357,8 +357,8 @@ fn a_member_holding_both_manifests_is_refused() {
     fixture.write("app/.project.json", "{}");
 
     let message = only_root_message(&fixture.failure());
-    // The clause is written out in this module rather than stringified
-    // from the error that owns it; this holds the two together.
+    // The clause is written out in this module; this holds it together
+    // with the error that owns it.
     let owned = crate::project::local_src::LocalSrcError::AmbiguousFormat {
         dir: Utf8PathBuf::from("app"),
         json: ".project.json",
@@ -665,8 +665,7 @@ fn a_directory_in_both_lists_is_refused() {
 ///
 /// Anything under an `exclude`d directory is outside the workspace,
 /// with no carve-out, so the two lists make
-/// contradictory claims about one directory, and a conflict is an error
-/// rather than something a depth comparison silently picks a winner for.
+/// contradictory claims about one directory, and a conflict is an error.
 #[test]
 fn a_member_under_an_excluded_directory_is_refused() {
     let fixture = Fixture::new(
@@ -1223,7 +1222,7 @@ fn a_member_is_selected_by_its_project_name() {
     assert_eq!(workspace.member("beta").expect("a member").path.raw, "lib");
 }
 
-/// The case that makes the rule a union rather than an order: guessing
+/// The case that makes the rule a union: guessing
 /// would silently act on the wrong project.
 #[test]
 fn a_value_that_is_one_members_path_and_anothers_name_is_ambiguous() {
@@ -1769,7 +1768,7 @@ fn member_index_refuses_a_project_nested_inside_a_member() {
 }
 
 /// The root defines no project, so it is no member either -- and it is
-/// the one path whose relativization is empty rather than an entry.
+/// the one path whose relativization is empty.
 #[test]
 fn member_index_refuses_the_root() {
     let fixture = Fixture::new(&workspace_with("\"app\""));

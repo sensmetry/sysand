@@ -38,8 +38,7 @@ fn a_model_toml_project_is_discovered() {
 }
 
 /// A broken `model.toml` is still this directory's manifest: the walk
-/// stops here so that reading it reports the problem, rather than
-/// answering the parent's question.
+/// stops here so that reading it reports the problem.
 #[test]
 fn a_model_toml_that_is_not_toml_is_still_this_directorys_manifest() {
     let dir = tempdir().expect("a temporary directory");

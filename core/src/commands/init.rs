@@ -83,7 +83,7 @@ pub fn do_init<P: ProjectMut>(
 /// metamodel, so the family behind it is the caller's to supply
 /// (`inherited_kind`); without it, the layout is the OMG one.
 ///
-/// The file is created rather than merely named so that a generated project
+/// The file is created so that a generated project
 /// never lists a file that is not there. Order: the file's existence is
 /// checked, the manifest is written (and refused, before anything else,
 /// when one exists), then the file.

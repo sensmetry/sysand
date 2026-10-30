@@ -28,7 +28,7 @@ fn positions(text: &str) -> Positions<'_> {
 }
 
 /// Every diagnostic carries the file it is about, and a key that is not
-/// in the document has no position rather than a made-up one.
+/// in the document has no position.
 #[test]
 fn top_level_keys_are_indexed() {
     let positions = positions(DOC);
@@ -151,7 +151,7 @@ members = [\"a\", \"b\"]
     assert!(positions.at(&["workspace", "members", "2"]).is_none());
 }
 
-/// The same array written inline rather than as `[[...]]` headers is the
+/// The same array written inline or as `[[...]]` headers is the
 /// same array, so its entries are addressed the same way.
 #[test]
 fn an_inline_array_of_tables_is_indexed_like_an_array_of_tables() {

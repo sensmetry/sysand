@@ -247,10 +247,8 @@ async fn fetch_index_config_with<P: HTTPAuthentication>(
     discovery_root: &IndexLocation,
     missing: MissingPolicy,
 ) -> Result<ResolvedEndpoints, DiscoveryError> {
-    // `IndexLocation` enforces its own invariants at construction — a
-    // plain root is already an absolute HTTP(S) URL, without userinfo, and
-    // with a trailing slash so relative-path resolution treats it as a
-    // directory — so no normalization is needed here.
+    // The location is already validated and normalized, so no further
+    // normalization is needed here.
     let discovery_location = discovery_root.clone();
 
     let config_url = discovery_location.resolve([INDEX_CONFIG_PATH]);
@@ -277,8 +275,8 @@ pub(crate) fn resolve_index_config(
 ) -> Result<ResolvedEndpoints, DiscoveryError> {
     // Parse a supplied field value as a plain base URL.
     // `url::Url::parse` on a relative input (e.g. `"/index/"`) returns
-    // `Err(RelativeUrlWithoutBase)` — map that specifically to
-    // `RelativeUrl` so the error is actionable.
+    // `Err(RelativeUrlWithoutBase)`; map that to `RelativeUrl` so the
+    // error is actionable.
     let parse_base_url = |field: &'static str, s: String| -> Result<url::Url, DiscoveryError> {
         let parsed = match url::Url::parse(&s) {
             Ok(parsed) => parsed,

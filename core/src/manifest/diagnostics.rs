@@ -4,7 +4,7 @@
 //! What reading a manifest can report: the collected diagnostics a
 //! validation produces, and the warnings that do not stop it.
 //!
-//! Validation collects rather than fails fast, so that one read of a
+//! Validation collects problems, so that one read of a
 //! malformed manifest names every problem it has. A validating function
 //! returns `Result<Validated<T>, Report>`: the `Report` on the error side
 //! lists every problem found, including the warnings, and the
@@ -107,8 +107,7 @@ impl Diagnostic {
     ///
     /// A diagnostic about a key that is *missing* has no key to point at,
     /// and a manifest that was not read from text has no positions at
-    /// all; both leave the diagnostic where it is rather than inventing
-    /// somewhere for it to be.
+    /// all; both leave the diagnostic without a position.
     #[must_use]
     pub fn at_opt(self, position: Option<Position>) -> Self {
         match position {

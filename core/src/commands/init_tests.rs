@@ -14,8 +14,7 @@ fn init(metamodel: Option<MetaProperty<String>>) -> String {
         .expect("a manifest")
 }
 
-/// A project declares a metamodel, and `init` is given it rather than
-/// choosing it.
+/// A project declares a metamodel, and `init` is given it.
 #[test]
 fn a_metamodel_is_written_when_given() {
     let written = init(Some(MetaProperty::Provided(OMG_SYSML.to_owned())));

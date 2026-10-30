@@ -1903,8 +1903,8 @@ fn edge_pair(dependent_metamodel: &str, dependency_metamodel: &str) -> String {
 }
 
 /// Over a lockfile: an OMG project may not depend on
-/// a Syside one. The reverse is allowed, which is what makes the rule a
-/// direction rather than a mismatch.
+/// a Syside one. The reverse is allowed, which is what makes the rule
+/// directional.
 #[test]
 fn validate_rejects_a_metamodel_direction_error() {
     let text = edge_pair(

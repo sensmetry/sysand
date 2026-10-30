@@ -147,8 +147,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
             allow_multiple,
         )?;
     } else {
-        // The usage was written on the command line rather than read
-        // from a manifest, so it takes the json origin.
+        // The usage was written on the command line, so it takes the json origin.
         let usages = [(
             InterchangeProjectUsage::Resource {
                 resource: iri,

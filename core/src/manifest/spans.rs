@@ -33,7 +33,7 @@ use crate::manifest::diagnostics::{Diagnostic, Position};
 /// The span of every key of a parsed document, addressed by the path of
 /// key segments that leads to it.
 ///
-/// Segments rather than one dotted string, because TOML lets a quoted key
+/// Segments, because TOML lets a quoted key
 /// contain a dot: `"a.b" = 1` and `[a]` with `b = 2` are different keys
 /// that may both appear in one file, and both would flatten to `a.b`.
 ///
@@ -74,8 +74,7 @@ impl SpanIndex {
     }
 
     /// First writes win: a path that is somehow reached twice keeps the
-    /// span found first, so an unforeseen collision costs precision
-    /// rather than correctness.
+    /// span found first, so an unforeseen collision costs only precision.
     fn insert(&mut self, path: &[String], span: Option<Range<usize>>) {
         let Some(span) = span else {
             return;
@@ -205,7 +204,7 @@ impl<'a> Source<'a> {
     /// The start of the file: the empty span at byte 0, line 1, column 1.
     ///
     /// What a diagnostic about the file as a whole points at. The empty
-    /// *span* rather than [`Position::at`] is what makes such a diagnostic
+    /// *span* is what makes such a diagnostic
     /// sort first: [`crate::manifest::diagnostics::Report::sort_by_position`]
     /// orders by span start, and a position without one sorts among the
     /// unpositioned.
@@ -268,7 +267,7 @@ impl TomlSyntaxError for toml_edit::de::Error {
 
 /// A [`SpanIndex`] together with the [`Source`] it was harvested from.
 ///
-/// Borrowing the text rather than the document is what lets the document
+/// Borrowing the text is what lets the document
 /// be handed to the deserializer; nothing that escapes into a report
 /// borrows anything.
 #[derive(Clone, Debug)]

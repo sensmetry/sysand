@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::InterchangeProjectUsageRaw;
 
-/// Top-level `index.json` — the list of every project IRI the index knows
+/// Top-level `index.json`: the list of every project IRI the index knows
 /// about. Used by `uris_async` for list-all enumeration. Per-project version
 /// data lives in `versions.json`.
 #[derive(Debug, Serialize, Deserialize, Default)]

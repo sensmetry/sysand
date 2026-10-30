@@ -154,7 +154,7 @@ fn a_view_usage_is_one_sysand_accepts() {
 /// manifest the reader accepts can still produce a view that no consumer
 /// validates -- with a message that names neither the key nor the file.
 ///
-/// Pinned rather than fixed: the fix belongs to the manifest reader,
+/// Pinned here: the fix belongs to the manifest reader,
 /// which would apply `parse_relative_unix_path` with the same two path
 /// kinds `validate` uses here.
 #[test]

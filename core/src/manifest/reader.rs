@@ -51,8 +51,7 @@ pub fn describe(value: &Value) -> &'static str {
 /// otherwise go; this is the value it carries, when it is one.
 ///
 /// Recognized here so that a marker written where nothing can be
-/// inherited says so, rather than coming back as a type error or, for a
-/// table-valued key, as an unknown key inside it. Public because
+/// inherited says so. Public because
 /// [`crate::manifest::inherit`] recognizes the same shape where a marker
 /// *is* allowed, and the two must agree on what one is.
 pub fn marker_value(value: &Value) -> Option<&Value> {
@@ -96,7 +95,7 @@ impl<'a> TableReader<'a> {
     }
 
     /// The table as it was written, for the few readers that take it
-    /// whole rather than key by key.
+    /// whole.
     pub fn raw(&self) -> &'a toml::Table {
         self.table
     }

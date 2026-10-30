@@ -222,15 +222,14 @@ fn group_names_are_bare_toml_keys() {
     }
 }
 
-/// Entries are taken exactly as written: rather than normalize a path and
-/// then check where it landed, the manifest admits only the one form
-/// Sysand itself writes.
+/// Entries are taken exactly as written: the manifest admits only the one
+/// form Sysand itself writes.
 #[test]
 fn sources_entries_are_taken_exactly_as_written() {
     for (entries, expected) in [
         (&["/abs/main.sysml"][..], "is absolute"),
-        // Nothing is resolved, so a `..` is a form error rather than an
-        // escape -- and no entry can leave the project root at all.
+        // Nothing is resolved, so a `..` is a form error
+        // -- and no entry can leave the project root at all.
         (&["../outside.sysml"], "is not in the form `sources` takes"),
         (
             &["src/../../outside.sysml"],

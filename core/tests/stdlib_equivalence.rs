@@ -9,8 +9,7 @@
 //! deliberately not in this repository; `SYSAND_STDLIB_SOURCES` must
 //! point at a checkout of `Systems-Modeling/SysML-v2-Release`, which CI
 //! provides on one Linux matrix entry. Without it the test prints a
-//! notice and returns -- a skip that says so, rather than a pass that
-//! does not.
+//! notice and returns -- a skip that says so.
 //!
 //! **Which checkout: tag `2025-09`, not `2025-02`.** The release
 //! repository tags by month, so the tag that looks like this spec

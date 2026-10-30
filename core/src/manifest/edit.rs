@@ -408,8 +408,7 @@ pub const INHERITABLE_KEYS: &[&str] = &[
 /// Why an edit was refused.
 ///
 /// Every variant is a fact about the *document*. A refusal of a flag
-/// rather than a document (`--compute-checksum` on a toml project)
-/// belongs to the command that owns the flag.
+/// (`--compute-checksum` on a toml project) belongs to the command that owns the flag.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum EditError {
     #[error("the document has no `[project]` table")]
@@ -752,11 +751,11 @@ pub fn set_inherit_marker(
 /// Append a path to `sources`, normalized as on read, rejecting a
 /// duplicate.
 ///
-/// The whole array is re-validated, not just the new entry: `sources`
+/// The whole array is re-validated: `sources`
 /// has rules that span entries -- a duplicate is one of them -- and
 /// there is one implementation of them. An array that was already
 /// invalid therefore fails naming an entry the caller did not touch,
-/// which is one honest message rather than two readings of the rule.
+/// which is one honest message.
 pub fn include_source(doc: &mut DocumentMut, path: &str) -> Result<Utf8UnixPathBuf, EditError> {
     let wanted = strict_entry(path)?;
     let array = sources_mut(doc)?;
@@ -771,11 +770,11 @@ pub fn include_source(doc: &mut DocumentMut, path: &str) -> Result<Utf8UnixPathB
 /// The commands that write `sources` write the strict form, converting
 /// into it what they are given.
 ///
-/// So `./a.sysml` becomes `a.sysml` here rather than being refused, and
+/// So `./a.sysml` becomes `a.sysml` here, and
 /// `../a.sysml` -- which no conversion can bring inside the project --
-/// is [`EditError::SourceOutsideProject`] rather than
-/// `normalize_relative`'s "points above the root it is relative to",
-/// which is about workspace members and says nothing about `sources`.
+/// is [`EditError::SourceOutsideProject`]; `normalize_relative`'s "points
+/// above the root it is relative to" is about workspace members and says
+/// nothing about `sources`.
 fn strict_entry(path: &str) -> Result<Utf8UnixPathBuf, EditError> {
     crate::utils::normalize_relative(path).map_err(|error| match error {
         crate::utils::NormalizeRelativeError::EscapesRoot { path: _ }
@@ -799,7 +798,7 @@ fn strict_entry(path: &str) -> Result<Utf8UnixPathBuf, EditError> {
 pub fn exclude_source(doc: &mut DocumentMut, path: &str) -> Result<Utf8UnixPathBuf, EditError> {
     // Converted like an `include` argument, and then held to the same
     // rules -- so that `sysand exclude README.md` still says the entry
-    // is not a model file rather than that it is not listed.
+    // is not a model file.
     let wanted = strict_entry(path)?;
     let wanted = Sources::new(vec![wanted])?
         .as_slice()
@@ -831,8 +830,7 @@ pub fn push_list_entry(doc: &mut DocumentMut, key: ListKey, value: &str) -> Resu
 
 /// Remove the entry at `at` from a list-valued `[project]` key.
 ///
-/// The index is the caller's, and out of range is an error rather than
-/// a silent no-op: `info topic --remove 7` on a list of three is a
+/// The index is the caller's, and out of range is an error: `info topic --remove 7` on a list of three is a
 /// mistake worth naming.
 pub fn remove_list_entry(doc: &mut DocumentMut, key: ListKey, at: usize) -> Result<(), EditError> {
     let array = list_mut(doc, key)?;

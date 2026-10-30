@@ -993,8 +993,7 @@ fn members_at_different_depths_resolve_their_own_bases() -> Result<(), Box<dyn s
 }
 
 /// A group entry's paths are relative to the workspace root, and the
-/// view drops that distinction -- so it is refused rather than joined
-/// onto the member.
+/// view drops that distinction -- so it is refused.
 #[cfg(feature = "filesystem")]
 #[test]
 fn an_inherited_local_usage_is_refused() {
@@ -1530,8 +1529,7 @@ fn one_directory_spelled_two_ways_still_locks() {
     lock_workspace(&dir).expect("two spellings of one directory are one place");
 }
 
-/// A metamodel direction error stops the lock, rather than being
-/// written into the lockfile.
+/// A metamodel direction error stops the lock.
 ///
 /// The edge checks run once **before the lockfile is written** and
 /// again when the lockfile is validated.

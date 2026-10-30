@@ -103,7 +103,7 @@ public class BasicTest {
     }
 
     /// The two callers differ in exactly one field, so it is a
-    /// parameter rather than a value: a `model.toml` project's view
+    /// parameter: a `model.toml` project's view
     /// synthesizes an empty checksum map (`kpar_view::meta` writes
     /// `Some(map)` unconditionally, and a project with no sources has
     /// nothing to put in it), while a legacy `.meta.json` that never

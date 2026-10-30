@@ -126,7 +126,7 @@ def test_add_when_missing(make_baseline: MakeBaseline) -> None:
     )
     manifest = json.loads(baseline.manifest.read_text())
     assert manifest["usage"] == [usage(LIBRARY, TARGET_CONSTRAINT)]
-    # A second add merges into the existing usage rather than adding one.
+    # A second add merges into the existing usage.
     assert (
         sysand.add(
             project_dir=baseline.root,

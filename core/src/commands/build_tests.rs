@@ -93,8 +93,8 @@ fn license_stems_license_ref() {
 
 #[test]
 fn license_stems_or_later_strips_plus() {
-    // `MIT+` shares its license file with `MIT` per REUSE conventions —
-    // the `+` does not appear in the bundled filename.
+    // `MIT+` shares its license file with `MIT` per REUSE conventions,
+    // so the `+` does not appear in the bundled filename.
     assert_eq!(stems("MIT+"), vec!["MIT".to_owned()]);
 }
 
@@ -585,8 +585,7 @@ fn a_target_that_does_not_read_is_its_own_error() -> Result<(), Box<dyn std::err
 
 /// A usage whose target carries `stdlib` is written as `resource =
 /// "<target's metamodel>/<target's stdlib>.kpar"` -- the metamodel
-/// supplies the prefix and release date -- with its version constraint,
-/// instead of as a typed index usage.
+/// supplies the prefix and release date -- with its version constraint.
 #[test]
 fn a_local_stdlib_target_becomes_an_omg_iri() -> Result<(), Box<dyn std::error::Error>> {
     let dir =

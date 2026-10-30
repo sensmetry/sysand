@@ -202,8 +202,7 @@ fn a_kpar_with_a_model_toml_beside_the_pair_is_refused() -> Result<(), Box<dyn s
 }
 
 /// An archive with no `.project.json` but a `model.toml` is refused as
-/// a toml archive rather than with "`.project.json` not found", which
-/// says nothing about an archive that plainly carries a manifest.
+/// a toml archive.
 #[test]
 fn a_kpar_with_only_a_model_toml_is_refused_by_the_guess() -> Result<(), Box<dyn std::error::Error>>
 {

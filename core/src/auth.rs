@@ -857,7 +857,7 @@ where
 
 /// Read all stored records and build the URL-glob to bearer map.
 ///
-/// Store errors degrade to "no stored credentials" rather than aborting:
+/// Store errors degrade to "no stored credentials":
 /// the request may still succeed via env credentials or anonymously, and
 /// hard failure is reserved for the `auth` commands.
 /// `BackendAbsent` is debug-only

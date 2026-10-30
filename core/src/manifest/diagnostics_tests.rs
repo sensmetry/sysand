@@ -19,8 +19,7 @@ struct Table {
 
 /// Unknown keys are allowed for future compatibility but generate a
 /// warning upon read, so reading must keep
-/// them rather than drop them (serde's default) or reject them
-/// (`deny_unknown_fields`).
+/// them.
 #[test]
 fn unknown_keys_are_kept_as_warnings_not_errors() {
     let table: Table =

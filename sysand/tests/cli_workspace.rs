@@ -835,7 +835,7 @@ fn sync_in_a_member_uses_the_root_lockfile_and_env() -> Result<(), Box<dyn std::
     assert!(!dir.path().join("app").join(DEFAULT_LOCKFILE_NAME).exists());
     assert!(
         std::fs::read_to_string(&lockfile)?.starts_with("# kept"),
-        "the lockfile was rewritten, so `sync` re-locked instead of reading"
+        "the lockfile was rewritten, so `sync` re-locked"
     );
     Ok(())
 }

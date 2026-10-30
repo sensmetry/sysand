@@ -867,8 +867,7 @@ fn read_members(workspace: &model_toml::Workspace) -> Vec<Member> {
 /// publishing none.
 ///
 /// The error names the member, because `KParBuildError` does not: a
-/// failure report whose entries cannot be told apart is a count, not a
-/// report.
+/// failure report needs entries that can be told apart.
 pub fn workspace_publish_order(
     workspace: &model_toml::Workspace,
 ) -> Result<Vec<(Utf8PathBuf, Utf8PathBuf)>, MemberFailure> {
@@ -909,8 +908,8 @@ pub fn workspace_publish_order(
 
 /// Build every member, in `members` order, and return the archives.
 ///
-/// A build reads a target's `version` from its manifest and never from a
-/// built artifact, so no member's build needs another's, and a member
+/// A build reads a target's `version` from its manifest, so no member's
+/// build needs another's, and a member
 /// that fails does not stop the others.
 /// The error is every member that failed, together with the archives the
 /// others produced.
@@ -965,7 +964,7 @@ pub struct WorkspaceBuildFailure {
 /// A member, named relative to the workspace root, and what went wrong
 /// with it.
 ///
-/// A named type rather than a tuple because it is an error, and boxed
+/// A named type because it is an error, and boxed
 /// because `KParBuildError` is large enough that returning it by value
 /// in a `Result` is its own lint.
 #[derive(Debug, Error)]

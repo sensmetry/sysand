@@ -63,7 +63,7 @@ pub enum ViewError<E> {
     #[error(transparent)]
     Manifest(#[from] ProjectDeserializationError),
     /// The caller could not hand over a source file's contents. Passed
-    /// through rather than wrapped: the caller's error already names the
+    /// through: the caller's error already names the
     /// file it failed on, and a second sentence would print the path
     /// twice.
     #[error(transparent)]
@@ -100,8 +100,7 @@ pub enum NoManifestForm {
 /// The reverse of [`usage`], and deliberately not its inverse: the
 /// forward map turns a `kpar-url` usage into a bare IRI, dropping the
 /// publisher and name a manifest needs. Nothing can therefore produce a
-/// `kpar-url` entry from json, which is a gap in v1 rather than in this
-/// function.
+/// `kpar-url` entry from json, which is a gap in v1.
 ///
 /// `file` names the document the raw usage came from, for the one
 /// refusal whose fix is in another project's manifest.
@@ -277,9 +276,9 @@ pub fn info(project: &ResolvedProject) -> InterchangeProjectInfoRaw {
 /// The project as a `.meta.json`, given the instant to record and the two
 /// maps [`source_maps`] computes.
 ///
-/// `created` is an instant rather than a string so that it is written the
-/// one way `InterchangeProjectMetadataRaw` is documented to be written,
-/// and a parameter rather than the current time so that what a view says
+/// `created` is an instant so that it is written the one way
+/// `InterchangeProjectMetadataRaw` is documented to be written, and a
+/// parameter so that what a view says
 /// can be asserted.
 ///
 /// `includesDerived` and `includesImplied` are omitted: Sysand does not
@@ -376,7 +375,7 @@ pub fn view<E>(
 /// a workspace member has to resolve it itself, against the table it
 /// belongs to.
 ///
-/// Warnings are logged rather than returned.
+/// Warnings are logged.
 pub fn resolved_of_text(
     file: &str,
     text: &str,

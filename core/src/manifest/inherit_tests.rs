@@ -177,8 +177,7 @@ fn a_scalar_key_with_a_workspace_key_among_others_is_a_type_error() {
     );
 }
 
-/// The keys that are deliberately not inheritable say so, rather than reporting a table where an array was
-/// expected.
+/// The keys that are deliberately not inheritable say so.
 #[test]
 fn a_non_inheritable_key_refuses_a_marker() {
     assert_eq!(

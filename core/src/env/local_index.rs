@@ -7,7 +7,7 @@
 //! - **structured**: the layout `sysand index init`/`add` write --
 //!   `index.json`, `<publisher>/<name>/versions.json` and
 //!   `<publisher>/<name>/<version>/project.kpar`; the same bytes an HTTP
-//!   index serves, read with `std::fs` instead of `reqwest`;
+//!   index serves, read with `std::fs`;
 //! - **folder**: a bare directory of `*.kpar` files with no
 //!   metadata; each archive's `.project.json` supplies `publisher`, `name`
 //!   and `version`, and the environment synthesizes the `versions.json`
