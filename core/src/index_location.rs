@@ -329,7 +329,7 @@ impl IndexLocation {
         }
         // A pre-encoded `%7Bpath%7D` would silently behave as a plain
         // append-mode URL and 404 on every fetch; catch the paste
-        // accident early instead. Only the exact placeholder spellings
+        // accident early. Only the exact placeholder spellings
         // are rejected, so URLs that legitimately contain encoded braces
         // elsewhere keep working. Gated on `%` so the common case does
         // not allocate.

@@ -193,8 +193,7 @@ fn lock_sync<Policy: HTTPAuthentication>(
                 and recreating it with `sysand lock`"
             );
         } else if modified {
-            // Lock should not be canonicalized, as the goal is to make
-            // minimal necessary modifications to give a smaller diff
+            // Keep the lock as is: minimal modifications give a smaller diff
             lockfile.write()?;
         }
         if !no_sync {

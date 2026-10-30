@@ -3,8 +3,8 @@
 
 //! Commands run *inside* a member whose manifest inherits.
 //!
-//! `model-toml.md` "Inheritance": a marker resolves against the
-//! workspace table, and only for a member. So a member with
+//! A marker resolves against the workspace table, and only for a
+//! member. So a member with
 //! `version.workspace = true` must be readable by `info`, `sources` and
 //! `build` run from inside it.
 

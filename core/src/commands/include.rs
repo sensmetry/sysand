@@ -90,9 +90,8 @@ pub fn do_include<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
     index_symbols: bool,
     force_format: Option<Language>,
 ) -> Result<(), IncludeError<Pr::Error>> {
-    // On a `model.toml` project `include` appends to `sources` and
-    // nothing else: neither symbols nor checksums are recorded, as both
-    // are computed at build.
+    // On a `model.toml` project `include` appends to `sources` only;
+    // symbols and checksums are computed at build.
     //
     // `Both` deliberately falls through to the json arm, where
     // `get_meta` refuses it as the ambiguity it is.

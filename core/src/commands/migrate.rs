@@ -130,7 +130,7 @@ pub fn migrate_project(
     warn_discarded(meta, &mut report);
 
     // Every value is built before this point, so the report holds every
-    // problem rather than the first.
+    // problem.
     let (Some(name), Some(publisher), Some(version)) = (name, publisher, version) else {
         return Err(report);
     };
@@ -138,7 +138,7 @@ pub fn migrate_project(
     let mut project = ProjectTable::new(publisher, name, version);
     // `root` comes from
     // `.meta.json` and must be among the recovered sources; said here,
-    // where the cause is, rather than on the next read.
+    // where the cause is.
     if let Some(root) = &meta.root {
         if !sources
             .as_ref()
@@ -208,7 +208,7 @@ pub fn migrate_sources(
     let mut bad_checksum_keys: Vec<String> = Vec::new();
     let mut unadmitted_checksum_keys: Vec<String> = Vec::new();
     // A Syside `.meta.json` checksums the whole archive, so a non-model key is a conventional
-    // file (silent) or a stray one (a warning), not an error.
+    // file (silent) or a stray one (a warning).
     let syside = metamodel.is_some_and(|kind| kind.family == MetamodelFamily::Syside);
 
     let mut add = |raw: &str, from_checksum: bool, report: &mut Report| {
@@ -278,8 +278,7 @@ pub fn migrate_sources(
     }
     // The same shape for the keys that *are* model files, of the
     // language this project's metamodel does not admit.
-    // Two messages rather than one, because the first has no metamodel
-    // to name.
+    // Two messages, because the first has no metamodel to name.
     if let Some(kind) = metamodel
         && !unadmitted_checksum_keys.is_empty()
     {
@@ -788,8 +787,7 @@ pub fn check_vcs(root: &camino::Utf8Path) -> Result<VcsState, VcsError> {
         // Explicit, because `Repository::status` otherwise takes
         // `status.showUntrackedFiles` from the user's configuration, so
         // a `no` there would silently stop untracked files counting.
-        // `Files` rather than the `Collapsed` default so the report
-        // names files rather than directories.
+        // `Files` so the report names files.
         .untracked_files(UntrackedFiles::Files)
         .into_iter(pathspec)
         .map_err(|error| fail(error.to_string()))?;

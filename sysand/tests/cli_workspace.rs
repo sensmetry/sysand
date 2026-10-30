@@ -387,8 +387,8 @@ fn no_config_silences_the_warning() -> Result<(), Box<dyn std::error::Error>> {
 
 // ------------------------------- which commands consult the workspace
 
-// `workspaces.md` "Command scopes": `clone`, `index` and `auth` are
-// scope-free, so a workspace they would refuse does not stop them.
+// `clone`, `index` and `auth` are scope-free, so a workspace they would
+// refuse does not stop them.
 
 const NESTED_TEXT: &str = "nested workspaces are not supported";
 const UNLISTED_TEXT: &str = "is neither listed in `workspace.members`";
@@ -406,8 +406,8 @@ fn canonical_workspace(
     Ok((dir, root))
 }
 
-/// An outer workspace that does not `exclude` the inner one, which
-/// workspaces.md "Config" rejects. Returns the inner member directory.
+/// An outer workspace that does not `exclude` the inner one, which is
+/// rejected. Returns the inner member directory.
 fn nested()
 -> Result<(camino_tempfile::Utf8TempDir, camino::Utf8PathBuf), Box<dyn std::error::Error>> {
     let outer = camino_tempfile::tempdir()?;
@@ -471,8 +471,7 @@ fn a_nested_workspace_is_refused_before_the_config_warning()
     Ok(())
 }
 
-/// workspaces.md "Included projects": a project under the root in
-/// neither list is a hard error.
+/// A project under the root in neither list is a hard error.
 #[test]
 fn an_unlisted_project_is_refused() -> Result<(), Box<dyn std::error::Error>> {
     let dir = workspace(ROOT)?;
@@ -570,8 +569,8 @@ fn an_override_naming_an_unlisted_project_is_refused() -> Result<(), Box<dyn std
 }
 
 /// An **excluded** project is the case the refusal must not catch:
-/// `workspaces.md` calls it "the only kind of non-member project that
-/// may sit under a workspace root", so both routes read it.
+/// It is the only kind of non-member project that may sit under a
+/// workspace root, so both routes read it.
 #[test]
 fn an_excluded_path_still_reads() -> Result<(), Box<dyn std::error::Error>> {
     let dir = workspace(ROOT)?;
@@ -667,8 +666,7 @@ fn a_members_own_lockfile_does_not_stop_a_later_command() -> Result<(), Box<dyn 
 
 // ------------------------------------------------------- `print-root`
 
-/// `workspaces.md` "Command scopes": the workspace root, from a member
-/// as from the root.
+/// The workspace root, from a member as from the root.
 #[test]
 fn print_root_from_a_member_prints_the_workspace_root() -> Result<(), Box<dyn std::error::Error>> {
     let (dir, root) = canonical_workspace(ROOT)?;
@@ -866,8 +864,7 @@ fn add_in_a_member_keeps_every_member() -> Result<(), Box<dyn std::error::Error>
 
 // ------------------- the selectors (Command scopes)
 
-/// workspaces.md "Command scopes": "`--workspace` forces all members".
-/// From a member directory the default is that member, so this is the
+/// `--workspace` forces all members. From a member directory the default is that member, so this is the
 /// only place the flag changes anything.
 #[test]
 fn build_workspace_from_a_member_dir_builds_all() -> Result<(), Box<dyn std::error::Error>> {
@@ -923,8 +920,8 @@ fn a_member_selector_that_matches_nothing_says_so() -> Result<(), Box<dyn std::e
 }
 
 /// Outside a workspace a selector has nothing to select from, and is
-/// refused rather than dropped: dropping it would edit the current
-/// project instead of the one named.
+/// refused: dropping it would edit the current project instead of the
+/// one named.
 #[test]
 fn a_member_selector_outside_a_workspace_is_refused() -> Result<(), Box<dyn std::error::Error>> {
     let dir = camino_tempfile::tempdir()?;
@@ -1019,8 +1016,8 @@ fn env_in_a_member_uses_the_root_sysand() -> Result<(), Box<dyn std::error::Erro
 // ------------------- the root defaults for `sources` and `info`
 
 /// A workspace whose members have sources, and whose first member uses
-/// the second -- which workspaces.md calls the normal case and which
-/// makes the second member's files reachable twice.
+/// the second, the normal case, which makes the second member's files
+/// reachable twice.
 fn two_member_workspace_with_sources()
 -> Result<camino_tempfile::Utf8TempDir, Box<dyn std::error::Error>> {
     let dir = camino_tempfile::tempdir()?;
@@ -1057,7 +1054,7 @@ fn two_member_workspace_with_sources()
     Ok(dir)
 }
 
-/// workspaces.md "Command scopes": all members, from the root.
+/// All members, from the root.
 #[test]
 fn sources_at_the_root_lists_every_member() -> Result<(), Box<dyn std::error::Error>> {
     let dir = two_member_workspace_with_sources()?;
@@ -1071,9 +1068,7 @@ fn sources_at_the_root_lists_every_member() -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
-/// The collision workspaces.md designs in: an intra-workspace usage
-/// "resolves to the member itself, never to a copy of it from an
-/// index", so `lib`'s own file is reached both as its own source and as
+/// An intra-workspace usage resolves to the member itself, so `lib`'s own file is reached both as its own source and as
 /// `app`'s dependency. It is listed once.
 ///
 /// No dependency *ordering* is asserted: that order is not stable.
@@ -1222,7 +1217,7 @@ fn edit_at_the_root_needs_a_member() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// A selector beside `--dir`/`--iri` is refused, not discarded in silence.
+/// A selector beside `--dir`/`--iri` is refused.
 #[test]
 fn a_selector_beside_an_explicit_target_is_refused() -> Result<(), Box<dyn std::error::Error>> {
     let dir = two_member_workspace_with_sources()?;
@@ -1253,9 +1248,9 @@ fn a_non_member_directory_under_the_root_is_the_workspace() -> Result<(), Box<dy
 
 // ------------------- stray per-member state
 
-/// workspaces.md "Stray per-member state": "A member never has state of
-/// its own: the lockfile, the `.sysand` directory and the `output`
-/// directory all belong to the workspace root."
+/// A member has no state of its own: the lockfile, the `.sysand`
+/// directory and the `output` directory all belong to the workspace
+/// root.
 ///
 /// Enforced only where a workspace is *loaded*: the invariant is one the
 /// commands that load members rely on.
@@ -1353,9 +1348,9 @@ fn build_workspace_refuses_an_output_path_inside_a_member() -> Result<(), Box<dy
 
 // ------------------- an inherited path usage
 
-/// workspaces.md "Common usages": a group entry's `dir` "is relative to
-/// the directory of the `model.toml` that defines the workspace [...]
-/// whichever member opts into it". The KPAR view cannot carry that
+/// A group entry's `dir` is relative to the directory of the
+/// `model.toml` that defines the workspace, whichever member opts into
+/// it. The KPAR view cannot carry that
 /// base, and resolving against the member directory would silently pick
 /// a different directory, so `build` refuses it, as `lock` does.
 #[test]
@@ -1517,8 +1512,7 @@ fn sources_refuses_a_member_inheriting_a_local_usage() -> Result<(), Box<dyn std
     Ok(())
 }
 
-/// workspaces.md "Command scopes", middle column: `sources` from a
-/// member directory is that member.
+/// `sources` from a member directory is that member.
 ///
 /// The workspace has a *sibling* member, so a scope leak would show.
 ///

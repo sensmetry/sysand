@@ -26,9 +26,8 @@ pub const BLOB_VERSION: u32 = 1;
 /// *present-but-locked/denied* backend (callers must surface the error).
 #[derive(Debug, Error)]
 pub enum CredentialStoreError {
-    /// The stored blob failed to parse. This fails closed: a corrupt
-    /// blob is never treated as empty, which would clobber all stored
-    /// credentials on the next write.
+    /// The stored blob failed to parse. This fails closed: treating a corrupt
+    /// blob as empty would clobber all stored credentials on the next write.
     #[error("credential store unreadable; remove the `sysand` keyring entry to reset")]
     Unreadable,
     /// The stored blob parsed but declares a format version this build

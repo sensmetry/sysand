@@ -100,8 +100,7 @@ pub fn do_init_ext<P: ProjectMut>(
                 .map_err(|e| InitError::SPDXLicenseParse(raw.as_str().into(), e))
         })
         .transpose()?;
-    // A marker names a group, not a metamodel, so there is nothing to
-    // parse.
+    // A marker names a group, so there is nothing to parse.
     let metamodel = metamodel
         .map(|metamodel| match metamodel {
             MetaProperty::Provided(value) => KnownMetamodel::recognize(&value)

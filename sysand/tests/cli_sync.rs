@@ -946,10 +946,9 @@ fn sync_fails_on_a_renamed_directory_dependency() -> Result<(), Box<dyn std::err
     Ok(())
 }
 
-/// model-toml.md "Provided by the
-/// tooling": `lock` "records the standard-library entries with an empty
-/// source list", and "a lockfile that pins a release Sysand does not
-/// know about is an error on `sync`".
+/// `lock` records the standard-library entries with an empty source
+/// list, and a lockfile that pins a release Sysand does not know about
+/// is an error on `sync`.
 ///
 /// The lockfile is written by hand: `sync` does not re-lock when one is
 /// present, which is the whole point: this is the state a repository

@@ -336,8 +336,8 @@ pub fn metamodel(reader: &TableReader<'_>, report: &mut Report) -> Option<KnownM
     metamodel
 }
 
-/// A value whose error does not name the key or the value it came from,
-/// so the message says both and then does not hide the underlying error.
+/// A value whose error omits the key and the value it came from; the
+/// message names both and keeps the underlying error.
 pub fn checked<T, E: std::fmt::Display>(
     result: Result<T, E>,
     reader: &TableReader<'_>,

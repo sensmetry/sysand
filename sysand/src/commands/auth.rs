@@ -328,7 +328,7 @@ fn blob_full_message(stored: &[(&str, Option<Timestamp>)], now: Timestamp) -> St
 /// Read the login secret: from stdin when `--token-stdin` was given
 /// (trimming exactly one trailing newline), else from a hidden terminal
 /// prompt. Fails fast when stdin is not a terminal and `--token-stdin`
-/// was not given, instead of hanging or reading a pipe as a secret.
+/// was not given.
 fn read_token(key: &str, token_stdin: bool) -> Result<String> {
     let token = if token_stdin {
         let mut raw = String::new();

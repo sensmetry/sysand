@@ -50,7 +50,7 @@ pub enum SetConstraintError {
         kind: &'static str,
     },
     /// The identifier names an index usage, which is named by its publisher
-    /// and name instead
+    /// and name
     #[error(
         "`{identifier}` is declared as the index usage `{publisher}/{name}`;\n\
         name it by its publisher and name"

@@ -326,7 +326,7 @@ impl<'a> OnBrokenCandidate<'a> {
             // A toml `kpar-url` that declared an identity counts as typed:
             // identity is the declared publisher+name, and the source is
             // explicit. It offers one candidate, so a failure is *the*
-            // answer rather than one alternative not working out.
+            // answer.
             InterchangeProjectUsage::Resource {
                 resource: _,
                 version_constraint: _,
@@ -349,8 +349,7 @@ impl<'a> OnBrokenCandidate<'a> {
                 name: _,
             } => Self::Fail,
             // A version an index offers is one its publisher published, so a
-            // broken one is a fault of the index to report, not to paper over
-            // by quietly picking another version
+            // broken one is a fault of the index to report
             InterchangeProjectUsage::Index {
                 version_constraint,
                 publisher: _,
@@ -697,8 +696,8 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
                 version_constraint,
                 resource: _,
             } => {
-                // A constraint that selects nothing is neither an error nor a
-                // `Dependencies::Unavailable`, since the dependencies are known.
+                // A constraint that selects nothing yields known dependencies,
+                // so it is not `Dependencies::Unavailable`.
                 // Handing pubgrub the empty set states exactly that -- this
                 // candidate requires something no published version provides
                 // -- so this candidate is ruled out, but the solve is not aborted
@@ -977,7 +976,7 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
     /// between a thing and itself. `conflicts` reconstructs each side's
     /// real constraint, so this renders both sides correctly.
     fn contradictions(&self) -> Vec<String> {
-        // Bound, not inlined into the `for`: the borrows below outlive it.
+        // Bound here: the borrows below outlive it.
         let conflicts = self.conflicts();
         let mut order: Vec<&str> = Vec::new();
         let mut by_iri: HashMap<&str, Vec<(Option<&str>, &str)>> = HashMap::new();
@@ -1065,7 +1064,7 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
                         // Because `dependency_set` is currently
                         // `DiscreteHashSet` which does not include version
                         // constraints in a user-readable form, version
-                        // constraints are instead extracted from the usage list
+                        // constraints are extracted from the usage list
                         // of `dependent`.
                         // FIXME: make `dependency_set` usable directly
                         id_of(dependency).map(|dependency| {

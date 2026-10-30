@@ -66,9 +66,9 @@ impl<T> ResolutionOutcome<T> {
     /// [`Self::map`] where deciding what was resolved can fail.
     ///
     /// A resolver that refuses a target -- one under a workspace root
-    /// that is in neither of its lists -- is reporting an error, not a
-    /// non-resolution: `Unresolvable` would let the solve continue and
-    /// report something else later.
+    /// that is in neither of its lists -- is reporting an error:
+    /// `Unresolvable` would let the solve continue and report something
+    /// else later.
     pub fn try_map<U, E, F: FnOnce(T) -> Result<U, E>>(
         self,
         op: F,

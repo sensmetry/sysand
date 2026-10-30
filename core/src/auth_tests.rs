@@ -75,7 +75,7 @@ fn basic_globmap_lookup() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn globmap_matches_template_expanded_urls() -> Result<(), Box<dyn std::error::Error>> {
     // The glob must match the expanded request URL (file path percent-encoded
-    // mid-URL, query string after), not the raw `{path}` template.
+    // mid-URL, query string after).
     let mut builder = GlobMapBuilder::new();
     builder.add(
         "https://gitlab.com/api/v4/projects/123/repository/files/admin%2F*/raw?ref=main",

@@ -102,8 +102,7 @@ pub enum FileResolverError {
     /// member. Carries [`crate::workspace::model_toml::DiscoverError`].
     #[error(transparent)]
     Workspace(crate::workspace::model_toml::DiscoverError),
-    /// A `kpar-url` whose `file:` target is a directory rather than an
-    /// archive.
+    /// A `kpar-url` whose `file:` target is a directory, not an archive.
     #[error(
         "`kpar-url` names `{0}`, which is a directory; a `kpar-url` usage takes a KPAR. Use `kpar-path` for a project directory, or point at its built `.kpar`"
     )]
@@ -455,7 +454,7 @@ impl ResolveRead for FileResolver {
                 Some(path) => {
                     let res = self.check_sandbox(path)?;
                     // Classified before the outcome is built: an unlisted
-                    // target is an error, not a resolution.
+                    // target is an error.
                     let origin = resolve.origin();
                     // Whether a toml `kpar-url` usage declared a publisher
                     // and name. The lock checks the target against them;
@@ -488,7 +487,7 @@ impl ResolveRead for FileResolver {
                         // standard-library `kpar-url`, which declares no
                         // publisher.
                         Ok(if declares_identity {
-                            // One candidate, not two: a toml `kpar-url`
+                            // One candidate: a toml `kpar-url`
                             // names a KPAR, so the unpacked-directory
                             // candidate cannot succeed -- the check
                             // above refuses a directory target outright.

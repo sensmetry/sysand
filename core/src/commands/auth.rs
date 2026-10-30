@@ -8,8 +8,7 @@
 //! Library calls never prompt and never print; the login secret arrives as
 //! a parameter and progress is reported through [`AuthLoginNotice`] values
 //! for the host (CLI or bindings) to render. Environment credentials are
-//! passed in as [`EnvCredentialEntry`] values: this module does not read
-//! the process environment.
+//! passed in as [`EnvCredentialEntry`] values by the caller.
 
 use std::fmt::Write as _;
 
@@ -306,7 +305,7 @@ pub struct AuthStatus {
 /// A validated, normalized index credential key. Constructed only
 /// through [`IndexKey::validate`] or from a parsed [`IndexLocation`], so
 /// holding one proves the target was already validated: the `do_auth_*`
-/// commands take it instead of a raw string and never re-validate.
+/// commands take it as their target.
 #[derive(Debug, Clone)]
 pub struct IndexKey {
     /// The normalized key, exactly as stored and printed.
@@ -582,7 +581,7 @@ fn parse_whoami_identity(
             expires_at: body.token.expires_at,
         }),
         Err(err) => {
-            // The body is index metadata about the token, never a secret.
+            // The body is index metadata about the token.
             log::debug!(
                 "whoami body was not parsed: {err};\nbody: {}",
                 String::from_utf8_lossy(&body)
@@ -595,8 +594,8 @@ fn parse_whoami_identity(
 /// What the validation probes concluded. A surface appears in
 /// `accepted` or `rejected` only when it
 /// actually exercised the credential; surfaces that were public,
-/// redirected, or unreachable appear in neither (they were reported as
-/// notices instead).
+/// redirected, or unreachable appear in neither (they are reported as
+/// notices).
 #[derive(Default)]
 struct ProbeOutcome {
     accepted: Vec<ProbeSurface>,
@@ -970,7 +969,7 @@ fn forced_discovery_fetch(
         Some(ResolvedEndpoints::flat(location.clone()))
     } else if status.is_redirection() {
         // The probe client never follows redirects, so a redirect-fronted
-        // discovery document gets this notice instead of a forced answer.
+        // discovery document gets this notice.
         unreachable(format!(
             "the authenticated retry for `{shown_url}` was redirected to `{}`",
             redirect_target(&response)

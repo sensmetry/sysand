@@ -45,7 +45,7 @@ pub type ChecksumMap = IndexMap<String, InterchangeProjectChecksumRaw>;
 
 /// What a view records as `created`.
 ///
-/// A build records the instant it ran. A view must not: the project
+/// A build records the instant it ran. A view records a fixed value: the project
 /// checksum covers the whole `.meta.json`, is written into the lockfile
 /// and is recomputed and compared by `sysand sync`, so a view is a
 /// function of the manifest and the source files only.

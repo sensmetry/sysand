@@ -283,8 +283,7 @@ impl<
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         let mut at_least_one_supports = false;
 
-        // If the file resolver does not outright reject the IRI type,
-        // use it.
+        // Use the file resolver unless it outright rejects the IRI type.
         // TODO: autodetect git (and possibly other VCSs), and use appropriate (e.g. git) resolver for them.
         if let Some(file_resolver) = &self.file_resolver {
             match file_resolver

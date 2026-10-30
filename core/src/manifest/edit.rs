@@ -9,7 +9,7 @@
 //! place, preserving comments, key order and formatting; no writer may drop
 //! comments. Files
 //! a command *generates* -- `sysand init`, `sysand new`,
-//! `sysand migrate` -- are rendered in a fixed layout, without comments.
+//! `sysand migrate` -- are rendered in a fixed layout with no comments.
 //!
 //! [`render_new`] produces the fixed layout. What it returns is a
 //! [`DocumentMut`], which is also what the in-place editors operate on.
@@ -59,8 +59,8 @@ use crate::project::utils::ProjectDeserializationError;
 /// `[[inline-usages]]` tables in manifest order. A workspace file has
 /// `manifest-version` and then `[workspace]`.
 ///
-/// What is written is what the manifest holds: a key the table does not
-/// have is not a key with a default, and is left out.
+/// What is written is what the manifest holds: a key the table lacks is
+/// left out.
 pub fn render_new(model: &ModelToml) -> DocumentMut {
     let mut doc = DocumentMut::new();
     doc["manifest-version"] = value(SUPPORTED_MANIFEST_VERSION.to_string());
@@ -84,8 +84,7 @@ pub fn render_new(model: &ModelToml) -> DocumentMut {
 
 /// The `[project]` table, in the order `PROJECT_KEYS` gives.
 ///
-/// The key list is the reader's, not a second copy of it: it is the
-/// order a generated file writes.
+/// The key list is the reader's: it is the order a generated file writes.
 fn project_table(project: &ProjectTable) -> Table {
     let mut table = Table::new();
     for key in PROJECT_KEYS {
@@ -135,8 +134,7 @@ fn project_table(project: &ProjectTable) -> Table {
                 }
             }
             "urls" => urls(&mut table, key, project.urls.as_ref()),
-            // A key added to `PROJECT_KEYS` and not here is skipped rather
-            // than panicking.
+            // A key added to `PROJECT_KEYS` and not here is skipped.
             _ => {}
         }
     }
@@ -559,7 +557,7 @@ fn decor_suffix(decor: &Decor) -> Option<String> {
 /// Set a `[project]` key to a value, keeping the comments around it.
 ///
 /// A key that is not there is appended after the table's existing
-/// values -- inside `[project]`, before the first sub-table header. Not in
+/// values -- inside `[project]`, before the first sub-table header, not in
 /// the documented order of a generated file: moving the lines that are
 /// already there would drag a comment to a place it no longer describes.
 pub fn set_project_key(

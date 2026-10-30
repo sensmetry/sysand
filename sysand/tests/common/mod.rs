@@ -180,9 +180,8 @@ pub fn sysand_cmd_in_discovering<'a, I: IntoIterator<Item = &'a str>>(
         }
     }
     cmd.env("NO_COLOR", "1");
-    // reqwest also reads the macOS and Windows system proxy settings, but
-    // never in place of an environment `NO_PROXY`, so every request goes
-    // direct.
+    // reqwest also reads the macOS and Windows system proxy settings;
+    // `NO_PROXY=*` makes every request go direct regardless.
     cmd.env("NO_PROXY", "*");
     // git reads the user config through `HOME` and `XDG_CONFIG_HOME`, so
     // both point at a directory with no config, and skips the system one.

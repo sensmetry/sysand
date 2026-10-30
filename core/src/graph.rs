@@ -53,9 +53,7 @@ impl<N: Clone + Debug + Display + Eq + Hash> DependencyGraph<N> {
     /// Returns `false`, having changed nothing, if either endpoint is not
     /// a node of this graph: a project's usages routinely name projects
     /// outside it (a workspace member depending on something that is not a
-    /// member), and such a usage is not an edge of this graph. Adding the
-    /// endpoint instead would put a project into an order it has no
-    /// business being in.
+    /// member), and such a usage is not an edge of this graph.
     pub fn add_edge(&mut self, dependent: &N, dependency: &N) -> bool {
         let (Some(from), Some(to)) = (self.index.get(dependent), self.index.get(dependency)) else {
             return false;

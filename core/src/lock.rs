@@ -284,16 +284,15 @@ impl Lock {
     ///
     /// Must run after the usage and name collision checks: a usage that
     /// names no project's first identifier is skipped here, so an
-    /// unsatisfied usage would silently produce no edge instead of the
-    /// error it is. An edge is a usage naming the *first* identifier of
+    /// unsatisfied usage would silently produce no edge. An edge is a usage naming the *first* identifier of
     /// the project satisfying it.
     ///
     /// Cycles are not checked here: a cycle is allowed when every project
     /// on it carries `stdlib`, which a lockfile entry cannot express.
     ///
     /// Release mismatches are warnings and are dropped here: a lockfile
-    /// is validated on every parse, so each command reports them once
-    /// through [`Self::warn_release_mismatches`] instead.
+    /// is validated on every parse, and each command reports them once
+    /// through [`Self::warn_release_mismatches`].
     fn validate_metamodel_edges(&self) -> Result<(), ValidationError> {
         self.check_metamodel_edges()
             .map(drop)
@@ -620,7 +619,7 @@ impl Lock {
         // This checks all of `validate`'s rules *after* sorting and
         // digest canonicalization -- the form that reaches a file.
         //
-        // An assertion, not an error: `canonicalize` returns `Self`, and
+        // An assertion: `canonicalize` returns `Self`, and
         // an invalid lock here is a caller bug (`Lock`'s fields are public).
         #[cfg(debug_assertions)]
         if let Err(error) = self.validate() {

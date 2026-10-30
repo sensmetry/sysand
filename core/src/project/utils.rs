@@ -277,7 +277,7 @@ pub mod wrapfs {
             .map_err(|e| Box::new(FsIoError::Canonicalize(path.as_ref().into(), e)))
     }
 
-    /// Same as `canonicalize`, but does not wrap the error
+    /// Same as `canonicalize`, with the raw `io::Error`
     pub fn canonicalize_raw<P: AsRef<Utf8Path>>(path: P) -> Result<Utf8PathBuf, io::Error> {
         let path = dunce::canonicalize(path.as_ref())?;
         Utf8PathBuf::from_path_buf(path)

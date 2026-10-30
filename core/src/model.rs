@@ -654,7 +654,7 @@ impl InterchangeProjectUsageRaw {
             } => {
                 // Reject malformed or non-normalized `pkg:sysand` IRIs here, so
                 // users get an actionable error with a suggested normalized form
-                // instead of a downstream "not found".
+                // before a downstream "not found".
                 crate::purl::parse_sysand_purl(resource).map_err(|e| {
                     InterchangeProjectValidationError::MalformedUsageSysandPurl {
                         iri: resource.clone(),
@@ -662,7 +662,7 @@ impl InterchangeProjectUsageRaw {
                     }
                 })?;
                 // `urn:sysand` identifiers are internal to Sysand; a project
-                // is used by its publisher and name instead
+                // is used by its publisher and name
                 if crate::project::utils::is_urn_sysand(resource) {
                     return Err(InterchangeProjectValidationError::UrnSysandUsage(
                         resource.clone(),

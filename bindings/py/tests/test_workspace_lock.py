@@ -52,7 +52,7 @@ def test_mutating_calls_fail_fast(tmp_path: Path) -> None:
         with pytest.raises(sysand.LockHeldError):
             sysand.env.env(path=root / ".sysand")
         assert not (root / ".sysand" / "env.toml").exists()
-        # Reading does not take the lock.
+        # Reading takes no lock.
         assert sysand.info_path(project_dir=str(root))[0]["name"] == "app"
         # Neither does a solve that does not write.
         sysand.lock(path=str(root), resolution=resolution, write=False)

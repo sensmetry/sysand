@@ -82,8 +82,7 @@ impl Usage {
     /// The publisher as *written*, which a standard-library usage does
     /// not write.
     ///
-    /// Not `omg`: that is the identity this usage resolves under, not a word
-    /// its author typed. [`Self::identity`] is where the fallback belongs.
+    /// The fallback to `omg` is applied by [`Self::identity`].
     pub fn publisher(&self) -> Option<&IndexPublisher> {
         match self {
             Self::SourcePath {
@@ -186,7 +185,7 @@ impl Usage {
 /// A group entry's `dir`/`kpar-path` is relative to the directory of the
 /// `model.toml` that defines the workspace, i.e. the workspace root,
 /// whichever member opts into it. A member's own `[[inline-usages]]` stay
-/// relative to the member. The base is therefore a property of where the usage came from, not of the usage.
+/// relative to the member. The base is therefore a property of where the usage came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UsageBase {
     /// The project's own directory.
@@ -249,7 +248,7 @@ impl LocatedUsage {
 
 /// One `[[inline-usages]]` entry of a *project*.
 ///
-/// Members opt in per usage, not for the array as a whole: an entry that
+/// Members opt in per usage: an entry that
 /// gives only the identity plus a `workspace` marker takes the matching
 /// group entry whole.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -405,7 +404,7 @@ pub struct UsageRaw {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub branch: Option<String>,
     /// The per-entry opt-in marker, written
-    /// directly among the entry's keys (`workspace = true`), not as the
+    /// directly among the entry's keys (`workspace = true`), unlike the
     /// `<key>.workspace` table a metadata key uses.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace: Option<InheritMarker>,

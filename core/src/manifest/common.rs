@@ -302,7 +302,7 @@ pub enum PathProblem {
     /// Absolute on either family of operating system.
     Absolute,
     /// Empty, or carrying a `.` or `..` component, or a repeated or
-    /// leading slash: not the one form Sysand itself writes.
+    /// leading slash.
     NotStrict,
     /// Neither `.kerml` nor `.sysml`.
     NotModelFile,

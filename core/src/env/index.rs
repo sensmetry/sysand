@@ -338,7 +338,7 @@ impl<Policy: HTTPAuthentication> IndexEnvironmentAsync<Policy> {
 /// Validate every entry's required fields (semver parse, no build
 /// metadata, digest shape, uniqueness) and emit the
 /// `AdvertisedVersion`s the rest of the crate consumes. Runs at
-/// fetch/cache time, not per-materialization.
+/// fetch/cache time.
 ///
 /// Ordering is checked at ingest on the parsed `semver::Version`, not
 /// lexically; violations surface as
@@ -474,7 +474,7 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
         }
 
         // Build leaf URLs from the validated version (i.e. the `Display` of
-        // the parsed `semver::Version`), not the caller-supplied string.
+        // the parsed `semver::Version`).
         let advertised_version = advertised.version.to_string();
         let kpar_url = endpoints.kpar_url(&uri, &advertised_version)?;
         let project_json_url = endpoints.project_json_url(&uri, &advertised_version)?;

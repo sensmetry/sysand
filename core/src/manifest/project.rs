@@ -130,7 +130,7 @@ pub struct ResolvedProject {
     pub name: IndexName,
     pub publisher: IndexPublisher,
     pub version: Version,
-    /// Carried straight over: `sources` is never inherited.
+    /// Carried straight over: `sources` is per project.
     pub sources: Sources,
     pub license: Option<Expression>,
     pub description: Option<String>,

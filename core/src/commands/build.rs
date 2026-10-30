@@ -28,8 +28,7 @@ use crate::{
 };
 
 #[derive(Default, Copy, Clone, Debug, PartialEq, Eq)]
-// Currently python interop is done with strings instead
-// to have less boilerplate
+// Python interop is done with strings to have less boilerplate
 // #[cfg_attr(feature = "python", pyclass(eq))]
 pub enum KparCompressionMethod {
     /// Store the files as is
@@ -350,9 +349,8 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         source: e,
     })?;
 
-    // The rules that belong to the archive and not to the view (see
-    // `kpar_view`'s module doc), and the `created` the view does
-    // not record.
+    // The rules that belong to the archive (see `kpar_view`'s module
+    // doc), and the `created` the view omits.
     //
     // Gated on the format: a json `.project.json` may legally carry a
     // `pkg:sysand/omg/...` resource, and a json project with a typed
@@ -371,8 +369,8 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         let root = project.project_root();
         for (located, raw) in manifest.usages.iter().zip(info.usage.iter_mut()) {
             // An inherited usage's paths are relative to the workspace
-            // root, not the project's, and nothing here carries that
-            // base, so such a usage is refused.
+            // root and nothing here carries that base, so such a usage is
+            // refused.
             if located.base != UsageBase::Project
                 && let Some(path) = located.usage.local_path()
             {
@@ -408,8 +406,8 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         }
 
         // `created` is the time of the build, so two builds of identical
-        // sources are not byte-identical. The view records the epoch: the
-        // clock is not one of a view's inputs.
+        // sources are not byte-identical. The view records the epoch, as
+        // the clock is not one of a view's inputs.
         meta.created = format_created(&jiff::Timestamp::now());
 
         // A project carrying `stdlib` has no publisher, so a locally built
@@ -482,8 +480,8 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         IndexMap::new()
     };
     let len = source_paths.len();
-    // A root-shaped document has `exports`, not `index`, and `--keep-index` has
-    // nothing to keep.
+    // A root-shaped document has `exports` in place of `index`, so
+    // `--keep-index` has nothing to keep.
     let root_shape = meta.root.is_some();
     if root_shape && !update_index {
         return Err(KParBuildError::KeepIndexOnRoot);
@@ -743,7 +741,7 @@ fn local_target_usage<E: ErrorBound>(
             Some(table) => LocalSrcProject::new_member(target, None, table.clone()),
             None => LocalSrcProject::new_access(target, None),
         };
-        // `manifest()` and not `version()`: the latter goes through
+        // `manifest()` is read: `version()` goes through
         // `get_info`, which for a toml target builds the whole KPAR
         // view -- reading, hashing and symbol-extracting every file the
         // target's `sources` lists. A target with one missing source
@@ -754,7 +752,7 @@ fn local_target_usage<E: ErrorBound>(
                 // A usage whose target carries `stdlib` is written as
                 // `resource = "<target's metamodel>/<target's
                 // stdlib>.kpar"` -- the metamodel supplies the prefix and
-                // release date -- instead of as a typed index usage.
+                // release date -- rather than as a typed index usage.
                 //
                 // Only the usage's form changes: the constraint stays the
                 // `^<version>` every other local target gets.
@@ -850,8 +848,7 @@ pub fn workspace_publish_order(
     // every cycle, so the order has none left to report.
     //
     // Every member is a node, whether or not its directory resolves: a
-    // member that cannot be read must fail with its own message, not
-    // vanish from the order.
+    // member that cannot be read fails with its own message.
     let mut graph = DependencyGraph::new();
     for member in &members {
         graph.add_node(member.dir.clone());
@@ -999,8 +996,7 @@ fn canonical_or(path: Utf8PathBuf) -> Utf8PathBuf {
 /// The `dir` usages a member declares, as written: what the publish
 /// order needs from it.
 ///
-/// For a toml member the reader is `manifest()`, not `usage()`: the
-/// latter goes through `get_info`, which builds the whole KPAR view --
+/// For a toml member the reader is `manifest()`: `usage()` goes through `get_info`, which builds the whole KPAR view --
 /// reading, hashing and symbol-extracting every source file the member
 /// lists. A json member has no `model.toml`, so it answers
 /// `NoTomlManifest` and its usages come from `.project.json`.

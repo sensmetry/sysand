@@ -200,8 +200,8 @@ impl LocalDirectoryEnvironment {
         self.lock.as_ref()
     }
 
-    /// Note a write that runs without an exclusive workspace lock. Not a
-    /// refusal: an embedder may serialize writers its own way.
+    /// Note a write that runs without an exclusive workspace lock; an
+    /// embedder may serialize writers its own way.
     fn note_unlocked_write(&self, what: &str) {
         if self.lock.is_none() {
             log::debug!(
@@ -269,8 +269,7 @@ impl LocalDirectoryEnvironment {
     // path names one project -- the type cannot tell its two roles apart. So a
     // `pkg:sysand` usage met only by the environment currently admits a
     // prerelease where the index would not. The fix is for the environment to
-    // say so when it constructs the project, rather than the project inferring
-    // it from its own shape.
+    // say so when it constructs the project.
     fn get_project_storage(&self, project: &EnvProject) -> LocalSrcProject {
         let relative = project.path.as_str();
         if project.editable {

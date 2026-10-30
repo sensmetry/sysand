@@ -7,7 +7,7 @@
 //!
 //! All persisted credentials live in one backend entry holding the
 //! versioned JSON blob from the parent module. Read-modify-write is
-//! guarded by an exclusive cross-process advisory OS file lock (never an
+//! guarded by an exclusive cross-process advisory OS file lock (not an
 //! existence-based lock file) and reads by its shared counterpart, both
 //! with a bounded wait.
 //!
@@ -158,7 +158,7 @@ fn musl_backend_absent() -> CredentialStoreError {
 /// Linux: `XDG_STATE_HOME` (via `dirs`, defaulting to `~/.local/state`),
 /// then the local data dir. macOS and Windows: the local data dir (the
 /// state dir is unset there). Both fall back to a dotdir in the home
-/// directory. Never a world-writable shared path, and deliberately never
+/// directory. The path is never world-writable, and deliberately not
 /// the session-scoped `XDG_RUNTIME_DIR`: it is often unset for cron,
 /// systemd, and container processes, so two same-user processes with
 /// different environments could lock different files while

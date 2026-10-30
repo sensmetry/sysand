@@ -495,7 +495,7 @@ impl<T: ToJObject> ToJObject for Option<T> {
             Some(v) => v.to_jobject(env),
             // `None` specifically indicates that exception was thrown
             // because of a failure. In general, having `Option<T>::None`
-            // is not a failure, so return `null` instead
+            // is not a failure, so return `null`
             None => Some(JObject::null()),
         }
     }
@@ -507,7 +507,7 @@ impl<T: ToJString> ToJString for Option<T> {
             Some(v) => v.to_jstring(env),
             // `None` specifically indicates that exception was thrown
             // because of a failure. In general, having `Option<T>::None`
-            // is not a failure, so return `null` instead
+            // is not a failure, so return `null`
             None => Some(JString::null()),
         }
     }

@@ -35,8 +35,8 @@ def test_missing_subcommand_is_two(tmp_path: Path) -> None:
 
 
 def test_runtime_failure_is_one(tmp_path: Path) -> None:
-    # No project in the directory, so this fails while running rather than
-    # while parsing, which a boolean could not tell from a usage error.
+    # No project in the directory, so this fails while running, which a
+    # boolean could not tell from a usage error.
     assert run_cli_in(tmp_path, "lock", "--no-config", "--no-index") == 1
 
 

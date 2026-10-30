@@ -900,8 +900,8 @@ fn lock_directory_usage_env_installed_dependency() -> Result<(), Box<dyn std::er
 }
 
 /// A `--as-local-src` override in the config file whose directory has since
-/// been deleted is authoritative: `lock` fails instead of silently falling back
-/// to the copy that is still installed in the env.
+/// been deleted is authoritative: `lock` fails, even though a copy is still
+/// installed in the env.
 #[test]
 fn lock_local_src_override_deleted() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "consumer", "1.0.0", None)?;
@@ -1236,7 +1236,7 @@ fn lock_reports_why_a_dir_usage_failed() -> Result<(), Box<dyn std::error::Error
 ///
 /// The capability the `kpar-url` narrowing must not take: an archive is
 /// a KPAR however it is spelled, and `kpar-path` cannot express an
-/// absolute path (`model-toml.md`, "Relative as for `dir`"), so a
+/// absolute path, so a
 /// `file:` URL is the only way to name one. A guard against the
 /// narrowing over-reaching.
 #[test]
@@ -1461,8 +1461,8 @@ fn cloning_does_not_carry_the_identity_check() -> Result<(), Box<dyn std::error:
     Ok(())
 }
 
-/// End to end. model-toml.md "Standard library": by default the
-/// standard library is "provided by the tooling" -- `lock` resolves the
+/// End to end. By default the standard library is provided by the
+/// tooling: `lock` resolves the
 /// publisher-less `kpar-url` against the metadata Sysand embeds, without
 /// network or index, and `sync` installs nothing.
 ///

@@ -21,7 +21,7 @@
 //! Every path the index names -- an archive under a version directory,
 //! `versions.json`, an enumerated `*.kpar` -- is canonicalized and must
 //! stay under the canonicalized root: a directory a user was
-//! handed is trusted less than an HTTP server, not more, and `..` or a
+//! handed is trusted no more than an HTTP server, and `..` or a
 //! symlink must not turn a dependency solve into a read elsewhere.
 //!
 //! There is no discovery step (`sysand-index-config.json` is never read:
@@ -505,7 +505,7 @@ impl ReadEnvironmentAsync for LocalIndexEnvironment {
         _version: V,
         _checksum: &crate::env::ProjectChecksum,
     ) -> Result<crate::env::ProjectChecksumResult, Self::ReadError> {
-        // As the HTTP index: an index is a resolution source, never the
+        // As the HTTP index: an index is a resolution source, not an
         // environment a lockfile is verified against.
         panic!("has_version_verified_async is not meaningful for an index")
     }

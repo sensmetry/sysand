@@ -38,10 +38,9 @@ pub struct ResolvedEndpoints {
     /// base URL or a `{path}` URL template.
     pub index_root: IndexLocation,
     /// Base URL of the sysand index API (where `v1/upload` lives). `None`
-    /// unless the discovery document advertises `api_root`; a plain
-    /// discovery root is not treated as an implicit API. An index that
-    /// does not advertise `api_root` is read-only from this client's
-    /// point of view.
+    /// unless the discovery document advertises `api_root`; an index
+    /// that does not advertise it is read-only from this client's point of
+    /// view.
     pub api_root: Option<url::Url>,
 }
 
@@ -231,7 +230,7 @@ pub async fn fetch_index_config<P: HTTPAuthentication>(
 }
 
 /// [`fetch_index_config`], except an absent document (HTTP 404) surfaces
-/// as [`HttpFetchError::BadHttpStatus`] instead of folding into the flat
+/// as [`HttpFetchError::BadHttpStatus`] and does not fold into the flat
 /// topology
 pub(crate) async fn fetch_index_config_strict<P: HTTPAuthentication>(
     client: &reqwest_middleware::ClientWithMiddleware,

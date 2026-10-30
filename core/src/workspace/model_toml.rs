@@ -780,8 +780,6 @@ fn load_member(
         }
         ProjectFormat::Both => {
             let json = json_manifest(&dir)?.expect("`Both` means one of the two is there");
-            // The clause is `LocalSrcError::AmbiguousFormat`'s, written
-            // out rather than stringified from it.
             report.push(
                 Diagnostic::error(format!(
                     "member `{raw}` has both `model.toml` and `{json}`; it is unclear whether it \

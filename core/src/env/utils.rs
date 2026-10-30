@@ -62,9 +62,9 @@ pub fn clone_project<P: ProjectRead, Q: ProjectMut>(
                     .map_err(CloneError::EnvWrite)?;
             }
             // A root-shaped document checksums every file in the archive, so the
-            // installed copy carries every one of them -- not only the
-            // model files, the readme and the licenses -- or it would
-            // not match its own `checksum`.
+            // installed copy carries every one of them (model files, readme,
+            // licenses and the rest), or it would not match its own
+            // `checksum`.
             if meta.root.is_some() {
                 let sources = meta.source_paths(true);
                 for key in meta.checksum.iter().flat_map(|checksum| checksum.keys()) {

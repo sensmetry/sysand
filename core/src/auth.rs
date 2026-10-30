@@ -908,7 +908,7 @@ pub(crate) fn stored_bearer_map_from_records(
         );
         for glob in &record.globs {
             // Validate each glob individually so one invalid pattern skips
-            // only itself, not every stored credential.
+            // only itself.
             if let Err(err) = GlobBuilder::new(glob).literal_separator(true).build() {
                 log::warn!(
                     "ignoring invalid stored credential URL pattern `{glob}` for `{}`:\n{err}",

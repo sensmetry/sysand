@@ -2042,7 +2042,7 @@ pub fn sysand_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(do_env_install_path_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_env_projects_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_discover_py, m)?)?;
-    // Currently this interop is done with strings instead
+    // Currently this interop is done with strings
     // m.add_class::<KparCompressionMethod>()?;
 
     m.add("DEFAULT_ENV_NAME", DEFAULT_ENV_NAME)?;

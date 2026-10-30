@@ -101,7 +101,7 @@ impl SpanIndex {
             Item::ArrayOfTables(tables) => {
                 for (index, table) in tables.iter().enumerate() {
                     path.push(index.to_string());
-                    // The `[[...]]` header, not the entry's body.
+                    // The `[[...]]` header.
                     self.insert(path, table.span());
                     self.walk_table(path, table);
                     path.pop();

@@ -10,11 +10,8 @@ pub use common::*;
 
 /// What `sysand init` writes, byte for byte.
 ///
-/// model-toml.md "Manifest version": "`sysand init`, `sysand new` and
-/// `sysand migrate` write the current value" -- so a new project is a
-/// `model.toml`, in the layout "Editing the manifest" fixes. The two
-/// json documents are what a build produces and what a legacy project
-/// has.
+/// A new project is a `model.toml` in a fixed layout. The two json
+/// documents are what a build produces and what a legacy project has.
 #[test]
 fn sysand_init_writes_a_model_toml() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
@@ -142,8 +139,8 @@ fn sysand_init_defaults_the_version() -> Result<(), Box<dyn std::error::Error>> 
 }
 
 /// A name the manifest rule refuses, taken from the directory. The
-/// message has to say where the fix is: not at the name, which the user
-/// never typed.
+/// message has to say where the fix is: the user never typed the name,
+/// so it points at `--name`.
 #[test]
 fn a_name_from_the_directory_names_the_name_flag() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, _cwd, out) = run_sysand(
@@ -222,7 +219,7 @@ fn a_publisher_the_rule_refuses_is_an_error() -> Result<(), Box<dyn std::error::
     Ok(())
 }
 
-/// `sysand new` is `sysand init`, as an alias: model-toml.md names both.
+/// `sysand new` is `sysand init`, as an alias.
 #[test]
 fn sysand_new_is_sysand_init() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
@@ -810,8 +807,8 @@ fn init_at_the_workspace_root_is_refused() -> Result<(), Box<dyn std::error::Err
     Ok(())
 }
 
-/// workspaces.md "Included projects": a project under the root in
-/// neither list is a hard error. Without it the author is told
+/// A project under the root in neither list is a hard error. Otherwise
+/// the author is told
 /// `model.toml` already exists, which says nothing about the workspace.
 #[test]
 fn init_in_an_unlisted_existing_project_is_refused() -> Result<(), Box<dyn std::error::Error>> {
@@ -933,9 +930,9 @@ fn manifest_of(dir: &Utf8Path, at: &str) -> Result<String, Box<dyn std::error::E
     Ok(std::fs::read_to_string(dir.join(at).join("model.toml"))?)
 }
 
-/// model-toml.md "Editing the manifest": `init`
-/// "take[s] it as a mandatory argument, erroring before writing
-/// anything if it is absent, with the message listing the four values".
+/// `init` takes the metamodel as a mandatory argument, erroring before
+/// writing anything if it is absent, with a message listing the four
+/// values.
 #[test]
 fn init_without_a_metamodel_is_refused() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
@@ -1046,8 +1043,8 @@ fn init_in_a_workspace_without_a_group_metamodel_is_refused()
     Ok(())
 }
 
-/// "A named group is not guessed at either -- to inherit from one, the
-/// member's marker is written afterwards."
+/// To inherit from a named group, the member's marker is written
+/// afterwards.
 #[test]
 fn init_does_not_guess_a_named_group() -> Result<(), Box<dyn std::error::Error>> {
     let dir = workspace(

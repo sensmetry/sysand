@@ -279,7 +279,7 @@ fn project_field_max_len() {
     let max = "a".repeat(PROJECT_FIELD_MAX_LEN);
     ProjectPublisher::parse(max.clone()).unwrap();
     ProjectName::parse(max).unwrap();
-    // Limit is in bytes, not chars (U+0105 is 2 bytes)
+    // Limit is in bytes (U+0105 is 2 bytes)
     for too_long in [
         "a".repeat(PROJECT_FIELD_MAX_LEN + 1),
         "\u{105}".repeat(PROJECT_FIELD_MAX_LEN / 2 + 1),
@@ -1132,7 +1132,7 @@ fn partial_still_fails_on_a_wrong_type() {
     assert_eq!(error.line(), 2);
 }
 
-/// A null list is an empty list, not a type error.
+/// A null list is an empty list.
 #[test]
 fn a_null_list_is_an_empty_list() {
     let validated = info_partial(r#"{"name": "n", "version": "1.0.0", "usage": null}"#)

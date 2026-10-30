@@ -179,8 +179,7 @@ impl Report {
 
     /// Put the diagnostics in the order the file reads.
     ///
-    /// Validation finds problems in the order its checks run, not the order
-    /// of the file. Sorting once at the end of a read lets a report with
+    /// Validation finds problems in the order its checks run. Sorting once at the end of a read lets a report with
     /// several problems be fixed from top to bottom.
     ///
     /// The sort is stable, so two diagnostics about the same key keep the
@@ -395,8 +394,7 @@ pub enum ReadWarning {
         key: String,
         supported_by: MetamodelFamily,
     },
-    /// A metamodel outside the recognized values is a warning, not an
-    /// error.
+    /// A metamodel outside the recognized values is a warning.
     UnknownMetamodel {
         location: KeyLocation,
         value: String,

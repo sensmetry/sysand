@@ -125,7 +125,7 @@ fn metamodel_for(
         return Ok(MetaProperty::Provided(metamodel.to_string()));
     }
     // Only the default group, and only for a project that is becoming a
-    // member: "a named group is not guessed at either".
+    // member.
     if member.is_some_and(|member| member.group_metamodel.is_some()) {
         return Ok(MetaProperty::Inherited(Inherited {
             from: InheritFrom::DefaultGroup,

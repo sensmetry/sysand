@@ -373,7 +373,7 @@ fn lock_projects<
         // same way it checks a `dir` or `kpar-path` one.
         //
         // A project with no `model.toml` answers `Err(NoTomlManifest)`,
-        // which is not an error: a json project declares no `kpar-url`
+        // which is expected: a json project declares no `kpar-url`
         // usages at all.
         let declared_identities: HashMap<String, (String, String)> = project
             .manifest()
@@ -642,8 +642,8 @@ fn lock_extend<
     // The metamodel edge checks, run before the lockfile is written.
     // Not a full `Lock::validate`: a lock at this point legitimately fails
     // the other rules: an input project may carry no identifier, and a
-    // source may lie outside the project root. Release mismatches are warnings, reported here rather than by
-    // a lockfile's validation, which runs on every read.
+    // source may lie outside the project root. Release mismatches are warnings, reported here;
+    // a lockfile's validation runs on every read.
     for mismatch in lock
         .check_metamodel_edges()
         .map_err(LockError::MetamodelDirection)?
@@ -681,7 +681,7 @@ impl TypedSpelling {
     /// [`Self::of`], and also a toml `kpar-url` usage that declares a
     /// publisher and name: the view cannot carry them (the resource usage
     /// is KerML's untyped one, where the IRI is the identity), so they
-    /// travel on the [`crate::resolve::ResolutionInfo`] instead, read off
+    /// travel on the [`crate::resolve::ResolutionInfo`], read off
     /// the manifest in [`do_lock_projects_with_bases`]. The target is then
     /// checked exactly as a `dir` or `kpar-path` target is.
     fn of_info(info: &crate::resolve::ResolutionInfo) -> Option<Self> {

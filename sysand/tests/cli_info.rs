@@ -1977,7 +1977,7 @@ fn edit_metamodel() -> Result<(), Box<dyn Error>> {
     run_sysand_in(project_path, ["edit", "--clear-metamodel"], None)?
         .assert()
         .success();
-    // An unset field prints nothing, not even an empty line
+    // An unset field prints nothing at all
     get_metamodel(Some(String::new()))?;
 
     Ok(())
@@ -2103,9 +2103,9 @@ fn toml_project_cwd() -> Result<(Utf8TempDir, Utf8PathBuf), Box<dyn Error>> {
     Ok((temp_dir, cwd))
 }
 
-/// model-toml.md "Editing the manifest": the verbs on the fields a build
-/// computes error on a toml project. Unlike every other key, this is not
-/// a "not yet": a `model.toml` has no room for these.
+/// The verbs on the fields a build computes error on a toml project. A
+/// `model.toml` has no room for these, so unlike every other key the
+/// refusal is permanent.
 #[test]
 fn edit_includes_derived_is_refused_on_a_toml_project() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd) = toml_project_cwd()?;
@@ -2134,8 +2134,7 @@ fn edit_clear_includes_implied_is_refused_on_a_toml_project() -> Result<(), Box<
     Ok(())
 }
 
-/// model-toml.md: "`info index get` may compute the map on the fly". It
-/// does, through the KPAR view.
+/// `info index get` computes the map on the fly, through the KPAR view.
 #[test]
 fn info_index_get_works_on_a_toml_project() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd) = toml_project_cwd()?;

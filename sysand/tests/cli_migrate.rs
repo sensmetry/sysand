@@ -135,8 +135,8 @@ fn migrate_refuses_a_directory_with_no_repository() -> Result<(), Box<dyn std::e
     Ok(())
 }
 
-/// model-toml.md "JSON to TOML": from a workspace root the command
-/// errors unless a path names the project.
+/// From a workspace root the command errors unless a path names the
+/// project.
 #[test]
 fn migrate_from_a_workspace_root_needs_a_path() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
@@ -491,8 +491,8 @@ fn a_file_usage_migrates_end_to_end() -> Result<(), Box<dyn std::error::Error>> 
 ///
 /// Asking whether the target is in a workspace must not fail on a file:
 /// testing `<target>/model.toml` there gives `Not a directory (os error
-/// 20)`. The design maps a `file:` resource to "kpar/source path"
-/// (`model-toml.md`), and this is the archive half.
+/// 20)`. A `file:` resource maps to a kpar or source path, and this is
+/// the archive half.
 ///
 /// `kpar-url` does not accept a directory, so a json `resource` naming
 /// an archive is exactly what should become `kpar-path`.
@@ -566,8 +566,7 @@ fn a_file_usage_to_a_publisherless_target_is_refused() -> Result<(), Box<dyn std
     Ok(())
 }
 
-/// model-toml.md "JSON to TOML": "print a warning about unknown fields
-/// and discard".
+/// Unknown fields are warned about and discarded.
 #[test]
 fn unknown_json_keys_warn() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
@@ -704,9 +703,8 @@ fn an_unlisted_target_is_not_given_the_table() -> Result<(), Box<dyn std::error:
     Ok(())
 }
 
-/// model-toml.md "JSON to TOML": "when the command is interactive it
-/// may prompt for it instead". Unix only, as every interactive test
-/// here is.
+/// When the command is interactive it may prompt for the metamodel.
+/// Unix only, as every interactive test here is.
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn the_prompt_supplies_a_publisher() -> Result<(), Box<dyn std::error::Error>> {
@@ -854,7 +852,7 @@ fn an_unconstrained_purl_is_pinned() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Migrating a dependency no index has is not something to guess at.
+/// Migrating a dependency no index has is refused.
 #[test]
 fn an_unconstrained_purl_that_resolves_to_nothing_is_refused()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -998,9 +996,8 @@ fn migrate_refuses_an_unrecognized_metamodel() -> Result<(), Box<dyn std::error:
     Ok(())
 }
 
-/// model-toml.md: "unless `--metamodel <url>` supplies a recognized
-/// value -- the same treatment `--publisher` gives the other key the
-/// json side may lack".
+/// `--metamodel <url>` supplies a recognized value, the same treatment
+/// `--publisher` gives the other key the json side may lack.
 #[test]
 fn migrate_takes_the_metamodel_from_the_flag() -> Result<(), Box<dyn std::error::Error>> {
     let kerml = "https://www.omg.org/spec/KerML/20250201";
@@ -1267,8 +1264,7 @@ fn both_refuses_a_model_toml_that_will_not_resolve() -> Result<(), Box<dyn std::
 }
 
 /// A json project holds seven things a `model.toml` can also hold, and
-/// deleting the pair takes whatever the toml lacks. The command says so
-/// rather than succeeding in silence.
+/// deleting the pair takes whatever the toml lacks. The command says so.
 #[test]
 fn both_warns_about_what_only_the_json_has() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;

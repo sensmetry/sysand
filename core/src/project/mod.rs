@@ -218,9 +218,8 @@ impl Display for ProjectChecksum {
 /// that kind; one with both is an error, as it is unclear whether it is
 /// a non-zipped KPAR or a development project.
 ///
-/// The json side is *either* of the two json manifests, not both: a
-/// directory holding only a `.meta.json` is a broken json project rather
-/// than a directory without one.
+/// The json side is *either* of the two json manifests: a directory
+/// holding only a `.meta.json` is a broken json project.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProjectFormat {
     Json,
@@ -304,7 +303,7 @@ pub trait ProjectRead {
         Ok(ProjectFormat::Json)
     }
 
-    /// The project's own manifest, rather than the KPAR view of it.
+    /// The project's own manifest.
     ///
     /// Only a `model.toml` project has one. The view drops what a
     /// `.project.json` has no room for -- the documentation and
@@ -843,7 +842,7 @@ pub trait ProjectReadAsync {
     fn project_root(&self) -> Option<&Utf8Path>;
 
     /// See [`ProjectRead::format`]. Deciding the format never waits on
-    /// anything, so the async side asks the same question the same way.
+    /// anything.
     fn format(&self) -> Result<ProjectFormat, Self::Error> {
         Ok(ProjectFormat::Json)
     }
@@ -1142,8 +1141,7 @@ pub trait ProjectMut: ProjectRead {
     ///
     /// The document is what [`crate::manifest::edit::render_new`] built
     /// or [`crate::manifest::edit::open`] parsed: one document type
-    /// serves generated and edited files, so a writer takes the type
-    /// rather than the text.
+    /// serves generated and edited files, so a writer takes the type.
     ///
     /// The default refuses.
     ///
@@ -1328,7 +1326,7 @@ pub struct AsSyncProjectTokio<T> {
 }
 
 impl<T> AsSyncProjectTokio<T> {
-    /// Bridge `inner` on `runtime`, never cancelled.
+    /// Bridge `inner` on `runtime`, with no cancellation.
     pub fn new(runtime: Arc<tokio::runtime::Runtime>, inner: T) -> Self {
         Self {
             runtime,

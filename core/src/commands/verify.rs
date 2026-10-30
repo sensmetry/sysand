@@ -286,8 +286,7 @@ fn verify_installed(
         return Ok(Some(MismatchKind::MissingFromDisk));
     };
     // Every file the manifest checksums, hashed from disk. First, so
-    // that a changed file is named rather than reported as a changed
-    // project digest. A json project installed from a source directory
+    // that a changed file is named in the report. A json project installed from a source directory
     // whose author wrote no `checksum` map has nothing here, and only
     // the manifests below are verified for it.
     if meta.checksum.is_none() {

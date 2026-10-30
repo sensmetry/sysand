@@ -1280,10 +1280,9 @@ fn publish_from_a_member_directory_publishes_only_that_member() -> TestResult {
 
 /// `--member <name>` from the root publishes exactly that member.
 ///
-/// This is the `--member` selector of the `publish` row of
-/// `workspaces.md`'s Command scopes table -- on the one command that
-/// uploads, where publishing the wrong scope cannot be undone by
-/// deleting a local artifact.
+/// This is the `--member` selector on the one command that uploads,
+/// where publishing the wrong scope cannot be undone by deleting a
+/// local artifact.
 ///
 /// The negative assertions use the qualified `example-pub1/<name>`, not
 /// the bare directory name: a member directory is called `alpha`, so a

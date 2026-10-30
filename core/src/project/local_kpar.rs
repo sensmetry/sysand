@@ -467,9 +467,9 @@ impl LocalKParProjectRaw {
     }
 
     /// A KPAR never carries a `model.toml`, so one beside the archive's project root is an
-    /// error rather than a file to ignore.
+    /// error.
     ///
-    /// Checked next to the project root, not anywhere in the archive: a
+    /// Checked next to the project root only: a
     /// `model.toml` deeper in is one of the project's own files.
     fn ensure_no_model_toml(&self, zip: &mut ZipArchive<File>) -> Result<(), LocalKParError> {
         match self.get_relative(zip, MODEL_TOML_FILE) {

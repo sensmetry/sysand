@@ -1285,7 +1285,7 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
             );
         }
 
-        // Reverse of `meta.index`: instead of symbol -> file, this is file -> symbols
+        // Reverse of `meta.index`: file -> symbols
         let mut symbols_for_files: HashMap<_, Vec<String>> = HashMap::new();
 
         for (symbol, src_file) in index {
@@ -1293,7 +1293,7 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
             // TODO: what about detecting duplicate exports? With our current design this is by
             // construction impossible.
             // Should probably change InterchangeProjectMetadataRaw to have Vec for checksum and
-            // index, instead of HashMap, which will silently discard duplicates; and then fail
+            // index, rather than HashMap, which will silently discard duplicates; and then fail
             // on `validate()`, as such metadata is always incorrect
             if !file_checksums.contains_key(&src_file) {
                 return Err(PublishError::MissingChecksumForFile {
@@ -1354,7 +1354,7 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
                         });
                     }
 
-                    // Guessed from the path, not forced: a SysML project may
+                    // Guessed from the path: a SysML project may
                     // carry `.kerml` files, and the two have different
                     // extractors.
                     let actual_symbols = extract_symbols(&src_file, &source, None)

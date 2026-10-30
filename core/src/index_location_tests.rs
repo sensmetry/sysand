@@ -188,8 +188,7 @@ fn encoded_braces_that_are_not_placeholders_are_accepted() {
 #[test]
 fn non_http_root_is_rejected_at_parse() {
     // A non-hierarchical scheme (`mailto:`) cannot anchor relative index
-    // paths; `IndexLocation` rejects it at construction rather than
-    // deferring to resolution.
+    // paths; `IndexLocation` rejects it at construction.
     assert_matches!(
         IndexLocation::parse("mailto:foo@example.org"),
         Err(IndexLocationError::UnsupportedScheme { url: _, scheme: _ })
@@ -318,7 +317,7 @@ fn template_prefix_normalizes_at_parse() {
         ),
         // A prefix ending in `..` or `.` is mid-segment text in every
         // expansion (`..{path}` names a `..foo` segment), so it must
-        // survive normalization instead of resolving as a dot segment.
+        // survive normalization.
         (
             "https://example.com/a/..{path}",
             "https://example.com/a/..{path}",
@@ -328,8 +327,7 @@ fn template_prefix_normalizes_at_parse() {
             "https://example.com/a/.{path}.json",
         ),
         // A space before the placeholder is likewise mid-segment: it
-        // normalizes to `%20` rather than being trimmed as trailing
-        // whitespace.
+        // normalizes to `%20`.
         (
             "https://example.com/a {path}",
             "https://example.com/a%20{path}",
@@ -425,7 +423,7 @@ fn index_source_classifies_paths() {
         IndexSource::parse("mirror"),
         Err(IndexLocationError::RelativeUrl { url: _ })
     );
-    // Braces in a path are a path's business, not a template's.
+    // Braces in a path are plain path text.
     assert_eq!(
         parse_source("./dir{x}"),
         IndexSource::Filesystem(camino::Utf8PathBuf::from("./dir{x}"))

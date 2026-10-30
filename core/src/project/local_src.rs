@@ -44,7 +44,7 @@ pub use crate::project::ProjectFormat;
 /// Which manifests `dir` holds.
 ///
 /// Uses `wrapfs::is_file`, so an IO error is reported and a *directory*
-/// named `.project.json` is not mistaken for a manifest.
+/// named `.project.json` is ignored.
 pub fn detect_format(dir: &Utf8Path) -> Result<ProjectFormat, Box<FsIoError>> {
     let toml = wrapfs::is_file(dir.join(MODEL_TOML_FILE))?;
     Ok(match (toml, json_manifest(dir)?.is_some()) {
@@ -314,8 +314,8 @@ pub enum EditInfoError<E> {
 impl LocalSrcProject {
     /// Read `.project.json` as a JSON document, apply `edit`, and write the
     /// document back pretty-printed with a trailing newline, but only if
-    /// `edit` changed it. An unchanged
-    /// document does not touch the file at all.
+    /// `edit` changed it; an unchanged
+    /// document leaves the file untouched.
     ///
     /// Every key the model does not know and the document's key order are
     /// kept (`serde_json` is built with `preserve_order`). The whole file is

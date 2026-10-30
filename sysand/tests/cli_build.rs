@@ -462,8 +462,7 @@ fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Explicit inheritance: a workspace `metamodel` reaches a member that
 /// asks for it with `metamodel.workspace = true`, and only then.
-/// `workspaces.md` has no workspace-level metamodel, so the member has
-/// to say so.
+/// The member has to say so.
 #[test]
 fn workspace_build_with_inherited_metamodel() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
@@ -501,7 +500,7 @@ fn workspace_build_with_inherited_metamodel() -> Result<(), Box<dyn std::error::
 ///
 /// The counterpart of the test above, and the whole difference between
 /// explicit inheritance and injecting the workspace's value. Every
-/// project declares a metamodel (model-toml.md "Metamodel"), so what
+/// project declares a metamodel, so what
 /// this proves is that the workspace's value does not leak into a
 /// member that did not ask.
 #[test]
@@ -636,7 +635,7 @@ fn project_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Build a project without any README file — should succeed
+/// Build a project without any README file; should succeed
 #[test]
 fn project_build_without_readme() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "test-no-readme", "1.2.3", None)?;
@@ -716,7 +715,7 @@ fn project_build_with_changelog() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Build a project without any CHANGELOG file — should succeed
+/// Build a project without any CHANGELOG file; should succeed
 #[test]
 fn project_build_without_changelog() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "test-no-changelog", "1.2.3", None)?;
@@ -772,7 +771,7 @@ fn workspace_build_with_changelog() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Build a project with a single SPDX license — the matching
+/// Build a project with a single SPDX license; the matching
 /// `LICENSES/<id>.txt` is included in the KPAR.
 #[test]
 fn project_build_with_single_license() -> Result<(), Box<dyn std::error::Error>> {
@@ -799,7 +798,7 @@ fn project_build_with_single_license() -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
-/// Build a project with a compound SPDX expression — both license files
+/// Build a project with a compound SPDX expression; both license files
 /// are included.
 #[test]
 fn project_build_with_compound_license() -> Result<(), Box<dyn std::error::Error>> {
@@ -838,7 +837,7 @@ fn project_build_with_compound_license() -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
-/// Build a project with a `WITH` exception — both the license and the
+/// Build a project with a `WITH` exception; both the license and the
 /// exception file are included.
 #[test]
 fn project_build_with_license_exception() -> Result<(), Box<dyn std::error::Error>> {
@@ -877,7 +876,7 @@ fn project_build_with_license_exception() -> Result<(), Box<dyn std::error::Erro
     Ok(())
 }
 
-/// Build a project with a custom `LicenseRef-` identifier — the matching
+/// Build a project with a custom `LicenseRef-` identifier; the matching
 /// file is bundled verbatim.
 #[test]
 fn project_build_with_license_ref() -> Result<(), Box<dyn std::error::Error>> {
@@ -910,7 +909,7 @@ fn project_build_with_license_ref() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Build a project that declares a license but ships no matching file —
+/// Build a project that declares a license but ships no matching file:
 /// the build succeeds and warns about the missing license file.
 #[test]
 fn project_build_with_license_file_missing() -> Result<(), Box<dyn std::error::Error>> {
@@ -932,7 +931,7 @@ fn project_build_with_license_file_missing() -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-/// Build a project without any license — no LICENSES/* entries are added.
+/// Build a project without any license; no LICENSES/* entries are added.
 #[test]
 fn project_build_without_license() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "test-no-license", "1.2.3", None)?;

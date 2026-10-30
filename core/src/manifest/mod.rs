@@ -193,7 +193,7 @@ impl ModelToml {
     /// encountered. The walk does not validate each ancestor: an
     /// unrelated file's missing `manifest-version` must not end it.
     ///
-    /// `Ok(None)` is a file with neither table: an answer, not an error.
+    /// `Ok(None)` is a file with neither table.
     ///
     /// A file with *both* tables answers `Workspace`. Such a file is invalid,
     /// and the walk learns so when it reads it.
@@ -291,7 +291,7 @@ fn manifest_version(source: &Source<'_>, top: &TableReader<'_>, report: &mut Rep
 /// writes TOML, so `manifest-version = "1.0"` is answered with what
 /// it wrote.
 ///
-/// Reporting happens here, not in the caller's match: `own`
+/// Reporting happens here: `own`
 /// short-circuits on an inheritance marker without calling this, so a
 /// report from the match would land on top of the marker's own error.
 fn read_version(

@@ -87,7 +87,7 @@ impl InMemoryProject {
 impl InMemoryProject {
     /// The KPAR view of this project's `model.toml`.
     ///
-    /// Rebuilt per call, not cached: a cached field would break the derived
+    /// Rebuilt per call: a cached field would break the derived
     /// `PartialEq`, `Eq` and `Clone`.
     fn view(
         &self,

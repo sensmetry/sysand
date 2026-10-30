@@ -145,7 +145,7 @@ pub enum ProcessOwnership {
 
 /// Run the CLI and return the exit code the process should report.
 ///
-/// A number rather than a [`std::process::ExitCode`], which cannot be
+/// Returned as a number, as a [`std::process::ExitCode`] cannot be
 /// inspected.
 ///
 /// For the process's own binary. An embedder wants [`lib_main_with`].
@@ -940,8 +940,7 @@ fn run_cli_with(
         (None, None) => get_env(&cwd),
     }
     .map_err(CliError::InvalidEnvironment)?;
-    // A shared lock is not handed on: the environment writes under an
-    // exclusive one only
+    // The environment writes under an exclusive lock only.
     let env = match (env, workspace_lock.clone().and_then(ExclusiveLock::new)) {
         (Some(mut env), Some(lock)) => {
             env.hold(lock)?;
@@ -1962,9 +1961,8 @@ fn consults_the_workspace(command: &cli::Command) -> bool {
 /// none when `root` is not a workspace root above `cwd`.
 ///
 /// Upward only, and stopping *below* the root: the root's own file is
-/// the one being used, not a stray. There is no downward scan: a
-/// member that is not an ancestor of `cwd` is never looked at, so a
-/// workspace with fifty members does not stat fifty directories.
+/// the one being used. Only ancestors of `cwd` are examined, so a
+/// workspace with fifty members costs no more than its depth.
 fn stray_configs(cwd: &Utf8Path, root: &Utf8Path) -> Result<Vec<Utf8PathBuf>> {
     let mut strays = Vec::new();
     let mut current = Some(cwd);
@@ -2010,8 +2008,6 @@ fn selected_member(
     let Selector::Member(selector) = selector else {
         return Ok(None);
     };
-    // Dropping the selector would act on the current project instead of
-    // the one the user named
     let Some(root) = workspace_root else {
         bail!("`--member {selector}` needs a workspace, but `{cwd}` is not in one");
     };

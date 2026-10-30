@@ -192,7 +192,7 @@ fn env_install_transitive_std_deps_note() -> Result<(), Box<dyn std::error::Erro
 */
 
 /// `sysand info` on a project whose only usage is a std lib prints the
-/// "All usages are ignored" note instead of an empty/misleading usage list.
+/// "All usages are ignored" note.
 #[test]
 fn info_all_usages_ignored_std_only() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "info-std-only", "1.2.3", None)?;
@@ -217,7 +217,7 @@ fn info_all_usages_ignored_std_only() -> Result<(), Box<dyn std::error::Error>> 
         ),
     );
 
-    // With --include-std, the usage is shown instead of being ignored.
+    // With --include-std, the usage is shown.
     run_sysand_in(&cwd, ["info", "--include-std"], None)?
         .assert()
         .success()
