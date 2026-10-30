@@ -8,11 +8,11 @@
 use std::collections::BTreeSet;
 use std::fmt::Display;
 
+use fluent_uri::Iri;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
 use typed_path::Utf8UnixPathBuf;
 
-use crate::manifest::serde_support::PathValue;
 use crate::model::{IndexName, IndexPublisher};
 use crate::purl::PKG_SYSAND_PREFIX;
 use crate::symbols::Language;
@@ -168,6 +168,14 @@ impl<'de> Deserialize<'de> for Maintainer {
     }
 }
 
+/// The three URLs as concrete values, with no marker left to follow.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ResolvedUrls {
+    pub website: Option<Iri<String>>,
+    pub documentation: Option<Iri<String>>,
+    pub repository: Option<Iri<String>>,
+}
+
 /// workspaces.md "Explicit inheritance": which group a `<key>.workspace`
 /// marker points at. `workspace = true` selects the implicit default group
 /// (keys written directly in `[workspace]`), `workspace = "group-name"` a
@@ -188,10 +196,10 @@ impl Display for InheritFrom {
 }
 
 /// The literal value of a `workspace` marker, before it is checked. Kept
-/// separate from [`InheritFrom`] so that the `workspace = false`
-/// explanation survives: matching the marker shape with an untagged enum
-/// discards the error of every variant it tries.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+/// separate from [`InheritFrom`] so that a value that is not a marker,
+/// `workspace = false` or an invalid group name, can be explained.
+/// Serialized untagged, as the bare `true` or `"group"` a file spells.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(untagged)]
 pub enum InheritMarker {
     Flag(bool),
@@ -224,6 +232,15 @@ pub enum InheritMarkerError {
     InvalidGroupName(String),
 }
 
+impl From<InheritFrom> for InheritMarker {
+    fn from(from: InheritFrom) -> Self {
+        match from {
+            InheritFrom::DefaultGroup => Self::Flag(true),
+            InheritFrom::Group(group) => Self::Group(group),
+        }
+    }
+}
+
 impl TryFrom<InheritMarker> for InheritFrom {
     type Error = InheritMarkerError;
 
@@ -235,34 +252,6 @@ impl TryFrom<InheritMarker> for InheritFrom {
             InheritMarker::Group(group) => Err(InheritMarkerError::InvalidGroupName(group)),
         }
     }
-}
-
-impl Serialize for InheritFrom {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        InheritMarkerTable {
-            workspace: match self {
-                Self::DefaultGroup => InheritMarker::Flag(true),
-                Self::Group(group) => InheritMarker::Group(group.clone()),
-            },
-        }
-        .serialize(serializer)
-    }
-}
-
-impl<'de> Deserialize<'de> for InheritFrom {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Self::try_from(InheritMarkerTable::deserialize(deserializer)?.workspace)
-            .map_err(serde::de::Error::custom)
-    }
-}
-
-/// The `{ workspace = <bool-or-string> }` table an inheritance marker is
-/// written as, matched where a plain value would otherwise be. Shared by
-/// [`InheritFrom`] (which accepts it) and [`Sources`] (which rejects it).
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct InheritMarkerTable {
-    pub workspace: InheritMarker,
 }
 
 /// Why an entry of `sources` is not one (model-toml.md `sources`).
@@ -321,9 +310,11 @@ pub enum SourcesError {
 ///
 /// `sources` "is per-project only: it cannot appear in `[workspace]` and
 /// cannot be inherited by a member ..., since the file layout of one
-/// project says nothing about another's". The hand-written `Deserialize`
-/// is what turns an attempted `sources.workspace = true` into that
-/// explanation rather than a bare type error.
+/// project says nothing about another's". Refusing an attempted
+/// `sources.workspace = true` with that explanation belongs to whoever
+/// reads the table -- [`crate::manifest::project`] for `[project]`,
+/// [`crate::manifest::workspace_table`] for a group -- since only a
+/// reader knows where the key was written.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Sources(Vec<Utf8UnixPathBuf>);
 
@@ -390,26 +381,6 @@ impl Sources {
 impl Serialize for Sources {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.collect_seq(self.0.iter().map(|path| path.as_str()))
-    }
-}
-
-impl<'de> Deserialize<'de> for Sources {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        #[serde(untagged)]
-        enum Raw {
-            List(Vec<PathValue>),
-            Inherited(#[expect(dead_code)] InheritMarkerTable),
-        }
-
-        match Raw::deserialize(deserializer)? {
-            Raw::List(paths) => Self::new(paths.into_iter().map(|p| p.0).collect())
-                .map_err(serde::de::Error::custom),
-            Raw::Inherited(_) => Err(serde::de::Error::custom(
-                "`sources` is per-project and cannot be inherited from the workspace: \
-                 every member writes out its own source files in full",
-            )),
-        }
     }
 }
 

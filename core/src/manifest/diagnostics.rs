@@ -37,10 +37,10 @@ impl Display for Severity {
 
 /// Where in which file a diagnostic was produced.
 ///
-/// The line and the column are resolved when the position is built, since
-/// that is the only place where the text of the file is at hand; the byte
-/// span a TOML document reports is kept alongside them for a renderer that
-/// wants to underline the offending key. `serde_json` reports a line and a
+/// The line and the column are resolved when the position is built, by
+/// the [`crate::manifest::spans::Source`] whose text the span measures;
+/// the byte span a TOML document reports is kept alongside them for a
+/// renderer that wants to underline the offending key. `serde_json` reports a line and a
 /// column and no offset, hence [`Position::at`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Position {
@@ -54,17 +54,6 @@ pub struct Position {
 }
 
 impl Position {
-    /// The position of `span.start` in `text`.
-    pub fn from_span(file: impl Into<String>, text: &str, span: Range<usize>) -> Self {
-        let (line, column) = line_column(text, span.start);
-        Self {
-            file: file.into(),
-            line,
-            column,
-            span: Some(span),
-        }
-    }
-
     /// A position reported as a line and a column, as `serde_json` does.
     pub fn at(file: impl Into<String>, line: usize, column: usize) -> Self {
         Self {
@@ -112,6 +101,20 @@ impl Diagnostic {
     pub fn at(mut self, position: Position) -> Self {
         self.position = Some(position);
         self
+    }
+
+    /// Attach a position if there is one to attach.
+    ///
+    /// A diagnostic about a key that is *missing* has no key to point at,
+    /// and a manifest that was not read from text has no positions at
+    /// all; both leave the diagnostic where it is rather than inventing
+    /// somewhere for it to be.
+    #[must_use]
+    pub fn at_opt(self, position: Option<Position>) -> Self {
+        match position {
+            Some(position) => self.at(position),
+            None => self,
+        }
     }
 }
 
@@ -167,8 +170,38 @@ impl Report {
             .filter(|diagnostic| diagnostic.severity == Severity::Warning)
     }
 
+    /// The diagnostics, for a caller that folds one report into another.
+    pub fn into_diagnostics(self) -> Vec<Diagnostic> {
+        self.0
+    }
+
     pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.0
+    }
+
+    /// Put the diagnostics in the order the file reads.
+    ///
+    /// Validation finds problems in the order its checks run - field
+    /// order for the keys a table knows, then the ones it does not - which
+    /// is not the order the reader works through the file in. Sorting once at the
+    /// end of a read is what makes a report with several problems
+    /// something that can be fixed from top to bottom.
+    ///
+    /// The sort is stable, so two diagnostics about the same key keep the
+    /// order the checks found them in, and a diagnostic with no position
+    /// sorts after every diagnostic that has one.
+    pub fn sort_by_position(&mut self) {
+        self.0.sort_by_key(|diagnostic| {
+            diagnostic
+                .position
+                .as_ref()
+                .map_or((1, usize::MAX, usize::MAX), |position| {
+                    match &position.span {
+                        Some(span) => (0, span.start, 0),
+                        None => (0, usize::MAX, position.line),
+                    }
+                })
+        });
     }
 
     /// The end of every validating function: `value` is only produced if
@@ -246,6 +279,12 @@ impl<T> Validated<T> {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct UnknownKeys(Vec<String>);
 
+impl FromIterator<String> for UnknownKeys {
+    fn from_iter<I: IntoIterator<Item = String>>(iter: I) -> Self {
+        Self(iter.into_iter().collect())
+    }
+}
+
 impl UnknownKeys {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
@@ -318,6 +357,9 @@ pub enum KeyLocation {
     Table(String),
     /// The top level of a `model.toml`.
     TopLevel,
+    /// An array of tables of a `model.toml`, named without its brackets
+    /// (`inline-usages`, `workspace.group.legacy.inline-usages`).
+    ArrayTable(String),
     /// A json manifest, named by its file name (`.project.json`).
     File(String),
 }
@@ -326,6 +368,7 @@ impl Display for KeyLocation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Table(table) => write!(f, "`[{table}]`"),
+            Self::ArrayTable(table) => write!(f, "`[[{table}]]`"),
             Self::TopLevel => f.write_str("the top level"),
             Self::File(file) => write!(f, "`{file}`"),
         }
@@ -441,19 +484,6 @@ pub fn unsupported_metamodel_suffix(metamodel: &str) -> String {
         "; this may be because the project uses a metamodel this version of Sysand does not \
          support: `{metamodel}`"
     )
-}
-
-/// The 1-based line and character column of `offset` in `text`.
-fn line_column(text: &str, offset: usize) -> (usize, usize) {
-    let before = text.get(..offset).unwrap_or(text);
-    let line = before.bytes().filter(|byte| *byte == b'\n').count() + 1;
-    let column = before
-        .rsplit_once('\n')
-        .map_or(before, |(_, last)| last)
-        .chars()
-        .count()
-        + 1;
-    (line, column)
 }
 
 #[cfg(test)]
