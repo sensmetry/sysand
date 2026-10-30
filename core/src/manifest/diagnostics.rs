@@ -169,7 +169,7 @@ impl Report {
             .filter(|diagnostic| diagnostic.severity == Severity::Warning)
     }
 
-    /// The diagnostics, for a caller that folds one report into another.
+    /// The diagnostics, consuming the report.
     pub fn into_diagnostics(self) -> Vec<Diagnostic> {
         self.0
     }

@@ -599,10 +599,6 @@ pub fn top_level_kerml<S: AsRef<str>>(source: S) -> Result<Vec<String>, ExtractE
 }
 
 /// Why [`top_level_symbols`] could not index a file.
-///
-/// Narrower than the error of any one command, so that a caller which
-/// only extracts symbols does not have to name a project-read or IO
-/// failure it cannot produce.
 #[derive(Debug, Error)]
 pub enum SymbolsError {
     #[error("failed to extract symbol names from `{0}`: {1}")]

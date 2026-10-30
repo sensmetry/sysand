@@ -565,9 +565,9 @@ fn a_model_toml_project_gives_its_manifest() {
     );
 }
 
-/// The reason the seam exists: a `.project.json` has no room for some of
-/// what a `model.toml` says (`urls.repository` and `urls.documentation`,
-/// for one), so a caller that needs it comes here.
+/// A `.project.json` has no room for some of what a `model.toml` says
+/// (`urls.repository` and `urls.documentation`, for one), and the manifest
+/// carries it.
 #[test]
 fn a_manifest_carries_what_the_view_drops() {
     let dir = tempdir().expect("a temporary directory");

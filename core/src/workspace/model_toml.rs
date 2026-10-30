@@ -447,10 +447,6 @@ impl From<ClassifyError> for DiscoverError {
 }
 
 /// Why `--member <path-or-name>` did not pick one member.
-///
-/// Its own type rather than a [`DiscoverError`]: selecting a member does
-/// no I/O and no discovery, and a caller that only selects should not
-/// have to match on variants that cannot occur.
 #[derive(Debug, Error)]
 pub enum SelectError {
     #[error("the workspace at `{root}` has no member `{selector}`; it has {known}")]
@@ -1127,8 +1123,7 @@ pub fn project_at_path(
     }
 }
 
-/// Where a path sits relative to a workspace, for a caller that holds
-/// the path.
+/// Where a path sits relative to a workspace.
 ///
 /// Three answers, because "not a member" hides the
 /// distinction that matters: an excluded project is *deliberately*

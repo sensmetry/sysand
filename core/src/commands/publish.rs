@@ -1091,8 +1091,7 @@ pub struct PublishPreparation {
 }
 
 impl PublishPreparation {
-    /// `<publisher>/<name> v<version>`, for a caller reporting which of
-    /// several archives it is working on.
+    /// `<publisher>/<name> v<version>`.
     pub fn identity(&self) -> String {
         format!(
             "{}/{} v{}",

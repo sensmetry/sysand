@@ -309,7 +309,7 @@ pub trait ProjectRead {
     /// Only a `model.toml` project has one. The view drops what a
     /// `.project.json` has no room for -- the documentation and
     /// repository urls, `stdlib`, and, in a built archive, a usage's
-    /// declared kind -- so a caller that needs any of those comes here.
+    /// declared kind.
     ///
     /// The default refuses. Converting a json project's documents into
     /// the manifest model is a command of its own: it fails for a
@@ -322,8 +322,7 @@ pub trait ProjectRead {
         Err(ManifestError::NoTomlManifest)
     }
 
-    /// The project's manifest as a document, for a caller that means to
-    /// edit it.
+    /// The project's manifest as a document.
     ///
     /// [`ProjectRead::manifest`] returns the *values*, with inheritance
     /// markers followed; this returns what the file says, comments and

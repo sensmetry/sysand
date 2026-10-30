@@ -244,10 +244,7 @@ fn manifest_error<E: crate::env::utils::ErrorBound>(
 /// Extract top level symbols from `source`, using `path` for diagnostics
 /// only.
 ///
-/// A thin wrapper over [`crate::symbols::top_level_symbols`], which is
-/// what a caller that is not a command should use: the two failures are
-/// the same, and this one only widens them into the error `do_include`
-/// returns.
+/// A thin wrapper over [`crate::symbols::top_level_symbols`].
 pub fn extract_symbols<P: AsRef<Utf8UnixPath>, S: AsRef<str>, T>(
     path: &P,
     source: S,
