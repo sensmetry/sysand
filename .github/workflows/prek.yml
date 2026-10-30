@@ -2,7 +2,7 @@ name: Prek (linting and formatting)
 
 on:
   push:
-    branches: [main]
+    branches: [main, fix/format-version-errors-on-4f6d5e53]
     tags: ["v*"]
   pull_request:
     branches: [main]
