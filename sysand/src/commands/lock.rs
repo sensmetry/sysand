@@ -105,11 +105,10 @@ pub fn resolve_lock<P: AsRef<Utf8UnixPath>, Policy: HTTPAuthentication, R: AsRef
 /// Lock a whole `model.toml` workspace, and write the one lockfile at
 /// its root.
 ///
-/// Not `resolve_lock`/`command_lock`: the first is hardwired to
-/// `do_lock_local_editable`, and the second writes to its `path`
-/// argument, which is the *nominal editable path* of the project being
-/// locked -- so passing the workspace root there would also change what
-/// the lockfile records as editable.
+/// The single-project locking path takes a *nominal editable path* for
+/// the project being locked, so passing the workspace root there would
+/// also change what the lockfile records as editable; hence a separate
+/// function.
 pub fn command_lock_workspace<Policy: HTTPAuthentication>(
     root: &Utf8Path,
     resolution_opts: ResolutionOptions,

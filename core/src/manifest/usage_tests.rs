@@ -114,9 +114,8 @@ fn name(raw: &str) -> IndexName {
 // ----------------------------------------------------------------------
 // The raw shape.
 
-/// model-toml.md "Usages" fixes the key set; `git`/`rev`/`tag`/`branch`
-/// are recognized so that declaring one can be refused as the
-/// postponement it is, rather than as an unknown key.
+/// `git`/`rev`/`tag`/`branch` are recognized so that declaring one can be
+/// refused as the postponement it is, rather than as an unknown key.
 #[test]
 fn a_usage_entry_deserializes_every_recognized_key() {
     let (raws, _) = read(&one(concat!(
@@ -147,8 +146,7 @@ fn a_usage_entry_deserializes_every_recognized_key() {
     assert!(raw.unknown.is_empty());
 }
 
-/// model-toml.md "Reading and validating": parsing never fails on
-/// content, so an unknown key is collected and a value of the wrong
+/// Parsing never fails on content, so an unknown key is collected and a value of the wrong
 /// shape is carried to validation rather than stopping the read.
 #[test]
 fn unaccepted_keys_are_collected_not_dropped() {
@@ -198,8 +196,7 @@ fn a_usage_raw_round_trips_through_toml() {
 // ----------------------------------------------------------------------
 // Values and kind detection.
 
-/// model-toml.md "Usages": "an index usage is the entry that carries
-/// none" of the kind keys.
+/// An index usage is the entry that carries none of the kind keys.
 #[test]
 fn a_usage_without_a_kind_key_is_an_index_usage() {
     assert_eq!(
@@ -260,8 +257,7 @@ fn an_invalid_kpar_url_is_reported() {
     assert_eq!(places(&report), [(4, 1)]);
 }
 
-/// model-toml.md "Usages": a local path is taken exactly as written, so
-/// only the normal form is admitted -- `..` may lead, since such a path
+/// A local path is taken exactly as written, so only the normal form is admitted -- `..` may lead, since such a path
 /// may leave the directory it is relative to, and an absolute path keeps
 /// its root.
 #[test]
@@ -339,9 +335,7 @@ fn a_local_path_is_normalized_into_the_form_a_manifest_admits() {
     }
 }
 
-/// model-toml.md gives a version requirement only to the index kind;
-/// "remote-kpar: url, publisher, name -- ... version constraint not
-/// supported". The `kpar-url` text says why, so the three kinds do not
+/// Only the index kind takes a version requirement. The `kpar-url` text says why, so the three kinds do not
 /// share one sentence: a `dir` usage's author is not helped by being
 /// told that an IRI names one release.
 #[test]
@@ -371,8 +365,8 @@ fn only_index_usages_take_a_version_constraint() {
     }
 }
 
-/// model-toml.md: "index: publisher, name, version constraint". An entry
-/// with no kind key is an index usage, so a missing `version` is a
+/// An index usage takes a publisher, a name and a version constraint. An
+/// entry with no kind key is an index usage, so a missing `version` is a
 /// missing constraint rather than a missing kind.
 #[test]
 fn an_index_usage_requires_a_version() {
@@ -387,8 +381,7 @@ fn an_index_usage_requires_a_version() {
     assert_eq!(places(&report), [(1, 1)]);
 }
 
-/// model-toml.md: of the kind keys, "at most one may be
-/// present".
+/// At most one of the kind keys may be present.
 #[test]
 fn a_usage_carrying_two_kind_keys_is_rejected() {
     for kinds in [
@@ -407,8 +400,7 @@ fn a_usage_carrying_two_kind_keys_is_rejected() {
 }
 
 /// Every usage carries a publisher except a standard-library usage,
-/// which is the one entry model-toml.md says `publisher` "is absent
-/// [for], which is allowed here and nowhere else".
+/// which is the one entry that may omit `publisher`.
 #[test]
 fn every_usage_names_its_publisher() {
     let report = rejected("name = \"lib\"\nversion = \"^1\"\n");
@@ -450,9 +442,8 @@ fn a_publisher_less_dir_usage_is_refused() {
     );
 }
 
-/// model-toml.md "Standard library": such a usage declares no
-/// `publisher`, and "for the dependency graph and the lockfile [it] has
-/// the identity `(omg, <name>)`".
+/// Such a usage declares no `publisher`, and for the dependency graph
+/// and the lockfile has the identity `(omg, <name>)`.
 #[test]
 fn a_publisher_less_kpar_url_at_an_omg_iri_is_accepted() {
     let usage = accepted(
@@ -553,9 +544,8 @@ fn a_usage_without_a_name_reports_a_missing_key() {
     );
 }
 
-/// model-toml.md names `git` a kind key and marks it "Postponed to after
-/// v1: not declarable in v1", which is what the reader says -- the same
-/// thing `sysand migrate` says about a git resource.
+/// `git` is a reserved kind key that is not declarable, which is what the
+/// reader says.
 #[test]
 fn git_usage_is_not_declarable() {
     let report = rejected(concat!(
@@ -591,10 +581,9 @@ fn git_usage_is_not_declarable() {
     );
 }
 
-/// workspaces.md "Unknown keys": "The one exception is a usage entry: an
-/// unknown key inside an `[[inline-usages]]` ... entry is an error",
-/// because a reader "cannot tell a kind key it does not know from any
-/// other unknown key".
+/// An unknown key inside an `[[inline-usages]]` entry is an error, because
+/// a reader cannot tell a kind key it does not know from any other
+/// unknown key.
 #[test]
 fn unknown_keys_in_a_usage_are_errors_not_warnings() {
     let report = rejected(concat!(
@@ -622,8 +611,7 @@ fn unknown_keys_in_a_usage_are_errors_not_warnings() {
     );
 }
 
-/// model-toml.md "Reading and validating": Sysand's validation "reports
-/// every problem it finds in one report".
+/// Validation reports every problem it finds in one report.
 #[test]
 fn a_usage_reports_every_problem_at_once() {
     let report = rejected("name = \"lib\"\nversion = \"^1\"\ncolour = \"red\"\n");
@@ -667,10 +655,9 @@ fn a_member_entry_without_a_marker_is_declared() {
     ));
 }
 
-/// workspaces.md "Common usages": "an entry that gives only the identity
-/// plus a `workspace` marker takes the matching group entry whole.
-/// `workspace = true` selects the default group, `workspace =
-/// "group-name"` a named one".
+/// An entry that gives only the identity plus a `workspace` marker takes
+/// the matching group entry whole. `workspace = true` selects the default
+/// group, `workspace = "group-name"` a named one.
 #[test]
 fn a_workspace_marker_makes_an_entry_an_opt_in() {
     // `at` is asserted on its own by
@@ -716,8 +703,8 @@ fn an_opt_in_records_where_its_marker_is() {
     assert_eq!((position.line, position.column), (4, 1));
 }
 
-/// workspaces.md: "The group entry is used as-is; the member cannot
-/// change any of its fields."
+/// The group entry is used as-is; the member cannot change any of its
+/// fields.
 #[test]
 fn an_opt_in_may_set_only_its_identity() {
     let report = rejected(concat!(
@@ -809,10 +796,9 @@ fn duplicates(text: &str) -> Vec<crate::manifest::diagnostics::Diagnostic> {
     check_duplicates(&entries, &positions)
 }
 
-/// model-toml.md "Normalization": "two entries whose identities normalize
-/// to the same value are the same project declared twice and are
-/// rejected, whether or not the two entries agree on kind or
-/// constraint".
+/// Two entries whose identities normalize to the same value are the same
+/// project declared twice and are rejected, whether or not the two
+/// entries agree on kind or constraint.
 #[test]
 fn usages_that_normalize_to_the_same_identity_are_duplicates() {
     let found = duplicates(concat!(
@@ -1028,9 +1014,8 @@ fn a_url_key_is_unknown() {
 
 // ------------------- the standard-library opt-in
 
-/// workspaces.md "Common usages": a standard-library group entry
-/// "carries no publisher, the target declaring none [...] an opt-in to
-/// such an entry likewise gives only `name` and the marker".
+/// A standard-library group entry carries no publisher; an opt-in to such
+/// an entry likewise gives only `name` and the marker.
 #[test]
 fn a_publisher_less_opt_in_is_accepted() {
     let member = member("name = \"Kernel Semantic Library\"\nworkspace = true\n");
@@ -1046,7 +1031,7 @@ fn a_publisher_less_opt_in_is_accepted() {
     assert!(publisher.is_none(), "{member:?}");
     assert_eq!(name.as_str(), "Kernel Semantic Library");
     // The same `(omg, <name>)` a declared standard-library usage has --
-    // so the two collide in one array, which workspaces.md requires.
+    // so the two collide in one array.
     assert_eq!(member.identity().publisher, "omg");
     assert_eq!(member.identity().name, "kernel-semantic-library");
 }

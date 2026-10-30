@@ -208,9 +208,8 @@ fn edit_list(
     Ok(())
 }
 
-/// model-toml.md "Editing the manifest": "the `sysand info` verbs on the
-/// fields a build computes -- `index`, `checksum`, `created`,
-/// `includesDerived`, `includesImplied` -- error on a toml project".
+/// Refuses the fields a build computes (`index`, `checksum`, `created`,
+/// `includesDerived`, `includesImplied`) on a toml project.
 ///
 /// The first three cannot reach here: `sysand edit` has no flag for them.
 /// These two can, and unlike every other key of a `model.toml` the answer
@@ -276,8 +275,7 @@ fn edit_meta(edits: &EditArgs, meta: &mut InterchangeProjectMetadataRaw) {
 
 // --- `model.toml` projects --------------------------------------------
 //
-// model-toml.md "Editing the manifest": the edits go into the existing
-// document in place. Three things make this more than a forwarding
+// The edits go into the existing document in place. Three things make this more than a forwarding
 // layer.
 //
 // The flags are named after `.project.json`'s fields and three of them
@@ -386,15 +384,13 @@ fn edit_toml(project: &mut LocalSrcProject, edits: &EditArgs) -> Result<()> {
     }
     let metamodel = match (edits.metamodel, &edits.custom_metamodel) {
         (Some(kind), _) => Some(omg_metamodel(kind, edits)),
-        // model-toml.md "Metamodel": a `model.toml` holds one of four
-        // values
+        // A `model.toml` holds one of the four recognized metamodels.
         (None, Some(metamodel)) => Some(crate::commands::check_metamodel(metamodel)?),
         (None, None) => None,
     };
     if let Some(metamodel) = metamodel {
         let value = metamodel.to_string();
-        // design/syside-metamodel.md, "Commands": a switch that changes
-        // the required keys is refused when the target schema's key is
+        // A switch that changes the required keys is refused when the target schema's key is
         // missing, and warns when it leaves a key behind that the target
         // schema does not use.
         let has_root = document
@@ -420,8 +416,7 @@ fn edit_toml(project: &mut LocalSrcProject, edits: &EditArgs) -> Result<()> {
         }
         edit::set_project_key(&mut document, ProjectKey::Metamodel, value.into())?;
     } else if edits.clear_metamodel {
-        // Every project declares one (model-toml.md "Metamodel": "in a
-        // `model.toml` it is mandatory"), so clearing it writes a file
+        // Every `model.toml` project must declare one, so clearing it writes a file
         // Sysand refuses to read. A json project has no such rule and
         // keeps the flag.
         bail!(

@@ -114,17 +114,15 @@ pub fn command_clone<Policy: HTTPAuthentication>(
     // TODO: Consider under which circumstances (if any)
     //       the workspace should carry over.
     let ctx = ProjectContext {
-        // The workspace does not carry over to the clone (see the TODO
-        // above).
+        // The workspace does not carry over to the clone.
         model_workspace_root: None,
         current_project: Some(local_project.clone()),
         current_directory: ctx.current_directory,
         // A clone creates a project outside any scope, so its config is
-        // its own; workspaces.md calls `clone` scope-free.
+        // its own.
         config_root: local_project.root_path().to_owned(),
         env: None,
-        // `clone` populates a fresh directory; no advisory lock (see
-        // `lock_mode` in `lib.rs`).
+        // `clone` populates a fresh directory; no advisory lock.
         workspace_lock: None,
         cancellation: ctx.cancellation,
     };
@@ -283,9 +281,8 @@ fn obtain_project<Policy: HTTPAuthentication>(
 
     // The *destination*, which is created rather than read: it holds no
     // manifest to resolve against a table, and classifying it would
-    // refuse a clone into a directory under a workspace root -- which
-    // `design/workspaces.md` says is exactly where a clone may land,
-    // since "`clone` creates a project outside any scope". Only the
+    // refuse a clone into a directory under a workspace root, which is
+    // allowed: `clone` creates a project outside any scope. Only the
     // source below is classified.
     let mut local_project = LocalSrcProject::new_access(project_path, None);
 

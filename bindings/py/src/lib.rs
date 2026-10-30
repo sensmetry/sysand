@@ -814,8 +814,7 @@ fn project_context(start: &Utf8Path, scope: Scope, lock: Option<LockMode>) -> Py
         env.hold(lock).map_err(|e| project_error(format_err(e)))?;
     }
     let config_root = match (&discovered, scope) {
-        // workspaces.md "Source overrides": a project-local
-        // `sysand.toml` belongs at the workspace root.
+        // A project-local `sysand.toml` belongs at the workspace root.
         (Some((workspace_root, _)), Scope::Workspace) => workspace_root.clone(),
         _ => root.clone(),
     };

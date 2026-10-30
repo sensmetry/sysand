@@ -101,9 +101,8 @@ fn without(key: &str) -> String {
     format!("{}\n", body.join("\n"))
 }
 
-/// Every key model-toml.md "Main project metadata" documents, plus one
-/// `[[inline-usages]]` entry per kind declarable in v1. Ported from the
-/// prototype's `FULL_PROJECT_TOML`.
+/// Every `[project]` key, plus one `[[inline-usages]]` entry per
+/// declarable kind.
 const FULL: &str = "\
 manifest-version = \"1.0\"
 
@@ -242,8 +241,8 @@ fn every_documented_key_is_read() {
     ));
 }
 
-/// model-toml.md "Reading and validating": every field is optional at
-/// parse time, and the missing ones are reported together, by Sysand.
+/// Every field is optional at parse time, and the missing ones are
+/// reported together, by Sysand.
 #[test]
 fn the_three_required_keys_are_reported_together() {
     let report = rejected("sources = []\n");
@@ -303,8 +302,7 @@ fn a_missing_key_does_not_name_the_metamodel() {
     );
 }
 
-/// model-toml.md `sources`: entries are normalized on read, and the rules
-/// of `Sources` apply. Each complaint points at the entry that caused it.
+/// The rules of `Sources` apply to every entry. Each complaint points at the entry that caused it.
 #[test]
 fn sources_entries_are_checked_and_positioned() {
     for (entries, fragment, column) in [
@@ -331,8 +329,7 @@ fn sources_entries_are_checked_and_positioned() {
     }
 }
 
-/// model-toml.md "Reading and validating": every problem is listed at
-/// once, so each bad entry is reported at itself -- and each repeat of an
+/// Every problem is listed at once, so each bad entry is reported at itself -- and each repeat of an
 /// entry is a duplicate of its own, not one complaint at the last copy.
 #[test]
 fn every_bad_sources_entry_is_reported_at_itself() {
@@ -346,10 +343,8 @@ fn every_bad_sources_entry_is_reported_at_itself() {
     assert_eq!(places(&report), [(5, 23), (5, 35), (5, 46)]);
 }
 
-/// model-toml.md: `sources` "cannot be inherited by a member ..., since
-/// the file layout of one project says nothing about another's". The
-/// half of `common_tests.rs`'s test of this name that survives the move
-/// off `serde`.
+/// `sources` cannot be inherited by a member, since the file layout of
+/// one project says nothing about another's.
 #[test]
 fn sources_cannot_be_inherited() {
     for marker in [
@@ -368,9 +363,9 @@ fn sources_cannot_be_inherited() {
     }
 }
 
-/// workspaces.md "Unknown keys": a warning, in `[project]` and in the
-/// `urls` table alike. Rule (a)'s suffix is gone from both: a
-/// `model.toml` with an unrecognized metamodel does not get this far.
+/// An unknown key is a warning, in `[project]` and in the `urls` table
+/// alike, without the unsupported-metamodel suffix: a `model.toml` with
+/// an unrecognized metamodel does not get this far.
 #[test]
 fn an_unknown_key_is_a_positioned_warning() {
     let validated = accepted(&format!("{RESOLVABLE}future-project-key = \"?\"\n"));
@@ -399,9 +394,8 @@ fn an_unknown_key_is_a_positioned_warning() {
     );
 }
 
-/// model-toml.md "Metamodel": "Exactly four values
-/// are recognized [...] A value matching none of the four shapes is an
-/// error naming the key and listing them." A URL of another family and
+/// Exactly four values are recognized; a value matching none of the four
+/// shapes is an error naming the key and listing them. A URL of another family and
 /// a value that is not a URL at all are one answer: neither is one of
 /// the four.
 #[test]
@@ -444,7 +438,7 @@ fn an_unrecognized_metamodel_does_not_decide_the_schema() {
 }
 
 // ---------------------------------------------------------------------
-// `root` (design/syside-metamodel.md). The key is read as written and
+// `root`. The key is read as written and
 // judged only once the family is known, in `resolve`.
 
 const OMG_SYSML: &str = "https://www.omg.org/spec/SysML/20250201";
@@ -627,8 +621,8 @@ fn root_membership_is_not_checked_when_sources_is_absent() {
 }
 
 /// `root` in an OMG project is a warning, raised where the family is known:
-/// model-toml.md "Metamodel", rule (b) -- an OMG project with `root` gets
-/// only the warning and is built from `sources`. *Whatever* the value: a
+/// An OMG project with `root` gets only the warning and is built from
+/// `sources`. *Whatever* the value: a
 /// path, a bool, an escaping path, an integer. None of them is judged, and
 /// the resolved project carries no `root`.
 #[test]
@@ -754,8 +748,7 @@ fn an_unreadable_metamodel_suppresses_the_root_warning() {
     );
 }
 
-/// workspaces.md "Common metadata" lists the keys a member may inherit.
-/// The port of the prototype's `project_inheritance_markers`.
+/// Every key a member may inherit takes a marker.
 #[test]
 fn every_inheritable_key_accepts_a_marker() {
     let read = manifest(
@@ -786,8 +779,7 @@ fn every_inheritable_key_accepts_a_marker() {
     }
 }
 
-/// workspaces.md: `urls` may be inherited "whole table or individual
-/// keys".
+/// `urls` may be inherited as a whole table or key by key.
 #[test]
 fn a_urls_table_inherits_whole_or_per_key() {
     let read = manifest(&format!(
@@ -812,8 +804,8 @@ fn a_urls_table_inherits_whole_or_per_key() {
     assert!(urls.documentation.is_none());
 }
 
-/// workspaces.md "Common metadata": every key that is deliberately
-/// outside inheritance says so in its own words.
+/// Every key that is deliberately outside inheritance says so in its own
+/// words.
 #[test]
 fn every_non_inheritable_key_refuses_a_marker() {
     for (key, reason) in [
@@ -843,9 +835,9 @@ fn every_non_inheritable_key_refuses_a_marker() {
     }
 }
 
-/// model-toml.md "Standard library": `stdlib` is "validated as a single
-/// path segment (`[A-Za-z0-9][A-Za-z0-9-]*`) so it cannot carry `/` or
-/// `..` into an IRI".
+/// `stdlib` is validated as a single path segment
+/// (`[A-Za-z0-9][A-Za-z0-9-]*`) so it cannot carry `/` or `..` into an
+/// IRI.
 #[test]
 fn stdlib_is_read_as_a_path_segment() {
     let read = manifest(
@@ -908,9 +900,9 @@ fn inline_usages_are_read_from_the_top_level() {
     assert!(read.inherits());
 }
 
-/// workspaces.md "Common usages": "Within any one array ... two entries
-/// of the same identity are rejected as duplicates ..., which includes an
-/// inherited entry colliding with one the member declares itself."
+/// Within any one array, two entries of the same identity are rejected as
+/// duplicates, which includes an inherited entry colliding with one the
+/// member declares itself.
 #[test]
 fn duplicate_usages_are_rejected_per_array() {
     let text = format!(
@@ -938,8 +930,7 @@ fn a_report_is_in_document_order() {
 // ----------------------------------------------------------------------
 // Resolving against a workspace
 
-/// Every key workspaces.md "Common metadata" lists, in the default group
-/// and in a named one.
+/// Every inheritable key, in the default group and in a named one.
 const WORKSPACE: &str = "\
 [workspace]
 members = [\"projects/a\"]
@@ -1001,8 +992,8 @@ fn unresolved(body: &str) -> Report {
     member(body).expect_err("the project does not resolve")
 }
 
-/// workspaces.md "Explicit inheritance": every inheritable key takes its
-/// value from the group its marker names.
+/// Every inheritable key takes its value from the group its marker
+/// names.
 #[test]
 fn a_member_inherits_every_key_from_the_default_group() {
     let project = resolved(
@@ -1056,8 +1047,8 @@ fn a_member_inherits_from_a_named_group() {
     assert_eq!(project.version.to_string(), "0.9.0");
 }
 
-/// workspaces.md: `urls` may be inherited as a whole table, which takes
-/// the group's `urls` as it is.
+/// `urls` may be inherited as a whole table, which takes the group's
+/// `urls` as it is.
 #[test]
 fn a_whole_urls_table_is_inherited() {
     let project = resolved(&format!("{RESOLVABLE}urls.workspace = true\n"));
@@ -1090,9 +1081,8 @@ fn one_url_key_is_inherited_while_another_is_given() {
     assert!(project.urls.documentation.is_none());
 }
 
-/// workspaces.md: "A project that
-/// is not a member is outside every workspace regardless of where its
-/// directory sits."
+/// A project that is not a member is outside every workspace regardless
+/// of where its directory sits.
 #[test]
 fn a_marker_outside_a_workspace_is_an_error() {
     let report = manifest(
@@ -1127,8 +1117,8 @@ fn a_marker_outside_a_workspace_is_an_error() {
     );
 }
 
-/// workspaces.md: "A marker must find a value: naming a group that
-/// does not exist ... is an error."
+/// A marker must find a value: naming a group that does not exist is an
+/// error.
 #[test]
 fn a_marker_naming_a_group_that_does_not_exist_is_an_error() {
     let report = unresolved(&format!("{RESOLVABLE}license.workspace = \"nope\"\n"));
@@ -1173,9 +1163,9 @@ fn every_failing_marker_is_reported() {
     assert!(is_ascending(&places(&report)), "{:?}", places(&report));
 }
 
-/// workspaces.md "Common usages": an opt-in "takes the matching group
-/// entry whole", and a group entry's `dir` is relative to the workspace
-/// root "whichever member opts into it".
+/// An opt-in takes the matching group entry whole, and a group entry's
+/// `dir` is relative to the workspace root whichever member opts into
+/// it.
 #[test]
 fn an_opt_in_takes_the_group_entry_whole() {
     let text = format!(
@@ -1216,9 +1206,8 @@ fn an_opt_in_takes_the_group_entry_whole() {
     );
 }
 
-/// model-toml.md "Normalization": group matching is one of the literal
-/// comparisons, "so an opt-in entry has to spell publisher and name
-/// exactly as the group entry does".
+/// Group matching is one of the literal comparisons, so an opt-in entry
+/// has to spell publisher and name exactly as the group entry does.
 #[test]
 fn an_opt_in_matches_publisher_and_name_literally() {
     let text = format!(
@@ -1260,9 +1249,8 @@ fn an_opt_in_naming_a_group_that_does_not_exist_is_an_error() {
     );
 }
 
-/// model-toml.md `sources`: "Always required for the OMG metamodel ... a
-/// project that has none is written as `sources = []`." Checked after
-/// inheritance, since the metamodel may itself be inherited.
+/// `sources` is required for the OMG metamodel; a project that has none
+/// is written as `sources = []`. Checked after inheritance, since the metamodel may itself be inherited.
 #[test]
 fn sources_is_required_after_inheritance() {
     let report = manifest(&format!(
@@ -1312,9 +1300,9 @@ fn an_unrecognized_metamodel_hides_the_sources_check() {
     );
 }
 
-/// model-toml.md "Standard library": `stdlib` "is refused unless the
-/// project's publisher normalizes to `omg` and its metamodel, declared or
-/// inherited, is a recognized OMG one (the IRI needs its release date)".
+/// `stdlib` is refused unless the project's publisher normalizes to `omg`
+/// and its metamodel, declared or inherited, is a recognized OMG one (the
+/// IRI needs its release date).
 #[test]
 fn stdlib_is_refused_unless_the_project_is_the_standard_library() {
     let stdlib = |publisher: &str, metamodel: &str| {
@@ -1407,9 +1395,8 @@ fn an_inherited_metamodel_settles_the_sources_check() {
     );
 }
 
-/// workspaces.md: a marker-free non-member "reads as an ordinary
-/// standalone project", so a caller has to be able to ask before it
-/// resolves.
+/// A marker-free non-member reads as an ordinary standalone project, so
+/// it must be possible to ask before resolving.
 #[test]
 fn inherits_answers_before_resolving() {
     assert!(!manifest(RESOLVABLE).inherits());
@@ -1534,8 +1521,7 @@ fn a_built_manifest_without_sources_reports_it_without_a_position() {
 
 // -------------------------------------- the metamodel is mandatory
 
-/// model-toml.md "Metamodel": "`metamodel` is a URL,
-/// and in a `model.toml` it is mandatory."
+/// `metamodel` is mandatory in a `model.toml`.
 #[test]
 fn a_metamodel_is_required() {
     let report = manifest(&format!("{REQUIRED}sources = []\n"))
@@ -1552,8 +1538,8 @@ fn a_metamodel_is_required() {
     );
 }
 
-/// "Exactly four values are recognized -- two families, two spec kinds
-/// each." All four resolve, and the resolved project carries the kind
+/// Exactly four values are recognized -- two families, two spec kinds
+/// each. All four resolve, and the resolved project carries the kind
 /// rather than the string it was written as.
 #[test]
 fn each_of_the_four_metamodels_resolves() {
@@ -1602,8 +1588,8 @@ fn each_of_the_four_metamodels_resolves() {
     }
 }
 
-/// workspaces.md: "`metamodel.workspace = true` [...] satisfies its
-/// requirement in `[project]`" -- which is why the requirement is
+/// A `metamodel.workspace` marker satisfies the requirement in
+/// `[project]` -- which is why the requirement is
 /// checked after inheritance and not while the table is read.
 #[test]
 fn an_inherited_metamodel_satisfies_the_requirement() {
@@ -1664,7 +1650,7 @@ fn an_inherited_metamodel_decides_the_language() {
 // ------------------- opting into a standard-library group entry
 
 /// A workspace whose default group carries the standard library in the
-/// form workspaces.md shows: a publisher-less `kpar-url`.
+/// form of a publisher-less `kpar-url`.
 const STDLIB_WORKSPACE: &str = "manifest-version = \"1.0\"
 
 [workspace]
@@ -1680,8 +1666,8 @@ fn in_stdlib_workspace(body: &str) -> Result<Validated<ResolvedProject>, Report>
     manifest(body).resolve(Some(&workspace(STDLIB_WORKSPACE)))
 }
 
-/// workspaces.md "Common usages": "an opt-in to such an entry likewise
-/// gives only `name` and the marker", and takes the group entry whole.
+/// An opt-in to such an entry likewise gives only `name` and the marker,
+/// and takes the group entry whole.
 #[test]
 fn an_opt_in_takes_a_publisher_less_group_entry() {
     let project = in_stdlib_workspace(

@@ -61,8 +61,7 @@ pub fn clone_project<P: ProjectRead, Q: ProjectMut>(
                 to.write_source(source_path, &mut source, overwrite)
                     .map_err(CloneError::EnvWrite)?;
             }
-            // design/syside-metamodel.md, "The Syside KPAR": a root-shaped
-            // document checksums every file in the archive, so the
+            // A root-shaped document checksums every file in the archive, so the
             // installed copy carries every one of them -- not only the
             // model files, the readme and the licenses -- or it would
             // not match its own `checksum`.

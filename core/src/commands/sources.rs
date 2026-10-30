@@ -168,16 +168,12 @@ fn solve_dependencies<Env: ReadEnvironment + Debug + 'static>(
     );
 
     // `base_path` does not matter here, since the resolver only looks in env
-    // TODO: the caller knows the format of the project these usages came
-    // from, but `find_project_dependencies` is public and reached from the
-    // bindings, so the origin is not threaded through it yet. A toml
-    // project's own usages therefore resolve as json here, which decides
-    // not only which error a publisher-less target gets, but whether the
-    // pair is compared literally (model-toml.md "Normalization") or
-    // normalized. Nothing changes
-    // in practice, because this entry point resolves against the
-    // environment, which checks no identity at all -- but the day it
-    // resolves a path usage, the origin has to come with it.
+    // TODO: the origin of the usages is not threaded through this public
+    // entry point, so a toml project's own usages resolve as json here.
+    // That decides not only which error a publisher-less target gets, but
+    // whether the pair is compared literally or normalized. This makes no
+    // difference while it resolves against the environment, which checks
+    // no identity at all, but a path usage would need the origin.
     let requested = requested
         .into_iter()
         .map(|u| (u, UsageOrigin::Json))
@@ -306,8 +302,7 @@ pub fn do_sources_env(
     let identifier = match project {
         UsageRef::Resource(iri) => Identifier::from_iri(&iri),
         // FIXME: a spelling only finds the project if it gets the same kind of
-        // identifier as the spelling the project was installed under (see
-        // `Identifier::from_project`). E.g. a directory usage of
+        // identifier as the spelling the project was installed under. E.g. a directory usage of
         // `ACME Inc./Foo` is installed as `urn:sysand:acme-inc/foo`, so
         // `acme-inc/foo`, although its normalized form, looks up
         // `pkg:sysand/acme-inc/foo` and does not find it

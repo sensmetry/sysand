@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-//! Filesystem indexes end to end (`design/index-protocol.md` "Filesystem
-//! indexes"): a directory `sysand index` wrote and
+//! Filesystem indexes end to end: a directory `sysand index` wrote and
 //! a bare folder of archives, spelled as a path or a `file://` URL, as
 //! `--index` and as `--default-index`.
 //!

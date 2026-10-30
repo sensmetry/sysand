@@ -3,8 +3,8 @@
 
 //! One entry of `inline-usages`: a project this project uses.
 //!
-//! model-toml.md "Usages": "what a manifest declares is a *usage*
-//! (`dependency` clashes with SysML)". An entry appears in a project's own
+//! What a manifest declares is a *usage* (`dependency` clashes with
+//! SysML). An entry appears in a project's own
 //! array, where it may instead be an opt-in to a usage the workspace
 //! declares ([`MemberUsage`]), or in a workspace group's array, where it
 //! is always declared ([`Usage`]).
@@ -39,16 +39,14 @@ const MISSING: &str = "<none>";
 
 /// One project a manifest uses, with the kind it is resolved by.
 ///
-/// model-toml.md: "Which kind an entry declares is decided by its kind key
-/// -- `dir`, `kpar-path`, `git`, `kpar-url` -- of which at most one may be
-/// present; an index usage is the entry that carries none." The `git`
-/// kind is "postponed to after v1: not declarable in v1" and so has no
-/// variant here; `resource`, the KerML usage type json projects carry,
-/// "cannot be declared in `model.toml`" either and only exists on the
-/// KPAR side.
+/// The kind an entry declares is decided by its kind key -- `dir`,
+/// `kpar-path`, `kpar-url` -- of which at most one may be present; an
+/// index usage is the entry that carries none. The `git` kind is not
+/// declarable and has no variant here. `resource`, the KerML usage type
+/// json-shaped projects carry, is not a `model.toml` kind either.
 ///
-/// Every variant carries `publisher` and `name` as written: "that pair is
-/// the identity a usage is resolved by", and it is not normalized here.
+/// Every variant carries `publisher` and `name` as written: that pair is
+/// the identity a usage is resolved by, and it is not normalized here.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Usage {
     /// `source path: dir, publisher, name`.
@@ -64,19 +62,16 @@ pub enum Usage {
         kpar_path: Utf8UnixPathBuf,
     },
     /// `index: publisher, name, version constraint` -- the entry that
-    /// carries no kind key at all. "Index usages are implicit in v1: the
-    /// entry names no index."
+    /// carries no kind key at all. The entry names no index.
     Index {
         publisher: IndexPublisher,
         name: IndexName,
         version_constraint: semver::VersionReq,
     },
-    /// `remote-kpar: kpar-url, publisher, name`; "version constraint not
-    /// supported".
+    /// `remote-kpar: kpar-url, publisher, name`; no version constraint.
     ///
     /// The publisher is optional, and absent exactly for a
-    /// standard-library usage: model-toml.md "Standard library" says
-    /// `publisher` "is absent, which is allowed here and nowhere else".
+    /// standard-library usage, the one place it may be absent.
     /// Such a usage's identity is `(omg, <name>)`.
     RemoteKpar {
         publisher: Option<IndexPublisher>,
@@ -144,10 +139,9 @@ impl Usage {
         }
     }
 
-    /// model-toml.md "Normalization": "All projects are resolved by their
-    /// *normalized* identity, regardless of how the usage is declared."
-    /// model-toml.md "Standard library": a usage that declares no
-    /// publisher "has the identity `(omg, <name>)`".
+    /// Projects are resolved by their *normalized* identity, regardless
+    /// of how the usage is declared; a usage that declares no publisher
+    /// has the identity `(omg, <name>)`.
     pub fn identity(&self) -> NormalizedIdentity {
         normalized_identity(self.publisher().unwrap_or(&OMG_PUBLISHER), self.name())
     }
@@ -194,11 +188,10 @@ impl Usage {
 
 /// Which directory a usage's relative paths are joined onto.
 ///
-/// workspaces.md "Common usages": a group entry's `dir`/`kpar-path` "is
-/// relative to the directory of the `model.toml` that defines the
-/// workspace, i.e. the workspace root, whichever member opts into it. A
-/// member's own `[[inline-usages]]` stay relative to the member." The base
-/// is therefore a property of where the usage came from, not of the usage.
+/// A group entry's `dir`/`kpar-path` is relative to the directory of the
+/// `model.toml` that defines the workspace, i.e. the workspace root,
+/// whichever member opts into it. A member's own `[[inline-usages]]` stay
+/// relative to the member. The base is therefore a property of where the usage came from, not of the usage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UsageBase {
     /// The project's own directory.
@@ -241,8 +234,8 @@ impl LocatedUsage {
     /// # Panics
     ///
     /// If an inherited usage is resolved without a workspace root, which
-    /// cannot happen: a usage is only inherited by resolving it against
-    /// the workspace it came from.
+    /// cannot happen: a usage is inherited by resolving it against the
+    /// workspace it came from.
     pub fn resolve_local_path(
         &self,
         project_dir: &camino::Utf8Path,
@@ -261,19 +254,16 @@ impl LocatedUsage {
 
 /// One `[[inline-usages]]` entry of a *project*.
 ///
-/// workspaces.md "Common usages": "Members opt in per usage, not for the
-/// array as a whole: an entry that gives only the identity plus a
-/// `workspace` marker takes the matching group entry whole." A member may
-/// declare its own usages alongside inherited ones, so an entry is either.
+/// Members opt in per usage, not for the array as a whole: an entry that
+/// gives only the identity plus a `workspace` marker takes the matching
+/// group entry whole. A member may declare its own usages alongside inherited ones, so an entry is either.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MemberUsage {
     Declared(Usage),
     Inherited {
         /// Absent exactly when the entry opts into a *standard-library*
-        /// group entry. workspaces.md "Common usages": such an entry
-        /// "carries no publisher, the target declaring none [...] an
-        /// opt-in to such an entry likewise gives only `name` and the
-        /// marker".
+        /// group entry, which carries no publisher; the opt-in likewise
+        /// gives only `name` and the marker.
         publisher: Option<IndexPublisher>,
         name: IndexName,
         from: InheritFrom,
@@ -295,7 +285,7 @@ impl MemberUsage {
             // The same fallback `Usage::identity` makes: an opt-in
             // that omits its publisher opts into the standard library,
             // and must therefore collide with a `kpar-url` entry for the
-            // same library, which workspaces.md requires.
+            // same library.
             Self::Inherited {
                 publisher,
                 name,
@@ -308,8 +298,7 @@ impl MemberUsage {
 
 /// What a duplicate check needs of an entry, whichever array it came from.
 pub trait UsageEntry {
-    /// model-toml.md "Normalization": duplicates are the one comparison
-    /// that normalizes before resolution.
+    /// Duplicates are compared after normalization.
     fn normalized_identity(&self) -> NormalizedIdentity;
     /// The entry as written, for the message.
     fn label(&self) -> String;
@@ -398,21 +387,20 @@ fn borrowed(segments: &[String]) -> Vec<&str> {
 
 /// The `serde`-facing shape of one entry.
 ///
-/// model-toml.md "Reading and validating": "every field of every manifest
-/// ... is optional at parse time", and "whether its value has the right
-/// shape" is Sysand's to check, not serde's -- so every field is a plain
+/// Every field is optional at parse time, and whether its value has the
+/// right shape is Sysand's to check, not serde's -- so every field is a plain
 /// `String` and every value is parsed in [`UsageRaw::validate_member`].
 /// The alternative, validating inside `Deserialize`, makes one bad value
 /// anywhere abort the read of the whole file.
 ///
 /// `git`, `rev`, `tag` and `branch` are fields rather than unknown keys
-/// because model-toml.md names the git kind and postpones it; a reader
-/// that called them unknown would say they will never exist.
+/// because the git kind is reserved; a reader that called them unknown
+/// would say they will never exist.
 ///
 /// Read from a [`toml::Table`] rather than through `Deserialize`
 /// ([`UsageRaw::from_table`]): a derive fails the whole file on the first
-/// value of the wrong TOML type, which is the one thing "reports every
-/// problem it finds in one report" does not allow. `Serialize` stays,
+/// value of the wrong TOML type, which would not allow reporting every
+/// problem in one report. `Serialize` stays,
 /// for writing a usage back out through `From<Usage>`.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct UsageRaw {
@@ -427,7 +415,7 @@ pub struct UsageRaw {
     #[serde(rename = "kpar-path", skip_serializing_if = "Option::is_none")]
     pub kpar_path: Option<String>,
     /// The field keeps the name the types use; what a file spells is
-    /// `kpar-url` (model-toml.md "Usages").
+    /// `kpar-url`.
     #[serde(rename = "kpar-url", skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -438,13 +426,12 @@ pub struct UsageRaw {
     pub tag: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub branch: Option<String>,
-    /// workspaces.md "Common usages": the per-entry opt-in marker, written
+    /// The per-entry opt-in marker, written
     /// directly among the entry's keys (`workspace = true`), not as the
     /// `<key>.workspace` table a metadata key uses.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace: Option<InheritMarker>,
-    /// workspaces.md "Unknown keys": inside a usage entry an unknown key
-    /// is an error, so this set must be empty for the entry to be
+    /// Inside a usage entry an unknown key is an error, so this set must be empty for the entry to be
     /// accepted.
     #[serde(flatten)]
     pub unknown: UnknownKeys,
@@ -619,9 +606,8 @@ impl UsageRaw {
         let name = self.checked_name(site, positions, &mut report);
 
         // The kind is settled before the publisher, because it decides
-        // whether an absent `publisher` is allowed: model-toml.md
-        // "Standard library" exempts a `kpar-url` naming an OMG
-        // standard-library IRI, and nothing else.
+        // whether an absent `publisher` is allowed: a `kpar-url` naming an
+        // OMG standard-library IRI is exempt, and nothing else.
         let declared_kind =
             if self.wrong_typed.is_empty() && self.workspace.is_none() && git_keys.is_empty() {
                 self.checked_kind(site, positions, &mut report, &label)
@@ -714,8 +700,8 @@ impl UsageRaw {
     /// The publisher an entry declares.
     ///
     /// `None` is an error already reported; `Some(None)` is an entry
-    /// that is *allowed* to declare none -- `exempt`, which the caller
-    /// sets only for a `kpar-url` at an OMG standard-library IRI.
+    /// that is *allowed* to declare none -- `exempt`, which is set only
+    /// for a `kpar-url` at an OMG standard-library IRI.
     fn checked_publisher(
         &self,
         site: &UsageSite<'_>,
@@ -791,9 +777,9 @@ impl UsageRaw {
         }
     }
 
-    /// workspaces.md "Common usages": "The group entry is used as-is; the
-    /// member cannot change any of its fields", so an entry carrying a
-    /// marker may give nothing but the identity.
+    /// The group entry is used as-is; the member cannot change any of its
+    /// fields, so an entry carrying a marker may give nothing but the
+    /// identity.
     fn check_opt_in_is_bare(
         &self,
         site: &UsageSite<'_>,
@@ -937,8 +923,8 @@ enum Kind {
 
 impl Kind {
     /// `None` only if a kind that requires a publisher reached here
-    /// without one, which `checked_publisher` exempts no kind but
-    /// `RemoteKpar` from -- so it is a bug, not an input.
+    /// without one, which only `RemoteKpar` is exempt from -- so it is a
+    /// bug, not an input.
     fn into_usage(self, publisher: Option<IndexPublisher>, name: IndexName) -> Option<Usage> {
         Some(match self {
             Self::RemoteKpar(url) => Usage::RemoteKpar {
@@ -965,11 +951,10 @@ impl Kind {
     }
 }
 
-/// model-toml.md "Normalization": "two entries whose identities normalize
-/// to the same value are the same project declared twice and are
-/// rejected, whether or not the two entries agree on kind or constraint.
-/// The arrays are counted separately, since a workspace config holds
-/// several."
+/// Two entries whose identities normalize to the same value are the same
+/// project declared twice and are rejected, whether or not the two
+/// entries agree on kind or constraint. The arrays are counted
+/// separately, since a workspace config holds several.
 ///
 /// Every colliding pair is reported, not just the first, so that one edit
 /// round fixes the file; each diagnostic points at the later of the two,
@@ -1096,14 +1081,13 @@ impl Display for Usage {
     }
 }
 
-/// model-toml.md "Usages": a `dir` or `kpar-path` is taken exactly as
-/// written, and admitted only in the one form Sysand writes:
+/// A `dir` or `kpar-path` is taken exactly as written, and admitted only in the one form Sysand writes:
 /// `/`-separated, with no backslash or NUL, no `.` component, `..` only
 /// as the leading components of a relative path, and no empty component
 /// -- so no repeated or trailing slash. Unlike `sources` and `members`,
 /// such a path may leave the directory it is relative to, which is what
-/// the leading `..` are for. An absolute path is admitted as before, and
-/// held to the same rules past its root.
+/// the leading `..` are for. An absolute path is admitted, and held to the
+/// same rules past its root.
 fn is_normal_local_path(raw: &str) -> bool {
     if raw.contains(['\\', '\0']) {
         return false;
@@ -1130,8 +1114,8 @@ fn is_normal_local_path(raw: &str) -> bool {
 /// when nothing is left, which names the directory the path is relative
 /// to -- a project using itself.
 ///
-/// The caller has already refused an absolute path, a backslash and a
-/// NUL; this only rearranges components.
+/// Expects a path with no backslash and no NUL, and not absolute; this
+/// only rearranges components.
 pub fn normalize_local_path(raw: &str) -> Option<Utf8UnixPathBuf> {
     let mut parts: Vec<&str> = Vec::new();
     for part in raw.split('/') {

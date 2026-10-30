@@ -9,7 +9,7 @@
 //! returns `Result<Validated<T>, Report>`: the `Report` on the error side
 //! lists every problem found, including the warnings, and the
 //! `Validated<T>` on the success side carries the value together with the
-//! warnings, which the frontend decides how to show.
+//! warnings.
 
 use std::fmt::Display;
 use std::ops::Range;
@@ -40,8 +40,8 @@ impl Display for Severity {
 /// The line and the column are resolved when the position is built, by
 /// the [`crate::manifest::spans::Source`] whose text the span measures;
 /// the byte span a TOML document reports is kept alongside them for a
-/// renderer that wants to underline the offending key. `serde_json` reports a line and a
-/// column and no offset, hence [`Position::at`].
+/// renderer that wants to underline the offending key. `serde_json`
+/// reports a line and a column and no offset, hence [`Position::at`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Position {
     pub file: String,
@@ -264,10 +264,9 @@ impl<T> Validated<T> {
     }
 }
 
-/// workspaces.md "Unknown keys": unknown keys are allowed for future
-/// compatibility, "but generate a warning upon read. This holds for
-/// `model.toml` as a whole, `[project]` and `[workspace]` alike, and for
-/// the `urls` tables." Serde's default is to drop unrecognized keys
+/// Unknown keys are allowed for future compatibility, but generate a
+/// warning upon read: in `model.toml` as a whole, `[project]`,
+/// `[workspace]` and the `urls` tables alike. Serde's default is to drop unrecognized keys
 /// silently, which cannot produce that warning, and `deny_unknown_fields`
 /// would turn it into an error -- so a table that has to warn keeps a
 /// flattened `UnknownKeys` that remembers the names it did not recognize,
@@ -391,32 +390,30 @@ pub fn missing_key(key: &str, location: &KeyLocation, metamodel: Option<&str>) -
 /// What reading a manifest can report without failing.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ReadWarning {
-    /// workspaces.md "Unknown keys". `unrecognized_metamodel` is set when
-    /// the project declares a metamodel outside both families
-    /// (model-toml.md "Metamodel", rule (a)): the key may then belong to
-    /// an unsupported schema, and the warning says so.
+    /// `unrecognized_metamodel` is set when the project declares a
+    /// metamodel outside both families: the key may then belong to an
+    /// unsupported schema, and the warning says so.
     UnknownKey {
         location: KeyLocation,
         key: String,
         unrecognized_metamodel: Option<String>,
     },
-    /// model-toml.md "Metamodel": "a key that belongs to another
-    /// metamodel's schema (`root` in an OMG-metamodel project) is a
-    /// warning naming the metamodel that supports it".
+    /// A key that belongs to another metamodel's schema (`root` in an
+    /// OMG-metamodel project) is a warning naming the metamodel that
+    /// supports it.
     ForeignSchemaKey {
         location: KeyLocation,
         key: String,
         supported_by: MetamodelFamily,
     },
-    /// model-toml.md "Metamodel": "Any other value is a warning, not an
-    /// error."
+    /// A metamodel outside the recognized values is a warning, not an
+    /// error.
     UnknownMetamodel {
         location: KeyLocation,
         value: String,
     },
-    /// workspaces.md "Source overrides": "A `sysand.toml` anywhere else
-    /// under the workspace is ignored as a whole ... with a warning on any
-    /// operation touching the overrides."
+    /// A `sysand.toml` anywhere else under the workspace is ignored as a
+    /// whole, with a warning on any operation touching the overrides.
     IgnoredSourceOverrides { path: String },
 }
 
@@ -487,8 +484,7 @@ impl Display for ReadWarning {
     }
 }
 
-/// model-toml.md "Metamodel", rule (a): a manifest that declares a
-/// metamodel outside both recognized families is validated against the OMG
+/// A manifest that declares a metamodel outside both recognized families is validated against the OMG
 /// schema, and every schema complaint says that the metamodel may be the
 /// reason. One function, so that every message naming such a metamodel
 /// reads the same.

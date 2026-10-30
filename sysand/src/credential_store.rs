@@ -8,9 +8,8 @@
 //! the OS keyring for a plain-file blob backend.
 //!
 //! The test seam is exactly that: a test seam. The file backend stores
-//! the blob (including secrets) in plaintext, which the design forbids for
-//! real use (design/credential-storage.md: "no plaintext credentials
-//! file, ever"). It is compiled into release builds only as a
+//! the blob (including secrets) in plaintext, which the real credential
+//! store must never do. It is compiled into release builds only as a
 //! hard refusal: a release binary that sees the variable errors rather
 //! than silently using the real keyring (which would let a forgotten
 //! variable make tests scribble on a developer's keychain).

@@ -45,8 +45,8 @@ pub enum InitError<ProjectError: ErrorBound> {
     Identifier(#[source] IdentifierError),
     #[error(transparent)]
     Write(ManifestWriteError<ProjectError>),
-    /// model-toml.md "Metamodel": the value set is closed, so a project
-    /// cannot be created with one outside it. The CLI checks its own
+    /// The value set is closed, so a project cannot be created with one
+    /// outside it. The CLI checks its own
     /// argument earlier, where the message can name the flag; this is
     /// what a binding caller gets.
     #[error("`{0}` is not a metamodel Sysand recognizes;\nit is one of {list}", list = KnownMetamodel::RECOGNIZED)]
@@ -55,9 +55,7 @@ pub enum InitError<ProjectError: ErrorBound> {
 
 /// Create a project.
 ///
-/// model-toml.md: "`sysand init`, `sysand new` and `sysand migrate`
-/// write the current value" of `manifest-version` -- so what a new
-/// project is, is a `model.toml`. The two json documents are what a
+/// A new project is a `model.toml`. The two json documents are what a
 /// build produces and what a legacy project has.
 ///
 /// The three identifiers are parsed rather than checked: a
@@ -79,8 +77,7 @@ pub fn do_init<P: ProjectMut>(
 
 /// [`do_init`], told which metamodel an inherited marker resolves to.
 ///
-/// design/syside-metamodel.md, "Commands": a project created with a
-/// Syside metamodel gets the Syside layout -- `sources` listing one
+/// A project created with a Syside metamodel gets the Syside layout -- `sources` listing one
 /// file, `root` naming it, and the file itself, created with a package
 /// declaration when it does not exist. A marker names a group, not a
 /// metamodel, so the family behind it is the caller's to supply
@@ -152,8 +149,8 @@ pub fn do_init_ext<P: ProjectMut>(
             );
             project.root = Some(toml::Value::from(root.as_str()));
         }
-        // model-toml.md: "a project that has none is written as `sources =
-        // []`" -- an absent key is a manifest that does not resolve.
+        // Written as `sources = []`: an absent key is a manifest that
+        // does not resolve.
         None => project.sources = Some(Sources::default()),
     }
     project.license = license.map(MetaProperty::Provided);

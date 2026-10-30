@@ -277,7 +277,7 @@ impl LocalIndexEnvironment {
     }
 
     /// Open each archive's `.project.json` and build the per-IRI table
-    /// (one pass over the archives; measured in `local_index_tests`).
+    /// (one pass over the archives).
     fn tabulate_folder(
         &self,
         archives: Vec<Utf8PathBuf>,
@@ -432,8 +432,7 @@ impl ReadEnvironmentAsync for LocalIndexEnvironment {
             );
             return Ok(futures::stream::iter(vec![]));
         };
-        // Retired entries are excluded from new resolutions, as the HTTP
-        // client excludes them (`design/index-protocol.md` §12).
+        // Retired entries are excluded from new resolutions.
         let versions: Vec<Result<String, LocalIndexError>> = candidates
             .iter()
             .filter(|c| c.status == VersionStatus::Available)
@@ -490,9 +489,8 @@ impl ReadEnvironmentAsync for LocalIndexEnvironment {
                 .join(KPAR_FILE_NAME);
             self.contained(canonical_root, &named, &versions_file)?
         };
-        // An index usage's identity is its PURL; that the archive
-        // declares it is checked by the lock, as for the HTTP arm
-        // (`commands::lock::check_typed_usages`).
+        // The archive is not checked here to declare the identity it was
+        // looked up by.
         let project = LocalKParProject::new_access(archive, KparInnerPath::Root, None);
         let project = match &candidate.expected {
             Some(expected) => project.expecting(expected.clone()),

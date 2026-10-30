@@ -214,10 +214,9 @@ impl Display for ProjectChecksum {
 
 /// Which manifest a directory holds, and so which kind of project it is.
 ///
-/// model-toml.md "Mixed manifests": a directory with only json config or
-/// only toml config is supported without warnings, and one with both is
-/// an error -- "it's unclear if the project is meant to be a non-zipped
-/// KPAR, or dev project".
+/// A directory with only json config or only toml config is a project of
+/// that kind; one with both is an error, as it is unclear whether it is
+/// a non-zipped KPAR or a development project.
 ///
 /// The json side is *either* of the two json manifests, not both: a
 /// directory holding only a `.meta.json` is a broken json project rather
@@ -294,9 +293,9 @@ pub trait ProjectRead {
 
     /// Which manifest this project is written in.
     ///
-    /// The default is [`ProjectFormat::Json`], which is right for every
-    /// project that has only ever had the two json documents -- a KPAR,
-    /// a remote source project, an index entry, one held in memory.
+    /// The default is [`ProjectFormat::Json`], which is right for a
+    /// project that has just the two json documents, such as a KPAR or
+    /// an index entry.
     ///
     /// It is *not* right for a wrapper: a type that forwards the rest of
     /// this trait to another project must forward this too, or it will
@@ -308,13 +307,13 @@ pub trait ProjectRead {
     /// The project's own manifest, rather than the KPAR view of it.
     ///
     /// Only a `model.toml` project has one. The view drops what a
-    /// `.project.json` has no room for -- a usage's declared kind and
-    /// constraint, the documentation and repository urls, `stdlib` --
-    /// so a caller that needs any of those comes here.
+    /// `.project.json` has no room for -- the documentation and
+    /// repository urls, `stdlib`, and, in a built archive, a usage's
+    /// declared kind -- so a caller that needs any of those comes here.
     ///
     /// The default refuses. Converting a json project's documents into
     /// the manifest model is a command of its own: it fails for a
-    /// `resource` usage that is no `pkg:sysand` PURL, for a `checksum`
+    /// `resource` usage with no `model.toml` equivalent, for a `checksum`
     /// listing files `sources` cannot hold, and for values that never
     /// had to satisfy the manifest's rules.
     fn manifest(
@@ -428,9 +427,7 @@ pub trait ProjectRead {
     /// *canonicalized* metadata.
     ///
     /// `Ok(None)` means the project has no `.project.json` or no
-    /// `.meta.json` — one of the two required inputs is absent — and
-    /// callers can rely on that meaning rather than treating `None` as
-    /// an unspecified failure mode.
+    /// `.meta.json`; callers can rely on that meaning.
     fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
         let info = self
             .get_info()
@@ -846,13 +843,13 @@ pub trait ProjectReadAsync {
     // Async doesn't make sense for this
     fn project_root(&self) -> Option<&Utf8Path>;
 
-    /// Treat this `ProjectReadAsync` as a `ProjectRead` using the provided tokio runtime.
     /// See [`ProjectRead::format`]. Deciding the format never waits on
     /// anything, so the async side asks the same question the same way.
     fn format(&self) -> Result<ProjectFormat, Self::Error> {
         Ok(ProjectFormat::Json)
     }
 
+    /// Treat this `ProjectReadAsync` as a `ProjectRead` using the provided tokio runtime.
     fn to_tokio_sync(self, runtime: Arc<tokio::runtime::Runtime>) -> AsSyncProjectTokio<Self>
     where
         Self: Sized,
@@ -1285,10 +1282,8 @@ where
 
     // Forward selected `ProjectRead` methods explicitly so that important
     // sync-side overrides on the wrapped `T` are honoured on the async side
-    // too. See `ProjectRead::checksum_canonical_hex`'s contract docstring —
-    // without that forward, wrapping a `T` that exposes a prefetched digest
-    // (e.g. `CachedProject`) would silently fall back to a full download on
-    // the async side.
+    // too. Without the forward, wrapping a `T` that exposes a prefetched
+    // digest would silently fall back to a full download on the async side.
     async fn get_info_async(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
         self.inner.get_info()
     }

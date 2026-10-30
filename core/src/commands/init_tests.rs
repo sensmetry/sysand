@@ -14,8 +14,8 @@ fn init(metamodel: Option<MetaProperty<String>>) -> String {
         .expect("a manifest")
 }
 
-/// model-toml.md "Metamodel": a project declares one, and `init` is
-/// given it rather than choosing it.
+/// A project declares a metamodel, and `init` is given it rather than
+/// choosing it.
 #[test]
 fn a_metamodel_is_written_when_given() {
     let written = init(Some(MetaProperty::Provided(OMG_SYSML.to_owned())));
@@ -25,8 +25,8 @@ fn a_metamodel_is_written_when_given() {
     );
 }
 
-/// workspaces.md: "`metamodel.workspace = true` [...] satisfies its
-/// requirement in `[project]`". What `init` writes inside a workspace
+/// `metamodel.workspace = true` satisfies the metamodel requirement in
+/// `[project]`. What `init` writes inside a workspace
 /// whose default group declares one.
 #[test]
 fn a_marker_is_written_when_asked_for() {
@@ -72,8 +72,7 @@ fn no_metamodel_is_written_when_none_is_given() {
     assert!(!init(None).contains("metamodel"));
 }
 
-/// design/syside-metamodel.md, "Commands": `init` with a Syside
-/// metamodel writes the Syside layout and creates the root file, through
+/// `init` with a Syside metamodel writes the Syside layout and creates the root file, through
 /// the same storage the manifest goes to.
 #[test]
 fn init_with_a_syside_metamodel_writes_the_layout_and_the_root_file() {

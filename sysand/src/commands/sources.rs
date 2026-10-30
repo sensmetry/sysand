@@ -94,16 +94,15 @@ pub fn command_sources_project(
 
 /// `sysand sources` over every member of a workspace.
 ///
-/// workspaces.md "Command scopes": from the root, or from a non-member
-/// directory under it, "all members" is the target.
+/// From the root, or from a non-member directory under it, all members
+/// are the target.
 ///
 /// Deduplicated across members, and across own sources and
 /// dependencies alike. Two members sharing an external dependency
 /// resolve the same installed files; and an *intra-workspace* usage
-/// "resolves to the member itself, never to a copy of it from an
-/// index", so a member that another member depends on has its own
-/// sources reached twice. The second is the case workspaces.md calls
-/// normal.
+/// resolves to the member itself, never to a copy of it from an index,
+/// so a member that another member depends on has its own sources
+/// reached twice. The second is the normal case.
 ///
 /// Order-preserving, because own-source order is deterministic and a
 /// plain `HashSet` would randomise it. Dependency order is not

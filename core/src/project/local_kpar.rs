@@ -99,9 +99,7 @@ pub enum LocalKParError {
     Zip(#[from] project::utils::ZipArchiveError),
     #[error("path `{0}` not found")]
     NotFound(Box<Utf8Path>),
-    /// model-toml.md "Mixed manifests": "if toml config present in a
-    /// KPAR, error out"; "KPARs will continue to exclusively use
-    /// `.project.json`/`.meta.json`".
+    /// A KPAR exclusively uses `.project.json`/`.meta.json`.
     #[error(
         "`{archive}` contains `model.toml`;\n\
         {SP:>8} a KPAR carries `.project.json` and `.meta.json`, never a `model.toml`",
@@ -158,7 +156,7 @@ impl LocalKParProject {
 
     /// Require the archive to have exactly this size and digest; an
     /// index entry's advertised values, verified when the archive is
-    /// first opened (see `ensure_initialized`).
+    /// first opened.
     #[must_use]
     pub fn expecting(mut self, expected: KparMeta) -> Self {
         self.expected = Some(expected);
@@ -468,8 +466,7 @@ impl LocalKParProjectRaw {
         }
     }
 
-    /// model-toml.md "Mixed manifests": a KPAR never carries a
-    /// `model.toml`, so one beside the archive's project root is an
+    /// A KPAR never carries a `model.toml`, so one beside the archive's project root is an
     /// error rather than a file to ignore.
     ///
     /// Checked next to the project root, not anywhere in the archive: a
@@ -625,10 +622,10 @@ impl ProjectRead for LocalKParProjectRaw {
     }
 }
 
-/// Guess the directory of the project within the zip archive. Project
-/// directory here means any directory that contains `.project.json`.
-/// Returned path will be empty if the directory is archive root
-/// Find the project root inside `archive`, whose file is at `path`.
+/// Guess the directory of the project within `archive`, the zip file at
+/// `path`. Project directory here means any directory that contains
+/// `.project.json`. The returned path is empty if the directory is the
+/// archive root.
 ///
 /// A `model.toml` seen on the way is remembered but does not stop the
 /// scan, and is reported only if no `.project.json` is found at all --

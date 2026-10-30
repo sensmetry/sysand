@@ -282,11 +282,10 @@ impl Lock {
     /// The metamodel rules of every edge -- direction and release -- over
     /// the lockfile graph.
     ///
-    /// **After** `validate_usages` and `check_name_collision`, and that
-    /// order is load-bearing: a usage that names no project's first
-    /// identifier is skipped here, so an unsatisfied usage would silently
-    /// produce no edge instead of the error it is. An edge is the rule
-    /// `validate_usages` uses: a usage names the *first* identifier of
+    /// Must run after the usage and name collision checks: a usage that
+    /// names no project's first identifier is skipped here, so an
+    /// unsatisfied usage would silently produce no edge instead of the
+    /// error it is. An edge is a usage naming the *first* identifier of
     /// the project satisfying it.
     ///
     /// Cycles are not checked here. A cycle is allowed when every project
@@ -305,13 +304,10 @@ impl Lock {
 
     /// The edge checks alone, for a lock that is not a lockfile yet.
     ///
-    /// `design/model-toml.md` runs these "once before the lockfile is
-    /// written and again when the lockfile is validated on `sync` and
-    /// `build`". The second half is [`Self::validate`]; the first is a
-    /// lock the solver has just produced, which is *not* yet valid by
-    /// the other rules -- an input project may carry no identifier, and
-    /// a source may lie outside the project root on purpose. So the
-    /// writer's check is this subset, not all of `validate`.
+    /// A lock the solver has just produced is *not* yet valid by the
+    /// other rules -- an input project may carry no identifier, and a
+    /// source may lie outside the project root on purpose -- so it can be
+    /// checked with this subset of [`Self::validate`] only.
     ///
     /// The release mismatches, which are warnings, are returned for the
     /// caller to report; the direction error is the error.
@@ -344,9 +340,8 @@ impl Lock {
     }
 
     /// Log the release mismatches of [`Self::check_metamodel_edges`] as
-    /// warnings. Called once per lock a command produces or reads; a
-    /// direction error is not reported here, since a lock that has one
-    /// does not validate.
+    /// warnings. A direction error is not reported here, since a lock that
+    /// has one does not validate.
     pub fn warn_release_mismatches(&self) {
         for mismatch in self.check_metamodel_edges().unwrap_or_default() {
             log::warn!("{mismatch}");
@@ -429,7 +424,7 @@ impl Lock {
     /// Root (i.e. belonging to the current workspace) projects are those
     /// that are editable and live inside the workspace
     // TODO: be more explicit about what does and does not belong to a
-    // workspace when proper workspaces land
+    // workspace
     fn is_root(project: &Project) -> bool {
         match project.sources.as_slice() {
             [Source::Editable { editable }] => {
@@ -644,9 +639,8 @@ impl Lock {
             project.exports.sort();
             project.usages.sort();
             project.sources.sort();
-            // Identifiers are deliberately not sorted, since it's assumed
-            // in various places that the first identifier is the one
-            // that other projects depend on
+            // Identifiers are deliberately not sorted: the first identifier
+            // is the one that other projects depend on
         }
         self.projects.sort();
     }
@@ -731,8 +725,7 @@ const PROJECT_ENTRIES: &[&str] = &[
 //   if deps are satisfied. Alternatively, add them to versions.json,
 //   it's backwards compatible)
 //
-// Alternatively, use my previous design here that has a separate
-// `Identifier` type, which is constructed:
+// Alternatively, use a separate `Identifier` type, which is constructed:
 // - `Resource`: just the IRI
 // - `Directory/Kpar`: URL-encoded publisher+name
 // - `Index`: pkg:sysand where possible, else URL-encoded publisher+name

@@ -66,9 +66,9 @@ pub enum Error {
     KeyNotFound(String),
     #[error("project is missing `model.toml`, or `.project.json` and/or `.meta.json`")]
     MissingInfoMeta,
-    /// model-toml.md "Mixed manifests": a project that holds both kinds
-    /// of manifest is neither a non-zipped KPAR nor a development
-    /// project, and there is no way to tell which was meant.
+    /// A project that holds both kinds of manifest is neither a
+    /// non-zipped KPAR nor a development project, and there is no way to
+    /// tell which was meant.
     #[error(
         "`{0}` has both `model.toml` and a json manifest;\n\
         {SP:>8} it is unclear whether it is a non-zipped KPAR or a development project",

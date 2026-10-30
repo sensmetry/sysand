@@ -36,12 +36,10 @@ pub struct InMemoryProject {
     /// The project's `model.toml`, if it has one. Text rather than a
     /// parse, because that is what a file holds and what
     /// [`ProjectRead::format`] answers from; parsing it is
-    /// [`ProjectRead::manifest`]'s job and goes through the same
-    /// `kpar_view` path a project on disk uses, so the two cannot
-    /// diverge.
+    /// [`ProjectRead::manifest`]'s job.
     ///
-    /// A project holding this *and* `info`/`meta` is the ambiguity
-    /// model-toml.md refuses. It is constructible -- every field here is
+    /// A project holding this *and* `info`/`meta` is ambiguous, and is
+    /// refused when read. It is constructible -- every field here is
     /// public -- so it is answered rather than declared impossible.
     pub model_toml: Option<String>,
     pub files: HashMap<Utf8UnixPathBuf, String>,
@@ -243,8 +241,8 @@ impl ProjectRead for InMemoryProject {
         InMemoryError,
     > {
         match self.format()? {
-            // model-toml.md "Mixed manifests": a project holding both
-            // kinds is refused before either is read, as it is on disk.
+            // A project holding both kinds is refused before either is
+            // read.
             ProjectFormat::Both => Err(InMemoryError::AmbiguousFormat),
             ProjectFormat::Toml => {
                 let (info, meta) = self.view()?;

@@ -135,8 +135,8 @@ pub enum ProcessOwnership {
     #[default]
     Owned,
     /// A host owns the process and may have installed a logger before the
-    /// first command ran — for the Python bindings, the `pyo3-log` bridge
-    /// every API entry point installs. That is the embedder's arrangement
+    /// first command ran (for example a log bridge installed by the Python
+    /// bindings). That is the embedder's arrangement
     /// rather than an accident, so it is not reported; the level
     /// `--verbose`/`--quiet` select still applies to the host's logger, and
     /// only the formatting and the `RUST_LOG` filters are lost. Sysand panic
@@ -292,7 +292,7 @@ fn claim_process(ownership: ProcessOwnership) {
 /// `args` may name a subcommand path (`["env", "install"]`), and the help
 /// returned is that subcommand's. When the arguments are not a valid command
 /// line the result is clap's own error text, complete with its usage hint,
-/// rather than an empty string — the same thing a user would have seen.
+/// rather than an empty string, as a user would have seen.
 ///
 /// The text is unstyled. The caller prints it through a writer we know
 /// nothing about, so emitting ANSI escapes here would put them into pipes
@@ -321,10 +321,9 @@ where
     match rendered(argv) {
         Ok(help) => help,
         // The appended `--help` was consumed as a value rather than acted
-        // on — anything after `--`, or after a `trailing_var_arg`
-        // positional, is positional too. Ask again through clap's `help`
-        // subcommand, which takes a path of subcommand names and no flags
-        // to swallow.
+        // on (anything after `--`, or after a trailing positional, is
+        // positional too). Ask again through clap's `help` subcommand,
+        // which takes subcommand names and no flags to swallow.
         Err(matches) => {
             let mut argv = vec![OsString::from(prog), OsString::from("help")];
             let mut current = &matches;
@@ -400,7 +399,7 @@ pub fn env_auth_policy() -> Result<StandardHTTPAuthentication> {
 /// happens until a request actually needs a stored credential. An
 /// unavailable store is a warning, not an error. With
 /// `use_credential_store == false` the store is never opened and only
-/// `SYSAND_CRED_*` credentials are used — a policy that can never prompt.
+/// `SYSAND_CRED_*` credentials are used, a policy that can never prompt.
 pub fn standard_auth_policy(use_credential_store: bool) -> Result<CliAuthPolicy> {
     let env_auth_policy = env_auth_policy()?;
     if !use_credential_store {
@@ -713,10 +712,10 @@ fn run_cli_with(
     let log_level = get_log_level(global_opts.verbose, global_opts.quiet);
     if logger::init(log_level).is_err() {
         // Someone else owns the one global logger. The level still reaches it
-        // — `set_max_level` is not the logger's to keep — so `--verbose` and
-        // `--quiet` work either way, and what is actually lost is this
-        // crate's formatting and the `RUST_LOG` filters `logger::init`
-        // parses. Set the level first, so the note below can pass it.
+        // (`set_max_level` is not the logger's to keep), so `--verbose` and
+        // `--quiet` work either way; what is lost is this crate's formatting
+        // and the `RUST_LOG` filters. Set the level first, so the note below
+        // can pass it.
         log::set_max_level(log_level);
         match ownership {
             ProcessOwnership::Owned => {
@@ -781,8 +780,8 @@ fn run_cli_with(
         None
     };
 
-    // `model-toml.md` "Inheritance": a marker resolves against the
-    // workspace table, and only for a member. Without the table, a
+    // A marker resolves against the workspace table, and only for a
+    // member. Without the table, a
     // member that inherits cannot be read as the current project.
     //
     // `member_index` and not `scope`: `StartRegion::Member` prefix-
@@ -790,10 +789,10 @@ fn run_cli_with(
     // which is not one. `None` as the nominal path is what makes
     // `sources` relativize against the workspace root -- the directory the shared lockfile's
     // `src_path`s are relative to.
-    // workspaces.md "Command scopes": a selector replaces which member
-    // the command acts on, so it is applied before `current_project` is
-    // settled rather than inside each arm. `Current` for every command
-    // that takes no selector, and for every invocation that gives none.
+    // A selector replaces which member the command acts on, so it is
+    // applied before `current_project` is settled rather than inside
+    // each arm. `Current` for every command that takes no selector, and
+    // for every invocation that gives none.
     let selector = match &command {
         Command::Build {
             selector,
@@ -862,8 +861,8 @@ fn run_cli_with(
     };
     let project_root = selected.clone().or(project_root);
 
-    // workspaces.md "Command scopes", second row: these commands "need
-    // a project, so `--member` is required at the root". Checked once
+    // These commands need a project, so `--member` is required at the
+    // root. Checked once
     // here rather than in each command, because the condition is one
     // condition: in a workspace, with no member to act on.
     //
@@ -914,8 +913,8 @@ fn run_cli_with(
         (project, _) => project,
     };
 
-    // `workspaces.md` "Syncing": "Always a single `.sysand` directory in
-    // workspace root." From `scope`, not from `workspace_root`: the
+    // There is always a single `.sysand` directory, in the workspace
+    // root. From `scope`, not from `workspace_root`: the
     // latter is `Some` for any discovered table, an `exclude`d
     // standalone project included, and such a project keeps its own
     // state.
@@ -970,8 +969,8 @@ fn run_cli_with(
     let auto_config = if global_opts.no_config {
         Config::default()
     } else {
-        // workspaces.md "Source overrides": a `sysand.toml` under the
-        // workspace but not at its root is ignored with a warning.
+        // A `sysand.toml` under the workspace but not at its root is
+        // ignored with a warning.
         // `--no-config` silences it too: warning
         // about a file the run was told to ignore is noise.
         if reads_configuration(&command) {
@@ -1095,9 +1094,8 @@ fn run_cli_with(
         Command::Env { command } => match command {
             None => {
                 let env_dir = {
-                    // workspaces.md "Command scopes": `env` is "per
-                    // workspace: the single `.sysand`". The workspace
-                    // root first, or a member's `sysand env` would make
+                    // `env` is per workspace: the single `.sysand`. The
+                    // workspace root first, or a member's `sysand env` would make
                     // a second environment beside the one every other
                     // command shares.
                     let mut p = model_workspace_root
@@ -1198,8 +1196,8 @@ fn run_cli_with(
             Ok(())
         }
         Command::Lock { resolution_opts } => {
-            // `workspaces.md` "Locking": one lockfile for the whole
-            // workspace, at its root, from anywhere under it.
+            // One lockfile for the whole workspace, at its root, from
+            // anywhere under it.
             if let Some(root) = &model_workspace_root {
                 let lock = command_lock_workspace(
                     root,
@@ -1354,8 +1352,8 @@ fn run_cli_with(
         Command::Auth { command: _ } => {
             unreachable!("`auth` is dispatched before the auth policy is built")
         }
-        // workspaces.md "Command scopes": `print-root` prints the
-        // workspace root, and `--member` "prints the member's".
+        // `print-root` prints the workspace root, or the member's with
+        // `--member`.
         Command::PrintRoot { selector: _ } => match &selected {
             Some(dir) => {
                 output::document("root", dir.as_str());
@@ -1480,9 +1478,8 @@ fn run_cli_with(
                             )
                         }
                     } else if let Some(root) = ctx.model_workspace_root.clone() {
-                        // workspaces.md "Command scopes": `info` takes
-                        // all members from the root or a non-member
-                        // directory under it. Reading is all it does,
+                        // `info` takes all members from the root or a
+                        // non-member directory under it. Reading is all it does,
                         // so there is no writing verb to refuse here.
                         crate::commands::info::command_info_workspace(&root, get, &excluded_usages)
                     } else {
@@ -1657,10 +1654,9 @@ fn run_cli_with(
                 let output_dir =
                     path.unwrap_or_else(|| root.join(sysand_core::build::DEFAULT_OUTPUT_NAME));
 
-                // workspaces.md "Stray per-member state": a member has
-                // no `output` of its own. Refused before the directory
-                // is created, or this command would itself write the
-                // stray state that section refuses.
+                // A member has no `output` of its own. Refused before
+                // the directory is created, or this command would itself
+                // write the stray state it refuses.
                 let absolute = if output_dir.is_absolute() {
                     output_dir.clone()
                 } else {
@@ -1752,9 +1748,8 @@ fn run_cli_with(
             selector: _,
             sources_opts,
         } => match (&ctx.current_project, ctx.model_workspace_root.clone()) {
-            // workspaces.md "Command scopes": all members from the root
-            // or from a non-member directory under it, which is exactly
-            // "a workspace, and no member the directory implies".
+            // All members from the root or from a non-member directory
+            // under it: a workspace, and no member the directory implies.
             (None, Some(root)) => {
                 command_sources_workspace(&root, sources_opts.no_own, sources_opts.deps, ctx)
             }
@@ -1820,7 +1815,7 @@ pub fn get_or_create_env(
     if let Some(env) = env {
         return Ok(env);
     }
-    // workspaces.md "Syncing": one `.sysand` per workspace, at its root.
+    // One `.sysand` per workspace, at its root.
     let base_path = match (model_workspace_root, project) {
         (Some(root), _) => root,
         (None, Some(pr)) => pr.root_path(),
@@ -1889,15 +1884,13 @@ fn get_log_level(verbose: bool, quiet: bool) -> log::LevelFilter {
 
 pub type Overrides<Policy> = Vec<(Identifier, Vec<OverrideProject<Policy>>)>;
 
-/// workspaces.md "Source overrides": "A `sysand.toml` anywhere else
-/// under the workspace is ignored as a whole -- its `[[index]]`
-/// configuration included -- with a warning on any operation touching
-/// the overrides or the indexes."
+/// A `sysand.toml` anywhere else under the workspace is ignored as a
+/// whole, its `[[index]]` configuration included, with a warning on any
+/// operation touching the overrides or the indexes.
 ///
 /// Those operations are `lock`, `sync`, `add`, `remove`, `clone`, `env`,
-/// `info` in a form that resolves, and `publish`. `publish` is passed no `Config` at all and
-/// warns because the specification says so rather than because of the
-/// code.
+/// `info` in a form that resolves, and `publish`. `publish` is passed no
+/// `Config` at all and warns anyway.
 ///
 /// `info` resolves under `--iri` and under a `<publisher>/<name>`
 /// identifier, which is looked up in the indexes.
@@ -1923,12 +1916,10 @@ fn reads_configuration(command: &cli::Command) -> bool {
 
 /// Whether a command consults the `[workspace]` table before it runs.
 ///
-/// `workspaces.md` "Command scopes" gives every command a target --
-/// the whole workspace, or the member the command was run in -- except
-/// the last row:
-///
-/// > `clone`, `index`, `auth` | scope-free: `clone` creates a project
-/// > outside any scope, `index`/`auth` are configuration
+/// Every command has a target -- the whole workspace, or the member the
+/// command was run in -- except `clone`, `index` and `auth`, which are
+/// scope-free: `clone` creates a project outside any scope, `index` and
+/// `auth` are configuration.
 ///
 /// So a workspace that is nested, or that the command was started
 /// outside of, stops the others and not those three. `init` joins them
@@ -1937,16 +1928,14 @@ fn reads_configuration(command: &cli::Command) -> bool {
 /// (`init_in_a_workspace_with_a_broken_member_still_works`).
 ///
 /// This is *consulting*, not loading. `Workspace::load` also enforces
-/// the member requirements and "Stray per-member state", so a command
+/// the member requirements and rejects stray per-member state, so a command
 /// that writes a lockfile, a `.sysand` directory or `output` into the
 /// member it acts on would, through the loader, refuse the workspace its
 /// own previous run created. See `StartRegion`.
 ///
-/// The same paragraph says a project under the root that is neither a
-/// member nor excluded is an error "whatever the command". That cannot
-/// be read literally, since the paragraph also calls `auth` scope-free:
-/// it contrasts the scoped commands with each other, rather than
-/// extending the check to commands that have no scope.
+/// A project under the root that is neither a member nor excluded is an
+/// error for the commands that have a scope, not for the scope-free
+/// ones.
 fn consults_the_workspace(command: &cli::Command) -> bool {
     match command {
         cli::Command::Build { selector: _, path: _, compression: _, allow_path_usage: _, keep_index: _ }
@@ -1980,7 +1969,7 @@ fn consults_the_workspace(command: &cli::Command) -> bool {
 /// none when `root` is not a workspace root above `cwd`.
 ///
 /// Upward only, and stopping *below* the root: the root's own file is
-/// the one being used, not a stray. "there is no downward scan" -- a
+/// the one being used, not a stray. There is no downward scan: a
 /// member that is not an ancestor of `cwd` is never looked at, so a
 /// workspace with fifty members does not stat fifty directories.
 fn stray_configs(cwd: &Utf8Path, root: &Utf8Path) -> Result<Vec<Utf8PathBuf>> {
@@ -2003,8 +1992,7 @@ fn stray_configs(cwd: &Utf8Path, root: &Utf8Path) -> Result<Vec<Utf8PathBuf>> {
 
 /// The member directory `--member` names, if it names one.
 ///
-/// workspaces.md "Command scopes": `--member <path-or-name>` picks one
-/// member, matched against its `members` entry **as written** or against
+/// `--member <path-or-name>` picks one member, matched against its `members` entry **as written** or against
 /// its project name. The rule itself is
 /// [`Workspace::member`](sysand_core::workspace::model_toml::Workspace::member)
 /// -- a union over both halves, refusing anything but a single answer --
@@ -2019,7 +2007,7 @@ fn stray_configs(cwd: &Utf8Path, root: &Utf8Path) -> Result<Vec<Utf8PathBuf>> {
 /// would act on the current project instead.
 ///
 /// `MemberChecks::All`: a member holding its own lockfile, `.sysand` or
-/// `output` is refused (workspaces.md "Stray per-member state"), and a
+/// `output` is refused, and a
 /// selector resolves against a workspace like anything else.
 fn selected_member(
     cwd: &Utf8Path,

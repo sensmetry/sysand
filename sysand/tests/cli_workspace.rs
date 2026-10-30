@@ -4,9 +4,9 @@
 //! Where a command run inside a `model.toml` workspace reads and writes
 //! its configuration.
 //!
-//! workspaces.md "Source overrides": "a project-local one must be at the
-//! workspace root: overrides apply workspace-wide ... as a member cannot
-//! override sources for itself alone."
+//! A project-local `sysand.toml` must be at the workspace root: overrides
+//! apply workspace-wide, and a member cannot override sources for itself
+//! alone.
 //!
 //! These use [`run_sysand_discovering`], which leaves configuration
 //! discovery on: where `sysand.toml` is *found* is the question.
@@ -57,8 +57,8 @@ fn workspace(root_text: &str) -> Result<camino_tempfile::Utf8TempDir, Box<dyn st
 const ROOT: &str = "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"app\"]\n\
      exclude = [\"local-dep\", \"src-proj\"]\n";
 
-/// A `sysand.toml` whose one override points `urn:kpar:local-dep` at
-/// `src_path`, written at `at`.
+/// A `sysand.toml` whose one override points [`USAGE`] at `src_path`,
+/// written at `at`.
 fn write_config(at: &Utf8Path, src_path: &str) -> Result<(), Box<dyn std::error::Error>> {
     write_config_for(at, src_path, USAGE)
 }
@@ -94,18 +94,15 @@ fn dependency(dir: &Utf8Path, at: &str) -> Result<(), Box<dyn std::error::Error>
     Ok(())
 }
 
-/// A usage the member's `model.toml` can express. A bare `urn:` IRI
-/// cannot be written into a manifest -- "a manifest usage is named by
-/// its publisher and name".
+/// A usage a manifest can express: a bare `urn:` IRI cannot be, as a
+/// manifest usage is named by its publisher and name.
 const USAGE: &str = "pkg:sysand/acme/local-dep";
 
-/// A `model.toml` index usage needs a version constraint.
+/// The version constraint an index usage needs.
 const CONSTRAINT: &str = "1";
 
-/// The IRI of a `kpar-url` usage. Of the usages a `model.toml` declares,
-/// only this kind is a resource usage, which is what an override is keyed
-/// by: an index usage is resolved by its publisher and name, as in a json
-/// project.
+/// The IRI of a `kpar-url` usage, which a config override can be keyed
+/// by; typed index usages are not subject to overrides.
 const OVERRIDDEN: &str = "https://example.com/local-dep.kpar";
 
 /// Declare the `kpar-url` usage of [`OVERRIDDEN`] in `member`'s manifest.
@@ -179,16 +176,30 @@ fn a_relative_override_is_relative_to_the_workspace_root() -> Result<(), Box<dyn
     Ok(())
 }
 
-/// `add --path` records an override; it must land where the next
-/// command will read it.
+/// `add --as-local-src` records an override; it must land where the next
+/// command will read it. Only a json project can declare the resource
+/// usage it overrides, and one inside a workspace is excluded from it.
 #[test]
 fn add_writes_the_config_at_the_workspace_root() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = workspace(ROOT)?;
-    let member = dir.path().join("app");
+    let dir = workspace(
+        "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"app\"]\n\
+         exclude = [\"local-dep\", \"vendor\"]\n",
+    )?;
     dependency(dir.path(), "local-dep")?;
+    let json_project = dir.path().join("vendor/other");
+    std::fs::create_dir_all(&json_project)?;
+    std::fs::write(
+        json_project.join(".project.json"),
+        r#"{"name": "other", "publisher": "acme", "version": "1.0.0", "usage": []}"#,
+    )?;
+    std::fs::write(
+        json_project.join(".meta.json"),
+        br#"{"created": "2001-02-03T04:05:06Z", "index": {},
+            "metamodel": "https://www.omg.org/spec/SysML/20250201"}"#,
+    )?;
 
     run_sysand_discovering(
-        &member,
+        &json_project,
         [
             "add",
             "--iri",
@@ -196,7 +207,7 @@ fn add_writes_the_config_at_the_workspace_root() -> Result<(), Box<dyn std::erro
             "--version-constraint",
             CONSTRAINT,
             "--as-local-src",
-            "../local-dep",
+            "../../local-dep",
             "--no-lock",
         ],
     )?
@@ -208,8 +219,8 @@ fn add_writes_the_config_at_the_workspace_root() -> Result<(), Box<dyn std::erro
         "the override belongs at the workspace root"
     );
     assert!(
-        !member.join(config::local_fs::CONFIG_FILE).exists(),
-        "and not in the member"
+        !json_project.join(config::local_fs::CONFIG_FILE).exists(),
+        "and not in the project"
     );
     Ok(())
 }
@@ -258,7 +269,7 @@ fn a_missing_member_refuses_the_lock() -> Result<(), Box<dyn std::error::Error>>
 
 // ------------------------------------------------- stray configuration
 
-const ROW_26: &str = "is not at the workspace root, so it is ignored as a whole";
+const NOT_AT_ROOT: &str = "is not at the workspace root, so it is ignored as a whole";
 
 /// The warning names the file, not its directory: a reader told about a
 /// directory would have to guess which file in it is meant.
@@ -271,8 +282,10 @@ fn a_config_in_a_member_warns() -> Result<(), Box<dyn std::error::Error>> {
     run_sysand_discovering(&member, ["lock"])?
         .assert()
         .stderr(predicate::str::contains(format!(
-            "`{}` {ROW_26}",
-            member.join(config::local_fs::CONFIG_FILE)
+            "`{}` {NOT_AT_ROOT}",
+            member
+                .canonicalize_utf8()?
+                .join(config::local_fs::CONFIG_FILE)
         )));
     Ok(())
 }
@@ -286,7 +299,7 @@ fn a_config_between_cwd_and_the_root_warns() -> Result<(), Box<dyn std::error::E
 
     run_sysand_discovering(&deep, ["lock"])?
         .assert()
-        .stderr(predicate::str::contains(ROW_26));
+        .stderr(predicate::str::contains(NOT_AT_ROOT));
     Ok(())
 }
 
@@ -303,7 +316,7 @@ fn every_stray_config_is_reported() -> Result<(), Box<dyn std::error::Error>> {
     let out = run_sysand_discovering(&deep, ["lock"])?;
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
     assert_eq!(
-        stderr.matches(ROW_26).count(),
+        stderr.matches(NOT_AT_ROOT).count(),
         2,
         "both strays must be named: {stderr}"
     );
@@ -322,7 +335,7 @@ fn the_root_config_is_not_reported_as_a_stray() -> Result<(), Box<dyn std::error
     run_sysand_discovering(&member, ["lock"])?
         .assert()
         .success()
-        .stderr(predicate::str::contains(ROW_26).not());
+        .stderr(predicate::str::contains(NOT_AT_ROOT).not());
     Ok(())
 }
 
@@ -336,7 +349,7 @@ fn a_command_that_reads_no_config_does_not_warn() -> Result<(), Box<dyn std::err
 
     run_sysand_discovering(&member, ["print-root"])?
         .assert()
-        .stderr(predicate::str::contains(ROW_26).not());
+        .stderr(predicate::str::contains(NOT_AT_ROOT).not());
     Ok(())
 }
 
@@ -350,15 +363,15 @@ fn info_warns_with_an_iri_and_with_an_identifier() -> Result<(), Box<dyn std::er
 
     run_sysand_discovering(&member, ["info", "--iri", USAGE])?
         .assert()
-        .stderr(predicate::str::contains(ROW_26));
+        .stderr(predicate::str::contains(NOT_AT_ROOT));
     run_sysand_discovering(&member, ["info", "acme/local-dep"])?
         .assert()
-        .stderr(predicate::str::contains(ROW_26));
+        .stderr(predicate::str::contains(NOT_AT_ROOT));
     // Plain `info` reads the project in front of it and resolves
     // nothing.
     run_sysand_discovering(&member, ["info"])?
         .assert()
-        .stderr(predicate::str::contains(ROW_26).not());
+        .stderr(predicate::str::contains(NOT_AT_ROOT).not());
     Ok(())
 }
 
@@ -370,7 +383,7 @@ fn no_config_silences_the_warning() -> Result<(), Box<dyn std::error::Error>> {
 
     run_sysand_in(&member, ["lock"], None)?
         .assert()
-        .stderr(predicate::str::contains(ROW_26).not());
+        .stderr(predicate::str::contains(NOT_AT_ROOT).not());
     Ok(())
 }
 
@@ -456,7 +469,7 @@ fn a_nested_workspace_is_refused_before_the_config_warning()
         .assert()
         .failure()
         .stderr(predicate::str::contains(NESTED_TEXT))
-        .stderr(predicate::str::contains(ROW_26).not());
+        .stderr(predicate::str::contains(NOT_AT_ROOT).not());
     Ok(())
 }
 
@@ -1425,16 +1438,16 @@ fn migrate_warns_about_a_stray_config() -> Result<(), Box<dyn std::error::Error>
     run_sysand_discovering(&member, ["migrate", "legacy", "--allow-no-vcs"])?
         .assert()
         .stderr(predicate::str::contains(format!(
-            "`{}` {ROW_26}",
-            member.join(config::local_fs::CONFIG_FILE)
+            "`{}` {NOT_AT_ROOT}",
+            member
+                .canonicalize_utf8()?
+                .join(config::local_fs::CONFIG_FILE)
         )));
     Ok(())
 }
 
-/// `design/model-toml.md`: the cycle check "runs over the dependency
-/// graph whenever it is built — when a workspace is read, and when
-/// resolving or building". A cyclic workspace that locked would get a
-/// lockfile written for a graph with no build order.
+/// The cycle check runs when locking too: a cyclic workspace that locked
+/// would get a lockfile written for a graph with no build order.
 #[test]
 fn lock_refuses_a_cyclic_workspace() -> Result<(), Box<dyn std::error::Error>> {
     let dir = camino_tempfile::tempdir()?;

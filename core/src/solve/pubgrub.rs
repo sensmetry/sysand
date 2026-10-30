@@ -324,11 +324,9 @@ impl<'a> OnBrokenCandidate<'a> {
     fn of(info: &'a ResolutionInfo) -> Self {
         // Candidates from env don't change the logic here
         match info.usage() {
-            // A toml `kpar-url` that declared an identity counts as typed,
-            // which is what `model.rs` means by the word: "Typed usages
-            // separate the two roles: identity is always publisher+name,
-            // and the source is explicit". It carries the pair and offers
-            // one candidate, so a failure is *the* answer rather than one
+            // A toml `kpar-url` that declared an identity counts as typed:
+            // identity is the declared publisher+name, and the source is
+            // explicit. It carries the pair and offers one candidate, so a failure is *the* answer rather than one
             // alternative not working out -- and demoting it to a debug
             // line is what would hide the lock's spelling check behind
             // "no valid candidates found".
@@ -536,17 +534,14 @@ fn resolve_candidates<R: ResolveRead + fmt::Debug>(
     let entry = cache.entry(resolve.to_id());
 
     // The cache is keyed by identity, so one identity reached twice
-    // from different sources keeps whichever resolved first. The open
-    // policy question -- "Most specific (Directory > Resource)? Priority
-    // to direct dependencies of the root project?" -- is only about a
-    // *local* usage meeting a non-local one, which is the deliberate
-    // "use my checkout instead of the index" override and stays
-    // first-wins.
+    // from different sources keeps whichever resolved first. Which
+    // source should win when a *local* usage meets a non-local one is
+    // an open policy question; that case is the deliberate "use my
+    // checkout instead of the index" override and stays first-wins.
     //
     // Two **local** usages naming two different places are refused:
-    // `design/workspaces.md` says "the lockfile, the `.sysand`
-    // environment and the symbol namespace all hold one version per
-    // identity", so the loser would be dropped -- its version, its
+    // the lockfile, the `.sysand` environment and the symbol namespace
+    // all hold one version per identity, so the loser would be dropped -- its version, its
     // sources and its exported symbols -- and whichever usage came first
     // would decide what everything was built against. Reordering
     // `members` would be enough to change it, with nothing printed.
@@ -657,8 +652,7 @@ fn local_target(resolve: &CoalescingUsage) -> Option<Utf8PathBuf> {
             name: _,
         } => kpar_path.as_str(),
         // A `file:` resource names a place too, but comparing one
-        // against a path usage needs the URL-to-path conversion that
-        // lives in `resolve::file` and is private to it. Left out
+        // against a path usage needs a URL-to-path conversion. Left out
         // deliberately: only two path usages are compared. An index
         // usage names no local place.
         InterchangeProjectUsage::Resource {
@@ -778,7 +772,7 @@ fn version_strings<'a>(versions: impl IntoIterator<Item = &'a Version>) -> Vec<S
     versions.into_iter().map(ToString::to_string).collect()
 }
 
-/// Render `found` as `` `v1`, `v2` `` — the shape the CLI has always shown.
+/// Render `found` as `` `v1`, `v2` ``.
 fn format_found_versions(found: &[String]) -> String {
     let mut versions = String::new();
     for (i, v) in found.iter().enumerate() {
@@ -862,8 +856,8 @@ impl<R: ResolveRead + fmt::Debug + 'static> From<pubgrub::PubGrubError<ProjectSo
     }
 }
 
-/// The version constraint a usage puts on its resource, `*` when none (or
-/// when the usage is not a `Resource` usage).
+/// The version constraint a usage puts on its target, `*` when none (a
+/// `Directory` or `KparPath` usage carries none).
 fn constraint_of(usage: &CoalescingUsage) -> String {
     match usage.usage().usage() {
         InterchangeProjectUsage::Resource {
@@ -1196,13 +1190,10 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
     }
 
     /// Among several usages of `dependency` declared by one dependent (a
-    /// project may list the same resource twice), the one whose constraint
-    /// selects exactly the candidates in `dependency_set`; otherwise the
-    /// first.
-    /// The usage to read this node's constraint from -- the first whose
-    /// own constraint selects exactly the candidates the node is about,
-    /// else the first of them -- and, separately, the project that
-    /// declared it.
+    /// project may list the same resource twice), the usage to read this
+    /// node's constraint from -- the first whose own constraint selects
+    /// exactly the candidates the node is about, else the first of
+    /// them -- and, separately, the project that declared it.
     ///
     /// The declarer is returned *only* when exactly one usage accounts for
     /// the node, because a wrong name is worse than no name. Two things
@@ -1328,8 +1319,7 @@ impl<R: ResolveRead + fmt::Debug + 'static> Display for SolverError<R> {
                 // A dependency's usage, which the user cannot edit: name the
                 // dependency, in the version whose usages were being read.
                 // `Requested` holds the usages of the projects being locked,
-                // which are always read first, so a `Remote` package is never
-                // one of those projects
+                // so a `Remote` package is never one of those projects
                 DependencyIdentifier::Remote(dependent)
                     if let InternalSolverError::BrokenIndexVersion {
                         usage,
@@ -1387,9 +1377,8 @@ impl<R: ResolveRead + fmt::Debug + 'static> Display for SolverError<R> {
                 }
             },
             pubgrub::PubGrubError::ErrorChoosingVersion { package, source } => match package {
-                // `fn choose_version()` never fails for the requested set
-                // today; rendered rather than asserted, so a future error
-                // path cannot panic inside a `Display`.
+                // Rendered rather than asserted, so no error path can panic
+                // inside a `Display`.
                 DependencyIdentifier::Requested(_) => {
                     write!(
                         f,
@@ -1711,10 +1700,9 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
 type Solution<ProjectStorage> = HashMap<Identifier, ProjectStorage>;
 
 /// `requested` pairs each usage with the manifest it was declared in;
-/// a caller that did not read one (`sysand env install <iri>`, say)
-/// passes [`UsageOrigin::Json`]. Every usage resolves its relative paths
-/// against the same `base_path`; see [`solve_with_bases`] for the caller
-/// that cannot.
+/// a caller that did not read one passes [`UsageOrigin::Json`]. Every
+/// usage resolves its relative paths against the same `base_path`; see
+/// [`solve_with_bases`] for when they do not share one.
 pub fn solve<R: ResolveRead + fmt::Debug + 'static>(
     requested: Vec<(InterchangeProjectUsage, UsageOrigin)>,
     base_path: Option<Utf8PathBuf>,
@@ -1734,14 +1722,12 @@ pub fn solve<R: ResolveRead + fmt::Debug + 'static>(
 /// Each usage with the directory its relative paths resolve against.
 ///
 /// A workspace is solved as one unit, and its members do not share a
-/// base: `workspaces.md` "Intra-workspace usages" gives a usage's paths
-/// as "`dir`, relative to the member, or a group entry relative to the
-/// root", which is two bases in one solve. [`solve`] is this function
-/// with one base for everything.
+/// base: a member's `dir` is relative to the member, a group entry to
+/// the root. [`solve`] is this function with one base for everything.
 ///
-/// One single-base assumption survives below here: `resolve_candidates`
-/// caches by identity, so two usages naming the same publisher and name
-/// from different bases collapse onto whichever resolved first.
+/// Resolution is cached by identity, so two usages naming the same
+/// publisher and name from different bases collapse onto whichever
+/// resolved first.
 pub fn solve_with_bases<R: ResolveRead + fmt::Debug + 'static>(
     requested: Vec<ResolutionInfo>,
     resolver: R,

@@ -6,12 +6,11 @@
 //! metadata becomes once the markers have been followed and the
 //! metamodel-dependent validation has run.
 //!
-//! The two are separate because model-toml.md "Reading and validating"
-//! keeps them apart: "required-key checks that depend on the metamodel
-//! (`sources`) run after inheritance has been resolved, since `metamodel`
-//! may itself be inherited from a workspace group. `manifest-version`
-//! (read first) and the keys required by every metamodel (`publisher`,
-//! `name`, `version`) are checked before that."
+//! The two are separate because required-key checks that depend on the
+//! metamodel (`sources`) run after inheritance has been resolved, since
+//! `metamodel` may itself be inherited from a workspace group.
+//! `manifest-version` and the keys required by every metamodel
+//! (`publisher`, `name`, `version`) are checked before that.
 //!
 //! So [`ProjectTable::validate`] checks everything a manifest can be
 //! judged on by itself, and [`ProjectManifest::resolve`] -- which takes
@@ -43,8 +42,7 @@ use crate::manifest::usage::{
 use crate::manifest::workspace_table::{GroupProperties, WorkspaceTable};
 use crate::model::{IndexName, IndexPublisher, KnownMetamodel, MetamodelFamily};
 
-/// Every key model-toml.md "Main project metadata" documents, in the
-/// order it documents them, which is the order a generated file writes.
+/// Every `[project]` key, in the order a generated file writes them.
 pub(crate) const PROJECT_KEYS: &[&str] = &[
     "publisher",
     "name",
@@ -60,8 +58,7 @@ pub(crate) const PROJECT_KEYS: &[&str] = &[
     "urls",
 ];
 
-/// model-toml.md `urls`: "currently allowed keys: website, repository,
-/// documentation".
+/// The keys `urls` admits.
 pub(crate) const URL_KEYS: &[&str] = &["website", "documentation", "repository"];
 
 /// How this table names itself in a message and addresses itself in the
@@ -70,9 +67,8 @@ const TABLE: &str = "project";
 
 /// The `urls` table of a `[project]`, as written.
 ///
-/// workspaces.md "Common metadata" lists `urls` as inheritable "(whole
-/// table or individual keys can be inherited)", so both levels are a
-/// [`MetaProperty`]; that the two cannot be combined is the overlap rule
+/// `urls` is inheritable as a whole table or key by key, so both levels
+/// are a [`MetaProperty`]; that the two cannot be combined is the overlap rule
 /// of [`crate::manifest::inherit::inheritable_table`].
 #[derive(Clone, Debug, Default)]
 pub struct Urls {
@@ -100,12 +96,10 @@ pub struct ProjectTable {
     pub topics: Option<MetaProperty<Vec<String>>>,
     pub metamodel: Option<MetaProperty<KnownMetamodel>>,
     pub maintainers: Option<MetaProperty<Vec<Maintainer>>>,
-    /// model-toml.md "Standard library": not inheritable, so a plain
-    /// value.
+    /// Not inheritable, so a plain value.
     pub stdlib: Option<StdlibStem>,
     /// `root`, **exactly as written and unjudged**. It belongs to the
-    /// Syside schema (design/syside-metamodel.md, `root`):
-    /// under that family it is a required key naming one of the
+    /// Syside schema: under that family it is a required key naming one of the
     /// `sources` entries, and under any other it is a foreign key that
     /// costs a warning and nothing else, whatever its value. Which of the
     /// two applies depends on the family, and the family may arrive by
@@ -150,15 +144,14 @@ pub struct ResolvedProject {
     pub license: Option<Expression>,
     pub description: Option<String>,
     pub topics: Vec<String>,
-    /// model-toml.md "Metamodel": mandatory in a `model.toml`, and one
-    /// of exactly four values, so a resolved project always knows its
+    /// Mandatory in a `model.toml`, and one of exactly four values, so a resolved project always knows its
     /// family, spec kind and release date.
     pub metamodel: KnownMetamodel,
     pub maintainers: Vec<Maintainer>,
     pub stdlib: Option<StdlibStem>,
     /// The Syside family's entry point: one of the `sources` entries, as
     /// written. Always `Some` for a Syside project, which requires it,
-    /// and always `None` for an OMG one, which "is built from `sources`"
+    /// and always `None` for an OMG one, which is built from `sources`
     /// whether or not the key was written.
     pub root: Option<Utf8UnixPathBuf>,
     pub urls: ResolvedUrls,
@@ -189,8 +182,8 @@ impl ProjectTable {
     /// the field.
     ///
     /// The returned table has **no `sources`**, which for the OMG
-    /// metamodel is not a manifest that resolves -- "a project with no
-    /// source files writes `sources = []`", which is
+    /// metamodel is not a manifest that resolves -- a project with no
+    /// source files writes `sources = []`, which is
     /// `Some(Sources::default())`, not `None`. It is still renderable:
     /// what [`crate::manifest::edit::render_new`] writes is what the
     /// table holds.
@@ -238,7 +231,7 @@ impl ProjectTable {
         let mut report = Report::new();
 
         // Read first: the metamodel selects the schema the rest of the
-        // table is judged against (model-toml.md "Metamodel").
+        // table is judged against.
         let metamodel = inheritable(&reader, "metamodel", &mut report, |report| {
             reader::metamodel(&reader, report)
         });
@@ -374,8 +367,8 @@ impl ProjectTable {
     }
 }
 
-/// model-toml.md `sources`. The rules are [`Sources::new`]'s; what is
-/// added here is where each complaint points.
+/// The rules are [`Sources::new`]'s; what is added here is where each
+/// complaint points.
 fn sources(
     reader: &TableReader<'_>,
     report: &mut Report,
@@ -485,8 +478,7 @@ impl ProjectManifest {
                 Err(problems) => report.extend(problems.into_diagnostics()),
             }
         }
-        // model-toml.md "Normalization": duplicates are counted per
-        // array, and only the entries that validated can be compared.
+        // Duplicates are counted per array, and only the entries that validated can be compared.
         report.extend(check_duplicates(&entries, positions));
 
         report.sort_by_position();
@@ -501,11 +493,10 @@ impl ProjectManifest {
 
     /// Whether anything in this manifest is inherited.
     ///
-    /// workspaces.md: markers "do not establish membership, but a project
-    /// carrying one cannot be read outside a workspace", while "a `dir`
-    /// usage to a marker-free non-member reads it as an ordinary
-    /// standalone project". That is the one question a caller has to ask
-    /// before resolving rather than by catching an error.
+    /// Markers do not establish membership, but a project carrying one
+    /// cannot be read outside a workspace, while a marker-free non-member
+    /// reads as an ordinary standalone project. That is the one question
+    /// to ask before resolving rather than by catching an error.
     pub fn inherits(&self) -> bool {
         let project = &self.project;
         project.publisher.inherited().is_some()
@@ -535,15 +526,14 @@ impl ProjectManifest {
             })
     }
 
-    /// workspaces.md "Explicit inheritance" and "Common usages": follow
-    /// every marker, then run the validation that needs the effective
+    /// Follow every marker, then run the validation that needs the effective
     /// metamodel.
     ///
     /// `workspace` is the table of the workspace this project is a
-    /// *member* of, and `None` for every other project: "Markers resolve
-    /// only against the workspace the project is a member of. A project
-    /// that is not a member is outside every workspace regardless of
-    /// where its directory sits."
+    /// *member* of, and `None` for every other project: markers resolve
+    /// only against the workspace the project is a member of, and a
+    /// project that is not a member is outside every workspace regardless
+    /// of where its directory sits.
     ///
     /// Every marker is followed before the two checks that need the
     /// result, so a project with three failing markers reports three.
@@ -643,8 +633,7 @@ impl ProjectManifest {
             ),
             &mut report,
         );
-        // model-toml.md "Metamodel": "`metamodel` is a URL, and in a
-        // `model.toml` it is mandatory." Checked after inheritance,
+        // `metamodel` is mandatory in a `model.toml`. Checked after inheritance,
         // because a marker satisfies the requirement like any other
         // value. Declared and group values alike were checked against
         // the four when their tables were read.
@@ -681,8 +670,7 @@ impl ProjectManifest {
             }
         }
 
-        // `root`, judged now that the family is known
-        // (design/syside-metamodel.md, Reading and validating): judged
+        // `root`, judged now that the family is known: judged
         // against the *declared* metamodel, a member whose Syside
         // metamodel arrives by marker would be warned about its own
         // `root`.
@@ -712,10 +700,9 @@ impl ProjectManifest {
                 );
                 None
             }
-            // model-toml.md "Metamodel", rule (b): an OMG project that
-            // carries both `sources` and `root` gets only the warning and
-            // is built from `sources`, whatever the value
-            // (design/syside-metamodel.md, Reading and validating).
+            // An OMG project that carries both `sources` and `root` gets
+            // only the warning and is built from `sources`, whatever the
+            // value.
             (Some(_), Some(MetamodelFamily::Omg)) => {
                 report.push(
                     Diagnostic::from(ReadWarning::ForeignSchemaKey {
@@ -734,9 +721,8 @@ impl ProjectManifest {
             (Some(_), None) => None,
         };
 
-        // model-toml.md: `sources` is "always required for the OMG
-        // metamodel", and under syside-metamodel.md, `sources`, it is the
-        // Syside family's membership list too; what differs is the text
+        // `sources` is required for the OMG metamodel and is the Syside
+        // family's membership list too; what differs is the text
         // (`missing_sources`).
         //
         // A project whose `metamodel` is missing entirely still gets
@@ -760,8 +746,8 @@ impl ProjectManifest {
             );
         }
         // `root` names one of the `sources` entries, compared as written
-        // -- the entries themselves are literal (model-toml.md `sources`:
-        // "Two equal entries are a duplicate", equal, not equivalent).
+        // -- the entries themselves are literal (two equal entries are a
+        // duplicate, equal, not equivalent).
         // With no `sources` at all there is no list to be absent from,
         // and the missing `sources` has been reported.
         if syside
@@ -776,8 +762,7 @@ impl ProjectManifest {
             );
         }
 
-        // model-toml.md "Metamodel": "The spec kind
-        // bounds what `sources` may list". Here and not in
+        // The spec kind bounds what `sources` may list. Here and not in
         // `Sources::new`, because the metamodel may itself be inherited
         // and a table reader cannot know it; the entry's position was
         // kept for exactly this.
@@ -802,10 +787,9 @@ impl ProjectManifest {
             }
         }
 
-        // model-toml.md "Standard library": the key "is refused unless
-        // the project's publisher normalizes to `omg` and its metamodel,
-        // declared or inherited, is a recognized OMG one (the IRI needs
-        // its release date)".
+        // The key is refused unless the project's publisher normalizes to
+        // `omg` and its metamodel, declared or inherited, is a recognized
+        // OMG one (the IRI needs its release date).
         if stdlib.is_some()
             && let Some(publisher) = publisher.as_ref()
             && let Some(kind) = metamodel.as_ref()
@@ -902,13 +886,12 @@ fn resolve_urls(
     }
 }
 
-/// workspaces.md "Common usages": an entry that gives only the identity
-/// plus a marker "takes the matching group entry whole". Entries "are
-/// matched by publisher and name, compared literally", so an opt-in has
-/// to spell both exactly as the group entry does -- including declaring
-/// no publisher, which for a standard-library entry is the spelling:
-/// "an opt-in to such an entry likewise gives only `name` and the
-/// marker".
+/// An entry that gives only the identity plus a marker takes the
+/// matching group entry whole. Entries are matched by publisher and name,
+/// compared literally, so an opt-in has to spell both exactly as the
+/// group entry does -- including declaring no publisher, which for a
+/// standard-library entry is the spelling: an opt-in to such an entry
+/// gives only `name` and the marker.
 fn from_group_usage(
     workspace: Option<&WorkspaceTable>,
     publisher: Option<&IndexPublisher>,
@@ -959,8 +942,7 @@ fn from_group_usage(
 }
 
 /// The missing-`sources` error, one text per family. The Syside text
-/// says where `root` fits: the schema needs `sources` like the OMG one
-/// (design/syside-metamodel.md, `sources`).
+/// says where `root` fits: the schema needs `sources` like the OMG one.
 fn missing_sources(metamodel: Option<&KnownMetamodel>) -> Diagnostic {
     let location = KeyLocation::Table(TABLE.to_owned());
     match metamodel {

@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-//! The advisory lock a mutating command holds on a workspace
-//! (`workspaces.md` "The advisory lock").
+//! The advisory lock a mutating command holds on a workspace.
 //!
 //! One file, `.sysand/.lock`, inside the environment directory at the
 //! workspace root -- the project root for a standalone project. Acquiring

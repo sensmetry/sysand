@@ -1030,7 +1030,7 @@ fn directory_usage_copy_satisfies_constraints_of_other_dependents()
 }
 
 /// When the copy pinned by a directory usage cannot satisfy another
-/// dependent's version constraint, resolution must fail — not silently
+/// dependent's version constraint, resolution must fail, not silently
 /// fall back to a satisfying copy of the project from another source
 #[test]
 fn directory_usage_copy_violating_constraints_is_an_error() -> Result<(), Box<dyn std::error::Error>>
@@ -1901,18 +1901,16 @@ fn directory_usage_admits_a_prerelease() -> Result<(), Box<dyn std::error::Error
 
 // --- candidate order ------------------------------------------------------
 
-/// Once any constraint applies — stated or defaulted — selection runs through
-/// the `DiscreteHashSet::Finite` arm of `choose_version()`, which takes
-/// `min()` over candidate indices: the first matching candidate the resolver
-/// listed, not the highest matching version.
+/// Once any constraint applies (stated or defaulted), selection takes the
+/// first matching candidate the resolver listed, not the highest matching
+/// version.
 ///
-/// Candidate order is a preference rank, not an accident — `CombinedResolver`
+/// Candidate order is a preference rank, not an accident: the resolver
 /// emits authoritative sources first and appends unmatched local cache copies
-/// last — so ranking by index is the right thing to do. What it relies on is
-/// every source listing its own versions in descending order, which
-/// `EnvResolver` ensures for every environment (see
+/// last, so ranking by index is right. This relies on every source listing
+/// its own versions in descending order (see
 /// `constrained_usage_picks_the_highest_matching_version_within_one_source`).
-/// This fixture's `MemoryResolver` keeps the order it is given.
+/// This fixture's resolver keeps the order it is given.
 ///
 /// Spelled out here with prereleases because that is where it bites hardest:
 /// out of descending order, `^1.0.0-alpha` picks `1.0.0-alpha.1` over the
@@ -1947,13 +1945,11 @@ fn constrained_usage_picks_by_candidate_order_not_by_version()
 
 /// Within one source, the highest matching version wins.
 ///
-/// Candidate order *across* sources is deliberate — `CombinedResolver` ranks
-/// authoritative sources ahead of local cache copies, and `choose_version()`
-/// honours that rank. Within one source, `EnvResolver` lists versions highest
-/// first, so that the rank and the version agree even for an environment that
-/// does not list them in order: `LocalDirectoryEnvironment::versions` yields
-/// install order, which this fixture stands in for — install `1.0.0`, then
-/// `1.2.0`, ask for `^1`, and resolution settles on `1.2.0`.
+/// Candidate order *across* sources is deliberate: authoritative sources
+/// rank ahead of local cache copies. Within one source, versions are listed
+/// highest first, so the rank and the version agree even for an environment
+/// that yields install order, which this fixture stands in for: install
+/// `1.0.0`, then `1.2.0`, ask for `^1`, and resolution settles on `1.2.0`.
 #[test]
 fn constrained_usage_picks_the_highest_matching_version_within_one_source() {
     // The order a local environment hands over: install order, not descending.
@@ -2677,9 +2673,8 @@ fn dir_usage(dir: &str, name: &str) -> InterchangeProjectUsage {
     }
 }
 
-/// `workspaces.md` "Intra-workspace usages": a member's `dir` is
-/// "relative to the member", so a solve over several members has
-/// several bases.
+/// A member's `dir` is relative to the member, so a solve over several
+/// members has several bases.
 ///
 /// The two usages name the same relative path and *different* projects.
 /// Naming the same project would prove nothing: the solver coalesces

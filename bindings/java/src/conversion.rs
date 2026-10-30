@@ -341,7 +341,7 @@ pub(crate) fn java_metadata_to_raw<'local>(
     meta: &JObject<'local>,
 ) -> Option<InterchangeProjectMetadataRaw> {
     let index_obj = get_field_object(env, meta, jni_str!("index"), LINKED_HASH_MAP)?;
-    // Null for the Syside shape (design/syside-metamodel.md).
+    // Null for the Syside shape.
     let index = if index_obj.is_null() {
         None
     } else {

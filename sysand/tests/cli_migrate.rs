@@ -780,7 +780,7 @@ fn index_with_versions(server: &mut Server, versions: &[&str]) -> Vec<mockito::M
 
 /// The same, with a target that spells its identity differently from
 /// the PURL that names it -- which is what a migrated usage has to
-/// carry (model-toml.md "Normalization").
+/// carry.
 fn index_with_versions_declaring(
     server: &mut Server,
     versions: &[&str],
@@ -827,9 +827,9 @@ fn index_with_versions_declaring(
     mocks
 }
 
-/// model-toml.md: an unconstrained `pkg:sysand` usage "is resolved at
-/// migration time and pinned to `^<version>`, where `<version>` is the
-/// version that resolution found".
+/// An unconstrained `pkg:sysand` usage is resolved at migration time and
+/// pinned to `^<version>`, where `<version>` is the version that
+/// resolution found.
 ///
 /// Two versions, because a single-version fixture cannot show *which*
 /// one resolution found.
@@ -884,8 +884,6 @@ fn an_unconstrained_purl_that_resolves_to_nothing_is_refused()
 /// A purl that already carries a constraint keeps it -- and still
 /// consults the index, because the pair a `model.toml` writes is the
 /// one the target declares and a PURL's is normalized by construction.
-/// model-toml.md: "Either way, migrating such a usage needs the index
-/// to be reachable."
 #[test]
 fn a_constrained_purl_takes_the_targets_spelling() -> Result<(), Box<dyn std::error::Error>> {
     let mut server = Server::new();
@@ -1184,9 +1182,9 @@ fn lock_refuses_a_transitively_reached_spelling_difference()
 
 // ------------------------------------------- standard-library usages
 
-/// model-toml.md "Standard library": a json project's `resource` usage
+/// The model docs on the standard library: a json project's `resource` usage
 /// of an OMG standard-library IRI "is the same usage under the same
-/// spelling" — the publisher-less `kpar-url`.
+/// spelling": the publisher-less `kpar-url`.
 ///
 /// `--no-index` is the assertion, not a convenience: the metadata is
 /// embedded and the IRI names the release, so migrating such a usage
@@ -1421,8 +1419,7 @@ fn a_lone_meta_json_beside_a_toml_is_finished_off() -> Result<(), Box<dyn std::e
 ///
 /// Offline: the fixture's `usage` is empty, so migrate needs no index
 /// and lock has nothing to resolve. It carries neither a publisher nor
-/// a metamodel, so both are supplied — which is itself worth pinning,
-/// a legacy json project having had neither.
+/// a metamodel, so both are supplied, as a legacy json project had neither.
 #[test]
 fn the_test_lib_fixture_migrates_then_locks_syncs_and_builds()
 -> Result<(), Box<dyn std::error::Error>> {

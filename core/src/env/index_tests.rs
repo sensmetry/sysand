@@ -10,14 +10,13 @@
 //!   per-version `.project.json` / `.meta.json` 404s remain hard
 //!   errors (empty-but-live collections are served as 200 with an
 //!   empty payload). `versions.json` 404 means "project not in this
-//!   index" (§8): `versions_async` yields an empty stream so a
+//!   index": `versions_async` yields an empty stream so a
 //!   resolver chain can try another source, and `get_project_async`
 //!   surfaces a distinct `ProjectNotInIndex` error so direct callers
 //!   can tell "not here" apart from a transport failure.
 //! - **`versions.json` entries MUST be in descending semver
 //!   precedence** and unique. The client validates ordering at
-//!   ingest (not lexically) and does not re-sort; downstream code
-//!   relies on newest-first.
+//!   ingest (not lexically) and does not re-sort.
 //! - **SHA-256 is the only supported digest algorithm**, and the
 //!   canonical project digest MUST be computable from `.project.json`
 //!   and `.meta.json` alone. Digest fields are lowercase
@@ -55,8 +54,8 @@ fn inner<E>(error: crate::cancel::Cancellable<E>) -> E {
     }
 }
 
-// Re-exports so that `super::X` paths inside sub-modules (which refer to this
-// `tests` module) continue to resolve to names from the parent `index` module.
+// Imported so that `super::X` paths inside sub-modules resolve to names from
+// the parent `index` module.
 use super::{HttpFetchError, IndexEnvironmentError};
 use crate::index::model::VersionsJsonError;
 
@@ -66,9 +65,8 @@ use crate::index::model::VersionsJsonError;
 const FILLER_DIGEST: &str =
     "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
-/// Build a `pkg:sysand/<suffix>` IRI from the constant prefix. Tests rely on
-/// this so the literal scheme prefix lives in exactly one place
-/// (`PKG_SYSAND_PREFIX` in `purl.rs`).
+/// Build a `pkg:sysand/<suffix>` IRI from [`PKG_SYSAND_PREFIX`], so the
+/// literal scheme prefix is not repeated in the tests.
 fn purl(suffix: &str) -> String {
     format!("{PKG_SYSAND_PREFIX}{suffix}")
 }
@@ -645,12 +643,10 @@ mod versions {
 
     #[test]
     fn versions_async_filters_retired_entries() -> Result<(), Box<dyn std::error::Error>> {
-        // §8 `status` field + §12 "MUST NOT select non-available for a
-        // new resolution". A mixed-status fixture verifies two things
-        // in one document:
+        // Retired versions are never selected for a new resolution. A
+        // mixed-status fixture verifies two things in one document:
         //   1. Wire-level parsing accepts every `status` value plus
-        //      the omitted default (§14 forward compat + §8 SHOULD-omit
-        //      convention for `available`).
+        //      the omitted default (`available`).
         //   2. The resolver-facing `versions()` stream exposes only
         //      `available` entries; `yanked` and `removed` are filtered
         //      so solve/lock can't pick them.
@@ -865,8 +861,8 @@ mod versions {
     #[test]
     fn missing_versions_json_surfaces_as_empty_at_resolver_boundary()
     -> Result<(), Box<dyn std::error::Error>> {
-        // §8 — a 404 on `versions.json` means the project is not in
-        // this index. `versions_async` yields an empty stream so a
+        // A 404 on `versions.json` means the project is not in this
+        // index. `versions_async` yields an empty stream so a
         // resolver chain falls through to the next source; non-404
         // errors still propagate as hard errors.
         let mut server = mockito::Server::new();
@@ -894,7 +890,7 @@ mod versions {
 
     #[test]
     fn versions_json_forbidden_is_hard_error() -> Result<(), Box<dyn std::error::Error>> {
-        // The §8 404 downgrade is deliberately narrow. A direct 403 on
+        // The 404 downgrade is deliberately narrow. A direct 403 on
         // root `versions.json` is a hard transport/auth failure, not
         // "project absent from this index".
         let mut server = mockito::Server::new();
@@ -1101,13 +1097,13 @@ mod versions {
 /// its artifacts.
 ///
 /// Rules exercised here (see module-level doc for cross-cutting ones):
-/// - A `versions.json` 404 surfaces as `ProjectNotInIndex` (§8): the
+/// - A `versions.json` 404 surfaces as `ProjectNotInIndex`: the
 ///   project is not in this index, so a direct caller can tell "not
 ///   here" apart from a transport failure.
 /// - A 404 on a per-version file (`.project.json`, `.meta.json`)
 ///   for an `available` / `yanked` entry remains a hard
-///   `BadHttpStatus(404)`: §9 requires those files to exist whenever
-///   the version is so listed.
+///   `BadHttpStatus(404)`: those files must exist whenever the version
+///   is so listed.
 /// - `.project.json` / `.meta.json` are the source of truth for
 ///   info/meta (not IRI heuristics and not the advertised usage).
 /// - A caller-supplied version not listed in `versions.json` surfaces
@@ -1120,8 +1116,8 @@ mod get_project {
     #[test]
     fn get_project_on_versions_json_404_surfaces_project_not_in_index()
     -> Result<(), Box<dyn std::error::Error>> {
-        // §8 — a `versions.json` 404 means the project is not in this
-        // index. `get_project_async` MUST surface a distinct
+        // A `versions.json` 404 means the project is not in this
+        // index. `get_project_async` surfaces a distinct
         // `ProjectNotInIndex` error so a direct caller can tell "not
         // here" apart from a transport failure or from the
         // version-listed-but-missing case
@@ -1158,7 +1154,7 @@ mod get_project {
 
     #[test]
     fn get_project_on_versions_json_5xx_is_hard_error() -> Result<(), Box<dyn std::error::Error>> {
-        // Direct `get_project` has the same §8 boundary as
+        // Direct `get_project` has the same boundary as
         // `versions_async`: 404 is "not in this index", but 5xx is a
         // hard server failure.
         let mut server = mockito::Server::new();
@@ -1193,9 +1189,9 @@ mod get_project {
     #[test]
     fn get_project_on_removed_version_fails_with_version_removed()
     -> Result<(), Box<dyn std::error::Error>> {
-        // §9 + §13 — when a lockfile replay (or any direct
-        // `get_project`) hits a version whose `versions.json` entry
-        // carries `status: "removed"`, the client MUST surface a
+        // When a lockfile replay (or any direct `get_project`) hits a
+        // version whose `versions.json` entry carries
+        // `status: "removed"`, the client surfaces a
         // distinct "removed upstream" diagnostic rather than the
         // generic 404 on the per-version files. We assert the
         // `VersionRemoved` variant is produced before any file fetch
@@ -1237,12 +1233,11 @@ mod get_project {
     #[test]
     fn get_project_on_yanked_version_still_serves_files() -> Result<(), Box<dyn std::error::Error>>
     {
-        // §11 Retirement + §13 lockfile contract — a `yanked` entry's
-        // per-version files remain served so existing lockfiles still
-        // `sync` cleanly; only new resolutions are affected (and those
-        // are filtered at the `versions_async` boundary in §12). Direct
-        // `get_project` on a yanked version MUST behave exactly like
-        // `available`.
+        // A `yanked` entry's per-version files remain served so existing
+        // lockfiles still `sync` cleanly; only new resolutions are
+        // affected (they are filtered out of the `versions_async`
+        // stream). Direct `get_project` on a yanked version behaves
+        // exactly like `available`.
         let mut server = mockito::Server::new();
 
         let env = index_env_sync(&server)?;
@@ -2215,7 +2210,7 @@ mod caching {
 
     #[test]
     fn versions_json_404_refetched_on_every_call() -> Result<(), Box<dyn std::error::Error>> {
-        // The "not in this index" 404 outcome (§8) is intentionally
+        // The "not in this index" 404 outcome is intentionally
         // not cached — the cache slot is only populated on a
         // successful validate — so a later publish to the same index
         // becomes visible without restart. Each retry re-issues the

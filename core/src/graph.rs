@@ -182,10 +182,9 @@ impl<N: Clone + Debug + Display + Eq + Hash> DependencyGraph<N> {
 
     /// A cycle through `start`, as a path that begins and ends there.
     ///
-    /// Breadth-first, so it is the shortest cycle through `start` — not
-    /// necessarily the shortest cycle in the component, and deliberately
-    /// so: `start` is chosen by the caller to be a project the reader
-    /// needs to see.
+    /// Breadth-first, so it is the shortest cycle through `start`, not
+    /// necessarily the shortest in the component: the caller picks `start`
+    /// as a project the reader needs to see.
     fn cycle(&self, component: &[usize], start: usize) -> DependencyCycle<N> {
         let in_component: HashSet<usize> = component.iter().copied().collect();
         let mut previous: HashMap<usize, usize> = HashMap::new();

@@ -135,17 +135,11 @@ pub struct ResolutionInfo {
     /// the identity check at the target.
     ///
     /// `InterchangeProjectUsage::Resource` cannot carry it: that variant
-    /// is KerML 1.0's untyped usage, where the IRI *is* the identity, so
-    /// a `.project.json` has no field to put a publisher in. A
-    /// `model.toml` `kpar-url` usage does declare both -- every usage
-    /// but a standard-library one has a publisher -- and
-    /// `kpar_view::usage` drops them on the way to the view, faithfully,
-    /// because json cannot express them.
-    ///
-    /// So it travels here instead, beside [`Self::origin`]. `None` for
-    /// every other usage:
-    /// they either carry the pair in the usage itself or, for a
-    /// standard-library `kpar-url`, declare no publisher at all.
+    /// is the untyped usage, where the IRI *is* the identity, so it has
+    /// no field to put a publisher in. It travels here instead, beside
+    /// [`Self::origin`]. `None` for every other usage: they either carry
+    /// the pair in the usage itself or, for a standard-library
+    /// `kpar-url`, declare no publisher at all.
     /// Boxed: two `String`s inline grow `ResolutionInfo` enough to
     /// trip `clippy::large_enum_variant` on `DependencyIdentifier`,
     /// and this is `None` for every usage but one kind.
@@ -174,8 +168,7 @@ impl CoalescingUsage {
     }
 
     /// The same as [`Self::new_usage`], for a usage whose
-    /// [`ResolutionInfo`] the caller has already built -- which is how a
-    /// declarer reaches the solver.
+    /// [`ResolutionInfo`] the caller has already built.
     pub fn from_info(usage: ResolutionInfo) -> Self {
         Self {
             id: usage.id(),

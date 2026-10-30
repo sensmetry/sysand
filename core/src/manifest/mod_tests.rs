@@ -69,7 +69,7 @@ fn project_body() -> &'static str {
 // ----------------------------------------------------------------------
 // Manifest version
 
-/// model-toml.md: "The key is mandatory".
+/// The key is mandatory.
 #[test]
 fn a_manifest_version_is_required() {
     let report = rejected(
@@ -100,7 +100,7 @@ fn a_missing_version_does_not_stop_the_read() {
     );
 }
 
-/// The message is a text the specification fixes.
+/// The message text is fixed.
 #[test]
 fn a_newer_manifest_version_is_refused() {
     let report = rejected(&format!("manifest-version = \"2.0\"\n{}", project_body()));
@@ -144,10 +144,9 @@ fn the_supported_version_is_accepted() {
     assert!(accepted(PROJECT).value.as_project().is_some());
 }
 
-/// model-toml.md names exactly two failures, absent and too new, so a
-/// version below this one is read as this one. Almost certainly a typo;
-/// refusing it would be a third rule the specification does not state.
-/// Pinned so that changing it is deliberate.
+/// Only absent and too new are failures, so a version below this one is
+/// read as this one. Almost certainly a typo; refusing it would be a
+/// third rule. Pinned so that changing it is deliberate.
 #[test]
 fn a_version_below_the_supported_one_is_accepted() {
     for version in ["1.0", "0.9", "0.0"] {
@@ -195,8 +194,8 @@ fn a_manifest_version_that_is_not_major_dot_minor_is_refused() {
     }
 }
 
-/// workspaces.md "Common metadata": "`manifest-version` is not a
-/// `[project]` key at all: every file carries its own."
+/// `manifest-version` is not a `[project]` key at all: every file carries
+/// its own.
 #[test]
 fn a_manifest_version_cannot_be_inherited() {
     let report = rejected(&format!(
@@ -212,8 +211,8 @@ fn a_manifest_version_cannot_be_inherited() {
     );
 }
 
-/// workspaces.md: "Like every `model.toml`, a workspace config starts
-/// with `manifest-version`."
+/// Like every `model.toml`, a workspace config starts with
+/// `manifest-version`.
 #[test]
 fn a_workspace_config_carries_a_version_too() {
     let report = rejected("[workspace]\nmembers = []\n");
@@ -254,9 +253,9 @@ fn both_tables_in_one_file_are_refused() {
     );
 }
 
-/// model-toml.md: "a `model.toml` with
-/// neither is an error rather than a file that defines nothing -- which
-/// is what a mistyped table name would otherwise become".
+/// A `model.toml` with neither table is an error rather than a file that
+/// defines nothing -- which is what a mistyped table name would otherwise
+/// become.
 #[test]
 fn neither_table_is_refused() {
     let report = rejected("manifest-version = \"1.0\"\n[projct]\nname = \"typo\"\n");
@@ -327,8 +326,8 @@ fn an_empty_inline_usages_array_is_refused_too() {
     assert!(texts(&report)[0].contains("no top-level `inline-usages`"));
 }
 
-/// workspaces.md "Unknown keys": a warning, in both kinds of file. Rule
-/// (a)'s metamodel suffix does not apply here -- the metamodel is a
+/// An unknown key is a warning, in both kinds of file. The unsupported
+/// metamodel suffix does not apply here -- the metamodel is a
 /// `[project]` key, and the top level of a file has none.
 #[test]
 fn an_unknown_top_level_key_is_a_warning() {
@@ -430,8 +429,8 @@ fn the_wrong_variant_says_so() {
     );
 }
 
-/// workspaces.md's upward walk asks one question of every ancestor, and
-/// must not be stopped by an unrelated file's problems.
+/// The upward walk to a workspace asks one question of every ancestor,
+/// and must not be stopped by an unrelated file's problems.
 #[test]
 fn peek_answers_without_validating() {
     assert_eq!(
@@ -457,11 +456,9 @@ fn peek_on_a_file_with_neither_table_is_none() {
 // ----------------------------------------------------------------------
 // The examples the specification gives
 //
-// Every example manifest in `model-toml.md` and `workspaces.md` parses. Both
-// are in `design/`, copied byte-for-byte from where they are
-// maintained; the blocks are repeated here with the section each came
-// from named in a comment, because a test cannot read a fenced block
-// out of a document and still say which one it meant.
+// Every example manifest in the design documents parses. The blocks are
+// repeated here, each with a comment saying what it shows, because a
+// test cannot read a fenced block out of a document.
 //
 // Most are fragments rather than whole files. A fragment is completed
 // with the smallest frame that makes it one, and there are two frames:
@@ -484,11 +481,12 @@ fn as_workspace_file(fragment: &str) -> String {
     format!("manifest-version = \"1.0\"\n\n{fragment}")
 }
 
-/// model-toml.md, "Manifest version" and "Standard library".
+/// The examples of `model-toml.md` that are about the manifest version
+/// and the standard library.
 #[test]
 fn every_example_in_model_toml_parses() {
     // design: model-toml.md #1
-    // "Manifest version". A `[project]` with only a comment in it, so
+    // The manifest version. A `[project]` with only a comment in it, so
     // the required keys complete it rather than frame it.
     accepted(
         "manifest-version = \"1.0\"\n\n\
@@ -496,8 +494,8 @@ fn every_example_in_model_toml_parses() {
     );
 
     // design: model-toml.md #2
-    // "Standard library": a publisher-less `kpar-url` naming an OMG
-    // IRI. "This is the only form."
+    // A publisher-less `kpar-url` naming an OMG IRI, the only form a
+    // standard-library usage takes.
     accepted(&as_project_file(
         "[[inline-usages]]\n\
          name = \"Kernel Semantic Library\"\n\
@@ -505,8 +503,8 @@ fn every_example_in_model_toml_parses() {
     ));
 
     // design: model-toml.md #3
-    // "Developing the standard library": the `[project]` of one of the
-    // ten projects, which inherits its metamodel from a group.
+    // The `[project]` of one of the standard library's projects, which
+    // inherits its metamodel from a group.
     accepted(
         "manifest-version = \"1.0\"\n\n\
          [project]\n\
@@ -519,15 +517,14 @@ fn every_example_in_model_toml_parses() {
     );
 }
 
-/// syside-metamodel.md, "`root`" and "Reading and validating". Its
-/// examples are about resolution as much as parsing -- the first must
-/// resolve with no warning, the second against a group, the third with
-/// exactly the foreign-key warning -- so unlike the two tests above this
-/// one resolves what it parses.
+/// The examples of `syside-metamodel.md`. They are about resolution as
+/// much as parsing -- the first must resolve with no warning, the second
+/// against a group, the third with exactly the foreign-key warning -- so
+/// unlike the other example tests this one resolves what it parses.
 #[test]
 fn every_example_in_syside_metamodel_md_parses_and_resolves() {
     // design: syside-metamodel.md #1
-    // "`root`": a Syside project naming one of its sources as its root.
+    // A Syside project naming one of its sources as its root.
     let project = accepted(
         "manifest-version = \"1.0\"\n\n\
          [project]\n\
@@ -560,7 +557,7 @@ fn every_example_in_syside_metamodel_md_parses_and_resolves() {
     );
 
     // design: syside-metamodel.md #2
-    // "Reading and validating": a member inheriting a Syside metamodel
+    // A member inheriting a Syside metamodel
     // from a group, with its own `root`. The group is not in the
     // document; it is what the group `syside` supplying the three
     // inherited keys looks like.
@@ -598,7 +595,7 @@ fn every_example_in_syside_metamodel_md_parses_and_resolves() {
     );
 
     // design: syside-metamodel.md #3
-    // "Reading and validating": an OMG project carrying `root` is a
+    // An OMG project carrying `root` is a
     // valid OMG project with one warning, and no `root`.
     let legacy = accepted(
         "manifest-version = \"1.0\"\n\n\
@@ -644,12 +641,11 @@ fn an_index_usage_published_by_omg_is_an_ordinary_usage() {
     ));
 }
 
-/// workspaces.md, "Included projects" and "Common usages".
+/// The examples of `workspaces.md` about members and common usages.
 #[test]
 fn every_example_in_workspaces_md_parses() {
     // design: workspaces.md #1
-    // "Included projects": the one example in either document that is a
-    // whole file.
+    // The one example in either document that is a whole file.
     let read = accepted(
         "manifest-version = \"1.0\"\n\n\
          [workspace]\n\
@@ -663,7 +659,7 @@ fn every_example_in_workspaces_md_parses() {
     assert_eq!(workspace.exclude.len(), 1);
 
     // design: workspaces.md #2
-    // "Common usages": a member opting in to two group entries and
+    // A member opting in to two group entries and
     // declaring one of its own.
     accepted(&as_project_file(
         "[[inline-usages]]\npublisher = \"acme\"\nname = \"foo\"\nworkspace = true\n\n\
@@ -672,7 +668,7 @@ fn every_example_in_workspaces_md_parses() {
     ));
 
     // design: workspaces.md #3
-    // "Common usages": one group per language, each carrying the
+    // One group per language, each carrying the
     // `metamodel` of that language's release, and each carrying its
     // standard-library usage as a publisher-less `kpar-url`.
     let read = accepted(&as_workspace_file(
@@ -703,9 +699,9 @@ fn every_example_in_workspaces_md_parses() {
     ));
 }
 
-/// workspaces.md "Explicit inheritance" gives one block that is *not* a
-/// manifest: every line but the first is marked `# invalid`, illustrating
-/// that "inheritance cannot overlap".
+/// `workspaces.md` gives one block that is *not* a manifest: every line
+/// but the first is marked `# invalid`, illustrating that inheritance
+/// cannot overlap.
 ///
 /// It makes two different points, so it is checked as two. The first two
 /// lines are valid TOML and are exactly the overlap Sysand refuses. The
@@ -715,6 +711,7 @@ fn every_example_in_workspaces_md_parses() {
 #[test]
 fn the_overlap_counter_example_is_refused() {
     // design: workspaces.md #4
+    // The block's first two lines.
     let report = rejected(&as_project_file(
         "urls.workspace = true\nurls.website.workspace = true # invalid\n",
     ));
@@ -728,6 +725,7 @@ fn the_overlap_counter_example_is_refused() {
     );
 
     // design: workspaces.md #4
+    // The whole block.
     let report = rejected(&as_project_file(
         "urls.workspace = true\n\
          urls.website.workspace = true # invalid\n\

@@ -20,9 +20,8 @@ use crate::symbols::Language;
 
 /// The publisher a standard-library usage is resolved under.
 ///
-/// model-toml.md "Standard library": such a usage declares no
-/// `publisher`, and "for the dependency graph and the lockfile [it] has
-/// the identity `(omg, <name>)`".
+/// Such a usage declares no `publisher`, and for the dependency graph
+/// and the lockfile has the identity `(omg, <name>)`.
 pub static OMG_PUBLISHER: std::sync::LazyLock<IndexPublisher> =
     std::sync::LazyLock::new(|| IndexPublisher::parse("omg").expect("`omg` is a valid publisher"));
 
@@ -37,9 +36,8 @@ impl IndexPublisher {
     }
 }
 
-/// The normalized identity a project is resolved by (model-toml.md
-/// "Normalization"), and the pair the lockfile records as
-/// `pkg:sysand/<publisher>/<name>`.
+/// The normalized identity a project is resolved by, and the pair the
+/// lockfile records as `pkg:sysand/<publisher>/<name>`.
 ///
 /// A `model.toml` usage that declares no publisher is a standard-library
 /// usage, whose identity is `(omg, <name>)`, so this pair always has a
@@ -70,11 +68,10 @@ pub fn normalized_identity(publisher: &IndexPublisher, name: &IndexName) -> Norm
     }
 }
 
-/// model-toml.md "Standard library": the value of the `stdlib` key, "the
-/// last segment of the IRI at which the library's KPAR is published ...
-/// validated as a single path segment (`[A-Za-z0-9][A-Za-z0-9-]*`) so it
-/// cannot carry `/` or `..` into an IRI". Not inheritable, hence a plain
-/// value.
+/// The value of the `stdlib` key: the last segment of the IRI at which
+/// the library's KPAR is published, validated as a single path segment
+/// (`[A-Za-z0-9][A-Za-z0-9-]*`) so it cannot carry `/` or `..` into an
+/// IRI. Not inheritable, hence a plain value.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct StdlibStem(String);
 
@@ -119,9 +116,8 @@ impl<'de> Deserialize<'de> for StdlibStem {
     }
 }
 
-/// model-toml.md only recognizes a single maintainer shape ("array of
-/// strings, each of the form `name <email>`; both parts are mandatory"),
-/// so this is a plain struct. Each entry stays a string rather than a
+/// A maintainer is a string of the form `name <email>`; both parts are
+/// mandatory. Each entry stays a string rather than a
 /// `{name, email}` table, and serializes as the text it was parsed from,
 /// so that the round-trip to a KPAR's `.project.json` `maintainer` array
 /// is the identity.
@@ -196,8 +192,7 @@ pub struct ResolvedUrls {
     pub repository: Option<Iri<String>>,
 }
 
-/// workspaces.md "Explicit inheritance": which group a `<key>.workspace`
-/// marker points at. `workspace = true` selects the implicit default group
+/// Which group a `<key>.workspace` marker points at. `workspace = true` selects the implicit default group
 /// (keys written directly in `[workspace]`), `workspace = "group-name"` a
 /// `[workspace.group.<group-name>]` table.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -226,9 +221,8 @@ pub enum InheritMarker {
     Group(String),
 }
 
-/// workspaces.md "Explicit inheritance": "`<group-name>` is a bare TOML
-/// key: letters, digits, `-` and `_`." A marker naming anything else could
-/// never find a `[workspace.group.<group-name>]` table.
+/// A `<group-name>` is a bare TOML key: letters, digits, `-` and `_`. A
+/// marker naming anything else could never find a `[workspace.group.<group-name>]` table.
 pub fn is_valid_group_name(name: &str) -> bool {
     !name.is_empty()
         && name
@@ -274,10 +268,10 @@ impl TryFrom<InheritMarker> for InheritFrom {
     }
 }
 
-/// Why an entry of `sources` is not one (model-toml.md `sources`).
+/// Why an entry of `sources` is not one.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum SourcesError {
-    /// "Entries are relative": an absolute entry has no place in a KPAR.
+    /// An absolute entry has no place in a KPAR.
     #[error("`sources` entry `{0}` is absolute; entries are relative to the project root")]
     NotRelative(String),
     /// A manifest reads the same way on every platform.
@@ -289,10 +283,9 @@ pub enum SourcesError {
     ContainsBackslash(String),
     #[error("`sources` entry `{0}` contains a NULL character")]
     ContainsNull(String),
-    /// model-toml.md `sources`: "Entries are relative and `/`-separated,
-    /// and are taken exactly as written: rather than normalize a path and
-    /// then check where it landed, the manifest admits only the one form
-    /// Sysand itself writes."
+    /// Entries are taken exactly as written: rather than normalize a path
+    /// and then check where it landed, the manifest admits only the one
+    /// form Sysand itself writes.
     ///
     /// Nothing is resolved, which is why there is no "escapes the
     /// project root" and no "is the project root": an entry that would
@@ -302,8 +295,8 @@ pub enum SourcesError {
          `/`-separated,\nand carry no `.` or `..` component and no repeated or leading slash"
     )]
     NotStrict(String),
-    /// "Every entry names a single file, listed explicitly; directories are
-    /// not admitted and globs never will be" (`design/model-toml.md`).
+    /// Every entry names a single file, listed explicitly; directories are
+    /// not admitted and globs never will be.
     #[error(
         "`sources` entry `{0}` names a directory; every entry names a single file, \
          listed explicitly (directories and globs are not admitted)"
@@ -329,20 +322,19 @@ pub enum SourcesError {
     NotModelFile(String),
 }
 
-/// model-toml.md `sources`: "array of paths to the project's source files,
-/// relative to the project root (the directory containing `model.toml`).
-/// Always required for the OMG metamodel: there is no implicit default set
-/// of source files, so a project that has none is written as
-/// `sources = []`."
+/// An array of paths to the project's source files, relative to the
+/// project root (the directory containing `model.toml`). There is no
+/// implicit default set of source files, so a project that has none is
+/// written as `sources = []`.
 ///
-/// Entries are stored **as written**: "The entry as written is what the
+/// Entries are stored **as written**: the entry as written is what the
 /// `checksum` and `index` maps of a built KPAR are keyed by. The commands
-/// that write `sources` (`sysand include`, `sysand migrate`) write this
-/// form, converting into it what they are given."
+/// that write `sources` write this form, converting into it what they
+/// are given.
 ///
-/// `sources` "is per-project only: it cannot appear in `[workspace]` and
-/// cannot be inherited by a member ..., since the file layout of one
-/// project says nothing about another's". Refusing an attempted
+/// `sources` is per-project only: it cannot appear in `[workspace]` and
+/// cannot be inherited by a member, since the file layout of one project
+/// says nothing about another's. Refusing an attempted
 /// `sources.workspace = true` with that explanation belongs to whoever
 /// reads the table -- [`crate::manifest::project`] for `[project]`,
 /// [`crate::manifest::workspace_table`] for a group -- since only a
@@ -355,7 +347,7 @@ pub struct Sources(Vec<Utf8UnixPathBuf>);
 /// `root` share.
 ///
 /// `root` is held to a `sources` entry's syntax, so that there is one
-/// path rule in a manifest (design/syside-metamodel.md, "`root`"). The
+/// path rule in a manifest. The
 /// checks are one function so that there is one rule; the *texts* are
 /// each key's own ([`SourcesError`], [`RootError`]), because a message
 /// about one key cannot speak of "entries".
@@ -376,8 +368,7 @@ pub enum PathProblem {
     NotModelFile,
 }
 
-/// The shared checks, in the order [`Sources::new`] has always applied
-/// them. `None` for a path that passes all six.
+/// The shared checks, in the order [`Sources::new`] applies them. `None` for a path that passes all six.
 pub fn path_problem(raw: &str) -> Option<PathProblem> {
     if raw.ends_with('/') {
         return Some(PathProblem::Directory);
@@ -468,9 +459,9 @@ pub fn root_path(raw: &str) -> Result<Utf8UnixPathBuf, RootError> {
 
 impl Sources {
     /// Checks every entry against the rules of [`SourcesError`] and
-    /// keeps it **as written**. Whether the files exist "is checked only
-    /// for build/publish, as with the license file, so reading a
-    /// manifest never touches them".
+    /// keeps it **as written**. Whether the files exist is checked only
+    /// for build/publish, as with the license file, so reading a manifest
+    /// never touches them.
     ///
     /// Nothing is resolved: a `..` is an error rather than a step, so no
     /// entry can escape the project root and none can name it.
@@ -526,11 +517,10 @@ impl Serialize for Sources {
 
 /// The half of the language rule the metamodel decides.
 ///
-/// model-toml.md "Metamodel": "The spec kind bounds what `sources` may
-/// list [...] An entry the metamodel does not admit is an error naming
-/// the entry and the metamodel; the fix is the metamodel that admits it,
-/// or a second project for the other language, which is how the standard
-/// library is split."
+/// The spec kind bounds what `sources` may list. An entry the metamodel
+/// does not admit is an error naming the entry and the metamodel; the fix
+/// is the metamodel that admits it, or a second project for the other
+/// language.
 ///
 /// `Ok(())` for an entry that is not a model file at all: that is
 /// [`SourcesError::NotModelFile`]'s, and it needs no metamodel.

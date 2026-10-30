@@ -64,7 +64,8 @@ pub(crate) trait IdentifiedEntry {
 
 /// Rewrite the identifiers of `entries` that were derived from their
 /// publisher and name differently (those that `is_derived`), to the
-/// identifier derived from them now, and the usages of these identifiers
+/// identifier [`Identifier::from_project`] derives from them, and the
+/// usages of these identifiers
 /// likewise. Other identifiers (e.g. IRIs) are kept, as are those of
 /// entries that have no publisher, or whose publisher or name is not valid
 pub(crate) fn rederive_identifiers<T: IdentifiedEntry>(
@@ -102,9 +103,9 @@ pub(crate) fn rederive_identifiers<T: IdentifiedEntry>(
 
 /// Whether `identifier` was derived from a publisher and name before they
 /// were normalized (lockfile versions up to 0.5, env metadata versions up to
-/// 0.1): `urn:sysand` identifiers held them as spelled (percent-encoded),
-/// they are now normalized. `pkg:sysand` identifiers are derived the same
-/// in both
+/// 0.1): `urn:sysand` identifiers of that derivation hold them as spelled
+/// (percent-encoded), while [`Identifier::from_project`] normalizes them.
+/// `pkg:sysand` identifiers are derived the same in both
 pub(crate) fn is_derived_unnormalized(identifier: &str) -> bool {
     identifier.starts_with(URN_SYSAND_PREFIX)
 }

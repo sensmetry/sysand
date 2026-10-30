@@ -43,8 +43,8 @@ def test_runtime_failure_is_one(tmp_path: Path) -> None:
 
 
 def test_module_entry_point_propagates_the_code(tmp_path: Path) -> None:
-    # `python -m sysand` is the user-visible half of this: it used to report
-    # 1 for a usage error where the native binary reports 2.
+    # `python -m sysand` is the user-visible half of this: a usage error
+    # exits with 2, as the native binary does.
     result = subprocess.run(
         [sys.executable, "-m", "sysand", "--not-a-flag"],
         cwd=tmp_path,

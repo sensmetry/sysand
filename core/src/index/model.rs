@@ -69,7 +69,7 @@ pub(crate) struct VersionEntry {
     /// Digest of the kpar archive bytes, verified against the streamed
     /// body when the archive is downloaded.
     pub(crate) kpar_digest: String,
-    /// Retirement state (§8). Optional on the wire; an omitted field
+    /// Retirement state. Optional on the wire; an omitted field
     /// deserializes as [`VersionStatus::Available`].
     #[serde(default, skip_serializing_if = "is_default")]
     pub(crate) status: VersionStatus,
@@ -79,12 +79,11 @@ fn is_default<T: Default + PartialEq>(t: &T) -> bool {
     *t == T::default()
 }
 
-/// A validated sha256 hex digest — 64 lowercase hex characters, with the
-/// `"sha256:"` prefix already stripped. Constructed via `TryFrom<&str>`,
-/// which validates a `versions.json` digest once: a value of this type
-/// needs no second "is this hex?" check at the point of use. Uppercase
-/// hex is rejected rather than normalized —
-/// the wire format is lowercase-only.
+/// A validated sha256 hex digest: 64 lowercase hex characters, with the
+/// `"sha256:"` prefix already stripped. Validated once on construction, so
+/// users of this type need no second "is this hex?" check. Uppercase hex
+/// is rejected rather than normalized, as the wire format is
+/// lowercase-only.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Sha256HexDigest(String);
 
@@ -113,8 +112,8 @@ impl TryFrom<&str> for Sha256HexDigest {
 /// A `versions.json` entry after ingest-time validation: `version` is parsed
 /// into `semver::Version`, digests are validated lowercase hex without the
 /// wire prefix, and `usage`/non-zero `kpar_size` are carried through. This
-/// is the representation the rest of the crate sees — the raw
-/// [`VersionEntry`] is only alive briefly during deserialization.
+/// is the representation the rest of the crate sees; the raw
+/// [`VersionEntry`] only lives during deserialization.
 #[derive(Debug, Clone)]
 pub(crate) struct AdvertisedVersion {
     pub(crate) version: Version,
@@ -131,9 +130,8 @@ pub(crate) struct AdvertisedVersion {
     pub(crate) status: VersionStatus,
 }
 
-/// A `versions.json` document that breaks the shape rules of
-/// `design/index-protocol.md` §8. `location` is the URL or file the
-/// document was read from.
+/// A `versions.json` document that breaks the index protocol's shape
+/// rules. `location` is the URL or file the document was read from.
 #[derive(Error, Debug)]
 pub enum VersionsJsonError {
     #[error(
@@ -179,9 +177,9 @@ pub enum VersionsJsonError {
 /// catching a protocol violation up front avoids a delayed surprise
 /// downstream.
 ///
-/// Ordering is checked on the parsed `semver::Version`, not lexically
-/// — violations surface as [`VersionsJsonError::VersionsOutOfOrder`],
-/// which catches `10.0.0-beta.1` before `10.0.0`.
+/// Ordering is checked on the parsed `semver::Version`, not lexically;
+/// violations surface as [`VersionsJsonError::VersionsOutOfOrder`]
+/// (e.g. `10.0.0-beta.1` listed before `10.0.0`).
 pub(crate) fn validate_versions(
     location: &str,
     vs: VersionsJson,
@@ -223,10 +221,9 @@ pub(crate) fn validate_versions(
             })
         })
         .collect::<Result<_, _>>()?;
-    // "Pick the best duplicate" has no principled answer — two entries
-    // with the same semver may carry different digests. Letting them
-    // reach the solver would leak non-determinism into pubgrub, so
-    // reject here.
+    // "Pick the best duplicate" has no principled answer: two entries
+    // with the same semver may carry different digests. Reject them
+    // rather than leak non-determinism into the solver.
     let mut seen = std::collections::HashSet::new();
     for v in &validated {
         if !seen.insert(v.version.clone()) {

@@ -174,17 +174,16 @@ pub fn known_std_libs() -> ProvidedProjects {
 /// The name the standard library published at `iri` declares, or `None`
 /// if this Sysand embeds no release at that IRI.
 ///
-/// model-toml.md "Standard library": a usage's `name` "must be the name
-/// the KPAR declares". That name is not the IRI's stem -- `SysML
-/// Quantities and Units Library` is published at
-/// `.../Quantities-and-Units-Domain-Library.kpar`, and seven of the ten
-/// differ by more than punctuation -- so anything writing such a usage
-/// asks here rather than guessing, and two spellings of one library
-/// cannot become two identities.
+/// A usage's `name` must be the name the KPAR declares. That name is not
+/// the IRI's stem -- `SysML Quantities and Units Library` is published at
+/// `.../Quantities-and-Units-Domain-Library.kpar`, and several others
+/// differ by more than punctuation -- so a usage's name is taken from here
+/// rather than guessed, and two spellings of one library cannot become
+/// two identities.
 ///
 /// Built from the ten `.project.json` documents alone: `known_std_libs`
 /// would also parse ten `.meta.json` documents and build ten
-/// `InMemoryProject`s, which a caller that wants a name does not need.
+/// `InMemoryProject`s, which are not needed for a name.
 pub fn std_lib_name(iri: &str) -> Option<&'static str> {
     static NAMES: std::sync::LazyLock<HashMap<&'static str, String>> =
         std::sync::LazyLock::new(|| {
@@ -198,6 +197,6 @@ pub fn std_lib_name(iri: &str) -> Option<&'static str> {
                 .collect()
         });
     // The map owns its `String`s for the process's lifetime, so handing
-    // out a `&'static str` is sound and saves every caller a clone.
+    // out a `&'static str` is sound and saves a clone.
     NAMES.get(iri).map(String::as_str)
 }

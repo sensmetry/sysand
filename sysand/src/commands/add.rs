@@ -335,7 +335,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
         )
     });
 
-    // See `commands/lock.rs`: `model.toml` has no alias IRIs.
+    // `model.toml` has no alias IRIs.
     let alias_iris = None;
 
     let project_root = current_project.root_path().to_owned();
@@ -407,9 +407,7 @@ fn manifest_backup(project: &LocalSrcProject) -> Result<(Utf8PathBuf, String)> {
 /// configuration file.
 ///
 /// Called once the usage is in the manifest, so that a refused `add`
-/// leaves no `[[project]]` entry pointing at a source nothing uses --
-/// on a `model.toml` project, a refusal is reachable for every shape a
-/// manifest cannot express.
+/// leaves no `[[project]]` entry pointing at a source nothing uses.
 #[expect(clippy::too_many_arguments)]
 fn record_override<Policy: HTTPAuthentication>(
     pending: Option<(Box<ProjectSourceOptions>, Iri<String>)>,
@@ -693,8 +691,7 @@ fn settle_from_lock(
     }
     // A `model.toml` entry goes through the manifest editor: the
     // placeholder out by its identity, the settled usage in. The spelling
-    // written is the one the locked project declares, which is what
-    // model-toml.md "Editing the manifest" asks of the shorthand.
+    // written is the one the locked project declares.
     if project.format()? == ProjectFormat::Toml {
         let InterchangeProjectUsageRaw::Index {
             publisher,

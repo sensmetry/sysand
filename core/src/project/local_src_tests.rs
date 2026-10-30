@@ -168,9 +168,8 @@ fn a_directory_with_both_is_ambiguous() {
     );
 }
 
-/// model-toml.md "Mixed manifests": "current project has toml and json
-/// configs: error out that it's unclear if the project is meant to be a
-/// non-zipped KPAR, or dev project".
+/// A directory with both a `model.toml` and json config is unclear: it
+/// could be a non-zipped KPAR or a development project.
 #[test]
 fn an_ambiguous_directory_is_refused_when_it_is_read() {
     let dir = tempdir().expect("a temporary directory");
@@ -567,9 +566,8 @@ fn a_model_toml_project_gives_its_manifest() {
 }
 
 /// The reason the seam exists: a `.project.json` has no room for some of
-/// what a `model.toml` says, so a caller that needs it comes here.
-/// model-toml.md: `urls.repository` and `urls.documentation` "have no
-/// counterpart in `.project.json` and are dropped".
+/// what a `model.toml` says (`urls.repository` and `urls.documentation`,
+/// for one), so a caller that needs it comes here.
 #[test]
 fn a_manifest_carries_what_the_view_drops() {
     let dir = tempdir().expect("a temporary directory");
@@ -885,10 +883,10 @@ fn a_member_project_prefers_its_own_values() {
     assert_eq!(info.expect("an info").version, "1.2.3");
 }
 
-/// design/syside-metamodel.md, "The Syside KPAR": the extracted form of
-/// a Syside archive is a json project like any other. Detection looks
-/// at which files are there, not at their shape; how a `model.toml`
-/// beside a lone `.meta.json` is classified is a different question.
+/// The extracted form of a Syside archive is a json project like any
+/// other. Detection looks at which files are there, not at their shape;
+/// how a `model.toml` beside a lone `.meta.json` is classified is a
+/// different question.
 #[test]
 fn a_root_shaped_json_pair_is_detected_as_a_json_project() {
     let dir = tempdir().expect("a temporary directory");

@@ -205,8 +205,8 @@ def test_remove_by_publisher_and_name() -> None:
 
 
 def test_the_shorthand_is_not_an_iri(tmp_path: Path) -> None:
-    # `publisher/name` used to be expanded; now it is refused as the relative
-    # reference it is, rather than silently written, or reported "not found".
+    # `publisher/name` is refused as the relative reference it is, rather
+    # than silently written, or reported "not found".
     manifest = tmp_path / ".project.json"
     manifest.write_text(SYSAND_FORMATTED_MANIFEST)
 

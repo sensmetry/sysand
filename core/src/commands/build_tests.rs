@@ -159,9 +159,9 @@ fn a_toml_project_builds() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// model-toml.md "TOML to KPAR": "`created` is the time of the build (so
-/// two builds of identical sources are not byte-identical)". The view
-/// records the epoch on purpose, and an archive must not.
+/// `created` is the time of the build, so two builds of identical
+/// sources are not byte-identical. The view records the epoch on
+/// purpose, and an archive must not.
 #[test]
 fn a_toml_build_records_the_build_time() -> Result<(), Box<dyn std::error::Error>> {
     let dir = toml_project("")?;
@@ -203,10 +203,10 @@ fn a_toml_kpar_url_usage_is_kept() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// "with it, local usages are emitted as the typed usages `Directory`
-/// (source path) and `KparPath` (kpar path), which preserve the path as
-/// written" -- which is what the view already produces, so no target is
-/// read.
+/// With the flag, local usages are emitted as the typed usages
+/// `Directory` (source path) and `KparPath` (kpar path), which preserve
+/// the path as written -- which is what the view already produces, so no
+/// target is read.
 #[test]
 fn a_local_usage_builds_under_allow_path_usage() -> Result<(), Box<dyn std::error::Error>> {
     // The target does not exist, and is named *inside* the fixture, so
@@ -221,9 +221,8 @@ fn a_local_usage_builds_under_allow_path_usage() -> Result<(), Box<dyn std::erro
     Ok(())
 }
 
-/// model-toml.md "Standard library": the standard library is declared as
-/// a publisher-less `kpar-url`, and "build never resolves usages", so it
-/// reaches the KPAR view as the IRI it already names -- with no
+/// The standard library is declared as a publisher-less `kpar-url`, and
+/// a build never resolves usages, so it reaches the KPAR view as the IRI it already names -- with no
 /// publisher and no version constraint to invent.
 #[test]
 fn a_stdlib_kpar_url_usage_reaches_the_kpar_view_unchanged()
@@ -320,9 +319,9 @@ fn a_workspace_of_toml_members_records_the_build_time() -> Result<(), Box<dyn st
     Ok(())
 }
 
-/// model-toml.md "TOML to KPAR": "`publisher` goes into
-/// `project.publisher`, unless the project carries `stdlib`", so that a
-/// locally built standard-library KPAR matches the published one.
+/// `publisher` goes into `project.publisher` unless the project carries
+/// `stdlib`, so that a locally built standard-library KPAR matches the
+/// published one.
 ///
 /// `ProjectManifest::resolve` accepts `stdlib` only for a publisher
 /// normalizing to `omg` under a known OMG metamodel, so the fixture
@@ -355,7 +354,7 @@ fn a_non_stdlib_project_keeps_its_publisher() -> Result<(), Box<dyn std::error::
     Ok(())
 }
 
-// ------------------------------------ a local usage becomes a PURL
+// ------------------------------------ a local usage becomes an index usage
 
 /// A legacy json project at `at`, inside the fixture.
 fn json_target(dir: &camino_tempfile::Utf8TempDir, at: &str, version: &str) {
@@ -413,9 +412,8 @@ fn toml_target(dir: &camino_tempfile::Utf8TempDir, at: &str, version: &str, body
 /// A `model.toml` standard-library project at `at`: publisher `omg`, a
 /// `stdlib` stem and an inline OMG metamodel.
 ///
-/// Inline and not `metamodel.workspace`, which is what model-toml.md's
-/// own example uses: the target is read standalone, with no workspace
-/// to inherit a metamodel from.
+/// Inline and not `metamodel.workspace`: the target is read standalone,
+/// with no workspace to inherit a metamodel from.
 fn stdlib_target(dir: &camino_tempfile::Utf8TempDir, at: &str) {
     let path = dir.path().join(at);
     std::fs::create_dir_all(&path).expect("the target directory");
@@ -492,8 +490,7 @@ fn a_dir_usage_keeps_the_manifest_spelling() -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-/// model-toml.md "Normalization", at build time: a build reads its
-/// targets itself, and a usage saying `ACME`/`Wid Gets` is not
+/// A build reads its targets itself, and a usage saying `ACME`/`Wid Gets` is not
 /// satisfied by a target declaring `acme`/`dep`.
 #[test]
 fn a_target_that_declares_another_project_is_refused() -> Result<(), Box<dyn std::error::Error>> {
@@ -586,10 +583,10 @@ fn a_target_that_does_not_read_is_its_own_error() -> Result<(), Box<dyn std::err
     Ok(())
 }
 
-/// model-toml.md "Standard library": "a usage whose target carries
-/// `stdlib` is written as `resource = "<target's metamodel>/<target's
-/// stdlib>.kpar"` -- the metamodel supplies the prefix and release date
-/// -- with its version constraint, instead of as a PURL".
+/// A usage whose target carries `stdlib` is written as `resource =
+/// "<target's metamodel>/<target's stdlib>.kpar"` -- the metamodel
+/// supplies the prefix and release date -- with its version constraint,
+/// instead of as a typed index usage.
 #[test]
 fn a_local_stdlib_target_becomes_an_omg_iri() -> Result<(), Box<dyn std::error::Error>> {
     let dir =
@@ -601,16 +598,16 @@ fn a_local_stdlib_target_becomes_an_omg_iri() -> Result<(), Box<dyn std::error::
         resource(&info.usage[0]),
         (
             "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar".to_owned(),
-            // Only the resource changes: "instead of the PURL" names one
-            // substitution, so the constraint is still rule 2's.
+            // Only the usage's form changes, so the constraint is the
+            // same `^<version>` a local target gets.
             Some("^1.0.0".to_owned())
         )
     );
     Ok(())
 }
 
-/// "Under `--allow-path-usage` a local usage stays a typed path usage,
-/// stdlib target or not".
+/// Under `--allow-path-usage` a local usage stays a typed path usage,
+/// stdlib target or not.
 #[test]
 fn a_local_stdlib_target_still_stays_typed_under_the_flag() -> Result<(), Box<dyn std::error::Error>>
 {
@@ -653,9 +650,10 @@ fn the_typed_and_raw_usage_lists_correspond() -> Result<(), Box<dyn std::error::
 /// archive's own `.project.json`.
 ///
 /// The target here is built from a **stdlib** project, so this also
-/// pins that rule 3 cannot reach an archive: a KPAR carries no
-/// `model.toml` (one at its root is `TomlInKpar`), so a publisher-less
-/// standard-library archive still gets rule 2's index usage.
+/// pins that the stdlib `resource` form cannot be produced from an
+/// archive: a KPAR carries no `model.toml` (one at its root is
+/// `TomlInKpar`), so a publisher-less standard-library archive still
+/// gets an index usage.
 #[test]
 fn a_kpar_path_usage_becomes_a_caret_index_usage() -> Result<(), Box<dyn std::error::Error>> {
     let dir = toml_project(
@@ -819,10 +817,9 @@ fn json_member(dir: &camino_tempfile::Utf8TempDir, at: &str, deps: &[&str]) {
 /// The refusal to load the workspace in `dir`.
 ///
 /// A cycle among members is refused when the workspace is *read* --
-/// `design/model-toml.md` says the check runs "when a workspace is
-/// read, and when resolving or building" -- so a `Workspace` carrying
-/// one cannot be constructed, and these tests assert the refusal where
-/// it happens.
+/// the cycle check runs whenever the dependency graph is built -- so a
+/// `Workspace` carrying one cannot be constructed, and these tests
+/// assert the refusal where it happens.
 fn load_workspace_err(dir: &camino_tempfile::Utf8TempDir) -> String {
     crate::workspace::model_toml::Workspace::load_with(
         dir.path(),
@@ -856,8 +853,8 @@ fn build_workspace_result(
     )
 }
 
-/// workspaces.md "Build output": every member is built, in `members`
-/// order, whatever their `dir` usages of each other.
+/// Every member is built, in `members` order, whatever their `dir`
+/// usages of each other.
 #[test]
 fn members_build_in_members_order() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
@@ -869,8 +866,7 @@ fn members_build_in_members_order() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// "Nodes keep the order they were added in": with no edges, `members`
-/// order is the answer.
+/// With no edges, `members` order is the answer.
 #[test]
 fn independent_members_keep_their_declared_order() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
@@ -882,8 +878,8 @@ fn independent_members_keep_their_declared_order() -> Result<(), Box<dyn std::er
     Ok(())
 }
 
-/// "a project's usages routinely name projects outside it": such a
-/// usage is not an edge, and the outsider is not built.
+/// A project's usages routinely name projects outside it: such a usage
+/// is not an edge, and the outsider is not built.
 #[test]
 fn a_usage_of_a_non_member_is_not_an_edge() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
@@ -920,8 +916,8 @@ fn a_member_that_depends_on_itself_is_a_cycle() -> Result<(), Box<dyn std::error
     Ok(())
 }
 
-/// "unless every project on it carries the `stdlib` key ... such a cycle
-/// is built in `members` order".
+/// A cycle on which every project carries the `stdlib` key is allowed,
+/// and is built in `members` order.
 #[test]
 fn a_cycle_of_stdlib_members_is_allowed() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
@@ -971,7 +967,7 @@ fn a_json_project_s_dir_usages_are_its_dependencies() -> Result<(), Box<dyn std:
 ///
 /// Not an empty directory: `load_member` refuses one ("defines no
 /// project"), which fails the whole load and makes the per-member
-/// reporting this section tests unreachable.
+/// reporting these tests exercise unreachable.
 fn broken_member(dir: &camino_tempfile::Utf8TempDir, at: &str) {
     let path = dir.path().join(at);
     std::fs::create_dir_all(&path).expect("the member directory");
@@ -1219,8 +1215,7 @@ fn archive_names(path: &camino::Utf8Path) -> Result<Vec<String>, Box<dyn std::er
     Ok(names)
 }
 
-/// design/syside-metamodel.md, "The Syside KPAR": the extracted form of
-/// a Syside archive is a json project that builds again. With `checksum`
+/// The extracted form of a Syside archive is a json project that builds again. With `checksum`
 /// covering the readme and the license file, the build must not lex
 /// them as sources or package them twice; and `sysand sources` on the
 /// extracted form lists the model files only.

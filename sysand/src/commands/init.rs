@@ -52,12 +52,9 @@ pub fn command_init(
     // Before `do_init`, so that a refusal is about the workspace rather
     // than about a file collision the workspace explains.
     let member = workspace_member(&target)?;
-    // model-toml.md "Editing the manifest": `init` "take[s] it as a
-    // mandatory argument, erroring before writing anything if it is
-    // absent [...] The one exception is a project created inside a
-    // workspace whose default group defines `metamodel`". The scope is
-    // known by now and nothing has been written yet, which is what the
-    // sentence requires.
+    // The metamodel is mandatory and must be known before anything is
+    // written, unless the project is created inside a workspace whose
+    // default group defines one.
     let metamodel = metamodel_for(metamodel, member.as_ref())?;
 
     let version = version.unwrap_or_else(|| Version::parse(DEFAULT_VERSION).unwrap());
@@ -154,13 +151,13 @@ struct Member {
     path: String,
     /// The default group's `metamodel` value, when it declares one: what
     /// a marker will resolve to, and what decides the layout `init`
-    /// writes (design/syside-metamodel.md, "Commands").
+    /// writes.
     group_metamodel: Option<KnownMetamodel>,
 }
 
-/// workspaces.md "Command scopes": `init` "create[s] the project and
-/// append[s] it to `members`". `Ok(Some(..))` is the root to append to
-/// and the path to write; `Ok(None)` is every case where nothing is
+/// `init` in a workspace creates the project and appends it to
+/// `members`. `Ok(Some(..))` is the root to append to and the path to
+/// write; `Ok(None)` is every case where nothing is
 /// appended -- no workspace, or an excluded directory.
 ///
 /// The table is read rather than the workspace loaded, so that an
@@ -174,9 +171,9 @@ fn workspace_member(target: &Utf8Path) -> Result<Option<Member>> {
         return Ok(None);
     };
 
-    // workspaces.md "Included projects": "Workspace root must not
-    // contain a project." `do_init` refuses this anyway -- the root
-    // holds a `model.toml` -- so what this adds is the sentence.
+    // The workspace root must not contain a project. `do_init` refuses
+    // this anyway, since the root holds a `model.toml`; this gives the
+    // reason.
     if target == root {
         bail!(
             "the workspace root must not contain a project;\n\
@@ -199,12 +196,12 @@ fn workspace_member(target: &Utf8Path) -> Result<Option<Member>> {
             entry.raw,
             SP = ' '
         ),
-        // "Anything under one of them is outside the workspace": a
-        // standalone project, which `members` must not list.
+        // Anything under an excluded directory is outside the workspace:
+        // a standalone project, which `members` must not list.
         Region::Excluded(_) => Ok(None),
         Region::Unlisted => {
-            // workspaces.md "Included projects": a project under the
-            // root in neither list is a hard error. Without this the
+            // A project under the root in neither list is a hard error.
+            // Without this the
             // author is told `model.toml` already exists, which is true
             // and says nothing about the workspace the directory sits in.
             if is_project_file(&target)? {

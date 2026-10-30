@@ -146,9 +146,8 @@ impl ForceBearerAuth {
         Self(token.as_ref().into())
     }
 
-    /// The raw token, for the `auth whoami` probe. Crate-private so the
-    /// secret stays out of the public API; gated like `commands::auth`,
-    /// its only consumer.
+    /// The raw token. Crate-private so the secret stays out of the public
+    /// API.
     #[cfg(all(feature = "filesystem", feature = "networking"))]
     pub(crate) fn token(&self) -> &str {
         &self.0
@@ -357,8 +356,6 @@ impl<T> GlobMap<T> {
 }
 
 /// What credential selection found in one source's bearer map for a URL.
-/// Shared by the runtime read retry, whoami, and publish so the collapse
-/// and ambiguity semantics are written once.
 #[derive(Debug)]
 pub(crate) enum BearerSelection<'a, T> {
     /// No matching pattern: the caller falls through to its next source.
@@ -387,9 +384,8 @@ pub(crate) enum BearerSelection<'a, T> {
 /// Select the bearer credential(s) for `url` from one source's map.
 ///
 /// Several matching patterns are a real ambiguity only between *distinct*
-/// tokens (`token` extracts them to compare). Handling stays with the
-/// caller: publish and whoami refuse ambiguity, the runtime read path
-/// tries each candidate.
+/// tokens (`token` extracts them to compare). What to do about ambiguity
+/// is left to the caller.
 pub(crate) fn select_bearer<'a, T>(
     map: &'a GlobMap<T>,
     url: &str,
@@ -847,8 +843,8 @@ where
             .await
     }
 
-    /// One direct store read for callers outside the async runtime
-    /// (publish's credential selection). Bypasses the request path's
+    /// One direct store read for callers outside the async runtime.
+    /// Bypasses the request path's
     /// cache; errors degrade to an empty map under
     /// [`read_stored_bearer_map`]'s warning semantics.
     pub fn read_stored_bearer_map_direct(&self) -> GlobMap<StoredBearerAuth> {

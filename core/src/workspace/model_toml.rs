@@ -4,9 +4,8 @@
 //! A workspace read from the `[workspace]` table of a `model.toml`.
 //!
 //! What a load does, beyond reading the table, is check the members --
-//! workspaces.md "Member requirements" and "Stray per-member state" --
-//! and resolve each member's manifest
-//! against the table it belongs to. The resolution is not an
+//! their requirements and stray per-member state -- and resolve each
+//! member's manifest against the table it belongs to. The resolution is not an
 //! optimisation: [`crate::manifest::kpar_view::resolved_of_text`]
 //! resolves standalone, so a member carrying `version.workspace = true`
 //! is otherwise refused *for being a member*.
@@ -75,9 +74,9 @@ pub enum LoadError {
     /// The root's own `model.toml` is not a readable manifest.
     #[error(transparent)]
     Root(ProjectDeserializationError),
-    /// It reads, but it defines a project. workspaces.md: "the
-    /// `model.toml` that defines the workspace must not also contain a
-    /// `[project]` table", so a project there is not a workspace root.
+    /// It reads, but it defines a project: the `model.toml` that defines
+    /// the workspace must not also contain a `[project]` table, so a
+    /// project there is not a workspace root.
     #[error("`{0}` defines a project, not a workspace")]
     NotAWorkspace(Utf8PathBuf),
     #[error("{0}")]
@@ -102,13 +101,12 @@ pub enum Classification<'a> {
     /// Inside the member's directory, which is the member itself or a
     /// directory under it.
     Member(&'a Member),
-    /// Under an `exclude`d directory: "a standalone project with its own
+    /// Under an `exclude`d directory: a standalone project with its own
     /// lockfile, `.sysand` and `output`, and a workspace root there is a
-    /// legitimate, separate workspace".
+    /// legitimate, separate workspace.
     Excluded(&'a MemberPath),
-    /// Under the root, but in neither list. A project here is the hard
-    /// error of workspaces.md "Included projects", raised on the upward
-    /// walk; a directory that holds no project is simply nothing.
+    /// Under the root, but in neither list. A project here is a hard
+    /// error, raised on the upward walk; a directory that holds no project is simply nothing.
     Unlisted,
     /// Not under the root at all.
     Outside,
@@ -129,19 +127,16 @@ pub struct Workspace {
 
 /// What a load checks beyond reading the members.
 ///
-/// `workspaces.md` "Member requirements" states four, and three of them
-/// cost nothing to enforce. The fourth -- "Must have no lockfile,
-/// `.sysand` or `output` of its own" -- is checked unless the caller
-/// passes [`MemberChecks::SkipStrayState`].
+/// A member has four requirements, and three of them cost nothing to
+/// enforce. The fourth -- no lockfile, `.sysand` or `output` of its own --
+/// is checked unless the caller passes [`MemberChecks::SkipStrayState`].
 ///
-/// Note that the check runs where a workspace is *loaded*. A command
-/// that takes its current project directly -- `build`, `info`,
-/// `sources` and `publish` from inside a member -- never loads the
-/// members and so never looks, which is deliberate: the invariant
-/// matters to the commands that rely on it.
+/// The check runs where a workspace is *loaded*. Code that takes its
+/// current project directly never loads the members and so never looks,
+/// which is deliberate: the invariant matters to what relies on it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MemberChecks {
-    /// Every requirement the specification states.
+    /// Every member requirement.
     All,
     /// All but the requirement of no per-member lockfile, `.sysand` or
     /// `output`.
@@ -186,10 +181,9 @@ impl Workspace {
             }
         }
 
-        // `design/model-toml.md`: the cycle check "runs over the
-        // dependency graph whenever it is built -- when a workspace is
-        // read, and when resolving or building". Checking at the read
-        // keeps a cyclic workspace from being locked and synced when it
+        // The cycle check runs whenever the dependency graph is built:
+        // when a workspace is read, and when resolving or building.
+        // Checking at the read keeps a cyclic workspace from being locked and synced when it
         // can never be built.
         //
         // Only over the members that loaded: a member that did not
@@ -223,10 +217,9 @@ impl Workspace {
     /// tables, so a member whose manifest defines both becomes a
     /// candidate. Asking the nesting question first would tell its
     /// author that "nested workspaces are not supported", about a file
-    /// whose fault is that it defines both tables. The specification's
-    /// "A member cannot be such a root in any case, since the two tables
-    /// never share a file" is an invariant about valid files, and the
-    /// walk reads invalid ones.
+    /// whose fault is that it defines both tables. That a member cannot be
+    /// such a root, since the two tables never share a file, is an
+    /// invariant about valid files, and the walk reads invalid ones.
     pub fn discover(from: impl AsRef<Utf8Path>) -> Result<Option<Self>, DiscoverError> {
         Self::discover_with(from, MemberChecks::All)
     }
@@ -333,8 +326,7 @@ impl Workspace {
     /// The same rule as [`Workspace::select`] except where that answers
     /// [`Selection::Workspace`]: these commands need a project, so the
     /// whole workspace is not an answer they can take, and the table
-    /// makes that column an error (workspaces.md "Command scopes"). It
-    /// never returns [`Selection::Workspace`].
+    /// makes that column an error. It never returns [`Selection::Workspace`].
     pub fn select_member(
         &self,
         from: impl AsRef<Utf8Path>,
@@ -411,8 +403,7 @@ pub enum DiscoverError {
     /// The candidate root is not a workspace that loads.
     #[error(transparent)]
     Load(Box<LoadError>),
-    /// A workspace inside another that does not `exclude` it
-    /// (workspaces.md "Config").
+    /// A workspace inside another that does not `exclude` it.
     #[error(
         "the workspace at `{inner}` lies inside the workspace at `{outer}`, which does not \
          `exclude` it; nested workspaces are not supported"
@@ -421,8 +412,7 @@ pub enum DiscoverError {
         inner: Utf8PathBuf,
         outer: Utf8PathBuf,
     },
-    /// A project under the root that is in neither list (workspaces.md
-    /// "Included projects").
+    /// A project under the root that is in neither list.
     #[error(
         "the project at `{project}` lies under the workspace at `{root}` but is neither listed \
          in `workspace.members` nor under `workspace.exclude`; add it to one of the two"
@@ -440,7 +430,7 @@ pub enum DiscoverError {
     #[error(transparent)]
     Select(SelectError),
     /// The target is the whole workspace, and the command needs a
-    /// project (workspaces.md "Command scopes").
+    /// project.
     #[error(
         "this command needs a project; run it from a member directory or pass \
          `--member <path-or-name>`"
@@ -481,9 +471,8 @@ impl From<SelectError> for DiscoverError {
 
 /// Which part of a workspace a command was asked to act on.
 ///
-/// workspaces.md "Command scopes": `--workspace` forces all members,
-/// `--member <path-or-name>` picks one, and with neither the starting
-/// directory decides.
+/// `--workspace` forces all members, `--member <path-or-name>` picks one,
+/// and with neither the starting directory decides.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Selector<'a> {
     /// What the starting directory implies.
@@ -497,23 +486,22 @@ pub enum Selector<'a> {
 
 /// What a command acts on.
 ///
-/// workspaces.md "Command scopes": "When run from the workspace root or
-/// from a non-member directory under it that defines no project, the
-/// whole workspace is the command's target; when run from a member
-/// (sub)dir, only that member is."
+/// Run from the workspace root or from a non-member directory under it
+/// that defines no project, the whole workspace is the command's target;
+/// run from a member (sub)dir, only that member is.
 #[derive(Debug)]
 pub enum Selection<'a> {
     /// No project between the starting directory and the root, so the
     /// command targets the workspace as a whole. This is what a command
-    /// run at the root gets: "the workspace root is never a member".
+    /// run at the root gets: the workspace root is never a member.
     Workspace,
     Member(&'a Member),
-    /// A project under an `exclude`d directory: "This is the only kind
-    /// of non-member project that may sit under a workspace root." The
+    /// A project under an `exclude`d directory: the only kind of
+    /// non-member project that may sit under a workspace root. The
     /// workspace was found -- the walk goes straight past such a project
     /// to the root above it -- but the command acts on the project alone,
-    /// "a standalone project with its own lockfile, `.sysand` and
-    /// `output`".
+    /// a standalone project with its own lockfile, `.sysand` and
+    /// `output`.
     Standalone(Utf8PathBuf),
 }
 
@@ -525,9 +513,8 @@ pub enum Selection<'a> {
 /// [`Member`] means [`Workspace::load`], which reads and resolves every
 /// member's manifest and enforces the member requirements.
 ///
-/// The CLI needs the cheap one first. `workspaces.md` "Stray per-member
-/// state" makes a member holding a `sysand-lock.toml`, a `.sysand/` or
-/// an `output/` an error. A command that writes such state into the
+/// The CLI needs the cheap one first. A member holding a
+/// `sysand-lock.toml`, a `.sysand/` or an `output/` is an error. A command that writes such state into the
 /// member it acts on, and asked where it starts through
 /// [`Workspace::load`], would refuse the workspace its own previous run
 /// created.
@@ -574,7 +561,7 @@ pub fn member_index(
     })
 }
 
-/// The classification of workspaces.md "Included projects", over a
+/// Classifies a project under a workspace root, over a
 /// [`WorkspaceTable`] and a root path.
 ///
 /// The project `from` sits in is the one [`crate::discover::discover_project`]
@@ -611,10 +598,9 @@ pub fn start_region(
                 // project *nested inside* a member would answer `Member`
                 // and the command would run as though it were that
                 // member, disagreeing with `--path` to the same
-                // directory. `workspaces.md`: a project under the root
-                // that is "neither a member nor under an excluded
-                // directory is a hard error", and a project inside a
-                // member is neither.
+                // directory. A project under the root that is neither a
+                // member nor under an excluded directory is a hard
+                // error, and a project inside a member is neither.
                 Region::Member(index, member) if member.path == relative => {
                     Ok(StartRegion::Member(index))
                 }
@@ -694,9 +680,9 @@ fn workspace_table_at(dir: &Utf8Path) -> Result<WorkspaceTable, DiscoverError> {
 /// Pass 1: the first ancestor of `from` whose `model.toml` defines a
 /// `[workspace]`.
 ///
-/// workspaces.md: "The workspace is discovered by walking up from cwd
+/// The workspace is discovered by walking up from the starting directory
 /// until a `model.toml` with a `[workspace]` table is encountered; that
-/// folder is the candidate workspace root."
+/// folder is the candidate workspace root.
 ///
 /// A *candidate*, because the walk is not finished: see [`confirm_root`].
 /// And because a file carrying both tables peeks as a workspace, a
@@ -792,7 +778,7 @@ fn entry_kind(path: &Utf8Path) -> Result<Option<bool>, Box<FsIoError>> {
     }
 }
 
-/// workspaces.md "Member requirements", and the read that answers them.
+/// The member requirements, and the read that answers them.
 ///
 /// [`detect_format`] tests file existence, which settles the json, the
 /// ambiguous and the empty directory. It cannot settle the fourth case:
@@ -912,13 +898,6 @@ fn load_member(
     }
 }
 
-/// workspaces.md "Stray per-member state": "three
-/// existence tests, no content is read".
-///
-/// The message names the *root*, since that is where the state belongs
-/// and saying so is the whole content of the rule. Excluded directories
-/// are not checked: "Standalone projects under an `exclude`d directory
-/// keep their state legitimately; the check applies to members only."
 /// Two members that are the same project.
 ///
 /// The lockfile holds one entry per identity, so two members claiming
@@ -927,9 +906,8 @@ fn load_member(
 /// workspace, and the load is where a malformed workspace is refused,
 /// which puts the error in front of every command.
 ///
-/// Normalized, as `model-toml.md` says of duplicate usages: "two entries
-/// whose identities normalize to the same value are the same project".
-/// `Acme Corp` and `acme-corp` are one publisher.
+/// Compared normalized: two entries whose identities normalize to the
+/// same value are the same project. `Acme Corp` and `acme-corp` are one publisher.
 fn duplicate_identities(members: &[Member]) -> Vec<Diagnostic> {
     let mut seen: HashMap<_, &Member> = HashMap::new();
     let mut found = Vec::new();
@@ -1033,6 +1011,12 @@ fn member_cycles(members: &[Member]) -> Vec<Diagnostic> {
     diagnostics
 }
 
+/// Three existence tests; no content is read.
+///
+/// The message names the *root*, since that is where the state belongs
+/// and saying so is the whole content of the rule. Excluded directories
+/// are not checked: standalone projects under them keep their state
+/// legitimately; the check applies to members only.
 fn stray_state(
     root: &Utf8Path,
     path: &MemberPath,
@@ -1151,9 +1135,8 @@ pub fn project_at_path(
 ///
 /// Three answers and not two, because "not a member" hides the
 /// distinction that matters: an excluded project is *deliberately*
-/// standalone -- `workspaces.md` calls it "the only kind of non-member
-/// project that may sit under a workspace root" -- while an unlisted one
-/// "is a hard error". Reading both table-less would make `sysand info
+/// standalone -- the only kind of non-member project that may sit under a
+/// workspace root -- while an unlisted one is a hard error. Reading both table-less would make `sysand info
 /// --path <unlisted>` succeed where `cd <unlisted> && sysand info`
 /// fails.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

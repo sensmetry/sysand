@@ -141,8 +141,7 @@ impl<Policy> IndexEnvironmentAsync<Policy> {
 /// Per-IRI cache slot: validated `versions.json` entries, shared across
 /// callers by `Rc`. The slot is only populated on a successful fetch
 /// (see `fetch_versions_json`); validation errors propagate, and the
-/// "project not in this index" 404 outcome (§8) is not currently
-/// cached.
+/// "project not in this index" 404 outcome is not cached.
 pub(crate) type VersionsCacheEntry = Rc<[AdvertisedVersion]>;
 
 pub(crate) use crate::index::model::AdvertisedVersion;
@@ -153,8 +152,7 @@ pub enum IndexEnvironmentError {
     Discovery(#[from] DiscoveryError),
     #[error(transparent)]
     Fetch(#[from] HttpFetchError),
-    /// The `versions.json` shape rules (`design/index-protocol.md` §8),
-    /// shared with the filesystem index.
+    /// The `versions.json` shape rules, shared with the filesystem index.
     #[error(transparent)]
     Versions(#[from] VersionsJsonError),
     #[error("versions.json at `{url}` does not list version `{version}`")]
@@ -177,7 +175,7 @@ pub enum IndexEnvironmentError {
 
 /// Shared error surface for both env-level and project-level JSON fetches.
 /// One `HttpFetchError` represents "something went wrong fetching a JSON
-/// doc over HTTP" regardless of which caller issued the request, with
+/// doc over HTTP" regardless of which request it was, with
 /// variants covering request dispatch, non-2xx status, body read, and
 /// JSON parse failures.
 #[derive(Error, Debug)]
@@ -209,10 +207,9 @@ pub enum HttpFetchError {
 
 /// Whether a 404 on the requested URL is a successful "no such document"
 /// signal (`AllowNotFound` — e.g. `versions.json`, where 404 means the
-/// project is not in this index per §8) or a hard error
+/// project is not in this index) or a hard error
 /// (`RequirePresent` — e.g. the per-version `.project.json` that must
-/// exist once a version has been selected). This is the only policy
-/// difference between callers of [`fetch_json`].
+/// exist once a version has been selected).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MissingPolicy {
     AllowNotFound,
@@ -307,10 +304,8 @@ impl<Policy: HTTPAuthentication> IndexEnvironmentAsync<Policy> {
 
     /// Fetch, validate, and cache `versions.json` for `iri`. See
     /// [`validate_versions`] for the ingest checks. Returns `Ok(None)`
-    /// when the server returns 404 — per §8 that means the project is
-    /// not in this index, which the callers (`versions_async`,
-    /// `get_project_async`) translate into their respective absence
-    /// signals. The absence outcome is currently not cached.
+    /// when the server returns 404, which means the project is not in
+    /// this index. The absence outcome is not cached.
     async fn fetch_versions_json<S: AsRef<str>>(
         &self,
         iri: S,
@@ -390,7 +385,7 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
         &self,
         uri: S,
     ) -> Result<Self::VersionStream, Self::ReadError> {
-        // §8 — a 404 on `versions.json` means the project is not in
+        // A 404 on `versions.json` means the project is not in
         // this index. Yield an empty stream so `SequentialResolver` /
         // `CombinedResolver` cleanly fall through to the next source;
         // non-404 errors still propagate.
@@ -402,12 +397,10 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
             );
             return Ok(futures::stream::iter(vec![]));
         };
-        // §12 — resolver-visible stream MUST exclude retired entries
-        // (`yanked` / `removed`) so solve/lock can't select them for a
-        // new resolution. Replaying a pinned lockfile uses
-        // `get_project_async` directly, which allows `yanked` (files
-        // still served) and hard-fails `removed` — see §13 and the §9
-        // file-presence rule.
+        // The resolver-visible stream excludes retired entries
+        // (`yanked` / `removed`) so they are not selected for a new
+        // resolution. `get_project_async` allows `yanked` (files are
+        // still served) and hard-fails `removed`.
         let versions: Vec<Result<String, IndexEnvironmentError>> = vs
             .iter()
             .filter(|e| {
@@ -442,7 +435,7 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
         // versions the index has explicitly listed in `versions.json`.
         let endpoints = self.endpoints().await?;
         let versions_url = endpoints.versions_url(uri.as_ref())?;
-        // §8 — a `versions.json` 404 means the project is not in this
+        // A `versions.json` 404 means the project is not in this
         // index. Surface it as a distinct `ProjectNotInIndex` error so
         // direct callers can tell "not here" apart from "the index
         // spoke but doesn't list this version" (`VersionNotInIndex`)

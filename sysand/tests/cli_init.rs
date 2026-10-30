@@ -558,9 +558,9 @@ fn every_identifier_the_suite_inits_with_is_valid() -> Result<(), Box<dyn std::e
             };
             let (publisher, name) =
                 if call == "cli_init_project_basic" || call == "write_legacy_project" {
-                    // `write_legacy_project(dir, publisher, name, …)` — the
-                    // directory is an expression, and `skip_while` above
-                    // drops it only when it is a reference.
+                    // The directory argument is an expression, and
+                    // `skip_while` above drops it only when it is a
+                    // reference.
                     let args: Vec<&str> = args
                         .iter()
                         .copied()
@@ -1101,8 +1101,7 @@ fn init_prefers_the_argument_to_the_group() -> Result<(), Box<dyn std::error::Er
 }
 
 // ---------------------------------------------------------------------
-// `init` with a Syside metamodel (design/syside-metamodel.md,
-// "Commands").
+// `init` with a Syside metamodel.
 
 const SYSIDE_SYSML: &str = "https://www.sysand.com/spec/SysML/20250201";
 const SYSIDE_KERML: &str = "https://www.sysand.com/spec/KerML/20250201";

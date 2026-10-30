@@ -4,10 +4,10 @@
 //! The `[workspace]` table of a `model.toml`: which projects the
 //! workspace includes, and the values its members may inherit.
 //!
-//! workspaces.md "Included projects": the table "lists the members and
-//! doubles as the implicit default group", whose "keys are written
-//! directly in `[workspace]`, alongside `members` and `exclude`"; named
-//! groups are `[workspace.group.<group-name>]`.
+//! The table lists the members and doubles as the implicit default
+//! group, whose keys are written directly in `[workspace]`, alongside
+//! `members` and `exclude`; named groups are
+//! `[workspace.group.<group-name>]`.
 //!
 //! A workspace never inherits: there is nothing above it, so every value
 //! here is given directly. That is what makes this the simpler of the two
@@ -31,12 +31,12 @@ use crate::utils::{NormalizeRelativeError, normalize_relative};
 
 /// The keys a group gives, the default group and a named one alike.
 ///
-/// `sources` is here although a group may not carry it: workspaces.md
-/// makes it "an error that says so, rather than an unknown-key warning",
-/// which it can only be if the reader recognizes the key.
+/// `sources` is here although a group may not carry it: it is an error
+/// that says so, rather than an unknown-key warning, which it can only
+/// be if the reader recognizes the key.
 ///
 /// `stdlib` and `manifest-version` are deliberately absent -- in a
-/// workspace they are "an unknown key like any other (a warning)" -- and
+/// workspace they are an unknown key like any other (a warning) -- and
 /// so are `name`, `description` and `root`, which identify one project.
 pub(crate) const GROUP_KEYS: &[&str] = &[
     "publisher",
@@ -54,12 +54,10 @@ pub(crate) const GROUP_KEYS: &[&str] = &[
 /// membership lists and the named groups.
 const WORKSPACE_KEYS: &[&str] = &["members", "exclude", "group"];
 
-/// model-toml.md `urls`: "currently allowed keys: website, repository,
-/// documentation".
+/// The keys `urls` admits.
 const URL_KEYS: &[&str] = &["website", "documentation", "repository"];
 
-/// workspaces.md "Common metadata" and "Common usages": the values a
-/// group provides for members to inherit.
+/// The values a group provides for members to inherit.
 ///
 /// Every field is an `Option` because "the group does not give this key"
 /// is what a marker pointing at it has to report, and is not the same as
@@ -86,11 +84,10 @@ pub struct GroupProperties {
 
 /// One entry of `members` or `exclude`.
 ///
-/// An entry is admitted only in its normalized form (workspaces.md
-/// "Included projects"), so the two spellings are always equal. Both are
-/// kept because they answer different questions: every path comparison
-/// uses the typed one, while `--member <path>` matches a `members` entry
-/// "literally" (workspaces.md "Command scopes").
+/// An entry is admitted only in its normalized form, so the two
+/// spellings are always equal. Both are kept because they answer
+/// different questions: every path comparison uses the typed one, while
+/// `--member <path>` matches a `members` entry literally.
 #[derive(Clone, Debug, Eq)]
 pub struct MemberPath {
     pub raw: String,
@@ -177,9 +174,9 @@ impl WorkspaceTable {
     /// The `exclude` entry that covers `relative`, and how many of its
     /// segments matched.
     ///
-    /// workspaces.md "Included projects": "Anything under one of them is
-    /// outside the workspace." Entries may nest -- the cross-entry
-    /// checks are off for this list -- so the most specific one answers.
+    /// Anything under an `exclude` entry is outside the workspace.
+    /// Entries may nest -- the cross-entry checks are off for this list --
+    /// so the most specific one answers.
     ///
     /// The depth comes back with the entry so that it can be weighed
     /// against a member's, as [`WorkspaceTable::region`] does, without
@@ -266,8 +263,8 @@ fn read_group(
     known: &[&str],
     report: &mut Report,
 ) -> GroupProperties {
-    // workspaces.md "Common metadata": `sources` "cannot appear in
-    // `[workspace]` (neither in the default group nor in a named one)".
+    // `sources` cannot appear in `[workspace]`, neither in the default
+    // group nor in a named one.
     if reader.has("sources") {
         report.push(
             Diagnostic::error(
@@ -346,8 +343,7 @@ fn urls(reader: &TableReader<'_>, report: &mut Report) -> Option<ResolvedUrls> {
     })
 }
 
-/// workspaces.md "Common usages": a group's own entries, which have
-/// nothing above them to inherit from.
+/// A group's own entries, which have nothing above them to inherit from.
 fn group_usages(reader: &TableReader<'_>, table: &str, report: &mut Report) -> Vec<Usage> {
     let array = format!("{table}.inline-usages");
     let mut entries = Vec::new();
@@ -361,14 +357,14 @@ fn group_usages(reader: &TableReader<'_>, table: &str, report: &mut Report) -> V
             Err(problems) => report.extend(problems.into_diagnostics()),
         }
     }
-    // model-toml.md "Normalization": duplicates are counted per array,
-    // and only the entries that validated can be compared.
+    // Duplicates are counted per array, and only the entries that
+    // validated can be compared.
     report.extend(check_duplicates(&entries, reader.positions()));
     entries.into_iter().map(|(_, usage)| usage).collect()
 }
 
-/// workspaces.md "Included projects": the `members` (or `exclude`)
-/// entries, as paths relative to the workspace root.
+/// The `members` (or `exclude`) entries, as paths relative to the
+/// workspace root.
 ///
 /// An entry is taken exactly as written, as a `sources` entry is: it is
 /// refused unless it already is the one form [`normalize_relative`]
@@ -377,10 +373,10 @@ fn group_usages(reader: &TableReader<'_>, table: &str, report: &mut Report) -> V
 /// more use than "not in normal form" for `..` or `.`.
 ///
 /// `cross_entry` is the rules that hold between entries -- no entry
-/// inside another, no entry listed twice -- which workspaces.md states
-/// for `members` only: `exclude` gets "the same path rules ... (relative,
-/// below the root, and never the root itself)", and two excluded
-/// directories where one contains the other exclude the same tree.
+/// inside another, no entry listed twice -- which hold for `members`
+/// only: `exclude` gets the same path rules (relative, below the root,
+/// and never the root itself), and two excluded directories where one
+/// contains the other exclude the same tree.
 fn member_paths(
     reader: &TableReader<'_>,
     key: &str,
@@ -447,13 +443,11 @@ fn member_paths(
     paths
 }
 
-/// workspaces.md "Included projects": a `members` entry at or under an
-/// `exclude` entry is refused.
+/// A `members` entry at or under an `exclude` entry is refused.
 ///
-/// The two lists say opposite things about the same directory --
-/// "Anything under one of them is outside the workspace" against a list
-/// of what is in it -- and neither document gives one list precedence
-/// over the other, so the combination is a conflict to report rather
+/// The two lists say opposite things about the same directory -- anything
+/// under an `exclude` entry is outside the workspace -- and neither list
+/// takes precedence over the other, so the combination is a conflict to report rather
 /// than something [`WorkspaceTable::region`]'s depth comparison may
 /// decide silently.
 ///

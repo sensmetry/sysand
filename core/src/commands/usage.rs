@@ -16,7 +16,7 @@ use crate::{
     project::utils::Identifier,
 };
 
-/// Outcome of a constraint edit, so callers can report precisely.
+/// Outcome of a constraint edit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConstraintChange {
     /// The usage was present and its constraint now differs. `old` is
@@ -109,11 +109,13 @@ const VERSION_CONSTRAINT_KEY: &str = "versionConstraint";
 /// The kind of a usage that a lookup matched.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum MatchedKind {
-    /// A `Resource` usage.
     Resource,
     /// An index usage whose [`Identifier`] is the looked-up one. It is the
     /// same project, but named by publisher and name.
-    Index { publisher: String, name: String },
+    Index {
+        publisher: String,
+        name: String,
+    },
     /// A path usage (`Directory`, `KparPath`) whose [`Identifier`] is the
     /// looked-up one. It is the same project, but cannot hold a constraint.
     Typed(&'static str),
@@ -382,8 +384,7 @@ pub fn do_set_usage_constraint_local(
 ) -> Result<ConstraintChange, SetConstraintLocalError> {
     use crate::project::ProjectRead as _;
 
-    // A directory holding both manifests keeps editing `.project.json`,
-    // as it did before the toml arm existed.
+    // A directory holding both manifests edits `.project.json`.
     if project.format().map_err(SetConstraintLocalError::Project)?
         == crate::project::ProjectFormat::Toml
     {

@@ -714,8 +714,8 @@ impl Identifier {
     /// Returns `None` for a typed usage with an empty `publisher` or `name`,
     /// which has no well-formed identifier (and which
     /// [`Self::from_interchange_usage_unchecked`] rejects with a debug
-    /// assertion). Callers use this to compare usages of *any* kind by
-    /// identity without having to trust the manifest first.
+    /// assertion). Usages of *any* kind can be compared by identity
+    /// without trusting the manifest first.
     pub fn from_unvalidated_usage(usage: &InterchangeProjectUsageRaw) -> Option<Self> {
         match usage {
             InterchangeProjectUsageRaw::Resource {
@@ -852,27 +852,20 @@ impl Display for Identifier {
 
 /// How an expected identity is compared with the one the target
 /// declares.
-///
-/// model-toml.md "Normalization": "All projects are resolved by their
-/// *normalized* identity, regardless of how the usage is declared. This
-/// is to ensure consistent resolution for existing PURL usages in json
-/// projects. Resolution is the only place that normalizes ... Every
-/// other comparison is literal string equality."
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IdentityMatch {
-    /// A usage being resolved, which is the only place that normalizes.
+    /// Both sides are normalized before comparing. Resolving a usage
+    /// is the only comparison that does this.
     Normalized,
-    /// Every other comparison, `sysand sync` against the pair the
-    /// lockfile recorded above all: there the point is to catch drift,
-    /// which normalizing would hide.
+    /// Literal string equality, which catches drift that normalizing
+    /// would hide.
     Literal,
 }
 
 /// The identity a usage expects to find at its target.
 ///
-/// model-toml.md "Usages": "Every usage carries `publisher` and `name`:
-/// that pair is the identity a usage is resolved by ... The target must
-/// declare the same publisher (compared after normalization)."
+/// Every usage carries `publisher` and `name`: that pair is the identity
+/// a usage is resolved by, and the target must declare the same one.
 #[derive(Clone, Debug)]
 pub struct ExpectedIdentity {
     publisher: Option<String>,
@@ -952,12 +945,10 @@ impl ExpectedIdentity {
     /// The manifest the usage was written in, which decides how the
     /// pair is compared and what a mismatch is called.
     ///
-    /// model-toml.md "Normalization": normalization is the solver's, and
-    /// a `model.toml` never holds a normalized identity -- so a usage
+    /// A `model.toml` never holds a normalized identity, so a usage
     /// written there is satisfied only by a target that declares the
     /// pair as the usage spells it. A json usage keeps the normalized
-    /// comparison the json format has always meant, and the origin also
-    /// decides whether a publisher-less target is
+    /// comparison, and the origin also decides whether a publisher-less target is
     /// [`IdentityMismatch::NoPublisher`] or [`IdentityMismatch::Publisher`].
     #[must_use]
     pub fn declared_in(self, origin: UsageOrigin) -> Self {

@@ -811,9 +811,8 @@ pub enum PublishError {
         symbol: Box<str>,
         declared: Box<str>,
     },
-    /// model-toml.md "Metamodel": "a `KerML` project admits `.kerml`
-    /// files only, and a `SysML` project admits `.sysml` and `.kerml`".
-    /// A KPAR built from a json project never went through `Sources`,
+    /// A `KerML` project admits `.kerml` files only, and a `SysML`
+    /// project admits `.sysml` and `.kerml`. A KPAR built from a json project never went through `Sources`,
     /// so this is where such a file is refused.
     #[error(
         "project includes source file `{path}`, whose type the project metamodel\n\
@@ -1155,7 +1154,7 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
             source: e,
         })?;
 
-    // Usages are only `pkg:sysand/` or std libs
+    // Usages are typed index usages, `pkg:sysand/` resources or std libs
     for usage in &info.usage {
         check_usage(usage)?;
     }
@@ -1264,8 +1263,7 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
     if file_checksums.is_empty() {
         return Err(PublishError::EmptyChecksum);
     }
-    // design/syside-metamodel.md, "Publish": the checks split by shape.
-    // A root-shaped document checksums every file and exports a flat
+    // The checks split by shape. A root-shaped document checksums every file and exports a flat
     // array; the OMG path below is untouched.
     if let Some(root) = validated_meta.root.as_ref() {
         publish_root_shape(
@@ -1318,7 +1316,7 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
 
         for (src_file, file_checksum) in file_checksums {
             // `admits`, not one extension per project: the rule is the
-            // manifest's (model-toml.md "Metamodel"), and a file that is no
+            // manifest's, and a file that is no
             // model file at all fails it too.
             if !Language::guess_from_path(&src_file).is_some_and(|lang| metamodel_kind.admits(lang))
             {
@@ -1441,8 +1439,7 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
     })
 }
 
-/// The Syside shape's file and symbol checks (design/syside-metamodel.md,
-/// "Publish"). `root` names a file in the archive; every archive file
+/// The Syside shape's file and symbol checks. `root` names a file in the archive; every archive file
 /// but the two manifests is a `checksum` key, and neither manifest is
 /// one; every key is hashed; the extension rule and the extractor run
 /// over the keys that are model files only; every name in `exports` is
@@ -1704,7 +1701,8 @@ const SYSML_STD_LIB_SUFFIXES: [&str; 7] = [
 /// Checks that a usage is allowed for a project in index. Does not
 /// duplicate checks performed by `InterchangeProjectUsage::validate()`.
 ///
-/// A resource usage can be either `pkg:sysand/` or an std lib
+/// A resource usage can be either `pkg:sysand/` or an std lib; a typed
+/// index usage is always allowed.
 // TODO: be case insensitive
 fn check_usage(usage: &InterchangeProjectUsageRaw) -> Result<(), PublishError> {
     if check_std_libs(usage, &SYSML_STD_LIB_SUFFIXES, SYSML_SPEC_PREFIX)?
@@ -1766,14 +1764,12 @@ fn check_std_libs(
                 for s in lib_names {
                     if let Some(metamodel_version) = stripped.strip_suffix(s) {
                         if MetamodelRelease::parse(metamodel_version).is_some() {
-                            // model-toml.md "Standard library": "a version
-                            // constraint on a standard-library usage is
-                            // therefore allowed, in manifests and at
-                            // publish time alike". A constraint is
+                            // A version constraint on a standard-library
+                            // usage is allowed. A constraint is
                             // meaningless for a URL in general, but not for
                             // this one: the release date in the IRI and the
                             // version in the manifest are different things,
-                            // and "TOML to KPAR" keeps both.
+                            // and both are kept.
                             return Ok(true);
                         } else {
                             return Err(PublishError::InvalidStdLibVersion {

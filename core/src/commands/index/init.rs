@@ -48,8 +48,7 @@ pub fn do_index_init<R: AsRef<Utf8Path>>(index_root: R) -> Result<(), IndexInitE
     // always has it too: `{}` is the document whose every field defaults
     // (`index_root` to the location it was fetched from), which lets the
     // same directory be read from disk now and served over HTTP later
-    // and be discovered as the same index (design/index-protocol.md
-    // "Filesystem indexes").
+    // and be discovered as the same index.
     create_new(index_root.as_ref(), INDEX_CONFIG_FILE_NAME, "{}\n")?;
     create_new(index_root.as_ref(), INDEX_FILE_NAME, &index_str)?;
     Ok(())

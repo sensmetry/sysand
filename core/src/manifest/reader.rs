@@ -4,12 +4,11 @@
 //! Reading a `model.toml` table without letting one bad value stop the
 //! read.
 //!
-//! model-toml.md "Reading and validating": "Parsing a manifest never
-//! fails on its content: every field of every manifest ... is optional at
-//! parse time. Whether a key is required, whether its value has the right
-//! shape, and every rule that spans keys is checked by Sysand's own
-//! validation, which reports every problem it finds in one report, with
-//! the position of each."
+//! Parsing a manifest never fails on its content: every field is
+//! optional at parse time. Whether a key is required, whether its value
+//! has the right shape, and every rule that spans keys is checked by
+//! Sysand's own validation, which reports every problem it finds in one
+//! report, with the position of each.
 //!
 //! A `#[derive(Deserialize)]` struct cannot do that: a value of the wrong
 //! TOML type fails inside `serde`, which aborts the whole file at the
@@ -48,8 +47,7 @@ pub fn describe(value: &Value) -> &'static str {
     }
 }
 
-/// workspaces.md "Explicit inheritance": a marker is the table
-/// `{ workspace = <bool-or-string> }` sitting where a plain value would
+/// A marker is the table `{ workspace = <bool-or-string> }` sitting where a plain value would
 /// otherwise go; this is the value it carries, when it is one.
 ///
 /// Recognized here so that a marker written where nothing can be
@@ -130,8 +128,7 @@ impl<'a> TableReader<'a> {
         self.positions
     }
 
-    /// One warning per key the caller did not ask for (workspaces.md
-    /// "Unknown keys"), each at its own key. `metamodel` is named in
+    /// One warning per key the caller did not ask for, each at its own key. `metamodel` is named in
     /// the "this may be because" suffix: an unrecognized metamodel may
     /// be why the key is not known.
     pub fn unknown_keys(&self, known: &[&str], metamodel: Option<&str>) -> Vec<Diagnostic> {
@@ -329,9 +326,8 @@ pub fn parsed<T, E: std::fmt::Display>(
     }
 }
 
-/// model-toml.md "Metamodel": "Exactly four values are recognized [...]
-/// A value matching none of the four shapes is an error naming the key
-/// and listing them." That holds for a group's value as much as for a
+/// Exactly four values are recognized; a value matching none of the four
+/// shapes is an error naming the key and listing them. That holds for a group's value as much as for a
 /// `[project]`'s: a group's value exists to be inherited by one. There is
 /// no separate URL check: all four are URLs, so a value that is not one is
 /// not one of the four either, and one message about one key is enough.
@@ -377,8 +373,7 @@ pub fn checked<T, E: std::fmt::Display>(
     }
 }
 
-/// model-toml.md `maintainers`: "array of strings, each of the form
-/// `name <email>`". Every entry that is not is reported at itself.
+/// An array of strings, each of the form `name <email>`. Every entry that is not is reported at itself.
 pub fn maintainers(reader: &TableReader<'_>, report: &mut Report) -> Option<Vec<Maintainer>> {
     let raw = reader.strings("maintainers", report)?;
     let mut maintainers = Vec::with_capacity(raw.len());

@@ -331,8 +331,8 @@ pub enum Command {
     /// IRI/URL. Use `sysand edit` to modify a local project
     #[clap(verbatim_doc_comment)]
     Info {
-        // workspaces.md "Command scopes": from a workspace root, or with
-        // `--workspace`, `info` reads every member. `--dir`, `--kpar-path`
+        // From a workspace root, or with `--workspace`, `info` reads
+        // every member. `--dir`, `--kpar-path`
         // and `--iri` name their own target, so a selector beside one
         // is refused.
         #[command(flatten)]
@@ -457,7 +457,10 @@ pub struct AddProjectLocatorArgs {
     /// for paths.
     /// Where possible, consider using `--dir` or `--kpar-path`. They
     /// explicitly identify the project separately from how it is
-    /// obtained
+    /// obtained.
+    /// Only for projects with `.project.json`: a `model.toml` project
+    /// refuses it. The source options (`--from-path`, `--as-local-src`,
+    /// ...) apply to this usage only
     #[clap(
         long,
         default_value = None,
@@ -475,6 +478,7 @@ pub struct AddProjectLocatorArgs {
     /// between different computers, as `file://` URL always contains an
     /// absolute path. Use `--dir` or `--kpar-path` to record a relative
     /// path instead.
+    /// Only for projects with `.project.json`, like `--iri`.
     /// Currently, this flag is still necessary when the usage is on another
     /// drive (on Windows only) because this flag allows pointing to it, unlike
     /// `--dir`/`--kpar-path`, which currently forbid absolute paths
@@ -506,7 +510,8 @@ pub struct RemoveProjectLocatorArgs {
     )]
     pub identifier: Option<(ProjectPublisher, ProjectName)>,
     /// IRI identifying the project usage to be removed. Use `--iri-path`
-    /// for paths
+    /// for paths. Only for projects with `.project.json`; a `model.toml`
+    /// project refuses it
     #[clap(
         long,
         default_value = None,
@@ -519,7 +524,7 @@ pub struct RemoveProjectLocatorArgs {
     )]
     pub iri: Option<Iri<String>>,
     /// Path to the project to be removed from usages after conversion to a
-    /// `file://` IRI
+    /// `file://` IRI. Only for projects with `.project.json`
     #[arg(
         long,
         default_value = None,
@@ -1363,11 +1368,10 @@ pub struct ResolutionOptions {
 
 /// Which member of a workspace a command acts on.
 ///
-/// workspaces.md "Command scopes": `build`, `sources`, `info` and
-/// `publish` take "all members" from the root and "that member" from a
-/// member directory; `--workspace` forces all members, `--member
-/// <path-or-name>` picks one. Outside a workspace `--workspace` is
-/// inert and `--member` is an error.
+/// `build`, `sources`, `info` and `publish` take all members from the
+/// root and that member from a member directory; `--workspace` forces
+/// all members, `--member <path-or-name>` picks one. Outside a
+/// workspace `--workspace` is inert and `--member` is an error.
 #[derive(clap::Args, Debug, Clone, Default)]
 pub struct MemberSelector {
     /// Act on every member of the workspace, rather than on the member
@@ -1396,10 +1400,9 @@ impl MemberSelector {
 
 /// Which member a command that *needs a project* acts on.
 ///
-/// The second row of the Command scopes table: `add`, `remove`,
-/// `include`, `exclude` and the writing `info` verbs cannot act on a
-/// whole workspace, so they take no `--workspace`, and from the root
-/// with no `--member` they are refused.
+/// `add`, `remove`, `include`, `exclude` and the writing `info` verbs
+/// cannot act on a whole workspace, so they take no `--workspace`, and
+/// from the root with no `--member` they are refused.
 #[derive(clap::Args, Debug, Clone, Default)]
 pub struct MemberOnlySelector {
     /// Act on one member, named by its `members` entry as written or by

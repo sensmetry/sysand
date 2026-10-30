@@ -308,8 +308,8 @@ fn the_metamodel_option_replaces_an_unrecognized_one() {
     );
 }
 
-/// model-toml.md gives a recognized value "the same treatment as
-/// `name`": it is migrated, not overridden.
+/// A recognized declared value is treated as `name` is: it is migrated,
+/// not overridden.
 #[test]
 fn a_declared_metamodel_beats_the_option() {
     let kerml = "https://www.omg.org/spec/KerML/20250201";
@@ -581,9 +581,8 @@ fn a_kpar_path_usage_converts() {
     );
 }
 
-/// model-toml.md "JSON to TOML": a json path is "rewritten into the form a
-/// `dir` or `kpar-path` requires", which is the only form a `model.toml`
-/// admits.
+/// A json path is rewritten into the form a `dir` or `kpar-path`
+/// requires, which is the only form a `model.toml` admits.
 #[test]
 fn a_local_path_is_written_in_normal_form() {
     for (json, written) in [("./dep/", "dep"), ("./../libs/./x/../dep", "../libs/dep")] {
@@ -695,8 +694,7 @@ fn an_unconstrained_purl_usage_reaches_the_lookup() {
 }
 
 /// An `http(s)` resource reaches the lookup too -- for both kinds of
-/// target, which is what model-toml.md's unconditional "use as-is for
-/// URL" asks for.
+/// target.
 #[test]
 fn an_http_usage_reaches_the_lookup() {
     for resource in [
@@ -1054,8 +1052,8 @@ fn two_file_usages_of_one_target_are_a_duplicate() {
     assert!(rendered.contains("name the same project"), "{rendered}");
 }
 
-/// model-toml.md: an `http(s)` usage's `versionConstraint` is discarded
-/// with a warning. The warning belongs in core: the target lookup is
+/// An `http(s)` usage's `versionConstraint` is discarded with a
+/// warning. The warning belongs in core: the target lookup is
 /// handed only the resource string and never sees the constraint.
 #[test]
 fn an_http_usage_discards_its_constraint_with_a_warning() {
@@ -1170,7 +1168,7 @@ fn a_typed_usage_keeps_the_json_spelling_here() {
     );
 }
 
-/// design/syside-metamodel.md, "JSON to TOML": a Syside json project --
+/// A Syside json project --
 /// the extracted form of a Syside archive -- migrates with its `root`
 /// and with `sources` taken from the model-file `checksum` keys; the
 /// conventional files are silent, a stray non-model key is a warning,

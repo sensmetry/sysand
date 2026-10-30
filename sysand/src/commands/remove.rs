@@ -105,7 +105,7 @@ pub fn command_remove<Policy: HTTPAuthentication>(
     // TODO: this is not always correct, as config file overrides also
     // affect transitive dependencies
     // Typed usages are not removed from config, as we don't properly support
-    // aliases for PURL projects
+    // aliases for index projects
     if let Some(path) = config_path {
         for usage in &removed {
             if let InterchangeProjectUsageRaw::Resource {
@@ -236,7 +236,7 @@ fn lock_sync<Policy: HTTPAuthentication>(
             runtime,
             auth_policy,
             project_root,
-            // See `commands/lock.rs`: `model.toml` has no alias IRIs.
+            // `model.toml` has no alias IRIs.
             None,
             provided_iris,
             ctx,

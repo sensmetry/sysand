@@ -153,8 +153,8 @@ fn two_members_that_name_one_project_are_refused() {
     );
 }
 
-/// Normalized, as `model-toml.md` says of duplicate usages: "two entries
-/// whose identities normalize to the same value are the same project".
+/// Compared normalized: two entries whose identities normalize to the
+/// same value are the same project.
 #[test]
 fn two_members_whose_identities_only_normalize_alike_are_refused() {
     let fixture = Fixture::new(&workspace_with("\"a\", \"b\""));
@@ -247,9 +247,7 @@ fn workspace_with(members: &str) -> String {
 fn a_workspace_loads_its_members() {
     let fixture = Fixture::new(&workspace_with("\"app\", \"lib\""));
     // Distinct projects: `Fixture::project` names them all `widgets`,
-    // and two members that are one project are refused --
-    // `design/workspaces.md`, "the same project listed twice is
-    // rejected".
+    // and two members that are one project are refused.
     fixture.project_named("app", "app-project");
     fixture.project_named("lib", "lib-project");
 
@@ -336,10 +334,9 @@ fn a_member_that_defines_no_project_is_refused() {
     );
 }
 
-/// workspaces.md: "A member cannot be such a root in any case, since the
-/// two tables never share a file and a member must define a project" --
-/// an assertion, which this is the enforcement of. `detect_format`
-/// cannot see it: the directory holds a `model.toml` and nothing else.
+/// A member cannot be a workspace root, since the two tables never share
+/// a file and a member must define a project -- an assertion, which this
+/// is the enforcement of. `detect_format` cannot see it: the directory holds a `model.toml` and nothing else.
 #[test]
 fn a_member_that_is_a_workspace_root_is_refused() {
     let fixture = Fixture::new(&workspace_with("\"app\""));
@@ -448,8 +445,8 @@ fn a_member_with_an_output_directory_names_the_root() {
     );
 }
 
-/// workspaces.md: "Standalone projects under an `exclude`d directory
-/// keep their state legitimately; the check applies to members only."
+/// Standalone projects under an `exclude`d directory keep their state
+/// legitimately; the check applies to members only.
 #[test]
 fn an_excluded_project_keeps_its_own_state() {
     // The state sits on the `exclude` entry itself, so that "run the
@@ -633,7 +630,7 @@ fn an_excluded_directory_is_excluded() {
     }
 }
 
-/// workspaces.md: "Anything under one of them is outside the workspace."
+/// Anything under an `exclude`d directory is outside the workspace.
 #[test]
 fn a_directory_under_an_excluded_one_is_excluded() {
     let (_fixture, workspace) = classified();
@@ -666,8 +663,8 @@ fn a_directory_in_both_lists_is_refused() {
 
 /// A member listed *inside* an excluded directory is refused.
 ///
-/// `workspaces.md` says of `exclude`: "Anything under one of them is
-/// outside the workspace", with no carve-out, so the two lists make
+/// Anything under an `exclude`d directory is outside the workspace,
+/// with no carve-out, so the two lists make
 /// contradictory claims about one directory, and a conflict is an error
 /// rather than something a depth comparison silently picks a winner for.
 #[test]
@@ -704,8 +701,8 @@ fn an_excluded_directory_inside_a_member_still_loads() {
     assert_eq!(workspace.members().len(), 1);
 }
 
-/// workspaces.md: under an excluded directory "a workspace root there is
-/// a legitimate, separate workspace". The nesting check rests on this.
+/// Under an excluded directory a workspace root is a legitimate,
+/// separate workspace. The nesting check rests on this.
 #[test]
 fn a_workspace_root_under_an_excluded_directory_is_excluded() {
     let fixture = Fixture::new(
@@ -1073,8 +1070,8 @@ fn a_directory_under_a_member_starts_in_that_member() {
     }
 }
 
-/// "This is the only kind of non-member project that may sit under a
-/// workspace root."
+/// An excluded project is the only kind of non-member project that may
+/// sit under a workspace root.
 #[test]
 fn an_excluded_project_starts_standalone() {
     let fixture = Fixture::new(
@@ -1690,8 +1687,7 @@ fn a_candidate_defining_both_tables_still_fails_as_that() {
 /// The property the CLI depends on: the walk answers over the table
 /// alone, so a member that `Workspace::load` refuses does not stop it.
 ///
-/// `workspaces.md` "Stray per-member state" makes a member's own
-/// `sysand-lock.toml` an error, and the walk must still answer for a
+/// A member's own `sysand-lock.toml` is an error, and the walk must still answer for a
 /// member that has one.
 #[test]
 fn start_region_ignores_a_members_own_lockfile() {
@@ -1758,8 +1754,7 @@ fn member_index_refuses_a_project_nested_inside_a_member() {
     );
     // A prefix match would answer `Member(0)` here, so a command run
     // inside `app/dep` would behave as though it were `app` while
-    // `--path app/dep` is refused. Both are refused, which is what
-    // `workspaces.md` says of a project under the root that is neither
+    // `--path app/dep` is refused. Both are refused, as is any project under the root that is neither
     // listed nor excluded.
     assert!(
         matches!(

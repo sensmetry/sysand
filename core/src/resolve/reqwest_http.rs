@@ -348,11 +348,6 @@ impl<Policy: HTTPAuthentication> Iterator for HTTPProjects<Policy> {
 
 /// Tries treat IRIs as HTTP URLs, pointing either to source files stored remotely
 /// or a KPAR archive stored remotely.
-///
-/// If `prefer_ranged` is true, it attempts to poke the remote server to see if it
-/// appears to support HTTP Range requests. If successful, it uses `HTTPKparProjectRanged`
-/// instead of `HTTPKparProjectDownloaded`. In case of *any* failure, or if `prefer_ranged`
-/// is false, `HTTPKparProjectDownloaded` is used instead.
 impl<Policy: HTTPAuthentication> ResolveReadAsync for HTTPResolverAsync<Policy> {
     type Error = !;
 

@@ -385,8 +385,7 @@ fn display_round_trips_templates_and_normalizes_roots() {
 }
 
 // --- `IndexSource`: the filesystem spelling next to the HTTP one ---
-// (design/index-protocol.md "Filesystem indexes": the refusals of a
-// directory are the environment's, these pin the parser.)
+// (The refusals of a directory are the environment's; these pin the parser.)
 
 fn parse_source(s: &str) -> IndexSource {
     IndexSource::parse(s).unwrap_or_else(|e| panic!("`{s}` should parse as an index source: {e}"))

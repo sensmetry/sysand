@@ -144,17 +144,9 @@ impl<HigherProject: ProjectRead, LowerProject: ProjectRead> ProjectRead
         }
     }
 
-    /// Forwarded, which `ProjectRead::format`'s own documentation says
-    /// every wrapper must do.
-    ///
-    /// Taking the `ProjectFormat::Json` default would make this wrapper
-    /// claim json for whatever it holds, and a transitive usage's
-    /// [`crate::resolve::UsageOrigin`] is derived from this call. So
-    /// every usage declared by a *dependency* would be treated as
-    /// json-declared however it was written: the literal-spelling rule
-    /// would not apply to a toml project reached through another
-    /// project, and the same usage would give different answers
-    /// depending on whether it was locked directly or as a dependency.
+    /// Forwarded, not defaulted: this type wraps another project, and
+    /// the default would claim json for a `model.toml` project it holds,
+    /// so its usages would be treated as json-declared.
     fn format(&self) -> Result<ProjectFormat, Self::Error> {
         match self {
             Self::HigherProject(project) => project.format().map_err(PriorityError::Higher),

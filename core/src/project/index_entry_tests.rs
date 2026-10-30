@@ -7,12 +7,9 @@
 //! post-download digest drift, `.project.json`/`.meta.json` fetch error
 //! mapping) live in `core/src/env/index_tests.rs` because they need
 //! mockito to drive the HTTP side. These tests pin the network-free
-//! contracts on the advertised tier — the module docs promise that
-//! `version_async`/`usage_async` and, before any download,
-//! `checksum_canonical_hex_async` return advertised fields without
-//! I/O, and the only way to regress that silently is to add an
-//! `fetched_project_async` call into one of those methods. A sibling
-//! test is the natural place to lock that contract in.
+//! contracts on the advertised tier: advertised fields are returned
+//! without I/O, and before any download the checksum is too. The only way
+//! to regress that silently is to add a fetch to one of those methods.
 
 use std::sync::Arc;
 
@@ -127,8 +124,7 @@ fn checksum_canonical_variant_async_returns_advertised_before_download() {
     );
 }
 
-/// `sources_async` for a kpar under the index root `root`, built the way
-/// `IndexEnvironment` builds it (`ResolvedEndpoints::kpar_url`).
+/// `sources_async` for a kpar under the index root `root`.
 fn index_kpar_sources(root: &str) {
     let kpar_url = IndexLocation::parse(root)
         .expect("index root is a valid URL")

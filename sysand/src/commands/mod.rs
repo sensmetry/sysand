@@ -22,7 +22,7 @@ pub mod sync;
 
 use sysand_core::model::KnownMetamodel;
 
-/// The four recognized metamodels (model-toml.md "Metamodel"), checked
+/// The four recognized metamodels, checked
 /// on a value the user typed rather than a value a manifest holds.
 ///
 /// `init` and `migrate` both take `--metamodel`, and both check it

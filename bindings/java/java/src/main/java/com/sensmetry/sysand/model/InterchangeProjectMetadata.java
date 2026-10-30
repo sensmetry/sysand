@@ -34,7 +34,7 @@ public class InterchangeProjectMetadata {
     /**
      * Either shape. A Syside-metamodel project's document carries
      * {@code root} and {@code exports} and a null {@code index}; an
-     * OMG-metamodel project's the reverse (see design/syside-metamodel.md).
+     * OMG-metamodel project's the reverse.
      */
     public InterchangeProjectMetadata(
         LinkedHashMap<String, String> index,

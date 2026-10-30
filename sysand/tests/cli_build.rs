@@ -43,7 +43,7 @@ fn expected_checksum() -> Option<IndexMap<String, InterchangeProjectChecksumRaw>
     )]))
 }
 
-// Index §for file `test.sysml` containing only `package P;`
+// Index for file `test.sysml` containing only `package P;`
 fn expected_index() -> IndexMap<String, String> {
     IndexMap::from([("P".to_owned(), "test.sysml".to_owned())])
 }
@@ -1079,7 +1079,7 @@ fn build_toml_project() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// The usage becomes a PURL constrained to the target's version.
+/// The usage becomes an index usage constrained to the target's version.
 ///
 /// The manifest is written by hand: what is under test here is the
 /// build, not the write surface.
@@ -1450,8 +1450,7 @@ fn archive_names(path: &camino::Utf8Path) -> Result<Vec<String>, Box<dyn std::er
     Ok(names)
 }
 
-/// The golden Syside KPAR (design/syside-metamodel.md, "The Syside
-/// KPAR"): `root`, `exports` with every name once at its first
+/// The golden Syside KPAR: `root`, `exports` with every name once at its first
 /// appearance, no `index`, and `checksum` over every file in the archive
 /// but the two manifests. An OMG sibling built from the same files
 /// checksums its sources only.
@@ -1523,8 +1522,7 @@ fn a_syside_kpar_checksums_every_file_but_the_manifests() -> Result<(), Box<dyn 
     Ok(())
 }
 
-/// design/syside-metamodel.md, "Build": a mixed-family workspace builds
-/// each member to its own shape, into one `output/`.
+/// A mixed-family workspace builds each member to its own shape, into one `output/`.
 #[test]
 fn a_mixed_family_workspace_builds_both_shapes_into_one_output()
 -> Result<(), Box<dyn std::error::Error>> {

@@ -35,7 +35,7 @@ pub enum IncludeError<ProjectError> {
     #[error("`{0}` is computed when the KPAR is built and cannot be set on a `model.toml` project")]
     ComputedField(&'static str),
     /// A Syside project's KPAR has no `index`, so the flag has nothing to
-    /// apply to (design/syside-metamodel.md, "Build").
+    /// apply to.
     #[error(
         "`--no-index-symbols` applies to projects with a computed index; a Syside project's \
          KPAR carries `root` and `exports` instead"
@@ -92,10 +92,9 @@ pub fn do_include<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
     index_symbols: bool,
     force_format: Option<Language>,
 ) -> Result<(), IncludeError<Pr::Error>> {
-    // model-toml.md "Editing the manifest": on a `model.toml` project
-    // `include` appends to `sources` and nothing else -- "Neither
-    // extracts symbols or hashes files, as both maps are computed at
-    // build".
+    // On a `model.toml` project `include` appends to `sources` and
+    // nothing else: neither symbols nor checksums are recorded, as both
+    // are computed at build.
     //
     // `Both` deliberately falls through to the json arm, where
     // `get_meta` refuses it as the ambiguity it is. Asking `manifest()`

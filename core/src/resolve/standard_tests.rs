@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-//! The standard resolver's index slot over both transports
-//! (`design/index-protocol.md` "Filesystem indexes").
+//! The standard resolver's index slot over both transports.
 
 use std::{io::Write as _, sync::Arc};
 

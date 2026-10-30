@@ -224,10 +224,9 @@ impl ProjectRead for FixedDigestProject {
         Self::Error,
     > {
         // Intentionally return None/None: the test asserts the derived
-        // enum returns the *prefetched* digest directly; if the enum
-        // falls through to the trait default it would call `get_info`
-        // and `canonical_meta` here, see None, and return Ok(None) —
-        // which would fail the assertion below.
+        // enum returns the *prefetched* digest directly; if it fell
+        // through to the trait default it would see None here and return
+        // Ok(None), failing the assertion below.
         Ok((None, None))
     }
 

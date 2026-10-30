@@ -322,9 +322,7 @@ fn skip_non_semantic_versions() {
 /// declare a `Directory` usage whose relative path only exists in its
 /// original source tree. When the file resolver cannot find that path on
 /// disk, resolution must fall through to the remaining resolvers, which
-/// resolve the usage by the identifier derived from its publisher/name —
-/// the behaviour established by
-/// `solve::pubgrub_tests::directory_usage_env_transitive`. A typed usage
+/// resolve the usage by the identifier derived from its publisher/name. A typed usage
 /// that hard-fails here would abort the whole solve even though the project
 /// is installed in the environment.
 #[cfg(feature = "filesystem")]

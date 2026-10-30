@@ -542,9 +542,8 @@ version = "^2"
 
 #[test]
 fn a_generated_workspace_file_has_the_documented_layout() {
-    // model-toml.md fixes the project layout in detail and says of this
-    // one only that a workspace file "has `manifest-version` and then
-    // `[workspace]`". The order below is Sysand's own: the membership
+    // Only the `manifest-version`, `[workspace]` order is fixed. The
+    // order below is Sysand's own: the membership
     // lists, then the default group's keys in the order the reader
     // recognizes them.
     assert_eq!(render(&workspace()), WORKSPACE);
@@ -607,10 +606,9 @@ fn a_generated_workspace_file_parses_back_into_itself() {
 }
 
 // ---------------------------------------------------------------------
-// In-place editing. model-toml.md "Editing the manifest": every command
-// that writes a `model.toml` "edits the existing document in place,
-// preserving comments, key order and formatting; comments are the
-// reason a TOML manifest exists, so no writer may drop them."
+// In-place editing. Every command that writes an existing `model.toml`
+// edits the document in place, preserving comments, key order and
+// formatting.
 // ---------------------------------------------------------------------
 
 /// A manifest with a comment in every place a comment can be.
@@ -937,9 +935,9 @@ fn including_a_path_appends_it_to_sources() {
     );
 }
 
-/// model-toml.md `sources`: "The commands that write `sources` [...]
-/// write this form, converting into it what they are given." Reading
-/// does not normalize; writing converts.
+/// The commands that write `sources` write the strict form, converting
+/// into it what they are given. Reading does not normalize; writing
+/// converts.
 #[test]
 fn including_converts_what_it_is_given() {
     let mut doc = opened(&with_sources("[]"));
@@ -1255,8 +1253,7 @@ fn an_entry_too_broken_to_name_a_project_is_not_matched() {
 
 #[test]
 fn a_usage_is_matched_by_its_normalized_identity() {
-    // model-toml.md "Normalization": a usage is addressed by the
-    // normalized pair, whatever spelling the entry uses.
+    // A usage is addressed by the normalized pair, whatever spelling the entry uses.
     let shouted = WITH_USAGES.replace("name = \"dep\"", "name = \"DEP\"");
     let mut doc = opened(&shouted);
 
@@ -1491,8 +1488,8 @@ fn stdlib_usage() -> MemberUsage {
     })
 }
 
-/// model-toml.md "Standard library": `publisher` "is absent", so the
-/// entry the editors write has no `publisher` key -- and still reads
+/// A standard-library usage declares no `publisher`, so the entry the
+/// editors write has no `publisher` key -- and still reads
 /// back as a manifest.
 #[test]
 fn a_stdlib_usage_is_written_without_a_publisher_key() {

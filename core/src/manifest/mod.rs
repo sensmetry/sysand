@@ -78,8 +78,8 @@ pub const SUPPORTED_MANIFEST_VERSION: ManifestVersion = ManifestVersion::new(1, 
 const PROJECT_TOP_KEYS: &[&str] = &["manifest-version", "project", "inline-usages"];
 
 /// The top-level keys of a file that defines a workspace. `inline-usages`
-/// is recognized in order to be refused: workspaces.md makes it an error
-/// that names the fix, not an unknown key.
+/// is recognized in order to be refused with an error that names the
+/// fix, not treated as an unknown key.
 const WORKSPACE_TOP_KEYS: &[&str] = &["manifest-version", "workspace", "inline-usages"];
 
 /// Which table a `model.toml` defines, without reading either.
@@ -91,13 +91,12 @@ pub enum ModelTomlKind {
 
 /// A whole `model.toml`, whichever of the two tables it defines.
 ///
-/// model-toml.md: "`model.toml` defines a project, in a `[project]`
-/// table. The same file name is used for workspace configuration, in a
-/// `[workspace]` table. Exactly one of the two appears in a file: they
-/// never appear together, as a workspace root must not contain a project,
-/// and a `model.toml` with neither is an error rather than a file that
-/// defines nothing -- which is what a mistyped table name would otherwise
-/// become."
+/// A `model.toml` defines a project in a `[project]` table or a
+/// workspace in a `[workspace]` table. Exactly one of the two appears in
+/// a file: they never appear together, as a workspace root must not
+/// contain a project, and a `model.toml` with neither is an error rather
+/// than a file that defines nothing -- which is what a mistyped table
+/// name would otherwise become.
 ///
 /// Both sides are boxed. Either table is several hundred bytes and a
 /// caller holds the enum, not one variant, so a bare enum would carry
@@ -132,9 +131,8 @@ impl ModelToml {
     ///
     /// An absent `manifest-version` is *not* one of them: it means no
     /// other schema is in play, so this reader's own applies and the rest
-    /// of the file is read as usual. The specification's word for the key
-    /// is "read first", which is an order, not a stop -- it names
-    /// `publisher`, `name` and `version` in the same sentence.
+    /// of the file is read as usual. The key is read first, which is an
+    /// order, not a stop.
     pub fn parse(file: &str, text: &str) -> Result<Validated<Self>, Report> {
         let source = Source::new(file, text);
         let (document, positions) = source.read().map_err(|problem| {
@@ -203,9 +201,9 @@ impl ModelToml {
 
     /// Which table a file defines, without validating either.
     ///
-    /// workspaces.md: "The workspace is discovered by walking up from cwd
-    /// until a `model.toml` with a `[workspace]` table is encountered".
-    /// That walk asks one question of every ancestor, and asking it
+    /// The workspace is discovered by walking up from the working
+    /// directory until a `model.toml` with a `[workspace]` table is
+    /// encountered. That walk asks one question of every ancestor, and asking it
     /// through [`ModelToml::parse`] would validate each in full -- so an
     /// unrelated file's missing `manifest-version` would end a walk that
     /// does not care.
@@ -270,9 +268,9 @@ enum Stop {
     No,
 }
 
-/// model-toml.md "Manifest version": "The key is mandatory and not
-/// inheritable: a member's file must be self-describing before the
-/// `[workspace]` table it inherits from is read."
+/// The key is mandatory and not inheritable: a member's file must be
+/// self-describing before the `[workspace]` table it inherits from is
+/// read.
 fn manifest_version(source: &Source<'_>, top: &TableReader<'_>, report: &mut Report) -> Stop {
     const KEY: &str = "manifest-version";
     let file = source.file();
@@ -290,10 +288,9 @@ fn manifest_version(source: &Source<'_>, top: &TableReader<'_>, report: &mut Rep
             ));
             Stop::Yes
         }
-        // model-toml.md names two failures, absent and too new, so a
-        // version below the supported one is read as this one. It is
-        // almost certainly a typo, but refusing it would be a third rule
-        // the specification does not state.
+        // Only absent and too new are failures, so a version below the
+        // supported one is read as this one. It is almost certainly a
+        // typo, but refusing it would be a third rule.
         Some(_) => Stop::No,
         // Written, and unusable: `read_version` has said so -- or, for
         // the inheritance marker, `own` has -- and what schema the file
@@ -355,10 +352,9 @@ fn workspace(
     positions: &Positions<'_>,
     report: &mut Report,
 ) -> Option<WorkspaceTable> {
-    // workspaces.md "Config": "A workspace config has no top-level
-    // `inline-usages`: that array belongs to a project, and a workspace's
-    // common usages are declared under `[workspace]`, so one at the top
-    // level of a workspace config is an error." Presence, not a non-empty
+    // A workspace config has no top-level `inline-usages`: that array
+    // belongs to a project, and a workspace's common usages are declared
+    // under `[workspace]`, so one at the top level is an error. Presence, not a non-empty
     // array: an explicit `inline-usages = []` is the key written.
     if top.has("inline-usages") {
         report.push(

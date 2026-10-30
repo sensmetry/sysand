@@ -134,10 +134,9 @@ impl LocalSrcProject {
     }
 
     /// Like [`Self::new_access`], for a caller that already knows the
-    /// canonical project checksum — an environment that recorded the checksum
-    /// of what it installed, say. Knowing it spares `sources()` a hash of the
-    /// whole project tree to arrive at the same value; a caller that does not
-    /// have one wants [`Self::new_access`].
+    /// canonical project checksum, e.g. an environment that recorded it at
+    /// install time. This spares hashing the whole project tree; a caller
+    /// without a checksum wants [`Self::new_access`].
     pub fn new_access_with_checksum(
         path: impl Into<Utf8PathBuf>,
         nominal_path: Option<Utf8UnixPathBuf>,
@@ -319,8 +318,8 @@ pub enum EditInfoError<E> {
 
 impl LocalSrcProject {
     /// Read `.project.json` as a JSON document, apply `edit`, and write the
-    /// document back in the byte shape `put_info` produces (pretty-printed,
-    /// trailing newline) — but only if `edit` changed it. An unchanged
+    /// document back pretty-printed with a trailing newline, but only if
+    /// `edit` changed it. An unchanged
     /// document does not touch the file at all.
     ///
     /// Editing the document rather than the typed model keeps every key the
@@ -375,11 +374,9 @@ impl LocalSrcProject {
 
     /// Read `model.toml` and synthesize the KPAR view of it.
     ///
-    /// The reading, parsing and mapping all live in `kpar_view`, which
-    /// is free of Cargo features, so that a store without a filesystem
-    /// answers with the same pair. What is left here is the two things
-    /// only a directory can supply: the manifest's text, and a way to
-    /// read a source file safely from inside the project.
+    /// This supplies the two things only a directory can: the manifest's
+    /// text, and a way to read a source file safely from inside the
+    /// project.
     fn read_model_toml(&self) -> Result<ViewPair, LocalSrcError> {
         let text = self.model_toml_text()?;
         let (info, meta) =
@@ -566,7 +563,7 @@ pub enum LocalSrcError {
     /// two documents would point at the wrong fix.
     #[error("project is missing {missing}")]
     MissingInfoMeta { missing: &'static str },
-    /// model-toml.md "Mixed manifests". The message carries no
+    /// A directory holding both manifest kinds. The message carries no
     /// `sysand migrate` hint.
     #[error(
         "`{dir}` has both `model.toml` and `{json}`;\n\
@@ -679,8 +676,8 @@ impl ProjectRead for LocalSrcProject {
         LocalSrcError,
     > {
         match detect_format(&self.project_path)? {
-            // model-toml.md "Mixed manifests": a directory holding both
-            // kinds of manifest is refused before either is read.
+            // A directory holding both kinds of manifest is refused
+            // before either is read.
             ProjectFormat::Both => {
                 return Err(LocalSrcError::AmbiguousFormat {
                     dir: self.project_path.clone(),
@@ -771,9 +768,7 @@ impl ProjectRead for LocalSrcProject {
     }
 
     fn source_may_offer_multiple_versions(&self) -> bool {
-        // A path names one project. Note that an environment hands back one of
-        // these per installed version -- see the TODO on
-        // `LocalDirectoryEnvironment::get_project_storage`.
+        // A path names one project.
         false
     }
 

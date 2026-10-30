@@ -66,8 +66,7 @@ fn a_plain_value_is_provided() {
     }
 }
 
-/// workspaces.md "Explicit inheritance": "to inherit a key from the
-/// default group, `<key>.workspace = true` is used".
+/// `<key>.workspace = true` inherits a key from the default group.
 #[test]
 fn a_default_group_marker_is_inherited() {
     let (value, report) = scalar("publisher.workspace = true\n");
@@ -105,8 +104,7 @@ fn workspace_false_is_not_a_marker() {
     );
 }
 
-/// workspaces.md: "`<group-name>` is a bare TOML key: letters, digits,
-/// `-` and `_`."
+/// A `<group-name>` is a bare TOML key: letters, digits, `-` and `_`.
 #[test]
 fn a_marker_naming_an_invalid_group_is_refused() {
     let (value, report) = scalar("publisher.workspace = \"a.b\"\n");
@@ -134,9 +132,9 @@ fn a_marker_with_a_non_marker_value_is_refused() {
     );
 }
 
-/// workspaces.md: "inheritance cannot overlap: when a key is inherited
-/// from a table and the key's value is also a table, inheritance cannot
-/// be specified for any of the inner table's keys". Such a table is not
+/// Inheritance cannot overlap: when a key is inherited from a table and
+/// the key's value is also a table, inheritance cannot be specified for
+/// any of the inner table's keys. Such a table is not
 /// a marker (it has more than one key), so without this check the
 /// `workspace` key would come back as an unknown key inside `urls` --
 /// a warning, with the inheritance silently dropped.
@@ -179,8 +177,7 @@ fn a_scalar_key_with_a_workspace_key_among_others_is_a_type_error() {
     );
 }
 
-/// workspaces.md "Common metadata": the keys that are deliberately not
-/// inheritable say so, rather than reporting a table where an array was
+/// The keys that are deliberately not inheritable say so, rather than reporting a table where an array was
 /// expected.
 #[test]
 fn a_non_inheritable_key_refuses_a_marker() {

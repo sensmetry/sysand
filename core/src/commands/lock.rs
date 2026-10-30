@@ -184,9 +184,8 @@ pub enum LockError<PD: ProjectRead, R: ResolveRead + Debug + 'static> {
     },
     /// The metamodel direction rule, over the graph the solve produced.
     ///
-    /// `design/model-toml.md` runs the edge checks "once before the
-    /// lockfile is written and again when the lockfile is validated on
-    /// `sync` and `build`"; this is the first of the two.
+    /// The edge checks run once before the lockfile is written and again
+    /// when the lockfile is validated; this is the first of the two.
     ///
     /// Carries the direction error rather than `lock::ValidationError`:
     /// every message of that type ends "in lockfile", and at this point
@@ -317,11 +316,10 @@ fn lock_projects<
 
         // Which project declared the usages below, for the conflicts a
         // failed solve reports. A workspace lock passes each member's PURL
-        // as its `identifiers` (`do_lock_workspace`), which is what makes
-        // "`a` requires ^1 and `b` requires ^2" sayable. An ordinary
-        // single-project lock passes `None` (`do_lock_local_editable`), so
-        // its conflicts stay anonymous -- naming a lone project to the person who just ran `lock` in it says
-        // nothing. Taken before `identifiers` is moved below.
+        // as its `identifiers`, which is what makes "`a` requires ^1 and
+        // `b` requires ^2" sayable. An ordinary single-project lock passes
+        // `None`, so its conflicts stay anonymous -- naming a lone project
+        // to the person who just ran `lock` in it says nothing. Taken before `identifiers` is moved below.
         let declarer = identifiers
             .as_ref()
             .and_then(|ids| ids.first())
@@ -365,8 +363,7 @@ fn lock_projects<
             name: info.name,
             publisher: info.publisher,
             version: info.version,
-            // Both construction sites record it: without the root's own
-            // metamodel the edge checks read it as an OMG project and a
+            // Without the root's own metamodel the edge checks read it as an OMG project and a
             // Syside root with a Syside dependency is a false direction
             // error.
             metamodel: meta.metamodel.clone(),
@@ -381,7 +378,7 @@ fn lock_projects<
         // loop iterates cannot carry it -- `InterchangeProjectUsage::Resource`
         // is KerML's untyped usage, where the IRI *is* the identity --
         // so it is read from the manifest here and travels on the
-        // `ResolutionInfo`, which is what lets `FileResolver` check the
+        // `ResolutionInfo`, which is what lets the resolver check the
         // target the same way it checks a `dir` or `kpar-path` one.
         //
         // Read here, where the usages are resolved, so that the check
@@ -479,9 +476,8 @@ pub fn do_lock_extend<
 /// [`do_lock_extend`], with each usage's own base path.
 ///
 /// A workspace is solved as one unit and its members do not share a
-/// base: `workspaces.md` "Intra-workspace usages" gives a usage's paths
-/// as "`dir`, relative to the member, or a group entry relative to the
-/// root".
+/// base: a usage's `dir` is relative to the member, a group entry's
+/// relative to the workspace root.
 ///
 /// `ctx` still supplies the root a solved dependency's sources are
 /// relativized against, which is a *different* thing from the base its
@@ -532,8 +528,8 @@ fn lock_extend<
     let mut lock_symbols = HashMap::new();
     for (i, p) in lock.projects.iter().enumerate() {
         if let Some(id) = p.identifiers.first() {
-            // FIXME: better deduplication. What to consider? Previously this was
-            // done based on canonical checksum, but such rigor is not necessary,
+            // FIXME: better deduplication. What to consider? Deduplicating by
+            // canonical checksum would be rigorous, but that is not necessary,
             // since if symbols of any two projects overlap the lock will fail anyway.
             // Current way may produce a lockfile that does not satisfy all version
             // constraints.
@@ -656,13 +652,11 @@ fn lock_extend<
 
     check_typed_usages(typed_usages, &solved, respelled).map_err(LockError::TypedUsageMismatch)?;
 
-    // "once before the lockfile is written" (`design/model-toml.md`,
-    // Metamodel). Here rather than in the callers so that no caller can
-    // skip it, and rather than a full
+    // The metamodel edge checks, run before the lockfile is written.
+    // Here so that no caller can skip them, and rather than a full
     // `Lock::validate` because a lock at this point legitimately fails
-    // the other rules: an input project may carry no identifier, and
-    // `sysand env install --path` records a source outside the project
-    // root. Release mismatches are warnings, reported here rather than by
+    // the other rules: an input project may carry no identifier, and a
+    // source may lie outside the project root. Release mismatches are warnings, reported here rather than by
     // a lockfile's validation, which runs on every read.
     for mismatch in lock
         .check_metamodel_edges()
@@ -724,8 +718,8 @@ impl TypedSpelling {
 /// regardless, so this is the only place a misspelling is caught.
 ///
 /// The typed usage of `respelled` that the projects being locked declare is
-/// not checked: its caller takes the spelling from the project it resolved to
-/// (see `sysand add`). Dependencies' usages of it are checked as any other.
+/// not checked: the spelling is taken from the project it resolved to.
+/// Dependencies' usages of it are checked as any other.
 fn check_typed_usages(
     typed_usages: Vec<(TypedSpelling, DeclaredBy)>,
     solved: &HashMap<Identifier, (Option<String>, String, String)>,
@@ -759,8 +753,8 @@ fn check_typed_usages(
 pub type EditableLocalSrcProject = EditableProject<LocalSrcProject>;
 
 /// [`do_lock_local_editable`], with the spelling of the project's typed usage
-/// of `respelled` not checked: the caller takes it from the project that the
-/// usage resolved to, as recorded in the lock (see `sysand add`)
+/// of `respelled` not checked: the spelling is taken from the project that
+/// the usage resolved to, as recorded in the lock
 #[cfg(feature = "filesystem")]
 pub fn do_lock_local_editable_respelling<
     P: AsRef<Utf8UnixPath>,
@@ -798,10 +792,9 @@ pub fn do_lock_local_editable_respelling<
 #[cfg(feature = "filesystem")]
 /// Lock a whole workspace: every member, in one solve, into one lockfile.
 ///
-/// `workspaces.md` "Locking": "Always a single lockfile ... for the whole
-/// workspace in the workspace root. It records every project of the
-/// solved graph by the identifier `pkg:sysand/<publisher>/<name>`,
-/// members included."
+/// A single lockfile is written for the whole workspace, in the workspace
+/// root. It records every project of the solved graph by the identifier
+/// `pkg:sysand/<publisher>/<name>`, members included.
 ///
 /// `workspace` is loaded with
 /// [`crate::workspace::model_toml::MemberChecks::All`]: the lockfile and
@@ -874,9 +867,8 @@ fn lock_workspace<PD: ProjectRead + Debug, R: ResolveRead<ProjectStorage = PD> +
     let table = std::sync::Arc::new(workspace.table().clone());
     // The resolver reads a member's `dir` target as a project of its
     // own, and a member that inherits a key cannot be read without the
-    // table. Applied here rather than by the caller: a caller that
-    // forgot would see nothing wrong until some member inherited
-    // something.
+    // table. Applied here rather than by the caller, so that nothing
+    // goes wrong only once some member inherits something.
     let resolver = resolver.within_workspace(workspace.root().to_owned(), table.clone());
     let members: Vec<EditableLocalSrcProject> = workspace
         .members()

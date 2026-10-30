@@ -17,8 +17,8 @@ struct Table {
     unknown: crate::manifest::diagnostics::UnknownKeys,
 }
 
-/// workspaces.md "Unknown keys": unknown keys are allowed for future
-/// compatibility "but generate a warning upon read", so reading must keep
+/// Unknown keys are allowed for future compatibility but generate a
+/// warning upon read, so reading must keep
 /// them rather than drop them (serde's default) or reject them
 /// (`deny_unknown_fields`).
 #[test]
@@ -90,7 +90,7 @@ fn foreign_schema_key_warning_text() {
     );
 }
 
-/// model-toml.md "Metamodel": "Any other value is a warning, not an error."
+/// A metamodel outside the recognized values is a warning, not an error.
 #[test]
 fn unknown_metamodel_warning_text() {
     let warning = ReadWarning::UnknownMetamodel {
@@ -150,7 +150,7 @@ fn unknown_metamodel_warning_on_a_family_host_lists_the_recognized_ones() {
     }
 }
 
-/// workspaces.md "Source overrides".
+/// A `sysand.toml` in the wrong place is reported as ignored.
 #[test]
 fn ignored_source_overrides_warning_text() {
     let warning = ReadWarning::IgnoredSourceOverrides {

@@ -4,12 +4,11 @@
 //! Explicit inheritance: a `[project]` key that takes its value from a
 //! workspace group instead of giving one.
 //!
-//! workspaces.md "Explicit inheritance": "In every project, to inherit a
-//! key from the default group, `<key>.workspace = true` is used. To
-//! inherit from a non-default group, `<key>.workspace = \"group-name\"`."
-//! The marker is written where the value would be, so reading such a key
-//! means deciding, from the shape of what is written, which of the two it
-//! is.
+//! To inherit a key from the default group, `<key>.workspace = true` is
+//! used; to inherit from a non-default group,
+//! `<key>.workspace = "group-name"`. The marker is written where the
+//! value would be, so reading such a key means deciding, from the shape
+//! of what is written, which of the two it is.
 //!
 //! This module knows nothing about which keys `[project]` has. It knows
 //! what a marker looks like, what is wrong with the shapes that are not
@@ -83,10 +82,9 @@ pub fn inheritable<T>(
 
 /// The same, for a key whose own value is a *table* (`urls`).
 ///
-/// workspaces.md: "when a key is inherited from a table and the key's
-/// value is also a table, inheritance cannot be specified for any of the
-/// inner table's keys, nor can the inner key be given a value of its
-/// own". Such a table has a `workspace` key and others, so it is not a
+/// When a key is inherited from a table and the key's value is also a
+/// table, inheritance cannot be specified for any of the inner table's
+/// keys, nor can the inner key be given a value of its own. Such a table has a `workspace` key and others, so it is not a
 /// marker -- and without this check its `workspace` key would come back
 /// as an unknown key inside the table, a warning that leaves the read to
 /// succeed with the inheritance silently dropped.
@@ -122,8 +120,7 @@ pub fn inheritable_table<T>(
 
 /// Read a key that may *not* be inherited.
 ///
-/// workspaces.md "Common metadata" lists the `[project]` keys that are
-/// deliberately outside inheritance. A marker on one of them says so,
+/// Some `[project]` keys are deliberately outside inheritance. A marker on one of them says so,
 /// rather than reporting a table where an array or a string was expected
 /// -- and, unlike an inheritable key, `workspace = false` gets the same
 /// answer, since what is wrong is the attempt and not the marker's value.
@@ -182,9 +179,9 @@ fn read_marker(
 
 /// Follow a marker into the group it names, and take one key out of it.
 ///
-/// workspaces.md: "A marker must find a value: naming a group
-/// that does not exist, or one that does not define the key, is an error,
-/// whether or not the key is required in `[project]`."
+/// A marker must find a value: naming a group that does not exist, or
+/// one that does not define the key, is an error, whether or not the key
+/// is required in `[project]`.
 pub fn from_group<U>(
     inherited: &Inherited,
     key: &str,
@@ -193,9 +190,8 @@ pub fn from_group<U>(
 ) -> Result<U, Diagnostic> {
     let from = &inherited.from;
     let at = inherited.at.clone();
-    // workspaces.md: "Markers resolve only against the workspace the
-    // project is a *member* of. A project that is not a member is outside
-    // every workspace regardless of where its directory sits."
+    // Markers resolve only against the workspace the project is a
+    // *member* of.
     let Some(workspace) = workspace else {
         return Err(Diagnostic::error(format!(
             "`{key}` inherits from {from}, but the project is not a member of any workspace"

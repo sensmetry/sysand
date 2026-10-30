@@ -27,8 +27,7 @@ use crate::{
 
 pub type LocalEnvResolver = EnvResolver<LocalDirectoryEnvironment>;
 
-/// The configured indexes in order, HTTP and filesystem alike
-/// (`design/index-protocol.md` "Filesystem indexes").
+/// The configured indexes in order, HTTP and filesystem alike.
 pub type IndexResolver<Policy> = SequentialResolver<EnvResolver<AnyIndexEnvironment<Policy>>>;
 
 type StandardResolverInner<Policy> = CombinedResolver<

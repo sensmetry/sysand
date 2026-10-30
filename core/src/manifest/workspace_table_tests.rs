@@ -69,8 +69,7 @@ fn places(report: &Report) -> Vec<(usize, usize)> {
         .collect()
 }
 
-/// Every key workspaces.md "Common metadata" lists, as the specification
-/// writes them. Ported from the prototype's `FULL_WORKSPACE_TOML`.
+/// Every key a workspace may carry.
 const FULL: &str = "\
 manifest-version = \"1.0\"
 
@@ -200,8 +199,7 @@ fn an_unparseable_license_is_positioned_at_the_key() {
     assert_eq!(places(&report), [(2, 1)]);
 }
 
-/// model-toml.md calls `urls` a "table of URLs" and gives it no
-/// warning clause, unlike `metamodel`: a value that is not one has
+/// `urls` has no warning clause, unlike `metamodel`: a value that is not one has
 /// nowhere to go, since `website` reaches a built KPAR as an IRI.
 #[test]
 fn an_unparseable_url_is_an_error() {
@@ -215,9 +213,8 @@ fn an_unparseable_url_is_an_error() {
     );
 }
 
-/// model-toml.md "Metamodel": "A value matching none of the four shapes
-/// is an error naming the key and listing them." A group's value is no
-/// exception: it exists to be inherited by a `[project]`, which could use
+/// A metamodel value matching none of the four shapes is an error naming
+/// the key and listing them. A group's value is no exception: it exists to be inherited by a `[project]`, which could use
 /// no other.
 #[test]
 fn a_metamodel_that_is_not_one_of_the_four_is_refused() {
@@ -270,8 +267,8 @@ fn a_maintainer_that_is_not_name_email_is_positioned_at_its_entry() {
     assert_eq!(places(&report), [(2, 50)]);
 }
 
-/// workspaces.md "Unknown keys": the warning holds "for the `urls`
-/// tables" too, in a named group as much as in the default one.
+/// The unknown-key warning holds for the `urls` tables too, in a named
+/// group as much as in the default one.
 #[test]
 fn unknown_keys_in_urls_warn() {
     let validated = accepted(concat!(
@@ -324,8 +321,8 @@ fn member_paths_are_taken_as_written() {
     assert_eq!(raw, paths);
 }
 
-/// workspaces.md "Included projects": an entry is admitted only in its
-/// normalized form, rather than normalized into it.
+/// An entry is admitted only in its normalized form, rather than
+/// normalized into it.
 #[test]
 fn a_member_path_not_in_normal_form_is_refused() {
     let report = rejected(
@@ -351,8 +348,8 @@ fn a_member_path_not_in_normal_form_is_refused() {
     );
 }
 
-/// workspaces.md: "any `members` entry that resolves to the workspace
-/// root itself (`"."`, `""`, `"./"`, `"folder1/.."`, ...) is rejected".
+/// Any `members` entry that resolves to the workspace root itself (`"."`,
+/// `""`, `"./"`, `"folder1/.."`, ...) is rejected.
 #[test]
 fn a_member_path_that_is_the_root_is_refused() {
     let report = rejected("members = [\".\", \"\", \"./\", \"folder1/..\"]\n");
@@ -397,8 +394,8 @@ fn a_member_path_that_is_not_relative_is_refused() {
     );
 }
 
-/// workspaces.md: "no entry may lie inside another entry's directory:
-/// nested members are forbidden for now".
+/// No entry may lie inside another entry's directory: nested members are
+/// forbidden.
 #[test]
 fn nested_members_are_refused() {
     for body in [
@@ -441,9 +438,8 @@ fn exclude_follows_the_same_per_entry_rules() {
     );
 }
 
-/// workspaces.md gives `exclude` "the same path rules as `members`
-/// (relative, below the root, and never the root itself)" -- that
-/// parenthesis is the whole list. Two excluded directories where one
+/// `exclude` gets the same path rules as `members` (relative, below the
+/// root, and never the root itself) -- that is the whole list. Two excluded directories where one
 /// contains the other exclude the same tree, and so does the same
 /// directory twice.
 #[test]
@@ -527,9 +523,8 @@ fn a_group_name_that_is_not_a_bare_key_is_refused() {
     );
 }
 
-/// workspaces.md "Common metadata": `sources` "is the key people are
-/// most likely to try", so it is an error that says so rather than an
-/// unknown-key warning.
+/// `sources` is the key people are most likely to try, so it is an error
+/// that says so rather than an unknown-key warning.
 #[test]
 fn sources_in_the_default_group_is_an_error() {
     let report = rejected("sources = [\"src/main.sysml\"]\n");
@@ -552,8 +547,8 @@ fn sources_in_a_named_group_is_an_error() {
     );
 }
 
-/// workspaces.md: `stdlib` "in `[workspace]` or a group ... is an
-/// unknown key like any other (a warning)".
+/// `stdlib` in `[workspace]` or a group is an unknown key like any other
+/// (a warning).
 #[test]
 fn stdlib_in_a_group_is_an_unknown_key() {
     let validated = accepted("stdlib = \"KerML\"\n");
@@ -607,8 +602,8 @@ fn a_group_that_is_not_a_table_is_one_diagnostic() {
     );
 }
 
-/// Nothing in workspaces.md requires `members`, and a workspace whose
-/// members have yet to be listed must not fail to read.
+/// `members` is not required, and a workspace whose members have yet to
+/// be listed must not fail to read.
 #[test]
 fn a_workspace_with_no_members_is_legal() {
     let table = table("publisher = \"acme\"\n");
@@ -638,8 +633,8 @@ fn a_default_group_usage_is_declared() {
     );
 }
 
-/// workspaces.md "Common usages": a group entry's `dir` "is relative to
-/// ... the workspace root", so it is kept exactly as written.
+/// A group entry's `dir` is relative to the workspace root, so it is kept
+/// exactly as written.
 #[test]
 fn a_named_group_usage_is_declared() {
     let validated = read(FULL).expect("validates");
@@ -657,10 +652,9 @@ fn a_named_group_usage_is_declared() {
     );
 }
 
-/// model-toml.md "Normalization": duplicates are counted per array, and
-/// "The arrays are counted separately, since a workspace config holds
-/// several"; workspaces.md: "Across groups the same identity is
-/// expected: that is what groups are for."
+/// Duplicates are counted per array, and the arrays are counted
+/// separately, since a workspace config holds several. Across groups the
+/// same identity is expected: that is what groups are for.
 #[test]
 fn duplicate_usages_are_refused_per_array() {
     let report = rejected(concat!(

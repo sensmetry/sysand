@@ -15,8 +15,8 @@
 //! `env.toml` does not record, and what the manifests use that the
 //! lockfile does not lock the same way.
 //!
-//! Verification changes nothing. Repair is the caller's: remove what
-//! mismatches, run `do_sync`, verify again (`sysand sync --repair`).
+//! Verification changes nothing. Repair is left to the caller: remove what
+//! mismatches, sync, verify again.
 
 use camino::Utf8PathBuf;
 use semver::{Version, VersionReq};

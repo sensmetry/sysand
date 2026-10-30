@@ -741,7 +741,7 @@ fn validate_unsatisfied_usage() {
 
 #[test]
 fn validate_checksum_invalid_digest_all_source_types() {
-    // 64 chars but contains 'X' — right length, wrong character.
+    // 64 chars but contains 'X': right length, wrong character.
     const INVALID: &str = "dA8747a6f27A32f10Ba393113bCE29fX88181037a71f093f90e0ad5829D2b780";
 
     let cases: Vec<(&str, Source)> = vec![

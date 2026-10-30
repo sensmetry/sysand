@@ -13,10 +13,10 @@
 //! treated when the relative index path (for example
 //! `some-publisher/some-project/1.0.0/project.kpar`) is substituted:
 //!
-//! - `{path}` — every byte outside RFC 3986 *unreserved* is
+//! - `{path}`: every byte outside RFC 3986 *unreserved* is
 //!   percent-encoded, including `/` as `%2F`. This is what the GitLab
 //!   repository files API expects.
-//! - `{path_raw}` — `/` stays literal; each path segment is
+//! - `{path_raw}`: `/` stays literal; each path segment is
 //!   percent-encoded individually. For hosts that take the file path as
 //!   ordinary URL path segments but need a suffix after it (for example
 //!   Gitea's `.../raw/<path>?ref=<branch>`).
@@ -265,10 +265,8 @@ impl IndexUrlTemplate {
     }
 
     /// The literal template text before the placeholder, in normalized
-    /// form. Support for credential glob derivation (`commands::auth`),
-    /// not general API: the prefix is normalized URL text but not a
-    /// complete URL on its own (it can end mid-segment or mid-query).
-    /// Gated like its only consumer so feature subsets stay dead-code-free.
+    /// form. The prefix is normalized URL text but not a complete URL on
+    /// its own (it can end mid-segment or mid-query).
     #[cfg(all(feature = "filesystem", feature = "networking"))]
     pub(crate) fn prefix(&self) -> &str {
         &self.prefix
@@ -314,10 +312,9 @@ impl IndexLocation {
     /// Parse a user-supplied index location string. Strings containing `{`
     /// or `}` are treated as URL templates; anything else is parsed as a
     /// plain base URL. Braces are outside the URI character set
-    /// ([RFC 3986 §2]), so no conformant URL is misclassified. (The `url`
-    /// crate previously tolerated literal braces by percent-encoding them
-    /// in paths and keeping them in queries; such non-conformant index
-    /// URLs are now template-syntax errors.)
+    /// ([RFC 3986 §2]), so no conformant URL is misclassified. A
+    /// non-conformant URL containing a literal brace is a template-syntax
+    /// error.
     ///
     /// Both variants enforce the same validity invariants at construction:
     /// an absolute HTTP(S) URL without userinfo or fragment. Later
@@ -370,12 +367,10 @@ impl IndexLocation {
 
     /// Construct the URL for the index file whose relative path is
     /// `segments` (for example `["index.json"]` or `["<publisher>",
-    /// "<name>", "versions.json"]`). The segments are trusted: callers pass
-    /// components validated upstream (charset-checked publisher/name,
-    /// `_iri`/`<sha256hex>`, parsed semver versions, fixed file names — see
-    /// `design/index-protocol.md` §5), so they cannot smuggle `..` or URL
-    /// syntax into the result. Infallible, since both variants were
-    /// shape-validated at construction.
+    /// "<name>", "versions.json"]`). The segments are trusted and not
+    /// validated here: they must not contain `..` or URL syntax.
+    /// Infallible, since both variants were shape-validated at
+    /// construction.
     pub fn resolve<'a>(&self, segments: impl IntoIterator<Item = &'a str>) -> url::Url {
         match self {
             Self::Root(root) => {
@@ -452,7 +447,7 @@ impl<'de> serde::Deserialize<'de> for IndexSource {
 /// directory on this machine. Both modes of a filesystem index (a
 /// structured mirror written by `sysand index`, or a bare folder of
 /// `.kpar` files) share the one spelling; the environment tells them
-/// apart when it first reads the directory (`env::local_index`).
+/// apart when it first reads the directory.
 ///
 /// The filesystem spelling is a path (`./<dir>`, `/<dir>`, `C:\<dir>`,
 /// `\\server\share`) or a `file://` URL naming a local path. A URL

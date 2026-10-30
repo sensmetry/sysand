@@ -55,14 +55,12 @@ impl FileResolver {
         match crate::workspace::model_toml::region_of(root, table, project.path()) {
             PathRegion::Member => Ok(project.in_workspace(table.clone())),
             PathRegion::Standalone => Ok(project),
-            // `workspaces.md`, Intra-workspace usages: "A `dir` usage
-            // from a member to a project that lies under the root
-            // without being a member (and not covered in the `exclude`
-            // list) is the unlisted-project error of Included
-            // projects." Resolved, it would be recorded in the
-            // lockfile exactly as an excluded project is -- so nothing
-            // downstream could tell which workspace owned it, which is
-            // the decidability the rule exists to give.
+            // A usage from a member to a project that lies under the
+            // root without being a member (and not covered in the
+            // `exclude` list) is an error. Resolved, it would be
+            // recorded in the lockfile exactly as an excluded project
+            // is, so nothing downstream could tell which workspace
+            // owned it.
             PathRegion::Unlisted => Err(FileResolverError::Workspace(
                 crate::workspace::model_toml::DiscoverError::Unlisted {
                     project: project.path().to_owned(),
@@ -469,21 +467,15 @@ impl ResolveRead for FileResolver {
                     // here it decides the candidates.
                     let declares_identity = resolve.declared_identity().is_some();
                     res.try_map(|path| {
-                        // `model-toml.md`: `kpar-url` "is used for
-                        // standard-compliant KPARs", so a directory-style
-                        // source tree is refused.
+                        // A `kpar-url` usage names a standard-compliant
+                        // KPAR, so a directory-style source tree is
+                        // refused.
                         //
-                        // The test is `origin`, because by this point a
-                        // toml `kpar-url` and a legacy json `resource`
-                        // usage are the same value: `kpar_view::usage`
-                        // turns `Usage::RemoteKpar` into exactly the
-                        // `Resource` a `.project.json` carries. A toml
-                        // manifest reaches *here* only through
-                        // `kpar-url` -- `dir` and `kpar-path` have
-                        // their own arms, and an index usage is a
-                        // `pkg:sysand` PURL, which left above at
-                        // `try_file_uri_to_path`. json keeps both
-                        // candidates: `resource` is legacy.
+                        // The test is `origin`, because a toml
+                        // `kpar-url` and a json `resource` usage are
+                        // the same value here. A toml manifest reaches
+                        // this arm only through `kpar-url`; json keeps
+                        // both candidates.
                         if origin == UsageOrigin::Toml
                             && crate::project::utils::wrapfs::is_dir(&path)?
                         {

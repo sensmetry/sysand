@@ -766,7 +766,7 @@ mod login {
         assert_eq!(key, template);
         assert!(notices.is_empty(), "unexpected notices: {notices:?}");
         assert_eq!(globs, vec![format!("{}**", globset::escape(&anchor))]);
-        // Section 8 coverage for a template without an api_root: the
+        // Coverage for a template without an api_root: the
         // template-resolved discovery URL, `index.json` URL, and an
         // encoded-`{path}` project-file URL all match the derived set.
         let location = IndexLocation::parse(&template).unwrap();

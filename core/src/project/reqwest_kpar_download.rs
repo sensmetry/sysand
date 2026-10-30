@@ -60,8 +60,8 @@ pub struct ReqwestRemoteKparDownloadedProject<Policy> {
     ///   malicious server cannot exhaust disk before the digest check fails.
     expected: Option<KparMeta>,
     /// Fans concurrent `ensure_downloaded*` calls on the same instance
-    /// into a single download — without this, racing tasks would both
-    /// truncate the destination archive and interleave writes.
+    /// into a single download; otherwise racing tasks would both truncate
+    /// the destination archive and interleave writes.
     ///
     /// The kpar is downloaded directly to the destination path, so
     /// `is_downloaded_and_verified` must be checked before reading it.
@@ -88,8 +88,8 @@ pub struct ReqwestIndexKparDownloadedProject<Policy> {
     /// malicious server cannot exhaust disk before the digest check fails.
     expected_size: NonZeroU64,
     /// Fans concurrent `ensure_downloaded*` calls on the same instance
-    /// into a single download — without this, racing tasks would both
-    /// truncate the destination archive and interleave writes.
+    /// into a single download; otherwise racing tasks would both truncate
+    /// the destination archive and interleave writes.
     ///
     /// The kpar is downloaded directly to the destination path, so
     /// `is_downloaded_and_verified` must be checked before reading it.

@@ -225,9 +225,9 @@ fn publish_network_error() -> TestResult {
     out.assert()
         .failure()
         // After discovery, the network error surfaces through the
-        // `sysand-index-config.json` fetch — the wording is
-        // `HTTP request to \`…\` failed: …`, so match the stable
-        // `HTTP request` prefix plus a separate `failed` assertion.
+        // `sysand-index-config.json` fetch. The wording is
+        // `HTTP request to \`…\` failed: …`, so match the stable prefix
+        // plus a separate `failed` assertion.
         .stderr(predicate::str::contains("HTTP request"))
         .stderr(predicate::str::contains("failed"));
 
@@ -541,9 +541,9 @@ fn publish_explicit_path_outside_project_dir() -> TestResult {
         .failure()
         .stderr(predicate::str::contains("unable to find interchange project").not())
         // After discovery, the network error surfaces through the
-        // `sysand-index-config.json` fetch — the wording is
-        // `HTTP request to \`…\` failed: …`, so match the stable
-        // `HTTP request` prefix plus a separate `failed` assertion.
+        // `sysand-index-config.json` fetch. The wording is
+        // `HTTP request to \`…\` failed: …`, so match the stable prefix
+        // plus a separate `failed` assertion.
         .stderr(predicate::str::contains("HTTP request"))
         .stderr(predicate::str::contains("failed"));
 
@@ -611,9 +611,9 @@ fn publish_rejects_upload_endpoint_index_url() -> TestResult {
 
 #[test]
 fn publish_rejects_invalid_semver_version() -> TestResult {
-    // `sysand build` now validates the version itself, so a kpar with an
-    // invalid version can no longer come from the normal build path; write
-    // one directly to exercise `publish`'s own validation.
+    // `sysand build` validates the version itself, so a kpar with an
+    // invalid version cannot come from the normal build path; write one
+    // directly to exercise `publish`'s own validation.
     let (_temp_dir, cwd) = init_project("invalid-version")?;
 
     let (kpar_bytes, _info, _meta) =
@@ -936,8 +936,7 @@ fn assert_publish_error_status(
 #[test]
 fn publish_401_maps_to_auth_error() -> TestResult {
     // The bearer came from the `SYSAND_CRED_TEST` environment credential,
-    // so the failure names that source with the env remediation
-    // (design/credential-storage.md section 7).
+    // so the failure names that source with the env remediation.
     assert_publish_error_status(
         "publish-auth-401",
         401,
@@ -1103,9 +1102,8 @@ fn publish_toml_project_with_a_stdlib_usage() -> TestResult {
 ///
 /// A *toml* member, because an inter-member `dir` usage is what creates
 /// a dependency order, and `publish` refuses a typed path usage outright. A
-/// toml build rewrites such a usage into `pkg:sysand/<pub>/<name>`
-/// constrained to the target's version, which publishes; a
-/// json build would keep it a path.
+/// toml build rewrites such a usage into a typed index usage
+/// constrained to the target's version, which publishes.
 fn workspace_member(root: &Utf8Path, at: &str, deps: &[&str]) -> TestResult {
     let cwd = root.join(at);
     fs::create_dir_all(&cwd)?;

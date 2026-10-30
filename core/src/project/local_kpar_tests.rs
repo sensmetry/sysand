@@ -163,8 +163,7 @@ fn kpar(
 const INFO: &str = r#"{"name":"widgets","version":"1.2.3"}"#;
 const META: &str = r#"{"index":{},"created":"1970-01-01T00:00:00Z"}"#;
 
-/// model-toml.md "Mixed manifests": "if toml config present in a KPAR,
-/// error out". Checked on every way in, since all three read the archive
+/// A KPAR holding a `model.toml` is an error. Checked on every way in, since all three read the archive
 /// separately.
 #[test]
 fn a_kpar_with_a_model_toml_beside_the_pair_is_refused() -> Result<(), Box<dyn std::error::Error>> {

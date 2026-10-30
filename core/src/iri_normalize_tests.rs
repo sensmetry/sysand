@@ -19,7 +19,7 @@ fn scheme_and_host_lowercased() {
 
 #[test]
 fn percent_encoded_unreserved_decoded_and_reserved_uppercased() {
-    // %7E is `~` (unreserved — decoded); %2F is `/` (reserved — hex uppercased).
+    // %7E is `~` (unreserved, decoded); %2F is `/` (reserved, hex uppercased).
     assert_eq!(
         normalize("http://example.com/%7euser/a%2fb"),
         "http://example.com/~user/a%2Fb"

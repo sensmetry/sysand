@@ -952,7 +952,7 @@ fn sync_fails_on_a_renamed_directory_dependency() -> Result<(), Box<dyn std::err
 /// know about is an error on `sync`".
 ///
 /// The lockfile is written by hand: `sync` does not re-lock when one is
-/// present, which is the whole point — this is the state a repository
+/// present, which is the whole point: this is the state a repository
 /// reaches by locking with a newer Sysand and syncing with an older.
 #[test]
 fn sync_names_the_unknown_stdlib_release_the_lockfile_pins()

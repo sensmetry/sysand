@@ -152,8 +152,7 @@ fn purl_with_a_named_prerelease_picks_it() {
 }
 
 /// A PURL project that has only ever published prereleases fails rather than
-/// installing one behind the user's back — the solver fails here too
-/// (`unconstrained_purl_usage_of_a_prerelease_only_project_is_a_no_versions_failure`).
+/// installing one behind the user's back, as the solver does.
 /// The versions found are named, highest first, so the user can pass one.
 #[test]
 fn purl_with_only_prereleases_is_an_error_naming_them() {
@@ -170,8 +169,7 @@ fn purl_with_only_prereleases_is_an_error_naming_them() {
 }
 
 /// A source that names one project carries no default, so the highest version
-/// wins whether or not it is a prerelease — as it does in the solver
-/// (`unconstrained_usage_of_a_single_project_source_takes_the_highest_version`).
+/// wins whether or not it is a prerelease, as in the solver.
 #[test]
 fn single_project_source_takes_the_highest_version_including_a_prerelease() {
     assert_eq!(
@@ -191,7 +189,7 @@ fn prerelease_only_project_is_picked_from_a_single_project_source() {
 }
 
 /// An opaque `urn:kpar:` IRI an index advertises takes the default like any
-/// other index usage — the IRI form says nothing about whether there was a
+/// other index usage; the IRI form says nothing about whether there was a
 /// choice to make.
 #[test]
 fn non_purl_iri_from_a_multi_version_source_ignores_prereleases() {

@@ -94,17 +94,16 @@ fn basic_download_request() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Two concurrent `ensure_downloaded_verified` calls on the same
 /// project must fan in to a single download. Without the per-project
-/// download lock, both tasks open the destination archive path (which
-/// `wrapfs::File::create` truncates), and interleave writes — each
-/// task's hasher passes against its own stream but the file on disk is
-/// corrupt.
+/// download lock, both tasks truncate the destination archive and
+/// interleave writes: each task's hasher passes against its own stream
+/// but the file on disk is corrupt.
 ///
-/// This test serializes through a real `reqwest`/`mockito` round-trip, so
-/// both futures race through the same code paths a real caller would hit.
+/// This goes through a real `reqwest`/`mockito` round-trip, so both
+/// futures race through the same code paths a real caller would hit.
 /// We assert:
 ///   - both futures resolve `Ok(())`,
 ///   - the server observed exactly one kpar fetch (`expect(1)`),
-///   - the archive on disk parses and exposes the expected project —
+///   - the archive on disk parses and exposes the expected project,
 ///     i.e. the bytes weren't interleaved.
 #[test]
 fn concurrent_downloads_fan_in_to_single_fetch() -> Result<(), Box<dyn std::error::Error>> {
@@ -165,7 +164,7 @@ fn concurrent_downloads_fan_in_to_single_fetch() -> Result<(), Box<dyn std::erro
 
     get_kpar.assert();
 
-    // The installed archive must parse — a corrupted interleaved write
+    // The installed archive must parse; a corrupted interleaved write
     // would fail here or return garbage.
     let (Some(info), Some(_meta)) = runtime.block_on(project.get_project_async())? else {
         panic!("installed archive failed to expose project");

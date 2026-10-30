@@ -268,8 +268,8 @@ async fn fetch_index_config_with<P: HTTPAuthentication>(
 
 /// Interpret a parsed discovery document fetched from `config_url` into
 /// the resolved endpoints, validating the URL shapes it supplies.
-/// `pub(crate)` so login's authenticated discovery retry can interpret a
-/// forced-fetch response through exactly the same rules.
+/// `pub(crate)` so a discovery response fetched elsewhere is interpreted
+/// by the same rules.
 pub(crate) fn resolve_index_config(
     raw: IndexConfigRaw,
     config_url: &url::Url,

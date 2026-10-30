@@ -3,19 +3,17 @@
 
 //! Writing a `model.toml`.
 //!
-//! model-toml.md "Editing the manifest" divides the job in two. Files a
-//! command *edits* -- `sysand add`, `sysand remove`, `sysand include`,
-//! `sysand exclude`, the `set`/`clear`/`add`/`remove` verbs of `sysand
-//! info` -- are changed in place, "preserving comments, key order and
-//! formatting; comments are the reason a TOML manifest exists, so no
-//! writer may drop them". Files a command *generates* -- `sysand init`,
-//! `sysand new`, `sysand migrate` -- are rendered "in a fixed layout,
-//! without comments".
+//! The job divides in two. Files a command *edits* -- `sysand add`,
+//! `sysand remove`, `sysand include`, `sysand exclude`, the
+//! `set`/`clear`/`add`/`remove` verbs of `sysand info` -- are changed in
+//! place, preserving comments, key order and formatting; comments are
+//! the reason a TOML manifest exists, so no writer may drop them. Files
+//! a command *generates* -- `sysand init`, `sysand new`,
+//! `sysand migrate` -- are rendered in a fixed layout, without comments.
 //!
-//! This module is the second half: [`render_new`] produces the fixed
-//! layout. "One code path serves generated and edited files" is what the
-//! shared type gives -- what [`render_new`] returns is a
-//! [`DocumentMut`], which is what the in-place editors operate on.
+//! [`render_new`] produces the fixed layout. What it returns is a
+//! [`DocumentMut`], which is also what the in-place editors operate on,
+//! so one code path serves generated and edited files.
 //!
 //! **[`render_new`] canonicalizes.** A version constraint written `1.0`
 //! comes back as `^1.0`, an SPDX expression and an IRI are rendered
@@ -55,14 +53,13 @@ use crate::project::utils::ProjectDeserializationError;
 
 /// Render a manifest as a freshly generated file.
 ///
-/// model-toml.md "Editing the manifest": "`manifest-version` first, then
-/// `[project]` with its keys in the order Main project metadata
-/// documents them -- except `urls`, written as a `[project.urls]` table
-/// after the scalar keys, as TOML requires -- with `sources` as a
-/// multi-line array with one file per line and a trailing comma (an
-/// empty one as `sources = []`), then `[[inline-usages]]` tables in
-/// manifest order; a workspace file has `manifest-version` and then
-/// `[workspace]`."
+/// Layout: `manifest-version` first, then `[project]` with its keys in
+/// the order [`PROJECT_KEYS`] gives -- except `urls`, written as a
+/// `[project.urls]` table after the scalar keys, as TOML requires --
+/// with `sources` as a multi-line array with one file per line and a
+/// trailing comma (an empty one as `sources = []`), then
+/// `[[inline-usages]]` tables in manifest order. A workspace file has
+/// `manifest-version` and then `[workspace]`.
 ///
 /// What is written is what the manifest holds: a key the table does not
 /// have is not a key with a default, and is left out.
@@ -89,11 +86,9 @@ pub fn render_new(model: &ModelToml) -> DocumentMut {
 
 /// The `[project]` table, in the order `PROJECT_KEYS` gives.
 ///
-/// The key list is the reader's, not a second copy of it: it already
-/// declares itself to be "every key model-toml.md Main project metadata
-/// documents, in the order it documents them, which is the order a
-/// generated file writes". Iterating it here is what keeps the two from
-/// drifting, and `every_documented_project_key_is_rendered` is what
+/// The key list is the reader's, not a second copy of it: it is the
+/// order a generated file writes. Iterating it here is what keeps the
+/// two from drifting, and `every_documented_project_key_is_rendered` is what
 /// catches a key added to the list that this match does not write.
 fn project_table(project: &ProjectTable) -> Table {
     let mut table = Table::new();
@@ -182,9 +177,8 @@ fn optional<T>(
     }
 }
 
-/// workspaces.md "Explicit inheritance": "to inherit a key from the
-/// default group, `<key>.workspace = true` is used. To inherit from a
-/// non-default group, `<key>.workspace = "group-name"`."
+/// An inheritance marker: `<key>.workspace = true` inherits from the
+/// default group, `<key>.workspace = "group-name"` from a named one.
 ///
 /// A *dotted* table, which is why this cannot be written by indexing:
 /// `table["version"]["workspace"] = value(true)` builds an ordinary
@@ -200,9 +194,8 @@ fn marker(inherited: &Inherited) -> Table {
     table
 }
 
-/// model-toml.md: `urls` is "written as a `[project.urls]` table after
-/// the scalar keys, as TOML requires". An *inherited* `urls` has no
-/// table to write: the marker takes the key's place among the scalars.
+/// `urls` is written as a `[project.urls]` table after the scalar keys,
+/// as TOML requires. An *inherited* `urls` has no table to write: the marker takes the key's place among the scalars.
 fn urls(table: &mut Table, key: &str, property: Option<&MetaProperty<Urls>>) {
     let urls = match property {
         None => return,
@@ -228,8 +221,8 @@ fn urls(table: &mut Table, key: &str, property: Option<&MetaProperty<Urls>>) {
     table.insert(key, Item::Table(written));
 }
 
-/// model-toml.md: "`sources` as a multi-line array with one file per
-/// line and a trailing comma (an empty one as `sources = []`)".
+/// `sources` as a multi-line array with one file per line and a trailing
+/// comma (an empty one as `sources = []`).
 fn sources_array(sources: &Sources) -> Array {
     let mut array = Array::new();
     if sources.as_slice().is_empty() {
@@ -262,17 +255,15 @@ fn usage_table(raw: UsageRaw) -> Table {
 
 /// The `[workspace]` table.
 ///
-/// model-toml.md fixes the project layout in detail and says of this one
-/// only that a workspace file "has `manifest-version` and then
-/// `[workspace]`". The order below is therefore Sysand's own:
+/// Only the `manifest-version`, `[workspace]` order is fixed; the order
+/// inside the table is Sysand's own:
 /// `members`, `exclude`, the default group's keys in `GROUP_KEYS` order,
 /// the default group's `[[workspace.inline-usages]]`, then each named
 /// group.
 fn workspace_table(workspace: &WorkspaceTable) -> Table {
     let mut table = Table::new();
     if !workspace.members.is_empty() {
-        // workspaces.md "Command scopes": `--member <path>` matches an
-        // entry "literally", so both spellings are kept and the one that
+        // `--member <path>` matches an entry literally, so both spellings are kept and the one that
         // was written is the one that is written back.
         table["members"] = value(
             workspace
@@ -310,9 +301,8 @@ fn workspace_table(workspace: &WorkspaceTable) -> Table {
 
 /// The keys one group gives, in `GROUP_KEYS` order.
 ///
-/// A group's values are plain: workspaces.md has nothing above a
-/// workspace for them to be inherited from, so there are no markers
-/// here.
+/// A group's values are plain: nothing sits above a workspace for them to
+/// be inherited from, so there are no markers here.
 fn group(table: &mut Table, properties: &GroupProperties) {
     for key in GROUP_KEYS {
         match *key {
@@ -351,7 +341,7 @@ fn group(table: &mut Table, properties: &GroupProperties) {
                     );
                 }
             }
-            // workspaces.md: a group may not carry `sources`. The key is
+            // A group may not carry `sources`. The key is
             // in `GROUP_KEYS` so that the reader can refuse it by name,
             // and there is nothing here to write.
             "sources" => {}
@@ -387,10 +377,8 @@ fn group(table: &mut Table, properties: &GroupProperties) {
 // ---------------------------------------------------------------------
 // Editing an existing document.
 //
-// model-toml.md "Editing the manifest": every command that writes a
-// `model.toml` "edits the existing document in place, preserving
-// comments, key order and formatting; comments are the reason a TOML
-// manifest exists, so no writer may drop them."
+// Every command that writes an existing `model.toml` edits the document
+// in place, preserving comments, key order and formatting.
 //
 // `toml_edit` does not give that for free. A value replaced the obvious
 // way loses the comment after it, because the comment lives in the
@@ -400,11 +388,10 @@ fn group(table: &mut Table, properties: &GroupProperties) {
 // below moves decor deliberately.
 // ---------------------------------------------------------------------
 
-/// workspaces.md "Common metadata": the `[project]` keys a member may
-/// inherit from a workspace group.
+/// The `[project]` keys a member may inherit from a workspace group.
 ///
-/// `project.rs` decides this one `inheritable(..)` call at a time and
-/// has no list to borrow. `the_inheritable_keys_are_the_ones_the_reader_
+/// The reader decides this one `inheritable(..)` call at a time and has
+/// no list to borrow. `the_inheritable_keys_are_the_ones_the_reader_
 /// accepts_a_marker_for` is what keeps the two from drifting: it writes
 /// a marker for every key of `PROJECT_KEYS` and checks that the reader
 /// agrees with this list.
@@ -439,8 +426,7 @@ pub enum EditError {
     Sources(#[from] SourcesError),
     #[error("`{0}` is not listed in `sources`")]
     SourceNotListed(Utf8UnixPathBuf),
-    /// model-toml.md `sources`: entries are "relative to the project
-    /// root", and `include` converts what it is given into the form
+    /// `sources` entries are relative to the project root, and `include` converts what it is given into the form
     /// `sources` takes -- which cannot be done for a path that leaves
     /// the project.
     #[error("`{0}` is outside the project, so it cannot be listed in `sources`")]
@@ -680,7 +666,7 @@ impl From<ListKey> for ProjectKey {
 
 /// Set one key of `[project.urls]`.
 ///
-/// model-toml.md allows three shapes and users write all of them: a
+/// Users write `urls` in three shapes: a
 /// `[project.urls]` header, an inline `urls = { .. }`, and dotted
 /// `urls.website = ..` keys. An existing table is edited in whichever
 /// shape it has; a table that is not there is created as a *header*,
@@ -731,9 +717,8 @@ fn check_url_key(key: &str) -> Result<(), EditError> {
 
 /// Replace a `[project]` key's value with an inheritance marker.
 ///
-/// workspaces.md "Explicit inheritance" calls this one of the rewrites
-/// that must preserve comments, and it is the one that moves them
-/// furthest: a dotted marker keeps both its comments on its *inner*
+/// This is one of the rewrites that must preserve comments, and it is
+/// the one that moves them furthest: a dotted marker keeps both its comments on its *inner*
 /// key and value, where a scalar keeps them on the outer key and its
 /// own value.
 ///
@@ -764,9 +749,8 @@ pub fn set_inherit_marker(
     Ok(())
 }
 
-/// model-toml.md "Editing the manifest": "`sysand include <paths>`
-/// appends each path to `sources`, normalized as on read, rejecting a
-/// duplicate".
+/// Append a path to `sources`, normalized as on read, rejecting a
+/// duplicate.
 ///
 /// The whole array is re-validated, not just the new entry: `sources`
 /// has rules that span entries -- a duplicate is one of them -- and
@@ -784,9 +768,8 @@ pub fn include_source(doc: &mut DocumentMut, path: &str) -> Result<Utf8UnixPathB
     Ok(wanted)
 }
 
-/// model-toml.md `sources`: "The commands that write `sources` (`sysand
-/// include`, `sysand migrate`) write this form, converting into it what
-/// they are given."
+/// The commands that write `sources` write the strict form, converting
+/// into it what they are given.
 ///
 /// So `./a.sysml` becomes `a.sysml` here rather than being refused, and
 /// `../a.sysml` -- which no conversion can bring inside the project --
@@ -1030,9 +1013,8 @@ fn set_prefix(array: &mut Array, at: usize, prefix: &str) {
 
 /// Append one `[[inline-usages]]` entry.
 ///
-/// model-toml.md "Normalization" makes duplicates "the one comparison
-/// that normalizes before resolution", so an entry naming the same
-/// project under a different spelling is refused.
+/// Duplicates are compared after normalization, so an entry naming the
+/// same project under a different spelling is refused.
 ///
 /// The entry lands after the last one and before whatever trails the
 /// file: a comment at the end of a document belongs to no table, and
@@ -1115,11 +1097,10 @@ pub fn set_usage_version(
 
 /// Add a directory to a workspace's `members`.
 ///
-/// A `members` entry is admitted only in its normalized form
-/// (workspaces.md "Included projects"), so the path is written as
-/// [`crate::utils::normalize_relative`] converts it: `./app/` is written
-/// `app`, and is then the spelling `--member <path>` matches "literally"
-/// (workspaces.md "Command scopes").
+/// A `members` entry is admitted only in its normalized form, so the
+/// path is written as [`crate::utils::normalize_relative`] converts it:
+/// `./app/` is written `app`, and is then the spelling `--member <path>`
+/// matches literally.
 pub fn push_member(doc: &mut DocumentMut, path: &str) -> Result<(), EditError> {
     let workspace = doc
         .get_mut("workspace")

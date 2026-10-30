@@ -5,9 +5,8 @@
 //!
 //! `IndexEntryProject` is the `ProjectRead`/`ProjectReadAsync` leaf returned
 //! by [`crate::env::index::IndexEnvironmentAsync`] once a concrete version
-//! has been selected. The protocol rules are documented in
-//! `design/index-protocol.md`; this module only calls out the
-//! implementation split:
+//! has been selected. This module only calls out the implementation
+//! split:
 //!
 //! - Advertised-tier reads ([`ProjectReadAsync::version_async`],
 //!   [`ProjectReadAsync::usage_async`]) returning fields from
@@ -57,20 +56,18 @@ use super::ProjectChecksum;
 
 #[derive(Debug)]
 pub struct IndexEntryProject<Policy> {
-    /// The kpar archive backend — field name tracks its role in this struct,
-    /// type name tracks the transport.
+    /// The kpar archive backend.
     pub(crate) archive: ReqwestIndexKparDownloadedProject<Policy>,
-    /// Single source of truth for protocol-advertised per-version metadata.
-    /// `version_async` and `usage_async` return these fields without I/O.
+    /// Single source of truth for protocol-advertised per-version metadata,
+    /// served without I/O.
     pub(crate) advertised: AdvertisedVersion,
     pub(crate) project_json_url: reqwest::Url,
     pub(crate) meta_json_url: reqwest::Url,
     pub(crate) fetched_info_meta:
         OnceCell<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)>,
     /// The identity the IRI that found this entry names, when it is a
-    /// `pkg:sysand` PURL. An index usage's identity *is* its PURL, so
-    /// nothing has to be threaded in for the entry to be checked
-    /// against what the usage asked for.
+    /// `pkg:sysand` PURL. The entry is checked against it once its
+    /// manifest is fetched.
     pub(crate) expected: Option<ExpectedIdentity>,
 }
 
@@ -128,10 +125,9 @@ impl<Policy: HTTPAuthentication> IndexEntryProject<Policy> {
         &self,
         url: reqwest::Url,
     ) -> Result<T, IndexEntryProjectError> {
-        // RequirePresent — once a version is selected, a per-version
-        // 404 is a hard error. The `.expect` is valid because
-        // RequirePresent only returns `Ok(None)` under
-        // `AllowNotFound`, which we're not using here.
+        // Once a version is selected, a per-version 404 is a hard error.
+        // The `.expect` is valid because `Ok(None)` is only returned when
+        // not-found is allowed, which it is not here.
         Ok(fetch_json(
             &self.archive.client,
             &*self.archive.auth_policy,

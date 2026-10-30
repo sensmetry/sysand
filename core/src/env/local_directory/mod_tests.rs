@@ -147,7 +147,7 @@ fn installed_project_sources_ignore_a_recorded_kpar_checksum() {
     assert_eq!(src_checksum_of(&env), computed);
 }
 
-/// Documents the gap the TODO on `get_project_storage` describes: an
+/// Documents a known gap: an
 /// environment holds every installed version of a project and `EnvResolver`
 /// hands all of them to the solver, so resolving through one *is* a version
 /// choice and should default a version constraint the way an index does. What

@@ -1,8 +1,7 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-"""`sysand.versions()` against a filesystem index (design/index-protocol.md
-"Filesystem indexes")."""
+"""`sysand.versions()` against a filesystem index."""
 
 from __future__ import annotations
 

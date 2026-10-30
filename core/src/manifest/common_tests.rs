@@ -23,8 +23,8 @@ fn sources_error(entries: &[&str]) -> SourcesError {
     sources(entries).expect_err("entries should be rejected")
 }
 
-/// model-toml.md "Main project metadata" gives the accepted syntax as
-/// regexes; publishers do not admit `.` as a separator, names do.
+/// The accepted syntax is given as regexes; publishers do not admit `.`
+/// as a separator, names do.
 #[test]
 fn identifier_syntax_follows_the_documented_regexes() {
     for ok in ["acme", "Acme Corp", "a-b", "ab1"] {
@@ -63,8 +63,8 @@ fn identifier_error_names_the_rule() {
     );
 }
 
-/// model-toml.md "Normalization": projects are resolved by their
-/// normalized identity, which is also what the lockfile records.
+/// Projects are resolved by their normalized identity, which is also what
+/// the lockfile records.
 #[test]
 fn normalized_identity_is_a_pkg_sysand_purl() {
     let publisher = IndexPublisher::parse("Acme Corp").expect("a valid publisher");
@@ -78,8 +78,8 @@ fn normalized_identity_is_a_pkg_sysand_purl() {
     );
 }
 
-/// model-toml.md "Standard library": "A usage is a standard-library usage
-/// iff its publisher normalizes to `omg`".
+/// A publisher is the standard-library publisher iff it normalizes to
+/// `omg`.
 #[test]
 fn stdlib_publisher_is_recognized_after_normalization() {
     for publisher in ["omg", "OMG", "Omg"] {
@@ -97,8 +97,8 @@ fn stdlib_publisher_is_recognized_after_normalization() {
     );
 }
 
-/// model-toml.md maintainer rule: each entry is a string of the form
-/// `name <email>`, both parts mandatory.
+/// Each maintainer entry is a string of the form `name <email>`, both
+/// parts mandatory.
 #[test]
 fn maintainer_string_must_match_name_email_format() {
     #[derive(Debug, Deserialize)]
@@ -157,10 +157,9 @@ fn maintainer_keeps_its_spelling() {
     assert_eq!(maintainer.email, "b@c");
 }
 
-/// model-toml.md "Standard library": the `stdlib` value is "the last
-/// segment of the IRI at which the library's KPAR is published",
-/// validated as a single path segment so it cannot carry `/` or `..` into
-/// an IRI.
+/// The `stdlib` value is the last segment of the IRI at which the
+/// library's KPAR is published, validated as a single path segment so it
+/// cannot carry `/` or `..` into an IRI.
 #[test]
 fn stdlib_key_is_a_path_segment() {
     for ok in ["Kernel-Libraries", "Systems-Library", "a1"] {
@@ -190,8 +189,8 @@ fn inherit_from_names_its_group() {
     assert_eq!(InheritFrom::DefaultGroup.to_string(), "the default group");
 }
 
-/// workspaces.md: there is no "inherit nothing" marker; a key that is not
-/// inherited carries its own value.
+/// There is no "inherit nothing" marker; a key that is not inherited
+/// carries its own value.
 #[test]
 fn workspace_false_is_not_a_marker() {
     let error = InheritFrom::try_from(InheritMarker::Flag(false)).expect_err("not a marker");
@@ -209,8 +208,7 @@ fn workspace_false_is_not_a_marker() {
     );
 }
 
-/// workspaces.md "Explicit inheritance": "`<group-name>` is a bare TOML
-/// key: letters, digits, `-` and `_`."
+/// A `<group-name>` is a bare TOML key: letters, digits, `-` and `_`.
 #[test]
 fn group_names_are_bare_toml_keys() {
     for ok in ["a_b-1", "legacy", "A1"] {
@@ -224,10 +222,9 @@ fn group_names_are_bare_toml_keys() {
     }
 }
 
-/// model-toml.md `sources`: entries "are taken
-/// exactly as written: rather than normalize a path and then check where
-/// it landed, the manifest admits only the one form Sysand itself
-/// writes".
+/// Entries are taken exactly as written: rather than normalize a path and
+/// then check where it landed, the manifest admits only the one form
+/// Sysand itself writes.
 #[test]
 fn sources_entries_are_taken_exactly_as_written() {
     for (entries, expected) in [
@@ -293,8 +290,8 @@ fn sources_rejects_windows_paths() {
     );
 }
 
-/// model-toml.md `sources`: "Every entry names a KerML (`.kerml`) or SysML
-/// (`.sysml`) file, the extension compared case-insensitively".
+/// Every entry names a KerML (`.kerml`) or SysML (`.sysml`) file, the
+/// extension compared case-insensitively.
 #[test]
 fn sources_entries_must_be_model_files() {
     for ok in &["a.sysml", "A.SYSML", "b.KerML", "src/c.kerml"] {

@@ -793,8 +793,8 @@ const OMG_KERML: &str = "https://www.omg.org/spec/KerML/20250201";
 const SYSIDE_SYSML: &str = "https://www.sysand.com/spec/SysML/20250201";
 const SYSIDE_KERML: &str = "https://www.sysand.com/spec/KerML/20250201";
 
-/// model-toml.md "Metamodel": a recognized value is
-/// `<family prefix><spec-kind>/<date>`, in either of the two families.
+/// A recognized value is `<family prefix><spec-kind>/<date>`, in either of
+/// the two families.
 #[test]
 fn metamodel_parses_both_families() {
     for (value, family, spec) in [
@@ -882,9 +882,8 @@ fn metamodel_rejects_a_malformed_release() {
     }
 }
 
-/// model-toml.md "Metamodel": "A project without a `metamodel` is treated
-/// as an OMG-metamodel project"; an unrecognized value is validated
-/// against the OMG schema (rule (a)).
+/// A project without a `metamodel` is treated as an OMG-metamodel project;
+/// an unrecognized value is validated against the OMG schema.
 #[test]
 fn metamodel_schema_family_of_a_project() {
     assert_eq!(Metamodel::schema_family(None), MetamodelFamily::Omg);
@@ -1148,9 +1147,8 @@ fn a_null_list_is_an_empty_list() {
 
 // ------------------------------------------------- what a metamodel admits
 
-/// model-toml.md "Metamodel": "a `KerML` project admits `.kerml` files
-/// only, and a `SysML` project admits `.sysml` and `.kerml`, SysML
-/// being layered on KerML".
+/// A `KerML` project admits `.kerml` files only, and a `SysML` project
+/// admits `.sysml` and `.kerml`, SysML being layered on KerML.
 #[test]
 fn a_kerml_metamodel_admits_kerml_only() {
     for value in [
@@ -1175,8 +1173,8 @@ fn a_sysml_metamodel_admits_both() {
     }
 }
 
-/// "Both families answer this the same way, the Syside metamodels
-/// mirroring the OMG spec kind they extend." The family and the release
+/// Both families answer this the same way, the Syside metamodels
+/// mirroring the OMG spec kind they extend. The family and the release
 /// date decide other things; they do not decide this one.
 #[test]
 fn the_two_families_admit_the_same_languages() {
@@ -1197,8 +1195,7 @@ fn the_two_families_admit_the_same_languages() {
 }
 
 // ---------------------------------------------------------------------
-// The two shapes of `.meta.json` (design/syside-metamodel.md, "The
-// Syside KPAR").
+// The two shapes of `.meta.json`.
 
 const SYSIDE_SYSML_URL: &str = "https://www.sysand.com/spec/SysML/20250201";
 
@@ -1491,9 +1488,8 @@ fn source_paths_of_a_syside_document_include_its_root() {
     assert_eq!(paths.len(), 1);
 }
 
-/// design/syside-metamodel.md, "Dependencies": a Syside project's source
-/// list is "the `checksum` keys that are model files". Once `checksum`
-/// covers the whole archive, the readme and the license are keys too,
+/// A Syside project's source list is the `checksum` keys that are model
+/// files. Since `checksum` covers the whole archive, the readme and the license are keys too,
 /// and a consumer that took every key would lex `README.md`.
 #[test]
 fn source_paths_of_a_root_shaped_document_are_its_model_files() {

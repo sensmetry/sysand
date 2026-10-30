@@ -12,9 +12,8 @@
 //! cannot interrupt them. `sync --verify` afterwards is clean or reports
 //! a state `--repair` repairs.
 //!
-//! Explicitly not cancellable: the ad-hoc `block_on`s in
-//! `commands::publish` (one upload, which the index receives whole or
-//! not at all) and `commands::auth` (short probes).
+//! Explicitly not cancellable: ad-hoc `block_on`s of a single upload,
+//! which the index receives whole or not at all, and of short probes.
 //!
 //! A bridge that observes cancellation returns [`Cancellable::Cancelled`];
 //! every other error is [`Cancellable::Inner`]. The CLI turns a cancelled

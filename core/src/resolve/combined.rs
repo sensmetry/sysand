@@ -41,7 +41,7 @@ use crate::{
 /// - remote_resolver is prioritised, but may be ignored if it does not resolve valid projects
 ///   (typically due to using non-resolving URLs to reference a resource)
 /// - index_resolver wraps a sysand index server and is what will typically be
-///   hit when using non-resolvable IRIs (see `design/index-protocol.md`)
+///   hit by index usages and non-resolvable IRIs
 /// - local_resolver serves to provide a cache, but may contain "dangling" cached projects
 ///
 /// Each resolver is optional, and can be skipped by passing `None`. `NO_RESOLVER` is a typed `None`
@@ -56,8 +56,7 @@ pub struct CombinedResolver<FileResolver, LocalResolver, RemoteResolver, IndexRe
     /// A resolver for whatever is considered remote URLs, would typically resolves
     /// http(s) and git-URLs, as well as, possibly, FTP, rsync, scp, ...
     pub remote_resolver: Option<RemoteResolver>,
-    /// A resolver for a sysand index server. Resolves `pkg:sysand/…`
-    /// IRIs, and also opaque IRIs such as `urn:kpar:`.
+    /// A resolver for a sysand index server.
     pub index_resolver: Option<IndexResolver>,
 }
 
@@ -216,8 +215,8 @@ impl<
     /// Matching needs the candidate's canonical checksum, which for a
     /// remote or index candidate means fetching its `.project.json` and
     /// `.meta.json`. With nothing left to match there is nothing to gain
-    /// from that, so the probe is skipped — a version listing over an index
-    /// then costs one `versions.json` request, not two more per version.
+    /// from that, so the probe is skipped. This keeps a version listing over
+    /// an index to one `versions.json` request.
     fn take_cached_local<P: ProjectRead>(
         &mut self,
         project: &P,

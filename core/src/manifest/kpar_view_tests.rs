@@ -48,8 +48,8 @@ fn url(raw_publisher: &str, raw_name: &str, iri: &str) -> Usage {
     }
 }
 
-/// model-toml.md "TOML to KPAR": "index: turn into a typed index usage
-/// (`publisher`, `name`) with the version constraint as declared".
+/// An index usage becomes a typed index usage with the version
+/// constraint as declared.
 #[test]
 fn an_index_usage_becomes_a_typed_index_usage() {
     assert_eq!(
@@ -63,8 +63,8 @@ fn an_index_usage_becomes_a_typed_index_usage() {
 }
 
 /// A typed usage carries `publisher` and `name` as the manifest spells
-/// them: model-toml.md "Normalization", "a normalized value is used only
-/// where a non-normalized one does not exist".
+/// them: a normalized value is used only where a non-normalized one does
+/// not exist.
 #[test]
 fn a_typed_index_usage_keeps_the_manifest_spelling() {
     assert_eq!(
@@ -77,8 +77,8 @@ fn a_typed_index_usage_keeps_the_manifest_spelling() {
     );
 }
 
-/// model-toml.md "TOML to KPAR": "remote-kpar: use the URL as-is"; the
-/// kind takes no version constraint (Usages).
+/// A remote-kpar usage uses the URL as-is; the kind takes no version
+/// constraint.
 #[test]
 fn a_kpar_url_usage_becomes_a_resource_with_no_constraint() {
     let target = "https://example.com/a/b.kpar?v=2#frag";
@@ -118,10 +118,9 @@ fn a_kpar_path_usage_becomes_a_typed_kpar_usage() {
     );
 }
 
-/// model-toml.md "TOML to KPAR": "A typed usage carries `publisher` and
-/// `name` exactly as the manifest spells them, without normalization,
-/// because Sysand requires them to match the values found at the
-/// target." The opposite of the PURL above.
+/// A typed usage carries `publisher` and `name` exactly as the manifest
+/// spells them, without normalization, because they must match the values
+/// found at the target.
 #[test]
 fn a_typed_usage_keeps_the_pair_unnormalized() {
     assert_eq!(
@@ -135,9 +134,7 @@ fn a_typed_usage_keeps_the_pair_unnormalized() {
 }
 
 /// A view is consumed by the same code that reads a real KPAR, so every
-/// usage it writes has to be one that code accepts. For the index kind
-/// this is what pins the normalization above: `validate` refuses a
-/// `pkg:sysand` IRI that is not in normalized form.
+/// usage it writes has to be one that code accepts.
 #[test]
 fn a_view_usage_is_one_sysand_accepts() {
     for declared in [
@@ -295,9 +292,8 @@ fn a_minimal_project_writes_only_what_it_has() {
     );
 }
 
-/// model-toml.md "Standard library" omits `publisher` from the
-/// `.project.json` of a project carrying `stdlib` -- from the *archive*.
-/// The view keeps it, or the standard library's own `dir` usages, which
+/// The archive omits `publisher` from the `.project.json` of a project
+/// carrying `stdlib`. The view keeps it, or the standard library's own `dir` usages, which
 /// require the target to declare the publisher they name, could never
 /// resolve.
 #[test]
@@ -498,9 +494,8 @@ fn a_source_with_no_symbols_still_gets_a_checksum() {
     assert!(checksum.contains_key("empty.sysml"));
 }
 
-/// model-toml.md's reason for not writing `sources` into a KPAR: "the
-/// paths it lists are recoverable from these two maps, which is exactly
-/// the union the reverse direction takes".
+/// `sources` is not written into a KPAR because the paths it lists are
+/// recoverable from these two maps.
 #[test]
 fn the_two_maps_recover_the_source_list() {
     let body = REQUIRED.replace("sources = []", "sources = [\"a.sysml\", \"empty.sysml\"]");

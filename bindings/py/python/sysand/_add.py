@@ -61,7 +61,8 @@ def add(
     ``iri``
         The project's IRI, taken as given: ``publisher/name`` is not an IRI
         and is refused. This declares a resource usage, the untyped kind that
-        KerML specifies, even for a ``pkg:sysand`` IRI.
+        KerML specifies, even for a ``pkg:sysand`` IRI. A ``model.toml``
+        project has no such usage, so it refuses ``iri``.
 
     ``publisher`` and ``name``
         The project with that publisher and name, resolved from the index.

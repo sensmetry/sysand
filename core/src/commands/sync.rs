@@ -41,10 +41,9 @@ pub enum SyncError<
     ProjectMismatch(Box<ProjectMismatchError>),
     #[error("project with identifiers {0:?} has no known sources in lockfile")]
     MissingSource(Box<[String]>),
-    /// model-toml.md "Provided by the tooling": `sysand lock` "records
-    /// the standard-library entries with an empty source list", and "a
-    /// lockfile that pins a release Sysand does not know about is an
-    /// error on `sync`". An entry with no sources whose identifiers are
+    /// A lockfile records standard-library entries with an empty source
+    /// list, and one that pins a release Sysand does not know about is an
+    /// error on sync. An entry with no sources whose identifiers are
     /// OMG standard-library IRIs is exactly that; one that is not a
     /// standard library and has no sources is a malformed lockfile, and
     /// keeps [`Self::MissingSource`].
@@ -282,9 +281,8 @@ impl fmt::Display for StaleUsage {
 
 /// What a sync did and, on failure, what it had done so far.
 ///
-/// Filled in progressively, so a caller that passes `&mut outcome` and gets
-/// an `Err` back holds exactly what was installed and pruned before the
-/// failure.
+/// Filled in progressively, so a `&mut outcome` passed in holds exactly
+/// what was installed and pruned before a failure.
 ///
 /// With the `python` feature it converts into a dict with these field names,
 /// each a list of `SyncedProject` dicts.

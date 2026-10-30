@@ -301,10 +301,8 @@ pub fn parse_relative_unix_path(
 /// [`normalize_relative`] decides it.
 ///
 /// This is the normalizing sibling of [`RelativeUnixPathError`]: that one
-/// rejects `.` and `..` components outright (and is what
-/// [`parse_relative_unix_path`] reports), while this one resolves them and
-/// then complains only about what the resolved path says — that it leaves
-/// the root, or that it *is* the root.
+/// rejects `.` and `..` components outright, while this one resolves them
+/// and then complains only if the result leaves the root or *is* the root.
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum NormalizeRelativeError {
     #[error("path `{path}` is absolute, but a path relative to the root was expected")]

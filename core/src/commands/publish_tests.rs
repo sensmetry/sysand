@@ -763,9 +763,8 @@ fn check_usage_rejects_invalid_purl() {
     assert_matches!(err, PublishError::InvalidPurl { name: _, source: _ });
 }
 
-/// model-toml.md "Standard library": "a version constraint on a
-/// standard-library usage is therefore allowed, in manifests and at
-/// publish time alike".
+/// A version constraint on a standard-library usage is allowed, in
+/// manifests and at publish time alike.
 ///
 /// The embedded OMG manifests carry exactly this shape --
 /// `stdlib_assets/20250201/semantic-library.project.json` constrains
@@ -1530,8 +1529,8 @@ mod prepare_publish {
         assert_matches!(err, PublishError::EmptyChecksum);
     }
 
-    /// model-toml.md "Metamodel": "a `SysML` project admits `.sysml`
-    /// and `.kerml`, SysML being layered on KerML".
+    /// A `SysML` project admits `.sysml` and `.kerml`, SysML being
+    /// layered on KerML.
     #[test]
     fn a_kerml_file_in_a_sysml_project_publishes() {
         let cksum = sha256_lowercase_hex(b"content");
@@ -1837,7 +1836,7 @@ mod prepare_publish {
     }
 
     // ------------------------------------------------------------------
-    // The Syside shape (design/syside-metamodel.md, "Publish").
+    // The Syside shape.
 
     const SYSIDE_SYSML: &str = "https://www.sysand.com/spec/SysML/20250201";
     const SYSIDE_KERML: &str = "https://www.sysand.com/spec/KerML/20250201";

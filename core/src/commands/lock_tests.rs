@@ -552,8 +552,7 @@ fn ctx_rooted_at(at: &camino::Utf8Path) -> ProjectContext {
     }
 }
 
-/// `workspaces.md` "Intra-workspace usages": a member's `dir` is
-/// relative to that member, so two input projects do not share a base.
+/// A member's `dir` is relative to that member, so two input projects do not share a base.
 ///
 /// The two targets are *different* projects: the solver coalesces
 /// usages by publisher and name, so naming one would let either base
@@ -1083,9 +1082,8 @@ fn a_dependency_src_path_is_relative_to_the_workspace_root()
                 "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"../vendor/dep\"\n",
             ),
         )],
-        // `exclude`d, because `workspaces.md` makes a `dir` usage of a
-        // project that lies under the root in neither list the
-        // unlisted-project error. This test is about the *shape* of the
+        // `exclude`d, because a `dir` usage of a project that lies under
+        // the root in neither list is the unlisted-project error. This test is about the *shape* of the
         // recorded path, so the target is put in the list that lets it
         // be a dependency at all.
         "exclude = [\"vendor\"]\n",
@@ -1128,10 +1126,9 @@ fn an_inheriting_member_locks_with_the_tables_value() -> Result<(), Box<dyn std:
     Ok(())
 }
 
-/// `design/workspaces.md`, Intra-workspace usages: "A `dir` usage from
-/// a member to a project that lies under the root without being a
-/// member (and not covered in the `exclude` list) is the
-/// unlisted-project error of Included projects."
+/// A `dir` usage from a member to a project that lies under the root
+/// without being a member (and not covered in the `exclude` list) is the
+/// unlisted-project error.
 ///
 /// Resolving it would write a lockfile entry indistinguishable from a
 /// properly `exclude`d project's, so nothing downstream could tell the
@@ -1173,8 +1170,8 @@ fn a_dir_usage_of_an_unlisted_project_is_refused() {
 /// arm.
 ///
 /// That arm serves two usages at once, and only one of them can still
-/// name a directory. A toml `kpar-url` cannot any more -- it takes a
-/// KPAR -- so the one route left is a **json** project's legacy
+/// name a directory. A toml `kpar-url` cannot -- it takes a KPAR -- so
+/// the one route is a **json** project's legacy
 /// `resource` usage, which keeps both candidates because json projects
 /// are read unchanged.
 ///
@@ -1226,8 +1223,8 @@ fn a_file_url_usage_of_an_unlisted_project_is_refused() {
     );
 }
 
-/// `kpar-url` "is used for standard-compliant KPARs", so a directory
-/// target is refused.
+/// `kpar-url` is for standard-compliant KPARs, so a directory target is
+/// refused.
 ///
 /// The narrowing is on `UsageOrigin`, because a toml `kpar-url` and a
 /// json `resource` usage are the same value by the time the resolver
@@ -1270,8 +1267,8 @@ fn a_kpar_url_naming_a_directory_is_refused() {
 /// The other half: a **json** project's legacy `resource` usage still
 /// names a directory.
 ///
-/// json projects are read unchanged, and `model-toml.md` says `resource` "is legacy and is not
-/// supported directly" -- it is not `kpar-url` under another name. This
+/// json projects are read unchanged, and `resource` is legacy and not
+/// supported directly -- it is not `kpar-url` under another name. This
 /// is why the narrowing tests `UsageOrigin` rather than the usage value,
 /// which by this point is identical for the two.
 #[cfg(feature = "filesystem")]
@@ -1536,10 +1533,8 @@ fn one_directory_spelled_two_ways_still_locks() {
 /// A metamodel direction error stops the lock, rather than being
 /// written into the lockfile.
 ///
-/// `design/model-toml.md`: the two edge checks run "once **before the
-/// lockfile is written** and again when the lockfile is validated on
-/// `sync` and `build`", and `design/workspaces.md` says the same of all
-/// three.
+/// The edge checks run once **before the lockfile is written** and
+/// again when the lockfile is validated.
 #[cfg(feature = "filesystem")]
 #[test]
 fn a_direction_error_fails_the_lock() {
@@ -1657,7 +1652,7 @@ fn a_syside_json_dependency_locks_with_its_exports() -> Result<(), Box<dyn std::
              \n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"../dep\"\n",
         )],
         // The dependency sits under the workspace root, so it is
-        // excluded rather than a stray (workspaces.md, Included projects).
+        // excluded rather than a stray.
         "exclude = [\"dep\"]\n",
     );
     std::fs::write(dir.path().join("app/main.sysml"), "package Alpha;\n")?;
@@ -1691,8 +1686,7 @@ fn a_syside_json_dependency_locks_with_its_exports() -> Result<(), Box<dyn std::
     Ok(())
 }
 
-/// design/syside-metamodel.md, "The Syside KPAR": a Syside archive is a
-/// usable `kpar-path` target, and the lockfile takes its `exports` from
+/// A Syside archive is a usable `kpar-path` target, and the lockfile takes its `exports` from
 /// the archive's array.
 #[cfg(feature = "filesystem")]
 #[test]

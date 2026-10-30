@@ -141,8 +141,7 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
     },
     #[error("{0}")]
     Extract(String),
-    /// A Syside project's KPAR has no `index` to keep
-    /// (design/syside-metamodel.md, "Build").
+    /// A Syside project's KPAR has no `index` to keep.
     #[error(
         "`--keep-index` applies to projects with a computed index; a Syside project's KPAR \
          carries `root` and `exports` instead"
@@ -152,9 +151,9 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
         "unknown file format of `{0}`, only SysML v2 (.sysml) and KerML (.kerml) files are supported"
     )]
     UnknownFormat(Box<str>),
-    /// model-toml.md "TOML to KPAR": a `dir` or `kpar-path` usage
-    /// "turn[s] into a PURL constrained to `^<version>`, where
-    /// `<version>` is the target project's version at build time".
+    /// A `dir` or `kpar-path` usage becomes an index usage constrained to
+    /// `^<version>`, `<version>` being the target project's version at
+    /// build time.
     ///
     /// The path names nothing that defines a project. This also covers
     /// a project with no root at all -- an in-memory project in the
@@ -162,8 +161,7 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
     /// side those are the same sentence.
     #[error("usage `{usage}` targets `{path}`, which defines no project")]
     TomlTargetMissing { usage: String, path: String },
-    /// model-toml.md "Normalization", at build time: a project satisfies
-    /// a usage only if it declares the pair the usage spells. A build
+    /// A project satisfies a usage only if it declares the pair the usage spells. A build
     /// reads its targets directly rather than through a resolver, so
     /// without this a usage could name one project and be built against
     /// another.
@@ -207,12 +205,11 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
     /// A member inheriting a group usage whose path is relative to the
     /// workspace root.
     ///
-    /// workspaces.md "Common usages": a group entry's `dir`/`kpar-path`
-    /// "is relative to the directory of the `model.toml` that defines
-    /// the workspace [...] whichever member opts into it". The KPAR
-    /// view has no way to carry that base -- `kpar_view::info` sees a
-    /// usage, not where it came from -- so the path here would resolve
-    /// against the *member*, which is a different directory.
+    /// A group entry's `dir`/`kpar-path` is relative to the directory of
+    /// the `model.toml` that defines the workspace, whichever member opts
+    /// into it. The KPAR view carries a usage, not where it came from,
+    /// so the path here would resolve against the *member*, which is a
+    /// different directory.
     ///
     /// Refused rather than resolved against the wrong directory.
     #[error(
@@ -270,15 +267,13 @@ impl<ProjectReadError: ErrorBound> From<IncludeError<ProjectReadError>>
     }
 }
 
-/// workspaces.md "Build output": where a build writes when it is not
-/// told otherwise. A workspace has one, at its root; a standalone
-/// project has its own.
+/// Where a build writes when it is not told otherwise. A workspace has
+/// one, at its root; a standalone project has its own.
 pub const DEFAULT_OUTPUT_NAME: &str = "output";
 
 /// `workspace_root` is the root of the workspace the project is a
-/// member of, if it is one: workspaces.md "Build output" gives a
-/// workspace **one** `output/`, at its root, so a member's archive goes
-/// there whether the build was run from the root or from the member.
+/// member of, if it is one: a workspace has **one** `output/`, at its
+/// root, so a member's archive goes there whether the build was run from the root or from the member.
 /// The root alone is what that needs -- a loaded [`model_toml::Workspace`]
 /// would mean reading the members to answer a question about a path.
 pub fn default_kpar_path<Pr: ProjectRead>(
@@ -338,7 +333,7 @@ pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     }
 }
 
-/// Caller must delete the created archive on error
+/// The created archive is left in place on error; the caller must delete it.
 fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     project: &Pr,
     path: P,
@@ -369,9 +364,9 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         source: e,
     })?;
 
-    // model-toml.md "TOML to KPAR", the three rules that are the
-    // archive's and not the view's (see `kpar_view`'s module doc), and
-    // the `created` the view deliberately does not record.
+    // The rules that belong to the archive and not to the view (see
+    // `kpar_view`'s module doc), and the `created` the view deliberately
+    // does not record.
     //
     // Gated on the format: a json `.project.json` may legally carry a
     // `pkg:sysand/omg/...` resource, and a json project with a typed
@@ -388,10 +383,8 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         // Over the *typed* usages, which know each usage's kind and its
         // target.
         //
-        // `zip` and not an index range: `kpar_view::info` builds the raw
-        // list as `project.usages.iter().map(usage).collect()`, 1:1 and
-        // unfiltered, so the two are the same usages in the same order
-        // -- and a zip cannot go out of step where a counter can.
+        // The typed and raw lists are the same usages in the same order;
+        // a `zip` cannot go out of step where an index counter can.
         let root = project.project_root();
         for (located, raw) in manifest.usages.iter().zip(info.usage.iter_mut()) {
             // An inherited usage's paths are relative to the workspace
@@ -510,8 +503,7 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         IndexMap::new()
     };
     let len = source_paths.len();
-    // design/syside-metamodel.md, "The Syside KPAR": a root-shaped
-    // document has `exports`, not `index`, and `--keep-index` has
+    // A root-shaped document has `exports`, not `index`, and `--keep-index` has
     // nothing to keep.
     let root_shape = meta.root.is_some();
     if root_shape && !update_index {
@@ -552,7 +544,7 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
             );
         }
         if root_shape {
-            // design/syside-metamodel.md: each name once, sorted.
+            // Each name once, sorted.
             exports.sort();
             meta.exports = Some(exports);
         } else {
@@ -619,8 +611,7 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
             }
         }
     }
-    // design/syside-metamodel.md, "The Syside KPAR": for the root shape
-    // `checksum` covers every file in the archive but the two json
+    // For the root shape `checksum` covers every file in the archive but the two json
     // manifests, the conventional files included, so that a consumer
     // that trusts `checksum` trusts every byte it will read. An OMG
     // archive checksums its sources only.
@@ -687,13 +678,6 @@ fn read_optional_project_file(
     }
 }
 
-/// model-toml.md "TOML to KPAR": a local usage "turn[s] into a typed index
-/// usage constrained to `^<version>`, where `<version>` is the target
-/// project's version at build time".
-///
-/// "`build` never resolves usages, so building needs neither network nor
-/// index; the target versions it needs come from the targets' manifests
-/// (members and local paths), never from built artifacts."
 /// The workspace a build is part of, for reading a `dir` target.
 ///
 /// A member that inherits a key resolves its manifest only against the
@@ -702,6 +686,9 @@ fn read_optional_project_file(
 type TargetWorkspace<'a> =
     Option<&'a std::sync::Arc<crate::manifest::workspace_table::WorkspaceTable>>;
 
+/// A local usage becomes a typed index usage constrained to `^<version>`,
+/// `<version>` being the target's version read from its manifest at build
+/// time. Building never resolves usages, so it needs neither network nor index.
 fn local_target_usage<E: ErrorBound>(
     root: Option<&Utf8Path>,
     usage: &Usage,
@@ -713,10 +700,10 @@ fn local_target_usage<E: ErrorBound>(
         usage: usage.to_string(),
         path: relative.to_owned(),
     };
-    // model-toml.md "Normalization": a `model.toml` usage is satisfied
-    // by a target that declares the pair as the usage spells it.
-    // Checked here as well as in the resolver, because a build reads
-    // its targets itself and never asks one.
+    // A `model.toml` usage is satisfied by a target that declares the
+    // pair as the usage spells it. Checked here as well as in the
+    // resolver, because a build reads its targets itself and never asks
+    // one.
     let spelled = |declared_publisher: Option<&str>, declared_name: &str| {
         // A built standard-library archive is the ordinary example of a
         // target that declares no publisher at all -- the build drops
@@ -786,15 +773,12 @@ fn local_target_usage<E: ErrorBound>(
         match source.manifest() {
             Ok(manifest) => {
                 spelled(Some(manifest.publisher.as_str()), manifest.name.as_str())?;
-                // model-toml.md "Standard library": "a usage whose
-                // target carries `stdlib` is written as `resource =
-                // \"<target's metamodel>/<target's stdlib>.kpar\"` --
-                // the metamodel supplies the prefix and release date --
-                // with its version constraint, instead of as a typed
-                // index usage".
+                // A usage whose target carries `stdlib` is written as
+                // `resource = "<target's metamodel>/<target's
+                // stdlib>.kpar"` -- the metamodel supplies the prefix and
+                // release date -- instead of as a typed index usage.
                 //
-                // Only the usage's form changes: "instead of the typed
-                // index usage" names one substitution, so the constraint stays the
+                // Only the usage's form changes: the constraint stays the
                 // `^<version>` every other local target gets.
                 if let Some(stem) = &manifest.stdlib {
                     // A resolved project declares one of the four
@@ -891,10 +875,9 @@ pub fn workspace_publish_order(
     let root = workspace.root();
     let members = read_members(workspace);
 
-    // workspaces.md "Build output": members are published in dependency
-    // order, a topological sort of their `dir` usages of each other.
-    // Loading the workspace refused every cycle the specification
-    // forbids, so the order has none left to report.
+    // Members are published in dependency order, a topological sort of
+    // their `dir` usages of each other. Loading the workspace refused
+    // every cycle, so the order has none left to report.
     //
     // Every member is a node, whether or not its directory resolves: a
     // member that cannot be read must fail with its own message, not
@@ -926,9 +909,9 @@ pub fn workspace_publish_order(
 
 /// Build every member, in `members` order, and return the archives.
 ///
-/// workspaces.md "Build output": a build reads a target's `version` from
-/// its manifest and never from a built artifact, so no member's build
-/// needs another's, and a member that fails does not stop the others.
+/// A build reads a target's `version` from its manifest and never from a
+/// built artifact, so no member's build needs another's, and a member
+/// that fails does not stop the others.
 /// The error is every member that failed, together with the archives the
 /// others produced.
 pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(

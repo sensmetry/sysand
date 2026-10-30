@@ -897,7 +897,7 @@ fn info_basic_index_url() -> Result<(), Box<dyn Error>> {
     meta_json_mock.assert();
     kpar_mock.assert();
 
-    // Catch-all for any _iri/<hash>/versions.json we didn't explicitly mock —
+    // Catch-all for any _iri/<hash>/versions.json we didn't explicitly mock:
     // return 404 so the resolver treats the IRI as absent from this index.
     let missing_versions_mock = server
         .mock(
@@ -1324,8 +1324,8 @@ fn info_multi_index_url_auth() -> Result<(), Box<dyn Error>> {
         .expect(1)
         .create();
 
-    // Unauthenticated 404 lets the auth policy retry with credentials —
-    // matches the same retry-on-404 pattern as the versions.json pair above.
+    // Unauthenticated 404 lets the auth policy retry with credentials,
+    // as with the versions.json pair above.
     let project_json_mock_404 = server
         .mock("GET", format!("{iri_dir}/1.2.3/.project.json").as_str())
         .match_header("authorization", Matcher::Missing)

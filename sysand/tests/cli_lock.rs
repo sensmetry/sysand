@@ -738,9 +738,7 @@ fn lock_rejects_non_normalized_sysand_purl() -> Result<(), Box<dyn std::error::E
     // A `pkg:sysand/<publisher>/<name>` IRI in a project's declared usages
     // that isn't normalized (uppercase, spaces, wrong segment count, etc.)
     // must be rejected at validation time with an error that names the
-    // offending IRI and shows the suggested normalized form, rather than
-    // being silently rerouted to `_iri/<sha256>/` and surfacing only as
-    // an opaque "not found" downstream.
+    // offending IRI and shows the suggested normalized form.
     let (_temp_dir, cwd) = cli_init_json_project(
         None,
         "acme",
@@ -1203,7 +1201,7 @@ fn lock_fails_on_a_misspelled_kpar_usage() -> Result<(), Box<dyn std::error::Err
 }
 
 /// When a `dir` usage's target declares a different publisher, the
-/// solver refuses it — and has to say so: not only "failed to obtain
+/// solver refuses it and has to say so: not only "failed to obtain
 /// version of resolved usage", but which publisher was found.
 #[test]
 fn lock_reports_why_a_dir_usage_failed() -> Result<(), Box<dyn std::error::Error>> {
@@ -1526,7 +1524,7 @@ fn a_toml_stdlib_usage_locks_and_syncs_offline() -> Result<(), Box<dyn std::erro
 /// No mock server can answer for `www.omg.org`, and none is needed: a
 /// `[[project]]` override maps the IRI to a local KPAR, and the
 /// override resolver has priority over the standard one. So the flag's
-/// effect is asserted for real — the lockfile entry gains a source —
+/// effect is asserted for real (the lockfile entry gains a source)
 /// rather than by watching a request go out.
 #[test]
 fn include_std_resolves_the_library_at_its_iri() -> Result<(), Box<dyn std::error::Error>> {
@@ -1727,10 +1725,8 @@ const SYSIDE_SYSML: &str = "https://www.sysand.com/spec/SysML/20250201";
 /// The metamodel direction check runs before the lockfile is written,
 /// not only when one is read.
 ///
-/// `design/model-toml.md` puts the two edge checks "once before the
-/// lockfile is written and again when the lockfile is validated on
-/// `sync` and `build`". This asserts on the message, not merely on
-/// failure, so that a failure for some other reason does not pass.
+/// This asserts on the message, not merely on failure, so that a failure
+/// for some other reason does not pass.
 #[test]
 fn lock_refuses_a_metamodel_direction_error() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;

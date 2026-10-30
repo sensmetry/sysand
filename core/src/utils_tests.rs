@@ -23,8 +23,8 @@ fn normalize_relative_resolves_dot_segments() {
         normalized("./src/../lib//util.kerml"),
         Utf8UnixPathBuf::from("lib/util.kerml")
     );
-    // A trailing slash is dropped here; the callers that care about a
-    // directory path (`Sources`) reject it before normalizing.
+    // A trailing slash is dropped here, so a directory path that must not
+    // have one has to be rejected before normalizing.
     assert_eq!(normalized("a/"), Utf8UnixPathBuf::from("a"));
 }
 

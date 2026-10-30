@@ -337,8 +337,7 @@ pub fn do_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
             }),
         })
         .collect::<Result<_, _>>()?;
-    // This is only used for `versions_values`, which contains
-    // all the same items
+    // Only sorts `versions_value`, which contains all the same items
     let version_key = |v: &VersionEntry| &str_to_semver[&v.version];
 
     versions_value.versions.sort_by_key(version_key);

@@ -79,8 +79,8 @@ fn including_keeps_the_comments_in_the_manifest() {
 
 #[test]
 fn including_writes_no_metadata() {
-    // model-toml.md: "Neither extracts symbols or hashes files, as both
-    // maps are computed at build."
+    // Neither symbols nor checksums are recorded: both are computed at
+    // build.
     let mut project = toml_project();
     include(&mut project, "Parts.sysml").expect("a new source");
 

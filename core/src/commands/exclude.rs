@@ -50,8 +50,7 @@ pub fn do_exclude<Pr: ProjectMut, P: AsRef<Utf8UnixPath>, I: Iterator<Item = P>>
     project: &mut Pr,
     paths: I,
 ) -> Result<Vec<SourceExclusionOutcome>, ExcludeError<Pr::Error>> {
-    // model-toml.md "Editing the manifest": "`sysand exclude <paths>`
-    // removes it." `Both` falls through to the json arm, where
+    // `Both` falls through to the json arm, where
     // `get_meta` refuses it as the ambiguity it is.
     if project.format().map_err(ProjectOrIOError::Project)? == ProjectFormat::Toml {
         return exclude_toml(project, paths);

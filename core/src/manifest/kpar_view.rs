@@ -5,9 +5,9 @@
 //! `.meta.json` pair a reader is handed when it asks such a project for
 //! its manifest.
 //!
-//! model-toml.md "TOML to KPAR" specifies the pair a *build* writes into
-//! an archive, and the view follows it wherever it can. Three rules are
-//! the archive's alone, and each is marked "the archive" below:
+//! A *build* writes the same pair into an archive, and the view follows
+//! it wherever it can. Three rules are the archive's alone, and each is
+//! marked "the archive" below:
 //!
 //! 1. `publisher` is omitted from a `stdlib` project's `.project.json`;
 //! 2. `dir` and `kpar-path` usages become typed index usages constrained
@@ -75,12 +75,11 @@ pub enum ViewError<E> {
 /// Why a json usage has no `model.toml` form.
 ///
 /// Two different refusals, because a caller has two different things
-/// to tell the user: a resource usage is declared another way, and an
+/// to tell the user: a resource usage has no manifest kind, and an
 /// identifier is fixed by editing the target's `.project.json`.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum NoManifestForm {
-    /// A resource usage: a manifest declares none, and mapping one is
-    /// migration's job.
+    /// A resource usage: a manifest has no such kind.
     #[error(
         "a `model.toml` project cannot declare a resource usage (`{0}`):\n\
         {SP:>8} use an index usage, `dir` or `kpar-path`",
@@ -176,20 +175,17 @@ pub fn usage_of_raw(raw: &InterchangeProjectUsageRaw, file: &str) -> Result<Usag
 
 /// One usage as a `.project.json` carries it.
 ///
-/// model-toml.md "TOML to KPAR": an index usage becomes a typed index
-/// usage with the constraint as declared, and a remote-kpar usage its URL
-/// as-is. The two local kinds become typed *path* usages here, which is
-/// where the view and the archive part company: the archive rewrites them
-/// into typed index usages constrained to the target's version at build
-/// time, which needs the target's manifest, and the resolver needs the
-/// path in any case (a `model.toml` `dir` usage always resolves to an
-/// editable project).
+/// An index usage becomes a typed index usage with the constraint as
+/// declared, and a remote-kpar usage its URL as-is. The two local kinds
+/// become typed *path* usages here, which is where the view and the
+/// archive part company: the archive rewrites them into typed index
+/// usages constrained to the target's version, which needs the target's
+/// manifest, whereas a view keeps the path.
 ///
-/// A typed usage "carries `publisher` and `name` exactly as the manifest
-/// spells them, without normalization, because Sysand requires them to
-/// match the values found at the target". The identity check when the
-/// usage resolves normalizes both sides, as model-toml.md "Normalization"
-/// requires.
+/// A typed usage carries `publisher` and `name` exactly as the manifest
+/// spells them, without normalization, because they must match the values
+/// found at the target. The identity check when the usage resolves
+/// normalizes both sides.
 pub fn usage(usage: &Usage) -> InterchangeProjectUsageRaw {
     match usage {
         Usage::Index {
@@ -201,8 +197,7 @@ pub fn usage(usage: &Usage) -> InterchangeProjectUsageRaw {
             name: name.as_str().to_owned(),
             version_constraint: version_constraint.to_string(),
         },
-        // "remote-kpar: use the URL as-is"; the kind takes no version
-        // constraint.
+        // The URL as-is; the kind takes no version constraint.
         Usage::RemoteKpar {
             url,
             publisher: _,
@@ -234,13 +229,12 @@ pub fn usage(usage: &Usage) -> InterchangeProjectUsageRaw {
 
 /// The project as a `.project.json`.
 ///
-/// model-toml.md "TOML to KPAR": "the remaining `[project]` keys map onto
-/// their counterparts: `name`, `version`, `description`, `license` as-is,
-/// `topics` into `topic`, `maintainers` into `maintainer`, `urls.website`
-/// into `website`. `urls.repository` and `urls.documentation` have no
-/// counterpart in `.project.json` and are dropped". `sources` is not
-/// written either: "the paths it lists are recoverable from these two
-/// maps" of the `.meta.json`.
+/// The remaining `[project]` keys map onto their counterparts: `name`,
+/// `version`, `description`, `license` as-is, `topics` into `topic`,
+/// `maintainers` into `maintainer`, `urls.website` into `website`.
+/// `urls.repository` and `urls.documentation` have no counterpart in
+/// `.project.json` and are dropped. `sources` is not written either: the
+/// paths it lists are recoverable from the `.meta.json` maps.
 ///
 /// `publisher` is always written, which is the second place the view and
 /// the archive part company: the archive omits it for a project carrying
@@ -288,16 +282,15 @@ pub fn info(project: &ResolvedProject) -> InterchangeProjectInfoRaw {
 /// and a parameter rather than the current time so that what a view says
 /// can be asserted.
 ///
-/// model-toml.md "TOML to KPAR": `includesDerived` and `includesImplied`
-/// "are optional and omitted" -- Sysand does not know either.
+/// `includesDerived` and `includesImplied` are omitted: Sysand does not
+/// know either.
 pub fn meta(
     project: &ResolvedProject,
     created: &jiff::Timestamp,
     index: SymbolIndex,
     checksum: ChecksumMap,
 ) -> InterchangeProjectMetadataRaw {
-    // design/syside-metamodel.md, "The Syside KPAR": a project with a
-    // `root` writes the Syside shape -- `root` and the flat `exports`
+    // A project with a `root` writes the Syside shape -- `root` and the flat `exports`
     // array, no `index`. The array is the map's keys -- each name once,
     // which the map guarantees -- sorted, so that the view and a build
     // agree on the order whatever order the files were read in.
@@ -314,8 +307,7 @@ pub fn meta(
         root,
         exports,
         created: format_created(created),
-        // Always written: a resolved project declares one of the
-        // four (model-toml.md "Metamodel").
+        // Always written: a resolved project declares one of the four.
         metamodel: Some(project.metamodel.to_string()),
         includes_derived: None,
         includes_implied: None,
@@ -323,16 +315,16 @@ pub fn meta(
     }
 }
 
-/// The two `.meta.json` maps model-toml.md says have "no counterpart in
-/// `model.toml`, both computed at build time from the file contents and
-/// keyed by the normalized `sources` entries":
+/// The two `.meta.json` maps that have no counterpart in `model.toml`,
+/// both computed from the file contents and keyed by the `sources`
+/// entries:
 ///
-/// - `checksum`, "an entry per source file, keyed by its path, holding
-///   the file's hash (SHA256, as `sysand include` already produces)";
-/// - `index`, "the top level symbols extracted from each source file,
-///   each mapped to that file's path; the language is taken from the file
+/// - `checksum`, an entry per source file, keyed by its path, holding the
+///   file's SHA256 hash;
+/// - `index`, the top level symbols extracted from each source file, each
+///   mapped to that file's path; the language is taken from the file
 ///   extension (KerML or SysML), which `sources` guarantees to be one of
-///   the two".
+///   the two.
 ///
 /// `read` hands over one source file's contents. Nothing here opens a
 /// file, which is what keeps this module free of Cargo features and lets
@@ -384,9 +376,7 @@ pub fn view<E>(
 /// a workspace member has to resolve it itself, against the table it
 /// belongs to.
 ///
-/// Warnings are logged rather than returned, which is what the json
-/// readers do with theirs, so that a manifest warns the same way
-/// whichever format it is written in.
+/// Warnings are logged rather than returned.
 pub fn resolved_of_text(
     file: &str,
     text: &str,
@@ -416,10 +406,8 @@ pub fn resolved_of_text_in(
 
 /// The KPAR view of a `model.toml`, from its text.
 ///
-/// This is the whole of what a toml-backed project answers with, and it
-/// is free of Cargo features so that a store without a filesystem
-/// produces the same answer: `read` hands over one source file's
-/// contents and nothing here opens anything.
+/// `read` hands over one source file's contents; nothing here opens
+/// anything.
 pub fn of_text<E>(
     file: &str,
     text: &str,
@@ -440,8 +428,7 @@ pub fn of_text_in<E>(
     view(&project, &VIEW_CREATED, read)
 }
 
-/// [`of_text`] for a document named `model.toml`, which every source
-/// project's is.
+/// [`of_text`] for a document named `model.toml`.
 pub fn of_model_toml<E>(
     text: &str,
     read: impl FnMut(&Utf8UnixPath) -> Result<String, E>,

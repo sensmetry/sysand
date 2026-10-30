@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-//! Core types for interchange projects. Originally matched KerML 1.0 spec,
-//! but now includes various changes.
+//! Core types for interchange projects, based on the KerML 1.0 spec with
+//! extensions.
 //!
 //! IMPORTANT: when updating any of these types, update the corresponding
 //! bindings' types (in `_model.py` for Python and various Java classes)
@@ -116,11 +116,9 @@ impl SpecKind {
     /// Whether a source file of this language belongs to a project with
     /// this specification.
     ///
-    /// model-toml.md "Metamodel": "The spec kind bounds what `sources`
-    /// may list: a `KerML` project admits `.kerml` files only, and a
-    /// `SysML` project admits `.sysml` and `.kerml`, SysML being layered
-    /// on KerML. [...] Both families answer this the same way, the
-    /// Syside metamodels mirroring the OMG spec kind they extend."
+    /// A `KerML` project admits `.kerml` files only; a `SysML` project
+    /// admits `.sysml` and `.kerml`, SysML being layered on KerML. Both
+    /// families answer this the same way.
     pub fn admits(self, language: Language) -> bool {
         match (self, language) {
             (Self::KerMl, Language::KerML) => true,
@@ -217,9 +215,9 @@ impl Metamodel {
     /// The schema a project's manifest is validated against: the OMG one
     /// unless the project declares a recognized Syside metamodel.
     ///
-    /// model-toml.md: "A project without a `metamodel` is treated as an
-    /// OMG-metamodel project"; an unrecognized value is validated against
-    /// the OMG schema too (rule (a)).
+    /// A project without a `metamodel` is treated as an OMG-metamodel
+    /// project; an unrecognized value is validated against the OMG schema
+    /// too.
     pub fn schema_family(metamodel: Option<&Self>) -> MetamodelFamily {
         metamodel
             .and_then(Self::known)
@@ -269,10 +267,8 @@ pub struct KnownMetamodel {
 impl KnownMetamodel {
     /// The values a `model.toml` recognizes, as a message lists them.
     ///
-    /// model-toml.md "Metamodel": "Exactly four values are recognized --
-    /// two families, two spec kinds each". One string, so that the
-    /// manifest reader, `init` and `migrate` cannot list them
-    /// differently.
+    /// Exactly four values: two families, two spec kinds each. One string,
+    /// so that every message lists them the same way.
     pub const RECOGNIZED: &'static str = "`https://www.omg.org/spec/KerML/<date>`, \
          `https://www.omg.org/spec/SysML/<date>`, \
          `https://www.sysand.com/spec/KerML/<date>` or \
@@ -381,8 +377,8 @@ pub const LICENSE_EXPRESSION_HELP: &str = "\
 
 /// Whether an IRI is an OMG standard-library KPAR IRI.
 ///
-/// model-toml.md "Standard library": the standard libraries "are
-/// published at `https://www.omg.org/spec/<KerML|SysML>/<date>/<stem>.kpar`".
+/// The standard libraries are published at
+/// `https://www.omg.org/spec/<KerML|SysML>/<date>/<stem>.kpar`.
 /// A usage naming one of those IRIs may omit its `publisher`, and no
 /// other usage may, so the shape is pinned rather than approximated:
 /// exactly one eight-digit date segment, exactly one non-empty stem
@@ -393,9 +389,8 @@ pub const LICENSE_EXPRESSION_HELP: &str = "\
 /// The `sysand.com` spec family is deliberately not matched: those IRIs
 /// name a *metamodel*, never a library.
 ///
-/// This is the manifest's shape rule. `commands::publish`'s
-/// `check_std_libs` answers a narrower question -- whether an IRI is one
-/// of the ten releases this Sysand embeds -- and stays as it is.
+/// This is a shape rule: it does not tell whether this Sysand embeds a
+/// release at the IRI.
 pub fn is_omg_stdlib_iri(iri: &str) -> bool {
     omg_stdlib_stem(iri).is_some()
 }
@@ -405,7 +400,7 @@ pub fn is_omg_stdlib_iri(iri: &str) -> bool {
 ///
 /// The stem is *not* the library's declared name -- `SysML Quantities
 /// and Units Library` is published at
-/// `.../Quantities-and-Units-Domain-Library.kpar`, and seven of the ten
+/// `.../Quantities-and-Units-Domain-Library.kpar`, and several others
 /// differ by more than punctuation. A caller that wants the name asks
 /// [`crate::stdlib::std_lib_name`]; the stem is what is left when this
 /// Sysand embeds no release at that IRI.
@@ -450,6 +445,7 @@ pub enum InterchangeProjectUsageG<Iri, VersionReq, Path, Publisher, Name, IdxPub
     /// the project's identity (i.e. directly used as its `Identifier`), and,
     /// depending on its scheme, possibly also a location to fetch from (e.g.
     /// `pkg:sysand` vs `https`).
+    /// `model.toml` has no such kind.
     /// Resolution is not defined, so it's implementation-specific.
     /// We generally treat the same project referenced via different IRIs as
     /// different projects. Typed usages (all other shapes) separate the two roles:
@@ -467,9 +463,8 @@ pub enum InterchangeProjectUsageG<Iri, VersionReq, Path, Publisher, Name, IdxPub
     /// of the project declaring the usage. `publisher` and `name` are
     /// *written* as the values found at `dir` are written, without any
     /// normalization -- that is what a KPAR carries. Resolving the usage
-    /// is a different matter: model-toml.md "Normalization" makes
-    /// resolution the one place that normalizes, so the identity check
-    /// at the target compares the normalized pair.
+    /// normalizes: the identity check at the target compares the
+    /// normalized pair.
     /// No version constraint, as the directory contains a single version
     // TODO: should absolute paths also be supported (like Cargo)?
     #[cfg_attr(feature = "python", pyo3(from_item_all))]
@@ -557,8 +552,7 @@ pub fn parse_index_usage_spelling(
 /// `versionConstraint` on a directory usage would be dropped. Such an entry
 /// matches no kind and fails to parse instead.
 ///
-/// A resource usage, the shape KerML specifies, keeps ignoring unknown keys,
-/// as manifests written for sysand before typed usages rely on it. Its
+/// A resource usage, the shape KerML specifies, ignores unknown keys. Its
 /// `resource` key names its source, so a key it ignores cannot turn it into
 /// another kind.
 #[derive(Deserialize)]
@@ -670,7 +664,7 @@ impl InterchangeProjectUsageRaw {
                 // `<publisher>/<name>/`. Reject malformed or non-normalized
                 // `pkg:sysand` IRIs at validation time so users get an actionable
                 // error (with a suggested normalized form) instead of a downstream
-                // "not found" — see `crate::purl::parse_sysand_purl`.
+                // "not found".
                 crate::purl::parse_sysand_purl(resource).map_err(|e| {
                     InterchangeProjectValidationError::MalformedUsageSysandPurl {
                         iri: resource.clone(),
@@ -1529,8 +1523,7 @@ pub struct InterchangeProjectChecksumRaw {
 pub struct InterchangeProjectMetadataG<MM, Path: Eq + Hash, DateTime, IPC> {
     /// The OMG shape's symbol map: every top-level symbol mapped to the
     /// file declaring it. `None` for the Syside shape, which carries
-    /// [`root`](Self::root) and [`exports`](Self::exports) instead
-    /// (design/syside-metamodel.md, "The Syside KPAR"). Which shape a
+    /// [`root`](Self::root) and [`exports`](Self::exports) instead. Which shape a
     /// document may have is the family's rule, enforced where the
     /// document is read ([`InterchangeProjectMetadataPartial::validate`]),
     /// not by this type: the type is mirrored by hand in two bindings,
@@ -1643,9 +1636,8 @@ impl InterchangeProjectMetadataPartial {
         let unsupported = unsupported_metamodel(declared);
         let mut report = Report::new();
 
-        // design/syside-metamodel.md, "The Syside KPAR": the family
-        // decides the shape. An absent or unrecognized metamodel is the
-        // OMG family, as it always was for a json document.
+        // The family decides the shape. An absent or unrecognized
+        // metamodel is the OMG family.
         let family = Metamodel::schema_family(
             declared
                 .and_then(|value| Metamodel::parse(value).ok())
@@ -1660,9 +1652,8 @@ impl InterchangeProjectMetadataPartial {
         };
         let (index, root, exports, shape_ok) = match family {
             MetamodelFamily::Omg => {
-                // The json side of the foreign-key rule (model-toml.md
-                // "Metamodel", rule (b)). Warned about and dropped,
-                // whatever the values.
+                // A key of the other family's schema is warned about and
+                // dropped, whatever its value.
                 let index = require(&mut report, self.index, "index", &location, unsupported);
                 if self.root.is_some() {
                     report.push(foreign("root"));
@@ -1743,17 +1734,14 @@ pub type InterchangeProjectMetadata = InterchangeProjectMetadataG<
     InterchangeProjectChecksum,
 >;
 
-/// Canonical RFC 3339 serialization of the `created` timestamp. All code
-/// that writes `InterchangeProjectMetadataRaw::created` goes through this
-/// helper so the format stays consistent across producers (default
-/// constructors, conversions, test fixtures) — two documents with the
-/// same instant serialize byte-for-byte the same.
+/// Canonical RFC 3339 serialization of the `created` timestamp. All writers
+/// of `created` go through this so two documents with the same instant
+/// serialize byte-for-byte the same.
 pub fn format_created(value: &jiff::Timestamp) -> String {
     format!("{value:.0}")
 }
 
-/// Shorthand for `format_created(&jiff::Timestamp::now())`, the most common
-/// call site (default constructors and test fixtures all want "now").
+/// Shorthand for `format_created(&jiff::Timestamp::now())`.
 pub fn format_created_now() -> String {
     format_created(&jiff::Timestamp::now())
 }
@@ -1803,8 +1791,7 @@ pub enum InterchangeProjectValidationError {
     #[error("invalid metamodel (`metamodel` field in `.meta.json`)")]
     InvalidMetamodel(#[source] MetamodelParseError),
     /// The typed form's only check on `root`: a binding that constructs
-    /// the raw document directly bypasses the reader's texts
-    /// (design/syside-metamodel.md, "The Syside KPAR").
+    /// the raw document directly bypasses the reader's texts.
     #[error("invalid path in `root` (field in `.meta.json`)")]
     InvalidPathInRoot(#[source] RelativeUnixPathError),
     #[error("project has an invalid Semantic Version `{0}`")]
@@ -2118,9 +2105,8 @@ impl<Iri, Path: Eq + Hash + Clone, DateTime, IPC>
     /// For the OMG shape every `checksum` key is a source (plus the
     /// `index` values when asked). For the Syside shape `checksum`
     /// covers the whole archive -- the readme, the changelog, the
-    /// license files -- so the sources are "the `checksum` keys that are
-    /// model files" (design/syside-metamodel.md, "Dependencies"), which
-    /// equals the manifest's `sources` by construction.
+    /// license files -- so the sources are the `checksum` keys that are
+    /// model files, which equals the manifest's `sources` by construction.
     pub fn source_paths(&self, include_index: bool) -> HashSet<Path>
     where
         Path: AsRef<str>,
@@ -2157,9 +2143,8 @@ impl<Iri, Path: Eq + Hash + Clone, DateTime, IPC>
     /// What the project exports, whichever shape the document has: the
     /// `exports` array of the Syside shape, else the keys of the OMG
     /// shape's `index`. The one question the lockfile's collision check
-    /// asks, and the one place it should ask it (design/syside-metamodel.md,
-    /// "Dependencies"): a consumer that read `index` alone would find a
-    /// Syside dependency exporting nothing.
+    /// asks, and the one place it should ask it: a consumer that read
+    /// `index` alone would find a Syside dependency exporting nothing.
     ///
     /// A document with both -- only constructible programmatically, since
     /// the reader drops the `index` of a Syside document -- answers with
@@ -2339,9 +2324,6 @@ fn parse_project_field(s: &str, kind: &'static str) -> Result<String, ProjectFie
     // TODO: add a fast path for index-compliant spellings (the common case):
     // normalize them with `normalize_index_field`, which is equivalent for
     // them, and skip re-validating the result, which is then always valid.
-    // Then `normalize_typed_publisher`/`normalize_typed_name` and
-    // `Identifier::make_identifier_iri` would no longer need to try the
-    // index types first to avoid the full Unicode normalization
     let normalized = normalize(s);
     validate_project_field(&normalized, kind).map_err(|e| ProjectFieldError {
         kind,

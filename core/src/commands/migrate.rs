@@ -10,8 +10,7 @@
 //! usage shapes that need the target read: those go to the caller's
 //! [`TargetLookup`].
 //!
-//! model-toml.md "JSON to TOML" is the field table; "Mixed manifests"
-//! is why this is the one command that reads both documents.
+//! It is the one command that reads both json documents.
 
 use indexmap::IndexSet;
 use semver::{Version, VersionReq};
@@ -51,13 +50,12 @@ pub type TargetLookup<'a> = &'a dyn Fn(&str) -> Result<Usage, String>;
 /// What the caller supplies that the documents do not.
 #[derive(Clone, Debug, Default)]
 pub struct MigrateOptions {
-    /// `--publisher`. Used when the json project declares none;
-    /// model-toml.md gives the file's own value "the same treatment as
-    /// `name`", so a declared publisher is migrated rather than
+    /// `--publisher`. Used when the json project declares none; a
+    /// declared publisher is migrated, as `name` is, rather than
     /// overridden.
     pub publisher: Option<String>,
-    /// `--metamodel`. model-toml.md "JSON to TOML": used "when the json
-    /// side has none or one this Sysand does not recognize". Unlike
+    /// `--metamodel`. Used when the json side has none or one this
+    /// Sysand does not recognize. Unlike
     /// `--publisher` it therefore also replaces a declared value -- one
     /// `model.toml` cannot hold is no more usable than none at all.
     pub metamodel: Option<String>,
@@ -88,9 +86,8 @@ pub fn migrate_project(
         }
     };
 
-    // model-toml.md "JSON to TOML": the metamodel "decides which source
-    // file types the migrated `sources` may list, so it is settled
-    // before that check runs".
+    // The metamodel decides which source file types the migrated
+    // `sources` may list, so it is settled before that check runs.
     let metamodel = migrate_metamodel(meta, options, &mut report);
     let sources = migrate_sources(meta, metamodel.as_ref(), &mut report);
     let usages = migrate_usages(info, target, &mut report);
@@ -141,7 +138,7 @@ pub fn migrate_project(
     };
 
     let mut project = ProjectTable::new(publisher, name, version);
-    // design/syside-metamodel.md, "JSON to TOML": `root` comes from
+    // `root` comes from
     // `.meta.json` and must be among the recovered sources; said here,
     // where the cause is, rather than on the next read.
     if let Some(root) = &meta.root {
@@ -196,8 +193,7 @@ fn migrate_publisher(
     parse_or_report(IndexPublisher::parse(raw.clone()), "publisher", report)
 }
 
-/// model-toml.md `sources`: the union of `index`'s values and
-/// `checksum`'s keys.
+/// The union of `index`'s values and `checksum`'s keys.
 ///
 /// Not one call to [`Sources::new`]: it stops at the first bad entry and
 /// refuses duplicates, and this union duplicates by construction --
@@ -205,9 +201,9 @@ fn migrate_publisher(
 /// appears ten times.
 /// Public so that comparing a json project's file list against a
 /// `model.toml`'s can apply the same normalization:
-/// `design/model-toml.md` has migration rewrite json paths into the
-/// strict form `sources` takes, so a comparison that skipped this would
-/// report differences the rewrite erases.
+/// migration rewrites json paths into the strict form `sources` takes,
+/// so a comparison that skipped this would report differences the
+/// rewrite erases.
 pub fn migrate_sources(
     meta: &InterchangeProjectMetadataRaw,
     metamodel: Option<&KnownMetamodel>,
@@ -216,8 +212,7 @@ pub fn migrate_sources(
     let mut paths: IndexSet<Utf8UnixPathBuf> = IndexSet::new();
     let mut bad_checksum_keys: Vec<String> = Vec::new();
     let mut unadmitted_checksum_keys: Vec<String> = Vec::new();
-    // design/syside-metamodel.md, "JSON to TOML": a Syside `.meta.json`
-    // checksums the whole archive, so a non-model key is a conventional
+    // A Syside `.meta.json` checksums the whole archive, so a non-model key is a conventional
     // file (silent) or a stray one (a warning), not an error.
     let syside = metamodel.is_some_and(|kind| kind.family == MetamodelFamily::Syside);
 
@@ -319,11 +314,10 @@ fn listed(keys: &[String]) -> String {
         .join(", ")
 }
 
-/// model-toml.md "JSON to TOML": "`metamodel`: use as-is when it is one
-/// of the four recognized values. A json project may carry none, or one
-/// this Sysand does not recognize, and `model.toml` admits neither: the
-/// command then errors before writing, unless `--metamodel <url>`
-/// supplies a recognized value".
+/// The metamodel is used as-is when it is a recognized value. A json
+/// project may carry none, or one this Sysand does not recognize, and
+/// `model.toml` admits neither: the command then errors before writing,
+/// unless `--metamodel <url>` supplies a recognized value.
 ///
 /// So this is *not* `migrate_publisher`'s rule, which keeps a declared
 /// value and falls back only when there is none: a metamodel
@@ -378,7 +372,7 @@ fn migrate_metamodel(
     Some(metamodel)
 }
 
-/// model-toml.md "JSON to TOML": the metadata keys that do not survive.
+/// The metadata keys that do not survive.
 /// `index` and `checksum` are named apart from their paths, which become
 /// `sources`.
 fn warn_discarded(meta: &InterchangeProjectMetadataRaw, report: &mut Report) {
@@ -553,10 +547,10 @@ fn migrate_resource(
             };
             {
                 let Some(raw) = version_constraint else {
-                    // model-toml.md: "resolved at migration time and
-                    // pinned to `^<version>`, where `<version>` is the
-                    // version that resolution found". Which version
-                    // that is belongs to the caller, with the index.
+                    // Resolved at migration time and pinned to
+                    // `^<version>`, `<version>` being the version that
+                    // resolution found. Which version that is belongs to
+                    // the lookup, with the index.
                     return match target(resource) {
                         Ok(usage) => Some(usage),
                         Err(reason) => {
@@ -575,8 +569,8 @@ fn migrate_resource(
                         return None;
                     }
                 };
-                // model-toml.md "Normalization": a `model.toml` never
-                // holds a normalized identity, and a PURL's halves are
+                // A `model.toml` never holds a normalized identity, and
+                // a PURL's halves are
                 // normalized by construction -- so the pair comes from
                 // the target, as the unconstrained arm's already does.
                 // Only the constraint is the json project's.
@@ -607,9 +601,9 @@ fn migrate_resource(
                 }
             }
         }
-        // model-toml.md: "if `file:`, translate into kpar/source path;
-        // the publisher and name come from the target, and a target
-        // without a publisher is an error".
+        // Translated into a kpar/source path; the publisher and name
+        // come from the target, and a target without a publisher is an
+        // error.
         Some("file") => match target(resource) {
             Ok(usage) => Some(usage),
             Err(reason) => {
@@ -617,10 +611,10 @@ fn migrate_resource(
                 None
             }
         },
-        // model-toml.md: "use as-is for URL, discard `versionConstraint`
-        // if present with a warning". The warning has to be here rather
-        // than in the caller's lookup: the callback is handed only the
-        // resource string and never sees the constraint.
+        // Used as-is for a URL; a `versionConstraint` is discarded with a
+        // warning. The warning has to be here rather than in the
+        // lookup: the callback is handed only the resource string and
+        // never sees the constraint.
         Some("http" | "https") => {
             if let Some(constraint) = version_constraint {
                 // A standard-library IRI is the one URL whose meaning is
@@ -641,8 +635,8 @@ fn migrate_resource(
                      migrated: a `kpar-url` usage carries no version constraint"
                 )));
             }
-            // model-toml.md: "use as-is for URL … the publisher and
-            // name come from the target, which is fetched".
+            // The publisher and name come from the target, which is
+            // fetched.
             match target(resource) {
                 Ok(usage) => Some(usage),
                 Err(reason) => {
@@ -672,8 +666,7 @@ fn migrate_resource(
 /// [`parse_relative_unix_path`], not `normalize_relative`: a `dir` usage
 /// of `../dep` is the ordinary shape of a dependency beside the project,
 /// and normalization refuses a path that leaves its root. What it admits
-/// is then written normalized, as model-toml.md "Usages" requires: a json
-/// `./dep/` becomes `dep`.
+/// is then written normalized: a json `./dep/` becomes `dep`.
 fn local_path(raw: &str, kind: RelativePathKind, report: &mut Report) -> Option<Utf8UnixPathBuf> {
     match parse_relative_unix_path(raw, kind) {
         Ok(_) => {

@@ -316,9 +316,8 @@ fn identifier_from_project_decides_by_the_spelling_as_given() {
     assert_eq!(project, index);
 }
 
-/// model-toml.md "Normalization": "All projects are resolved by their
-/// *normalized* identity, regardless of how the usage is declared."
-/// Both directions, because neither side of the comparison is the
+/// A usage is resolved by the normalized identity, regardless of how it
+/// is declared. Both directions, because neither side of the comparison is the
 /// canonical one.
 #[test]
 fn an_identity_matches_after_normalization() {
@@ -427,9 +426,8 @@ fn a_usage_may_expect_a_target_with_no_publisher() {
 
 // ------------------------------- a toml usage is satisfied literally
 
-/// model-toml.md "Normalization": a `model.toml`
-/// never holds a normalized identity, so a usage written there is
-/// satisfied only by the spelling the target declares.
+/// A `model.toml` never holds a normalized identity, so a usage written
+/// there is satisfied only by the spelling the target declares.
 #[test]
 fn a_toml_usage_is_satisfied_literally() {
     let expected = || {

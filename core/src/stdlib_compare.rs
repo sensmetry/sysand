@@ -3,10 +3,9 @@
 
 //! Comparing a built archive with the standard library OMG published.
 //!
-//! `model-toml.md` "Standard library" makes this the acceptance
-//! criterion: what `sysand build` produces from the workspace fixture
-//! must be the published release. A library function rather than a test
-//! helper, so that it can be run outside the test suite too.
+//! What `sysand build` produces from the standard-library workspace
+//! fixture must be the published release. A library function rather than
+//! a test helper, so that it can be run outside the test suite too.
 //!
 //! Three rules, each one a difference between "the same project" and
 //! "the same bytes":
@@ -35,8 +34,7 @@ use crate::project::{ProjectRead as _, local_kpar::LocalKParProjectRaw, utils::w
 ///
 /// A second table beside the embedded assets, because those are keyed by
 /// KPAR stem and the release lays its libraries out by family and name.
-/// Here rather than in a test because more than one test needs it. The
-/// six domain libraries are spelled `<X>` in the release, not
+/// The six domain libraries are spelled `<X>` in the release, not
 /// `<X> Domain Library` after the KPAR stem.
 pub fn release_paths() -> BTreeMap<&'static str, &'static str> {
     BTreeMap::from([

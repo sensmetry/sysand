@@ -325,10 +325,8 @@ pub fn index_usage_to_add<E>(
 
 /// `add` on a `model.toml` project: append an `[[inline-usages]]` entry.
 ///
-/// The json arm's four "already present" cases are reproduced rather
-/// than inheriting `push_usage`'s outright refusal, because the `bool`
-/// this function returns is part of its contract: `false` means the
-/// usage was already there and nothing was written.
+/// A usage already present is reported through the returned `bool`:
+/// `false` means the usage was already there and nothing was written.
 fn add_toml<P: ProjectMut>(
     project: &mut P,
     usage_raw: &InterchangeProjectUsageRaw,

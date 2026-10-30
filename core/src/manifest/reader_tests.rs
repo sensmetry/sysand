@@ -271,7 +271,7 @@ shape = \"round\"
     assert_eq!(places, [(2, 1), (3, 1)]);
 }
 
-/// workspaces.md puts inheritance in one direction only. A marker where
+/// Inheritance goes in one direction only. A marker where
 /// a plain value belongs is a mistake worth naming, rather than a table
 /// where a string was expected.
 #[test]

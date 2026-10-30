@@ -43,12 +43,11 @@ pub enum RemoveError<ProjectError> {
 /// This matches *more* than the json arm does for an IRI: there a
 /// `Resource` usage is matched by its literal IRI, while a manifest
 /// entry is matched by its normalized identity whatever kind it is. So
-/// `sysand remove acme/lib`, or `sysand remove pkg:sysand/acme/lib`,
-/// removes a `dir` entry here.
+/// the typed usage `acme/lib` removes a `dir` entry here.
 ///
 /// The usage has to name a project, so one identified by anything but a
 /// `pkg:sysand` PURL or a `publisher/name` pair cannot be removed by
-/// name -- which is the same reason it could not have been added.
+/// name.
 fn remove_toml<P: ProjectMut>(
     project: &mut P,
     usage: &UsageRef<'_>,
@@ -136,8 +135,7 @@ pub fn do_remove<P: ProjectMut>(
         // The same project may be declared as a typed usage, but with
         // different spelling
         // FIXME: a respelling is only found when it gets the same kind of
-        // identifier as the declared spelling (see
-        // `Identifier::from_project`). E.g. with `ACME Inc./Foo` declared
+        // identifier as the declared spelling. E.g. with `ACME Inc./Foo` declared
         // (`urn:sysand:acme-inc/foo`), `Acme Inc./FOO` is reported as spelled
         // differently, but `ACME Inc/Foo` (`pkg:sysand/acme-inc/foo`) only as
         // not found

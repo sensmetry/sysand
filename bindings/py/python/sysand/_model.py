@@ -19,9 +19,8 @@ class InterchangeProjectUsageResource(
     _InterchangeProjectUsageResourceRequired, total=False
 ):
     """The untyped usage KerML specifies: a project named by an IRI,
-    optionally constrained to a range of versions.
-
-    Legacy: typed usages will replace it.
+    optionally constrained to a range of versions. It exists in
+    ``.project.json`` projects only: a ``model.toml`` has no such usage.
     """
 
     version_constraint: str | None

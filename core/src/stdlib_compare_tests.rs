@@ -88,8 +88,7 @@ fn a_changed_checksum_is_reported() {
     );
 }
 
-/// JSON arrays compare in order, which is why the fixture generator
-/// emits usages in the published order.
+/// JSON arrays compare in order, so usages must be in the published order.
 #[test]
 fn usage_order_is_significant() {
     let built = json!({"usage": [{"resource": "a"}, {"resource": "b"}]});
