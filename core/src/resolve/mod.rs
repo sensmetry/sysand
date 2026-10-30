@@ -89,11 +89,10 @@ impl<T> ResolutionOutcome<T> {
 /// A usage reaches resolution stripped of the format it was declared
 /// in: the KPAR view maps a `model.toml` usage onto the same
 /// `InterchangeProjectUsageRaw` a `.project.json` would carry, which is
-/// what keeps a read-only consumer format-blind. Some rules, though,
-/// are about the manifest rather than the usage -- a target that
-/// declares no publisher is refused as such only under a usage written
-/// in a `model.toml` -- so the format travels beside the usage rather
-/// than in it.
+/// what keeps a read-only consumer format-blind. Some rules are about
+/// the manifest rather than the usage (a target that declares no
+/// publisher is refused as such only under a usage written in a
+/// `model.toml`), so the format travels beside the usage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UsageOrigin {
     Json,
@@ -103,10 +102,8 @@ pub enum UsageOrigin {
 impl UsageOrigin {
     /// The origin of a usage declared by a project of this format.
     ///
-    /// Written out rather than derived, because only two of the four
-    /// formats can have declared anything: `Both` is the ambiguity
-    /// error and `Neither` the project with no manifest at all, and
-    /// neither of them is a project a usage was read from.
+    /// `Both` and `Neither` are not projects a usage was read from, so
+    /// they map to json.
     pub fn of_format(format: ProjectFormat) -> Self {
         match format {
             ProjectFormat::Toml => Self::Toml,
@@ -233,9 +230,7 @@ impl PartialEq for CoalescingUsage {
 impl Eq for CoalescingUsage {}
 
 impl ResolutionInfo {
-    /// A usage of unrecorded origin, which is json: a usage without one
-    /// is taken to come from a `.project.json`, or from a caller that
-    /// does not read a manifest at all.
+    /// A usage of unrecorded origin, which is taken to be json.
     pub fn new(usage: InterchangeProjectUsage, base_path: Option<Utf8PathBuf>) -> Self {
         Self::new_declared_in(usage, base_path, UsageOrigin::Json)
     }
@@ -387,8 +382,7 @@ pub trait ResolveRead {
     /// reaches the target through a resolver, so the table has to
     /// travel with the resolver.
     ///
-    /// A default that returns `self` unchanged, because most resolvers
-    /// do not read local paths and none of them has to care.
+    /// The default returns `self` unchanged.
     #[cfg(feature = "filesystem")]
     #[must_use]
     fn within_workspace(

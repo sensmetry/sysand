@@ -18,10 +18,8 @@ use crate::model::{Metamodel, MetamodelFamily, MetamodelRelease};
 /// its dependencies.
 ///
 /// Nodes keep the order they were added in, which is the only tie-break
-/// this module applies: a caller that wants ties broken in `members`
-/// order adds them in that order, and a caller whose source is a hash map
-/// adds them in a sorted order of its own, or its messages would differ
-/// between runs.
+/// this module applies, so a caller must add nodes in a deterministic
+/// order.
 #[derive(Clone, Debug, Default)]
 pub struct DependencyGraph<N> {
     nodes: Vec<N>,

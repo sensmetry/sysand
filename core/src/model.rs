@@ -163,8 +163,7 @@ pub enum MetamodelParseError {
 ///
 /// A value of the form `<family prefix><spec-kind>/<release>` is `Known`.
 /// A value with a recognized `<family prefix><spec-kind>/` but anything
-/// other than a release after it does not parse, so that a typo in the
-/// release is not mistaken for some other metamodel. Every other IRI is
+/// other than a release after it does not parse. Every other IRI is
 /// `Other`, including a misspelled prefix or spec kind; the warning for an
 /// unrecognized value on a family's host lists the recognized ones.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -226,8 +225,7 @@ impl Metamodel {
 
     /// How a message names a project's metamodel: "the OMG metamodel
     /// `<url>`", "no declared metamodel (OMG assumed)" or "the unrecognized
-    /// metamodel `<url>`". Written to follow "uses" in a sentence, so the
-    /// article belongs here rather than in the sentence.
+    /// metamodel `<url>`". Written to follow "uses" in a sentence.
     pub fn describe(metamodel: Option<&Self>) -> String {
         match metamodel {
             Some(Self::Known(known)) => known.describe(),
@@ -267,8 +265,7 @@ pub struct KnownMetamodel {
 impl KnownMetamodel {
     /// The values a `model.toml` recognizes, as a message lists them.
     ///
-    /// Exactly four values: two families, two spec kinds each. One string,
-    /// so that every message lists them the same way.
+    /// Exactly four values: two families, two spec kinds each.
     pub const RECOGNIZED: &'static str = "`https://www.omg.org/spec/KerML/<date>`, \
          `https://www.omg.org/spec/SysML/<date>`, \
          `https://www.sysand.com/spec/KerML/<date>` or \
@@ -386,8 +383,8 @@ pub const LICENSE_EXPRESSION_HELP: &str = "\
 /// in the stem and so fails the suffix, which is the intent -- the
 /// exemption is granted to the IRI as written.
 ///
-/// The `sysand.com` spec family is deliberately not matched: those IRIs
-/// name a *metamodel*, never a library.
+/// The `sysand.com` spec family is not matched: those IRIs name a
+/// *metamodel*, never a library.
 ///
 /// This is a shape rule: it does not tell whether this Sysand embeds a
 /// release at the IRI.
@@ -401,7 +398,7 @@ pub fn is_omg_stdlib_iri(iri: &str) -> bool {
 /// The stem is *not* the library's declared name -- `SysML Quantities
 /// and Units Library` is published at
 /// `.../Quantities-and-Units-Domain-Library.kpar`, and several others
-/// differ by more than punctuation. A caller that wants the name asks
+/// differ by more than punctuation. For the name see
 /// [`crate::stdlib::std_lib_name`]; the stem is what is left when this
 /// Sysand embeds no release at that IRI.
 pub fn omg_stdlib_stem(iri: &str) -> Option<&str> {
@@ -546,15 +543,11 @@ pub fn parse_index_usage_spelling(
 ///
 /// Every typed kind rejects a key it does not know (`deny_unknown_fields`,
 /// which serde only offers per struct, hence the structs here). Without a
-/// kind key, an unknown key could otherwise change what an entry means
-/// unnoticed: a future kind that adds a source key (say, `git`) to an index
-/// usage's keys would be read as an index usage, and a future
-/// `versionConstraint` on a directory usage would be dropped. Such an entry
-/// matches no kind and fails to parse instead.
+/// kind key, an unknown key could change what an entry means unnoticed
+/// (a future `git` key on an index usage would be read as an index usage);
+/// such an entry matches no kind and fails to parse.
 ///
-/// A resource usage, the shape KerML specifies, ignores unknown keys. Its
-/// `resource` key names its source, so a key it ignores cannot turn it into
-/// another kind.
+/// A resource usage, the shape KerML specifies, ignores unknown keys.
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum Usage<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName> {
@@ -1052,11 +1045,10 @@ pub struct InterchangeProjectInfoG<
 
 /// A `.project.json` as read, before Sysand validates it.
 ///
-/// Every key is optional here, and unrecognized ones are kept, so that
-/// validation is Sysand's rather than serde's: a document missing several
-/// keys is reported in one message that names them all, and one carrying
-/// a key this version does not know about is a warning. A value of the *wrong type* is still serde's to
-/// report, since it knows where the value is.
+/// Every key is optional here, and unrecognized ones are kept: a document
+/// missing several keys is reported in one message that names them all,
+/// and one carrying an unknown key is a warning. A value of the *wrong
+/// type* is serde's to report.
 #[derive(Eq, Clone, PartialEq, Deserialize, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct InterchangeProjectInfoPartial {
@@ -1561,9 +1553,8 @@ pub struct InterchangeProjectMetadataG<MM, Path: Eq + Hash, DateTime, IPC> {
 /// The partial form of a json manifest document: what a reader parses
 /// into before Sysand validates it.
 ///
-/// The two documents are read by the same generic code in more than one
-/// reader (a KPAR archive holds both), so the step from partial to
-/// validated is a trait rather than two inherent methods.
+/// The two documents are read by the same generic code, so the step from
+/// partial to validated is a trait.
 pub trait PartialManifest: serde::de::DeserializeOwned {
     /// The document this one validates into.
     type Validated;
@@ -2429,8 +2420,7 @@ pub struct IdentifierError {
 }
 
 impl IdentifierKind {
-    /// Publishers disallow dots, but names permit them so that dotted
-    /// product names (e.g. `foo.bar`) are expressible
+    /// Publishers disallow dots, but names permit them (e.g. `foo.bar`).
     pub(crate) fn allows_dot_separator(self) -> bool {
         self == Self::Name
     }

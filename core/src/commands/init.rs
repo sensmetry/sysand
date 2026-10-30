@@ -37,18 +37,14 @@ pub enum InitError<ProjectError: ErrorBound> {
     SPDXLicenseParse(Box<str>, spdx::error::ParseError),
     /// The publisher or name is not one a `model.toml` can hold.
     ///
-    /// Not a check `init` chose to make: a manifest holds the validated
-    /// types, so a project that cannot be named cannot be created. The
-    /// frontend adds where to put the fix -- the name usually comes from
-    /// the directory rather than from an argument.
+    /// A manifest holds the validated types, so a project that cannot be
+    /// named cannot be created.
     #[error("invalid project identifier `{}`", .0.value)]
     Identifier(#[source] IdentifierError),
     #[error(transparent)]
     Write(ManifestWriteError<ProjectError>),
     /// The value set is closed, so a project cannot be created with one
-    /// outside it. The CLI checks its own
-    /// argument earlier, where the message can name the flag; this is
-    /// what a binding caller gets.
+    /// outside it.
     #[error("`{0}` is not a metamodel Sysand recognizes;\nit is one of {list}", list = KnownMetamodel::RECOGNIZED)]
     Metamodel(Box<str>),
 }
@@ -58,9 +54,8 @@ pub enum InitError<ProjectError: ErrorBound> {
 /// A new project is a `model.toml`. The two json documents are what a
 /// build produces and what a legacy project has.
 ///
-/// The three identifiers are parsed rather than checked: a
-/// [`ProjectTable`] holds the validated types, so parsing them is the
-/// only way to build one. A publisher or name the rule refuses is
+/// The three identifiers are parsed into the validated types a
+/// [`ProjectTable`] holds. A publisher or name the rule refuses is
 /// [`InitError::Identifier`].
 /// The metamodel, when given, must be one of the four a `model.toml`
 /// recognizes ([`InitError::Metamodel`]).
@@ -83,8 +78,7 @@ pub fn do_init<P: ProjectMut>(
 /// metamodel, so the family behind it is the caller's to supply
 /// (`inherited_kind`); without it, the layout is the OMG one.
 ///
-/// The file is created so that a generated project
-/// never lists a file that is not there. Order: the file's existence is
+/// Order: the file's existence is
 /// checked, the manifest is written (and refused, before anything else,
 /// when one exists), then the file.
 pub fn do_init_ext<P: ProjectMut>(
@@ -107,8 +101,7 @@ pub fn do_init_ext<P: ProjectMut>(
         })
         .transpose()?;
     // A marker names a group, not a metamodel, so there is nothing to
-    // parse: what it resolves to is the workspace's business, and the
-    // reader's.
+    // parse.
     let metamodel = metamodel
         .map(|metamodel| match metamodel {
             MetaProperty::Provided(value) => KnownMetamodel::recognize(&value)

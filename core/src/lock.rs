@@ -62,8 +62,8 @@ pub struct Lock {
     pub projects: Vec<Project>,
 }
 
-/// Only used for deserializing [`Lock`], so that it is not deserializable
-/// outside of this module
+/// Only used for deserializing [`Lock`]; keeps `Lock` itself not
+/// deserializable outside of this module.
 #[derive(Deserialize)]
 struct LockRepr {
     lock_version: String,
@@ -288,10 +288,8 @@ impl Lock {
     /// error it is. An edge is a usage naming the *first* identifier of
     /// the project satisfying it.
     ///
-    /// Cycles are not checked here. A cycle is allowed when every project
-    /// on it carries `stdlib`, and a lockfile entry cannot say that --
-    /// the embedded standard libraries are mutually dependent and carry
-    /// no publisher, so the exception has no expression in a lockfile.
+    /// Cycles are not checked here: a cycle is allowed when every project
+    /// on it carries `stdlib`, which a lockfile entry cannot express.
     ///
     /// Release mismatches are warnings and are dropped here: a lockfile
     /// is validated on every parse, so each command reports them once
@@ -305,9 +303,9 @@ impl Lock {
     /// The edge checks alone, for a lock that is not a lockfile yet.
     ///
     /// A lock the solver has just produced is *not* yet valid by the
-    /// other rules -- an input project may carry no identifier, and a
-    /// source may lie outside the project root on purpose -- so it can be
-    /// checked with this subset of [`Self::validate`] only.
+    /// other rules (an input project may carry no identifier, and a
+    /// source may lie outside the project root), so it can be checked
+    /// with this subset of [`Self::validate`] only.
     ///
     /// The release mismatches, which are warnings, are returned for the
     /// caller to report; the direction error is the error.
@@ -622,11 +620,8 @@ impl Lock {
         // This checks all of `validate`'s rules *after* sorting and
         // digest canonicalization -- the form that reaches a file.
         //
-        // An assertion rather than an error because `canonicalize`
-        // returns `Self` and a caller producing an invalid lock here has
-        // a bug, not a condition to handle. It is reachable from outside
-        // the crate -- `Lock`'s fields are public -- so the panic says
-        // what went wrong.
+        // An assertion, not an error: `canonicalize` returns `Self`, and
+        // an invalid lock here is a caller bug (`Lock`'s fields are public).
         #[cfg(debug_assertions)]
         if let Err(error) = self.validate() {
             panic!("canonicalizing produced a lock that does not validate: {error}");
@@ -639,8 +634,8 @@ impl Lock {
             project.exports.sort();
             project.usages.sort();
             project.sources.sort();
-            // Identifiers are deliberately not sorted: the first identifier
-            // is the one that other projects depend on
+            // Identifiers are not sorted: the first identifier is the one
+            // that other projects depend on
         }
         self.projects.sort();
     }
@@ -748,8 +743,7 @@ pub struct Project {
     pub version: String,
     /// The metamodel the project declares, as written.
     ///
-    /// Recorded so that the edge checks of `validate` have something to
-    /// read: a lockfile is all they see. Absent means the project
+    /// Absent means the project
     /// declared none, which the edge checks read as an OMG project of
     /// unknown release.
     #[serde(skip_serializing_if = "Option::is_none", default)]

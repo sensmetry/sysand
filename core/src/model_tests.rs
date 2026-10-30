@@ -1079,8 +1079,7 @@ fn partial_meta_reports_every_missing_key_together() {
     );
 }
 
-/// The missing-key suffix: the reason may be a metamodel whose schema
-/// this version does not know.
+/// The missing-key suffix names an unrecognized metamodel.
 #[test]
 fn missing_key_names_an_unrecognized_metamodel() {
     let unrecognized = meta_partial(r#"{"metamodel": "https://example.com/x"}"#)

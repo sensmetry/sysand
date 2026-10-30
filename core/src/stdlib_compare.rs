@@ -4,8 +4,7 @@
 //! Comparing a built archive with the standard library OMG published.
 //!
 //! What `sysand build` produces from the standard-library workspace
-//! fixture must be the published release. A library function rather than
-//! a test helper, so that it can be run outside the test suite too.
+//! fixture must be the published release.
 //!
 //! Three rules, each one a difference between "the same project" and
 //! "the same bytes":
@@ -32,9 +31,8 @@ use crate::project::{ProjectRead as _, local_kpar::LocalKParProjectRaw, utils::w
 
 /// Where each standard library's sources sit in a release checkout.
 ///
-/// A second table beside the embedded assets, because those are keyed by
-/// KPAR stem and the release lays its libraries out by family and name.
-/// The six domain libraries are spelled `<X>` in the release, not
+/// Keyed by KPAR stem; the release lays its libraries out by family and
+/// name. The six domain libraries are spelled `<X>` in the release, not
 /// `<X> Domain Library` after the KPAR stem.
 pub fn release_paths() -> BTreeMap<&'static str, &'static str> {
     BTreeMap::from([
@@ -81,14 +79,9 @@ pub fn release_paths() -> BTreeMap<&'static str, &'static str> {
 /// Copy the standard-library workspace `fixture` into `into`, with each
 /// member's sources taken from the release checkout at `sources_root`.
 ///
-/// Copied rather than referenced: a `sources` entry is a relative path
-/// that cannot escape its project root, so the files have to be *in* the
-/// member directory for a build to find them.
-///
-/// The file list is each member's own declared `sources`, so this stages
-/// exactly what the fixture says it publishes -- and a disagreement
-/// between that list and the release shows up here rather than as a
-/// comparison difference later.
+/// Files are copied into the member directory, as a `sources` entry
+/// cannot escape its project root. The file list is each member's own
+/// declared `sources`.
 pub fn stage_release_workspace(
     fixture: &Utf8Path,
     sources_root: &Utf8Path,
@@ -96,9 +89,7 @@ pub fn stage_release_workspace(
 ) -> Result<(), String> {
     let paths = release_paths();
 
-    // Every library's directory first, and all of them before any copy.
-    // A table that is wrong about the release layout should say so once,
-    // naming each entry, rather than as "one file is missing".
+    // Check every library's directory before any copy, naming each entry.
     let absent: Vec<String> = paths
         .iter()
         .filter(|(_, relative)| !sources_root.join(relative).is_dir())
@@ -135,9 +126,8 @@ pub fn stage_release_workspace(
 
 /// The `sources` a member's `model.toml` declares.
 ///
-/// Read as text rather than through the manifest reader: a member of the
-/// standard-library workspace inherits its metamodel from the table, so
-/// reading it as a standalone project is an error by construction.
+/// Read as text: a member inherits its metamodel from the workspace
+/// table, so reading it as a standalone project is an error.
 fn declared_sources(manifest: &Utf8Path) -> Result<Vec<String>, String> {
     let text =
         wrapfs::read_to_string(manifest).map_err(|e| format!("reading `{manifest}`: {e}"))?;
@@ -194,9 +184,7 @@ impl std::fmt::Display for Difference {
 
 /// Compare a built archive with the published metadata and sources.
 ///
-/// `sources` maps a relative path to the published bytes; it is a
-/// parameter because the release's files are the other half of the
-/// claim and are not in this repository.
+/// `sources` maps a relative path to the published bytes.
 pub fn compare_to_published(
     built: &LocalKParProjectRaw,
     published_info: &str,

@@ -256,9 +256,8 @@ fn an_invalid_kpar_url_is_reported() {
     assert_eq!(places(&report), [(4, 1)]);
 }
 
-/// A local path is taken exactly as written, so only the normal form is admitted -- `..` may lead, since such a path
-/// may leave the directory it is relative to, and an absolute path keeps
-/// its root.
+/// A local path is taken exactly as written, so only the normal form is
+/// admitted -- `..` may lead, and an absolute path keeps its root.
 #[test]
 fn a_local_path_in_normal_form_is_accepted() {
     for path in [
@@ -334,9 +333,8 @@ fn a_local_path_is_normalized_into_the_form_a_manifest_admits() {
     }
 }
 
-/// Only the index kind takes a version requirement. The `kpar-url` text says why, so the three kinds do not
-/// share one sentence: a `dir` usage's author is not helped by being
-/// told that an IRI names one release.
+/// Only the index kind takes a version requirement. The `kpar-url` text
+/// differs from the other kinds': it says an IRI names one release.
 #[test]
 fn only_index_usages_take_a_version_constraint() {
     for (kind, rendered) in [
@@ -457,8 +455,8 @@ fn a_publisher_less_kpar_url_at_an_omg_iri_is_accepted() {
     assert_eq!(usage.to_string(), "Semantic-Library");
 }
 
-/// The IRI *permits* an absent publisher; it does not override a
-/// present one. An author who writes `OMG` gets `OMG`.
+/// The IRI *permits* an absent publisher; it does not override a present
+/// one. An author who writes `OMG` gets `OMG`.
 #[test]
 fn a_declared_publisher_is_kept_at_an_omg_iri() {
     let usage = accepted(
@@ -472,8 +470,7 @@ fn a_declared_publisher_is_kept_at_an_omg_iri() {
 
 /// The version-constraint rule, on the entry that runs into it: a
 /// standard-library usage is a `kpar-url`, and a `kpar-url` takes no
-/// version constraint. The usage is labelled by its name alone --
-/// `<none>/Semantic-Library` would name a publisher nobody wrote.
+/// version constraint. The usage is labelled by its name alone.
 #[test]
 fn an_omg_iri_with_a_version_is_refused() {
     let report = rejected(
@@ -489,8 +486,7 @@ fn an_omg_iri_with_a_version_is_refused() {
     );
 }
 
-/// The shape decides whether an entry may omit its publisher, so it is
-/// pinned.
+/// The shape decides whether an entry may omit its publisher.
 #[test]
 fn the_omg_stdlib_iri_shape() {
     use crate::model::is_omg_stdlib_iri;
@@ -562,8 +558,7 @@ fn git_usage_is_not_declarable() {
     assert_eq!(places(&report), [(4, 1)]);
 
     // The ref keys belong to the same postponed kind, not to the unknown
-    // ones: naming them as unknown would tell the reader they will never
-    // exist.
+    // ones.
     let refs = rejected(concat!(
         "publisher = \"acme\"\n",
         "name = \"lib\"\n",
@@ -580,9 +575,7 @@ fn git_usage_is_not_declarable() {
     );
 }
 
-/// An unknown key inside an `[[inline-usages]]` entry is an error, because
-/// a reader cannot tell a kind key it does not know from any other
-/// unknown key.
+/// An unknown key inside an `[[inline-usages]]` entry is an error.
 #[test]
 fn unknown_keys_in_a_usage_are_errors_not_warnings() {
     let report = rejected(concat!(
@@ -659,9 +652,8 @@ fn a_member_entry_without_a_marker_is_declared() {
 /// group, `workspace = "group-name"` a named one.
 #[test]
 fn a_workspace_marker_makes_an_entry_an_opt_in() {
-    // `at` is asserted on its own by
-    // `an_opt_in_records_where_its_marker_is`, so the identity and the
-    // group are what these two compare.
+    // `at` is asserted on its own elsewhere; the identity and the group
+    // are what these two compare.
     assert!(matches!(
         member("publisher = \"acme\"\nname = \"lib\"\nworkspace = true\n"),
         MemberUsage::Inherited {
@@ -684,7 +676,7 @@ fn a_workspace_marker_makes_an_entry_an_opt_in() {
 
 /// The opt-in's marker carries its own position, so that "the group has
 /// no entry with that publisher and name" can point at the `workspace`
-/// key long after the file's text is gone.
+/// key.
 #[test]
 fn an_opt_in_records_where_its_marker_is() {
     let MemberUsage::Inherited {
@@ -960,9 +952,8 @@ fn a_usage_entry_reads_from_a_table() {
 }
 
 /// A key whose value has the wrong type leaves nothing behind to read,
-/// so the entry has no shape: asking it for a kind would invent one.
-/// Here `dir` is gone, and without this rule the entry would *also* be
-/// reported as an index usage that is missing its `version`.
+/// so the entry has no shape. Here `dir` is gone, and the entry must not
+/// *also* be reported as an index usage that is missing its `version`.
 #[test]
 fn a_wrong_typed_usage_key_does_not_make_up_a_kind() {
     let report = rejected("publisher = \"acme\"\nname = \"lib\"\ndir = 3\n");
@@ -996,8 +987,7 @@ fn a_wrong_typed_name_is_not_also_a_missing_name() {
 }
 
 /// `url` is not an alias of `kpar-url`: a usage that writes it gets an
-/// unknown-key error listing the keys that do exist. An entry silently
-/// read as an index usage would be worse than an error.
+/// unknown-key error listing the keys that do exist.
 #[test]
 fn a_url_key_is_unknown() {
     let report =

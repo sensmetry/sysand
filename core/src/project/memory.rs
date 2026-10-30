@@ -33,14 +33,11 @@ use super::ProjectChecksum;
 pub struct InMemoryProject {
     pub info: Option<InterchangeProjectInfoRaw>,
     pub meta: Option<InterchangeProjectMetadataRaw>,
-    /// The project's `model.toml`, if it has one. Text rather than a
-    /// parse, because that is what a file holds and what
-    /// [`ProjectRead::format`] answers from; parsing it is
+    /// The project's `model.toml` text, if it has one; parsing it is
     /// [`ProjectRead::manifest`]'s job.
     ///
     /// A project holding this *and* `info`/`meta` is ambiguous, and is
-    /// refused when read. It is constructible -- every field here is
-    /// public -- so it is answered rather than declared impossible.
+    /// refused when read.
     pub model_toml: Option<String>,
     pub files: HashMap<Utf8UnixPathBuf, String>,
     pub nominal_sources: Vec<Source>,
@@ -90,12 +87,8 @@ impl InMemoryProject {
 impl InMemoryProject {
     /// The KPAR view of this project's `model.toml`.
     ///
-    /// Rebuilt per call rather than cached: a cached pair would have to
-    /// sit in a field, and this type derives `PartialEq`, `Eq` and
-    /// `Clone` -- two projects holding the same manifest would then
-    /// compare unequal on nothing more than whether either had been
-    /// read. `LocalSrcProject` can afford the cache because it derives
-    /// none of the three.
+    /// Rebuilt per call, not cached: a cached field would break the derived
+    /// `PartialEq`, `Eq` and `Clone`.
     fn view(
         &self,
     ) -> Result<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw), InMemoryError> {

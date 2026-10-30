@@ -5,8 +5,8 @@
 //!
 //! An embedder with a command line of its own parses into Sysand's types
 //! itself, so these tests build the global options by hand and take the
-//! command from clap, as such an embedder would. They run in this process,
-//! which is the point: no binary is involved.
+//! command from clap, as such an embedder would. They run in this process;
+//! no binary is involved.
 
 use camino_tempfile::tempdir;
 use clap::Parser as _;

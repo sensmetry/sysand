@@ -70,8 +70,7 @@ pub fn normalized_identity(publisher: &IndexPublisher, name: &IndexName) -> Norm
 
 /// The value of the `stdlib` key: the last segment of the IRI at which
 /// the library's KPAR is published, validated as a single path segment
-/// (`[A-Za-z0-9][A-Za-z0-9-]*`) so it cannot carry `/` or `..` into an
-/// IRI. Not inheritable, hence a plain value.
+/// (`[A-Za-z0-9][A-Za-z0-9-]*`). Not inheritable, hence a plain value.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct StdlibStem(String);
 
@@ -118,8 +117,7 @@ impl<'de> Deserialize<'de> for StdlibStem {
 
 /// A maintainer is a string of the form `name <email>`; both parts are
 /// mandatory. Each entry is a string and serializes as the text it was
-/// parsed from, so that the round-trip to a KPAR's `.project.json` `maintainer` array
-/// is the identity.
+/// parsed from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Maintainer {
     pub name: String,
@@ -136,9 +134,7 @@ pub struct MaintainerError {
 }
 
 impl Maintainer {
-    /// Both parts are mandatory, so a bare name, a bare `<email>`, or
-    /// malformed text like `some <some-email> strings` is not a
-    /// maintainer at all. The name has no surrounding whitespace and is
+    /// Both parts are mandatory. The name has no surrounding whitespace and is
     /// followed by a single space, the email is a single word with an `@`,
     /// and the string has exactly one `<` and one `>`, which ends it.
     pub fn parse(raw: &str) -> Result<Self, MaintainerError> {
@@ -209,9 +205,7 @@ impl Display for InheritFrom {
     }
 }
 
-/// The literal value of a `workspace` marker, before it is checked. Kept
-/// separate from [`InheritFrom`] so that a value that is not a marker,
-/// `workspace = false` or an invalid group name, can be explained.
+/// The literal value of a `workspace` marker, before it is checked.
 /// Serialized untagged, as the bare `true` or `"group"` a file spells.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(untagged)]
@@ -220,8 +214,7 @@ pub enum InheritMarker {
     Group(String),
 }
 
-/// A `<group-name>` is a bare TOML key: letters, digits, `-` and `_`. A
-/// marker naming anything else could never find a `[workspace.group.<group-name>]` table.
+/// A `<group-name>` is a bare TOML key: letters, digits, `-` and `_`.
 pub fn is_valid_group_name(name: &str) -> bool {
     !name.is_empty()
         && name
@@ -284,10 +277,6 @@ pub enum SourcesError {
     ContainsNull(String),
     /// Entries are taken exactly as written: the manifest admits only the
     /// one form Sysand itself writes.
-    ///
-    /// Nothing is resolved, which is why there is no "escapes the
-    /// project root" and no "is the project root": an entry that would
-    /// have escaped carries a `..`, and the root is the empty entry.
     #[error(
         "`sources` entry `{0}` is not in the form `sources` takes: entries are relative, \
          `/`-separated,\nand carry no `.` or `..` component and no repeated or leading slash"
@@ -300,19 +289,14 @@ pub enum SourcesError {
          listed explicitly (directories and globs are not admitted)"
     )]
     IsDirectory(String),
-    /// "Two equal entries are a duplicate and rejected." Equal, not
-    /// equivalent: nothing is resolved, so there is one spelling to
-    /// report.
+    /// Two equal entries (compared as written) are a duplicate.
     #[error("`sources` entry `{0}` is listed more than once")]
     Duplicate(String),
-    /// "Every entry names a KerML (`.kerml`) or SysML (`.sysml`) file, the
-    /// extension compared case-insensitively ...; any other entry is an
-    /// error. Files of other kinds are not listed in `sources`".
+    /// An entry that is not a KerML (`.kerml`) or SysML (`.sysml`) file, the
+    /// extension compared case-insensitively.
     ///
-    /// The half of the language rule that needs no metamodel. Which of
-    /// the two languages a project may carry is [`admitted_source`],
-    /// raised where the metamodel is known --
-    /// `a.txt` has no language to name, which is why the two are apart.
+    /// The half of the language rule that needs no metamodel; which
+    /// languages a project may carry is [`admitted_source`].
     #[error(
         "`sources` entry `{0}` is not a KerML (`.kerml`) or SysML (`.sysml`) file; \
          `sources` lists model files only"
@@ -332,11 +316,9 @@ pub enum SourcesError {
 ///
 /// `sources` is per-project only: it cannot appear in `[workspace]` and
 /// cannot be inherited by a member, since the file layout of one project
-/// says nothing about another's. Refusing an attempted
-/// `sources.workspace = true` with that explanation belongs to whoever
-/// reads the table -- [`crate::manifest::project`] for `[project]`,
-/// [`crate::manifest::workspace_table`] for a group -- since only a
-/// reader knows where the key was written.
+/// cannot be inherited by a member. An attempted `sources.workspace = true`
+/// is refused by the readers, [`crate::manifest::project`] and
+/// [`crate::manifest::workspace_table`].
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Sources(Vec<Utf8UnixPathBuf>);
 
@@ -344,11 +326,8 @@ pub struct Sources(Vec<Utf8UnixPathBuf>);
 /// the project root: the checks a `sources` entry and a Syside project's
 /// `root` share.
 ///
-/// `root` is held to a `sources` entry's syntax, so that there is one
-/// path rule in a manifest. The
-/// checks are one function so that there is one rule; the *texts* are
-/// each key's own ([`SourcesError`], [`RootError`]), because a message
-/// about one key cannot speak of "entries".
+/// `root` is held to a `sources` entry's syntax. The texts are each key's
+/// own ([`SourcesError`], [`RootError`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PathProblem {
     /// Ends in `/`.
@@ -461,8 +440,7 @@ impl Sources {
     /// for build/publish, as with the license file, so reading a manifest
     /// never touches them.
     ///
-    /// Nothing is resolved: a `..` is an error, so no
-    /// entry can escape the project root and none can name it.
+    /// Nothing is resolved: a `..` is an error.
     pub fn new(paths: Vec<Utf8UnixPathBuf>) -> Result<Self, SourcesError> {
         Self::check(paths).map_err(|mut problems| problems.swap_remove(0).1)
     }

@@ -6,7 +6,7 @@
 //! The tests that write a legacy `.project.json` pair by hand are the
 //! coverage of the json format, and most of them assert on
 //! `.meta.json` -- the checksum and symbol maps a `model.toml` project
-//! does not have, because both are computed when the KPAR is built.
+//! does not have.
 //!
 //! The toml tests are at the end of the file. Between them they cover
 //! what `include` and `exclude` do to a manifest, and which flags they

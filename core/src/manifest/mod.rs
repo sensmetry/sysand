@@ -29,16 +29,12 @@ use crate::manifest::reader::TableReader;
 use crate::manifest::spans::{Positions, Source};
 use crate::manifest::workspace_table::WorkspaceTable;
 
-/// The name of the manifest this module reads. The two json manifests
-/// are named in `model.rs`, beside the types they parse into; this one
-/// is named here, beside the type that parses it.
+/// The name of the manifest this module reads.
 pub const MODEL_TOML_FILE: &str = "model.toml";
 
 /// A `manifest-version`: `<major>.<minor>`, ordered by major, then minor.
 ///
-/// Additions bump the minor, an incompatible change the major, so what a
-/// reader has to decide about a file it did not write is a version
-/// comparison.
+/// Additions bump the minor, an incompatible change the major.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ManifestVersion {
     major: u32,
@@ -94,14 +90,9 @@ pub enum ModelTomlKind {
 /// A `model.toml` defines a project in a `[project]` table or a
 /// workspace in a `[workspace]` table. Exactly one of the two appears in
 /// a file: they never appear together, as a workspace root must not
-/// contain a project, and a `model.toml` with neither is an error rather
-/// than a file that defines nothing -- which is what a mistyped table
-/// name would otherwise become.
+/// contain a project, and a `model.toml` with neither is an error.
 ///
-/// Both sides are boxed. Either table is several hundred bytes and a
-/// caller holds the enum, not one variant, so a bare enum would carry
-/// the larger of the two everywhere; a manifest is built once per file,
-/// which is not a rate at which one allocation matters.
+/// Both sides are boxed to keep the enum small.
 #[derive(Clone, Debug)]
 pub enum ModelToml {
     Project(Box<ProjectManifest>),
@@ -118,21 +109,18 @@ impl ModelToml {
     ///
     /// Reading accumulates: one report names every problem the file has,
     /// in the order the file reads, warnings among the errors. Three
-    /// conditions stop it early, and they have one thing in common --
-    /// what the file says about *itself* cannot be acted on, so nothing
-    /// after it can be judged:
+    /// conditions stop it early: what the file says about *itself* cannot be
+    /// acted on, so nothing after it can be judged:
     ///
     /// 1. the file is not TOML;
     /// 2. `manifest-version` is written but unusable (too new for this
     ///    Sysand, or not a `<major>.<minor>` string). It is read before anything
-    ///    else, so that a file this Sysand cannot read is refused with the
-    ///    right message;
+    ///    else;
     /// 3. the file defines both tables, or neither.
     ///
-    /// An absent `manifest-version` is *not* one of them: it means no
-    /// other schema is in play, so this reader's own applies and the rest
-    /// of the file is read as usual. The key is read first, which is an
-    /// order, not a stop.
+    /// An absent `manifest-version` is *not* one of them: no other schema is
+    /// in play, so this reader's own applies and the rest of the file is
+    /// read as usual.
     pub fn parse(file: &str, text: &str) -> Result<Validated<Self>, Report> {
         let source = Source::new(file, text);
         let (document, positions) = source.read().map_err(|problem| {
@@ -148,9 +136,8 @@ impl ModelToml {
         }
 
         // Presence, not readability: `project = 3` writes the key
-        // `project`, and calling such a file "one that defines neither"
-        // would be both false and further from the fix. What is wrong
-        // with the value is reported by whoever reads the table.
+        // `project`. What is wrong with the value is reported by whoever
+        // reads the table.
         let manifest = match (top.has("project"), top.has("workspace")) {
             (true, true) => {
                 report.push(at_file(
@@ -203,18 +190,13 @@ impl ModelToml {
     ///
     /// The workspace is discovered by walking up from the working
     /// directory until a `model.toml` with a `[workspace]` table is
-    /// encountered. That walk asks one question of every ancestor, and asking it
-    /// through [`ModelToml::parse`] would validate each in full -- so an
-    /// unrelated file's missing `manifest-version` would end a walk that
-    /// does not care.
+    /// encountered. The walk does not validate each ancestor: an
+    /// unrelated file's missing `manifest-version` must not end it.
     ///
-    /// `Ok(None)` is a file with neither table. On the walk that is not
-    /// an error, only an answer; whether it is one depends on why the
-    /// file was opened.
+    /// `Ok(None)` is a file with neither table: an answer, not an error.
     ///
-    /// A file with *both* tables answers `Workspace`, since that is the
-    /// question asked. Such a file is invalid, and the walk learns so
-    /// when it reads it.
+    /// A file with *both* tables answers `Workspace`. Such a file is invalid,
+    /// and the walk learns so when it reads it.
     pub fn peek(file: &str, text: &str) -> Result<Option<ModelTomlKind>, Diagnostic> {
         let (document, _) = Source::new(file, text).read()?;
         Ok(if document.contains_key("workspace") {
@@ -241,8 +223,7 @@ impl ModelToml {
     }
 
     /// The project this file defines, or the error that it defines the
-    /// other thing. One function, so that a file opened expecting a
-    /// project is refused in the same words wherever it is opened.
+    /// other thing.
     pub fn into_project(self, file: &str) -> Result<ProjectManifest, Diagnostic> {
         match self {
             Self::Project(manifest) => Ok(*manifest),
@@ -289,8 +270,7 @@ fn manifest_version(source: &Source<'_>, top: &TableReader<'_>, report: &mut Rep
             Stop::Yes
         }
         // Only absent and too new are failures, so a version below the
-        // supported one is read as this one. It is almost certainly a
-        // typo, but refusing it would be a third rule.
+        // supported one is read as this one.
         Some(_) => Stop::No,
         // Written, and unusable: `read_version` has said so -- or, for
         // the inheritance marker, `own` has -- and what schema the file
@@ -305,18 +285,15 @@ fn manifest_version(source: &Source<'_>, top: &TableReader<'_>, report: &mut Rep
 /// The version the file states, or the error that it states none.
 ///
 /// One text for three failures -- absent, not a string, and a string
-/// that is not a `<major>.<minor>` version -- because from here they are
-/// one failure: the file does not say which format it is written in. Going
-/// through [`TableReader::string`] instead would answer an integer with
-/// a wrong-type message that names no version at all.
+/// that is not a `<major>.<minor>` version.
 ///
 /// The value is quoted as the file spells it: `toml::Value`'s `Display`
 /// writes TOML, so `manifest-version = "1.0"` is answered with what
 /// it wrote.
 ///
-/// Reporting happens *here*, not in the caller's match, because `own`
-/// short-circuits on an inheritance marker without calling this at all:
-/// a report from the match would land on top of the marker's own error.
+/// Reporting happens here, not in the caller's match: `own`
+/// short-circuits on an inheritance marker without calling this, so a
+/// report from the match would land on top of the marker's own error.
 fn read_version(
     source: &Source<'_>,
     top: &TableReader<'_>,
@@ -386,11 +363,8 @@ fn fold<T>(result: Result<Validated<T>, Report>, report: &mut Report) -> Option<
 
 /// A diagnostic about the file itself.
 ///
-/// The span index is keyed by paths of at least one segment, so the file
-/// as a whole has no span to point at. Left unpositioned such a
-/// diagnostic would sort *after* every complaint about a key, which is
-/// the wrong end of a report for something that is wrong with the file;
-/// [`Source::start`] sorts first.
+/// The file as a whole has no span to point at. Such a diagnostic is
+/// positioned at [`Source::start`], which sorts first.
 fn at_file(source: &Source<'_>, message: impl Into<String>) -> Diagnostic {
     Diagnostic::error(message).at(source.start())
 }

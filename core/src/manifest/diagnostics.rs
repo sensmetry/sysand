@@ -4,7 +4,7 @@
 //! What reading a manifest can report: the collected diagnostics a
 //! validation produces, and the warnings that do not stop it.
 //!
-//! Validation collects problems, so that one read of a
+//! Validation collects problems: one read of a
 //! malformed manifest names every problem it has. A validating function
 //! returns `Result<Validated<T>, Report>`: the `Report` on the error side
 //! lists every problem found, including the warnings, and the
@@ -128,9 +128,8 @@ impl Display for Diagnostic {
 
 /// Every diagnostic one read produced, in the order they were found.
 ///
-/// A report holds errors and warnings together so that they can be shown
-/// in the order of the file; [`Report::into_result`] is what decides
-/// whether the read failed.
+/// A report holds errors and warnings together; [`Report::into_result`]
+/// decides whether the read failed.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Report(Vec<Diagnostic>);
 
@@ -180,11 +179,9 @@ impl Report {
 
     /// Put the diagnostics in the order the file reads.
     ///
-    /// Validation finds problems in the order its checks run - field
-    /// order for the keys a table knows, then the ones it does not - which
-    /// is not the order the reader works through the file in. Sorting once at the
-    /// end of a read is what makes a report with several problems
-    /// something that can be fixed from top to bottom.
+    /// Validation finds problems in the order its checks run, not the order
+    /// of the file. Sorting once at the end of a read lets a report with
+    /// several problems be fixed from top to bottom.
     ///
     /// The sort is stable, so two diagnostics about the same key keep the
     /// order the checks found them in, and a diagnostic with no position
@@ -265,15 +262,12 @@ impl<T> Validated<T> {
 
 /// Unknown keys are allowed for future compatibility, but generate a
 /// warning upon read: in `model.toml` as a whole, `[project]`,
-/// `[workspace]` and the `urls` tables alike. Serde's default is to drop unrecognized keys
-/// silently, which cannot produce that warning, and `deny_unknown_fields`
-/// would turn it into an error -- so a table that has to warn keeps a
+/// `[workspace]` and the `urls` tables alike. A table that warns keeps a
 /// flattened `UnknownKeys` that remembers the names it did not recognize,
 /// in the order it read them.
 ///
-/// Only the keys are kept: the values have no home in the type map, and
-/// nothing writes them back out (serializing an `UnknownKeys` emits an
-/// empty table, so a flattened one contributes no keys).
+/// Only the keys are kept: the values are dropped, and serializing an
+/// `UnknownKeys` emits an empty table.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct UnknownKeys(Vec<String>);
 
@@ -298,8 +292,7 @@ impl UnknownKeys {
         self.warnings_with_metamodel(location, None)
     }
 
-    /// The same, with the metamodel the "this may be because" suffix
-    /// names: an unrecognized metamodel may be why the key is not known.
+    /// The same, with the metamodel the "this may be because" suffix names.
     pub fn warnings_with_metamodel(
         &self,
         location: &KeyLocation,
@@ -375,9 +368,6 @@ impl Display for KeyLocation {
 
 /// A key the manifest must carry is not there, and an
 /// unrecognized metamodel may be the reason.
-///
-/// Both manifest formats report a missing key through this function, so
-/// that the two cannot drift apart.
 pub fn missing_key(key: &str, location: &KeyLocation, metamodel: Option<&str>) -> Diagnostic {
     let mut message = format!("missing key `{key}` in {location}");
     if let Some(url) = metamodel {
@@ -485,8 +475,7 @@ impl Display for ReadWarning {
 
 /// A manifest that declares a metamodel outside both recognized families is validated against the OMG
 /// schema, and every schema complaint says that the metamodel may be the
-/// reason. One function, so that every message naming such a metamodel
-/// reads the same.
+/// reason.
 pub fn unsupported_metamodel_suffix(metamodel: &str) -> String {
     format!(
         "; this may be because the project uses a metamodel this version of Sysand does not \
@@ -496,8 +485,7 @@ pub fn unsupported_metamodel_suffix(metamodel: &str) -> String {
 
 /// Whether `value` is on the host of a recognized metamodel family, where
 /// an unrecognized value is most likely a misspelled recognized one. The
-/// scheme, letter case and a `www.` prefix are ignored, so that the usual
-/// misspellings of the host itself count too.
+/// scheme, letter case and a `www.` prefix are ignored.
 fn in_family_host(value: &str) -> bool {
     let Some((_scheme, rest)) = value.split_once("://") else {
         return false;

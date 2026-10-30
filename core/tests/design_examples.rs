@@ -6,30 +6,16 @@
 //!
 //! `core/src/manifest/mod_tests.rs` checks that every example manifest
 //! in `model-toml.md` and `workspaces.md` parses, with the blocks copied
-//! by hand -- because, as it says, "a test cannot read a fenced block out
-//! of a document and still say which one it meant". That is true of a
-//! test that only reads, and it is why the copies stay. Without
-//! something keeping them in step, an example could be edited in the
-//! document and all three fidelity tests would stay green while not
-//! checking it.
+//! by hand. Each copy carries a marker naming the block it came from,
+//! `// design: <document> #<n>` (counting fenced `toml` blocks in the
+//! document), and this checks that the lines under each marker are the
+//! lines of that block.
 //!
-//! So each copy carries a marker naming the block it came from --
-//! `// design: <document> #<n>`, counting fenced `toml` blocks in the
-//! document -- and this checks that the lines under each marker are the
-//! lines of that block. A block index rather than a line number: a line
-//! number would itself go stale on the first edit above it.
-//!
-//! Three things this deliberately does not do. It does not parse the
-//! blocks; the fidelity tests do that, with the section names that make
-//! a failure legible. It does not require a copy to be byte-identical
-//! to its block, because two of them cannot be: `model-toml.md` #1 is a
-//! `[project]` containing only `# ...`, which the copy completes with
-//! the required keys, and `workspaces.md` #4 is not valid TOML at all
-//! -- a duplicated key -- so the copy splits it in two, which is why
-//! two copies may share a marker. And it does not notice a line
-//! *deleted* from a document: the copies then assert something the
-//! document no longer says, which needs the byte-identity the first two
-//! cases rule out.
+//! Limits: it does not parse the blocks. It does not require a copy to
+//! be byte-identical to its block (`model-toml.md` #1 is completed with
+//! the required keys, and `workspaces.md` #4 is split in two, so two
+//! copies may share a marker). It does not notice a line *deleted* from
+//! a document.
 
 const MODEL_TOML: &str = include_str!("../../design/model-toml.md");
 const WORKSPACES_MD: &str = include_str!("../../design/workspaces.md");
@@ -72,8 +58,7 @@ fn substantive(block: &[&str]) -> Vec<String> {
         .collect()
 }
 
-/// Whitespace runs to one space, so that a copy indented to its Rust
-/// block still matches the document.
+/// Whitespace runs to one space.
 fn collapse(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
@@ -107,10 +92,7 @@ fn as_written(source: &str) -> String {
 }
 
 /// Everything from a marker to the next one, which is the copy it
-/// introduces. Deliberately not the whole file: more than half of these
-/// lines occur somewhere in `mod_tests.rs` for unrelated reasons, so a
-/// whole-file search would pass for two of the seven blocks even if
-/// their copies were deleted outright.
+/// introduces.
 fn under_marker(copies: &str, marker: &str) -> Vec<String> {
     let lines: Vec<&str> = copies.lines().collect();
     let mut slices = Vec::new();

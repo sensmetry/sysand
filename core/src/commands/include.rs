@@ -28,10 +28,6 @@ pub enum IncludeError<ProjectError> {
     /// The two maps a `model.toml` project has no room for are computed
     /// when the KPAR is built, so the flags that control them have
     /// nothing to control.
-    ///
-    /// Refused here rather than in the CLI because the parameters are
-    /// this function's: a binding can call it directly, and a refusal
-    /// one frontend makes is not a refusal.
     #[error("`{0}` is computed when the KPAR is built and cannot be set on a `model.toml` project")]
     ComputedField(&'static str),
     /// A Syside project's KPAR has no `index`, so the flag has nothing to
@@ -97,9 +93,7 @@ pub fn do_include<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
     // are computed at build.
     //
     // `Both` deliberately falls through to the json arm, where
-    // `get_meta` refuses it as the ambiguity it is. Asking `manifest()`
-    // instead would have been wrong: it maps `Both` onto "no toml
-    // manifest".
+    // `get_meta` refuses it as the ambiguity it is.
     if project.format().map_err(IncludeError::Project)? == ProjectFormat::Toml {
         return include_toml(
             project,
@@ -159,10 +153,9 @@ pub fn do_include<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
 
 /// `include` on a `model.toml` project: append each path to `sources`.
 ///
-/// Nothing is read. The file's contents would be hashed and indexed on
-/// a json project; here both maps are computed when the KPAR is built,
-/// so the only question is whether the path belongs in `sources` --
-/// which `Sources::new` answers, as it does on read.
+/// Nothing is read: both maps are computed when the KPAR is built, so
+/// the only question is whether the path belongs in `sources`, which
+/// `Sources::new` answers, as it does on read.
 fn include_toml<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
     project: &mut Pr,
     paths: I,
@@ -177,7 +170,6 @@ fn include_toml<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
     // without its workspace has neither, and the check is skipped rather
     // than the command refusing over something that is not about the
     // path it was given.
-    // The next read of the manifest raises the same complaint anyway.
     let metamodel = project_metamodel(project, &document);
 
     // On a Syside project the flag names an `index` its KPAR does not
@@ -227,9 +219,7 @@ fn include_toml<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
 
 /// Flatten a manifest read failure into this command's error.
 ///
-/// `NoTomlManifest` is unreachable -- the format was just checked --
-/// but the match is exhaustive and saying so is better than a wildcard
-/// that would swallow a variant added later.
+/// `NoTomlManifest` is unreachable: the format was just checked.
 fn manifest_error<E: crate::env::utils::ErrorBound>(
     error: crate::project::ManifestError<E>,
 ) -> IncludeError<E> {

@@ -22,10 +22,7 @@ pub enum ExcludeError<ProjectError> {
     /// The manifest could not be read, or the edit was refused.
     ///
     /// `exclude_source` can fail four ways and only one of them is "not
-    /// listed". The rest keep their own words: `sysand exclude
-    /// README.md` says the entry is not a model file, which is a strange
-    /// answer to "remove this" and the true one -- `sources` could never
-    /// have held it.
+    /// listed". The rest keep their own words.
     #[error(transparent)]
     Edit(crate::manifest::edit::EditError),
     #[error("failed to read the project's `model.toml`: {0}")]

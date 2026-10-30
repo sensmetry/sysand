@@ -293,9 +293,8 @@ pub(crate) fn client_builder() -> reqwest::ClientBuilder {
 /// Install the crypto provider selected by this crate's `tls-*` features as
 /// the process-wide rustls default.
 ///
-/// `reqwest` is taken with `rustls-no-provider` so that no consumer is forced
-/// onto a particular provider. Every path that can reach a TLS handshake
-/// must therefore call this first.
+/// `reqwest` is taken with `rustls-no-provider`, so every path that can
+/// reach a TLS handshake must call this first.
 ///
 /// Only the first call installs the provider, subsequent ones are a no-op.
 ///
@@ -306,8 +305,7 @@ pub fn install_default_crypto_provider() {
     {
         _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     }
-    // `not(tls-aws-lc-rs)` because the two features are additive and
-    // `--all-features` enables both; aws-lc-rs wins as the shipped default.
+    // aws-lc-rs wins when both features are enabled.
     #[cfg(all(feature = "tls-ring", not(feature = "tls-aws-lc-rs")))]
     {
         _ = rustls::crypto::ring::default_provider().install_default();
@@ -322,9 +320,7 @@ pub fn install_default_crypto_provider() {
     }
 }
 
-// Both tests assert that a provider is installed, so they only make sense
-// when a `tls-*` feature selected one. Gating on `networking` alone would
-// assert it in `--features networking`, which deliberately has none.
+// The tests assert that a provider is installed, so they need a `tls-*` feature.
 #[cfg(all(test, any(feature = "tls-aws-lc-rs", feature = "tls-ring")))]
 #[path = "./net_utils_tests.rs"]
 mod tests;

@@ -27,8 +27,7 @@ use idna::punycode;
 ///
 /// Non-`pkg:sysand` IRIs are located under `_iri/<sha256_hex(normalized_iri)>`,
 /// so two clients pointing at the same project must produce byte-identical
-/// input to the hash. The canonicalization pipeline is intentionally thin glue
-/// over well-known libraries; all substantive work is delegated:
+/// input to the hash. The pipeline delegates to well-known libraries:
 ///
 /// 1. [`fluent_uri::Iri::normalize`]: RFC 3986 §6.2.2 + RFC 3987 §5.3.2
 ///    syntax-based normalization plus IPv6 canonicalization (RFC 5952) and

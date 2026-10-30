@@ -25,9 +25,7 @@ pub enum Language {
 }
 
 impl std::fmt::Display for Language {
-    /// How a diagnostic names the language: the spelling `SpecKind` uses
-    /// for the same two, so that a `sources` message and a metamodel
-    /// message read alike.
+    /// How a diagnostic names the language (the spelling `SpecKind` uses).
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             Self::SysML => "SysML",

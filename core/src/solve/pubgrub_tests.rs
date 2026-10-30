@@ -748,9 +748,7 @@ fn typed_usage_invalid_version_fails_resolution() {
 /// Solve a single `acme/widget` directory usage and return the *rendered*
 /// resolution error, with its chain of causes: `SolverError`'s `Display`
 /// names the failing usage and `Error::source` carries the reason, which
-/// is how the CLI prints it. `directory_usage_solve_err` gives the `Debug`
-/// form, which is what tests about the error's shape want; these are
-/// about the sentences a user reads.
+/// is how the CLI prints it.
 fn directory_usage_solve_msg<R>(resolver: R) -> String
 where
     R: ResolveRead + Debug + 'static,
@@ -769,11 +767,8 @@ where
     crate::utils::format_err(err)
 }
 
-/// The message names the version string that is not
-/// semver. `semver::Error` describes the parse failure ("unexpected
-/// character '-' after major version number") without ever echoing its
-/// input, so without this the one thing a reader needs in order to go fix
-/// the manifest is the one thing missing.
+/// The message names the version string that is not semver
+/// (`semver::Error` does not echo its input).
 #[test]
 fn invalid_resolved_version_names_the_version() {
     let widget = trivial_memory_project("widget", "2023-11", vec![]);
@@ -1912,9 +1907,8 @@ fn directory_usage_admits_a_prerelease() -> Result<(), Box<dyn std::error::Error
 /// `constrained_usage_picks_the_highest_matching_version_within_one_source`).
 /// This fixture's resolver keeps the order it is given.
 ///
-/// Spelled out here with prereleases because that is where it bites hardest:
-/// out of descending order, `^1.0.0-alpha` picks `1.0.0-alpha.1` over the
-/// finished `1.0.0`.
+/// With prereleases: out of descending order, `^1.0.0-alpha` picks
+/// `1.0.0-alpha.1` over the finished `1.0.0`.
 #[test]
 fn constrained_usage_picks_by_candidate_order_not_by_version()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -2730,8 +2724,7 @@ fn a_usage_with_no_base_is_unresolvable_beside_one_that_has_it()
     )
     .expect_err("the second usage has no base");
 
-    // The reason matters: borrowing the neighbour's base would resolve
-    // it, and a bare `is_err` would not tell the two apart.
+    // The reason distinguishes this from borrowing the neighbour's base.
     assert!(
         format!("{error:?}").contains("without a base path"),
         "{error:?}"

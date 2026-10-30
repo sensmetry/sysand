@@ -35,11 +35,10 @@ pub fn stdlib_fixture() -> Utf8PathBuf {
 
 /// A checkout of the SysML v2 release, or `None` with a printed notice.
 ///
-/// The release sources are deliberately not in this repository, so the
-/// suites that need them skip without `SYSAND_STDLIB_SOURCES`: a skip
-/// that says so beats a pass that does not. Empty
-/// counts as unset, because the CI expression that selects one matrix
-/// entry sets the variable to `''` everywhere else.
+/// The release sources are not in this repository, so the suites that
+/// need them skip without `SYSAND_STDLIB_SOURCES`. Empty counts as unset,
+/// because the CI expression that selects one matrix entry sets the
+/// variable to `''` everywhere else.
 pub fn stdlib_sources() -> Option<Utf8PathBuf> {
     let root = std::env::var("SYSAND_STDLIB_SOURCES")
         .ok()
@@ -334,12 +333,8 @@ pub fn install_in_env_with_usage(
 
 /// Writes a legacy `.project.json`/`.meta.json` pair by hand.
 ///
-/// Not through the CLI, and that is the point: `sysand init` writes a
-/// `model.toml`, so a test that exercises the json form cannot get one
-/// from the command. This is the compatibility fixture for those tests.
-///
-/// It is deliberately *not* a drop-in for [`cli_init_project`], which
-/// returns the `Output` of the process it ran; nothing runs here.
+/// Not through the CLI: `sysand init` writes a `model.toml`. Unlike
+/// [`cli_init_project`], it returns no process `Output`; nothing runs here.
 ///
 /// The bytes have to match what a real legacy project looks like, not
 /// just the field list: `serde_json::to_writer_pretty` plus a trailing

@@ -28,8 +28,8 @@ PACKAGE = Path(__file__).parents[1] / "python" / "sysand"
 # Loaded with an explicit `ExtensionFileLoader`: the compiled file is
 # `_sysand_core.abi3.so` (`.pyd` on Windows), and suffix inference over
 # `.abi3.so` is not something to rely on. Replacing `sys.modules[__name__]`
-# rather than re-exporting, so that the underscore names the tree needs
-# (`_run_cli`, `_register_errors`) come across too.
+# rather than re-exporting, carries the underscore names the tree needs
+# (`_run_cli`, `_register_errors`) across too.
 _SHIM = """\
 import importlib.util
 import os

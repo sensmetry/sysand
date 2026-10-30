@@ -49,8 +49,8 @@ pub fn command_init(
         None => Utf8PathBuf::from("."),
     };
     warn_parent_project(&target, &ctx)?;
-    // Before `do_init`, so that a refusal is about the workspace rather
-    // than about a file collision the workspace explains.
+    // Before `do_init`: a refusal should be about the workspace, not a file
+    // collision the workspace explains.
     let member = workspace_member(&target)?;
     // The metamodel is mandatory and must be known before anything is
     // written, unless the project is created inside a workspace whose
@@ -159,9 +159,8 @@ struct Member {
 /// write; `Ok(None)` is every case where nothing is
 /// appended -- no workspace, or an excluded directory.
 ///
-/// The table is read rather than the workspace loaded, so that an
-/// unrelated member's mistake does not block the one command that could
-/// fix it.
+/// The table is read rather than the workspace loaded, so an unrelated
+/// member's mistake does not block `init`.
 fn workspace_member(target: &Utf8Path) -> Result<Option<Member>> {
     // `relativize_path` asserts absolute, dot-free paths, and `target`
     // is a raw command-line argument.

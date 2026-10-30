@@ -2,7 +2,6 @@
 
 # Sysand installer for Linux and macOS.
 #
-# This script is intentionally direct so it can be inspected before running.
 # It downloads a release archive, extracts the sysand binary, installs it
 # atomically into $HOME/.local/bin (replacing any existing installation), and
 # ensures that directory is on PATH.

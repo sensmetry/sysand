@@ -22,9 +22,7 @@ pub struct VersionListing {
     /// are the *available* versions: yanked and removed entries are never
     /// enumerated.
     pub versions: Vec<Version>,
-    /// Version strings that are not valid semver, in encounter order. Kept
-    /// for diagnostics rather than dropped silently; an index cannot publish
-    /// such entries, but other sources can.
+    /// Version strings that are not valid semver, in encounter order.
     pub ignored: Vec<String>,
 }
 

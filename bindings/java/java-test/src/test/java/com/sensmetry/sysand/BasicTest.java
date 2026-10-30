@@ -29,11 +29,8 @@ public class BasicTest {
         Files.write(dir.resolve(".project.json"),
                 ("{\n  \"name\": \"" + name + "\",\n  \"publisher\": \"" + publisher
                         + "\",\n  \"version\": \"" + version + "\"" + licenseKey + "\n}\n").getBytes());
-        // The epoch, so that a legacy fixture and a `model.toml` view
-        // agree: a view's `created` is fixed, and the assertions here
-        // are shared between the two.
-        // The metamodel too: the assertions are shared with a project
-        // `init` wrote, and `init` is given one.
+        // The epoch, to agree with a `model.toml` view's fixed `created`.
+        // The metamodel too, as `init` is given one.
         Files.write(dir.resolve(".meta.json"),
                 ("{\n  \"index\": {},\n  \"created\": \"1970-01-01T00:00:00Z\",\n  \"metamodel\": \""
                         + SYSML + "\"\n}\n").getBytes());

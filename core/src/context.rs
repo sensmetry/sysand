@@ -34,16 +34,11 @@ pub struct ProjectContext {
     /// The root of the workspace the command is running in, if it is
     /// running in one.
     ///
-    /// Distinct from `config_root`, which answers the same question for
-    /// configuration and falls back to the project root: this is `None`
-    /// outside a workspace, because "relative to the workspace root" has
-    /// no fallback meaning.
+    /// Unlike `config_root`, there is no fallback to the project root:
+    /// this is `None` outside a workspace.
     ///
     /// A solved local dependency has no nominal path, so its `src_path`
-    /// is relativized against a root, and a lockfile at the workspace
-    /// root needs that root -- `workspaces.md` "Locking" records "every project of the
-    /// solved graph ... members included" in one file, so every path in
-    /// it means the same thing.
+    /// is relativized against this root in the workspace lockfile.
     #[cfg(feature = "filesystem")]
     pub model_workspace_root: Option<Utf8PathBuf>,
     /// Metadata of the current workspace/project `.sysand`. `Some` if

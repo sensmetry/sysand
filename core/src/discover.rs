@@ -16,15 +16,12 @@ use crate::{
 ///
 /// A json project is one that holds either of its two manifests. A
 /// `model.toml` needs reading, because the same file name is used for
-/// workspace configuration: a workspace root defines no project, and
-/// stopping the upward walk there would answer a question nobody asked.
-/// [`ModelToml::peek`] is that question and nothing more -- it parses the
-/// document and looks for the two table names, without validating either.
+/// workspace configuration: a workspace root defines no project.
+/// [`ModelToml::peek`] parses the document and looks for the two table
+/// names, without validating either.
 ///
 /// A `model.toml` that is not TOML, or that defines neither table, counts
-/// as *found*. The file is this directory's manifest and it is broken;
-/// walking past it to a parent would answer a different directory's
-/// question and bury the error.
+/// as *found*, so the error is not buried by walking past it.
 pub fn is_project_file(path: &Utf8Path) -> Result<bool, Box<FsIoError>> {
     let model_toml = path.join(MODEL_TOML_FILE);
     if wrapfs::is_file(&model_toml)? {

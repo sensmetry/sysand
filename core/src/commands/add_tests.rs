@@ -156,8 +156,7 @@ fn add_writes_an_index_usage_as_spelled() {
     );
 }
 
-/// A different constraint replaces the existing one, as `cargo add` does,
-/// so a `*` is never combined with another comparator
+/// A different constraint replaces the existing one, as `cargo add` does.
 #[test]
 fn add_replaces_the_constraint_of_a_usage_spelled_the_same() {
     let mut project = project_with_usage(index("Acme Labs", "My Lib", "^1"));

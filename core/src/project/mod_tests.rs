@@ -153,9 +153,7 @@ impl ProjectRead for Silent {
     }
 }
 
-/// A wrapper must forward rather than take the default, or it claims
-/// json for whatever it is holding. `ProjectReference` is the `Arc`
-/// wrapper, so the claim would survive being shared.
+/// A wrapper must forward `format` rather than take the json default.
 #[test]
 fn a_reference_reports_the_format_of_what_it_wraps() {
     let wrapped = ProjectReference::new(Toml);
@@ -213,9 +211,8 @@ impl ProjectRead for Toml {
     }
 }
 
-/// The json side is behind a `ProjectReference` so that the two variants
-/// are a similar size; it also means the derive forwards through a
-/// wrapper.
+/// The json side is behind a `ProjectReference`, so the derive forwards
+/// through a wrapper.
 #[derive(crate::project::ProjectRead)]
 enum Either {
     Json(ProjectReference<Silent>),
@@ -243,9 +240,8 @@ fn a_manifest() -> DocumentMut {
         .expect("a valid manifest document")
 }
 
-/// Stores a manifest through the trait, so that `P = &mut T` picks the
-/// blanket implementation rather than resolving to the inner type by
-/// auto-deref.
+/// Stores a manifest through the trait, so `P = &mut T` picks the blanket
+/// implementation.
 fn store<P: ProjectMut>(
     mut project: P,
     document: &DocumentMut,

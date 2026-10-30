@@ -7,10 +7,10 @@
 //! metamodel-dependent validation has run.
 //!
 //! The two are separate because required-key checks that depend on the
-//! metamodel (`sources`) run after inheritance has been resolved, since
-//! `metamodel` may itself be inherited from a workspace group.
-//! `manifest-version` and the keys required by every metamodel
-//! (`publisher`, `name`, `version`) are checked before that.
+//! metamodel (`sources`) run after inheritance has been resolved:
+//! `metamodel` may itself be inherited. `manifest-version` and the keys
+//! required by every metamodel (`publisher`, `name`, `version`) are checked
+//! before that.
 //!
 //! So [`ProjectTable::validate`] checks everything a manifest can be
 //! judged on by itself, and [`ProjectManifest::resolve`] -- which takes
@@ -78,10 +78,6 @@ pub struct Urls {
 }
 
 /// The `[project]` table as the file writes it.
-///
-/// `spdx::Expression` has no `PartialEq`, so this type derives only
-/// `Clone` and `Debug` -- as [`WorkspaceTable`] does, for the same
-/// reason.
 #[derive(Clone, Debug)]
 pub struct ProjectTable {
     pub name: IndexName,
@@ -101,17 +97,12 @@ pub struct ProjectTable {
     /// `root`, **exactly as written and unjudged**. It belongs to the
     /// Syside schema: under that family it is a required key naming one of the
     /// `sources` entries, and under any other it is a foreign key that
-    /// costs a warning and nothing else, whatever its value. Which of the
-    /// two applies depends on the family, and the family may arrive by
-    /// marker, so the reader keeps the value and
-    /// [`ProjectManifest::resolve`] judges it -- and a writer writes it
-    /// back as it was.
+    /// costs a warning and nothing else. [`ProjectManifest::resolve`] judges
+    /// it once the family is known.
     pub root: Option<toml::Value>,
     pub urls: Option<MetaProperty<Urls>>,
-    /// Where each `sources` entry is, in the order they were written,
-    /// for the check of each entry against the metamodel -- which
-    /// likewise waits for the metamodel, by which time the reader that could point at an entry
-    /// is long gone.
+    /// Where each `sources` entry is, in the order they were written, for
+    /// the check of each entry against the metamodel.
     sources_at: Vec<Option<Position>>,
     /// Where `stdlib` is, for the refusal that can only be decided once
     /// the metamodel is known.
@@ -170,14 +161,10 @@ impl ResolvedProject {
 impl ProjectTable {
     /// A `[project]` table built from values: the three keys every metamodel requires, and nothing else.
     ///
-    /// This is where a command that *writes* a manifest starts one.
-    /// Every other key is public, so the caller sets
-    /// what it has; a constructor taking all twelve would say no more
-    /// and read far worse.
+    /// Every other key is public; the caller sets what it has.
     ///
     /// `publisher` and `version` are wrapped as
-    /// [`MetaProperty::Provided`]: a generated file gives its values.
-    /// A caller that wants a marker assigns
+    /// [`MetaProperty::Provided`]. A caller that wants a marker assigns
     /// the field.
     ///
     /// The returned table has **no `sources`**, which for the OMG
@@ -187,10 +174,9 @@ impl ProjectTable {
     /// what [`crate::manifest::edit::render_new`] writes is what the
     /// table holds.
     ///
-    /// Neither of the two private position fields can be set from
-    /// outside, so the diagnostics a built manifest raises in
-    /// [`ProjectManifest::resolve`] are unpositioned. There is no file
-    /// for them to point into.
+    /// The two private position fields cannot be set from outside, so the
+    /// diagnostics a built manifest raises in [`ProjectManifest::resolve`]
+    /// are unpositioned.
     pub fn new(publisher: IndexPublisher, name: IndexName, version: Version) -> Self {
         Self {
             name,
@@ -215,8 +201,7 @@ impl ProjectTable {
     /// Read and check the contents of a `[project]` table.
     ///
     /// Every key is read, and every problem pushed, before the value is
-    /// built: a missing required key must not cost the report everything
-    /// found after it.
+    /// built.
     pub fn validate(
         table: &toml::Table,
         positions: &Positions<'_>,
@@ -307,10 +292,8 @@ impl ProjectTable {
             },
         );
         // Read for the marker only (a marker is an error); the value is
-        // kept as it is and judged in `resolve`, where the family is
-        // known. Nothing about `root` -- not its type, not its shape --
-        // can be said before then: under an OMG family it is a foreign
-        // key that is ignored whatever it holds.
+        // kept as written and judged in `resolve`, where the family is
+        // known.
         let root = own(
             &reader,
             "root",
@@ -326,8 +309,7 @@ impl ProjectTable {
             ("version", version.is_some()),
         ] {
             // A key that is written but could not be read has already
-            // been reported; saying it is missing as well would be two
-            // complaints about one mistake.
+            // been reported.
             if !present && !reader.has(key) {
                 report.push(missing_key(key, reader.location(), None).at_opt(reader.here()));
             }
@@ -340,8 +322,7 @@ impl ProjectTable {
         report.extend(reader.unknown_keys(PROJECT_KEYS, None));
         report.sort_by_position();
 
-        // The value is built only once every key has been read, so that
-        // a missing one costs the report nothing found after it.
+        // The value is built only once every key has been read.
         match (name, publisher, version) {
             (Some(name), Some(publisher), Some(version)) => report.into_result(Self {
                 name,
@@ -426,11 +407,10 @@ impl ProjectManifest {
     /// Read the project side of a document: the `[project]` table and the
     /// top-level `inline-usages` array.
     ///
-    /// Which tables the document is allowed to have, and the warning for
-    /// an unknown *top-level* key, belong to the reader of the file as a
-    /// whole. An absent `[project]` is therefore not diagnosed here: it
-    /// comes back as the three required keys missing, and a file with no
-    /// project at all is refused earlier.
+    /// The reader of the file as a whole decides which tables the document
+    /// may have and warns about an unknown *top-level* key. An absent
+    /// `[project]` is not diagnosed here: it comes back as the three
+    /// required keys missing.
     pub fn validate(
         document: &toml::Table,
         positions: &Positions<'_>,
@@ -439,13 +419,11 @@ impl ProjectManifest {
         let top = TableReader::new(document, Vec::new(), KeyLocation::TopLevel, positions);
 
         // An absent `[project]` is an empty one: the three required
-        // keys are then reported missing, which is what a file with no
-        // project side has wrong with it.
+        // keys are then reported missing.
         //
-        // A `project` that is *written* but is not a table is a
-        // different thing: `TableReader::table` has already said so, and
-        // reading an empty table on top of that would add three
-        // missing-key errors for one mistake.
+        // A `project` that is *written* but is not a table has already been
+        // reported by `TableReader::table`; reading an empty table on top
+        // would add three missing-key errors.
         let empty = toml::Table::new();
         let table = top.table(TABLE, &mut report);
         let malformed = table.is_none() && top.has(TABLE);
@@ -494,8 +472,7 @@ impl ProjectManifest {
     ///
     /// Markers do not establish membership, but a project carrying one
     /// cannot be read outside a workspace, while a marker-free non-member
-    /// reads as an ordinary standalone project. That is the one question
-    /// to ask before resolving.
+    /// reads as an ordinary standalone project.
     pub fn inherits(&self) -> bool {
         let project = &self.project;
         project.publisher.inherited().is_some()
@@ -529,10 +506,8 @@ impl ProjectManifest {
     /// metamodel.
     ///
     /// `workspace` is the table of the workspace this project is a
-    /// *member* of, and `None` for every other project: markers resolve
-    /// only against the workspace the project is a member of, and a
-    /// project that is not a member is outside every workspace regardless
-    /// of where its directory sits.
+    /// *member* of, and `None` for every other project, wherever its
+    /// directory sits.
     ///
     /// Every marker is followed before the two checks that need the
     /// result, so a project with three failing markers reports three.
@@ -632,10 +607,9 @@ impl ProjectManifest {
             ),
             &mut report,
         );
-        // `metamodel` is mandatory in a `model.toml`. Checked after inheritance,
-        // because a marker satisfies the requirement like any other
-        // value. Declared and group values alike were checked against
-        // the four when their tables were read.
+        // `metamodel` is mandatory in a `model.toml`. Checked after
+        // inheritance: a marker satisfies the requirement like any other
+        // value.
         let metamodel = match metamodel {
             None => None,
             Some(None) => {
@@ -669,10 +643,8 @@ impl ProjectManifest {
             }
         }
 
-        // `root`, judged now that the family is known: judged
-        // against the *declared* metamodel, a member whose Syside
-        // metamodel arrives by marker would be warned about its own
-        // `root`.
+        // `root`, judged now that the family is known, against the
+        // effective metamodel rather than the declared one.
         let location = KeyLocation::Table(TABLE.to_owned());
         let family = metamodel.as_ref().map(|known| known.family);
         let root_written = root.is_some();
@@ -714,9 +686,7 @@ impl ProjectManifest {
                 None
             }
             // No family to judge against: the metamodel is missing or
-            // failed to resolve, and that is already in the report. A
-            // metamodel that says nothing about the schema decides
-            // nothing about `root`.
+            // failed to resolve, and that is already in the report.
             (Some(_), None) => None,
         };
 
@@ -724,10 +694,9 @@ impl ProjectManifest {
         // family's membership list too; what differs is the text
         // (`missing_sources`).
         //
-        // A project whose `metamodel` is missing entirely still gets
-        // this: every one of the four requires `sources`, so the plain
-        // missing-key text is right without a metamodel to name, and one
-        // report holds both problems.
+        // A project whose `metamodel` is missing still gets this: every
+        // one of the four requires `sources`, so the plain missing-key
+        // text is used.
         let sources = sources.or_else(|| {
             report.push(missing_sources(metamodel.as_ref()).at_opt(table_at.clone()));
             None
@@ -744,11 +713,9 @@ impl ProjectManifest {
                 .at_opt(table_at.clone()),
             );
         }
-        // `root` names one of the `sources` entries, compared as written
-        // -- the entries themselves are literal (two equal entries are a
-        // duplicate, equal, not equivalent).
-        // With no `sources` at all there is no list to be absent from,
-        // and the missing `sources` has been reported.
+        // `root` names one of the `sources` entries, compared as written.
+        // With no `sources` at all there is no list to be absent from, and
+        // the missing `sources` has been reported.
         if syside
             && let (Some(root), Some(sources)) = (root.as_ref(), sources.as_ref())
             && !sources.iter().any(|entry| entry == root)
@@ -761,15 +728,12 @@ impl ProjectManifest {
             );
         }
 
-        // The spec kind bounds what `sources` may list. Here and not in
-        // `Sources::new`, because the metamodel may itself be inherited
-        // and a table reader cannot know it; the entry's position was
-        // kept for exactly this.
+        // The spec kind bounds what `sources` may list. Checked here and
+        // not in `Sources::new`, because the metamodel may be inherited.
         //
-        // This is also where a Syside `root` with an extension the
-        // metamodel does not admit is refused: `root` is one of these
-        // entries, so this check covers it and `root` raises nothing of
-        // its own for the extension -- one file, one complaint.
+        // A Syside `root` with an extension the metamodel does not admit is
+        // refused here too, as one of these entries; `root` raises nothing
+        // of its own for the extension.
         if let (Some(sources), Some(kind)) = (sources.as_ref(), metamodel.as_ref()) {
             for (index, entry) in sources.iter().enumerate() {
                 if let Err(problem) = admitted_source(entry, kind) {
@@ -918,12 +882,9 @@ fn from_group_usage(
         .inline_usages
         .iter()
         .find(|usage| {
-            // Compared literally, and absence is part of the spelling:
-            // a group entry that declares no publisher is a
-            // standard-library usage, and only an opt-in that likewise
-            // declares none names it. The two mismatched cases fall
-            // through to "no entry with that publisher and name", which
-            // is the truth.
+            // Compared literally, and absence is part of the spelling: a
+            // group entry that declares no publisher is a standard-library
+            // usage, and only an opt-in that likewise declares none names it.
             let publisher_matches = match (publisher, usage.publisher()) {
                 (Some(wanted), Some(declared)) => wanted.as_str() == declared.as_str(),
                 (None, None) => true,
@@ -949,9 +910,8 @@ fn missing_sources(metamodel: Option<&KnownMetamodel>) -> Diagnostic {
             "missing key `sources` in {location}; the Syside metamodel requires it\n\
              (`root` names one of its entries)"
         )),
-        // No metamodel to name -- it is missing too, and said so -- but
-        // every one of the four requires `sources` in v1, so the key is
-        // missing whichever one this project turns out to declare.
+        // No metamodel to name, but every one of the four requires
+        // `sources` in v1.
         None => missing_key("sources", &location, None),
         Some(_) => Diagnostic::error(format!(
             "missing key `sources` in {location}; the OMG metamodel requires it\n\

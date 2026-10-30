@@ -329,11 +329,9 @@ pub enum NormalizeRelativeError {
 /// A manifest admits `members`/`exclude` entries only in the form this
 /// produces, and the commands that write them convert what they are given
 /// into it with this. Unlike [`parse_relative_unix_path`] it resolves `.`
-/// and `..` components rather than rejecting them, which is what a
-/// command needs for a path a user typed. Absolute paths (Unix and
-/// Windows alike), backslashes and NUL characters are rejected here
-/// exactly as they are there, so that no path this crate accepts depends
-/// on the platform it is read on.
+/// and `..` components rather than rejecting them. Absolute paths (Unix
+/// and Windows alike), backslashes and NUL characters are rejected
+/// exactly as there.
 pub fn normalize_relative(path: &str) -> Result<Utf8UnixPathBuf, NormalizeRelativeError> {
     if Utf8WindowsPath::new(&path).is_absolute() || path.starts_with('/') {
         return Err(NormalizeRelativeError::Absolute {

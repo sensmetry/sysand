@@ -223,10 +223,8 @@ impl ProjectRead for FixedDigestProject {
         ),
         Self::Error,
     > {
-        // Intentionally return None/None: the test asserts the derived
-        // enum returns the *prefetched* digest directly; if it fell
-        // through to the trait default it would see None here and return
-        // Ok(None), failing the assertion below.
+        // None/None: the derived enum must return the *prefetched* digest
+        // directly rather than fall through to the trait default.
         Ok((None, None))
     }
 
@@ -297,8 +295,7 @@ fn macro_generic_mut() {
 
 #[test]
 fn a_derived_project_forwards_a_manifest_write() {
-    // A generated `ProjectMut` enum, so that the write forwarding is
-    // exercised.
+    // A generated `ProjectMut` enum.
     let mut project = OneVariantProjectMut::Variant(InMemoryProject::new());
     let document: DocumentMut =
         "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n"

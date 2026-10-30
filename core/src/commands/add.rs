@@ -22,9 +22,8 @@ pub enum AddError<ProjectError> {
     #[error("missing project information: {0}")]
     MissingInfo(&'static str),
     /// The project is already declared by a usage of a *different* kind with
-    /// the same [`Identifier`]. Merging the two would mean choosing which
-    /// source wins, so it is refused, and we don't allow multiple usages
-    /// of the same project.
+    /// the same [`Identifier`]. Multiple usages of one project are not
+    /// allowed.
     ///
     /// [`Identifier`]: crate::project::utils::Identifier
     #[error(

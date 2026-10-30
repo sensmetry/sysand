@@ -185,7 +185,7 @@ def test_dependent_excludes_new_version(
     make_baseline: MakeBaseline, mock_index: MockIndex
 ) -> None:
     # `"0.10.1"` is caret: `>=0.10.1, <0.11.0`. The baseline resolves; the
-    # migration cannot, and the failure names the dependent as the reason.
+    # migration cannot, and the failure names the dependent.
     mock_index.publish(DEPENDENT, "1.0.0", usage=[usage(LIBRARY, "0.10.1")])
     baseline = make_baseline(extra_usages=[usage(DEPENDENT, "1.0.0")])
     mock_index.publish(LIBRARY, "0.11.0")

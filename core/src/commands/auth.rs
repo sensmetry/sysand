@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-//! `sysand auth` command orchestration (the full design is in
-//! design/credential-storage.md): `do_auth_login`, `do_auth_logout`,
+//! `sysand auth` command orchestration: `do_auth_login`, `do_auth_logout`,
 //! `do_auth_status`, and `do_auth_whoami`, over the credential store
 //! ([`LockedBlobStore`], generic over its [`BlobBackend`]).
 //!
@@ -81,9 +80,8 @@ pub enum AuthCommandError {
     )]
     WhoamiDiscoveryFailed { index: String, error: String },
     /// `whoami` targeted an index whose discovery configuration does not
-    /// advertise `api_root`: no identity endpoint to ask. The
-    /// parenthetical matters: a private index hiding its configuration
-    /// resolves to this same state.
+    /// advertise `api_root`: no identity endpoint to ask. A private index
+    /// hiding its configuration resolves to this same state.
     #[error(
         "index `{index}` does not advertise an API (`api_root`) in its\n\
          discovery configuration, so there is no identity endpoint to ask\n\
@@ -94,8 +92,7 @@ pub enum AuthCommandError {
     /// More than one credential from one source matches the `v1/whoami`
     /// URL (after collapsing entries carrying the same token), so no
     /// single identity question can be asked. `candidates` names every
-    /// matching credential (env variable names, or backticked stored
-    /// keys) so the error is actionable.
+    /// matching credential (env variable names, or backticked stored keys).
     #[error(
         "multiple credentials from {source_name} match `{url}`:\n\
          {};\n\
@@ -175,18 +172,14 @@ fn validation_rejected_message(
 }
 
 /// Whether the collected challenge schemes include HTTP `Basic`
-/// (case-insensitive): the index wants username/password, not a bearer
-/// token, and messages route the user to `SYSAND_CRED_*` basic
-/// credentials.
+/// (case-insensitive).
 pub fn schemes_include_basic(schemes: &[String]) -> bool {
     schemes.iter().any(|s| s.eq_ignore_ascii_case("basic"))
 }
 
 /// The follow-up line naming, verbatim, the offered challenge schemes
 /// sysand does not support (anything other than `Basic` and `Bearer`),
-/// or `None` when every offered scheme is supported. Shared by the
-/// refusal message and the stored-anyway warning so both name the same
-/// schemes.
+/// or `None` when every offered scheme is supported.
 pub fn unsupported_schemes_followup(schemes: &[String]) -> Option<String> {
     let unsupported: Vec<String> = schemes
         .iter()
@@ -318,8 +311,7 @@ pub struct AuthStatus {
 pub struct IndexKey {
     /// The normalized key, exactly as stored and printed.
     key: String,
-    /// The key parsed as an index location (plain root or template), so
-    /// commands need not reparse the key.
+    /// The key parsed as an index location (plain root or template).
     location: IndexLocation,
     /// The URL root credential globs anchor on: the query-stripped URL
     /// for a plain key, the literal-prefix anchor for a template key.
@@ -332,12 +324,10 @@ impl IndexKey {
     /// to its credential store key form.
     ///
     /// All index-location invariants and normalization live in
-    /// [`IndexLocation::parse`]; the key is its `Display` text. Both forms
-    /// are idempotent and round-trip through parse / `Display`, so
-    /// `auth status` prints keys in the exact form `auth logout` accepts.
+    /// [`IndexLocation::parse`]; the key is its `Display` text, which
+    /// round-trips through parse.
     ///
-    /// This is the only validation path; the CLI calls it once, before
-    /// reading a secret.
+    /// This is the only validation path.
     pub fn validate(index_url: &str) -> Result<Self, AuthCommandError> {
         Ok(IndexLocation::parse(index_url)?.into())
     }
@@ -423,9 +413,8 @@ pub enum AuthLoginNotice {
 
 /// Outcome of [`do_auth_login`].
 ///
-/// An absent keyring backend is an outcome rather than an error because
-/// the host still needs the derived globs: the CLI prints the exact
-/// `SYSAND_CRED_*` lines to set instead.
+/// An absent keyring backend is an outcome, not an error: the host still
+/// needs the derived globs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AuthLoginOutcome {
     /// The credential was persisted.
@@ -536,8 +525,7 @@ pub struct WhoamiIdentity {
     pub expires_at: Option<Timestamp>,
 }
 
-/// Wire shape of a `v1/whoami` 200 body (see
-/// design/index-api-protocol.md). Parsed leniently: an unparsable body keeps the 200
+/// Wire shape of a `v1/whoami` 200 body. Parsed leniently: an unparsable body keeps the 200
 /// verdict (accepted) and merely loses the identity fields.
 #[derive(Deserialize)]
 struct WhoamiBody {
@@ -863,8 +851,7 @@ fn probe_api_surface(
     } else if status == reqwest::StatusCode::UNAUTHORIZED {
         outcome.rejected.push((surface, status.as_u16()));
     } else if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-        // 429 is never a verdict; the protocol explicitly
-        // allows rate limiting on `v1/whoami`.
+        // 429 is never a verdict.
         notify(AuthLoginNotice::ProbeRateLimited { surface });
     } else {
         notify(AuthLoginNotice::ProbeUnreachable {
@@ -1002,8 +989,7 @@ fn forced_discovery_fetch(
 /// Run the validation probes.
 /// When discovery was unreachable the read surface falls back to the
 /// URL-derived `index.json`; the API surface is probed only when
-/// discovery advertised `api_root`, so a static index is not
-/// phantom-probed for an API it does not have.
+/// discovery advertised `api_root`.
 fn run_validation_probes(
     endpoints: Option<&ResolvedEndpoints>,
     location: &IndexLocation,
@@ -1043,8 +1029,6 @@ fn run_validation_probes(
         notify,
     );
 
-    // `api_root` is set only when discovery advertises it, so only an index
-    // with an API gets probed.
     if let Some(endpoints) = endpoints
         && let Some(api_root) = &endpoints.api_root
     {
@@ -1092,7 +1076,7 @@ fn guidance_globs(
 /// [`AuthLoginNotice::ReplacingExisting`] before the write, and only once
 /// validation has decided the write will happen. An absent keyring
 /// backend returns [`AuthLoginOutcome::BackendUnavailable`] before any
-/// probe runs: no network is spent on a credential that cannot be stored.
+/// probe runs.
 pub fn do_auth_login<B: BlobBackend>(
     store: &mut LockedBlobStore<B>,
     index_key: &IndexKey,
@@ -1257,9 +1241,8 @@ pub enum WhoamiVerdict {
 }
 
 /// What [`do_auth_whoami`] found: the normalized index key, the exact URL
-/// asked, which credential was sent (the host must name it: an env
-/// credential shadows a stored credential, so "re-login" would be the wrong
-/// remediation for a rejected env credential), and the verdict.
+/// asked, which credential was sent (an env credential shadows a stored
+/// one, so the host must name it), and the verdict.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthWhoamiOutcome {
     pub key: String,
@@ -1335,10 +1318,8 @@ fn select_whoami_credential(
 /// credential the runtime would use
 /// ([`select_whoami_credential`]), and send one forced-bearer GET to
 /// `api_root/v1/whoami` with the no-redirect probe client. Never prompts,
-/// never prints, never touches a credential store: taking a `records`
-/// snapshot lets the host share one store read between this selection and
-/// its discovery policy, keeping whoami at one keychain touch. Cached
-/// identity fields on a stored record are deliberately not refreshed.
+/// never prints, never touches a credential store: it takes a `records`
+/// snapshot. Cached identity fields on a stored record are not refreshed.
 ///
 /// `discovery_auth` is the discovery-fetch policy: unlike login, whoami
 /// runs when a credential exists and a private index may gate its

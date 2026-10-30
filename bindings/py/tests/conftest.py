@@ -188,9 +188,7 @@ def make_baseline(tmp_path: Path, mock_index: MockIndex) -> MakeBaseline:
             "usage": usages,
         }
         # A legacy json project, written by hand rather than through
-        # `sysand.init`, which writes a `model.toml`: these scenarios are
-        # about migrating an existing json project, so json is the point.
-        # Initialising and then overwriting would leave the directory
+        # `sysand.init`, which writes a `model.toml`. Initialising and then overwriting would leave the directory
         # holding both manifests, which nothing can read.
         #
         # sysand's own pretty format (2-space indent, trailing newline):

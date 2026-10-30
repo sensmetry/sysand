@@ -15,10 +15,8 @@ use super::{
     install_default_crypto_provider, jittered, parse_retry_after, retry_after, retry_reason,
 };
 
-/// The reason [`install_default_crypto_provider`] exists. `reqwest` is taken
-/// with `rustls-no-provider`, so it has no compiled-in provider to fall back
-/// on and `build()` fails outright unless something installed one -- and
-/// `create_reqwest_client` is used by callers that know nothing about rustls.
+/// `reqwest` has no compiled-in provider, so `build()` fails unless
+/// [`install_default_crypto_provider`] ran.
 #[test]
 fn create_reqwest_client_needs_no_provider_from_the_caller() {
     assert!(
@@ -28,10 +26,8 @@ fn create_reqwest_client_needs_no_provider_from_the_caller() {
     );
 }
 
-/// Installing must stay idempotent. `install_default` returns `Err` once a
-/// provider is set, and discarding that error is what lets an application
-/// install its own provider first and keep it -- so a second call must be
-/// harmless.
+/// A second call is harmless, and an application's own provider installed
+/// first is kept.
 #[test]
 fn install_default_crypto_provider_is_idempotent() {
     install_default_crypto_provider();

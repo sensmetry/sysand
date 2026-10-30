@@ -699,8 +699,7 @@ fn an_unlisted_target_is_not_given_the_table() -> Result<(), Box<dyn std::error:
     run_sysand_in(&app, ["migrate"], None)?
         .assert()
         .failure()
-        // Its own marker is what fails, because it is not a member --
-        // not a complaint about the workspace it sits near.
+        // Its own marker fails: it is not a member.
         .stderr(predicate::str::contains("not a member of any workspace"));
     Ok(())
 }
@@ -831,8 +830,7 @@ fn index_with_versions_declaring(
 /// pinned to `^<version>`, where `<version>` is the version that
 /// resolution found.
 ///
-/// Two versions, because a single-version fixture cannot show *which*
-/// one resolution found.
+/// Two versions are published, to show *which* one resolution found.
 #[test]
 fn an_unconstrained_purl_is_pinned() -> Result<(), Box<dyn std::error::Error>> {
     let mut server = Server::new();
@@ -882,8 +880,7 @@ fn an_unconstrained_purl_that_resolves_to_nothing_is_refused()
 }
 
 /// A purl that already carries a constraint keeps it -- and still
-/// consults the index, because the pair a `model.toml` writes is the
-/// one the target declares and a PURL's is normalized by construction.
+/// consults the index.
 #[test]
 fn a_constrained_purl_takes_the_targets_spelling() -> Result<(), Box<dyn std::error::Error>> {
     let mut server = Server::new();
@@ -1413,9 +1410,6 @@ fn a_lone_meta_json_beside_a_toml_is_finished_off() -> Result<(), Box<dyn std::e
 /// `sysand migrate` on the `sysand/tests/data/test_lib` fixture (copied
 /// into a git repository) yields the expected `model.toml`, and the
 /// project then locks, syncs and builds.
-///
-/// The point is that a migrated project is a *working* project, not a
-/// well-formed file.
 ///
 /// Offline: the fixture's `usage` is empty, so migrate needs no index
 /// and lock has nothing to resolve. It carries neither a publisher nor

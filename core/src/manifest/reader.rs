@@ -10,17 +10,15 @@
 //! Sysand's own validation, which reports every problem it finds in one
 //! report, with the position of each.
 //!
-//! A `#[derive(Deserialize)]` struct cannot do that: a value of the wrong
-//! TOML type fails inside `serde`, which aborts the whole file at the
-//! first one. So a document is deserialized into plain [`toml::Value`]s,
-//! which accept every type, and every judgement about a value is made
-//! here, against the span index of [`crate::manifest::spans`].
+//! Values are deserialized into plain [`toml::Value`]s, which accept every
+//! type, and every judgement about a value is made here, against the span
+//! index of [`crate::manifest::spans`].
 //!
-//! [`TableReader`] is what makes that bearable: it carries the four
-//! things that are constant while one table is read -- the table, the
-//! path that addresses it in the span index, the [`KeyLocation`] its
-//! messages name, and the positions -- and turns "look the key up, check
-//! its type, position the complaint" into one call.
+//! [`TableReader`] carries the four things that are constant while one
+//! table is read -- the table, the path that addresses it in the span
+//! index, the [`KeyLocation`] its messages name, and the positions -- and
+//! turns "look the key up, check its type, position the complaint" into one
+//! call.
 
 use toml::Value;
 
@@ -31,10 +29,6 @@ use crate::model::KnownMetamodel;
 
 /// How a message names the TOML type a value turned out to have, with
 /// the article that reads in "but it is ...".
-///
-/// Public because every reader of a manifest value says the same thing
-/// about a value of the wrong type, including the ones that do not go
-/// through a [`TableReader`].
 pub fn describe(value: &Value) -> &'static str {
     match value {
         Value::String(_) => "a string",
@@ -51,9 +45,8 @@ pub fn describe(value: &Value) -> &'static str {
 /// otherwise go; this is the value it carries, when it is one.
 ///
 /// Recognized here so that a marker written where nothing can be
-/// inherited says so. Public because
-/// [`crate::manifest::inherit`] recognizes the same shape where a marker
-/// *is* allowed, and the two must agree on what one is.
+/// inherited says so. [`crate::manifest::inherit`] recognizes the same
+/// shape where a marker is allowed.
 pub fn marker_value(value: &Value) -> Option<&Value> {
     match value {
         Value::Table(table) if table.len() == 1 => table.get("workspace"),
@@ -128,8 +121,7 @@ impl<'a> TableReader<'a> {
     }
 
     /// One warning per key the caller did not ask for, each at its own key. `metamodel` is named in
-    /// the "this may be because" suffix: an unrecognized metamodel may
-    /// be why the key is not known.
+    /// the "this may be because" suffix.
     pub fn unknown_keys(&self, known: &[&str], metamodel: Option<&str>) -> Vec<Diagnostic> {
         self.table
             .keys()
@@ -156,8 +148,7 @@ impl<'a> TableReader<'a> {
     }
 
     /// The values of a key that holds an array of strings. Every element
-    /// that is not one is reported on its own, so one bad entry does not
-    /// cost the reader the rest of the array.
+    /// that is not one is reported on its own.
     pub fn strings(&self, key: &str, report: &mut Report) -> Option<Vec<&'a str>> {
         let value = self.table.get(key)?;
         let Value::Array(elements) = value else {
@@ -327,9 +318,7 @@ pub fn parsed<T, E: std::fmt::Display>(
 
 /// Exactly four values are recognized; a value matching none of the four
 /// shapes is an error naming the key and listing them. That holds for a group's value as much as for a
-/// `[project]`'s: a group's value exists to be inherited by one. There is
-/// no separate URL check: all four are URLs, so a value that is not one is
-/// not one of the four either, and one message about one key is enough.
+/// `[project]`'s. There is no separate URL check: all four are URLs.
 pub fn metamodel(reader: &TableReader<'_>, report: &mut Report) -> Option<KnownMetamodel> {
     let raw = reader.string("metamodel", report)?;
     let metamodel = KnownMetamodel::recognize(raw);

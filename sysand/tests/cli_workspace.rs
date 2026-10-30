@@ -48,11 +48,9 @@ fn workspace(root_text: &str) -> Result<camino_tempfile::Utf8TempDir, Box<dyn st
     Ok(dir)
 }
 
-/// `local-dep` and `src-proj` are excluded because
-/// `dependency` writes them *under the root*: a project there that is
-/// in neither list is refused, and a fixture that relies on
-/// one being read is relying on the rule not being enforced. `stray` is
-/// deliberately *not* excluded: the tests that use it are about what an
+/// `local-dep` and `src-proj` are excluded because `dependency` writes
+/// them *under the root*, where a project in neither list is refused.
+/// `stray` is *not* excluded: the tests that use it are about what an
 /// unlisted project does.
 const ROOT: &str = "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"app\"]\n\
      exclude = [\"local-dep\", \"src-proj\"]\n";
@@ -453,7 +451,7 @@ fn a_nested_workspace_is_refused() -> Result<(), Box<dyn std::error::Error>> {
 /// refuse the workspace should not first warn about where it would have
 /// read `sysand.toml`.
 ///
-/// The stray file sits one directory *below* the member, because in a
+/// The stray file sits one directory *below* the member: in a
 /// nested workspace `config_root` falls back to the project root -- the
 /// member itself -- so a `sysand.toml` in the member is "the root's own
 /// file" and is never reported whatever the ordering.
@@ -519,9 +517,7 @@ fn cloning_from_an_unlisted_path_is_refused() -> Result<(), Box<dyn std::error::
 }
 
 /// `add` **writes**, so it must refuse before recording the usage in the
-/// member's manifest: otherwise the `lock` that follows refuses the file
-/// `add` has just written, leaving no way forward that does not involve
-/// editing the manifest by hand.
+/// member's manifest.
 #[test]
 fn adding_a_dir_usage_to_an_unlisted_project_is_refused() -> Result<(), Box<dyn std::error::Error>>
 {
@@ -652,9 +648,7 @@ fn an_excluded_project_is_not_unlisted() -> Result<(), Box<dyn std::error::Error
 }
 
 /// `lock` twice in a member still works, and writes one file -- at the
-/// workspace root. The scope check reads the table and not the members,
-/// which is why a member holding a lockfile of its own does not stop
-/// anything either.
+/// workspace root. The scope check reads the table and not the members.
 #[test]
 fn a_members_own_lockfile_does_not_stop_a_later_command() -> Result<(), Box<dyn std::error::Error>>
 {
@@ -903,8 +897,7 @@ fn build_member_from_the_root_builds_one() -> Result<(), Box<dyn std::error::Err
 }
 
 /// And by the project's name, which is in the member's own manifest
-/// rather than in the workspace table -- the reason a selector loads
-/// the workspace where the rest of the CLI only consults it.
+/// rather than in the workspace table.
 #[test]
 fn a_member_selector_matches_a_name_too() -> Result<(), Box<dyn std::error::Error>> {
     let dir = two_member_workspace()?;
@@ -1550,9 +1543,8 @@ fn sources_from_a_member_dir_lists_that_member() -> Result<(), Box<dyn std::erro
 /// The writing commands `remove`, `include` and `exclude` from a member
 /// directory.
 ///
-/// Each asserts its own effect, because the invariants differ: only
-/// `remove` re-locks, and none of them writes the root `model.toml`, so
-/// "the members list is intact" would be vacuous for all three.
+/// Each asserts its own effect: only `remove` re-locks, and none of them
+/// writes the root `model.toml`.
 #[test]
 fn writing_commands_in_a_member_act_on_that_member() -> Result<(), Box<dyn std::error::Error>> {
     let dir = two_member_workspace()?;

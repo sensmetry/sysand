@@ -32,8 +32,8 @@ use typed_path::Utf8UnixPath;
 use crate::{cli::ResolutionOptions, default_index_location, get_overrides};
 
 /// The resolver [`create_resolver`] builds: overrides, then provided
-/// projects, then the standard file/env/index stack. Named so that callers
-/// (the language bindings) can match the errors it produces.
+/// projects, then the standard file/env/index stack. Named so the language
+/// bindings can match its errors.
 pub type CliResolver<Policy> = PriorityResolver<
     PriorityResolver<
         MemoryResolver<AcceptResource, ProjectReference<AnyProject<Policy>>>,

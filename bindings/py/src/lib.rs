@@ -129,11 +129,7 @@ fn run_cli_blocking(args: Vec<String>) -> u8 {
 /// stream redirect of `sys.stdout`/`sys.stderr` does not capture. `prog` is the
 /// program name to spell in usage lines.
 ///
-/// Unparseable arguments give clap's error text, not an exception: a caller
-/// asking for help has nowhere useful to put a failure.
-///
-/// No `py.detach`, unlike `_run_cli`: this is string formatting, with no I/O
-/// and no network.
+/// Unparseable arguments give clap's error text, not an exception.
 #[pyfunction(name = "_render_long_help")]
 #[pyo3(
     signature = (prog, args),
@@ -712,9 +708,8 @@ fn provided_projects(specs: Vec<ProvidedSpec>) -> PyResult<ProvidedProjects> {
 /// Whether an entry point acts on the workspace a path sits in.
 ///
 /// The answer differs per command: `lock` acts on the whole workspace,
-/// while `migrate` deliberately does not -- an unlisted json project
-/// under a workspace root is exactly the one a user wants to migrate.
-/// So the scope is a parameter here.
+/// while `migrate` does not: an unlisted json project under a workspace
+/// root is the one a user wants to migrate.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Scope {
     /// The enclosing workspace, when the path is in one: its lockfile,
@@ -1726,8 +1721,7 @@ fn do_add_py(
 /// Refuses anything that is not an IRI a resource usage could name, with the
 /// message `do_add_py` gives for it. `do_remove` and
 /// `do_set_usage_constraint_local` take their argument as given, without
-/// checking that it is an IRI, so a typo would otherwise be reported as
-/// "not found". Returns the parsed IRI.
+/// checking that it is an IRI. Returns the parsed IRI.
 fn validate_iri(iri: String) -> PyResult<Iri<String>> {
     match (InterchangeProjectUsageRaw::Resource {
         resource: iri,
@@ -1744,9 +1738,8 @@ fn validate_iri(iri: String) -> PyResult<Iri<String>> {
     }
 }
 
-/// The exception classes live in Python (`_errors.py`) so that `mypy` sees
-/// their attributes; the Rust side only needs to raise them, and is handed
-/// them by `_register_errors`.
+/// The exception classes live in Python (`_errors.py`); the Rust side raises
+/// them and is handed them by `_register_errors`.
 #[expect(
     dead_code,
     reason = "the macro gives every class both constructors, and most classes \
@@ -2135,9 +2128,8 @@ fn do_env_projects_py(env_path: String) -> PyResult<Vec<EnvProject>> {
 ///
 /// The workspace is a `model.toml` holding a `[workspace]` table, found
 /// by `discover_table` -- the function `run_cli` uses for the same
-/// question. Not `Workspace::discover`, which also reads every member:
-/// asking where you are should not fail because some unrelated member
-/// is malformed. It can still fail on the workspace file itself, and on
+/// question. Does not read the members, so a malformed member does not
+/// fail it. It can still fail on the workspace file itself, and on
 /// a nested workspace, which is a configuration error every command
 /// rejects.
 ///

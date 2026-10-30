@@ -895,7 +895,7 @@ pub(crate) fn stored_bearer_map_from_records(
 ) -> GlobMap<StoredBearerAuth> {
     let mut builder = GlobMapBuilder::new();
     for record in records {
-        // Exhaustive on purpose: adding a scheme must revisit this map.
+        // Exhaustive: adding a scheme must revisit this map.
         match record.scheme {
             CredentialScheme::Bearer => {}
         }

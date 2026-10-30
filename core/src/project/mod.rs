@@ -1145,9 +1145,7 @@ pub trait ProjectMut: ProjectRead {
     /// serves generated and edited files, so a writer takes the type
     /// rather than the text.
     ///
-    /// The default refuses, because most projects have nowhere to put
-    /// one -- and so that an implementation outside this crate compiles
-    /// without writing it.
+    /// The default refuses.
     ///
     /// `overwrite` governs a manifest that is already there, as it does
     /// for the two json documents. Whether a project that holds json
@@ -1279,10 +1277,9 @@ where
         self.inner.sources(ctx)
     }
 
-    // Forward selected `ProjectRead` methods explicitly so that important
-    // sync-side overrides on the wrapped `T` are honoured on the async side
-    // too. Without the forward, wrapping a `T` that exposes a prefetched
-    // digest would silently fall back to a full download on the async side.
+    // Forward selected `ProjectRead` methods explicitly so that sync-side
+    // overrides on `T` (e.g. a prefetched digest) are honoured on the async
+    // side too.
     async fn get_info_async(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
         self.inner.get_info()
     }

@@ -463,8 +463,7 @@ fn the_publisher_comes_from_options_when_the_file_has_none() {
 }
 
 /// The file's own publisher is migrated rather than overridden. Both
-/// values are set, and they differ, or the assertion would pass under
-/// either precedence.
+/// values are set and differ.
 #[test]
 fn the_files_publisher_wins_over_the_option() {
     let manifest = match migrate_project(
@@ -916,8 +915,7 @@ fn usage_errors(usages: Vec<InterchangeProjectUsageRaw>) -> String {
     errors(&raw, &meta(), &MigrateOptions::default())
 }
 
-/// Without this, `migrate` writes a manifest `sysand` cannot read --
-/// after deleting the json pair that was the only readable copy.
+/// Two usages of one identity are refused.
 #[test]
 fn two_usages_of_one_identity_are_refused() {
     let rendered = usage_errors(vec![
@@ -940,12 +938,8 @@ fn a_duplicate_is_normalized_not_literal() {
 
 /// The write path says what the read path says, word for word.
 ///
-/// `check_duplicate_usages` exists because `check_duplicates` cannot be
-/// called here -- it takes usage sites and a span index -- and its
-/// reason for existing is that a user who fixes the json and reads it
-/// back should not meet a second phrasing of one rule. Both use
-/// `duplicate_message`; the two substring assertions above would not
-/// notice the two wordings drifting apart.
+/// Both paths use `duplicate_message`; the two substring assertions above
+/// would not notice the two wordings drifting apart.
 #[test]
 fn the_write_path_uses_the_read_paths_wording() {
     let rendered = usage_errors(vec![
@@ -1129,8 +1123,7 @@ fn an_index_value_the_metamodel_does_not_admit_is_reported_per_entry() {
 }
 
 /// The checks are skipped when the metamodel did not resolve: that has
-/// been reported already, and a second complaint about a language nobody knows
-/// would only crowd the report.
+/// been reported already.
 #[test]
 fn an_unresolved_metamodel_skips_the_language_check() {
     let mut m = with_metamodel(None);
@@ -1145,10 +1138,8 @@ fn an_unresolved_metamodel_skips_the_language_check() {
 }
 
 /// A json usage's spellings only had to match after normalization, so a
-/// migrated manifest has to take the target's. The CLI does the
-/// rewriting -- it has the filesystem -- and this pins what it is for:
-/// without it `migrate` writes a `model.toml` that `sysand lock`
-/// refuses, after deleting the json pair it was converted from.
+/// migrated manifest has to take the target's. The CLI does the rewriting;
+/// this pins that the json spelling is kept here.
 #[test]
 fn a_typed_usage_keeps_the_json_spelling_here() {
     let mut raw = info("widgets", Some("acme"), "1.0.0");

@@ -18,10 +18,8 @@ use crate::{
 /// Writes `files` (relative path, content) into `dir`, makes `dir` a git
 /// repository and commits them, leaving an index that matches the commit.
 ///
-/// Built with gix in isolation rather than with the `git` binary: no
-/// system, user or environment git configuration is read, so nothing on
-/// the machine running the tests (commit signing, hooks, a default branch)
-/// changes the repository.
+/// Built with gix in isolation: no system, user or environment git
+/// configuration is read.
 pub(crate) fn git_commit_files(
     dir: &Utf8Path,
     files: &[(&str, &str)],

@@ -495,7 +495,7 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
 /// contain a type that already implements `ProjectMut`. All trait methods
 /// are delegated to the active variant.
 ///
-/// Because `ProjectMut` extends `ProjectRead`, this derive requires
+/// `ProjectMut` extends `ProjectRead`, so this derive requires
 /// that the enum also implement `ProjectRead`. In typical usage, this is
 /// provided by the corresponding [`ProjectRead`] derive macro.
 ///

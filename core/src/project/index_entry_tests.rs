@@ -8,8 +8,7 @@
 //! mapping) live in `core/src/env/index_tests.rs` because they need
 //! mockito to drive the HTTP side. These tests pin the network-free
 //! contracts on the advertised tier: advertised fields are returned
-//! without I/O, and before any download the checksum is too. The only way
-//! to regress that silently is to add a fetch to one of those methods.
+//! without I/O, and before any download the checksum is too.
 
 use std::sync::Arc;
 

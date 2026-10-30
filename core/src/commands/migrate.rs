@@ -38,13 +38,11 @@ use crate::{
 /// How a `resource` usage that names its target by location is turned
 /// into a usage.
 ///
-/// A callback, and it returns the *finished* usage, because every step
-/// is a filesystem question: which of `file:`'s two project kinds the
-/// target is, what its publisher and name are, and what the path looks
-/// like relative to the project being migrated. Keeping them here would
-/// make this module impure and, for the URL conversion, unbuildable --
-/// `url::Url::to_file_path` is `cfg`'d off on the wasm target
-/// `bindings/js` builds.
+/// A callback that returns the *finished* usage, since every step is a
+/// filesystem question: which of `file:`'s two project kinds the target
+/// is, what its publisher and name are, and what the path looks like
+/// relative to the project being migrated. `url::Url::to_file_path` is
+/// `cfg`'d off on the wasm target `bindings/js` builds.
 pub type TargetLookup<'a> = &'a dyn Fn(&str) -> Result<Usage, String>;
 
 /// What the caller supplies that the documents do not.
@@ -200,10 +198,7 @@ fn migrate_publisher(
 /// `index` maps *symbol* to path, so a file exporting ten symbols
 /// appears ten times.
 /// Public so that comparing a json project's file list against a
-/// `model.toml`'s can apply the same normalization:
-/// migration rewrites json paths into the strict form `sources` takes,
-/// so a comparison that skipped this would report differences the
-/// rewrite erases.
+/// `model.toml`'s can apply the same normalization.
 pub fn migrate_sources(
     meta: &InterchangeProjectMetadataRaw,
     metamodel: Option<&KnownMetamodel>,
@@ -319,12 +314,9 @@ fn listed(keys: &[String]) -> String {
 /// `model.toml` admits neither: the command then errors before writing,
 /// unless `--metamodel <url>` supplies a recognized value.
 ///
-/// So this is *not* `migrate_publisher`'s rule, which keeps a declared
-/// value and falls back only when there is none: a metamodel
-/// `model.toml` cannot hold is no more usable than an absent one, and
-/// the flag replaces it. There is no separate IRI check -- the four
-/// values are IRIs, so one that parses as a metamodel is one, and a
-/// second message about the same key would only crowd the report.
+/// Unlike `migrate_publisher`'s rule, which keeps a declared value and
+/// falls back only when there is none, the flag replaces a declared
+/// metamodel `model.toml` cannot hold.
 fn migrate_metamodel(
     meta: &InterchangeProjectMetadataRaw,
     options: &MigrateOptions,
@@ -420,17 +412,11 @@ fn warn_discarded(meta: &InterchangeProjectMetadataRaw, report: &mut Report) {
 ///
 /// That function cannot be called: its signature takes usage *sites*
 /// and a span index, and a manifest built from values has neither. The
-/// two pieces that do not depend on positions are shared -- the scan
-/// (`duplicate_pairs`) and the wording (`duplicate_message`) -- so a
-/// user who fixes the json and reads it back meets one phrasing of one
-/// rule, which is what this function is for.
+/// scan (`duplicate_pairs`) and the wording (`duplicate_message`) are
+/// shared.
 ///
 /// Pairwise, as the read path is: three colliding entries produce two
 /// diagnostics, the same as reading such a file back.
-///
-/// Without this, `migrate` writes a `model.toml` that `sysand` itself
-/// refuses to read -- after deleting the json manifests that were the
-/// only readable copy.
 fn check_duplicate_usages(usages: &[MemberUsage], report: &mut Report) {
     for (first, later) in duplicate_pairs(usages, MemberUsage::identity) {
         report.push(Diagnostic::error(duplicate_message(
@@ -549,8 +535,7 @@ fn migrate_resource(
                 let Some(raw) = version_constraint else {
                     // Resolved at migration time and pinned to
                     // `^<version>`, `<version>` being the version that
-                    // resolution found. Which version that is belongs to
-                    // the lookup, with the index.
+                    // resolution found.
                     return match target(resource) {
                         Ok(usage) => Some(usage),
                         Err(reason) => {
@@ -569,11 +554,9 @@ fn migrate_resource(
                         return None;
                     }
                 };
-                // A `model.toml` never holds a normalized identity, and
-                // a PURL's halves are
-                // normalized by construction -- so the pair comes from
-                // the target, as the unconstrained arm's already does.
-                // Only the constraint is the json project's.
+                // A `model.toml` never holds a normalized identity, so the
+                // pair comes from the target, as the unconstrained arm's
+                // already does. Only the constraint is the json project's.
                 match target(resource) {
                     Ok(Usage::Index {
                         publisher,
@@ -619,9 +602,7 @@ fn migrate_resource(
             if let Some(constraint) = version_constraint {
                 // A standard-library IRI is the one URL whose meaning is
                 // known here, so the constraint is refused rather than
-                // dropped: the IRI names one release, and silently
-                // discarding the constraint would throw away the only
-                // statement the author made about which one they wanted.
+                // dropped: the IRI names one release.
                 if crate::model::is_omg_stdlib_iri(resource) {
                     report.push(Diagnostic::error(format!(
                         "usage `{resource}` carries `version` `{constraint}`, which a `kpar-url` \

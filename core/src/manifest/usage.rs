@@ -27,9 +27,7 @@ use crate::manifest::reader::describe;
 use crate::manifest::spans::Positions;
 use crate::model::{IndexName, IndexPublisher, is_omg_stdlib_iri};
 
-/// The keys a usage entry accepts, quoted as the
-/// message lists them. One constant, so that the message and the fields
-/// of [`UsageRaw`] cannot drift apart.
+/// The keys a usage entry accepts, quoted as the message lists them.
 const ACCEPTED_KEYS: &str =
     "`publisher`, `name`, `version`, `dir`, `kpar-path`, `kpar-url`, `workspace`";
 
@@ -84,11 +82,8 @@ impl Usage {
     /// The publisher as *written*, which a standard-library usage does
     /// not write.
     ///
-    /// Deliberately not `(omg, ...)`'s `omg`: that is the identity this
-    /// usage resolves under, not a word its author typed, and a
-    /// workspace group opt-in, which matches literally, or a label, which
-    /// quotes the entry back, would be wrong to see it.
-    /// [`Self::identity`] is where the fallback belongs.
+    /// Not `omg`: that is the identity this usage resolves under, not a word
+    /// its author typed. [`Self::identity`] is where the fallback belongs.
     pub fn publisher(&self) -> Option<&IndexPublisher> {
         match self {
             Self::SourcePath {
@@ -256,7 +251,7 @@ impl LocatedUsage {
 ///
 /// Members opt in per usage, not for the array as a whole: an entry that
 /// gives only the identity plus a `workspace` marker takes the matching
-/// group entry whole. A member may declare its own usages alongside inherited ones, so an entry is either.
+/// group entry whole.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MemberUsage {
     Declared(Usage),
@@ -267,13 +262,8 @@ pub enum MemberUsage {
         publisher: Option<IndexPublisher>,
         name: IndexName,
         from: InheritFrom,
-        /// Where the `workspace` key that made this an opt-in is.
-        ///
-        /// Kept for the same reason
-        /// [`crate::manifest::inherit::Inherited`] keeps one: the
-        /// diagnostics an opt-in can produce are raised once the
-        /// workspace is known, by which time the positions of this
-        /// file are no longer at hand.
+        /// Where the `workspace` key that made this an opt-in is, kept for
+        /// diagnostics raised once the workspace is known.
         at: Option<Position>,
     },
 }
@@ -282,10 +272,8 @@ impl MemberUsage {
     pub fn identity(&self) -> NormalizedIdentity {
         match self {
             Self::Declared(usage) => usage.identity(),
-            // The same fallback `Usage::identity` makes: an opt-in
-            // that omits its publisher opts into the standard library,
-            // and must therefore collide with a `kpar-url` entry for the
-            // same library.
+            // The same fallback `Usage::identity` makes: an opt-in that
+            // omits its publisher opts into the standard library.
             Self::Inherited {
                 publisher,
                 name,
@@ -342,10 +330,6 @@ impl UsageEntry for MemberUsage {
 /// Where one entry sits in the document: which array of tables holds it,
 /// named by its dotted path (`inline-usages`,
 /// `workspace.group.legacy.inline-usages`), and its index in that array.
-///
-/// Carried per entry,
-/// because what reaches a duplicate check is the entries that *validated*
-/// and one rejected entry would shift every later index.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct UsageSite<'a> {
     pub array: &'a str,
@@ -387,21 +371,15 @@ fn borrowed(segments: &[String]) -> Vec<&str> {
 
 /// The `serde`-facing shape of one entry.
 ///
-/// Every field is optional at parse time, and whether its value has the
-/// right shape is Sysand's to check, not serde's -- so every field is a plain
-/// `String` and every value is parsed in [`UsageRaw::validate_member`].
-/// The alternative, validating inside `Deserialize`, makes one bad value
-/// anywhere abort the read of the whole file.
+/// Every field is a plain `String`, and every value is parsed in
+/// [`UsageRaw::validate_member`].
 ///
-/// `git`, `rev`, `tag` and `branch` are recognized fields
-/// because the git kind is reserved; a reader that called them unknown
-/// would say they will never exist.
+/// `git`, `rev`, `tag` and `branch` are recognized fields because the git
+/// kind is reserved.
 ///
-/// Read from a [`toml::Table`] rather than through `Deserialize`
-/// ([`UsageRaw::from_table`]): a derive fails the whole file on the first
-/// value of the wrong TOML type, which would not allow reporting every
-/// problem in one report. `Serialize` stays,
-/// for writing a usage back out through `From<Usage>`.
+/// Read from a [`toml::Table`] ([`UsageRaw::from_table`]) rather than
+/// through `Deserialize`. `Serialize` stays, for writing a usage back out
+/// through `From<Usage>`.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct UsageRaw {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -438,10 +416,9 @@ pub struct UsageRaw {
     /// The keys that were written with a value of the wrong TOML type,
     /// each with the type that was found there.
     ///
-    /// The value itself is gone, so what such an entry declares cannot be
-    /// decided from what is left: an entry with one of these is refused
-    /// without asking it for a kind, which would otherwise report a
-    /// wrong-typed `dir` as an index usage that is missing its `version`.
+    /// The value itself is gone, so an entry with one of these is refused
+    /// without asking it for a kind, which would report a wrong-typed `dir`
+    /// as an index usage that is missing its `version`.
     #[serde(skip)]
     pub wrong_typed: BTreeMap<String, &'static str>,
 }
@@ -449,10 +426,9 @@ pub struct UsageRaw {
 impl UsageRaw {
     /// Read one entry out of the values a `model.toml` parsed into.
     ///
-    /// Nothing is judged here and nothing is reported: this takes what
-    /// has the right shape, remembers what does not, and leaves every
-    /// diagnostic to [`UsageRaw::validate_member`], which is the one
-    /// place that decides what an entry means.
+    /// Nothing is judged here and nothing is reported: this takes what has
+    /// the right shape, remembers what does not, and leaves every diagnostic
+    /// to [`UsageRaw::validate_member`].
     pub fn from_table(table: &toml::Table) -> Self {
         let mut raw = Self::default();
         let mut strings: BTreeMap<&str, String> = BTreeMap::new();
@@ -509,9 +485,8 @@ impl UsageRaw {
         match self.publisher.as_deref() {
             Some(publisher) => format!("{publisher}/{name}"),
             // A standard-library usage declares no publisher and is
-            // spelled by its name alone; an entry that *should* have one
-            // is told so separately, and `<none>/lib` would only make
-            // every other message about it harder to read.
+            // spelled by its name alone; an entry that *should* have one is
+            // told so separately.
             None => name.to_owned(),
         }
     }
@@ -956,9 +931,8 @@ impl Kind {
 /// entries agree on kind or constraint. The arrays are counted
 /// separately, since a workspace config holds several.
 ///
-/// Every colliding pair is reported, so that one edit
-/// round fixes the file; each diagnostic points at the later of the two,
-/// which is the entry the reader would delete.
+/// Every colliding pair is reported; each diagnostic points at the later
+/// of the two, which is the entry the reader would delete.
 pub fn check_duplicates<E: UsageEntry>(
     entries: &[(UsageSite<'_>, E)],
     positions: &Positions<'_>,
@@ -976,15 +950,11 @@ pub fn check_duplicates<E: UsageEntry>(
 /// The one wording of the duplicate rule.
 ///
 /// For a write path that applies the same rule and cannot call
-/// [`check_duplicates`] -- that takes usage *sites* and a span index,
-/// which a manifest built from values does not have -- so that a user
-/// who fixes the json and reads it back does not meet a second phrasing
-/// of one rule.
+/// [`check_duplicates`], which takes usage *sites* and a span index that a
+/// manifest built from values does not have.
 ///
 /// `sysand add` refusing to append an entry the file already has is a
-/// *different* rule -- one entry against a file, not a file against
-/// itself -- and "already declared" is what a person running `add`
-/// needs to hear; it is deliberately not this.
+/// different rule, and says "already declared".
 pub fn duplicate_message(first: &str, later: &str) -> String {
     format!(
         "usages `{first}` and `{later}` name the same project; two entries whose publisher and \
@@ -995,9 +965,8 @@ pub fn duplicate_message(first: &str, later: &str) -> String {
 /// The pairs of entries whose identities are equal, as `(earlier,
 /// later)` indices.
 ///
-/// Every colliding pair, so that one edit round
-/// fixes the file; the later index is the entry a reader would delete.
-/// Positions are the caller's business; this sees only the items.
+/// Every colliding pair; the later index is the entry a reader would
+/// delete. Positions are the caller's business; this sees only the items.
 pub fn duplicate_pairs<T, I: PartialEq>(
     items: &[T],
     identity: impl Fn(&T) -> I,
@@ -1085,9 +1054,8 @@ impl Display for Usage {
 /// `/`-separated, with no backslash or NUL, no `.` component, `..` only
 /// as the leading components of a relative path, and no empty component
 /// -- so no repeated or trailing slash. Unlike `sources` and `members`,
-/// such a path may leave the directory it is relative to, which is what
-/// the leading `..` are for. An absolute path is admitted, and held to the
-/// same rules past its root.
+/// such a path may leave the directory it is relative to. An absolute
+/// path is admitted, and held to the same rules past its root.
 fn is_normal_local_path(raw: &str) -> bool {
     if raw.contains(['\\', '\0']) {
         return false;

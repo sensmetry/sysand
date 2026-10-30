@@ -160,8 +160,7 @@ fn a_toml_project_builds() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// `created` is the time of the build, so two builds of identical
-/// sources are not byte-identical. The view records the epoch on
-/// purpose, and an archive must not.
+/// sources are not byte-identical.
 #[test]
 fn a_toml_build_records_the_build_time() -> Result<(), Box<dyn std::error::Error>> {
     let dir = toml_project("")?;
@@ -319,8 +318,7 @@ fn a_workspace_of_toml_members_records_the_build_time() -> Result<(), Box<dyn st
     Ok(())
 }
 
-/// `publisher` goes into `project.publisher` unless the project carries
-/// `stdlib`, so that a locally built standard-library KPAR matches the
+/// `stdlib`.
 /// published one.
 ///
 /// `ProjectManifest::resolve` accepts `stdlib` only for a publisher
@@ -815,10 +813,9 @@ fn json_member(dir: &camino_tempfile::Utf8TempDir, at: &str, deps: &[&str]) {
 
 /// The refusal to load the workspace in `dir`.
 ///
-/// A cycle among members is refused when the workspace is *read* --
-/// the cycle check runs whenever the dependency graph is built -- so a
-/// `Workspace` carrying one cannot be constructed, and these tests
-/// assert the refusal where it happens.
+/// A cycle among members is refused when the workspace is *read*, so a
+/// `Workspace` carrying one cannot be constructed; these tests assert the
+/// refusal where it happens.
 fn load_workspace_err(dir: &camino_tempfile::Utf8TempDir) -> String {
     crate::workspace::model_toml::Workspace::load_with(
         dir.path(),
@@ -1051,8 +1048,7 @@ fn a_workspace_that_builds_reports_every_member_built() -> Result<(), Box<dyn st
 }
 
 /// `default_kpar_file_name` is the call that fails for a member whose
-/// project cannot be read. Outside the per-member arm it would stop the
-/// workspace.
+/// project cannot be read.
 #[test]
 fn a_member_that_cannot_be_read_fails_as_itself() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;

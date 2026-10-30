@@ -6,7 +6,7 @@
 //! These tests pin the CLI-level contracts: end-to-end flows (login
 //! stores, status lists, logout removes), exit codes per failure class,
 //! and secret-safety (secrets never appear in any output). Exact output
-//! formatting is deliberately not pinned, apart from one compact golden
+//! formatting is not pinned, apart from one compact golden
 //! canary for `auth status`. Tests that touch the credential store run
 //! against the debug-only seam (`SYSAND_TEST_CREDENTIAL_STORE`,
 //! sysand/src/credential_store.rs): a file-backed blob store, or a

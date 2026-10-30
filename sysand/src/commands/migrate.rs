@@ -167,10 +167,8 @@ pub fn command_migrate<Policy: HTTPAuthentication>(
         if resource.starts_with("file:") {
             return resolve_file_target(resource, &dir);
         }
-        // Before the resolver is built, so that "a standard-library
-        // usage needs no network" is structural:
-        // the IRI names the release and there is no publisher to ask a
-        // target for.
+        // Before the resolver is built: the IRI names the release, so a
+        // standard-library usage needs no network.
         if sysand_core::model::is_omg_stdlib_iri(resource) {
             return stdlib_target(resource);
         }
@@ -194,9 +192,8 @@ pub fn command_migrate<Policy: HTTPAuthentication>(
         }
         None => None,
     };
-    // Checked here as well as in `migrate_project`, so that the message
-    // about a value the user typed can name the flag they typed it
-    // into. The core check is what a binding caller gets.
+    // Also checked in `migrate_project`; checking here lets the message
+    // name the flag.
     if let Some(value) = &metamodel {
         crate::commands::check_metamodel(value)?;
     }
@@ -396,10 +393,7 @@ fn check_both_agree(dir: &Utf8Path) -> Result<()> {
 
 /// The filesystem half of a `file:` usage.
 ///
-/// Every step here is a filesystem question, which is why
-/// `migrate_project` delegates the whole conversion rather than just
-/// the identity: `url::Url::to_file_path` is `cfg`'d off on the wasm
-/// target, which `sysand` is not built for.
+/// Every step here is a filesystem question.
 fn resolve_file_target(resource: &str, project: &Utf8Path) -> Result<Usage, String> {
     let url = url::Url::parse(resource).map_err(|e| format!("`{resource}` is not a URL: {e}"))?;
     let target = url
@@ -666,10 +660,9 @@ fn resolve_remote_target<Policy: HTTPAuthentication>(
 /// the spelling its target declares.
 ///
 /// The json spellings only had to match after normalization, so
-/// `acme-corp` at a target declaring `Acme Corp` was a valid json
-/// project and is not a valid `model.toml` one. The target is on disk
-/// and readable here, which is why this lives in the CLI rather than in
-/// `migrate_project`: `core` has no filesystem.
+/// `acme-corp` at a target declaring `Acme Corp` is a valid json
+/// project but not a valid `model.toml` one. Lives in the CLI because
+/// `core` has no filesystem.
 fn spell_path_usages_as_targets(manifest: &mut ModelToml, dir: &Utf8Path) {
     let ModelToml::Project(project) = manifest else {
         return;
@@ -767,9 +760,8 @@ fn warn_about_what_the_json_holds(
     }
 
     // The json side is normalized first: migration rewrites `./a.sysml`
-    // and `a//b.sysml` into the strict form `sources` takes, so
-    // comparing raw strings would report differences that migration
-    // erases on purpose.
+    // and `a//b.sysml` into the strict form `sources` takes, so raw
+    // strings would report differences migration erases.
     let mut discard = sysand_core::manifest::diagnostics::Report::new();
     if let Some(from_json) =
         sysand_core::commands::migrate::migrate_sources(meta, Some(&toml.metamodel), &mut discard)

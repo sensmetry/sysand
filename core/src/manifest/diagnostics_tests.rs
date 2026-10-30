@@ -235,9 +235,8 @@ fn missing_key_names_its_location_and_the_metamodel() {
     );
 }
 
-/// A missing key in a usage entry: an array of tables is written with
-/// double brackets, so naming it with the single-bracket form of a plain
-/// table would send the reader looking for a table that is not there.
+/// A missing key in a usage entry is named with the double-bracket form
+/// of an array of tables.
 #[test]
 fn array_tables_are_named_with_double_brackets() {
     assert_eq!(

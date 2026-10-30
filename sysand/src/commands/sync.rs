@@ -42,8 +42,6 @@ pub enum CommandSyncError {
     #[error(transparent)]
     Sync(#[from] CliSyncError),
     /// The sync itself, where the remedy names a flag only the CLI has.
-    /// The hint is part of the message so that every printer of this
-    /// error carries it.
     #[error("{0}\n       (hint: pass `--include-std` to fetch it from its IRI)")]
     IncludeStd(CliSyncError),
     /// Writing the environment metadata after a completed sync.

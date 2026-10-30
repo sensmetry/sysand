@@ -56,7 +56,7 @@ fn sysand_init_writes_a_model_toml() -> Result<(), Box<dyn std::error::Error>> {
 
 /// An invalid license is rejected by both `sysand init --license` and
 /// `sysand edit --license` with the same message, where the SPDX
-/// caret diagram starts on its own line so that it stays aligned.
+/// caret diagram starts on its own line.
 #[test]
 fn invalid_license_error_is_consistent() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
@@ -257,10 +257,8 @@ fn a_generated_project_is_read_back_by_info() -> Result<(), Box<dyn std::error::
     Ok(())
 }
 
-/// `created` is the Unix epoch for a generated project, and that is
-/// deliberate: it is computed at build, and a view of a source project
-/// must not be a function of the clock or two reads of one project
-/// would not agree on its checksum.
+/// `created` is the Unix epoch for a generated project: it is computed at
+/// build, and a view of a source project must not depend on the clock.
 ///
 /// The value appears only through `info`, which is what this test
 /// reads.

@@ -406,8 +406,8 @@ fn manifest_backup(project: &LocalSrcProject) -> Result<(Utf8PathBuf, String)> {
 /// Record the source override `pending` carries, if any, in the
 /// configuration file.
 ///
-/// Called once the usage is in the manifest, so that a refused `add`
-/// leaves no `[[project]]` entry pointing at a source nothing uses.
+/// Called once the usage is in the manifest, so a refused `add` leaves no
+/// `[[project]]` entry behind.
 #[expect(clippy::too_many_arguments)]
 fn record_override<Policy: HTTPAuthentication>(
     pending: Option<(Box<ProjectSourceOptions>, Iri<String>)>,

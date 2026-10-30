@@ -46,8 +46,7 @@ pub enum IndexRemoveError {
 }
 
 pub enum RemoveTarget {
-    // It's String and not semver::Version because it's good to allow removing a non-semantic
-    // version
+    // A String, so a non-semantic version can be removed
     Version(String),
     Project,
 }

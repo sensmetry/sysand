@@ -158,8 +158,7 @@ fn maintainer_keeps_its_spelling() {
 }
 
 /// The `stdlib` value is the last segment of the IRI at which the
-/// library's KPAR is published, validated as a single path segment so it
-/// cannot carry `/` or `..` into an IRI.
+/// library's KPAR is published, validated as a single path segment.
 #[test]
 fn stdlib_key_is_a_path_segment() {
     for ok in ["Kernel-Libraries", "Systems-Library", "a1"] {
@@ -266,15 +265,12 @@ fn sources_entries_are_taken_exactly_as_written() {
     );
 
     // Equality is exact, so two spellings of one file on a
-    // case-insensitive filesystem are two entries. The manifest is
-    // saying two things; it is not this reader's to decide which.
+    // case-insensitive filesystem are two entries.
     sources(&["a.sysml", "A.sysml"]).expect("equality is exact");
 }
 
 /// A manifest is read the same way on every platform, so a Windows path
-/// is not a source path. The drive letter is what makes `C:/main.sysml`
-/// absolute; a test for a leading `/` alone would take it for a relative
-/// path.
+/// is not a source path. The drive letter makes `C:/main.sysml` absolute.
 #[test]
 fn sources_rejects_windows_paths() {
     assert!(
@@ -309,8 +305,8 @@ fn sources_entries_must_be_model_files() {
     );
 }
 
-/// "The entry as written is what the `checksum` and `index` maps of a
-/// built KPAR are keyed by."
+/// The entry as written is what the `checksum` and `index` maps of a
+/// built KPAR are keyed by.
 #[test]
 fn sources_serializes_what_was_written() {
     #[derive(Debug, Serialize)]
@@ -353,11 +349,7 @@ fn a_source_the_metamodel_does_not_admit_is_refused() {
     admitted_source(Utf8UnixPath::new("notes.txt"), &kerml).expect("no language to judge");
 }
 
-/// The two `sources` form errors, each on its whole text.
-///
-/// The other `sources` tests match a fragment, which is right for a
-/// table of cases but does not pin the whole message. These two do,
-/// and they are also where the *split* is recorded: a trailing
+/// The two `sources` form errors, each on its whole text. A trailing
 /// slash is not a malformed spelling but a directory, and it gets the
 /// message that says so.
 #[test]

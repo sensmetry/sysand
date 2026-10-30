@@ -99,14 +99,11 @@ impl FileResolver {
 #[derive(Error, Debug)]
 pub enum FileResolverError {
     /// A target that lies under the workspace root without being a
-    /// member. Carries [`crate::workspace::model_toml::DiscoverError`]
-    /// rather than restating its refusal, so that the upward walk and a
-    /// usage give one sentence.
+    /// member. Carries [`crate::workspace::model_toml::DiscoverError`].
     #[error(transparent)]
     Workspace(crate::workspace::model_toml::DiscoverError),
     /// A `kpar-url` whose `file:` target is a directory rather than an
-    /// archive. `kpar-path` is the key for a project directory, and a
-    /// built `.kpar` is the other answer.
+    /// archive.
     #[error(
         "`kpar-url` names `{0}`, which is a directory; a `kpar-url` usage takes a KPAR. Use `kpar-path` for a project directory, or point at its built `.kpar`"
     )]
@@ -457,10 +454,8 @@ impl ResolveRead for FileResolver {
             } => match try_file_uri_to_path(url)? {
                 Some(path) => {
                     let res = self.check_sandbox(path)?;
-                    // Before the outcome is built, for the reason the
-                    // `Directory` arm classifies early: an unlisted
-                    // target is an error, not a resolution, and would
-                    // otherwise be written into the *workspace* lockfile.
+                    // Classified before the outcome is built: an unlisted
+                    // target is an error, not a resolution.
                     let origin = resolve.origin();
                     // Whether a toml `kpar-url` usage declared a publisher
                     // and name. The lock checks the target against them;
@@ -471,11 +466,9 @@ impl ResolveRead for FileResolver {
                         // KPAR, so a directory-style source tree is
                         // refused.
                         //
-                        // The test is `origin`, because a toml
-                        // `kpar-url` and a json `resource` usage are
-                        // the same value here. A toml manifest reaches
-                        // this arm only through `kpar-url`; json keeps
-                        // both candidates.
+                        // Tested on `origin`: a toml `kpar-url` and a json
+                        // `resource` usage are the same value here, and
+                        // json keeps both candidates.
                         if origin == UsageOrigin::Toml
                             && crate::project::utils::wrapfs::is_dir(&path)?
                         {
@@ -531,8 +524,6 @@ impl ResolveRead for FileResolver {
                 // TODO: should absolute paths be supported here? Cargo does.
                 if let Some(base) = resolve.base_path() {
                     let res = self.resolve_relative_path(base, dir.as_str())?;
-                    // Classified before the outcome is built, because an
-                    // unlisted target is an error rather than a resolution.
                     res.try_map(|path| {
                         // The lock checks that the project is
                         // `publisher`/`name`, as for every typed usage

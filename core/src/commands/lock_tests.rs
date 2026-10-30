@@ -692,9 +692,8 @@ fn do_lock_projects_still_derives_one_base() -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-/// The same for the other wrapper. Asserting the reason: with no base
-/// the resolver says so, and `is_err` alone would not tell that apart
-/// from any other resolution failure.
+/// The same for the other wrapper, asserting the reason: with no base the
+/// resolver says so.
 #[cfg(feature = "filesystem")]
 #[test]
 fn do_lock_extend_still_derives_one_base() -> Result<(), Box<dyn std::error::Error>> {
@@ -1106,9 +1105,8 @@ fn a_dependency_src_path_is_relative_to_the_workspace_root()
     Ok(())
 }
 
-/// A member that inherits and is actually locked. The refusal tests
-/// above return before any project is built, so without this nothing
-/// proves the table reaches `new_member`.
+/// A member that inherits and is actually locked, so the table reaches
+/// `new_member`.
 #[cfg(feature = "filesystem")]
 #[test]
 fn an_inheriting_member_locks_with_the_tables_value() -> Result<(), Box<dyn std::error::Error>> {
@@ -1128,10 +1126,6 @@ fn an_inheriting_member_locks_with_the_tables_value() -> Result<(), Box<dyn std:
 /// A `dir` usage from a member to a project that lies under the root
 /// without being a member (and not covered in the `exclude` list) is the
 /// unlisted-project error.
-///
-/// Resolving it would write a lockfile entry indistinguishable from a
-/// properly `exclude`d project's, so nothing downstream could tell the
-/// two apart -- which is the decidability the rule exists to protect.
 /// The rule applies through a usage as well as on the upward walk from
 /// the stray project's own directory.
 #[cfg(feature = "filesystem")]
@@ -1174,9 +1168,8 @@ fn a_dir_usage_of_an_unlisted_project_is_refused() {
 /// `resource` usage, which keeps both candidates because json projects
 /// are read unchanged.
 ///
-/// The topology is forced by that: a json project cannot be a member,
-/// and the check only exists inside a workspace, so it is an `exclude`d
-/// json project reached by a `dir` usage from a member.
+/// The topology: an `exclude`d json project reached by a `dir` usage from a
+/// member.
 #[cfg(feature = "filesystem")]
 #[test]
 fn a_file_url_usage_of_an_unlisted_project_is_refused() {
@@ -1225,9 +1218,8 @@ fn a_file_url_usage_of_an_unlisted_project_is_refused() {
 /// `kpar-url` is for standard-compliant KPARs, so a directory target is
 /// refused.
 ///
-/// The narrowing is on `UsageOrigin`, because a toml `kpar-url` and a
-/// json `resource` usage are the same value by the time the resolver
-/// sees them -- see the arm's comment.
+/// The narrowing is on `UsageOrigin`: a toml `kpar-url` and a json
+/// `resource` usage are the same value by the time the resolver sees them.
 ///
 /// The target is **excluded**, so it is a legitimate standalone project
 /// under the root: that way the refusal can only be this rule, and not
@@ -1267,9 +1259,7 @@ fn a_kpar_url_naming_a_directory_is_refused() {
 /// names a directory.
 ///
 /// json projects are read unchanged, and `resource` is legacy and not
-/// supported directly -- it is not `kpar-url` under another name. This
-/// is why the narrowing tests `UsageOrigin` rather than the usage value,
-/// which by this point is identical for the two.
+/// supported directly, and is not `kpar-url` under another name.
 #[cfg(feature = "filesystem")]
 #[test]
 fn a_json_resource_naming_a_directory_still_resolves() {
@@ -1364,11 +1354,6 @@ fn a_member_kpar_url_that_misnames_its_target_is_refused() {
 
 /// Two members whose `dir` usages name **different** directories that
 /// declare one identity.
-///
-/// Recording only one of them would drop the other's version, sources
-/// and exported symbols, and which one lost would be decided by
-/// `members` order -- reordering that array would silently change what
-/// the whole workspace is built against.
 #[cfg(feature = "filesystem")]
 #[test]
 fn one_identity_at_two_directories_is_refused() {
@@ -1494,8 +1479,7 @@ fn one_identity_at_one_directory_still_locks() {
     lock_workspace(&dir).expect("one place is not a collision");
 }
 
-/// And the same directory spelled differently from two depths, which is
-/// why the comparison normalizes `..` rather than comparing strings.
+/// And the same directory spelled differently from two depths.
 #[cfg(feature = "filesystem")]
 #[test]
 fn one_directory_spelled_two_ways_still_locks() {
@@ -1604,10 +1588,6 @@ fn a_dir_usage_of_an_inheriting_member_resolves() -> Result<(), Box<dyn std::err
 
 /// The *input* project's own entry records its metamodel, not only its
 /// dependencies'.
-///
-/// Without it every root reads as an OMG project, and a Syside root with
-/// a Syside dependency would be a false direction error -- the very
-/// check this field feeds.
 #[cfg(feature = "filesystem")]
 #[test]
 fn a_members_own_entry_records_its_metamodel() -> Result<(), Box<dyn std::error::Error>> {

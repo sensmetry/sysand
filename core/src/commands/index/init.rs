@@ -46,9 +46,7 @@ pub fn do_index_init<R: AsRef<Utf8Path>>(index_root: R) -> Result<(), IndexInitE
     wrapfs::create_dir_all(index_root.as_ref())?;
     // The discovery document first, so a directory that has `index.json`
     // always has it too: `{}` is the document whose every field defaults
-    // (`index_root` to the location it was fetched from), which lets the
-    // same directory be read from disk now and served over HTTP later
-    // and be discovered as the same index.
+    // (`index_root` to the location it was fetched from).
     create_new(index_root.as_ref(), INDEX_CONFIG_FILE_NAME, "{}\n")?;
     create_new(index_root.as_ref(), INDEX_FILE_NAME, &index_str)?;
     Ok(())

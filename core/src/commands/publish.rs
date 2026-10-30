@@ -296,10 +296,9 @@ pub fn do_publish(
     map_publish_response(status, &body_bytes, &bearer.provenance)
 }
 
-/// Whether a stored credential's known expiry is clearly past: beyond a
-/// generous clock-skew margin, so a skewed client clock cannot false-trip
-/// the pre-upload stop. The stop is only an optimization; the server's 401
-/// is the real authority, so the margin errs toward attempting.
+/// Whether a stored credential's known expiry is clearly past, beyond a
+/// generous clock-skew margin. The stop is only an optimization; the
+/// server's 401 is the real authority.
 fn stored_bearer_clearly_expired(expires_at: Timestamp, now: Timestamp) -> bool {
     now.duration_since(expires_at) > SignedDuration::from_hours(1)
 }
@@ -342,9 +341,7 @@ pub fn build_upload_url(api_root: &Url) -> Url {
 
 /// The conflicting candidates behind an ambiguous publish bearer
 /// selection, per source (selection tries env before keyring, and never
-/// mixes the two). Each variant names every matching credential so the
-/// error tells the user exactly what to reconcile, and the remediation can
-/// be source-accurate.
+/// mixes the two).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PublishBearerConflict {
     /// Conflicting `SYSAND_CRED_*` environment credentials; each entry is
@@ -1623,11 +1620,10 @@ fn publish_auth_error(
     }
 }
 
-/// The source-named upload auth-failure message: env
-/// credentials shadow stored ones, so re-authenticating would be the
-/// wrong fix for a stale `SYSAND_CRED_*` bearer and the message must name
-/// where the selected bearer came from. States the situation only; the
-/// remediation commands are the frontend's to add.
+/// The source-named upload auth-failure message. Env credentials shadow
+/// stored ones, so the message names where the selected bearer came
+/// from. States the situation only; the remediation commands are the
+/// frontend's to add.
 fn publish_auth_failed_message(
     status: u16,
     detail: &str,
@@ -1764,11 +1760,9 @@ fn check_std_libs(
                     if let Some(metamodel_version) = stripped.strip_suffix(s) {
                         if MetamodelRelease::parse(metamodel_version).is_some() {
                             // A version constraint on a standard-library
-                            // usage is allowed. A constraint is
-                            // meaningless for a URL in general, but not for
-                            // this one: the release date in the IRI and the
-                            // version in the manifest are different things,
-                            // and both are kept.
+                            // usage is allowed: the release date in the IRI
+                            // and the version in the manifest are different
+                            // things, and both are kept.
                             return Ok(true);
                         } else {
                             return Err(PublishError::InvalidStdLibVersion {

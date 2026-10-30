@@ -4,12 +4,10 @@
 //! Every checked-in model file and manifest is `lf`.
 //!
 //! `.gitattributes` pins `*.sysml`, `*.kerml`, `*.toml` and `*.json` to
-//! `lf`, because fixtures carry per-file SHA256s in committed metadata
-//! and goldens, and a checkout that converted them would be green on
-//! Linux and red on Windows. This is the guard for the pin: it walks
-//! the whole checkout, since the model files live under
-//! `sysand/tests/data` and `bindings/java/plugin/src/it`, and the
-//! manifests everywhere.
+//! `lf`, since fixtures carry per-file SHA256s. This is the guard for the
+//! pin: it walks the whole checkout (model files live under
+//! `sysand/tests/data` and `bindings/java/plugin/src/it`, manifests
+//! everywhere).
 
 use std::path::{Path, PathBuf};
 

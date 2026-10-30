@@ -252,8 +252,7 @@ pub fn command_info_resolve<Policy: HTTPAuthentication>(
     Ok(())
 }
 
-/// Printed whenever the user sets a license, so that they know to add
-/// the license texts
+/// Printed whenever the user sets a license.
 pub fn log_license_files_note() {
     log::info!(
         "{GOOD}note{GOOD:#}: every license/exception should have its corresponding\n\

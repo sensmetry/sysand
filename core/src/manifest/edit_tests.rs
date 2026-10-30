@@ -74,7 +74,7 @@ fn with_usages(table: ProjectTable, inline_usages: Vec<MemberUsage>) -> ModelTom
 
 /// Every key of `[project]`, so that the layout of each can be read off
 /// one file. `publisher` normalizes to `omg` and the metamodel is an OMG
-/// one, which is what `stdlib` requires of a project that resolves.
+/// one, as `stdlib` requires.
 fn maximal() -> ModelToml {
     let mut table = ProjectTable::new(publisher("OMG"), name("widgets"), Version::new(1, 0, 0));
     table.sources = Some(sources(&["Base.kerml", "Parts.sysml"]));
@@ -188,8 +188,7 @@ fn a_generated_project_file_has_the_documented_layout() {
 #[test]
 fn only_the_keys_a_manifest_has_are_written() {
     // A table that has not been given its `sources`: renderable, and not
-    // a manifest that resolves, since the OMG metamodel requires the
-    // key even when the list is empty.
+    // a manifest that resolves.
     assert_eq!(
         render(&project(built())),
         r#"manifest-version = "1.0"
@@ -223,10 +222,9 @@ fn urls_is_a_table_after_the_scalar_keys() {
 
     let text = render(&project(table));
 
-    // The failure mode is the inline form `urls = { website = ... }`,
-    // which is what serializing produces: `toml_edit` writes a table's
-    // values before its sub-table headers whatever order they went in,
-    // so no insertion order can put `[project.urls]` in the wrong place.
+    // The failure mode is the inline form `urls = { website = ... }`;
+    // `toml_edit` writes a table's values before its sub-table headers
+    // whatever order they went in.
     assert!(text.contains("\n[project.urls]\nwebsite = \"https://example.com\"\n"));
     assert!(!text.contains("urls = {"));
 }
@@ -406,9 +404,8 @@ fn a_generated_project_file_parses_back_into_itself() {
     let read = read_back(&text);
     let table = &read.project;
 
-    // Every key of `PROJECT_KEYS`, read back off the reparsed manifest:
-    // the fixed point below cannot see a key the renderer drops, since a
-    // dropped key is absent from both sides of it.
+    // Every key of `PROJECT_KEYS`, read back off the reparsed manifest: a
+    // dropped key is absent from both sides of the fixed point below.
     assert_eq!(
         table.publisher.provided().map(IndexPublisher::as_str),
         Some("OMG")
@@ -683,9 +680,8 @@ fn setting_a_key_changes_one_line_and_nothing_else() {
     // order and whitespace of every line it does not touch.
     set_project_key(&mut doc, ProjectKey::Publisher, Value::from("other")).expect("settable");
 
-    // "comments, key order and formatting" is a property of the file,
-    // not of one line: every other byte is unchanged. `replacen`
-    // because the usage entry names a publisher too.
+    // Every other byte is unchanged. `replacen` because the usage entry
+    // names a publisher too.
     assert_eq!(
         doc.to_string(),
         COMMENTED.replacen("publisher = \"acme\"", "publisher = \"other\"", 1)
@@ -856,9 +852,8 @@ fn inheriting_a_whole_urls_table_loses_the_comments_inside_it() {
 
 #[test]
 fn the_inheritable_keys_are_the_ones_the_reader_accepts_a_marker_for() {
-    // `edit.rs` has to name the inheritable keys, and `project.rs`
-    // decides them one `inheritable(..)` call at a time. This is what
-    // keeps the two from drifting.
+    // `edit.rs` names the inheritable keys, and `project.rs` decides them
+    // one `inheritable(..)` call at a time; the two must agree.
     for key in PROJECT_KEYS {
         // The marker takes the place of the key's own value: writing
         // both is a duplicate key, which is a different refusal.
@@ -1155,8 +1150,7 @@ fn including_and_excluding_a_manifest_with_no_sources_is_refused() {
 #[test]
 fn including_into_a_sources_that_is_already_invalid_says_which_entry() {
     // `Sources::new` judges the whole array, so an entry the user did
-    // not touch is what the message names. One reading of the rule,
-    // not two.
+    // not touch is what the message names.
     let mut doc = opened(&with_sources("[\"README.md\"]"));
 
     let error = include_source(&mut doc, "Base.kerml").expect_err("the array is invalid");
@@ -1440,7 +1434,7 @@ fn a_list_key_that_is_not_there_is_created() {
 }
 
 /// No conversion brings a path outside the project into `sources`, and
-/// the message says so in `sources`' words rather than `push_member`'s.
+/// the message is in `sources`' words.
 #[test]
 fn including_a_path_outside_the_project_is_refused() {
     let mut doc = opened(&with_sources("[]"));
@@ -1452,9 +1446,8 @@ fn including_a_path_outside_the_project_is_refused() {
     assert!(sources_of(&doc).contains("[]"), "nothing was written");
 }
 
-/// Entries are matched by equality, so `exclude` converts its argument
-/// the same way `include` does, which is where two spellings of one
-/// entry meet.
+/// `exclude` converts its argument the same way `include` does, so two
+/// spellings of one entry meet.
 #[test]
 fn excluding_converts_what_it_is_given() {
     let mut doc = opened(&with_sources("[\n    \"src/Parts.sysml\",\n]"));
@@ -1463,8 +1456,7 @@ fn excluding_converts_what_it_is_given() {
     assert!(!sources_of(&doc).contains("Parts.sysml"));
 }
 
-/// And a non-model argument still says what is wrong with it, rather
-/// than that it is not listed.
+/// And a non-model argument still says what is wrong with it.
 #[test]
 fn excluding_a_file_that_is_no_source_says_so() {
     let mut doc = opened(&with_sources("[]"));
@@ -1508,9 +1500,8 @@ fn a_stdlib_usage_is_written_without_a_publisher_key() {
     ModelToml::parse("model.toml", &text).expect("still a manifest");
 }
 
-/// "such a usage has the identity `(omg, <name>)`" -- which is how the
-/// editors reach it. Without this `sysand remove` could never remove a
-/// standard-library usage.
+/// Such a usage has the identity `(omg, <name>)`, which is how the
+/// editors reach it.
 #[test]
 fn a_stdlib_usage_is_reached_by_its_omg_identity() {
     let mut doc = opened(&with_sources("[]"));
@@ -1522,8 +1513,7 @@ fn a_stdlib_usage_is_reached_by_its_omg_identity() {
 }
 
 /// And how the duplicate guard sees it: a second entry for the same
-/// library would make the file unreadable on the next parse, so it is
-/// refused here instead.
+/// library is refused.
 #[test]
 fn a_second_stdlib_usage_for_the_same_library_is_refused() {
     let mut doc = opened(&with_sources("[]"));
@@ -1569,10 +1559,8 @@ fn a_publisher_less_entry_elsewhere_is_not_matched() {
 }
 
 /// An opt-in to a standard-library group entry declares no publisher
-/// either, and resolves under `omg` like the entry it names -- so the
-/// editors reach it by `(omg, <name>)`. Without this `sysand remove`
-/// could not remove one, and `sysand add` would append a second entry
-/// for a library the member already has.
+/// either, and resolves under `omg` like the entry it names, so the
+/// editors reach it by `(omg, <name>)`.
 #[test]
 fn a_stdlib_opt_in_is_reached_by_its_omg_identity() {
     let text = format!(

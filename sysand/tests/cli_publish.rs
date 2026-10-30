@@ -792,9 +792,8 @@ fn publish_ignores_basic_auth_credentials() -> TestResult {
         .stderr(predicate::str::contains(
             "no bearer token credentials configured for publish URL",
         ))
-        // The CLI adds the `sysand auth login` remediation the core message
-        // deliberately omits (core/CLI message split), naming the actual
-        // index URL so the hint is copy-pasteable.
+        // The CLI adds the `sysand auth login` remediation, naming the
+        // actual index URL.
         .stderr(predicate::str::contains(format!(
             "run `sysand auth login {}",
             server.url()
@@ -1055,9 +1054,7 @@ fn publish_index_with_unknown_placeholder_reports_parse_error() -> TestResult {
 /// `model.toml` project refuses -- and it carries `license` and
 /// `metamodel` because `publish` requires both.
 ///
-/// The usage is the publisher-less `kpar-url` form, which
-/// is what `publish`'s `check_std_libs` matches against -- the IRI, not
-/// the publisher.
+/// The usage is the publisher-less `kpar-url` form.
 #[test]
 fn publish_toml_project_with_a_stdlib_usage() -> TestResult {
     let (_temp_dir, cwd) = new_temp_cwd()?;
@@ -1100,10 +1097,9 @@ fn publish_toml_project_with_a_stdlib_usage() -> TestResult {
 /// A `model.toml` member at `at`, with a license file, a source, a
 /// metamodel and optional `dir` usages of its siblings.
 ///
-/// A *toml* member, because an inter-member `dir` usage is what creates
-/// a dependency order, and `publish` refuses a typed path usage outright. A
-/// toml build rewrites such a usage into a typed index usage
-/// constrained to the target's version, which publishes.
+/// A *toml* member: a toml build rewrites an inter-member `dir` usage into
+/// a typed index usage constrained to the target's version, which
+/// publishes.
 fn workspace_member(root: &Utf8Path, at: &str, deps: &[&str]) -> TestResult {
     let cwd = root.join(at);
     fs::create_dir_all(&cwd)?;
@@ -1337,8 +1333,7 @@ fn publish_member_from_the_root_publishes_one() -> TestResult {
 }
 
 /// `--workspace` from a member directory publishes every member, in
-/// dependency order -- "forces all members", against the one the
-/// working directory would otherwise imply.
+/// dependency order.
 #[test]
 fn publish_workspace_from_a_member_dir_publishes_every_member() -> TestResult {
     let (_temp_dir, cwd) = new_temp_cwd()?;

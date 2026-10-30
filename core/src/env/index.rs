@@ -79,10 +79,8 @@ pub struct IndexEnvironmentAsync<Policy> {
     /// the index is actually queried.
     endpoints: tokio::sync::OnceCell<ResolvedEndpoints>,
     /// Intra-run cache of parsed `versions.json` documents, keyed by IRI.
-    /// Avoids the duplicate fetches that otherwise occur because
-    /// `versions_async` and `get_project_async` each independently hit the
-    /// endpoint (and `get_project_async` is called once per candidate
-    /// during solving).
+    /// Avoids duplicate fetches by `versions_async` and
+    /// `get_project_async` (called once per candidate during solving).
     ///
     /// Scoped to one env lifetime; never invalidates. There is no
     /// freshness signal in the protocol, so successful `versions.json`
@@ -339,16 +337,12 @@ impl<Policy: HTTPAuthentication> IndexEnvironmentAsync<Policy> {
 
 /// Validate every entry's required fields (semver parse, no build
 /// metadata, digest shape, uniqueness) and emit the
-/// `AdvertisedVersion`s the rest of the crate consumes. The check
-/// runs at fetch/cache time rather than per-materialization: the
-/// cache is shared across candidate enumeration and lockfile
-/// assembly, so catching a protocol violation up front avoids a
-/// delayed surprise downstream.
+/// `AdvertisedVersion`s the rest of the crate consumes. Runs at
+/// fetch/cache time, not per-materialization.
 ///
 /// Ordering is checked at ingest on the parsed `semver::Version`, not
 /// lexically; violations surface as
-/// [`VersionsJsonError::VersionsOutOfOrder`]. Sorting during solving
-/// would otherwise mask the bug at the protocol boundary.
+/// [`VersionsJsonError::VersionsOutOfOrder`].
 fn validate_versions(
     url: &url::Url,
     vs: VersionsJson,
@@ -468,7 +462,7 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
                 version: version.to_owned(),
             })?;
 
-        // A `removed` entry's per-version files are intentionally absent.
+        // A `removed` entry's per-version files are absent.
         // Refuse before issuing the fetch. `yanked` entries stay reachable
         // here; they are excluded from new resolutions at `versions_async`.
         if advertised.status == VersionStatus::Removed {
@@ -486,10 +480,9 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
         let project_json_url = endpoints.project_json_url(&uri, &advertised_version)?;
         let meta_json_url = endpoints.meta_json_url(&uri, &advertised_version)?;
 
-        // An index usage's identity is its PURL, so the expectation is
-        // derived here rather than threaded through the resolver. A
-        // non-PURL identifier -- an OMG standard-library IRI, say --
-        // names no pair, and nothing is expected of the entry.
+        // An index usage's identity is its PURL. A non-PURL identifier
+        // (an OMG standard-library IRI, say) names no pair, and nothing is
+        // expected of the entry.
         let expected = match crate::purl::parse_sysand_purl(uri.as_ref()) {
             Ok(Some((publisher, name))) => Some(ExpectedIdentity::resolving(
                 Some(publisher.to_owned()),

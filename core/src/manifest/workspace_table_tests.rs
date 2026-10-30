@@ -214,8 +214,7 @@ fn an_unparseable_url_is_an_error() {
 }
 
 /// A metamodel value matching none of the four shapes is an error naming
-/// the key and listing them. A group's value is no exception: it exists to be inherited by a `[project]`, which could use
-/// no other.
+/// the key and listing them, a group's value included.
 #[test]
 fn a_metamodel_that_is_not_one_of_the_four_is_refused() {
     for value in [
@@ -503,8 +502,8 @@ fn named_groups_are_read_under_their_names() {
     );
 }
 
-/// A group whose name is not a bare TOML key could never be named by a
-/// marker, so it is refused where it is defined -- once -- and its body is not read.
+/// A group whose name is not a bare TOML key is refused where it is
+/// defined, once, and its body is not read.
 #[test]
 fn a_group_name_that_is_not_a_bare_key_is_refused() {
     let report = rejected(concat!(
@@ -521,8 +520,8 @@ fn a_group_name_that_is_not_a_bare_key_is_refused() {
     );
 }
 
-/// `sources` is the key people are most likely to try, so it is an error
-/// that says so.
+/// `sources` in `[workspace]` is an error that says a workspace may not
+/// carry it.
 #[test]
 fn sources_in_the_default_group_is_an_error() {
     let report = rejected("sources = [\"src/main.sysml\"]\n");
@@ -557,8 +556,7 @@ fn stdlib_in_a_group_is_an_unknown_key() {
     );
 }
 
-/// "`manifest-version` is not a `[project]` key at all: every file
-/// carries its own", and it is not a workspace key either.
+/// `manifest-version` is not a workspace key either.
 #[test]
 fn manifest_version_in_a_workspace_is_an_unknown_key() {
     let validated = accepted("manifest-version = \"1.0\"\n");
@@ -651,8 +649,7 @@ fn a_named_group_usage_is_declared() {
 }
 
 /// Duplicates are counted per array, and the arrays are counted
-/// separately, since a workspace config holds several. Across groups the
-/// same identity is expected: that is what groups are for.
+/// separately. Across groups the same identity is expected.
 #[test]
 fn duplicate_usages_are_refused_per_array() {
     let report = rejected(concat!(

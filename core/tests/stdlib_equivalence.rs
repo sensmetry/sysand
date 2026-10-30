@@ -5,28 +5,14 @@
 //! `sysand build` produces from the workspace fixture must be the
 //! release OMG published.
 //!
-//! **This test does not run without the release sources.** They are
-//! deliberately not in this repository; `SYSAND_STDLIB_SOURCES` must
-//! point at a checkout of `Systems-Modeling/SysML-v2-Release`, which CI
-//! provides on one Linux matrix entry. Without it the test prints a
-//! notice and returns -- a skip that says so.
+//! **This test does not run without the release sources.**
+//! `SYSAND_STDLIB_SOURCES` must point at a checkout of
+//! `Systems-Modeling/SysML-v2-Release`, which CI provides on one Linux
+//! matrix entry. Without it the test prints a notice and returns.
 //!
-//! **Which checkout: tag `2025-09`, not `2025-02`.** The release
-//! repository tags by month, so the tag that looks like this spec
-//! version is `2025-02` -- but the test cannot pass there: the library
-//! sources kept changing after February, and 16 of the 58 files that
-//! `stdlib_assets/20250201` carries a checksum for differ at `2025-02`
-//! (all ten of Systems Library's changed files, plus Analysis,
-//! Geometry, Quantities and Units, and Requirement Derivation). At
-//! `2025-09` all 58 match and this test passes.
-//!
-//! That is a provenance question this repository cannot answer: the
-//! OMG artifacts these assets describe live at
-//! `https://www.omg.org/spec/.../20250201/*.kpar`, which is not
-//! reachable from the development environment, so whether OMG
-//! re-published those KPARs against the maintained library or whether
-//! the assets were harvested from a later checkout is unverified. What
-//! is verified is which tag reproduces them.
+//! **Which checkout: tag `2025-09`, not `2025-02`.** At `2025-02` 16 of
+//! the 58 files that `stdlib_assets/20250201` carries a checksum for
+//! differ; at `2025-09` all 58 match.
 #![cfg(feature = "filesystem")]
 
 use camino::{Utf8Path, Utf8PathBuf};
@@ -51,8 +37,7 @@ fn assets() -> Utf8PathBuf {
 
 /// The fixture, with the release's sources copied beside each member's
 /// `model.toml`. The layout table and the copying are library code
-/// (`stdlib_compare`), because the CLI suites stage the same fixture and
-/// a second copy of that table could drift from the first.
+/// (`stdlib_compare`).
 fn staged(sources_root: &Utf8Path) -> Result<camino_tempfile::Utf8TempDir, String> {
     let staging = camino_tempfile::tempdir().map_err(|e| e.to_string())?;
     stage_release_workspace(&fixture(), sources_root, staging.path())?;
@@ -88,8 +73,6 @@ fn the_built_workspace_equals_the_published_release() {
         .ok()
         .filter(|value| !value.trim().is_empty());
     let Some(sources_root) = sources_root else {
-        // Not `panic!`, and not silence: the notice is how an unset
-        // variable in CI is visible rather than green.
         println!(
             "skipping: set SYSAND_STDLIB_SOURCES to a checkout of the \
              SysML v2 {RELEASE} release to run the equivalence test"

@@ -49,8 +49,7 @@ pub enum IndexYankError {
 
 pub fn do_index_yank<R: AsRef<Utf8Path>, I: AsRef<str>, V: AsRef<str>>(
     iri: I,
-    // It's String and not semver::Version because it's good to allow yanking a non-semantic
-    // version
+    // A String, so a non-semantic version can be yanked
     version: V,
     index_root: R,
 ) -> Result<(), IndexYankError> {

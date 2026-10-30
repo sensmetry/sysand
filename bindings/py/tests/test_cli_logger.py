@@ -90,9 +90,8 @@ sys.exit(0 if any(r.levelno == logging.DEBUG for r in records) else 3)
 
 
 def test_verbosity_still_reaches_the_host_logger(tmp_path: Path) -> None:
-    # What the warning was warning about, and the reason it can be dropped: `--verbose` still applies, through whatever
-    # logger the host installed. The records arrive as Python logging records,
-    # because the bridge is what is installed.
+    # `--verbose` still applies, through whatever logger the host installed.
+    # The records arrive as Python logging records.
     (tmp_path / "claim").mkdir()
     result = subprocess.run(
         [sys.executable, "-c", _VERBOSITY_DRIVER, str(tmp_path)],

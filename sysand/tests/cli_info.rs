@@ -826,8 +826,7 @@ fn project_json_with_publisher_for(publisher: &str, name: &str, version: &str) -
 const TEST_META_JSON_BODY: &str = r#"{"index":{},"created":"2026-01-01T00:00:00.000000000Z"}"#;
 
 /// Build a `versions.json` body advertising a single entry. The kpar digest is a
-/// placeholder because `sysand info` reads the
-/// per-version JSON directly and never downloads the archive.
+/// placeholder; `sysand info` never downloads the archive.
 fn versions_json_for(version: &str) -> String {
     versions_json_body(&[versions_json_entry_body(
         version,
@@ -2240,11 +2239,10 @@ fn a_hand_written_legacy_project_is_read() -> Result<(), Box<dyn Error>> {
 ///
 /// `sysand init` writes a `model.toml`, so there is no command output
 /// to compare the fixture against, and many tests depend on it being
-/// what a legacy project looks like. So the bytes are pinned here. They
+/// what a legacy project looks like, so the bytes are pinned here. They
 /// were taken from `sysand init --publisher acme --name widgets
 /// --version 1.2.3 --license MIT` at commit `117558d`, whose `init`
-/// wrote the json pair. Changing them is a deliberate edit of a
-/// recorded value, not a drift.
+/// wrote the json pair.
 #[test]
 fn the_legacy_fixture_writes_these_exact_bytes() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "widgets", "1.2.3", Some("MIT"))?;

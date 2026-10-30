@@ -86,8 +86,7 @@ def set_usage_constraint(
             index usage, or spelled differently), or (with ``must_exist``) is
             not declared at all. ``wrote`` is always ``False``.
     """
-    # A constraint cannot be cleared, so that a usage `add` gave a
-    # constraint keeps one.
+    # A constraint cannot be cleared.
     if version_constraint is None:
         raise TypeError(
             'set_usage_constraint() cannot clear a constraint; pass "*" to accept any version'

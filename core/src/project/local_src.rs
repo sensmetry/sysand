@@ -43,9 +43,8 @@ pub use crate::project::ProjectFormat;
 
 /// Which manifests `dir` holds.
 ///
-/// `wrapfs::is_file` rather than `Utf8Path::exists`, so that an IO error
-/// is reported instead of swallowed and a *directory* named
-/// `.project.json` is not mistaken for a manifest.
+/// Uses `wrapfs::is_file`, so an IO error is reported and a *directory*
+/// named `.project.json` is not mistaken for a manifest.
 pub fn detect_format(dir: &Utf8Path) -> Result<ProjectFormat, Box<FsIoError>> {
     let toml = wrapfs::is_file(dir.join(MODEL_TOML_FILE))?;
     Ok(match (toml, json_manifest(dir)?.is_some()) {
@@ -94,9 +93,7 @@ pub struct LocalSrcProject {
     /// resolving with `None`, and a project that walked the filesystem
     /// from inside a manifest parse would be a different thing.
     ///
-    /// `Arc` because a `WorkspaceTable` is several hundred bytes and
-    /// this struct is a variant of `FileResolverProject`, for the same
-    /// reason the view below is boxed.
+    /// `Arc`: a `WorkspaceTable` is several hundred bytes.
     workspace: Option<std::sync::Arc<crate::manifest::workspace_table::WorkspaceTable>>,
     /// The pair a `model.toml` project answers with, computed once.
     ///
@@ -107,9 +104,7 @@ pub struct LocalSrcProject {
     /// [`ProjectMut`] and [`LocalSrcProject::set_index`] change the files
     /// underneath it, and a cached pair would then contradict them.
     ///
-    /// Boxed because a `LocalSrcProject` is a variant of
-    /// `FileResolverProject`, and the pair inline makes that enum several
-    /// hundred bytes larger than its other variant.
+    /// Boxed to keep `FileResolverProject` small.
     view: OnceCell<Box<ViewPair>>,
 }
 
@@ -322,9 +317,8 @@ impl LocalSrcProject {
     /// `edit` changed it. An unchanged
     /// document does not touch the file at all.
     ///
-    /// Editing the document rather than the typed model keeps every key the
-    /// model does not know and the document's key order intact
-    /// (`serde_json` is built with `preserve_order`). The whole file is
+    /// Every key the model does not know and the document's key order are
+    /// kept (`serde_json` is built with `preserve_order`). The whole file is
     /// serialized to memory before anything is written, so a failing edit or
     /// serialization leaves the file untouched.
     pub fn edit_info_document<F, T, E>(&mut self, edit: F) -> Result<T, EditInfoError<E>>
@@ -691,8 +685,8 @@ impl ProjectRead for LocalSrcProject {
         let info_json_path = self.info_path();
         let meta_json_path = self.meta_path();
 
-        // The metadata is read first because it carries the metamodel,
-        // which a message about the other document may need to name.
+        // Metadata first: it carries the metamodel, which a message about
+        // the other document may need to name.
         let meta_json = if meta_json_path.exists() {
             let partial: InterchangeProjectMetadataPartial =
                 serde_json::from_reader(wrapfs::File::open(&meta_json_path)?)

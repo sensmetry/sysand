@@ -1724,8 +1724,6 @@ const SYSIDE_SYSML: &str = "https://www.sysand.com/spec/SysML/20250201";
 /// The metamodel direction check runs before the lockfile is written,
 /// not only when one is read.
 ///
-/// This asserts on the message, not merely on failure, so that a failure
-/// for some other reason does not pass.
 #[test]
 fn lock_refuses_a_metamodel_direction_error() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
@@ -1813,13 +1811,8 @@ fn lock_warns_on_a_metamodel_release_mismatch() -> Result<(), Box<dyn std::error
 /// parse -- `semver::Error` describes the failure without ever echoing
 /// its input.
 ///
-/// The target is a **json** project on purpose. A `model.toml` target
-/// with the same version never reaches the solver: the manifest reader
-/// rejects it first, with its own message naming the line and column
-/// ("`[project]` sets `version = \"2023-11\"`, which is not a valid
-/// version"). So this message belongs to the json targets a
-/// `model.toml` project can still depend on, which is where a version
-/// is not checked when it is read.
+/// The target is a **json** project: a `model.toml` target with the same
+/// version is rejected by the manifest reader before the solver.
 #[test]
 fn lock_reports_a_non_semver_dependency_version() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
@@ -2109,8 +2102,7 @@ fn two_syside_archives_exporting_one_name_collide() -> Result<(), Box<dyn std::e
             .assert()
             .success();
         }
-        // A Syside depender, so that the control is not refused on the
-        // direction rule instead.
+        // A Syside depender, to avoid a refusal on the direction rule.
         write_syside_project(
             &cwd.join("app"),
             "app",

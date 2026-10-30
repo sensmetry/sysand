@@ -57,8 +57,8 @@ pub enum LockProjectError<PI: ProjectRead, PD: ProjectRead, R: ResolveRead + Deb
     ///
     /// `kpar_view::info` drops each usage's base, so such a usage would
     /// reach the solver as a bare relative path and be joined onto the
-    /// member's directory -- while a group entry's paths are relative to
-    /// the workspace root. Refused rather than silently misresolved.
+    /// member's directory, while a group entry's paths are relative to
+    /// the workspace root.
     #[error(
         "member `{member}` inherits the usage `{usage}`, whose path `{path}` is relative to the \n\
         {SP:>8} workspace root; a workspace lock cannot express that yet",
@@ -174,9 +174,7 @@ pub enum LockError<PD: ProjectRead, R: ResolveRead + Debug + 'static> {
     IncompleteProject {
         /// Human-readable label for the project (an IRI when the project
         /// was resolved for a usage, a name+version when available locally, or
-        /// `<unknown input project>` as a last resort). Deliberately avoids
-        /// the `Debug` output of the project, which is large and rarely
-        /// actionable.
+        /// `<unknown input project>` as a last resort).
         project_label: String,
         /// Which required piece was missing: `info`, `meta`, or
         /// `canonical digest`.
@@ -186,10 +184,6 @@ pub enum LockError<PD: ProjectRead, R: ResolveRead + Debug + 'static> {
     ///
     /// The edge checks run once before the lockfile is written and again
     /// when the lockfile is validated; this is the first of the two.
-    ///
-    /// Carries the direction error rather than `lock::ValidationError`:
-    /// every message of that type ends "in lockfile", and at this point
-    /// there is no lockfile yet.
     #[error(transparent)]
     MetamodelDirection(Box<crate::graph::MetamodelDirectionError<String>>),
     #[error("project {identifier} has invalid metadata")]
@@ -258,8 +252,7 @@ pub fn do_lock_projects<
 /// [`do_lock_projects`], with each input project's own base path.
 ///
 /// A workspace's members are its input projects, and a member's `dir`
-/// usages are relative to that member -- so one base for all of them is
-/// wrong as soon as two members sit at different depths. See
+/// usages are relative to that member. See
 /// [`do_lock_extend_with_bases`] for what `ctx` is still for.
 pub fn do_lock_projects_with_bases<
     'a,
@@ -316,10 +309,8 @@ fn lock_projects<
 
         // Which project declared the usages below, for the conflicts a
         // failed solve reports. A workspace lock passes each member's PURL
-        // as its `identifiers`, which is what makes "`a` requires ^1 and
-        // `b` requires ^2" sayable. An ordinary single-project lock passes
-        // `None`, so its conflicts stay anonymous -- naming a lone project
-        // to the person who just ran `lock` in it says nothing. Taken before `identifiers` is moved below.
+        // as its `identifiers`; an ordinary single-project lock passes
+        // `None`, so its conflicts stay anonymous. Taken before `identifiers` is moved below.
         let declarer = identifiers
             .as_ref()
             .and_then(|ids| ids.first())
@@ -378,12 +369,8 @@ fn lock_projects<
         // loop iterates cannot carry it -- `InterchangeProjectUsage::Resource`
         // is KerML's untyped usage, where the IRI *is* the identity --
         // so it is read from the manifest here and travels on the
-        // `ResolutionInfo`, which is what lets the resolver check the
-        // target the same way it checks a `dir` or `kpar-path` one.
-        //
-        // Read here, where the usages are resolved, so that the check
-        // applies to whatever resolves through this function rather than
-        // to `lock` alone.
+        // `ResolutionInfo`, which lets the resolver check the target the
+        // same way it checks a `dir` or `kpar-path` one.
         //
         // A project with no `model.toml` answers `Err(NoTomlManifest)`,
         // which is not an error: a json project declares no `kpar-url`
@@ -653,8 +640,7 @@ fn lock_extend<
     check_typed_usages(typed_usages, &solved, respelled).map_err(LockError::TypedUsageMismatch)?;
 
     // The metamodel edge checks, run before the lockfile is written.
-    // Here so that no caller can skip them, and rather than a full
-    // `Lock::validate` because a lock at this point legitimately fails
+    // Not a full `Lock::validate`: a lock at this point legitimately fails
     // the other rules: an input project may carry no identifier, and a
     // source may lie outside the project root. Release mismatches are warnings, reported here rather than by
     // a lockfile's validation, which runs on every read.
@@ -802,10 +788,8 @@ pub fn do_lock_local_editable_respelling<
 /// type's documentation.
 ///
 /// **`ctx.sources_root()` must be the workspace root.** Every solved
-/// local dependency's `src_path` is relativized against it, and one
-/// lockfile whose paths meant "relative to whichever member ran `lock`"
-/// would say different things in different lines. It is a `debug_assert`
-/// rather than an error because it is a precondition on the caller.
+/// local dependency's `src_path` is relativized against it. Checked with
+/// a `debug_assert`.
 #[cfg(feature = "filesystem")]
 pub fn do_lock_workspace<PD: ProjectRead + Debug, R: ResolveRead<ProjectStorage = PD> + Debug>(
     workspace: &crate::workspace::model_toml::Workspace,
@@ -867,8 +851,7 @@ fn lock_workspace<PD: ProjectRead + Debug, R: ResolveRead<ProjectStorage = PD> +
     let table = std::sync::Arc::new(workspace.table().clone());
     // The resolver reads a member's `dir` target as a project of its
     // own, and a member that inherits a key cannot be read without the
-    // table. Applied here rather than by the caller, so that nothing
-    // goes wrong only once some member inherits something.
+    // table.
     let resolver = resolver.within_workspace(workspace.root().to_owned(), table.clone());
     let members: Vec<EditableLocalSrcProject> = workspace
         .members()

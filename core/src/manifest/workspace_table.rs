@@ -10,9 +10,8 @@
 //! `[workspace.group.<group-name>]`.
 //!
 //! A workspace never inherits: there is nothing above it, so every value
-//! here is given directly. That is what makes this the simpler of the two
-//! tables, and why it comes before `[project]`, which
-//! [`WorkspaceTable::group_properties`] serves once markers are resolved.
+//! here is given directly. [`WorkspaceTable::group_properties`] serves the
+//! groups to `[project]` once markers are resolved.
 
 use std::collections::BTreeMap;
 
@@ -31,11 +30,10 @@ use crate::utils::{NormalizeRelativeError, normalize_relative};
 
 /// The keys a group gives, the default group and a named one alike.
 ///
-/// `sources` is here although a group may not carry it: it is an error
-/// that says so, which it can only
-/// be if the reader recognizes the key.
+/// `sources` is here although a group may not carry it: the reader has to
+/// recognize the key to report the error.
 ///
-/// `stdlib` and `manifest-version` are deliberately absent -- in a
+/// `stdlib` and `manifest-version` are absent -- in a
 /// workspace they are an unknown key like any other (a warning) -- and
 /// so are `name`, `description` and `root`, which identify one project.
 pub(crate) const GROUP_KEYS: &[&str] = &[
@@ -59,9 +57,7 @@ const URL_KEYS: &[&str] = &["website", "documentation", "repository"];
 
 /// The values a group provides for members to inherit.
 ///
-/// Every field is an `Option` because "the group does not give this key"
-/// is what a marker pointing at it has to report, and is not the same as
-/// a default: a group that gives `topics = []` satisfies a
+/// Every field is an `Option`: a group that gives `topics = []` satisfies a
 /// `topics.workspace = true`, and a group that gives no `topics` does
 /// not.
 #[derive(Clone, Debug, Default)]
@@ -75,10 +71,9 @@ pub struct GroupProperties {
     pub urls: Option<ResolvedUrls>,
     /// `[[workspace.inline-usages]]` for the default group,
     /// `[[workspace.group.<group-name>.inline-usages]]` for a named one.
-    /// A group entry is a plain [`Usage`]: there is nothing above a
-    /// workspace to inherit from. Which directory its `dir`/`kpar-path`
-    /// is relative to belongs to whoever reads the group, not to the
-    /// usage, so these are not [`crate::manifest::usage::LocatedUsage`]s.
+    /// A group entry is a plain [`Usage`]. Which directory its `dir`/`kpar-path`
+    /// is relative to belongs to whoever reads the group, so these are not
+    /// [`crate::manifest::usage::LocatedUsage`]s.
     pub inline_usages: Vec<Usage>,
 }
 
@@ -92,9 +87,8 @@ pub struct GroupProperties {
 pub struct MemberPath {
     pub raw: String,
     pub path: Utf8UnixPathBuf,
-    /// Where the entry was written, so that a diagnostic *about the
-    /// directory* -- a member requirement or stray state, raised long
-    /// after this table was read -- can point at the line that named it.
+    /// Where the entry was written, for diagnostics about the directory
+    /// raised after this table was read.
     ///
     /// `None` when the document carried no span index, which is what a
     /// hand-built table has.
@@ -102,8 +96,7 @@ pub struct MemberPath {
 }
 
 /// A path is where it points and how it was spelled. Where it was
-/// *written* is provenance for a message, so two entries naming the same
-/// directory from different lines are the same path.
+/// *written* is not part of equality.
 impl PartialEq for MemberPath {
     fn eq(&self, other: &Self) -> bool {
         self.raw == other.raw && self.path == other.path
@@ -125,15 +118,12 @@ pub struct WorkspaceTable {
 /// Where a directory sits with respect to a workspace, as far as the
 /// table alone can tell.
 ///
-/// [`crate::workspace::model_toml::Workspace::classify`] is this plus
-/// the two things a table does not have: an absolute path to
-/// relativize, and the loaded member to hand back.
+/// `Workspace::classify` is this plus
+/// an absolute path to relativize and the loaded member to hand back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Region<'a> {
-    /// The index of the `members` entry, and the entry. The index is
-    /// what lets a loaded workspace find the member without comparing
-    /// paths: a load that succeeded produced one member per entry, in
-    /// order.
+    /// The index of the `members` entry, and the entry. A load that
+    /// succeeded produced one member per entry, in order.
     Member(usize, &'a MemberPath),
     Excluded(&'a MemberPath),
     Unlisted,
@@ -148,9 +138,9 @@ impl WorkspaceTable {
     /// upwards would be compared as if it did not.
     ///
     /// The most specific entry answers, and an exact tie between the two
-    /// lists goes to `members`. Every combination is reachable, because
-    /// nothing refuses them: the cross-entry checks compare entries only
-    /// against others in the same list, and for `exclude` not even that.
+    /// lists goes to `members`. Every combination is reachable: the
+    /// cross-entry checks compare entries only against others in the same
+    /// list, and for `exclude` not even that.
     pub fn region(&self, relative: &Utf8UnixPath) -> Region<'_> {
         // At most one member can match: nested members *are* refused, so
         // no `members` entry is a prefix of another.
@@ -178,9 +168,7 @@ impl WorkspaceTable {
     /// Entries may nest -- the cross-entry checks are off for this list --
     /// so the most specific one answers.
     ///
-    /// The depth comes back with the entry so that it can be weighed
-    /// against a member's, as [`WorkspaceTable::region`] does, without
-    /// asking the same question twice.
+    /// The depth is weighed against a member's by [`WorkspaceTable::region`].
     pub fn excluding(&self, relative: &Utf8UnixPath) -> Option<(usize, &MemberPath)> {
         self.exclude
             .iter()
@@ -190,10 +178,9 @@ impl WorkspaceTable {
 
     /// Read and check the contents of a `[workspace]` table.
     ///
-    /// Finding the table in the document, and refusing a file that also
-    /// carries a `[project]`, belong to the reader of the file as a
-    /// whole; what is fixed here is where the table sits, which is what
-    /// addresses its keys in the span index.
+    /// The reader of the file as a whole finds the table and refuses a file
+    /// that also carries a `[project]`; what is fixed here is where the
+    /// table sits, which addresses its keys in the span index.
     pub fn validate(
         table: &toml::Table,
         positions: &Positions<'_>,
@@ -368,9 +355,8 @@ fn group_usages(reader: &TableReader<'_>, table: &str, report: &mut Report) -> V
 ///
 /// An entry is taken exactly as written, as a `sources` entry is: it is
 /// refused unless it already is the one form [`normalize_relative`]
-/// would produce. A path that leaves the
-/// root or is the root still gets the message that says so, which is
-/// more use than "not in normal form" for `..` or `.`.
+/// would produce. A path that leaves the root or is the root still gets
+/// the message that says so.
 ///
 /// `cross_entry` is the rules that hold between entries -- no entry
 /// inside another, no entry listed twice -- which hold for `members`
@@ -445,18 +431,15 @@ fn member_paths(
 
 /// A `members` entry at or under an `exclude` entry is refused.
 ///
-/// The two lists say opposite things about the same directory -- anything
-/// under an `exclude` entry is outside the workspace -- and neither list
-/// takes precedence over the other, so the combination is a conflict to report rather
-/// than something [`WorkspaceTable::region`]'s depth comparison may
-/// decide silently.
+/// The two lists say opposite things about the same directory and neither
+/// takes precedence, so the combination is a conflict to report, not for
+/// [`WorkspaceTable::region`]'s depth comparison to decide silently.
 ///
 /// The offending entries are dropped from `members` so that the rest of
 /// the load sees a table it can reason about; the report is what stops
 /// it being used.
 ///
-/// Both lists hold normalized entries only, so a member that names an
-/// excluded directory spells it as `exclude` does.
+/// Both lists hold normalized entries only.
 fn cross_list_conflicts(
     members: Vec<MemberPath>,
     exclude: &[MemberPath],
@@ -492,9 +475,8 @@ fn cross_list_conflicts(
 
 /// How many segments of `entry` `path` is under, or `None` if it is not.
 ///
-/// The workspace root itself is never an entry -- [`member_paths`]
-/// refuses it -- so a depth of zero cannot arise and `None` is
-/// unambiguous.
+/// The workspace root itself is never an entry ([`member_paths`] refuses
+/// it), so a depth of zero cannot arise.
 pub(crate) fn prefix_depth(path: &Utf8UnixPath, entry: &Utf8UnixPath) -> Option<usize> {
     path.starts_with(entry).then(|| entry.components().count())
 }

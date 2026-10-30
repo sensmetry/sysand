@@ -5,10 +5,9 @@
 //!
 //! What a load does, beyond reading the table, is check the members --
 //! their requirements and stray per-member state -- and resolve each
-//! member's manifest against the table it belongs to. The resolution is not an
-//! optimisation: [`crate::manifest::kpar_view::resolved_of_text`]
-//! resolves standalone, so a member carrying `version.workspace = true`
-//! is otherwise refused *for being a member*.
+//! member's manifest against the table it belongs to; standalone resolution
+//! ([`crate::manifest::kpar_view::resolved_of_text`]) refuses a member
+//! carrying `version.workspace = true` *for being a member*.
 
 use std::collections::{HashMap, hash_map::Entry};
 
@@ -41,8 +40,7 @@ use crate::project::utils::{
 /// the diagnostics that belong to a member's own manifest are kept
 /// apart, each under the name of the file it points into.
 ///
-/// Both halves are filled before the load gives up, so one bad member
-/// does not hide the next.
+/// Both halves are filled before the load gives up.
 #[derive(Debug)]
 pub struct LoadFailure {
     /// Member requirements and stray per-member state, each positioned
@@ -75,8 +73,7 @@ pub enum LoadError {
     #[error(transparent)]
     Root(ProjectDeserializationError),
     /// It reads, but it defines a project: the `model.toml` that defines
-    /// the workspace must not also contain a `[project]` table, so a
-    /// project there is not a workspace root.
+    /// the workspace must not also contain a `[project]` table.
     #[error("`{0}` defines a project, not a workspace")]
     NotAWorkspace(Utf8PathBuf),
     #[error("{0}")]
@@ -132,8 +129,7 @@ pub struct Workspace {
 /// is checked unless the caller passes [`MemberChecks::SkipStrayState`].
 ///
 /// The check runs where a workspace is *loaded*. Code that takes its
-/// current project directly never loads the members and so never looks,
-/// which is deliberate: the invariant matters to what relies on it.
+/// current project directly never loads the members and so never looks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MemberChecks {
     /// Every member requirement.
@@ -148,13 +144,13 @@ impl Workspace {
     /// member and resolve each member's manifest against the table.
     ///
     /// `root` is canonicalized, so that [`Workspace::classify`] can
-    /// relativize against it and so that messages name one spelling.
+    /// relativize against it.
     ///
     /// Files are named *relative to the root* in every diagnostic --
     /// `model.toml` for the root, `app/model.toml` for a member -- since
     /// a [`crate::manifest::diagnostics::Position`] displays as
-    /// `file:line:column` and three members sharing the bare constant
-    /// would be indistinguishable.
+    /// `file:line:column` and members sharing the bare constant would be
+    /// indistinguishable.
     pub fn load(root: impl AsRef<Utf8Path>) -> Result<Self, LoadError> {
         Self::load_with(root, MemberChecks::All)
     }
@@ -183,8 +179,6 @@ impl Workspace {
 
         // The cycle check runs whenever the dependency graph is built:
         // when a workspace is read, and when resolving or building.
-        // Checking at the read keeps a cyclic workspace from being locked and synced when it
-        // can never be built.
         //
         // Only over the members that loaded: a member that did not
         // contributes no edges, so a cycle running through a broken one
@@ -210,16 +204,13 @@ impl Workspace {
 
     /// Find the workspace a command run in `from` belongs to.
     ///
-    /// The three steps are ordered, and the order matters: find the
-    /// candidate, **load it**, then confirm it is not nested.
+    /// The three steps are ordered: find the candidate, **load it**, then
+    /// confirm it is not nested.
     ///
     /// [`ModelToml::peek`] answers `Workspace` for a file carrying both
     /// tables, so a member whose manifest defines both becomes a
-    /// candidate. Asking the nesting question first would tell its
-    /// author that "nested workspaces are not supported", about a file
-    /// whose fault is that it defines both tables. That a member cannot be
-    /// such a root, since the two tables never share a file, is an
-    /// invariant about valid files, and the walk reads invalid ones.
+    /// candidate. Asking the nesting question first would misreport its
+    /// fault as nested workspaces.
     pub fn discover(from: impl AsRef<Utf8Path>) -> Result<Option<Self>, DiscoverError> {
         Self::discover_with(from, MemberChecks::All)
     }
@@ -241,10 +232,9 @@ impl Workspace {
     /// What the command started in, which is what it acts on when no
     /// selector says otherwise.
     ///
-    /// [`start_region`] with the members in hand: the walk is the same
-    /// one, and the index it answers with is an index into
-    /// `table.members`, which a loaded workspace matches one for one
-    /// (see [`Workspace::classify`]).
+    /// [`start_region`] with the members in hand: the index it answers with
+    /// is an index into `table.members`, which a loaded workspace matches
+    /// one for one (see [`Workspace::classify`]).
     pub fn start(&self, from: impl AsRef<Utf8Path>) -> Result<Selection<'_>, DiscoverError> {
         Ok(match start_region(&self.root, &self.table, from)? {
             StartRegion::Member(index) => Selection::Member(&self.members[index]),
@@ -257,11 +247,9 @@ impl Workspace {
     ///
     /// The selector matches a `members` path or a member's `name`, both
     /// literally, and a value that matches one member's path and
-    /// another's name is an ambiguity error naming both, not a path match
-    /// that wins by being tried first. So the rule is a union over both
-    /// halves: collect every member the selector names, count a member
-    /// named both ways once, and refuse anything but a single answer.
-    /// There is no input whose result depends on an order.
+    /// another's name is an ambiguity error naming both. The rule is a union
+    /// over both halves: collect every member the selector names, count a
+    /// member named both ways once, and refuse anything but a single answer.
     ///
     /// "Literally" is read as against the spelling the author wrote, so
     /// `--member ./app/` matches the entry written `./app/` and
@@ -304,9 +292,8 @@ impl Workspace {
     /// What `build`, `sources`, `info` and `publish` act on.
     ///
     /// [`Workspace::start`] runs first and its error is propagated
-    /// before the selector is looked at: an unlisted project directory
-    /// "is the hard error of Included projects, whatever the command",
-    /// so a selector cannot excuse standing in one.
+    /// before the selector is looked at: an unlisted project directory is
+    /// a hard error whatever the command.
     pub fn select(
         &self,
         from: impl AsRef<Utf8Path>,
@@ -323,10 +310,8 @@ impl Workspace {
     /// What `add`, `remove`, `include`, `exclude` and the writing `info`
     /// verbs act on.
     ///
-    /// The same rule as [`Workspace::select`] except where that answers
-    /// [`Selection::Workspace`]: these commands need a project, so the
-    /// whole workspace is not an answer they can take, and the table
-    /// makes that column an error. It never returns [`Selection::Workspace`].
+    /// The same rule as [`Workspace::select`], except that these commands
+    /// need a project: it never returns [`Selection::Workspace`].
     pub fn select_member(
         &self,
         from: impl AsRef<Utf8Path>,
@@ -358,16 +343,13 @@ impl Workspace {
     ///
     /// The **most specific** entry wins -- the one whose path is the
     /// longest prefix of `dir` -- and an exact tie between the two lists
-    /// goes to `members`: a directory the author listed as a member is
-    /// one, and `exclude` is about what is not otherwise accounted for.
-    /// So `exclude = ["vendor"]` with `members = ["vendor/a"]` puts
-    /// `vendor/a/sub` inside the member and leaves `vendor/b` excluded,
-    /// which is what the two lists plainly say.
+    /// goes to `members`. So `exclude = ["vendor"]` with
+    /// `members = ["vendor/a"]` puts `vendor/a/sub` inside the member and
+    /// leaves `vendor/b` excluded.
     ///
     /// Nothing refuses a path written in both lists, or one list's entry
     /// nested in the other's: `member_paths` checks entries only against
-    /// the others in the same list, and for `exclude` not even that. So
-    /// every combination has to be decided here.
+    /// the others in the same list, and for `exclude` not even that.
     pub fn classify(&self, dir: &Utf8Path) -> Result<Classification<'_>, ClassifyError> {
         let relative = relativize_path(dir, &self.root)?;
         if relative.components().any(|c| c.as_str() == "..") {
@@ -388,11 +370,10 @@ impl Workspace {
 /// Why discovery failed.
 ///
 /// A nesting error and an unlisted project are not diagnostics about a
-/// manifest: nothing in a manifest is wrong and there is no span to
-/// point at. Three of the variants *are* about a file, and arrive in two
-/// shapes -- [`ModelToml::peek`] fails with a bare [`Diagnostic`] and
-/// [`ModelToml::parse`] with a [`Report`] -- so both are carried as a
-/// report over the file they came from.
+/// manifest: there is no span to point at. Three of the variants *are*
+/// about a file, and arrive in two shapes -- [`ModelToml::peek`] fails with
+/// a bare [`Diagnostic`] and [`ModelToml::parse`] with a [`Report`] -- so
+/// both are carried as a report over the file they came from.
 #[derive(Debug, Error)]
 pub enum DiscoverError {
     #[error(transparent)]
@@ -503,17 +484,16 @@ pub enum Selection<'a> {
 
 /// Where a command run in `from` starts, answered from the table alone.
 ///
-/// [`Workspace::start`] is this walk plus the member lookup. The split
-/// exists because the two questions have different costs: this one is a
+/// [`Workspace::start`] is this walk plus the member lookup. This one is a
 /// path comparison against [`WorkspaceTable::region`], while producing a
 /// [`Member`] means [`Workspace::load`], which reads and resolves every
 /// member's manifest and enforces the member requirements.
 ///
-/// The CLI needs the cheap one first. A member holding a
-/// `sysand-lock.toml`, a `.sysand/` or an `output/` is an error. A command that writes such state into the
-/// member it acts on, and asked where it starts through
-/// [`Workspace::load`], would refuse the workspace its own previous run
-/// created.
+/// The CLI needs the cheap one first: a member holding a
+/// `sysand-lock.toml`, a `.sysand/` or an `output/` is an error, so a
+/// command that writes such state into the member it acts on and asked
+/// where it starts through [`Workspace::load`] would refuse the workspace
+/// its own previous run created.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StartRegion {
     /// Inside `table.members[index]`.
@@ -526,18 +506,15 @@ pub enum StartRegion {
 
 /// The `members` entry that `dir` **is**, if any.
 ///
-/// [`start_region`] answers a different question and must not be used
-/// for this one. It prefix-matches -- that is what lets a command run
-/// in `app/src/deep` know it is in member `app` -- so
-/// [`StartRegion::Member`] holds for every directory *under* an entry,
-/// a project of its own included. Inheritance markers resolve for
-/// members and for nothing else, so the gate that admits them has to
-/// ask for identity.
+/// [`start_region`] answers a different question and must not be used for
+/// this one. It prefix-matches, so [`StartRegion::Member`] holds for every
+/// directory *under* an entry, a project of its own included. Inheritance
+/// markers resolve for members and for nothing else, so the gate that
+/// admits them has to ask for identity.
 ///
-/// `dir` is a project directory, not a starting point: no upward
-/// walk, and anything that is not a member answers `None`. A `dir` outside `root` answers `None` too, because no
-/// `members` entry contains a `..` component for its relative path to
-/// equal.
+/// `dir` is a project directory, not a starting point: no upward walk, and
+/// anything that is not a member answers `None`, a `dir` outside `root`
+/// included.
 pub fn member_index(
     root: &Utf8Path,
     table: &WorkspaceTable,
@@ -560,13 +537,12 @@ pub fn member_index(
 /// [`WorkspaceTable`] and a root path.
 ///
 /// The project `from` sits in is the one [`crate::discover::discover_project`]
-/// would find, so it is found with the same predicate. The search is bounded at the root: a
-/// project above the root is a different project, which this workspace
-/// has no opinion about.
+/// would find, found with the same predicate. The search is bounded at the
+/// root: a project above the root is a different project.
 ///
-/// `root` must be canonical -- [`candidate_root`] and [`Workspace::load`]
-/// both canonicalize what they return -- because `from` is canonicalized
-/// here and the two are compared.
+/// `root` must be canonical ([`candidate_root`] and [`Workspace::load`]
+/// both canonicalize what they return), since `from` is canonicalized here
+/// and the two are compared.
 pub fn start_region(
     root: &Utf8Path,
     table: &WorkspaceTable,
@@ -587,14 +563,9 @@ pub fn start_region(
                 });
             }
             return match table.region(&relative) {
-                // The entry itself, not merely something under it.
-                // `region` prefix-matches, so without the equality a
-                // project *nested inside* a member would answer `Member`
-                // and the command would run as though it were that
-                // member, disagreeing with `--path` to the same
-                // directory. A project under the root that is neither a
-                // member nor under an excluded directory is a hard
-                // error, and a project inside a member is neither.
+                // The entry itself, not merely something under it:
+                // `region` prefix-matches, so a project *nested inside* a
+                // member would otherwise answer `Member`.
                 Region::Member(index, member) if member.path == relative => {
                     Ok(StartRegion::Member(index))
                 }
@@ -619,16 +590,12 @@ pub fn start_region(
 
 /// Whether `dir` holds a `model.toml` that defines a `[workspace]`.
 ///
-/// [`ModelToml::peek`] and nothing more, which is what it was written
-/// for: reading each ancestor through [`ModelToml::parse`] would
-/// validate files the walk does not care about.
+/// [`ModelToml::peek`] and nothing more: reading each ancestor through
+/// [`ModelToml::parse`] would validate files the walk does not care about.
 ///
 /// A file that does not parse **ends the walk**. Treating it as "not a
-/// workspace" would answer *no workspace* for a directory whose manifest
-/// may well be one, and every member under it would then be read as a
-/// standalone project; a wrong answer about membership is worse than an
-/// error. A file with neither table is walked past -- it is not a
-/// workspace root, whatever else is wrong with it.
+/// workspace" would read every member under it as a standalone project. A
+/// file with neither table is walked past.
 fn is_workspace_file(dir: &Utf8Path) -> Result<bool, DiscoverError> {
     let file = dir.join(MODEL_TOML_FILE);
     if !wrapfs::is_file(&file)? {
@@ -646,18 +613,14 @@ fn is_workspace_file(dir: &Utf8Path) -> Result<bool, DiscoverError> {
 
 /// The `[workspace]` table `dir` defines.
 ///
-/// Parsed, not loaded. [`Workspace::load`] also checks that each member
-/// directory exists, holds a `model.toml` project, is free of stray
-/// state and has a manifest that reads -- none of which bears on whether
-/// this workspace excludes some directory, and a command inside a
-/// separate workspace must not fail because a neighbour's member is
-/// missing.
+/// Parsed, not loaded: [`Workspace::load`] also checks each member, none of
+/// which bears on whether this workspace excludes some directory, and a
+/// command inside a separate workspace must not fail because a neighbour's
+/// member is missing.
 ///
-/// Parsing is not free of the outer's own mistakes: `parse` runs
-/// [`WorkspaceTable::validate`], whose report is all-or-nothing, so an
-/// outer whose `members` or `exclude` holds a path that does not
-/// normalize does not parse. That is accepted: a table whose `exclude`
-/// does not parse cannot answer the question being asked of it.
+/// `parse` runs [`WorkspaceTable::validate`], whose report is
+/// all-or-nothing, so an outer whose `members` or `exclude` holds a path
+/// that does not normalize does not parse.
 fn workspace_table_at(dir: &Utf8Path) -> Result<WorkspaceTable, DiscoverError> {
     let file = dir.join(MODEL_TOML_FILE);
     let text = wrapfs::read_to_string(&file)?;
@@ -672,11 +635,7 @@ fn workspace_table_at(dir: &Utf8Path) -> Result<WorkspaceTable, DiscoverError> {
 }
 
 /// Pass 1: the first ancestor of `from` whose `model.toml` defines a
-/// `[workspace]`.
-///
-/// The workspace is discovered by walking up from the starting directory
-/// until a `model.toml` with a `[workspace]` table is encountered; that
-/// folder is the candidate workspace root.
+/// `[workspace]`: the candidate workspace root.
 ///
 /// A *candidate*, because the walk is not finished: see [`confirm_root`].
 /// And because a file carrying both tables peeks as a workspace, a
@@ -702,11 +661,9 @@ pub fn candidate_root(from: impl AsRef<Utf8Path>) -> Result<Option<Utf8PathBuf>,
 
 /// The workspace `from` belongs to, as its `[workspace]` table.
 ///
-/// [`Workspace::discover`] loads: it parses and resolves every member,
-/// and refuses the workspace if any is broken. This does not: creating
-/// a new project, for one, cannot be blocked by an unrelated member's
-/// mistake, or the one command that could finish a half-built workspace
-/// is the one that refuses to run in it.
+/// [`Workspace::discover`] loads: it parses and resolves every member, and
+/// refuses the workspace if any is broken. This does not, so creating a
+/// new project is not blocked by an unrelated member's mistake.
 ///
 /// The three steps are [`candidate_root`], the parse, and
 /// [`confirm_root`], in that order, so that a file carrying both tables
@@ -726,18 +683,12 @@ pub fn discover_table(
 
 /// Pass 2: refuse a candidate nested in another workspace.
 ///
-/// workspaces.md: "The walk does not stop there: it continues to the
-/// filesystem root (there is no `.git` bound), and a second
-/// `[workspace]` table found above the first means the candidate is
-/// itself inside another workspace. That is allowed in exactly one case:
-/// the outer workspace lists the candidate's directory, or a directory
-/// above it, in `exclude`."
-///
-/// "Then the candidate is confirmed as the root and the walk stops;
-/// whether the outer workspace is itself nested is checked when a
-/// command runs inside it." So the first outer settles the question
-/// either way, and a third workspace above it is not this command's
-/// problem.
+/// A second `[workspace]` table found above the first means the candidate
+/// is itself inside another workspace. That is allowed in exactly one
+/// case: the outer workspace lists the candidate's directory, or a
+/// directory above it, in `exclude`. The first outer settles the question
+/// either way; whether it is itself nested is checked when a command runs
+/// inside it.
 pub fn confirm_root(candidate: impl AsRef<Utf8Path>) -> Result<(), DiscoverError> {
     let candidate = wrapfs::canonicalize(candidate.as_ref())?;
     let mut current = candidate.parent().map(Utf8Path::to_owned);
@@ -775,13 +726,10 @@ fn entry_kind(path: &Utf8Path) -> Result<Option<bool>, Box<FsIoError>> {
 /// The member requirements, and the read that answers them.
 ///
 /// [`detect_format`] tests file existence, which settles the json, the
-/// ambiguous and the empty directory. It cannot settle the fourth case:
-/// a `model.toml` holding a `[workspace]` table, one that is not TOML,
-/// and one defining neither table all come back [`ProjectFormat::Toml`].
-/// Since the member has to be parsed anyway -- its manifest is resolved
-/// against the table -- the parse is the check, and
-/// [`ModelToml::peek`] is left to the upward walk, where parsing every
-/// ancestor would validate files nobody asked about.
+/// ambiguous and the empty directory. A `model.toml` holding a `[workspace]`
+/// table, one that is not TOML, and one defining neither table all come
+/// back [`ProjectFormat::Toml`]. The member is parsed anyway, so the parse
+/// is the check; [`ModelToml::peek`] is for the upward walk.
 fn load_member(
     root: &Utf8Path,
     path: &MemberPath,
@@ -833,10 +781,7 @@ fn load_member(
         ProjectFormat::Both => {
             let json = json_manifest(&dir)?.expect("`Both` means one of the two is there");
             // The clause is `LocalSrcError::AmbiguousFormat`'s, written
-            // out rather than stringified from it: this message names
-            // the member, and folding a typed error into a diagnostic is
-            // what `LoadFailure` exists to avoid. A test holds the two
-            // together.
+            // out rather than stringified from it.
             report.push(
                 Diagnostic::error(format!(
                     "member `{raw}` has both `model.toml` and `{json}`; it is unclear whether it \
@@ -894,14 +839,11 @@ fn load_member(
 
 /// Two members that are the same project.
 ///
-/// The lockfile holds one entry per identity, so two members claiming
-/// one identity cannot be locked, and building them would produce two
-/// archives that claim to be the same project. This is a malformed
-/// workspace, and the load is where a malformed workspace is refused,
-/// which puts the error in front of every command.
+/// The lockfile holds one entry per identity, so two members claiming one
+/// identity cannot be locked. The load is where a malformed workspace is
+/// refused.
 ///
-/// Compared normalized: two entries whose identities normalize to the
-/// same value are the same project. `Acme Corp` and `acme-corp` are one publisher.
+/// Compared normalized: `Acme Corp` and `acme-corp` are one publisher.
 fn duplicate_identities(members: &[Member]) -> Vec<Diagnostic> {
     let mut seen: HashMap<_, &Member> = HashMap::new();
     let mut found = Vec::new();
@@ -938,11 +880,11 @@ fn duplicate_identities(members: &[Member]) -> Vec<Diagnostic> {
 /// self-cycle it looks like. A `kpar-path` names a `.kpar` file rather
 /// than a member directory, so it is not an edge between members.
 ///
-/// `located.base` is deliberately not consulted: an inherited path
-/// usage is not an edge between members.
+/// `located.base` is not consulted: an inherited path usage is not an
+/// edge between members.
 ///
-/// `cycles()` and not `dependency_order()`: this reports rather than orders,
-/// and a workspace with two independent cycles should hear about both.
+/// `cycles()` reports rather than orders, so a workspace with two
+/// independent cycles hears about both.
 fn member_cycles(members: &[Member]) -> Vec<Diagnostic> {
     let mut graph = DependencyGraph::new();
     for member in members {
@@ -1007,10 +949,9 @@ fn member_cycles(members: &[Member]) -> Vec<Diagnostic> {
 
 /// Three existence tests; no content is read.
 ///
-/// The message names the *root*, since that is where the state belongs
-/// and saying so is the whole content of the rule. Excluded directories
-/// are not checked: standalone projects under them keep their state
-/// legitimately; the check applies to members only.
+/// The message names the *root*, since that is where the state belongs.
+/// Excluded directories are not checked: standalone projects under them
+/// keep their state; the check applies to members only.
 fn stray_state(
     root: &Utf8Path,
     path: &MemberPath,
@@ -1065,17 +1006,10 @@ mod tests;
 ///
 /// In `core` so that the CLI and both bindings can share it.
 ///
-/// [`discover_table`] and [`region_of`], deliberately, and not
-/// [`Workspace::load_with`] with [`Workspace::classify`]:
-///
-/// * `load_with` parses and validates *every* member, so one broken
-///   sibling would make this fall back to a table-less read, which
-///   fails for a member that inherits -- and on the standard library
-///   it would read the whole tree on every call.
-/// * `classify` answers from [`WorkspaceTable::region`], which
-///   prefix-matches, so a project that merely *sits inside* a member
-///   directory would be handed a table it is not entitled to.
-///   [`region_of`] adds the equality.
+/// Built from [`discover_table`] and [`region_of`]: [`Workspace::classify`]
+/// answers from [`WorkspaceTable::region`], which prefix-matches, so a
+/// project that merely *sits inside* a member directory would be handed a
+/// table it is not entitled to. [`region_of`] adds the equality.
 ///
 /// An **excluded** project, and one outside any workspace, read
 /// table-less: they are standalone. An **unlisted** one is refused, the
@@ -1125,12 +1059,12 @@ pub fn project_at_path(
 
 /// Where a path sits relative to a workspace.
 ///
-/// Three answers, because "not a member" hides the
-/// distinction that matters: an excluded project is *deliberately*
-/// standalone -- the only kind of non-member project that may sit under a
-/// workspace root -- while an unlisted one is a hard error. Reading both table-less would make `sysand info
-/// --path <unlisted>` succeed where `cd <unlisted> && sysand info`
-/// fails.
+/// Three answers, because "not a member" hides the distinction that
+/// matters: an excluded project is standalone -- the only kind of
+/// non-member project that may sit under a workspace root -- while an
+/// unlisted one is a hard error. Reading both table-less would make
+/// `sysand info --path <unlisted>` succeed where `cd <unlisted> && sysand
+/// info` fails.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PathRegion {
     /// A listed member: resolve its manifest against the table.

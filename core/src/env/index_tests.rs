@@ -283,11 +283,8 @@ mod uris {
     #[test]
     fn invalid_or_non_normalized_sysand_purl_rejected_loudly()
     -> Result<(), Box<dyn std::error::Error>> {
-        // The `pkg:sysand/` prefix is strong intent; a malformed or
-        // non-normalized variant must reject as `MalformedSysandPurl`
-        // rather than silently reroute to `_iri/<sha256>/` (which
-        // would mask typos, casing, traversal attempts, and wrong
-        // segment counts as opaque "not found"s).
+        // A malformed or non-normalized `pkg:sysand/` variant must reject
+        // as `MalformedSysandPurl`, not reroute to `_iri/<sha256>/`.
         let env = index_env_async("https://www.example.com/index/")?;
 
         for iri in [
@@ -470,10 +467,7 @@ mod uris {
 
     #[test]
     fn missing_index_is_hard_error() -> Result<(), Box<dyn std::error::Error>> {
-        // `index.json` is the document that identifies a URL as a sysand
-        // index; a 404 means "this URL is not a sysand index", so a
-        // misconfigured base URL surfaces clearly instead of masquerading
-        // as an empty index.
+        // A 404 on `index.json` means "this URL is not a sysand index".
         let mut server = mockito::Server::new();
 
         let env = index_env_sync(&server)?;
@@ -886,9 +880,8 @@ mod versions {
 
     #[test]
     fn versions_json_forbidden_is_hard_error() -> Result<(), Box<dyn std::error::Error>> {
-        // The 404 downgrade is deliberately narrow. A direct 403 on
-        // root `versions.json` is a hard transport/auth failure, not
-        // "project absent from this index".
+        // A direct 403 on root `versions.json` is a hard transport/auth
+        // failure, not "project absent from this index".
         let mut server = mockito::Server::new();
 
         let env = index_env_sync(&server)?;
@@ -954,8 +947,6 @@ mod versions {
 
     #[test]
     fn duplicate_versions_are_rejected() -> Result<(), Box<dyn std::error::Error>> {
-        // Rejected rather than silently preserved: there is no principled
-        // way to pick between duplicates that might carry different digests.
         let mut server = mockito::Server::new();
 
         let env = index_env_sync(&server)?;
@@ -2023,11 +2014,8 @@ mod digest {
     #[test]
     fn versions_async_rejects_document_with_malformed_digest()
     -> Result<(), Box<dyn std::error::Error>> {
-        // Shape-check happens at `versions.json` parse time. Because
-        // `versions_async` and `get_project_async` share the cache, a
-        // deferred check would let `versions_async` happily stream
-        // strings from a document that a later `get_project_async`
-        // would reject, a surprise much later.
+        // The shape check happens at `versions.json` parse time, and
+        // `versions_async` and `get_project_async` share the cache.
         let mut server = mockito::Server::new();
 
         let env = index_env_sync(&server)?;
@@ -2202,12 +2190,9 @@ mod caching {
 
     #[test]
     fn versions_json_404_refetched_on_every_call() -> Result<(), Box<dyn std::error::Error>> {
-        // The "not in this index" 404 outcome is intentionally
-        // not cached (the cache slot is only populated on a
-        // successful validate), so a later publish to the same index
-        // becomes visible without restart. Each retry re-issues the
-        // fetch even though the resolver boundary surfaces it as an
-        // empty stream.
+        // The "not in this index" 404 outcome is not cached (the slot is
+        // only populated on a successful validate), so each retry
+        // re-issues the fetch.
         let mut server = mockito::Server::new();
 
         let env = index_env_sync(&server)?;
@@ -2367,10 +2352,9 @@ mod sources {
 
     #[test]
     fn kpar_digest_match_allows_download() -> Result<(), Box<dyn std::error::Error>> {
-        // Matching `kpar_digest`: verification passes and the eventual
-        // error is a downstream kpar-parser error on the intentionally
-        // invalid zip body; the absence of `DigestMismatch` is what
-        // proves the digest check passed.
+        // Matching `kpar_digest`: the eventual error is a kpar-parser
+        // error on the invalid zip body; no `DigestMismatch` means the
+        // digest check passed.
 
         let mut server = mockito::Server::new();
 

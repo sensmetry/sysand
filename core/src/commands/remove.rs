@@ -17,9 +17,7 @@ pub enum RemoveError<ProjectError> {
     #[error("could not find usage for `{0}`")]
     UsageNotFound(Box<str>),
     /// No `Resource` usage of the IRI exists, but a typed usage of the *same
-    /// project* does. Reserved as an error rather than reported as "not
-    /// found", which would be untrue, so that removing by identifier can
-    /// later be relaxed into removing the typed usage instead.
+    /// project* does.
     #[error(
         "`{identifier}` is declared as {kind} usage, not as a resource usage;\n\
         remove it with `{remove_with}`"
@@ -117,8 +115,7 @@ pub fn do_remove<P: ProjectMut>(
 
     match usage {
         // The same project may be declared as a typed usage, which has the
-        // same `Identifier` but is not a resource usage. Saying "not found"
-        // there would be false.
+        // same `Identifier` but is not a resource usage.
         UsageRef::Resource(iri) => {
             if let Some(usage) = info.usage.iter().find(|usage| {
                 usage.is_typed()

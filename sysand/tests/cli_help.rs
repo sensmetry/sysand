@@ -8,7 +8,7 @@ use std::process::Command;
 
 use sysand::render_long_help;
 
-/// The bare binary, deliberately not `common::sysand_cmd_in_with`: that
+/// The bare binary, not `common::sysand_cmd_in_with`: that
 /// helper appends `--no-config` after the caller's arguments and injects
 /// environment, neither of which belongs in a byte comparison of help text.
 /// The environment is cleared all the same, since clap shows the value of
@@ -81,8 +81,8 @@ fn program_name_replaces_argv0() {
 #[test]
 fn program_name_does_not_change_the_footer() {
     // `{name} v{version}` in the help template resolves through clap's
-    // display name, never the bin name. Deliberate: the usage line says how
-    // to invoke the command, the footer says which tool and version answers.
+    // display name, never the bin name: the usage line says how to invoke
+    // the command, the footer says which tool and version answers.
     let help = render_long_help("custom sysand", Vec::<String>::new());
 
     assert!(help.contains("Usage: custom sysand"), "{help}");

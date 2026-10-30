@@ -317,8 +317,7 @@ fn identifier_from_project_decides_by_the_spelling_as_given() {
 }
 
 /// A usage is resolved by the normalized identity, regardless of how it
-/// is declared. Both directions, because neither side of the comparison is the
-/// canonical one.
+/// is declared. Both directions.
 #[test]
 fn an_identity_matches_after_normalization() {
     ExpectedIdentity::resolving(Some("Acme Corp".to_owned()), "widgets".to_owned())
@@ -360,10 +359,8 @@ fn a_different_identity_is_still_a_mismatch() {
     );
 }
 
-/// "Resolution is the only place that normalizes ... Every other
-/// comparison is literal string equality." `sysand sync` checks an
-/// installed project against the pair the lockfile recorded, where
-/// normalizing would hide the drift the check exists to catch.
+/// `sysand sync` checks an installed project against the pair the lockfile
+/// recorded by literal string equality.
 #[test]
 fn a_recorded_identity_is_compared_literally() {
     assert_matches!(

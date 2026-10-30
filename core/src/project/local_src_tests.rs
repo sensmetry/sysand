@@ -465,10 +465,8 @@ fn a_model_toml_project_refuses_a_json_meta_write() {
     );
 }
 
-/// The reason the guard exists. `do_include` reads the metadata --
-/// which the view supplies -- and writes it straight back, so
-/// without the guard it would leave a `.meta.json` beside the
-/// `model.toml` and make the directory unreadable.
+/// `do_include` reads the metadata (supplied by the view) and writes it
+/// back; the guard stops it leaving a `.meta.json` beside the `model.toml`.
 #[test]
 fn including_a_file_does_not_turn_a_toml_project_into_both() {
     let dir = tempdir().expect("a temporary directory");
@@ -663,10 +661,8 @@ fn a_directory_with_no_manifest_at_all_names_all_three() {
     );
 }
 
-/// The reason the message is not simply reworded for everyone: a json
-/// project that has one of its two documents is not missing a
-/// `model.toml`, and saying so would send the reader to write the wrong
-/// file.
+/// A json project that has one of its two documents is not reported as
+/// missing a `model.toml`.
 #[test]
 fn a_json_project_missing_one_file_is_unchanged() {
     let dir = tempdir().expect("a temporary directory");
@@ -861,8 +857,8 @@ fn a_member_projects_manifest_resolves_against_its_table() {
     assert_eq!(manifest.version.to_string(), "9.9.9");
 }
 
-/// A value the project states itself wins over the group's. The fixture
-/// collides on purpose: a table that agreed would prove nothing.
+/// A value the project states itself wins over the group's (the fixture
+/// values differ).
 #[test]
 fn a_member_project_prefers_its_own_values() {
     let dir = tempdir().expect("a temporary directory");

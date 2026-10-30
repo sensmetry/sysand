@@ -47,9 +47,6 @@ pub enum SyncError<
     /// OMG standard-library IRIs is exactly that; one that is not a
     /// standard library and has no sources is a malformed lockfile, and
     /// keeps [`Self::MissingSource`].
-    ///
-    /// The `--include-std` hint is the CLI's to append: the bindings
-    /// reach this error too and have no such flag to pass.
     #[error(
         "the lockfile pins standard library `{name}` at `{version}`, which this Sysand does not know about"
     )]

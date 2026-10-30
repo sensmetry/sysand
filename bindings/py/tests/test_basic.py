@@ -1349,8 +1349,7 @@ def compare_sources(
 
 def test_end_to_end_install_sources() -> None:
     # A standard library is identified by its hard-coded IRI; the version must
-    # match the embedded standard library metadata so that every `Dependencies`
-    # mode resolves the same usage.
+    # match the embedded standard library metadata.
     std_iri = "https://www.omg.org/spec/KerML/20250201/Function-Library.kpar"
     std_version = "1.0.0"
 

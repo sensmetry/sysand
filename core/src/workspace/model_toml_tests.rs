@@ -102,9 +102,8 @@ impl Fixture {
         self.write(&format!("{at}/model.toml"), PROJECT);
     }
 
-    /// The same, with a chosen project name. Every member written by
-    /// [`Fixture::project`] is named `widgets`, which would make half of
-    /// the selection tests pass or fail by accident.
+    /// The same, with a chosen project name; [`Fixture::project`] names every
+    /// member `widgets`.
     fn project_named(&self, at: &str, name: &str) {
         self.write(
             &format!("{at}/model.toml"),
@@ -136,8 +135,7 @@ impl Fixture {
 // ----------------------------- two members that are one project
 
 /// The lockfile holds one entry per identity, so two members claiming
-/// one identity cannot be locked, and building them would make two
-/// archives that claim to be the same project.
+/// one identity cannot be locked.
 #[test]
 fn two_members_that_name_one_project_are_refused() {
     let fixture = Fixture::new(&workspace_with("\"a\", \"b\""));
@@ -311,9 +309,8 @@ fn a_member_that_is_a_json_project_names_the_file_it_has() {
     );
 }
 
-/// The file that is *there* is named. A member holding only `.meta.json`
-/// told to look at `.project.json` would send the reader after a file
-/// that does not exist.
+/// The file that is *there* is named: a member holding only `.meta.json`
+/// is told about `.meta.json`, not `.project.json`.
 #[test]
 fn a_member_with_only_a_meta_json_names_that() {
     let fixture = Fixture::new(&workspace_with("\"app\""));
@@ -334,9 +331,9 @@ fn a_member_that_defines_no_project_is_refused() {
     );
 }
 
-/// A member cannot be a workspace root, since the two tables never share
-/// a file and a member must define a project -- an assertion, which this
-/// is the enforcement of. `detect_format` cannot see it: the directory holds a `model.toml` and nothing else.
+/// A member cannot be a workspace root: the two tables never share a file
+/// and a member must define a project. `detect_format` cannot see it: the
+/// directory holds a `model.toml` and nothing else.
 #[test]
 fn a_member_that_is_a_workspace_root_is_refused() {
     let fixture = Fixture::new(&workspace_with("\"app\""));
@@ -365,13 +362,11 @@ fn a_member_holding_both_manifests_is_refused() {
     }
     .to_string();
     // The owned message wraps and indents its second clause; compare
-    // the words, which is what has to stay in step.
+    // the words.
     //
     // The member's message appends a remedy the owned one cannot give
-    // -- `AmbiguousFormat` is raised for standalone projects too, where
-    // there is no member to name -- so the hint is stripped before the
-    // comparison and asserted on its own. The *shared* clause is what
-    // the coupling is about.
+    // -- `AmbiguousFormat` is raised for standalone projects too -- so the
+    // hint is stripped before the comparison and asserted on its own.
     let hint = " (`sysand migrate app` keeps the `model.toml` and removes the json)";
     let shared = message
         .strip_suffix(hint)
@@ -542,9 +537,8 @@ sources = []
 metamodel = \"https://www.omg.org/spec/SysML/20250201\"
 ";
 
-/// A member's own marker cannot be followed by anything that does not
-/// know which workspace the member belongs to, so the load resolves it
-/// against the table.
+/// A member's own marker is followed by resolving it against the table
+/// at load.
 #[test]
 fn a_member_inherits_from_the_table() {
     let fixture = Fixture::new(
@@ -642,8 +636,7 @@ fn a_directory_under_an_excluded_one_is_excluded() {
     ));
 }
 
-/// A tie goes to `members`: nothing refuses a path written in both
-/// lists, so the precedence has to be decided here.
+/// A tie goes to `members`.
 #[test]
 fn a_directory_in_both_lists_is_refused() {
     let fixture = Fixture::new(
@@ -663,9 +656,8 @@ fn a_directory_in_both_lists_is_refused() {
 
 /// A member listed *inside* an excluded directory is refused.
 ///
-/// Anything under an `exclude`d directory is outside the workspace,
-/// with no carve-out, so the two lists make
-/// contradictory claims about one directory, and a conflict is an error.
+/// Anything under an `exclude`d directory is outside the workspace, so
+/// the two lists make contradictory claims about one directory.
 #[test]
 fn a_member_under_an_excluded_directory_is_refused() {
     let fixture = Fixture::new(
@@ -684,9 +676,8 @@ fn a_member_under_an_excluded_directory_is_refused() {
 }
 
 /// The reverse nesting is *not* a conflict and must keep loading: a
-/// member is one project directory, and a project nested inside it is
-/// not a member in any case, so excluding a vendored subtree inside a
-/// member contradicts nothing.
+/// project nested inside a member is not a member, so excluding a
+/// vendored subtree inside a member contradicts nothing.
 #[test]
 fn an_excluded_directory_inside_a_member_still_loads() {
     let fixture = Fixture::new(
@@ -700,8 +691,8 @@ fn an_excluded_directory_inside_a_member_still_loads() {
     assert_eq!(workspace.members().len(), 1);
 }
 
-/// Under an excluded directory a workspace root is a legitimate,
-/// separate workspace. The nesting check rests on this.
+/// Under an excluded directory a workspace root is a legitimate, separate
+/// workspace.
 #[test]
 fn a_workspace_root_under_an_excluded_directory_is_excluded() {
     let fixture = Fixture::new(
@@ -741,8 +732,7 @@ fn the_most_specific_excluded_entry_answers() {
 }
 
 /// The specificity rule runs both ways: an `exclude` entry *inside* a
-/// member carves that subtree back out. Nothing refuses the pair, so
-/// something has to decide it.
+/// member carves that subtree back out.
 #[test]
 fn an_excluded_directory_inside_a_member_is_excluded() {
     let fixture = Fixture::new(
@@ -858,8 +848,7 @@ fn the_walk_goes_past_a_project() {
     );
 }
 
-/// `peek` answers `None`. `is_project_file` calls the same directory a
-/// project, which is right for its question and not for this one.
+/// `peek` answers `None`.
 #[test]
 fn the_walk_goes_past_a_manifest_with_neither_table() {
     let fixture = Fixture::new(EMPTY_WORKSPACE);
@@ -885,10 +874,9 @@ fn a_manifest_the_walk_cannot_peek_is_reported() {
     }
 }
 
-/// The walk climbs with `Utf8Path::parent`, which is textual. Without
-/// canonicalizing first, a path that detours through another directory
-/// finds the right workspace by the wrong name, and hands back a root
-/// spelled with a `..` in it.
+/// The walk climbs with `Utf8Path::parent`, which is textual. A path that
+/// detours through another directory must still find the right workspace
+/// and hand back a root without a `..` in it.
 #[test]
 fn the_root_comes_back_canonical() {
     let fixture = Fixture::at("ws", &workspace_with("\"app\""));
@@ -1162,9 +1150,8 @@ fn a_directory_outside_the_workspace_is_refused() {
 /// `relativize_path` asserts absolute, dot-free paths with a plain
 /// `assert!`, which panics in release too.
 ///
-/// A `..` component and not a `.` one: `Utf8Path::components` drops `.`
-/// on its way past, so a path spelled with one is already canonical by
-/// the time anything looks, and a test built on it would pin nothing.
+/// A `..` component and not a `.` one: `Utf8Path::components` drops `.`,
+/// so a path spelled with one is already canonical.
 #[test]
 fn a_starting_path_with_a_parent_component_is_accepted() {
     let fixture = Fixture::new(&workspace_with("\"app\""));
@@ -1222,8 +1209,8 @@ fn a_member_is_selected_by_its_project_name() {
     assert_eq!(workspace.member("beta").expect("a member").path.raw, "lib");
 }
 
-/// The case that makes the rule a union: guessing
-/// would silently act on the wrong project.
+/// The case that makes the rule a union: guessing would act on the wrong
+/// project.
 #[test]
 fn a_value_that_is_one_members_path_and_anothers_name_is_ambiguous() {
     let fixture = Fixture::new(&workspace_with("\"app\", \"lib\""));
@@ -1890,11 +1877,8 @@ fn a_listed_member_is_read_with_the_table() {
 }
 
 /// A project that merely *sits inside* a member is not one.
-///
-/// `WorkspaceTable::region` prefix-matches, so asking it alone hands
-/// the table to `app/sub`. `member_index` adds the equality, and
-/// without it the two ways of reaching a project disagree: `--path`
-/// would succeed where running in the directory fails.
+/// `WorkspaceTable::region` prefix-matches, so asking it alone hands the
+/// table to `app/sub`; `member_index` adds the equality.
 #[test]
 fn a_project_nested_in_a_member_is_not_given_the_table() {
     let fixture = Fixture::new(
@@ -1944,8 +1928,7 @@ fn a_broken_sibling_does_not_stop_a_member_being_read() {
 #[test]
 fn a_project_outside_a_workspace_reads_table_less() {
     // `Fixture::at` puts the root in a subdirectory, so `outside/` is
-    // genuinely above it. With `Fixture::new` the root *is* the base and
-    // `outside/` would be an unlisted project under it.
+    // genuinely above it.
     let fixture = Fixture::at(
         "ws",
         "manifest-version = \"1.0\"\n\n[workspace]\nmembers = []\n",
@@ -1992,8 +1975,7 @@ fn an_unlisted_project_at_a_path_is_refused() {
     );
 }
 
-/// An excluded project is *deliberately* standalone, so it reads
-/// table-less: the guard against refusing more than unlisted projects.
+/// An excluded project is standalone, so it reads table-less.
 #[test]
 fn an_excluded_project_at_a_path_still_reads() {
     let fixture = Fixture::new(

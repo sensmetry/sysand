@@ -82,8 +82,7 @@ fn is_default<T: Default + PartialEq>(t: &T) -> bool {
 /// A validated sha256 hex digest: 64 lowercase hex characters, with the
 /// `"sha256:"` prefix already stripped. Validated once on construction, so
 /// users of this type need no second "is this hex?" check. Uppercase hex
-/// is rejected rather than normalized, as the wire format is
-/// lowercase-only.
+/// is rejected, not normalized.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Sha256HexDigest(String);
 
@@ -171,11 +170,8 @@ pub enum VersionsJsonError {
 
 /// Validate every entry's required fields (semver parse, no build
 /// metadata, digest shape, uniqueness) and emit the
-/// `AdvertisedVersion`s the rest of the crate consumes. The check
-/// runs at ingest rather than per-materialization: a cached document
-/// is shared across candidate enumeration and lockfile assembly, so
-/// catching a protocol violation up front avoids a delayed surprise
-/// downstream.
+/// `AdvertisedVersion`s the rest of the crate consumes. Runs at ingest,
+/// not per-materialization.
 ///
 /// Ordering is checked on the parsed `semver::Version`, not lexically;
 /// violations surface as [`VersionsJsonError::VersionsOutOfOrder`]
@@ -221,9 +217,8 @@ pub(crate) fn validate_versions(
             })
         })
         .collect::<Result<_, _>>()?;
-    // "Pick the best duplicate" has no principled answer: two entries
-    // with the same semver may carry different digests. Reject them
-    // rather than leak non-determinism into the solver.
+    // Two entries with the same semver may carry different digests, so
+    // duplicates are rejected.
     let mut seen = std::collections::HashSet::new();
     for v in &validated {
         if !seen.insert(v.version.clone()) {

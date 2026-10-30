@@ -14,11 +14,9 @@
 //!    to `^<target version>`;
 //! 3. a usage whose target carries `stdlib` becomes an OMG IRI.
 //!
-//! All three need something this module does not have -- the project's
-//! targets -- so all three belong to the build. What is left is a
-//! function of one manifest, which is what every read-only consumer of a
-//! project needs, and it is free of Cargo features so that the bindings
-//! without a filesystem can produce it too.
+//! All three need the project's targets, so all three belong to the build.
+//! What is left is a function of one manifest, free of Cargo features so
+//! that bindings without a filesystem can produce it too.
 
 use indexmap::IndexMap;
 use thiserror::Error;
@@ -47,12 +45,10 @@ pub type ChecksumMap = IndexMap<String, InterchangeProjectChecksumRaw>;
 
 /// What a view records as `created`.
 ///
-/// A build records the instant it ran, so that two builds of identical
-/// sources are not byte-identical. A *view* must not: the project
-/// checksum covers the whole `.meta.json`, and that checksum is written
-/// into the lockfile and recomputed and compared by `sysand sync`. A
-/// view is a function of the manifest and the source files; the clock is
-/// not one of its inputs.
+/// A build records the instant it ran. A view must not: the project
+/// checksum covers the whole `.meta.json`, is written into the lockfile
+/// and is recomputed and compared by `sysand sync`, so a view is a
+/// function of the manifest and the source files only.
 pub const VIEW_CREATED: jiff::Timestamp = jiff::Timestamp::UNIX_EPOCH;
 
 /// Why a view could not be built.
@@ -63,9 +59,7 @@ pub enum ViewError<E> {
     #[error(transparent)]
     Manifest(#[from] ProjectDeserializationError),
     /// The caller could not hand over a source file's contents. Passed
-    /// through: the caller's error already names the
-    /// file it failed on, and a second sentence would print the path
-    /// twice.
+    /// through: the caller's error already names the file.
     #[error(transparent)]
     Read(E),
     #[error(transparent)]
@@ -74,8 +68,7 @@ pub enum ViewError<E> {
 
 /// Why a json usage has no `model.toml` form.
 ///
-/// Two different refusals, because a caller has two different things
-/// to tell the user: a resource usage has no manifest kind, and an
+/// Two refusals: a resource usage has no manifest kind, and an
 /// identifier is fixed by editing the target's `.project.json`.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum NoManifestForm {
@@ -97,10 +90,9 @@ pub enum NoManifestForm {
 
 /// Read a json usage as a manifest usage.
 ///
-/// The reverse of [`usage`], and deliberately not its inverse: the
-/// forward map turns a `kpar-url` usage into a bare IRI, dropping the
-/// publisher and name a manifest needs. Nothing can therefore produce a
-/// `kpar-url` entry from json, which is a gap in v1.
+/// The reverse of [`usage`], but not its inverse: the forward map turns a
+/// `kpar-url` usage into a bare IRI, dropping the publisher and name a
+/// manifest needs, so nothing can produce a `kpar-url` entry from json.
 ///
 /// `file` names the document the raw usage came from, for the one
 /// refusal whose fix is in another project's manifest.
@@ -182,9 +174,8 @@ pub fn usage_of_raw(raw: &InterchangeProjectUsageRaw, file: &str) -> Result<Usag
 /// manifest, whereas a view keeps the path.
 ///
 /// A typed usage carries `publisher` and `name` exactly as the manifest
-/// spells them, without normalization, because they must match the values
-/// found at the target. The identity check when the usage resolves
-/// normalizes both sides.
+/// spells them, without normalization; the identity check when the usage
+/// resolves normalizes both sides.
 pub fn usage(usage: &Usage) -> InterchangeProjectUsageRaw {
     match usage {
         Usage::Index {
@@ -238,11 +229,9 @@ pub fn usage(usage: &Usage) -> InterchangeProjectUsageRaw {
 /// `publisher` is always written, which is the second place the view and
 /// the archive part company: the archive omits it for a project carrying
 /// `stdlib`, so that a locally built standard-library KPAR matches the
-/// published one. A view that omitted it would be worse than wrong, it
-/// would be circular -- the standard library's own projects use each
-/// other by `dir`, and a `dir` target must declare the publisher its
-/// usage names, so the standard library could not build itself. Lock
-/// entries would lose it too.
+/// published one. A view that omitted it would be circular: the standard
+/// library's own projects use each other by `dir`, and a `dir` target must
+/// declare the publisher its usage names.
 pub fn info(project: &ResolvedProject) -> InterchangeProjectInfoRaw {
     InterchangeProjectInfoRaw {
         name: project.name.as_str().to_owned(),
@@ -276,10 +265,7 @@ pub fn info(project: &ResolvedProject) -> InterchangeProjectInfoRaw {
 /// The project as a `.meta.json`, given the instant to record and the two
 /// maps [`source_maps`] computes.
 ///
-/// `created` is an instant so that it is written the one way
-/// `InterchangeProjectMetadataRaw` is documented to be written, and a
-/// parameter so that what a view says
-/// can be asserted.
+/// `created` is passed in as an instant.
 ///
 /// `includesDerived` and `includesImplied` are omitted: Sysand does not
 /// know either.
@@ -290,9 +276,7 @@ pub fn meta(
     checksum: ChecksumMap,
 ) -> InterchangeProjectMetadataRaw {
     // A project with a `root` writes the Syside shape -- `root` and the flat `exports`
-    // array, no `index`. The array is the map's keys -- each name once,
-    // which the map guarantees -- sorted, so that the view and a build
-    // agree on the order whatever order the files were read in.
+    // array, no `index`. The array is the map's keys, sorted.
     let (index, root, exports) = match &project.root {
         Some(root) => {
             let mut exports: Vec<String> = index.into_keys().collect();
@@ -325,12 +309,8 @@ pub fn meta(
 ///   extension (KerML or SysML), which `sources` guarantees to be one of
 ///   the two.
 ///
-/// `read` hands over one source file's contents. Nothing here opens a
-/// file, which is what keeps this module free of Cargo features and lets
-/// a binding with no filesystem produce the same view.
-///
-/// Both maps are built in `sources` order, so that a `.meta.json` is a
-/// deterministic function of the manifest and the file contents.
+/// `read` hands over one source file's contents; nothing here opens a
+/// file.
 ///
 /// A symbol declared in two sources maps to the later one; `index` has
 /// no room for both.

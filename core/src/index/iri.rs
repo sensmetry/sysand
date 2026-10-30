@@ -62,8 +62,7 @@ pub(crate) enum ParsedIri {
 impl ParsedIri {
     /// The two path segments identifying the project directory:
     /// `[publisher, name]` for a sysand PURL, or `[_iri, <sha256hex>]` for
-    /// any other IRI. Kept as separate segments (rather than a joined
-    /// path) so callers can encode each independently.
+    /// any other IRI. Separate segments, so callers can encode each.
     pub(crate) fn get_path_segments(&self) -> [String; 2] {
         match self {
             Self::Sysand { publisher, name } => [publisher.clone(), name.clone()],

@@ -26,16 +26,16 @@ use crate::{
 
 use super::ProjectChecksum;
 
-/// Project stored at a remote base-URL such as https://www.example.com/project/
+/// Project stored at a remote base-URL such as <https://www.example.com/project/>
 /// (note that the final slash is semantically important!)
 /// with info/meta accessible by HTTP GET-requests sent to
-/// https://www.example.com/project/.project.json and
-/// https://www.example.com/project/.meta.json.
+/// <https://www.example.com/project/.project.json> and
+/// <https://www.example.com/project/.meta.json>.
 /// Source file paths are expected to be accessible by GET request relative to the
 /// base-path after (minimal) URL-encoding each path component. For example:
 /// /Mëkanïk/Kömmandöh.sysml
 /// is accessed by
-/// GET https://www.example.com/project/M%C3%ABkan%C3%AFk/K%C3%B6mmand%C3%B6h.sysml
+/// GET <https://www.example.com/project/M%C3%ABkan%C3%AFk/K%C3%B6mmand%C3%B6h.sysml>
 #[derive(Clone, Debug)]
 pub struct ReqwestSrcProjectAsync<Policy> {
     /// (reqwest) HTTP client to use for GET requests

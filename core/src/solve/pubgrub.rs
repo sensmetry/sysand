@@ -261,15 +261,14 @@ type CandidateMap<R> = HashMap<Identifier, CandidateEntry<R>>;
 /// The candidates resolved for one identifier, those that were skipped as
 /// broken while resolving them, and the local place they came from.
 ///
-/// The faults are kept because the entry is shared by every usage with that
-/// identifier, but not every usage may skip the same broken candidates (see
-/// [`OnBrokenCandidate`]): a usage fails with the first one it may not skip
-/// when it reads the entry, whichever usage happened to fill the entry first.
+/// Not every usage may skip the same broken candidates (see
+/// [`OnBrokenCandidate`]): a usage fails with the first fault it may not
+/// skip when it reads the entry, whichever usage filled the entry first.
 ///
 /// `where_from` is `Some` only for a usage that names a location on
-/// this filesystem -- `dir` or `kpar-path`. It is kept so that a *second*
-/// usage of the same identity can be compared against it: the two must
-/// name one place, because the lockfile holds one source per identity
+/// this filesystem -- `dir` or `kpar-path`. A *second* usage of the same
+/// identity is compared against it: the two must
+/// name one place, as the lockfile holds one source per identity
 /// and the loser is simply dropped.
 struct CandidateEntry<R: ResolveRead> {
     candidates: Vec<Candidate<R::ProjectStorage>>,
@@ -297,7 +296,7 @@ struct CandidateSummary {
 }
 
 pub struct ProjectSolver<R: ResolveRead> {
-    // Internal RefCell, used in order to lazily populate the cache during resolution
+    // Lazily populated during resolution.
     resolved_candidates: RefCell<CandidateMap<R>>,
     // dependency_provider: OfflineDependencyProvider<DependencyIdentifier, DiscreteHashSet>,
     resolver: R,
@@ -326,10 +325,8 @@ impl<'a> OnBrokenCandidate<'a> {
         match info.usage() {
             // A toml `kpar-url` that declared an identity counts as typed:
             // identity is the declared publisher+name, and the source is
-            // explicit. It carries the pair and offers one candidate, so a failure is *the* answer rather than one
-            // alternative not working out -- and demoting it to a debug
-            // line is what would hide the lock's spelling check behind
-            // "no valid candidates found".
+            // explicit. It offers one candidate, so a failure is *the*
+            // answer rather than one alternative not working out.
             InterchangeProjectUsage::Resource {
                 resource: _,
                 version_constraint: _,
@@ -541,10 +538,8 @@ fn resolve_candidates<R: ResolveRead + fmt::Debug>(
     //
     // Two **local** usages naming two different places are refused:
     // the lockfile, the `.sysand` environment and the symbol namespace
-    // all hold one version per identity, so the loser would be dropped -- its version, its
-    // sources and its exported symbols -- and whichever usage came first
-    // would decide what everything was built against. Reordering
-    // `members` would be enough to change it, with nothing printed.
+    // all hold one version per identity, so the loser would be silently
+    // dropped.
     match entry {
         Entry::Occupied(mut occupied_entry) => {
             if let (Some(first), Some(second)) =
@@ -630,14 +625,9 @@ fn resolve_candidates<R: ResolveRead + fmt::Debug>(
 /// `dir` and `kpar-path` are relative to the declaring project, so the
 /// base is needed to compare two of them; a `file:` resource carries an
 /// absolute path already. An index or `http(s)` usage names no local
-/// place and answers `None`, which is what keeps the "use my checkout
-/// instead of the index" override working: only two *local* usages are
-/// compared.
+/// place and answers `None`: only two *local* usages are compared.
 ///
-/// Lexical, not canonicalized: a canonicalizing comparison would touch
-/// the filesystem for every cache hit, and two spellings of one
-/// directory that differ lexically are worth reporting anyway -- the
-/// lockfile records one of them.
+/// Lexical, not canonicalized (no filesystem access per cache hit).
 fn local_target(resolve: &CoalescingUsage) -> Option<Utf8PathBuf> {
     let info = resolve.usage();
     let relative = match info.usage() {
@@ -652,9 +642,8 @@ fn local_target(resolve: &CoalescingUsage) -> Option<Utf8PathBuf> {
             name: _,
         } => kpar_path.as_str(),
         // A `file:` resource names a place too, but comparing one
-        // against a path usage needs a URL-to-path conversion. Left out
-        // deliberately: only two path usages are compared. An index
-        // usage names no local place.
+        // against a path usage needs a URL-to-path conversion, so it is
+        // not compared. An index usage names no local place.
         InterchangeProjectUsage::Resource {
             resource: _,
             version_constraint: _,
@@ -668,11 +657,9 @@ fn local_target(resolve: &CoalescingUsage) -> Option<Utf8PathBuf> {
         }
     };
     let mut joined = info.base_path()?.to_path_buf();
-    // Lexical, because canonicalizing on every cache hit would touch the
-    // filesystem, and because `..` is the only thing that makes two
-    // spellings of one directory differ in practice: `dir = "../v1"`
-    // from two members at different depths is the case that must not be
-    // reported.
+    // Lexical: `..` is the only thing that makes two spellings of one
+    // directory differ in practice (`dir = "../v1"` from two members at
+    // different depths must not be reported).
     for component in Utf8Path::new(relative).components() {
         match component {
             camino::Utf8Component::ParentDir => {
@@ -1203,9 +1190,7 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
     /// fails the test), and two *different* constraints can select the
     /// same candidates -- `=1.0.0` and `>=1.0.0, <2.0.0` over a single
     /// matching candidate -- in which case which one is reported depends
-    /// on the order the usages were declared in. Reporting a constraint
-    /// that is off by a hair is survivable; sending a reader to edit a
-    /// manifest that is innocent is not.
+    /// on the order the usages were declared in.
     fn select_usage<'a>(
         &self,
         usages: impl Iterator<Item = &'a CoalescingUsage>,
@@ -1376,8 +1361,6 @@ impl<R: ResolveRead + fmt::Debug + 'static> Display for SolverError<R> {
                 }
             },
             pubgrub::PubGrubError::ErrorChoosingVersion { package, source } => match package {
-                // Rendered rather than asserted, so no error path can panic
-                // inside a `Display`.
                 DependencyIdentifier::Requested(_) => {
                     write!(
                         f,
@@ -1519,10 +1502,8 @@ pub enum InternalSolverError<R: ResolveRead> {
     MissingVersion { usage: ResolutionInfo },
     #[error("usage {usage} resolved to a project that does not expose its usages")]
     MissingUsage { usage: ResolutionInfo },
-    /// `version` is the string as the project declared it: `semver::Error`
-    /// describes the parse failure but never echoes its input, and that
-    /// string is the one thing a reader needs in order to go fix the
-    /// manifest.
+    /// `version` is the string as the project declared it
+    /// (`semver::Error` does not echo its input).
     #[error("usage {usage} declares version `{version}`, which is not semver")]
     InvalidResolvedVersion {
         usage: ResolutionInfo,
@@ -1695,7 +1676,7 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
 type Solution<ProjectStorage> = HashMap<Identifier, ProjectStorage>;
 
 /// `requested` pairs each usage with the manifest it was declared in;
-/// a caller that did not read one passes [`UsageOrigin::Json`]. Every
+/// pass [`UsageOrigin::Json`] when none was read. Every
 /// usage resolves its relative paths against the same `base_path`; see
 /// [`solve_with_bases`] for when they do not share one.
 pub fn solve<R: ResolveRead + fmt::Debug + 'static>(

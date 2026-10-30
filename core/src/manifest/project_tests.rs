@@ -88,8 +88,7 @@ metamodel = \"https://www.omg.org/spec/SysML/20250201\"
 ";
 
 /// [`REQUIRED`] plus `sources`, without `key`: a key cannot be written
-/// twice in one table, so a test about how `key` is read has to leave it
-/// out of the boilerplate.
+/// twice in one table.
 fn without(key: &str) -> String {
     let mut body: Vec<&str> = vec![
         "publisher = \"acme\"",
@@ -256,9 +255,8 @@ fn the_three_required_keys_are_reported_together() {
     );
 }
 
-/// A key that is written but cannot be read has already been reported;
-/// reporting it a second time as missing would be two complaints about
-/// one mistake.
+/// A key that is written but cannot be read has already been reported; it
+/// is not also reported as missing.
 #[test]
 fn a_required_key_that_is_present_but_unreadable_is_not_also_missing() {
     for (body, message) in [
@@ -343,8 +341,7 @@ fn every_bad_sources_entry_is_reported_at_itself() {
     assert_eq!(places(&report), [(5, 23), (5, 35), (5, 46)]);
 }
 
-/// `sources` cannot be inherited by a member, since the file layout of
-/// one project says nothing about another's.
+/// `sources` cannot be inherited by a member.
 #[test]
 fn sources_cannot_be_inherited() {
     for marker in [
@@ -426,9 +423,7 @@ fn an_unrecognized_metamodel_is_refused() {
 
 /// An unrecognized metamodel says nothing about the schema either, so
 /// rule (b) does not run over `root`: one error, not an error and a
-/// warning about a key whose schema the reader cannot know. The
-/// companion of `a_metamodel_that_is_not_a_string_does_not_decide_the_schema`,
-/// which covers the value that is not a string at all.
+/// warning about a key whose schema the reader cannot know.
 #[test]
 fn an_unrecognized_metamodel_does_not_decide_the_schema() {
     let report = rejected(&format!(
@@ -734,9 +729,7 @@ fn the_required_keys_follow_the_family_for_all_four_metamodels() {
 // ---------------------------------------------------------------------
 
 /// A `metamodel` that could not be read says nothing about the schema,
-/// so neither of the judgements that depend on it runs: without this a
-/// project declaring a Syside metamodel with a typo'd *type* would also
-/// be told its `root` belongs to another metamodel.
+/// so neither of the judgements that depend on it runs.
 #[test]
 fn an_unreadable_metamodel_suppresses_the_root_warning() {
     let report = rejected(&format!(
@@ -836,8 +829,7 @@ fn every_non_inheritable_key_refuses_a_marker() {
 }
 
 /// `stdlib` is validated as a single path segment
-/// (`[A-Za-z0-9][A-Za-z0-9-]*`) so it cannot carry `/` or `..` into an
-/// IRI.
+/// (`[A-Za-z0-9][A-Za-z0-9-]*`).
 #[test]
 fn stdlib_is_read_as_a_path_segment() {
     let read = manifest(
@@ -854,8 +846,7 @@ fn stdlib_is_read_as_a_path_segment() {
     }
 }
 
-/// One value of the wrong TOML type does not stop the read of the rest:
-/// the whole point of the raw-value layer.
+/// One value of the wrong TOML type does not stop the read of the rest.
 #[test]
 fn a_wrong_typed_key_is_one_diagnostic_and_the_read_continues() {
     let report = rejected(&format!(
@@ -1032,8 +1023,7 @@ fn a_member_inherits_every_key_from_the_default_group() {
     );
 }
 
-/// "To inherit from a non-default group, `<key>.workspace =
-/// \"group-name\"`."
+/// A marker for a non-default group: `<key>.workspace = "group-name"`.
 #[test]
 fn a_member_inherits_from_a_named_group() {
     let project = resolved(
@@ -1128,9 +1118,8 @@ fn a_marker_naming_a_group_that_does_not_exist_is_an_error() {
     );
 }
 
-/// "... or one that does not define the key". A group that gives the key
-/// an *empty* value does define it: `topics = []` satisfies a marker,
-/// while no `topics` at all does not.
+/// A group that gives the key an *empty* value does define it:
+/// `topics = []` satisfies a marker, while no `topics` at all does not.
 #[test]
 fn a_marker_on_a_key_the_group_does_not_give_is_an_error() {
     let report = unresolved(&format!("{RESOLVABLE}topics.workspace = \"legacy\"\n"));
@@ -1229,8 +1218,8 @@ fn an_opt_in_matches_publisher_and_name_literally() {
     );
 }
 
-/// "An opt-in must find its entry: a marker naming a group that does not
-/// exist ... is an error, as for inherited metadata."
+/// An opt-in must find its entry: a marker naming a group that does not
+/// exist is an error, as for inherited metadata.
 #[test]
 fn an_opt_in_naming_a_group_that_does_not_exist_is_an_error() {
     let text = format!(
@@ -1284,9 +1273,7 @@ fn a_syside_project_without_sources_names_the_key_root_lives_in() {
 
 /// An unrecognized metamodel never reaches the metamodel-dependent
 /// checks: the file is refused when it is read, so a missing `sources`
-/// is a second run's problem. The bargain `manifest-version` already
-/// makes -- what the file says about its own schema cannot be acted on,
-/// so nothing that depends on it can be judged.
+/// is not reported.
 #[test]
 fn an_unrecognized_metamodel_hides_the_sources_check() {
     let report = rejected(&format!(
@@ -1358,8 +1345,7 @@ fn stdlib_is_refused_unless_the_project_is_the_standard_library() {
 }
 
 /// The gate needs both a publisher and a metamodel; with either missing
-/// there is nothing to judge, and a second diagnostic about a value that
-/// is not there would only obscure the first.
+/// there is nothing to judge.
 #[test]
 fn stdlib_is_not_checked_when_the_publisher_did_not_resolve() {
     let report = unresolved(
@@ -1405,9 +1391,8 @@ fn inherits_answers_before_resolving() {
 }
 
 /// A `project` key that is written but is not a table has one thing
-/// wrong with it. Reading an empty table on top of the type error would
-/// report `publisher`, `name` and `version` missing as well -- four
-/// complaints for one mistake.
+/// wrong with it: `publisher`, `name` and `version` are not also reported
+/// missing.
 #[test]
 fn a_project_that_is_not_a_table_is_one_diagnostic() {
     let report = read("project = 3\n").expect_err("not a table");
@@ -1588,8 +1573,7 @@ fn each_of_the_four_metamodels_resolves() {
 }
 
 /// A `metamodel.workspace` marker satisfies the requirement in
-/// `[project]` -- which is why the requirement is
-/// checked after inheritance and not while the table is read.
+/// `[project]`; the requirement is checked after inheritance.
 #[test]
 fn an_inherited_metamodel_satisfies_the_requirement() {
     let project = resolved(
@@ -1602,9 +1586,7 @@ fn an_inherited_metamodel_satisfies_the_requirement() {
 }
 
 /// The metamodel's language rule through `resolve`, positioned at the
-/// entry -- which is why the table keeps each entry's position: the
-/// reader that could point at one is gone by the time the metamodel is
-/// known.
+/// entry.
 #[test]
 fn a_source_the_metamodel_does_not_admit_is_refused() {
     let report = unresolved(
@@ -1682,7 +1664,7 @@ fn an_opt_in_takes_a_publisher_less_group_entry() {
     assert_eq!(usage.identity().name, "kernel-semantic-library");
 }
 
-/// "Entries are matched by publisher and name, compared literally", and
+/// Entries are matched by publisher and name, compared literally, and
 /// absence is part of the spelling: an opt-in that names a publisher
 /// does not match an entry that declares none.
 #[test]

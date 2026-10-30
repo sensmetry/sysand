@@ -73,8 +73,7 @@ impl SpanIndex {
             .find_map(|length| self.get(&path[..length]))
     }
 
-    /// First writes win: a path that is somehow reached twice keeps the
-    /// span found first, so an unforeseen collision costs only precision.
+    /// First writes win: a path reached twice keeps the span found first.
     fn insert(&mut self, path: &[String], span: Option<Range<usize>>) {
         let Some(span) = span else {
             return;
@@ -128,10 +127,8 @@ impl SpanIndex {
                     path.pop();
                 }
             }
-            // An element of an array is addressed by its index, exactly
-            // as an element of an array of tables is. It has no key of
-            // its own, so what is recorded is the span of the value --
-            // the one place in this index where that is so.
+            // An element of an array is addressed by its index, as for an array
+            // of tables. It has no key, so the span of the value is recorded.
             Value::Array(array) => {
                 for (index, element) in array.iter().enumerate() {
                     path.push(index.to_string());
@@ -174,10 +171,6 @@ impl<'a> Source<'a> {
     /// The values a reader judges and the positions a diagnostic points
     /// at.
     ///
-    /// The text is parsed once: [`SpanIndex::harvest`] takes what it
-    /// needs from the immutable document before the deserializer consumes
-    /// it.
-    ///
     /// The `Err` is the one failure that stops a read before any rule of
     /// the manifest runs -- the file is not TOML at all.
     pub fn read(&self) -> Result<(toml::Table, Positions<'a>), Diagnostic> {
@@ -213,8 +206,7 @@ impl<'a> Source<'a> {
     }
 
     /// A file that is not TOML at all, said the same way wherever it is
-    /// found: a file that cannot be parsed must not be described one way
-    /// when it is read and another when it is edited.
+    /// found.
     fn syntax_error(&self, error: &impl TomlSyntaxError) -> Diagnostic {
         Diagnostic::error(format!("`{}` is not valid TOML: {error}", self.file))
             .at_opt(error.span().map(|span| self.position(span)))
@@ -266,10 +258,6 @@ impl TomlSyntaxError for toml_edit::de::Error {
 }
 
 /// A [`SpanIndex`] together with the [`Source`] it was harvested from.
-///
-/// Borrowing the text is what lets the document
-/// be handed to the deserializer; nothing that escapes into a report
-/// borrows anything.
 #[derive(Clone, Debug)]
 pub struct Positions<'a> {
     source: Source<'a>,
@@ -279,8 +267,8 @@ pub struct Positions<'a> {
 impl Positions<'_> {
     /// For a manifest that was not read from text -- one a command built
     /// itself, or a json project converted into the toml model. Every
-    /// lookup yields `None`, so the validation code needs no second path
-    /// for the case.
+    /// itself, or a json project converted into the toml model. Every
+    /// lookup yields `None`.
     pub fn without_spans(file: impl Into<String>) -> Positions<'static> {
         Positions {
             source: Source::new(file, ""),

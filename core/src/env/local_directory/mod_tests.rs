@@ -117,8 +117,7 @@ fn src_checksum_of(env: &LocalDirectoryEnvironment) -> String {
 }
 
 /// An environment records the checksum of the source it installed, so
-/// `sources()` reports that instead of hashing the whole project tree to
-/// arrive at the same value. The reuse is only sound while the two agree.
+/// `sources()` reports that instead of hashing the whole project tree.
 #[test]
 fn installed_project_sources_reuse_the_recorded_src_checksum() {
     let dir = camino_tempfile::tempdir().unwrap();

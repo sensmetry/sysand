@@ -778,9 +778,7 @@ fn check_usage_accepts_std_lib_with_version_constraint() {
     .expect("a standard-library usage may carry a constraint");
 }
 
-// The three below carry a constraint deliberately, so that they catch
-// an implementation that accepts a constrained resource before checking
-// what it is.
+// The three below carry a version constraint.
 
 #[test]
 fn check_usage_rejects_an_unknown_std_lib_with_a_constraint() {

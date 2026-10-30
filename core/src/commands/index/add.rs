@@ -344,8 +344,6 @@ pub fn do_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
 
     for [ver_entry1, ver_entry2] in versions_value.versions.array_windows() {
         if ver_entry1.version == ver_entry2.version {
-            // Strictly speaking this is unnecessary for adding the new project
-            // but still good to check
             return Err(IndexAddError::DuplicateVersion {
                 version: ver_entry1.version.clone(),
                 path: versions_path,

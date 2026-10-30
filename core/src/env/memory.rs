@@ -366,8 +366,7 @@ impl<Project: ProjectRead + Clone + Debug> ReadEnvironment for MemoryStorageEnvi
             .clone())
     }
 
-    /// Will never return `Ok(ProjectChecksumResult::ChecksumNotPresent)`
-    /// because the hashing is cheap (at least for `InMemoryProject`)
+    /// Never returns `Ok(ProjectChecksumResult::ChecksumNotPresent)`.
     fn has_version_verified<S: AsRef<str>, V: AsRef<str>>(
         &self,
         uri: S,

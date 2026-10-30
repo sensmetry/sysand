@@ -145,9 +145,8 @@ pub enum ProcessOwnership {
 
 /// Run the CLI and return the exit code the process should report.
 ///
-/// A number rather than a [`std::process::ExitCode`], which can be returned
-/// from `main` but not inspected: the Python binding has to pass the code on
-/// to a caller of its own. `main.rs` is what wraps it.
+/// A number rather than a [`std::process::ExitCode`], which cannot be
+/// inspected.
 ///
 /// For the process's own binary. An embedder wants [`lib_main_with`].
 pub fn lib_main<I, T>(args: I) -> u8
@@ -192,8 +191,7 @@ where
 /// code is 1; otherwise it is 0.
 ///
 /// Unlike [`lib_main_with`], it installs no crash hook, whatever `ownership`
-/// says: a caller that parses its own command line runs Rust code of its own,
-/// and its panics are its own to report.
+/// says.
 ///
 /// Hints beneath an error spell this command line `sysand`; an embedder whose
 /// users type something else wants [`run_parsed_as`].
@@ -284,8 +282,8 @@ fn claim_process(ownership: ProcessOwnership) {
 /// `args` names, invoked as `prog`.
 ///
 /// `prog` is the program name to spell in usage lines, passed separately
-/// rather than as `args[0]`, because callers hold the two apart: an external
-/// command is handed the arguments after its own name.
+/// rather than as `args[0]`, as an external command is handed the arguments
+/// after its own name.
 ///
 /// `args` may name a subcommand path (`["env", "install"]`), and the help
 /// returned is that subcommand's. When the arguments are not a valid command
@@ -860,9 +858,7 @@ fn run_cli_with(
     let project_root = selected.clone().or(project_root);
 
     // These commands need a project, so `--member` is required at the
-    // root. Checked once
-    // here, because the condition is one
-    // condition: in a workspace, with no member to act on.
+    // root: in a workspace, with no member to act on.
     //
     // `edit --dir` names its project directly, so only a bare `edit`
     // belongs to the row.
@@ -1952,9 +1948,8 @@ fn consults_the_workspace(command: &cli::Command) -> bool {
         | cli::Command::Env { command: _ }
         | cli::Command::PrintRoot { selector: _ } => true,
         cli::Command::Init { path: _, name: _, publisher: _, version: _, license: _, metamodel: _, metamodel_release: _ }
-        // Deliberately not: a discovery error would be fatal, and an
-        // unlisted json project under a workspace root is exactly the
-        // one a user wants to migrate. A bare `migrate` at a workspace
+        // Not: an unlisted json project under a workspace root is the one a
+        // user wants to migrate, and a discovery error would be fatal. A bare `migrate` at a workspace
         // root is refused by the command itself.
         | cli::Command::Migrate { path: _, publisher: _, metamodel: _, allow_dirty: _, allow_no_vcs: _, resolution_opts: _ }
         | cli::Command::Clone { locator: _, target: _, version_constraint: _, no_deps: _, resolution_opts: _ }
@@ -2031,8 +2026,7 @@ fn selected_member(
 ///
 /// `workspace_root` comes from [`discover_table`] and not from
 /// [`sysand_core::workspace::model_toml::Workspace::discover`]:
-/// configuration is not about the members, and a broken member must not
-/// change where `sysand.toml` is read from.
+/// a broken member must not change where `sysand.toml` is read from.
 ///
 /// A discovery *error* -- a nested workspace, an ancestor `model.toml`
 /// that does not parse -- arrives here as `None` rather than as a

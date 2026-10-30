@@ -93,7 +93,7 @@ fn a_kpar_url_usage_becomes_a_resource_with_no_constraint() {
 
 /// The view keeps a local usage typed as a path usage, where the archive
 /// rewrites it into a typed index usage constrained to the target's
-/// version -- which needs the target, and the resolver needs the path.
+/// version.
 #[test]
 fn a_dir_usage_becomes_a_typed_directory_usage() {
     assert_eq!(
@@ -119,8 +119,7 @@ fn a_kpar_path_usage_becomes_a_typed_kpar_usage() {
 }
 
 /// A typed usage carries `publisher` and `name` exactly as the manifest
-/// spells them, without normalization, because they must match the values
-/// found at the target.
+/// spells them, without normalization.
 #[test]
 fn a_typed_usage_keeps_the_pair_unnormalized() {
     assert_eq!(
@@ -154,9 +153,7 @@ fn a_view_usage_is_one_sysand_accepts() {
 /// manifest the reader accepts can still produce a view that no consumer
 /// validates -- with a message that names neither the key nor the file.
 ///
-/// Pinned here: the fix belongs to the manifest reader,
-/// which would apply `parse_relative_unix_path` with the same two path
-/// kinds `validate` uses here.
+/// Pinned as it stands.
 #[test]
 fn a_usage_path_the_manifest_accepts_may_still_not_validate() {
     let error = usage(&dir("acme", "widgets", ""))
@@ -293,9 +290,8 @@ fn a_minimal_project_writes_only_what_it_has() {
 }
 
 /// The archive omits `publisher` from the `.project.json` of a project
-/// carrying `stdlib`. The view keeps it, or the standard library's own `dir` usages, which
-/// require the target to declare the publisher they name, could never
-/// resolve.
+/// carrying `stdlib`. The view keeps it: the standard library's own `dir`
+/// usages require the target to declare the publisher they name.
 #[test]
 fn a_stdlib_project_keeps_its_publisher_in_the_view() {
     let info = info(&resolved(
@@ -359,10 +355,8 @@ fn usages_are_mapped_in_manifest_order() {
 }
 
 /// A `LocatedUsage` also records which directory its paths are relative
-/// to -- the project's own for a declared usage, the workspace root for
-/// an inherited one -- and a `.project.json` has no way to say which. So
-/// the two are indistinguishable in a view, and anything that needs the
-/// base has to ask the manifest instead.
+/// to, which a `.project.json` has no way to say, so anything that needs
+/// the base has to ask the manifest instead.
 #[test]
 fn an_inherited_usage_is_written_like_a_declared_one() {
     let mut project = resolved(REQUIRED);
@@ -398,8 +392,7 @@ fn the_metamodel_is_copied_into_meta_json() {
 }
 
 /// `created` is written the one way `InterchangeProjectMetadataRaw` is
-/// documented to be written, so that two documents recording the same
-/// instant are byte-identical.
+/// documented to be written.
 #[test]
 fn created_is_formatted_as_the_metadata_helper_formats_it() {
     let instant: jiff::Timestamp = "2026-09-14T12:34:56Z".parse().expect("an instant");
@@ -539,9 +532,7 @@ fn meta_json_from_the_view_validates() {
 }
 
 /// The guard on the test above: a `metamodel` outside the four cannot
-/// reach a view, because the manifest carrying one does not read. Were
-/// that to change, `meta_json_from_the_view_validates` would start
-/// passing for the wrong reason.
+/// reach a view, because the manifest carrying one does not read.
 #[test]
 fn an_unrecognized_metamodel_never_reaches_the_view() {
     let text = format!(
@@ -579,8 +570,7 @@ fn a_source_that_does_not_parse_stops_the_view() {
 }
 
 /// Unlike a manifest report, a view does not accumulate: the caller's
-/// error is one value, and a build that cannot read one of its sources
-/// has nothing to go on.
+/// error is one value.
 #[test]
 fn reading_stops_at_the_first_failure() {
     let project =
@@ -797,14 +787,12 @@ fn resolved_of_text_still_refuses_without_a_table() {
 /// The view's `checksum` is `Some(map)`, never `None` -- a project with
 /// no sources gets an *empty* map.
 ///
-/// `kpar_view::meta` writes it unconditionally, and that is deliberate:
-/// a `model.toml` project always knows which files it lists, so "no
+/// A `model.toml` project always knows which files it lists, so "no
 /// checksums recorded" and "no sources" are the same statement, where a
 /// json project's absent `checksum` means neither.
 ///
-/// Pinned because the distinction is invisible from Rust and visible
-/// from the bindings, where `Some(empty)` becomes an empty map and
-/// `None` becomes null.
+/// Pinned because the distinction is visible from the bindings, where
+/// `Some(empty)` becomes an empty map and `None` becomes null.
 #[test]
 fn a_source_project_view_carries_an_empty_checksum_map() {
     let text = "manifest-version = \"1.0\"\n\n\

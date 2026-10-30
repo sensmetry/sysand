@@ -60,8 +60,7 @@ members = [\"projects/a\"]
 ";
 
 /// `PROJECT` without its `manifest-version` line, for the tests that
-/// supply their own. The line's length is not a constant worth
-/// retyping: getting it wrong truncates the fixture silently.
+/// supply their own.
 fn project_body() -> &'static str {
     PROJECT.split_once('\n').expect("a first line").1
 }
@@ -114,9 +113,7 @@ fn a_newer_manifest_version_is_refused() {
 }
 
 /// Additions to the common schema bump the minor version, and are refused
-/// by an older reader like any other version it does not know: a reader
-/// that ignored them would misread the file, which is the hole the key
-/// exists to close. The whole point of the key being a version.
+/// by an older reader like any other version it does not know.
 #[test]
 fn an_unknown_minor_is_refused() {
     let report = rejected(&format!("manifest-version = \"1.1\"\n{}", project_body()));
@@ -129,10 +126,9 @@ fn an_unknown_minor_is_refused() {
     );
 }
 
-/// "It is read before anything else, so that a file this Sysand cannot
-/// read is refused with the right message rather than with a schema
-/// error": a file written for a newer version may use keys that mean
-/// something else here.
+/// `manifest-version` is read before anything else: a file written for a
+/// newer version may use keys that mean something else here, and is refused
+/// with the right message rather than with a schema error.
 #[test]
 fn a_newer_version_stops_the_read() {
     let report = rejected("manifest-version = \"2.0\"\n\n[project]\nsources = []\n");
@@ -145,8 +141,7 @@ fn the_supported_version_is_accepted() {
 }
 
 /// Only absent and too new are failures, so a version below this one is
-/// read as this one. Almost certainly a typo; refusing it would be a
-/// third rule. Pinned so that changing it is deliberate.
+/// read as this one. Pinned so that changing it is deliberate.
 #[test]
 fn a_version_below_the_supported_one_is_accepted() {
     for version in ["1.0", "0.9", "0.0"] {
@@ -253,8 +248,7 @@ fn both_tables_in_one_file_are_refused() {
     );
 }
 
-/// A `model.toml` with neither table is an error: a mistyped table name would
-/// otherwise become a file that defines nothing.
+/// A `model.toml` with neither table is an error.
 #[test]
 fn neither_table_is_refused() {
     let report = rejected("manifest-version = \"1.0\"\n[projct]\nname = \"typo\"\n");
@@ -267,9 +261,7 @@ fn neither_table_is_refused() {
 }
 
 /// Which table a file defines is decided on whether the key is written,
-/// not on whether it reads as a table: `project = 3` writes `project`,
-/// and calling that file "one that defines neither" would be both false
-/// and further from the fix.
+/// not on whether it reads as a table: `project = 3` writes `project`.
 #[test]
 fn a_scalar_project_key_still_defines_a_project() {
     let report = rejected("manifest-version = \"1.0\"\nproject = 3\n");
@@ -281,8 +273,6 @@ fn a_scalar_project_key_still_defines_a_project() {
 
 /// What that costs: a stray scalar `project` beside a real `[workspace]`
 /// is refused as the exclusivity error, and its type is never mentioned.
-/// The fix -- delete the stray key -- is the same either way, and "a
-/// workspace root must not contain a project" is what says so.
 #[test]
 fn a_scalar_project_key_beside_a_workspace_is_the_exclusivity_error() {
     let report = rejected("manifest-version = \"1.0\"\nproject = 3\n\n[workspace]\nmembers = []\n");
@@ -315,8 +305,8 @@ fn a_workspace_config_has_no_top_level_inline_usages() {
     assert_eq!(places(&report), [(6, 3)]);
 }
 
-/// "one at the top level of a workspace config is an error" is about the
-/// key being there, so an explicit empty array is refused too.
+/// An explicit empty `inline-usages = []` at the top level of a workspace
+/// config is refused too: the key being there is the error.
 #[test]
 fn an_empty_inline_usages_array_is_refused_too() {
     let report =
@@ -367,8 +357,7 @@ fn both_tables_are_refused_before_either_is_read() {
 // Composition
 
 /// The golden report: errors and warnings in one list, in the order the
-/// file reads, each positioned. Everything it asserts is asserted
-/// piecewise elsewhere; what it pins is the composition.
+/// file reads, each positioned. It pins the composition.
 #[test]
 fn a_report_covers_both_levels_of_the_file() {
     const TEXT: &str = "\
@@ -455,16 +444,13 @@ fn peek_on_a_file_with_neither_table_is_none() {
 // ----------------------------------------------------------------------
 // The examples the specification gives
 //
-// Every example manifest in the design documents parses. The blocks are
-// repeated here, each with a comment saying what it shows, because a
-// test cannot read a fenced block out of a document.
+// Every example manifest in the design documents parses. Each is repeated
+// here with a comment saying what it shows.
 //
-// Most are fragments. A fragment is completed
-// with the smallest frame that makes it one, and there are two frames:
+// Most are fragments, completed with the smallest frame that makes one:
 // a project fragment gets `manifest-version` and the three required
-// `[project]` keys, a workspace fragment gets `manifest-version` alone --
-// adding a `[project]` to the latter would make a file with both tables,
-// which is itself an error.
+// `[project]` keys, a workspace fragment gets `manifest-version` alone
+// (a `[project]` would make a file with both tables).
 
 /// The frame a project fragment is completed with.
 fn as_project_file(fragment: &str) -> String {
@@ -516,10 +502,10 @@ fn every_example_in_model_toml_parses() {
     );
 }
 
-/// The examples of `syside-metamodel.md`. They are about resolution as
-/// much as parsing -- the first must resolve with no warning, the second
-/// against a group, the third with exactly the foreign-key warning -- so
-/// unlike the other example tests this one resolves what it parses.
+/// The examples of `syside-metamodel.md`. Unlike the other example tests
+/// this one resolves what it parses: the first must resolve with no
+/// warning, the second against a group, the third with exactly the
+/// foreign-key warning.
 #[test]
 fn every_example_in_syside_metamodel_md_parses_and_resolves() {
     // design: syside-metamodel.md #1
@@ -618,12 +604,8 @@ fn every_example_in_syside_metamodel_md_parses_and_resolves() {
     assert!(legacy.value.root.is_none());
 }
 
-/// Not an example in either document, and that is the point: an index
-/// usage published by `OMG` is an *ordinary* usage, not a
+/// An index usage published by `OMG` is an *ordinary* usage, not a
 /// standard-library one. It parses, and nothing about it is special.
-///
-/// It lives outside the two fidelity tests because those assert that
-/// the documents' examples parse, and this is not one of them.
 #[test]
 fn an_index_usage_published_by_omg_is_an_ordinary_usage() {
     accepted(&as_project_file(
@@ -702,11 +684,9 @@ fn every_example_in_workspaces_md_parses() {
 /// but the first is marked `# invalid`, illustrating that inheritance
 /// cannot overlap.
 ///
-/// It makes two different points, so it is checked as two. The first two
-/// lines are valid TOML and are exactly the overlap Sysand refuses. The
-/// block as a whole is not valid TOML at all -- `urls.website.workspace`
-/// is assigned twice -- so a reader never reaches Sysand's rule; the
-/// document is showing what not to write, not a file to parse.
+/// It is checked as two points. The first two lines are valid TOML and
+/// exactly the overlap Sysand refuses. The block as a whole is not valid
+/// TOML (`urls.website.workspace` is assigned twice).
 #[test]
 fn the_overlap_counter_example_is_refused() {
     // design: workspaces.md #4

@@ -39,8 +39,7 @@ fn places(report: &Report) -> Vec<(usize, usize)> {
 
 /// The one conversion the whole module rests on: a parsed document
 /// becomes plain values Sysand can judge, and the spans survive it.
-/// Every TOML type arrives as itself, a datetime included -- which is
-/// what lets a wrong-typed key say what it found.
+/// Every TOML type arrives as itself, a datetime included.
 #[test]
 fn a_document_becomes_a_table_and_an_index() {
     const TEXT: &str = "\
@@ -270,8 +269,8 @@ shape = \"round\"
     assert_eq!(places, [(2, 1), (3, 1)]);
 }
 
-/// Inheritance goes in one direction only. A marker where
-/// a plain value belongs is a mistake worth naming.
+/// Inheritance goes in one direction only: a marker where a plain value
+/// belongs is an error.
 #[test]
 fn a_marker_where_a_value_belongs_says_so() {
     const TEXT: &str = "publisher = { workspace = true }\n";
@@ -291,10 +290,8 @@ fn a_marker_where_a_value_belongs_says_so() {
     );
 }
 
-/// `urls.workspace = true` is the whole-table marker form. Without the
-/// same check on a table-valued key it would come back as an unknown key
-/// inside `urls` -- a warning, leaving the read to succeed with no urls
-/// at all.
+/// `urls.workspace = true` is the whole-table marker form; a table-valued
+/// key must not report it as an unknown key inside `urls`.
 #[test]
 fn a_table_valued_key_refuses_a_marker_too() {
     const TEXT: &str = "urls.workspace = true\n";

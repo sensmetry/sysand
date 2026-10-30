@@ -104,10 +104,8 @@ pub fn command_sources_project(
 /// so a member that another member depends on has its own sources
 /// reached twice. The second is the normal case.
 ///
-/// Order-preserving, because own-source order is deterministic and a
-/// plain `HashSet` would randomise it. Dependency order is not
-/// deterministic, which is a property of the solver rather than of this
-/// loop.
+/// Order-preserving: own-source order is deterministic. Dependency order
+/// is up to the solver.
 pub fn command_sources_workspace(
     root: &camino::Utf8Path,
     no_own: bool,

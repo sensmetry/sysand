@@ -121,8 +121,6 @@ pub fn command_publish(
             }
         })?;
 
-        // The name, because one archive's "Published new project
-        // successfully" is fine and five of them are not.
         let what = if response.is_new_project {
             "new project"
         } else {
@@ -136,9 +134,7 @@ pub fn command_publish(
 }
 
 /// Add the CLI-specific `sysand auth` remediation to a publish error whose
-/// core message deliberately names no CLI command: the library states the
-/// condition (and the `SYSAND_CRED_*` fallback), and the frontend owns the
-/// command vocabulary. `index` is the index the user targeted, so the
+/// core message names no CLI command. `index` is the index the user targeted, so the
 /// login hint is copy-pasteable.
 fn publish_error_with_hint(err: PublishError, index: &str) -> anyhow::Error {
     let hint = match &err {

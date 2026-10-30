@@ -13,7 +13,7 @@
 //! This module knows nothing about which keys `[project]` has. It knows
 //! what a marker looks like, what is wrong with the shapes that are not
 //! markers, and how to follow a marker into a
-//! [`GroupProperties`](crate::manifest::workspace_table::GroupProperties);
+//! [`GroupProperties`];
 //! `project.rs` knows the key list.
 
 use crate::manifest::common::{InheritFrom, InheritMarker};
@@ -24,10 +24,8 @@ use crate::manifest::workspace_table::{GroupProperties, WorkspaceTable};
 /// A marker that was read: which group it points at, and where it was
 /// written.
 ///
-/// The position is kept because the diagnostics a marker can produce are
-/// raised by `resolve`, which runs once the workspace is known and has no
-/// text to look positions up in: a `Positions<'a>` borrows one file's
-/// text, and a workspace resolves many members into one report.
+/// The position is kept for the diagnostics raised by `resolve`, which has
+/// no file text to look positions up in.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Inherited {
     pub from: InheritFrom,
@@ -82,12 +80,11 @@ pub fn inheritable<T>(
 
 /// The same, for a key whose own value is a *table* (`urls`).
 ///
-/// When a key is inherited from a table and the key's value is also a
-/// table, inheritance cannot be specified for any of the inner table's
-/// keys, nor can the inner key be given a value of its own. Such a table has a `workspace` key and others, so it is not a
-/// marker -- and without this check its `workspace` key would come back
-/// as an unknown key inside the table, a warning that leaves the read to
-/// succeed with the inheritance silently dropped.
+/// A table with a `workspace` key and others is not a marker: inheritance
+/// cannot be specified for any of the inner table's keys, nor can the inner
+/// key be given a value of its own. Without this check its `workspace` key
+/// would come back as an unknown-key warning with the inheritance silently
+/// dropped.
 pub fn inheritable_table<T>(
     reader: &TableReader<'_>,
     key: &str,
@@ -120,9 +117,8 @@ pub fn inheritable_table<T>(
 
 /// Read a key that may *not* be inherited.
 ///
-/// Some `[project]` keys are deliberately outside inheritance. A marker on one of them says so,
-/// and, unlike an inheritable key, `workspace = false` gets the same
-/// answer, since what is wrong is the attempt.
+/// Some `[project]` keys are outside inheritance. A marker on one of them,
+/// `workspace = false` included, is an error.
 ///
 /// `reason` completes "cannot be inherited from the workspace; ...".
 pub fn own<T>(

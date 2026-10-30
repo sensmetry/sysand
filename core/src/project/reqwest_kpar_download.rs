@@ -34,7 +34,7 @@ use super::{
     utils::{FsIoError, wrapfs},
 };
 
-/// Project stored at a remote URL such as https://www.example.com/project.kpar.
+/// Project stored at a remote URL such as <https://www.example.com/project.kpar>.
 /// The URL is expected to resolve to a kpar-archive (ZIP-file) (at least) if
 /// requested with CONTENT-TYPE(s) application/zip, application/x-zip-compressed.
 ///

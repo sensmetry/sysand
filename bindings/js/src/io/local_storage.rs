@@ -129,9 +129,7 @@ impl From<LocalStorageError> for Error {
 impl ProjectLocalBrowserStorage {
     /// The KPAR view of the `model.toml` under `root_path`.
     ///
-    /// Everything but the storage is `kpar_view`'s, which is free of
-    /// Cargo features exactly so that this store answers with the pair a
-    /// directory would.
+    /// Everything but the storage is `kpar_view`'s.
     fn read_model_toml(
         &self,
     ) -> Result<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw), Error> {

@@ -21,13 +21,12 @@
 //!   ordinary URL path segments but need a suffix after it (for example
 //!   Gitea's `.../raw/<path>?ref=<branch>`).
 //!
-//! The syntax is a deliberately restricted subset of [RFC 6570] URI
-//! Templates: `{path}` behaves like RFC 6570 simple string expansion of
-//! a single value and `{path_raw}` like reserved expansion (`{+path}`),
-//! but only these two fixed names are accepted so that typos fail at
-//! parse time. Fixed custom markers in a
-//! package-index template follow crates.io's `config.json` `dl` field
-//! (`{crate}`, `{version}`).
+//! The syntax is a restricted subset of [RFC 6570] URI Templates:
+//! `{path}` behaves like RFC 6570 simple string expansion of a single
+//! value and `{path_raw}` like reserved expansion (`{+path}`); only these
+//! two fixed names are accepted. Fixed custom markers in a package-index
+//! template follow crates.io's `config.json` `dl` field (`{crate}`,
+//! `{version}`).
 //!
 //! [RFC 6570]: https://www.rfc-editor.org/rfc/rfc6570
 
@@ -166,8 +165,7 @@ impl PathEncoding {
 
 /// A URL template with exactly one `{path}` or `{path_raw}` placeholder,
 /// validated at construction. Stored as the text on either side of the
-/// placeholder rather than as a `url::Url` because `url::Url` percent-encodes
-/// `{` or `}` on parse, which would corrupt the placeholder. The prefix is
+/// placeholder, not as a `url::Url` (which percent-encodes `{` and `}`). The prefix is
 /// normalized at parse to the text `url::Url` serializes it as (lowercase
 /// scheme and host, punycode, default port dropped, explicit root `/`), so
 /// different spellings of one template `Display` identically; the suffix
@@ -208,9 +206,8 @@ impl IndexUrlTemplate {
             encoding,
         };
 
-        // Expand a probe that encodes to a percent-escape: hosts and
-        // ports cannot contain `%`, so a placeholder in the authority
-        // component fails to parse rather than validating silently.
+        // The probe encodes to a percent-escape, which hosts and ports
+        // cannot contain, so a placeholder in the authority fails to parse.
         let expanded = match url::Url::parse(&template.build(["pr obe", "probe"])) {
             Ok(expanded) => expanded,
             Err(url::ParseError::RelativeUrlWithoutBase) => {
@@ -374,10 +371,8 @@ impl IndexLocation {
     pub fn resolve<'a>(&self, segments: impl IntoIterator<Item = &'a str>) -> url::Url {
         match self {
             Self::Root(root) => {
-                // Append each segment to a clone of the base rather than
-                // building a `/`-joined string and reparsing it in
-                // `join()`. The root ends with `/` (its invariant), so drop
-                // that trailing empty segment first to avoid a doubled slash.
+                // The root ends with `/` (its invariant), so drop that
+                // trailing empty segment first to avoid a doubled slash.
                 let mut url = root.clone();
                 url.path_segments_mut()
                     .expect("BUG: an HTTP(S) base URL can have path segments")
@@ -631,9 +626,8 @@ fn is_template_syntax(s: &str) -> bool {
 }
 
 /// Return `url` with a guaranteed trailing slash on its path so that
-/// `Url::join` treats it as a directory. Operates via `path_segments_mut`
-/// rather than touching the serialized path string, so percent-encoded
-/// segments survive the round-trip unchanged.
+/// `Url::join` treats it as a directory. Percent-encoded segments survive
+/// unchanged.
 ///
 /// Callers must pass an HTTP(S) URL. Such URLs can be a base, so the
 /// `path_segments_mut` call should not fail after endpoint-shape

@@ -42,8 +42,7 @@ fn without_a_workspace_the_sources_root_is_the_project() {
     );
 }
 
-/// And with neither there is no root -- which is what makes
-/// `LocalSrcProject::sources` panic, deliberately.
+/// With neither there is no root (`LocalSrcProject::sources` panics).
 #[cfg(feature = "filesystem")]
 #[test]
 fn with_neither_there_is_no_sources_root() {

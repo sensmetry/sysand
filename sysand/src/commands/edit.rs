@@ -186,7 +186,7 @@ fn edit_info(edits: &EditArgs, info: &mut InterchangeProjectInfoRaw) -> Result<(
 
 /// Clears `list` (if `clear`), then removes every entry equal to one of
 /// `remove`, then appends `add`. A value to remove that is not in the list
-/// is an error, so that typos do not go unnoticed
+/// is an error.
 fn edit_list(
     kind: &str,
     list: &mut Vec<String>,
@@ -215,8 +215,8 @@ fn edit_list(
 /// These two can, and unlike every other key of a `model.toml` the answer
 /// is not "not yet": the manifest has no room for them and will not grow
 /// one. The check sits per flag rather than at the front of the command,
-/// so that the permanent refusal cannot swallow the temporary one that
-/// every other metadata write on a toml project meets.
+/// so the permanent refusal does not mask the temporary one that every
+/// other metadata write on a toml project meets.
 fn refuse_computed_fields(project: &LocalSrcProject, edits: &EditArgs) -> Result<()> {
     if edits.includes_derived.is_some() {
         refuse_computed_field(project, "includes-derived", "set")?;

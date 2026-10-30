@@ -68,9 +68,8 @@ fn array_of_tables_entries_are_indexed_by_position() {
     assert_eq!((entry.line, entry.column), (11, 1));
 }
 
-/// `urls = { website = "..." }` and `[project.urls]` are the same table
-/// written two ways, so a reader of the index cannot be made to care
-/// which one the author chose.
+/// `urls = { website = "..." }` and `[project.urls]` are indexed the same
+/// way.
 #[test]
 fn inline_tables_are_indexed_like_tables() {
     let positions = positions(DOC);

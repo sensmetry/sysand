@@ -280,8 +280,7 @@ pub fn serialize_blob(blob: &CredentialBlob) -> String {
 }
 
 /// Test doubles shared by several core test modules (auth, commands::auth,
-/// keyring_store), which is why they live here. Test-only so they never
-/// reach the library's public API.
+/// keyring_store).
 #[cfg(test)]
 pub(crate) mod test_support {
     #[cfg(feature = "networking")]

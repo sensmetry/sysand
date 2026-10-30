@@ -1234,8 +1234,6 @@ pub enum IndexCommand {
     /// Add a KPAR to a local sysand index
     #[clap(verbatim_doc_comment)]
     Add {
-        // The type is String, not Iri so that a better error can be reported in some cases
-        // for example when the publisher contains a space
         /// IRI identifying the project. Default is `pkg:sysand/<publisher>/<name>`, if
         /// publisher is specified in .project.json. Omitting both publisher and IRI is an error
         #[arg(long, verbatim_doc_comment)]
@@ -1255,8 +1253,6 @@ pub enum IndexCommand {
         /// IRI identifying the project
         #[arg(long)]
         iri: String,
-        // It's String and not semver::Version because it's good to allow yanking a non-semantic
-        // version
         /// Version to yank
         #[arg(long)]
         version: String,
@@ -1284,8 +1280,6 @@ pub enum IndexCommand {
 #[derive(clap::Args, Debug, Clone)]
 #[group(required = true, multiple = false)]
 pub struct IndexRemoveTarget {
-    // It's String and not semver::Version because it's good to allow removing a non-semantic
-    // version
     /// Version to remove
     #[arg(long)]
     pub version: Option<String>,

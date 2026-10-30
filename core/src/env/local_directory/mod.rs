@@ -502,8 +502,7 @@ pub enum LocalWriteError {
     ProjectNotFound(String),
     /// A directory whose manifests do not say what kind of project it
     /// is, or that is a `model.toml` project and so cannot be written
-    /// as a json one. Passed through rather than re-spelled: these are
-    /// about the *format*, and an env writer adds nothing to them.
+    /// as a json one.
     #[error(transparent)]
     Format(LocalSrcError),
 }
@@ -533,9 +532,6 @@ impl From<LocalSrcError> for LocalWriteError {
             LocalSrcError::Serialize(error) => Self::Serialize(error),
             LocalSrcError::ImpossibleRelativePath(err) => Self::ImpossibleRelativePath(err),
             LocalSrcError::MissingMeta => Self::MissingMeta,
-            // Flattened rather than re-spelled: the message names
-            // which manifests are missing, which an env writer cannot
-            // improve on.
             error @ LocalSrcError::MissingInfoMeta { missing: _ } => Self::Format(error),
             error @ (LocalSrcError::AmbiguousFormat { dir: _, json: _ }
             | LocalSrcError::Symbols(_)
