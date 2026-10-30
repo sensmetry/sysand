@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+// Doc comments on the clap items are the `--help` text, so URLs stay bare.
+#![allow(rustdoc::bare_urls)]
+
 use std::{ffi::OsStr, fmt::Display, str::FromStr as _};
 
 use camino::Utf8PathBuf;

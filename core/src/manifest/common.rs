@@ -473,7 +473,7 @@ impl Serialize for Sources {
 /// language.
 ///
 /// `Ok(())` for an entry that is not a model file at all: that is
-/// [`SourcesError::NotModelFile`]'s, and it needs no metamodel.
+/// [`PathProblem::NotModelFile`]'s, and it needs no metamodel.
 pub fn admitted_source(entry: &Utf8UnixPath, metamodel: &KnownMetamodel) -> Result<(), Diagnostic> {
     let Some(language) = Language::guess_from_path(entry) else {
         return Ok(());

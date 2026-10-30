@@ -148,11 +148,7 @@ impl ProjectLocalBrowserStorage {
 impl ProjectRead for ProjectLocalBrowserStorage {
     type Error = Error;
 
-    /// The project's own manifest, as [`LocalSrcProject`] answers it.
-    ///
-    /// This store reads a `model.toml` and had no way to hand one back:
-    /// it would have claimed to have none for a project it demonstrably
-    /// has one for.
+    /// The project's own manifest, read from its `model.toml`.
     fn manifest(
         &self,
     ) -> Result<

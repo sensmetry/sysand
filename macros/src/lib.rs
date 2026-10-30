@@ -45,15 +45,15 @@ use syn::{Data, DataEnum, DeriveInput, parse_macro_input};
 ///
 /// # Method Delegation
 ///
-/// - [`ProjectRead::get_project`] delegates to the active variant, mapping
+/// - `ProjectRead::get_project` delegates to the active variant, mapping
 ///   errors into `<EnumName>Error`.
-/// - [`ProjectRead::read_source`] delegates to the active variant and wraps
+/// - `ProjectRead::read_source` delegates to the active variant and wraps
 ///   the returned reader in `<EnumName>SourceReader<'_>`.
-/// - [`ProjectRead::sources`] delegates directly to the active variant.
-/// - [`ProjectRead::get_info`], [`ProjectRead::get_meta`],
-///   [`ProjectRead::version`], and [`ProjectRead::usage`] delegate directly to
+/// - `ProjectRead::sources` delegates directly to the active variant.
+/// - `ProjectRead::get_info`, `ProjectRead::get_meta`,
+///   `ProjectRead::version`, and `ProjectRead::usage` delegate directly to
 ///   the active variant so leaf overrides survive wrapper enums.
-/// - [`ProjectRead::checksum_canonical_hex`] delegates to the active variant.
+/// - `ProjectRead::checksum_canonical_hex` delegates to the active variant.
 ///
 /// All other methods are handled by the default implementation of the
 /// `ProjectRead` trait.
@@ -511,9 +511,9 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
 ///
 /// # Method Delegation
 ///
-/// - [`ProjectMut::put_info`] delegates to the active variant.
-/// - [`ProjectMut::put_meta`] delegates to the active variant.
-/// - [`ProjectMut::write_source`] delegates to the active variant.
+/// - `ProjectMut::put_info` delegates to the active variant.
+/// - `ProjectMut::put_meta` delegates to the active variant.
+/// - `ProjectMut::write_source` delegates to the active variant.
 ///
 /// All other methods are handled by the default implementation of the
 /// `ProjectMut` trait.
