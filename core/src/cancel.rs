@@ -26,25 +26,30 @@ use std::{sync::Arc, time::Duration};
 use thiserror::Error;
 pub use tokio_util::sync::CancellationToken;
 
+/// An operation stopped because its [`CancellationToken`] was cancelled.
+#[derive(Error, Debug, Clone, Copy, PartialEq, Eq)]
+#[error("cancelled")]
+pub struct Cancelled;
+
 /// A bridge's outcome: the inner operation's error, or cancellation.
 #[derive(Error, Debug)]
 pub enum Cancellable<E> {
     #[error(transparent)]
     Inner(E),
-    #[error("cancelled")]
-    Cancelled,
+    #[error(transparent)]
+    Cancelled(Cancelled),
 }
 
 impl<E> Cancellable<E> {
     pub fn is_cancelled(&self) -> bool {
-        matches!(self, Self::Cancelled)
+        matches!(self, Self::Cancelled(_))
     }
 
     /// Map the inner error, keeping cancellation.
     pub fn map_inner<F, G: FnOnce(E) -> F>(self, f: G) -> Cancellable<F> {
         match self {
             Self::Inner(e) => Cancellable::Inner(f(e)),
-            Self::Cancelled => Cancellable::Cancelled,
+            Self::Cancelled(cancelled) => Cancellable::Cancelled(cancelled),
         }
     }
 }
@@ -64,7 +69,7 @@ pub fn bridge<T, E, F: Future<Output = Result<T, E>>>(
     match runtime.block_on(token.run_until_cancelled(future)) {
         Some(Ok(value)) => Ok(value),
         Some(Err(error)) => Err(Cancellable::Inner(error)),
-        None => Err(Cancellable::Cancelled),
+        None => Err(Cancellable::Cancelled(Cancelled)),
     }
 }
 
@@ -82,7 +87,7 @@ pub fn bridge_value<T, F: Future<Output = T>>(
 /// `Interrupted`: `Read::read_to_end`, `read_exact` and `io::copy` retry
 /// on that kind, and a cancelled reader must fail, not spin.
 pub fn cancelled_io_error() -> std::io::Error {
-    std::io::Error::other("cancelled")
+    std::io::Error::other(Cancelled)
 }
 
 /// A git clone's cancellation, through gix's process-global
@@ -112,12 +117,12 @@ impl GitInterrupt {
 
     /// Wait for the process's other clones, then arm the flag for this
     /// one. `Err` when the token was cancelled before the clone began.
-    pub fn begin(token: &CancellationToken) -> Result<Self, Cancellable<std::convert::Infallible>> {
+    pub fn begin(token: &CancellationToken) -> Result<Self, Cancelled> {
         let serial = GIT_CLONE
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if token.is_cancelled() {
-            return Err(Cancellable::Cancelled);
+            return Err(Cancelled);
         }
         gix::interrupt::IS_INTERRUPTED.store(false, std::sync::atomic::Ordering::SeqCst);
         let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));

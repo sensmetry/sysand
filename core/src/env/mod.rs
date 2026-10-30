@@ -357,7 +357,7 @@ where
             }
             None => {
                 *done = true;
-                Some(Err(Cancellable::Cancelled))
+                Some(Err(Cancellable::Cancelled(crate::cancel::Cancelled)))
             }
         }
     }

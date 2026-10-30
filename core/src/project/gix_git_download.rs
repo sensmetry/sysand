@@ -37,8 +37,8 @@ pub enum GixDownloadedError {
     Clone(String, #[source] Box<gix::Error>),
     /// The clone was cancelled, before it began or while gix was
     /// fetching or checking out.
-    #[error("cancelled")]
-    Cancelled,
+    #[error(transparent)]
+    Cancelled(crate::cancel::Cancelled),
     #[error("failed to parse git URL `{0}`")]
     UrlParse(Box<str>, #[source] Box<gix::Error>),
     #[error(transparent)]
@@ -118,10 +118,10 @@ impl GixDownloadedProject {
             // One clone at a time per process: gix's interrupt flag is
             // process-global, and the guard makes it this clone's.
             let interrupt = crate::cancel::GitInterrupt::begin(&self.token)
-                .map_err(|_cancelled| GixDownloadedError::Cancelled)?;
+                .map_err(GixDownloadedError::Cancelled)?;
             let cancelled = |error: GixDownloadedError| {
                 if interrupt.is_cancelled() {
-                    GixDownloadedError::Cancelled
+                    GixDownloadedError::Cancelled(crate::cancel::Cancelled)
                 } else {
                     error
                 }

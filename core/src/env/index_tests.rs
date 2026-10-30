@@ -50,7 +50,7 @@ use crate::{
 fn inner<E>(error: crate::cancel::Cancellable<E>) -> E {
     match error {
         crate::cancel::Cancellable::Inner(error) => error,
-        crate::cancel::Cancellable::Cancelled => panic!("no test cancels"),
+        crate::cancel::Cancellable::Cancelled(_) => panic!("no test cancels"),
     }
 }
 

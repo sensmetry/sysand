@@ -517,7 +517,9 @@ fn combined_error_to_pyerr<F, L, R>(
     match err {
         // The binding hands out no token, so a cancelled bridge cannot
         // happen here; the variant is still mapped.
-        CombinedResolverError::Index(Cancellable::Cancelled) => PyResolutionError::new_err(message),
+        CombinedResolverError::Index(Cancellable::Cancelled(_)) => {
+            PyResolutionError::new_err(message)
+        }
         CombinedResolverError::Index(Cancellable::Inner(AnyIndexError::Remote(
             IndexEnvironmentError::Discovery(DiscoveryError::Fetch(fetch))
             | IndexEnvironmentError::Fetch(fetch),

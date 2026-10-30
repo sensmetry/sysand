@@ -1478,7 +1478,9 @@ impl<T: ProjectReadAsync> ProjectRead for AsSyncProjectTokio<T> {
             Some(Err(CanonicalizationError::FileRead(path, error))) => {
                 Err(CanonicalizationError::FileRead(path, error))
             }
-            None => Err(CanonicalizationError::ProjectRead(Cancellable::Cancelled)),
+            None => Err(CanonicalizationError::ProjectRead(Cancellable::Cancelled(
+                crate::cancel::Cancelled,
+            ))),
         }
     }
 

@@ -927,7 +927,7 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
                     usage: _,
                     source: _,
                 }
-                | InternalSolverError::Cancelled => {}
+                | InternalSolverError::Cancelled(_) => {}
                 InternalSolverError::NotFound(usage, _)
                 | InternalSolverError::NoValidCandidates(usage)
                 | InternalSolverError::UnsupportedUsageType { usage, reason: _ }
@@ -1430,8 +1430,8 @@ pub enum InternalSolverError<R: ResolveRead> {
     #[error("resolution error")]
     Resolution(#[source] R::Error),
     /// The solve was cancelled between candidates.
-    #[error("cancelled")]
-    Cancelled,
+    #[error(transparent)]
+    Cancelled(crate::cancel::Cancelled),
     /// Project not found by current resolver
     /// Value is the formatted error message
     #[error("project {0} not found: {1}")]
@@ -1547,7 +1547,7 @@ impl<R: ResolveRead> ProjectSolver<R> {
     #[expect(clippy::result_large_err)]
     fn checkpoint(&self) -> Result<(), InternalSolverError<R>> {
         if self.token.is_cancelled() {
-            Err(InternalSolverError::Cancelled)
+            Err(InternalSolverError::Cancelled(crate::cancel::Cancelled))
         } else {
             Ok(())
         }
