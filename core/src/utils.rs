@@ -312,3 +312,21 @@ pub const SP: char = ' ';
 pub fn format_expiry_utc(expires_at: &jiff::Timestamp) -> String {
     expires_at.strftime("%Y-%m-%d %H:%M:%S UTC").to_string()
 }
+
+/// Whether `version`, a `major.minor` format version such as a lockfile's
+/// `lock_version`, is above `current`: the mark of a file a newer release
+/// wrote. Anything that is not two integers is not newer, only unknown.
+pub fn is_newer_format_version(version: &str, current: &str) -> bool {
+    fn parse(version: &str) -> Option<(u64, u64)> {
+        let (major, minor) = version.split_once('.')?;
+        Some((major.parse().ok()?, minor.parse().ok()?))
+    }
+    match (parse(version), parse(current)) {
+        (Some(version), Some(current)) => version > current,
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+#[path = "./utils_tests.rs"]
+mod tests;
