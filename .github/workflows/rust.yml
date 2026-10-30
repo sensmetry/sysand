@@ -2,7 +2,7 @@ name: Rust (Library & CLI)
 
 on:
   push:
-    branches: [main]
+    branches: [main, stable-api-1]
     tags: ["v*"]
   pull_request:
     branches: [main]
@@ -51,12 +51,12 @@ jobs:
               - '**/*.rs'
       - id: decisions
         run: |
-          test=${{ steps.filter.outputs.src == 'true' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
+          test=${{ steps.filter.outputs.src == 'true' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stable-api-1' || startsWith(github.ref, 'refs/tags/') }}
           gate=${{ github.event_name == 'pull_request' }}
           echo "test=$test" >> "$GITHUB_OUTPUT"
           echo "gate=$gate" >> "$GITHUB_OUTPUT"
 
-          lint_and_format=${{ steps.filter.outputs.rs_src == 'true' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
+          lint_and_format=${{ steps.filter.outputs.rs_src == 'true' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stable-api-1' || startsWith(github.ref, 'refs/tags/') }}
           echo "lint_and_format=$lint_and_format" >> "$GITHUB_OUTPUT"
 
   lint-and-format:
