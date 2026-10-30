@@ -134,7 +134,7 @@ impl<E: ErrorBound> CanonicalizationError<E> {
 
 /// Why a project's manifest could not be had.
 #[derive(Debug, Error)]
-pub enum ManifestError<ReadError: ErrorBound> {
+pub enum ManifestError<ReadError> {
     #[error(transparent)]
     Project(ReadError),
     /// The project is not written as a `model.toml`. A json project's
@@ -151,7 +151,7 @@ pub enum ManifestError<ReadError: ErrorBound> {
 /// default trait body cannot produce a `Self::Error`, which belongs to
 /// the implementation.
 #[derive(Error, Debug)]
-pub enum ManifestWriteError<WriteError: ErrorBound> {
+pub enum ManifestWriteError<WriteError> {
     #[error(transparent)]
     Project(WriteError),
     /// The project has nowhere to put one. A KPAR, a remote source

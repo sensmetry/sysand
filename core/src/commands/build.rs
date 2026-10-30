@@ -249,7 +249,8 @@ impl<ProjectReadError: ErrorBound> From<IncludeError<ProjectReadError>>
             | IncludeError::ForceFormat
             | IncludeError::NotAdmitted(_)
             | IncludeError::Edit(_)
-            | IncludeError::Manifest(_) => Self::Extract(format_err(value)),
+            | IncludeError::Manifest(_)
+            | IncludeError::ManifestWrite(_) => Self::Extract(format_err(value)),
         }
     }
 }

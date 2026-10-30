@@ -25,8 +25,10 @@ pub enum ExcludeError<ProjectError> {
     /// listed". The rest keep their own words.
     #[error(transparent)]
     Edit(crate::manifest::edit::EditError),
-    #[error("failed to read the project's `model.toml`: {0}")]
-    Manifest(Box<str>),
+    #[error(transparent)]
+    Manifest(crate::project::ManifestError<ProjectError>),
+    #[error(transparent)]
+    ManifestWrite(crate::project::ManifestWriteError<ProjectError>),
     /// The `root` is one of the `sources` by the Syside schema's rule, so
     /// removing it from `sources` would leave a manifest the next read
     /// refuses.
@@ -91,12 +93,9 @@ fn exclude_toml<Pr: ProjectMut, P: AsRef<Utf8UnixPath>, I: Iterator<Item = P>>(
     project: &mut Pr,
     paths: I,
 ) -> Result<Vec<SourceExclusionOutcome>, ExcludeError<Pr::Error>> {
-    let mut document = project.manifest_document().map_err(|e| match e {
-        crate::project::ManifestError::Project(e) => ExcludeError::Project(e),
-        crate::project::ManifestError::NoTomlManifest => {
-            ExcludeError::Manifest("this project has no `model.toml` manifest".into())
-        }
-    })?;
+    let mut document = project
+        .manifest_document()
+        .map_err(ExcludeError::Manifest)?;
 
     let mut outcomes = Vec::new();
     for path in paths {
@@ -131,12 +130,7 @@ fn exclude_toml<Pr: ProjectMut, P: AsRef<Utf8UnixPath>, I: Iterator<Item = P>>(
 
     project
         .put_manifest_document(&document, true)
-        .map_err(|e| match e {
-            crate::project::ManifestWriteError::Project(e) => ExcludeError::Project(e),
-            crate::project::ManifestWriteError::Unsupported => {
-                ExcludeError::Manifest("this project cannot store a `model.toml`".into())
-            }
-        })?;
+        .map_err(ExcludeError::ManifestWrite)?;
     Ok(outcomes)
 }
 

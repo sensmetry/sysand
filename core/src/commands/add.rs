@@ -54,8 +54,10 @@ pub enum AddError<ProjectError> {
     NoManifestForm(crate::manifest::kpar_view::NoManifestForm),
     #[error(transparent)]
     Edit(crate::manifest::edit::EditError),
-    #[error("failed to read the project's `model.toml`: {0}")]
-    Manifest(Box<str>),
+    #[error(transparent)]
+    Manifest(crate::project::ManifestError<ProjectError>),
+    #[error(transparent)]
+    ManifestWrite(crate::project::ManifestWriteError<ProjectError>),
 }
 
 /// Why [`spell_index_usage`] could not settle the spelling of an index usage
@@ -337,12 +339,7 @@ fn add_toml<P: ProjectMut>(
             .map_err(AddError::NoManifestForm)?;
     let identity = usage.identity();
 
-    let mut document = project.manifest_document().map_err(|e| match e {
-        crate::project::ManifestError::Project(e) => AddError::Project(e),
-        crate::project::ManifestError::NoTomlManifest => {
-            AddError::Manifest("this project has no `model.toml` manifest".into())
-        }
-    })?;
+    let mut document = project.manifest_document().map_err(AddError::Manifest)?;
 
     // Already declared? Then the question is only whether the
     // constraint changes, which is what the json arm asks too.
@@ -382,12 +379,7 @@ fn write_manifest<P: ProjectMut>(
 ) -> Result<(), AddError<P::Error>> {
     project
         .put_manifest_document(document, true)
-        .map_err(|e| match e {
-            crate::project::ManifestWriteError::Project(e) => AddError::Project(e),
-            crate::project::ManifestWriteError::Unsupported => {
-                AddError::Manifest("this project cannot store a `model.toml`".into())
-            }
-        })
+        .map_err(AddError::ManifestWrite)
 }
 
 /// Ok(true) => project info changed: the usage was added, or an existing

@@ -51,8 +51,10 @@ pub enum IncludeError<ProjectError> {
     /// The manifest could not be read, or the edit was refused.
     #[error(transparent)]
     Edit(crate::manifest::edit::EditError),
-    #[error("failed to read the project's `model.toml`: {0}")]
-    Manifest(Box<str>),
+    #[error(transparent)]
+    Manifest(crate::project::ManifestError<ProjectError>),
+    #[error(transparent)]
+    ManifestWrite(crate::project::ManifestWriteError<ProjectError>),
 }
 
 impl<ProjectError> From<FsIoError> for IncludeError<ProjectError> {
@@ -163,7 +165,9 @@ fn include_toml<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
     index_symbols: bool,
     force_format: Option<Language>,
 ) -> Result<(), IncludeError<Pr::Error>> {
-    let mut document = project.manifest_document().map_err(manifest_error)?;
+    let mut document = project
+        .manifest_document()
+        .map_err(IncludeError::Manifest)?;
     // The file must be of a type the metamodel admits. The metamodel
     // comes from the resolved manifest when the project resolves, and
     // from the document's own literal value otherwise; a member read
@@ -209,26 +213,7 @@ fn include_toml<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
 
     project
         .put_manifest_document(&document, true)
-        .map_err(|e| match e {
-            crate::project::ManifestWriteError::Project(e) => IncludeError::Project(e),
-            crate::project::ManifestWriteError::Unsupported => {
-                IncludeError::Manifest("this project cannot store a `model.toml`".into())
-            }
-        })
-}
-
-/// Flatten a manifest read failure into this command's error.
-///
-/// `NoTomlManifest` is unreachable: the format was just checked.
-fn manifest_error<E: crate::env::utils::ErrorBound>(
-    error: crate::project::ManifestError<E>,
-) -> IncludeError<E> {
-    match error {
-        crate::project::ManifestError::Project(e) => IncludeError::Project(e),
-        crate::project::ManifestError::NoTomlManifest => {
-            IncludeError::Manifest("this project has no `model.toml` manifest".into())
-        }
-    }
+        .map_err(IncludeError::ManifestWrite)
 }
 
 /// Extract top level symbols from `source`, using `path` for diagnostics

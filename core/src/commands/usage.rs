@@ -96,8 +96,8 @@ pub enum SetConstraintLocalError {
     Project(crate::project::local_src::LocalSrcError),
     #[error(transparent)]
     Edit(SetConstraintError),
-    #[error("failed to read the project's `model.toml`: {0}")]
-    Manifest(Box<str>),
+    #[error(transparent)]
+    Manifest(crate::project::ManifestError<crate::project::local_src::LocalSrcError>),
     #[error(transparent)]
     ManifestWrite(crate::project::ManifestWriteError<crate::project::local_src::LocalSrcError>),
 }
@@ -490,12 +490,9 @@ fn edit_toml_manifest(
 ) -> Result<ConstraintChange, SetConstraintLocalError> {
     use crate::project::{ProjectMut as _, ProjectRead as _};
 
-    let mut document = project.manifest_document().map_err(|e| match e {
-        crate::project::ManifestError::Project(e) => SetConstraintLocalError::Project(e),
-        crate::project::ManifestError::NoTomlManifest => {
-            SetConstraintLocalError::Manifest("this project has no `model.toml` manifest".into())
-        }
-    })?;
+    let mut document = project
+        .manifest_document()
+        .map_err(SetConstraintLocalError::Manifest)?;
     let outcome = edit(&mut document).map_err(SetConstraintLocalError::Edit)?;
     if matches!(outcome, ConstraintChange::Replaced { old: _, new: _ }) {
         project
