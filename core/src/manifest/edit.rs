@@ -36,7 +36,8 @@ pub use toml_edit::{Array, DocumentMut, Value};
 use typed_path::Utf8UnixPathBuf;
 
 use crate::manifest::common::{
-    InheritFrom, NormalizedIdentity, OMG_PUBLISHER, Sources, SourcesError, normalized_identity,
+    InheritFrom, NormalizedIdentity, OMG_PUBLISHER, PathProblem, Sources, SourcesError,
+    normalized_identity,
 };
 use crate::manifest::diagnostics::Diagnostic;
 use crate::manifest::inherit::{Inherited, MetaProperty};
@@ -748,13 +749,13 @@ fn strict_entry(path: &str) -> Result<Utf8UnixPathBuf, EditError> {
             EditError::SourceOutsideProject(path.to_owned())
         }
         crate::utils::NormalizeRelativeError::Absolute { path: _ } => {
-            EditError::Sources(SourcesError::NotRelative(path.to_owned()))
+            EditError::Sources(SourcesError::path(PathProblem::Absolute, path))
         }
         crate::utils::NormalizeRelativeError::ContainsBackslash { path: _ } => {
-            EditError::Sources(SourcesError::ContainsBackslash(path.to_owned()))
+            EditError::Sources(SourcesError::path(PathProblem::Backslash, path))
         }
         crate::utils::NormalizeRelativeError::ContainsNull { path: _ } => {
-            EditError::Sources(SourcesError::ContainsNull(path.to_owned()))
+            EditError::Sources(SourcesError::path(PathProblem::Null, path))
         }
     })
 }

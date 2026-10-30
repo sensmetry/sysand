@@ -263,45 +263,11 @@ impl TryFrom<InheritMarker> for InheritFrom {
 /// Why an entry of `sources` is not one.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum SourcesError {
-    /// An absolute entry has no place in a KPAR.
-    #[error("`sources` entry `{0}` is absolute; entries are relative to the project root")]
-    NotRelative(String),
-    /// A manifest reads the same way on every platform.
-    #[error(
-        "`sources` entry `{0}` contains a backslash `\\`;\n\
-        entries are `/`-separated, so that a manifest reads the same way\n\
-        on every operating system"
-    )]
-    ContainsBackslash(String),
-    #[error("`sources` entry `{0}` contains a NULL character")]
-    ContainsNull(String),
-    /// Entries are taken exactly as written: the manifest admits only the
-    /// one form Sysand itself writes.
-    #[error(
-        "`sources` entry `{0}` is not in the form `sources` takes: entries are relative, \
-         `/`-separated,\nand carry no `.` or `..` component and no repeated or leading slash"
-    )]
-    NotStrict(String),
-    /// Every entry names a single file, listed explicitly; directories are
-    /// not admitted and globs never will be.
-    #[error(
-        "`sources` entry `{0}` names a directory; every entry names a single file, \
-         listed explicitly (directories and globs are not admitted)"
-    )]
-    IsDirectory(String),
+    #[error(transparent)]
+    Path(PathError),
     /// Two equal entries (compared as written) are a duplicate.
     #[error("`sources` entry `{0}` is listed more than once")]
     Duplicate(String),
-    /// An entry that is not a KerML (`.kerml`) or SysML (`.sysml`) file, the
-    /// extension compared case-insensitively.
-    ///
-    /// The half of the language rule that needs no metamodel; which
-    /// languages a project may carry is [`admitted_source`].
-    #[error(
-        "`sources` entry `{0}` is not a KerML (`.kerml`) or SysML (`.sysml`) file; \
-         `sources` lists model files only"
-    )]
-    NotModelFile(String),
 }
 
 /// An array of paths to the project's source files, relative to the
@@ -324,10 +290,7 @@ pub struct Sources(Vec<Utf8UnixPathBuf>);
 
 /// What is wrong with one path that should name a model file relative to
 /// the project root: the checks a `sources` entry and a Syside project's
-/// `root` share.
-///
-/// `root` is held to a `sources` entry's syntax. The texts are each key's
-/// own ([`SourcesError`], [`RootError`]).
+/// `root` share. `root` is held to a `sources` entry's syntax.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PathProblem {
     /// Ends in `/`.
@@ -370,66 +333,77 @@ pub fn path_problem(raw: &str) -> Option<PathProblem> {
     None
 }
 
-impl SourcesError {
-    fn from_problem(problem: PathProblem, raw: &str) -> Self {
-        let raw = raw.to_owned();
-        match problem {
-            PathProblem::Directory => Self::IsDirectory(raw),
-            PathProblem::Backslash => Self::ContainsBackslash(raw),
-            PathProblem::Null => Self::ContainsNull(raw),
-            PathProblem::Absolute => Self::NotRelative(raw),
-            PathProblem::NotStrict => Self::NotStrict(raw),
-            PathProblem::NotModelFile => Self::NotModelFile(raw),
+impl Display for PathProblem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Directory => {
+                "names a directory; it must name a single model file \
+                 (directories and globs are not admitted)"
+            }
+            Self::Backslash => {
+                "contains a backslash `\\`;\n\
+                 paths are `/`-separated, so that a manifest reads the same way\n\
+                 on every operating system"
+            }
+            Self::Null => "contains a NULL character",
+            Self::Absolute => "is absolute; paths are relative to the project root",
+            Self::NotStrict => {
+                "is not in the form a `sources` entry takes: relative, `/`-separated,\n\
+                 with no `.` or `..` component and no repeated or leading slash"
+            }
+            Self::NotModelFile => "is not a KerML (`.kerml`) or SysML (`.sysml`) file",
+        })
+    }
+}
+
+/// The manifest key a [`PathError`] is about.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PathKey {
+    Sources,
+    Root,
+}
+
+impl Display for PathKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Sources => "`sources` entry",
+            Self::Root => "`root`",
+        })
+    }
+}
+
+/// A `sources` entry or a `root` that breaks one of the [`PathProblem`]
+/// rules.
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
+#[error("{key} `{path}` {problem}")]
+pub struct PathError {
+    pub key: PathKey,
+    pub path: String,
+    pub problem: PathProblem,
+}
+
+impl PathError {
+    pub fn new(key: PathKey, problem: PathProblem, path: &str) -> Self {
+        Self {
+            key,
+            path: path.to_owned(),
+            problem,
         }
     }
 }
 
-/// Why a Syside project's `root` is not a path a `sources` entry could
-/// be: the [`PathProblem`]s, worded for one key.
-#[derive(Clone, Debug, Error, PartialEq, Eq)]
-pub enum RootError {
-    #[error(
-        "`root` `{0}` is absolute; `root` is relative to the project root, like a `sources` entry"
-    )]
-    Absolute(String),
-    #[error(
-        "`root` `{0}` contains a backslash `\\`;\n\
-         it is `/`-separated, so that a manifest reads the same way on every operating system"
-    )]
-    Backslash(String),
-    #[error("`root` `{0}` contains a NULL character")]
-    Null(String),
-    #[error(
-        "`root` `{0}` is not in the form a `sources` entry takes: relative, `/`-separated,\n\
-         with no `.` or `..` component and no repeated or leading slash"
-    )]
-    NotStrict(String),
-    #[error("`root` `{0}` names a directory; `root` names a single model file")]
-    Directory(String),
-    #[error("`root` `{0}` is not a KerML (`.kerml`) or SysML (`.sysml`) file")]
-    NotModelFile(String),
-}
-
-impl RootError {
-    pub fn new(problem: PathProblem, raw: &str) -> Self {
-        let raw = raw.to_owned();
-        match problem {
-            PathProblem::Directory => Self::Directory(raw),
-            PathProblem::Backslash => Self::Backslash(raw),
-            PathProblem::Null => Self::Null(raw),
-            PathProblem::Absolute => Self::Absolute(raw),
-            PathProblem::NotStrict => Self::NotStrict(raw),
-            PathProblem::NotModelFile => Self::NotModelFile(raw),
-        }
+impl SourcesError {
+    pub(crate) fn path(problem: PathProblem, raw: &str) -> Self {
+        Self::Path(PathError::new(PathKey::Sources, problem, raw))
     }
 }
 
 /// A Syside project's `root`, checked as a `sources` entry is and kept
 /// **as written**. Whether it is one of the `sources` entries is the
 /// resolver's question, since only a resolved project knows its family.
-pub fn root_path(raw: &str) -> Result<Utf8UnixPathBuf, RootError> {
+pub fn root_path(raw: &str) -> Result<Utf8UnixPathBuf, PathError> {
     match path_problem(raw) {
-        Some(problem) => Err(RootError::new(problem, raw)),
+        Some(problem) => Err(PathError::new(PathKey::Root, problem, raw)),
         None => Ok(Utf8UnixPathBuf::from(raw)),
     }
 }
@@ -458,7 +432,7 @@ impl Sources {
             .filter_map(|(index, path)| {
                 let raw = path.as_str();
                 let error = match path_problem(raw) {
-                    Some(problem) => SourcesError::from_problem(problem, raw),
+                    Some(problem) => SourcesError::path(problem, raw),
                     None if !seen.insert(raw) => SourcesError::Duplicate(raw.to_owned()),
                     None => return None,
                 };

@@ -8,8 +8,8 @@ use toml_edit::{DocumentMut, Value};
 use typed_path::Utf8UnixPathBuf;
 
 use crate::manifest::common::{
-    InheritFrom, Maintainer, NormalizedIdentity, ResolvedUrls, Sources, SourcesError, StdlibStem,
-    normalized_identity,
+    InheritFrom, Maintainer, NormalizedIdentity, PathError, PathKey, PathProblem, ResolvedUrls,
+    Sources, SourcesError, StdlibStem, normalized_identity,
 };
 use crate::manifest::diagnostics::Position;
 use crate::manifest::edit::{
@@ -1156,7 +1156,7 @@ fn including_into_a_sources_that_is_already_invalid_says_which_entry() {
     let error = include_source(&mut doc, "Base.kerml").expect_err("the array is invalid");
     assert_eq!(
         error,
-        EditError::Sources(SourcesError::NotModelFile("README.md".to_owned()))
+        EditError::Sources(SourcesError::path(PathProblem::NotModelFile, "README.md"))
     );
 }
 
@@ -1462,7 +1462,14 @@ fn excluding_a_file_that_is_no_source_says_so() {
     let mut doc = opened(&with_sources("[]"));
     let error = exclude_source(&mut doc, "README.md").expect_err("not a model file");
     assert!(
-        matches!(&error, EditError::Sources(SourcesError::NotModelFile(path)) if path == "README.md"),
+        matches!(
+            &error,
+            EditError::Sources(SourcesError::Path(PathError {
+                key: PathKey::Sources,
+                path,
+                problem: PathProblem::NotModelFile,
+            })) if path == "README.md"
+        ),
         "unexpected error: {error}"
     );
 }

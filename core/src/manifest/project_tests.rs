@@ -306,7 +306,7 @@ fn sources_entries_are_checked_and_positioned() {
     for (entries, fragment, column) in [
         (
             "[\"../escape.sysml\"]",
-            "is not in the form `sources` takes",
+            "is not in the form a `sources` entry takes",
             12,
         ),
         ("[\"src/\"]", "names a directory", 12),
@@ -518,13 +518,12 @@ fn root_is_held_to_the_sources_entry_checks() {
     for (written, text) in [
         (
             "\"/abs.sysml\"",
-            "`root` `/abs.sysml` is absolute; `root` is relative to the project root, like a \
-             `sources` entry",
+            "`root` `/abs.sysml` is absolute; paths are relative to the project root",
         ),
         (
             "\"a\\\\b.sysml\"",
-            "`root` `a\\b.sysml` contains a backslash `\\`;\nit is `/`-separated, so that a \
-             manifest reads the same way on every operating system",
+            "`root` `a\\b.sysml` contains a backslash `\\`;\npaths are `/`-separated, so that a \
+             manifest reads the same way\non every operating system",
         ),
         (
             "\"a\\u0000.sysml\"",
@@ -537,7 +536,8 @@ fn root_is_held_to_the_sources_entry_checks() {
         ),
         (
             "\"src/\"",
-            "`root` `src/` names a directory; `root` names a single model file",
+            "`root` `src/` names a directory; it must name a single model file \
+             (directories and globs are not admitted)",
         ),
         (
             "\"notes.txt\"",
