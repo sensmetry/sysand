@@ -18,7 +18,7 @@ use crate::credential_store::test_support::{InMemoryBlobBackend, unique_lock_pat
 use crate::credential_store::{
     CredentialBlob, CredentialRecord, CredentialScheme, CredentialStoreError, serialize_blob,
 };
-use crate::resolve::net_utils::create_reqwest_client;
+use crate::resolve::net_utils::{HttpOptions, create_reqwest_client_with};
 
 #[test]
 fn basic_globmap_lookup() -> Result<(), Box<dyn std::error::Error>> {
@@ -336,12 +336,18 @@ fn runtime() -> tokio::runtime::Runtime {
 }
 
 /// Drive one GET for `url` through `policy`, like the resolve path does.
+/// The client does not retry, so a mock's hit count is the number of
+/// requests the policy made.
 fn get<P: HTTPAuthentication>(
     runtime: &tokio::runtime::Runtime,
     policy: &P,
     url: &str,
 ) -> reqwest::Response {
-    let client = create_reqwest_client().unwrap();
+    let client = create_reqwest_client_with(HttpOptions {
+        retries: 0,
+        ..HttpOptions::default()
+    })
+    .unwrap();
     let url = url.to_owned();
     let renew = move |c: &reqwest_middleware::ClientWithMiddleware| c.get(&url);
     runtime

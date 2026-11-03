@@ -22,7 +22,9 @@ filesystem = ["dep:camino-tempfile", "dep:dirs", "dep:zip"]
 networking = [
   "dep:reqwest",
   "dep:gix",
-  "dep:rustls"
+  "dep:rustls",
+  "dep:async-trait",
+  "dep:http"
 ]  # "dep:reqwest-middleware", "dep:partialzip"
 # TLS providers. Enabling both is not an error: `--all-features` does it, and
 # `tls-aws-lc-rs` wins, because that is what Sysand ships. With neither, a
@@ -79,7 +81,7 @@ gix = { workspace = true, optional = true, features = [
 ] }
 logos = { version = "0.16.1", default-features = false, features = ["std", "export_derive"] }
 futures = { version = "0.3.32", default-features = false, features = ["std", "async-await"] }
-tokio = { workspace = true, features = ["rt", "io-util", "sync"] }
+tokio = { workspace = true, features = ["rt", "io-util", "sync", "time"] }
 bytes = { version = "1.11.1", default-features = false, features = ["std"] }
 toml_edit = { version = "0.25.4", default-features = false, features = ["parse", "display", "serde"] }
 globset = { version = "0.4.18", default-features = false }
@@ -94,6 +96,10 @@ reqwest = { version = "0.13.2", default-features = false, optional = true, featu
   "stream",
   "multipart"
 ] }
+# Both only to implement `reqwest_middleware::Middleware`, whose signature
+# takes `http::Extensions`
+async-trait = { version = "0.1.89", default-features = false, optional = true }
+http = { version = "1.4.0", default-features = false, optional = true, features = ["std"] }
 # Only to select the crypto provider. reqwest already takes rustls with
 # `default-features = false, features = ["std", "tls12"]`, so this adds the
 # provider and nothing else.

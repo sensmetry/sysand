@@ -29,10 +29,12 @@ def _get(url: str, headers: dict[str, str] = {}) -> tuple[int, bytes]:
 
 
 def test_isolation_env() -> None:
-    assert [v for v in os.environ if v.startswith("SYSAND_")] == [
-        "SYSAND_TEST_CREDENTIAL_STORE"
+    assert sorted(v for v in os.environ if v.startswith("SYSAND_")) == [
+        "SYSAND_HTTP_RETRIES",
+        "SYSAND_TEST_CREDENTIAL_STORE",
     ]
     assert os.environ["SYSAND_TEST_CREDENTIAL_STORE"] == ":absent:"
+    assert os.environ["SYSAND_HTTP_RETRIES"] == "0"
 
 
 def test_isolation_sweeps_ambient_vars(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -42,8 +44,9 @@ def test_isolation_sweeps_ambient_vars(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SYSAND_CRED_AMBIENT", "https://example.invalid/*")
     with pytest.MonkeyPatch.context() as inner:
         isolate_sysand_env(inner)
-        assert [v for v in os.environ if v.startswith("SYSAND_")] == [
-            "SYSAND_TEST_CREDENTIAL_STORE"
+        assert sorted(v for v in os.environ if v.startswith("SYSAND_")) == [
+            "SYSAND_HTTP_RETRIES",
+            "SYSAND_TEST_CREDENTIAL_STORE",
         ]
     assert os.environ["SYSAND_FUTURE_KNOB"] == "1"
 

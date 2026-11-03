@@ -318,7 +318,10 @@ mod login {
 
     use super::super::{AuthLoginNotice, AuthLoginOutcome, do_auth_login};
     use super::*;
-    use crate::{index_location::IndexLocation, resolve::net_utils::create_reqwest_client};
+    use crate::{
+        index_location::IndexLocation,
+        resolve::net_utils::{HttpOptions, create_reqwest_client_with},
+    };
 
     fn make_runtime() -> tokio::runtime::Runtime {
         tokio::runtime::Builder::new_current_thread()
@@ -339,7 +342,13 @@ mod login {
         Result<AuthLoginOutcome, AuthCommandError>,
         Vec<AuthLoginNotice>,
     ) {
-        let client = create_reqwest_client().unwrap();
+        // Without retries, so a mock's hit count is the number of requests
+        // the login flow itself made.
+        let client = create_reqwest_client_with(HttpOptions {
+            retries: 0,
+            ..HttpOptions::default()
+        })
+        .unwrap();
         let mut notices = Vec::new();
         // Validate here, like the CLI does before calling core.
         let index_key = match IndexKey::validate(index_url) {

@@ -3,6 +3,60 @@
 
 use crate::quote_for_shell;
 
+mod http_options {
+    use std::{ffi::OsString, time::Duration};
+
+    use sysand_core::resolve::net_utils::HttpOptions;
+
+    use crate::http_options_from;
+
+    fn from(vars: &[(&str, &str)]) -> anyhow::Result<HttpOptions> {
+        http_options_from(|name| {
+            vars.iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, v)| OsString::from(v))
+        })
+    }
+
+    #[test]
+    fn unset_variables_keep_the_defaults() {
+        assert_eq!(from(&[]).unwrap(), HttpOptions::default());
+    }
+
+    #[test]
+    fn set_variables_override_the_defaults() {
+        let options = from(&[
+            ("SYSAND_HTTP_TIMEOUT", "120"),
+            ("SYSAND_HTTP_CONNECT_TIMEOUT", "5"),
+            ("SYSAND_HTTP_RETRIES", "0"),
+        ])
+        .unwrap();
+        assert_eq!(
+            options,
+            HttpOptions {
+                connect_timeout: Duration::from_secs(5),
+                read_timeout: Duration::from_secs(120),
+                retries: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn malformed_values_name_the_variable() {
+        for (name, value) in [
+            ("SYSAND_HTTP_TIMEOUT", "0"),
+            ("SYSAND_HTTP_TIMEOUT", "1.5"),
+            ("SYSAND_HTTP_CONNECT_TIMEOUT", ""),
+            ("SYSAND_HTTP_CONNECT_TIMEOUT", " 5 "),
+            ("SYSAND_HTTP_RETRIES", "-1"),
+            ("SYSAND_HTTP_RETRIES", "5000000000"),
+        ] {
+            let err = from(&[(name, value)]).unwrap_err().to_string();
+            assert!(err.contains(name), "{name}={value:?}: {err}");
+        }
+    }
+}
+
 #[cfg(unix)]
 mod unix {
     use super::quote_for_shell;

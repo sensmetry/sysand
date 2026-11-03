@@ -18,3 +18,15 @@ pub const SYSAND_CONFIG_FILE: &str = "SYSAND_CONFIG_FILE";
 /// Corresponds to the `--no-config` command line argument. If set prevents reading of any
 /// Sysand config files.
 pub const SYSAND_NO_CONFIG: &str = "SYSAND_NO_CONFIG";
+
+/// How many seconds to wait for each read of an HTTP response before giving
+/// up. A positive whole number; also caps the connect timeout.
+pub const SYSAND_HTTP_TIMEOUT: &str = "SYSAND_HTTP_TIMEOUT";
+
+/// How many seconds to wait for an HTTP connection to be established.
+/// A positive whole number.
+pub const SYSAND_HTTP_CONNECT_TIMEOUT: &str = "SYSAND_HTTP_CONNECT_TIMEOUT";
+
+/// How many times to retry an idempotent HTTP request after a transient
+/// failure. A whole number; `0` disables retries.
+pub const SYSAND_HTTP_RETRIES: &str = "SYSAND_HTTP_RETRIES";

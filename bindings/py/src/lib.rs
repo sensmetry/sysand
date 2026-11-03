@@ -22,7 +22,8 @@ use sysand::{
         lock::{CliLockError, resolve_lock},
         sync::{CliSyncError, CommandSyncError, command_sync},
     },
-    default_index_location, get_env, get_or_create_env, get_overrides, standard_auth_policy,
+    default_index_location, get_env, get_or_create_env, get_overrides, http_options_from_env,
+    standard_auth_policy,
 };
 use sysand_core::{
     auth::{GlobMapResult, StandardHTTPAuthenticationBuilder},
@@ -75,7 +76,7 @@ use sysand_core::{
         ResolveRead,
         combined::CombinedResolverError,
         memory::MemoryResolver,
-        net_utils::create_reqwest_client,
+        net_utils::create_reqwest_client_with,
         priority::{PriorityError, PriorityResolver},
         standard::{StandardResolver, standard_resolver},
     },
@@ -440,6 +441,13 @@ fn combined_error_to_pyerr<F, L, R>(
     }
 }
 
+/// The HTTP client the CLI would use, with timeouts and retries from the
+/// same `SYSAND_HTTP_*` variables.
+fn http_client() -> PyResult<reqwest_middleware::ClientWithMiddleware> {
+    let options = http_options_from_env().map_err(|e| PyValueError::new_err(format_err(&*e)))?;
+    create_reqwest_client_with(options).map_err(|e| PyRuntimeError::new_err(format_err(e)))
+}
+
 /// The resolver stack `info` and `versions` use, built as the CLI's `info`
 /// builds it from the current directory: the enclosing project's (or
 /// workspace's) `.sysand` environment, the overrides and indexes of the
@@ -468,7 +476,7 @@ fn cli_resolver_for(
 
     let config = config_for(resolution, project_root)?;
     let index_urls = index_locations(resolution, &config)?;
-    let client = create_reqwest_client().map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
+    let client = http_client()?;
     let runtime = Arc::new(
         tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -783,7 +791,7 @@ fn do_lock_py(
         let auth = auth.unwrap_or_default();
         let (ctx, project_root) = project_context(Utf8Path::new(&path))?;
         let config = config_for(&resolution, &project_root)?;
-        let client = create_reqwest_client().map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
+        let client = http_client()?;
         let runtime = Arc::new(
             tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -860,7 +868,7 @@ fn do_sync_py(
         let auth = auth.unwrap_or_default();
         let (mut ctx, project_root) = project_context(Utf8Path::new(&path))?;
 
-        let client = create_reqwest_client().map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
+        let client = http_client()?;
         let runtime = Arc::new(
             tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -1310,7 +1318,7 @@ fn do_add_py(
         let auth = auth.unwrap_or_default();
         let (ctx, project_root) = project_context(Utf8Path::new(&path))?;
         let config = config_for(&resolution, &project_root)?;
-        let client = create_reqwest_client().map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
+        let client = http_client()?;
         let runtime = Arc::new(
             tokio::runtime::Builder::new_current_thread()
                 .enable_all()

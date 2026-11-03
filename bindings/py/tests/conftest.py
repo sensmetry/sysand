@@ -41,12 +41,14 @@ def isolate_sysand_env(monkeypatch: pytest.MonkeyPatch) -> None:
     whatever is added later) so tests see only what they set themselves, then
     point the credential store at the debug-only seam in
     `sysand/src/credential_store.rs` so the developer's real OS keyring is
-    never touched.
+    never touched. HTTP retries are off, so a failure a test injects is the
+    failure it sees.
     """
     for var in [v for v in os.environ if v.startswith("SYSAND_")]:
         monkeypatch.delenv(var)
     monkeypatch.setenv("SYSAND_TEST_CREDENTIAL_STORE", ":absent:")
     monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setenv("SYSAND_HTTP_RETRIES", "0")
 
 
 @pytest.fixture(autouse=True)

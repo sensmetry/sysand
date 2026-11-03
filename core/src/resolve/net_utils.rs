@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use std::{error::Error, fmt::Display};
+use std::{error::Error, fmt::Display, hash::BuildHasher as _, time::Duration};
 
 use reqwest::header;
 use reqwest_middleware::{ClientWithMiddleware, RequestBuilder};
@@ -80,6 +80,46 @@ impl Error for ReqwestClientBuildError {}
 /// sysand HTTP user agent
 pub(crate) const USER_AGENT: &str = concat!("sysand/", env!("CARGO_PKG_VERSION"));
 
+/// Timeouts and retries of the client made by [`create_reqwest_client_with`].
+///
+/// There is no limit on the duration of a whole request, so a large download
+/// on a slow but working connection always finishes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HttpOptions {
+    /// How long to wait for a connection to be established. The read
+    /// timeout is used instead when it is shorter.
+    pub connect_timeout: Duration,
+    /// How long to wait for each read of a response. Every successful read
+    /// starts the wait anew.
+    pub read_timeout: Duration,
+    /// How many times an idempotent request is retried after a connection
+    /// error, a timeout, or a `408`, `429` or `5xx` response.
+    pub retries: u32,
+}
+
+impl HttpOptions {
+    pub const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+    pub const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(30);
+    pub const DEFAULT_RETRIES: u32 = 3;
+}
+
+impl Default for HttpOptions {
+    fn default() -> Self {
+        Self {
+            connect_timeout: Self::DEFAULT_CONNECT_TIMEOUT,
+            read_timeout: Self::DEFAULT_READ_TIMEOUT,
+            retries: Self::DEFAULT_RETRIES,
+        }
+    }
+}
+
+/// Create a reqwest client with the default [`HttpOptions`].
+/// See [`create_reqwest_client_with`].
+pub fn create_reqwest_client()
+-> Result<reqwest_middleware::ClientWithMiddleware, ReqwestClientBuildError> {
+    create_reqwest_client_with(HttpOptions::default())
+}
+
 /// Create a reqwest client. This must be used where possible.
 /// Note that gix manages its own HTTP client, so logs may indicate
 /// duplicate initialization.
@@ -87,13 +127,154 @@ pub(crate) const USER_AGENT: &str = concat!("sysand/", env!("CARGO_PKG_VERSION")
 /// Relies on `reqwest`'s default redirect behaviour (up to 10
 /// automatic redirects); index clients MUST follow HTTP redirects
 /// on the index URL discovery fetch and on every index resource.
-pub fn create_reqwest_client()
--> Result<reqwest_middleware::ClientWithMiddleware, ReqwestClientBuildError> {
+pub fn create_reqwest_client_with(
+    options: HttpOptions,
+) -> Result<reqwest_middleware::ClientWithMiddleware, ReqwestClientBuildError> {
     install_default_crypto_provider();
 
-    let client = client_builder().build()?;
+    let client = client_builder()
+        .connect_timeout(options.connect_timeout.min(options.read_timeout))
+        .read_timeout(options.read_timeout)
+        .build()?;
 
-    Ok(reqwest_middleware::ClientBuilder::new(client).build())
+    let builder = reqwest_middleware::ClientBuilder::new(client);
+    let builder = if options.retries > 0 {
+        builder.with(Retry {
+            retries: options.retries,
+        })
+    } else {
+        builder
+    };
+    Ok(builder.build())
+}
+
+/// The backoff before the first retry, doubled before each further one. Unit
+/// tests count retries against local mock servers and need no wait.
+const RETRY_BASE_DELAY: Duration = if cfg!(test) {
+    Duration::ZERO
+} else {
+    Duration::from_millis(500)
+};
+
+/// The longest wait before a retry, whatever the backoff or a `Retry-After`
+/// header asks for.
+const MAX_RETRY_DELAY: Duration = Duration::from_secs(10);
+
+/// Retries idempotent requests that failed in a way a later attempt may not.
+///
+/// A request whose body cannot be cloned, such as a streamed upload, is sent
+/// once. So is a non-idempotent one, as the server may have acted on it.
+/// Failures while reading a response body are not retried, since the
+/// response has been handed to the caller by then.
+struct Retry {
+    retries: u32,
+}
+
+#[async_trait::async_trait]
+impl reqwest_middleware::Middleware for Retry {
+    async fn handle(
+        &self,
+        req: reqwest::Request,
+        extensions: &mut http::Extensions,
+        next: reqwest_middleware::Next<'_>,
+    ) -> reqwest_middleware::Result<reqwest::Response> {
+        let mut delay = RETRY_BASE_DELAY;
+        let mut attempt = 0;
+        loop {
+            let retry_req = if attempt < self.retries && req.method().is_idempotent() {
+                req.try_clone()
+            } else {
+                None
+            };
+            let Some(retry_req) = retry_req else {
+                return next.run(req, extensions).await;
+            };
+            let result = next.clone().run(retry_req, extensions).await;
+            let Some(reason) = retry_reason(&result) else {
+                return result;
+            };
+            attempt += 1;
+            let wait = result
+                .as_ref()
+                .ok()
+                .and_then(retry_after)
+                .unwrap_or_else(|| jittered(delay))
+                .min(MAX_RETRY_DELAY);
+            log::warn!(
+                "request to `{}` failed ({reason}), retrying in {:.1}s ({attempt}/{})",
+                req.url(),
+                wait.as_secs_f64(),
+                self.retries
+            );
+            tokio::time::sleep(wait).await;
+            delay = delay.saturating_mul(2).min(MAX_RETRY_DELAY);
+        }
+    }
+}
+
+/// Why `result` is worth retrying, or `None` if it is not.
+fn retry_reason(result: &reqwest_middleware::Result<reqwest::Response>) -> Option<String> {
+    match result {
+        Ok(response) => {
+            let status = response.status();
+            (status.is_server_error()
+                || status == reqwest::StatusCode::REQUEST_TIMEOUT
+                || status == reqwest::StatusCode::TOO_MANY_REQUESTS)
+                .then(|| format!("HTTP status {status}"))
+        }
+        Err(reqwest_middleware::Error::Reqwest(err)) => {
+            let chain = std::iter::successors(Some(err as &dyn Error), |&e| e.source());
+            // A TLS failure, such as an untrusted certificate, is reported as
+            // a connection error but fails the same way every time.
+            if chain.clone().any(<dyn Error>::is::<rustls::Error>) {
+                None
+            } else if err.is_timeout() {
+                Some("timed out".to_owned())
+            } else if err.is_connect() || err.is_request() {
+                // The innermost error is the specific one, such as
+                // "Connection refused".
+                chain.last().map(ToString::to_string)
+            } else {
+                None
+            }
+        }
+        Err(reqwest_middleware::Error::Middleware(_)) => None,
+    }
+}
+
+/// `delay` plus a random part of it, so that clients failing together do
+/// not all retry together.
+fn jittered(delay: Duration) -> Duration {
+    // `RandomState` is seeded randomly, which is all the randomness needed,
+    // and spares a dependency such as `getrandom` for one random number
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "any 32 bits of a random number are random"
+    )]
+    let random = std::hash::RandomState::new().hash_one(()) as u32;
+    delay + delay.saturating_mul(random) / u32::MAX
+}
+
+/// The wait a `429` or `503` response asks for in its `Retry-After` header.
+fn retry_after(response: &reqwest::Response) -> Option<Duration> {
+    if !matches!(
+        response.status(),
+        reqwest::StatusCode::TOO_MANY_REQUESTS | reqwest::StatusCode::SERVICE_UNAVAILABLE
+    ) {
+        return None;
+    }
+    let value = response.headers().get(header::RETRY_AFTER)?.to_str().ok()?;
+    parse_retry_after(value, jiff::Timestamp::now())
+}
+
+/// Parse a `Retry-After` value, either seconds or an HTTP date. A date
+/// that is not in the future is `None`.
+fn parse_retry_after(value: &str, now: jiff::Timestamp) -> Option<Duration> {
+    if let Ok(seconds) = value.parse::<u64>() {
+        return Some(Duration::from_secs(seconds));
+    }
+    let at = jiff::fmt::rfc2822::parse(value).ok()?.timestamp();
+    Duration::try_from(now.duration_until(at)).ok()
 }
 
 /// A client builder with Sysand's user agent, the base of every client.

@@ -6,6 +6,7 @@ use std::{
     ffi::OsString,
     iter,
     sync::{Arc, LazyLock},
+    time::Duration,
 };
 
 use anstream::eprintln;
@@ -40,7 +41,10 @@ use sysand_core::{
         reference::ProjectReference,
         utils::{Identifier, wrapfs},
     },
-    resolve::{ResolutionInfo, net_utils::create_reqwest_client},
+    resolve::{
+        ResolutionInfo,
+        net_utils::{HttpOptions, create_reqwest_client_with},
+    },
     stdlib::known_std_libs,
     workspace::Workspace,
 };
@@ -353,6 +357,52 @@ pub fn standard_auth_policy(use_credential_store: bool) -> Result<CliAuthPolicy>
     })
 }
 
+/// HTTP timeouts and retries from `SYSAND_HTTP_TIMEOUT`,
+/// `SYSAND_HTTP_CONNECT_TIMEOUT` and `SYSAND_HTTP_RETRIES`, with the
+/// [`HttpOptions`] defaults for unset ones. A malformed value is an error
+/// naming the variable to fix.
+pub fn http_options_from_env() -> Result<HttpOptions> {
+    http_options_from(|name| std::env::var_os(name))
+}
+
+fn http_options_from(lookup: impl Fn(&str) -> Option<OsString>) -> Result<HttpOptions> {
+    // `None` if unset; an error if not a whole number of at least `min`
+    fn parse<T: std::str::FromStr + PartialOrd>(
+        lookup: &impl Fn(&str) -> Option<OsString>,
+        name: &str,
+        min: T,
+        expected: &str,
+    ) -> Result<Option<T>> {
+        let Some(value) = lookup(name) else {
+            return Ok(None);
+        };
+        value
+            .to_str()
+            .and_then(|v| v.parse::<T>().ok())
+            .filter(|n| *n >= min)
+            .map(Some)
+            .ok_or_else(|| {
+                anyhow!(
+                    "invalid value `{}` for {name}: expected {expected}",
+                    value.display()
+                )
+            })
+    }
+    let seconds = |name: &str| -> Result<Option<Duration>> {
+        let n = parse(&lookup, name, 1, "a positive whole number of seconds")?;
+        Ok(n.map(Duration::from_secs))
+    };
+
+    let defaults = HttpOptions::default();
+    Ok(HttpOptions {
+        connect_timeout: seconds(env_vars::SYSAND_HTTP_CONNECT_TIMEOUT)?
+            .unwrap_or(defaults.connect_timeout),
+        read_timeout: seconds(env_vars::SYSAND_HTTP_TIMEOUT)?.unwrap_or(defaults.read_timeout),
+        retries: parse(&lookup, env_vars::SYSAND_HTTP_RETRIES, 0, "a whole number")?
+            .unwrap_or(defaults.retries),
+    })
+}
+
 fn run_cli_with(
     global_opts: cli::GlobalOptions,
     command: cli::Command,
@@ -427,7 +477,7 @@ fn run_cli_with(
 
     config.merge(auto_config);
 
-    let client = create_reqwest_client()?;
+    let client = create_reqwest_client_with(http_options_from_env()?)?;
 
     let runtime = Arc::new(
         tokio::runtime::Builder::new_current_thread()
