@@ -11,10 +11,14 @@
   "devDependencies": {
     "@wasm-tool/wasm-pack-plugin": "^1.7.0",
     "copy-webpack-plugin": "^14.0.0",
-    "glob": "^13.0.0",
+    "glob": "^14.0.2",
     "jasmine-browser-runner": "^4.0.0",
     "jasmine-core": "^6.0.0",
     "webpack": "^5.105.4",
     "webpack-cli": "^7.0.0"
+  },
+  "overrides": {
+    "minimatch": "^11.0.1",
+    "glob": "$glob"
   }
 }
