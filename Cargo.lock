@@ -3901,6 +3901,7 @@ version = "0.2.1"
 dependencies = [
  "anstyle",
  "assert_cmd",
+ "async-trait",
  "bytes",
  "camino",
  "camino-tempfile",
@@ -3912,6 +3913,7 @@ dependencies = [
  "gix",
  "globset",
  "hex",
+ "http",
  "icu_casemap",
  "icu_normalizer",
  "icu_properties",
@@ -4000,6 +4002,7 @@ dependencies = [
  "predicates",
  "pyo3",
  "pyo3-log",
+ "reqwest-middleware",
  "semver",
  "sysand",
  "sysand-core",

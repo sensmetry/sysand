@@ -147,6 +147,30 @@ def test_sync_takes_the_lock_given(tmp_path: Path, mock_index: MockIndex) -> Non
     assert not (root / "sysand-lock.toml").exists(), "a given lock is not written"
 
 
+def test_sync_retries_a_transient_failure(
+    tmp_path: Path, mock_index: MockIndex, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SYSAND_HTTP_RETRIES", "1")
+    mock_index.publish(DEP, "1.0.0")
+    root = project_with(tmp_path, [usage(DEP, ">=1.0.0")])
+    kpar = MockIndex.kpar_path(DEP, "1.0.0")
+    mock_index.fail_next(kpar, 500)
+
+    outcome = sysand.sync(path=root, resolution=resolution(mock_index))
+    assert changed(outcome["installed"]) == {(DEP, "1.0.0")}
+    assert mock_index.requests(kpar) == [kpar, kpar]
+
+
+def test_sync_rejects_a_malformed_http_setting(
+    tmp_path: Path, mock_index: MockIndex, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SYSAND_HTTP_TIMEOUT", "soon")
+    root = project_with(tmp_path, [usage(DEP, ">=1.0.0")])
+
+    with pytest.raises(ValueError, match="SYSAND_HTTP_TIMEOUT"):
+        sysand.sync(path=root, resolution=resolution(mock_index))
+
+
 def test_sync_half_synced(tmp_path: Path, mock_index: MockIndex) -> None:
     mock_index.publish(DEP, "1.0.0")
     mock_index.publish(OTHER, "2.0.0")

@@ -150,6 +150,9 @@ pub fn sysand_cmd_in_with<'a, I: IntoIterator<Item = &'a str>>(
     // alter assertions, or pop a keychain prompt on macOS). Tests that
     // need a working store override this via `env` (see cli_auth.rs).
     cmd.env("SYSAND_TEST_CREDENTIAL_STORE", ":absent:");
+    // A request that fails fails at once, rather than after the retries'
+    // waits. Tests of retrying override this via `env`.
+    cmd.env("SYSAND_HTTP_RETRIES", "0");
     cmd.envs(env);
 
     cmd.args(args);

@@ -43,7 +43,7 @@ use crate::{
         reqwest_kpar_download::ReqwestKparDownloadedError,
     },
     purl::PKG_SYSAND_PREFIX,
-    resolve::net_utils::create_reqwest_client,
+    resolve::net_utils::{HttpOptions, create_reqwest_client},
     utils::sha256_lowercase_hex,
 };
 
@@ -526,7 +526,7 @@ mod uris {
             .mock("GET", "/index.json")
             .with_status(500)
             .with_body("server error")
-            .expect(1)
+            .expect(1 + HttpOptions::DEFAULT_RETRIES as usize)
             .create();
 
         env.uris().unwrap_err();
@@ -1122,7 +1122,7 @@ mod get_project {
             .mock("GET", "/admin/proj0/versions.json")
             .with_status(503)
             .with_body("service unavailable")
-            .expect(1)
+            .expect(1 + HttpOptions::DEFAULT_RETRIES as usize)
             .create();
 
         let err = env
@@ -2600,7 +2600,7 @@ mod discovery {
         let config_mock = server
             .mock("GET", "/sysand-index-config.json")
             .with_status(503)
-            .expect(1)
+            .expect(1 + HttpOptions::DEFAULT_RETRIES as usize)
             .create();
 
         let err =
@@ -2636,7 +2636,7 @@ mod discovery {
         let remap_mock = server
             .mock("GET", "/index/admin/proj0/versions.json")
             .with_status(503)
-            .expect(1)
+            .expect(1 + HttpOptions::DEFAULT_RETRIES as usize)
             .create();
 
         let env = index_env_sync_discovery(&server)?;
