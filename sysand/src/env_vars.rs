@@ -34,3 +34,9 @@ pub const SYSAND_HTTP_CONNECT_TIMEOUT: &str = "SYSAND_HTTP_CONNECT_TIMEOUT";
 /// How many times to retry an idempotent HTTP request after a transient
 /// failure. A whole number; `0` disables retries.
 pub const SYSAND_HTTP_RETRIES: &str = "SYSAND_HTTP_RETRIES";
+
+/// Comma separated list of hosts whose HTTPS certificates are not verified.
+/// Corresponds to the `--https-insecure-hosts` command line argument. Each
+/// entry is a host name or IP address only (IPv6 in brackets), without
+/// scheme, port or path. Insecure.
+pub const SYSAND_HTTPS_INSECURE_HOSTS: &str = "SYSAND_HTTPS_INSECURE_HOSTS";
