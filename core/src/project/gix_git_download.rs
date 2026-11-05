@@ -30,10 +30,10 @@ pub struct GixDownloadedProject {
 
 #[derive(Error, Debug)]
 pub enum GixDownloadedError {
-    #[error("git clone from `{0}` failed: {1}")]
-    Clone(String, Box<gix::Error>),
-    #[error("failed to parse git URL `{0}`: {1}")]
-    UrlParse(Box<str>, Box<gix::Error>),
+    #[error("git clone from `{0}` failed")]
+    Clone(String, #[source] Box<gix::Error>),
+    #[error("failed to parse git URL `{0}`")]
+    UrlParse(Box<str>, #[source] Box<gix::Error>),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
     #[error(transparent)]
@@ -42,14 +42,13 @@ pub enum GixDownloadedError {
     Deserialize(#[from] ProjectDeserializationError),
     #[error(transparent)]
     Serialize(#[from] ProjectSerializationError),
-    #[error("git fetch from `{0}` failed: {1}")]
-    Fetch(String, Box<gix::Error>),
-    #[error("git checkout in temporary directory `{0}` failed: {1}")]
-    Checkout(Utf8PathBuf, Box<gix::Error>),
+    #[error("git fetch from `{0}` failed")]
+    Fetch(String, #[source] Box<gix::Error>),
+    #[error("git checkout in temporary directory `{0}` failed")]
+    Checkout(Utf8PathBuf, #[source] Box<gix::Error>),
     #[error(
         "cannot construct a relative path from the workspace/project
-        directory to one of its dependencies' directory:\n\
-        {0}"
+        directory to one of its dependencies' directory"
     )]
     ImpossibleRelativePath(#[from] RelativizePathError),
     #[error("project is missing metadata file `.meta.json`")]

@@ -11,8 +11,8 @@ use thiserror::Error;
 pub enum CliError {
     #[error("invalid directory: {0}")]
     InvalidDirectory(String),
-    #[error("cannot use the directory name `{0}` as the project name: {1}; use `--name` to set it")]
-    InvalidDirectoryName(String, ProjectFieldError),
+    #[error("cannot use the directory name `{0}` as the project name; use `--name` to set it")]
+    InvalidDirectoryName(String, #[source] ProjectFieldError),
     #[error("unable to find project with IRI `{0}`")]
     NoResolve(String),
     #[error("invalid project with IRI `{iri}`")]
@@ -21,8 +21,8 @@ pub enum CliError {
         #[source]
         source: InfoProjectError<FileResolverProjectError>,
     },
-    #[error("invalid IRI `{0}`: {1}")]
-    InvalidIri(String, fluent_uri::ParseError),
+    #[error("invalid IRI `{0}`")]
+    InvalidIri(String, #[source] fluent_uri::ParseError),
     #[error("unable to find interchange project `{0}`")]
     MissingProject(String),
     #[error("unable to find interchange project `{0}` with version matching {1}")]

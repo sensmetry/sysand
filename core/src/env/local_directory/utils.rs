@@ -53,8 +53,8 @@ pub fn clean_dir<P: AsRef<Utf8Path>>(path: P) {
 
 #[derive(Error, Debug)]
 pub enum TryMoveError {
-    #[error("recovered from failure: {0}")]
-    RecoveredIO(Box<FsIoError>),
+    #[error("recovered from failure")]
+    RecoveredIO(#[source] Box<FsIoError>),
     #[error("failed and may have left the directory in inconsistent state:\n{err}")]
     CatastrophicIO {
         err: Box<FsIoError>,

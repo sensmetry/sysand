@@ -1219,8 +1219,8 @@ type StorageError<R> = <<R as ResolveRead>::ProjectStorage as ProjectRead>::Erro
 
 #[derive(Error, Debug)]
 pub enum InternalSolverError<R: ResolveRead> {
-    #[error("resolution error: {0}")]
-    Resolution(R::Error),
+    #[error("resolution error")]
+    Resolution(#[source] R::Error),
     /// Project not found by current resolver
     /// Value is the formatted error message
     #[error("project {0} not found: {1}")]

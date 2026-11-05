@@ -41,6 +41,9 @@ clap = { version = "4.5.60", default-features = false, features = [
 ] }
 env_logger.workspace = true
 log = { workspace = true, features = ["std"] }
+# Emit the `tracing` events of dependencies, such as hyper-util's
+# connection attempts, as `log` records
+tracing = { workspace = true, features = ["log"] }
 sysand-core = { workspace = true, features = ["filesystem", "networking", "keyring"] }
 thiserror.workspace = true
 toml.workspace = true

@@ -351,8 +351,8 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
 
 #[derive(Debug, Error)]
 pub enum ExtractError {
-    #[error("syntax error at line {0}, byte {1}:\n{2}")]
-    Syntax(u32, u32, LexingError),
+    #[error("syntax error at line {0}, byte {1}")]
+    Syntax(u32, u32, #[source] LexingError),
     #[error(
         "missing body delimiter:\nbrace `{{}}` nesting depth is {0} (should be 0) at the end of file"
     )]

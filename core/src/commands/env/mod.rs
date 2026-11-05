@@ -34,7 +34,7 @@ pub use list::do_env_list;
 pub enum EnvError<WriteError: ErrorBound> {
     #[error("refusing to overwrite `{0}`")]
     AlreadyExists(Utf8PathBuf),
-    #[error("environment write error: {0}")]
+    #[error("environment write error")]
     Write(#[from] WriteError),
 }
 

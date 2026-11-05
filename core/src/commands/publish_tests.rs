@@ -269,7 +269,7 @@ fn publish_bearer_env_ambiguity_errors_without_keyring_fallback() {
             conflict: PublishBearerConflict::Env { variables },
             upload_url,
         } if variables == &["SYSAND_CRED_BROAD", "SYSAND_CRED_NARROW"]
-            && upload_url.as_ref() == "https://example.org/api/v1/upload"
+            && upload_url.unredacted().as_str() == "https://example.org/api/v1/upload"
     );
     let message = err.to_string();
     assert!(message.contains("SYSAND_CRED_BROAD"), "message: {message}");
@@ -307,7 +307,7 @@ fn publish_bearer_keyring_ambiguity_errors() {
             conflict: PublishBearerConflict::Stored { keys },
             upload_url,
         } if keys == &["https://example.org/", "https://example.org/api/"]
-            && upload_url.as_ref() == "https://example.org/api/v1/upload"
+            && upload_url.unredacted().as_str() == "https://example.org/api/v1/upload"
     );
     let message = err.to_string();
     assert!(

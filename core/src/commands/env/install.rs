@@ -32,8 +32,8 @@ enum CheckInstallError<EnvReadError> {
     AlreadyInstalledVersion(Box<str>, String),
     #[error("unknown version of project with IRI `{0}` is already installed")]
     AlreadyInstalledUnknownVersion(Box<str>),
-    #[error("environment read error: {0}")]
-    EnvRead(EnvReadError),
+    #[error("environment read error")]
+    EnvRead(#[source] EnvReadError),
 }
 
 fn check_install<S: AsRef<str>, E: ReadEnvironment>(
@@ -84,14 +84,14 @@ pub enum EnvInstallError<EnvReadError, ProjectReadError, InstallationError> {
     AlreadyInstalledVersion(Box<str>, String),
     #[error("unknown version of project with IRI `{0}` is already installed")]
     AlreadyInstalledUnknownVersion(Box<str>),
-    #[error("environment read error: {0}")]
-    EnvRead(EnvReadError),
-    #[error("project read error: {0}")]
-    ProjectRead(ProjectReadError),
+    #[error("environment read error")]
+    EnvRead(#[source] EnvReadError),
+    #[error("project read error")]
+    ProjectRead(#[source] ProjectReadError),
     #[error("missing spec error")]
     MissingSpec,
-    #[error("project installation error: {0}")]
-    Installation(InstallationError),
+    #[error("project installation error")]
+    Installation(#[source] InstallationError),
 }
 
 type InstallationError<EnvWriteError, ProjectReadError, ProjectWriteError> =

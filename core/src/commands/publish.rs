@@ -39,6 +39,7 @@ use crate::{
         utils::{FsIoError, wrapfs},
     },
     purl::{SysandPurlError, parse_sysand_purl},
+    redact::{HttpError, RedactedUrl, ResponseUrl},
     symbols::Language,
     utils::{
         RelativePathKind, RelativeUnixPathError, license_file_stems, parse_relative_unix_path,
@@ -247,10 +248,10 @@ pub fn do_publish(
         "Publishing",
     );
 
-    // Stash the URL as a string for post-request logging; the `Url` itself
-    // is moved into the closure since `with_authentication` may call it
-    // multiple times and each `post` consumes the URL.
-    let upload_url_for_log = upload_url.to_string();
+    // Keep a copy for post-request logging; the `Url` itself is moved into
+    // the closure since `with_authentication` may call it multiple times and
+    // each `post` consumes the URL.
+    let upload_url_for_log = RedactedUrl::from(&upload_url);
 
     let build_request = move |c: &reqwest_middleware::ClientWithMiddleware| {
         let metadata_part = reqwest::multipart::Part::text(metadata.clone())
@@ -271,16 +272,23 @@ pub fn do_publish(
         c.post(upload_url.clone()).multipart(form)
     };
 
-    let response = runtime.block_on(bearer.auth.with_authentication(&client, &build_request))?;
+    let response = runtime
+        .block_on(bearer.auth.with_authentication(&client, &build_request))
+        .map_err(|source| PublishError::Http {
+            url: upload_url_for_log.clone(),
+            source: source.into(),
+        })?;
 
     let status = response.status().as_u16();
-    let response_url = response.url().to_string();
-    let body_bytes = runtime
-        .block_on(response.bytes())
-        .map_err(PublishError::ResponseBody)?;
-    log::debug!(
-        "publish response: request URL `{upload_url_for_log}`, final URL `{response_url}`, status {status}"
-    );
+    let response_url = ResponseUrl::new(upload_url_for_log.unredacted(), response.url());
+    let body_bytes =
+        runtime
+            .block_on(response.bytes())
+            .map_err(|source| PublishError::ResponseBody {
+                url: response_url.clone(),
+                source: source.into(),
+            })?;
+    log::debug!("publish response from {response_url}: status {status}");
 
     map_publish_response(status, &body_bytes, &bearer.provenance)
 }
@@ -300,7 +308,7 @@ fn stored_bearer_clearly_expired(expires_at: Timestamp, now: Timestamp) -> bool 
 pub fn validate_api_root_url_shape(url: &Url) -> Result<(), PublishError> {
     let err = |reason: String| -> PublishError {
         PublishError::InvalidApiRoot {
-            url: url.as_str().into(),
+            url: url.clone().into(),
             reason,
         }
     };
@@ -496,7 +504,7 @@ fn resolve_publish_bearer_from_config(
         });
     }
     Err(PublishError::NoPublishBearer {
-        upload_url: upload_url.as_str().into(),
+        upload_url: upload_url.clone().into(),
     })
 }
 
@@ -518,7 +526,7 @@ fn lookup_publish_bearer<'a, T>(
             matched,
             deduped: _,
         } => Err(PublishError::AmbiguousPublishBearer {
-            upload_url: upload_url.as_str().into(),
+            upload_url: upload_url.clone().into(),
             conflict: conflict(&matched),
         }),
         BearerSelection::None => Ok(None),
@@ -578,21 +586,24 @@ fn acquire_github_oidc_token(
     let response = runtime
         .block_on(async {
             client
-                .get(request_url)
+                .get(request_url.clone())
                 .header(header::AUTHORIZATION, format!("bearer {request_token}"))
                 .send()
                 .await
         })
         .map_err(|source| PublishError::TrustedPublishingHttp {
             context: "GitHub OIDC token request",
-            source,
+            url: (&request_url).into(),
+            source: source.into(),
         })?;
 
     let status = response.status();
+    let response_url = ResponseUrl::new(&request_url, response.url());
     let body = runtime.block_on(response.bytes()).map_err(|source| {
         PublishError::TrustedPublishingResponseBody {
             context: "GitHub OIDC token response",
-            source,
+            url: response_url,
+            source: source.into(),
         }
     })?;
     if !status.is_success() {
@@ -629,19 +640,22 @@ fn exchange_oidc_token_for_index_token(
         })
         .map_err(|source| PublishError::TrustedPublishingHttp {
             context: "Sysand trusted publishing token exchange",
-            source,
+            url: (&exchange_url).into(),
+            source: source.into(),
         })?;
 
     let status = response.status();
+    let response_url = ResponseUrl::new(&exchange_url, response.url());
     let body = runtime.block_on(response.bytes()).map_err(|source| {
         PublishError::TrustedPublishingResponseBody {
             context: "Sysand trusted publishing token exchange response",
-            source,
+            url: response_url.clone(),
+            source: source.into(),
         }
     })?;
     if !status.is_success() {
         return Err(PublishError::TrustedPublishingExchangeHttpStatus {
-            url: exchange_url.as_str().into(),
+            url: response_url,
             status: status.as_u16(),
             detail: error_body_to_string(&body).into(),
         });
@@ -893,13 +907,13 @@ pub enum PublishError {
     MissingLicense,
 
     #[error("invalid api_root URL `{url}` for publish: {reason}")]
-    InvalidApiRoot { url: Box<str>, reason: String },
+    InvalidApiRoot { url: RedactedUrl, reason: String },
 
     #[error(
         "no bearer token credentials configured for publish URL `{upload_url}`;\n\
          set `SYSAND_CRED_<X>` and `SYSAND_CRED_<X>_BEARER_TOKEN` with a matching URL pattern"
     )]
-    NoPublishBearer { upload_url: Box<str> },
+    NoPublishBearer { upload_url: RedactedUrl },
 
     #[error(
         "multiple bearer token credentials from {} configured for publish URL `{upload_url}`:\n\
@@ -910,7 +924,7 @@ pub enum PublishError {
         conflict.hint()
     )]
     AmbiguousPublishBearer {
-        upload_url: Box<str>,
+        upload_url: RedactedUrl,
         conflict: PublishBearerConflict,
     },
 
@@ -944,10 +958,11 @@ pub enum PublishError {
     #[error("trusted publishing provider `github` has invalid `ACTIONS_ID_TOKEN_REQUEST_URL`")]
     InvalidGithubOidcRequestUrl { source: url::ParseError },
 
-    #[error("trusted publishing HTTP request failed during {context}")]
+    #[error("trusted publishing HTTP request to `{url}` failed during {context}")]
     TrustedPublishingHttp {
         context: &'static str,
-        source: reqwest_middleware::Error,
+        url: RedactedUrl,
+        source: HttpError,
     },
 
     #[error(
@@ -959,17 +974,18 @@ pub enum PublishError {
         status: u16,
     },
 
-    #[error("trusted publishing token exchange at `{url}` failed: HTTP status {status}: {detail}")]
+    #[error("trusted publishing token exchange at {url} failed: HTTP status {status}: {detail}")]
     TrustedPublishingExchangeHttpStatus {
-        url: Box<str>,
+        url: ResponseUrl,
         status: u16,
         detail: Box<str>,
     },
 
-    #[error("failed to read {context}")]
+    #[error("failed to read {context} from {url}")]
     TrustedPublishingResponseBody {
         context: &'static str,
-        source: reqwest::Error,
+        url: ResponseUrl,
+        source: HttpError,
     },
 
     #[error("trusted publishing {context} returned malformed response")]
@@ -986,11 +1002,19 @@ pub enum PublishError {
         field: &'static str,
     },
 
-    #[error("HTTP request failed: {0:#?}")]
-    Http(#[from] reqwest_middleware::Error),
+    #[error("HTTP request to `{url}` failed")]
+    Http {
+        url: RedactedUrl,
+        #[source]
+        source: HttpError,
+    },
 
-    #[error("failed to read server response body: {0:#?}")]
-    ResponseBody(#[source] reqwest::Error),
+    #[error("failed to read server response body from {url}")]
+    ResponseBody {
+        url: ResponseUrl,
+        #[source]
+        source: HttpError,
+    },
 
     #[error("server error ({status}): {body}")]
     ServerError { status: u16, body: String },

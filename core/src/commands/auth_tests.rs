@@ -344,11 +344,11 @@ mod login {
     ) {
         // Without retries, so a mock's hit count is the number of requests
         // the login flow itself made.
-        let client = create_reqwest_client_with(HttpOptions {
+        let http_options = HttpOptions {
             retries: 0,
             ..HttpOptions::default()
-        })
-        .unwrap();
+        };
+        let client = create_reqwest_client_with(http_options).unwrap();
         let mut notices = Vec::new();
         // Validate here, like the CLI does before calling core.
         let index_key = match IndexKey::validate(index_url) {
@@ -360,6 +360,7 @@ mod login {
             &index_key,
             secret.to_owned(),
             &client,
+            &http_options,
             &make_runtime(),
             |notice| notices.push(notice),
         );

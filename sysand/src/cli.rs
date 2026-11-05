@@ -16,6 +16,7 @@ use sysand_core::{
         MetamodelFamily, MetamodelRelease, ProjectFieldError, ProjectName, ProjectPublisher,
         SYSML_SPEC_PREFIX, SpecKind,
     },
+    utils::format_err,
 };
 
 use crate::{env_vars, style::USAGE};
@@ -630,7 +631,7 @@ impl From<KparCompressionMethod> for KparCompressionMethodCli {
 /// it names the environment variable rather than the option when the value
 /// came from one (clap does not, see
 /// <https://github.com/clap-rs/clap/issues/5202>).
-fn parse_index_value<T, E: Display>(
+fn parse_index_value<T, E: std::error::Error>(
     cmd: &clap::Command,
     arg: Option<&clap::Arg>,
     value: &OsStr,
@@ -645,10 +646,14 @@ fn parse_index_value<T, E: Display>(
             .and_then(clap::Arg::get_env)
             .filter(|_| source == ValueSource::EnvVariable);
         let mut message = if let Some(env) = env {
-            format!("invalid `{}` environment variable: {e}", env.display())
+            format!(
+                "invalid `{}` environment variable: {}",
+                env.display(),
+                format_err(e)
+            )
         } else {
             let name = arg.map_or_else(|| "...".to_owned(), ToString::to_string);
-            format!("invalid value for '{name}': {e}")
+            format!("invalid value for '{name}': {}", format_err(e))
         };
         // An empty value most likely comes from a stray delimiter or an
         // empty environment variable

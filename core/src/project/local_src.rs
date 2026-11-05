@@ -353,8 +353,7 @@ pub enum LocalSrcError {
     Io(#[from] Box<FsIoError>),
     #[error(
         "cannot construct a relative path from the workspace/project
-        directory to one of its dependencies' directory:\n\
-        {0}"
+        directory to one of its dependencies' directory"
     )]
     ImpossibleRelativePath(#[from] RelativizePathError),
 }
@@ -369,14 +368,14 @@ impl From<FsIoError> for LocalSrcError {
 pub enum UnixPathError {
     #[error("path `{0}`\n  is outside the project directory")]
     PathOutsideProject(Utf8PathBuf),
-    #[error("failed to canonicalize\n  `{0}`:\n  {1}")]
-    Canonicalize(Utf8PathBuf, std::io::Error),
+    #[error("failed to canonicalize\n  `{0}`")]
+    Canonicalize(Utf8PathBuf, #[source] std::io::Error),
 }
 
 #[derive(Error, Debug)]
 pub enum PathError {
-    #[error("path `{0}` is unsafe: {1}")]
-    UnsafePath(Utf8PathBuf, typed_path::CheckedPathError),
+    #[error("path `{0}` is unsafe")]
+    UnsafePath(Utf8PathBuf, #[source] typed_path::CheckedPathError),
     #[error("path `{0}` is absolute")]
     AbsolutePath(typed_path::Utf8UnixPathBuf),
 }

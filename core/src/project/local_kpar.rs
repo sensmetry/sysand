@@ -104,8 +104,7 @@ pub enum LocalKParError {
     Io(#[from] Box<FsIoError>),
     #[error(
         "cannot construct a relative path from the workspace/project
-        directory to one of its dependencies' directory:\n\
-        {0}"
+        directory to one of its dependencies' directory"
     )]
     ImpossibleRelativePath(#[from] RelativizePathError),
     #[error("kpar at `{path}` has sha256 `{computed}` but the expected digest was `{expected}`")]
@@ -142,8 +141,8 @@ pub enum IntoKparError<ReadError> {
     Zip(#[from] ZipArchiveError),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
-    #[error("project serialization error: {0}: {1}")]
-    Serialize(&'static str, serde_json::Error),
+    #[error("project serialization error: {0}")]
+    Serialize(&'static str, #[source] serde_json::Error),
 }
 
 impl<ReadError> From<FsIoError> for IntoKparError<ReadError> {

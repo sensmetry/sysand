@@ -291,7 +291,10 @@ fn info<'local>(
             Err(error) => {
                 env.throw_stdlib_exception(
                     StdlibExceptionKind::UnsupportedOperationException,
-                    format!("Failed to parse index URL `{index_url}`: {error}"),
+                    format!(
+                        "Failed to parse index URL `{index_url}`: {}",
+                        format_err(error)
+                    ),
                 );
                 ret_null!()
             }

@@ -122,9 +122,10 @@ impl Display for SpecKind {
 /// Why a `metamodel` value is not a metamodel.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum MetamodelParseError {
-    #[error("`{value}` is not a URL: {error}")]
+    #[error("`{value}` is not a URL")]
     NotUrl {
         value: String,
+        #[source]
         error: fluent_uri::ParseError,
     },
     /// The prefix of a recognized metamodel, but not a release after it.
@@ -1651,8 +1652,8 @@ pub enum InterchangeProjectValidationError {
         constraint: String,
         source: semver::Error,
     },
-    #[error("failed to parse `{0}` as RFC3339 datetime: {1}")]
-    InvalidCreatedTime(Box<str>, jiff::Error),
+    #[error("failed to parse `{0}` as RFC3339 datetime")]
+    InvalidCreatedTime(Box<str>, #[source] jiff::Error),
     #[error(
         "invalid file checksum algorithm `{0}`, expected one of:\n\
         SHA1, SHA224, SHA256, SHA-384, SHA3-256, SHA3-384, SHA3-512\n\

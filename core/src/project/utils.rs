@@ -102,52 +102,52 @@ where
 /// The variants defined here include relevant context where possible.
 #[derive(Error, Debug)]
 pub enum FsIoError {
-    #[error("failed to canonicalize path\n  `{0}`:\n  {1}")]
-    Canonicalize(Utf8PathBuf, io::Error),
-    #[error("failed to make path absolute\n  `{0}`:\n  {1}")]
-    Absolute(Utf8PathBuf, io::Error),
-    #[error("failed to create directory\n  `{0}`:\n  {1}")]
-    MkDir(Utf8PathBuf, io::Error),
-    #[error("failed to open file\n  `{0}`:\n  {1}")]
-    OpenFile(Utf8PathBuf, io::Error),
-    #[error("failed to get metadata for\n  `{0}`:\n  {1}")]
-    Metadata(Utf8PathBuf, io::Error),
+    #[error("failed to canonicalize path\n  `{0}`")]
+    Canonicalize(Utf8PathBuf, #[source] io::Error),
+    #[error("failed to make path absolute\n  `{0}`")]
+    Absolute(Utf8PathBuf, #[source] io::Error),
+    #[error("failed to create directory\n  `{0}`")]
+    MkDir(Utf8PathBuf, #[source] io::Error),
+    #[error("failed to open file\n  `{0}`")]
+    OpenFile(Utf8PathBuf, #[source] io::Error),
+    #[error("failed to get metadata for\n  `{0}`")]
+    Metadata(Utf8PathBuf, #[source] io::Error),
     /// Same as `Self::Metadata`, but path is unknown when using file handle
-    #[error("failed to get metadata for file: {0}")]
-    MetadataHandle(io::Error),
-    #[error("failed to create a temporary file: {0}")]
-    CreateTempFile(io::Error),
-    #[error("failed to create a temporary directory: {0}")]
-    MkTempDir(io::Error),
-    #[error("failed to write file\n  `{0}`:\n  {1}")]
-    WriteFile(Utf8PathBuf, io::Error),
-    #[error("failed to read directory\n  `{0}`:\n  {1}")]
-    ReadDir(Utf8PathBuf, io::Error),
-    #[error("failed to read file\n  `{0}`:\n  {1}")]
-    ReadFile(Utf8PathBuf, io::Error),
+    #[error("failed to get metadata for file")]
+    MetadataHandle(#[source] io::Error),
+    #[error("failed to create a temporary file")]
+    CreateTempFile(#[source] io::Error),
+    #[error("failed to create a temporary directory")]
+    MkTempDir(#[source] io::Error),
+    #[error("failed to write file\n  `{0}`")]
+    WriteFile(Utf8PathBuf, #[source] io::Error),
+    #[error("failed to read directory\n  `{0}`")]
+    ReadDir(Utf8PathBuf, #[source] io::Error),
+    #[error("failed to read file\n  `{0}`")]
+    ReadFile(Utf8PathBuf, #[source] io::Error),
     /// Same as `Self::ReadFile`, but path is unknown when using file handle.
-    #[error("failed to read file: {0}")]
-    ReadFileHandle(io::Error),
-    #[error("failed to move\n  `{0}` to\n  `{1}`:\n  {2}")]
-    Move(Utf8PathBuf, Utf8PathBuf, io::Error),
-    #[error("failed to create file\n  `{0}`:\n  {1}")]
-    CreateFile(Utf8PathBuf, io::Error),
-    #[error("failed to copy file from\n  `{0}` to\n  `{1}`:\n  {2}")]
-    CopyFile(Utf8PathBuf, Utf8PathBuf, io::Error),
-    #[error("failed to remove file\n  `{0}`:\n  {1}")]
-    RmFile(Utf8PathBuf, io::Error),
-    #[error("failed to lock file\n  `{0}`:\n  {1}")]
-    LockFile(Utf8PathBuf, io::Error),
-    #[error("failed to remove directory\n  `{0}`:\n  {1}")]
-    RmDir(Utf8PathBuf, io::Error),
-    #[error("failed to get path to current directory:\n  {0}")]
-    CurrentDir(io::Error),
-    #[error("failed to get metadata to determine if\n  `{0}` is a regular file:\n  {1}")]
-    IsFile(Utf8PathBuf, io::Error),
-    #[error("failed to get metadata to determine if\n  `{0}` is a directory:\n  {1}")]
-    IsDir(Utf8PathBuf, io::Error),
-    #[error("failed to seek file `{0}` to {1}:\n  {2}")]
-    Seek(Utf8PathBuf, u64, io::Error),
+    #[error("failed to read file")]
+    ReadFileHandle(#[source] io::Error),
+    #[error("failed to move\n  `{0}` to\n  `{1}`")]
+    Move(Utf8PathBuf, Utf8PathBuf, #[source] io::Error),
+    #[error("failed to create file\n  `{0}`")]
+    CreateFile(Utf8PathBuf, #[source] io::Error),
+    #[error("failed to copy file from\n  `{0}` to\n  `{1}`")]
+    CopyFile(Utf8PathBuf, Utf8PathBuf, #[source] io::Error),
+    #[error("failed to remove file\n  `{0}`")]
+    RmFile(Utf8PathBuf, #[source] io::Error),
+    #[error("failed to lock file\n  `{0}`")]
+    LockFile(Utf8PathBuf, #[source] io::Error),
+    #[error("failed to remove directory\n  `{0}`")]
+    RmDir(Utf8PathBuf, #[source] io::Error),
+    #[error("failed to get path to current directory")]
+    CurrentDir(#[source] io::Error),
+    #[error("failed to get metadata to determine if\n  `{0}` is a regular file")]
+    IsFile(Utf8PathBuf, #[source] io::Error),
+    #[error("failed to get metadata to determine if\n  `{0}` is a directory")]
+    IsDir(Utf8PathBuf, #[source] io::Error),
+    #[error("failed to seek file `{0}` to {1}")]
+    Seek(Utf8PathBuf, u64, #[source] io::Error),
 }
 
 /// Wrappers for filesystem I/O functions to return `FsIoError`.
@@ -341,9 +341,10 @@ pub mod wrapfs {
 pub enum ProjectDeserializationError {
     /// The document is not json, or a value in it has the wrong type.
     /// Serde knows where, so it reports it.
-    #[error("project deserialization error: failed to deserialize `{path}`: {err}")]
+    #[error("project deserialization error: failed to deserialize `{path}`")]
     Syntax {
         path: Box<Utf8Path>,
+        #[source]
         err: serde_json::Error,
     },
     /// The document is json, but not a manifest: a key it must carry is
@@ -397,9 +398,10 @@ fn indent(report: &Report) -> String {
 }
 
 #[derive(Debug, Error)]
-#[error("project serialization error: {msg}: {err}")]
+#[error("project serialization error: {msg}")]
 pub struct ProjectSerializationError {
     msg: String,
+    #[source]
     err: serde_json::Error,
 }
 
@@ -413,20 +415,20 @@ impl ProjectSerializationError {
 #[cfg(feature = "filesystem")]
 #[derive(Debug, Error)]
 pub enum ZipArchiveError {
-    #[error("failed to parse zip archive `{0}`: {1}")]
-    ReadArchive(Box<Utf8Path>, ZipError),
-    #[error("failed to retrieve file from zip archive: {0}")]
-    FileMeta(ZipError),
+    #[error("failed to parse zip archive `{0}`")]
+    ReadArchive(Box<Utf8Path>, #[source] ZipError),
+    #[error("failed to retrieve file from zip archive")]
+    FileMeta(#[source] ZipError),
     #[error("failed to retrieve file from zip archive: {0}")]
     NamedFileMeta(Box<str>, ZipError),
     #[error(
         "zip archive path handling error: file `{0}` in a zip archive is not contained in a directory"
     )]
     InvalidPath(Box<Utf8Path>),
-    #[error("failed to write file `{0}` to zip archive: {1}")]
-    Write(Box<Utf8Path>, ZipError),
-    #[error("failed to finish creating zip archive at `{0}`: {1}")]
-    Finish(Box<Utf8Path>, ZipError),
+    #[error("failed to write file `{0}` to zip archive")]
+    Write(Box<Utf8Path>, #[source] ZipError),
+    #[error("failed to finish creating zip archive at `{0}`")]
+    Finish(Box<Utf8Path>, #[source] ZipError),
 }
 
 #[derive(Debug, Error, Clone)]

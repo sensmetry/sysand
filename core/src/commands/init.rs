@@ -22,18 +22,18 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum InitError<ProjectError: ErrorBound> {
-    #[error("invalid project name `{0}`: {1}")]
-    NameParse(String, ProjectFieldError),
-    #[error("invalid project publisher `{0}`: {1}")]
-    PublisherParse(String, ProjectFieldError),
-    #[error("failed to parse `{0}` as a Semantic Version: {1}")]
-    SemVerParse(Box<str>, semver::Error),
+    #[error("invalid project name `{0}`")]
+    NameParse(String, #[source] ProjectFieldError),
+    #[error("invalid project publisher `{0}`")]
+    PublisherParse(String, #[source] ProjectFieldError),
+    #[error("failed to parse `{0}` as a Semantic Version")]
+    SemVerParse(Box<str>, #[source] semver::Error),
     #[error(transparent)]
     Project(#[from] ProjectError),
     #[error("failed to parse `{0}` as an SPDX license expression:\n{1}")]
     SPDXLicenseParse(Box<str>, spdx::error::ParseError),
-    #[error("invalid metamodel: {0}")]
-    MalformedMetamodel(MetamodelParseError),
+    #[error("invalid metamodel")]
+    MalformedMetamodel(#[source] MetamodelParseError),
 }
 
 pub fn do_init<P: ProjectMut>(

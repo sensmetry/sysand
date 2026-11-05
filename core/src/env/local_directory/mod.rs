@@ -381,7 +381,7 @@ pub enum LocalWriteError {
     Deserialize(#[from] ProjectDeserializationError),
     #[error(transparent)]
     Serialize(#[from] ProjectSerializationError),
-    #[error("path error: {0}")]
+    #[error("path error")]
     Path(#[from] PathError),
     #[error("already exists: {0}")]
     AlreadyExists(String),
@@ -395,8 +395,7 @@ pub enum LocalWriteError {
     AddProject(#[from] AddProjectError),
     #[error(
         "cannot construct a relative path from the workspace/project
-        directory to one of its dependencies' directory:\n\
-        {0}"
+        directory to one of its dependencies' directory"
     )]
     ImpossibleRelativePath(#[from] RelativizePathError),
     #[error(

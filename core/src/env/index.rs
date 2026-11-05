@@ -45,6 +45,7 @@ use crate::{
     index_location::IndexLocation,
     model::InterchangeProjectUsageRaw,
     project::index_entry::{IndexEntryProject, IndexEntryProjectError},
+    redact::{HttpError, RedactedUrl, ResponseUrl},
     resolve::net_utils::json_get_request,
 };
 
@@ -202,14 +203,14 @@ pub enum IndexEnvironmentError {
          malformed `{field}` = `{value}` (expected `sha256:<64-hex>`)"
     )]
     InvalidVersionEntry {
-        url: Box<str>,
+        url: RedactedUrl,
         version: String,
         field: &'static str,
         value: String,
     },
     #[error("versions.json at `{url}` has entry with non-semver version `{value}`")]
     InvalidSemverVersion {
-        url: Box<str>,
+        url: RedactedUrl,
         value: String,
         #[source]
         source: semver::Error,
@@ -218,30 +219,30 @@ pub enum IndexEnvironmentError {
         "versions.json at `{url}` has entry with version `{value}` carrying build metadata; \
          build metadata is not permitted in index-advertised versions"
     )]
-    VersionHasBuildMetadata { url: Box<str>, value: String },
+    VersionHasBuildMetadata { url: RedactedUrl, value: String },
     #[error(
         "versions.json at `{url}` is not in descending semver precedence: \
          `{prev}` precedes `{curr}` in wire order"
     )]
     VersionsOutOfOrder {
-        url: Box<str>,
+        url: RedactedUrl,
         prev: String,
         curr: String,
     },
     #[error("versions.json at `{url}` does not list version `{version}`")]
-    VersionNotInIndex { url: Box<str>, version: String },
+    VersionNotInIndex { url: RedactedUrl, version: String },
     #[error("project `{iri}` is not in this index (versions.json at `{url}` returned 404)")]
-    ProjectNotInIndex { url: Box<str>, iri: String },
+    ProjectNotInIndex { url: RedactedUrl, iri: String },
     #[error(
         "version `{version}` of `{iri}` was removed upstream (versions.json at `{url}` marks it `status: \"removed\"`)"
     )]
     VersionRemoved {
-        url: Box<str>,
+        url: RedactedUrl,
         iri: String,
         version: String,
     },
     #[error("versions.json at `{url}` lists version `{version}` more than once")]
-    DuplicateVersion { url: Box<str>, version: String },
+    DuplicateVersion { url: RedactedUrl, version: String },
     #[error(transparent)]
     MalformedIri(#[from] ParseIriError),
     #[error(transparent)]
@@ -255,26 +256,26 @@ pub enum IndexEnvironmentError {
 /// JSON parse failures.
 #[derive(Error, Debug)]
 pub enum HttpFetchError {
-    #[error("HTTP request to `{url}` failed: {source}")]
+    #[error("HTTP request to `{url}` failed")]
     Request {
-        url: Box<str>,
+        url: RedactedUrl,
         #[source]
-        source: reqwest_middleware::Error,
+        source: HttpError,
     },
-    #[error("HTTP request to `{url}` returned status {status}")]
+    #[error("HTTP request to {url} returned status {status}")]
     BadHttpStatus {
-        url: Box<str>,
+        url: ResponseUrl,
         status: reqwest::StatusCode,
     },
-    #[error("failed to read HTTP response body from `{url}`: {source}")]
+    #[error("failed to read HTTP response body from {url}")]
     Body {
-        url: Box<str>,
+        url: ResponseUrl,
         #[source]
-        source: reqwest::Error,
+        source: HttpError,
     },
-    #[error("failed to parse JSON from `{url}`: {source}")]
+    #[error("failed to parse JSON from {url}")]
     JsonParse {
-        url: Box<str>,
+        url: ResponseUrl,
         #[source]
         source: serde_json::Error,
     },
@@ -306,8 +307,8 @@ pub(crate) async fn fetch_json<T: DeserializeOwned, P: HTTPAuthentication>(
         .with_authentication(client, &json_get_request(url.clone()))
         .await
         .map_err(|source| HttpFetchError::Request {
-            url: url.as_str().into(),
-            source,
+            url: url.clone().into(),
+            source: source.into(),
         })?;
 
     let status = response.status();
@@ -316,9 +317,10 @@ pub(crate) async fn fetch_json<T: DeserializeOwned, P: HTTPAuthentication>(
         return Ok(None);
     }
 
+    let response_url = ResponseUrl::new(url, response.url());
     if !status.is_success() {
         return Err(HttpFetchError::BadHttpStatus {
-            url: url.as_str().into(),
+            url: response_url,
             status,
         });
     }
@@ -327,14 +329,14 @@ pub(crate) async fn fetch_json<T: DeserializeOwned, P: HTTPAuthentication>(
         .bytes()
         .await
         .map_err(|source| HttpFetchError::Body {
-            url: url.as_str().into(),
-            source,
+            url: response_url.clone(),
+            source: source.into(),
         })?;
 
     match serde_json::from_slice::<T>(&bytes) {
         Ok(v) => Ok(Some(v)),
         Err(source) => Err(HttpFetchError::JsonParse {
-            url: url.as_str().into(),
+            url: response_url,
             source,
         }),
     }
@@ -438,7 +440,7 @@ fn validate_versions(
         .map(|entry| {
             let version = Version::parse(&entry.version).map_err(|source| {
                 IndexEnvironmentError::InvalidSemverVersion {
-                    url: url.as_str().into(),
+                    url: url.clone().into(),
                     value: entry.version.clone(),
                     source,
                 }
@@ -447,14 +449,14 @@ fn validate_versions(
             // suffix; the wire-format rejection lives here.
             if !version.build.is_empty() {
                 return Err(IndexEnvironmentError::VersionHasBuildMetadata {
-                    url: url.as_str().into(),
+                    url: url.clone().into(),
                     value: entry.version,
                 });
             }
             let kpar_digest =
                 Sha256HexDigest::try_from(entry.kpar_digest.as_str()).map_err(|()| {
                     IndexEnvironmentError::InvalidVersionEntry {
-                        url: url.as_str().into(),
+                        url: url.clone().into(),
                         version: entry.version.clone(),
                         field: "kpar_digest",
                         value: entry.kpar_digest.clone(),
@@ -477,7 +479,7 @@ fn validate_versions(
     for v in validated.iter() {
         if !seen.insert(v.version.clone()) {
             return Err(IndexEnvironmentError::DuplicateVersion {
-                url: url.as_str().into(),
+                url: url.clone().into(),
                 version: v.version.to_string(),
             });
         }
@@ -487,7 +489,7 @@ fn validate_versions(
     for [v1, v2] in validated.array_windows() {
         if v1.version <= v2.version {
             return Err(IndexEnvironmentError::VersionsOutOfOrder {
-                url: url.as_str().into(),
+                url: url.clone().into(),
                 prev: v1.version.to_string(),
                 curr: v2.version.to_string(),
             });
@@ -583,7 +585,7 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
             .fetch_versions_json(uri.as_ref())
             .await?
             .ok_or_else(|| IndexEnvironmentError::ProjectNotInIndex {
-                url: versions_url.as_str().into(),
+                url: versions_url.clone().into(),
                 iri: uri.as_ref().to_owned(),
             })?;
         // Compare parsed `semver::Version` values rather than raw strings.
@@ -596,7 +598,7 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
                 treating as not present in index"
             );
             IndexEnvironmentError::VersionNotInIndex {
-                url: versions_url.as_str().into(),
+                url: versions_url.clone().into(),
                 version: version.to_owned(),
             }
         })?;
@@ -605,7 +607,7 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
             .find(|e| e.version == requested)
             .cloned()
             .ok_or_else(|| IndexEnvironmentError::VersionNotInIndex {
-                url: versions_url.as_str().into(),
+                url: versions_url.clone().into(),
                 version: version.to_owned(),
             })?;
 
@@ -614,7 +616,7 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
         // here; they are excluded from new resolutions at `versions_async`.
         if advertised.status == VersionStatus::Removed {
             return Err(IndexEnvironmentError::VersionRemoved {
-                url: versions_url.as_str().into(),
+                url: versions_url.clone().into(),
                 iri: uri.as_ref().to_owned(),
                 version: advertised.version.to_string(),
             });

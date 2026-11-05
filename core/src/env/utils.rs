@@ -17,10 +17,10 @@ impl<T> ErrorBound for T where T: std::error::Error + Send + Sync + 'static {}
 
 #[derive(Error, Debug)]
 pub enum CloneError<ProjectReadError: ErrorBound, EnvironmentWriteError: ErrorBound> {
-    #[error("project read error: {0}")]
-    ProjectRead(ProjectReadError),
-    #[error("environment write error: {0}")]
-    EnvWrite(EnvironmentWriteError),
+    #[error("project read error")]
+    ProjectRead(#[source] ProjectReadError),
+    #[error("environment write error")]
+    EnvWrite(#[source] EnvironmentWriteError),
     #[error("incomplete project: {0}")]
     IncompleteSource(&'static str),
     #[error(transparent)]

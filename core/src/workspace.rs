@@ -34,8 +34,8 @@ pub type WorkspaceMeta = WorkspaceMetaG<Metamodel>;
 
 #[derive(Error, Debug)]
 pub enum WorkspaceValidationError {
-    #[error("failed to parse `{0}` as IRI: {1}")]
-    InvalidIri(String, fluent_uri::ParseError),
+    #[error("failed to parse `{0}` as IRI")]
+    InvalidIri(String, #[source] fluent_uri::ParseError),
     #[error(transparent)]
     MalformedMetamodel(#[from] MetamodelParseError),
 }
@@ -103,16 +103,17 @@ impl TryFrom<WorkspaceInfoRaw> for WorkspaceInfo {
 pub enum WorkspaceReadError {
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
-    #[error("failed to deserialize `.workspace.json`: {0}")]
+    #[error("failed to deserialize `.workspace.json`")]
     Deserialize(#[from] WorkspaceDeserializationError),
-    #[error("invalid workspace configuration in `{0}`: {1}")]
-    Validation(Utf8PathBuf, WorkspaceValidationError),
+    #[error("invalid workspace configuration in `{0}`")]
+    Validation(Utf8PathBuf, #[source] WorkspaceValidationError),
 }
 
 #[derive(Debug, Error)]
-#[error("workspace deserialization error: {msg}: {err}")]
+#[error("workspace deserialization error: {msg}")]
 pub struct WorkspaceDeserializationError {
     msg: &'static str,
+    #[source]
     err: serde_json::Error,
 }
 

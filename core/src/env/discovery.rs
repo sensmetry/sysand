@@ -18,6 +18,7 @@ use crate::{
     env::index::{HttpFetchError, IndexEnvironmentError, MissingPolicy, fetch_json},
     index::iri::parse_iri,
     index_location::{IndexLocation, IndexLocationError, with_trailing_slash},
+    redact::RedactedUrl,
 };
 
 /// Path of the discovery document under the discovery root
@@ -144,16 +145,13 @@ pub enum DiscoveryError {
          absolute HTTP(S) URLs are required"
     )]
     RelativeUrl {
-        url: Box<str>,
+        url: RedactedUrl,
         field: &'static str,
         value: String,
     },
-    #[error(
-        "discovery document at `{url}` supplied an invalid URL `{value}` for `{field}`:\n\
-         {source}"
-    )]
+    #[error("discovery document at `{url}` supplied an invalid URL `{value}` for `{field}`")]
     InvalidUrl {
-        url: Box<str>,
+        url: RedactedUrl,
         field: &'static str,
         value: String,
         source: url::ParseError,
@@ -163,7 +161,7 @@ pub enum DiscoveryError {
          only `http` and `https` are supported"
     )]
     UnsupportedScheme {
-        url: Box<str>,
+        url: RedactedUrl,
         field: &'static str,
         value: String,
     },
@@ -172,13 +170,13 @@ pub enum DiscoveryError {
          username and password are not allowed"
     )]
     Userinfo {
-        url: Box<str>,
+        url: RedactedUrl,
         field: &'static str,
         value: String,
     },
     #[error("discovery document at `{url}` supplied an invalid `{field}`")]
     InvalidLocation {
-        url: Box<str>,
+        url: RedactedUrl,
         field: &'static str,
         source: IndexLocationError,
     },
@@ -208,12 +206,12 @@ fn discovery_shape_error(
 ) -> DiscoveryError {
     match error {
         HttpBaseUrlShapeError::UnsupportedScheme => DiscoveryError::UnsupportedScheme {
-            url: source_url.as_str().into(),
+            url: source_url.clone().into(),
             field,
             value: value.as_str().to_owned(),
         },
         HttpBaseUrlShapeError::Userinfo => DiscoveryError::Userinfo {
-            url: source_url.as_str().into(),
+            url: source_url.clone().into(),
             field,
             value: value.as_str().to_owned(),
         },
@@ -286,14 +284,14 @@ pub(crate) fn resolve_index_config(
             Ok(parsed) => parsed,
             Err(url::ParseError::RelativeUrlWithoutBase) => {
                 return Err(DiscoveryError::RelativeUrl {
-                    url: config_url.as_str().into(),
+                    url: config_url.clone().into(),
                     field,
                     value: s,
                 });
             }
             Err(source) => {
                 return Err(DiscoveryError::InvalidUrl {
-                    url: config_url.as_str().into(),
+                    url: config_url.clone().into(),
                     field,
                     value: s,
                     source,
@@ -313,7 +311,7 @@ pub(crate) fn resolve_index_config(
     let index_root = match raw.index_root {
         None => discovery_location,
         Some(s) => IndexLocation::parse(&s).map_err(|source| DiscoveryError::InvalidLocation {
-            url: config_url.as_str().into(),
+            url: config_url.clone().into(),
             field: "index_root",
             source,
         })?,

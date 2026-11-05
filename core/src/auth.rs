@@ -17,6 +17,7 @@ use crate::credential_store::{
     CredentialRecord, CredentialScheme, CredentialStoreError,
     keyring_store::{BlobBackend, LockedBlobStore},
 };
+use crate::redact::RedactedUrl;
 
 pub trait HTTPAuthentication: std::fmt::Debug + 'static {
     /// Tries to execute a request with some authentication policy. The request might be retried
@@ -59,7 +60,11 @@ impl HTTPAuthentication for Unauthenticated {
     {
         let (client, req) = request.build_split();
         let req = req?;
-        log::debug!("{} (no auth) `{}`", req.method(), req.url());
+        log::debug!(
+            "{} (no auth) `{}`",
+            req.method(),
+            RedactedUrl::from(req.url())
+        );
 
         let resp = client.execute(req).await?;
         // useful to log final URL in case redirects happen
@@ -104,7 +109,11 @@ impl HTTPAuthentication for ForceHTTPBasicAuth {
             .basic_auth(&self.username, Some(&self.password))
             .build_split();
         let req = req?;
-        log::debug!("{} (basic auth) `{}`", req.method(), req.url());
+        log::debug!(
+            "{} (basic auth) `{}`",
+            req.method(),
+            RedactedUrl::from(req.url())
+        );
 
         let resp = client.execute(req).await?;
         log::debug!(
@@ -157,7 +166,11 @@ impl HTTPAuthentication for ForceBearerAuth {
     {
         let (client, req) = request.bearer_auth(&self.0).build_split();
         let req = req?;
-        log::debug!("{} (bearer auth) `{}`", req.method(), req.url());
+        log::debug!(
+            "{} (bearer auth) `{}`",
+            req.method(),
+            RedactedUrl::from(req.url())
+        );
 
         let resp = client.execute(req).await?;
         log::debug!(
@@ -959,14 +972,20 @@ where
         let deduped = match select_bearer(stored, url.as_str(), |bearer| &bearer.auth.0) {
             BearerSelection::None => return Ok(initial_response),
             BearerSelection::Unique(bearer) => {
-                log::debug!("stored credential matches `{url}`; retrying with forced bearer auth");
+                log::debug!(
+                    "stored credential matches `{}`; retrying with forced bearer auth",
+                    RedactedUrl::from(url)
+                );
                 vec![bearer]
             }
             BearerSelection::Ambiguous {
                 deduped,
                 matched: _,
             } => {
-                log::warn!("URL {url} matches multiple stored credentials; trying each in order");
+                log::warn!(
+                    "URL {} matches multiple stored credentials; trying each in order",
+                    RedactedUrl::from(url)
+                );
                 deduped
             }
         };

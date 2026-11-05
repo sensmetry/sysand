@@ -19,8 +19,8 @@ pub enum IncludeError<ProjectError> {
     Project(ProjectError),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
-    #[error("failed to extract symbol names from `{0}`: {1}")]
-    Extract(Box<str>, ExtractError),
+    #[error("failed to extract symbol names from `{0}`")]
+    Extract(Box<str>, #[source] ExtractError),
     #[error(
         "unknown file format of `{0}`, only SysML v2 (.sysml) and KerML (.kerml) files are supported"
     )]

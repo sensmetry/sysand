@@ -240,7 +240,7 @@ fn parse_errors_never_echo_an_embedded_password() {
             "url {url:?} leaked userinfo: {message}"
         );
         assert!(
-            message.contains("<redacted>@"),
+            message.contains("****@"),
             "url {url:?} must show the redaction marker: {message}"
         );
     }

@@ -26,7 +26,7 @@ pub enum LocalStorageError {
     Js(String),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
-    #[error("failed to serialize: {0}")]
+    #[error("failed to serialize")]
     Serialize(#[from] serde_json::Error),
     #[error("key `{0}` not found in local storage")]
     KeyNotFound(String),

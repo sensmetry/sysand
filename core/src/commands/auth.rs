@@ -37,6 +37,8 @@ use crate::{
     },
     env::index::HttpFetchError,
     index_location::{IndexLocation, IndexLocationError, IndexUrlTemplate},
+    redact::{HttpError, RedactedUrl},
+    resolve::net_utils::HttpOptions,
 };
 
 /// Errors from the `sysand auth` commands.
@@ -101,7 +103,7 @@ pub enum AuthCommandError {
         candidates.join(", ")
     )]
     AmbiguousWhoamiCredential {
-        url: String,
+        url: RedactedUrl,
         // Not `source`: thiserror reserves that name for error chaining.
         source_name: &'static str,
         candidates: Vec<String>,
@@ -110,7 +112,7 @@ pub enum AuthCommandError {
     /// message states the bare condition; the frontend appends its own
     /// remediation (`sysand auth login`, `SYSAND_CRED_*`) from the fields.
     #[error("no credential matches `{url}`")]
-    NoWhoamiCredential { url: String, index: String },
+    NoWhoamiCredential { url: RedactedUrl, index: String },
     /// The credential store failed.
     #[error(transparent)]
     Store(#[from] CredentialStoreError),
@@ -568,12 +570,13 @@ fn parse_whoami_identity(
     runtime: &tokio::runtime::Runtime,
     response: reqwest::Response,
 ) -> Option<WhoamiIdentity> {
+    let url = RedactedUrl::from(response.url());
     let body = match runtime.block_on(response.bytes()) {
         Ok(body) => body,
         Err(err) => {
             log::debug!(
-                "whoami body was not read: {}",
-                crate::utils::format_err(err)
+                "whoami body from `{url}` was not read: {}",
+                crate::utils::format_err(HttpError::from(err))
             );
             return None;
         }
@@ -621,13 +624,15 @@ struct ProbeOutcome {
 /// client, but with redirects disabled (a redirected probe's verdict
 /// would come from a different URL than the surface nominally probed, and
 /// a cross-host redirect strips the Authorization header, misreading
-/// "rejected") and a timeout so a hung probe cannot hang `auth login`.
-fn probe_client() -> Result<reqwest::Client, reqwest::Error> {
+/// "rejected") and the timeouts of `options`, so a hung probe cannot hang
+/// `auth login`. Probes are not retried: an unreachable surface is
+/// reported, not fatal.
+fn probe_client(options: &HttpOptions) -> Result<reqwest::Client, reqwest::Error> {
     crate::resolve::net_utils::install_default_crypto_provider();
 
-    crate::resolve::net_utils::client_builder()
+    options
+        .apply_timeouts(crate::resolve::net_utils::client_builder())
         .redirect(reqwest::redirect::Policy::none())
-        .timeout(std::time::Duration::from_secs(30))
         .build()
 }
 
@@ -647,7 +652,10 @@ fn probe_request(
         if let Some(token) = bearer {
             request = request.bearer_auth(token);
         }
-        request.send().await.map_err(crate::utils::format_err)
+        request
+            .send()
+            .await
+            .map_err(|err| crate::utils::format_err(HttpError::from(err)))
     })
 }
 
@@ -722,6 +730,10 @@ fn probe_read_surface(
     {
         Ok(response) => response,
         Err(error) => {
+            let error = format!(
+                "HTTP request to `{}` failed: {error}",
+                RedactedUrl::from(index_json_url)
+            );
             notify(AuthLoginNotice::ProbeUnreachable { surface, error });
             return;
         }
@@ -764,6 +776,10 @@ fn probe_read_surface(
     ) {
         Ok(response) => response,
         Err(error) => {
+            let error = format!(
+                "HTTP request to `{}` failed: {error}",
+                RedactedUrl::from(index_json_url)
+            );
             notify(AuthLoginNotice::ProbeUnreachable { surface, error });
             return;
         }
@@ -827,6 +843,10 @@ fn probe_api_surface(
     ) {
         Ok(response) => response,
         Err(error) => {
+            let error = format!(
+                "HTTP request to `{}` failed: {error}",
+                RedactedUrl::from(&whoami_url)
+            );
             notify(AuthLoginNotice::ProbeUnreachable { surface, error });
             return;
         }
@@ -866,6 +886,7 @@ fn probe_api_surface(
 /// [`AuthLoginNotice::DiscoveryUnreachable`] notice.
 fn fetch_login_endpoints(
     client: &reqwest_middleware::ClientWithMiddleware,
+    http_options: &HttpOptions,
     location: &IndexLocation,
     secret: &str,
     runtime: &tokio::runtime::Runtime,
@@ -883,7 +904,7 @@ fn fetch_login_endpoints(
         Err(DiscoveryError::Fetch(HttpFetchError::BadHttpStatus { status, url: _ }))
             if status.is_client_error() && status != reqwest::StatusCode::TOO_MANY_REQUESTS =>
         {
-            forced_discovery_fetch(location, secret, runtime, notify)
+            forced_discovery_fetch(location, secret, http_options, runtime, notify)
         }
         // Network failures, 5xx, a 429 baseline, and a present-but-invalid
         // document are not "possibly hidden from me" signals: no secret
@@ -906,18 +927,23 @@ fn fetch_login_endpoints(
 fn forced_discovery_fetch(
     location: &IndexLocation,
     secret: &str,
+    http_options: &HttpOptions,
     runtime: &tokio::runtime::Runtime,
     notify: &mut impl FnMut(AuthLoginNotice),
 ) -> Option<ResolvedEndpoints> {
     let config_url = location.resolve([INDEX_CONFIG_PATH]);
+    let shown_url = RedactedUrl::from(&config_url);
     let mut unreachable = |error: String| {
         notify(AuthLoginNotice::DiscoveryUnreachable { error });
         None
     };
-    let client = match probe_client() {
+    let client = match probe_client(http_options) {
         Ok(client) => client,
         Err(err) => {
-            return unreachable(format!("could not build the probe HTTP client: {err}"));
+            return unreachable(format!(
+                "could not build the probe HTTP client: {}",
+                crate::utils::format_err(err)
+            ));
         }
     };
     let response = match probe_request(
@@ -929,17 +955,22 @@ fn forced_discovery_fetch(
     ) {
         Ok(response) => response,
         Err(error) => {
-            return unreachable(format!("HTTP request to `{config_url}` failed: {error}"));
+            return unreachable(format!("HTTP request to `{shown_url}` failed: {error}"));
         }
     };
     let status = response.status();
     if status == reqwest::StatusCode::OK {
         let raw = runtime
             .block_on(response.bytes())
-            .map_err(|err| format!("failed to read HTTP response body from `{config_url}`: {err}"))
+            .map_err(|err| {
+                format!(
+                    "failed to read HTTP response body from `{shown_url}`: {}",
+                    crate::utils::format_err(HttpError::from(err))
+                )
+            })
             .and_then(|body| {
                 serde_json::from_slice::<IndexConfigRaw>(&body)
-                    .map_err(|err| format!("failed to parse JSON from `{config_url}`: {err}"))
+                    .map_err(|err| format!("failed to parse JSON from `{shown_url}`: {err}"))
             });
         match raw {
             Ok(raw) => match resolve_index_config(raw, &config_url, location.clone()) {
@@ -954,16 +985,16 @@ fn forced_discovery_fetch(
         // The probe client never follows redirects, so a redirect-fronted
         // discovery document gets this notice instead of a forced answer.
         unreachable(format!(
-            "the authenticated retry for `{config_url}` was redirected to `{}`",
+            "the authenticated retry for `{shown_url}` was redirected to `{}`",
             redirect_target(&response)
         ))
     } else if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
         unreachable(format!(
-            "the authenticated retry for `{config_url}` was rate limited (HTTP 429)"
+            "the authenticated retry for `{shown_url}` was rate limited (HTTP 429)"
         ))
     } else {
         unreachable(format!(
-            "the authenticated retry for `{config_url}` returned status {status}"
+            "the authenticated retry for `{shown_url}` returned status {status}"
         ))
     }
 }
@@ -977,16 +1008,20 @@ fn run_validation_probes(
     endpoints: Option<&ResolvedEndpoints>,
     location: &IndexLocation,
     secret: &str,
+    http_options: &HttpOptions,
     runtime: &tokio::runtime::Runtime,
     notify: &mut impl FnMut(AuthLoginNotice),
 ) -> ProbeOutcome {
     let mut outcome = ProbeOutcome::default();
-    let client = match probe_client() {
+    let client = match probe_client(http_options) {
         Ok(client) => client,
         Err(err) => {
             notify(AuthLoginNotice::ProbeUnreachable {
                 surface: ProbeSurface::Read,
-                error: format!("could not build the probe HTTP client: {err}"),
+                error: format!(
+                    "could not build the probe HTTP client: {}",
+                    crate::utils::format_err(err)
+                ),
             });
             return outcome;
         }
@@ -1063,6 +1098,7 @@ pub fn do_auth_login<B: BlobBackend>(
     index_key: &IndexKey,
     secret: String,
     client: &reqwest_middleware::ClientWithMiddleware,
+    http_options: &HttpOptions,
     runtime: &tokio::runtime::Runtime,
     mut notify: impl FnMut(AuthLoginNotice),
 ) -> Result<AuthLoginOutcome, AuthCommandError> {
@@ -1082,18 +1118,31 @@ pub fn do_auth_login<B: BlobBackend>(
             return Ok(AuthLoginOutcome::BackendUnavailable {
                 key,
                 globs,
-                reason: source.to_string(),
+                reason: crate::utils::format_err(&*source),
             });
         }
         Err(err) => return Err(err.into()),
     };
     let replacing = records.iter().any(|record| record.key == key);
 
-    let endpoints = fetch_login_endpoints(client, location, &secret, runtime, &mut notify);
+    let endpoints = fetch_login_endpoints(
+        client,
+        http_options,
+        location,
+        &secret,
+        runtime,
+        &mut notify,
+    );
     let globs = derive_credential_globs(&primary_root, endpoints.as_ref());
 
-    let outcome =
-        run_validation_probes(endpoints.as_ref(), location, &secret, runtime, &mut notify);
+    let outcome = run_validation_probes(
+        endpoints.as_ref(),
+        location,
+        &secret,
+        http_options,
+        runtime,
+        &mut notify,
+    );
     // Refuse only when an exercised surface rejected and none accepted.
     if outcome.accepted.is_empty() && !outcome.rejected.is_empty() {
         return Err(AuthCommandError::ValidationRejected {
@@ -1157,7 +1206,7 @@ pub fn do_auth_login<B: BlobBackend>(
             Ok(AuthLoginOutcome::BackendUnavailable {
                 key,
                 globs,
-                reason: source.to_string(),
+                reason: crate::utils::format_err(&*source),
             })
         }
         Err(err) => Err(err.into()),
@@ -1214,7 +1263,7 @@ pub enum WhoamiVerdict {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthWhoamiOutcome {
     pub key: String,
-    pub whoami_url: Url,
+    pub whoami_url: RedactedUrl,
     pub source: WhoamiCredentialSource,
     pub verdict: WhoamiVerdict,
 }
@@ -1245,7 +1294,7 @@ fn select_whoami_credential(
             deduped: _,
         } => {
             return Err(AuthCommandError::AmbiguousWhoamiCredential {
-                url: whoami_url.as_str().to_owned(),
+                url: whoami_url.clone().into(),
                 source_name: "`SYSAND_CRED_*` environment variables",
                 candidates: crate::commands::publish::dedup_in_order(
                     matched
@@ -1269,14 +1318,14 @@ fn select_whoami_credential(
             matched,
             deduped: _,
         } => Err(AuthCommandError::AmbiguousWhoamiCredential {
-            url: whoami_url.as_str().to_owned(),
+            url: whoami_url.clone().into(),
             source_name: "stored credentials",
             candidates: crate::commands::publish::dedup_in_order(
                 matched.iter().map(|entry| format!("`{}`", entry.key())),
             ),
         }),
         BearerSelection::None => Err(AuthCommandError::NoWhoamiCredential {
-            url: whoami_url.as_str().to_owned(),
+            url: whoami_url.clone().into(),
             index: index_key.to_owned(),
         }),
     }
@@ -1300,6 +1349,7 @@ pub fn do_auth_whoami<P: HTTPAuthentication>(
     env_bearers: &GlobMap<EnvBearerAuth>,
     discovery_auth: &P,
     client: &reqwest_middleware::ClientWithMiddleware,
+    http_options: &HttpOptions,
     runtime: &tokio::runtime::Runtime,
 ) -> Result<AuthWhoamiOutcome, AuthCommandError> {
     let key = index_key.as_str().to_owned();
@@ -1330,9 +1380,12 @@ pub fn do_auth_whoami<P: HTTPAuthentication>(
 
     let (source, token) = select_whoami_credential(env_bearers, records, &whoami_url, &key)?;
 
-    let verdict = match probe_client() {
+    let verdict = match probe_client(http_options) {
         Err(err) => WhoamiVerdict::Unreachable {
-            detail: format!("could not build the probe HTTP client: {err}"),
+            detail: format!(
+                "could not build the probe HTTP client: {}",
+                crate::utils::format_err(err)
+            ),
         },
         Ok(probe) => match probe_request(
             runtime,
@@ -1370,7 +1423,7 @@ pub fn do_auth_whoami<P: HTTPAuthentication>(
     };
     Ok(AuthWhoamiOutcome {
         key,
-        whoami_url,
+        whoami_url: whoami_url.into(),
         source,
         verdict,
     })
@@ -1481,7 +1534,7 @@ pub fn do_auth_status<B: BlobBackend>(
         )),
         Err(CredentialStoreError::BackendAbsent { source }) => Ok(AuthStatus {
             stored: StoredCredentialsStatus::BackendUnavailable {
-                reason: source.to_string(),
+                reason: crate::utils::format_err(&*source),
             },
             env,
         }),
