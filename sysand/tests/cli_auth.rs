@@ -225,11 +225,14 @@ fn run_sysand_stdin<'a, I: IntoIterator<Item = &'a str>>(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
     let mut child = cmd.spawn()?;
-    child
-        .stdin
-        .take()
-        .expect("stdin was piped")
-        .write_all(input)?;
+    let mut stdin = child.stdin.take().expect("stdin was piped");
+    // A command that rejects its arguments before reading stdin may exit
+    // first, closing the pipe; that is not a failure of the test setup.
+    match stdin.write_all(input) {
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => {}
+        result => result?,
+    }
+    drop(stdin);
     Ok((temp_dir, cwd, child.wait_with_output()?))
 }
 
