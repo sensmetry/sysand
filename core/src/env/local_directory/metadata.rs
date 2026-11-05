@@ -309,8 +309,8 @@ pub struct EnvProject {
     /// track the interdependence of project in the environment.
     #[serde(default)]
     pub usages: Vec<String>,
-    /// Indicator of whether the project is fully installed in
-    /// the environment or located elsewhere.
+    /// Whether the project is located outside the environment instead of
+    /// being installed in it.
     #[serde(default)]
     pub editable: bool,
     /// Indicator of whether the project is part of a workspace.

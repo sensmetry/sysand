@@ -2,9 +2,10 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use crate::manifest::common::{InheritFrom, Sources};
-use crate::manifest::diagnostics::{Diagnostic, Report, Severity, Validated};
+use crate::manifest::diagnostics::{Diagnostic, Diagnostics, KeyLocation, Severity, Validated};
 use crate::manifest::inherit::MetaProperty;
 use crate::manifest::project::{ProjectManifest, ProjectTable, ResolvedProject};
+use crate::manifest::reader::TableReader;
 use crate::manifest::spans::Source;
 use crate::manifest::usage::{MemberUsage, Usage, UsageBase};
 use crate::manifest::workspace_table::WorkspaceTable;
@@ -13,11 +14,15 @@ use fluent_uri::Iri;
 
 /// The project side of a document, read the way `ModelToml::parse` will
 /// read it.
-fn read(text: &str) -> Result<Validated<ProjectManifest>, Report> {
-    let (table, positions) = Source::new("model.toml", text)
-        .read()
-        .expect("the test document parses");
-    ProjectManifest::validate(&table, &positions)
+fn read(text: &str) -> Result<Validated<ProjectManifest>, Diagnostics> {
+    let source = Source::new("model.toml", text);
+    let table = source.read().expect("the test document parses");
+    ProjectManifest::validate(&TableReader::new(
+        table.get_ref(),
+        None,
+        KeyLocation::TopLevel,
+        &source,
+    ))
 }
 
 /// A `[project]` whose body is `body`, so that its keys start on line 2.
@@ -33,7 +38,7 @@ fn manifest(body: &str) -> ProjectManifest {
     accepted(body).into_parts().0
 }
 
-fn rejected(body: &str) -> Report {
+fn rejected(body: &str) -> Diagnostics {
     read(&one(body)).expect_err("the manifest is rejected")
 }
 
@@ -44,11 +49,11 @@ fn messages(diagnostics: &[Diagnostic]) -> Vec<&str> {
         .collect()
 }
 
-fn texts(report: &Report) -> Vec<&str> {
+fn texts(report: &Diagnostics) -> Vec<&str> {
     messages(report.diagnostics())
 }
 
-fn places(report: &Report) -> Vec<(usize, usize)> {
+fn places(report: &Diagnostics) -> Vec<(usize, usize)> {
     report
         .diagnostics()
         .iter()
@@ -278,9 +283,9 @@ fn a_required_key_that_is_present_but_unreadable_is_not_also_missing() {
     }
 }
 
-/// Rule (a) is a json-only rule: a `model.toml` whose metamodel is
-/// unrecognized is refused before any required-key check runs, so the
-/// suffix has nothing to explain.
+/// The unsupported-metamodel suffix is json-only: a `model.toml` whose
+/// metamodel is unrecognized is refused before any required-key check
+/// runs, so the suffix has nothing to explain.
 #[test]
 fn a_missing_key_does_not_name_the_metamodel() {
     let report = rejected("name = \"widgets\"\nmetamodel = \"https://example.com/other\"\n");
@@ -290,13 +295,13 @@ fn a_missing_key_does_not_name_the_metamodel() {
             .filter(|text| text.contains("this may be because"))
             .count(),
         0,
-        "unexpected report: {report}"
+        "unexpected report: {report:?}"
     );
     assert!(
         texts(&report)
             .iter()
             .any(|text| text.contains("is not one of the four values")),
-        "unexpected report: {report}"
+        "unexpected report: {report:?}"
     );
 }
 
@@ -327,14 +332,15 @@ fn sources_entries_are_checked_and_positioned() {
     }
 }
 
-/// Every problem is listed at once, so each bad entry is reported at itself -- and each repeat of an
-/// entry is a duplicate of its own, not one complaint at the last copy.
+/// Every problem is listed at once: each bad entry is reported at itself,
+/// and each repeat of an entry is a duplicate of its own, not one
+/// complaint at the last copy.
 #[test]
 fn every_bad_sources_entry_is_reported_at_itself() {
     let report = rejected(&format!(
         "{REQUIRED}sources = [\"a.sysml\", \"notes.md\", \"a.sysml\", \"a.sysml\"]\n"
     ));
-    assert_eq!(texts(&report).len(), 3, "unexpected report: {report}");
+    assert_eq!(texts(&report).len(), 3, "unexpected report: {report:?}");
     assert!(texts(&report)[0].contains("`notes.md` is not a KerML"));
     assert!(texts(&report)[1].contains("`a.sysml` is listed more than once"));
     assert!(texts(&report)[2].contains("`a.sysml` is listed more than once"));
@@ -355,7 +361,7 @@ fn sources_cannot_be_inherited() {
             texts(&report)
                 .iter()
                 .any(|text| text.contains("cannot be inherited")),
-            "{marker}: unexpected report: {report}"
+            "{marker}: unexpected report: {report:?}"
         );
     }
 }
@@ -392,9 +398,9 @@ fn an_unknown_key_is_a_positioned_warning() {
 }
 
 /// Exactly four values are recognized; a value matching none of the four
-/// shapes is an error naming the key and listing them. A URL of another family and
-/// a value that is not a URL at all are one answer: neither is one of
-/// the four.
+/// shapes is an error naming the key and listing them. A URL of another
+/// family and a value that is not a URL at all are one answer: neither is
+/// one of the four.
 #[test]
 fn an_unrecognized_metamodel_is_refused() {
     for value in [
@@ -421,9 +427,9 @@ fn an_unrecognized_metamodel_is_refused() {
     }
 }
 
-/// An unrecognized metamodel says nothing about the schema either, so
-/// rule (b) does not run over `root`: one error, not an error and a
-/// warning about a key whose schema the reader cannot know.
+/// An unrecognized metamodel says nothing about the schema, so the
+/// foreign-key check does not run over `root`: one error, not an error and
+/// a warning about a key whose schema the reader cannot know.
 #[test]
 fn an_unrecognized_metamodel_does_not_decide_the_schema() {
     let report = rejected(&format!(
@@ -454,7 +460,7 @@ fn syside(sources: &str, root: &str) -> String {
 /// Read and resolve outside any workspace, keeping both stages'
 /// warnings apart: the reader's must be empty for a Syside project, and
 /// what `resolve` says is the subject.
-fn standalone(body: &str) -> Result<Validated<ResolvedProject>, Report> {
+fn standalone(body: &str) -> Result<Validated<ResolvedProject>, Diagnostics> {
     let validated = accepted(body);
     assert!(
         validated.warnings.is_empty(),
@@ -557,8 +563,8 @@ fn root_is_held_to_the_sources_entry_checks() {
 }
 
 /// A `root` that is not a string is the reader's type wording, raised
-/// where the family is known -- and nothing else: not missing, since
-/// the key was written.
+/// where the family is known, and nothing else: not missing, since the
+/// key was written.
 #[test]
 fn a_root_that_is_not_a_string_is_a_type_error_in_a_syside_project() {
     let report =
@@ -615,11 +621,10 @@ fn root_membership_is_not_checked_when_sources_is_absent() {
     assert_eq!(texts(&report), [SYSIDE_SOURCES_MISSING]);
 }
 
-/// `root` in an OMG project is a warning, raised where the family is known:
-/// An OMG project with `root` gets only the warning and is built from
-/// `sources`. *Whatever* the value: a
-/// path, a bool, an escaping path, an integer. None of them is judged, and
-/// the resolved project carries no `root`.
+/// `root` in an OMG project is a warning, raised where the family is
+/// known. The project is built from `sources`, whatever the value (a
+/// path, a bool, an escaping path, an integer): none of them is judged,
+/// and the resolved project carries no `root`.
 #[test]
 fn root_in_an_omg_project_is_a_warning() {
     for root in ["\"main.sysml\"", "true", "\"../escapes.sysml\"", "3"] {
@@ -641,8 +646,8 @@ fn root_in_an_omg_project_is_a_warning() {
         );
     }
 
-    // Condition 1: `root` alone does not stand in for `sources`; the
-    // warning comes with the error.
+    // `root` alone does not stand in for `sources`; the warning comes with
+    // the error.
     let report = manifest(&format!(
         "{REQUIRED}metamodel = \"{OMG_SYSML}\"\nroot = \"main.sysml\"\n"
     ))
@@ -682,8 +687,8 @@ fn root_is_not_foreign_when_the_syside_metamodel_is_inherited() {
     );
 }
 
-/// `root` is not inheritable, so a marker on it is refused -- and does
-/// not leave a `root` behind as if one had been written.
+/// `root` is not inheritable, so a marker on it is refused and does not
+/// leave a `root` behind as if one had been written.
 #[test]
 fn a_marker_on_root_is_refused() {
     let report = rejected(&format!("{RESOLVABLE}root.workspace = true\n"));
@@ -823,7 +828,7 @@ fn every_non_inheritable_key_refuses_a_marker() {
                 )
                 .as_str()
             ),
-            "{key}: unexpected report: {report}"
+            "{key}: unexpected report: {report:?}"
         );
     }
 }
@@ -904,7 +909,7 @@ fn duplicate_usages_are_rejected_per_array() {
     let report = read(&text).expect_err("duplicates");
     assert!(
         texts(&report)[0].contains("name the same project"),
-        "unexpected report: {report}"
+        "unexpected report: {report:?}"
     );
 }
 
@@ -914,7 +919,7 @@ fn a_report_is_in_document_order() {
     let report = rejected(&format!(
         "{REQUIRED}sources = [\"notes.md\"]\ntopics = 3\nmaintainers = [\"no email\"]\n"
     ));
-    assert_eq!(texts(&report).len(), 3, "unexpected report: {report}");
+    assert_eq!(texts(&report).len(), 3, "unexpected report: {report:?}");
     assert!(is_ascending(&places(&report)), "{:?}", places(&report));
 }
 
@@ -956,22 +961,20 @@ dir = \"legacy/dep\"
 ";
 
 fn workspace(text: &str) -> WorkspaceTable {
-    let (table, positions) = Source::new("model.toml", text)
-        .read()
-        .expect("the workspace parses");
-    let workspace = table
-        .get("workspace")
-        .and_then(toml::Value::as_table)
-        .cloned()
-        .unwrap_or_default();
-    WorkspaceTable::validate(&workspace, &positions)
+    let source = Source::new("model.toml", text);
+    let table = source.read().expect("the workspace parses");
+    let top = TableReader::new(table.get_ref(), None, KeyLocation::TopLevel, &source);
+    let workspace = top
+        .table("workspace", &mut Diagnostics::new())
+        .expect("the document has a workspace");
+    WorkspaceTable::validate(&workspace)
         .expect("the workspace validates")
         .into_parts()
         .0
 }
 
 /// Resolve a `[project]` body against `WORKSPACE`.
-fn member(body: &str) -> Result<Validated<ResolvedProject>, Report> {
+fn member(body: &str) -> Result<Validated<ResolvedProject>, Diagnostics> {
     manifest(body).resolve(Some(&workspace(WORKSPACE)))
 }
 
@@ -979,7 +982,7 @@ fn resolved(body: &str) -> ResolvedProject {
     member(body).expect("the project resolves").into_parts().0
 }
 
-fn unresolved(body: &str) -> Report {
+fn unresolved(body: &str) -> Diagnostics {
     member(body).expect_err("the project does not resolve")
 }
 
@@ -1148,7 +1151,7 @@ fn every_failing_marker_is_reported() {
          metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\
          topics.workspace = \"legacy\"\n",
     );
-    assert_eq!(texts(&report).len(), 3, "unexpected report: {report}");
+    assert_eq!(texts(&report).len(), 3, "unexpected report: {report:?}");
     assert!(is_ascending(&places(&report)), "{:?}", places(&report));
 }
 
@@ -1377,7 +1380,7 @@ fn an_inherited_metamodel_settles_the_sources_check() {
     assert_eq!(
         texts(&report),
         [SYSIDE_SOURCES_MISSING],
-        "unexpected report: {report}"
+        "unexpected report: {report:?}"
     );
 }
 
@@ -1497,8 +1500,8 @@ fn a_built_manifest_without_sources_reports_it_without_a_position() {
         .expect_err("a project with no `sources` does not resolve");
 
     // The diagnostic is the same one a file gets; what a built manifest
-    // cannot have is the position, since the two fields that carry one
-    // are private and only `validate` fills them.
+    // cannot have is the position, since the fields that carry one are
+    // private and only `validate` fills them.
     assert_eq!(texts(&report).len(), 1);
     assert!(texts(&report)[0].starts_with("missing key `sources` in `[project]`"));
     assert!(report.diagnostics()[0].position.is_none());
@@ -1523,8 +1526,8 @@ fn a_metamodel_is_required() {
     );
 }
 
-/// Exactly four values are recognized -- two families, two spec kinds
-/// each. All four resolve, and the resolved project carries the kind.
+/// Exactly four values are recognized: two families, two spec kinds each.
+/// All four resolve, and the resolved project carries the kind.
 #[test]
 fn each_of_the_four_metamodels_resolves() {
     for (value, family, spec) in [
@@ -1549,9 +1552,8 @@ fn each_of_the_four_metamodels_resolves() {
             SpecKind::SysMl,
         ),
     ] {
-        // A Syside project has no `sources` schema in v1, so the two
-        // Syside values are checked through `validate` alone; the OMG
-        // ones resolve whole.
+        // A Syside project also needs a `root`, so the two Syside values
+        // are checked through `validate` alone; the OMG ones resolve whole.
         let manifest = manifest(&format!(
             "{REQUIRED}sources = []\nmetamodel = \"{value}\"\n"
         ));
@@ -1643,7 +1645,7 @@ name = \"Kernel Semantic Library\"
 kpar-url = \"https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar\"
 ";
 
-fn in_stdlib_workspace(body: &str) -> Result<Validated<ResolvedProject>, Report> {
+fn in_stdlib_workspace(body: &str) -> Result<Validated<ResolvedProject>, Diagnostics> {
     manifest(body).resolve(Some(&workspace(STDLIB_WORKSPACE)))
 }
 

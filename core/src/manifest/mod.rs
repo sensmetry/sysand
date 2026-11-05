@@ -5,8 +5,8 @@
 //! produces, and the reader.
 //!
 //! [`ModelToml::parse`] is the way in. The submodules read the *contents*
-//! of a file -- a table, a usage entry, a value -- each given its table
-//! and the positions of the file it came from; this module is what
+//! of a file (a table, a usage entry, a value), each given a reader of
+//! its table, which knows where in the file it is; this module is what
 //! decides about the file as a whole: which version of the format it is
 //! written for, which of the two tables it defines, and which top-level
 //! keys are not known.
@@ -22,11 +22,14 @@ pub mod spans;
 pub mod usage;
 pub mod workspace_table;
 
-use crate::manifest::diagnostics::{Diagnostic, KeyLocation, Report, Validated};
+use toml::Spanned;
+use toml::de::DeValue;
+
+use crate::manifest::diagnostics::{Diagnostic, Diagnostics, KeyLocation, Validated};
 use crate::manifest::inherit::own;
 use crate::manifest::project::ProjectManifest;
 use crate::manifest::reader::TableReader;
-use crate::manifest::spans::{Positions, Source};
+use crate::manifest::spans::Source;
 use crate::manifest::workspace_table::WorkspaceTable;
 
 /// The name of the manifest this module reads.
@@ -67,7 +70,7 @@ impl std::fmt::Display for ManifestVersion {
 }
 
 /// The highest `manifest-version` this reader supports, and the value
-/// generated files carry. Files written for v1 carry `"1.0"`.
+/// generated files carry.
 pub const SUPPORTED_MANIFEST_VERSION: ManifestVersion = ManifestVersion::new(1, 0);
 
 /// The top-level keys of a file that defines a project.
@@ -102,10 +105,7 @@ pub enum ModelToml {
 impl ModelToml {
     /// Read a `model.toml`.
     ///
-    /// `file` names the file in messages; nothing here opens one. A
-    /// manifest a command built itself, or converted from a json project,
-    /// goes through the same validation with
-    /// [`Positions::without_spans`].
+    /// `file` names the file in messages; nothing here opens one.
     ///
     /// Reading accumulates: one report names every problem the file has,
     /// in the order the file reads, warnings among the errors. Three
@@ -121,15 +121,15 @@ impl ModelToml {
     /// An absent `manifest-version` is *not* one of them: no other schema is
     /// in play, so this reader's own applies and the rest of the file is
     /// read as usual.
-    pub fn parse(file: &str, text: &str) -> Result<Validated<Self>, Report> {
+    pub fn parse(file: &str, text: &str) -> Result<Validated<Self>, Diagnostics> {
         let source = Source::new(file, text);
-        let (document, positions) = source.read().map_err(|problem| {
-            let mut report = Report::new();
+        let document = source.read().map_err(|problem| {
+            let mut report = Diagnostics::new();
             report.push(problem);
             report
         })?;
-        let top = TableReader::new(&document, Vec::new(), KeyLocation::TopLevel, &positions);
-        let mut report = Report::new();
+        let top = TableReader::new(document.get_ref(), None, KeyLocation::TopLevel, &source);
+        let mut report = Diagnostics::new();
 
         if matches!(manifest_version(&source, &top, &mut report), Stop::Yes) {
             return Err(report);
@@ -160,25 +160,20 @@ impl ModelToml {
                 return Err(report);
             }
             (true, false) => {
-                let manifest = fold(
-                    ProjectManifest::validate(&document, &positions),
-                    &mut report,
-                )
-                .map(|manifest| Self::Project(Box::new(manifest)));
+                let manifest = fold(ProjectManifest::validate(&top), &mut report)
+                    .map(|manifest| Self::Project(Box::new(manifest)));
                 report.extend(top.unknown_keys(PROJECT_TOP_KEYS, None));
                 manifest
             }
             (false, true) => {
-                let manifest = workspace(&top, &positions, &mut report)
-                    .map(|table| Self::Workspace(Box::new(table)));
+                let manifest =
+                    workspace(&top, &mut report).map(|table| Self::Workspace(Box::new(table)));
                 report.extend(top.unknown_keys(WORKSPACE_TOP_KEYS, None));
                 manifest
             }
         };
 
-        // The two table readers each sort their own report, and the
-        // top-level sweep above runs after, so the merged report is
-        // sorted once more here.
+        // The table readers sort their own reports; sort the merge again.
         report.sort_by_position();
         match manifest {
             Some(manifest) => report.into_result(manifest),
@@ -188,17 +183,16 @@ impl ModelToml {
 
     /// Which table a file defines, without validating either.
     ///
-    /// The workspace is discovered by walking up from the working
-    /// directory until a `model.toml` with a `[workspace]` table is
-    /// encountered. The walk does not validate each ancestor: an
-    /// unrelated file's missing `manifest-version` must not end it.
+    /// Meant for walks over ancestor files: an unrelated file's missing
+    /// `manifest-version` must not end the walk.
     ///
     /// `Ok(None)` is a file with neither table.
     ///
-    /// A file with *both* tables answers `Workspace`. Such a file is invalid,
-    /// and the walk learns so when it reads it.
+    /// A file with *both* tables answers `Workspace`; reading it reports the
+    /// error.
     pub fn peek(file: &str, text: &str) -> Result<Option<ModelTomlKind>, Diagnostic> {
-        let (document, _) = Source::new(file, text).read()?;
+        let document = Source::new(file, text).read()?;
+        let document = document.get_ref();
         Ok(if document.contains_key("workspace") {
             Some(ModelTomlKind::Workspace)
         } else if document.contains_key("project") {
@@ -252,7 +246,7 @@ enum Stop {
 /// The key is mandatory and not inheritable: a member's file must be
 /// self-describing before the `[workspace]` table it inherits from is
 /// read.
-fn manifest_version(source: &Source<'_>, top: &TableReader<'_>, report: &mut Report) -> Stop {
+fn manifest_version(source: &Source<'_>, top: &TableReader<'_>, report: &mut Diagnostics) -> Stop {
     const KEY: &str = "manifest-version";
     let file = source.file();
     let version = own(top, KEY, "every file carries its own", report, |report| {
@@ -272,42 +266,37 @@ fn manifest_version(source: &Source<'_>, top: &TableReader<'_>, report: &mut Rep
         // Only absent and too new are failures, so a version below the
         // supported one is read as this one.
         Some(_) => Stop::No,
-        // Written, and unusable: `read_version` has said so -- or, for
-        // the inheritance marker, `own` has -- and what schema the file
-        // is in is exactly what is unknown.
+        // Written but unusable (already reported): the schema of the file
+        // is unknown.
         None if top.has(KEY) => Stop::Yes,
-        // Absent. Said too, by `read_version`, and the rest of the file
-        // is still judged: no other schema is in play.
+        // Absent (already reported): no other schema is in play, so the
+        // rest of the file is still judged.
         None => Stop::No,
     }
 }
 
 /// The version the file states, or the error that it states none.
 ///
-/// One text for three failures -- absent, not a string, and a string
-/// that is not a `<major>.<minor>` version.
+/// One message covers three failures: absent, not a string, and a string
+/// that is not a `<major>.<minor>` version. The value is quoted as the
+/// file spells it.
 ///
-/// The value is quoted as the file spells it: `toml::Value`'s `Display`
-/// writes TOML, so `manifest-version = "1.0"` is answered with what
-/// it wrote.
-///
-/// Reporting happens here: `own`
-/// short-circuits on an inheritance marker without calling this, so a
-/// report from the match would land on top of the marker's own error.
+/// The error is reported here, not by the caller, so that an inheritance
+/// marker (which skips this function) does not get a second error.
 fn read_version(
     source: &Source<'_>,
     top: &TableReader<'_>,
     key: &str,
-    report: &mut Report,
+    report: &mut Diagnostics,
 ) -> Option<ManifestVersion> {
-    let found = top.raw().get(key);
-    if let Some(toml::Value::String(written)) = found
+    let found = top.get(key);
+    if let Some(DeValue::String(written)) = found.map(Spanned::get_ref)
         && let Some(version) = ManifestVersion::parse(written)
     {
         return Some(version);
     }
     let spelled = match found {
-        Some(value) => format!(" (`{value}`)"),
+        Some(value) => format!(" (`{}`)", source.spelled(value.span())),
         None => String::new(),
     };
     let file = source.file();
@@ -324,15 +313,9 @@ fn read_version(
     None
 }
 
-fn workspace(
-    top: &TableReader<'_>,
-    positions: &Positions<'_>,
-    report: &mut Report,
-) -> Option<WorkspaceTable> {
-    // A workspace config has no top-level `inline-usages`: that array
-    // belongs to a project, and a workspace's common usages are declared
-    // under `[workspace]`, so one at the top level is an error. Presence, not a non-empty
-    // array: an explicit `inline-usages = []` is the key written.
+fn workspace(top: &TableReader<'_>, report: &mut Diagnostics) -> Option<WorkspaceTable> {
+    // Presence, not a non-empty array: an explicit `inline-usages = []`
+    // is an error too.
     if top.has("inline-usages") {
         report.push(
             Diagnostic::error(
@@ -343,11 +326,11 @@ fn workspace(
         );
     }
     let table = top.table("workspace", report)?;
-    fold(WorkspaceTable::validate(table.raw(), positions), report)
+    fold(WorkspaceTable::validate(&table), report)
 }
 
 /// Fold one table's result into the file's report.
-fn fold<T>(result: Result<Validated<T>, Report>, report: &mut Report) -> Option<T> {
+fn fold<T>(result: Result<Validated<T>, Diagnostics>, report: &mut Diagnostics) -> Option<T> {
     match result {
         Ok(validated) => {
             let (value, warnings) = validated.into_parts();

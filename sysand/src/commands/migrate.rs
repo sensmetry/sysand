@@ -28,7 +28,7 @@ use sysand_core::{
         ProjectRead as _,
         local_kpar::{KparInnerPath, LocalKParProject},
         local_src::{LocalSrcProject, ProjectFormat, detect_format},
-        utils::{relativize_path, validate_manifest, wrapfs},
+        utils::{ProjectDeserializationError, relativize_path, validate_manifest, wrapfs},
     },
     resolve::ResolutionInfo,
     utils::ProvidedProjects,
@@ -63,19 +63,15 @@ pub fn command_migrate<Policy: HTTPAuthentication>(
         .clone()
         .unwrap_or_else(|| ctx.current_directory.clone());
 
-    // From a workspace root the command errors unless a path names the
-    // project. Decided here rather than
-    // through the command scope: putting `migrate` in
-    // `consults_the_workspace` would make a discovery error fatal, and an
-    // *unlisted* json project under a workspace root is exactly the
-    // project a user wants to migrate.
+    // From a workspace root a path must name the project. Unlisted json
+    // projects under a workspace root are valid targets, so workspace
+    // discovery errors must not be fatal for this command.
     if path.is_none() && is_workspace_root(&dir)? {
         bail!("run from a workspace root, `migrate` needs the path of the json project to convert");
     }
 
-    // The format decides what happens, but the comparison it implies
-    // waits until after the working-tree check: a dirty project with a
-    // mismatched pair must hear about the dirty tree first.
+    // `Both` is compared only after the working-tree check: a dirty
+    // project with a mismatched pair must hear about the dirty tree first.
     let keep_existing_toml = match detect_format(&dir)? {
         ProjectFormat::Json => false,
         ProjectFormat::Toml => bail!("`{dir}` is already a `model.toml` project"),
@@ -83,8 +79,8 @@ pub fn command_migrate<Policy: HTTPAuthentication>(
         ProjectFormat::Both => true,
     };
 
-    // Before anything is written: `migrate` deletes the json manifests,
-    // so a user needs a way back.
+    // Before anything is written: the json manifests are deleted, so the
+    // user needs a way back.
     if !allow_no_vcs || !allow_dirty {
         match check_vcs(&dir)? {
             VcsState::Clean => {}
@@ -121,10 +117,8 @@ pub fn command_migrate<Policy: HTTPAuthentication>(
     }
 
     // Through the `Partial` types and `validate_manifest`, so unknown
-    // keys are warned about.
-    //
-    // The metadata comes first because `validate` takes the metamodel,
-    // and the metamodel is in `.meta.json`.
+    // keys are warned about. The metadata comes first: `validate` takes
+    // the metamodel from it.
     let meta_text = wrapfs::read_to_string(dir.join(META_JSON_FILE))?;
     let meta: InterchangeProjectMetadataPartial = serde_json::from_str(&meta_text)
         .map_err(|e| anyhow::anyhow!("failed to read `{META_JSON_FILE}`: {e}"))?;
@@ -140,10 +134,8 @@ pub fn command_migrate<Policy: HTTPAuthentication>(
         info.validate(PROJECT_JSON_FILE, meta.metamodel.as_deref()),
     )?;
 
-    // Built on the first resource that needs it. `create_resolver` can
-    // fail on a malformed index URL or a bad override, and migrating a
-    // project with no `resource` usages must not fail on configuration
-    // it never reads.
+    // Built on the first resource that needs it, so a project with no
+    // `resource` usages does not fail on configuration it never reads.
     let resolver: RefCell<Option<CliResolver<Policy>>> = RefCell::new(None);
     let build_resolver = || -> Result<(), String> {
         if resolver.borrow().is_some() {
@@ -177,9 +169,9 @@ pub fn command_migrate<Policy: HTTPAuthentication>(
         let resolver = borrowed.as_ref().expect("just built");
         resolve_remote_target(resource, resolver)
     };
-    // The command may prompt for a missing publisher, only when stdin is
-    // a TTY and `--publisher` is absent -- piped and CI runs get the
-    // missing-publisher error.
+    // Prompt for a missing publisher only when stdin is a TTY and
+    // `--publisher` is absent; piped and CI runs get the missing-publisher
+    // error.
     let publisher = match publisher {
         Some(publisher) => Some(publisher),
         // Under `--format json` stdout is the document, so there is no
@@ -205,16 +197,17 @@ pub fn command_migrate<Policy: HTTPAuthentication>(
             metamodel,
         },
         &lookup,
-    )?;
+    )
+    .map_err(|report| report.in_file(dir.as_str()))?;
+    // A conversion's diagnostics are about the json pair as a whole and
+    // carry no position.
     for warning in &validated.warnings {
-        log::warn!("{warning}");
+        log::warn!("{}", warning.message);
     }
 
-    // A `model.toml` usage is satisfied only by a target that declares
-    // the pair as the usage spells it, and a json usage's spellings only ever had to match after
-    // normalization. Without this a migrated manifest could be one
-    // `sysand lock` refuses -- after the json pair it was converted
-    // from has been deleted.
+    // A `model.toml` usage is satisfied only by a target that declares the
+    // pair as the usage spells it, while a json usage only had to match
+    // after normalization.
     let mut manifest = validated.value;
     spell_path_usages_as_targets(&mut manifest, &dir);
 
@@ -261,10 +254,10 @@ fn delete_json_pair(dir: &Utf8Path) -> Result<()> {
 /// manifests agree about `sources` or usages, so a `model.toml` that agrees on
 /// the identity has the json project's usages deleted silently.
 fn check_both_agree(dir: &Utf8Path) -> Result<()> {
-    let text = wrapfs::read_to_string(dir.join(MODEL_TOML_FILE))?;
-    let manifest = ModelToml::parse(MODEL_TOML_FILE, &text).map_err(|report| {
-        anyhow::anyhow!("`{dir}/{MODEL_TOML_FILE}` is not a valid manifest:\n{report}")
-    })?;
+    let file = dir.join(MODEL_TOML_FILE);
+    let text = wrapfs::read_to_string(&file)?;
+    let manifest = ModelToml::parse(file.as_str(), &text)
+        .map_err(|report| ProjectDeserializationError::invalid(&file, report))?;
     let ModelToml::Project(project) = manifest.value else {
         bail!(
             "`{dir}/{MODEL_TOML_FILE}` defines a workspace, not a project, so it cannot be the \
@@ -273,10 +266,9 @@ fn check_both_agree(dir: &Utf8Path) -> Result<()> {
     };
 
     // An inherited value cannot be resolved without the workspace table,
-    // which `migrate` does not load. `publisher` is refused too, though
-    // the rule compares only name and version: an unresolvable publisher
-    // means the two manifests may name different projects and the
-    // comparison could not tell.
+    // which `migrate` does not load. `publisher` is refused too, though it
+    // is not compared: if it cannot be resolved the manifests may name
+    // different projects.
     let toml_version = match project.project.version.provided() {
         Some(version) => version.to_string(),
         None => bail!(
@@ -292,13 +284,9 @@ fn check_both_agree(dir: &Utf8Path) -> Result<()> {
     }
 
     // Through the `Partial` types and `validate_manifest`, as the Json
-    // path above does. Deserializing straight into the strict types
-    // would silently accept the unknown keys the `Json` path warns
-    // about -- and could not see the usages it is about to delete.
-    //
-    // The metadata comes first, `validate` taking the metamodel from
-    // it. Absent is not an error: `detect_format` calls a directory
-    // `Both` when *either* json file is there.
+    // path above does, so unknown keys are warned about. The metadata
+    // comes first, `validate` taking the metamodel from it. Absent is not
+    // an error: a directory is `Both` when either json file is there.
     let meta = match wrapfs::read_to_string(dir.join(META_JSON_FILE)) {
         Ok(text) => {
             let partial: InterchangeProjectMetadataPartial = serde_json::from_str(&text)
@@ -310,19 +298,11 @@ fn check_both_agree(dir: &Utf8Path) -> Result<()> {
         }
         Err(_) => sysand_core::model::InterchangeProjectMetadataRaw::default(),
     };
-    // A `model.toml` beside a lone `.meta.json` is `Both` -- and it is
-    // the state `migrate` itself leaves if it is interrupted between
-    // the two deletes, `delete_json_pair` removing `.project.json`
-    // first. Nothing readable is lost by finishing the job: a
-    // `.meta.json` alone is not a project, and it holds only the fields
-    // `warn_discarded` already says a `model.toml` cannot keep. The
-    // mirror case -- a lone `.project.json` -- is deleted without
-    // comment, and two opposite answers to one shape would be worse than
-    // either.
+    // A `model.toml` beside a lone `.meta.json` is the state an interrupted
+    // `migrate` leaves, as `.project.json` is deleted first. Finishing the
+    // job loses nothing readable: `.meta.json` alone is not a project.
     if !wrapfs::is_file(dir.join(PROJECT_JSON_FILE))? {
-        // Nothing to compare against, and nothing to lose: the caller's
-        // `delete_json_pair` removes the stray and reports the
-        // migration as it does for the mirror case.
+        // Nothing to compare against; the caller removes the stray.
         return Ok(());
     }
     let json_text = wrapfs::read_to_string(dir.join(PROJECT_JSON_FILE))?;
@@ -333,10 +313,8 @@ fn check_both_agree(dir: &Utf8Path) -> Result<()> {
         partial.validate(PROJECT_JSON_FILE, meta.metamodel.as_deref()),
     )?;
 
-    // Identities compare normalized, and `IndexName` derives `PartialEq` on
-    // the written string -- so `Lib test` and
-    // `lib-test` are the same name and a literal comparison would call
-    // them a mismatch.
+    // Names compare normalized: `Lib test` and `lib-test` are the same
+    // name, but `IndexName`'s `PartialEq` compares the written string.
     let json_name = IndexName::parse(json.name.clone())
         .map_err(|e| anyhow::anyhow!("`{PROJECT_JSON_FILE}` has an invalid `name`: {e}"))?;
     if json_name.normalized() != project.project.name.normalized() {
@@ -348,9 +326,8 @@ fn check_both_agree(dir: &Utf8Path) -> Result<()> {
         );
     }
 
-    // The json side is a string and the toml side a `semver::Version`,
-    // so a json version that is not semver is a parse error rather than
-    // a disagreement quoting a non-version.
+    // A json version that is not semver is a parse error, not a
+    // disagreement.
     let json_version = semver::Version::parse(&json.version).map_err(|e| {
         anyhow::anyhow!(
             "`{PROJECT_JSON_FILE}` has version `{}`, which is not a semantic version: {e}",
@@ -365,22 +342,18 @@ fn check_both_agree(dir: &Utf8Path) -> Result<()> {
         );
     }
 
-    // Resolving, not only parsing: `metamodel` is required, and the
-    // requirement lives in `resolve`. Without this a `model.toml` with
-    // no metamodel passes the gate, the json pair is deleted, and what
-    // is left is a manifest every command refuses -- with nothing to
-    // recover it from. The Json path refuses such a project outright;
-    // this is the Both path saying the same thing before it deletes.
+    // Resolve, not only parse: `metamodel` is required, and a `model.toml`
+    // without one would be left unreadable once the json pair is deleted.
     //
-    // `None` for the workspace: `migrate` does not load one, which is
-    // why the two inherited keys above are refused by hand. Any other
-    // marker fails here instead, which is the same answer in one place.
+    // `None` for the workspace: `migrate` does not load one, which is why
+    // the inherited keys above are refused by hand.
     let resolved = project
         .resolve(None)
         .map_err(|report| {
             anyhow::anyhow!(
-                "`{dir}/{MODEL_TOML_FILE}` would not be readable on its own:\n{report}\n\
-                 the json manifests beside it are left in place"
+                "`{file}` would not be readable on its own:\n{}\n\
+                 the json manifests beside it are left in place",
+                report.in_file(file.as_str())
             )
         })?
         .into_parts()
@@ -392,8 +365,6 @@ fn check_both_agree(dir: &Utf8Path) -> Result<()> {
 }
 
 /// The filesystem half of a `file:` usage.
-///
-/// Every step here is a filesystem question.
 fn resolve_file_target(resource: &str, project: &Utf8Path) -> Result<Usage, String> {
     let url = url::Url::parse(resource).map_err(|e| format!("`{resource}` is not a URL: {e}"))?;
     let target = url
@@ -402,13 +373,11 @@ fn resolve_file_target(resource: &str, project: &Utf8Path) -> Result<Usage, Stri
     let target = Utf8PathBuf::from_path_buf(target)
         .map_err(|p| format!("`{}` is not valid UTF-8", p.display()))?;
 
-    // Both project kinds are tried: a project's kind is not decided
-    // from its extension.
     let (publisher, name, is_kpar) = read_identity(&target)?;
 
-    // `relativize_path` asserts that both paths are absolute and free
-    // of `.`/`..`, so a `sysand migrate ./proj` would abort the process
-    // rather than fail. Canonicalize first.
+    // `relativize_path` asserts that both paths are absolute and free of
+    // `.`/`..` (it would abort on `sysand migrate ./proj`), so
+    // canonicalize first.
     let project =
         wrapfs::canonicalize(project).map_err(|e| format!("cannot resolve `{project}`: {e}"))?;
     let target =
@@ -433,12 +402,9 @@ fn resolve_file_target(resource: &str, project: &Utf8Path) -> Result<Usage, Stri
 
 /// `(publisher, name, is_kpar)` read from the target.
 fn read_identity(target: &Utf8Path) -> Result<(IndexPublisher, IndexName, bool), String> {
-    // A target that is not a directory is not a source project, and
-    // asking a `LocalSrcProject` about one *fails* rather than
-    // answering "nothing here": it tests `<target>/model.toml`, which on
-    // a `.kpar` file is `Not a directory (os error 20)`, and the arm
-    // below turns any error into a failed migration. Without this an
-    // archive named by a `file:` usage could not be migrated at all.
+    // Asking a `LocalSrcProject` about a non-directory fails instead of
+    // answering "nothing here" (`<target>/model.toml` on a `.kpar` file is
+    // `Not a directory`), so archives are handled before it.
     let is_dir = wrapfs::is_dir(target).map_err(|e| {
         format!(
             "cannot tell whether usage target `{target}` is a directory: {}",
@@ -454,21 +420,16 @@ fn read_identity(target: &Utf8Path) -> Result<(IndexPublisher, IndexName, bool),
         return finish_identity(target, info);
     }
     let source = match member_table(target)? {
-        // A member resolves its inherited keys against the table, which
-        // `get_info` consults; without it, `publisher.workspace = true`
-        // is unresolvable and the target reads as broken.
+        // A member's inherited keys resolve against the table.
         Some(table) => LocalSrcProject::new_member(target.to_owned(), None, Arc::new(table)),
         None => LocalSrcProject::new_access(target.to_owned(), None),
     };
-    // Only "there is no source project here" sends us to the KPAR
-    // attempt. A source project that *is* there and cannot be read has
-    // its own error, and swallowing it would report a member with an
-    // inherited `publisher` as "no project here".
+    // Only "there is no source project here" falls back to a KPAR; a
+    // source project that cannot be read is an error.
     let info = match source.get_info() {
         Ok(Some(info)) => Some((info, false)),
         Err(error) => return Err(format!("usage target `{target}`: {error}")),
-        // Nothing to read as a source project: a project's kind is not
-        // decided from its extension, so try a KPAR.
+        // A project's kind is not decided from its extension, so try a KPAR.
         Ok(None) => {
             let kpar = LocalKParProject::new_access(target.to_owned(), KparInnerPath::Guess, None);
             match kpar.get_info() {
@@ -491,10 +452,8 @@ fn finish_identity(
         ));
     };
 
-    // The target's own `publisher` is the only source for it, and
-    // `model.toml` requires one. The wording is adapted rather than
-    // reused from `TargetHasNoPublisher`, whose advice is to run
-    // `sysand migrate` on the target -- which is what is running.
+    // `model.toml` requires a publisher, and the target's own is the only
+    // source for it.
     let Some(publisher) = info.publisher else {
         return Err(format!(
             "usage target `{target}` declares no `publisher`, which `model.toml` requires;\n\
@@ -512,22 +471,13 @@ fn finish_identity(
 /// The workspace table `target` inherits from, if it is a **member** of
 /// one.
 ///
-/// Not `discover_table` alone: that finds any enclosing workspace root
-/// without asking whether the target is listed in `members`, while
-/// markers resolve only against the workspace the project is a member
-/// of: a project that is not a member is outside every workspace
-/// regardless of where its directory sits. That population -- an
-/// unlisted project under a workspace root -- is exactly the one
-/// `migrate` exists for.
-///
-/// Not `Workspace::load_with` either: it would refuse the whole
-/// workspace because some *other* member is broken.
+/// A project that is not listed in `members` is outside every workspace,
+/// wherever its directory sits, so `discover_table` alone is not enough.
+/// The workspace is not loaded whole, as another broken member would
+/// refuse it.
 fn member_table(target: &Utf8Path) -> Result<Option<WorkspaceTable>, String> {
-    // A target that is not a directory cannot be a member, and asking
-    // the question of one fails rather than answering: `discover_table`
-    // tests `<target>/model.toml`, which on a `.kpar` file is
-    // `Not a directory (os error 20)`, which would make a json
-    // `resource` naming an archive impossible to migrate at all.
+    // A non-directory cannot be a member, and `discover_table` fails on
+    // one (`<target>/model.toml` on a `.kpar` file is `Not a directory`).
     if !wrapfs::is_dir(target).map_err(|e| {
         format!(
             "cannot tell whether `{target}` is a directory: {}",
@@ -545,15 +495,10 @@ fn member_table(target: &Utf8Path) -> Result<Option<WorkspaceTable>, String> {
     else {
         return Ok(None);
     };
-    // `member_index` and not `start_region`: the latter prefix-matches,
-    // so a project that merely *sits inside* a member would answer
-    // `Member` and be handed the table it is not entitled to. Every
-    // "not a member" answer -- unlisted, excluded, nested inside an
-    // entry, outside the root -- is an answer here rather than a
-    // failure: reporting it would fail the migration of an unrelated
-    // project because of a workspace the target merely sits near, and
-    // an unlisted project under a root is precisely what `migrate`
-    // exists for.
+    // `member_index`, not `start_region`: the latter prefix-matches, so a
+    // project nested inside a member would be handed the member's table.
+    // Every "not a member" answer (unlisted, excluded, nested, outside the
+    // root) is `None`, not an error.
     let index = member_index(&root, &table, target).map_err(|error| {
         format!(
             "cannot place `{target}` in the workspace at `{root}`: {}",
@@ -566,8 +511,7 @@ fn member_table(target: &Utf8Path) -> Result<Option<WorkspaceTable>, String> {
 /// Ask for the publisher `model.toml` requires and the json project does
 /// not have.
 ///
-/// A plain read, not `rpassword`: that masks what is typed, which is
-/// right for a token and wrong for a publisher.
+/// The answer is echoed, unlike a token.
 fn prompt_for_publisher() -> Result<Option<String>> {
     print!("Publisher for this project (leave empty to abort): ");
     std::io::stdout()
@@ -583,9 +527,9 @@ fn prompt_for_publisher() -> Result<Option<String>> {
 
 /// A usage of an OMG standard-library IRI, without touching the network.
 ///
-/// Such a usage is a `kpar-url` that declares no `publisher`, and its
-/// name is the name the KPAR declares, which Sysand embeds for every release it knows, and
-/// which is not the IRI's stem.
+/// Such a usage is a `kpar-url` that declares no `publisher`. Its name is
+/// the one the KPAR declares, which Sysand embeds for every release it
+/// knows, not the IRI's stem.
 fn stdlib_target(resource: &str) -> Result<Usage, String> {
     let url = fluent_uri::Iri::parse(resource.to_owned())
         .map_err(|(e, _)| format!("`{resource}` is not a valid IRI: {e}"))?;
@@ -609,11 +553,8 @@ fn resolve_remote_target<Policy: HTTPAuthentication>(
         .map_err(|(e, _)| format!("`{resource}` is not a valid IRI: {e}"))?;
     let resolve = ResolutionInfo::iri(iri);
 
-    // The usage is resolved now and pinned to `^<version>` of what the
-    // resolution found: the highest version among candidates that read,
-    // skipping non-semver versions with a warning. The version is
-    // *typed*, so `^{version}` cannot be built from something that is
-    // not one.
+    // Pinned to `^<version>` of the highest version among the candidates
+    // that read, skipping non-semver versions with a warning.
     let (version, project) = get_project_version(&resolve, None, resolver)
         .map_err(|e| format!("cannot resolve `{resource}`: {e:#}"))?;
 
@@ -642,13 +583,10 @@ fn resolve_remote_target<Policy: HTTPAuthentication>(
         });
     }
 
-    // A URL is used as-is. Both a KPAR and a source tree at an
-    // `http(s)` URL are written this way, and the resolver accepts
-    // either.
+    // A URL is used as-is; the resolver accepts a KPAR or a source tree.
     Ok(Usage::RemoteKpar {
-        // A publisher is always written here: a standard-library IRI
-        // never reaches this function, `lookup` having answered it
-        // offline.
+        // Standard-library IRIs are answered offline before reaching here,
+        // so a publisher is always known.
         publisher: Some(publisher),
         name,
         url: fluent_uri::Iri::parse(resource.to_owned())
@@ -661,8 +599,7 @@ fn resolve_remote_target<Policy: HTTPAuthentication>(
 ///
 /// The json spellings only had to match after normalization, so
 /// `acme-corp` at a target declaring `Acme Corp` is a valid json
-/// project but not a valid `model.toml` one. Lives in the CLI because
-/// `core` has no filesystem.
+/// project but not a valid `model.toml` one.
 fn spell_path_usages_as_targets(manifest: &mut ModelToml, dir: &Utf8Path) {
     let ModelToml::Project(project) = manifest else {
         return;
@@ -689,11 +626,8 @@ fn spell_path_usages_as_targets(manifest: &mut ModelToml, dir: &Utf8Path) {
                 .as_str()
                 .replace('/', std::path::MAIN_SEPARATOR_STR),
         );
-        // A target that cannot be read leaves the json spelling alone.
-        // A json project may name a path that is not checked out, and
-        // refusing to migrate it would be a worse answer than a usage
-        // `sysand lock` will refuse for the same reason the json one
-        // would have: the target is not there.
+        // A target that cannot be read leaves the json spelling alone: a
+        // json project may name a path that is not checked out.
         let (publisher, name, _) = match read_identity(&target) {
             Ok(identity) => identity,
             Err(error) => {
@@ -730,22 +664,13 @@ fn spell_path_usages_as_targets(manifest: &mut ModelToml, dir: &Utf8Path) {
 /// Say what the json manifests hold that the `model.toml` does not,
 /// before they are deleted.
 ///
-/// The `Both` case is a *success* path whose one failure condition is a
-/// name or version mismatch, and migrate leaves only the toml manifest
-/// behind. So this warns rather than refusing: what is checked here is not whether the migration is
-/// allowed but whether the user knows what it costs.
+/// This warns rather than refuses: it tells the user what the migration
+/// costs. The `.meta.json` symbol index and checksums are not compared, as
+/// a `model.toml` cannot hold either; `sources` covers what they become.
 ///
-/// Seven things, and not the two obvious ones. The `.meta.json` symbol
-/// index and checksums are deliberately **absent**: a `model.toml`
-/// cannot hold either (see `warn_discarded`), so comparing them would
-/// warn on every `Both` migration including one of migrate's own
-/// output. `sources` covers what those two become.
-///
-/// A json usage is rendered as the json spells it. A `resource` usage
-/// has no publisher or name until its target is fetched, and this path
-/// builds no resolver -- migrate asks for an index only when the Json
-/// path meets a `resource` usage, and adding one here would put a
-/// network round trip on a path that otherwise needs none.
+/// A json usage is rendered as the json spells it: a `resource` usage has
+/// no publisher or name until its target is fetched, and this path builds
+/// no resolver.
 fn warn_about_what_the_json_holds(
     toml: &sysand_core::manifest::project::ResolvedProject,
     json: &sysand_core::model::InterchangeProjectInfoRaw,
@@ -762,7 +687,7 @@ fn warn_about_what_the_json_holds(
     // The json side is normalized first: migration rewrites `./a.sysml`
     // and `a//b.sysml` into the strict form `sources` takes, so raw
     // strings would report differences migration erases.
-    let mut discard = sysand_core::manifest::diagnostics::Report::new();
+    let mut discard = sysand_core::manifest::diagnostics::Diagnostics::new();
     if let Some(from_json) =
         sysand_core::commands::migrate::migrate_sources(meta, Some(&toml.metamodel), &mut discard)
     {

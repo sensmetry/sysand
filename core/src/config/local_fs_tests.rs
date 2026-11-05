@@ -26,7 +26,6 @@ fn load_configs() -> Result<(), Box<dyn Error>> {
             IndexSource::parse("http://www.example.com").unwrap(),
         )],
         projects: vec![],
-        // auth: None,
     };
     config_file.write_all(toml::to_string_pretty(&config)?.as_bytes())?;
 

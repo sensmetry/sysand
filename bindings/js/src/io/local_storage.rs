@@ -92,8 +92,8 @@ pub enum Error {
     /// A source file listed in `sources` could not be indexed.
     #[error(transparent)]
     Symbols(#[from] sysand_core::symbols::SymbolsError),
-    #[error("`{0}` is not a valid manifest:\n{1}")]
-    InvalidManifest(&'static str, Report),
+    #[error("`{}` is not a valid manifest:\n{report}", .report.file())]
+    InvalidManifest { report: Report },
     /// A `model.toml` that is not one, or does not define a project, or
     /// does not validate. Carried whole, as the filesystem store carries
     /// it.
@@ -412,10 +412,12 @@ fn parse_manifest<T: PartialManifest>(
     match partial.validate_manifest(metamodel) {
         Ok(validated) => {
             for warning in &validated.warnings {
-                log::warn!("`{}`: {warning}", T::FILE);
+                log::warn!("{}", warning.in_file(T::FILE));
             }
             Ok(validated.value)
         }
-        Err(report) => Err(Error::InvalidManifest(T::FILE, report)),
+        Err(report) => Err(Error::InvalidManifest {
+            report: report.in_file(T::FILE),
+        }),
     }
 }

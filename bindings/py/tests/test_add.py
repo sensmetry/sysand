@@ -32,9 +32,9 @@ def publish_dep(index: MockIndex, version: str = "1.0.0") -> None:
 @pytest.fixture(autouse=True)
 def _log_everything(caplog: pytest.LogCaptureFixture) -> None:
     # `pyo3_log` caches a logger's level on its first use, and these tests are
-    # the first to use some of the loggers that later tests (`test_basic_init`,
-    # `test_cli_logger`) assert records from. Cached at DEBUG, the records
-    # still reach Python, whose own levels filter them as usual.
+    # the first to use some of the loggers that later tests assert records
+    # from. Cached at DEBUG, the records still reach Python, whose own levels
+    # filter them as usual.
     caplog.set_level(logging.DEBUG)
 
 

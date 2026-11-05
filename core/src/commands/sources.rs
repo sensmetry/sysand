@@ -168,12 +168,9 @@ fn solve_dependencies<Env: ReadEnvironment + Debug + 'static>(
     );
 
     // `base_path` does not matter here, since the resolver only looks in env
-    // TODO: the origin of the usages is not threaded through this public
-    // entry point, so a toml project's own usages resolve as json here.
-    // That decides not only which error a publisher-less target gets, but
-    // whether the pair is compared literally or normalized. This makes no
-    // difference while it resolves against the environment, which checks
-    // no identity at all, but a path usage would need the origin.
+    // TODO: the origin of the usages is not passed to this function, so a
+    // toml project's usages resolve as json. This makes no difference while
+    // resolving against the environment, but a path usage would need the origin.
     let requested = requested
         .into_iter()
         .map(|u| (u, UsageOrigin::Json))
@@ -289,8 +286,8 @@ pub enum SourcesEnvError {
 ///
 /// The project is looked up by the identifier it is installed under: the
 /// IRI, or the identifier derived from publisher and name (see
-/// [`Identifier::from_pub_name`]), so any spelling that gives the same
-/// identifier finds it
+/// [`Identifier::from_project`]), so any spelling that gives the same
+/// identifier finds it.
 #[cfg(feature = "filesystem")]
 pub fn do_sources_env(
     env: LocalDirectoryEnvironment,
@@ -301,17 +298,16 @@ pub fn do_sources_env(
 ) -> Result<Vec<Utf8PathBuf>, SourcesEnvError> {
     let identifier = match project {
         UsageRef::Resource(iri) => Identifier::from_iri(&iri),
-        // FIXME: a spelling only finds the project if it gets the same kind of
-        // identifier as the spelling the project was installed under. E.g. a directory usage of
-        // `ACME Inc./Foo` is installed as `urn:sysand:acme-inc/foo`, so
-        // `acme-inc/foo`, although its normalized form, looks up
+        // FIXME: a spelling only finds the project if it gets the same kind
+        // of identifier as the spelling the project was installed under. E.g.
+        // a directory usage of `ACME Inc./Foo` is installed as
+        // `urn:sysand:acme-inc/foo`, so `acme-inc/foo` looks up
         // `pkg:sysand/acme-inc/foo` and does not find it
         UsageRef::Typed(publisher, name) => Identifier::from_project(publisher, name),
     };
     let mut candidates = env.candidate_projects(&identifier)?.into_iter();
 
     let installed = match version {
-        // No version constraints, so choose the first candidate
         None => candidates.next(),
         Some(vr) => loop {
             let Some(candidate) = candidates.next() else {

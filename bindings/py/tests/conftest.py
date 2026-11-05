@@ -52,7 +52,7 @@ def _claim_logger(tmp_path_factory: pytest.TempPathFactory) -> None:
     # test so `_run_cli` can never steal the logger from the tests that
     # assert on log records; `run_cli` then keeps the level it was asked for
     # and continues, quietly, because `_run_cli` runs it as
-    # `ProcessOwnership::Embedded` (see `test_cli_logger.py`).
+    # `ProcessOwnership::Embedded`.
     sysand.env.env(path=tmp_path_factory.mktemp("logger") / sysand.env.DEFAULT_ENV_NAME)
 
 
@@ -188,8 +188,9 @@ def make_baseline(tmp_path: Path, mock_index: MockIndex) -> MakeBaseline:
             "usage": usages,
         }
         # A legacy json project, written by hand rather than through
-        # `sysand.init`, which writes a `model.toml`. Initialising and then overwriting would leave the directory
-        # holding both manifests, which nothing can read.
+        # `sysand.init`, which writes a `model.toml`. Initialising and then
+        # overwriting would leave the directory holding both manifests, which
+        # nothing can read.
         #
         # sysand's own pretty format (2-space indent, trailing newline):
         # `set_usage_constraint` only guarantees a one-line diff for manifests

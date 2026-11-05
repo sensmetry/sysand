@@ -74,12 +74,8 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
     ) -> Result<Self, TryFromSourceError> {
         match source {
             OverrideSource::Editable { editable } => {
-                // A configured `[override]` may name a workspace member,
-                // whose manifest resolves only against its table: read it
-                // table-less and a member inheriting its `metamodel`
-                // fails with "the project is not a member of any
-                // workspace", about a project that is listed in
-                // `members`.
+                // An `[override]` may name a workspace member, whose manifest
+                // resolves only against its table; this reads it as a member.
                 let project = crate::workspace::model_toml::project_at_path(
                     project_root.as_ref().join(editable.as_str()),
                     Some(editable.to_string().into()),
@@ -97,7 +93,7 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
                 )))
             }
             OverrideSource::LocalSrc { src_path } => {
-                // As for `Editable` above.
+                // Read as a member, as for `Editable`.
                 let project_path = project_root.as_ref().join(src_path.as_str());
                 Ok(Self::LocalSrc(
                     crate::workspace::model_toml::project_at_path(project_path, Some(src_path))?,

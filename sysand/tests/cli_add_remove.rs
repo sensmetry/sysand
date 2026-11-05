@@ -243,8 +243,7 @@ fn config_file_must_be_readable() -> Result<(), Box<dyn std::error::Error>> {
         None,
     )?;
 
-    // Missing, or a directory. Only `add` with a source creates it, as
-    // `add_and_remove_as_editable` shows.
+    // Missing, or a directory. Only `add` with a source creates it.
     let missing = cwd.join("missing.toml");
     for config_path in [missing.as_str(), cwd.as_str()] {
         for args in [
@@ -1210,9 +1209,7 @@ fn add_and_remove_urn_with_slash() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-// The `env install` subcommand is commented out (see `EnvCommand` in cli.rs). Without the
-// preinstall step this test would duplicate `add_and_remove_as_local_src` and
-// `remove_keeps_lockfile_valid_and_syncs`, so it is commented out to match instead.
+// Disabled: the `env install` subcommand it relies on is commented out in the CLI.
 /*
 #[test]
 fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error>> {
@@ -3130,8 +3127,7 @@ sources = [{ src_path = "dep" }]
 }
 
 /// Known issue: the solver coalesces usages by identifier, and the first one
-/// resolved supplies the candidates for all of them (see the TODO in
-/// `resolve_candidates`). Here the root's overridden resource usage is
+/// resolved supplies the candidates for all of them. Here the root's overridden resource usage is
 /// resolved before its dependency's index usage of the same project, so the
 /// index usage is answered by the override too. Update this test when the
 /// coalescing policy is decided
@@ -3551,8 +3547,8 @@ fn add_dir_on_a_toml_project() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// A shape a manifest cannot express is refused, and nothing is left
-/// behind -- neither a half-edited manifest nor a `sysand.toml` override
-/// for a usage that was never added.
+/// behind: neither a half-edited manifest nor a `sysand.toml` override for a
+/// usage that was never added.
 #[test]
 fn a_refused_add_leaves_nothing_behind() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
@@ -3661,10 +3657,8 @@ fn add_normalized_index_usage_takes_the_resolved_spelling_on_a_toml_project()
     Ok(())
 }
 
-/// A standard-library usage declares no `publisher`, and is
-/// reached by the identity `(omg, <name>)` -- so `sysand remove
-/// omg/<name>` removes it. Without `entry_identity` knowing the form,
-/// the entry would be invisible to every editor.
+/// A standard-library usage declares no `publisher`, and is reached by the
+/// identity `(omg, <name>)`, so `sysand remove omg/<name>` removes it.
 #[test]
 fn a_stdlib_usage_is_removed_by_its_omg_identity() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
@@ -3695,9 +3689,6 @@ fn a_stdlib_usage_is_removed_by_its_omg_identity() -> Result<(), Box<dyn std::er
 
 /// A hand-commented `model.toml` survives `add` and `remove` with
 /// comments and key order intact, end to end.
-///
-/// The file above is mostly about the json path, so this one builds a
-/// toml project explicitly.
 #[test]
 fn add_and_remove_keep_the_comments_and_key_order() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, _) = cli_init_project(None, "acme", Some("widgets"), Some("1.0.0"), None)?;

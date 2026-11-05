@@ -24,9 +24,9 @@ def init(
     guessed. It is one of ``https://www.omg.org/spec/KerML/<date>``,
     ``https://www.omg.org/spec/SysML/<date>``,
     ``https://www.sysand.com/spec/KerML/<date>`` or
-    ``https://www.sysand.com/spec/SysML/<date>``. The workspace
-    exception ``sysand init`` has -- inheriting from the default group
-    -- belongs to the command, which knows the scope it was run in.
+    ``https://www.sysand.com/spec/SysML/<date>``. The CLI's workspace
+    exception, inheriting the metamodel from the default group, does not
+    apply here.
 
     Args:
         project_dir: The directory to write ``model.toml`` to. Its parent

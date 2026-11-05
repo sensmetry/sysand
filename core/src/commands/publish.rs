@@ -52,10 +52,9 @@ use crate::{
 
 /// Defensive upper bound on kpar file size (100 MiB) to catch unexpected uploads by mistake.
 const MAX_KPAR_PUBLISH_SIZE: u64 = 100 * 1024 * 1024;
-/// Path appended to the API root to form the upload endpoint. The
-/// trailing/leading slashes are omitted here so the value composes
-/// cleanly with `Url::join`, which treats a base ending in `/` as a
-/// directory.
+/// Path appended to the API root to form the upload endpoint. It has no
+/// leading or trailing slash, so it composes with `Url::join`, which treats a
+/// base ending in `/` as a directory.
 const UPLOAD_ENDPOINT_PATH: &str = "v1/upload";
 const TRUSTED_PUBLISHING_EXCHANGE_PATH: &str = "v1/oidc/token";
 const TRUSTED_PUBLISHING_AUDIENCE: &str = "sysand";
@@ -219,10 +218,8 @@ pub fn do_publish(
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<PublishResponse, PublishError> {
-    // Fail fast on a clearly expired stored credential before uploading
-    // the archive. The server's 401
-    // remains the authority: only an expiry past the skew margin stops
-    // here, and an env credential (no known expiry) always proceeds.
+    // Fail fast on a clearly expired stored credential before uploading the
+    // archive. An env credential (no known expiry) always proceeds.
     if let PublishBearerProvenance::Stored {
         key,
         expires_at: Some(expires_at),
@@ -251,9 +248,7 @@ pub fn do_publish(
         "Publishing",
     );
 
-    // Keep a copy for post-request logging; the `Url` itself is moved into
-    // the closure since `with_authentication` may call it multiple times and
-    // each `post` consumes the URL.
+    // The `Url` itself is moved into the closure, so keep a string for logging.
     let upload_url_for_log = RedactedUrl::from(&upload_url);
 
     let build_request = move |c: &reqwest_middleware::ClientWithMiddleware| {
@@ -333,8 +328,7 @@ pub fn validate_api_root_url_shape(url: &Url) -> Result<(), PublishError> {
 /// Build the `POST` URL for the publish endpoint from a resolved
 /// `api_root`. Precondition: `api_root` was checked with
 /// [`validate_api_root_url_shape`] and ends with `/`, so the endpoint
-/// path appends rather than replaces its last segment. Never prepends an
-/// `/api/` segment; that belongs to the API root itself.
+/// path appends rather than replaces its last segment.
 pub fn build_upload_url(api_root: &Url) -> Url {
     api_root.join(UPLOAD_ENDPOINT_PATH).unwrap()
 }
@@ -787,19 +781,16 @@ pub enum PublishError {
     MissingChecksumForFile { path: Box<str> },
     #[error("the archive does not contain `root` `{path}`")]
     RootNotInArchive { path: Box<str> },
-    /// The Syside shape's rule in place of "checksum is a superset of the
-    /// `index` files".
+    /// A Syside KPAR file that `checksum` does not cover.
     #[error(
         "`checksum` does not cover `{path}`; a Syside KPAR checksums every file in the archive \
          but `.project.json` and `.meta.json`"
     )]
     ChecksumMissesFile { path: Box<str> },
-    /// The two manifests are the exception to "every file", and would
-    /// otherwise be hashed and accepted since neither is a model file.
+    /// The two manifests are not checksummed in a Syside KPAR.
     #[error("`checksum` covers `{path}`, which a Syside KPAR does not checksum")]
     ChecksumCoversManifest { path: Box<str> },
-    /// The symbol check in the OMG family's direction, restated for a flat
-    /// array.
+    /// A name in `exports` that no file in the archive declares.
     #[error(
         "metadata claims the project exports `{symbol}`, but no file in the archive declares \
          it; the archive declares {declared}"
@@ -809,8 +800,9 @@ pub enum PublishError {
         declared: Box<str>,
     },
     /// A `KerML` project admits `.kerml` files only, and a `SysML`
-    /// project admits `.sysml` and `.kerml`. A KPAR built from a json project never went through `Sources`,
-    /// so this is where such a file is refused.
+    /// project admits `.sysml` and `.kerml`. A KPAR built from a json
+    /// project is not checked when built, so this is where the file is
+    /// refused.
     #[error(
         "project includes source file `{path}`, whose type the project metamodel\n\
         `{metamodel_iri}` does not admit; a KerML project carries `.kerml` files,\n\
@@ -1074,15 +1066,13 @@ pub enum PublishError {
     KparTooLarge { size: u64, limit: u64 },
 }
 
-// --- Preparation helpers ---
-
 /// Payload ready to POST to the upload endpoint.
 #[derive(Debug)]
 pub struct PublishPreparation {
     norm_publisher: String,
     norm_name: String,
     version: String,
-    // Keep upload payload in `Bytes` so request retries clone cheaply.
+    // `Bytes` so request retries clone cheaply.
     kpar_bytes: Bytes,
     metadata: String,
 }
@@ -1097,10 +1087,6 @@ impl PublishPreparation {
     }
 }
 
-// An unknown field in `.project.json`/`.meta.json` is warned about when
-// the document is read, so it is reported before a publish as well as
-// before a build.
-//
 // All of the publish checks will need to be revisited when we start supporting
 // publishing to other indexes, many of them will not apply
 
@@ -1259,8 +1245,8 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
     if file_checksums.is_empty() {
         return Err(PublishError::EmptyChecksum);
     }
-    // The checks split by shape. A root-shaped document checksums every file and exports a flat
-    // array; the OMG path below is untouched.
+    // The checks split by shape. A root-shaped document checksums every file
+    // and exports a flat array.
     if let Some(root) = validated_meta.root.as_ref() {
         publish_root_shape(
             root.as_str(),
@@ -1272,8 +1258,7 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
             metamodel,
         )?;
     } else {
-        // Always `Some` on this path: the reader requires `index` of the OMG
-        // shape (`InterchangeProjectMetadataPartial::validate`).
+        // Always `Some` on this path: validation requires `index` of the OMG shape.
         let index = validated_meta.index.unwrap_or_default();
         if index.is_empty() {
             log::warn!(
@@ -1311,9 +1296,7 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
         }
 
         for (src_file, file_checksum) in file_checksums {
-            // `admits`, not one extension per project: the rule is the
-            // manifest's, and a file that is no
-            // model file at all fails it too.
+            // A file that is no model file at all fails this check too.
             if !Language::guess_from_path(&src_file).is_some_and(|lang| metamodel_kind.admits(lang))
             {
                 return Err(PublishError::IncorrectFileFormat {
@@ -1435,12 +1418,12 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
     })
 }
 
-/// The Syside shape's file and symbol checks. `root` names a file in the archive; every archive file
-/// but the two manifests is a `checksum` key, and neither manifest is
-/// one; every key is hashed; the extension rule and the extractor run
-/// over the keys that are model files only; every name in `exports` is
-/// declared by some model file, and a declared name `exports` lacks is
-/// a warning.
+/// The Syside shape's file and symbol checks. `root` names a file in the
+/// archive; every archive file but the two manifests is a `checksum` key, and
+/// neither manifest is one; every key is hashed; the extension rule and the
+/// extractor run over the keys that are model files only; every name in
+/// `exports` is declared by some model file, and a declared name `exports`
+/// lacks is a warning.
 fn publish_root_shape(
     root: &str,
     exports: &[String],
@@ -1651,7 +1634,7 @@ fn publish_auth_failed_message(
             )
             .unwrap();
         }
-        // `publish_auth_error` never routes trusted publishing here.
+        // A trusted-publishing token has no user-fixable source.
         PublishBearerProvenance::TrustedPublishing => {}
     }
     if status == 403 {
@@ -1742,9 +1725,8 @@ fn check_usage(usage: &InterchangeProjectUsageRaw) -> Result<(), PublishError> {
     }
 }
 
-/// `Ok(true)` - matched
-/// `Ok(false)` - not matched
-/// `Err` - matched, but incorrect
+/// `Ok(true)`: matched. `Ok(false)`: not matched. `Err`: matched, but
+/// incorrect.
 fn check_std_libs(
     usage: &InterchangeProjectUsageRaw,
     lib_names: &[&str],

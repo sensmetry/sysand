@@ -75,10 +75,8 @@ fn every_command_refuses_an_environment_a_newer_release_wrote()
     Ok(())
 }
 
-// The `env install`/`env uninstall` subcommands are commented out (see `EnvCommand` in cli.rs).
-// Installing a local-src project on `add` and removing it again on `remove` is already covered
-// by `add_and_remove_as_local_src` and `remove_keeps_lockfile_valid_and_syncs` in
-// `cli_add_remove.rs`, so this test is commented out to match rather than ported to `add`/`remove`.
+// Disabled: the `env install`/`env uninstall` subcommands are commented out in the CLI.
+// `add` and `remove` tests already cover installing a local-src project and removing it again.
 /*
 /// `sysand env install <IRI> --location <LOCATION>` should install the
 /// interchange project at <LOCATION> as <IRI> in local env, `sysand env
@@ -179,10 +177,9 @@ src_cksum = "c83ef78e3b8d52d622dea6db2e7c6c326801500ae1e99f6a54c39a1f473367b3"
 }
 */
 
-// The `env uninstall` subcommand is commented out (see `EnvCommand` in cli.rs); it produces an
-// env-level "not found" error that `remove` (which errors at the usage level instead) does not
-// have an equivalent for, so these tests are commented out to match until that functionality is
-// decided on.
+// Disabled: the `env uninstall` subcommand is commented out in the CLI. It produces an
+// env-level "not found" error that `remove` (which errors at the usage level) has no
+// equivalent for, until that functionality is decided on.
 /*
 /// `sysand env uninstall <IRI>` for an IRI that is not installed in the
 /// env should fail with an error, and must not modify `env.toml`
@@ -245,9 +242,8 @@ fn env_uninstall_nonexistent_version() -> Result<(), Box<dyn std::error::Error>>
 }
 */
 
-// The `env install` subcommand is commented out (see `EnvCommand` in cli.rs); installing a
-// project from an HTTP kpar URL is covered through `add` by `add_from_http_kpar` in
-// `cli_add_remove.rs`, so this test is commented out to match.
+// Disabled: the `env install` subcommand is commented out in the CLI. Installing a project
+// from an HTTP kpar URL is covered through `add`.
 /*
 #[test]
 fn env_install_from_http_kpar() -> Result<(), Box<dyn std::error::Error>> {
@@ -331,9 +327,9 @@ kpar_cksum = "1838ad10a9c1fa46c74a92c68212e6fdcf6f6011a94ca5f16e343ea18a8e203b"
 }
 */
 
-// The `env install`/`env uninstall` subcommands are commented out (see `EnvCommand` in cli.rs);
-// `--allow-overwrite` and `--allow-multiple` have no equivalent through `add`/`sync`, so these
-// tests are commented out to match until that functionality is decided on.
+// Disabled: the `env install`/`env uninstall` subcommands are commented out in the CLI.
+// `--allow-overwrite` and `--allow-multiple` have no equivalent through `add`/`sync` until
+// that functionality is decided on.
 /*
 /// `sysand env install <IRI> --location <LOCATION>` should install
 /// the interchange project att <LOCATION> as <IRI> in local env.
@@ -417,9 +413,9 @@ fn install_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-// The `env install` subcommand is commented out (see `EnvCommand` in cli.rs); `--allow-multiple`
+// Disabled: the `env install` subcommand is commented out in the CLI. `--allow-multiple`
 // has no equivalent through `add`/`sync` (the solver picks a single version to satisfy all
-// usages), so this test is commented out to match until that functionality is decided on.
+// usages) until that functionality is decided on.
 /*
 /// `--allow-multiple` lets a different version of an already-installed project
 /// be installed alongside it; the same version still triggers an error.
@@ -530,12 +526,11 @@ fn env_install_allow_multiple() -> Result<(), Box<dyn std::error::Error>> {
 // TODO: Write helper function to generate an index and add tests for
 // installing from index.
 
-// The `env install` subcommand is commented out (see `EnvCommand` in cli.rs). Ported to `add`,
-// these tests would duplicate existing ones: installing several local-src projects and resolving
-// a source through a config file are covered by `add_prunes_unneeded_dependency_by_default` in
-// `cli_add_remove.rs`, and the pre-release handling of an unconstrained or version-pinned PURL
-// usage (which `add` leaves to the solver, unlike `env install --no-deps`) by the pre-release
-// tests in `core/src/solve/pubgrub_tests.rs`. So they are commented out to match instead.
+// Disabled: the `env install` subcommand is commented out in the CLI. Ported to `add`, these
+// tests would duplicate existing ones: installing several local-src projects and resolving a
+// source through a config file are covered by the `add` tests, and the pre-release handling of
+// an unconstrained or version-pinned PURL usage (which `add` leaves to the solver, unlike
+// `env install --no-deps`) by the solver tests.
 /*
 
 /// Installing multiple projects in sequence via `env install --path` keeps all

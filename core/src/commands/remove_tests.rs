@@ -93,7 +93,6 @@ fn remove_refuses_a_typed_usage_rather_than_reporting_it_missing() {
         "{message}"
     );
     assert!(!message.contains("could not find"), "{message}");
-    // Nothing was removed.
     assert_eq!(project.info.unwrap().usage.len(), 1);
 }
 
@@ -115,7 +114,6 @@ fn remove_matches_a_typed_usage_through_the_normalized_identifier() {
         "{message}"
     );
     assert!(!message.contains("could not find"), "{message}");
-    // Nothing was removed.
     assert_eq!(project.info.unwrap().usage.len(), 1);
 }
 

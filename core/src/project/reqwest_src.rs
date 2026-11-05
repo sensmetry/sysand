@@ -78,14 +78,16 @@ pub enum ReqwestSrcError {
     },
     #[error("HTTP request to\n  {0}\n  returned malformed data")]
     Deserialize(ResponseUrl, #[source] serde_json::Error),
-    #[error("HTTP request to\n  {0}\n  returned a document that is not a valid manifest:\n{1}")]
-    InvalidManifest(ResponseUrl, Report),
+    #[error(
+        "HTTP request to\n  `{}`\n  returned a document that is not a valid manifest:\n{report}",
+        .report.file()
+    )]
+    InvalidManifest { report: Report },
     #[error("HTTP request to {0} returned unexpected status code {1}")]
     BadStatus(ResponseUrl, reqwest::StatusCode),
     #[error("project is missing `.project.json` and/or `.meta.json` files")]
     MissingInfoMeta,
-    // This is only needed because `checksum_canonical_hex` can return
-    // `io:Error`, which in this case is actually a network/HTTP error
+    // `checksum_canonical_hex` reports network/HTTP failures as `io::Error`
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
 }
@@ -131,11 +133,13 @@ impl<Policy: HTTPAuthentication> ReqwestSrcProjectAsync<Policy> {
         match partial.validate_manifest(metamodel) {
             Ok(validated) => {
                 for warning in &validated.warnings {
-                    log::warn!("{url}: {warning}");
+                    log::warn!("{}", warning.in_file(&url.to_string()));
                 }
                 Ok(validated.value)
             }
-            Err(report) => Err(ReqwestSrcError::InvalidManifest(url, report)),
+            Err(report) => Err(ReqwestSrcError::InvalidManifest {
+                report: report.in_file(url.to_string()),
+            }),
         }
     }
 }
@@ -152,9 +156,8 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Pol
         ),
         Self::Error,
     > {
-        // Both documents are fetched at once, as before, and validated
-        // afterwards: the metadata carries the metamodel a message about
-        // the other document may need to name.
+        // Fetched concurrently, validated afterwards: the metadata carries
+        // the metamodel that errors about the info document may name.
         let (info, meta) = join!(self.fetch(self.info_url()), self.fetch(self.meta_url()));
         let (info, meta) = (info?, meta?);
 
@@ -174,9 +177,8 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Pol
     }
 
     async fn get_info_async(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
-        // On its own, the information document has no sibling to take a
-        // metamodel from, and fetching one for a message is not worth a
-        // second request.
+        // No metamodel is passed: fetching the metadata just for an error
+        // message is not worth a second request.
         self.fetch(self.info_url())
             .await?
             .map(|(url, body)| Self::validate::<InterchangeProjectInfoPartial>(url, body, None))
@@ -264,8 +266,7 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Pol
                 .ok_or(ReqwestSrcError::MissingInfoMeta)?,
         };
         Ok(vec![Source::RemoteSrc {
-            // Panic here should be impossible, as the URL should have
-            // been created from IRI
+            // Cannot panic: the URL was created from an IRI
             remote_src: Iri::parse(self.url.to_string()).unwrap(),
             checksum,
         }])

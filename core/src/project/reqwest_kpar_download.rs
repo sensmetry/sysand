@@ -44,58 +44,39 @@ use super::{
 /// `LocalKParProject`.
 #[derive(Debug)]
 pub struct ReqwestRemoteKparDownloadedProject<Policy> {
-    // inner: LocalKParProjectRaw,
-    // tmp_dir: Utf8TempDir,
-    // archive_path: Utf8PathBuf,
     url: reqwest::Url,
     pub client: reqwest_middleware::ClientWithMiddleware,
     pub auth_policy: Arc<Policy>,
-    /// Optionally contains:
-    ///
-    /// - expected sha256 hex digest for callers that need this
-    ///   instance to enforce archive verification before exposing project
-    ///   contents (e.g. lockfile-driven `sync`).
-    /// - expected archive byte length. Index-backed kpars carry this
-    ///   in the lockfile / versions index; enforce it while streaming so a
-    ///   malicious server cannot exhaust disk before the digest check fails.
+    /// Expected size and sha256 digest, for callers that need archive
+    /// verification before project contents are exposed (e.g.
+    /// lockfile-driven `sync`). The size is enforced while streaming so a
+    /// malicious server cannot exhaust disk before the digest check fails.
     expected: Option<KparMeta>,
-    /// Fans concurrent `ensure_downloaded*` calls on the same instance
-    /// into a single download; otherwise racing tasks would both truncate
-    /// the destination archive and interleave writes.
+    /// Fans concurrent `ensure_downloaded*` calls into a single download.
+    /// Errors are not cached, so a transient failure is retryable.
     ///
-    /// The kpar is downloaded directly to the destination path, so
-    /// `is_downloaded_and_verified` must be checked before reading it.
-    /// Errors aren't cached, so a transient failure is retryable.
-    ///
-    /// If this is initialized, the archive has been downloaded and verified
-    /// against `expected` if present (then this will be empty), and
-    /// otherwise contains actual downloaded KPAR metadata.
+    /// Initialized only once the archive has been downloaded and verified
+    /// against `expected`, if present. The metadata is `None` in that case
+    /// and otherwise describes the downloaded archive.
     downloaded_verified: tokio::sync::OnceCell<(LocalKParProjectRaw, Option<KparMeta>)>,
 }
 
 #[derive(Debug)]
 pub struct ReqwestIndexKparDownloadedProject<Policy> {
-    // inner: LocalKParProjectRaw,
     url: reqwest::Url,
     pub client: reqwest_middleware::ClientWithMiddleware,
     pub auth_policy: Arc<Policy>,
-    /// Expected sha256 hex digest for callers that need this
-    /// instance to enforce archive verification before exposing project
-    /// contents (e.g. lockfile-driven `sync`).
+    /// Expected sha256 hex digest, verified before project contents are
+    /// exposed.
     expected_kpar_sha256: String,
-    /// Expected archive byte length. Index-backed kpars carry this
-    /// in the lockfile / versions index; enforce it while streaming so a
+    /// Expected archive byte length, enforced while streaming so a
     /// malicious server cannot exhaust disk before the digest check fails.
     expected_size: NonZeroU64,
-    /// Fans concurrent `ensure_downloaded*` calls on the same instance
-    /// into a single download; otherwise racing tasks would both truncate
-    /// the destination archive and interleave writes.
+    /// Fans concurrent `ensure_downloaded*` calls into a single download.
+    /// Errors are not cached, so a transient failure is retryable.
     ///
-    /// The kpar is downloaded directly to the destination path, so
-    /// `is_downloaded_and_verified` must be checked before reading it.
-    /// Errors aren't cached, so a transient failure is retryable.
-    /// If this is initialized, the archive has been downloaded and verified
-    /// against `expected_sha256_hex`/`expected_size` if present.
+    /// Initialized only once the archive has been downloaded and verified
+    /// against `expected_kpar_sha256` and `expected_size`.
     downloaded_verified: tokio::sync::OnceCell<LocalKParProjectRaw>,
 }
 
@@ -168,14 +149,14 @@ impl<Policy: HTTPAuthentication> ReqwestRemoteKparDownloadedProject<Policy> {
         })
     }
 
-    /// True iff the archive is on disk and has been successfully
-    /// verified against expected hex and length (if present)
+    /// True iff the archive has been downloaded and verified against the
+    /// expected digest and size (if present).
     pub fn is_downloaded_and_verified(&self) -> bool {
         self.downloaded_verified.initialized()
     }
 
-    /// Ensure the archive is on disk and verify the digest if known.
-    /// THe digest is returned iff it's not known.
+    /// Ensure the archive is on disk and verify the digest if known. The
+    /// archive's metadata is returned iff the digest was not known.
     pub async fn ensure_downloaded_verified(
         &self,
     ) -> Result<&(LocalKParProjectRaw, Option<KparMeta>), ReqwestKparDownloadedError> {
@@ -188,14 +169,9 @@ impl<Policy: HTTPAuthentication> ReqwestRemoteKparDownloadedProject<Policy> {
         &self.url
     }
 
-    /// Download the archive. Invoked through
+    /// Download the archive into a fresh temp dir. Invoked through
     /// [`tokio::sync::OnceCell::get_or_try_init`], so concurrent callers
-    /// share the single in-flight attempt and a returned `Err` leaves
-    /// the cell uninitialized (retries succeed).
-    ///
-    /// Downloads directly to the final path. Callers must go through
-    /// `ensure_downloaded_verified` before reading so the `OnceCell` has
-    /// observed a successful download and any configured verification.
+    /// share one attempt and an `Err` leaves the cell uninitialized.
     async fn perform_download(
         &self,
     ) -> Result<(LocalKParProjectRaw, Option<KparMeta>), ReqwestKparDownloadedError> {
@@ -371,14 +347,13 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestRemoteKparDownloade
         let (kpar_size, kpar_digest) = if let Some(expected) = &self.expected {
             (expected.size_bytes, expected.sha256_hex.clone())
         } else {
-            // If expected is not present, download populates the cell with actual
+            // Without `expected`, the download fills in the actual metadata
             let (_, maybe_meta) = self.ensure_downloaded_verified().await?;
             let actual_meta = maybe_meta.as_ref().unwrap();
             (actual_meta.size_bytes, actual_meta.sha256_hex.clone())
         };
         Ok(vec![Source::RemoteKpar {
-            // Panic here should be impossible, as the URL should have
-            // been created from IRI
+            // Cannot panic: the URL was created from an IRI
             remote_kpar: Iri::parse(self.url.to_string()).unwrap(),
             kpar_size,
             kpar_digest,
@@ -439,13 +414,13 @@ impl<Policy: HTTPAuthentication> ReqwestIndexKparDownloadedProject<Policy> {
         })
     }
 
-    /// True iff the archive is on disk and has been successfully
-    /// verified against expected hex and length (if present)
+    /// True iff the archive has been downloaded and verified against the
+    /// expected digest and size (if present).
     pub fn is_downloaded_and_verified(&self) -> bool {
         self.downloaded_verified.initialized()
     }
 
-    /// Ensure the archive is on disk and verify the digest if known
+    /// Ensure the archive is on disk and verified
     pub async fn ensure_downloaded_verified(
         &self,
     ) -> Result<&LocalKParProjectRaw, ReqwestKparDownloadedError> {
@@ -458,14 +433,9 @@ impl<Policy: HTTPAuthentication> ReqwestIndexKparDownloadedProject<Policy> {
         &self.url
     }
 
-    /// Download the archive. Invoked through
+    /// Download the archive into a fresh temp dir. Invoked through
     /// [`tokio::sync::OnceCell::get_or_try_init`], so concurrent callers
-    /// share the single in-flight attempt and a returned `Err` leaves
-    /// the cell uninitialized (retries succeed).
-    ///
-    /// Downloads directly to the final path. Callers must go through
-    /// `ensure_downloaded_verified` before reading so the `OnceCell` has
-    /// observed a successful download and verification.
+    /// share one attempt and an `Err` leaves the cell uninitialized.
     async fn perform_download(&self) -> Result<LocalKParProjectRaw, ReqwestKparDownloadedError> {
         use futures::StreamExt as _;
 
@@ -604,8 +574,7 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestIndexKparDownloaded
 
     async fn sources_async(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         Ok(vec![Source::IndexKpar {
-            // Panic here should be impossible, as the URL should have
-            // been created from IRI
+            // Cannot panic: the URL was created from an IRI
             index_kpar: Iri::parse(self.url.to_string()).unwrap(),
             kpar_size: self.expected_size,
             kpar_digest: self.expected_kpar_sha256.clone(),

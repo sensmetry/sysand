@@ -42,7 +42,7 @@ fn format(buf: &mut Formatter, record: &Record<'_>) -> Result<(), io::Error> {
     }
 }
 
-/// Print a warning that dependencies on standard library packages are ignored
+/// Print a note that standard library packages are not installed during sync.
 pub fn note_std_deps_no_install() {
     log::info!(
         "{GOOD}note{GOOD:#}: SysML v2/KerML standard library packages will not be installed during sync,\n\

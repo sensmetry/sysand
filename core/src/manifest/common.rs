@@ -28,9 +28,9 @@ pub static OMG_PUBLISHER: std::sync::LazyLock<IndexPublisher> =
 impl IndexPublisher {
     /// Whether this publisher normalizes to `omg`.
     ///
-    /// The `stdlib` key's own check. It is not what makes a usage a
-    /// standard-library usage: that is the `kpar-url`, and an index
-    /// usage published by `omg` is an ordinary usage.
+    /// Only the `stdlib` key is checked this way. A usage is a
+    /// standard-library usage by its `kpar-url`, and an index usage
+    /// published by `omg` is an ordinary usage.
     pub fn is_stdlib_publisher(&self) -> bool {
         self.normalized() == "omg"
     }
@@ -187,8 +187,9 @@ pub struct ResolvedUrls {
     pub repository: Option<Iri<String>>,
 }
 
-/// Which group a `<key>.workspace` marker points at. `workspace = true` selects the implicit default group
-/// (keys written directly in `[workspace]`), `workspace = "group-name"` a
+/// Which group a `<key>.workspace` marker points at. `workspace = true`
+/// selects the implicit default group (keys written directly in
+/// `[workspace]`), `workspace = "group-name"` a
 /// `[workspace.group.<group-name>]` table.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InheritFrom {
@@ -275,22 +276,17 @@ pub enum SourcesError {
 /// implicit default set of source files, so a project that has none is
 /// written as `sources = []`.
 ///
-/// Entries are stored **as written**: the entry as written is what the
-/// `checksum` and `index` maps of a built KPAR are keyed by. The commands
-/// that write `sources` write this form, converting into it what they
-/// are given.
+/// Entries are stored **as written**: that form is what the `checksum`
+/// and `index` maps of a built KPAR are keyed by.
 ///
 /// `sources` is per-project only: it cannot appear in `[workspace]` and
-/// cannot be inherited by a member, since the file layout of one project
-/// cannot be inherited by a member. An attempted `sources.workspace = true`
-/// is refused by the readers, [`crate::manifest::project`] and
-/// [`crate::manifest::workspace_table`].
+/// cannot be inherited, since it describes one project's file layout.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Sources(Vec<Utf8UnixPathBuf>);
 
 /// What is wrong with one path that should name a model file relative to
 /// the project root: the checks a `sources` entry and a Syside project's
-/// `root` share. `root` is held to a `sources` entry's syntax.
+/// `root` share.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PathProblem {
     /// Ends in `/`.
@@ -308,7 +304,7 @@ pub enum PathProblem {
     NotModelFile,
 }
 
-/// The shared checks, in the order [`Sources::new`] applies them. `None` for a path that passes all six.
+/// The first shared check the path fails, or `None` if it passes all of them.
 pub fn path_problem(raw: &str) -> Option<PathProblem> {
     if raw.ends_with('/') {
         return Some(PathProblem::Directory);
@@ -410,11 +406,8 @@ pub fn root_path(raw: &str) -> Result<Utf8UnixPathBuf, PathError> {
 
 impl Sources {
     /// Checks every entry against the rules of [`SourcesError`] and
-    /// keeps it **as written**. Whether the files exist is checked only
-    /// for build/publish, as with the license file, so reading a manifest
-    /// never touches them.
-    ///
-    /// Nothing is resolved: a `..` is an error.
+    /// keeps it **as written**. Nothing is resolved (a `..` is an error)
+    /// and the files are not touched.
     pub fn new(paths: Vec<Utf8UnixPathBuf>) -> Result<Self, SourcesError> {
         Self::check(paths).map_err(|mut problems| problems.swap_remove(0).1)
     }

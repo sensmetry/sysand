@@ -48,8 +48,7 @@ pub enum AddError<ProjectError> {
         existing: String,
         new: String,
     },
-    /// The usage has no `model.toml` form. Three different reasons, and
-    /// the message names which.
+    /// The usage has no `model.toml` form; the message gives the reason.
     #[error(transparent)]
     NoManifestForm(crate::manifest::kpar_view::NoManifestForm),
     #[error(transparent)]
@@ -108,16 +107,13 @@ pub enum IndexSpellingError<EnvError, ProjectError> {
 }
 
 /// The publisher and name an index usage of `publisher`/`name` has to spell,
-/// read from a version of the project installed in `env` (the first it
-/// lists: a project spells itself the same way in every version), without
-/// touching the network: the project's own spelling when `publisher`/`name`
-/// is normalized (see [`IndexPublisher::is_normalized`]), and `publisher`/`name`
-/// itself otherwise, once it has been checked to be that spelling.
-/// `normalized` is whether `publisher`/`name` is normalized, which the
-/// caller has already found out.
+/// read from the first version of the project installed in `env`: the
+/// project's own spelling when `publisher`/`name` is normalized (see
+/// [`IndexPublisher::is_normalized`]), and `publisher`/`name` itself
+/// otherwise, once checked to be that spelling. `normalized` is whether
+/// `publisher`/`name` is normalized.
 ///
-/// Fails when no version is installed, since then there is nothing to check
-/// against.
+/// Fails when no version is installed.
 #[expect(clippy::type_complexity)]
 pub fn spell_index_usage<Env: ReadEnvironment>(
     env: Option<&Env>,
@@ -213,7 +209,6 @@ fn try_merge_path_usage(
 }
 
 /// The usage that `usages` declare of the project `identifier`, if any.
-/// `add` never declares a project twice.
 fn declared<'a>(
     usages: &'a [InterchangeProjectUsageRaw],
     identifier: &Identifier,
@@ -303,7 +298,7 @@ pub fn index_usage_to_add<E>(
         return Err(refusal(identifier, existing, "an index", Some(spelling)));
     };
     // A normalized spelling names the project by its identifier only, so the
-    // declared usage says how it is spelled
+    // declared spelling is the one to use.
     if !normalized && (declared_publisher.as_str(), declared_name.as_str()) != spelling {
         return Err(refusal(identifier, existing, "an index", Some(spelling)));
     }
@@ -341,8 +336,7 @@ fn add_toml<P: ProjectMut>(
 
     let mut document = project.manifest_document().map_err(AddError::Manifest)?;
 
-    // Already declared? Then the question is only whether the
-    // constraint changes, which is what the json arm asks too.
+    // Already declared: only a changed constraint needs writing.
     if edit::usage_constraint(&document, &identity).is_some() {
         let new = match &usage {
             Usage::Index {
@@ -361,8 +355,8 @@ fn add_toml<P: ProjectMut>(
             log::warn!("ignoring usage `{identity}`, since it is already present");
             return Ok(false);
         }
-        // A `dir`/`kpar-path`/`kpar-url`/opt-in entry has no constraint
-        // to set; this is the editor's text.
+        // Fails for a `dir`/`kpar-path`/`kpar-url`/opt-in entry, which has
+        // no constraint to set.
         edit::set_usage_version(&mut document, &identity, &new).map_err(AddError::Edit)?;
         write_manifest(project, &document)?;
         return Ok(true);
@@ -401,8 +395,7 @@ pub fn do_add<P: ProjectMut>(
     let header = crate::style::get_style_config().header;
     log::info!("{header}{adding:>12}{header:#} usage: {usage_raw}");
 
-    // `Both` falls through to the json arm, where `get_info` refuses it
-    // as the ambiguity it is.
+    // `Both` falls through to the json arm, which refuses it as ambiguous.
     if project.format().map_err(AddError::Project)? == ProjectFormat::Toml {
         return add_toml(project, &usage);
     }

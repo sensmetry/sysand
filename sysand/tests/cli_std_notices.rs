@@ -73,9 +73,8 @@ fn add_std_lib_direct_note_still_locks_skips_sync() -> Result<(), Box<dyn std::e
     Ok(())
 }
 
-// The `env install` subcommand is commented out (see `EnvCommand` in
-// cli.rs); these tests are commented out to match until that functionality
-// is decided on.
+// Disabled: the `env install` subcommand is commented out in the CLI, until
+// that functionality is decided on.
 /*
 /// `sysand env install <std-iri>` (with and without `--path`) warns that installing std
 /// libs directly is not recommended, and does not install anything.

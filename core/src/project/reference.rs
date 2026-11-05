@@ -10,8 +10,7 @@ use crate::{
     project::{ProjectFormat, ProjectRead},
 };
 
-// Arc wrapper around project to make cloning possible
-// (necessary for compatibility with `MemoryResolver`)
+// `Arc` wrapper that makes a project cloneable
 #[derive(Debug)]
 pub struct ProjectReference<Project: ProjectRead> {
     project: Arc<Project>,

@@ -4,8 +4,9 @@
 //! The extension's exception classes are defined in Python and handed to it
 //! by `sysand/_errors.py` at import time, so that the tree can be vendored
 //! under another parent package. An embedder that imports `_sysand_core`
-//! *without* that package, as this test binary does, must get a plain, readable `RuntimeError` saying the classes were never
-//! registered, not a panic and not another installation's classes.
+//! *without* that package, as this test binary does, must get a plain,
+//! readable `RuntimeError` saying the classes were never registered, not a
+//! panic and not another installation's classes.
 
 use camino_tempfile::Utf8TempDir;
 use pyo3::{exceptions::PyRuntimeError, prelude::*};

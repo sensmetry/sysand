@@ -166,8 +166,7 @@ fn including_into_a_manifest_without_sources_says_to_add_one() {
         ..InMemoryProject::default()
     };
 
-    // The manifest does not read -- `sources` is required -- so the
-    // refusal comes from the validating read rather than from the edit.
+    // `sources` is required, so the manifest does not read.
     let error = include(&mut project, "Parts.sysml").expect_err("no sources");
     assert!(error.to_string().contains("sources"));
 }
@@ -318,8 +317,8 @@ fn including_a_language_the_metamodel_does_not_admit_is_refused() {
 }
 
 /// `--no-index-symbols` applies to a project whose KPAR has an `index`.
-/// A Syside project's has none, whichever form it takes -- the authored
-/// `model.toml`, or the extracted archive.
+/// A Syside project's has none, in the authored `model.toml` or in the
+/// extracted archive.
 #[test]
 fn include_no_index_symbols_is_refused_on_a_syside_project() {
     const NO_INDEX_SYMBOLS_ON_SYSIDE: &str = "`--no-index-symbols` applies to projects with a computed index; a Syside \

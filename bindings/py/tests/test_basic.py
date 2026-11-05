@@ -1185,7 +1185,6 @@ def test_http_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) -> 
     }
 
     assert meta["index"] == {}
-    # meta['created'] utc time
     assert meta["metamodel"] is None
     assert meta["includes_derived"] is None
     assert meta["includes_implied"] is None
@@ -1266,7 +1265,7 @@ def test_model_roundtrip() -> None:
         "includes_derived": True,
         "includes_implied": False,
         # The OMG shape: no `root`, no `exports`. A dict read from Sysand
-        # carries the keys as None (see `test_syside_metadata_shapes`).
+        # carries the keys as None.
         "root": None,
         "exports": None,
         "checksum": {

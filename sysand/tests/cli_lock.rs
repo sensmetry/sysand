@@ -487,8 +487,8 @@ fn lock_and_sync_against_mock_index() -> Result<(), Box<dyn std::error::Error>> 
 
     let (kpar_bytes, info, meta) = build_index_kpar_bytes("mock", "dep", "0.1.0");
     let kpar_sha256_hex = sha256_lowercase_hex(&kpar_bytes);
-    // No `meta.checksum` entries → canonical digest == raw digest for this
-    // fixture; see the docstring on `build_index_kpar_bytes`.
+    // No `meta.checksum` entries, so the canonical digest equals the raw
+    // digest for this fixture.
     let kpar_size = kpar_bytes.len();
 
     // `sysand lock` targets a specific IRI via `versions_async`; it must not
@@ -1234,11 +1234,8 @@ fn lock_reports_why_a_dir_usage_failed() -> Result<(), Box<dyn std::error::Error
 
 /// A `kpar-url` naming a **local archive** still resolves.
 ///
-/// The capability the `kpar-url` narrowing must not take: an archive is
-/// a KPAR however it is spelled, and `kpar-path` cannot express an
-/// absolute path, so a
-/// `file:` URL is the only way to name one. A guard against the
-/// narrowing over-reaching.
+/// An archive is a KPAR however it is spelled, and `kpar-path` cannot
+/// express an absolute path, so a `file:` URL is the only way to name one.
 #[test]
 fn a_kpar_url_naming_a_local_archive_resolves() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
@@ -1300,11 +1297,8 @@ fn a_kpar_url_naming_a_local_archive_resolves() -> Result<(), Box<dyn std::error
 ///
 /// Unchecked, the usage could declare anything and `lock` would write a
 /// lockfile that silently disagreed with the manifest that produced it.
-/// `InterchangeProjectUsage::Resource` cannot carry the
-/// declared pair -- it is KerML's untyped usage, where the IRI *is* the
-/// identity -- so the pair travels on the `ResolutionInfo` instead and
-/// the lock checks the target against it exactly as it checks a `dir` or
-/// `kpar-path` target.
+/// The target is checked against the declared pair exactly as a `dir` or
+/// `kpar-path` target is.
 ///
 /// The comparison is **literal**, as it is for those two, so `Acme`
 /// against `acme` is refused.
@@ -1408,13 +1402,8 @@ fn a_kpar_url_usage_that_names_its_target_locks() -> Result<(), Box<dyn std::err
     Ok(())
 }
 
-/// `sync` with no lockfile resolves and writes one, and `clone`
-/// resolves through its own call -- neither goes through `lock`.
-///
-/// These two are why the check is attached to the usage rather than
-/// applied to a finished lockfile: a post-lock comparison would cover
-/// `lock` alone, and `clone`'s destination is a json project,
-/// where there is no `model.toml` to compare against at all.
+/// `sync` with no lockfile resolves and writes one, and `clone` resolves
+/// through its own call; neither goes through `lock`.
 #[test]
 fn sync_without_a_lockfile_refuses_the_same_mismatch() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, app) = kpar_url_identity_case("acme", "wrongname")?;
@@ -1427,12 +1416,11 @@ fn sync_without_a_lockfile_refuses_the_same_mismatch() -> Result<(), Box<dyn std
 
 /// `clone` does **not** refuse the mismatch.
 ///
-/// It locks its *destination*, and cloning a `model.toml` project
-/// writes a `.project.json` pair there (pinned by
-/// `clone_of_a_toml_project_writes_a_json_pair`). By the time the lock
-/// runs there is no `model.toml` to read the declared pair from, and
-/// json has no field to carry it -- so a mismatch `lock` refuses in the
-/// source project is accepted in a clone of it.
+/// It locks its *destination*, and cloning a `model.toml` project writes a
+/// `.project.json` pair there. By the time the lock runs there is no
+/// `model.toml` to read the declared pair from, and json has no field to
+/// carry it, so a mismatch `lock` refuses in the source project is
+/// accepted in a clone of it.
 ///
 /// A characterisation test: if `clone` comes to preserve the toml
 /// project, this test fails and says so.
@@ -1520,11 +1508,9 @@ fn a_toml_stdlib_usage_locks_and_syncs_offline() -> Result<(), Box<dyn std::erro
 /// `--include-std` stops treating the standard library as
 /// provided by the tooling and resolves it like any other `kpar-url`.
 ///
-/// No mock server can answer for `www.omg.org`, and none is needed: a
-/// `[[project]]` override maps the IRI to a local KPAR, and the
-/// override resolver has priority over the standard one. So the flag's
-/// effect is asserted for real (the lockfile entry gains a source)
-/// rather than by watching a request go out.
+/// A `[[project]]` override maps the IRI to a local KPAR and takes priority
+/// over the standard resolver, so the flag's effect shows in the lockfile
+/// entry gaining a source.
 #[test]
 fn include_std_resolves_the_library_at_its_iri() -> Result<(), Box<dyn std::error::Error>> {
     const IRI: &str = "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar";
@@ -1606,11 +1592,9 @@ fn include_std_resolves_the_library_at_its_iri() -> Result<(), Box<dyn std::erro
 /// The standard-library workspace fixture locks, with the Kernel cycle
 /// accepted.
 ///
-/// All ten members inherit their `metamodel` from a group, and a member
-/// that inherits cannot be read as a standalone project, so the resolver
-/// has to read a `dir` target inside the workspace as a member. The
-/// cycle itself is accepted by the *loader*; this checks that the whole
-/// command succeeds end to end.
+/// The members inherit their `metamodel` from a group, and a member that
+/// inherits cannot be read as a standalone project, so the resolver has to
+/// read a `dir` target inside the workspace as a member.
 #[test]
 fn the_stdlib_workspace_locks() -> Result<(), Box<dyn std::error::Error>> {
     let Some(sources) = stdlib_sources() else {
@@ -1642,10 +1626,8 @@ fn the_stdlib_workspace_locks() -> Result<(), Box<dyn std::error::Error>> {
 /// `lock` from inside a member locks the whole workspace, into the
 /// workspace root.
 ///
-/// The CLI's discovery walks up and hands the table down, and this pins
-/// it, so a change to discovery cannot take it away silently. The target
-/// here inherits its `metamodel`, which the resolver can only read with
-/// the table.
+/// The target inherits its `metamodel`, which the resolver can only read
+/// with the workspace table.
 #[test]
 fn lock_from_inside_a_member_writes_at_the_root() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
@@ -1807,9 +1789,8 @@ fn lock_warns_on_a_metamodel_release_mismatch() -> Result<(), Box<dyn std::error
 
 /// A dependency's unparseable version is named, through the command.
 ///
-/// `InvalidResolvedVersion` carries the version string that failed to
-/// parse -- `semver::Error` describes the failure without ever echoing
-/// its input.
+/// The error carries the version string that failed to parse, as
+/// `semver::Error` does not echo its input.
 ///
 /// The target is a **json** project: a `model.toml` target with the same
 /// version is rejected by the manifest reader before the solver.

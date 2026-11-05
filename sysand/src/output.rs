@@ -5,9 +5,9 @@
 //! progress on stderr as in text mode.
 //!
 //! Every document carries the envelope `schemaVersion` (1), `complete`,
-//! `skipped` and `escapeHatch` -- the partiality fields, carried on
+//! `skipped` and `escapeHatch` (the partiality fields, carried on
 //! every Sysand document so that no reader has to know which documents
-//! can be partial -- and camelCase keys.
+//! can be partial) and camelCase keys.
 //! Within a major, fields are added, never removed or retyped.
 //!
 //! A command whose output is a document (`info`, `sources`, `env list`,
@@ -124,7 +124,7 @@ fn print(document: &Value) {
 pub struct RunReport {
     /// The command's name as the user spelled it (`"env install"`).
     pub command: String,
-    /// The paths the command writes, by kind -- not observed on disk.
+    /// The paths the command writes, by kind, not observed on disk.
     pub changed: Vec<String>,
     /// Extra result fields (`published`, ...).
     pub extra: Map<String, Value>,

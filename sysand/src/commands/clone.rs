@@ -102,9 +102,8 @@ pub fn command_clone<Policy: HTTPAuthentication>(
     ) {
         Ok(ret) => ret,
         Err(e) => {
-            // Clean up the target dir. This is safe, since we ensured
-            // that the dir was initially empty, so no unrelated files
-            // will be affected
+            // Safe: the dir was checked to be initially empty, so no
+            // unrelated files are affected.
             clean_dir(target);
             return Err(e);
         }
@@ -278,11 +277,8 @@ fn obtain_project<Policy: HTTPAuthentication>(
     let cloned = "Cloned";
     let header = sysand_core::style::get_style_config().header;
 
-    // The *destination*, which is created rather than read: it holds no
-    // manifest to resolve against a table, and classifying it would
-    // refuse a clone into a directory under a workspace root, which is
-    // allowed: `clone` creates a project outside any scope. Only the
-    // source below is classified.
+    // The destination is created, not read, so it is not classified: a
+    // clone into a directory under a workspace root is allowed.
     let mut local_project = LocalSrcProject::new_access(project_path, None);
 
     let std_resolver = standard_resolver(
@@ -421,8 +417,6 @@ pub fn get_project_version<R: ResolveRead>(
 ) -> Result<(Version, R::ProjectStorage), anyhow::Error> {
     match resolver.resolve_read(resolve)? {
         ResolutionOutcome::Resolved(alternatives) => {
-            // If no version is supplied, choose the highest
-            // Else, choose version that is supplied
             // Match what the solver does: an unconstrained usage defaults to
             // `*`, but only for candidates whose source poses a version choice
             // in the first place
@@ -532,10 +526,7 @@ pub fn get_project_version<R: ResolveRead>(
                     }
                     None => bail!(CliError::MissingProject(resolve.to_string())),
                 },
-                1 => {
-                    // Can't move out values with match
-                    Ok(candidates.pop().unwrap())
-                }
+                1 => Ok(candidates.pop().unwrap()),
                 _ => {
                     let max_v = candidates
                         .into_iter()

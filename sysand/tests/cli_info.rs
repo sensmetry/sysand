@@ -320,7 +320,7 @@ fn info_basic_http_url_irrelevant_auth() -> Result<(), Box<dyn Error>> {
     let kpar_download_try = server
         .mock("GET", "/")
         .with_status(404)
-        // See the matching comment in `info_basic_http_url_noauth`.
+        // As in the first HTTP test above.
         .expect(1)
         .create();
 
@@ -396,18 +396,11 @@ fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
         .expect(1)
         .create();
 
-    // let kpar_range_probe = server
-    //     .mock("HEAD", "/")
-    //     .match_header("authorization", Matcher::Missing)
-    //     .with_status(404)
-    //     .expect(1)
-    //     .create();
-
     let kpar_download_try = server
         .mock("GET", "/")
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
-        // See the matching comment in `info_basic_http_url_noauth`.
+        // As in the first HTTP test above.
         .expect(1)
         .create();
 
@@ -527,7 +520,6 @@ fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
     meta_mock_head.assert();
     meta_mock_head_auth.assert();
 
-    // kpar_range_probe.assert();
     kpar_download_try.assert();
     kpar_download_try_auth.assert();
 
@@ -551,18 +543,11 @@ fn info_bearer_http_url_auth() -> Result<(), Box<dyn Error>> {
         .expect(1)
         .create();
 
-    // let kpar_range_probe = server
-    //     .mock("HEAD", "/")
-    //     .match_header("authorization", Matcher::Missing)
-    //     .with_status(404)
-    //     .expect(1)
-    //     .create();
-
     let kpar_download_try = server
         .mock("GET", "/")
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
-        // See the matching comment in `info_basic_http_url_noauth`.
+        // As in the first HTTP test above.
         .expect(1)
         .create();
 
@@ -681,7 +666,6 @@ fn info_bearer_http_url_auth() -> Result<(), Box<dyn Error>> {
     meta_mock_head.assert();
     meta_mock_head_auth.assert();
 
-    // kpar_range_probe.assert();
     kpar_download_try.assert();
     kpar_download_try_auth.assert();
 
@@ -693,60 +677,6 @@ fn info_bearer_http_url_auth() -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
-
-// #[test]
-// fn info_non_ranged_http_kpar() -> Result<(), Box<dyn std::error::Error>> {
-//     let buf = {
-//         let mut cursor = std::io::Cursor::new(vec![]);
-//         let mut zip = zip::ZipWriter::new(&mut cursor);
-
-//         let options = zip::write::SimpleFileOptions::default()
-//             .compression_method(zip::CompressionMethod::Stored)
-//             .unix_permissions(0o755);
-
-//         zip.start_file("some_root_dir/.project.json", options)?;
-//         zip.write_all(br#"{"name":"info_non_ranged_http_kpar","version":"1.2.3"}"#)?;
-//         zip.start_file("some_root_dir/.meta.json", options)?;
-//         zip.write_all(br#"{"index":{},"created":"123"}"#)?;
-//         zip.start_file("some_root_dir/test.sysml", options)?;
-//         zip.write_all(br#"package Test;"#)?;
-
-//         zip.finish().unwrap();
-
-//         cursor.flush()?;
-//         cursor.into_inner()
-//     };
-
-//     let mut server = mockito::Server::new();
-
-//     let kpar_probe = server
-//         .mock("HEAD", "/info_non_ranged_http_kpar.kpar")
-//         .with_status(200)
-//         .with_header("content-type", "application/zip")
-//         .with_body(&buf)
-//         .create();
-
-//     let get_kpar = server
-//         .mock("GET", "/info_non_ranged_http_kpar.kpar")
-//         .with_status(200)
-//         .with_header("content-type", "application/zip")
-//         .with_body(&buf)
-//         .create();
-
-//     let url = format!("{}/info_non_ranged_http_kpar.kpar", server.url());
-
-//     let (_, _, out) = run_sysand(["info", "--iri", &url], None)?;
-
-//     out.assert()
-//         .success()
-//         .stdout(predicate::str::contains("Name: info_non_ranged_http_kpar"))
-//         .stdout(predicate::str::contains("Version: 1.2.3"));
-
-//     kpar_probe.assert();
-//     get_kpar.assert();
-
-//     Ok(())
-// }
 
 #[test]
 fn info_basic_local_kpar() -> Result<(), Box<dyn Error>> {
@@ -2215,10 +2145,8 @@ fn edit_refuses_an_unrecognized_metamodel_on_a_toml_project() -> Result<(), Box<
     Ok(())
 }
 
-/// The compatibility fixture: a legacy pair written by hand, which is
-/// how a test exercises the json form, since `sysand init` writes a
-/// `model.toml`. Read through the CLI, so the fixture is proved to be a
-/// project Sysand actually accepts rather than merely plausible json.
+/// The compatibility fixture: a legacy pair written by hand, read through
+/// the CLI to prove Sysand accepts it as a project.
 #[test]
 fn a_hand_written_legacy_project_is_read() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "widgets", "1.2.3", None)?;
@@ -2236,12 +2164,9 @@ fn a_hand_written_legacy_project_is_read() -> Result<(), Box<dyn Error>> {
 
 /// The bytes a legacy project is made of, frozen.
 ///
-/// `sysand init` writes a `model.toml`, so there is no command output
-/// to compare the fixture against, and many tests depend on it being
-/// what a legacy project looks like, so the bytes are pinned here. They
-/// were taken from `sysand init --publisher acme --name widgets
-/// --version 1.2.3 --license MIT` at commit `117558d`, whose `init`
-/// wrote the json pair.
+/// `sysand init` writes a `model.toml`, so there is no command output to
+/// compare the fixture against, and many tests depend on it being what a
+/// legacy project looks like.
 #[test]
 fn the_legacy_fixture_writes_these_exact_bytes() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "widgets", "1.2.3", Some("MIT"))?;
@@ -2267,8 +2192,7 @@ fn the_legacy_fixture_writes_these_exact_bytes() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// The legacy counterpart of `cli_init_project_in`: a directory that
-/// already exists.
+/// A legacy project written into a directory that already exists.
 #[test]
 fn a_legacy_project_can_be_written_into_an_existing_directory() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
@@ -2286,9 +2210,9 @@ fn a_legacy_project_can_be_written_into_an_existing_directory() -> Result<(), Bo
 
 /// The verbs are named after `.project.json`'s fields, and three of
 /// them are spelled differently in a manifest. Writing the json
-/// spelling is silent -- an unknown key is a warning and the value
-/// reads back as absent -- so this asserts the text *and* that reading
-/// it back says nothing.
+/// spelling is silent (an unknown key is a warning and the value reads
+/// back as absent), so this asserts the text *and* that reading it back
+/// says nothing.
 #[test]
 fn edit_writes_the_manifest_spelling_of_each_key() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd) = toml_project_cwd()?;
@@ -2324,9 +2248,8 @@ fn edit_writes_the_manifest_spelling_of_each_key() -> Result<(), Box<dyn Error>>
     Ok(())
 }
 
-/// A manifest validates what the json documents never did. Each of
-/// these is accepted by a `.project.json` and would make a `model.toml`
-/// unreadable.
+/// A manifest validates more than the json documents do. Each of these is
+/// accepted by a `.project.json` and would make a `model.toml` unreadable.
 #[test]
 fn edit_refuses_values_a_manifest_cannot_hold() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd) = toml_project_cwd()?;
@@ -2463,8 +2386,7 @@ fn edit_keeps_the_comments_and_key_order() -> Result<(), Box<dyn std::error::Err
 ///
 /// A project read at a path the command was *given* is read with the
 /// workspace table, so a member is not refused as "not a member of any
-/// workspace". Running `info` from *inside* the member is the other
-/// route to the same read.
+/// workspace".
 #[test]
 fn info_at_a_member_path_reads_the_inherited_metamodel() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
@@ -2543,8 +2465,7 @@ fn a_syside_project_reads_with_no_warning_from_the_cli() -> Result<(), Box<dyn E
 }
 
 /// `info index` on a project whose `.meta.json` has the Syside shape prints
-/// no symbols -- there is no `index` -- and says why on stderr, where
-/// explanations go.
+/// no symbols, as there is no `index`, and says why on stderr.
 #[test]
 fn info_index_get_on_a_root_shaped_project_prints_nothing_and_warns() -> Result<(), Box<dyn Error>>
 {
@@ -2671,9 +2592,9 @@ fn info_root_gets_and_sets_on_a_json_project() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// `info --get exports` lists what a Syside project's KPAR exports --
-/// computed for a `model.toml` project, read for a json one -- and says
-/// on stderr that an OMG project has none.
+/// `info --get exports` lists what a Syside project's KPAR exports
+/// (computed for a `model.toml` project, read for a json one) and says on
+/// stderr that an OMG project has none.
 #[test]
 fn info_exports_lists_a_syside_projects_exports() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd) = syside_toml_project_cwd()?;

@@ -9,9 +9,9 @@ use crate::{
 };
 
 /// Pair of project storages where `local` and `remote` contain the same project
-/// content, while `local` is easier and faster to access. The CachedProject is
-/// to be used in place of `remote` (in particular they return the same sources,
-/// unlike `local`) but faster access.
+/// content, while `local` is easier and faster to access. A `CachedProject`
+/// stands in for `remote`: it reports the same sources (unlike `local`) but
+/// reads faster.
 #[derive(Clone, Debug)]
 pub struct CachedProject<Local: ProjectRead, Remote: ProjectRead> {
     local: Local,
@@ -73,9 +73,8 @@ impl<Local: ProjectRead, Remote: ProjectRead> ProjectRead for CachedProject<Loca
         self.local.read_source(path)
     }
 
-    /// It is assumed here that `remote.sources()` is infallible
-    // Can't return error, since return type is local project error, but we call
-    // remote project sources
+    /// Assumes `remote.sources()` is infallible: the return type is the
+    /// local project's error, which cannot carry the remote's.
     // TODO: more elegant solution
     fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         Ok(self.remote.sources(ctx).unwrap())
@@ -107,11 +106,8 @@ impl<Local: ProjectRead, Remote: ProjectRead> ProjectRead for CachedProject<Loca
     }
 
     fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
-        // Delegate to `local`: the cached project is the authoritative
-        // content and any checksum it produces matches the remote's.
-        // Delegating through the default would short-circuit back to
-        // `self.get_project` (also local) but without picking up any
-        // override a leaf might install.
+        // Delegate to `local`, whose checksum matches the remote's, so a
+        // leaf's own override is picked up.
         self.local.checksum_canonical_hex()
     }
 

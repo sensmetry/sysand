@@ -113,16 +113,6 @@ fn lex_symbol(lex: &mut Lexer<'_, Token>) -> Result<Token, LexingError> {
     lex.bump(symbol_block_close_pos);
 
     Ok(Token::OtherSymbol)
-
-    // let mut close_pos = rem.find("'").ok_or(LexingError::Unterminated("'"))?;
-
-    // while rem[..close_pos].ends_with("\\'") {
-    //     close_pos = rem.find("'").ok_or(LexingError::Unterminated("'"))?;
-    // }
-
-    // lex.bump(close_pos + 1);
-
-    // Ok(lex.slice())
 }
 
 #[derive(Logos, Debug, PartialEq, Eq)]
@@ -186,15 +176,10 @@ pub enum Token {
     #[token("]")]
     CloseSquare,
 
-    //#[token("::")]
     DoubleColon,
-    //#[token("<")]
     LT,
-    //#[token(">")]
     GT,
-    //#[token("=")]
     Equals,
-    //#[token(".")]
     Period,
 
     #[regex(r".", |lex| lex_symbol(lex), priority=0)]

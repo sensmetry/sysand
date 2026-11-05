@@ -125,9 +125,10 @@ fn run_cli_blocking(args: Vec<String>) -> u8 {
 
 /// Clap's long help for the command `args` names, as a string.
 ///
-/// For an embedding CLI that that needs help text as a string: clap writes to the process's file descriptors, which a Python
-/// stream redirect of `sys.stdout`/`sys.stderr` does not capture. `prog` is the
-/// program name to spell in usage lines.
+/// For an embedding CLI that needs help text as a string: clap writes to the
+/// process's file descriptors, which a Python stream redirect of
+/// `sys.stdout`/`sys.stderr` does not capture. `prog` is the program name to
+/// spell in usage lines.
 ///
 /// Unparseable arguments give clap's error text, not an exception.
 #[pyfunction(name = "_render_long_help")]
@@ -140,11 +141,9 @@ fn render_long_help(prog: &str, args: Vec<String>) -> String {
 
 /// `sysand migrate`, as the CLI runs it.
 ///
-/// Through `command_migrate` rather than the core pieces: this binding
-/// already depends on the `sysand` crate. The cost is that every
-/// failure arrives as one `anyhow::Error` and so as one
-/// `ProjectError` -- migrate's failures are a `Report` of diagnostics,
-/// which has no variant structure to map onto Python exceptions the way
+/// Every failure arrives as one `anyhow::Error`, and so as one
+/// `ProjectError`: migrate's failures are a list of diagnostics, which
+/// has no variant structure to map onto Python exceptions the way
 /// `init`'s do.
 #[pyfunction(name = "do_migrate_py")]
 #[pyo3(
@@ -220,11 +219,11 @@ fn do_init_py_local_file(
     // Initialize logger in each function independently to avoid setting up a
     // logger before `run_cli()` is called (CLI sets up its own logger). This
     // can't be put into pymodule definition, since importing any part of the
-    // library from python runs it -- and an embedder whose CLI is a Python
-    // entry point imports this module before it can reach `_run_cli` at all,
-    // so at import the CLI would never get its own logger. When the order
-    // does go the other way, `_run_cli` passes `ProcessOwnership::Embedded`
-    // and the CLI keeps the level without complaining about the formatting.
+    // library from python runs it, and an embedder whose CLI is a Python
+    // entry point imports this module before it can reach `_run_cli` at all.
+    // When the order does go the other way, `_run_cli` passes
+    // `ProcessOwnership::Embedded` and the CLI keeps the level without
+    // complaining about the formatting.
     common_init();
 
     do_init_local_file(
@@ -729,7 +728,7 @@ struct Context {
 }
 
 /// The CLI's view of where a call runs: the enclosing project and, under
-/// [`Scope::Workspace`], the workspace it belongs to -- `run_cli`'s own
+/// [`Scope::Workspace`], the workspace it belongs to: `run_cli`'s own
 /// steps, including rooting the environment and the configuration where
 /// the CLI roots them.
 ///
@@ -742,9 +741,8 @@ fn project_context(start: &Utf8Path, scope: Scope, lock: Option<LockMode>) -> Py
     // Where a lockfile belongs when the path is not in a workspace.
     let project_root = current_project.as_ref().map(|p| p.root_path().to_owned());
 
-    // `discover_table` and not `Workspace::discover`. As in `run_cli`, a
-    // discovery error is fatal only for a call that consults the
-    // workspace.
+    // As in `run_cli`, a discovery error is fatal only for a call that
+    // consults the workspace.
     let discovered = match (
         sysand_core::workspace::model_toml::discover_table(&cwd),
         scope,
@@ -1846,7 +1844,7 @@ mod py_errors {
         lock_held => LockHeldError,
     }
 }
-// `sysand_core::commands::env::EnvError` is already in scope under that name.
+// Aliased with a `Py` prefix: core's `EnvError` is already in scope.
 use py_errors::{
     AuthError as PyAuthError, EnvError as PyEnvError, IndexProtocolError as PyIndexProtocolError,
     LockHeldError as PyLockHeldError, NotFoundError as PyNotFoundError, ProjectError,
@@ -2042,8 +2040,6 @@ pub fn sysand_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(do_env_install_path_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_env_projects_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_discover_py, m)?)?;
-    // Currently this interop is done with strings
-    // m.add_class::<KparCompressionMethod>()?;
 
     m.add("DEFAULT_ENV_NAME", DEFAULT_ENV_NAME)?;
     Ok(())
@@ -2129,15 +2125,11 @@ fn do_env_projects_py(env_path: String) -> PyResult<Vec<EnvProject>> {
 /// command.
 ///
 /// The workspace is a `model.toml` holding a `[workspace]` table, found
-/// by `discover_table` -- the function `run_cli` uses for the same
-/// question. Does not read the members, so a malformed member does not
-/// fail it. It can still fail on the workspace file itself, and on
-/// a nested workspace, which is a configuration error every command
-/// rejects.
+/// by `discover_table`, as `run_cli` does. Does not read the members, so a
+/// malformed member does not fail it. It can still fail on the workspace file
+/// itself, and on a nested workspace, which every command rejects.
 ///
-/// A `path` that does not exist answers `(None, None)` rather than
-/// raising: `discover_project` does not canonicalize its input, and the
-/// two halves of the answer should agree about a missing directory.
+/// A `path` that does not exist answers `(None, None)`.
 #[pyfunction(name = "do_discover_py")]
 #[pyo3(
     signature = (path),

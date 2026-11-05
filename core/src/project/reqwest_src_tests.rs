@@ -43,7 +43,6 @@ fn empty_remote_definitely_invalid_http_src() -> Result<(), Box<dyn std::error::
 fn basic_project_urls_http_src() -> Result<(), Box<dyn std::error::Error>> {
     let mut server = mockito::Server::new();
 
-    //let host = server.host_with_port();
     let url = reqwest::Url::parse(&server.url()).unwrap();
 
     let info_mock = server

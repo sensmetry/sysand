@@ -8,7 +8,7 @@ use super::{
     Classification, DiscoverError, LoadError, LoadFailure, MemberChecks, SelectError, Selection,
     Selector, Workspace, candidate_root, confirm_root,
 };
-use crate::manifest::diagnostics::Diagnostic;
+use crate::manifest::diagnostics::{Diagnostic, Report};
 use crate::project::utils::ProjectDeserializationError;
 
 const PROJECT: &str = "\
@@ -207,7 +207,7 @@ fn members_that_are_different_projects_still_load() {
 /// against.
 fn table_diagnostics(fixture: &Fixture) -> Vec<Diagnostic> {
     match fixture.load() {
-        Err(LoadError::Root(ProjectDeserializationError::Invalid { report, path: _ })) => {
+        Err(LoadError::Root(ProjectDeserializationError::Invalid { report })) => {
             report.diagnostics().to_vec()
         }
         Err(other) => panic!("expected root-table diagnostics, got `{other}`"),
@@ -217,8 +217,13 @@ fn table_diagnostics(fixture: &Fixture) -> Vec<Diagnostic> {
 
 /// The diagnostics raised against the *root* manifest.
 fn root_diagnostics(failure: &LoadFailure) -> &[Diagnostic] {
+    root_report(failure).diagnostics()
+}
+
+/// The report about the *root* manifest.
+fn root_report(failure: &LoadFailure) -> &Report {
     match failure.root.as_ref().expect("root diagnostics") {
-        ProjectDeserializationError::Invalid { report, path: _ } => report.diagnostics(),
+        ProjectDeserializationError::Invalid { report } => report,
         other @ ProjectDeserializationError::Syntax { path: _, err: _ } => {
             panic!("expected an invalid-manifest error, got `{other}`")
         }
@@ -365,7 +370,7 @@ fn a_member_holding_both_manifests_is_refused() {
     // the words.
     //
     // The member's message appends a remedy the owned one cannot give
-    // -- `AmbiguousFormat` is raised for standalone projects too -- so the
+    // (`AmbiguousFormat` is raised for standalone projects too), so the
     // hint is stripped before the comparison and asserted on its own.
     let hint = " (`sysand migrate app` keeps the `model.toml` and removes the json)";
     let shared = message
@@ -477,11 +482,12 @@ fn a_member_diagnostic_points_at_the_entry_that_named_it() {
     let fixture =
         Fixture::new("manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\n  \"app\",\n]\n");
     let failure = fixture.failure();
-    let position = root_diagnostics(&failure)[0]
+    let report = root_report(&failure);
+    assert_eq!(report.file(), "model.toml");
+    let position = report.diagnostics()[0]
         .position
         .as_ref()
         .expect("the diagnostic points at the entry");
-    assert_eq!(position.file, "model.toml");
     assert_eq!(position.line, 5);
 }
 
@@ -501,7 +507,7 @@ fn a_member_position_does_not_change_path_equality() {
     let with = MemberPath {
         raw: "app".to_owned(),
         path,
-        at: Some(Position::at("model.toml", 5, 3)),
+        at: Some(Position::at(5, 3)),
     };
     assert_eq!(without, with);
 }
@@ -636,7 +642,7 @@ fn a_directory_under_an_excluded_one_is_excluded() {
     ));
 }
 
-/// A tie goes to `members`.
+/// A directory listed in both `members` and `exclude` is refused.
 #[test]
 fn a_directory_in_both_lists_is_refused() {
     let fixture = Fixture::new(
@@ -712,8 +718,8 @@ fn a_workspace_root_under_an_excluded_directory_is_excluded() {
     ));
 }
 
-/// `exclude` entries may nest -- the cross-entry checks are off for
-/// that list -- so the most specific one is the one that answers.
+/// `exclude` entries may nest, so the most specific one is the one that
+/// answers.
 #[test]
 fn the_most_specific_excluded_entry_answers() {
     let fixture = Fixture::new(
@@ -924,8 +930,8 @@ fn a_nested_workspace_the_outer_excludes_is_confirmed() {
     confirm_root(fixture.root()).expect("the outer excludes it");
 }
 
-/// "the outer workspace lists the candidate's directory, **or a
-/// directory above it**, in `exclude`".
+/// The outer workspace may list a directory above the candidate in
+/// `exclude`.
 #[test]
 fn a_nested_workspace_excluded_by_a_directory_above_it_is_confirmed() {
     let fixture = Fixture::at("vendor/inner", EMPTY_WORKSPACE);
@@ -936,9 +942,8 @@ fn a_nested_workspace_excluded_by_a_directory_above_it_is_confirmed() {
     confirm_root(fixture.root()).expect("an excluded directory above it");
 }
 
-/// "whether the outer workspace is itself nested is checked when a
-/// command runs inside it". The first outer settles the question either
-/// way; a third workspace above it is not this command's problem.
+/// The first outer settles the question either way; a third workspace
+/// above it is not this command's problem.
 #[test]
 fn the_outer_workspace_is_not_itself_checked_for_nesting() {
     let fixture = Fixture::at("b/c", EMPTY_WORKSPACE);
@@ -1108,8 +1113,8 @@ fn a_directory_with_no_project_starts_in_the_workspace() {
     ));
 }
 
-/// "the workspace root is never a member, so commands run from the
-/// workspace root always target the whole workspace".
+/// The workspace root is never a member, so commands run from it always
+/// target the whole workspace.
 #[test]
 fn the_root_starts_in_the_workspace() {
     let fixture = Fixture::new(&workspace_with("\"app\""));
@@ -1183,7 +1188,7 @@ fn a_member_is_selected_by_its_path() {
     assert_eq!(workspace.member("lib").expect("a member").path.raw, "lib");
 }
 
-/// "Literally" is read as the spelling the author wrote, which is what
+/// A path matches the spelling the author wrote, which is what
 /// `MemberPath::raw` is kept for: another spelling of the same directory
 /// selects nothing.
 #[test]
@@ -1441,9 +1446,9 @@ fn an_unlisted_project_is_refused_by_select() {
     ));
 }
 
-/// "a project directory under the root that is neither a member nor
-/// excluded is the hard error of Included projects, whatever the
-/// command" -- a selector does not excuse standing in one.
+/// A project directory under the root that is neither a member nor
+/// excluded is a hard error whatever the command: a selector does not
+/// excuse standing in one.
 #[test]
 fn an_unlisted_project_is_refused_by_select_with_a_selector() {
     let fixture = scoped();
@@ -1590,8 +1595,8 @@ fn a_region_is_decided_by_the_most_specific_entry() {
     }
 }
 
-/// Not a proof that `classify` delegates -- a faithful duplicate of the
-/// rule would pass -- but what fails if a second rule ever diverges.
+/// Not a proof that `classify` delegates, as a faithful duplicate of the
+/// rule would pass, but it fails if a second rule ever diverges.
 #[test]
 fn classify_agrees_with_region_everywhere() {
     let fixture = Fixture::new(SHAPES);
@@ -1713,8 +1718,8 @@ fn start_region_ignores_a_member_that_does_not_exist() {
 // ------------------------------- `member_index` asks for identity
 
 /// The distinction the two functions draw, on one fixture: `app` is a
-/// member, and the project at `app/dep` -- which `start_region`
-/// prefix-matches to the same entry -- is not.
+/// member, and the project at `app/dep`, which `start_region`
+/// prefix-matches to the same entry, is not.
 ///
 /// The consequence is inheritance: the nested project's
 /// `publisher.workspace = true` must not resolve against the table.
@@ -1740,8 +1745,8 @@ fn member_index_refuses_a_project_nested_inside_a_member() {
     );
     // A prefix match would answer `Member(0)` here, so a command run
     // inside `app/dep` would behave as though it were `app` while
-    // `--path app/dep` is refused. Both are refused, as is any project under the root that is neither
-    // listed nor excluded.
+    // `--path app/dep` is refused. Both are refused, as is any project
+    // under the root that is neither listed nor excluded.
     assert!(
         matches!(
             super::start_region(&root, &table, fixture.under("app/dep")),
@@ -1754,8 +1759,8 @@ fn member_index_refuses_a_project_nested_inside_a_member() {
     );
 }
 
-/// The root defines no project, so it is no member either -- and it is
-/// the one path whose relativization is empty.
+/// The root defines no project, so it is no member either, and it is the
+/// one path whose relativization is empty.
 #[test]
 fn member_index_refuses_the_root() {
     let fixture = Fixture::new(&workspace_with("\"app\""));
@@ -1802,8 +1807,8 @@ fn skipping_stray_state_still_refuses_a_json_member() {
     );
 }
 
-/// Nor is the member's existence -- and a `members` entry naming
-/// nothing still aborts the whole load.
+/// Nor is the member's existence: a `members` entry naming nothing still
+/// aborts the whole load.
 #[test]
 fn skipping_stray_state_still_refuses_a_missing_member() {
     let fixture = Fixture::new(&workspace_with("\"app\", \"gone\""));

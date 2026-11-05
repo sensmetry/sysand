@@ -34,7 +34,7 @@ def migrate(
     repository are both refused unless the matching flag is passed.
 
     An ``http(s)`` usage, and a ``pkg:sysand`` usage with no version
-    constraint, are resolved through an index -- so ``resolution`` and
+    constraint, are resolved through an index, so ``resolution`` and
     ``auth`` take the same shapes as :func:`sysand.lock`'s.
 
     Raises:

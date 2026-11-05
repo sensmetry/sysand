@@ -4,7 +4,7 @@
 //! A Sysand index read from a directory on this machine, in either of the
 //! two shapes `design/index-protocol.md` "Filesystem indexes" names:
 //!
-//! - **structured**: the layout `sysand index init`/`add` write --
+//! - **structured**: the layout `sysand index init`/`add` write:
 //!   `index.json`, `<publisher>/<name>/versions.json` and
 //!   `<publisher>/<name>/<version>/project.kpar`; the same bytes an HTTP
 //!   index serves, read with `std::fs`;
@@ -18,11 +18,11 @@
 //! case-insensitively) means folder, otherwise the directory is refused.
 //! Neither shape is a fallback for the other and neither warns.
 //!
-//! Every path the index names -- an archive under a version directory,
-//! `versions.json`, an enumerated `*.kpar` -- is canonicalized and must
-//! stay under the canonicalized root: a directory a user was
-//! handed is trusted no more than an HTTP server, and `..` or a
-//! symlink must not turn a dependency solve into a read elsewhere.
+//! Every path the index names (an archive under a version directory,
+//! `versions.json`, an enumerated `*.kpar`) is canonicalized and must
+//! stay under the canonicalized root: the directory is trusted no more
+//! than an HTTP server, and `..` or a symlink must not turn a dependency
+//! solve into a read elsewhere.
 //!
 //! There is no discovery step (`sysand-index-config.json` is never read:
 //! the root *is* `index_root`, and a directory has no `api_root`) and no
@@ -75,10 +75,9 @@ pub enum LocalIndexError {
         file: Utf8PathBuf,
         root: Utf8PathBuf,
     },
-    /// An archive whose `.project.json` has no `publisher`, named by its
-    /// location, with no `model.toml` remedy (a KPAR cannot carry one).
-    /// A folder of KPARs is indexed by `pkg:sysand/<publisher>/<name>`,
-    /// so an archive without a publisher has no IRI to be listed under.
+    /// An archive whose `.project.json` has no `publisher`. A folder of
+    /// KPARs is indexed by `pkg:sysand/<publisher>/<name>`, so it has no IRI
+    /// to be listed under, and a KPAR cannot carry a `model.toml` instead.
     #[error(
         "`{archive}` has a `.project.json` with no `publisher`;\n\
         {SP:>8} a folder index names each archive `{PKG_SYSAND_PREFIX}<publisher>/<name>`, \
@@ -169,7 +168,7 @@ enum Shape {
 pub struct LocalIndexEnvironment {
     /// The spelling the user gave, for messages.
     display: Utf8PathBuf,
-    /// Absolute, as spelled (symlinks intact) -- what paths are built from.
+    /// Absolute, as spelled (symlinks intact); what paths are built from.
     root: Utf8PathBuf,
     /// Canonical root plus detected shape; populated on first access.
     detected: Mutex<Option<Arc<(Utf8PathBuf, Shape)>>>,
@@ -336,8 +335,8 @@ impl LocalIndexEnvironment {
     }
 
     /// Structured shape: the validated `versions.json` of `iri`, or `None`
-    /// when the file is absent (the project is not in this index -- the
-    /// HTTP client's 404 rule).
+    /// when the file is absent (the project is not in this index, as for a
+    /// 404 over HTTP).
     fn structured_versions(
         &self,
         canonical_root: &Utf8Path,
@@ -466,8 +465,7 @@ impl ReadEnvironmentAsync for LocalIndexEnvironment {
             file: versions_file.clone(),
             version: version.to_owned(),
         };
-        // A non-semver request names nothing an index lists; the parse
-        // error adds nothing to "not listed".
+        // A non-semver request is simply not listed.
         let requested = Version::parse(version).map_err(|_parse| not_listed())?;
         let candidate = candidates
             .iter()
@@ -489,8 +487,7 @@ impl ReadEnvironmentAsync for LocalIndexEnvironment {
                 .join(KPAR_FILE_NAME);
             self.contained(canonical_root, &named, &versions_file)?
         };
-        // The archive is not checked here to declare the identity it was
-        // looked up by.
+        // The archive's declared identity is not checked against `iri` here.
         let project = LocalKParProject::new_access(archive, KparInnerPath::Root, None);
         let project = match &candidate.expected {
             Some(expected) => project.expecting(expected.clone()),
@@ -505,8 +502,8 @@ impl ReadEnvironmentAsync for LocalIndexEnvironment {
         _version: V,
         _checksum: &crate::env::ProjectChecksum,
     ) -> Result<crate::env::ProjectChecksumResult, Self::ReadError> {
-        // As the HTTP index: an index is a resolution source, not an
-        // environment a lockfile is verified against.
+        // An index is a resolution source, not an environment a lockfile is
+        // verified against.
         panic!("has_version_verified_async is not meaningful for an index")
     }
 }

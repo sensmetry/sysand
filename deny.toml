@@ -57,7 +57,7 @@ multiple-versions = "warn"
 wildcards = "deny"
 allow-wildcard-paths = true
 deny = [
-  # TLS is provided by rustls only, see design/architecture.md
+  # TLS is provided by rustls only
   { crate = "native-tls", reason = "use rustls" },
   { crate = "openssl-sys", reason = "use rustls" },
 ]

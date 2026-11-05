@@ -29,9 +29,8 @@ pub fn command_publish(
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
-    // A directory has no upload endpoint; `sysand index add` is how an
-    // archive enters a filesystem index. Refused before any archive is
-    // touched, so the message is the first and only one.
+    // A directory has no upload endpoint; refuse before any archive is
+    // touched.
     let index = match index {
         IndexSource::Remote(index) => index,
         IndexSource::Filesystem(path) => bail!(
@@ -41,10 +40,8 @@ pub fn command_publish(
     };
     let archives = resolve_publish_archives(path, ctx)?;
     // Validate and prepare every payload before any network work, so
-    // kpar-content errors surface before discovery or credential
-    // matching -- and, for a workspace, before anything at all is
-    // uploaded. Discovering a malformed archive after uploading three
-    // others is not a state to leave a user in.
+    // kpar-content errors surface before discovery or credential matching
+    // and, for a workspace, before anything is uploaded.
     let mut prepared = Vec::with_capacity(archives.len());
     for kpar_path in &archives {
         if !wrapfs::is_file(kpar_path)? {
@@ -80,8 +77,7 @@ pub fn command_publish(
     // store is read only when no env bearer matches the upload URL.
     let env_bearers = auth_policy.env_policy().publish_bearer_auth_map()?;
     let trusted_publishing_env = TrustedPublishingEnvironment::from_env();
-    // Captured before `index` moves into `do_publish`, so both hint sites
-    // can name the index the user actually targeted.
+    // Captured before `index` moves into `do_publish`.
     let index_display = index.to_string();
     let bearer = resolve_publish_bearer(
         &env_bearers,
@@ -107,9 +103,8 @@ pub fn command_publish(
             runtime.clone(),
         )
         .map_err(|err| {
-            // A failure stops the sequence and reports what was
-            // published: the uploads that succeeded are not undone, so
-            // the user has to be told which they were.
+            // A failure stops the sequence; earlier uploads are not undone,
+            // so report which they were.
             let err = publish_error_with_hint(err, &index_display);
             if published.is_empty() {
                 err
@@ -134,8 +129,8 @@ pub fn command_publish(
 }
 
 /// Add the CLI-specific `sysand auth` remediation to a publish error whose
-/// core message names no CLI command. `index` is the index the user targeted, so the
-/// login hint is copy-pasteable.
+/// core message names no CLI command. `index` is the index the user
+/// targeted, so the login hint is copy-pasteable.
 fn publish_error_with_hint(err: PublishError, index: &str) -> anyhow::Error {
     let hint = match &err {
         PublishError::NoPublishBearer { upload_url: _ } => {
@@ -177,10 +172,10 @@ fn publish_error_with_hint(err: PublishError, index: &str) -> anyhow::Error {
 
 /// The archives to publish, in the order they must go.
 ///
-/// One for an explicit `[PATH]` or for a project directory -- a
-/// workspace member included, which resolves to the member's own
-/// archive under the workspace `output/`. From a workspace root with no
-/// project, every member in dependency order.
+/// One for an explicit `[PATH]` or for a project directory (a workspace
+/// member included, which resolves to the member's own archive under the
+/// workspace `output/`). From a workspace root with no project, every
+/// member in dependency order.
 fn resolve_publish_archives(
     path: Option<Utf8PathBuf>,
     ctx: &ProjectContext,
@@ -193,8 +188,7 @@ fn resolve_publish_archives(
         ctx.current_project.as_ref(),
         ctx.model_workspace_root.as_ref(),
     ) {
-        // A member publishes the archive `sysand build` wrote for it,
-        // which is in the workspace's single `output/`.
+        // A member publishes the archive `sysand build` wrote for it.
         (Some(current_project), workspace_root) => Ok(vec![default_kpar_path(
             current_project,
             workspace_root.map(camino::Utf8PathBuf::as_path),

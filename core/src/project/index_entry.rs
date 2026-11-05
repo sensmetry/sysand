@@ -5,8 +5,7 @@
 //!
 //! `IndexEntryProject` is the `ProjectRead`/`ProjectReadAsync` leaf returned
 //! by [`crate::env::index::IndexEnvironmentAsync`] once a concrete version
-//! has been selected. This module only calls out the implementation
-//! split:
+//! has been selected. Reads fall into three tiers:
 //!
 //! - Advertised-tier reads ([`ProjectReadAsync::version_async`],
 //!   [`ProjectReadAsync::usage_async`]) returning fields from
@@ -77,8 +76,8 @@ pub enum IndexEntryProjectError {
     Fetch(#[from] HttpFetchError),
     #[error(transparent)]
     Downloaded(#[from] ReqwestKparDownloadedError),
-    #[error("`{0}` is not a valid manifest:\n{1}")]
-    InvalidManifest(String, Report),
+    #[error("`{}` is not a valid manifest:\n{report}", .report.file())]
+    InvalidManifest { report: Report },
     #[error(
         "project publisher `{}` does not match expected `{}`",
         if let Some(a) = actual { a.as_str() } else { "<none>" },
@@ -126,8 +125,6 @@ impl<Policy: HTTPAuthentication> IndexEntryProject<Policy> {
         url: reqwest::Url,
     ) -> Result<T, IndexEntryProjectError> {
         // Once a version is selected, a per-version 404 is a hard error.
-        // The `.expect` is valid because `Ok(None)` is only returned when
-        // not-found is allowed, which it is not here.
         Ok(fetch_json(
             &self.archive.client,
             &*self.archive.auth_policy,
@@ -159,11 +156,9 @@ impl<Policy: HTTPAuthentication> IndexEntryProject<Policy> {
                 let info =
                     validate_fetched(&self.project_json_url, info, meta.metamodel.as_deref())?;
 
-                // The entry has to be the project the identity that found
-                // it names. The advertised tier carries no publisher or
-                // name, so a `versions.json` that
-                // points at another project's files is accepted until the
-                // `.project.json` is read, which is here.
+                // The entry has to be the project the identity that found it
+                // names. The advertised tier carries no publisher or name, so
+                // this is the first point the mismatch can be seen.
                 if let Some(expected) = &self.expected {
                     expected
                         .check(info.publisher.as_deref(), &info.name)
@@ -183,13 +178,9 @@ impl<Policy: HTTPAuthentication> IndexEntryProject<Policy> {
                             IdentityMismatch::Name { expected, actual } => {
                                 IndexEntryProjectError::NameMismatch { expected, actual }
                             }
-                            // Unreachable: an index usage is exempt from
-                            // the literal rule in v1, so no
-                            // expectation an index resolver builds
-                            // carries a toml origin. Reported as the
-                            // publisher mismatch rather than with a
-                            // panic, since the arm is about a case that
-                            // cannot arise rather than one to crash on.
+                            // Unreachable: an index usage is exempt from the
+                            // literal rule, so no expectation an index
+                            // resolver builds carries a toml origin.
                             IdentityMismatch::Spelling { expected, actual } => {
                                 IndexEntryProjectError::PublisherMismatch {
                                     expected: expected.0,
@@ -238,8 +229,7 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for IndexEntryProject<Policy> 
 
     async fn sources_async(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         Ok(vec![Source::IndexKpar {
-            // Panic here should be impossible, as the URL should have
-            // been created from IRI
+            // Cannot panic: the URL was created from an IRI
             index_kpar: Iri::parse(self.archive.url().to_string()).unwrap(),
             kpar_size: self.advertised.kpar_size,
             kpar_digest: self.advertised.kpar_digest.as_hex().to_owned(),
@@ -292,14 +282,13 @@ fn validate_fetched<T: PartialManifest>(
     match partial.validate_manifest(metamodel) {
         Ok(validated) => {
             for warning in &validated.warnings {
-                log::warn!("`{}`: {warning}", RedactedUrl::from(url));
+                log::warn!("{}", warning.in_file(&RedactedUrl::from(url).to_string()));
             }
             Ok(validated.value)
         }
-        Err(report) => Err(IndexEntryProjectError::InvalidManifest(
-            url.to_string(),
-            report,
-        )),
+        Err(report) => Err(IndexEntryProjectError::InvalidManifest {
+            report: report.in_file(url.as_str()),
+        }),
     }
 }
 

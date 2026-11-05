@@ -4,16 +4,15 @@
 //! The advisory lock a mutating command holds on a workspace.
 //!
 //! One file, `.sysand/.lock`, inside the environment directory at the
-//! workspace root -- the project root for a standalone project. Acquiring
+//! workspace root (the project root for a standalone project). Acquiring
 //! the lock creates `.sysand/` if it is absent; an environment is present
 //! only once `.sysand/env.toml` exists, so a `.sysand/` holding nothing but
 //! the lock file reads as no environment. The file holds no content and
 //! is never deleted; the operating system releases the lock when its
 //! holder exits, so a lock is never stale.
 //!
-//! The mechanism is `std::fs::File::try_lock`/`try_lock_shared`; no
-//! crate. Writers take it
-//! exclusively, `sync --verify` takes it shared so it never reads a torn
+//! The mechanism is `std::fs::File::try_lock`/`try_lock_shared`. Writers
+//! take it exclusively, `sync --verify` takes it shared so it never reads a torn
 //! state. It is cross-process only: two operations in one embedding
 //! process are not its business.
 //!

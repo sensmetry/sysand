@@ -15,7 +15,6 @@ use crate::{
     },
 };
 
-// Implementations
 #[cfg(all(feature = "filesystem", feature = "networking"))]
 pub mod any_index;
 #[cfg(all(feature = "filesystem", feature = "networking"))]
@@ -67,8 +66,6 @@ pub trait ReadEnvironment {
         version: T,
     ) -> Result<Self::InterchangeProjectRead, Self::ReadError>;
 
-    // Utilities
-
     fn has<S: AsRef<str>>(&self, uri: S) -> Result<bool, Self::ReadError> {
         for res in self.uris()? {
             let u = res?;
@@ -93,11 +90,9 @@ pub trait ReadEnvironment {
         Ok(false)
     }
 
-    // TODO: decide on whtat should be returned here in these cases:
-    // - project not present: Ok(VersionNotFound)
-    // - project version not present: Ok(VersionNotFound) - both cases return VersionNotFound
-    //   to give freedom to implementers; also to callers it makes no difference whether
-    //   project or specific version was not found
+    // TODO: decide what to return here in these cases:
+    // - project not present, or version not present: Ok(VersionNotFound)
+    //   (callers do not need to tell the two apart)
     // - checksum does not match: Ok(Mismatch)
     // - checksum matches: Ok(Match)
     fn has_version_verified<S: AsRef<str>, V: AsRef<str>>(
@@ -150,8 +145,6 @@ pub trait ReadEnvironmentAsync {
         uri: S,
         version: T,
     ) -> impl Future<Output = Result<Self::InterchangeProjectRead, Self::ReadError>>;
-
-    // Utilities
 
     fn has_async<S: AsRef<str>>(
         &self,
@@ -424,8 +417,6 @@ pub enum PutProjectError<WE, CE> {
     Callback(CE),
     #[error("failed to parse `{0}` as IRI")]
     IriParse(String, #[source] fluent_uri::ParseError),
-    // #[error(transparent)]
-    // AddProject(AE),
 }
 
 pub trait WriteEnvironment {
@@ -441,8 +432,7 @@ pub trait WriteEnvironment {
         uri: S,
         version: T,
         checksum: Option<ProjectChecksum>,
-        // Callback allows the implementation to gracefully recover
-        // in case of an error, to just "allocate"
+        // Fills the allocated project; on error the implementation can recover
         write_project: F,
     ) -> Result<Self::InterchangeProjectMut, PutProjectError<Self::WriteError, CE>>
     where

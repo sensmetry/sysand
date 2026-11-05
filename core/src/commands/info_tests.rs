@@ -91,14 +91,11 @@ fn only_non_semver_versions_is_an_error() {
 
 // --- prerelease versions --------------------------------------------------
 //
-// `info` describes what an index advertises, so it considers every version,
-// prereleases included, for every locator form. Resolution is the other
-// half: there an unconstrained PURL usage ignores pre-releases, so
-// `sysand info` can name a version `sysand add`/`lock` would not pick.
-//
-// This matches `cargo` behavior: locking will not choose a pre-release
-// unless specifically requested, while `info` will show info of latest
-// version, compared like SemVer 2.0 specifies
+// `info` considers every version, prereleases included, for every locator
+// form. An unconstrained PURL usage ignores pre-releases when resolving, so
+// `sysand info` can name a version `sysand add`/`lock` would not pick. This
+// matches `cargo`: locking does not choose a pre-release unless requested,
+// while `info` shows the latest version, compared as SemVer 2.0 specifies.
 
 /// A non-PURL IRI names one project the user picked out themselves, so its
 /// prerelease is described like any other version

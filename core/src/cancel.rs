@@ -6,8 +6,8 @@
 //! A [`CancellationToken`] is observed at the *bridge checkpoints*: every
 //! `block_on` of the `AsSync*Tokio` adapters and of `SyncStreamIter`, the
 //! solver between candidates, and a git clone through
-//! `GitInterrupt`. The synchronous step in flight -- an archive's
-//! extraction, a lockfile's write, a `put_project` move -- completes
+//! `GitInterrupt`. The synchronous step in flight (an archive's
+//! extraction, a lockfile's write, a `put_project` move) completes
 //! atomically first; none of those goes through a bridge, and a token
 //! cannot interrupt them. `sync --verify` afterwards is clean or reports
 //! a state `--repair` repairs.

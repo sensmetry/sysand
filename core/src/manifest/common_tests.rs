@@ -227,8 +227,8 @@ fn group_names_are_bare_toml_keys() {
 fn sources_entries_are_taken_exactly_as_written() {
     for (entries, expected) in [
         (&["/abs/main.sysml"][..], "is absolute"),
-        // Nothing is resolved, so a `..` is a form error
-        // -- and no entry can leave the project root at all.
+        // Nothing is resolved, so a `..` is a form error and no entry can
+        // leave the project root.
         (
             &["../outside.sysml"],
             "is not in the form a `sources` entry takes",

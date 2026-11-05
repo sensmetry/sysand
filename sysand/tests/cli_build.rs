@@ -3,11 +3,9 @@
 
 //! Every project in this file is written as a legacy `.project.json`
 //! pair by hand rather than created through `sysand init`, which
-//! writes a `model.toml`: what these fixtures pin is the json path --
-//! which "TOML to KPAR" leaves unchanged.
+//! writes a `model.toml`: these fixtures pin the json path.
 //!
-//! The toml path has its own tests at the end of this file, and its
-//! usage rules are pinned in `core/src/commands/build_tests.rs`.
+//! The toml path has its own tests at the end of this file.
 
 use assert_cmd::prelude::*;
 use clap::ValueEnum as _;
@@ -356,7 +354,7 @@ fn write_workspace(
     write_workspace_with(cwd, members, "")
 }
 
-/// As [`write_workspace`], with extra `[workspace]` keys -- a
+/// As [`write_workspace`], with extra `[workspace]` keys, such as a
 /// `metamodel` for members that inherit one.
 fn write_workspace_with(
     cwd: &camino::Utf8Path,
@@ -462,7 +460,6 @@ fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Explicit inheritance: a workspace `metamodel` reaches a member that
 /// asks for it with `metamodel.workspace = true`, and only then.
-/// The member has to say so.
 #[test]
 fn workspace_build_with_inherited_metamodel() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
@@ -496,12 +493,7 @@ fn workspace_build_with_inherited_metamodel() -> Result<(), Box<dyn std::error::
 }
 
 /// A member that does *not* ask to inherit declares its own, and the
-/// build carries that one rather than the workspace's.
-///
-/// The counterpart of the test above, and the whole difference between
-/// explicit inheritance and injecting the workspace's value. Every
-/// project declares a metamodel, so what
-/// this proves is that the workspace's value does not leak into a
+/// build carries that one: the workspace's value does not leak into a
 /// member that did not ask.
 #[test]
 fn a_member_that_does_not_inherit_declares_its_own() -> Result<(), Box<dyn std::error::Error>> {
@@ -1200,10 +1192,8 @@ fn workspace_build_follows_members_order() -> Result<(), Box<dyn std::error::Err
 /// A member that loads and cannot be built: its manifest is valid, so
 /// the workspace loads, and the source it lists is not there.
 ///
-/// Not an empty directory: a workspace
-/// member must define a project, and `Workspace::load_with` refuses one
-/// that does not -- which fails the whole load and never reaches the
-/// per-member reporting these tests are about.
+/// Not an empty directory: a workspace member must define a project, and
+/// one that does not fails the whole load before per-member reporting.
 fn write_broken_member(
     dir: &camino::Utf8Path,
     name: &str,
@@ -1222,8 +1212,8 @@ fn write_broken_member(
 /// Every failure is reported, and an independent member is
 /// still built.
 ///
-/// The failures must be distinguishable, and their error texts are
-/// identical -- so the assertion is on the member names the CLI adds.
+/// The error texts are identical, so the assertion is on the member names
+/// the CLI adds.
 #[test]
 fn workspace_build_reports_every_failure() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
@@ -1324,10 +1314,7 @@ fn build_without_a_lockfile_proceeds() -> Result<(), Box<dyn std::error::Error>>
 /// The standard-library workspace fixture builds, and the members inside
 /// the Kernel cycle are built in `members` order.
 ///
-/// The fixture's ten members are the release's libraries, so this needs
-/// the release sources and skips with a notice without them. A cycle's
-/// members are built in `members` order; this pins that rule on the
-/// fixture the rule exists for.
+/// Needs the release sources and skips with a notice without them.
 #[test]
 fn the_stdlib_workspace_builds_in_members_order() -> Result<(), Box<dyn std::error::Error>> {
     let Some(sources) = stdlib_sources() else {
@@ -1359,8 +1346,8 @@ fn the_stdlib_workspace_builds_in_members_order() -> Result<(), Box<dyn std::err
     Ok(())
 }
 
-/// A Syside project builds the Syside `.meta.json` -- `root`, `exports`
-/// from the sources' symbols, no `index` -- and the same binary reads
+/// A Syside project builds the Syside `.meta.json` (`root`, `exports`
+/// from the sources' symbols, no `index`), and the same binary reads
 /// the archive back.
 #[test]
 fn a_syside_project_builds_the_root_shape() -> Result<(), Box<dyn std::error::Error>> {
@@ -1582,9 +1569,9 @@ fn files_under(
 }
 
 /// A built Syside archive end to end: the archive reads back through
-/// `info`, a local index accepts it, and -- the index's files served the
-/// way an index serves them -- a usage resolves from it and records the
-/// archive's `exports`.
+/// `info`, a local index accepts it, and a usage resolves from the index's
+/// files, served the way an index serves them, and records the archive's
+/// `exports`.
 #[test]
 fn a_syside_kpar_round_trips_through_info_and_a_local_index()
 -> Result<(), Box<dyn std::error::Error>> {

@@ -453,7 +453,7 @@ impl ResolveRead for RecordingResolver {
 
 /// The usages of the projects handed to `do_lock_projects` are the
 /// solve's *requested* usages, and their origin is the format of the
-/// project that declared them -- there is no candidate to ask.
+/// project that declared them, as there is no candidate to ask.
 #[cfg(feature = "filesystem")]
 #[test]
 fn a_requested_usage_takes_the_origin_of_the_project_that_declared_it() {
@@ -509,8 +509,8 @@ fn a_requested_usage_takes_the_origin_of_the_project_that_declared_it() {
 // ------------------------ a base per input project
 
 /// A `.project.json` *and* a `.meta.json` at `at`, published as
-/// `acme/<name>`. The solver needs only the first; `do_lock_extend`
-/// returns `IncompleteProject { field: Meta }` without the second.
+/// `acme/<name>`. The solver needs only the first; locking an input project
+/// without the second fails with `IncompleteProject { field: Meta }`.
 #[cfg(feature = "filesystem")]
 fn project_dir(at: &camino::Utf8Path, name: &str) {
     std::fs::create_dir_all(at).expect("the project directory");
@@ -537,10 +537,9 @@ fn dir_usage(dir: &str, name: &str) -> crate::model::InterchangeProjectUsage {
 
 /// A context whose project root is `at`.
 ///
-/// Every test here needs one. The base a usage resolves against and the
-/// root a solved dependency's sources are relativized against are
-/// different things, and without a root, `LocalSrcProject::sources`
-/// panics.
+/// The base a usage resolves against and the root a solved dependency's
+/// sources are relativized against are different things; without a root,
+/// locking panics.
 #[cfg(feature = "filesystem")]
 fn ctx_rooted_at(at: &camino::Utf8Path) -> ProjectContext {
     ProjectContext {
@@ -653,7 +652,7 @@ fn an_input_project_records_its_own_editable_path() -> Result<(), Box<dyn std::e
     Ok(())
 }
 
-/// The wrapper still derives one base from the context, for every
+/// The wrapper derives one base from the context, for every
 /// usage. A `Resource` usage would not show it: only a relative `dir`
 /// consults the base at all.
 #[cfg(feature = "filesystem")]
@@ -725,8 +724,7 @@ fn do_lock_extend_still_derives_one_base() -> Result<(), Box<dyn std::error::Err
 
 // ------------------------- locking a workspace
 
-/// A `model.toml` workspace on disk. `Fixture` in `model_toml_tests.rs`
-/// is a private test module, so this is its minimum here.
+/// A minimal `model.toml` workspace on disk.
 #[cfg(feature = "filesystem")]
 fn workspace_tree(members: &[(&str, &str)], root_extra: &str) -> camino_tempfile::Utf8TempDir {
     let dir = camino_tempfile::tempdir().expect("a temporary directory");
@@ -793,10 +791,9 @@ fn lock_workspace(
 
 /// Two members of one workspace that disagree about a dependency's version.
 ///
-/// `lock_workspace` cannot express it. It resolves with `FileResolver`,
-/// which serves local paths only, and an intra-workspace `dir` usage
-/// carries no version constraint at all -- so the conflict needs an index
-/// usage and a resolver that can offer two versions of it.
+/// The `FileResolver` serves local paths only, and an intra-workspace `dir`
+/// usage carries no version constraint at all, so the conflict needs an
+/// index usage and a resolver that can offer two versions of it.
 #[cfg(feature = "filesystem")]
 fn lock_workspace_with<R>(
     dir: &camino_tempfile::Utf8TempDir,
@@ -992,7 +989,7 @@ fn members_at_different_depths_resolve_their_own_bases() -> Result<(), Box<dyn s
 }
 
 /// A group entry's paths are relative to the workspace root, and the
-/// view drops that distinction -- so it is refused.
+/// view drops that distinction, so it is refused.
 #[cfg(feature = "filesystem")]
 #[test]
 fn an_inherited_local_usage_is_refused() {
@@ -1080,10 +1077,9 @@ fn a_dependency_src_path_is_relative_to_the_workspace_root()
                 "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"../vendor/dep\"\n",
             ),
         )],
-        // `exclude`d, because a `dir` usage of a project that lies under
-        // the root in neither list is the unlisted-project error. This test is about the *shape* of the
-        // recorded path, so the target is put in the list that lets it
-        // be a dependency at all.
+        // `exclude`d, because a `dir` usage of a project under the root in
+        // neither list is the unlisted-project error, and this test is about
+        // the shape of the recorded path.
         "exclude = [\"vendor\"]\n",
     );
     project_dir(&dir.path().join("vendor/dep"), "dep");
@@ -1162,11 +1158,10 @@ fn a_dir_usage_of_an_unlisted_project_is_refused() {
 /// The unlisted-project rule, reached through the resolver's `Resource`
 /// arm.
 ///
-/// That arm serves two usages at once, and only one of them can still
-/// name a directory. A toml `kpar-url` cannot -- it takes a KPAR -- so
-/// the one route is a **json** project's legacy
-/// `resource` usage, which keeps both candidates because json projects
-/// are read unchanged.
+/// That arm serves two usages at once, and only one of them can name a
+/// directory. A toml `kpar-url` takes a KPAR, so the one route is a **json**
+/// project's legacy `resource` usage, which keeps both candidates because
+/// json projects are read unchanged.
 ///
 /// The topology: an `exclude`d json project reached by a `dir` usage from a
 /// member.
@@ -1258,8 +1253,8 @@ fn a_kpar_url_naming_a_directory_is_refused() {
 /// The other half: a **json** project's legacy `resource` usage still
 /// names a directory.
 ///
-/// json projects are read unchanged, and `resource` is legacy and not
-/// supported directly, and is not `kpar-url` under another name.
+/// json projects are read unchanged, and a legacy `resource` usage is not
+/// `kpar-url` under another name.
 #[cfg(feature = "filesystem")]
 #[test]
 fn a_json_resource_naming_a_directory_still_resolves() {
@@ -1303,9 +1298,8 @@ fn a_json_resource_naming_a_directory_still_resolves() {
 /// The same check from a workspace member, which is the other lock
 /// entry point.
 ///
-/// Both funnel through `do_lock_projects_with_bases`, which is where
-/// the declared pair is read off the manifest -- so covering one covers
-/// the other, and this is what says so.
+/// Both entry points read the declared pair off the manifest in the same
+/// place, so covering one covers the other.
 #[cfg(feature = "filesystem")]
 #[test]
 fn a_member_kpar_url_that_misnames_its_target_is_refused() {
@@ -1400,7 +1394,7 @@ fn one_identity_at_two_directories_is_refused() {
 /// The same collision reached through a `kpar-path` on one side.
 ///
 /// The cache keys on identity alone, so the two usages need not be the
-/// same *kind* -- a `dir` meeting a `kpar-path` collides exactly as two
+/// same *kind*: a `dir` meeting a `kpar-path` collides exactly as two
 /// `dir`s do.
 #[cfg(feature = "filesystem")]
 #[test]
@@ -1555,12 +1549,10 @@ fn a_direction_error_fails_the_lock() {
 /// A member's `dir` usage of another member resolves even when the
 /// target inherits a key from the table.
 ///
-/// `members_at_different_depths_resolve_their_own_bases` above already
-/// locks a member-to-member `dir` usage, and passes because
-/// `member_toml` writes a literal `metamodel` into every member. Here
-/// the target *inherits*, and a manifest with an inheritance marker
-/// cannot be read without the table, so the solver's read of the target
-/// has to carry it.
+/// Other tests lock a member-to-member `dir` usage with a literal
+/// `metamodel` in every member. Here the target *inherits*, and a manifest
+/// with an inheritance marker cannot be read without the table, so the
+/// solver's read of the target has to carry it.
 #[cfg(feature = "filesystem")]
 #[test]
 fn a_dir_usage_of_an_inheriting_member_resolves() -> Result<(), Box<dyn std::error::Error>> {
@@ -1616,7 +1608,7 @@ fn a_members_own_entry_records_its_metamodel() -> Result<(), Box<dyn std::error:
 
 /// A Syside dependency's `exports` come from its `.meta.json`'s
 /// `exports` array, and a Syside member's from the symbols of its
-/// sources -- the same input to the collision check as an OMG project's
+/// sources, the same input to the collision check as an OMG project's
 /// `index` keys.
 #[cfg(feature = "filesystem")]
 #[test]

@@ -13,7 +13,7 @@ import java.nio.file.Files;
  * A smoke test against the *deployed* artifact, run by
  * {@code java-builder.py test-deployed}, apart from the library
  * suite. It exists to prove the published jar loads its native library
- * and that one end-to-end call works -- not to re-test behaviour the
+ * and that one end-to-end call works, not to re-test behaviour the
  * library suite covers. This file compiles only during a release.
  */
 public class DeployedTest {

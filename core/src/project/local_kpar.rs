@@ -46,20 +46,17 @@ pub enum KparInnerPath {
     Guess,
 }
 
-/// Project stored in as a KPar (Zip) archive in the local filesystem.
+/// Project stored as a KPar (Zip) archive in the local filesystem.
 /// Source file paths are resolved relative to and under `root`. Both
 /// `.project.json` and `.meta.json` are searched for in `root`.
-/// Use `LocalKParProject::new_guess_root` to guess `root` based on the
-/// presence of a (presumed unique) `.project.json`.
+/// With [`KparInnerPath::Guess`], `root` is the directory of the first
+/// `.project.json` found in the archive.
 ///
 /// Paths used in the archive are expected to match those used in the metadata
 /// manifest (.meta.json)! Sysand *MAY* try to normalize paths in order
 /// to match filenames, but no guarantees are made.
 ///
-///
 /// The archive is read directly without extracting it.
-// TODO: add a way to indicate whether to guess root at construction time
-// and use it to indicate that no guessing needed for index kpars
 #[derive(Debug)]
 pub struct LocalKParProject {
     /// Path used in `Source::LocalKpar` returned by `.sources()`.
@@ -73,9 +70,7 @@ pub struct LocalKParProject {
     /// Should be absolute.
     archive_path: Utf8PathBuf,
     expected: Option<KparMeta>,
-    /// Optionally specify name of project directory inside archive.
-    /// If none, currently always tries to guess before reading
-    /// any project files.
+    /// Project directory inside the archive.
     root: KparInnerPath,
     init: OnceCell<(LocalKParProjectRaw, KparMeta)>,
 }
@@ -466,11 +461,9 @@ impl LocalKParProjectRaw {
         }
     }
 
-    /// A KPAR never carries a `model.toml`, so one beside the archive's project root is an
-    /// error.
-    ///
-    /// Checked next to the project root only: a
-    /// `model.toml` deeper in is one of the project's own files.
+    /// A KPAR never carries a `model.toml`, so one beside the archive's
+    /// project root is an error. A `model.toml` deeper in is one of the
+    /// project's own files.
     fn ensure_no_model_toml(&self, zip: &mut ZipArchive<File>) -> Result<(), LocalKParError> {
         match self.get_relative(zip, MODEL_TOML_FILE) {
             Ok(_) => Err(LocalKParError::TomlInKpar {
@@ -547,9 +540,8 @@ impl ProjectRead for LocalKParProjectRaw {
     fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
         let mut archive = self.open_archive()?;
         self.ensure_no_model_toml(&mut archive)?;
-        // Reading the metadata as well costs one more entry of an
-        // archive that is already open, and buys the same message the
-        // caller of `get_project` gets.
+        // Read the metadata too, so the error names the metamodel as
+        // `get_project` does.
         let metamodel = self
             .get_meta_from(&mut archive)?
             .and_then(|meta| meta.metamodel);
@@ -597,7 +589,6 @@ impl ProjectRead for LocalKParProjectRaw {
         )?))
 
         // TODO: Solve this with a ZipFile-handle instead
-        // Ok(KparFile { archive: archive, file: &mut archive.by_index(idx)? })
     }
 
     /// This always panics. Wrapper is responsible for providing an appropriate source
@@ -627,12 +618,9 @@ impl ProjectRead for LocalKParProjectRaw {
 /// `.project.json`. The returned path is empty if the directory is the
 /// archive root.
 ///
-/// A `model.toml` seen on the way is remembered but does not stop the
-/// scan, and is reported only if no `.project.json` is found at all --
-/// otherwise a `model.toml` that is one of the project's own files could
-/// win on entry order. Without it the answer for an archive carrying a
-/// toml manifest would be "`.project.json` not found", which says
-/// nothing about what is wrong.
+/// A `model.toml` seen on the way does not stop the scan, and is reported
+/// only if no `.project.json` is found at all, so that a `model.toml` that
+/// is one of the project's own files cannot win on entry order.
 fn guess_root(
     archive: &mut ZipArchive<fs::File>,
     path: &Utf8Path,

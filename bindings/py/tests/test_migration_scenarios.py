@@ -371,7 +371,7 @@ def test_authenticated_index(
     index.publish(LIBRARY, "0.11.0")
     index.require_bearer("s3cret")
     res = resolution(index)
-    # Globs do not cross `/` (`core/src/auth.rs`); `**` matches every path.
+    # Globs do not cross `/`; `**` matches every path.
     url_glob = index.url + "**"
 
     with pytest.raises(sysand.AuthError):
@@ -385,7 +385,7 @@ def test_authenticated_index(
     listing = sysand.versions(iri=LIBRARY, resolution=res, auth=bearer)
     assert listing["versions"] == ["0.11.0", "0.10.3"]
 
-    # The CLI's own resolution, env vars only (`sysand/src/cred_env.rs`).
+    # The CLI's own resolution, env vars only.
     monkeypatch.setenv("SYSAND_CRED_TEST", url_glob)
     monkeypatch.setenv("SYSAND_CRED_TEST_BEARER_TOKEN", "s3cret")
     from_env = sysand.AuthPolicy.from_env(keyring=False)

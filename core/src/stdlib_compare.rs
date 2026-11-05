@@ -11,13 +11,12 @@
 //!
 //! * `.project.json` equal as JSON **values**, so key order does not
 //!   matter, and with `versionConstraint` compared as a parsed
-//!   `VersionReq` -- the published constraints are bare (`1.0.0`) and a
+//!   `VersionReq`: the published constraints are bare (`1.0.0`) and a
 //!   build writes caret (`^1.0.0`), which are the same requirement and
 //!   different strings.
 //! * `.meta.json` the same way, ignoring `created` (a build records its
 //!   own) and allowing a `checksum` map where the published file has
-//!   none -- three of the ten ship without one, and a build always
-//!   writes one.
+//!   none; a build always writes one.
 //! * every source file byte-identical under the same relative path.
 
 #![cfg(feature = "filesystem")]

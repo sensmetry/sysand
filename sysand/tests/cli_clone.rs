@@ -93,12 +93,7 @@ fn clone_local_kpar_project_default_target() -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-// clone remote project
-// #[test]
-// fn clone_remote_project() -> Result<(), Box<dyn std::error::Error>> {
-//     // needs mock index
-//     todo!()
-// }
+// TODO: test cloning a remote project (needs a mock index)
 
 // clone fail when wrong version given for local project
 #[test]
@@ -177,12 +172,8 @@ fn clone_not_found() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-// clone chooses latest version if none given
-// #[test]
-// fn clone_choose_latest_version() -> Result<(), Box<dyn std::error::Error>> {
-//     // will need mock index server here
-//     todo!()
-// }
+// TODO: test that clone chooses the latest version if none is given (needs a
+// mock index)
 
 // note if deps of cloned project include std libs
 #[test]
@@ -228,12 +219,8 @@ fn clone_std_deps_note() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-// do not warn about std deps if `--include-std` is given
-// TODO: should also check that they are installed (mock them)
-// #[test]
-// fn clone_include_std() -> Result<(), Box<dyn std::error::Error>> {
-//     todo!()
-// }
+// TODO: test that std deps do not warn if `--include-std` is given, and that
+// they are installed (mock them)
 
 // if `--no-deps` is given, lockfile and env won't be created
 #[test]
@@ -260,11 +247,7 @@ fn clone_no_deps() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-// clone cleans up on fail when cloning corrupt project
-// #[test]
-// fn clone_cleanup() -> Result<(), Box<dyn std::error::Error>> {
-//     todo!()
-// }
+// TODO: test that clone cleans up on failure when cloning a corrupt project
 
 // clone fails when target is not empty
 // target contents are untouched
@@ -468,9 +451,7 @@ fn clone_identifier_errors() -> Result<(), Box<dyn std::error::Error>> {
 /// `clone` reads the project at the path it is given, and that read must
 /// see the workspace table: without it, a member carrying
 /// `metamodel.workspace = "<group>"` is refused as "the project is not a
-/// member of any workspace" -- about a project that is listed in
-/// `members`. The standard-library workspace is made entirely of such
-/// members.
+/// member of any workspace", though it is listed in `members`.
 #[test]
 fn clone_a_member_that_inherits_its_metamodel() -> Result<(), Box<dyn std::error::Error>> {
     let (_source_dir, source) = new_temp_cwd()?;

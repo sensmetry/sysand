@@ -19,7 +19,6 @@ pub struct Config {
     pub indexes: Vec<Index>,
     #[serde(rename = "project", skip_serializing_if = "Vec::is_empty", default)]
     pub projects: Vec<ConfigProject>,
-    // pub auth: Option<Vec<AuthSource>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -60,11 +59,6 @@ pub enum OverrideSource {
     RemoteKpar {
         remote_kpar: Iri<String>,
     },
-    // TODO: it doesn't make sense to have this in url shape; it should be a
-    // publisher/name/IRI
-    // IndexKpar {
-    //     index_kpar: String,
-    // },
     RemoteSrc {
         remote_src: Iri<String>,
     },
@@ -112,10 +106,6 @@ impl Config {
         } = config;
         self.indexes.append(&mut indexes);
         self.projects.append(&mut projects);
-
-        // if let Some(auth) = config.auth {
-        //     self.auth = Some(auth.clone());
-        // }
     }
 
     pub fn index_urls(
@@ -186,7 +176,6 @@ impl Config {
 pub struct Index {
     name: Option<String>,
     url: IndexSource,
-    // explicit: Option<bool>,
     default: Option<bool>,
 }
 

@@ -765,10 +765,9 @@ fn check_usage_rejects_invalid_purl() {
 /// A version constraint on a standard-library usage is allowed, in
 /// manifests and at publish time alike.
 ///
-/// The embedded OMG manifests carry exactly this shape --
-/// `stdlib_assets/20250201/semantic-library.project.json` constrains
-/// `Data-Type-Library.kpar` to `1.0.0` -- so refusing the constraint
-/// would refuse to publish the standard library itself.
+/// The embedded OMG manifests carry exactly this shape (for example
+/// `Data-Type-Library.kpar` constrained to `1.0.0`), so refusing the
+/// constraint would refuse to publish the standard library itself.
 #[test]
 fn check_usage_accepts_std_lib_with_version_constraint() {
     check_usage(&usage_with_vc(
@@ -1924,7 +1923,7 @@ mod prepare_publish {
         );
     }
 
-    /// Every archive file but the two manifests is a `checksum` key -- a
+    /// Every archive file but the two manifests is a `checksum` key: a
     /// stray file, a readme, a license file alike.
     #[test]
     fn publish_refuses_an_archive_file_the_checksum_misses() {
@@ -2000,7 +1999,7 @@ mod prepare_publish {
         );
     }
 
-    /// The symbol check, restated for an array.
+    /// A name in `exports` that no file declares is refused.
     #[test]
     fn publish_refuses_an_export_no_file_declares() {
         let meta = syside_entries(&["Main", "Ghost"], SYSIDE_SYSML);

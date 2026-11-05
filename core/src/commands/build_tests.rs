@@ -204,8 +204,8 @@ fn a_toml_kpar_url_usage_is_kept() -> Result<(), Box<dyn std::error::Error>> {
 
 /// With the flag, local usages are emitted as the typed usages
 /// `Directory` (source path) and `KparPath` (kpar path), which preserve
-/// the path as written -- which is what the view already produces, so no
-/// target is read.
+/// the path as written, as the view already produces them, so no target is
+/// read.
 #[test]
 fn a_local_usage_builds_under_allow_path_usage() -> Result<(), Box<dyn std::error::Error>> {
     // The target does not exist, and is named *inside* the fixture, so
@@ -221,8 +221,8 @@ fn a_local_usage_builds_under_allow_path_usage() -> Result<(), Box<dyn std::erro
 }
 
 /// The standard library is declared as a publisher-less `kpar-url`, and
-/// a build never resolves usages, so it reaches the KPAR view as the IRI it already names -- with no
-/// publisher and no version constraint to invent.
+/// a build never resolves usages, so it reaches the KPAR view as the IRI it
+/// already names, with no publisher and no version constraint to invent.
 #[test]
 fn a_stdlib_kpar_url_usage_reaches_the_kpar_view_unchanged()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -318,12 +318,11 @@ fn a_workspace_of_toml_members_records_the_build_time() -> Result<(), Box<dyn st
     Ok(())
 }
 
-/// `stdlib`.
-/// published one.
+/// A project carrying `stdlib` is built without a publisher, so a locally
+/// built standard-library KPAR matches the published one.
 ///
-/// `ProjectManifest::resolve` accepts `stdlib` only for a publisher
-/// normalizing to `omg` under a known OMG metamodel, so the fixture
-/// needs a real metamodel URL.
+/// `stdlib` is accepted only for a publisher normalizing to `omg` under a
+/// known OMG metamodel, so the fixture needs a real metamodel URL.
 #[test]
 fn a_stdlib_project_omits_its_publisher() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
@@ -385,9 +384,9 @@ fn json_target_named(
 }
 
 /// A `model.toml` project at `at`, with `body` appended to `[project]`
-/// and its one source file written -- a target whose `sources` named a
-/// missing file would fail the *dependent's* build if the version were
-/// read through `get_info`.
+/// and its one source file written: a target whose `sources` named a
+/// missing file would fail the dependent's build if the version were read
+/// through `get_info`.
 fn toml_target(dir: &camino_tempfile::Utf8TempDir, at: &str, version: &str, body: &str) {
     let path = dir.path().join(at);
     std::fs::create_dir_all(&path).expect("the target directory");
@@ -582,8 +581,8 @@ fn a_target_that_does_not_read_is_its_own_error() -> Result<(), Box<dyn std::err
 }
 
 /// A usage whose target carries `stdlib` is written as `resource =
-/// "<target's metamodel>/<target's stdlib>.kpar"` -- the metamodel
-/// supplies the prefix and release date -- with its version constraint.
+/// "<target's metamodel>/<target's stdlib>.kpar"`, with its version
+/// constraint.
 #[test]
 fn a_local_stdlib_target_becomes_an_omg_iri() -> Result<(), Box<dyn std::error::Error>> {
     let dir =
@@ -958,8 +957,8 @@ fn a_json_project_s_dir_usages_are_its_dependencies() -> Result<(), Box<dyn std:
 
 /// A member that loads and cannot be built: its manifest is valid, so
 /// the workspace loads, and the source it lists is not there, so
-/// `default_kpar_file_name` -- which reads the project -- is where it
-/// fails, before the build proper.
+/// `default_kpar_file_name`, which reads the project, is where it fails,
+/// before the build proper.
 ///
 /// Not an empty directory: `load_member` refuses one ("defines no
 /// project"), which fails the whole load and makes the per-member
@@ -1109,7 +1108,7 @@ fn publish_order_refuses_a_cycle() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Found while mapping members to archives, before the caller uploads
-/// anything -- and named, since `KParBuildError` carries no identity.
+/// anything, and named, since `KParBuildError` carries no identity.
 #[test]
 fn publish_order_refuses_a_member_that_cannot_be_read() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
@@ -1132,8 +1131,7 @@ fn publish_order_refuses_a_member_that_cannot_be_read() -> Result<(), Box<dyn st
 ///
 /// `local_target_usage` must open the target with the workspace table:
 /// opened without one, a marker on the target is unresolvable and the
-/// usage fails with "not a member of any workspace" -- about a project
-/// that is one.
+/// usage fails with "not a member of any workspace", although it is one.
 #[test]
 fn a_member_that_inherits_can_be_a_usage_target() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;

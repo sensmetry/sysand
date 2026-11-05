@@ -22,8 +22,7 @@ pub const DEFAULT_ENV_FILE_CONTENTS: &str =
 version = \"0.2\"
 ";
 
-/// The metamodel the helpers declare. `sysand init` takes one -- a
-/// project declares its metamodel and it cannot be guessed -- and a
+/// The metamodel the helpers declare. `sysand init` requires one, and a
 /// test that is not about the metamodel means this one.
 pub const SYSML: &str = "https://www.omg.org/spec/SysML/20250201";
 
@@ -193,11 +192,10 @@ pub fn sysand_cmd_in_discovering<'a, I: IntoIterator<Item = &'a str>>(
         "XDG_CONFIG_HOME",
         concat!(env!("CARGO_TARGET_TMPDIR"), "/empty-home/.config"),
     );
-    // Default the debug-only credential store seam
-    // (sysand/src/credential_store.rs) to a simulated-absent keyring so
-    // no test ever reads the developer's real OS keyring (which could
-    // alter assertions, or pop a keychain prompt on macOS). Tests that
-    // need a working store override this via `env` (see cli_auth.rs).
+    // Default the debug-only credential store seam to a simulated-absent
+    // keyring so no test ever reads the developer's real OS keyring (which
+    // could alter assertions, or pop a keychain prompt on macOS). Tests that
+    // need a working store override this via `env`.
     cmd.env("SYSAND_TEST_CREDENTIAL_STORE", ":absent:");
     // A request that fails fails at once, rather than after the retries'
     // waits. Tests of retrying override this via `env`.
@@ -338,9 +336,7 @@ pub fn install_in_env_with_usage(
 /// The bytes have to match what a real legacy project looks like, not
 /// just the field list: `serde_json::to_writer_pretty` plus a trailing
 /// newline, camelCase keys, the optional scalars and the empty vectors
-/// omitted, and `created` as a whole-second timestamp. The bytes are
-/// pinned by `the_legacy_fixture_writes_these_exact_bytes` in
-/// `cli_info.rs`.
+/// omitted, and `created` as a whole-second timestamp.
 pub fn cli_init_json_project(
     path: Option<&str>,
     publisher: &str,
@@ -361,8 +357,7 @@ pub fn cli_init_json_project(
     Ok((temp_dir, cwd))
 }
 
-/// The pair itself, for a directory that already exists -- the legacy
-/// counterpart of [`cli_init_project_in`].
+/// The legacy pair, for a directory that already exists.
 pub fn write_legacy_project(
     dir: &Utf8Path,
     publisher: &str,
@@ -370,9 +365,9 @@ pub fn write_legacy_project(
     version: &str,
     license: Option<&str>,
 ) -> Result<(), Box<dyn Error>> {
-    // `license` is a `skip_serializing_if` key, so a fixture that
-    // always wrote it -- or never did -- would not be byte-identical to
-    // a real legacy project.
+    // `license` is a `skip_serializing_if` key, so a fixture that always
+    // wrote it, or never did, would not be byte-identical to a real legacy
+    // project.
     let mut info = serde_json::Map::new();
     info.insert("name".to_owned(), name.into());
     info.insert("publisher".to_owned(), publisher.into());

@@ -154,9 +154,6 @@ fn validation_rejected_message(
         msg
     };
     if schemes_include_basic(challenge_schemes) {
-        // Keep this basic-auth routing hint consistent with the
-        // stored-anyway variant in sysand/src/commands/auth.rs
-        // (render_login_notice).
         message.push_str(
             "\nthis index uses username/password (HTTP basic) authentication; configure\n\
              `SYSAND_CRED_<X>_BASIC_USER` / `SYSAND_CRED_<X>_BASIC_PASS` environment\n\
@@ -325,8 +322,6 @@ impl IndexKey {
     /// All index-location invariants and normalization live in
     /// [`IndexLocation::parse`]; the key is its `Display` text, which
     /// round-trips through parse.
-    ///
-    /// This is the only validation path.
     pub fn validate(index_url: &str) -> Result<Self, AuthCommandError> {
         Ok(IndexLocation::parse(index_url)?.into())
     }
@@ -354,8 +349,7 @@ impl From<IndexLocationError> for AuthCommandError {
             IndexLocationError::UnsupportedScheme { url, scheme: _ } => {
                 Self::NotHttpIndex { url: url.into() }
             }
-            // The index-location errors already name the URL; no
-            // re-prefixing.
+            // The index-location errors already name the URL.
             other => Self::InvalidIndexUrl(other.to_string()),
         }
     }
@@ -1521,8 +1515,6 @@ pub fn do_auth_status<B: BlobBackend>(
         Err(err) => Err(err.into()),
     }
 }
-
-// Private tests
 
 #[cfg(test)]
 #[path = "./auth_tests.rs"]

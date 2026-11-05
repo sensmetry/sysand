@@ -186,21 +186,18 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Systems-Modeling/SysML-v2-Release
-          # Not `2025-02`, although that is the tag named like this spec
-          # version: the library kept changing after February and 16 of
-          # the 58 checksummed files differ there. `2025-09` is the tag
-          # whose sources reproduce `stdlib_assets/20250201`. See the
-          # module comment on `core/tests/stdlib_equivalence.rs`.
+          # Not `2025-02`, although that tag is named like this spec
+          # version: the library kept changing after February, so its
+          # sources do not reproduce `stdlib_assets/20250201`. `2025-09`
+          # does.
           ref: 2025-09
           path: sysml-v2-release
 
       - name: cargo test ... (Rust library & CLI)
         env:
-          # Read by `core/tests/stdlib_equivalence.rs` and by the
-          # standard-library cases in `sysand/tests/cli_lock.rs` and
-          # `cli_build.rs`, which is why both packages are tested in one
-          # step; unset elsewhere, which each of them reports rather
-          # than passing silently.
+          # Read by the stdlib tests of both packages, which is why both are
+          # tested in one step. Unset elsewhere, where those tests report
+          # the skip.
           SYSAND_STDLIB_SOURCES: ${{ (matrix.os == 'ubuntu-22.04' && matrix.libc == 'gnu') && format('{0}/sysml-v2-release', github.workspace) || '' }}
         run: >-
           cargo test --locked

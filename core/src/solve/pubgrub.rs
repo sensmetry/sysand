@@ -39,32 +39,6 @@ impl Display for DependencyIdentifier {
         match self {
             Self::Requested(_requested) => {
                 write!(f, "requested project(s)")
-                // if requested.len() == 1 {
-                //     let req = &requested[0];
-
-                //     write!(f, "requested project {}", req.resource)?;
-
-                //     if let Some(vr) = &req.version_constraint {
-                //         write!(f, " ({})", vr)?;
-                //     }
-
-                //     return write!(f, "");
-                // }
-
-                // write!(f, "requested projects [")?;
-                // for (i, req) in requested.iter().enumerate() {
-                //     if i > 0 {
-                //         write!(f, ", ")?;
-                //     }
-
-                //     write!(f, "{}", req.resource)?;
-
-                //     if let Some(vr) = &req.version_constraint {
-                //         write!(f, " ({})", vr)?;
-                //     }
-                // }
-
-                // write!(f, "]")
             }
             Self::Remote(iri) => write!(f, "{iri}"),
         }
@@ -128,9 +102,7 @@ impl Display for DiscreteHashSet {
 /// pubgrub's "version" of a project: the position of a candidate in the
 /// list `resolve_candidates` returns for its identifier. The list is
 /// cached per identifier for the whole solve, so a position names the same
-/// candidate every time it is seen. Positions are only ever assigned by
-/// `numbered`; everything that turns a `DiscreteHashSet` back into
-/// candidates goes through that numbering.
+/// candidate every time it is seen. Positions are assigned by `numbered`.
 pub type ProjectIndex = usize;
 
 /// Numbers `candidates` the way pubgrub refers to them.
@@ -266,10 +238,9 @@ type CandidateMap<R> = HashMap<Identifier, CandidateEntry<R>>;
 /// skip when it reads the entry, whichever usage filled the entry first.
 ///
 /// `where_from` is `Some` only for a usage that names a location on
-/// this filesystem -- `dir` or `kpar-path`. A *second* usage of the same
-/// identity is compared against it: the two must
-/// name one place, as the lockfile holds one source per identity
-/// and the loser is simply dropped.
+/// this filesystem (`dir` or `kpar-path`). A *second* usage of the same
+/// identity is compared against it: the two must name one place, as the
+/// lockfile holds one source per identity.
 struct CandidateEntry<R: ResolveRead> {
     candidates: Vec<Candidate<R::ProjectStorage>>,
     skipped: Vec<CandidateError<R>>,
@@ -298,7 +269,6 @@ struct CandidateSummary {
 pub struct ProjectSolver<R: ResolveRead> {
     // Lazily populated during resolution.
     resolved_candidates: RefCell<CandidateMap<R>>,
-    // dependency_provider: OfflineDependencyProvider<DependencyIdentifier, DiscreteHashSet>,
     resolver: R,
     /// Observed between candidates: a cancelled
     /// token stops the solve at the next version choice or dependency
@@ -698,9 +668,9 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
             } => {
                 // A constraint that selects nothing yields known dependencies,
                 // so it is not `Dependencies::Unavailable`.
-                // Handing pubgrub the empty set states exactly that -- this
-                // candidate requires something no published version provides
-                // -- so this candidate is ruled out, but the solve is not aborted
+                // Handing pubgrub the empty set states exactly that: this
+                // candidate requires something no published version provides,
+                // so it is ruled out, but the solve is not aborted.
                 let selected = selected_by(
                     numbered(&candidates).map(|(index, c)| (index, &c.version)),
                     version_constraint.as_ref(),
@@ -969,12 +939,10 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
     /// One sentence per dependency that two requirers disagree about,
     /// naming each requirer and what it asked for.
     ///
-    /// pubgrub's own report cannot say this. It interns a package once by
-    /// identifier, so both sides of a constraint conflict come out
-    /// rendered with whichever usage was seen first -- "depends on IRI
-    /// `x` (=1.0.0) ... and (=1.0.0)", which reads as a contradiction
-    /// between a thing and itself. `conflicts` reconstructs each side's
-    /// real constraint, so this renders both sides correctly.
+    /// pubgrub's own report interns a package once by identifier, so both
+    /// sides of a constraint conflict come out rendered with whichever
+    /// usage was seen first ("depends on IRI `x` (=1.0.0) ... and
+    /// (=1.0.0)"). `conflicts` reconstructs each side's real constraint.
     fn contradictions(&self) -> Vec<String> {
         // Bound here: the borrows below outlive it.
         let conflicts = self.conflicts();
@@ -1145,12 +1113,9 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
     }
 
     /// Whether the version of `usage` was left to
-    /// [`DEFAULT_INDEX_CONSTRAINT`]. Usage shape alone does not say: a usage
-    /// that states no constraint takes the default only where the source
-    /// posed a version choice, so this repeats the test
-    /// [`default_constraint`] made when the set was built. Against a source
-    /// that names one project outright there is no default and no constraint
-    /// at all.
+    /// [`DEFAULT_INDEX_CONSTRAINT`]. A usage that states no constraint takes
+    /// the default only where the source posed a version choice, so this
+    /// repeats the test [`default_constraint`] made when the set was built.
     fn is_defaulted(&self, usage: &CoalescingUsage) -> bool {
         matches!(
             usage.usage().usage(),
@@ -1177,19 +1142,17 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
 
     /// Among several usages of `dependency` declared by one dependent (a
     /// project may list the same resource twice), the usage to read this
-    /// node's constraint from -- the first whose own constraint selects
-    /// exactly the candidates the node is about, else the first of
-    /// them -- and, separately, the project that declared it.
+    /// node's constraint from (the first whose own constraint selects
+    /// exactly the candidates the node is about, else the first of them),
+    /// and, separately, the project that declared it.
     ///
-    /// The declarer is returned *only* when exactly one usage accounts for
-    /// the node, because a wrong name is worse than no name. Two things
-    /// make the selected usage an unsafe thing to attribute: the fallback
-    /// above returns a usage that does not account for the node at all
-    /// (every usage without a version constraint, and every `dir` usage,
-    /// fails the test), and two *different* constraints can select the
-    /// same candidates -- `=1.0.0` and `>=1.0.0, <2.0.0` over a single
-    /// matching candidate -- in which case which one is reported depends
-    /// on the order the usages were declared in.
+    /// The declarer is returned only when exactly one usage accounts for
+    /// the node, because a wrong name is worse than no name. The fallback
+    /// can return a usage that does not account for the node at all (every
+    /// usage without a version constraint, and every `dir` usage, fails the
+    /// test), and two *different* constraints can select the same
+    /// candidates (`=1.0.0` and `>=1.0.0, <2.0.0` over a single matching
+    /// candidate), so which one is reported depends on declaration order.
     fn select_usage<'a>(
         &self,
         usages: impl Iterator<Item = &'a CoalescingUsage>,
@@ -1530,7 +1493,6 @@ impl<R: ResolveRead> ProjectSolver<R> {
     pub fn new(resolver: R) -> Self {
         Self {
             resolved_candidates: RefCell::new(HashMap::new()),
-            //dependency_provider: OfflineDependencyProvider::<DependencyIdentifier, DiscreteHashSet>::new(),
             resolver,
             token: CancellationToken::new(),
         }
@@ -1551,8 +1513,6 @@ impl<R: ResolveRead> ProjectSolver<R> {
             Ok(())
         }
     }
-
-    //let mut map: RefMut<'_, _> = self.resolved_candidates.borrow_mut();
 }
 
 impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver<R> {
@@ -1568,7 +1528,7 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
 
     type Err = InternalSolverError<R>;
 
-    /// pubgrub asks at the top of every iteration -- between candidates.
+    /// pubgrub asks at the top of every iteration, i.e. between candidates.
     fn should_cancel(&self) -> Result<(), Self::Err> {
         self.checkpoint()
     }

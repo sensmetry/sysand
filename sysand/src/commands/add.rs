@@ -52,14 +52,13 @@ use crate::{
     style::{GOOD, USAGE},
 };
 
-/// Returns whether `.project.json` changed: `false` when the usage was
+/// Returns whether the manifest changed: `false` when the usage was
 /// already present as given (or without a constraint, which keeps the
-/// existing one). Locks and syncs either way, unless `no_lock`/`no_sync`
+/// existing one). Locks and syncs either way, unless `no_lock`/`no_sync`.
 // TODO: Collect common arguments
 #[expect(clippy::fn_params_excessive_bools)]
 pub fn command_add<Policy: HTTPAuthentication>(
     locator: AddProjectLocatorArgs,
-    // iri: Iri<String>,
     version_constraint: Option<VersionReq>,
     no_lock: bool,
     no_sync: bool,
@@ -372,7 +371,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
     match result {
         Ok(()) => Ok(added),
         Err(e) => {
-            // Restore the manifest the project actually has.
+            // Roll back the manifest edit.
             wrapfs::write(&backup_path, backup)?;
             Err(e)
         }
@@ -389,11 +388,9 @@ enum UsageToAdd {
 
 /// The manifest a rollback has to put back.
 ///
-/// `add` edits the project and then relocks and resyncs; if that fails
-/// the edit is undone. The file is the one the project's format names:
-/// on a `model.toml` project, reading `.project.json` fails before the
-/// edit, and restoring one would write it beside the manifest -- a
-/// project holding both, which cannot be read.
+/// The file is the one the project's format names: restoring a
+/// `.project.json` into a `model.toml` project would leave both, which
+/// cannot be read.
 fn manifest_backup(project: &LocalSrcProject) -> Result<(Utf8PathBuf, String)> {
     let path = match project.format()? {
         ProjectFormat::Toml => project.root_path().join(MODEL_TOML_FILE),
@@ -632,8 +629,7 @@ impl PendingIndexUsage {
 /// Replace `placeholder`, the usage `pending` added as given, in `project`:
 /// spelled as the project it locked to when it was normalized, and
 /// constrained to `^` the locked version when it had no constraint, as
-/// `cargo add` does. Nothing has to be resolved for it beforehand, since an
-/// index usage resolves by identifier, whatever its spelling.
+/// `cargo add` does.
 fn settle_from_lock(
     project: &mut LocalSrcProject,
     lock: &Lock,
@@ -690,8 +686,7 @@ fn settle_from_lock(
         return Ok(());
     }
     // A `model.toml` entry goes through the manifest editor: the
-    // placeholder out by its identity, the settled usage in. The spelling
-    // written is the one the locked project declares.
+    // placeholder out by its identity, the settled usage in.
     if project.format()? == ProjectFormat::Toml {
         let InterchangeProjectUsageRaw::Index {
             publisher,

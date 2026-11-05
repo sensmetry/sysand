@@ -69,7 +69,7 @@ impl JniExt for jni::Env<'_> {
 
 /// Lists all possible exceptions to be thrown, i.e.
 /// all exception types defined in
-/// `java/src/main/java/org/sysand/exceptions/*.java`
+/// `java/src/main/java/com/sensmetry/sysand/exceptions/*.java`
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum ExceptionKind {
     IOError,

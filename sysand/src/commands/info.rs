@@ -189,17 +189,11 @@ pub fn command_info_path<P: AsRef<Utf8Path>>(
     )
 }
 
-/// The same, for a project that is already open.
+/// [`command_info_path`] for a project that is already open.
 ///
-/// [`command_info_path`] re-opens what it is given, which is right for
-/// `--path` and wrong for the working directory: the project
-/// `run_cli` discovered there carries the workspace table a member
-/// needs, and re-opening it throws that away: a member with
-/// `version.workspace = true` would read as an invalid project.
-///
-/// [`FileResolverProject`] rather than any [`ProjectRead`]: the error
-/// this reports is [`CliError::InvalidProject`], whose source is typed
-/// `InfoProjectError<FileResolverProjectError>`.
+/// Re-opening the working directory's project would drop the workspace
+/// table a member needs, and a member with `version.workspace = true`
+/// would read as an invalid project.
 pub fn command_info_project(
     project: FileResolverProject,
     iri: &Utf8Path,
@@ -330,7 +324,7 @@ fn print_member_lines(member: Option<&str>, lines: Vec<String>) {
 }
 
 /// The value of `field`, a list field one entry per line, nothing if not set.
-/// Only the manifest holding the field is read
+/// Only the manifest holding the field is read.
 fn field_lines(
     field: InfoField,
     info: impl FnOnce() -> Result<InterchangeProjectInfoRaw>,

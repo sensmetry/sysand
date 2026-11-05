@@ -6,8 +6,7 @@
 //! its manifest.
 //!
 //! A *build* writes the same pair into an archive, and the view follows
-//! it wherever it can. Three rules are the archive's alone, and each is
-//! marked "the archive" below:
+//! it wherever it can. Three rules are the archive's alone:
 //!
 //! 1. `publisher` is omitted from a `stdlib` project's `.project.json`;
 //! 2. `dir` and `kpar-path` usages become typed index usages constrained
@@ -23,7 +22,7 @@ use thiserror::Error;
 use typed_path::Utf8UnixPath;
 
 use crate::manifest::common::Sources;
-use crate::manifest::diagnostics::Report;
+use crate::manifest::diagnostics::Diagnostics;
 use crate::manifest::project::{ProjectManifest, ResolvedProject};
 use crate::manifest::usage::Usage;
 use crate::manifest::workspace_table::WorkspaceTable;
@@ -45,9 +44,8 @@ pub type ChecksumMap = IndexMap<String, InterchangeProjectChecksumRaw>;
 
 /// What a view records as `created`.
 ///
-/// A build records the instant it ran. A view records a fixed value: the project
-/// checksum covers the whole `.meta.json`, is written into the lockfile
-/// and is recomputed and compared by `sysand sync`, so a view is a
+/// A build records the instant it ran. A view records a fixed value: the
+/// project checksum covers the whole `.meta.json`, so a view must be a
 /// function of the manifest and the source files only.
 pub const VIEW_CREATED: jiff::Timestamp = jiff::Timestamp::UNIX_EPOCH;
 
@@ -140,8 +138,7 @@ pub fn usage_of_raw(raw: &InterchangeProjectUsageRaw, file: &str) -> Result<Usag
                 kpar_path: kpar_path.as_str().into(),
             })
         }
-        // A typed index usage already carries everything a manifest
-        // entry needs
+        // Already carries everything a manifest entry needs.
         InterchangeProjectUsageRaw::Index {
             publisher,
             name,
@@ -174,8 +171,7 @@ pub fn usage_of_raw(raw: &InterchangeProjectUsageRaw, file: &str) -> Result<Usag
 /// manifest, whereas a view keeps the path.
 ///
 /// A typed usage carries `publisher` and `name` exactly as the manifest
-/// spells them, without normalization; the identity check when the usage
-/// resolves normalizes both sides.
+/// spells them, without normalization.
 pub fn usage(usage: &Usage) -> InterchangeProjectUsageRaw {
     match usage {
         Usage::Index {
@@ -226,8 +222,7 @@ pub fn usage(usage: &Usage) -> InterchangeProjectUsageRaw {
 /// `.project.json` and are dropped. `sources` is not written either: the
 /// paths it lists are recoverable from the `.meta.json` maps.
 ///
-/// `publisher` is always written, which is the second place the view and
-/// the archive part company: the archive omits it for a project carrying
+/// `publisher` is always written; the archive omits it for a project carrying
 /// `stdlib`, so that a locally built standard-library KPAR matches the
 /// published one. A view that omitted it would be circular: the standard
 /// library's own projects use each other by `dir`, and a `dir` target must
@@ -265,8 +260,6 @@ pub fn info(project: &ResolvedProject) -> InterchangeProjectInfoRaw {
 /// The project as a `.meta.json`, given the instant to record and the two
 /// maps [`source_maps`] computes.
 ///
-/// `created` is passed in as an instant.
-///
 /// `includesDerived` and `includesImplied` are omitted: Sysand does not
 /// know either.
 pub fn meta(
@@ -275,8 +268,8 @@ pub fn meta(
     index: SymbolIndex,
     checksum: ChecksumMap,
 ) -> InterchangeProjectMetadataRaw {
-    // A project with a `root` writes the Syside shape -- `root` and the flat `exports`
-    // array, no `index`. The array is the map's keys, sorted.
+    // A project with a `root` writes the Syside shape: `root` and a flat
+    // `exports` array (the map's keys, sorted), no `index`.
     let (index, root, exports) = match &project.root {
         Some(root) => {
             let mut exports: Vec<String> = index.into_keys().collect();
@@ -351,11 +344,8 @@ pub fn view<E>(
 /// Read a `model.toml` into the manifest model.
 ///
 /// `file` names the document in messages; nothing here opens one. The
-/// project is resolved *standalone*: a caller that knows the project is
-/// a workspace member has to resolve it itself, against the table it
-/// belongs to.
-///
-/// Warnings are logged.
+/// project is resolved standalone, as a member of no workspace. Warnings
+/// are logged.
 pub fn resolved_of_text(
     file: &str,
     text: &str,
@@ -366,10 +356,7 @@ pub fn resolved_of_text(
 /// [`resolved_of_text`], resolved against the workspace the project is a
 /// member of.
 ///
-/// A member's manifest may carry inheritance markers, and `None` refuses
-/// every one of them: "`version` inherits from the default group, but
-/// the project is not a member of any workspace". A caller that knows
-/// which workspace this is passes its table.
+/// With `table` of `None`, every inheritance marker is refused.
 pub fn resolved_of_text_in(
     file: &str,
     text: &str,
@@ -378,7 +365,7 @@ pub fn resolved_of_text_in(
     let manifest: ProjectManifest = validate_manifest(file, ModelToml::parse(file, text))?
         .into_project(file)
         .map_err(|problem| {
-            ProjectDeserializationError::invalid(file, Report::from_iter([problem]))
+            ProjectDeserializationError::invalid(file, Diagnostics::from_iter([problem]))
         })?;
     validate_manifest(file, manifest.resolve(table))
 }

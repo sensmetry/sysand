@@ -36,29 +36,22 @@ pub enum InitError<ProjectError: ErrorBound> {
     #[error("failed to parse `{0}` as an SPDX license expression:\n{1}")]
     SPDXLicenseParse(Box<str>, spdx::error::ParseError),
     /// The publisher or name is not one a `model.toml` can hold.
-    ///
-    /// A manifest holds the validated types, so a project that cannot be
-    /// named cannot be created.
     #[error("invalid project identifier `{}`", .0.value)]
     Identifier(#[source] IdentifierError),
     #[error(transparent)]
     Write(ManifestWriteError<ProjectError>),
-    /// The value set is closed, so a project cannot be created with one
-    /// outside it.
+    /// The metamodel is not one of the recognized values.
     #[error("`{0}` is not a metamodel Sysand recognizes;\nit is one of {list}", list = KnownMetamodel::RECOGNIZED)]
     Metamodel(Box<str>),
 }
 
 /// Create a project.
 ///
-/// A new project is a `model.toml`. The two json documents are what a
-/// build produces and what a legacy project has.
+/// A new project is a `model.toml`.
 ///
-/// The three identifiers are parsed into the validated types a
-/// [`ProjectTable`] holds. A publisher or name the rule refuses is
-/// [`InitError::Identifier`].
-/// The metamodel, when given, must be one of the four a `model.toml`
-/// recognizes ([`InitError::Metamodel`]).
+/// Errors if the publisher or name is refused ([`InitError::Identifier`]) or
+/// the metamodel, when given, is not one a `model.toml` recognizes
+/// ([`InitError::Metamodel`]).
 pub fn do_init<P: ProjectMut>(
     name: String,
     publisher: String,
@@ -72,15 +65,14 @@ pub fn do_init<P: ProjectMut>(
 
 /// [`do_init`], told which metamodel an inherited marker resolves to.
 ///
-/// A project created with a Syside metamodel gets the Syside layout -- `sources` listing one
+/// A project created with a Syside metamodel gets `sources` listing one
 /// file, `root` naming it, and the file itself, created with a package
 /// declaration when it does not exist. A marker names a group, not a
-/// metamodel, so the family behind it is the caller's to supply
-/// (`inherited_kind`); without it, the layout is the OMG one.
+/// metamodel, so the caller supplies the metamodel it resolves to as
+/// `inherited_kind`; without it, the layout is the OMG one.
 ///
-/// Order: the file's existence is
-/// checked, the manifest is written (and refused, before anything else,
-/// when one exists), then the file.
+/// The file's existence is checked first, then the manifest is written
+/// (refused when one exists), then the file.
 pub fn do_init_ext<P: ProjectMut>(
     name: String,
     publisher: String,
@@ -170,8 +162,7 @@ pub fn do_init_ext<P: ProjectMut>(
 
 /// The name as a KerML/SysML package declaration writes it: bare when it
 /// is an identifier, quoted (`'my-widgets'`) when the normalized name
-/// carries a `-` or `.` or starts with a digit -- all of which the
-/// language allows in a quoted name and none of which in a bare one.
+/// carries a `-` or `.` or starts with a digit.
 fn package_name(stem: &str) -> String {
     let bare = stem
         .chars()

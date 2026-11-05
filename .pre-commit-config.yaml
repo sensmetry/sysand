@@ -12,7 +12,7 @@
 # - Run once on all files: prek run -a
 # - Register git hooks:    prek install
 #
-# FIXME: transition to a prek official config as we now require prek
+# FIXME: transition to a prek official config
 #        Blocked until renovate gets prek.toml support:
 #        https://github.com/renovatebot/renovate/pull/42254
 #
@@ -75,11 +75,9 @@ repos:
           (?x)(
               stdlib_assets/|
               \.lock|
-              # `design/model-toml.md` and `design/workspaces.md` are
-              # byte-for-byte copies of documents maintained outside
-              # this repository. Reformatting them would mean the
-              # copy could never be compared to its source with `diff`,
-              # which is the only check that keeps a copy honest.
+              # Byte-for-byte copies of documents maintained outside this
+              # repository; reformatting would stop them being compared to
+              # their source with `diff`.
               design/model-toml\.md|
               design/workspaces\.md
           )

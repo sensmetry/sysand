@@ -49,7 +49,7 @@ const SEMANTIC_LIBRARY_INFO_20250201: &str =
 const SEMANTIC_LIBRARY_META_20250201: &str =
     include_str!("stdlib_assets/20250201/semantic-library.meta.json");
 
-/// The ten releases this Sysand embeds: IRI and `.project.json`.
+/// The releases this Sysand embeds: IRI and `.project.json`.
 const STD_LIB_ASSETS_20250201: [(&str, &str); 10] = [
     (
         "https://www.omg.org/spec/SysML/20250201/Quantities-and-Units-Domain-Library.kpar",
@@ -174,15 +174,12 @@ pub fn known_std_libs() -> ProvidedProjects {
 /// The name the standard library published at `iri` declares, or `None`
 /// if this Sysand embeds no release at that IRI.
 ///
-/// A usage's `name` must be the name the KPAR declares. That name is not
-/// the IRI's stem -- `SysML Quantities and Units Library` is published at
-/// `.../Quantities-and-Units-Domain-Library.kpar`, and several others
-/// differ by more than punctuation -- so a usage's name is taken from here,
-/// and two spellings of one library cannot become two identities.
+/// A usage's `name` must be the name the KPAR declares, which is not always
+/// the IRI's stem (`SysML Quantities and Units Library` is published at
+/// `.../Quantities-and-Units-Domain-Library.kpar`).
 ///
-/// Built from the ten `.project.json` documents alone: `known_std_libs`
-/// would also parse ten `.meta.json` documents and build ten
-/// `InMemoryProject`s, which are not needed for a name.
+/// Built from the `.project.json` documents alone, without the
+/// `.meta.json` parsing and project construction `known_std_libs` does.
 pub fn std_lib_name(iri: &str) -> Option<&'static str> {
     static NAMES: std::sync::LazyLock<HashMap<&'static str, String>> =
         std::sync::LazyLock::new(|| {

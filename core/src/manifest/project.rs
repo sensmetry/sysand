@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-//! The `[project]` table of a `model.toml` as it is written --
-//! inheritance markers included -- and [`ResolvedProject`], what that
-//! metadata becomes once the markers have been followed and the
-//! metamodel-dependent validation has run.
+//! The `[project]` table of a `model.toml` as it is written, inheritance
+//! markers included, and [`ResolvedProject`], what that metadata becomes
+//! once the markers have been followed and the metamodel-dependent
+//! validation has run.
 //!
 //! The two are separate because required-key checks that depend on the
 //! metamodel (`sources`) run after inheritance has been resolved:
@@ -13,13 +13,15 @@
 //! before that.
 //!
 //! So [`ProjectTable::validate`] checks everything a manifest can be
-//! judged on by itself, and [`ProjectManifest::resolve`] -- which takes
-//! the workspace the project is a *member* of, or `None` -- checks what
-//! is left.
+//! judged on by itself, and [`ProjectManifest::resolve`], which takes the
+//! workspace the project is a member of (or `None`), checks what is left.
 
 use fluent_uri::Iri;
 use semver::Version;
+use serde::Deserialize as _;
 use spdx::Expression;
+use toml::Spanned;
+use toml::de::{DeTable, DeValue, ValueDeserializer};
 
 use typed_path::Utf8UnixPathBuf;
 
@@ -28,14 +30,13 @@ use crate::manifest::common::{
     admitted_source, normalized_identity, root_path,
 };
 use crate::manifest::diagnostics::{
-    Diagnostic, KeyLocation, Position, ReadWarning, Report, Validated, missing_key,
+    Diagnostic, Diagnostics, KeyLocation, Position, ReadWarning, Validated, missing_key,
 };
 use crate::manifest::inherit::{
     MetaProperty, from_group, inheritable, inheritable_table, own, resolve_optional,
     resolve_property,
 };
 use crate::manifest::reader::{self, TableReader, checked, describe, maintainers, parsed};
-use crate::manifest::spans::Positions;
 use crate::manifest::usage::{
     LocatedUsage, MemberUsage, Usage, UsageRaw, UsageSite, check_duplicates,
 };
@@ -61,15 +62,13 @@ pub(crate) const PROJECT_KEYS: &[&str] = &[
 /// The keys `urls` admits.
 pub(crate) const URL_KEYS: &[&str] = &["website", "documentation", "repository"];
 
-/// How this table names itself in a message and addresses itself in the
-/// span index.
+/// How this table names itself in a message.
 const TABLE: &str = "project";
 
 /// The `urls` table of a `[project]`, as written.
 ///
 /// `urls` is inheritable as a whole table or key by key, so both levels
-/// are a [`MetaProperty`]; that the two cannot be combined is the overlap rule
-/// of [`crate::manifest::inherit::inheritable_table`].
+/// are a [`MetaProperty`]; the two cannot be combined.
 #[derive(Clone, Debug, Default)]
 pub struct Urls {
     pub website: Option<MetaProperty<Iri<String>>>,
@@ -83,9 +82,8 @@ pub struct ProjectTable {
     pub name: IndexName,
     pub publisher: MetaProperty<IndexPublisher>,
     pub version: MetaProperty<Version>,
-    /// Never inherited, and required by the OMG metamodel -- which is
-    /// checked in [`ProjectManifest::resolve`], since the metamodel may
-    /// itself be inherited.
+    /// Never inherited. Required by the OMG metamodel, which is checked in
+    /// [`ProjectManifest::resolve`] since the metamodel may be inherited.
     pub sources: Option<Sources>,
     pub license: Option<MetaProperty<Expression>>,
     pub description: Option<String>,
@@ -135,8 +133,8 @@ pub struct ResolvedProject {
     pub license: Option<Expression>,
     pub description: Option<String>,
     pub topics: Vec<String>,
-    /// Mandatory in a `model.toml`, and one of exactly four values, so a resolved project always knows its
-    /// family, spec kind and release date.
+    /// Mandatory in a `model.toml` and one of exactly four values, so the
+    /// family, spec kind and release date are always known.
     pub metamodel: KnownMetamodel,
     pub maintainers: Vec<Maintainer>,
     pub stdlib: Option<StdlibStem>,
@@ -159,7 +157,8 @@ impl ResolvedProject {
 }
 
 impl ProjectTable {
-    /// A `[project]` table built from values: the three keys every metamodel requires, and nothing else.
+    /// A `[project]` table built from values: the three keys every
+    /// metamodel requires, and nothing else.
     ///
     /// Every other key is public; the caller sets what it has.
     ///
@@ -167,14 +166,11 @@ impl ProjectTable {
     /// [`MetaProperty::Provided`]. A caller that wants a marker assigns
     /// the field.
     ///
-    /// The returned table has **no `sources`**, which for the OMG
-    /// metamodel is not a manifest that resolves -- a project with no
-    /// source files writes `sources = []`, which is
-    /// `Some(Sources::default())`, not `None`. It is still renderable:
-    /// what [`crate::manifest::edit::render_new`] writes is what the
-    /// table holds.
+    /// The returned table has **no `sources`**, so it does not resolve
+    /// until the caller sets some: a project with no source files has
+    /// `Some(Sources::default())`, written `sources = []`.
     ///
-    /// The two private position fields cannot be set from outside, so the
+    /// The private position fields cannot be set from outside, so the
     /// diagnostics a built manifest raises in [`ProjectManifest::resolve`]
     /// are unpositioned.
     pub fn new(publisher: IndexPublisher, name: IndexName, version: Version) -> Self {
@@ -202,42 +198,32 @@ impl ProjectTable {
     ///
     /// Every key is read, and every problem pushed, before the value is
     /// built.
-    pub fn validate(
-        table: &toml::Table,
-        positions: &Positions<'_>,
-    ) -> Result<Validated<Self>, Report> {
-        let reader = TableReader::new(
-            table,
-            vec![TABLE.to_owned()],
-            KeyLocation::Table(TABLE.to_owned()),
-            positions,
-        );
-        let mut report = Report::new();
+    pub fn validate(reader: &TableReader<'_>) -> Result<Validated<Self>, Diagnostics> {
+        let mut report = Diagnostics::new();
 
-        // Read first: the metamodel selects the schema the rest of the
-        // table is judged against.
-        let metamodel = inheritable(&reader, "metamodel", &mut report, |report| {
-            reader::metamodel(&reader, report)
+        // Read first so that a failing metamodel is reported first.
+        let metamodel = inheritable(reader, "metamodel", &mut report, |report| {
+            reader::metamodel(reader, report)
         });
         let name = own(
-            &reader,
+            reader,
             "name",
             "it identifies one project",
             &mut report,
             |report| {
                 let raw = reader.string("name", report)?;
-                parsed(IndexName::parse(raw), &reader, "name", report)
+                parsed(IndexName::parse(raw), reader, "name", report)
             },
         );
-        let publisher = inheritable(&reader, "publisher", &mut report, |report| {
+        let publisher = inheritable(reader, "publisher", &mut report, |report| {
             let raw = reader.string("publisher", report)?;
-            parsed(IndexPublisher::parse(raw), &reader, "publisher", report)
+            parsed(IndexPublisher::parse(raw), reader, "publisher", report)
         });
-        let version = inheritable(&reader, "version", &mut report, |report| {
+        let version = inheritable(reader, "version", &mut report, |report| {
             let raw = reader.string("version", report)?;
             checked(
                 Version::parse(raw),
-                &reader,
+                reader,
                 "version",
                 raw,
                 "a valid version",
@@ -245,21 +231,21 @@ impl ProjectTable {
             )
         });
         let sources = own(
-            &reader,
+            reader,
             "sources",
             "every member writes out its own source files in full",
             &mut report,
-            |report| sources(&reader, report),
+            |report| sources(reader, report),
         );
         let (sources, sources_at) = match sources {
             Some((sources, at)) => (Some(sources), at),
             None => (None, Vec::new()),
         };
-        let license = inheritable(&reader, "license", &mut report, |report| {
+        let license = inheritable(reader, "license", &mut report, |report| {
             let raw = reader.string("license", report)?;
             checked(
                 Expression::parse(raw),
-                &reader,
+                reader,
                 "license",
                 raw,
                 "a valid SPDX expression",
@@ -267,41 +253,40 @@ impl ProjectTable {
             )
         });
         let description = own(
-            &reader,
+            reader,
             "description",
             "it identifies one project",
             &mut report,
             |report| reader.string("description", report).map(ToOwned::to_owned),
         );
-        let topics = inheritable(&reader, "topics", &mut report, |report| {
+        let topics = inheritable(reader, "topics", &mut report, |report| {
             reader
                 .strings("topics", report)
                 .map(|values| values.into_iter().map(ToOwned::to_owned).collect())
         });
-        let maintainers = inheritable(&reader, "maintainers", &mut report, |report| {
-            maintainers(&reader, report)
+        let maintainers = inheritable(reader, "maintainers", &mut report, |report| {
+            maintainers(reader, report)
         });
         let stdlib = own(
-            &reader,
+            reader,
             "stdlib",
             "it is a per-project identifier",
             &mut report,
             |report| {
                 let raw = reader.string("stdlib", report)?;
-                parsed(StdlibStem::parse(raw), &reader, "stdlib", report)
+                parsed(StdlibStem::parse(raw), reader, "stdlib", report)
             },
         );
-        // Read for the marker only (a marker is an error); the value is
-        // kept as written and judged in `resolve`, where the family is
+        // Kept as written and judged in `resolve`, where the family is
         // known.
         let root = own(
-            &reader,
+            reader,
             "root",
             "it is a per-project entry point",
             &mut report,
-            |_| reader.raw().get("root").cloned(),
+            |_| reader.get("root").map(written),
         );
-        let urls = inheritable_table(&reader, "urls", &mut report, |report| urls(&reader, report));
+        let urls = inheritable_table(reader, "urls", &mut report, |report| urls(reader, report));
 
         for (key, present) in [
             ("publisher", publisher.is_some()),
@@ -315,10 +300,8 @@ impl ProjectTable {
             }
         }
 
-        // Rule (a)'s suffix -- "this may be because the project uses a
-        // metamodel this version of Sysand does not support" -- is for
-        // json projects only. A `model.toml` whose metamodel is
-        // unrecognized never reaches this line: it was refused above.
+        // No unsupported-metamodel suffix: that is for json projects only,
+        // and an unrecognized metamodel here is already an error.
         report.extend(reader.unknown_keys(PROJECT_KEYS, None));
         report.sort_by_position();
 
@@ -347,11 +330,18 @@ impl ProjectTable {
     }
 }
 
+/// A value kept exactly as written, owned, to be judged and written back
+/// later.
+fn written(value: &Spanned<DeValue<'_>>) -> toml::Value {
+    toml::Value::deserialize(ValueDeserializer::from(value.clone()))
+        .expect("every value of a document that was read is a TOML value")
+}
+
 /// The rules are [`Sources::new`]'s; what is added here is where each
 /// complaint points.
 fn sources(
     reader: &TableReader<'_>,
-    report: &mut Report,
+    report: &mut Diagnostics,
 ) -> Option<(Sources, Vec<Option<Position>>)> {
     let raw = reader.strings("sources", report)?;
     let paths = raw
@@ -377,9 +367,9 @@ fn sources(
     }
 }
 
-fn urls(reader: &TableReader<'_>, report: &mut Report) -> Option<Urls> {
+fn urls(reader: &TableReader<'_>, report: &mut Diagnostics) -> Option<Urls> {
     let urls = reader.table("urls", report)?;
-    let one = |key: &str, report: &mut Report| {
+    let one = |key: &str, report: &mut Diagnostics| {
         inheritable(&urls, key, report, |report| {
             let raw = urls.string(key, report)?;
             checked(
@@ -407,31 +397,29 @@ impl ProjectManifest {
     /// Read the project side of a document: the `[project]` table and the
     /// top-level `inline-usages` array.
     ///
-    /// The reader of the file as a whole decides which tables the document
-    /// may have and warns about an unknown *top-level* key. An absent
-    /// `[project]` is not diagnosed here: it comes back as the three
-    /// required keys missing.
-    pub fn validate(
-        document: &toml::Table,
-        positions: &Positions<'_>,
-    ) -> Result<Validated<Self>, Report> {
-        let mut report = Report::new();
-        let top = TableReader::new(document, Vec::new(), KeyLocation::TopLevel, positions);
+    /// An absent `[project]` is read as an empty one, so it comes back as
+    /// the three required keys missing.
+    pub fn validate(top: &TableReader<'_>) -> Result<Validated<Self>, Diagnostics> {
+        let mut report = Diagnostics::new();
 
-        // An absent `[project]` is an empty one: the three required
-        // keys are then reported missing.
-        //
-        // A `project` that is *written* but is not a table has already been
-        // reported by `TableReader::table`; reading an empty table on top
-        // would add three missing-key errors.
-        let empty = toml::Table::new();
+        // A `project` that is written but is not a table has already been
+        // reported; reading an empty table on top would add three
+        // missing-key errors.
+        let empty = DeTable::new();
         let table = top.table(TABLE, &mut report);
         let malformed = table.is_none() && top.has(TABLE);
         let project = if malformed {
             None
         } else {
-            let table = table.as_ref().map_or(&empty, TableReader::raw);
-            match ProjectTable::validate(table, positions) {
+            let table = table.unwrap_or_else(|| {
+                TableReader::new(
+                    &empty,
+                    None,
+                    KeyLocation::Table(TABLE.to_owned()),
+                    top.source(),
+                )
+            });
+            match ProjectTable::validate(&table) {
                 Ok(validated) => {
                     let (value, warnings) = validated.into_parts();
                     report.extend(warnings);
@@ -445,18 +433,20 @@ impl ProjectManifest {
         };
 
         let mut entries = Vec::new();
-        for (index, entry) in top.tables("inline-usages", &mut report).iter().enumerate() {
+        let tables = top.tables("inline-usages", &mut report);
+        for (index, entry) in tables.iter().enumerate() {
             let site = UsageSite {
                 array: "inline-usages",
                 index,
+                entry,
             };
-            match UsageRaw::from_table(entry.raw()).validate_member(&site, positions) {
+            match UsageRaw::from_table(entry.raw()).validate_member(&site) {
                 Ok(usage) => entries.push((site, usage)),
                 Err(problems) => report.extend(problems.into_diagnostics()),
             }
         }
-        // Duplicates are counted per array, and only the entries that validated can be compared.
-        report.extend(check_duplicates(&entries, positions));
+        // Duplicates are counted per array; only validated entries are compared.
+        report.extend(check_duplicates(&entries));
 
         report.sort_by_position();
         match project {
@@ -470,9 +460,7 @@ impl ProjectManifest {
 
     /// Whether anything in this manifest is inherited.
     ///
-    /// Markers do not establish membership, but a project carrying one
-    /// cannot be read outside a workspace, while a marker-free non-member
-    /// reads as an ordinary standalone project.
+    /// A project carrying a marker cannot be read outside a workspace.
     pub fn inherits(&self) -> bool {
         let project = &self.project;
         project.publisher.inherited().is_some()
@@ -505,17 +493,16 @@ impl ProjectManifest {
     /// Follow every marker, then run the validation that needs the effective
     /// metamodel.
     ///
-    /// `workspace` is the table of the workspace this project is a
-    /// *member* of, and `None` for every other project, wherever its
-    /// directory sits.
+    /// `workspace` is the table of the workspace this project is a member
+    /// of, and `None` for every other project.
     ///
     /// Every marker is followed before the two checks that need the
     /// result, so a project with three failing markers reports three.
     pub fn resolve(
         self,
         workspace: Option<&WorkspaceTable>,
-    ) -> Result<Validated<ResolvedProject>, Report> {
-        let mut report = Report::new();
+    ) -> Result<Validated<ResolvedProject>, Diagnostics> {
+        let mut report = Diagnostics::new();
         let Self {
             project,
             inline_usages,
@@ -594,9 +581,9 @@ impl ProjectManifest {
         )
         .flatten()
         .unwrap_or_default();
-        // The outer `Option` is whether the key resolved at all, which is
-        // not the same as an absent `metamodel`: the checks below are
-        // skipped entirely when it did not.
+        // The outer `Option` is whether the key resolved at all, as
+        // opposed to being absent; the checks below are skipped when it did
+        // not.
         let metamodel = collect(
             resolve_optional(
                 metamodel,
@@ -607,9 +594,7 @@ impl ProjectManifest {
             ),
             &mut report,
         );
-        // `metamodel` is mandatory in a `model.toml`. Checked after
-        // inheritance: a marker satisfies the requirement like any other
-        // value.
+        // Mandatory, checked after inheritance so that a marker satisfies it.
         let metamodel = match metamodel {
             None => None,
             Some(None) => {
@@ -643,15 +628,13 @@ impl ProjectManifest {
             }
         }
 
-        // `root`, judged now that the family is known, against the
-        // effective metamodel rather than the declared one.
+        // `root` is judged now, against the effective metamodel.
         let location = KeyLocation::Table(TABLE.to_owned());
         let family = metamodel.as_ref().map(|known| known.family);
         let root_written = root.is_some();
         let root = match (root, family) {
             (None, _) => None,
-            // The key's own family: a string, in the form a `sources`
-            // entry takes.
+            // A string in the form a `sources` entry takes.
             (Some(toml::Value::String(raw)), Some(MetamodelFamily::Syside)) => {
                 match root_path(&raw) {
                     Ok(path) => Some(path),
@@ -665,15 +648,14 @@ impl ProjectManifest {
                 report.push(
                     Diagnostic::error(format!(
                         "`root` in {location} must be a string, but it is {}",
-                        describe(&other)
+                        describe(other.type_str())
                     ))
                     .at_opt(root_at.clone()),
                 );
                 None
             }
-            // An OMG project that carries both `sources` and `root` gets
-            // only the warning and is built from `sources`, whatever the
-            // value.
+            // Only a warning, whatever the value; the project is built from
+            // `sources`.
             (Some(_), Some(MetamodelFamily::Omg)) => {
                 report.push(
                     Diagnostic::from(ReadWarning::ForeignSchemaKey {
@@ -690,21 +672,14 @@ impl ProjectManifest {
             (Some(_), None) => None,
         };
 
-        // `sources` is required for the OMG metamodel and is the Syside
-        // family's membership list too; what differs is the text
-        // (`missing_sources`).
-        //
-        // A project whose `metamodel` is missing still gets this: every
-        // one of the four requires `sources`, so the plain missing-key
-        // text is used.
+        // Every metamodel requires `sources`; only the message differs.
         let sources = sources.or_else(|| {
             report.push(missing_sources(metamodel.as_ref()).at_opt(table_at.clone()));
             None
         });
 
         let syside = family == Some(MetamodelFamily::Syside);
-        // `root` is required of every Syside project. A `root` that was
-        // written and refused above is not also missing.
+        // A `root` that was written and refused above is not also missing.
         if syside && !root_written {
             report.push(
                 Diagnostic::error(format!(
@@ -714,8 +689,7 @@ impl ProjectManifest {
             );
         }
         // `root` names one of the `sources` entries, compared as written.
-        // With no `sources` at all there is no list to be absent from, and
-        // the missing `sources` has been reported.
+        // Skipped without `sources`, whose absence is already reported.
         if syside
             && let (Some(root), Some(sources)) = (root.as_ref(), sources.as_ref())
             && !sources.iter().any(|entry| entry == root)
@@ -728,12 +702,10 @@ impl ProjectManifest {
             );
         }
 
-        // The spec kind bounds what `sources` may list. Checked here and
-        // not in `Sources::new`, because the metamodel may be inherited.
-        //
-        // A Syside `root` with an extension the metamodel does not admit is
-        // refused here too, as one of these entries; `root` raises nothing
-        // of its own for the extension.
+        // The spec kind bounds what `sources` may list. Checked here
+        // because the metamodel may be inherited. A `root` with an
+        // extension the metamodel does not admit is refused here too, as
+        // one of these entries.
         if let (Some(sources), Some(kind)) = (sources.as_ref(), metamodel.as_ref()) {
             for (index, entry) in sources.iter().enumerate() {
                 if let Err(problem) = admitted_source(entry, kind) {
@@ -750,9 +722,8 @@ impl ProjectManifest {
             }
         }
 
-        // The key is refused unless the project's publisher normalizes to
-        // `omg` and its metamodel, declared or inherited, is a recognized
-        // OMG one (the IRI needs its release date).
+        // `stdlib` needs a publisher normalizing to `omg` and an OMG
+        // metamodel, declared or inherited.
         if stdlib.is_some()
             && let Some(publisher) = publisher.as_ref()
             && let Some(kind) = metamodel.as_ref()
@@ -797,7 +768,7 @@ fn marked<T>(property: Option<&MetaProperty<T>>) -> bool {
     property.is_some_and(|property| property.inherited().is_some())
 }
 
-fn collect<T>(result: Result<T, Diagnostic>, report: &mut Report) -> Option<T> {
+fn collect<T>(result: Result<T, Diagnostic>, report: &mut Diagnostics) -> Option<T> {
     match result {
         Ok(value) => Some(value),
         Err(problem) => {
@@ -851,10 +822,9 @@ fn resolve_urls(
 
 /// An entry that gives only the identity plus a marker takes the
 /// matching group entry whole. Entries are matched by publisher and name,
-/// compared literally, so an opt-in has to spell both exactly as the
-/// group entry does -- including declaring no publisher, which for a
-/// standard-library entry is the spelling: an opt-in to such an entry
-/// gives only `name` and the marker.
+/// compared literally, so an opt-in must spell both exactly as the group
+/// entry does, including declaring no publisher for a standard-library
+/// entry.
 fn from_group_usage(
     workspace: Option<&WorkspaceTable>,
     publisher: Option<&IndexPublisher>,
@@ -910,8 +880,7 @@ fn missing_sources(metamodel: Option<&KnownMetamodel>) -> Diagnostic {
             "missing key `sources` in {location}; the Syside metamodel requires it\n\
              (`root` names one of its entries)"
         )),
-        // No metamodel to name, but every one of the four requires
-        // `sources` in v1.
+        // No metamodel to name.
         None => missing_key("sources", &location, None),
         Some(_) => Diagnostic::error(format!(
             "missing key `sources` in {location}; the OMG metamodel requires it\n\

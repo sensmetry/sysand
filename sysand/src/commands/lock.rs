@@ -90,9 +90,7 @@ pub fn resolve_lock<P: AsRef<Utf8UnixPath>, Policy: HTTPAuthentication, R: AsRef
     } = do_lock_local_editable(
         &path,
         &project_root,
-        // No alias IRIs: `model.toml` has no such key. A member is
-        // identified by its `[project]` table, and `do_lock_workspace`
-        // records `identity().lock_identifier()`.
+        // No alias IRIs: `model.toml` has no such key.
         None,
         &provided_iris,
         wrapped_resolver,
@@ -105,10 +103,8 @@ pub fn resolve_lock<P: AsRef<Utf8UnixPath>, Policy: HTTPAuthentication, R: AsRef
 /// Lock a whole `model.toml` workspace, and write the one lockfile at
 /// its root.
 ///
-/// The single-project locking path takes a *nominal editable path* for
-/// the project being locked, so passing the workspace root there would
-/// also change what the lockfile records as editable; hence a separate
-/// function.
+/// The single-project path records a nominal editable path for the
+/// project, which the workspace root would not suit.
 pub fn command_lock_workspace<Policy: HTTPAuthentication>(
     root: &Utf8Path,
     resolution_opts: ResolutionOptions,
@@ -171,10 +167,8 @@ pub fn command_lock<P: AsRef<Utf8UnixPath>, Policy: HTTPAuthentication, R: AsRef
         auth_policy,
         ctx,
     )?;
-    // The lockfile lives at the project root, where `sync` reads it and
-    // where the advisory lock covers it; written relative to the working
-    // directory it would land in a subdirectory when `lock` runs from
-    // one.
+    // At the project root, not the working directory, which may be a
+    // subdirectory.
     let lockfile = Lockfile::new(&lock_root, canonical);
     lockfile.write()?;
 

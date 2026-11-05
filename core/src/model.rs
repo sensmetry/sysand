@@ -20,7 +20,7 @@ use thiserror::Error;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
 use crate::manifest::diagnostics::{
-    Diagnostic, KeyLocation, ReadWarning, Report, UnknownKeys, Validated, missing_key,
+    Diagnostic, Diagnostics, KeyLocation, ReadWarning, UnknownKeys, Validated, missing_key,
 };
 use crate::project::utils::Identifier;
 use crate::purl::parse_sysand_purl;
@@ -32,18 +32,13 @@ use crate::utils::{
     parse_relative_unix_path,
 };
 
-// pub struct RawIri(String);
-// pub struct ParsedIri(fluent_uri::Iri<String>);
-// pub struct NormalisedIri(fluent_uri::Iri<String>);
-
 /// The two families of `metamodel` values Sysand recognizes: the OMG
 /// specifications, and the Syside metamodels that extend them and mirror
 /// the OMG value they extend.
 ///
 /// A manifest key may belong to the schema of one family only (`root` is
-/// Syside's), which is what the family is needed for while reading a
-/// manifest; the full parse of a metamodel value (specification kind and
-/// release date) is a separate concern.
+/// Syside's). The full parse of a metamodel value (specification kind and
+/// release date) is [`Metamodel`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum MetamodelFamily {
     /// `https://www.omg.org/spec/<spec-kind>/<date>`
@@ -264,8 +259,6 @@ pub struct KnownMetamodel {
 
 impl KnownMetamodel {
     /// The values a `model.toml` recognizes, as a message lists them.
-    ///
-    /// Exactly four values: two families, two spec kinds each.
     pub const RECOGNIZED: &'static str = "`https://www.omg.org/spec/KerML/<date>`, \
          `https://www.omg.org/spec/SysML/<date>`, \
          `https://www.sysand.com/spec/KerML/<date>` or \
@@ -380,8 +373,8 @@ pub const LICENSE_EXPRESSION_HELP: &str = "\
 /// other usage may, so the shape is pinned:
 /// exactly one eight-digit date segment, exactly one non-empty stem
 /// ending in `.kpar`, and nothing after it. A query or a fragment lands
-/// in the stem and so fails the suffix, which is the intent -- the
-/// exemption is granted to the IRI as written.
+/// in the stem and so fails the suffix: the exemption is granted to the
+/// IRI as written.
 ///
 /// The `sysand.com` spec family is not matched: those IRIs name a
 /// *metamodel*, never a library.
@@ -395,12 +388,8 @@ pub fn is_omg_stdlib_iri(iri: &str) -> bool {
 /// The `<stem>` of an OMG standard-library KPAR IRI, or `None` if the
 /// IRI is not one. See [`is_omg_stdlib_iri`] for the shape.
 ///
-/// The stem is *not* the library's declared name -- `SysML Quantities
-/// and Units Library` is published at
-/// `.../Quantities-and-Units-Domain-Library.kpar`, and several others
-/// differ by more than punctuation. For the name see
-/// [`crate::stdlib::std_lib_name`]; the stem is what is left when this
-/// Sysand embeds no release at that IRI.
+/// The stem is not always the library's declared name; for the name see
+/// [`crate::stdlib::std_lib_name`].
 pub fn omg_stdlib_stem(iri: &str) -> Option<&str> {
     let rest = iri
         .strip_prefix(KERML_SPEC_PREFIX)
@@ -459,7 +448,7 @@ pub enum InterchangeProjectUsageG<Iri, VersionReq, Path, Publisher, Name, IdxPub
     /// The project in the directory `dir`, relative to the root
     /// of the project declaring the usage. `publisher` and `name` are
     /// *written* as the values found at `dir` are written, without any
-    /// normalization -- that is what a KPAR carries. Resolving the usage
+    /// normalization, as a KPAR carries them. Resolving the usage
     /// normalizes: the identity check at the target compares the
     /// normalized pair.
     /// No version constraint, as the directory contains a single version
@@ -1073,10 +1062,10 @@ impl InterchangeProjectInfoPartial {
         self,
         file: &str,
         metamodel: Option<&str>,
-    ) -> Result<Validated<InterchangeProjectInfoRaw>, Report> {
+    ) -> Result<Validated<InterchangeProjectInfoRaw>, Diagnostics> {
         let location = KeyLocation::File(file.to_owned());
         let unsupported = unsupported_metamodel(metamodel);
-        let mut report = Report::new();
+        let mut report = Diagnostics::new();
 
         let name = require(&mut report, self.name, "name", &location, unsupported);
         let version = require(&mut report, self.version, "version", &location, unsupported);
@@ -1514,8 +1503,7 @@ pub struct InterchangeProjectMetadataG<MM, Path: Eq + Hash, DateTime, IPC> {
     /// [`root`](Self::root) and [`exports`](Self::exports) instead. Which shape a
     /// document may have is the family's rule, enforced where the
     /// document is read ([`InterchangeProjectMetadataPartial::validate`]),
-    /// not by this type: the type is mirrored by hand in two bindings,
-    /// and three optional fields mirror as three optional fields.
+    /// not by this type.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "python", pyo3(default))]
     pub index: Option<IndexMap<String, Path>>,
@@ -1549,9 +1537,6 @@ pub struct InterchangeProjectMetadataG<MM, Path: Eq + Hash, DateTime, IPC> {
 
 /// The partial form of a json manifest document: what a reader parses
 /// into before Sysand validates it.
-///
-/// The two documents are read by the same generic code, so the step from
-/// partial to validated is a trait.
 pub trait PartialManifest: serde::de::DeserializeOwned {
     /// The document this one validates into.
     type Validated;
@@ -1562,7 +1547,7 @@ pub trait PartialManifest: serde::de::DeserializeOwned {
     fn validate_manifest(
         self,
         metamodel: Option<&str>,
-    ) -> Result<Validated<Self::Validated>, Report>;
+    ) -> Result<Validated<Self::Validated>, Diagnostics>;
 }
 
 impl PartialManifest for InterchangeProjectInfoPartial {
@@ -1573,7 +1558,7 @@ impl PartialManifest for InterchangeProjectInfoPartial {
     fn validate_manifest(
         self,
         metamodel: Option<&str>,
-    ) -> Result<Validated<Self::Validated>, Report> {
+    ) -> Result<Validated<Self::Validated>, Diagnostics> {
         self.validate(Self::FILE, metamodel)
     }
 }
@@ -1586,7 +1571,7 @@ impl PartialManifest for InterchangeProjectMetadataPartial {
     fn validate_manifest(
         self,
         metamodel: Option<&str>,
-    ) -> Result<Validated<Self::Validated>, Report> {
+    ) -> Result<Validated<Self::Validated>, Diagnostics> {
         self.validate(Self::FILE, metamodel)
     }
 }
@@ -1617,11 +1602,11 @@ impl InterchangeProjectMetadataPartial {
         self,
         file: &str,
         metamodel: Option<&str>,
-    ) -> Result<Validated<InterchangeProjectMetadataRaw>, Report> {
+    ) -> Result<Validated<InterchangeProjectMetadataRaw>, Diagnostics> {
         let location = KeyLocation::File(file.to_owned());
         let declared = metamodel.or(self.metamodel.as_deref());
         let unsupported = unsupported_metamodel(declared);
-        let mut report = Report::new();
+        let mut report = Diagnostics::new();
 
         // The family decides the shape. An absent or unrecognized
         // metamodel is the OMG family.
@@ -2091,8 +2076,8 @@ impl<Iri, Path: Eq + Hash + Clone, DateTime, IPC>
     ///
     /// For the OMG shape every `checksum` key is a source (plus the
     /// `index` values when asked). For the Syside shape `checksum`
-    /// covers the whole archive -- the readme, the changelog, the
-    /// license files -- so the sources are the `checksum` keys that are
+    /// covers the whole archive (the readme, the changelog, the license
+    /// files), so the sources are the `checksum` keys that are
     /// model files, which equals the manifest's `sources` by construction.
     pub fn source_paths(&self, include_index: bool) -> HashSet<Path>
     where
@@ -2129,12 +2114,10 @@ impl<Iri, Path: Eq + Hash + Clone, DateTime, IPC>
 
     /// What the project exports, whichever shape the document has: the
     /// `exports` array of the Syside shape, else the keys of the OMG
-    /// shape's `index`. The one question the lockfile's collision check
-    /// asks, and the one place it should ask it: a consumer that read
-    /// `index` alone would find a Syside dependency exporting nothing.
+    /// shape's `index`.
     ///
-    /// A document with both -- only constructible programmatically, since
-    /// the reader drops the `index` of a Syside document -- answers with
+    /// A document with both (only constructible programmatically, since
+    /// the reader drops the `index` of a Syside document) answers with
     /// `exports`.
     pub fn exported_symbols(&self) -> impl Iterator<Item = &String> {
         let from_exports = self.exports.iter().flatten();
@@ -2712,7 +2695,7 @@ fn unsupported_metamodel(metamodel: Option<&str>) -> Option<&str> {
 
 /// Takes a required key, or records that it is missing.
 fn require<T>(
-    report: &mut Report,
+    report: &mut Diagnostics,
     value: Option<T>,
     key: &str,
     location: &KeyLocation,

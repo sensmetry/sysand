@@ -28,7 +28,7 @@ use crate::{
 
 use super::ProjectChecksum;
 
-/// Project stored in a local directory
+/// Project held in memory
 #[derive(Clone, Eq, Default, Debug, PartialEq)]
 pub struct InMemoryProject {
     pub info: Option<InterchangeProjectInfoRaw>,
@@ -42,8 +42,8 @@ pub struct InMemoryProject {
     pub files: HashMap<Utf8UnixPathBuf, String>,
     pub nominal_sources: Vec<Source>,
     /// What [`ProjectRead::source_may_offer_multiple_versions`] answers. An
-    /// in-memory project stands in for whatever source put it there, so this
-    /// is left for the caller to decide
+    /// in-memory project stands in for whatever source it came from, so the
+    /// caller decides.
     pub source_may_offer_multiple_versions: bool,
 }
 
@@ -87,7 +87,7 @@ impl InMemoryProject {
 impl InMemoryProject {
     /// The KPAR view of this project's `model.toml`.
     ///
-    /// Rebuilt per call: a cached field would break the derived
+    /// Rebuilt per call, as a cached field would break the derived
     /// `PartialEq`, `Eq` and `Clone`.
     fn view(
         &self,
@@ -109,7 +109,7 @@ impl InMemoryProject {
         })
     }
 
-    /// The mirror of `LocalSrcProject::refuse_json_write`.
+    /// Refuse to write a json manifest into a `model.toml` project.
     fn refuse_json_write(&self, file: &'static str) -> Result<(), InMemoryError> {
         if self.format()? == ProjectFormat::Toml {
             return Err(InMemoryError::JsonWriteToTomlProject(file));
@@ -234,8 +234,7 @@ impl ProjectRead for InMemoryProject {
         InMemoryError,
     > {
         match self.format()? {
-            // A project holding both kinds is refused before either is
-            // read.
+            // Refused before either manifest is read.
             ProjectFormat::Both => Err(InMemoryError::AmbiguousFormat),
             ProjectFormat::Toml => {
                 let (info, meta) = self.view()?;

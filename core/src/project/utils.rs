@@ -20,7 +20,7 @@ use typed_path::Utf8UnixPathBuf;
 use zip::{self, result::ZipError};
 
 use crate::{
-    manifest::diagnostics::{Report, Validated},
+    manifest::diagnostics::{Diagnostics, Report, Validated},
     model::{
         IndexName, IndexPublisher, InterchangeProjectUsage, InterchangeProjectUsageRaw,
         ProjectName, ProjectPublisher, normalize_typed_name, normalize_typed_publisher,
@@ -364,8 +364,8 @@ pub enum ProjectDeserializationError {
     },
     /// The document is json, but not a manifest: a key it must carry is
     /// absent. Every reason is reported at once.
-    #[error("`{path}` is not a valid manifest:\n{}", indent(report))]
-    Invalid { path: Box<Utf8Path>, report: Report },
+    #[error("`{}` is not a valid manifest:\n{}", .report.file(), indent(report))]
+    Invalid { report: Report },
 }
 
 impl ProjectDeserializationError {
@@ -376,10 +376,9 @@ impl ProjectDeserializationError {
         }
     }
 
-    pub fn invalid(path: impl AsRef<Utf8Path>, report: Report) -> Self {
+    pub fn invalid(path: impl AsRef<Utf8Path>, diagnostics: Diagnostics) -> Self {
         Self::Invalid {
-            path: path.as_ref().into(),
-            report,
+            report: diagnostics.in_file(path.as_ref().as_str()),
         }
     }
 }
@@ -388,12 +387,12 @@ impl ProjectDeserializationError {
 /// against the document it came from.
 pub fn validate_manifest<T>(
     path: impl AsRef<Utf8Path>,
-    validated: Result<Validated<T>, Report>,
+    validated: Result<Validated<T>, Diagnostics>,
 ) -> Result<T, ProjectDeserializationError> {
     match validated {
         Ok(validated) => {
             for warning in &validated.warnings {
-                log::warn!("`{}`: {warning}", path.as_ref());
+                log::warn!("{}", warning.in_file(path.as_ref().as_str()));
             }
             Ok(validated.value)
         }
@@ -401,8 +400,7 @@ pub fn validate_manifest<T>(
     }
 }
 
-/// A report is several lines; every line after the first is indented to
-/// align with the text of the first, as `DEVELOPMENT.md` asks.
+/// Indent every line of a multi-line report to align with the first.
 fn indent(report: &Report) -> String {
     report
         .to_string()
@@ -684,9 +682,7 @@ impl Identifier {
     /// `acme-inc/foo` is a valid index spelling, which is
     /// `pkg:sysand/acme-inc/foo`. So a directory or KPAR usage of
     /// `ACME Inc./Foo` and an index usage of `acme-inc/foo` are different
-    /// projects. Deciding by the normalized form instead would make them the
-    /// same project, at the cost of changing the identifiers of such spellings
-    /// from `urn:sysand` to `pkg:sysand`
+    /// projects.
     pub fn from_project(publisher: &ProjectPublisher, name: &ProjectName) -> Self {
         if let (Ok(publisher), Ok(name)) = (
             IndexPublisher::parse(publisher.as_str().to_owned()),
@@ -876,8 +872,8 @@ pub struct ExpectedIdentity {
 
 /// How a [`IdentityMismatch::Spelling`] spells one side of the
 /// comparison: `<publisher>/<name>`, with `<none>` for a target that
-/// declares no publisher -- which a toml usage only reaches when it
-/// expects none either.
+/// declares no publisher (which a toml usage only reaches when it
+/// expects none either).
 #[cfg_attr(
     not(feature = "filesystem"),
     expect(
@@ -911,9 +907,8 @@ pub enum IdentityMismatch {
         actual: String,
     },
     /// A usage written in a `model.toml`, where the target must declare
-    /// the pair as the usage spells it. One case carrying both halves,
-    /// because one message names both -- a publisher that differs and a
-    /// name that differs are the same mistake, made once.
+    /// the pair as the usage spells it. Carries both halves because one
+    /// message names both.
     Spelling {
         expected: (Option<String>, String),
         actual: (Option<String>, String),
@@ -942,14 +937,14 @@ impl ExpectedIdentity {
         }
     }
 
-    /// The manifest the usage was written in, which decides how the
-    /// pair is compared and what a mismatch is called.
+    /// The manifest the usage was written in, which decides how the pair is
+    /// compared and what a mismatch is called.
     ///
-    /// A `model.toml` never holds a normalized identity, so a usage
-    /// written there is satisfied only by a target that declares the
-    /// pair as the usage spells it. A json usage keeps the normalized
-    /// comparison, and the origin also decides whether a publisher-less target is
-    /// [`IdentityMismatch::NoPublisher`] or [`IdentityMismatch::Publisher`].
+    /// A usage written in a `model.toml` is satisfied only by a target that
+    /// declares the pair as the usage spells it. A json usage keeps the
+    /// normalized comparison. The origin also decides whether a
+    /// publisher-less target is [`IdentityMismatch::NoPublisher`] or
+    /// [`IdentityMismatch::Publisher`].
     #[must_use]
     pub fn declared_in(self, origin: UsageOrigin) -> Self {
         let matching = match origin {
@@ -983,11 +978,10 @@ impl ExpectedIdentity {
             IdentityMatch::Literal => expected == actual,
         };
 
-        // A toml usage's mismatch is one message naming both halves,
-        // so both are compared before anything is returned -- where the
-        // json arms below stop at the publisher. A target declaring no
-        // publisher at all is `NoPublisher` even here: it says what to
-        // do, where `Spelling` would only say the two differ.
+        // A toml usage's mismatch is one message naming both halves, so
+        // both are compared before returning, unlike the json arms below. A
+        // target declaring no publisher is still `NoPublisher`, which says
+        // what to do.
         if self.origin == UsageOrigin::Toml {
             if self.publisher.is_some() && actual_publisher.is_none() {
                 return Err(IdentityMismatch::NoPublisher {
@@ -1014,9 +1008,8 @@ impl ExpectedIdentity {
         match (&self.publisher, actual_publisher) {
             (Some(expected), Some(actual)) if same(expected, actual, normalize_typed_publisher) => {
             }
-            // A target with no publisher at all, under a usage that was
-            // written where one is required, gets the message that names
-            // the fix rather than a comparison against `<none>`
+            // A publisher-less target under a toml usage gets the message
+            // that names the fix instead of a comparison against `<none>`
             (Some(_), None) if self.origin == UsageOrigin::Toml => {
                 return Err(IdentityMismatch::NoPublisher {
                     name: self.name.clone(),

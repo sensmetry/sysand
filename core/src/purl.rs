@@ -100,7 +100,7 @@ pub(crate) fn is_valid_unnormalized_publisher(s: &str) -> bool {
     is_valid_sysand_purl_part(s, IdentifierKind::Publisher, Spelling::Unnormalized)
 }
 
-/// Whether `s` can, after normalization, be used as Sysand PURL name. Only
+/// Whether `s` can, after normalization, be used as Sysand PURL name.
 /// Prefer [`crate::model::IndexName::parse`]
 pub(crate) fn is_valid_unnormalized_name(s: &str) -> bool {
     is_valid_sysand_purl_part(s, IdentifierKind::Name, Spelling::Unnormalized)

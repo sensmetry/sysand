@@ -97,15 +97,13 @@ pub fn command_sources_project(
 /// From the root, or from a non-member directory under it, all members
 /// are the target.
 ///
-/// Deduplicated across members, and across own sources and
-/// dependencies alike. Two members sharing an external dependency
-/// resolve the same installed files; and an *intra-workspace* usage
-/// resolves to the member itself, never to a copy of it from an index,
-/// so a member that another member depends on has its own sources
-/// reached twice. The second is the normal case.
+/// Deduplicated across members, and across own sources and dependencies
+/// alike: members sharing a dependency resolve the same installed files,
+/// and a member that another member depends on has its own sources
+/// reached twice.
 ///
-/// Order-preserving: own-source order is deterministic. Dependency order
-/// is up to the solver.
+/// Own-source order is deterministic; dependency order is up to the
+/// solver.
 pub fn command_sources_workspace(
     root: &camino::Utf8Path,
     no_own: bool,
@@ -121,9 +119,8 @@ pub fn command_sources_workspace(
 
     let workspace = Workspace::load_with(root, MemberChecks::All)?;
 
-    // A group entry's path is relative to the workspace root and nothing
-    // here carries that base, so resolving would look in the member's
-    // directory and report the path as not found.
+    // A group entry's path is relative to the workspace root, which is not
+    // known below, so resolving it would look in the member's directory.
     for member in workspace.members() {
         for located in &member.project.usages {
             if located.base != sysand_core::manifest::usage::UsageBase::Project
@@ -144,10 +141,9 @@ pub fn command_sources_workspace(
 
     let mut seen = HashSet::new();
     let mut listed: Vec<String> = Vec::new();
-    // `--only-deps` is "not the project's own sources", and at a root
-    // one member's dependency is another member's tree -- so the
-    // members' own sources are taken out of the union rather than
-    // skipped per member, which would let them back in sideways.
+    // For `--only-deps`, the members' own sources are removed from the
+    // union at the end: skipping them per member would let one member's
+    // sources back in as another's dependency.
     let mut own: HashSet<String> = HashSet::new();
 
     for member in workspace.members() {
@@ -167,10 +163,7 @@ pub fn command_sources_workspace(
             };
             let info = info.validate()?;
             let deps = match &ctx.env {
-                // Cloned per member: `resolve_dependencies` takes the
-                // environment by value. One `.sysand` for the whole
-                // workspace, so every member resolves against the same
-                // installed set.
+                // `resolve_dependencies` takes the environment by value.
                 Some(env) => resolve_dependencies(info.usage, env.clone(), dependencies.into())?,
                 None => {
                     resolve_dependencies(info.usage, NullEnvironment::new(), dependencies.into())?

@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use crate::manifest::diagnostics::{Diagnostic, Report, Validated};
+use toml::de::DeTable;
+
+use crate::manifest::diagnostics::{Diagnostic, Diagnostics, KeyLocation, Validated};
+use crate::manifest::reader::TableReader;
 use crate::manifest::spans::Source;
 use crate::manifest::usage::Usage;
 use crate::manifest::workspace_table::WorkspaceTable;
@@ -9,16 +12,22 @@ use crate::model::KnownMetamodel;
 
 /// The whole `[workspace]` of a document, read the way `ModelToml::parse`
 /// will read it.
-fn read(text: &str) -> Result<Validated<WorkspaceTable>, Report> {
-    let (table, positions) = Source::new("model.toml", text)
-        .read()
-        .expect("the test document parses");
-    let workspace = table
-        .get("workspace")
-        .and_then(toml::Value::as_table)
-        .cloned()
-        .unwrap_or_default();
-    WorkspaceTable::validate(&workspace, &positions)
+fn read(text: &str) -> Result<Validated<WorkspaceTable>, Diagnostics> {
+    let source = Source::new("model.toml", text);
+    let table = source.read().expect("the test document parses");
+    let top = TableReader::new(table.get_ref(), None, KeyLocation::TopLevel, &source);
+    let empty = DeTable::new();
+    let workspace = top
+        .table("workspace", &mut Diagnostics::new())
+        .unwrap_or_else(|| {
+            TableReader::new(
+                &empty,
+                None,
+                KeyLocation::Table("workspace".to_owned()),
+                &source,
+            )
+        });
+    WorkspaceTable::validate(&workspace)
 }
 
 /// A `[workspace]` whose body is `body`, so that its keys start on line 2.
@@ -34,7 +43,7 @@ fn table(body: &str) -> WorkspaceTable {
     accepted(body).into_parts().0
 }
 
-fn rejected(body: &str) -> Report {
+fn rejected(body: &str) -> Diagnostics {
     read(&one(body)).expect_err("the table is rejected")
 }
 
@@ -45,7 +54,7 @@ fn messages(diagnostics: &[Diagnostic]) -> Vec<&str> {
         .collect()
 }
 
-fn texts(report: &Report) -> Vec<&str> {
+fn texts(report: &Diagnostics) -> Vec<&str> {
     messages(report.diagnostics())
 }
 
@@ -58,7 +67,7 @@ fn is_ascending(places: &[(usize, usize)]) -> bool {
     })
 }
 
-fn places(report: &Report) -> Vec<(usize, usize)> {
+fn places(report: &Diagnostics) -> Vec<(usize, usize)> {
     report
         .diagnostics()
         .iter()
@@ -437,7 +446,7 @@ fn exclude_follows_the_same_per_entry_rules() {
 }
 
 /// `exclude` gets the same path rules as `members` (relative, below the
-/// root, and never the root itself) -- that is the whole list. Two excluded directories where one
+/// root, and never the root itself). Two excluded directories where one
 /// contains the other exclude the same tree, and so does the same
 /// directory twice.
 #[test]

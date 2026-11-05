@@ -690,11 +690,8 @@ mod login {
     // Template targets: templated login targets are supported, anchored
     // on their literal URL prefix.
 
-    /// The motivating GitLab-shaped target: the key is the template's
-    /// canonical `Display` text, with the literal prefix normalized at
-    /// parse time.
     /// A filesystem index has nothing to authenticate to; both spellings
-    /// are refused here rather than inherited from `IndexLocation`.
+    /// are refused.
     #[test]
     fn auth_refuses_filesystem_index() {
         assert_matches!(
@@ -711,6 +708,9 @@ mod login {
         );
     }
 
+    /// The motivating GitLab-shaped target: the key is the template's
+    /// canonical `Display` text, with the literal prefix normalized at
+    /// parse time.
     #[test]
     fn template_key_is_the_template_with_a_normalized_prefix() {
         let gitlab =
@@ -1690,10 +1690,8 @@ mod login {
 
     #[test]
     fn validated_login_stores_when_the_forced_retry_is_rate_limited() {
-        // Formerly false-refusing sequence: baseline 401, forced 429
-        // counted as rejected and refused a possibly valid token. Now the
-        // surface is not tested and the credential is stored with a
-        // rate-limited warning.
+        // Baseline 401, forced 429: the surface is not tested and the
+        // credential is stored with a rate-limited warning, not refused.
         let mut server = mockito::Server::new();
         let _config = no_discovery_mock(&mut server);
         let (unauth, forced) = private_index_json(&mut server, "tok", 429);

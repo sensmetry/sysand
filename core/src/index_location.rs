@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 //! User-configurable index locations: either a plain base URL that relative
-//! index paths are appended to (the historical behavior), or a URL template
+//! index paths are appended to, or a URL template
 //! containing a `{path}` placeholder that the relative index path is
 //! substituted into, percent-encoded as a single path segment. Templates
 //! make it possible to reach indexes served through file-access APIs whose
@@ -48,9 +48,8 @@ const PATH_PLACEHOLDER: &str = "{path}";
 const PATH_RAW_PLACEHOLDER: &str = "{path_raw}";
 
 /// Percent-encode everything outside RFC 3986 unreserved
-/// (`A-Z a-z 0-9 - . _ ~`). Notably `/` becomes `%2F`, which is what
-/// file-access APIs like GitLab's expect for a path used as one URL
-/// segment.
+/// (`A-Z a-z 0-9 - . _ ~`). `/` becomes `%2F`, which is what file-access
+/// APIs like GitLab's expect for a path used as one URL segment.
 const PATH_ENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'-')
     .remove(b'.')
@@ -292,7 +291,7 @@ impl fmt::Display for IndexUrlTemplate {
 }
 
 /// Where an index lives: a plain base URL (relative index paths are
-/// RFC 3986-joined onto it, the historical behavior) or a URL template
+/// RFC 3986-joined onto it) or a URL template
 /// (relative index paths are percent-encoded into its `{path}`
 /// placeholder).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -528,7 +527,7 @@ fn has_file_scheme(s: &str) -> bool {
 
 /// Path syntax: a rooted path (`/`, `\`), a dot-relative path (`.`,
 /// `..`, `./`, `.\`, `../`, `..\`) or a Windows drive (`C:`, `C:\`,
-/// `C:/`). Anything else -- a bare name, a URL -- is not a path spelling,
+/// `C:/`). Anything else (a bare name, a URL) is not a path spelling,
 /// so `example.org/index` is refused as a relative URL.
 fn is_path_syntax(s: &str) -> bool {
     let bytes = s.as_bytes();

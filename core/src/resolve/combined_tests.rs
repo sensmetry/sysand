@@ -146,7 +146,6 @@ fn prefer_file_resolver_when_successful() {
 fn skip_file_resolver_if_unsupported_iri() {
     let example_uri = iri("http://example.com");
 
-    //let project_a = minimal_project("a", "1.2.3");
     let project_b = minimal_project("b", "3.2.1");
 
     let resolver = CombinedResolver {

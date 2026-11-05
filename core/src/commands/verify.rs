@@ -200,8 +200,7 @@ pub fn do_verify(
         let Some(iri) = project.identifiers.first() else {
             continue;
         };
-        // Provided projects (the standard libraries among them) are not
-        // installed, as `do_sync` skips them.
+        // Provided projects (the standard libraries among them) are not installed.
         for id in &project.identifiers {
             if provided.contains_key(&Identifier::from_iri_unchecked_str(id)) {
                 continue 'projects;
@@ -285,10 +284,9 @@ fn verify_installed(
     let (Some(info), Some(meta)) = installed.get_project()? else {
         return Ok(Some(MismatchKind::MissingFromDisk));
     };
-    // Every file the manifest checksums, hashed from disk. First, so
-    // that a changed file is named in the report. A json project installed from a source directory
-    // whose author wrote no `checksum` map has nothing here, and only
-    // the manifests below are verified for it.
+    // Every file the manifest checksums, hashed from disk. Checked first,
+    // so that a changed file is named in the report. A project without a
+    // `checksum` map has nothing here, and only its manifests are verified.
     if meta.checksum.is_none() {
         log::debug!(
             "`{}` has no `checksum` map; only its manifests are verified",

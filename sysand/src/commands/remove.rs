@@ -71,11 +71,8 @@ pub fn command_remove<Policy: HTTPAuthentication>(
     let config_path =
         config_file.or_else(|| (!no_config).then(|| ctx.config_root.join(CONFIG_FILE)));
 
-    // `.project.json` is not backed up here, since the failure to lock
-    // or sync cannot logically be caused by the remove command itself
-    // (unlike `add`), the failure must be pre-existing or transient
-    // (i.e. lock/sync would have also failed even without the `remove`).
-    // Therefore lock/sync failures should not revert the removal
+    // No rollback on lock/sync failure (unlike `add`): such a failure is
+    // not caused by the removal.
     let removed = do_remove(current_project, usage)?;
     print_removed(&removed);
 

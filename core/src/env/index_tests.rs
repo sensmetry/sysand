@@ -53,14 +53,12 @@ fn inner<E>(error: crate::cancel::Cancellable<E>) -> E {
     }
 }
 
-// Imported so that `super::X` paths inside sub-modules resolve to names from
-// the parent `index` module.
+// Lets `super::X` in sub-modules name items of the `index` module.
 use super::{HttpFetchError, IndexEnvironmentError};
 use crate::index::model::VersionsJsonError;
 
-/// Placeholder sha256 value for tests that exercise flow but don't care
-/// about the specific digest bytes.
-/// All-`a`s so it's visibly distinct from real-digest tests below.
+/// Placeholder sha256 value for tests that do not care about the digest
+/// bytes. All-`a`s so it is visibly distinct from real digests.
 const FILLER_DIGEST: &str =
     "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
@@ -112,11 +110,9 @@ fn make_runtime() -> Result<Arc<tokio::runtime::Runtime>, Box<dyn std::error::Er
     ))
 }
 
-/// Build an unauthenticated async index environment whose discovery root
-/// is `base_url`. `base_url` serves as the discovery root and index root
-/// for tests that don't cover the discovery flow (those tests seed the
-/// `resolved` cell directly so no discovery fetch is issued against the
-/// mock server). These reads never need an `api_root`, which stays unset.
+/// Build an unauthenticated async index environment with `base_url` as both
+/// index root and discovery root. The endpoints are seeded directly, so no
+/// discovery fetch is issued. `api_root` stays unset.
 fn index_env_async(
     base_url: &str,
 ) -> Result<super::IndexEnvironmentAsync<Unauthenticated>, Box<dyn std::error::Error>> {
@@ -130,17 +126,15 @@ fn index_env_async(
     ))
 }
 
-/// Shorthand: resolve the endpoints on a test env. Tests that don't
-/// cover discovery specifically use this.
+/// The endpoints seeded into a test env.
 fn resolved_endpoints(env: &super::IndexEnvironmentAsync<Unauthenticated>) -> &ResolvedEndpoints {
     env.endpoints
         .get()
         .expect("index_env_async initializes resolved endpoints")
 }
 
-/// Build a sync-facing env after resolving discovery against the mock
-/// server. This exercises the real `sysand-index-config.json` fetch, but
-/// does it eagerly so discovery errors surface during test setup.
+/// Build a sync-facing env after fetching the real `sysand-index-config.json`
+/// from the mock server, eagerly, so discovery errors surface during setup.
 fn index_env_sync_discovery(
     server: &mockito::Server,
 ) -> Result<
@@ -160,8 +154,7 @@ fn index_env_sync_discovery(
 }
 
 /// Build a sync-facing unauthenticated index environment rooted at `server`,
-/// with a runtime owned by the test. This is the shape most tests want: a
-/// mock `server` plus a single blocking handle to call the environment against.
+/// with a runtime owned by the test.
 fn index_env_sync(
     server: &mockito::Server,
 ) -> Result<
@@ -178,9 +171,7 @@ fn expect_untouched(server: &mut mockito::Server, method: &str, path: &str) -> m
 }
 
 /// Register a `GET {path}` mock returning `200 application/json` with `body`,
-/// requiring exactly one hit. Covers the dominant mock shape in this file;
-/// bespoke shapes (non-200, non-JSON, exact `expect(n)`, or permissive mocks
-/// with no call-count expectation) use `server.mock(...)` directly.
+/// requiring exactly one hit. Other shapes use `server.mock(...)` directly.
 fn mock_json_get(
     server: &mut mockito::Server,
     path: &str,
@@ -203,36 +194,6 @@ fn mock_json_get_count(
         .expect(expected_count)
         .create()
 }
-
-// /// Build a minimal kpar (ZIP) archive carrying `.project.json`,
-// /// `.meta.json`, and a single source file at the archive root, returning
-// /// the archive bytes alongside the exact info/meta JSON strings written
-// /// into it.
-// fn build_minimal_kpar(
-//     name: &str,
-//     version: &str,
-//     src_path: &str,
-//     src_body: &str,
-// ) -> (Vec<u8>, String, &'static str) {
-//     use std::io::Write as _;
-//     let info_json = format!(r#"{{"name":"{name}","version":"{version}"}}"#);
-//     let meta_json: &'static str = r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#;
-//     let mut buf: Vec<u8> = Vec::new();
-//     {
-//         let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut buf));
-//         let options = zip::write::SimpleFileOptions::default()
-//             .compression_method(zip::CompressionMethod::Stored)
-//             .unix_permissions(0o755);
-//         zip.start_file(".project.json", options).unwrap();
-//         zip.write_all(info_json.as_bytes()).unwrap();
-//         zip.start_file(".meta.json", options).unwrap();
-//         zip.write_all(meta_json.as_bytes()).unwrap();
-//         zip.start_file(src_path, options).unwrap();
-//         zip.write_all(src_body.as_bytes()).unwrap();
-//         zip.finish().unwrap();
-//     }
-//     (buf, info_json, meta_json)
-// }
 
 mod uris {
     use crate::{index::iri::ParseIriError, utils::format_err};
@@ -1037,9 +998,7 @@ mod versions {
 
     #[test]
     fn versions_json_follows_redirect() -> Result<(), Box<dyn std::error::Error>> {
-        // Pin the redirect-following invariant so a future
-        // client-construction refactor that disables redirects
-        // (`Policy::none()`) fails loudly.
+        // Pin redirect following: a client built with `Policy::none()` fails.
         let mut server = mockito::Server::new();
         let env = index_env_sync(&server)?;
 
@@ -1379,9 +1338,8 @@ mod get_project {
         let info_json = project_json_body("proj0", Some("admin"), "0.3.0", &usage_json);
         let meta_json = meta_json_body();
 
-        // `usage` shown to the caller comes from `.project.json`; carry
-        // the same payload in `versions.json` to check there's no
-        // double-merge or cross-source mixing.
+        // `usage` shown to the caller comes from `.project.json`; carry the
+        // same payload in `versions.json` to check nothing is merged twice.
         let versions_mock = mock_json_get(
             &mut server,
             "/admin/proj0/versions.json",
@@ -2499,10 +2457,9 @@ mod discovery {
     #[test]
     fn discovery_normalizes_api_root_trailing_slash() -> Result<(), Box<dyn std::error::Error>> {
         // A discovery document may supply `api_root` without a trailing
-        // slash. Discovery is the single place that normalizes it, so the
-        // resolved `api_root` always ends with `/`, so a later `Url::join` of
-        // the upload path appends rather than replacing the last
-        // segment.
+        // slash. Discovery normalizes it to end with `/`, so a later
+        // `Url::join` of the upload path appends rather than replacing the
+        // last segment.
         let mut server = mockito::Server::new();
         let config_body = format!(r#"{{"api_root":"{}/api"}}"#, server.url());
         let config_mock = mock_json_get(&mut server, "/sysand-index-config.json", config_body);
@@ -2870,7 +2827,6 @@ mod discovery {
 
     #[test]
     fn discovery_config_remaps_index_root_to_template() -> Result<(), Box<dyn std::error::Error>> {
-        // A plain discovery root whose discovery document redirects
         // A plain discovery root whose discovery document redirects index reads
         // through a URL template.
         let mut server = mockito::Server::new();

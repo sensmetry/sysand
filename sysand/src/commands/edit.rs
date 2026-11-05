@@ -24,14 +24,13 @@ use crate::{
 };
 
 /// Applies `edits` to `project`. Each of `.project.json` and `.meta.json` is
-/// read and written (once) only if one of its fields is edited
+/// read and written (once) only if one of its fields is edited.
 pub fn command_edit(mut project: LocalSrcProject, edits: EditArgs) -> Result<()> {
     let (edits_info, edits_meta) = (edits_info(&edits), edits_meta(&edits));
     if !edits_info && !edits_meta {
         unreachable!()
     }
-    // `Both` falls through to the json arm, where the read refuses it as
-    // the ambiguity it is
+    // `Both` falls through to the json arm, where the read refuses it
     if project.format()? == ProjectFormat::Toml {
         edit_toml(&mut project, &edits)?;
         if edits.license.is_some() {
@@ -211,12 +210,9 @@ fn edit_list(
 /// Refuses the fields a build computes (`index`, `checksum`, `created`,
 /// `includesDerived`, `includesImplied`) on a toml project.
 ///
-/// The first three cannot reach here: `sysand edit` has no flag for them.
-/// These two can, and unlike every other key of a `model.toml` the answer
-/// is not "not yet": the manifest has no room for them and will not grow
-/// one. The check sits per flag rather than at the front of the command,
-/// so the permanent refusal does not mask the temporary one that every
-/// other metadata write on a toml project meets.
+/// `sysand edit` has no flag for the first three, so only the `includes*`
+/// fields can reach here. The manifest has no room for them, so the refusal
+/// is permanent.
 fn refuse_computed_fields(project: &LocalSrcProject, edits: &EditArgs) -> Result<()> {
     if edits.includes_derived.is_some() {
         refuse_computed_field(project, "includes-derived", "set")?;
@@ -275,24 +271,22 @@ fn edit_meta(edits: &EditArgs, meta: &mut InterchangeProjectMetadataRaw) {
 
 // --- `model.toml` projects --------------------------------------------
 //
-// The edits go into the existing document in place. Three things make this more than a forwarding
-// layer.
+// The edits go into the existing document in place.
 //
-// The flags are named after `.project.json`'s fields and three of them
-// are spelled differently in a manifest -- `maintainer`/`maintainers`,
-// `topic`/`topics`, and `website`, which is one key of a `[project.urls]`
-// table rather than a scalar. Writing the json spelling is *silent*: an
-// unknown key is a warning, and the value then reads back as absent.
+// The flags are named after `.project.json`'s fields, and three are spelled
+// differently in a manifest: `maintainer`/`maintainers`, `topic`/`topics`,
+// and `website`, which is one key of a `[project.urls]` table. Writing the
+// json spelling would be silent: an unknown key is only a warning, and the
+// value reads back as absent.
 //
-// And a manifest validates what the json documents never did. A
-// maintainer without an email, a name or publisher the identifier rule
-// refuses -- each is accepted by `.project.json` and makes a
-// `model.toml` unreadable. So each is refused here, by the same parsers
-// the reader uses rather than by a restatement of their rules. The
-// version and the license are already parsed by the argument parser.
+// A manifest also validates what the json documents do not: a maintainer
+// without an email, or a name or publisher the identifier rule refuses,
+// would make a `model.toml` unreadable. Those are refused here with the
+// reader's own parsers. The version and the license are already parsed by
+// the argument parser.
 //
-// Lists go through the in-place array editors rather than being replaced
-// wholesale, so `--add-*` and `--remove-*` keep the comments inside them.
+// Lists go through the in-place array editors so `--add-*` and
+// `--remove-*` keep the comments inside them.
 
 fn manifest_document<Project: ProjectRead>(project: &Project) -> Result<DocumentMut> {
     project
@@ -384,15 +378,14 @@ fn edit_toml(project: &mut LocalSrcProject, edits: &EditArgs) -> Result<()> {
     }
     let metamodel = match (edits.metamodel, &edits.custom_metamodel) {
         (Some(kind), _) => Some(omg_metamodel(kind, edits)),
-        // A `model.toml` holds one of the four recognized metamodels.
+        // A `model.toml` accepts only recognized metamodels.
         (None, Some(metamodel)) => Some(crate::commands::check_metamodel(metamodel)?),
         (None, None) => None,
     };
     if let Some(metamodel) = metamodel {
         let value = metamodel.to_string();
-        // A switch that changes the required keys is refused when the target schema's key is
-        // missing, and warns when it leaves a key behind that the target
-        // schema does not use.
+        // A switch is refused when the target schema's required key is
+        // missing, and warns when a key is left that the target does not use.
         let has_root = document
             .get("project")
             .and_then(|project| project.get("root"))
@@ -416,9 +409,8 @@ fn edit_toml(project: &mut LocalSrcProject, edits: &EditArgs) -> Result<()> {
         }
         edit::set_project_key(&mut document, ProjectKey::Metamodel, value.into())?;
     } else if edits.clear_metamodel {
-        // Every `model.toml` project must declare one, so clearing it writes a file
-        // Sysand refuses to read. A json project has no such rule and
-        // keeps the flag.
+        // A `model.toml` without a metamodel is unreadable; a json project
+        // has no such rule and keeps the flag.
         bail!(
             "`metamodel` cannot be cleared from a `model.toml` project:\n\
             {SP:>8} every project declares one; `--metamodel` changes it",
@@ -431,8 +423,7 @@ fn edit_toml(project: &mut LocalSrcProject, edits: &EditArgs) -> Result<()> {
 
 /// [`edit_list`] on the `[project]` list `key`: clears it (if `clear`),
 /// then removes every entry equal to one of `remove`, then appends `add`.
-/// A value to remove that is not in the list is an error, as on a json
-/// project
+/// A value to remove that is not in the list is an error.
 fn edit_toml_list(
     document: &mut DocumentMut,
     kind: &str,

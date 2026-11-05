@@ -2,9 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 //! The checks that are about a *relation between two projects* rather
-//! than about one project's manifest, and the graph they run over. A check
-//! over a pair of projects belongs to no single loader, so it lives here,
-//! apart from whatever builds the graph.
+//! than about one project's manifest, and the graph they run over.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::{Debug, Display};
@@ -242,8 +240,7 @@ pub struct DependencyCycle<N: Display> {
     pub path: Vec<N>,
 }
 
-/// model-toml.md "Metamodel", direction rule: "an OMG-metamodel project
-/// must not depend on a Syside-metamodel project. This is an error".
+/// An OMG-metamodel project depends on a Syside-metamodel project.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 #[error(
     "`{dependent}` uses {} and cannot depend on `{dependency}`, which uses {}; only \
@@ -258,8 +255,8 @@ pub struct MetamodelDirectionError<N> {
     pub dependency_metamodel: Option<Metamodel>,
 }
 
-/// model-toml.md "Metamodel", release rule: "a `<date>` that differs
-/// between a project and one of its dependencies is a warning".
+/// A project and one of its dependencies target different metamodel
+/// release dates.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 #[error(
     "`{dependent}` targets metamodel release `{dependent_date}` but its dependency \
@@ -275,9 +272,9 @@ pub struct MetamodelReleaseMismatch<N> {
 /// Both metamodel rules for one edge of a dependency graph. Only the date
 /// is compared, across families and specification kinds.
 ///
-/// model-toml.md: a project without a `metamodel` "is treated as OMG with
-/// an unknown date: the direction rule applies, the release warning does
-/// not". An unrecognized value has no date to compare either.
+/// A project without a `metamodel` is treated as OMG with an unknown date:
+/// the direction rule applies, the release check does not. An unrecognized
+/// value has no date to compare either.
 pub fn check_metamodel_pair<N: Clone + Debug + Display>(
     dependent: (&N, Option<&Metamodel>),
     dependency: (&N, Option<&Metamodel>),

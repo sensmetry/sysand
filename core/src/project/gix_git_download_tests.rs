@@ -13,7 +13,6 @@ use crate::{
     lock::Source,
     project::{ProjectRead as _, gix_git_download::GixDownloadedProject},
 };
-//use predicates::prelude::*;
 
 /// Writes `files` (relative path, content) into `dir`, makes `dir` a git
 /// repository and commits them, leaving an index that matches the commit.
@@ -85,22 +84,6 @@ pub fn basic_gix_access() -> Result<(), Box<dyn std::error::Error>> {
         ],
     )?;
 
-    // NOTE: Gix does not support the "dumb" HTTP protocol
-
-    // let free_port = port_check::free_local_port().unwrap().to_string();
-    // let mut server = Command::new("uv")
-    //     .arg("run")
-    //     .arg("--isolated")
-    //     .arg("--with")
-    //     .arg("rangehttpserver")
-    //     .arg("-m")
-    //     .arg("RangeHTTPServer")
-    //     .arg(&free_port)
-    //     .current_dir(repo_dir.path().join(".git"))
-    //     .spawn()?;
-
-    // sleep(Duration::from_millis(100));
-
     let path = wrapfs::canonicalize(repo_dir.path())?;
     let project = GixDownloadedProject::new(format!("file://{path}"))?;
 
@@ -117,7 +100,6 @@ pub fn basic_gix_access() -> Result<(), Box<dyn std::error::Error>> {
         .read_to_string(&mut buf)?;
     assert_eq!(buf, "package Test;");
 
-    // server.kill()?;
     Ok(())
 }
 

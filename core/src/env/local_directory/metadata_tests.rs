@@ -221,8 +221,6 @@ fn version_0_1_is_migrated_to_current_version() {
     assert!(!text.contains("ACME%20Inc."), "{text}");
 }
 
-// --- Env identifiers ---
-
 #[test]
 fn env_project_with_urn_kpar_identifier_is_found() {
     let toml = r#"version = "0.2"

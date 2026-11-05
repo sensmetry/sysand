@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-//! Persistent credential storage; the full design is in
-//! design/credential-storage.md.
+//! Persistent credential storage.
 //!
 //! This module holds the unconditional pieces: the record types, the
 //! versioned JSON blob codec, and the index-URL key normalization helper.
@@ -278,8 +277,7 @@ pub fn serialize_blob(blob: &CredentialBlob) -> String {
     serde_json::to_string(blob).unwrap()
 }
 
-/// Test doubles shared by several core test modules (auth, commands::auth,
-/// keyring_store).
+/// Test doubles shared by several core test modules.
 #[cfg(test)]
 pub(crate) mod test_support {
     #[cfg(feature = "networking")]
@@ -346,8 +344,6 @@ pub(crate) mod test_support {
         LockedBlobStore::new(InMemoryBlobBackend::default(), unique_lock_path())
     }
 }
-
-// Private tests
 
 #[cfg(test)]
 #[path = "./mod_tests.rs"]

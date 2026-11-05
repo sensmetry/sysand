@@ -19,8 +19,7 @@ pub struct VersionListing {
     /// The IRI that was looked up.
     pub iri: String,
     /// Distinct semver-valid versions, highest first. Over an index these
-    /// are the *available* versions: yanked and removed entries are never
-    /// enumerated.
+    /// are the available versions: yanked and removed entries are not listed.
     pub versions: Vec<Version>,
     /// Version strings that are not valid semver, in encounter order.
     pub ignored: Vec<String>,
@@ -28,12 +27,11 @@ pub struct VersionListing {
 
 /// List the versions of `iri` known to `resolver`.
 ///
-/// The sibling of [`crate::info::do_info`]: the same resolution, but every
-/// candidate's version is collected. Over an
-/// index this costs only the per-project `versions.json` request.
+/// Resolves like [`crate::info::do_info`], but collects every candidate's
+/// version.
 ///
 /// Candidates that fail to load, or report no version, are skipped with a
-/// log line, as `do_info` skips them. If every candidate was skipped the
+/// log line. If every candidate was skipped the
 /// result is [`InfoError::NoSemanticVersionsFound`] with an empty list; if
 /// only non-semver versions were found the listing is `Ok` with an empty
 /// `versions` and a full `ignored`, so the caller can report them.
@@ -75,8 +73,8 @@ pub fn do_versions<R: ResolveRead>(
         let project = match candidate {
             Ok(project) => project,
             Err(e) => {
-                // As in `do_info`: the candidate list is every possibility,
-                // and some are expected not to work.
+                // The candidate list is every possibility, and some are
+                // expected not to work.
                 log::debug!("skipping candidate project: {}", format_err(e));
                 continue;
             }
@@ -102,7 +100,7 @@ pub fn do_versions<R: ResolveRead>(
         return Err(InfoError::NoSemanticVersionsFound(Vec::new()));
     }
 
-    // Reverse sort
+    // Highest first
     versions.sort_unstable_by(|a, b| b.cmp(a));
     versions.dedup();
 

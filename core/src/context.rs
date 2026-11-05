@@ -18,17 +18,8 @@ pub struct ProjectContext {
     /// Where `sysand.toml` is read and written, and what a relative
     /// override path is relative to.
     ///
-    /// workspaces.md "Source overrides": "a project-local one must be at
-    /// the workspace root: overrides apply workspace-wide ... as a
-    /// member cannot override sources for itself alone". So in a
-    /// workspace this is the workspace root, and outside one it is the
-    /// project root -- or the current directory when there is no
-    /// project.
-    ///
-    /// The three uses have to agree. Reading the config at the root
-    /// while a relative override path still resolved against the member,
-    /// or while `add` still wrote into the member, would record an
-    /// override that the next command ignores and warns about.
+    /// In a workspace this is the workspace root, and outside one it is the
+    /// project root, or the current directory when there is no project.
     #[cfg(feature = "filesystem")]
     pub config_root: Utf8PathBuf,
     /// The root of the workspace the command is running in, if it is
@@ -37,8 +28,8 @@ pub struct ProjectContext {
     /// Unlike `config_root`, there is no fallback to the project root:
     /// this is `None` outside a workspace.
     ///
-    /// A solved local dependency has no nominal path, so its `src_path`
-    /// is relativized against this root in the workspace lockfile.
+    /// A solved local dependency's `src_path` is relativized against this
+    /// root in the workspace lockfile.
     #[cfg(feature = "filesystem")]
     pub model_workspace_root: Option<Utf8PathBuf>,
     /// Metadata of the current workspace/project `.sysand`. `Some` if
@@ -67,9 +58,8 @@ impl ProjectContext {
 
     /// The root a `src_path` in this command's lockfile is relative to.
     ///
-    /// The `model.toml` workspace root first: its lockfile lives there,
-    /// and a path in it that meant "relative to whichever member
-    /// happened to run `lock`" would mean different things in one file.
+    /// The `model.toml` workspace root first, since its lockfile lives
+    /// there; otherwise the project root.
     #[cfg(feature = "filesystem")]
     pub fn sources_root(&self) -> Option<Utf8PathBuf> {
         self.model_workspace_root

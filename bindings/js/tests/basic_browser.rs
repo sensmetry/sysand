@@ -80,7 +80,8 @@ mod browser_tests {
         assert!(meta.checksum.is_none());
         assert!(meta.includes_derived.is_none());
         assert!(meta.includes_implied.is_none());
-        // `IndexMap` is not a dependency of this crate, so the closure stays
+        // `IndexMap` is not a dependency of this crate, so its method cannot be
+        // named by path and the closure stays.
         #[expect(clippy::redundant_closure_for_method_calls)]
         let index_is_empty = meta.index.as_ref().is_some_and(|index| index.is_empty());
         assert!(index_is_empty);

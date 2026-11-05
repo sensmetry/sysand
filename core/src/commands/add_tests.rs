@@ -78,7 +78,6 @@ fn add_refuses_a_resource_that_duplicates_a_directory_usage() {
         message.contains("already declared as a directory usage"),
         "{message}"
     );
-    // The duplicate was not appended.
     assert_eq!(project.info.unwrap().usage.len(), 1);
 }
 

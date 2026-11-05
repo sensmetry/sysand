@@ -22,12 +22,8 @@ pub mod sync;
 
 use sysand_core::model::KnownMetamodel;
 
-/// The four recognized metamodels, checked
-/// on a value the user typed rather than a value a manifest holds.
-///
-/// `init` and `migrate` both take `--metamodel`, and both check it
-/// before anything is written. The core commands check it too, but only
-/// here is there a flag to name.
+/// Check that a `--metamodel` value the user typed is a recognized
+/// metamodel, so the error can name the flag.
 pub fn check_metamodel(value: &str) -> anyhow::Result<KnownMetamodel> {
     KnownMetamodel::recognize(value).ok_or_else(|| {
         anyhow::anyhow!(

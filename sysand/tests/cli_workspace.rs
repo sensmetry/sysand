@@ -152,9 +152,8 @@ fn a_config_in_a_member_is_ignored() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// "overrides apply workspace-wide", so a relative path in the root's
-/// file is relative to the root -- not to the member the command is run
-/// in.
+/// Overrides apply workspace-wide, so a relative path in the root's file
+/// is relative to the root, not to the member the command is run in.
 #[test]
 fn a_relative_override_is_relative_to_the_workspace_root() -> Result<(), Box<dyn std::error::Error>>
 {
@@ -250,7 +249,7 @@ fn outside_a_workspace_the_project_root_is_still_used() -> Result<(), Box<dyn st
 
 /// A `members` entry naming nothing refuses the lock outright.
 ///
-/// `Workspace::load_with` refuses a member that is not there, and a
+/// Loading the workspace refuses a member that is not there, and a
 /// workspace lock reads every member.
 #[test]
 fn a_missing_member_refuses_the_lock() -> Result<(), Box<dyn std::error::Error>> {
@@ -269,8 +268,7 @@ fn a_missing_member_refuses_the_lock() -> Result<(), Box<dyn std::error::Error>>
 
 const NOT_AT_ROOT: &str = "is not at the workspace root, so it is ignored as a whole";
 
-/// The warning names the file, not its directory: a reader told about a
-/// directory would have to guess which file in it is meant.
+/// The warning names the file, not its directory.
 #[test]
 fn a_config_in_a_member_warns() -> Result<(), Box<dyn std::error::Error>> {
     let dir = workspace(ROOT)?;
@@ -451,10 +449,10 @@ fn a_nested_workspace_is_refused() -> Result<(), Box<dyn std::error::Error>> {
 /// refuse the workspace should not first warn about where it would have
 /// read `sysand.toml`.
 ///
-/// The stray file sits one directory *below* the member: in a
-/// nested workspace `config_root` falls back to the project root -- the
-/// member itself -- so a `sysand.toml` in the member is "the root's own
-/// file" and is never reported whatever the ordering.
+/// The stray file sits one directory *below* the member: in a nested
+/// workspace the config root falls back to the project root, the member
+/// itself, so a `sysand.toml` in the member is "the root's own file" and
+/// is never reported whatever the ordering.
 #[test]
 fn a_nested_workspace_is_refused_before_the_config_warning()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -634,10 +632,9 @@ fn an_excluded_project_is_not_unlisted() -> Result<(), Box<dyn std::error::Error
     assert!(excluded.join(DEFAULT_LOCKFILE_NAME).exists());
     assert!(!dir.path().join(DEFAULT_LOCKFILE_NAME).exists());
 
-    // And its contents are relative to *it*, not to the workspace. This
-    // is what a `model_workspace_root` taken from the discovered table
-    // rather than from `StartRegion` would get wrong: the table is
-    // found here too, and an excluded project keeps its own state.
+    // And its contents are relative to *it*, not to the workspace: the
+    // workspace table is found from here too, but an excluded project keeps
+    // its own state.
     let text = std::fs::read_to_string(excluded.join(DEFAULT_LOCKFILE_NAME))?;
     assert!(
         text.contains("../dep") && !text.contains("vendor/dep"),
@@ -646,7 +643,7 @@ fn an_excluded_project_is_not_unlisted() -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
-/// `lock` twice in a member still works, and writes one file -- at the
+/// `lock` twice in a member still works, and writes one file, at the
 /// workspace root. The scope check reads the table and not the members.
 #[test]
 fn a_members_own_lockfile_does_not_stop_a_later_command() -> Result<(), Box<dyn std::error::Error>>
@@ -765,9 +762,9 @@ fn lock_in_a_member_writes_at_the_workspace_root() -> Result<(), Box<dyn std::er
     Ok(())
 }
 
-/// Both members, and each recorded editable at its own path -- the
-/// member at a depth reaching back two levels, which a single base
-/// would resolve wrongly.
+/// Both members, and each recorded editable at its own path: the member at
+/// a depth reaches back two levels, which a single base would resolve
+/// wrongly.
 #[test]
 fn the_workspace_lockfile_records_every_member() -> Result<(), Box<dyn std::error::Error>> {
     let dir = two_member_workspace()?;
@@ -790,8 +787,8 @@ fn the_workspace_lockfile_records_every_member() -> Result<(), Box<dyn std::erro
     Ok(())
 }
 
-/// From the root, where there is no project at all -- which must not
-/// bail with "not inside a project".
+/// From the root, where there is no project at all, which must not bail
+/// with "not inside a project".
 #[test]
 fn lock_from_the_root_locks_every_member() -> Result<(), Box<dyn std::error::Error>> {
     let dir = two_member_workspace()?;
@@ -864,8 +861,8 @@ fn add_in_a_member_keeps_every_member() -> Result<(), Box<dyn std::error::Error>
 
 // ------------------- the selectors (Command scopes)
 
-/// `--workspace` forces all members. From a member directory the default is that member, so this is the
-/// only place the flag changes anything.
+/// `--workspace` forces all members. From a member directory the default
+/// is that member, so this is the only place the flag changes anything.
 #[test]
 fn build_workspace_from_a_member_dir_builds_all() -> Result<(), Box<dyn std::error::Error>> {
     let dir = two_member_workspace()?;
@@ -879,8 +876,8 @@ fn build_workspace_from_a_member_dir_builds_all() -> Result<(), Box<dyn std::err
     Ok(())
 }
 
-/// "`--member <path-or-name>` picks one" -- by its `members` entry as
-/// written.
+/// `--member <path-or-name>` picks one member, here by its `members` entry
+/// as written.
 #[test]
 fn build_member_from_the_root_builds_one() -> Result<(), Box<dyn std::error::Error>> {
     let dir = two_member_workspace()?;
@@ -937,8 +934,7 @@ fn a_member_selector_outside_a_workspace_is_refused() -> Result<(), Box<dyn std:
     Ok(())
 }
 
-/// The contradictory pair, refused by clap: a `Selector` cannot
-/// express it.
+/// The contradictory pair is refused by clap.
 #[test]
 fn the_two_selectors_are_refused_together() -> Result<(), Box<dyn std::error::Error>> {
     let dir = two_member_workspace()?;
@@ -1068,8 +1064,9 @@ fn sources_at_the_root_lists_every_member() -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
-/// An intra-workspace usage resolves to the member itself, so `lib`'s own file is reached both as its own source and as
-/// `app`'s dependency. It is listed once.
+/// An intra-workspace usage resolves to the member itself, so `lib`'s own
+/// file is reached both as its own source and as `app`'s dependency. It is
+/// listed once.
 ///
 /// No dependency *ordering* is asserted: that order is not stable.
 #[test]
@@ -1134,9 +1131,9 @@ fn sources_workspace_from_a_member_dir() -> Result<(), Box<dyn std::error::Error
 }
 
 /// One block per member, in `members` order. The blank line between
-/// them is a visual separator and not a contract -- a `description` may
-/// contain one -- but a block carries no trailing blank of its own, so
-/// a one-member workspace prints what that member prints alone.
+/// them is a visual separator and not a contract (a `description` may
+/// contain one), but a block carries no trailing blank of its own, so a
+/// one-member workspace prints what that member prints alone.
 #[test]
 fn info_at_the_root_prints_a_block_per_member() -> Result<(), Box<dyn std::error::Error>> {
     let dir = two_member_workspace_with_sources()?;
@@ -1295,9 +1292,8 @@ fn the_refusal_names_every_member_with_stray_state() -> Result<(), Box<dyn std::
 
 /// The negative, which is what catches an over-eager check: a workspace
 /// whose state is all at the root locks, syncs and builds repeatedly.
-/// The commands write the very files a member may not hold -- at the
-/// root -- so this is also the test that the second run of a command is
-/// not an error.
+/// The commands write the very files a member may not hold, at the root, so
+/// this also checks that the second run of a command is not an error.
 #[test]
 fn a_workspace_without_stray_state_is_unaffected() -> Result<(), Box<dyn std::error::Error>> {
     let dir = two_member_workspace()?;
@@ -1322,9 +1318,8 @@ fn a_workspace_without_stray_state_is_unaffected() -> Result<(), Box<dyn std::er
     Ok(())
 }
 
-/// The one way for a command to create stray per-member state: a
-/// `--workspace` build whose output path lands inside a member would
-/// write the state the next `lock` refuses. Refused before the
+/// A `--workspace` build whose output path lands inside a member would
+/// write the state the next `lock` refuses, so it is refused before the
 /// directory is created.
 #[test]
 fn build_workspace_refuses_an_output_path_inside_a_member() -> Result<(), Box<dyn std::error::Error>>
@@ -1350,9 +1345,9 @@ fn build_workspace_refuses_an_output_path_inside_a_member() -> Result<(), Box<dy
 
 /// A group entry's `dir` is relative to the directory of the
 /// `model.toml` that defines the workspace, whichever member opts into
-/// it. The KPAR view cannot carry that
-/// base, and resolving against the member directory would silently pick
-/// a different directory, so `build` refuses it, as `lock` does.
+/// it. A built KPAR cannot carry that base, and resolving against the
+/// member directory would silently pick a different directory, so `build`
+/// refuses it, as `lock` does.
 #[test]
 fn build_refuses_a_member_inheriting_a_local_usage() -> Result<(), Box<dyn std::error::Error>> {
     let dir = camino_tempfile::tempdir()?;
@@ -1516,10 +1511,8 @@ fn sources_refuses_a_member_inheriting_a_local_usage() -> Result<(), Box<dyn std
 ///
 /// The workspace has a *sibling* member, so a scope leak would show.
 ///
-/// `--deps none` is load-bearing: `app` uses `lib`, so a plain
-/// `sources` lists `lib.sysml` too -- as a dependency, not as a scope
-/// leak. Without the flag this test would fail for a reason that has
-/// nothing to do with scope.
+/// `--deps none` is load-bearing: `app` uses `lib`, so a plain `sources`
+/// lists `lib.sysml` too, as a dependency and not as a scope leak.
 #[test]
 fn sources_from_a_member_dir_lists_that_member() -> Result<(), Box<dyn std::error::Error>> {
     let dir = two_member_workspace_with_sources()?;
@@ -1580,7 +1573,6 @@ fn writing_commands_in_a_member_act_on_that_member() -> Result<(), Box<dyn std::
 }
 
 /// `edit` from a member directory writes that member.
-/// `edit_at_the_root_needs_a_member` is the root half.
 #[test]
 fn edit_in_a_member_writes_that_member() -> Result<(), Box<dyn std::error::Error>> {
     let dir = two_member_workspace()?;
@@ -1605,8 +1597,7 @@ fn edit_in_a_member_writes_that_member() -> Result<(), Box<dyn std::error::Error
 /// `output`.
 ///
 /// The root `output` starts empty, so this tells "one" from "all", and
-/// checks the table's "KPARs always land in the root `output`" for the
-/// default scope.
+/// checks that KPARs land in the root `output` for the default scope.
 #[test]
 fn build_from_a_member_dir_builds_one_into_the_root() -> Result<(), Box<dyn std::error::Error>> {
     let dir = two_member_workspace_with_sources()?;

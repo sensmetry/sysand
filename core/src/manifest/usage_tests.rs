@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use toml::Spanned;
+use toml::de::DeTable;
+
 use crate::manifest::common::InheritFrom;
-use crate::manifest::diagnostics::{Report, Severity};
-use crate::manifest::spans::Positions;
+use crate::manifest::diagnostics::{Diagnostics, KeyLocation, Severity};
+use crate::manifest::reader::TableReader;
 use crate::manifest::spans::Source;
 use crate::manifest::usage::{
     MemberUsage, Usage, UsageRaw, UsageSite, check_duplicates, normalize_local_path,
@@ -11,42 +14,46 @@ use crate::manifest::usage::{
 use crate::model::{IndexName, IndexPublisher};
 
 /// The reading flow of a `model.toml`, minus the `[project]` and
-/// `[workspace]` tables: parse once, harvest the spans, read the entries
-/// out of the values.
-fn read(text: &str) -> (Vec<UsageRaw>, Positions<'_>) {
-    let (table, positions) = Source::new("model.toml", text)
-        .read()
-        .expect("the test document parses");
-    let raws = entries(&table, "inline-usages");
-    (raws, positions)
+/// `[workspace]` tables: parse once, read the entries out of the values.
+fn read(text: &str) -> Vec<UsageRaw> {
+    let source = Source::new("model.toml", text);
+    let table = source.read().expect("the test document parses");
+    entries(&top(&table, &source), "inline-usages")
+        .iter()
+        .map(|entry| UsageRaw::from_table(entry.raw()))
+        .collect()
 }
 
-/// The `[[inline-usages]]` of a parsed document, wherever they sit.
-fn entries(table: &toml::Table, key: &str) -> Vec<UsageRaw> {
-    table
-        .get(key)
-        .and_then(toml::Value::as_array)
-        .map_or_default(|array| {
-            array
-                .iter()
-                .filter_map(toml::Value::as_table)
-                .map(UsageRaw::from_table)
-                .collect()
-        })
+fn top<'a>(table: &'a Spanned<DeTable<'a>>, source: &'a Source<'a>) -> TableReader<'a> {
+    TableReader::new(table.get_ref(), None, KeyLocation::TopLevel, source)
 }
 
-fn site(index: usize) -> UsageSite<'static> {
+/// The `[[inline-usages]]` of a parsed table, wherever it sits.
+fn entries<'a>(table: &TableReader<'a>, key: &str) -> Vec<TableReader<'a>> {
+    let mut report = Diagnostics::new();
+    let entries = table.tables(key, &mut report);
+    assert!(report.is_empty(), "the test entries are tables");
+    entries
+}
+
+fn site<'a>(index: usize, entry: &'a TableReader<'a>) -> UsageSite<'a> {
     UsageSite {
         array: "inline-usages",
         index,
+        entry,
     }
 }
 
-fn members(text: &str) -> Vec<Result<MemberUsage, Report>> {
-    let (raws, positions) = read(text);
-    raws.into_iter()
+fn members(text: &str) -> Vec<Result<MemberUsage, Diagnostics>> {
+    let source = Source::new("model.toml", text);
+    let table = source.read().expect("the test document parses");
+    let entries = entries(&top(&table, &source), "inline-usages");
+    entries
+        .iter()
         .enumerate()
-        .map(|(index, raw)| raw.validate_member(&site(index), &positions))
+        .map(|(index, entry)| {
+            UsageRaw::from_table(entry.raw()).validate_member(&site(index, entry))
+        })
         .collect()
 }
 
@@ -77,14 +84,14 @@ fn accepted(body: &str) -> Usage {
     }
 }
 
-fn rejected(body: &str) -> Report {
+fn rejected(body: &str) -> Diagnostics {
     members(&one(body))
         .pop()
         .expect("one entry")
         .expect_err("the entry is rejected")
 }
 
-fn texts(report: &Report) -> Vec<String> {
+fn texts(report: &Diagnostics) -> Vec<String> {
     report
         .diagnostics()
         .iter()
@@ -92,7 +99,7 @@ fn texts(report: &Report) -> Vec<String> {
         .collect()
 }
 
-fn places(report: &Report) -> Vec<(usize, usize)> {
+fn places(report: &Diagnostics) -> Vec<(usize, usize)> {
     report
         .diagnostics()
         .iter()
@@ -118,7 +125,7 @@ fn name(raw: &str) -> IndexName {
 /// refused as the postponement it is.
 #[test]
 fn a_usage_entry_deserializes_every_recognized_key() {
-    let (raws, _) = read(&one(concat!(
+    let raws = read(&one(concat!(
         "publisher = \"acme\"\n",
         "name = \"lib\"\n",
         "version = \"^1.2\"\n",
@@ -150,7 +157,7 @@ fn a_usage_entry_deserializes_every_recognized_key() {
 /// shape is carried to validation.
 #[test]
 fn unaccepted_keys_are_collected_not_dropped() {
-    let (raws, _) = read(&one(concat!(
+    let raws = read(&one(concat!(
         "publisher = \"a !b\"\n",
         "name = \"lib\"\n",
         "colour = \"red\"\n",
@@ -185,9 +192,9 @@ fn a_usage_raw_round_trips_through_toml() {
         "publisher = \"acme\"\nname = \"lib\"\nkpar-url = \"https://example.com/l.kpar\"\n",
         "publisher = \"acme\"\nname = \"lib\"\nworkspace = \"legacy\"\n",
     ] {
-        let (raws, _) = read(&one(body));
+        let raws = read(&one(body));
         let written = toml_edit::ser::to_string(&raws[0]).expect("serializes");
-        let (again, _) = read(&one(&written));
+        let again = read(&one(&written));
         assert_eq!(raws[0], again[0], "round trip of {body:?}");
     }
 }
@@ -257,7 +264,7 @@ fn an_invalid_kpar_url_is_reported() {
 }
 
 /// A local path is taken exactly as written, so only the normal form is
-/// admitted -- `..` may lead, and an absolute path keeps its root.
+/// admitted: `..` may lead, and an absolute path keeps its root.
 #[test]
 fn a_local_path_in_normal_form_is_accepted() {
     for path in [
@@ -498,8 +505,8 @@ fn the_omg_stdlib_iri_shape() {
         assert!(is_omg_stdlib_iri(accepted), "{accepted}");
     }
     for refused in [
-        // Not `https`, not that host, and not the metamodel family --
-        // a `sysand.com` IRI names a metamodel, never a library.
+        // Not `https`, not that host, and not the metamodel family: a
+        // `sysand.com` IRI names a metamodel, never a library.
         "http://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar",
         "https://example.com/spec/KerML/20250201/Semantic-Library.kpar",
         "https://sysand.com/spec/KerML/20250201/Semantic-Library.kpar",
@@ -689,7 +696,6 @@ fn an_opt_in_records_where_its_marker_is() {
         panic!("an opt-in");
     };
     let position = at.expect("positioned");
-    assert_eq!(position.file, "model.toml");
     // Line 1 is `[[inline-usages]]`, so the marker is the fourth line.
     assert_eq!((position.line, position.column), (4, 1));
 }
@@ -747,18 +753,19 @@ fn a_marker_naming_an_impossible_group_is_rejected() {
 fn a_group_entry_cannot_carry_a_marker() {
     let text =
         "[[workspace.inline-usages]]\npublisher = \"acme\"\nname = \"lib\"\nworkspace = true\n";
-    let (table, positions) = Source::new("model.toml", text).read().expect("parses");
-    let group = table["workspace"].as_table().expect("a table");
-    let raws = entries(group, "inline-usages");
-    let report = raws[0]
-        .clone()
-        .validate_declared(
-            &UsageSite {
-                array: "workspace.inline-usages",
-                index: 0,
-            },
-            &positions,
-        )
+    let source = Source::new("model.toml", text);
+    let table = source.read().expect("parses");
+    let mut report = Diagnostics::new();
+    let group = top(&table, &source)
+        .table("workspace", &mut report)
+        .expect("a table");
+    let entries = entries(&group, "inline-usages");
+    let report = UsageRaw::from_table(entries[0].raw())
+        .validate_declared(&UsageSite {
+            array: "workspace.inline-usages",
+            index: 0,
+            entry: &entries[0],
+        })
         .expect_err("rejected");
     assert_eq!(
         texts(&report),
@@ -773,18 +780,21 @@ fn a_group_entry_cannot_carry_a_marker() {
 // Duplicates.
 
 fn duplicates(text: &str) -> Vec<crate::manifest::diagnostics::Diagnostic> {
-    let (raws, positions) = read(text);
-    let entries: Vec<(UsageSite<'_>, MemberUsage)> = raws
-        .into_iter()
+    let source = Source::new("model.toml", text);
+    let table = source.read().expect("the test document parses");
+    let tables = entries(&top(&table, &source), "inline-usages");
+    let entries: Vec<(UsageSite<'_>, MemberUsage)> = tables
+        .iter()
         .enumerate()
-        .filter_map(|(index, raw)| {
-            let site = site(index);
-            raw.validate_member(&site, &positions)
+        .filter_map(|(index, entry)| {
+            let site = site(index, entry);
+            UsageRaw::from_table(entry.raw())
+                .validate_member(&site)
                 .ok()
                 .map(|usage| (site, usage))
         })
         .collect();
-    check_duplicates(&entries, &positions)
+    check_duplicates(&entries)
 }
 
 /// Two entries whose identities normalize to the same value are the same
@@ -918,7 +928,7 @@ fn an_opt_in_round_trips_as_a_marker() {
 
 #[test]
 fn a_usage_entry_reads_from_a_table() {
-    let (raws, _) = read(&one(concat!(
+    let raws = read(&one(concat!(
         "publisher = \"acme\"\n",
         "name = \"lib\"\n",
         "version = \"^1\"\n",
@@ -997,7 +1007,7 @@ fn a_url_key_is_unknown() {
             text.starts_with("unknown key `url` in usage `acme/lib`")
                 && text.contains("`kpar-path`, `kpar-url`, `workspace`")
         }),
-        "unexpected report: {report}"
+        "unexpected report: {report:?}"
     );
 }
 
@@ -1019,8 +1029,8 @@ fn a_publisher_less_opt_in_is_accepted() {
     };
     assert!(publisher.is_none(), "{member:?}");
     assert_eq!(name.as_str(), "Kernel Semantic Library");
-    // The same `(omg, <name>)` a declared standard-library usage has --
-    // so the two collide in one array.
+    // The same `(omg, <name>)` a declared standard-library usage has, so
+    // the two collide in one array.
     assert_eq!(member.identity().publisher, "omg");
     assert_eq!(member.identity().name, "kernel-semantic-library");
 }

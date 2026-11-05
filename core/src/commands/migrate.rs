@@ -4,13 +4,10 @@
 //! `sysand migrate`: a json project's two documents become a
 //! `model.toml`.
 //!
-//! This module is the conversion alone -- no filesystem, no network, no
+//! This module is the conversion alone: no filesystem, no network, no
 //! working-tree check. What it cannot decide from the two documents is
-//! reported as an error, except for three `resource`
-//! usage shapes that need the target read: those go to the caller's
-//! [`TargetLookup`].
-//!
-//! It is the one command that reads both json documents.
+//! reported as an error, except for the `resource` usage shapes that need
+//! the target read: those go to the caller's [`TargetLookup`].
 
 use indexmap::IndexSet;
 use semver::{Version, VersionReq};
@@ -21,7 +18,7 @@ use crate::{
     manifest::{
         ModelToml,
         common::{Maintainer, Sources, admitted_source},
-        diagnostics::{Diagnostic, ReadWarning, Report, Validated},
+        diagnostics::{Diagnostic, Diagnostics, ReadWarning, Validated},
         inherit::MetaProperty,
         project::{ProjectManifest, ProjectTable, Urls},
         usage::{MemberUsage, Usage, UsageEntry as _, duplicate_message, duplicate_pairs},
@@ -38,11 +35,10 @@ use crate::{
 /// How a `resource` usage that names its target by location is turned
 /// into a usage.
 ///
-/// A callback that returns the *finished* usage, since every step is a
-/// filesystem question: which of `file:`'s two project kinds the target
-/// is, what its publisher and name are, and what the path looks like
-/// relative to the project being migrated. `url::Url::to_file_path` is
-/// `cfg`'d off on the wasm target `bindings/js` builds.
+/// A callback that returns the finished usage: for `file:` which of its two
+/// project kinds the target is and what the path looks like relative to the
+/// project being migrated, and for every kind the target's publisher and
+/// name. `url::Url::to_file_path` is `cfg`'d off on the wasm target.
 pub type TargetLookup<'a> = &'a dyn Fn(&str) -> Result<Usage, String>;
 
 /// What the caller supplies that the documents do not.
@@ -52,10 +48,9 @@ pub struct MigrateOptions {
     /// declared publisher is migrated, as `name` is, rather than
     /// overridden.
     pub publisher: Option<String>,
-    /// `--metamodel`. Used when the json side has none or one this
-    /// Sysand does not recognize. Unlike
-    /// `--publisher` it therefore also replaces a declared value -- one
-    /// `model.toml` cannot hold is no more usable than none at all.
+    /// `--metamodel`. Used when the json side has none or one this Sysand
+    /// does not recognize, so unlike `--publisher` it can replace a
+    /// declared value.
     pub metamodel: Option<String>,
 }
 
@@ -68,8 +63,8 @@ pub fn migrate_project(
     meta: &InterchangeProjectMetadataRaw,
     options: &MigrateOptions,
     target: TargetLookup<'_>,
-) -> Result<Validated<ModelToml>, Report> {
-    let mut report = Report::new();
+) -> Result<Validated<ModelToml>, Diagnostics> {
+    let mut report = Diagnostics::new();
 
     let name = parse_or_report(IndexName::parse(info.name.clone()), "name", &mut report);
     let publisher = migrate_publisher(info, options, &mut report);
@@ -136,9 +131,8 @@ pub fn migrate_project(
     };
 
     let mut project = ProjectTable::new(publisher, name, version);
-    // `root` comes from
-    // `.meta.json` and must be among the recovered sources; said here,
-    // where the cause is.
+    // `root` comes from `.meta.json` and must be among the recovered
+    // sources; reported here, where the cause is.
     if let Some(root) = &meta.root {
         if !sources
             .as_ref()
@@ -179,7 +173,7 @@ pub fn migrate_project(
 fn migrate_publisher(
     info: &InterchangeProjectInfoRaw,
     options: &MigrateOptions,
-    report: &mut Report,
+    report: &mut Diagnostics,
 ) -> Option<IndexPublisher> {
     let raw = info.publisher.as_ref().or(options.publisher.as_ref());
     let Some(raw) = raw else {
@@ -197,21 +191,19 @@ fn migrate_publisher(
 /// refuses duplicates, and this union duplicates by construction --
 /// `index` maps *symbol* to path, so a file exporting ten symbols
 /// appears ten times.
-/// Public so that comparing a json project's file list against a
-/// `model.toml`'s can apply the same normalization.
 pub fn migrate_sources(
     meta: &InterchangeProjectMetadataRaw,
     metamodel: Option<&KnownMetamodel>,
-    report: &mut Report,
+    report: &mut Diagnostics,
 ) -> Option<Sources> {
     let mut paths: IndexSet<Utf8UnixPathBuf> = IndexSet::new();
     let mut bad_checksum_keys: Vec<String> = Vec::new();
     let mut unadmitted_checksum_keys: Vec<String> = Vec::new();
-    // A Syside `.meta.json` checksums the whole archive, so a non-model key is a conventional
-    // file (silent) or a stray one (a warning).
+    // A Syside `.meta.json` checksums the whole archive, so a non-model key
+    // is a conventional file (silent) or a stray one (a warning).
     let syside = metamodel.is_some_and(|kind| kind.family == MetamodelFamily::Syside);
 
-    let mut add = |raw: &str, from_checksum: bool, report: &mut Report| {
+    let mut add = |raw: &str, from_checksum: bool, report: &mut Diagnostics| {
         let path = match normalize_relative(raw) {
             Ok(path) => path,
             Err(error) => {
@@ -312,14 +304,10 @@ fn listed(keys: &[String]) -> String {
 /// project may carry none, or one this Sysand does not recognize, and
 /// `model.toml` admits neither: the command then errors before writing,
 /// unless `--metamodel <url>` supplies a recognized value.
-///
-/// Unlike `migrate_publisher`'s rule, which keeps a declared value and
-/// falls back only when there is none, the flag replaces a declared
-/// metamodel `model.toml` cannot hold.
 fn migrate_metamodel(
     meta: &InterchangeProjectMetadataRaw,
     options: &MigrateOptions,
-    report: &mut Report,
+    report: &mut Diagnostics,
 ) -> Option<KnownMetamodel> {
     let declared = meta.metamodel.as_ref();
     if let Some(metamodel) = declared.and_then(|raw| KnownMetamodel::recognize(raw)) {
@@ -366,7 +354,7 @@ fn migrate_metamodel(
 /// The metadata keys that do not survive.
 /// `index` and `checksum` are named apart from their paths, which become
 /// `sources`.
-fn warn_discarded(meta: &InterchangeProjectMetadataRaw, report: &mut Report) {
+fn warn_discarded(meta: &InterchangeProjectMetadataRaw, report: &mut Diagnostics) {
     report.push(Diagnostic::warning(format!(
         "`created` (`{}`) is not migrated: a `model.toml` project has no creation time, and \
          `sysand build` records the build's own",
@@ -406,17 +394,11 @@ fn warn_discarded(meta: &InterchangeProjectMetadataRaw, report: &mut Report) {
     }
 }
 
-/// The rule `check_duplicates` (`manifest::usage`) applies on the read
-/// path, applied here on the write path.
+/// Reports duplicate usages with the same scan and wording as reading a
+/// `model.toml`.
 ///
-/// That function cannot be called: its signature takes usage *sites*
-/// and a span index, and a manifest built from values has neither. The
-/// scan (`duplicate_pairs`) and the wording (`duplicate_message`) are
-/// shared.
-///
-/// Pairwise, as the read path is: three colliding entries produce two
-/// diagnostics, the same as reading such a file back.
-fn check_duplicate_usages(usages: &[MemberUsage], report: &mut Report) {
+/// Pairwise: three colliding entries produce two diagnostics.
+fn check_duplicate_usages(usages: &[MemberUsage], report: &mut Diagnostics) {
     for (first, later) in duplicate_pairs(usages, MemberUsage::identity) {
         report.push(Diagnostic::error(duplicate_message(
             &usages[first].label(),
@@ -428,7 +410,7 @@ fn check_duplicate_usages(usages: &[MemberUsage], report: &mut Report) {
 fn migrate_usages(
     info: &InterchangeProjectInfoRaw,
     target: TargetLookup<'_>,
-    report: &mut Report,
+    report: &mut Diagnostics,
 ) -> Vec<MemberUsage> {
     let mut usages = Vec::new();
     for usage in &info.usage {
@@ -442,7 +424,7 @@ fn migrate_usages(
 fn migrate_usage(
     usage: &InterchangeProjectUsageRaw,
     target: TargetLookup<'_>,
-    report: &mut Report,
+    report: &mut Diagnostics,
 ) -> Option<Usage> {
     match usage {
         InterchangeProjectUsageRaw::Directory {
@@ -514,7 +496,7 @@ fn migrate_resource(
     resource: &str,
     version_constraint: Option<&str>,
     target: TargetLookup<'_>,
-    report: &mut Report,
+    report: &mut Diagnostics,
 ) -> Option<Usage> {
     let scheme = resource.split_once(':').map(|(scheme, _)| scheme);
 
@@ -566,9 +548,7 @@ fn migrate_resource(
                         name,
                         version_constraint: constraint,
                     }),
-                    // The resolver answered with something that is not
-                    // an index usage, which a `pkg:sysand` resource
-                    // cannot be.
+                    // A `pkg:sysand` resource can only be an index usage.
                     Ok(other) => {
                         report.push(Diagnostic::error(format!(
                             "usage `{resource}` resolved to `{other}`, which is not an index \
@@ -594,9 +574,8 @@ fn migrate_resource(
             }
         },
         // Used as-is for a URL; a `versionConstraint` is discarded with a
-        // warning. The warning has to be here rather than in the
-        // lookup: the callback is handed only the resource string and
-        // never sees the constraint.
+        // warning. The lookup is handed only the resource string, so the
+        // warning is issued here.
         Some("http" | "https") => {
             if let Some(constraint) = version_constraint {
                 // A standard-library IRI is the one URL whose meaning is
@@ -615,8 +594,7 @@ fn migrate_resource(
                      migrated: a `kpar-url` usage carries no version constraint"
                 )));
             }
-            // The publisher and name come from the target, which is
-            // fetched.
+            // The publisher and name come from the fetched target.
             match target(resource) {
                 Ok(usage) => Some(usage),
                 Err(reason) => {
@@ -647,7 +625,11 @@ fn migrate_resource(
 /// of `../dep` is the ordinary shape of a dependency beside the project,
 /// and normalization refuses a path that leaves its root. What it admits
 /// is then written normalized: a json `./dep/` becomes `dep`.
-fn local_path(raw: &str, kind: RelativePathKind, report: &mut Report) -> Option<Utf8UnixPathBuf> {
+fn local_path(
+    raw: &str,
+    kind: RelativePathKind,
+    report: &mut Diagnostics,
+) -> Option<Utf8UnixPathBuf> {
     match parse_relative_unix_path(raw, kind) {
         Ok(_) => {
             let normalized = crate::manifest::usage::normalize_local_path(raw);
@@ -670,7 +652,7 @@ fn local_path(raw: &str, kind: RelativePathKind, report: &mut Report) -> Option<
 fn parse_or_report<T, E: std::fmt::Display>(
     parsed: Result<T, E>,
     key: &str,
-    report: &mut Report,
+    report: &mut Diagnostics,
 ) -> Option<T> {
     match parsed {
         Ok(value) => Some(value),
@@ -731,10 +713,10 @@ pub fn check_vcs(root: &camino::Utf8Path) -> Result<VcsState, VcsError> {
     let repo = match gix::discover(root) {
         Ok(repo) => repo,
         Err(error) => {
-            // Only three of the discovery variants mean "there is no
-            // repository here". Folding the rest in would let
-            // `--allow-no-vcs` hide a broken one. gix reports one error
-            // type for everything, with the cause inside it.
+            // Only the no-repository variants mean "there is no repository
+            // here"; treating other errors the same would let `--allow-no-vcs`
+            // hide a broken one. gix reports one error type, with the cause
+            // inside it.
             if matches!(
                 error.downcast_any_ref::<gix::discover::upwards::Error>(),
                 Some(

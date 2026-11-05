@@ -17,13 +17,13 @@ use crate::{
 };
 
 /// Implements "standard" resolution logic given a set of individual resolvers.
-/// Use sysand::resolve::null::NullResolver to skip any of the steps.
+/// Use [`NullResolver`] to skip any of the steps.
 /// The logic is as follows:
-/// 1. Do not resolve any further if file_resolver is successful, or rejected the usage
-///    (i.e. it is a path). NotFound allows fallthrough to other resolvers mainly to
-///    accommodate environment resolver, which may resolve the usage by its identifier only
-///    (no other resolvers should resolve such a usage, environment is special here).
-///    Otherwise go to step 2.
+/// 1. Do not resolve any further if file_resolver resolves the usage, or refuses it as
+///    unresolvable. An unsupported usage type or NotFound falls through to the other
+///    resolvers; NotFound does so mainly to accommodate environment resolver, which may
+///    resolve the usage by its identifier only (no other resolvers should resolve such a
+///    usage, environment is special here). Otherwise go to step 2.
 /// 2. If remote_resolver produces any results, discard any that do not point to a valid
 ///    project (i.e. do not produce both a info and meta). If at least one project is found
 ///    proceed to step 4. (skipping 3.)
@@ -212,11 +212,11 @@ impl<
 {
     /// The locally cached copy of `project`, if one is waiting to be matched.
     ///
-    /// Matching needs the candidate's canonical checksum, which for a
-    /// remote or index candidate means fetching its `.project.json` and
-    /// `.meta.json`. With nothing left to match there is nothing to gain
-    /// from that, so the probe is skipped. This keeps a version listing over
-    /// an index to one `versions.json` request.
+    /// Matching needs the candidate's canonical checksum, which for a remote
+    /// or index candidate means fetching its `.project.json` and
+    /// `.meta.json`, so the probe is skipped when nothing is left to match.
+    /// This keeps a version listing over an index to one `versions.json`
+    /// request.
     fn take_cached_local<P: ProjectRead>(
         &mut self,
         project: &P,
@@ -283,7 +283,7 @@ impl<
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         let mut at_least_one_supports = false;
 
-        // Use the file resolver unless it outright rejects the IRI type.
+        // The file resolver goes first.
         // TODO: autodetect git (and possibly other VCSs), and use appropriate (e.g. git) resolver for them.
         if let Some(file_resolver) = &self.file_resolver {
             match file_resolver

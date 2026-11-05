@@ -28,8 +28,6 @@ use crate::{
 };
 
 #[derive(Default, Copy, Clone, Debug, PartialEq, Eq)]
-// Python interop is done with strings to have less boilerplate
-// #[cfg_attr(feature = "python", pyclass(eq))]
 pub enum KparCompressionMethod {
     /// Store the files as is
     Stored,
@@ -150,12 +148,9 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
         "unknown file format of `{0}`, only SysML v2 (.sysml) and KerML (.kerml) files are supported"
     )]
     UnknownFormat(Box<str>),
-    /// A `dir` or `kpar-path` usage becomes an index usage constrained to
-    /// `^<version>`, `<version>` being the target project's version at
-    /// build time.
-    ///
-    /// The path names nothing that defines a project, which includes a
-    /// project with no root at all (an in-memory project in the bindings).
+    /// The path of a `dir` or `kpar-path` usage names nothing that defines a
+    /// project, which includes a project with no root at all (an in-memory
+    /// project).
     #[error("usage `{usage}` targets `{path}`, which defines no project")]
     TomlTargetMissing { usage: String, path: String },
     /// A project satisfies a usage only if it declares the pair the usage spells.
@@ -196,10 +191,8 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
     /// workspace root.
     ///
     /// A group entry's `dir`/`kpar-path` is relative to the directory of
-    /// the `model.toml` that defines the workspace, whichever member opts
-    /// into it. The KPAR view carries a usage, not where it came from,
-    /// so the path here would resolve against the *member*, which is a
-    /// different directory.
+    /// the `model.toml` that defines the workspace, but the build would
+    /// resolve it against the member.
     #[error(
         "usage `{usage}` is inherited from the workspace, and its path `{path}` is relative \n\
         {SP:>8} to the workspace root; building a project that inherits a path usage is not \n\
@@ -241,8 +234,8 @@ impl<ProjectReadError: ErrorBound> From<IncludeError<ProjectReadError>>
             IncludeError::Io(error) => error.into(),
             IncludeError::Extract(..) => Self::Extract(format_err(value)),
             IncludeError::UnknownFormat(error) => Self::UnknownFormat(error),
-            // These belong to `do_include`'s `model.toml` arm, and a
-            // build refuses such a project before it gets here.
+            // Only raised for a `model.toml` project, which a build refuses
+            // before extracting symbols.
             IncludeError::ComputedField(_)
             | IncludeError::NoIndexSymbolsOnRoot
             | IncludeError::ForceFormat
@@ -258,9 +251,9 @@ impl<ProjectReadError: ErrorBound> From<IncludeError<ProjectReadError>>
 /// one, at its root; a standalone project has its own.
 pub const DEFAULT_OUTPUT_NAME: &str = "output";
 
-/// `workspace_root` is the root of the workspace the project is a
-/// member of, if it is one: a workspace has **one** `output/`, at its
-/// root, so a member's archive goes there whether the build was run from the root or from the member.
+/// `workspace_root` is the root of the workspace the project is a member of,
+/// if it is one. A workspace has one `output/`, at its root, so a member's
+/// archive goes there wherever the build was run from.
 pub fn default_kpar_path<Pr: ProjectRead>(
     project: &Pr,
     workspace_root: Option<&Utf8Path>,
@@ -349,13 +342,10 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         source: e,
     })?;
 
-    // The rules that belong to the archive (see `kpar_view`'s module
-    // doc), and the `created` the view omits.
-    //
-    // Gated on the format: a json `.project.json` may legally carry a
-    // `pkg:sysand/omg/...` resource, and a json project with a typed
-    // path usage builds under `--allow-path-usage`. Neither is
-    // path usage builds under `--allow-path-usage`.
+    // Archive rules the KPAR view leaves out, and `created`. Only for a
+    // `model.toml` project: a json `.project.json` may legally carry a
+    // `pkg:sysand/omg/...` resource, and a json project with a typed path
+    // usage builds under `--allow-path-usage`.
     if project.format().map_err(KParBuildError::ProjectRead)? == ProjectFormat::Toml {
         let manifest = project.manifest().map_err(|error| match error {
             ManifestError::Project(error) => KParBuildError::ProjectRead(error),
@@ -364,13 +354,11 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
             ManifestError::NoTomlManifest => unreachable!("a toml project has a manifest"),
         })?;
 
-        // Over the *typed* usages, which know each usage's kind and its
-        // target.
+        // The typed usages know each usage's kind and target.
         let root = project.project_root();
         for (located, raw) in manifest.usages.iter().zip(info.usage.iter_mut()) {
-            // An inherited usage's paths are relative to the workspace
-            // root and nothing here carries that base, so such a usage is
-            // refused.
+            // An inherited usage's paths are relative to the workspace root,
+            // which is not known here.
             if located.base != UsageBase::Project
                 && let Some(path) = located.usage.local_path()
             {
@@ -405,9 +393,8 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
             }
         }
 
-        // `created` is the time of the build, so two builds of identical
-        // sources are not byte-identical. The view records the epoch, as
-        // the clock is not one of a view's inputs.
+        // The view records the epoch, so `created` is set to the build time.
+        // Two builds of identical sources are therefore not byte-identical.
         meta.created = format_created(&jiff::Timestamp::now());
 
         // A project carrying `stdlib` has no publisher, so a locally built
@@ -469,8 +456,7 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         .system(zip::System::Unix)
         .last_modified_time(zip::DateTime::try_from(time).unwrap());
 
-    // Sorted, so two builds of the same files write the same
-    // `.meta.json`.
+    // Sorted, so identical builds write the same `.meta.json`.
     let mut source_paths: Vec<_> = meta.source_paths(true).into_iter().collect();
     source_paths.sort();
     let mut checksums = if let Some(mut checksum) = meta.checksum.take() {
@@ -588,9 +574,8 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
             }
         }
     }
-    // For the root shape `checksum` covers every file in the archive but the two json
-    // manifests, the conventional files included. An OMG
-    // archive checksums its sources only.
+    // For the root shape `checksum` covers every file in the archive but the
+    // two json manifests. An OMG archive checksums its sources only.
     if root_shape {
         for (archive_path, content) in &extra_files {
             checksums.insert(
@@ -658,7 +643,7 @@ fn read_optional_project_file(
 ///
 /// A member that inherits a key resolves its manifest only against the
 /// table, so a target read without one fails with "not a member of any
-/// workspace" -- about a project that is one.
+/// workspace", although it is one.
 type TargetWorkspace<'a> =
     Option<&'a std::sync::Arc<crate::manifest::workspace_table::WorkspaceTable>>;
 
@@ -676,20 +661,16 @@ fn local_target_usage<E: ErrorBound>(
         usage: usage.to_string(),
         path: relative.to_owned(),
     };
-    // A `model.toml` usage is satisfied by a target that declares the
-    // pair as the usage spells it. Checked here as well as in the
-    // resolver, because a build reads its targets itself and never asks
-    // one.
+    // A `model.toml` usage is satisfied by a target that declares the pair
+    // as the usage spells it. A build reads its targets itself, so this is
+    // checked here as well as in the resolver.
     let spelled = |declared_publisher: Option<&str>, declared_name: &str| {
-        // A built standard-library archive is the ordinary example of a
-        // target that declares no publisher at all -- the build drops
-        // the publisher on purpose. The name is still compared; whether
-        // a publisher-less target may be used at all is the resolver's
-        // question.
+        // A built standard-library archive declares no publisher. The name
+        // is still compared; whether a publisher-less target may be used at
+        // all is for the resolver to decide.
         let publisher_agrees = match (declared_publisher, usage.publisher()) {
             (Some(declared), Some(spelled)) => declared == spelled.as_str(),
-            // Either side declaring none compares on the name alone: a
-            // publisher-less target, or a standard-library usage.
+            // Either side declaring none compares on the name alone.
             _ => true,
         };
         if publisher_agrees && declared_name == usage.name().as_str() {
@@ -709,16 +690,14 @@ fn local_target_usage<E: ErrorBound>(
     };
 
     let Some(root) = root else {
-        // Nothing to join onto, so the path names nothing this build
-        // can see.
+        // Nothing to join onto.
         return Err(missing());
     };
     let target = root.join(relative);
 
-    // `std::fs::metadata` before anything that joins onto `target`: for
-    // a path that is itself a file -- every kpar target, and a `dir`
-    // entry naming a file -- joining and stat-ing gives `ENOTDIR`, which
-    // is an IO error where `TomlTargetMissing` belongs.
+    // Stat `target` before joining anything onto it: for a file (every kpar
+    // target, or a `dir` entry naming a file) that gives `ENOTDIR`, an IO
+    // error where `TomlTargetMissing` belongs.
     match std::fs::metadata(&target) {
         Ok(metadata) if metadata.is_dir() != is_kpar => {}
         Ok(_) | Err(_) => return Err(missing()),
@@ -741,26 +720,20 @@ fn local_target_usage<E: ErrorBound>(
             Some(table) => LocalSrcProject::new_member(target, None, table.clone()),
             None => LocalSrcProject::new_access(target, None),
         };
-        // `manifest()` is read: `version()` goes through
-        // `get_info`, which for a toml target builds the whole KPAR
-        // view -- reading, hashing and symbol-extracting every file the
-        // target's `sources` lists. A target with one missing source
-        // would fail *this* project's build.
+        // Read `manifest()` rather than `version()`: `version()` goes through
+        // `get_info`, which for a toml target builds the whole KPAR view,
+        // reading every file the target's `sources` lists. A target with a
+        // missing source would fail this project's build.
         match source.manifest() {
             Ok(manifest) => {
                 spelled(Some(manifest.publisher.as_str()), manifest.name.as_str())?;
                 // A usage whose target carries `stdlib` is written as
-                // `resource = "<target's metamodel>/<target's
-                // stdlib>.kpar"` -- the metamodel supplies the prefix and
-                // release date -- rather than as a typed index usage.
-                //
-                // Only the usage's form changes: the constraint stays the
-                // `^<version>` every other local target gets.
+                // `resource = "<target's metamodel>/<target's stdlib>.kpar"`
+                // rather than as a typed index usage. The constraint is
+                // the same `^<version>` as for any other local target.
                 if let Some(stem) = &manifest.stdlib {
-                    // A resolved project declares one of the four
-                    // metamodels, and `resolve` refuses `stdlib` unless
-                    // it is a recognized OMG one, so the prefix is
-                    // there to be written.
+                    // `resolve` refuses `stdlib` unless the metamodel is a
+                    // recognized OMG one, so the metamodel is a valid prefix.
                     return Ok(InterchangeProjectUsageRaw::Resource {
                         resource: format!("{}/{stem}.kpar", manifest.metamodel),
                         version_constraint: Some(caret(
@@ -803,8 +776,6 @@ fn caret<E: ErrorBound>(
     usage: &Usage,
     relative: &str,
 ) -> Result<String, KParBuildError<E>> {
-    // The parse error is discarded: its message would say less than the
-    // version does.
     semver::VersionReq::parse(&format!("^{version}"))
         .map(|constraint| constraint.to_string())
         .map_err(|_parse_error| KParBuildError::TomlTargetVersion {
@@ -832,7 +803,7 @@ fn read_members(workspace: &model_toml::Workspace) -> Vec<Member> {
 }
 
 /// The members in dependency order, each with the archive `sysand build`
-/// writes for it -- `<root>/output/<name>-<version>.kpar`.
+/// writes for it, `<root>/output/<name>-<version>.kpar`.
 ///
 /// Every member is read here, before the caller uploads anything.
 ///
@@ -843,9 +814,8 @@ pub fn workspace_publish_order(
     let root = workspace.root();
     let members = read_members(workspace);
 
-    // Members are published in dependency order, a topological sort of
-    // their `dir` usages of each other. Loading the workspace refused
-    // every cycle, so the order has none left to report.
+    // Dependency order is a topological sort of the members' `dir` usages of
+    // each other. Loading the workspace refused every cycle.
     //
     // Every member is a node, whether or not its directory resolves: a
     // member that cannot be read fails with its own message.
@@ -855,9 +825,8 @@ pub fn workspace_publish_order(
     }
     for member in &members {
         for dependency in member_dependencies(&member.project) {
-            // `add_edge` ignores an endpoint the graph does not hold,
-            // which is what a usage of a project outside the workspace
-            // is.
+            // `add_edge` ignores an endpoint the graph does not hold, such as
+            // a usage of a project outside the workspace.
             graph.add_edge(&member.dir, &canonical_or(member.dir.join(dependency)));
         }
     }
@@ -876,11 +845,8 @@ pub fn workspace_publish_order(
 
 /// Build every member, in `members` order, and return the archives.
 ///
-/// A build reads a target's `version` from its manifest, so no member's
-/// build needs another's, and a member
-/// that fails does not stop the others.
-/// The error is every member that failed, together with the archives the
-/// others produced.
+/// A member that fails does not stop the others. The error is every member
+/// that failed, together with the archives the others produced.
 pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
     workspace: &model_toml::Workspace,
     path: P,
@@ -889,8 +855,7 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
     allow_path_usage: bool,
 ) -> Result<Vec<LocalKParProjectRaw>, WorkspaceBuildFailure> {
     let root = workspace.root();
-    // The same table the members were read with: a `dir` usage of a
-    // member that inherits a key needs it to read the target.
+    // A `dir` usage of a member that inherits keys needs the table to read the target.
     let table = std::sync::Arc::new(workspace.table().clone());
     let mut built = Vec::new();
     let mut failed = Vec::new();
@@ -923,7 +888,7 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
 )]
 pub struct WorkspaceBuildFailure {
     /// Every member that failed, in `members` order, each named relative
-    /// to the workspace root -- the way the `members` entries name it.
+    /// to the workspace root, as the `members` entries name it.
     pub failed: Vec<MemberFailure>,
     /// The archives of the members that built, in `members` order.
     pub built: Vec<LocalKParProjectRaw>,
@@ -996,14 +961,12 @@ fn canonical_or(path: Utf8PathBuf) -> Utf8PathBuf {
 /// The `dir` usages a member declares, as written: what the publish
 /// order needs from it.
 ///
-/// For a toml member the reader is `manifest()`: `usage()` goes through `get_info`, which builds the whole KPAR view --
-/// reading, hashing and symbol-extracting every source file the member
-/// lists. A json member has no `model.toml`, so it answers
-/// `NoTomlManifest` and its usages come from `.project.json`.
+/// A toml member is read through `manifest()`, since `get_info` builds the
+/// whole KPAR view, reading every source file the member lists. A json
+/// member has no `model.toml`, so its usages come from `.project.json`.
 ///
-/// A member that cannot be read at all contributes no edges. It fails
-/// with a message about what is actually wrong with it as soon as its
-/// archive name is asked for.
+/// A member that cannot be read at all contributes no edges; it fails with
+/// its own message when its archive name is asked for.
 fn member_dependencies(project: &LocalSrcProject) -> Vec<String> {
     match project.manifest() {
         Ok(manifest) => manifest

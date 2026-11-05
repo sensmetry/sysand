@@ -6,9 +6,7 @@
 //! `design/index-protocol.md`; this module implements the client-side fetch
 //! and URL-shape validation.
 //!
-//! The underlying `reqwest` middleware applies its default redirect policy
-//! to the discovery fetch (see the comment next to
-//! [`crate::resolve::net_utils::create_reqwest_client`]).
+//! The discovery fetch follows redirects under the `reqwest` default policy.
 
 use serde::Deserialize;
 use thiserror::Error;
@@ -38,17 +36,15 @@ pub struct ResolvedEndpoints {
     /// base URL or a `{path}` URL template.
     pub index_root: IndexLocation,
     /// Base URL of the sysand index API (where `v1/upload` lives). `None`
-    /// unless the discovery document advertises `api_root`; an index
-    /// that does not advertise it is read-only from this client's point of
-    /// view.
+    /// unless the discovery document advertises `api_root`; without it the
+    /// index is read-only.
     pub api_root: Option<url::Url>,
 }
 
 impl ResolvedEndpoints {
-    /// Build a `ResolvedEndpoints` that routes index traffic at the
-    /// discovery root itself. Used when the discovery document is absent
-    /// (HTTP 404). Such an index advertises no `api_root`, so it exposes
-    /// no API surface (it is read-only from this client's point of view).
+    /// Endpoints that route index traffic at the discovery root itself, used
+    /// when the discovery document is absent (HTTP 404). There is no
+    /// `api_root`, so the index is read-only.
     pub fn flat(discovery_root: IndexLocation) -> Self {
         Self {
             index_root: discovery_root,
@@ -65,9 +61,8 @@ impl ResolvedEndpoints {
     }
 
     /// The project directory's two path segments for `iri`
-    /// (`[<publisher>, <name>]` or `[_iri, <sha256hex>]`). Returned as
-    /// separate segments so each is encoded independently, avoiding a
-    /// join-then-split round-trip.
+    /// (`[<publisher>, <name>]` or `[_iri, <sha256hex>]`), kept separate so
+    /// each is encoded independently.
     fn project_rel_segments<S: AsRef<str>>(iri: S) -> Result<[String; 2], IndexEnvironmentError> {
         Ok(parse_iri(iri.as_ref())?.get_path_segments())
     }
@@ -219,8 +214,7 @@ fn discovery_shape_error(
 
 /// Fetch the discovery document from
 /// `<discovery_root>/sysand-index-config.json` and produce the resolved
-/// `(index_root, api_root)` pair. See module docs for the protocol-level
-/// semantics.
+/// `(index_root, api_root)` pair.
 pub async fn fetch_index_config<P: HTTPAuthentication>(
     client: &reqwest_middleware::ClientWithMiddleware,
     auth: &P,
@@ -246,8 +240,6 @@ async fn fetch_index_config_with<P: HTTPAuthentication>(
     discovery_root: &IndexLocation,
     missing: MissingPolicy,
 ) -> Result<ResolvedEndpoints, DiscoveryError> {
-    // The location is already validated and normalized, so no further
-    // normalization is needed here.
     let discovery_location = discovery_root.clone();
 
     let config_url = discovery_location.resolve([INDEX_CONFIG_PATH]);
@@ -265,17 +257,13 @@ async fn fetch_index_config_with<P: HTTPAuthentication>(
 
 /// Interpret a parsed discovery document fetched from `config_url` into
 /// the resolved endpoints, validating the URL shapes it supplies.
-/// `pub(crate)` so a discovery response fetched elsewhere is interpreted
-/// by the same rules.
 pub(crate) fn resolve_index_config(
     raw: IndexConfigRaw,
     config_url: &url::Url,
     discovery_location: IndexLocation,
 ) -> Result<ResolvedEndpoints, DiscoveryError> {
-    // Parse a supplied field value as a plain base URL.
-    // `url::Url::parse` on a relative input (e.g. `"/index/"`) returns
-    // `Err(RelativeUrlWithoutBase)`; map that to `RelativeUrl` so the
-    // error is actionable.
+    // Parse a supplied field value as a plain base URL. A relative input
+    // (e.g. `"/index/"`) gets its own `RelativeUrl` error.
     let parse_base_url = |field: &'static str, s: String| -> Result<url::Url, DiscoveryError> {
         let parsed = match url::Url::parse(&s) {
             Ok(parsed) => parsed,
@@ -300,11 +288,8 @@ pub(crate) fn resolve_index_config(
         Ok(with_trailing_slash(parsed))
     };
 
-    // `index_root` may itself be a URL template; `api_root` may not
-    // (uploads are not file fetches, so templating it is meaningless).
-    // Both roots enforce their validity invariants through
-    // `IndexLocation::parse`, so a plain and a templated `index_root` are
-    // validated in the same place.
+    // `index_root` may be a URL template; `api_root` may not (uploads are
+    // not file fetches).
     let index_root = match raw.index_root {
         None => discovery_location,
         Some(s) => IndexLocation::parse(&s).map_err(|source| DiscoveryError::InvalidLocation {
@@ -314,9 +299,7 @@ pub(crate) fn resolve_index_config(
         })?,
     };
 
-    // The API surface exists only when the discovery document advertises
-    // `api_root`; a plain discovery root is not an implicit API (see the
-    // `ResolvedEndpoints::api_root` field doc).
+    // A plain discovery root is not an implicit API.
     let api_root = match raw.api_root {
         Some(s) => Some(parse_base_url("api_root", s)?),
         None => None,
@@ -330,8 +313,7 @@ pub(crate) fn resolve_index_config(
     Ok(endpoints)
 }
 
-/// Discovery decides where every later index fetch goes, so record the
-/// outcome for debugging.
+/// Log the resolved endpoints at debug level.
 fn log_resolved(endpoints: &ResolvedEndpoints) {
     match &endpoints.api_root {
         Some(api_root) => log::debug!(

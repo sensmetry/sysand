@@ -65,10 +65,9 @@ impl<T> ResolutionOutcome<T> {
 
     /// [`Self::map`] where deciding what was resolved can fail.
     ///
-    /// A resolver that refuses a target -- one under a workspace root
-    /// that is in neither of its lists -- is reporting an error:
-    /// `Unresolvable` would let the solve continue and report something
-    /// else later.
+    /// A resolver that refuses a target (e.g. one under a workspace root
+    /// that is in neither of its lists) reports an error: `Unresolvable`
+    /// would let the solve continue and report something else later.
     pub fn try_map<U, E, F: FnOnce(T) -> Result<U, E>>(
         self,
         op: F,
@@ -86,11 +85,10 @@ impl<T> ResolutionOutcome<T> {
 
 /// The manifest a usage was written in.
 ///
-/// A usage reaches resolution stripped of the format it was declared
-/// in: the KPAR view maps a `model.toml` usage onto the same
-/// `InterchangeProjectUsageRaw` a `.project.json` would carry, which is
-/// what keeps a read-only consumer format-blind. Some rules are about
-/// the manifest rather than the usage (a target that declares no
+/// A usage reaches resolution stripped of the format it was declared in:
+/// the KPAR view maps a `model.toml` usage onto the same
+/// `InterchangeProjectUsageRaw` a `.project.json` would carry. Some rules
+/// are about the manifest rather than the usage (a target that declares no
 /// publisher is refused as such only under a usage written in a
 /// `model.toml`), so the format travels beside the usage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,25 +119,21 @@ pub struct ResolutionInfo {
     base_path: Option<Utf8PathBuf>,
     /// The manifest this usage was declared in.
     origin: UsageOrigin,
-    /// The identifier of the project that declared this usage, when the
-    /// request has more than one declaring project and so the answer is
-    /// worth reporting -- a workspace lock, where it is the member. `None`
-    /// for a single-project lock, whose one declarer the user already
-    /// knows. It reaches the user as `SolveConflict::required_by`, so it
-    /// is an `Identifier` string like every other value of that field.
+    /// The identifier of the project that declared this usage, set when
+    /// there is more than one declaring project (a workspace lock, where it
+    /// is the member) and `None` for a single-project lock. It reaches the
+    /// user as `SolveConflict::required_by`, so it is an `Identifier`
+    /// string.
     declared_by: Option<String>,
     /// The `(publisher, name)` a **toml** `kpar-url` usage declared, for
     /// the identity check at the target.
     ///
-    /// `InterchangeProjectUsage::Resource` cannot carry it: that variant
-    /// is the untyped usage, where the IRI *is* the identity, so it has
-    /// no field to put a publisher in. It travels here instead, beside
-    /// [`Self::origin`]. `None` for every other usage: they either carry
-    /// the pair in the usage itself or, for a standard-library
-    /// `kpar-url`, declare no publisher at all.
-    /// Boxed: two `String`s inline grow `ResolutionInfo` enough to
-    /// trip `clippy::large_enum_variant` on `DependencyIdentifier`,
-    /// and this is `None` for every usage but one kind.
+    /// `InterchangeProjectUsage::Resource` cannot carry it, as the IRI is
+    /// its identity, so it travels here beside [`Self::origin`]. `None` for
+    /// every other usage: they either carry the pair in the usage itself or,
+    /// for a standard-library `kpar-url`, declare no publisher at all.
+    ///
+    /// Boxed to keep `ResolutionInfo` small.
     declared_identity: Option<Box<(String, String)>>,
 }
 
@@ -194,14 +188,11 @@ impl CoalescingUsage {
     }
 }
 
-// It is incorrect to use the derived `Hash` impl of `ResolutionInfo`
-// for resolution, since pubgrub
-// seemingly identifies packages by their hash, so e.g. usages of the same
-// package that have different version requirements will be treated as
-// referring to two distinct packages, and they will all be included in the
-// solution
-// Note that `PartialEq` effectively must match the behaviour of this due
-// to the way we implement dependency solving
+// The derived `Hash` of `ResolutionInfo` must not be used for resolution:
+// pubgrub seemingly identifies packages by their hash, so usages of the same
+// package with different version requirements would be treated as distinct
+// packages and all be included in the solution. `PartialEq` must match this
+// impl because of how dependency solving is implemented.
 impl std::hash::Hash for CoalescingUsage {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         // Mention all fields here to remember to update whenever
@@ -256,8 +247,8 @@ impl ResolutionInfo {
         self
     }
 
-    /// Records the identity a toml `kpar-url` usage declared; see the
-    /// field.
+    /// Records the identity a toml `kpar-url` usage declared; see
+    /// `declared_identity`.
     #[must_use]
     pub fn declaring_identity(mut self, identity: Option<(String, String)>) -> Self {
         self.declared_identity = identity.map(Box::new);
@@ -376,11 +367,10 @@ pub trait ResolveRead {
     /// Read local targets under `root` as members of the workspace whose
     /// table this is.
     ///
-    /// A member that inherits a key resolves its manifest only against
-    /// the table, so a target read without one fails with "not a member
-    /// of any workspace" -- about a project that is one. A solve
-    /// reaches the target through a resolver, so the table has to
-    /// travel with the resolver.
+    /// A member that inherits a key resolves its manifest only against the
+    /// table, so a target read without one fails with "not a member of any
+    /// workspace". The table has to travel with the resolver because a solve
+    /// reaches the target through it.
     ///
     /// The default returns `self` unchanged.
     #[cfg(feature = "filesystem")]
@@ -431,7 +421,7 @@ pub trait ResolveReadAsync {
     }
 }
 
-/// Wrapper intended to warp an `ResolveRead`, indicating that it should
+/// Wrapper intended to wrap a `ResolveRead`, indicating that it should
 /// be treated as a (trivial) `ResolveReadAsync`.
 #[repr(transparent)]
 #[derive(Debug)]
@@ -458,7 +448,6 @@ where
             >,
         >,
     >;
-    //futures::stream::Iter<<<T as ResolveRead>::ResolvedStorages as IntoIterator>::IntoIter>;
 
     async fn resolve_read_async(
         &self,

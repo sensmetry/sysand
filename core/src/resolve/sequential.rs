@@ -5,9 +5,8 @@ use crate::resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead, ResolveRead
 use futures::StreamExt as _;
 use std::iter::Flatten;
 
-/// Takes a sequence of similar resolvers, and tries them in sequence.
-/// First resolves all versions in the first environment, then all
-/// in the second, ...
+/// Takes a sequence of similar resolvers and tries them in order: all
+/// versions from the first, then all from the second, and so on.
 #[derive(Debug)]
 pub struct SequentialResolver<R> {
     inner: Vec<R>,

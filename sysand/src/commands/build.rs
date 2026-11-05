@@ -54,10 +54,10 @@ pub fn command_build_for_workspace<P: AsRef<Utf8Path>>(
         update_index,
         allow_path_usage,
     ) {
-        // A member's build error carries no member identity -- two
-        // members with no manifest produce the same sentence, and the
-        // failure arrives before the `Building kpar` line that would have
-        // named a path -- so the member is named here or nowhere.
+        // A member's build error carries no member identity (two members
+        // with no manifest produce the same sentence, and the failure
+        // arrives before the `Building kpar` line that would name a path),
+        // so the member is named here.
         for failed in &failure.failed {
             log::error!(
                 "failed to build member `{}`: {}",

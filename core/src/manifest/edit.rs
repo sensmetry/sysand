@@ -3,22 +3,20 @@
 
 //! Writing a `model.toml`.
 //!
-//! The job divides in two. Files a command *edits* -- `sysand add`,
+//! The job divides in two. Files a command *edits* (`sysand add`,
 //! `sysand remove`, `sysand include`, `sysand exclude`, the
-//! `set`/`clear`/`add`/`remove` verbs of `sysand info` -- are changed in
-//! place, preserving comments, key order and formatting; no writer may drop
-//! comments. Files
-//! a command *generates* -- `sysand init`, `sysand new`,
-//! `sysand migrate` -- are rendered in a fixed layout with no comments.
+//! `set`/`clear`/`add`/`remove` verbs of `sysand info`) are changed in
+//! place, preserving comments, key order and formatting. Files a command
+//! *generates* (`sysand init`, `sysand new`, `sysand migrate`) are
+//! rendered in a fixed layout with no comments.
 //!
 //! [`render_new`] produces the fixed layout. What it returns is a
 //! [`DocumentMut`], which is also what the in-place editors operate on.
 //!
 //! **[`render_new`] canonicalizes.** A version constraint written `1.0`
-//! comes back as `^1.0`, an SPDX expression and an IRI are rendered
-//! through their `Display`. That is right for a file being generated and
-//! wrong for one being edited, so an editor works on the document parsed
-//! from the file and never re-renders it.
+//! comes back as `^1.0`, and an SPDX expression and an IRI are rendered
+//! through their `Display`. An editor therefore works on the document
+//! parsed from the file and never re-renders it.
 //!
 //! Like the rest of `manifest/`, this module is free of Cargo features.
 
@@ -30,8 +28,7 @@ use toml_edit::{ArrayOfTables, Decor, Item, Table, value};
 /// caller needs to build one.
 ///
 /// Re-exported so that a crate that stores a manifest can name it without
-/// depending on `toml_edit`; the `ProjectMut` derive expands into the
-/// user's crate.
+/// depending on `toml_edit`.
 pub use toml_edit::{Array, DocumentMut, Value};
 use typed_path::Utf8UnixPathBuf;
 
@@ -52,15 +49,14 @@ use crate::project::utils::ProjectDeserializationError;
 /// Render a manifest as a freshly generated file.
 ///
 /// Layout: `manifest-version` first, then `[project]` with its keys in
-/// the order [`PROJECT_KEYS`] gives -- except `urls`, written as a
-/// `[project.urls]` table after the scalar keys, as TOML requires --
-/// with `sources` as a multi-line array with one file per line and a
-/// trailing comma (an empty one as `sources = []`), then
-/// `[[inline-usages]]` tables in manifest order. A workspace file has
-/// `manifest-version` and then `[workspace]`.
+/// the order [`PROJECT_KEYS`] gives, except `urls`, written as a
+/// `[project.urls]` table after the scalar keys, as TOML requires. `sources`
+/// is a multi-line array with one file per line and a trailing comma (an
+/// empty one as `sources = []`), then `[[inline-usages]]` tables follow in
+/// manifest order. A workspace file has `manifest-version` and then
+/// `[workspace]`.
 ///
-/// What is written is what the manifest holds: a key the table lacks is
-/// left out.
+/// A key the table lacks is left out.
 pub fn render_new(model: &ModelToml) -> DocumentMut {
     let mut doc = DocumentMut::new();
     doc["manifest-version"] = value(SUPPORTED_MANIFEST_VERSION.to_string());
@@ -83,8 +79,6 @@ pub fn render_new(model: &ModelToml) -> DocumentMut {
 }
 
 /// The `[project]` table, in the order `PROJECT_KEYS` gives.
-///
-/// The key list is the reader's: it is the order a generated file writes.
 fn project_table(project: &ProjectTable) -> Table {
     let mut table = Table::new();
     for key in PROJECT_KEYS {
@@ -123,8 +117,7 @@ fn project_table(project: &ProjectTable) -> Table {
                     table[key] = value(stdlib.to_string());
                 }
             }
-            // `root` is kept exactly as it was written and judged, if at
-            // all, when the project resolves; it is written back as it was.
+            // Written back as it was read.
             "root" => {
                 if let Some(root) = &project.root {
                     table[key] = Item::Value(
@@ -134,7 +127,7 @@ fn project_table(project: &ProjectTable) -> Table {
                 }
             }
             "urls" => urls(&mut table, key, project.urls.as_ref()),
-            // A key added to `PROJECT_KEYS` and not here is skipped.
+            // Not written.
             _ => {}
         }
     }
@@ -186,7 +179,8 @@ fn marker(inherited: &Inherited) -> Table {
 }
 
 /// `urls` is written as a `[project.urls]` table after the scalar keys,
-/// as TOML requires. An *inherited* `urls` has no table to write: the marker takes the key's place among the scalars.
+/// as TOML requires. An inherited `urls` has no table to write: the
+/// marker takes the key's place among the scalars.
 fn urls(table: &mut Table, key: &str, property: Option<&MetaProperty<Urls>>) {
     let urls = match property {
         None => return,
@@ -232,10 +226,8 @@ fn sources_array(sources: &Sources) -> Array {
 
 /// One `[[inline-usages]]` entry.
 ///
-/// The one place in this module that serializes: `UsageRaw` carries the
-/// `serde` attributes that decide which keys an entry writes and what they
-/// are called (`kpar-path`), and `From<Usage>`/`From<MemberUsage>` decide
-/// what each kind contributes.
+/// `UsageRaw`'s `serde` attributes decide which keys an entry writes and
+/// what they are called.
 fn usage_table(raw: UsageRaw) -> Table {
     toml_edit::ser::to_document(&raw)
         .expect("a usage entry serializes")
@@ -245,16 +237,14 @@ fn usage_table(raw: UsageRaw) -> Table {
 
 /// The `[workspace]` table.
 ///
-/// Only the `manifest-version`, `[workspace]` order is fixed; the order
-/// inside the table is Sysand's own:
-/// `members`, `exclude`, the default group's keys in `GROUP_KEYS` order,
-/// the default group's `[[workspace.inline-usages]]`, then each named
-/// group.
+/// Order inside the table: `members`, `exclude`, the default group's keys
+/// in `GROUP_KEYS` order, the default group's
+/// `[[workspace.inline-usages]]`, then each named group.
 fn workspace_table(workspace: &WorkspaceTable) -> Table {
     let mut table = Table::new();
     if !workspace.members.is_empty() {
-        // `--member <path>` matches an entry literally, so both spellings are kept and the one that
-        // was written is the one that is written back.
+        // `--member <path>` matches an entry literally, so the entry is
+        // written back as it was written.
         table["members"] = value(
             workspace
                 .members
@@ -276,8 +266,7 @@ fn workspace_table(workspace: &WorkspaceTable) -> Table {
 
     if !workspace.groups.is_empty() {
         let mut groups = Table::new();
-        // `[workspace.group]` itself holds nothing: only its children
-        // get headers.
+        // Only the children get headers.
         groups.set_implicit(true);
         for (name, properties) in &workspace.groups {
             let mut written = Table::new();
@@ -330,9 +319,7 @@ fn group(table: &mut Table, properties: &GroupProperties) {
                     );
                 }
             }
-            // A group may not carry `sources`. The key is in `GROUP_KEYS`
-            // so that the reader can refuse it by name; there is nothing
-            // to write.
+            // Not allowed in a group; there is nothing to write.
             "sources" => {}
             "urls" => {
                 if let Some(urls) = &properties.urls {
@@ -366,20 +353,17 @@ fn group(table: &mut Table, properties: &GroupProperties) {
 // ---------------------------------------------------------------------
 // Editing an existing document.
 //
-// Every command that writes an existing `model.toml` edits the document
-// in place, preserving comments, key order and formatting.
-//
-// `toml_edit` does not give that for free. A value replaced the obvious
-// way loses the comment after it, because the comment lives in the
-// `Decor` of the value that was replaced; a key replaced by a dotted
+// `toml_edit` does not preserve comments for free. A value replaced the
+// obvious way loses the comment after it, because the comment lives in
+// the `Decor` of the value that was replaced; a key replaced by a dotted
 // table loses the comment above it as well, because `Table::insert`
-// below moves decor.
+// moves decor.
 // ---------------------------------------------------------------------
 
 /// The `[project]` keys a member may inherit from a workspace group.
 ///
-/// The reader decides this one `inheritable(..)` call at a time and has
-/// no list to borrow, so this list has to agree with it.
+/// The reader has no such list; it must agree with the keys the reader
+/// reads with `inheritable(..)`.
 pub const INHERITABLE_KEYS: &[&str] = &[
     "publisher",
     "version",
@@ -392,8 +376,7 @@ pub const INHERITABLE_KEYS: &[&str] = &[
 
 /// Why an edit was refused.
 ///
-/// Every variant is a fact about the *document*. A refusal of a flag
-/// (`--compute-checksum` on a toml project) belongs to the command that owns the flag.
+/// Every variant is a fact about the document, not about a command's flags.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum EditError {
     #[error("the document has no `[project]` table")]
@@ -437,8 +420,7 @@ pub enum EditError {
 /// Parse a `model.toml` for editing, after checking that it is one this
 /// Sysand can read.
 ///
-/// [`open`] is a bare parse. The same read a project's
-/// [`crate::project::ProjectRead::manifest`] does runs first, for its
+/// [`open`] is a bare parse. Here the full read runs first, for its
 /// diagnostics alone, and the document is handed back only when there are
 /// none.
 pub fn validated(file: &str, text: &str) -> Result<DocumentMut, ProjectDeserializationError> {
@@ -447,14 +429,12 @@ pub fn validated(file: &str, text: &str) -> Result<DocumentMut, ProjectDeseriali
     open(file, text).map_err(|problem| {
         ProjectDeserializationError::invalid(
             file,
-            crate::manifest::diagnostics::Report::from_iter([problem]),
+            crate::manifest::diagnostics::Diagnostics::from_iter([problem]),
         )
     })
 }
 
-/// Parse a `model.toml` for editing. The failure is the reader's, word for
-/// word; the reader's second failure (deserializing into `toml::Value`s) is
-/// unreachable for anything that parses.
+/// Parse a `model.toml` for editing. The failure is the reader's.
 pub fn open(file: &str, text: &str) -> Result<DocumentMut, Diagnostic> {
     Source::new(file, text).parse_mut()
 }
@@ -468,9 +448,8 @@ fn project_mut(doc: &mut DocumentMut) -> Result<&mut Table, EditError> {
 /// The comments around a key that is about to be replaced: the one on
 /// the line above it, and the one after its value.
 ///
-/// Which of the two shapes holds them depends on what is written. A
-/// scalar keeps the first on its own key and the second on its value; a
-/// dotted marker (`version.workspace = true`) keeps *both* on the inner
+/// A scalar keeps the first on its own key and the second on its value; a
+/// dotted marker (`version.workspace = true`) keeps both on the inner
 /// `workspace` key and value, and its outer key carries nothing.
 #[derive(Default)]
 struct KeyComments {
@@ -556,10 +535,10 @@ fn decor_suffix(decor: &Decor) -> Option<String> {
 
 /// Set a `[project]` key to a value, keeping the comments around it.
 ///
-/// A key that is not there is appended after the table's existing
-/// values -- inside `[project]`, before the first sub-table header, not in
-/// the documented order of a generated file: moving the lines that are
-/// already there would drag a comment to a place it no longer describes.
+/// A key that is not there is appended after the table's existing values,
+/// inside `[project]` and before the first sub-table header, not in the
+/// order of a generated file: moving existing lines would drag a comment
+/// away from what it describes.
 pub fn set_project_key(
     doc: &mut DocumentMut,
     key: ProjectKey,
@@ -580,9 +559,7 @@ pub fn clear_project_key(doc: &mut DocumentMut, key: ProjectKey) -> Result<bool,
 /// edit as a whole value.
 ///
 /// `sources` has rules of its own and goes through [`include_source`];
-/// `urls` is a table and goes through [`set_url_key`]. `root` is
-/// author-written and settable like `version`; whether a value is one
-/// the project accepts is the reader's question.
+/// `urls` is a table and goes through [`set_url_key`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProjectKey {
     Publisher,
@@ -639,12 +616,11 @@ impl From<ListKey> for ProjectKey {
 
 /// Set one key of `[project.urls]`.
 ///
-/// Users write `urls` in three shapes: a
-/// `[project.urls]` header, an inline `urls = { .. }`, and dotted
-/// `urls.website = ..` keys. An existing table is edited in whichever
-/// shape it has; a table that is not there is created as a *header*,
-/// which is what a generated file has. Indexing into the document would
-/// silently create the inline form instead.
+/// `urls` is written in three shapes: a `[project.urls]` header, an
+/// inline `urls = { .. }`, and dotted `urls.website = ..` keys. An
+/// existing table is edited in whichever shape it has; a table that is
+/// not there is created as a header. Indexing into the document would
+/// create the inline form instead.
 pub fn set_url_key(doc: &mut DocumentMut, key: &str, url: &str) -> Result<(), EditError> {
     check_url_key(key)?;
     let project = project_mut(doc)?;
@@ -688,13 +664,9 @@ fn check_url_key(key: &str) -> Result<(), EditError> {
 
 /// Replace a `[project]` key's value with an inheritance marker.
 ///
-/// One of the rewrites that must preserve comments: a dotted marker keeps
-/// both its comments on its *inner* key and value, where a scalar keeps
-/// them on the outer key and its own value.
-///
-/// `urls` is the exception the rule cannot cover: a whole-table marker
-/// replaces the table, so comments written inside `[project.urls]` are
-/// gone with it. There is no line left for them to annotate.
+/// Comments around the key are kept. The exception is `urls`: a
+/// whole-table marker replaces the table, so comments written inside
+/// `[project.urls]` are lost with it.
 pub fn set_inherit_marker(
     doc: &mut DocumentMut,
     key: &str,
@@ -735,10 +707,8 @@ pub fn include_source(doc: &mut DocumentMut, path: &str) -> Result<Utf8UnixPathB
     Ok(wanted)
 }
 
-/// The commands that write `sources` write the strict form, converting
-/// into it what they are given.
-///
-/// So `./a.sysml` becomes `a.sysml` here, and `../a.sysml` is
+/// Convert a path into the strict form `sources` holds: `./a.sysml`
+/// becomes `a.sysml`, and `../a.sysml` is
 /// [`EditError::SourceOutsideProject`].
 fn strict_entry(path: &str) -> Result<Utf8UnixPathBuf, EditError> {
     crate::utils::normalize_relative(path).map_err(|error| match error {
@@ -758,12 +728,11 @@ fn strict_entry(path: &str) -> Result<Utf8UnixPathBuf, EditError> {
     })
 }
 
-/// "`sysand exclude <paths>` removes it." Matching is by normalized
-/// path, so `./a.sysml` removes an entry written as `a.sysml`.
+/// Remove a path from `sources`. Matching is by normalized path, so
+/// `./a.sysml` removes an entry written as `a.sysml`.
 pub fn exclude_source(doc: &mut DocumentMut, path: &str) -> Result<Utf8UnixPathBuf, EditError> {
-    // Converted like an `include` argument, and then held to the same
-    // rules, so `sysand exclude README.md` says the entry is not a model
-    // file.
+    // Held to the same rules as an `include` argument, so `README.md` is
+    // reported as not a model file.
     let wanted = strict_entry(path)?;
     let wanted = Sources::new(vec![wanted])?
         .as_slice()
@@ -783,10 +752,8 @@ pub fn exclude_source(doc: &mut DocumentMut, path: &str) -> Result<Utf8UnixPathB
 
 /// Append one entry to a list-valued `[project]` key.
 ///
-/// The array surgery of [`include_source`] is `sources`-only, and
-/// `maintainers` and `topics` are arrays too. Reading such an array out,
-/// changing it and writing it back with [`set_project_key`] would take
-/// every comment inside it.
+/// Editing the array in place keeps the comments inside it, which
+/// replacing it with [`set_project_key`] would lose.
 pub fn push_list_entry(doc: &mut DocumentMut, key: ListKey, value: &str) -> Result<(), EditError> {
     push_entry(list_mut(doc, key)?, value);
     Ok(())
@@ -794,7 +761,7 @@ pub fn push_list_entry(doc: &mut DocumentMut, key: ListKey, value: &str) -> Resu
 
 /// Remove the entry at `at` from a list-valued `[project]` key.
 ///
-/// The index is the caller's, and out of range is an error.
+/// An out of range index is an error.
 pub fn remove_list_entry(doc: &mut DocumentMut, key: ListKey, at: usize) -> Result<(), EditError> {
     let array = list_mut(doc, key)?;
     if at >= array.len() {
@@ -841,9 +808,9 @@ fn entries(array: &Array) -> Vec<Utf8UnixPathBuf> {
 
 /// Append one entry, keeping the array's shape.
 ///
-/// `Array::push` gives the new entry no decor at all, so on a
-/// multi-line array it lands on the previous entry's line. Three shapes
-/// have to be told apart, and one of them repaired first.
+/// `Array::push` gives the new entry no decor at all, so on a multi-line
+/// array it lands on the previous entry's line. Empty, single-line and
+/// multi-line arrays are told apart.
 fn push_entry(array: &mut Array, text: &str) {
     let multi_line = array
         .iter()
@@ -866,10 +833,9 @@ fn push_entry(array: &mut Array, text: &str) {
         return;
     }
 
-    // An array written without a trailing comma keeps the newline
-    // before `]` in the last entry's *suffix*, where a push would put
-    // the comma after it -- `"A.kerml"\n,`. Move it where the rest of
-    // this function expects to find it.
+    // An array written without a trailing comma keeps the newline before
+    // `]` in the last entry's suffix, where a push would put the comma
+    // after it (`"A.kerml"\n,`). Move it into `trailing`.
     let last = array.len() - 1;
     let suffix = array
         .get(last)
@@ -886,8 +852,7 @@ fn push_entry(array: &mut Array, text: &str) {
     }
 
     // What sits in `trailing` up to its first newline is on the last
-    // entry's line and stays there; the rest is the closing
-    // indentation.
+    // entry's line; the rest is the closing indentation.
     let trailing = trailing(array);
     let (head, tail) = match trailing.split_once('\n') {
         Some((head, tail)) => (head.to_owned(), tail.to_owned()),
@@ -903,22 +868,20 @@ fn push_entry(array: &mut Array, text: &str) {
 
 /// Remove one entry, leaving the comments that describe the others.
 ///
-/// A TOML comment binds forward: a comment written at the end of one
-/// entry's line is stored at the *front* of the next entry's prefix. So
-/// the successor inherits the removed entry's prefix head -- everything
-/// through its first newline, which is what was on the line above --
-/// and keeps its own prefix tail. Exactly one thing goes: what was
-/// physically on the removed entry's line.
+/// A comment written at the end of one entry's line is stored at the
+/// front of the next entry's prefix. So the successor inherits the
+/// removed entry's prefix head (everything through its first newline,
+/// which was on the line above) and keeps its own prefix tail. Only what
+/// was physically on the removed entry's line goes.
 ///
-/// The last entry has no successor and the array's trailing plays the
-/// part, for the same reason: leaving it alone does not preserve a
-/// comment, it re-binds it to the entry before.
+/// The last entry has no successor, so the array's trailing plays that
+/// part.
 fn remove_entry(array: &mut Array, at: usize) {
     let removed = prefix_of(array, at);
     let head = match removed.split_once('\n') {
         Some((head, _)) => format!("{head}\n"),
         // Nothing above: whatever is here was on the previous entry's
-        // line, and is worth keeping only if it says something.
+        // line, and is kept only if it is a comment.
         None if removed.contains('#') => removed,
         None => String::new(),
     };
@@ -977,8 +940,7 @@ fn set_prefix(array: &mut Array, at: usize, prefix: &str) {
 /// same project under a different spelling is refused.
 ///
 /// The entry lands after the last one and before whatever trails the
-/// file: a comment at the end of a document belongs to no table, and
-/// `toml_edit` keeps it where it is.
+/// file, which `toml_edit` keeps where it is.
 pub fn push_usage(doc: &mut DocumentMut, usage: &MemberUsage) -> Result<(), EditError> {
     let wanted = usage.identity();
     if find_usage(doc, &wanted).is_some() {
@@ -998,7 +960,7 @@ pub fn push_usage(doc: &mut DocumentMut, usage: &MemberUsage) -> Result<(), Edit
 /// Remove the entry that declares a project.
 ///
 /// The comment introducing an entry is that table's own prefix and goes
-/// with it. It is the one comment this module deletes.
+/// with it.
 pub fn remove_usage(doc: &mut DocumentMut, wanted: &NormalizedIdentity) -> Result<(), EditError> {
     let at = find_usage(doc, wanted).ok_or_else(|| EditError::UsageNotFound(wanted.clone()))?;
     doc.get_mut(USAGES)
@@ -1010,8 +972,8 @@ pub fn remove_usage(doc: &mut DocumentMut, wanted: &NormalizedIdentity) -> Resul
 
 /// The constraint of the entry declaring `wanted`, if it is there.
 ///
-/// `Some(None)` is an entry with no `version` key -- a `dir`,
-/// `kpar-path`, `kpar-url` or opt-in usage. `None` is no entry at all.
+/// `Some(None)` is an entry with no `version` key: a `dir`, `kpar-path`,
+/// `kpar-url` or opt-in usage. `None` is no entry at all.
 pub fn usage_constraint(doc: &DocumentMut, wanted: &NormalizedIdentity) -> Option<Option<String>> {
     let at = find_usage(doc, wanted)?;
     let entry = doc.get(USAGES)?.as_array_of_tables()?.get(at)?;
@@ -1026,9 +988,8 @@ pub fn usage_constraint(doc: &DocumentMut, wanted: &NormalizedIdentity) -> Optio
 /// Set the version constraint of an index usage.
 ///
 /// Only an index usage has one: a `dir`, `kpar-path` or `kpar-url` entry
-/// names its target directly, and an entry that opts into a workspace
-/// group takes that group's entry whole. Both are refused, and the
-/// command that owns the verb decides how to say which it met.
+/// names its target directly, and an opt-in takes the group's entry
+/// whole. Both are refused with the same error.
 pub fn set_usage_version(
     doc: &mut DocumentMut,
     wanted: &NormalizedIdentity,
@@ -1055,10 +1016,8 @@ pub fn set_usage_version(
 
 /// Add a directory to a workspace's `members`.
 ///
-/// A `members` entry is admitted only in its normalized form, so the
-/// path is written as [`crate::utils::normalize_relative`] converts it:
-/// `./app/` is written `app`, and is then the spelling `--member <path>`
-/// matches literally.
+/// The path is written as [`crate::utils::normalize_relative`] converts
+/// it: `./app/` is written `app`.
 pub fn push_member(doc: &mut DocumentMut, path: &str) -> Result<(), EditError> {
     let workspace = doc
         .get_mut("workspace")
@@ -1088,7 +1047,6 @@ const USAGES: &str = "inline-usages";
 
 /// Where the entry declaring `wanted` is, if it is there.
 ///
-/// The identity is read off the document rather than through `UsageRaw`.
 /// An entry whose `publisher` or `name` is absent, of the wrong type, or
 /// not a valid identifier yields nothing: it is neither matched nor in the
 /// way of the entry that is.
@@ -1099,17 +1057,13 @@ fn find_usage(doc: &DocumentMut, wanted: &NormalizedIdentity) -> Option<usize> {
         .position(|entry| entry_identity(entry).as_ref() == Some(wanted))
 }
 
-/// A standard-library entry declares no `publisher`, and resolves under
-/// `omg` -- so it is reached by `(omg, <name>)` like any other identity.
-/// Without this the editors would be blind to it: `sysand remove` could
-/// not remove one, and `sysand add omg/<name>` would append a second
-/// entry for the same library, which the next read refuses.
+/// A standard-library entry declares no `publisher` and resolves under
+/// `omg`, so it is reached by `(omg, <name>)` like any other identity.
 ///
 /// Two spellings reach `omg`: the `kpar-url` at a standard-library IRI,
-/// and an opt-in to a group entry that is one -- which carries a
-/// `workspace` marker, a `name`, and nothing else. The marker's *value*
-/// is not read here: an entry whose marker is invalid is still an entry
-/// declaring that project, and is still in the way of a second one.
+/// and an opt-in to a group entry that is one, which carries a
+/// `workspace` marker and a `name`. The marker's value is not read here:
+/// an entry whose marker is invalid still declares that project.
 fn entry_identity(entry: &Table) -> Option<NormalizedIdentity> {
     let field = |key| entry.get(key).and_then(Item::as_str);
     let name = IndexName::parse(field("name")?).ok()?;

@@ -13,11 +13,13 @@
 //! This module knows nothing about which keys `[project]` has. It knows
 //! what a marker looks like, what is wrong with the shapes that are not
 //! markers, and how to follow a marker into a
-//! [`GroupProperties`];
-//! `project.rs` knows the key list.
+//! [`GroupProperties`]. The key list belongs to the `[project]` reader.
+
+use toml::Spanned;
+use toml::de::DeValue;
 
 use crate::manifest::common::{InheritFrom, InheritMarker};
-use crate::manifest::diagnostics::{Diagnostic, Position, Report};
+use crate::manifest::diagnostics::{Diagnostic, Diagnostics, Position};
 use crate::manifest::reader::{TableReader, describe, marker_value};
 use crate::manifest::workspace_table::{GroupProperties, WorkspaceTable};
 
@@ -60,20 +62,21 @@ impl<T> MetaProperty<T> {
 /// Read a key that may carry an inheritance marker and whose own value is
 /// a scalar or an array.
 ///
-/// `read` is what reads the value when there is no marker -- an ordinary
-/// [`TableReader`] call -- and is not run at all when there is one.
+/// `read` reads the value when there is no marker and does not run when
+/// there is one.
 pub fn inheritable<T>(
     reader: &TableReader<'_>,
     key: &str,
-    report: &mut Report,
-    read: impl FnOnce(&mut Report) -> Option<T>,
+    report: &mut Diagnostics,
+    read: impl FnOnce(&mut Diagnostics) -> Option<T>,
 ) -> Option<MetaProperty<T>> {
-    match reader.raw().get(key).and_then(marker_value) {
+    match reader
+        .get(key)
+        .and_then(|value| marker_value(value.get_ref()))
+    {
         Some(marker) => read_marker(reader, key, marker, report).map(MetaProperty::Inherited),
-        // A `workspace` key among others is not a marker. For a scalar
-        // key it is not an overlap either (see `inheritable_table`): the
-        // value is simply a table where a table cannot go, which is what
-        // `read` says.
+        // Not a marker (including a `workspace` key among others): `read`
+        // reports a table where none can go.
         None => read(report).map(MetaProperty::Provided),
     }
 }
@@ -88,16 +91,17 @@ pub fn inheritable<T>(
 pub fn inheritable_table<T>(
     reader: &TableReader<'_>,
     key: &str,
-    report: &mut Report,
-    read: impl FnOnce(&mut Report) -> Option<T>,
+    report: &mut Diagnostics,
+    read: impl FnOnce(&mut Diagnostics) -> Option<T>,
 ) -> Option<MetaProperty<T>> {
-    if let Some(toml::Value::Table(table)) = reader.raw().get(key)
+    if let Some(DeValue::Table(table)) = reader.get(key).map(Spanned::get_ref)
         && table.len() > 1
         && table.contains_key("workspace")
     {
         let others = table
             .keys()
-            .filter(|name| name.as_str() != "workspace")
+            .map(Spanned::get_ref)
+            .filter(|name| *name != "workspace")
             .map(|name| format!("`{name}`"))
             .collect::<Vec<_>>()
             .join(", ");
@@ -125,10 +129,14 @@ pub fn own<T>(
     reader: &TableReader<'_>,
     key: &str,
     reason: &str,
-    report: &mut Report,
-    read: impl FnOnce(&mut Report) -> Option<T>,
+    report: &mut Diagnostics,
+    read: impl FnOnce(&mut Diagnostics) -> Option<T>,
 ) -> Option<T> {
-    if reader.raw().get(key).and_then(marker_value).is_some() {
+    if reader
+        .get(key)
+        .and_then(|value| marker_value(value.get_ref()))
+        .is_some()
+    {
         report.push(
             Diagnostic::error(format!(
                 "`{key}` in {} cannot be inherited from the workspace;\n{reason}",
@@ -144,19 +152,19 @@ pub fn own<T>(
 fn read_marker(
     reader: &TableReader<'_>,
     key: &str,
-    marker: &toml::Value,
-    report: &mut Report,
+    marker: &DeValue<'_>,
+    report: &mut Diagnostics,
 ) -> Option<Inherited> {
     let at = reader.at(key);
     let marker = match marker {
-        toml::Value::Boolean(flag) => InheritMarker::Flag(*flag),
-        toml::Value::String(group) => InheritMarker::Group(group.clone()),
+        DeValue::Boolean(flag) => InheritMarker::Flag(*flag),
+        DeValue::String(group) => InheritMarker::Group(group.clone().into_owned()),
         other => {
             report.push(
                 Diagnostic::error(format!(
                     "`{key}.workspace` in {} must be a boolean or a string, but it is {}",
                     reader.location(),
-                    describe(other)
+                    describe(other.type_str())
                 ))
                 .at_opt(at),
             );
@@ -185,8 +193,7 @@ pub fn from_group<U>(
 ) -> Result<U, Diagnostic> {
     let from = &inherited.from;
     let at = inherited.at.clone();
-    // Markers resolve only against the workspace the project is a
-    // *member* of.
+    // Markers resolve only against the workspace the project is a member of.
     let Some(workspace) = workspace else {
         return Err(Diagnostic::error(format!(
             "`{key}` inherits from {from}, but the project is not a member of any workspace"

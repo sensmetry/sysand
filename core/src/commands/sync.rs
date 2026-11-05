@@ -41,12 +41,9 @@ pub enum SyncError<
     ProjectMismatch(Box<ProjectMismatchError>),
     #[error("project with identifiers {0:?} has no known sources in lockfile")]
     MissingSource(Box<[String]>),
-    /// A lockfile records standard-library entries with an empty source
-    /// list, and one that pins a release Sysand does not know about is an
-    /// error on sync. An entry with no sources whose identifiers are
-    /// OMG standard-library IRIs is exactly that; one that is not a
-    /// standard library and has no sources is a malformed lockfile, and
-    /// keeps [`Self::MissingSource`].
+    /// An entry with no sources whose identifiers are OMG standard-library
+    /// IRIs pins a release Sysand does not know about. Any other entry
+    /// with no sources is [`Self::MissingSource`].
     #[error(
         "the lockfile pins standard library `{name}` at `{version}`, which this Sysand does not know about"
     )]
@@ -149,8 +146,7 @@ pub enum MismatchKind {
     /// `env.toml` records the project but its directory or manifest is
     /// gone.
     MissingFromDisk,
-    /// The lockfile has the project, `env.toml` does not (the CLI
-    /// appends "run `sysand sync`").
+    /// The lockfile has the project, `env.toml` does not.
     NotRecorded,
 }
 
@@ -209,15 +205,14 @@ impl fmt::Display for Mismatch {
     }
 }
 
-/// How a manifest and the lockfile disagree (the CLI appends "run
-/// `sysand lock`", which core does not name).
+/// How a manifest and the lockfile disagree.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StaleKind {
-    /// The usage's constraint no longer accepts the locked version.
+    /// The usage's constraint does not accept the locked version.
     Constraint { constraint: String, locked: String },
     /// The manifest has a usage the lockfile does not record.
     Added,
-    /// The lockfile records a usage the manifest no longer has.
+    /// The lockfile records a usage the manifest does not have.
     Removed,
     /// The manifest's project has no lockfile entry at all.
     ManifestMissing,
@@ -304,8 +299,8 @@ pub struct SyncOutcome {
     /// `--repair`: entries reinstalled because they mismatched or were
     /// missing.
     pub repaired: Vec<SyncedProject>,
-    /// `--verify`: manifest usages the lockfile does not reflect;
-    /// reported, never repaired (`lock` is the repair).
+    /// `--verify`: manifest usages the lockfile does not reflect; never
+    /// repaired.
     pub stale: Vec<StaleUsage>,
 }
 

@@ -62,8 +62,8 @@ public class ModelRoundtripTest {
     }
 
     /**
-     * The Syside shape of {@code .meta.json} -- {@code root} and
-     * {@code exports} in place of {@code index} -- round-trips through the
+     * The Syside shape of {@code .meta.json} ({@code root} and
+     * {@code exports} in place of {@code index}) round-trips through the
      * native layer, with {@code index} null.
      */
     @Test

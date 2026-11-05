@@ -950,9 +950,9 @@ fn sync_fails_on_a_renamed_directory_dependency() -> Result<(), Box<dyn std::err
 /// list, and a lockfile that pins a release Sysand does not know about
 /// is an error on `sync`.
 ///
-/// The lockfile is written by hand: `sync` does not re-lock when one is
-/// present, which is the whole point: this is the state a repository
-/// reaches by locking with a newer Sysand and syncing with an older.
+/// The lockfile is written by hand, as `sync` does not re-lock when one is
+/// present: this is the state a repository reaches by locking with a newer
+/// Sysand and syncing with an older.
 #[test]
 fn sync_names_the_unknown_stdlib_release_the_lockfile_pins()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -1128,7 +1128,7 @@ fn a_non_stdlib_entry_without_sources_gets_no_include_std_hint()
 
 /// `sync` refuses a lockfile carrying a metamodel direction error.
 ///
-/// A characterisation test: `Lock::from_str` validates, so `sync`
+/// A characterisation test: reading the lockfile validates it, so `sync`
 /// refuses such a lockfile before it resolves or installs anything.
 #[test]
 fn sync_refuses_a_lockfile_with_a_direction_error() -> Result<(), Box<dyn std::error::Error>> {
@@ -1167,8 +1167,7 @@ fn sync_refuses_a_lockfile_with_a_direction_error() -> Result<(), Box<dyn std::e
 /// *warning*, and `sync` still runs.
 ///
 /// The semver *error* is resolution-only, so it cannot fire from a
-/// lockfile read, but `Lock::validate_usages` logs a warning for every
-/// such version.
+/// lockfile read, but a warning is logged for every such version.
 #[test]
 fn sync_warns_on_a_non_semver_version() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
@@ -1236,7 +1235,7 @@ fn sync_warns_on_a_metamodel_release_mismatch() -> Result<(), Box<dyn std::error
 }
 
 /// A mixed-family workspace locks and syncs in one pass, and the
-/// environment's layout is family-blind -- a Syside archive installs where
+/// environment's layout is family-blind: a Syside archive installs where
 /// an OMG archive reached the same way would, with its whole checksummed
 /// file set.
 #[test]

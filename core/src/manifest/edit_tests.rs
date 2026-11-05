@@ -340,7 +340,7 @@ fn a_syside_manifest_renders_and_reads_back() {
     );
 }
 
-/// A `root` that was read is written back exactly as it was written --
+/// A `root` that was read is written back exactly as it was written,
 /// whatever it was.
 #[test]
 fn a_read_root_survives_a_rewrite_as_written() {
@@ -539,10 +539,8 @@ version = "^2"
 
 #[test]
 fn a_generated_workspace_file_has_the_documented_layout() {
-    // Only the `manifest-version`, `[workspace]` order is fixed. The
-    // order below is Sysand's own: the membership
-    // lists, then the default group's keys in the order the reader
-    // recognizes them.
+    // The membership lists, then the default group's keys in the order
+    // the reader recognizes them.
     assert_eq!(render(&workspace()), WORKSPACE);
 }
 
@@ -852,8 +850,7 @@ fn inheriting_a_whole_urls_table_loses_the_comments_inside_it() {
 
 #[test]
 fn the_inheritable_keys_are_the_ones_the_reader_accepts_a_marker_for() {
-    // `edit.rs` names the inheritable keys, and `project.rs` decides them
-    // one `inheritable(..)` call at a time; the two must agree.
+    // The editor's list of inheritable keys must agree with the reader.
     for key in PROJECT_KEYS {
         // The marker takes the place of the key's own value: writing
         // both is a duplicate key, which is a different refusal.
@@ -1052,7 +1049,7 @@ fn excluding_removes_the_entry_and_the_comment_on_its_line() {
 fn excluding_keeps_the_comment_that_belongs_to_the_previous_entry() {
     // A TOML comment binds forward: `# first` is written on Base's line
     // but stored at the front of Parts's prefix. Removing Parts must
-    // not take it -- it describes a file that is still listed.
+    // not take it: it describes a file that is still listed.
     let mut doc = opened(&with_sources(
         "[\n    \"Base.kerml\",  # first\n    \"Parts.sysml\",\n]",
     ));
@@ -1488,8 +1485,8 @@ fn stdlib_usage() -> MemberUsage {
 }
 
 /// A standard-library usage declares no `publisher`, so the entry the
-/// editors write has no `publisher` key -- and still reads
-/// back as a manifest.
+/// editors write has no `publisher` key and still reads back as a
+/// manifest.
 #[test]
 fn a_stdlib_usage_is_written_without_a_publisher_key() {
     let mut doc = opened(&with_sources("[]"));
@@ -1551,8 +1548,8 @@ fn a_second_stdlib_usage_for_the_same_library_is_refused() {
 }
 
 /// A publisher-less entry whose `kpar-url` is *not* a standard-library
-/// IRI declares no project the editors can name -- it is not a valid
-/// usage either, and a manifest never holds one.
+/// IRI declares no project the editors can name: it is not a valid usage
+/// either, and a manifest never holds one.
 #[test]
 fn a_publisher_less_entry_elsewhere_is_not_matched() {
     let mut doc = opened(&format!(

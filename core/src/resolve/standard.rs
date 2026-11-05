@@ -106,12 +106,10 @@ pub fn standard_index_resolver<Policy: HTTPAuthentication>(
     auth_policy: Arc<Policy>,
     token: CancellationToken,
 ) -> Result<AsSyncResolveTokio<IndexResolver<Policy>>, DiscoveryError> {
-    // Each user-configured URL is a discovery root. Do not fetch
-    // `sysand-index-config.json` here: resolver construction happens for
-    // commands and bindings before we know whether an index dependency is
-    // needed at all. The env resolves discovery lazily on first index use.
-    // A filesystem index has no discovery step at all; its directory is
-    // read on first use the same way.
+    // Each configured URL is a discovery root, resolved lazily on first
+    // index use, since construction happens before it is known whether an
+    // index is needed. A filesystem index has no discovery and is also read
+    // on first use.
     let envs: Vec<EnvResolver<AnyIndexEnvironment<Policy>>> = sources
         .into_iter()
         .map(|source| {

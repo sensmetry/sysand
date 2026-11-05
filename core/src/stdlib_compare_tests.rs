@@ -63,8 +63,8 @@ fn created_is_ignored() {
     );
 }
 
-/// A build always writes a `checksum` map; three of the ten published
-/// libraries have none. Adding one is allowed.
+/// A build always writes a `checksum` map; some published libraries have
+/// none. Adding one is allowed.
 #[test]
 fn a_checksum_may_be_added() {
     let built = json!({"checksum": {"a.kerml": {"value": "x"}}, "index": {}});

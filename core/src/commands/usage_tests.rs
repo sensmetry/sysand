@@ -624,11 +624,8 @@ fn toml_unchanged_and_not_found_leave_the_document_alone() {
     assert_eq!(doc.to_string(), TOML);
 }
 
-/// An index usage requires a `version`, so the
-/// constraint cannot be cleared. The verb takes a constraint rather than
-/// an `Option` on either manifest, so there is no clearing arm to
-/// refuse; what is pinned is that the widest constraint is still one,
-/// written in place of the old.
+/// An index usage requires a `version`, so the widest constraint, `*`, is
+/// written in place of the old one.
 #[test]
 fn a_toml_index_usage_keeps_a_constraint() {
     let mut doc = toml_doc(TOML);
@@ -640,7 +637,7 @@ fn a_toml_index_usage_keeps_a_constraint() {
     assert_eq!(after, "version = \"*\"");
 }
 
-/// Pins the editor's text: a `dir` usage has no constraint to set.
+/// A `dir` usage has no constraint to set.
 #[test]
 fn a_dir_usage_has_no_constraint_to_set() {
     let mut doc = toml_doc(TOML);

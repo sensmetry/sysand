@@ -127,9 +127,7 @@ impl LocalDirectoryEnvironment {
     /// To install a project in the environment, use `put_project()`.
     /// Call is idempotent. Does not update metadata file
     ///
-    /// The `workspace` flag of every `EnvProject` it adds is `false`,
-    /// which the serializer omits. Setting it for a `model.toml`
-    /// workspace would need the loaded `Workspace`.
+    /// The `workspace` flag of every `EnvProject` it adds is `false`.
     pub fn merge_lock(&mut self, lock: &Lock) {
         self.metadata.projects.retain(Self::is_installed);
         for project in &lock.projects {
@@ -178,9 +176,7 @@ impl LocalDirectoryEnvironment {
     }
 
     /// Hand the environment the workspace lock its writer holds, so its
-    /// writes run under it. The lock is acquired once at the top of a
-    /// mutating command (or by the embedder) and threaded here; nothing
-    /// is re-acquired per write.
+    /// writes run under it.
     ///
     /// Fails when the lock is on a different root from the one this
     /// environment is in.
@@ -263,18 +259,16 @@ impl LocalDirectoryEnvironment {
 
     // TODO: an environment holds every installed version of a project, and
     // `EnvResolver` hands all of them to the solver, so resolving through one
-    // *is* a version choice and ought to default a version constraint the way
-    // an index does. What comes back here is a plain `LocalSrcProject`, which
-    // answers `source_may_offer_multiple_versions()` with `false` because a
-    // path names one project -- the type cannot tell its two roles apart. So a
-    // `pkg:sysand` usage met only by the environment currently admits a
-    // prerelease where the index would not. The fix is for the environment to
+    // is a version choice and ought to default a version constraint the way
+    // an index does. A plain `LocalSrcProject` answers
+    // `source_may_offer_multiple_versions()` with `false`, because a path
+    // names one project, so a `pkg:sysand` usage met only by the environment
+    // admits a prerelease where the index would not. The environment should
     // say so when it constructs the project.
     fn get_project_storage(&self, project: &EnvProject) -> LocalSrcProject {
         let relative = project.path.as_str();
         if project.editable {
-            // let absolute = self.parent_dir().join(relative);
-            // We will assume that the relative path was constructed by us
+            // Assume that the relative path was constructed by us
             // by diffing canonical paths of the project and env parent (i.e. workspace root)
             // Otherwise canonicalization would be needed here to remove possible
             // (internal) `../` of editable projects, which can reside anywhere.
@@ -310,8 +304,7 @@ impl LocalDirectoryEnvironment {
         }
     }
 
-    /// Determine whether `p` is installed in the environment. This is currently false
-    /// only for editable projects.
+    /// Whether `p` is installed in the environment, i.e. lives under `lib/`.
     fn is_installed(p: &EnvProject) -> bool {
         p.path.starts_with(PROJECT_PATH_PREFIX)
     }
@@ -352,15 +345,6 @@ impl LocalDirectoryEnvironment {
             }
         }
     }
-
-    // /// Determine absolute path of `project`
-    // fn absolute_project_path(&self, project: &EnvProject) -> Utf8PathBuf {
-    //     if project.editable {
-    //         self.parent_dir().join(project.path.as_str())
-    //     } else {
-    //         self.root_dir.join(project.path.as_str())
-    //     }
-    // }
 }
 
 /// A lock handed to [`LocalDirectoryEnvironment::hold`] guards another
@@ -569,8 +553,7 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
             LocalSrcProject::new_access(project_temp.path().to_path_buf(), None);
 
         if let Some(existing) = self.metadata.find_project_version_mut(identifier, version) {
-            // Editable and workspace projects are not managed by the env, so
-            // they cannot be replaced by an installed copy
+            // Editable and workspace projects are not managed by the env
             if existing.editable || existing.workspace {
                 return Err(PutProjectError::Write(
                     LocalWriteError::OverwriteNotInstalled {
@@ -585,7 +568,7 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
                 ));
             }
 
-            // Create a temp clone and change it to avoid modifying env in case of errors
+            // Write into a temp dir first so a failure leaves the env untouched
             write_project(&mut tentative_project).map_err(PutProjectError::Callback)?;
             // Project is not editable, so this is always correct
             let absolute_path = self.root_dir.join(existing.path.as_str());
@@ -612,8 +595,6 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
             // TODO: try writing to the target directly (we manage it exclusively) and on failure revert.
             write_project(&mut tentative_project).map_err(PutProjectError::Callback)?;
 
-            // Project write was successful
-
             // TODO: take iri as arg
             let iri = Iri::parse(identifier)
                 .map_err(|e| PutProjectError::IriParse(identifier.to_owned(), e))?;
@@ -624,7 +605,6 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
             self.ensure_lib_dir_exists()
                 .map_err(LocalWriteError::from)?;
 
-            // Move existing stuff out of the way
             // TODO: Handle catastrophic errors differently
             try_move_files(&[(project_temp.path(), &absolute_project_path)])
                 .map_err(LocalWriteError::from)?;

@@ -5,7 +5,7 @@ use indexmap::IndexMap;
 
 use super::{MigrateOptions, migrate_project};
 use crate::{
-    manifest::{ModelToml, project::ProjectManifest},
+    manifest::{ModelToml, diagnostics::Diagnostics, project::ProjectManifest},
     model::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
         InterchangeProjectUsageRaw,
@@ -72,7 +72,7 @@ fn migrated(
     meta: &InterchangeProjectMetadataRaw,
 ) -> ProjectManifest {
     let validated = migrate_project(info, meta, &MigrateOptions::default(), &no_targets)
-        .unwrap_or_else(|report| panic!("the conversion succeeds:\n{report}"));
+        .unwrap_or_else(|report| panic!("the conversion succeeds:\n{report:?}"));
     match validated.value {
         ModelToml::Project(project) => *project,
         ModelToml::Workspace(_) => panic!("migrate produces a project"),
@@ -84,9 +84,18 @@ fn errors(
     meta: &InterchangeProjectMetadataRaw,
     options: &MigrateOptions,
 ) -> String {
-    migrate_project(info, meta, options, &no_targets)
-        .expect_err("the conversion fails")
-        .to_string()
+    messages(migrate_project(info, meta, options, &no_targets).expect_err("the conversion fails"))
+}
+
+/// A conversion's diagnostics carry no position: their messages, one per
+/// line.
+fn messages(report: Diagnostics) -> String {
+    report
+        .diagnostics()
+        .iter()
+        .map(|diagnostic| diagnostic.message.as_str())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 // ------------------------------------------------- the carried fields
@@ -249,9 +258,8 @@ fn a_project_with_no_metamodel_is_refused() {
     assert!(rendered.contains("pass `--metamodel <url>`"), "{rendered}");
 }
 
-/// A value that is not an IRI is not one of the four either, so it is
-/// reported as unrecognized and not with a second message about its
-/// syntax.
+/// A value that is not an IRI is not a recognized value either, so it is
+/// reported as unrecognized and not with a second message about its syntax.
 #[test]
 fn a_metamodel_that_is_not_an_iri_is_reported_as_unrecognized() {
     let rendered = errors(
@@ -285,8 +293,7 @@ fn the_metamodel_option_supplies_a_missing_one() {
     );
 }
 
-/// Unlike `--publisher`, the option also replaces a declared value --
-/// one `model.toml` cannot hold is no more usable than none -- and what
+/// Unlike `--publisher`, the option also replaces a declared value, and what
 /// was dropped is still reported.
 #[test]
 fn the_metamodel_option_replaces_an_unrecognized_one() {
@@ -366,7 +373,7 @@ fn sources_come_from_the_checksum_keys() {
 
 /// The union deduplicates. `index` maps *symbol* to path, so a file
 /// exporting three symbols appears three times, and its checksum key a
-/// fourth -- which `Sources::new` would refuse outright.
+/// fourth, which `Sources::new` would refuse outright.
 #[test]
 fn the_union_is_deduplicated() {
     let mut m = meta();
@@ -692,8 +699,7 @@ fn an_unconstrained_purl_usage_reaches_the_lookup() {
     assert_eq!(manifest.inline_usages.len(), 1);
 }
 
-/// An `http(s)` resource reaches the lookup too -- for both kinds of
-/// target.
+/// An `http(s)` resource reaches the lookup too, for both kinds of target.
 #[test]
 fn an_http_usage_reaches_the_lookup() {
     for resource in [
@@ -708,7 +714,7 @@ fn an_http_usage_reaches_the_lookup() {
         }];
         let lookup = |_: &str| Ok(resolves_to("../dep", "acme", "dep"));
         migrate_project(&raw, &meta(), &MigrateOptions::default(), &lookup)
-            .unwrap_or_else(|e| panic!("{resource} resolves: {e}"));
+            .unwrap_or_else(|e| panic!("{resource} resolves: {e:?}"));
     }
 }
 
@@ -867,11 +873,10 @@ mod vcs {
         assert_eq!(check_vcs(dir.path()).expect("a status"), VcsState::Clean);
     }
 
-    // `NoRepository` is not tested here. `gix::discover` walks upward,
-    // so the test needs `GIT_CEILING_DIRECTORIES` to stop it -- and
-    // setting that from a unit test means a process-global `set_var`
-    // that races every other test in the binary. A CLI test can set it
-    // on the child process, where it is per-process and safe.
+    // `NoRepository` is not tested here. `gix::discover` walks upward, so
+    // the test needs `GIT_CEILING_DIRECTORIES` to stop it, and setting that
+    // from a unit test means a process-global `set_var` that races every
+    // other test in the binary. A CLI test can set it on the child process.
 
     /// `discover`, not `open`: a project in a subdirectory of a
     /// repository is inside its work tree.
@@ -1024,9 +1029,10 @@ fn a_file_usage_whose_target_cannot_be_read_is_refused() {
     raw.usage = vec![file_resource("file:///srv/dep")];
     let lookup = |_: &str| Err("`/srv/dep` declares no `publisher`".to_owned());
 
-    let rendered = migrate_project(&raw, &meta(), &MigrateOptions::default(), &lookup)
-        .expect_err("the target cannot be read")
-        .to_string();
+    let rendered = messages(
+        migrate_project(&raw, &meta(), &MigrateOptions::default(), &lookup)
+            .expect_err("the target cannot be read"),
+    );
     assert!(rendered.contains("declares no `publisher`"), "{rendered}");
 }
 
@@ -1040,9 +1046,10 @@ fn two_file_usages_of_one_target_are_a_duplicate() {
     ];
     let lookup = |_: &str| Ok(resolves_to("../dep", "acme", "dep"));
 
-    let rendered = migrate_project(&raw, &meta(), &MigrateOptions::default(), &lookup)
-        .expect_err("both name `acme/dep`")
-        .to_string();
+    let rendered = messages(
+        migrate_project(&raw, &meta(), &MigrateOptions::default(), &lookup)
+            .expect_err("both name `acme/dep`"),
+    );
     assert!(rendered.contains("name the same project"), "{rendered}");
 }
 
@@ -1138,8 +1145,8 @@ fn an_unresolved_metamodel_skips_the_language_check() {
 }
 
 /// A json usage's spellings only had to match after normalization, so a
-/// migrated manifest has to take the target's. The CLI does the rewriting;
-/// this pins that the json spelling is kept here.
+/// migrated manifest has to take the target's. This pins that the json
+/// spelling is kept here.
 #[test]
 fn a_typed_usage_keeps_the_json_spelling_here() {
     let mut raw = info("widgets", Some("acme"), "1.0.0");
@@ -1159,8 +1166,8 @@ fn a_typed_usage_keeps_the_json_spelling_here() {
     );
 }
 
-/// A Syside json project --
-/// the extracted form of a Syside archive -- migrates with its `root`
+/// A Syside json project (the extracted form of a Syside archive)
+/// migrates with its `root`
 /// and with `sources` taken from the model-file `checksum` keys; the
 /// conventional files are silent, a stray non-model key is a warning,
 /// and the result resolves.
@@ -1186,7 +1193,7 @@ fn a_syside_json_project_migrates_with_its_root_and_model_files() {
         &MigrateOptions::default(),
         &no_targets,
     )
-    .unwrap_or_else(|report| panic!("the conversion succeeds:\n{report}"));
+    .unwrap_or_else(|report| panic!("the conversion succeeds:\n{report:?}"));
     let warnings: Vec<&str> = validated
         .warnings
         .iter()

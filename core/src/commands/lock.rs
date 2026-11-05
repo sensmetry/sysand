@@ -55,9 +55,8 @@ pub enum LockProjectError<PI: ProjectRead, PD: ProjectRead, R: ResolveRead + Deb
     LockError(#[from] LockError<PD, R>),
     /// A member inherits a group usage that names a local path.
     ///
-    /// `kpar_view::info` drops each usage's base, so such a usage would
-    /// reach the solver as a bare relative path and be joined onto the
-    /// member's directory, while a group entry's paths are relative to
+    /// The usage would reach the solver without its base and be joined onto
+    /// the member's directory, while a group entry's paths are relative to
     /// the workspace root.
     #[error(
         "member `{member}` inherits the usage `{usage}`, whose path `{path}` is relative to the \n\
@@ -308,9 +307,8 @@ fn lock_projects<
         };
 
         // Which project declared the usages below, for the conflicts a
-        // failed solve reports. A workspace lock passes each member's PURL
-        // as its `identifiers`; an ordinary single-project lock passes
-        // `None`, so its conflicts stay anonymous. Taken before `identifiers` is moved below.
+        // failed solve reports. Anonymous when `identifiers` is `None`.
+        // Taken before `identifiers` is moved below.
         let declarer = identifiers
             .as_ref()
             .and_then(|ids| ids.first())
@@ -354,9 +352,9 @@ fn lock_projects<
             name: info.name,
             publisher: info.publisher,
             version: info.version,
-            // Without the root's own metamodel the edge checks read it as an OMG project and a
-            // Syside root with a Syside dependency is a false direction
-            // error.
+            // Without the root's own metamodel the edge checks read it as an
+            // OMG project, and a Syside root with a Syside dependency is a
+            // false direction error.
             metamodel: meta.metamodel.clone(),
             exports: meta.exported_symbols().cloned().collect(),
             identifiers: identifiers
@@ -365,16 +363,10 @@ fn lock_projects<
             usages: validated_info.usage.iter().map(Usage::from).collect(),
         });
 
-        // What a toml `kpar-url` usage declared, by IRI. The view this
-        // loop iterates cannot carry it -- `InterchangeProjectUsage::Resource`
-        // is KerML's untyped usage, where the IRI *is* the identity --
-        // so it is read from the manifest here and travels on the
-        // `ResolutionInfo`, which lets the resolver check the target the
-        // same way it checks a `dir` or `kpar-path` one.
-        //
-        // A project with no `model.toml` answers `Err(NoTomlManifest)`,
-        // which is expected: a json project declares no `kpar-url`
-        // usages at all.
+        // The publisher and name a toml `kpar-url` usage declares, by IRI.
+        // The usage view cannot carry them, so they are read from the
+        // manifest and travel on the `ResolutionInfo`. A json project has no
+        // manifest and declares none.
         let declared_identities: HashMap<String, (String, String)> = project
             .manifest()
             .map(|manifest| {
@@ -387,9 +379,7 @@ fn lock_projects<
                             name,
                             url,
                         } => Some((url.to_string(), (publisher.to_string(), name.to_string()))),
-                        // A standard-library usage declares no
-                        // publisher, so there is nothing to check it
-                        // against.
+                        // Nothing to check without a declared publisher.
                         _ => None,
                     })
                     .collect()
@@ -467,10 +457,8 @@ pub fn do_lock_extend<
 /// relative to the workspace root.
 ///
 /// `ctx` still supplies the root a solved dependency's sources are
-/// relativized against, which is a *different* thing from the base its
-/// usages resolve against. A `ctx` with neither a project nor a workspace
-/// makes `LocalSrcProject::sources` panic, so a caller passing bases
-/// must still give one.
+/// relativized against, which is separate from the base its usages resolve
+/// against. A `ctx` with neither a project nor a workspace panics.
 pub fn do_lock_extend_with_bases<
     PD: ProjectRead + Debug,
     I: IntoIterator<Item = (crate::resolve::ResolutionInfo, DeclaredBy)>,
@@ -639,11 +627,10 @@ fn lock_extend<
 
     check_typed_usages(typed_usages, &solved, respelled).map_err(LockError::TypedUsageMismatch)?;
 
-    // The metamodel edge checks, run before the lockfile is written.
-    // Not a full `Lock::validate`: a lock at this point legitimately fails
-    // the other rules: an input project may carry no identifier, and a
-    // source may lie outside the project root. Release mismatches are warnings, reported here;
-    // a lockfile's validation runs on every read.
+    // Only the metamodel edge checks, not a full `Lock::validate`: a lock at
+    // this point legitimately fails the other rules, since an input project
+    // may carry no identifier and a source may lie outside the project root.
+    // Release mismatches are only warnings here.
     for mismatch in lock
         .check_metamodel_edges()
         .map_err(LockError::MetamodelDirection)?
@@ -679,11 +666,8 @@ impl TypedSpelling {
     }
 
     /// [`Self::of`], and also a toml `kpar-url` usage that declares a
-    /// publisher and name: the view cannot carry them (the resource usage
-    /// is KerML's untyped one, where the IRI is the identity), so they
-    /// travel on the [`crate::resolve::ResolutionInfo`], read off
-    /// the manifest in [`do_lock_projects_with_bases`]. The target is then
-    /// checked exactly as a `dir` or `kpar-path` target is.
+    /// publisher and name, which travel on the
+    /// [`crate::resolve::ResolutionInfo`].
     fn of_info(info: &crate::resolve::ResolutionInfo) -> Option<Self> {
         if let Some(spelling) = Self::of(info.usage()) {
             return Some(spelling);
@@ -774,22 +758,19 @@ pub fn do_lock_local_editable_respelling<
     )
 }
 
-/// Treats a project at `path` as an editable project and solves for its dependencies.
-#[cfg(feature = "filesystem")]
 /// Lock a whole workspace: every member, in one solve, into one lockfile.
 ///
-/// A single lockfile is written for the whole workspace, in the workspace
-/// root. It records every project of the solved graph by the identifier
-/// `pkg:sysand/<publisher>/<name>`, members included.
+/// The lockfile is written in the workspace root. It records every project of
+/// the solved graph by the identifier `pkg:sysand/<publisher>/<name>`, members
+/// included.
 ///
-/// `workspace` is loaded with
-/// [`crate::workspace::model_toml::MemberChecks::All`]: the lockfile and
-/// `.sysand` live at the workspace root, not in the members; see that
-/// type's documentation.
+/// `workspace` is expected to be loaded with
+/// [`crate::workspace::model_toml::MemberChecks::All`].
 ///
 /// **`ctx.sources_root()` must be the workspace root.** Every solved
 /// local dependency's `src_path` is relativized against it. Checked with
 /// a `debug_assert`.
+#[cfg(feature = "filesystem")]
 #[cfg(feature = "filesystem")]
 pub fn do_lock_workspace<PD: ProjectRead + Debug, R: ResolveRead<ProjectStorage = PD> + Debug>(
     workspace: &crate::workspace::model_toml::Workspace,
@@ -831,9 +812,7 @@ fn lock_workspace<PD: ProjectRead + Debug, R: ResolveRead<ProjectStorage = PD> +
         "a workspace lockfile's source paths are relative to its root"
     );
 
-    // The base survives on `Member::project`, and is lost by the time
-    // `do_lock_projects_with_bases` reads a project's usages through
-    // `get_info` -- so the check belongs here, before anything is built.
+    // The usage base is only available on `Member::project`, so check here.
     for member in workspace.members() {
         for located in &member.project.usages {
             if located.base == crate::manifest::usage::UsageBase::WorkspaceRoot
@@ -849,9 +828,7 @@ fn lock_workspace<PD: ProjectRead + Debug, R: ResolveRead<ProjectStorage = PD> +
     }
 
     let table = std::sync::Arc::new(workspace.table().clone());
-    // The resolver reads a member's `dir` target as a project of its
-    // own, and a member that inherits a key cannot be read without the
-    // table.
+    // A member that inherits keys cannot be read without the table.
     let resolver = resolver.within_workspace(workspace.root().to_owned(), table.clone());
     let members: Vec<EditableLocalSrcProject> = workspace
         .members()
@@ -884,6 +861,7 @@ fn lock_workspace<PD: ProjectRead + Debug, R: ResolveRead<ProjectStorage = PD> +
     )
 }
 
+/// Treats a project at `path` as an editable project and solves for its dependencies.
 #[cfg(feature = "filesystem")]
 pub fn do_lock_local_editable<
     P: AsRef<Utf8UnixPath>,

@@ -305,7 +305,6 @@ def deploy() -> None:
         "-DskipTests=true",
         "-DskipITs=true",
         "-Dmaven.compiler.skip=true",
-        # "-Dinvoker.skip=true",
         "deploy",
     ]
     print("Deploying the Java library to a Maven repository...")

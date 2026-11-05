@@ -4,12 +4,17 @@
 //! What reading a manifest can report: the collected diagnostics a
 //! validation produces, and the warnings that do not stop it.
 //!
-//! Validation collects problems: one read of a
-//! malformed manifest names every problem it has. A validating function
-//! returns `Result<Validated<T>, Report>`: the `Report` on the error side
-//! lists every problem found, including the warnings, and the
+//! Validation collects problems: one read of a malformed manifest names
+//! every problem it has. A validating function returns
+//! `Result<Validated<T>, Diagnostics>`: the `Diagnostics` on the error
+//! side lists every problem found, including the warnings, and the
 //! `Validated<T>` on the success side carries the value together with the
 //! warnings.
+//!
+//! Neither names a file: what is read is one file, and whoever read it
+//! knows which. A [`Report`] is the diagnostics together with the name of
+//! that file, made by [`Diagnostics::in_file`], so a report is about
+//! exactly one file.
 
 use std::fmt::Display;
 use std::ops::Range;
@@ -35,16 +40,14 @@ impl Display for Severity {
     }
 }
 
-/// Where in which file a diagnostic was produced.
+/// Where in its file a diagnostic was produced. Which file is the
+/// [`Report`]'s.
 ///
-/// The line and the column are resolved when the position is built, by
-/// the [`crate::manifest::spans::Source`] whose text the span measures;
-/// the byte span a TOML document reports is kept alongside them for a
-/// renderer that wants to underline the offending key. `serde_json`
-/// reports a line and a column and no offset, hence [`Position::at`].
+/// The byte span a TOML document reports is kept alongside the line and
+/// column for a renderer that wants to underline the offending key.
+/// `serde_json` reports no offset, hence [`Position::at`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Position {
-    pub file: String,
     /// 1-based.
     pub line: usize,
     /// 1-based, counted in characters.
@@ -55,19 +58,12 @@ pub struct Position {
 
 impl Position {
     /// A position reported as a line and a column, as `serde_json` does.
-    pub fn at(file: impl Into<String>, line: usize, column: usize) -> Self {
+    pub fn at(line: usize, column: usize) -> Self {
         Self {
-            file: file.into(),
             line,
             column,
             span: None,
         }
-    }
-}
-
-impl Display for Position {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{}:{}", self.file, self.line, self.column)
     }
 }
 
@@ -117,23 +113,26 @@ impl Diagnostic {
     }
 }
 
-impl Display for Diagnostic {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.position {
-            Some(position) => write!(f, "{position}: {}", self.message),
-            None => f.write_str(&self.message),
+impl Diagnostic {
+    /// The diagnostic as one line about `file`: `file:line:column:
+    /// message`, or `` `file`: message `` when it has no position.
+    pub fn in_file<'a>(&'a self, file: &'a str) -> impl Display + 'a {
+        InFile {
+            file,
+            diagnostic: self,
+            unpositioned: Unpositioned::Named,
         }
     }
 }
 
 /// Every diagnostic one read produced, in the order they were found.
 ///
-/// A report holds errors and warnings together; [`Report::into_result`]
+/// Errors and warnings are held together; [`Diagnostics::into_result`]
 /// decides whether the read failed.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Report(Vec<Diagnostic>);
+pub struct Diagnostics(Vec<Diagnostic>);
 
-impl Report {
+impl Diagnostics {
     pub fn new() -> Self {
         Self(Vec::new())
     }
@@ -179,12 +178,13 @@ impl Report {
 
     /// Put the diagnostics in the order the file reads.
     ///
-    /// Validation finds problems in the order its checks run. Sorting once at the end of a read lets a report with
-    /// several problems be fixed from top to bottom.
+    /// Validation finds problems in the order its checks run; sorting lets
+    /// a report be fixed from top to bottom.
     ///
     /// The sort is stable, so two diagnostics about the same key keep the
-    /// order the checks found them in, and a diagnostic with no position
-    /// sorts after every diagnostic that has one.
+    /// order the checks found them in. A diagnostic with a line and column
+    /// but no span sorts after those with one, and a diagnostic with no
+    /// position sorts last.
     pub fn sort_by_position(&mut self) {
         self.0.sort_by_key(|diagnostic| {
             diagnostic
@@ -197,6 +197,14 @@ impl Report {
                     }
                 })
         });
+    }
+
+    /// These diagnostics, as found in `file`.
+    pub fn in_file(self, file: impl Into<Box<str>>) -> Report {
+        Report {
+            file: file.into(),
+            diagnostics: self.0,
+        }
     }
 
     /// The end of every validating function: `value` is only produced if
@@ -212,19 +220,58 @@ impl Report {
     }
 }
 
-impl FromIterator<Diagnostic> for Report {
+impl FromIterator<Diagnostic> for Diagnostics {
     fn from_iter<I: IntoIterator<Item = Diagnostic>>(iter: I) -> Self {
         Self(iter.into_iter().collect())
     }
 }
 
+/// The diagnostics of one file, under the name its messages call it by.
+///
+/// Made only by [`Diagnostics::in_file`]: a report is about exactly one
+/// file, so a position in it needs no file of its own.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Report {
+    file: Box<str>,
+    diagnostics: Vec<Diagnostic>,
+}
+
+impl Report {
+    pub fn file(&self) -> &str {
+        &self.file
+    }
+
+    pub fn diagnostics(&self) -> &[Diagnostic] {
+        &self.diagnostics
+    }
+
+    pub fn errors(&self) -> impl Iterator<Item = &Diagnostic> {
+        self.diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.severity == Severity::Error)
+    }
+
+    pub fn warnings(&self) -> impl Iterator<Item = &Diagnostic> {
+        self.diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.severity == Severity::Warning)
+    }
+}
+
+/// One diagnostic per line. A message without a position is about the
+/// file as a whole, which is named above the report where it is shown.
 impl Display for Report {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for (index, diagnostic) in self.0.iter().enumerate() {
+        for (index, diagnostic) in self.diagnostics.iter().enumerate() {
             if index > 0 {
                 f.write_str("\n")?;
             }
-            write!(f, "{diagnostic}")?;
+            let line = InFile {
+                file: &self.file,
+                diagnostic,
+                unpositioned: Unpositioned::Bare,
+            };
+            write!(f, "{line}")?;
         }
         Ok(())
     }
@@ -471,8 +518,8 @@ impl Display for ReadWarning {
     }
 }
 
-/// A manifest that declares a metamodel outside both recognized families is validated against the OMG
-/// schema, and every schema complaint says that the metamodel may be the
+/// The suffix of a schema complaint about a project that declares a
+/// metamodel outside both recognized families: the metamodel may be the
 /// reason.
 pub fn unsupported_metamodel_suffix(metamodel: &str) -> String {
     format!(
@@ -496,6 +543,40 @@ fn in_family_host(value: &str) -> bool {
     [MetamodelFamily::Omg, MetamodelFamily::Syside]
         .into_iter()
         .any(|family| family.host().eq_ignore_ascii_case(host))
+}
+
+/// How [`InFile`] writes a diagnostic that has no position.
+#[derive(Clone, Copy)]
+enum Unpositioned {
+    /// Prefixed by the file: the line stands alone.
+    Named,
+    /// The message alone: the file is named above it.
+    Bare,
+}
+
+struct InFile<'a> {
+    file: &'a str,
+    diagnostic: &'a Diagnostic,
+    unpositioned: Unpositioned,
+}
+
+impl Display for InFile<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self {
+            file,
+            diagnostic,
+            unpositioned,
+        } = self;
+        match (&diagnostic.position, unpositioned) {
+            (Some(at), _) => write!(
+                f,
+                "{file}:{}:{}: {}",
+                at.line, at.column, diagnostic.message
+            ),
+            (None, Unpositioned::Named) => write!(f, "`{file}`: {}", diagnostic.message),
+            (None, Unpositioned::Bare) => f.write_str(&diagnostic.message),
+        }
+    }
 }
 
 #[cfg(test)]

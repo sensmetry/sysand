@@ -113,10 +113,8 @@ pub fn parse_metamodel(value: &str, release: MetamodelVersionCli) -> Result<Know
 }
 
 /// The metamodel `init` writes: the argument, or else the default
-/// group's, which is the one case where none given is not an error.
-///
-/// An argument that is given wins over the workspace: a group is what a
-/// project inherits when it says nothing.
+/// group's, which is the one case where none given is not an error. A
+/// given argument wins over the workspace.
 fn metamodel_for(
     metamodel: Option<KnownMetamodel>,
     member: Option<&Member>,
@@ -156,8 +154,8 @@ struct Member {
 
 /// `init` in a workspace creates the project and appends it to
 /// `members`. `Ok(Some(..))` is the root to append to and the path to
-/// write; `Ok(None)` is every case where nothing is
-/// appended -- no workspace, or an excluded directory.
+/// write; `Ok(None)` is every case where nothing is appended: no
+/// workspace, or an excluded directory.
 ///
 /// The table is read rather than the workspace loaded, so an unrelated
 /// member's mistake does not block `init`.
@@ -169,9 +167,8 @@ fn workspace_member(target: &Utf8Path) -> Result<Option<Member>> {
         return Ok(None);
     };
 
-    // The workspace root must not contain a project. `do_init` refuses
-    // this anyway, since the root holds a `model.toml`; this gives the
-    // reason.
+    // `do_init` would refuse this anyway as the root holds a `model.toml`;
+    // this gives the reason.
     if target == root {
         bail!(
             "the workspace root must not contain a project;\n\
@@ -198,10 +195,8 @@ fn workspace_member(target: &Utf8Path) -> Result<Option<Member>> {
         // a standalone project, which `members` must not list.
         Region::Excluded(_) => Ok(None),
         Region::Unlisted => {
-            // A project under the root in neither list is a hard error.
-            // Without this the
-            // author is told `model.toml` already exists, which is true
-            // and says nothing about the workspace the directory sits in.
+            // A project under the root in neither list is a hard error;
+            // `model.toml` already existing says nothing about the workspace.
             if is_project_file(&target)? {
                 bail!(
                     "the project at `{target}` lies under the workspace at `{root}`\n\
@@ -219,8 +214,8 @@ fn workspace_member(target: &Utf8Path) -> Result<Option<Member>> {
     }
 }
 
-/// Add `path` to the root's `members`, through the editor, so that the
-/// rest of the file -- comments included -- is left alone.
+/// Add `path` to the root's `members`, leaving the rest of the file,
+/// comments included, alone.
 fn append_member(root: &Utf8Path, path: &str) -> Result<()> {
     let file = root.join(MODEL_TOML_FILE);
     let text = wrapfs::read_to_string(&file)?;

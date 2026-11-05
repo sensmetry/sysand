@@ -5,8 +5,8 @@
 //!
 //! The tests that write a legacy `.project.json` pair by hand are the
 //! coverage of the json format, and most of them assert on
-//! `.meta.json` -- the checksum and symbol maps a `model.toml` project
-//! does not have.
+//! `.meta.json`, the checksum and symbol maps a `model.toml` project does
+//! not have.
 //!
 //! The toml tests are at the end of the file. Between them they cover
 //! what `include` and `exclude` do to a manifest, and which flags they
@@ -20,7 +20,6 @@ use predicates::prelude::*;
 use sysand_core::model::{
     InterchangeProjectChecksumRaw, InterchangeProjectMetadataRaw, KerMlChecksumAlg,
 };
-// use predicates::prelude::*;
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
 mod common;
@@ -63,8 +62,6 @@ fn include_and_exclude_simple() -> Result<(), Box<dyn std::error::Error>> {
 
     let meta: InterchangeProjectMetadataRaw =
         serde_json::from_reader(fs::File::open(cwd.join(".meta.json"))?)?;
-
-    // let meta = meta.validate()?;
 
     assert_eq!(meta.index, Some(IndexMap::new()));
     assert!(meta.checksum.is_none_or(|x| x.is_empty()));
@@ -273,8 +270,6 @@ fn include_and_exclude_both_nested() -> Result<(), Box<dyn std::error::Error>> {
     let meta: InterchangeProjectMetadataRaw =
         serde_json::from_reader(fs::File::open(cwd.join(".meta.json"))?)?;
 
-    // let meta = meta.validate()?;
-
     assert_eq!(
         meta.index,
         Some(IndexMap::from([
@@ -311,8 +306,6 @@ fn include_and_exclude_both_nested() -> Result<(), Box<dyn std::error::Error>> {
 
     let meta: InterchangeProjectMetadataRaw =
         serde_json::from_reader(fs::File::open(cwd.join(".meta.json"))?)?;
-
-    // let meta = meta.validate()?;
 
     assert_eq!(meta.index, Some(IndexMap::new()));
     assert!(meta.checksum.is_none_or(|x| x.is_empty()));
@@ -352,8 +345,6 @@ fn include_and_exclude_single_nested() -> Result<(), Box<dyn std::error::Error>>
     let meta: InterchangeProjectMetadataRaw =
         serde_json::from_reader(fs::File::open(cwd.join(".meta.json"))?)?;
 
-    // let meta = meta.validate()?;
-
     assert_eq!(
         meta.index,
         Some(IndexMap::from([
@@ -390,8 +381,6 @@ fn include_and_exclude_single_nested() -> Result<(), Box<dyn std::error::Error>>
 
     let meta: InterchangeProjectMetadataRaw =
         serde_json::from_reader(fs::File::open(cwd.join(".meta.json"))?)?;
-
-    // let meta = meta.validate()?;
 
     assert_eq!(
         meta.index,
@@ -430,8 +419,6 @@ fn include_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
     let meta: InterchangeProjectMetadataRaw =
         serde_json::from_reader(fs::File::open(cwd.join(".meta.json"))?)?;
 
-    // let meta = meta.validate()?;
-
     assert_eq!(meta.index, Some(IndexMap::new()));
     assert!(meta.checksum.is_none_or(|x| x.is_empty()));
 
@@ -451,8 +438,6 @@ fn exclude_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
 
     let meta: InterchangeProjectMetadataRaw =
         serde_json::from_reader(fs::File::open(cwd.join(".meta.json"))?)?;
-
-    // let meta = meta.validate()?;
 
     assert_eq!(meta.index, Some(IndexMap::new()));
     assert!(meta.checksum.is_none_or(|x| x.is_empty()));

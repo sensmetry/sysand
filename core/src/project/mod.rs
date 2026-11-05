@@ -33,7 +33,6 @@ use crate::{
     utils::lowercase_hex,
 };
 
-// Implementations
 #[cfg(all(feature = "filesystem", feature = "networking"))]
 pub mod any;
 pub mod editable;
@@ -49,13 +48,10 @@ pub mod memory;
 pub mod null;
 #[cfg(all(feature = "filesystem", feature = "networking"))]
 pub mod reqwest_kpar_download;
-// TODO: Reintroduce this module
-// #[cfg(all(feature = "filesystem", feature = "networking"))]
-// pub mod reqwest_kpar_ranged;
+// TODO: reintroduce `reqwest_kpar_ranged`
 #[cfg(feature = "networking")]
 pub mod reqwest_src;
 
-// Generic implementations
 pub mod cached;
 pub mod reference;
 
@@ -117,9 +113,7 @@ pub enum CanonicalizationError<ReadError: ErrorBound> {
 }
 
 impl<E: ErrorBound> CanonicalizationError<E> {
-    /// Map the inner `ProjectRead` error type while leaving the `FileRead`
-    /// variant untouched. Convenient when forwarding a canonicalization
-    /// result across a wrapper type that rewraps the underlying read error.
+    /// Map the inner `ProjectRead` error type, leaving `FileRead` untouched.
     pub fn map_project_read<F, E2>(self, f: F) -> CanonicalizationError<E2>
     where
         F: FnOnce(E) -> E2,
@@ -137,34 +131,30 @@ impl<E: ErrorBound> CanonicalizationError<E> {
 pub enum ManifestError<ReadError> {
     #[error(transparent)]
     Project(ReadError),
-    /// The project is not written as a `model.toml`. A json project's
-    /// documents can be converted into the manifest model, but the
-    /// conversion has failures of its own and belongs with the command
-    /// that reports them.
+    /// The project is not written as a `model.toml`. Converting a json
+    /// project's documents can fail, so it is left to the command that
+    /// reports those failures.
     #[error("this project has no `model.toml` manifest")]
     NoTomlManifest,
 }
 
 /// Why a manifest could not be stored.
 ///
-/// The same shape as [`ManifestError`], and for the same reason: a
-/// default trait body cannot produce a `Self::Error`, which belongs to
-/// the implementation.
+/// The same shape as [`ManifestError`]: a default trait body cannot produce
+/// a `Self::Error`, which belongs to the implementation.
 #[derive(Error, Debug)]
 pub enum ManifestWriteError<WriteError> {
     #[error(transparent)]
     Project(WriteError),
-    /// The project has nowhere to put one. A KPAR, a remote source
-    /// project, an index entry: their contents are not this Sysand's to
-    /// write.
+    /// The project has nowhere to put one (a KPAR, a remote source project,
+    /// an index entry).
     #[error("this project cannot store a `model.toml` manifest")]
     Unsupported,
 }
 
 impl<E: ErrorBound> ManifestWriteError<E> {
-    /// Map the inner write error while leaving the rest alone, as
-    /// [`ManifestError::map_project_read`] does. The `ProjectMut` derive
-    /// needs it to rewrap a variant's error.
+    /// Map the inner write error, leaving the rest alone. Used by the
+    /// `ProjectMut` derive to rewrap a variant's error.
     pub fn map_project_write<F, E2>(self, f: F) -> ManifestWriteError<E2>
     where
         F: FnOnce(E) -> E2,
@@ -178,9 +168,8 @@ impl<E: ErrorBound> ManifestWriteError<E> {
 }
 
 impl<E: ErrorBound> ManifestError<E> {
-    /// Map the inner read error while leaving the rest alone, as
-    /// [`CanonicalizationError::map_project_read`] does. The
-    /// `ProjectRead` derive needs it to rewrap a variant's error.
+    /// Map the inner read error, leaving the rest alone. Used by the
+    /// `ProjectRead` derive to rewrap a variant's error.
     pub fn map_project_read<F, E2>(self, f: F) -> ManifestError<E2>
     where
         F: FnOnce(E) -> E2,
@@ -276,11 +265,10 @@ pub trait ProjectRead {
     /// it holds. False for a source that names one project outright: a path,
     /// a URL, a git checkout, a source override.
     ///
-    /// This is what an unconstrained usage defaults a version constraint on.
-    /// Where there is a choice to make, `*` is how it is made -- like cargo,
-    /// it selects every release but no prerelease, so a prerelease is only
-    /// ever selected by a constraint that names one. Where there is no choice,
-    /// defaulting a constraint could only reject the one project on offer.
+    /// An unconstrained usage defaults its version constraint to `*` when
+    /// this is true: like cargo, that selects every release but no
+    /// prerelease. When false, defaulting could only reject the one project
+    /// on offer.
     fn source_may_offer_multiple_versions(&self) -> bool;
 
     // Optional and helpers
@@ -292,29 +280,25 @@ pub trait ProjectRead {
 
     /// Which manifest this project is written in.
     ///
-    /// The default is [`ProjectFormat::Json`], which is right for a
-    /// project that has just the two json documents, such as a KPAR or
-    /// an index entry.
-    ///
-    /// It is *not* right for a wrapper: a type that forwards the rest of
-    /// this trait to another project must forward this too, or it will
-    /// claim json for a `model.toml` project it is holding.
+    /// The default is [`ProjectFormat::Json`], right for a project that has
+    /// just the two json documents, such as a KPAR or an index entry. A
+    /// wrapper must forward this to the project it holds, or it claims json
+    /// for a `model.toml` project.
     fn format(&self) -> Result<ProjectFormat, Self::Error> {
         Ok(ProjectFormat::Json)
     }
 
     /// The project's own manifest.
     ///
-    /// Only a `model.toml` project has one. The view drops what a
-    /// `.project.json` has no room for -- the documentation and
-    /// repository urls, `stdlib`, and, in a built archive, a usage's
-    /// declared kind.
+    /// Only a `model.toml` project has one. The KPAR view drops what a
+    /// `.project.json` has no room for: the documentation and repository
+    /// urls, `stdlib`, and, in a built archive, a usage's declared kind.
     ///
-    /// The default refuses. Converting a json project's documents into
-    /// the manifest model is a command of its own: it fails for a
-    /// `resource` usage with no `model.toml` equivalent, for a `checksum`
-    /// listing files `sources` cannot hold, and for values that never
-    /// had to satisfy the manifest's rules.
+    /// The default refuses. Converting a json project's documents into the
+    /// manifest model can fail (a `resource` usage with no `model.toml`
+    /// equivalent, a `checksum` listing files `sources` cannot hold, values
+    /// that never satisfied the manifest's rules), so it is a command of its
+    /// own.
     fn manifest(
         &self,
     ) -> Result<crate::manifest::project::ResolvedProject, ManifestError<Self::Error>> {
@@ -324,9 +308,8 @@ pub trait ProjectRead {
     /// The project's manifest as a document.
     ///
     /// [`ProjectRead::manifest`] returns the *values*, with inheritance
-    /// markers followed; this returns what the file says, comments and
-    /// key order included. An editor needs the second, and a slice that
-    /// confuses them loses every comment in the file.
+    /// markers followed; this returns what the file says, comments and key
+    /// order included, which is what an editor needs.
     ///
     /// **The document is validated before it is handed back.** Parsing
     /// TOML is not reading a manifest: a file written for a
@@ -687,7 +670,7 @@ pub trait ProjectReadAsync {
     /// multiple ones are listed they should aim to be in
     /// some typical order of preference.
     ///
-    /// May be empty if no valid sources are known.
+    /// See [`ProjectRead::sources`].
     // TODO: should we require the checksum to be verified (i.e. actual, instead of
     // expected)
     fn sources_async(
@@ -702,11 +685,10 @@ pub trait ProjectReadAsync {
     /// it holds. False for a source that names one project outright: a path,
     /// a URL, a git checkout, a source override.
     ///
-    /// This is what an unconstrained usage defaults a version constraint on.
-    /// Where there is a choice to make, `*` is how it is made -- like cargo,
-    /// it selects every release but no prerelease, so a prerelease is only
-    /// ever selected by a constraint that names one. Where there is no choice,
-    /// defaulting a constraint could only reject the one project on offer.
+    /// An unconstrained usage defaults its version constraint to `*` when
+    /// this is true: like cargo, that selects every release but no
+    /// prerelease. When false, defaulting could only reject the one project
+    /// on offer.
     fn source_may_offer_multiple_versions(&self) -> bool;
 
     // Optional and helpers
@@ -1139,17 +1121,15 @@ pub trait ProjectMut: ProjectRead {
 
     /// Store a `model.toml` manifest.
     ///
-    /// The document is what [`crate::manifest::edit::render_new`] built
-    /// or [`crate::manifest::edit::open`] parsed: one document type
-    /// serves generated and edited files, so a writer takes the type.
+    /// The document is what [`crate::manifest::edit::render_new`] built or
+    /// [`crate::manifest::edit::open`] parsed.
     ///
     /// The default refuses.
     ///
-    /// `overwrite` governs a manifest that is already there, as it does
-    /// for the two json documents. Whether a project that holds json
-    /// documents accepts a manifest beside them is the implementation's
-    /// to decide: for a directory it is the ambiguity every reader
-    /// refuses, so the filesystem implementation says no.
+    /// `overwrite` governs a manifest that is already there, as for the two
+    /// json documents. Whether a project that holds json documents accepts a
+    /// manifest beside them is up to the implementation; a directory refuses,
+    /// as it would be ambiguous.
     fn put_manifest_document(
         &mut self,
         document: &DocumentMut,
@@ -1159,8 +1139,6 @@ pub trait ProjectMut: ProjectRead {
         Err(ManifestWriteError::Unsupported)
     }
 }
-
-// ----- Blanket trait impls -----
 
 impl<T: ProjectMut> ProjectMut for &mut T {
     fn put_info(
@@ -1197,9 +1175,7 @@ impl<T: ProjectMut> ProjectMut for &mut T {
         (**self).put_project(info, meta, overwrite)
     }
 
-    // Without this the call would fall through to the trait's default
-    // and answer `Unsupported` for a project that can store one --
-    // silently, since it is not a compile failure.
+    // Must be forwarded: the trait default answers `Unsupported`.
     fn put_manifest_document(
         &mut self,
         document: &DocumentMut,

@@ -797,7 +797,7 @@ fn lazy_layer_warns_once_for_an_expired_record_that_keeps_failing() {
     let first = get(&runtime, &policy, &url);
     // The hint was emitted (and latched) during the first escalation, so
     // the second identical failure cannot repeat it: `take_expiry_warning`
-    // returns `None` once the flag is set (covered by the unit test above).
+    // returns `None` once the flag is set.
     assert!(stored_bearer_for(&runtime, &policy, &url).expiry_warning_emitted());
     let second = get(&runtime, &policy, &url);
 

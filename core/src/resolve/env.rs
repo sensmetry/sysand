@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-// Resolve IRIs in an environment
 use crate::{
     env::{ReadEnvironment, ReadEnvironmentAsync},
     resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead, ResolveReadAsync},
@@ -15,9 +14,9 @@ pub struct EnvResolver<Env> {
 }
 
 /// `versions`, highest first by semver precedence (the solver takes the
-/// first candidate a source lists). The sort is stable: versions of equal precedence (differing in
-/// build metadata only) keep their order. Versions that are not semver, and
-/// those that could not be read, come last, in their order.
+/// first candidate a source lists). The sort is stable, so versions of equal
+/// precedence keep their order. Versions that are not semver, and those that
+/// could not be read, come last, in their order.
 // TODO: avoid reparsing: the solver parses each version again. Make
 // `ReadEnvironment::versions` return `semver::Version`, so that each
 // environment is responsible for its versions being valid

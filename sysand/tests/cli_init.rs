@@ -98,10 +98,8 @@ fn invalid_license_error_is_consistent() -> Result<(), Box<dyn std::error::Error
 
 /// The license goes in verbatim.
 ///
-/// `render_new` writes an SPDX expression through its `Display`, and
-/// `spdx::Expression`'s `Display` is the text it parsed -- whitespace
-/// included. So this is an echo, and pinning it is what would catch the
-/// day it stops being one.
+/// `spdx::Expression`'s `Display` is the text it parsed, whitespace
+/// included, so this is an echo; pinning it catches that changing.
 #[test]
 fn sysand_init_writes_the_license_expression_as_given() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = init_ok(&["--license", "Apache-2.0 OR    MIT"])?;
@@ -714,8 +712,8 @@ fn init_in_a_workspace_appends_the_member() -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
-/// An absolute entry would be refused by `normalize_relative`, so this
-/// fails loudly rather than silently writing the wrong thing.
+/// An absolute entry would be refused, so this fails loudly rather than
+/// silently writing the wrong thing.
 #[test]
 fn init_appends_the_path_relative_to_the_root() -> Result<(), Box<dyn std::error::Error>> {
     let dir = workspace(WORKSPACE)?;
@@ -807,9 +805,9 @@ fn init_at_the_workspace_root_is_refused() -> Result<(), Box<dyn std::error::Err
     Ok(())
 }
 
-/// A project under the root in neither list is a hard error. Otherwise
-/// the author is told
-/// `model.toml` already exists, which says nothing about the workspace.
+/// A project under the root in neither list is a hard error. Otherwise the
+/// author is only told `model.toml` already exists, which says nothing
+/// about the workspace.
 #[test]
 fn init_in_an_unlisted_existing_project_is_refused() -> Result<(), Box<dyn std::error::Error>> {
     let dir = workspace(WORKSPACE)?;
@@ -841,10 +839,10 @@ fn init_in_a_workspace_with_a_broken_member_still_works() -> Result<(), Box<dyn 
     Ok(())
 }
 
-/// The target must be one that reaches `do_init` and *then* fails --
-/// an empty directory with a publisher the manifest refuses. A target
-/// that already holds a project would be refused as unlisted first, and
-/// the test would pass without the ordering being right.
+/// The target must be one that is created and *then* fails: an empty
+/// directory with a publisher the manifest refuses. A target that already
+/// holds a project would be refused as unlisted first, and the test would
+/// pass without the ordering being right.
 #[test]
 fn init_does_not_append_when_the_project_could_not_be_created()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -1103,8 +1101,7 @@ const SYSIDE_KERML: &str = "https://www.sysand.com/spec/KerML/20250201";
 
 /// The Syside layout, byte for byte: `sources` listing one file, `root`
 /// naming it, and the file itself with a package declaration. The
-/// project then reads without a warning and builds -- the whole strand
-/// from `init`.
+/// project then reads without a warning and builds.
 #[test]
 fn init_with_a_syside_metamodel_writes_the_syside_layout() -> Result<(), Box<dyn std::error::Error>>
 {

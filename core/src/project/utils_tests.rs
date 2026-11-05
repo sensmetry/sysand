@@ -405,8 +405,7 @@ fn a_usage_may_expect_a_target_with_no_publisher() {
         .check(None, "widgets")
         .expect("neither side has a publisher");
     // A toml usage's mismatch is a `Spelling`, which names both halves of
-    // both sides -- including the publisher the usage expected not to
-    // find.
+    // both sides, including the publisher the usage expected not to find.
     assert_matches!(
         ExpectedIdentity::resolving(None, "widgets".to_owned())
             .declared_in(UsageOrigin::Toml)

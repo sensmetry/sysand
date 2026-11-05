@@ -151,7 +151,7 @@ fn a_view_usage_is_one_sysand_accepts() {
 /// The identity of a usage is guaranteed encodable, but its *path* is
 /// not checked at all when the manifest is read, unlike `sources`. So a
 /// manifest the reader accepts can still produce a view that no consumer
-/// validates -- with a message that names neither the key nor the file.
+/// validates, with a message that names neither the key nor the file.
 ///
 /// Pinned as it stands.
 #[test]
@@ -169,24 +169,30 @@ fn a_usage_path_the_manifest_accepts_may_still_not_validate() {
 
 use std::collections::{BTreeMap, HashSet};
 
+use crate::manifest::diagnostics::KeyLocation;
 use crate::manifest::project::ProjectManifest;
+use crate::manifest::reader::TableReader;
 use crate::manifest::spans::Source;
 
 /// A `[project]` whose body is `body`, read and resolved outside any
-/// workspace -- which is what a standalone `model.toml` project is.
+/// workspace, as a standalone `model.toml` project is.
 fn resolved(body: &str) -> ResolvedProject {
     let text = format!("[project]\n{body}");
-    let (table, positions) = Source::new("model.toml", &text)
-        .read()
-        .expect("the test document parses");
-    ProjectManifest::validate(&table, &positions)
-        .expect("the manifest validates")
-        .into_parts()
-        .0
-        .resolve(None)
-        .expect("the manifest resolves")
-        .into_parts()
-        .0
+    let source = Source::new("model.toml", text.as_str());
+    let table = source.read().expect("the test document parses");
+    ProjectManifest::validate(&TableReader::new(
+        table.get_ref(),
+        None,
+        KeyLocation::TopLevel,
+        &source,
+    ))
+    .expect("the manifest validates")
+    .into_parts()
+    .0
+    .resolve(None)
+    .expect("the manifest resolves")
+    .into_parts()
+    .0
 }
 
 /// The keys `[project]` requires: the three every metamodel needs, the
@@ -305,8 +311,8 @@ fn a_stdlib_project_keeps_its_publisher_in_the_view() {
     assert_eq!(info.publisher.as_deref(), Some("OMG"));
 }
 
-/// "`urls.repository` and `urls.documentation` have no counterpart in
-/// `.project.json` and are dropped."
+/// `urls.repository` and `urls.documentation` have no counterpart in
+/// `.project.json` and are dropped.
 #[test]
 fn documentation_and_repository_urls_are_dropped() {
     let info = info(&resolved(FULL));
@@ -526,7 +532,7 @@ fn meta_json_from_the_view_validates() {
     let project = resolved(FULL);
     let files = files(&[("a.sysml", "part def A;")]);
     let (_, meta) = view(&project, &jiff::Timestamp::now(), reader(&files)).expect("readable");
-    // The strict validator -- not the partial one, which accepts a
+    // The strict validator, not the partial one, which accepts a
     // `metamodel` that is no URL and a `created` that is no timestamp.
     meta.validate().expect("a valid `.meta.json`");
 }
@@ -542,10 +548,15 @@ fn an_unrecognized_metamodel_never_reaches_the_view() {
             ""
         )
     );
-    let (table, positions) = Source::new("model.toml", &text)
-        .read()
-        .expect("the document parses");
-    ProjectManifest::validate(&table, &positions).expect_err("the manifest is rejected");
+    let source = Source::new("model.toml", text.as_str());
+    let table = source.read().expect("the document parses");
+    ProjectManifest::validate(&TableReader::new(
+        table.get_ref(),
+        None,
+        KeyLocation::TopLevel,
+        &source,
+    ))
+    .expect_err("the manifest is rejected");
 }
 
 #[test]
@@ -784,8 +795,8 @@ fn resolved_of_text_still_refuses_without_a_table() {
     );
 }
 
-/// The view's `checksum` is `Some(map)`, never `None` -- a project with
-/// no sources gets an *empty* map.
+/// The view's `checksum` is `Some(map)`, never `None`: a project with no
+/// sources gets an empty map.
 ///
 /// A `model.toml` project always knows which files it lists, so "no
 /// checksums recorded" and "no sources" are the same statement, where a

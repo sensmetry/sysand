@@ -1,26 +1,28 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use toml::Spanned;
+use toml::de::DeTable;
+
 use crate::manifest::common::InheritFrom;
-use crate::manifest::diagnostics::{KeyLocation, Report};
+use crate::manifest::diagnostics::{Diagnostics, KeyLocation};
 use crate::manifest::inherit::{MetaProperty, inheritable, inheritable_table, own};
 use crate::manifest::reader::TableReader;
-use crate::manifest::spans::Positions;
 use crate::manifest::spans::Source;
 
 /// A document read the way `[project]` is read, but at the top level, so
 /// that a test writes one key and nothing else.
-fn parse(text: &'static str) -> (toml::Table, Positions<'static>) {
-    Source::new("model.toml", text)
-        .read()
-        .expect("the test document parses")
+fn parse(text: &'static str) -> (Spanned<DeTable<'static>>, Source<'static>) {
+    let source = Source::new("model.toml", text);
+    let table = source.read().expect("the test document parses");
+    (table, source)
 }
 
-fn top<'a>(table: &'a toml::Table, positions: &'a Positions<'a>) -> TableReader<'a> {
-    TableReader::new(table, Vec::new(), KeyLocation::TopLevel, positions)
+fn top<'a>(table: &'a Spanned<DeTable<'a>>, source: &'a Source<'a>) -> TableReader<'a> {
+    TableReader::new(table.get_ref(), None, KeyLocation::TopLevel, source)
 }
 
-fn texts(report: &Report) -> Vec<&str> {
+fn texts(report: &Diagnostics) -> Vec<&str> {
     report
         .diagnostics()
         .iter()
@@ -30,10 +32,10 @@ fn texts(report: &Report) -> Vec<&str> {
 
 /// Read one scalar key that may be inherited, as `[project]` reads
 /// `publisher`.
-fn scalar(text: &'static str) -> (Option<MetaProperty<String>>, Report) {
-    let (table, positions) = parse(text);
-    let reader = top(&table, &positions);
-    let mut report = Report::new();
+fn scalar(text: &'static str) -> (Option<MetaProperty<String>>, Diagnostics) {
+    let (table, source) = parse(text);
+    let reader = top(&table, &source);
+    let mut report = Diagnostics::new();
     let value = inheritable(&reader, "publisher", &mut report, |report| {
         reader.string("publisher", report).map(ToOwned::to_owned)
     });
@@ -41,10 +43,10 @@ fn scalar(text: &'static str) -> (Option<MetaProperty<String>>, Report) {
 }
 
 /// Read one key that is not inheritable, as `[project]` reads `sources`.
-fn refused(text: &'static str) -> Report {
-    let (table, positions) = parse(text);
-    let reader = top(&table, &positions);
-    let mut report = Report::new();
+fn refused(text: &'static str) -> Diagnostics {
+    let (table, source) = parse(text);
+    let reader = top(&table, &source);
+    let mut report = Diagnostics::new();
     let value = own(
         &reader,
         "sources",
@@ -144,9 +146,10 @@ fn an_overlapping_marker_is_refused() {
         "urls.website = \"https://example.com\"",
     ] {
         let text = format!("urls.workspace = true\n{inner}\n");
-        let (table, positions) = Source::new("model.toml", &text).read().expect("parses");
-        let reader = top(&table, &positions);
-        let mut report = Report::new();
+        let source = Source::new("model.toml", &text);
+        let table = source.read().expect("parses");
+        let reader = top(&table, &source);
+        let mut report = Diagnostics::new();
         let value = inheritable_table(&reader, "urls", &mut report, |report| {
             reader.table("urls", report).map(|_| ())
         });
@@ -210,7 +213,6 @@ fn a_marker_carries_its_own_position() {
         MetaProperty::Inherited(inherited) => {
             let position = inherited.at.expect("positioned");
             assert_eq!((position.line, position.column), (3, 1));
-            assert_eq!(position.file, "model.toml");
         }
         MetaProperty::Provided(value) => panic!("unexpected value: {value}"),
     }

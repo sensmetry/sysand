@@ -25,27 +25,21 @@ pub enum IncludeError<ProjectError> {
         "unknown file format of `{0}`, only SysML v2 (.sysml) and KerML (.kerml) files are supported"
     )]
     UnknownFormat(Box<str>),
-    /// The two maps a `model.toml` project has no room for are computed
-    /// when the KPAR is built, so the flags that control them have
-    /// nothing to control.
+    /// The flag controls a map that is computed when the KPAR is built.
     #[error("`{0}` is computed when the KPAR is built and cannot be set on a `model.toml` project")]
     ComputedField(&'static str),
-    /// A Syside project's KPAR has no `index`, so the flag has nothing to
-    /// apply to.
+    /// A Syside project's KPAR has no `index` for the flag to apply to.
     #[error(
         "`--no-index-symbols` applies to projects with a computed index; a Syside project's \
          KPAR carries `root` and `exports` instead"
     )]
     NoIndexSymbolsOnRoot,
-    /// `--force-format` selects a parser for symbol extraction, and a
-    /// `model.toml` project extracts none.
+    /// A `model.toml` project extracts no symbols, so there is no parser to select.
     #[error(
         "`force_format` has no effect on a `model.toml` project, whose symbols are computed when the KPAR is built"
     )]
     ForceFormat,
-    /// Checked before the manifest is touched: a file the
-    /// project's metamodel does not admit would be written into
-    /// `sources` and refused by the next read.
+    /// The file is not of a type the project's metamodel admits.
     #[error("{0}")]
     NotAdmitted(Box<str>),
     /// The manifest could not be read, or the edit was refused.
@@ -90,11 +84,7 @@ pub fn do_include<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
     index_symbols: bool,
     force_format: Option<Language>,
 ) -> Result<(), IncludeError<Pr::Error>> {
-    // On a `model.toml` project `include` appends to `sources` only;
-    // symbols and checksums are computed at build.
-    //
-    // `Both` deliberately falls through to the json arm, where
-    // `get_meta` refuses it as the ambiguity it is.
+    // `Both` falls through to the json arm, which refuses it as ambiguous.
     if project.format().map_err(IncludeError::Project)? == ProjectFormat::Toml {
         return include_toml(
             project,
@@ -110,7 +100,6 @@ pub fn do_include<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
         .get_meta()
         .map_err(IncludeError::Project)?
         .unwrap_or_default();
-    // The Syside refusal of `--no-index-symbols`, on the extracted form.
     if meta.root.is_some() && !index_symbols {
         return Err(IncludeError::NoIndexSymbolsOnRoot);
     }
@@ -127,9 +116,7 @@ pub fn do_include<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
             meta.add_checksum(&path, KerMlChecksumAlg::None, "", true);
         }
 
-        // A root-shaped document has no per-file map to update; its
-        // `exports` are recomputed by `build`, and the flag is refused
-        // on such a project.
+        // A document with `root` has no `index` to update.
         if index_symbols && let Some(index) = meta.index.as_mut() {
             // Remove if present any existing symbols from the same file
             index.retain(|s, v| {
@@ -154,9 +141,8 @@ pub fn do_include<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
 
 /// `include` on a `model.toml` project: append each path to `sources`.
 ///
-/// Nothing is read: both maps are computed when the KPAR is built, so
-/// the only question is whether the path belongs in `sources`, which
-/// `Sources::new` answers, as it does on read.
+/// Symbols and checksums are computed when the KPAR is built, so the path is
+/// only added to `sources`.
 fn include_toml<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
     project: &mut Pr,
     paths: I,
@@ -167,17 +153,12 @@ fn include_toml<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
     let mut document = project
         .manifest_document()
         .map_err(IncludeError::Manifest)?;
-    // The file must be of a type the metamodel admits. The metamodel
-    // comes from the resolved manifest when the project resolves, and
-    // from the document's own literal value otherwise; a member read
-    // without its workspace has neither, and the check is skipped rather
-    // than the command refusing over something that is not about the
-    // path it was given.
+    // If neither the resolved manifest nor the document gives a metamodel,
+    // the file type check is skipped.
     let metamodel = project_metamodel(project, &document);
 
-    // On a Syside project the flag names an `index` its KPAR does not
-    // have, which is a different complaint from "computed at build" --
-    // nothing is computed.
+    // Checked before the "computed at build" refusals, which would be
+    // misleading on a Syside project.
     if !index_symbols
         && metamodel
             .as_ref()
@@ -217,8 +198,6 @@ fn include_toml<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
 
 /// Extract top level symbols from `source`, using `path` for diagnostics
 /// only.
-///
-/// A thin wrapper over [`crate::symbols::top_level_symbols`].
 pub fn extract_symbols<P: AsRef<Utf8UnixPath>, S: AsRef<str>, T>(
     path: &P,
     source: S,
@@ -244,9 +223,8 @@ pub fn read_project_file_to_string<Pr: ProjectRead, P: AsRef<Utf8UnixPath>>(
 mod tests;
 
 /// The metamodel `include` judges a path against, or `None` when the
-/// project cannot say: a member whose `metamodel.workspace = true`
-/// cannot be resolved without the workspace table, and the bindings
-/// build such a project without one.
+/// project cannot say, such as a member with `metamodel.workspace = true`
+/// read without its workspace table.
 fn project_metamodel<Pr: ProjectRead>(
     project: &Pr,
     document: &crate::manifest::edit::DocumentMut,

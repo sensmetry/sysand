@@ -62,8 +62,8 @@ pub enum DefaultIndexError {
 /// the consulted stage yields more than one distinct index, the target is
 /// ambiguous and an explicit URL is required.
 ///
-/// The variable is read here rather than through clap, as the `auth`
-/// commands have no `--default-index` option.
+/// The variable is read directly: the `auth` commands have no
+/// `--default-index` option.
 pub fn resolve_default_index(config: &Config) -> Result<IndexKey, DefaultIndexError> {
     let env_candidates: Vec<IndexKey> = std::env::var(crate::env_vars::SYSAND_DEFAULT_INDEX)
         .ok()
@@ -167,9 +167,8 @@ fn render_login_notice(notice: AuthLoginNotice, index_key: &str) {
             );
             if schemes_include_basic(&challenge_schemes) {
                 let stem = cred_env_var_stem(index_key);
-                // Keep this basic-auth routing hint consistent with the
-                // refusal-path variant in core/src/commands/auth.rs
-                // (validation_rejected_message).
+                // Keep consistent with the basic-auth hint core gives when
+                // a login is refused.
                 log::warn!(
                     "this index uses username/password (HTTP basic) authentication;\n\
                          configure `SYSAND_CRED_{stem}_BASIC_USER` /\n\
@@ -255,9 +254,9 @@ pub fn command_auth_login(
             Ok(())
         }
         Ok(AuthLoginOutcome::BackendUnavailable { key, globs, reason }) => {
-            // No-keyring host: print the exact
-            // `SYSAND_CRED_*` lines to set instead. The secret is never
-            // echoed: stdout here typically lands in CI job logs.
+            // No-keyring host: print the `SYSAND_CRED_*` lines to set instead.
+            // The secret is never echoed: stdout here typically lands in CI
+            // job logs.
             println!(
                 "No OS keyring backend is available ({reason}), so the credential\n\
                  was not stored."
@@ -296,8 +295,7 @@ pub fn command_auth_login(
 }
 
 /// Remediation message for the platform credential-store cap on
-/// `auth login` (Windows ~2.5 KB). Naming the `sysand auth` commands
-/// belongs in the CLI, not core. Lists already-expired logins as drop
+/// `auth login` (Windows ~2.5 KB). Lists already-expired logins as drop
 /// candidates; with no stored credentials there is nothing to remove.
 fn blob_full_message(stored: &[(&str, Option<Timestamp>)], now: Timestamp) -> String {
     let expired: Vec<&str> = stored
@@ -702,8 +700,7 @@ pub fn command_auth_whoami(
         .publish_bearer_auth_map()
         .context("could not compile `SYSAND_CRED_*` URL patterns")?;
     // One store read serves both the discovery fetch and credential
-    // selection (at most one keychain touch per command); this is
-    // important to minimize, as each read may trigger a user prompt
+    // selection: each read may trigger a user prompt.
     let store = open_cli_credential_store().context("could not open the credential store")?;
     let records = match store.list() {
         Ok(records) => records,

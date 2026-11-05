@@ -116,8 +116,8 @@ class EnvError(SysandError):
 
 class LockHeldError(SysandError):
     """Another process holds the workspace's advisory lock
-    (``.sysand/.lock`` at the workspace root), so a mutating call --
-    :func:`sysand.lock`, :func:`sysand.sync`, :func:`sysand.env.env` --
+    (``.sysand/.lock`` at the workspace root), so a mutating call
+    (:func:`sysand.lock`, :func:`sysand.sync`, :func:`sysand.env.env`)
     did not run. The message is ``another process is using `<root>```.
     Nothing was written; retry when the other process is done.
     """

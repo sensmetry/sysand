@@ -38,14 +38,9 @@ pub enum RemoveError<ProjectError> {
 
 /// `remove` on a `model.toml` project.
 ///
-/// This matches *more* than the json arm does for an IRI: there a
-/// `Resource` usage is matched by its literal IRI, while a manifest
-/// entry is matched by its normalized identity whatever kind it is. So
-/// the typed usage `acme/lib` removes a `dir` entry here.
-///
-/// The usage has to name a project, so one identified by anything but a
-/// `pkg:sysand` PURL or a `publisher/name` pair cannot be removed by
-/// name.
+/// A manifest entry is matched by its normalized identity whatever its kind,
+/// so the typed usage `acme/lib` removes a `dir` entry. A usage that is not a
+/// `pkg:sysand` PURL or a `publisher/name` pair is never found.
 fn remove_toml<P: ProjectMut>(
     project: &mut P,
     usage: &UsageRef<'_>,
@@ -81,8 +76,7 @@ fn remove_toml<P: ProjectMut>(
             crate::project::ManifestWriteError::Unsupported => RemoveError::MissingInfo,
         })?;
 
-    // The json arm hands back what it removed; a manifest entry has no
-    // `.project.json` shape, so nothing is handed back here.
+    // A manifest entry has no `.project.json` shape to hand back.
     Ok(vec![])
 }
 
@@ -95,8 +89,7 @@ pub fn do_remove<P: ProjectMut>(
     let header = crate::style::get_style_config().header;
     log::info!("{header}{removing:>12}{header:#} `{usage}` from usages");
 
-    // `Both` falls through to the json arm, where `get_info` refuses it
-    // as the ambiguity it is.
+    // `Both` falls through to the json arm, which refuses it as ambiguous.
     if project.format().map_err(RemoveError::Project)? == ProjectFormat::Toml {
         return remove_toml(project, &usage);
     }
@@ -129,8 +122,8 @@ pub fn do_remove<P: ProjectMut>(
                 });
             }
         }
-        // The same project may be declared as a typed usage, but with
-        // different spelling
+        // The same project may be declared as a typed usage with a
+        // different spelling.
         // FIXME: a respelling is only found when it gets the same kind of
         // identifier as the declared spelling. E.g. with `ACME Inc./Foo` declared
         // (`urn:sysand:acme-inc/foo`), `Acme Inc./FOO` is reported as spelled

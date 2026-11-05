@@ -6,7 +6,7 @@ use std::ops::Range;
 use serde::{Deserialize, Serialize};
 
 use crate::manifest::diagnostics::{
-    Diagnostic, KeyLocation, Position, ReadWarning, Report, Severity, missing_key,
+    Diagnostic, Diagnostics, KeyLocation, Position, ReadWarning, Severity, missing_key,
 };
 use crate::model::{KnownMetamodel, MetamodelFamily};
 
@@ -164,13 +164,13 @@ fn ignored_source_overrides_warning_text() {
 
 #[test]
 fn report_into_result_separates_errors_from_warnings() {
-    let mut warnings_only = Report::new();
+    let mut warnings_only = Diagnostics::new();
     warnings_only.push(Diagnostic::warning("something to know"));
     let validated = warnings_only.into_result(42).expect("warnings do not fail");
     assert_eq!(validated.value, 42);
     assert_eq!(validated.warnings.len(), 1);
 
-    let mut with_error = Report::new();
+    let mut with_error = Diagnostics::new();
     with_error.push(Diagnostic::warning("something to know"));
     with_error.push(Diagnostic::error("something fatal"));
     let report = with_error.into_result(42).expect_err("an error fails");
@@ -181,10 +181,12 @@ fn report_into_result_separates_errors_from_warnings() {
 
 #[test]
 fn report_display_lists_every_diagnostic() {
-    let mut report = Report::new();
+    let mut report = Diagnostics::new();
     report.push(Diagnostic::error("first problem"));
-    report.push(Diagnostic::error("second problem").at(positioned("manifest.toml", 2, 1, 6..10)));
+    report.push(Diagnostic::error("second problem").at(positioned(2, 1, 6..10)));
+    let report = report.in_file("manifest.toml");
 
+    assert_eq!(report.file(), "manifest.toml");
     assert_eq!(
         report.to_string(),
         "first problem\nmanifest.toml:2:1: second problem"
@@ -193,13 +195,28 @@ fn report_display_lists_every_diagnostic() {
     assert_eq!(report.diagnostics()[0].severity, Severity::Error);
 }
 
+/// A diagnostic shown on its own names its file whether or not it has a
+/// position.
+#[test]
+fn a_diagnostic_in_a_file_names_the_file() {
+    let positioned = Diagnostic::warning("odd").at(positioned(3, 7, 20..22));
+    assert_eq!(
+        positioned.in_file("model.toml").to_string(),
+        "model.toml:3:7: odd"
+    );
+    assert_eq!(
+        Diagnostic::warning("odd").in_file("model.toml").to_string(),
+        "`model.toml`: odd"
+    );
+}
+
 #[test]
 fn read_warnings_become_warning_diagnostics() {
     let warning = ReadWarning::UnknownMetamodel {
         location: KeyLocation::Table("project".to_owned()),
         value: "https://example.com/x".to_owned(),
     };
-    let positioned = warning.clone().at(Position::at("model.toml", 4, 2));
+    let positioned = warning.clone().at(Position::at(4, 2));
     assert_eq!(positioned.severity, Severity::Warning);
     assert_eq!(
         positioned.position.as_ref().map(|p| (p.line, p.column)),
@@ -216,11 +233,11 @@ fn read_warnings_become_warning_diagnostics() {
 #[test]
 fn missing_key_names_its_location_and_the_metamodel() {
     assert_eq!(
-        missing_key("name", &KeyLocation::Table("project".to_owned()), None).to_string(),
+        missing_key("name", &KeyLocation::Table("project".to_owned()), None).message,
         "missing key `name` in `[project]`"
     );
     assert_eq!(
-        missing_key("index", &KeyLocation::File(".meta.json".to_owned()), None).to_string(),
+        missing_key("index", &KeyLocation::File(".meta.json".to_owned()), None).message,
         "missing key `index` in `.meta.json`"
     );
     assert_eq!(
@@ -229,7 +246,7 @@ fn missing_key_names_its_location_and_the_metamodel() {
             &KeyLocation::File(".meta.json".to_owned()),
             Some("https://example.com/x")
         )
-        .to_string(),
+        .message,
         "missing key `index` in `.meta.json`; this may be because the project uses a metamodel \
          this version of Sysand does not support: `https://example.com/x`"
     );
@@ -245,7 +262,7 @@ fn array_tables_are_named_with_double_brackets() {
             &KeyLocation::ArrayTable("inline-usages".to_owned()),
             None
         )
-        .to_string(),
+        .message,
         "missing key `name` in `[[inline-usages]]`"
     );
 }
@@ -255,7 +272,7 @@ fn array_tables_are_named_with_double_brackets() {
 /// Neither may invent a position.
 #[test]
 fn a_diagnostic_without_a_position_is_unchanged() {
-    let position = Position::at("model.toml", 3, 5);
+    let position = Position::at(3, 5);
     assert_eq!(Diagnostic::error("x").at_opt(None), Diagnostic::error("x"));
     assert_eq!(
         Diagnostic::error("x").at_opt(Some(position.clone())),
@@ -268,10 +285,10 @@ fn a_diagnostic_without_a_position_is_unchanged() {
 /// the file in.
 #[test]
 fn a_report_sorts_by_position() {
-    let mut report = Report::new();
-    report.push(Diagnostic::error("third").at(positioned("f", 3, 1, 8..13)));
-    report.push(Diagnostic::error("first").at(positioned("f", 1, 1, 0..3)));
-    report.push(Diagnostic::warning("second").at(positioned("f", 2, 1, 4..7)));
+    let mut report = Diagnostics::new();
+    report.push(Diagnostic::error("third").at(positioned(3, 1, 8..13)));
+    report.push(Diagnostic::error("first").at(positioned(1, 1, 0..3)));
+    report.push(Diagnostic::warning("second").at(positioned(2, 1, 4..7)));
     report.sort_by_position();
 
     let messages: Vec<&str> = report
@@ -287,11 +304,11 @@ fn a_report_sorts_by_position() {
 /// checks found them in.
 #[test]
 fn a_positionless_diagnostic_sorts_last() {
-    let mut report = Report::new();
+    let mut report = Diagnostics::new();
     report.push(Diagnostic::error("nowhere"));
     report.push(Diagnostic::error("same place, first"));
-    report.push(Diagnostic::error("later").at(positioned("f", 2, 1, 4..7)));
-    report.push(Diagnostic::error("earlier").at(positioned("f", 1, 1, 0..3)));
+    report.push(Diagnostic::error("later").at(positioned(2, 1, 4..7)));
+    report.push(Diagnostic::error("earlier").at(positioned(1, 1, 0..3)));
     // Two diagnostics about one key.
     report.push(Diagnostic::error("same place, second"));
     report.sort_by_position();
@@ -314,9 +331,8 @@ fn a_positionless_diagnostic_sorts_last() {
 }
 
 /// A position at `span`, at the line and column it starts on.
-fn positioned(file: &str, line: usize, column: usize, span: Range<usize>) -> Position {
+fn positioned(line: usize, column: usize, span: Range<usize>) -> Position {
     Position {
-        file: file.to_owned(),
         line,
         column,
         span: Some(span),

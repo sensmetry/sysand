@@ -44,9 +44,8 @@ metamodel = \"https://www.omg.org/spec/SysML/20250201\"
 /// A workspace with one inheriting member `app`, and an *excluded*
 /// project `vendor/dep` whose manifest is byte-for-byte `app`'s.
 ///
-/// Excluded, not unlisted. An unlisted project never reaches the member
-/// gate -- `start_region` refuses it and `run_cli` propagates -- so a
-/// negative test built on one passes with the gate deleted.
+/// Excluded, not unlisted: an unlisted project is refused before it reaches
+/// the member gate, so a negative test built on one would pass without it.
 fn workspace() -> Result<(camino_tempfile::Utf8TempDir, Utf8PathBuf), Box<dyn std::error::Error>> {
     let (dir, root) = new_temp_cwd()?;
     std::fs::write(root.join("model.toml"), ROOT)?;
@@ -106,9 +105,9 @@ fn member_build_succeeds() -> Result<(), Box<dyn std::error::Error>> {
 /// The negative, and the only test here that distinguishes the gate
 /// from "any project under a workspace root".
 ///
-/// `vendor/dep` is under `exclude`, so `start_region` answers
-/// `Standalone` and `member_index` answers `None`. Its manifest is the
-/// member's, so nothing but its location decides the outcome.
+/// `vendor/dep` is under `exclude`, so it is standalone, not a member. Its
+/// manifest is the member's, so nothing but its location decides the
+/// outcome.
 #[test]
 fn an_excluded_project_refuses_to_inherit() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp, root) = workspace()?;

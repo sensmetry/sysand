@@ -279,20 +279,19 @@ impl Lock {
         Ok(())
     }
 
-    /// The metamodel rules of every edge -- direction and release -- over
-    /// the lockfile graph.
+    /// The metamodel rules (direction and release) of every edge of the
+    /// lockfile graph. An edge is a usage naming the *first* identifier of
+    /// the project satisfying it.
     ///
     /// Must run after the usage and name collision checks: a usage that
     /// names no project's first identifier is skipped here, so an
-    /// unsatisfied usage would silently produce no edge. An edge is a usage naming the *first* identifier of
-    /// the project satisfying it.
+    /// unsatisfied usage would silently produce no edge.
     ///
     /// Cycles are not checked here: a cycle is allowed when every project
     /// on it carries `stdlib`, which a lockfile entry cannot express.
     ///
-    /// Release mismatches are warnings and are dropped here: a lockfile
-    /// is validated on every parse, and each command reports them once
-    /// through [`Self::warn_release_mismatches`].
+    /// Release mismatches are warnings and are dropped here; commands
+    /// report them through [`Self::warn_release_mismatches`].
     fn validate_metamodel_edges(&self) -> Result<(), ValidationError> {
         self.check_metamodel_edges()
             .map(drop)
@@ -617,7 +616,7 @@ impl Lock {
         // Check that we aren't generating invalid lockfiles.
         //
         // This checks all of `validate`'s rules *after* sorting and
-        // digest canonicalization -- the form that reaches a file.
+        // digest canonicalization, i.e. on the form that reaches a file.
         //
         // An assertion: `canonicalize` returns `Self`, and
         // an invalid lock here is a caller bug (`Lock`'s fields are public).
@@ -641,7 +640,6 @@ impl Lock {
 
     fn canonicalize_checksums(&mut self) {
         for project in &mut self.projects {
-            // project.checksum.make_ascii_lowercase();
             for source in &mut project.sources {
                 match source {
                     Source::LocalSrc {
@@ -853,7 +851,6 @@ impl Project {
         if !sources.is_empty() {
             table.insert("sources", value(sources));
         }
-        // table.insert("checksum", value(&self.checksum));
         table
     }
 }

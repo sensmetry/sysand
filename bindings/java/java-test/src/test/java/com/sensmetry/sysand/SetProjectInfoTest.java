@@ -26,13 +26,11 @@ public class SetProjectInfoTest {
      *
      * <p>{@code Sysand.init} writes a {@code model.toml}, and
      * {@code setProjectInfo}/{@code setProjectMetadata}/{@code setProjectIndex}
-     * write {@code .project.json}/{@code .meta.json} -- so the two do
-     * not compose, and cannot.
+     * write {@code .project.json}/{@code .meta.json}, so the two do not
+     * compose.
      *
-     * <p>Those three verbs are json-only by design: they refuse a
-     * {@code model.toml} project outright, which
-     * {@code testSetProjectVerbsRefuseATomlProject} asserts. A json fixture
-     * is the only fixture they have.
+     * <p>Those three verbs are json-only: they refuse a {@code model.toml}
+     * project outright. A json fixture is the only fixture they have.
      */
     private Path initProject() throws Exception {
         Path tempDir = Files.createTempDirectory("sysand-test-set-info");
@@ -48,13 +46,12 @@ public class SetProjectInfoTest {
      * The three write verbs refuse a {@code model.toml} project.
      *
      * <p>{@code setProjectIndex} reaches the same refusal by a longer
-     * route -- it reads the metadata the toml view synthesises and then
+     * route: it reads the metadata the toml view synthesises and then
      * tries to write it back.
      *
      * <p>The manifest declares a {@code metamodel} because the key is
-     * mandatory. Without one this test would still pass -- but on the
-     * wrong refusal, the manifest not resolving, so it would not prove
-     * the thing it names.
+     * mandatory. Without one the test would pass on the wrong refusal, the
+     * manifest not resolving.
      */
     @Test
     public void testSetProjectVerbsRefuseATomlProject() throws Exception {

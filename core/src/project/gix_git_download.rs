@@ -115,8 +115,8 @@ impl GixDownloadedProject {
 
     fn ensure_downloaded(&self) -> Result<(), GixDownloadedError> {
         if !self.tmp_dir.path().join(".git").is_dir() {
-            // One clone at a time per process: gix's interrupt flag is
-            // process-global, and the guard makes it this clone's.
+            // gix's interrupt flag is process-global; the guard serializes
+            // clones and makes the flag this clone's.
             let interrupt = crate::cancel::GitInterrupt::begin(&self.token)
                 .map_err(GixDownloadedError::Cancelled)?;
             let cancelled = |error: GixDownloadedError| {
@@ -126,11 +126,9 @@ impl GixDownloadedProject {
                     error
                 }
             };
-            // `gix-transport` builds a `reqwest` client of its own, on a
-            // spawned thread, so this path needs the process-wide rustls
-            // provider even though it never touches `create_reqwest_client`.
-            // Without it an https clone fails inside that thread, surfacing
-            // as an opaque transport error rather than a TLS one.
+            // `gix-transport` builds its own `reqwest` client on a spawned
+            // thread, which needs the process-wide rustls provider. Without
+            // it an https clone fails with an opaque transport error.
             crate::resolve::net_utils::install_default_crypto_provider();
 
             let prepared_clone = prepare_clone(self.url.clone(), self.tmp_dir.path())
@@ -189,8 +187,7 @@ impl ProjectRead for GixDownloadedProject {
 
     fn sources(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         Ok(vec![Source::RemoteGit {
-            // Panic here should be impossible, as the URL should have
-            // been created from IRI
+            // Cannot panic: the URL was created from an IRI
             remote_git: Iri::parse(self.url.to_string()).unwrap(),
         }])
     }

@@ -72,8 +72,7 @@ pub enum SetConstraintError {
     #[error(transparent)]
     TomlUsageHasNoConstraint(crate::manifest::edit::EditError),
     /// A `model.toml` usage is addressed by identity, and an IRI that is
-    /// not a `pkg:sysand` PURL names none -- a `kpar-url` entry is
-    /// declared with one, but has no constraint either way.
+    /// not a `pkg:sysand` PURL names none.
     #[error("`{0}` is not a `pkg:sysand` PURL; a `model.toml` usage is named `publisher/name`")]
     NotAnIdentity(String),
     /// A `pkg:sysand` PURL that does not parse, e.g. one whose parts are
@@ -86,9 +85,8 @@ pub enum SetConstraintError {
     },
 }
 
-/// What [`do_set_usage_constraint_local`] and
-/// [`do_set_index_usage_constraint_local`] can fail with, on either
-/// manifest format.
+/// The error of [`do_set_usage_constraint_local`] and
+/// [`do_set_index_usage_constraint_local`], on either manifest format.
 #[cfg(feature = "filesystem")]
 #[derive(Debug, Error)]
 pub enum SetConstraintLocalError {
@@ -121,11 +119,10 @@ enum MatchedKind {
     Typed(&'static str),
 }
 
-/// Find a usage identified by `identifier`. Matches by `Identifier` and considers all usage types.
+/// Matches `usage` against `identifier`, for all usage types.
 /// Returns `None` if `usage` fails to parse.
 fn match_usage(usage: &serde_json::Value, identifier: &str) -> Option<MatchedKind> {
-    // Cheap path first: a `Resource` usage is identified by its `resource`
-    // string verbatim, and no deserialization is needed to compare it.
+    // A `Resource` usage is identified by its `resource` string verbatim.
     if let serde_json::Value::Object(object) = usage
         && let Some(resource) = object.get(RESOURCE_KEY).and_then(serde_json::Value::as_str)
     {
@@ -149,18 +146,16 @@ fn match_usage(usage: &serde_json::Value, identifier: &str) -> Option<MatchedKin
 /// Set the `versionConstraint` of the usage naming `resource`, editing `doc`
 /// in place.
 ///
-/// Only the one `versionConstraint` value is touched: every other key, every
-/// unknown key, and the document's key order are preserved verbatim. When a
-/// constraint is added to a usage that had none, the key is appended after
-/// the usage's existing keys.
+/// Only the `versionConstraint` value is touched; every other key and the key
+/// order are preserved. A new constraint is appended after the usage's
+/// existing keys.
 ///
 /// `resource` is taken literally and compared against each usage's
-/// [`Identifier`]. Only a `Resource` usage can carry a constraint, so a
-/// matched typed usage is refused with
+/// [`Identifier`]. A matched typed usage is refused with
 /// [`SetConstraintError::UsageCannotHoldConstraint`].
 ///
 /// The constraint is validated as a semver requirement, and a resource
-/// declared more than once is refused, before anything is modified.
+/// declared more than once is refused, before `doc` is modified.
 pub fn do_set_usage_constraint(
     doc: &mut serde_json::Value,
     resource: &str,
@@ -402,9 +397,7 @@ pub fn do_set_usage_constraint_local(
 /// A `model.toml` usage is addressed by identity, so the resource must
 /// be a `pkg:sysand` PURL (the `publisher/name` form is
 /// [`do_set_index_usage_constraint_toml`]); the entry must be an index
-/// usage, the only kind with a `version`. The edit goes through the
-/// manifest editor, which keeps comments and every other line as they
-/// were.
+/// usage, the only kind with a `version`. Comments and other lines are kept.
 pub fn do_set_usage_constraint_toml(
     doc: &mut toml_edit::DocumentMut,
     resource: &str,

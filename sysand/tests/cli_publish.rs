@@ -3,13 +3,10 @@
 
 //! Every project in this file is written as a legacy `.project.json`
 //! pair by hand rather than created through `sysand init`, which
-//! writes a `model.toml`: what these fixtures pin is the json path,
-//! which "TOML to KPAR" leaves unchanged.
+//! writes a `model.toml`: these fixtures pin the json path. The toml
+//! end-to-end case is at the end of the file.
 //!
-//! `publish_toml_project_with_a_stdlib_usage`, at the end of the file,
-//! is the toml end-to-end case.
-//!
-//! Note `sysand publish` does *not* build: it uploads the archive
+//! `sysand publish` does *not* build: it uploads the archive
 //! `sysand build` left in `output/`.
 
 use std::fs;
@@ -147,9 +144,8 @@ fn mock_publish_with_bearer_times(server: &mut Server, token: &str, times: usize
 fn publish_workspace_with_an_unreadable_member_uploads_nothing() -> TestResult {
     let (_temp_dir, cwd) = new_temp_cwd()?;
     workspace_of(&cwd, &["project1"])?;
-    // Loads, and cannot be read as a project: `Workspace::load_with`
-    // refuses a member that defines no project at all, which would fail
-    // before the per-member resolution this test is about.
+    // Loads, and cannot be read as a project. A member defining no project
+    // at all would fail the whole load before per-member resolution.
     std::fs::create_dir(cwd.join("project1"))?;
     std::fs::write(
         cwd.join("project1/model.toml"),
@@ -170,7 +166,7 @@ fn publish_workspace_with_an_unreadable_member_uploads_nothing() -> TestResult {
     )?
     .assert()
     .failure()
-    // The failure names the member, which `KParBuildError` does not.
+    // The failure names the member, which the underlying build error does not.
     .stderr(predicate::str::contains("`project1`"));
     upload_mock.assert();
 
@@ -640,7 +636,7 @@ fn publish_rejects_invalid_semver_version() -> TestResult {
 fn publish_rejects_version_build_metadata() -> TestResult {
     let (_temp_dir, cwd) = init_project("version-build-metadata")?;
 
-    // Manually set the field, since set_project_field runs the CLI
+    // Set the field by hand, bypassing the CLI.
     let project_file = cwd.join(".project.json");
     let project_json = std::fs::read_to_string(&project_file)?;
     let project_json =
@@ -809,7 +805,7 @@ fn publish_ignores_basic_auth_credentials() -> TestResult {
 #[test]
 fn publish_uses_stored_credential_when_no_env_bearer_matches() -> TestResult {
     // A stored login (seeded through the debug-only file-backed store
-    // seam, see cli_auth.rs) must reach the upload's Authorization header
+    // seam) must reach the upload's Authorization header
     // when no `SYSAND_CRED_*` bearer matches: publish reads the store
     // directly, exactly once, during credential selection.
     let (_temp_dir, cwd) = setup_built_project("publish-stored-credential")?;
@@ -952,9 +948,8 @@ fn publish_401_maps_to_auth_error() -> TestResult {
 
 #[test]
 fn publish_403_maps_to_auth_error() -> TestResult {
-    // 403 additionally points at `sysand auth status` (added by the CLI, per
-    // the core/CLI message split: core states the condition, the frontend
-    // names the command).
+    // 403 additionally points at `sysand auth status`, added by the CLI
+    // (core states the condition, the frontend names the command).
     assert_publish_error_status(
         "publish-auth-403",
         403,
@@ -1049,10 +1044,9 @@ fn publish_index_with_unknown_placeholder_reports_parse_error() -> TestResult {
 
 /// `build` and `publish` agree about a standard-library usage.
 ///
-/// The manifest is written by hand -- `setup_built_project` writes a
-/// legacy json pair and runs `include --no-index-symbols`, which a
-/// `model.toml` project refuses -- and it carries `license` and
-/// `metamodel` because `publish` requires both.
+/// The manifest is written by hand, as the json-pair setup runs
+/// `include --no-index-symbols`, which a `model.toml` project refuses. It
+/// carries `license` and `metamodel` because `publish` requires both.
 ///
 /// The usage is the publisher-less `kpar-url` form.
 #[test]
@@ -1280,13 +1274,8 @@ fn publish_from_a_member_directory_publishes_only_that_member() -> TestResult {
 
 /// `--member <name>` from the root publishes exactly that member.
 ///
-/// This is the `--member` selector on the one command that uploads,
-/// where publishing the wrong scope cannot be undone by deleting a
-/// local artifact.
-///
-/// The negative assertions use the qualified `example-pub1/<name>`, not
-/// the bare directory name: a member directory is called `alpha`, so a
-/// bare `alpha` would also match a path in any future error line.
+/// The negative assertions use the qualified `example-pub1/<name>`, as the
+/// bare directory name would also match a path in an error line.
 #[test]
 fn publish_member_from_the_root_publishes_one() -> TestResult {
     let (_temp_dir, cwd) = new_temp_cwd()?;

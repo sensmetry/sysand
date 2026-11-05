@@ -105,9 +105,9 @@ fn record(outcome: &mut SyncOutcome, report: &VerifyReport) {
 /// Verifies `env` (or, with `None`, the absence of one) against `lock`
 /// and `lock` against `manifests`, prints every finding, and with
 /// `repair` reinstalls what mismatches and removes what `env.toml` does
-/// not record, then verifies again. Stale usages are never
-/// repaired: the lockfile is `lock`'s to rewrite. Returns whether the
-/// final state is clean; the caller decides the exit code.
+/// not record, then verifies again. Stale usages are never repaired: the
+/// lockfile is `lock`'s to rewrite. Returns the final status; the caller
+/// decides the exit code.
 #[expect(clippy::too_many_arguments)]
 pub fn command_sync_verify<Policy: HTTPAuthentication>(
     lock: &Lock,

@@ -55,9 +55,7 @@ pub fn detect_format(dir: &Utf8Path) -> Result<ProjectFormat, Box<FsIoError>> {
     })
 }
 
-/// The json manifest `dir` holds, `.project.json` first when it holds
-/// both. Only a message needs to know which one, and naming a file that
-/// is not there would send the reader looking for it.
+/// The json manifest `dir` holds, `.project.json` first when it holds both.
 pub(crate) fn json_manifest(dir: &Utf8Path) -> Result<Option<&'static str>, Box<FsIoError>> {
     for file in [PROJECT_JSON_FILE, META_JSON_FILE] {
         if wrapfs::is_file(dir.join(file))? {
@@ -85,26 +83,20 @@ pub struct LocalSrcProject {
     // TODO: enforce that the project matches the checksum if provided
     // before reading; see LocalKparProject for example
     expected_checksum: Option<String>,
-    /// The workspace this project is a member of, if a caller said so.
+    /// The workspace this project is a member of, if the caller said so.
     ///
     /// A member's manifest may carry inheritance markers, and resolving
-    /// with `None` refuses every one of them. Nothing goes looking for a
-    /// table: most `LocalSrcProject`s have no workspace and must keep
-    /// resolving with `None`, and a project that walked the filesystem
-    /// from inside a manifest parse would be a different thing.
-    ///
-    /// `Arc`: a `WorkspaceTable` is several hundred bytes.
+    /// with `None` refuses every one of them. The table is never looked up
+    /// from the filesystem.
     workspace: Option<std::sync::Arc<crate::manifest::workspace_table::WorkspaceTable>>,
-    /// The pair a `model.toml` project answers with, computed once.
+    /// The pair a `model.toml` project answers with, computed once because
+    /// building it parses the manifest and reads every source.
     ///
-    /// Building it parses the manifest and then reads, hashes and
-    /// extracts symbols from every source, while `checksum_canonical_hex`
-    /// alone asks for the project twice (`get_info` and `get_meta`). It
-    /// is filled on the toml path only: on the json path the writers of
+    /// Filled on the toml path only: on the json path the writers of
     /// [`ProjectMut`] and [`LocalSrcProject::set_index`] change the files
-    /// underneath it, and a cached pair would then contradict them.
+    /// underneath it.
     ///
-    /// Boxed to keep `FileResolverProject` small.
+    /// Boxed to keep the struct small.
     view: OnceCell<Box<ViewPair>>,
 }
 
@@ -129,9 +121,8 @@ impl LocalSrcProject {
     }
 
     /// Like [`Self::new_access`], for a caller that already knows the
-    /// canonical project checksum, e.g. an environment that recorded it at
-    /// install time. This spares hashing the whole project tree; a caller
-    /// without a checksum wants [`Self::new_access`].
+    /// canonical project checksum (e.g. an environment that recorded it at
+    /// install time), sparing a hash of the whole project tree.
     pub fn new_access_with_checksum(
         path: impl Into<Utf8PathBuf>,
         nominal_path: Option<Utf8UnixPathBuf>,
@@ -148,11 +139,9 @@ impl LocalSrcProject {
         &self.project_path
     }
 
-    /// The same project, resolving its manifest against `table`.
-    ///
-    /// For a resolver that has discovered its target is a member of the
-    /// workspace it was given -- the table still arrives from outside,
-    /// so the invariant above holds: nothing here goes looking for one.
+    /// The same project, resolving its manifest against `table`. For a
+    /// resolver that has found its target to be a member of the workspace
+    /// it was given.
     #[must_use]
     pub fn in_workspace(
         mut self,
@@ -314,8 +303,7 @@ pub enum EditInfoError<E> {
 impl LocalSrcProject {
     /// Read `.project.json` as a JSON document, apply `edit`, and write the
     /// document back pretty-printed with a trailing newline, but only if
-    /// `edit` changed it; an unchanged
-    /// document leaves the file untouched.
+    /// `edit` changed it.
     ///
     /// Every key the model does not know and the document's key order are
     /// kept (`serde_json` is built with `preserve_order`). The whole file is
@@ -356,8 +344,7 @@ impl LocalSrcProject {
     /// The pair a `model.toml` project answers with, read once.
     ///
     /// A failure is not cached: `OnceCell::get_or_try_init` is unstable,
-    /// and these errors are not `Clone` -- the same reason
-    /// `LocalKParProject::ensure_initialized` gives.
+    /// and these errors are not `Clone`.
     fn toml_view(&self) -> Result<&ViewPair, LocalSrcError> {
         if let Some(view) = self.view.get() {
             return Ok(view);
@@ -366,11 +353,8 @@ impl LocalSrcProject {
         Ok(self.view.get_or_init(|| view))
     }
 
-    /// Read `model.toml` and synthesize the KPAR view of it.
-    ///
-    /// This supplies the two things only a directory can: the manifest's
-    /// text, and a way to read a source file safely from inside the
-    /// project.
+    /// Read `model.toml` and synthesize the KPAR view of it, supplying the
+    /// manifest text and a safe way to read source files inside the project.
     fn read_model_toml(&self) -> Result<ViewPair, LocalSrcError> {
         let text = self.model_toml_text()?;
         let (info, meta) =
@@ -395,18 +379,16 @@ impl LocalSrcProject {
 
     /// Which manifest this project would have to have.
     ///
-    /// A directory with none of the three is missing all of them; one
-    /// that has a json manifest is missing the other json one, and
-    /// saying `model.toml` there would send the reader to write the
-    /// wrong file. A toml project cannot get here at all, since its view
-    /// always has both documents.
+    /// A directory with none of the three is missing all of them; one that
+    /// has a json manifest is missing the other json one, and naming
+    /// `model.toml` there would point at the wrong fix. A toml project
+    /// cannot get here, since its view always has both documents.
     fn missing_manifest(&self) -> LocalSrcError {
         const JSON: &str = "`.project.json` and/or `.meta.json` files";
         let missing = match detect_format(&self.project_path) {
             Ok(ProjectFormat::Neither) => "`model.toml`, or `.project.json` and/or `.meta.json`",
             Ok(_) => JSON,
-            // The format could not be read, so the honest answer is the
-            // one that names everything a manifest could be.
+            // The format could not be read: name every possible manifest.
             Err(_) => "`model.toml`, or `.project.json` and/or `.meta.json`",
         };
         LocalSrcError::MissingInfoMeta { missing }
@@ -414,11 +396,8 @@ impl LocalSrcProject {
 
     /// Refuse to write a json manifest into a `model.toml` project.
     ///
-    /// A json manifest reaches the filesystem through `put_info` or
-    /// `put_meta`, so the guard sits there. Without it the write would
-    /// succeed and leave a directory holding both manifests, which is
-    /// the ambiguity `get_project` then refuses: the project would be
-    /// unreadable and nothing would say why.
+    /// Without the guard the write would leave a directory holding both
+    /// manifests, which `get_project` refuses as ambiguous.
     fn refuse_json_write(&self, file: &'static str) -> Result<(), LocalSrcError> {
         if detect_format(&self.project_path)? == ProjectFormat::Toml {
             return Err(LocalSrcError::JsonWriteToTomlProject {
@@ -493,10 +472,8 @@ impl ProjectMut for LocalSrcProject {
 
         let format = detect_format(&self.project_path)
             .map_err(|e| ManifestWriteError::Project(LocalSrcError::from(e)))?;
-        // The mirror of `refuse_json_write`, and as narrow: that one
-        // fires on `Toml` alone, so this one fires on `Json` alone.
-        // Writing into a directory that already holds both changes
-        // nothing about why it is unreadable.
+        // Only a json project is refused: a directory already holding both
+        // is unreadable either way.
         if format == ProjectFormat::Json {
             return Err(ManifestWriteError::Project(
                 LocalSrcError::TomlWriteToJsonProject {
@@ -515,7 +492,7 @@ impl ProjectMut for LocalSrcProject {
         wrapfs::write(&path, document.to_string())
             .map_err(|e| ManifestWriteError::Project(LocalSrcError::from(e)))?;
 
-        // The cached view is of the manifest that was there.
+        // The cached view is of the old manifest.
         self.view.take();
         Ok(())
     }
@@ -670,8 +647,7 @@ impl ProjectRead for LocalSrcProject {
         LocalSrcError,
     > {
         match detect_format(&self.project_path)? {
-            // A directory holding both kinds of manifest is refused
-            // before either is read.
+            // Refused before either manifest is read.
             ProjectFormat::Both => {
                 return Err(LocalSrcError::AmbiguousFormat {
                     dir: self.project_path.clone(),
@@ -685,8 +661,8 @@ impl ProjectRead for LocalSrcProject {
         let info_json_path = self.info_path();
         let meta_json_path = self.meta_path();
 
-        // Metadata first: it carries the metamodel, which a message about
-        // the other document may need to name.
+        // Metadata first: it carries the metamodel that errors about the
+        // other document may name.
         let meta_json = if meta_json_path.exists() {
             let partial: InterchangeProjectMetadataPartial =
                 serde_json::from_reader(wrapfs::File::open(&meta_json_path)?)

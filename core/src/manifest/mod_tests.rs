@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use crate::manifest::diagnostics::{Diagnostic, Report, Severity, Validated};
+use crate::manifest::diagnostics::{Diagnostic, Diagnostics, Severity, Validated};
 use crate::manifest::{ModelToml, ModelTomlKind};
 
 const FILE: &str = "model.toml";
 
-fn parse(text: &str) -> Result<Validated<ModelToml>, Report> {
+fn parse(text: &str) -> Result<Validated<ModelToml>, Diagnostics> {
     ModelToml::parse(FILE, text)
 }
 
@@ -14,7 +14,7 @@ fn accepted(text: &str) -> Validated<ModelToml> {
     parse(text).expect("the manifest parses")
 }
 
-fn rejected(text: &str) -> Report {
+fn rejected(text: &str) -> Diagnostics {
     parse(text).expect_err("the manifest is rejected")
 }
 
@@ -25,11 +25,11 @@ fn messages(diagnostics: &[Diagnostic]) -> Vec<&str> {
         .collect()
 }
 
-fn texts(report: &Report) -> Vec<&str> {
+fn texts(report: &Diagnostics) -> Vec<&str> {
     messages(report.diagnostics())
 }
 
-fn places(report: &Report) -> Vec<(usize, usize)> {
+fn places(report: &Diagnostics) -> Vec<(usize, usize)> {
     report
         .diagnostics()
         .iter()
@@ -80,7 +80,7 @@ fn a_manifest_version_is_required() {
          `manifest-version = \"1.0\"`"
     );
     // A problem with the file as a whole has no key to point at, so it
-    // points at the start of the file -- and therefore sorts first.
+    // points at the start of the file and therefore sorts first.
     assert_eq!(places(&report)[0], (1, 1));
 }
 
@@ -89,13 +89,13 @@ fn a_manifest_version_is_required() {
 #[test]
 fn a_missing_version_does_not_stop_the_read() {
     let report = rejected("[project]\nsources = []\n");
-    assert_eq!(texts(&report).len(), 4, "unexpected report: {report}");
+    assert_eq!(texts(&report).len(), 4, "unexpected report: {report:?}");
     assert!(texts(&report)[0].contains("has no usable `manifest-version`"));
     assert!(
         texts(&report)[1..]
             .iter()
             .all(|text| text.starts_with("missing key")),
-        "unexpected report: {report}"
+        "unexpected report: {report:?}"
     );
 }
 
@@ -132,7 +132,7 @@ fn an_unknown_minor_is_refused() {
 #[test]
 fn a_newer_version_stops_the_read() {
     let report = rejected("manifest-version = \"2.0\"\n\n[project]\nsources = []\n");
-    assert_eq!(texts(&report).len(), 1, "unexpected report: {report}");
+    assert_eq!(texts(&report).len(), 1, "unexpected report: {report:?}");
 }
 
 #[test]
@@ -213,7 +213,7 @@ fn a_workspace_config_carries_a_version_too() {
     let report = rejected("[workspace]\nmembers = []\n");
     assert!(
         texts(&report)[0].contains("has no usable `manifest-version`"),
-        "unexpected report: {report}"
+        "unexpected report: {report:?}"
     );
 }
 
@@ -276,7 +276,7 @@ fn a_scalar_project_key_still_defines_a_project() {
 #[test]
 fn a_scalar_project_key_beside_a_workspace_is_the_exclusivity_error() {
     let report = rejected("manifest-version = \"1.0\"\nproject = 3\n\n[workspace]\nmembers = []\n");
-    assert_eq!(texts(&report).len(), 1, "unexpected report: {report}");
+    assert_eq!(texts(&report).len(), 1, "unexpected report: {report:?}");
     assert!(texts(&report)[0].contains("defines both"));
 }
 
@@ -311,13 +311,13 @@ fn a_workspace_config_has_no_top_level_inline_usages() {
 fn an_empty_inline_usages_array_is_refused_too() {
     let report =
         rejected("manifest-version = \"1.0\"\ninline-usages = []\n\n[workspace]\nmembers = []\n");
-    assert_eq!(texts(&report).len(), 1, "unexpected report: {report}");
+    assert_eq!(texts(&report).len(), 1, "unexpected report: {report:?}");
     assert!(texts(&report)[0].contains("no top-level `inline-usages`"));
 }
 
 /// An unknown key is a warning, in both kinds of file. The unsupported
-/// metamodel suffix does not apply here -- the metamodel is a
-/// `[project]` key, and the top level of a file has none.
+/// metamodel suffix does not apply here: the metamodel is a `[project]`
+/// key, and the top level of a file has none.
 #[test]
 fn an_unknown_top_level_key_is_a_warning() {
     let validated = accepted(&format!(
@@ -350,7 +350,7 @@ fn both_tables_are_refused_before_either_is_read() {
     let report = rejected(
         "manifest-version = \"1.0\"\n\n[project]\nversion = 3\n\n[workspace]\nmembers = 3\n",
     );
-    assert_eq!(texts(&report).len(), 1, "unexpected report: {report}");
+    assert_eq!(texts(&report).len(), 1, "unexpected report: {report:?}");
 }
 
 // ----------------------------------------------------------------------
@@ -377,7 +377,7 @@ name = \"lib\"
 ";
     let report = rejected(TEXT);
     assert_eq!(
-        report.to_string(),
+        report.in_file(FILE).to_string(),
         "model.toml:2:1: unknown top-level key `colour`\n\
          model.toml:7:1: `version` in `[project]` must be a string, but it is an integer\n\
          model.toml:8:1: unknown key `shape` in `[project]`\n\
@@ -394,7 +394,7 @@ fn a_syntax_error_is_still_one_diagnostic() {
     assert_eq!(texts(&report).len(), 1);
     assert!(
         texts(&report)[0].starts_with("`model.toml` is not valid TOML"),
-        "unexpected report: {report}"
+        "unexpected report: {report:?}"
     );
 }
 
@@ -442,10 +442,7 @@ fn peek_on_a_file_with_neither_table_is_none() {
 }
 
 // ----------------------------------------------------------------------
-// The examples the specification gives
-//
-// Every example manifest in the design documents parses. Each is repeated
-// here with a comment saying what it shows.
+// Example manifests
 //
 // Most are fragments, completed with the smallest frame that makes one:
 // a project fragment gets `manifest-version` and the three required
@@ -466,13 +463,11 @@ fn as_workspace_file(fragment: &str) -> String {
     format!("manifest-version = \"1.0\"\n\n{fragment}")
 }
 
-/// The examples of `model-toml.md` that are about the manifest version
-/// and the standard library.
+/// Examples about the manifest version and the standard library.
 #[test]
 fn every_example_in_model_toml_parses() {
     // design: model-toml.md #1
-    // The manifest version. A `[project]` with only a comment in it, so
-    // the required keys complete it.
+    // The manifest version.
     accepted(
         "manifest-version = \"1.0\"\n\n\
          [project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\n",
@@ -502,10 +497,9 @@ fn every_example_in_model_toml_parses() {
     );
 }
 
-/// The examples of `syside-metamodel.md`. Unlike the other example tests
-/// this one resolves what it parses: the first must resolve with no
-/// warning, the second against a group, the third with exactly the
-/// foreign-key warning.
+/// Syside examples. Unlike the other example tests this one resolves what
+/// it parses: the first must resolve with no warning, the second against
+/// a group, the third with exactly the foreign-key warning.
 #[test]
 fn every_example_in_syside_metamodel_md_parses_and_resolves() {
     // design: syside-metamodel.md #1
@@ -542,10 +536,8 @@ fn every_example_in_syside_metamodel_md_parses_and_resolves() {
     );
 
     // design: syside-metamodel.md #2
-    // A member inheriting a Syside metamodel
-    // from a group, with its own `root`. The group is not in the
-    // document; it is what the group `syside` supplying the three
-    // inherited keys looks like.
+    // A member inheriting a Syside metamodel from a group, with its own
+    // `root`. The group supplies the three inherited keys.
     let group = accepted(&as_workspace_file(
         "[workspace]\nmembers = [\"ports\"]\n\n\
          [workspace.group.syside]\npublisher = \"acme\"\nversion = \"1.0.0\"\n\
@@ -580,8 +572,8 @@ fn every_example_in_syside_metamodel_md_parses_and_resolves() {
     );
 
     // design: syside-metamodel.md #3
-    // An OMG project carrying `root` is a
-    // valid OMG project with one warning, and no `root`.
+    // An OMG project carrying `root` is valid with one warning, and no
+    // `root`.
     let legacy = accepted(
         "manifest-version = \"1.0\"\n\n\
          [project]\n\
@@ -622,11 +614,11 @@ fn an_index_usage_published_by_omg_is_an_ordinary_usage() {
     ));
 }
 
-/// The examples of `workspaces.md` about members and common usages.
+/// Examples about members and common usages.
 #[test]
 fn every_example_in_workspaces_md_parses() {
     // design: workspaces.md #1
-    // The one example in either document that is a whole file.
+    // A whole workspace file.
     let read = accepted(
         "manifest-version = \"1.0\"\n\n\
          [workspace]\n\
@@ -640,8 +632,7 @@ fn every_example_in_workspaces_md_parses() {
     assert_eq!(workspace.exclude.len(), 1);
 
     // design: workspaces.md #2
-    // A member opting in to two group entries and
-    // declaring one of its own.
+    // A member opting in to two group entries and declaring one of its own.
     accepted(&as_project_file(
         "[[inline-usages]]\npublisher = \"acme\"\nname = \"foo\"\nworkspace = true\n\n\
          [[inline-usages]]\npublisher = \"acme\"\nname = \"bar\"\nworkspace = \"legacy\"\n\n\
@@ -649,9 +640,9 @@ fn every_example_in_workspaces_md_parses() {
     ));
 
     // design: workspaces.md #3
-    // One group per language, each carrying the
-    // `metamodel` of that language's release, and each carrying its
-    // standard-library usage as a publisher-less `kpar-url`.
+    // One group per language, each carrying the `metamodel` of that
+    // language's release and its standard-library usage as a
+    // publisher-less `kpar-url`.
     let read = accepted(&as_workspace_file(
         "[workspace.group.kerml]\n\
          metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n\n\
@@ -680,13 +671,12 @@ fn every_example_in_workspaces_md_parses() {
     ));
 }
 
-/// `workspaces.md` gives one block that is *not* a manifest: every line
-/// but the first is marked `# invalid`, illustrating that inheritance
-/// cannot overlap.
+/// A block illustrating that inheritance cannot overlap, which is not a
+/// manifest: every line but the first is marked `# invalid`.
 ///
-/// It is checked as two points. The first two lines are valid TOML and
-/// exactly the overlap Sysand refuses. The block as a whole is not valid
-/// TOML (`urls.website.workspace` is assigned twice).
+/// The first two lines are valid TOML and exactly the overlap Sysand
+/// refuses. The block as a whole is not valid TOML
+/// (`urls.website.workspace` is assigned twice).
 #[test]
 fn the_overlap_counter_example_is_refused() {
     // design: workspaces.md #4
@@ -713,6 +703,6 @@ fn the_overlap_counter_example_is_refused() {
     ));
     assert!(
         texts(&report)[0].starts_with("`model.toml` is not valid TOML"),
-        "unexpected report: {report}"
+        "unexpected report: {report:?}"
     );
 }

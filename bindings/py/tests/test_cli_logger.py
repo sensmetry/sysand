@@ -40,8 +40,8 @@ def test_no_logger_warning_on_stderr(
     capfd: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     # A command, not a flag: this has to get past argument parsing and into
-    # `run_cli`, which is where the logger is installed. It fails -- there is
-    # no project in `tmp_path` -- and that is fine, the failure happens after.
+    # `run_cli`, which is where the logger is installed. It fails because there
+    # is no project in `tmp_path`, after the logger is installed.
     assert run_cli_in(tmp_path, "info", "--no-config") == 1
 
     assert WARNING not in capfd.readouterr().err

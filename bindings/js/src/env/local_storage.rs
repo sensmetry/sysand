@@ -19,7 +19,6 @@ use crate::{
 pub struct LocalBrowserStorageEnvironment {
     pub root_path: Utf8UnixPathBuf,
     pub vfs: LocalStorageVFS,
-    //pub crypto: Crypto,
 }
 
 pub fn empty_environment_local_storage<S: AsRef<str>, P: AsRef<Utf8UnixPath>>(

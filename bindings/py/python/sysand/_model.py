@@ -29,7 +29,7 @@ class InterchangeProjectUsageResource(
 class InterchangeProjectUsageDirectory(typing.TypedDict):
     """A typed usage: the project in the directory ``dir``, relative to the
     root of the project declaring the usage. It carries no version
-    constraint -- the directory holds a single version."""
+    constraint: the directory holds a single version."""
 
     dir: str
     publisher: str
@@ -39,7 +39,7 @@ class InterchangeProjectUsageDirectory(typing.TypedDict):
 class InterchangeProjectUsageKparPath(typing.TypedDict):
     """A typed usage: the project in the KPAR at ``kpar_path``, relative to
     the root of the project declaring the usage. It carries no version
-    constraint -- the archive holds a single version."""
+    constraint: the archive holds a single version."""
 
     kpar_path: str
     publisher: str
@@ -74,7 +74,7 @@ class UsageConstraintChange(typing.TypedDict):
     changed: bool
     old_version_constraint: str | None
     new_version_constraint: str | None
-    """The constraint now declared; ``None`` only when nothing was found."""
+    """The constraint declared after the change; ``None`` only when nothing was found."""
 
 
 class EnvProjectChecksumKpar(typing.TypedDict):

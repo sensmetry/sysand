@@ -34,7 +34,6 @@ fn merge() {
                 src_path: "./path/to project".into(),
             }],
         }],
-        // auth: None,
     };
     defaults.merge(config.clone());
 

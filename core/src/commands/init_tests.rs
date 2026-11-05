@@ -25,8 +25,8 @@ fn a_metamodel_is_written_when_given() {
 }
 
 /// `metamodel.workspace = true` satisfies the metamodel requirement in
-/// `[project]`. What `init` writes inside a workspace
-/// whose default group declares one.
+/// `[project]`. This is what `init` writes inside a workspace whose default
+/// group declares a metamodel.
 #[test]
 fn a_marker_is_written_when_asked_for() {
     let written = init(Some(MetaProperty::Inherited(Inherited {
@@ -39,7 +39,7 @@ fn a_marker_is_written_when_asked_for() {
     );
 }
 
-/// The value set is closed, so `init` cannot write one outside it.
+/// A metamodel outside the recognized values is refused.
 #[test]
 fn an_unrecognized_metamodel_is_refused() {
     let error = do_init_memory(

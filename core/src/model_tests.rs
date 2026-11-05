@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use crate::symbols::Language;
 
 use crate::{
-    manifest::diagnostics::{Report, Validated},
+    manifest::diagnostics::{Diagnostics, Validated},
     model::{
         InterchangeProjectInfoPartial, InterchangeProjectInfoRaw,
         InterchangeProjectMetadataPartial, InterchangeProjectMetadataRaw,
@@ -1060,7 +1060,7 @@ fn partial_info_reports_every_missing_key_together() {
         .expect_err("an empty document is not a project");
 
     assert_eq!(
-        report.to_string(),
+        report.in_file(".project.json").to_string(),
         "missing key `name` in `.project.json`\n\
          missing key `version` in `.project.json`"
     );
@@ -1073,7 +1073,7 @@ fn partial_meta_reports_every_missing_key_together() {
         .expect_err("an empty document is not metadata");
 
     assert_eq!(
-        report.to_string(),
+        report.in_file(".meta.json").to_string(),
         "missing key `index` in `.meta.json`\n\
          missing key `created` in `.meta.json`"
     );
@@ -1087,16 +1087,18 @@ fn missing_key_names_an_unrecognized_metamodel() {
         .expect_err("no index, no created");
     assert!(
         unrecognized
+            .clone()
+            .in_file(".meta.json")
             .to_string()
             .contains("this may be because the project uses a metamodel"),
-        "unexpected report: {unrecognized}"
+        "unexpected report: {unrecognized:?}"
     );
 
     let recognized = meta_partial(r#"{"metamodel": "https://www.omg.org/spec/SysML/20250201"}"#)
         .validate(".meta.json", None)
         .expect_err("no index, no created");
     assert_eq!(
-        recognized.to_string(),
+        recognized.in_file(".meta.json").to_string(),
         "missing key `index` in `.meta.json`\n\
          missing key `created` in `.meta.json`"
     );
@@ -1210,7 +1212,7 @@ const ROOT_MISSING: &str = "missing key `root` in `.meta.json`; the Syside metam
 const EXPORTS_MISSING: &str =
     "missing key `exports` in `.meta.json`; the Syside metamodel requires it";
 
-fn meta_texts(report: &Report) -> Vec<&str> {
+fn meta_texts(report: &Diagnostics) -> Vec<&str> {
     report
         .diagnostics()
         .iter()
@@ -1218,7 +1220,7 @@ fn meta_texts(report: &Report) -> Vec<&str> {
         .collect()
 }
 
-fn syside_meta(json: &str) -> Result<Validated<InterchangeProjectMetadataRaw>, Report> {
+fn syside_meta(json: &str) -> Result<Validated<InterchangeProjectMetadataRaw>, Diagnostics> {
     meta_partial(json).validate(".meta.json", None)
 }
 
@@ -1359,7 +1361,7 @@ fn root_or_exports_in_an_omg_meta_json_is_a_warning() {
             let validated = syside_meta(&format!(
                 r#"{{"index": {{}}, {extra} {metamodel} "created": "2026-01-01T00:00:00Z"}}"#
             ))
-            .unwrap_or_else(|report| panic!("{extra} {metamodel}: {report}"));
+            .unwrap_or_else(|report| panic!("{extra} {metamodel}: {report:?}"));
             assert_eq!(
                 validated
                     .warnings

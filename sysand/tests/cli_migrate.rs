@@ -491,11 +491,8 @@ fn a_file_usage_migrates_end_to_end() -> Result<(), Box<dyn std::error::Error>> 
 ///
 /// Asking whether the target is in a workspace must not fail on a file:
 /// testing `<target>/model.toml` there gives `Not a directory (os error
-/// 20)`. A `file:` resource maps to a kpar or source path, and this is
-/// the archive half.
-///
-/// `kpar-url` does not accept a directory, so a json `resource` naming
-/// an archive is exactly what should become `kpar-path`.
+/// 20)`. A json `resource` naming an archive is what should become
+/// `kpar-path`.
 #[test]
 fn a_file_usage_to_an_archive_migrates_to_a_kpar_path() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, root) = new_temp_cwd()?;
@@ -520,9 +517,8 @@ fn a_file_usage_to_an_archive_migrates_to_a_kpar_path() -> Result<(), Box<dyn st
     Ok(())
 }
 
-/// `sysand migrate ./app`: `relativize_path` asserts on a path that is
-/// not canonical, so this aborts the process if the command does not
-/// canonicalize first.
+/// `sysand migrate ./app`: a path that is not canonical aborts the process
+/// if the command does not canonicalize first.
 #[test]
 fn migrate_does_not_panic_on_a_relative_path() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, root) = new_temp_cwd()?;
@@ -596,7 +592,7 @@ fn unknown_json_keys_warn() -> Result<(), Box<dyn std::error::Error>> {
 ///
 /// Without the table, the target would read as broken and `migrate`
 /// would report "does not contain a project that `sysand migrate` can
-/// read" -- a wrong category, not just a wrong message.
+/// read", a wrong category and not just a wrong message.
 #[test]
 fn a_file_usage_to_a_workspace_member_resolves() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, root) = new_temp_cwd()?;
@@ -626,15 +622,14 @@ fn a_file_usage_to_a_workspace_member_resolves() -> Result<(), Box<dyn std::erro
 /// A project that merely *sits inside* a member directory is not a
 /// member, so its markers must not resolve either.
 ///
-/// `WorkspaceTable::region` prefix-matches -- that is what lets a
-/// command run from `app/src/deep` know it is in member `app` -- so
-/// `StartRegion::Member` answers for any directory *under* an entry.
-/// Member identity is a different question, and the first must not
-/// answer the second.
+/// Region lookup prefix-matches, so that a command run from `app/src/deep`
+/// knows it is in member `app`, and it answers for any directory *under* a
+/// member entry. Member identity is a different question, and the first
+/// must not answer the second.
 ///
-/// `an_unlisted_target_is_not_given_the_table` cannot catch this:
-/// its target is unlisted *and* outside every member, so the prefix
-/// match fails for the same reason the equality does.
+/// The unlisted-target test cannot catch this: its target is unlisted *and*
+/// outside every member, so the prefix match fails for the same reason the
+/// equality does.
 #[test]
 fn a_target_nested_inside_a_member_is_not_a_member() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, root) = new_temp_cwd()?;
@@ -652,8 +647,8 @@ fn a_target_nested_inside_a_member_is_not_a_member() -> Result<(), Box<dyn std::
         "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"member\"\n\
          version = \"1.0.0\"\nsources = []\n",
     )?;
-    // Byte-for-byte the target of `an_unlisted_target_is_not_given_the_table`,
-    // one directory deeper. Only the location differs.
+    // Byte-for-byte the target of the unlisted-target test, one directory
+    // deeper. Only the location differs.
     std::fs::write(
         dep.join("model.toml"),
         "manifest-version = \"1.0\"\n\n[project]\npublisher.workspace = true\nname = \"dep\"\n\
@@ -673,8 +668,7 @@ fn a_target_nested_inside_a_member_is_not_a_member() -> Result<(), Box<dyn std::
 }
 
 /// A project under a workspace root that is *not* listed in `members`
-/// is not a member, so its markers do not resolve -- which is the rule
-/// `manifest::inherit` states and the population `migrate` exists for.
+/// is not a member, so its markers do not resolve.
 #[test]
 fn an_unlisted_target_is_not_given_the_table() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, root) = new_temp_cwd()?;
@@ -732,11 +726,11 @@ fn the_prompt_supplies_a_publisher() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// An *excluded* target is under the root and known to the workspace,
-/// so `start_region` answers rather than refusing -- and the answer is
-/// not `Member`, so the table must not be attached.
+/// so it is not refused, and it is not a member either, so the table must
+/// not be attached.
 ///
-/// The unlisted test above cannot cover this: `start_region` refuses an
-/// unlisted project outright, so it never reaches the member gate.
+/// The unlisted test above cannot cover this: an unlisted project is
+/// refused outright, so it never reaches the member gate.
 #[test]
 fn an_excluded_target_is_not_given_the_table() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, root) = new_temp_cwd()?;
@@ -770,14 +764,12 @@ fn an_excluded_target_is_not_given_the_table() -> Result<(), Box<dyn std::error:
 use mockito::Server;
 
 /// An index serving `versions.json` and a `.project.json` per version.
-/// Enough for `get_project_version`, which reads each candidate's info.
 fn index_with_versions(server: &mut Server, versions: &[&str]) -> Vec<mockito::Mock> {
     index_with_versions_declaring(server, versions, "mock", "dep")
 }
 
 /// The same, with a target that spells its identity differently from
-/// the PURL that names it -- which is what a migrated usage has to
-/// carry.
+/// the PURL that names it, as a migrated usage has to carry.
 fn index_with_versions_declaring(
     server: &mut Server,
     versions: &[&str],
@@ -833,7 +825,7 @@ fn index_with_versions_declaring(
 fn an_unconstrained_purl_is_pinned() -> Result<(), Box<dyn std::error::Error>> {
     let mut server = Server::new();
     // `versions.json` must be in descending semver precedence, which
-    // the index format enforces -- so the newest is listed first.
+    // the index format enforces, so the newest is listed first.
     let _mocks = index_with_versions(&mut server, &["1.2.0", "1.0.0"]);
 
     let (_temp_dir, cwd) = new_temp_cwd()?;
@@ -877,8 +869,8 @@ fn an_unconstrained_purl_that_resolves_to_nothing_is_refused()
     Ok(())
 }
 
-/// A purl that already carries a constraint keeps it -- and still
-/// consults the index.
+/// A purl that already carries a constraint keeps it, and still consults
+/// the index.
 #[test]
 fn a_constrained_purl_takes_the_targets_spelling() -> Result<(), Box<dyn std::error::Error>> {
     let mut server = Server::new();
@@ -910,9 +902,8 @@ fn a_constrained_purl_takes_the_targets_spelling() -> Result<(), Box<dyn std::er
 
 /// The resolver is built on the first usage that needs it.
 ///
-/// `create_resolver` can fail on an index URL the config parser
-/// rejects, and a project with no `resource` usages resolves nothing --
-/// so it must not fail on configuration it never reads.
+/// A project with no `resource` usages resolves nothing, so it must not
+/// fail on an index URL it never reads.
 #[test]
 fn migrate_without_resource_usages_needs_no_index() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
@@ -1049,9 +1040,8 @@ fn a_declared_metamodel_needs_no_flag() -> Result<(), Box<dyn std::error::Error>
     Ok(())
 }
 
-/// The other half of `a_typed_usage_keeps_the_json_spelling_here`
-/// (core): the CLI reads the target and writes the spelling it
-/// declares, so the migrated manifest is one `sysand lock` accepts.
+/// The CLI reads the target and writes the spelling it declares, so the
+/// migrated manifest is one `sysand lock` accepts.
 #[test]
 fn migrate_writes_the_spelling_the_target_declares() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, root) = new_temp_cwd()?;
@@ -1085,9 +1075,8 @@ fn migrate_writes_the_spelling_the_target_declares() -> Result<(), Box<dyn std::
     Ok(())
 }
 
-/// End to end: `lock` refuses a `dir` usage that
-/// spells its target's identity differently. `build` has its own check;
-/// this is the resolver's.
+/// End to end: `lock` refuses a `dir` usage that spells its target's
+/// identity differently.
 #[test]
 fn lock_refuses_a_target_that_spells_its_identity_differently()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -1123,13 +1112,10 @@ fn lock_refuses_a_target_that_spells_its_identity_differently()
 
 /// The same rule, one level down.
 ///
-/// A transitive usage's `UsageOrigin` comes from the resolved project's
-/// `format()`, so every wrapper the CLI resolves through has to forward
-/// it. If one fell back to the `ProjectFormat::Json` default, every
-/// usage declared by a *dependency* would be treated as json-declared:
-/// the literal-spelling rule would silently not apply, and the
-/// identical usage would give different answers depending on whether
-/// its project was locked directly or reached through another.
+/// A usage declared by a *dependency* must follow the same
+/// literal-spelling rule as one in the locked project, so the identical
+/// usage gives the same answer whether its project was locked directly or
+/// reached through another.
 #[test]
 fn lock_refuses_a_transitively_reached_spelling_difference()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -1176,14 +1162,13 @@ fn lock_refuses_a_transitively_reached_spelling_difference()
 
 // ------------------------------------------- standard-library usages
 
-/// The model docs on the standard library: a json project's `resource` usage
-/// of an OMG standard-library IRI "is the same usage under the same
-/// spelling": the publisher-less `kpar-url`.
+/// A json project's `resource` usage of an OMG standard-library IRI becomes
+/// the publisher-less `kpar-url`, the same usage under the same spelling.
 ///
-/// `--no-index` is the assertion, not a convenience: the metadata is
-/// embedded and the IRI names the release, so migrating such a usage
-/// must not need a network or an index, and the usage must not be
-/// refused for the publisher every OMG KPAR leaves undeclared.
+/// `--no-index` is the assertion: the metadata is embedded and the IRI
+/// names the release, so migrating such a usage must not need a network or
+/// an index, nor be refused for the publisher every OMG KPAR leaves
+/// undeclared.
 #[test]
 fn a_stdlib_resource_migrates_offline() -> Result<(), Box<dyn std::error::Error>> {
     const IRI: &str = "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar";
@@ -1237,11 +1222,10 @@ fn a_constrained_stdlib_resource_is_refused() -> Result<(), Box<dyn std::error::
 
 // ------------------- what the `Both` case deletes
 
-/// The gate that has to come first: `migrate` must not keep a
-/// `model.toml` that does not *resolve* -- the mandatory `metamodel`
-/// lives in resolve, so parsing alone is not enough. Keeping it would
-/// delete the only readable manifest and leave a project every command
-/// refuses, with nothing to recover from.
+/// The gate that has to come first: `migrate` must not keep a `model.toml`
+/// that does not *resolve* (the mandatory `metamodel` is checked there, so
+/// parsing alone is not enough). Keeping it would delete the only readable
+/// manifest and leave a project every command refuses.
 #[test]
 fn both_refuses_a_model_toml_that_will_not_resolve() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
@@ -1294,8 +1278,8 @@ fn both_warns_about_what_only_the_json_has() -> Result<(), Box<dyn std::error::E
         .stderr(predicate::str::contains("are about to be deleted"))
         .stderr(predicate::str::contains("usage IRI `urn:kpar:dep`"))
         // The json paths are normalized before comparison, so the two
-        // spellings of one file are one entry -- which is what
-        // migration would have written.
+        // spellings of one file are one entry, as migration would have
+        // written it.
         .stderr(predicate::str::contains(
             "1 source file listed in `.meta.json`: model/a.sysml",
         ))
@@ -1315,9 +1299,9 @@ fn both_warns_about_what_only_the_json_has() -> Result<(), Box<dyn std::error::E
 /// migrate again. `migrate`'s own output must warn about nothing, or
 /// the warning is one nobody reads.
 ///
-/// This is what ruled the `.meta.json` symbol index and checksums out
-/// of the comparison: a `model.toml` can never hold either, so warning
-/// about them would fire on every `Both` migration including this one.
+/// The `.meta.json` symbol index and checksums are left out of the
+/// comparison: a `model.toml` can never hold either, so warning about them
+/// would fire on every `Both` migration including this one.
 #[test]
 fn both_warns_about_nothing_on_migrates_own_output() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
@@ -1344,8 +1328,7 @@ fn both_warns_about_nothing_on_migrates_own_output() -> Result<(), Box<dyn std::
     Ok(())
 }
 
-/// The `Both` path reads json the way the `Json` path does, rather than
-/// deserializing straight into the strict json types, so it does not
+/// The `Both` path reads json the way the `Json` path does, so it does not
 /// silently accept what the `Json` path warns about.
 #[test]
 fn both_reads_json_the_way_the_rest_of_migrate_does() -> Result<(), Box<dyn std::error::Error>> {
@@ -1370,14 +1353,13 @@ fn both_reads_json_the_way_the_rest_of_migrate_does() -> Result<(), Box<dyn std:
     Ok(())
 }
 
-/// `detect_format` calls a `model.toml` beside a lone `.meta.json`
-/// `Both`, so every command refuses it and `migrate`, which resolves a
-/// `Both` directory, must not fail with a raw "No such file or
-/// directory" -- or the directory could not be fixed by any command.
+/// A `model.toml` beside a lone `.meta.json` counts as `Both`, so every
+/// command refuses it and `migrate` must not fail with a raw "No such file
+/// or directory", or the directory could not be fixed by any command.
 ///
-/// It is also the state `migrate` leaves if it is interrupted between
-/// its two deletes, so finishing the job is the natural remedy. Nothing
-/// readable is lost: a `.meta.json` alone is not a project.
+/// It is also the state `migrate` leaves if interrupted between its two
+/// deletes. Nothing readable is lost: a `.meta.json` alone is not a
+/// project.
 #[test]
 fn a_lone_meta_json_beside_a_toml_is_finished_off() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;

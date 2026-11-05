@@ -2,8 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 //! The credential store: [`LockedBlobStore`], a persistent store of
-//! credential records over a [`BlobBackend`]; the storage design is in
-//! design/credential-storage.md.
+//! credential records over a [`BlobBackend`].
 //!
 //! All persisted credentials live in one backend entry holding the
 //! versioned JSON blob from the parent module. Read-modify-write is
@@ -364,8 +363,6 @@ impl<B: BlobBackend> LockedBlobStore<B> {
         })
     }
 }
-
-// Private tests
 
 #[cfg(test)]
 #[path = "./keyring_store_tests.rs"]

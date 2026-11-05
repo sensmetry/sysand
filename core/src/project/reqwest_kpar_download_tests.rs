@@ -49,7 +49,6 @@ fn basic_download_request() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut server = mockito::Server::new();
 
-    //let host = server.host_with_port();
     let url = reqwest::Url::parse(&server.url()).unwrap();
 
     let get_kpar = server
@@ -93,12 +92,10 @@ fn basic_download_request() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Two concurrent `ensure_downloaded_verified` calls on the same project must
-/// fan in to a single download. Without the per-project download lock, both
-/// tasks truncate the destination archive and interleave writes: each task's
-/// hasher passes against its own stream but the file on disk is corrupt.
+/// fan in to a single download.
 ///
 /// Asserts that both futures resolve `Ok(())`, the server saw exactly one
-/// kpar fetch, and the archive on disk parses and exposes the expected
+/// kpar fetch, and the downloaded archive parses and exposes the expected
 /// project.
 #[test]
 fn concurrent_downloads_fan_in_to_single_fetch() -> Result<(), Box<dyn std::error::Error>> {
@@ -145,9 +142,8 @@ fn concurrent_downloads_fan_in_to_single_fetch() -> Result<(), Box<dyn std::erro
         .enable_all()
         .build()?;
 
-    // Two futures on the same runtime enter `ensure_downloaded_verified`
-    // together. `OnceCell` must fan them into one download; without that,
-    // both would proceed into the direct-to-destination write path.
+    // Two futures enter `ensure_downloaded_verified` together; the `OnceCell`
+    // must fan them into one download.
     let p1 = Arc::clone(&project);
     let p2 = Arc::clone(&project);
     let (r1, r2) = runtime.block_on(futures::future::join(
@@ -159,8 +155,7 @@ fn concurrent_downloads_fan_in_to_single_fetch() -> Result<(), Box<dyn std::erro
 
     get_kpar.assert();
 
-    // The installed archive must parse; a corrupted interleaved write
-    // would fail here or return garbage.
+    // The downloaded archive must parse.
     let (Some(info), Some(_meta)) = runtime.block_on(project.get_project_async())? else {
         panic!("installed archive failed to expose project");
     };
