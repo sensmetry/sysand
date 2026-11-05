@@ -450,7 +450,13 @@ mod uris {
             super::IndexEnvironmentError::Fetch(super::HttpFetchError::JsonParse {
                 url,
                 source: _,
-            }) => assert!(url.contains("/index.json"), "url carried: {url}"),
+            }) => assert!(
+                url.requested()
+                    .unredacted()
+                    .as_str()
+                    .contains("/index.json"),
+                "url carried: {url}"
+            ),
             other => panic!("expected Fetch(JsonParse), got {other:?}"),
         }
         index_mock.assert();
@@ -484,7 +490,13 @@ mod uris {
                 status,
             }) => {
                 assert_eq!(status, reqwest::StatusCode::NOT_FOUND);
-                assert!(url.contains("/index.json"), "url carried: {url}");
+                assert!(
+                    url.requested()
+                        .unredacted()
+                        .as_str()
+                        .contains("/index.json"),
+                    "url carried: {url}"
+                );
             }
             other => panic!("expected Fetch(BadHttpStatus 404), got {other:?}"),
         }
@@ -558,7 +570,13 @@ mod uris {
                 url,
                 source: _,
             }) => {
-                assert!(url.contains("/index.json"), "url carried: {url}");
+                assert!(
+                    url.requested()
+                        .unredacted()
+                        .as_str()
+                        .contains("/index.json"),
+                    "url carried: {url}"
+                );
             }
             other => panic!("expected Fetch(JsonParse), got {other:?}"),
         }
@@ -1009,7 +1027,10 @@ mod versions {
                 source: _,
             }) => {
                 assert!(
-                    url.contains("/admin/proj0/versions.json"),
+                    url.requested()
+                        .unredacted()
+                        .as_str()
+                        .contains("/admin/proj0/versions.json"),
                     "url carried: {url}"
                 );
             }
@@ -1099,7 +1120,10 @@ mod get_project {
         match err {
             super::IndexEnvironmentError::ProjectNotInIndex { url, iri } => {
                 assert_eq!(iri, purl("nope/nope"));
-                assert!(url.contains("/versions.json"), "url carried: {url}");
+                assert!(
+                    url.unredacted().as_str().contains("/versions.json"),
+                    "url carried: {url}"
+                );
             }
             other => panic!("expected ProjectNotInIndex, got {other:?}"),
         }
@@ -1174,7 +1198,10 @@ mod get_project {
             super::IndexEnvironmentError::VersionRemoved { iri, version, url } => {
                 assert_eq!(iri, purl("admin/proj0"));
                 assert_eq!(version, "0.3.0");
-                assert!(url.contains("/versions.json"), "url carried: {url}");
+                assert!(
+                    url.unredacted().as_str().contains("/versions.json"),
+                    "url carried: {url}"
+                );
             }
             other => panic!("expected VersionRemoved, got {other:?}"),
         }
@@ -1689,7 +1716,9 @@ mod get_project {
         match err {
             super::IndexEnvironmentError::VersionNotInIndex { url, version } => {
                 assert!(
-                    url.contains("/admin/proj0/versions.json"),
+                    url.unredacted()
+                        .as_str()
+                        .contains("/admin/proj0/versions.json"),
                     "url carried: {url}"
                 );
                 assert_eq!(version, "9.9.9");
@@ -2876,4 +2905,42 @@ mod discovery {
 
         Ok(())
     }
+}
+
+/// A failure on a response that came through a redirect names both the
+/// requested URL and the one that answered.
+#[test]
+fn fetch_error_names_the_redirect_target() -> Result<(), Box<dyn std::error::Error>> {
+    let mut server = mockito::Server::new();
+    let moved = server
+        .mock("GET", "/index.json")
+        .with_status(302)
+        .with_header("location", "/moved/index.json")
+        .create();
+    let missing = server
+        .mock("GET", "/moved/index.json")
+        .with_status(404)
+        .create();
+
+    let url = url::Url::parse(&format!("{}/index.json", server.url()))?;
+    let err = make_runtime()?
+        .block_on(super::fetch_json::<serde_json::Value, _>(
+            &create_reqwest_client()?,
+            &Unauthenticated,
+            &url,
+            super::MissingPolicy::RequirePresent,
+        ))
+        .expect_err("a 404 of a required document must fail");
+
+    assert_eq!(
+        err.to_string(),
+        format!(
+            "HTTP request to `{url}` (redirected to `{}/moved/index.json`) \
+             returned status 404 Not Found",
+            server.url()
+        )
+    );
+    moved.assert();
+    missing.assert();
+    Ok(())
 }

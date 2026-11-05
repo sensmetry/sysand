@@ -21,6 +21,7 @@ use sysand_core::{
     },
     config::Config,
     credential_store::CredentialStoreError,
+    resolve::net_utils::HttpOptions,
 };
 
 use jiff::Timestamp;
@@ -181,6 +182,7 @@ pub fn command_auth_login(
     token_stdin: bool,
     config: &Config,
     client: &reqwest_middleware::ClientWithMiddleware,
+    http_options: &HttpOptions,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
     // Resolve before any secret entry, so an ambiguous default fails
@@ -210,9 +212,17 @@ pub fn command_auth_login(
 
     let mut store = open_cli_credential_store().context("could not open the credential store")?;
     let index_key = key.to_string();
-    let outcome = do_auth_login(&mut store, &key, secret, client, &runtime, |notice| {
-        render_login_notice(notice, &index_key);
-    });
+    let outcome = do_auth_login(
+        &mut store,
+        &key,
+        secret,
+        client,
+        http_options,
+        &runtime,
+        |notice| {
+            render_login_notice(notice, &index_key);
+        },
+    );
     match outcome {
         Ok(AuthLoginOutcome::Stored {
             key,
@@ -459,7 +469,7 @@ pub fn command_auth_status(config: &Config) -> Result<()> {
         Err(err) => {
             let mut status = assemble_auth_status(Vec::new(), env, Timestamp::now(), default_key);
             status.stored = StoredCredentialsStatus::BackendUnavailable {
-                reason: err.to_string(),
+                reason: format_err(err),
             };
             status
         }
@@ -664,6 +674,7 @@ pub fn command_auth_whoami(
     index_url: Option<IndexKey>,
     config: &Config,
     client: &reqwest_middleware::ClientWithMiddleware,
+    http_options: &HttpOptions,
     runtime: &tokio::runtime::Runtime,
 ) -> Result<()> {
     // Validate before any store or network access, and echo the resolved
@@ -708,6 +719,7 @@ pub fn command_auth_whoami(
         &env_bearers,
         &discovery_policy,
         client,
+        http_options,
         runtime,
     ) {
         Ok(outcome) => outcome,

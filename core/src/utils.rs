@@ -94,7 +94,7 @@ pub fn format_err(error: impl Error) -> String {
     let mut error: &dyn Error = &error;
     let mut message = error.to_string();
     while let Some(source) = error.source() {
-        writeln!(&mut message, "  caused by: {source}").unwrap();
+        write!(&mut message, "\n  caused by: {source}").unwrap();
         error = source;
     }
     message

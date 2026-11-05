@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use std::{error::Error, fmt::Display, hash::BuildHasher as _, time::Duration};
+use std::{error::Error, hash::BuildHasher as _, time::Duration};
 
 use reqwest::header;
 use reqwest_middleware::{ClientWithMiddleware, RequestBuilder};
 use url::Url;
+
+use crate::redact::RedactedUrl;
 
 // application/vnd.github.raw is required for GitHub API to return raw
 // file contents
@@ -55,27 +57,9 @@ pub fn text_get_request(url: impl Into<Url>) -> impl Fn(&ClientWithMiddleware) -
     }
 }
 
-#[derive(Debug)]
-pub struct ReqwestClientBuildError {
-    inner: reqwest::Error,
-}
-
-impl From<reqwest::Error> for ReqwestClientBuildError {
-    fn from(value: reqwest::Error) -> Self {
-        Self { inner: value }
-    }
-}
-
-impl Display for ReqwestClientBuildError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "failed to build reqwest HTTP client: {}", self.inner)?;
-        match self.inner.source() {
-            Some(source) => write!(f, "\ncaused by: {source}"),
-            None => Ok(()),
-        }
-    }
-}
-impl Error for ReqwestClientBuildError {}
+#[derive(Debug, thiserror::Error)]
+#[error("failed to build reqwest HTTP client")]
+pub struct ReqwestClientBuildError(#[from] reqwest::Error);
 
 /// sysand HTTP user agent
 pub(crate) const USER_AGENT: &str = concat!("sysand/", env!("CARGO_PKG_VERSION"));
@@ -84,6 +68,9 @@ pub(crate) const USER_AGENT: &str = concat!("sysand/", env!("CARGO_PKG_VERSION")
 ///
 /// There is no limit on the duration of a whole request, so a large download
 /// on a slow but working connection always finishes.
+///
+/// Git sources are fetched by gix with its own HTTP client, to which these
+/// options do not apply.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HttpOptions {
     /// How long to wait for a connection to be established. The read
@@ -101,6 +88,13 @@ impl HttpOptions {
     pub const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
     pub const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(30);
     pub const DEFAULT_RETRIES: u32 = 3;
+
+    /// Set the connect and read timeouts of `builder`.
+    pub(crate) fn apply_timeouts(&self, builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+        builder
+            .connect_timeout(self.connect_timeout.min(self.read_timeout))
+            .read_timeout(self.read_timeout)
+    }
 }
 
 impl Default for HttpOptions {
@@ -132,10 +126,7 @@ pub fn create_reqwest_client_with(
 ) -> Result<reqwest_middleware::ClientWithMiddleware, ReqwestClientBuildError> {
     install_default_crypto_provider();
 
-    let client = client_builder()
-        .connect_timeout(options.connect_timeout.min(options.read_timeout))
-        .read_timeout(options.read_timeout)
-        .build()?;
+    let client = options.apply_timeouts(client_builder()).build()?;
 
     let builder = reqwest_middleware::ClientBuilder::new(client);
     let builder = if options.retries > 0 {
@@ -202,7 +193,7 @@ impl reqwest_middleware::Middleware for Retry {
                 .min(MAX_RETRY_DELAY);
             log::warn!(
                 "request to `{}` failed ({reason}), retrying in {:.1}s ({attempt}/{})",
-                req.url(),
+                RedactedUrl::from(req.url()),
                 wait.as_secs_f64(),
                 self.retries
             );
@@ -223,7 +214,14 @@ fn retry_reason(result: &reqwest_middleware::Result<reqwest::Response>) -> Optio
                 .then(|| format!("HTTP status {status}"))
         }
         Err(reqwest_middleware::Error::Reqwest(err)) => {
-            let chain = std::iter::successors(Some(err as &dyn Error), |&e| e.source());
+            // `io::Error::source()` skips the error an `io::Error` wraps, so
+            // that is stepped into by hand
+            let chain = std::iter::successors(Some(err as &dyn Error), |&e| {
+                match e.downcast_ref::<std::io::Error>() {
+                    Some(io) => io.get_ref().map(|inner| inner as &dyn Error),
+                    None => e.source(),
+                }
+            });
             // A TLS failure, such as an untrusted certificate, is reported as
             // a connection error but fails the same way every time.
             if chain.clone().any(<dyn Error>::is::<rustls::Error>) {
@@ -231,6 +229,10 @@ fn retry_reason(result: &reqwest_middleware::Result<reqwest::Response>) -> Optio
             } else if err.is_timeout() {
                 Some("timed out".to_owned())
             } else if err.is_connect() || err.is_request() {
+                // DNS failures are retried too: the system resolver reports
+                // an unknown host and a temporary failure alike, as text
+                // only, so the two cannot be told apart.
+                //
                 // The innermost error is the specific one, such as
                 // "Connection refused".
                 chain.last().map(ToString::to_string)

@@ -129,7 +129,7 @@ pub enum InMemoryError {
     AlreadyExists(String),
     #[error("project read error: file `{0}` not found")]
     FileNotFound(Utf8UnixPathBuf),
-    #[error("failed to read from reader: {0}")]
+    #[error("failed to read from reader")]
     IoRead(#[from] std::io::Error),
     #[error("project is missing `.project.json` and/or `.meta.json` files")]
     MissingInfoMeta,

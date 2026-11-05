@@ -349,8 +349,8 @@ pub enum PutProjectError<WE, CE> {
     Write(#[from] WE),
     #[error(transparent)]
     Callback(CE),
-    #[error("failed to parse `{0}` as IRI: {1}")]
-    IriParse(String, fluent_uri::ParseError),
+    #[error("failed to parse `{0}` as IRI")]
+    IriParse(String, #[source] fluent_uri::ParseError),
     // #[error(transparent)]
     // AddProject(AE),
 }

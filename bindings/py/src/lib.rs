@@ -71,6 +71,7 @@ use sysand_core::{
         memory::InMemoryProject,
         utils::{Identifier, wrapfs},
     },
+    redact::RedactedUrl,
     remove::{RemoveError, do_remove},
     resolve::{
         ResolveRead,
@@ -357,7 +358,7 @@ type StandardResolverError = <StandardResolver<CliAuthPolicy> as ResolveRead>::E
 
 /// What to tell the user about an HTTP 401/403 from `url`, given the
 /// policy that was in force. Never includes a secret.
-fn auth_hint(auth: &AuthSpec, policy: &CliAuthPolicy, url: &str) -> String {
+fn auth_hint(auth: &AuthSpec, policy: &CliAuthPolicy, url: &RedactedUrl) -> String {
     match auth.kind.as_str() {
         "none" => format!(
             "no credentials were configured for `{url}`;\n\
@@ -372,7 +373,7 @@ fn auth_hint(auth: &AuthSpec, policy: &CliAuthPolicy, url: &str) -> String {
             )
         }
         _ => match policy.env_policy().publish_bearer_auth_map() {
-            Ok(map) => match map.lookup(url) {
+            Ok(map) => match map.lookup(url.unredacted().as_str()) {
                 GlobMapResult::Found(entry) => format!(
                     "the bearer token in `SYSAND_CRED_{label}_BEARER_TOKEN` (URL glob\n\
                      `SYSAND_CRED_{label}`) was rejected by `{url}`",
@@ -430,7 +431,10 @@ fn combined_error_to_pyerr<F, L, R>(
             HttpFetchError::BadHttpStatus { url, status }
                 if matches!(status.as_u16(), 401 | 403) =>
             {
-                PyAuthError::new_err(format!("{message}\n  {}", auth_hint(auth, policy, url)))
+                PyAuthError::new_err(format!(
+                    "{message}\n  {}",
+                    auth_hint(auth, policy, url.requested())
+                ))
             }
             // Connection-level failures are not the index's fault.
             HttpFetchError::Request { url: _, source: _ } => PyResolutionError::new_err(message),

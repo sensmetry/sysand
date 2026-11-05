@@ -363,8 +363,8 @@ fn init_rejects_invalid_directory_name() -> Result<(), Box<dyn std::error::Error
     let (_temp_dir, cwd, out) = run_sysand(["init", "--publisher", "a", "bad:dir"], None)?;
 
     out.assert().failure().stderr(predicate::str::contains(
-        "cannot use the directory name `bad:dir` as the project name: \
-         name cannot contain `:`; use `--name` to set it",
+        "cannot use the directory name `bad:dir` as the project name; \
+         use `--name` to set it\n  caused by: name cannot contain `:`",
     ));
     assert!(!cwd.join("bad:dir").join(".project.json").exists());
 

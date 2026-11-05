@@ -1000,7 +1000,7 @@ fn lock_invalid_index_url_error_redacts_password() -> Result<(), Box<dyn std::er
     .failure()
     .stderr(contains("invalid value for '--index"))
     .stderr(contains(
-        "`https://<redacted>@example.org/` includes username or password",
+        "`https://****@example.org/` includes username or password",
     ))
     .stderr(contains("hunter2").not());
 
@@ -1013,7 +1013,7 @@ fn lock_invalid_index_url_error_redacts_password() -> Result<(), Box<dyn std::er
     .assert()
     .failure()
     .stderr(contains(
-        "invalid `SYSAND_DEFAULT_INDEX` environment variable: index URL `https://<redacted>@example.org/`",
+        "invalid `SYSAND_DEFAULT_INDEX` environment variable: index URL `https://****@example.org/`",
     ))
     .stderr(contains("hunter2").not());
 

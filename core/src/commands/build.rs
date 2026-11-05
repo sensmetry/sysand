@@ -6,7 +6,7 @@ use indexmap::IndexMap;
 use jiff::tz::TimeZone;
 use thiserror::Error;
 
-use std::{collections::HashSet, io::Write as _};
+use std::{collections::HashSet, fs, io::Write as _};
 
 use crate::{
     env::utils::ErrorBound,
@@ -153,8 +153,8 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
     MissingMeta,
     #[error(transparent)]
     Zip(#[from] ZipArchiveError),
-    #[error("project serialization error: {0}: {1}")]
-    Serialize(&'static str, serde_json::Error),
+    #[error("project serialization error: {0}")]
+    Serialize(&'static str, #[source] serde_json::Error),
     #[error(
         "project includes a path usage `{0}`,\n\
         which is unlikely to be available on other computers at the same path"
@@ -242,7 +242,7 @@ pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     ) {
         Ok(p) => Ok(p),
         Err(e) => {
-            if let Err(e) = wrapfs::remove_file(path) {
+            if let Err(e) = fs::remove_file(path) {
                 log::debug!("cleanup: failed to remove archive file `{path}`: {e}");
             }
             Err(e)
@@ -518,7 +518,7 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
         ) {
             Ok(p) => p,
             Err(e) => {
-                if let Err(e) = wrapfs::remove_file(&output_path) {
+                if let Err(e) = fs::remove_file(&output_path) {
                     log::debug!("cleanup: failed to remove archive file `{output_path}`: {e}");
                 }
                 return Err(e);

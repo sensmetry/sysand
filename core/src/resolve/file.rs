@@ -37,8 +37,8 @@ pub struct FileResolver {
 pub enum FileResolverError {
     #[error("failed to encode path `{0}` in UTF-8")]
     InvalidPath(PathBuf),
-    #[error("IRI `{0}` is not a valid URL: {1}")]
-    IriNotValidUrl(String, url::ParseError),
+    #[error("IRI `{0}` is not a valid URL")]
+    IriNotValidUrl(String, #[source] url::ParseError),
     #[error("failed to extract path from file URL")]
     FailedPathExtract,
     #[error(transparent)]
@@ -152,8 +152,7 @@ pub enum FileResolverProjectError {
     Path(#[from] project::local_src::PathError),
     #[error(
         "cannot construct a relative path from the workspace/project
-        directory to one of its dependencies' directory:\n\
-        {0}"
+        directory to one of its dependencies' directory"
     )]
     ImpossibleRelativePath(#[from] RelativizePathError),
     #[error("kpar at `{path}` has sha256 `{computed}` but the expected digest was `{expected}`")]

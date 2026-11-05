@@ -25,6 +25,7 @@ pub mod manifest;
 mod migrate;
 pub mod project;
 pub mod purl;
+pub mod redact;
 pub mod resolve;
 pub mod solve;
 pub mod stdlib;

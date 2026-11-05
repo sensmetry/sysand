@@ -73,10 +73,10 @@ pub enum SyncError<
         "cannot handle project with IRI `{0}` residing in remote git repo (type `remote_git`) storage"
     )]
     MissingRemoteGitStorage(Box<str>),
-    #[error("failed to download git project from {0}: {1}")]
-    GitDownload(Box<str>, GitError),
-    #[error("invalid remote source URL `{0}`:\n{1}")]
-    InvalidRemoteSource(Box<str>, UrlParseError),
+    #[error("failed to download git project from {0}")]
+    GitDownload(Box<str>, #[source] GitError),
+    #[error("invalid remote source URL `{0}`")]
+    InvalidRemoteSource(Box<str>, #[source] UrlParseError),
     // TODO: type
     #[error("failed to install project `{id}`:\n{cause}")]
     InstallFail { id: String, cause: String },

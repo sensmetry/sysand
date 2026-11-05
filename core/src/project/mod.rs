@@ -110,8 +110,8 @@ async fn hash_reader_async<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Proje
 pub enum CanonicalizationError<ReadError: ErrorBound> {
     #[error(transparent)]
     ProjectRead(ReadError),
-    #[error("failed to read from file\n  `{0}`:\n  {1}")]
-    FileRead(Box<str>, io::Error),
+    #[error("failed to read from file\n  `{0}`")]
+    FileRead(Box<str>, #[source] io::Error),
 }
 
 impl<E: ErrorBound> CanonicalizationError<E> {

@@ -49,6 +49,7 @@ use crate::{
             ReqwestRemoteKparDownloadedProject,
         },
     },
+    redact::RedactedUrl,
 };
 
 use super::ProjectChecksum;
@@ -236,7 +237,7 @@ fn validate_fetched<T: PartialManifest>(
     match partial.validate_manifest(metamodel) {
         Ok(validated) => {
             for warning in &validated.warnings {
-                log::warn!("`{url}`: {warning}");
+                log::warn!("`{}`: {warning}", RedactedUrl::from(url));
             }
             Ok(validated.value)
         }

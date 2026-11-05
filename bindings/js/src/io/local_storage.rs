@@ -54,9 +54,9 @@ pub enum Error {
     Js(String),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
-    #[error("failed to serialize information to write it to `{0}`: {1}")]
-    Serialize(&'static str, serde_json::Error),
-    #[error("failed to serialize: {0}")]
+    #[error("failed to serialize information to write it to `{0}`")]
+    Serialize(&'static str, #[source] serde_json::Error),
+    #[error("failed to serialize")]
     SerializeHandle(#[from] serde_json::Error),
     #[error("key `{0}` not found in local storage")]
     KeyNotFound(String),

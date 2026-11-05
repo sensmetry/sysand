@@ -41,7 +41,7 @@ pub enum CredentialStoreError {
     UnsupportedBlobVersion { found: u32, expected: u32 },
     /// No usable OS keyring backend. Callers can fall back to
     /// `SYSAND_CRED_*` environment variables.
-    #[error("no OS keyring backend is available: {source}")]
+    #[error("no OS keyring backend is available")]
     BackendAbsent {
         source: Box<dyn std::error::Error + Send + Sync>,
     },

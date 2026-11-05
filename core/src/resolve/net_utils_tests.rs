@@ -12,7 +12,7 @@ use std::{
 
 use super::{
     HttpOptions, create_reqwest_client, create_reqwest_client_with,
-    install_default_crypto_provider, jittered, parse_retry_after, retry_after,
+    install_default_crypto_provider, jittered, parse_retry_after, retry_after, retry_reason,
 };
 
 /// The reason [`install_default_crypto_provider`] exists. `reqwest` is taken
@@ -130,6 +130,25 @@ fn client_error_is_not_retried() {
     .unwrap();
 
     mock.assert();
+}
+
+/// A failed TLS handshake fails the same way every time, so it is not
+/// retried.
+#[test]
+fn tls_failure_is_not_retried() {
+    // A plain HTTP server answers the TLS handshake with something that is
+    // not TLS
+    let server = mockito::Server::new();
+    let url = server.url().replacen("http://", "https://", 1);
+
+    let client = create_reqwest_client_with(options(Duration::from_secs(5), 0)).unwrap();
+    let result = send(&client, reqwest::Method::GET, &url);
+
+    assert!(
+        matches!(&result, Err(reqwest_middleware::Error::Reqwest(e)) if e.is_connect()),
+        "expected a connection error, got {result:?}"
+    );
+    assert_eq!(retry_reason(&result), None);
 }
 
 /// The server may have acted on a `POST` that failed, so it is sent once.

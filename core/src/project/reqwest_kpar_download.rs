@@ -23,6 +23,7 @@ use crate::{
         KparMeta, ProjectRead, ProjectReadAsync,
         local_kpar::{LocalKParError, LocalKParProject, LocalKParProjectRaw},
     },
+    redact::{HttpError, RedactedUrl, ResponseUrl, redact_userinfo},
     resolve::net_utils::kpar_get_request,
     utils::{format_err, lowercase_hex},
 };
@@ -101,37 +102,43 @@ pub struct ReqwestIndexKparDownloadedProject<Policy> {
 // TODO: reduce size of errors here and elsewhere
 #[derive(Error, Debug)]
 pub enum ReqwestKparDownloadedError {
-    #[error("HTTP request to `{url}` returned status {status}")]
+    #[error("HTTP request to `{url}` failed")]
+    Request {
+        url: RedactedUrl,
+        #[source]
+        source: HttpError,
+    },
+    #[error("HTTP request to {url} returned status {status}")]
     BadHttpStatus {
-        url: Box<str>,
+        url: ResponseUrl,
         status: reqwest::StatusCode,
     },
-    #[error("failed to parse URL `{0}`: {1}")]
-    ParseUrl(Box<str>, url::ParseError),
-    // TODO: ensure that error chain is printed, then remove cause
-    // details from this message
-    #[error("error making an HTTP request:\n{0:#?}")]
-    Reqwest(#[from] reqwest::Error),
-    #[error("error making an HTTP request:\n{0:#?}")]
-    ReqwestMiddleware(#[from] reqwest_middleware::Error),
+    #[error("failed to read HTTP response body from {url}")]
+    Body {
+        url: ResponseUrl,
+        #[source]
+        source: HttpError,
+    },
+    #[error("failed to parse URL `{0}`")]
+    ParseUrl(Box<str>, #[source] url::ParseError),
     #[error(transparent)]
     KPar(#[from] LocalKParError),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
-    #[error("kpar at `{url}` has sha256 `{computed}` but the expected digest was `{expected}`")]
+    #[error("kpar at {url} has sha256 `{computed}` but the expected digest was `{expected}`")]
     DigestMismatch {
-        url: Box<str>,
+        url: ResponseUrl,
         expected: String,
         computed: String,
     },
-    #[error("kpar at `{url}` has size {actual} bytes but the expected size was {expected} bytes")]
+    #[error("kpar at {url} has size {actual} bytes but the expected size was {expected} bytes")]
     SizeMismatch {
-        url: Box<str>,
+        url: ResponseUrl,
         expected: u64,
         actual: u64,
     },
-    #[error("kpar at `{url}` is an empty file")]
-    EmptyKpar { url: Box<str> },
+    #[error("kpar at {url} is an empty file")]
+    EmptyKpar { url: ResponseUrl },
 }
 
 impl From<FsIoError> for ReqwestKparDownloadedError {
@@ -151,7 +158,7 @@ impl<Policy: HTTPAuthentication> ReqwestRemoteKparDownloadedProject<Policy> {
         expected: Option<KparMeta>,
     ) -> Result<Self, ReqwestKparDownloadedError> {
         let url = reqwest::Url::parse(url.as_ref())
-            .map_err(|e| ReqwestKparDownloadedError::ParseUrl(url.as_ref().into(), e))?;
+            .map_err(|e| ReqwestKparDownloadedError::ParseUrl(redact_userinfo(url.as_ref()), e))?;
         Ok(Self {
             url,
             client,
@@ -197,11 +204,16 @@ impl<Policy: HTTPAuthentication> ReqwestRemoteKparDownloadedProject<Policy> {
         let resp = self
             .auth_policy
             .with_authentication(&self.client, &kpar_get_request(self.url.clone()))
-            .await?;
+            .await
+            .map_err(|source| ReqwestKparDownloadedError::Request {
+                url: (&self.url).into(),
+                source: source.into(),
+            })?;
+        let response_url = ResponseUrl::new(&self.url, resp.url());
 
         if !resp.status().is_success() {
             return Err(ReqwestKparDownloadedError::BadHttpStatus {
-                url: self.url.as_str().into(),
+                url: response_url.clone(),
                 status: resp.status(),
             });
         }
@@ -210,7 +222,7 @@ impl<Policy: HTTPAuthentication> ReqwestRemoteKparDownloadedProject<Policy> {
             && actual != expected.size_bytes.get()
         {
             return Err(ReqwestKparDownloadedError::SizeMismatch {
-                url: self.url.as_str().into(),
+                url: response_url.clone(),
                 expected: expected.size_bytes.get(),
                 actual,
             });
@@ -224,13 +236,16 @@ impl<Policy: HTTPAuthentication> ReqwestRemoteKparDownloadedProject<Policy> {
         let mut written = 0u64;
 
         while let Some(bytes) = bytes_stream.next().await {
-            let bytes = bytes.map_err(ReqwestKparDownloadedError::Reqwest)?;
+            let bytes = bytes.map_err(|source| ReqwestKparDownloadedError::Body {
+                url: response_url.clone(),
+                source: source.into(),
+            })?;
             written += bytes.len() as u64;
             if let Some(expected) = &self.expected
                 && written > expected.size_bytes.get()
             {
                 return Err(ReqwestKparDownloadedError::SizeMismatch {
-                    url: self.url.as_str().into(),
+                    url: response_url.clone(),
                     expected: expected.size_bytes.get(),
                     actual: written,
                 });
@@ -241,7 +256,7 @@ impl<Policy: HTTPAuthentication> ReqwestRemoteKparDownloadedProject<Policy> {
         }
         let Some(written) = NonZeroU64::new(written) else {
             return Err(ReqwestKparDownloadedError::EmptyKpar {
-                url: self.url.as_str().into(),
+                url: response_url.clone(),
             });
         };
 
@@ -249,7 +264,7 @@ impl<Policy: HTTPAuthentication> ReqwestRemoteKparDownloadedProject<Policy> {
             && written != expected.size_bytes
         {
             return Err(ReqwestKparDownloadedError::SizeMismatch {
-                url: self.url.as_str().into(),
+                url: response_url.clone(),
                 expected: expected.size_bytes.get(),
                 actual: written.get(),
             });
@@ -271,7 +286,7 @@ impl<Policy: HTTPAuthentication> ReqwestRemoteKparDownloadedProject<Policy> {
                 Ok((inner, None))
             } else {
                 Err(ReqwestKparDownloadedError::DigestMismatch {
-                    url: self.url.as_str().into(),
+                    url: response_url.clone(),
                     expected: expected.sha256_hex.clone(),
                     computed: computed_hash,
                 })
@@ -413,7 +428,7 @@ impl<Policy: HTTPAuthentication> ReqwestIndexKparDownloadedProject<Policy> {
         expected_kpar_sha256: String,
     ) -> Result<Self, ReqwestKparDownloadedError> {
         let url = reqwest::Url::parse(url.as_ref())
-            .map_err(|e| ReqwestKparDownloadedError::ParseUrl(url.as_ref().into(), e))?;
+            .map_err(|e| ReqwestKparDownloadedError::ParseUrl(redact_userinfo(url.as_ref()), e))?;
         Ok(Self {
             url,
             client,
@@ -457,11 +472,16 @@ impl<Policy: HTTPAuthentication> ReqwestIndexKparDownloadedProject<Policy> {
         let resp = self
             .auth_policy
             .with_authentication(&self.client, &kpar_get_request(self.url.clone()))
-            .await?;
+            .await
+            .map_err(|source| ReqwestKparDownloadedError::Request {
+                url: (&self.url).into(),
+                source: source.into(),
+            })?;
+        let response_url = ResponseUrl::new(&self.url, resp.url());
 
         if !resp.status().is_success() {
             return Err(ReqwestKparDownloadedError::BadHttpStatus {
-                url: self.url.as_str().into(),
+                url: response_url.clone(),
                 status: resp.status(),
             });
         }
@@ -470,7 +490,7 @@ impl<Policy: HTTPAuthentication> ReqwestIndexKparDownloadedProject<Policy> {
             && actual != self.expected_size.get()
         {
             return Err(ReqwestKparDownloadedError::SizeMismatch {
-                url: self.url.as_str().into(),
+                url: response_url.clone(),
                 expected: self.expected_size.get(),
                 actual,
             });
@@ -484,11 +504,14 @@ impl<Policy: HTTPAuthentication> ReqwestIndexKparDownloadedProject<Policy> {
         let mut written = 0u64;
 
         while let Some(bytes) = bytes_stream.next().await {
-            let bytes = bytes.map_err(ReqwestKparDownloadedError::Reqwest)?;
+            let bytes = bytes.map_err(|source| ReqwestKparDownloadedError::Body {
+                url: response_url.clone(),
+                source: source.into(),
+            })?;
             written += bytes.len() as u64;
             if written > self.expected_size.get() {
                 return Err(ReqwestKparDownloadedError::SizeMismatch {
-                    url: self.url.as_str().into(),
+                    url: response_url.clone(),
                     expected: self.expected_size.get(),
                     actual: written,
                 });
@@ -499,13 +522,13 @@ impl<Policy: HTTPAuthentication> ReqwestIndexKparDownloadedProject<Policy> {
         }
         let Some(written) = NonZeroU64::new(written) else {
             return Err(ReqwestKparDownloadedError::EmptyKpar {
-                url: self.url.as_str().into(),
+                url: response_url.clone(),
             });
         };
 
         if written != self.expected_size {
             return Err(ReqwestKparDownloadedError::SizeMismatch {
-                url: self.url.as_str().into(),
+                url: response_url.clone(),
                 expected: self.expected_size.get(),
                 actual: written.get(),
             });
@@ -531,7 +554,7 @@ impl<Policy: HTTPAuthentication> ReqwestIndexKparDownloadedProject<Policy> {
             Ok(inner)
         } else {
             Err(ReqwestKparDownloadedError::DigestMismatch {
-                url: self.url.as_str().into(),
+                url: response_url.clone(),
                 expected: self.expected_kpar_sha256.clone(),
                 computed: computed_hash,
             })

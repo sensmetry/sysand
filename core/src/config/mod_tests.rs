@@ -184,7 +184,7 @@ url = "https://user:hunter2@example.org/"
     .unwrap_err();
     let err = err.to_string();
     assert!(
-        err.contains("index URL `https://<redacted>@example.org/` includes username or password"),
+        err.contains("index URL `https://****@example.org/` includes username or password"),
         "{err}"
     );
     assert!(

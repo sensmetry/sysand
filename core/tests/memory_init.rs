@@ -4,6 +4,7 @@
 use std::assert_matches;
 use sysand_core::{
     commands::init::do_init_parse, init::do_init_memory, model::InterchangeProjectInfoRaw,
+    utils::format_err,
 };
 
 /// `sysand init` should create valid, minimal, .project.json
@@ -98,8 +99,8 @@ fn init_rejects_invalid_name() {
         panic!("expected `NameParse`, got {result:?}");
     };
     assert_eq!(
-        err.to_string(),
-        "invalid project name `a/b`: name cannot contain `/`"
+        format_err(&err),
+        "invalid project name `a/b`\n  caused by: name cannot contain `/`"
     );
 }
 
@@ -113,8 +114,8 @@ fn init_rejects_invalid_publisher() {
         panic!("expected `PublisherParse`, got {result:?}");
     };
     assert_eq!(
-        err.to_string(),
-        "invalid project publisher `acme:labs`: publisher cannot contain `:`"
+        format_err(&err),
+        "invalid project publisher `acme:labs`\n  caused by: publisher cannot contain `:`"
     );
 }
 
@@ -180,8 +181,7 @@ fn init_rejects_invalid_metamodel() {
         panic!("expected `MalformedMetamodel`, got {result:?}");
     };
     assert!(
-        err.to_string()
-            .starts_with("invalid metamodel: `not an iri` is not a URL")
+        format_err(&err).starts_with("invalid metamodel\n  caused by: `not an iri` is not a URL")
     );
     assert!(storage.info.is_none());
     assert!(storage.meta.is_none());

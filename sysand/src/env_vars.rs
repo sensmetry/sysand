@@ -19,6 +19,10 @@ pub const SYSAND_CONFIG_FILE: &str = "SYSAND_CONFIG_FILE";
 /// Sysand config files.
 pub const SYSAND_NO_CONFIG: &str = "SYSAND_NO_CONFIG";
 
+// The `SYSAND_HTTP_*` variables configure Sysand's own HTTP client, used for
+// indexes and kpar downloads. Git sources are fetched by gix with its own
+// HTTP client, which they do not affect.
+
 /// How many seconds to wait for each read of an HTTP response before giving
 /// up. A positive whole number; also caps the connect timeout.
 pub const SYSAND_HTTP_TIMEOUT: &str = "SYSAND_HTTP_TIMEOUT";

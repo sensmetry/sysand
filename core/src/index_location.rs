@@ -38,6 +38,8 @@ use std::borrow::Cow;
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use thiserror::Error;
 
+use crate::redact::redact_userinfo;
+
 /// Placeholder that expands to the fully percent-encoded relative index
 /// path (`/` becomes `%2F`).
 const PATH_PLACEHOLDER: &str = "{path}";
@@ -504,28 +506,6 @@ fn validate_url_shape(reported: &str, url: &url::Url) -> Result<(), IndexLocatio
 /// Whether `s` uses index URL template syntax (contains a brace).
 fn is_template_syntax(s: &str) -> bool {
     s.contains(['{', '}'])
-}
-
-/// Render a possibly malformed URL for an error message with any userinfo
-/// replaced by `<redacted>`, so an embedded password never reaches stderr
-/// or CI logs. String-based on purpose: it must work for inputs
-/// `url::Url::parse` rejected.
-fn redact_userinfo(raw: &str) -> Box<str> {
-    // The authority runs from after any scheme separator to the first
-    // `/`, `?`, or `#`; userinfo is everything up to the last `@` in it.
-    let authority_start = raw.find("://").map_or(0, |idx| idx + 3);
-    let authority_end = raw[authority_start..]
-        .find(['/', '?', '#'])
-        .map_or(raw.len(), |idx| authority_start + idx);
-    match raw[authority_start..authority_end].rfind('@') {
-        Some(at) => format!(
-            "{}<redacted>@{}",
-            &raw[..authority_start],
-            &raw[authority_start + at + 1..]
-        )
-        .into(),
-        None => raw.into(),
-    }
 }
 
 /// Return `url` with a guaranteed trailing slash on its path so that

@@ -477,7 +477,8 @@ fn run_cli_with(
 
     config.merge(auto_config);
 
-    let client = create_reqwest_client_with(http_options_from_env()?)?;
+    let http_options = http_options_from_env()?;
+    let client = create_reqwest_client_with(http_options)?;
 
     let runtime = Arc::new(
         tokio::runtime::Builder::new_current_thread()
@@ -492,12 +493,13 @@ fn run_cli_with(
     // The `auth` commands manage credentials rather than use them, so
     // they dispatch before the eager env-policy build below. `status`
     // applies the same strict `SYSAND_CRED_*` validation on its own;
-    // `login`, `logout`, and `whoami` must keep working even when those
-    // variables are malformed. `login` still gets the shared client and
-    // runtime: core
-    // handles its discovery fetch itself (an unauthenticated baseline
-    // with a forced-bearer retry carrying the just-entered secret), so
-    // no ambient auth policy is needed.
+    // malformed auth-related variables (`SYSAND_CRED_*`) must not break
+    // `login`, `logout`, or `whoami`. Other variables, such as
+    // `SYSAND_HTTP_*`, are validated above for every command. `login`
+    // still gets the shared client and runtime: core handles its
+    // discovery fetch itself (an unauthenticated baseline with a
+    // forced-bearer retry carrying the just-entered secret), so no
+    // ambient auth policy is needed.
     let command = match command {
         Command::Auth { command } => {
             return match command {
@@ -505,9 +507,16 @@ fn run_cli_with(
                 AuthCommand::Login {
                     index_url,
                     token_stdin,
-                } => command_auth_login(index_url, token_stdin, &config, &client, runtime),
+                } => command_auth_login(
+                    index_url,
+                    token_stdin,
+                    &config,
+                    &client,
+                    &http_options,
+                    runtime,
+                ),
                 AuthCommand::Whoami { index_url } => {
-                    command_auth_whoami(index_url, &config, &client, &runtime)
+                    command_auth_whoami(index_url, &config, &client, &http_options, &runtime)
                 }
                 AuthCommand::Logout { index_url } => command_auth_logout(index_url, &config),
             };

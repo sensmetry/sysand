@@ -20,8 +20,8 @@ pub const CONFIG_FILE: &str = "sysand.toml";
 
 #[derive(Error, Debug)]
 pub enum ConfigReadError {
-    #[error("failed to deserialize TOML file `{0}`: {1}")]
-    Toml(Box<Utf8Path>, toml::de::Error),
+    #[error("failed to deserialize TOML file `{0}`")]
+    Toml(Box<Utf8Path>, #[source] toml::de::Error),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
 }
@@ -78,8 +78,8 @@ pub enum ConfigProjectSourceError {
     Io(#[from] Box<FsIoError>),
     #[error("`{0}` is not a file")]
     NotAFile(String),
-    #[error("failed to parse configuration file at `{0}`:\n{1}")]
-    TomlEdit(Utf8PathBuf, toml_edit::TomlError),
+    #[error("failed to parse configuration file at `{0}`")]
+    TomlEdit(Utf8PathBuf, #[source] toml_edit::TomlError),
     #[error("{0}")]
     InvalidProjects(String),
 }
