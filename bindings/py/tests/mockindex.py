@@ -114,13 +114,17 @@ class _Project:
     versions: dict[str, _Version] = dataclasses.field(default_factory=dict)
 
 
+# Enough consecutive failures to outlast the HTTP client's default retries.
+OUTLAST_RETRIES = 10
+
+
 class MockIndex:
     def __init__(self, httpserver: HTTPServer) -> None:
         self._server = httpserver
         self._projects: dict[str, _Project] = {}
         self._files: dict[str, tuple[bytes, str]] = {}
         self._bearer: str | None = None
-        self._fail_next: dict[str, int] = {}
+        self._fail_next: dict[str, tuple[int, int]] = {}
         httpserver.expect_request(re.compile(r"^/.*$")).respond_with_handler(
             self._handle
         )
@@ -245,9 +249,9 @@ class MockIndex:
         """Answer 401 to every request without ``Authorization: Bearer <token>``."""
         self._bearer = token
 
-    def fail_next(self, path: str, status: int) -> None:
-        """Make the next request for ``path`` fail with ``status``."""
-        self._fail_next[path] = status
+    def fail_next(self, path: str, status: int, times: int = 1) -> None:
+        """Make the next ``times`` requests for ``path`` fail with ``status``."""
+        self._fail_next[path] = (status, times)
 
     def override(
         self, path: str, body: bytes, content_type: str = "application/json"
@@ -276,8 +280,11 @@ class MockIndex:
                     status=401,
                     headers={"WWW-Authenticate": "Bearer"},
                 )
-        status = self._fail_next.pop(path, None)
-        if status is not None:
+        failure = self._fail_next.pop(path, None)
+        if failure is not None:
+            status, times = failure
+            if times > 1:
+                self._fail_next[path] = (status, times - 1)
             return Response(f"injected failure {status}", status=status)
         if path == DISCOVERY_PATH:
             return Response("", status=404)

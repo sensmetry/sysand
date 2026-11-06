@@ -28,6 +28,7 @@ from mockindex import (
     LEGACY_CONSTRAINT,
     LIBRARY,
     TARGET_CONSTRAINT,
+    OUTLAST_RETRIES,
     MockIndex,
     usage,
 )
@@ -416,7 +417,9 @@ def test_half_synced(make_baseline: MakeBaseline, mock_index: MockIndex) -> None
     last = to_install[-1]
     last_iri = iri_by_name[last["name"]]
     first_iri = iri_by_name[to_install[0]["name"]]
-    mock_index.fail_next(MockIndex.kpar_path(last_iri, last["version"]), 500)
+    mock_index.fail_next(
+        MockIndex.kpar_path(last_iri, last["version"]), 500, OUTLAST_RETRIES
+    )
 
     with pytest.raises(sysand.SyncError) as excinfo:
         sysand.sync(path=baseline.root, resolution=res)

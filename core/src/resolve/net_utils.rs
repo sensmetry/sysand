@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use std::{error::Error, hash::BuildHasher as _, time::Duration};
+use std::{error::Error, fmt::Display, hash::BuildHasher as _, net::IpAddr, time::Duration};
 
 use reqwest::header;
 use reqwest_middleware::{ClientWithMiddleware, RequestBuilder};
@@ -71,7 +71,7 @@ pub(crate) const USER_AGENT: &str = concat!("sysand/", env!("CARGO_PKG_VERSION")
 ///
 /// Git sources are fetched by gix with its own HTTP client, to which these
 /// options do not apply.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HttpOptions {
     /// How long to wait for a connection to be established. The read
     /// timeout is used instead when it is shorter.
@@ -82,6 +82,10 @@ pub struct HttpOptions {
     /// How many times an idempotent request is retried after a connection
     /// error, a timeout, or a `408`, `429` or `5xx` response.
     pub retries: u32,
+    /// Hosts whose TLS certificates are not verified at all. A redirect to
+    /// one of them is followed without verification, and one to any other
+    /// host with it. Has no effect on plain `http://` URLs.
+    pub insecure_hosts: Vec<InsecureHost>,
 }
 
 impl HttpOptions {
@@ -103,6 +107,7 @@ impl Default for HttpOptions {
             connect_timeout: Self::DEFAULT_CONNECT_TIMEOUT,
             read_timeout: Self::DEFAULT_READ_TIMEOUT,
             retries: Self::DEFAULT_RETRIES,
+            insecure_hosts: Vec::new(),
         }
     }
 }
@@ -111,32 +116,230 @@ impl Default for HttpOptions {
 /// See [`create_reqwest_client_with`].
 pub fn create_reqwest_client()
 -> Result<reqwest_middleware::ClientWithMiddleware, ReqwestClientBuildError> {
-    create_reqwest_client_with(HttpOptions::default())
+    create_reqwest_client_with(&HttpOptions::default())
 }
 
 /// Create a reqwest client. This must be used where possible.
 /// Note that gix manages its own HTTP client, so logs may indicate
 /// duplicate initialization.
 ///
-/// Relies on `reqwest`'s default redirect behaviour (up to 10
-/// automatic redirects); index clients MUST follow HTTP redirects
-/// on the index URL discovery fetch and on every index resource.
+/// Follows up to 10 redirects, as `reqwest` does by default; index clients
+/// MUST follow HTTP redirects on the index URL discovery fetch and on every
+/// index resource. This holds for [`HttpOptions::insecure_hosts`] too.
 pub fn create_reqwest_client_with(
-    options: HttpOptions,
+    options: &HttpOptions,
 ) -> Result<reqwest_middleware::ClientWithMiddleware, ReqwestClientBuildError> {
     install_default_crypto_provider();
 
-    let client = options.apply_timeouts(client_builder()).build()?;
+    let mut client = options.apply_timeouts(client_builder());
+    if !options.insecure_hosts.is_empty() {
+        // `InsecureHostsRouter` follows every redirect, to choose the client
+        // for each hop
+        client = client.redirect(reqwest::redirect::Policy::none());
+    }
+    let client = client.build()?;
 
-    let builder = reqwest_middleware::ClientBuilder::new(client);
-    let builder = if options.retries > 0 {
-        builder.with(Retry {
+    let mut builder = reqwest_middleware::ClientBuilder::new(client);
+    if options.retries > 0 {
+        builder = builder.with(Retry {
             retries: options.retries,
-        })
-    } else {
-        builder
-    };
+        });
+    }
+    if !options.insecure_hosts.is_empty() {
+        log::warn!(
+            "TLS certificate verification is DISABLED for: {}",
+            options
+                .insecure_hosts
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        // After `Retry`, so that requests to these hosts are retried too.
+        // A retry repeats the whole redirect chain from the original URL, not
+        // only the failed hop, as `Retry` wraps all redirect following.
+        // Must be the last middleware: it sends these requests through its
+        // own client instead of `next`, so any middleware after it would be
+        // skipped for them.
+        builder = builder.with(InsecureHostsRouter::new(options)?);
+    }
     Ok(builder.build())
+}
+
+/// A host whose TLS certificate is not verified, see
+/// [`HttpOptions::insecure_hosts`]: a domain name or IP address only, with no
+/// scheme, port or path. Parse one from a string, with IPv6 addresses in
+/// brackets as in a URL.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InsecureHost {
+    /// Lowercase
+    Domain(String),
+    Ip(IpAddr),
+}
+
+impl std::str::FromStr for InsecureHost {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match url::Host::parse(value) {
+            Ok(url::Host::Domain(domain)) if !domain.is_empty() => Ok(Self::Domain(domain)),
+            Ok(url::Host::Ipv4(ip)) => Ok(Self::Ip(ip.into())),
+            Ok(url::Host::Ipv6(ip)) => Ok(Self::Ip(ip.into())),
+            _ => Err(format!(
+                "`{value}` is not a host name or IP address only (no scheme, port or path; \
+                 IPv6 addresses go in brackets)"
+            )),
+        }
+    }
+}
+
+impl Display for InsecureHost {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Domain(domain) => f.write_str(domain),
+            Self::Ip(ip) => write!(f, "{ip}"),
+        }
+    }
+}
+
+impl InsecureHost {
+    fn matches(&self, url: &Url) -> bool {
+        match (self, url.host()) {
+            (Self::Domain(domain), Some(url::Host::Domain(host))) => domain == host,
+            (Self::Ip(ip), Some(url::Host::Ipv4(host))) => *ip == IpAddr::from(host),
+            (Self::Ip(ip), Some(url::Host::Ipv6(host))) => *ip == IpAddr::from(host),
+            _ => false,
+        }
+    }
+}
+
+fn is_insecure(hosts: &[InsecureHost], url: &Url) -> bool {
+    hosts.iter().any(|host| host.matches(url))
+}
+
+/// Sends requests to [`HttpOptions::insecure_hosts`] through a second client
+/// that does not verify TLS certificates, and all others through the next
+/// client in the stack.
+///
+/// Neither client follows redirects, the router does, so that each hop is
+/// sent through the client for its own host. Thus no unlisted host is ever
+/// contacted without verification, and a redirect between a listed and an
+/// unlisted host, in either direction, is followed.
+///
+/// A request whose body cannot be cloned, such as a streamed upload, is not
+/// redirected, its redirect response is returned as is.
+struct InsecureHostsRouter {
+    client: reqwest::Client,
+    hosts: Vec<InsecureHost>,
+}
+
+impl InsecureHostsRouter {
+    /// Matches `reqwest`'s default limit
+    const MAX_REDIRECTS: usize = 10;
+
+    fn new(options: &HttpOptions) -> Result<Self, ReqwestClientBuildError> {
+        let client = options
+            .apply_timeouts(client_builder())
+            .danger_accept_invalid_certs(true)
+            .redirect(reqwest::redirect::Policy::none())
+            .build()?;
+        Ok(Self {
+            client,
+            hosts: options.insecure_hosts.clone(),
+        })
+    }
+}
+
+/// The request that follows the redirect `response` to `request`, or `None`
+/// if `response` is not a redirect that can be followed. Adjusts the method,
+/// body and headers like `reqwest` does for its own redirects.
+fn redirect_request(
+    mut request: reqwest::Request,
+    response: &reqwest::Response,
+) -> Option<reqwest::Request> {
+    use reqwest::{Method, StatusCode};
+
+    let status = response.status();
+    if !matches!(
+        status,
+        StatusCode::MOVED_PERMANENTLY
+            | StatusCode::FOUND
+            | StatusCode::SEE_OTHER
+            | StatusCode::TEMPORARY_REDIRECT
+            | StatusCode::PERMANENT_REDIRECT
+    ) {
+        return None;
+    }
+    let location = response.headers().get(header::LOCATION)?.to_str().ok()?;
+    let target = request.url().join(location).ok()?;
+    if !matches!(target.scheme(), "http" | "https") {
+        return None;
+    }
+
+    let to_get = match status {
+        StatusCode::MOVED_PERMANENTLY | StatusCode::FOUND => request.method() == Method::POST,
+        StatusCode::SEE_OTHER => {
+            request.method() != Method::GET && request.method() != Method::HEAD
+        }
+        _ => false,
+    };
+    if to_get {
+        *request.method_mut() = Method::GET;
+        *request.body_mut() = None;
+        for name in [
+            header::TRANSFER_ENCODING,
+            header::CONTENT_ENCODING,
+            header::CONTENT_TYPE,
+            header::CONTENT_LENGTH,
+        ] {
+            request.headers_mut().remove(name);
+        }
+    }
+    // Credentials are for the origin they were meant for
+    if target.origin() != request.url().origin() {
+        for name in [
+            header::AUTHORIZATION,
+            header::COOKIE,
+            header::PROXY_AUTHORIZATION,
+            header::WWW_AUTHENTICATE,
+        ] {
+            request.headers_mut().remove(name);
+        }
+    }
+    *request.url_mut() = target;
+    Some(request)
+}
+
+#[async_trait::async_trait]
+impl reqwest_middleware::Middleware for InsecureHostsRouter {
+    async fn handle(
+        &self,
+        mut req: reqwest::Request,
+        extensions: &mut http::Extensions,
+        next: reqwest_middleware::Next<'_>,
+    ) -> reqwest_middleware::Result<reqwest::Response> {
+        for redirects in 0.. {
+            let follow = req.try_clone();
+            let response = if is_insecure(&self.hosts, req.url()) {
+                self.client.execute(req).await?
+            } else {
+                next.clone().run(req, extensions).await?
+            };
+            let Some(redirect) = follow.and_then(|req| redirect_request(req, &response)) else {
+                return Ok(response);
+            };
+            if redirects >= Self::MAX_REDIRECTS {
+                return Err(reqwest_middleware::Error::middleware(
+                    std::io::Error::other(format!(
+                        "too many redirects, last one to `{}`",
+                        redirect.url()
+                    )),
+                ));
+            }
+            req = redirect;
+        }
+        unreachable!("the loop only ends by returning")
+    }
 }
 
 /// The backoff before the first retry, doubled before each further one. Unit

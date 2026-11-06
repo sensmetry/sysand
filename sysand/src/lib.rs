@@ -361,6 +361,9 @@ pub fn standard_auth_policy(use_credential_store: bool) -> Result<CliAuthPolicy>
 /// `SYSAND_HTTP_CONNECT_TIMEOUT` and `SYSAND_HTTP_RETRIES`, with the
 /// [`HttpOptions`] defaults for unset ones. A malformed value is an error
 /// naming the variable to fix.
+///
+/// Insecure hosts are not read: `SYSAND_HTTPS_INSECURE_HOSTS` and
+/// `--https-insecure-hosts` are for the CLI only.
 pub fn http_options_from_env() -> Result<HttpOptions> {
     http_options_from(|name| std::env::var_os(name))
 }
@@ -400,6 +403,7 @@ fn http_options_from(lookup: impl Fn(&str) -> Option<OsString>) -> Result<HttpOp
         read_timeout: seconds(env_vars::SYSAND_HTTP_TIMEOUT)?.unwrap_or(defaults.read_timeout),
         retries: parse(&lookup, env_vars::SYSAND_HTTP_RETRIES, 0, "a whole number")?
             .unwrap_or(defaults.retries),
+        insecure_hosts: Vec::new(),
     })
 }
 
@@ -477,8 +481,9 @@ fn run_cli_with(
 
     config.merge(auto_config);
 
-    let http_options = http_options_from_env()?;
-    let client = create_reqwest_client_with(http_options)?;
+    let mut http_options = http_options_from_env()?;
+    http_options.insecure_hosts = global_opts.https_insecure_hosts;
+    let client = create_reqwest_client_with(&http_options)?;
 
     let runtime = Arc::new(
         tokio::runtime::Builder::new_current_thread()

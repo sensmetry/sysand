@@ -79,7 +79,7 @@ fn stalled_server_times_out_after_retries() {
             .collect();
     });
 
-    let client = create_reqwest_client_with(options(Duration::from_millis(200), 2)).unwrap();
+    let client = create_reqwest_client_with(&options(Duration::from_millis(200), 2)).unwrap();
     let started = Instant::now();
     let err = send(&client, reqwest::Method::GET, &format!("http://{addr}/")).unwrap_err();
 
@@ -100,7 +100,7 @@ fn server_error_is_retried_and_last_response_returned() {
         .expect(3)
         .create();
 
-    let client = create_reqwest_client_with(options(Duration::from_secs(5), 2)).unwrap();
+    let client = create_reqwest_client_with(&options(Duration::from_secs(5), 2)).unwrap();
     let response = send(
         &client,
         reqwest::Method::GET,
@@ -121,7 +121,7 @@ fn client_error_is_not_retried() {
         .expect(1)
         .create();
 
-    let client = create_reqwest_client_with(options(Duration::from_secs(5), 2)).unwrap();
+    let client = create_reqwest_client_with(&options(Duration::from_secs(5), 2)).unwrap();
     send(
         &client,
         reqwest::Method::GET,
@@ -141,7 +141,7 @@ fn tls_failure_is_not_retried() {
     let server = mockito::Server::new();
     let url = server.url().replacen("http://", "https://", 1);
 
-    let client = create_reqwest_client_with(options(Duration::from_secs(5), 0)).unwrap();
+    let client = create_reqwest_client_with(&options(Duration::from_secs(5), 0)).unwrap();
     let result = send(&client, reqwest::Method::GET, &url);
 
     assert!(
@@ -161,7 +161,7 @@ fn non_idempotent_request_is_not_retried() {
         .expect(1)
         .create();
 
-    let client = create_reqwest_client_with(options(Duration::from_secs(5), 2)).unwrap();
+    let client = create_reqwest_client_with(&options(Duration::from_secs(5), 2)).unwrap();
     send(
         &client,
         reqwest::Method::POST,

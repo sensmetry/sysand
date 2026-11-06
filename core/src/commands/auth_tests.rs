@@ -348,7 +348,7 @@ mod login {
             retries: 0,
             ..HttpOptions::default()
         };
-        let client = create_reqwest_client_with(http_options).unwrap();
+        let client = create_reqwest_client_with(&http_options).unwrap();
         let mut notices = Vec::new();
         // Validate here, like the CLI does before calling core.
         let index_key = match IndexKey::validate(index_url) {

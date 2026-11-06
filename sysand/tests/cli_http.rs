@@ -73,3 +73,104 @@ fn malformed_http_variable_is_an_error() -> Result<(), Box<dyn std::error::Error
 
     Ok(())
 }
+
+#[test]
+fn malformed_insecure_hosts_variable_is_an_error() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic(
+        "a",
+        "malformed_insecure_hosts_variable_is_an_error",
+        "1.2.3",
+    )?;
+    out.assert().success();
+
+    let out = run_sysand_in_with(
+        &cwd,
+        [
+            "add",
+            "--iri",
+            "urn:kpar:malformed_insecure_hosts_variable_is_an_error",
+        ],
+        None,
+        &IndexMap::from([("SYSAND_HTTPS_INSECURE_HOSTS", "https://example.com")]),
+    )?;
+
+    out.assert().failure().stderr(contains(
+        "`https://example.com` is not a host name or IP address only",
+    ));
+
+    Ok(())
+}
+
+#[test]
+fn malformed_insecure_hosts_flag_is_an_error() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) =
+        cli_init_project_basic("a", "malformed_insecure_hosts_flag_is_an_error", "1.2.3")?;
+    out.assert().success();
+
+    let out = run_sysand_in_with(
+        &cwd,
+        [
+            "add",
+            "--iri",
+            "urn:kpar:malformed_insecure_hosts_flag_is_an_error",
+            "--https-insecure-hosts",
+            "example.com:8443",
+        ],
+        None,
+        &IndexMap::<&str, &str>::new(),
+    )?;
+
+    out.assert()
+        .failure()
+        .stderr(contains("is not a host name or IP address only"));
+
+    Ok(())
+}
+
+/// A listed host is announced loudly, whatever the command does next.
+#[test]
+fn insecure_hosts_are_warned_about() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) =
+        cli_init_project_basic("a", "insecure_hosts_are_warned_about", "1.2.3")?;
+    out.assert().success();
+
+    let out = run_sysand_in_with(
+        &cwd,
+        ["add", "--iri", "urn:kpar:insecure_hosts_are_warned_about"],
+        None,
+        &IndexMap::from([("SYSAND_HTTPS_INSECURE_HOSTS", "127.0.0.1,Localhost")]),
+    )?;
+
+    out.assert().stderr(contains(
+        "TLS certificate verification is DISABLED for: 127.0.0.1, localhost",
+    ));
+
+    Ok(())
+}
+
+/// Like `--index`, the flag replaces the environment variable
+#[test]
+fn insecure_hosts_flag_replaces_the_variable() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) =
+        cli_init_project_basic("a", "insecure_hosts_flag_replaces_the_variable", "1.2.3")?;
+    out.assert().success();
+
+    let out = run_sysand_in_with(
+        &cwd,
+        [
+            "add",
+            "--iri",
+            "urn:kpar:insecure_hosts_flag_replaces_the_variable",
+            "--https-insecure-hosts",
+            "localhost",
+        ],
+        None,
+        &IndexMap::from([("SYSAND_HTTPS_INSECURE_HOSTS", "127.0.0.1")]),
+    )?;
+
+    out.assert().stderr(contains(
+        "TLS certificate verification is DISABLED for: localhost",
+    ));
+
+    Ok(())
+}
