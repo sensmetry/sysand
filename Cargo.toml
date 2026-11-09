@@ -239,6 +239,11 @@ redundant_explicit_links = "warn"
 # Advisory only: includes lots of opinionated lints. For this
 # reason this is not checked in pre-commit or CI, and is
 # provided here as a reference
+#
+# WARNING: running cargo-dylint downloads, builds and runs code
+# from the git repositories listed in `libraries`. They are not
+# pinned to a commit, and they have not been vetted for security.
+# Review that code yourself before running it.
 
 libraries = [
   { git = "https://github.com/trailofbits/dylint", pattern = [
