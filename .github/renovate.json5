@@ -9,6 +9,9 @@
     "config:best-practices",
     "schedule:earlyMondays",
     "helpers:pinGitHubActionDigestsToSemver",
+    // The pre-commit manager (`rev:` in .pre-commit-config.yaml) is disabled
+    // by default
+    ":enablePreCommit",
   ],
   // `rangeStrategy` is left at its default, `auto`, which each manager resolves
   // for itself: `update-lockfile` for cargo and npm, `replace` for maven,
@@ -69,6 +72,13 @@
       matchManagers: ["github-actions"],
       matchDepNames: ["!python"],
       matchUpdateTypes: ["major", "minor", "patch", "digest"],
+    },
+    // Group all prek hook bumps, including `additional_dependencies`, into one
+    // PR (majors into a separate one).
+    {
+      groupName: "all prek hooks",
+      groupSlug: "all-prek-hooks",
+      matchManagers: ["pre-commit"],
     },
     // We upgrade python versions in CI manually
     {

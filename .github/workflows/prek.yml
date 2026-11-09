@@ -35,6 +35,18 @@ jobs:
       - name: Install the Rust toolchain pinned by rust-toolchain.toml
         run: rustup toolchain install
 
+      # Caches clippy's compiled dependencies. Crate downloads live in
+      # prek's own CARGO_HOME, which prek-action caches.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          # A cache saved by a PR is visible only to that PR, and it evicts
+          # main's caches once the repository's 10GB limit is reached.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          # The job id `test` is also used in other workflows
+          key: prek
+          # Matches CARGO_TARGET_DIR of the cargo-clippy hook
+          workspaces: ". -> target/prek"
+
       - uses: j178/prek-action@5337cb91e0fa35a7ff31b9ca345126d8bbbcdf16 # v2.0.6
 
   ci-gate:
