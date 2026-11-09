@@ -73,6 +73,9 @@ jobs:
           persist-credentials: false
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
+          # A cache saved by a PR is visible only to that PR, and it evicts
+          # main's caches once the repository's 10GB limit is reached.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           key: ubuntu-24.04
 
       - uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
@@ -157,6 +160,9 @@ jobs:
           persist-credentials: false
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
+          # A cache saved by a PR is visible only to that PR, and it evicts
+          # main's caches once the repository's 10GB limit is reached.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           key: ${{ matrix.os }}
 
       - name: (linux musl) Install musl tools
@@ -178,7 +184,8 @@ jobs:
           --features sysand-core/filesystem,sysand-core/networking,sysand-core/keyring,alltests,kpar-bzip2,kpar-zstd,kpar-xz,kpar-ppmd
 
   build:
-    needs: [test]
+    needs: [plan]
+    if: needs.plan.outputs.test == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -211,10 +218,11 @@ jobs:
             asset: sysand-windows-arm64.exe
             target: ""
             binary: target/release/sysand.exe
-          - os: macos-15-intel
+          # Cross-compiled on the faster arm64 runner; `test` runs on x86_64.
+          - os: macos-latest
             asset: sysand-macos-x86_64
-            target: ""
-            binary: target/release/sysand
+            target: x86_64-apple-darwin
+            binary: target/x86_64-apple-darwin/release/sysand
           - os: macos-latest
             asset: sysand-macos-arm64
             target: ""
@@ -227,18 +235,25 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         with:
-          key: ${{ matrix.os }}
+          # A cache saved by a PR is visible only to that PR, and it evicts
+          # main's caches once the repository's 10GB limit is reached.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          key: ${{ matrix.os }}-${{ matrix.target }}
+
+      - name: Add the Rust target
+        if: matrix.target != ''
+        run: |
+          rustup target add "${{ matrix.target }}"
+          echo "CARGO_BUILD_TARGET=${{ matrix.target }}" >> "$GITHUB_ENV"
 
       - name: (linux musl) Install musl tools
         if: matrix.libc == 'musl'
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools
-          rustup target add "${{ matrix.target }}"
 
           target="${{ matrix.target }}"
           echo "CC_${target//-/_}=musl-gcc" >> "$GITHUB_ENV"
-          echo "CARGO_BUILD_TARGET=$target" >> "$GITHUB_ENV"
 
       - name: cargo build ...
         run: cargo build --locked --bin sysand --release
