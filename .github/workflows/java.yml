@@ -121,6 +121,10 @@ jobs:
     name: Build Java JAR
     needs: [compile-bindings]
     runs-on: ubuntu-24.04
+    env:
+      # Only `cargo metadata` runs here, which the runner's preinstalled
+      # toolchain handles without installing the pinned one.
+      RUSTUP_TOOLCHAIN: stable
 
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -185,6 +189,10 @@ jobs:
     name: Test Java JAR
     needs: [build-jar]
     runs-on: ${{ matrix.os }}
+    env:
+      # Only `cargo metadata` runs here, which the runner's preinstalled
+      # toolchain handles without installing the pinned one.
+      RUSTUP_TOOLCHAIN: stable
     strategy:
       fail-fast: false
       matrix:
@@ -252,6 +260,10 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/') || inputs.publish_snapshot
     environment: maven-central
     runs-on: ubuntu-24.04
+    env:
+      # Only `cargo metadata` runs here, which the runner's preinstalled
+      # toolchain handles without installing the pinned one.
+      RUSTUP_TOOLCHAIN: stable
     permissions:
       id-token: write # for actions/attest
       attestations: write # for actions/attest

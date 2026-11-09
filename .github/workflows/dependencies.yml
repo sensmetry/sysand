@@ -69,6 +69,10 @@ jobs:
   cargo-deny:
     # not ubuntu-slim: cargo-deny needs cargo, which only the full image has
     runs-on: ubuntu-24.04
+    env:
+      # cargo-deny only runs `cargo metadata`, which the runner's preinstalled
+      # toolchain handles without installing the pinned one.
+      RUSTUP_TOOLCHAIN: stable
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
