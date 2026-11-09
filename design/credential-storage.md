@@ -324,11 +324,20 @@ logout` removes) may fall back to the default index.
   additionally covers the resolved `index_root` and `api_root` when they
   diverge from it, minimal and non-overlapping. Templated URLs are anchored
   before `{path}` / `{path_raw}`.
-- **Glob derivation is escaped and pinned.** URLs can legally contain
-  glob metacharacters (an IPv6 literal reads as a globset character
-  class; `{path}` templates as alternation), and `GlobMapBuilder` uses
-  `literal_separator(true)`. So the derived glob is
-  `globset::escape(<normalized root>)` + `**`, with the root normalized
+- **The origin of a URL glob follows URL rules.** Every credential URL
+  glob (derived or from `SYSAND_CRED_*`) must start with a scheme, `://`
+  and a host, and continue with a path: request URLs always have one, so
+  a bare origin would match nothing. Brackets in the origin must enclose an IPv6 address, which
+  is serialized as in a request URL and matched literally
+  (`http://[::1]:8080/**`); any other bracket there is an invalid origin.
+  An origin without wildcards must be `http` or `https` and is parsed and
+  normalized as a request URL is (lowercase host, default port dropped).
+  An origin with wildcards (`https://*.example.com/**`,
+  `http://127.0.0.1:*/**`) has its scheme and host lowercased. Matching uses `literal_separator(true)`.
+- **Glob derivation is escaped and pinned.** URL paths can legally
+  contain glob metacharacters (`{path}` templates read as alternation).
+  So the derived glob is the root's origin followed by
+  `globset::escape(<normalized root path>)` + `**`, with the root normalized
   to end in `/` (for example `https://example.com/idx/**`), and both
   derivation and runtime matching use the same serialization
   (`url::Url::as_str()`) so IDN/percent-encoding agree on both sides. Two

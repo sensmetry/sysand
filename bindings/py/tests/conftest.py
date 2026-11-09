@@ -68,6 +68,13 @@ def _sysand_isolation(
     monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
 
 
+@pytest.fixture(scope="session")
+def httpserver_listen_address() -> tuple[str, int]:
+    # On Windows, `localhost` resolves to `::1` first, so a server listening
+    # on IPv4 makes every request wait about 2s for a refused connection.
+    return ("::1", 0)
+
+
 @pytest.fixture
 def mock_index(httpserver: HTTPServer) -> typing.Iterator[MockIndex]:
     index = MockIndex(httpserver)

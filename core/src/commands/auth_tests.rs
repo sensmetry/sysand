@@ -314,7 +314,7 @@ fn status_surfaces_a_denied_backend_as_an_error() {
 // do_auth_login
 
 mod login {
-    use globset::{GlobBuilder, GlobSetBuilder};
+    use globset::GlobSetBuilder;
 
     use super::super::{AuthLoginNotice, AuthLoginOutcome, do_auth_login};
     use super::*;
@@ -373,9 +373,7 @@ mod login {
         let mut builder = GlobSetBuilder::new();
         for glob in globs {
             builder.add(
-                GlobBuilder::new(glob)
-                    .literal_separator(true)
-                    .build()
+                crate::auth::compile_url_glob(glob)
                     .unwrap_or_else(|err| panic!("glob `{glob}` must compile: {err}")),
             );
         }
@@ -619,10 +617,9 @@ mod login {
     }
 
     #[test]
-    fn login_with_unreachable_ipv6_literal_derives_an_escaped_glob() {
+    fn login_with_unreachable_ipv6_literal_derives_a_matching_glob() {
         // Port 1 answers nothing, so discovery is unreachable and the
-        // URL-derived fallback glob is used. The IPv6 literal would read
-        // as a globset character class without escaping.
+        // URL-derived fallback glob is used.
         let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, "https://[::1]:1", "tok");
