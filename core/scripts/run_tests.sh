@@ -11,7 +11,4 @@ PACKAGE_DIR=$(dirname "$SCRIPT_DIR")
 
 cd "$PACKAGE_DIR"
 
-cargo test --features filesystem,networking,keyring,alltests,tls-aws-lc-rs $@
-# Currently these features don't enable any tests
-# cargo test --features js $@
-# cargo test --features python $@
+cargo test --features filesystem,networking,keyring,js,python,alltests,tls-aws-lc-rs $@
