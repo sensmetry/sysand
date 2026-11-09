@@ -73,6 +73,9 @@ jobs:
           persist-credentials: false
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
+          # A cache saved by a PR is visible only to that PR, and it evicts
+          # main's caches once the repository's 10GB limit is reached.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           key: ubuntu-24.04
 
       - uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
@@ -157,6 +160,9 @@ jobs:
           persist-credentials: false
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
+          # A cache saved by a PR is visible only to that PR, and it evicts
+          # main's caches once the repository's 10GB limit is reached.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           key: ${{ matrix.os }}
 
       - name: (linux musl) Install musl tools
@@ -227,6 +233,9 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         with:
+          # A cache saved by a PR is visible only to that PR, and it evicts
+          # main's caches once the repository's 10GB limit is reached.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           key: ${{ matrix.os }}
 
       - name: (linux musl) Install musl tools

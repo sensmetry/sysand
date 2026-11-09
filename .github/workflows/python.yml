@@ -82,6 +82,7 @@ jobs:
           - version: "3.15t"
             label: 3.15-abi3t
             args_suffix: --interpreter python3.15t
+            cargo_test: true
         include:
           # Since Python 3.10 isn't available on the arm runners, we need to
           # provide a 3.10 job for x64 and a 3.11 job for arm64.
@@ -117,10 +118,18 @@ jobs:
       # No caches on tag builds, see cache-poisoning in .github/zizmor.yml
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        with:
+          # A cache saved by a PR is visible only to that PR, and it evicts
+          # main's caches once the repository's 10GB limit is reached.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          # Only one entry per runner runs `cargo test`, so the entries need
+          # separate caches.
+          key: ${{ matrix.python.label }}
 
       # `abi3` is enabled to test what the wheels are built with: abi3t on
-      # 3.15, abi3 otherwise
+      # 3.15. The Rust tests run in one job per OS.
       - name: cargo test ... (Python bindings)
+        if: matrix.python.cargo_test
         run: |
           cd bindings/py
           cargo test --locked --package sysand-py --no-default-features --features abi3,tls-aws-lc-rs --target ${{ matrix.platform.rust_target }}
@@ -156,6 +165,7 @@ jobs:
         platform:
           - runner: ubuntu-24.04
             target: x86_64
+            cargo_test: true
           - runner: ubuntu-24.04-arm
             target: aarch64
 
@@ -165,7 +175,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
-          python-version: "3.14"
+          python-version: "3.10"
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           enable-cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
@@ -174,10 +184,15 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         with:
+          # A cache saved by a PR is visible only to that PR, and it evicts
+          # main's caches once the repository's 10GB limit is reached.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           key: ${{ matrix.platform.runner }}
 
+      # `abi3` is enabled to test what the wheels are built with: abi3 on 3.10.
       - name: cargo test ... (Python bindings)
-        run: cargo test --locked --package sysand-py --no-default-features --features tls-aws-lc-rs
+        if: matrix.platform.cargo_test
+        run: cargo test --locked --package sysand-py --no-default-features --features abi3,tls-aws-lc-rs
 
       - name: Build wheels (manylinux)
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
@@ -231,20 +246,21 @@ jobs:
         run: |
           docker run \
             --rm -v ${{ github.workspace }}:/io -w /io \
-            ghcr.io/astral-sh/uv:python3.14-alpine \
+            ghcr.io/astral-sh/uv:python3.10-alpine \
             sh .github/scripts/run-pytest.sh
 
   macos:
     needs: [plan]
     if: needs.plan.outputs.test == 'true'
-    runs-on: ${{ matrix.platform.runner }}
+    runs-on: macos-latest
     strategy:
       matrix:
         platform:
-          - runner: macos-15-intel
-            target: x86_64
-          - runner: macos-latest
-            target: aarch64
+          # Cross-compiled on the arm64 runner, so the x86_64 wheels are not
+          # tested.
+          - target: x86_64
+          - target: aarch64
+            test: true
 
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -252,7 +268,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
-          python-version: "3.14"
+          python-version: "3.10"
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           enable-cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
@@ -260,9 +276,16 @@ jobs:
       # No caches on tag builds, see cache-poisoning in .github/zizmor.yml
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        with:
+          # A cache saved by a PR is visible only to that PR, and it evicts
+          # main's caches once the repository's 10GB limit is reached.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          key: ${{ matrix.platform.target }}
 
+      # `abi3` is enabled to test what the wheels are built with: abi3 on 3.10.
       - name: cargo test ... (Python bindings)
-        run: cargo test --locked --package sysand-py --no-default-features --features tls-aws-lc-rs
+        if: matrix.platform.test
+        run: cargo test --locked --package sysand-py --no-default-features --features abi3,tls-aws-lc-rs
 
       - name: Build wheels
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
@@ -288,8 +311,10 @@ jobs:
           if-no-files-found: error
 
       - name: pytest
+        if: matrix.platform.test
         run: .github/scripts/run-pytest.sh
       - name: pytest (abi3t)
+        if: matrix.platform.test
         run: UV_PYTHON=3.15t .github/scripts/run-pytest.sh
 
   sdist:
@@ -354,7 +379,7 @@ jobs:
           # Any job in this run can upload artifacts, so accept exactly the
           # expected set rather than whatever matches the pattern.
           expected="$(printf '%s\n' \
-              wheels-windows-x64-3.14-free-threaded \
+              wheels-windows-x64-3.15-abi3t \
               wheels-windows-x64-3.10 \
               wheels-windows-arm64-3.11 \
               wheels-linux-x86_64 \
