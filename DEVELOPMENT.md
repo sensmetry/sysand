@@ -89,15 +89,28 @@ cargo build --release # optimized
 
 ## Running tests
 
+The test scripts are the authoritative way to run tests; they enable the
+features each crate's tests need. Extra arguments are passed on to `cargo test`.
+
 Run tests for main Rust crates. This excludes language bindings, because they
 have their own test suites:
 
+- [`core/scripts/run_tests.sh`](core/scripts/run_tests.sh) for `sysand-core`
+- [`sysand/scripts/run_tests.sh`](sysand/scripts/run_tests.sh) for the `sysand`
+  CLI
+
 ```sh
-cargo test -p sysand-core -F filesystem,networking,keyring,js,python,alltests,tls-aws-lc-rs,kpar-bzip2,kpar-zstd,kpar-xz,kpar-ppmd
-cargo test -p sysand -F alltests,kpar-bzip2,kpar-zstd,kpar-xz,kpar-ppmd
+./core/scripts/run_tests.sh
+./sysand/scripts/run_tests.sh
+# run a single test
+./sysand/scripts/run_tests.sh --test cli_lock <test_name>
 ```
 
-Run tests for all crates and language bindings (requires bindings dependencies):
+The `kpar-*` compression features are left out of the test runs on purpose:
+they are small and self-contained, but increase build times.
+
+Run tests for all crates and language bindings (requires bindings dependencies)
+with [`scripts/run_tests.sh`](scripts/run_tests.sh):
 
 ```sh
 ./scripts/run_tests.sh
