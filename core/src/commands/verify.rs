@@ -172,11 +172,12 @@ pub enum VerifyError {
     Io(#[from] Box<FsIoError>),
     #[error(transparent)]
     Workspace(#[from] crate::workspace::model_toml::LoadError),
-    #[error("reading a manifest: {0}")]
-    Manifest(LocalSrcError),
-    #[error("a usage in `{manifest}` is invalid: {source}")]
+    #[error("reading a manifest")]
+    Manifest(#[source] LocalSrcError),
+    #[error("a usage in `{manifest}` is invalid")]
     InvalidUsage {
         manifest: Utf8PathBuf,
+        #[source]
         source: InterchangeProjectValidationError,
     },
 }

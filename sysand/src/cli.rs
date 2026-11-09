@@ -4,7 +4,7 @@
 // Doc comments on the clap items are the `--help` text, so URLs stay bare.
 #![allow(rustdoc::bare_urls)]
 
-use std::{ffi::OsStr, fmt::Display, str::FromStr as _};
+use std::{ffi::OsStr, str::FromStr as _};
 
 use camino::Utf8PathBuf;
 use clap::{crate_authors, parser::ValueSource};

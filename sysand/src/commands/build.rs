@@ -6,6 +6,7 @@ use camino::Utf8Path;
 use sysand_core::{
     build::{KParBuildError, KparCompressionMethod, do_build_kpar, do_build_workspace_kpars},
     project::local_src::LocalSrcProject,
+    utils::format_err,
     workspace::model_toml::Workspace,
 };
 
@@ -62,7 +63,7 @@ pub fn command_build_for_workspace<P: AsRef<Utf8Path>>(
             log::error!(
                 "failed to build member `{}`: {}",
                 failed.member,
-                failed.error
+                format_err(&*failed.error)
             );
         }
         return Err(failure.into());

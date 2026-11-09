@@ -26,6 +26,7 @@ use sysand_core::{
         local_src::LocalSrcProject,
         utils::{relativize_path, wrapfs},
     },
+    utils::format_err,
     utils::{RelativePathKind, parse_relative_unix_path},
     workspace::model_toml::discover_table,
 };
@@ -84,8 +85,9 @@ pub fn command_init(
         // message points. A publisher never comes from a directory.
         InitError::Identifier(identifier) if !named && identifier.kind == IdentifierKind::Name => {
             anyhow::anyhow!(
-                "{error}\n\
+                "{}\n\
                 {SP:>8} the name came from the directory; pass `--name` to choose another",
+                format_err(&error),
                 SP = ' '
             )
         }

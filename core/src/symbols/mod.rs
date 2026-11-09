@@ -599,8 +599,8 @@ pub fn top_level_kerml<S: AsRef<str>>(source: S) -> Result<Vec<String>, ExtractE
 /// Why [`top_level_symbols`] could not index a file.
 #[derive(Debug, Error)]
 pub enum SymbolsError {
-    #[error("failed to extract symbol names from `{0}`: {1}")]
-    Extract(Box<str>, ExtractError),
+    #[error("failed to extract symbol names from `{0}`")]
+    Extract(Box<str>, #[source] ExtractError),
     #[error(
         "unknown file format of `{0}`, only SysML v2 (.sysml) and KerML (.kerml) files are supported"
     )]

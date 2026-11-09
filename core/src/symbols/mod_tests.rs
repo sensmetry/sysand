@@ -135,7 +135,7 @@ fn a_source_that_does_not_parse_names_the_file() {
     assert!(
         error
             .to_string()
-            .starts_with("failed to extract symbol names from `a.sysml`: "),
+            .starts_with("failed to extract symbol names from `a.sysml`"),
         "unexpected message: {error}"
     );
 }

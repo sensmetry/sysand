@@ -1207,7 +1207,7 @@ fn do_sync_py(
         };
         provided.extend(extra_provided);
 
-        let client = create_reqwest_client().map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
+        let client = http_client()?;
         let runtime = Arc::new(
             tokio::runtime::Builder::new_current_thread()
                 .enable_all()

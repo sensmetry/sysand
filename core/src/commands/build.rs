@@ -899,9 +899,10 @@ pub struct WorkspaceBuildFailure {
 ///
 /// Boxed because `KParBuildError` is large.
 #[derive(Debug, Error)]
-#[error("`{member}`: {error}")]
+#[error("`{member}`")]
 pub struct MemberFailure {
     pub member: Utf8PathBuf,
+    #[source]
     pub error: Box<KParBuildError<LocalSrcError>>,
 }
 

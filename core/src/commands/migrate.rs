@@ -683,7 +683,7 @@ pub enum VcsState {
 #[cfg(feature = "networking")]
 #[derive(Debug, thiserror::Error)]
 pub enum VcsError {
-    #[error("failed to open the git repository at `{path}`: {source}")]
+    #[error("failed to open the git repository at `{path}`")]
     Open {
         path: camino::Utf8PathBuf,
         #[source]

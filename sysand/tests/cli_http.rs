@@ -18,8 +18,9 @@ pub use common::*;
 /// after the read timeout, once per attempt, instead of hanging it.
 #[test]
 fn stalled_index_times_out() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "stalled_index_times_out", "1.2.3")?;
-    out.assert().success();
+    // A legacy project: a `model.toml` one cannot declare a resource usage
+    let (_temp_dir, cwd) =
+        cli_init_json_project(None, "echo", "stalled-index-times-out", "1.2.3", None)?;
 
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let index = format!("http://{}", listener.local_addr()?);
@@ -53,7 +54,7 @@ fn stalled_index_times_out() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn malformed_http_variable_is_an_error() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) =
-        cli_init_project_basic("a", "malformed_http_variable_is_an_error", "1.2.3")?;
+        cli_init_project_basic("echo", "malformed-http-variable-is-an-error", "1.2.3")?;
     out.assert().success();
 
     let out = run_sysand_in_with(

@@ -87,7 +87,7 @@ pub enum LocalIndexError {
     NoPublisher { archive: Utf8PathBuf },
     #[error("`{archive}` has no `.project.json`")]
     MissingInfo { archive: Utf8PathBuf },
-    #[error("`{archive}` declares non-semver version `{value}`: {source}")]
+    #[error("`{archive}` declares non-semver version `{value}`")]
     NonSemverArchiveVersion {
         archive: Utf8PathBuf,
         value: String,
@@ -102,7 +102,7 @@ pub enum LocalIndexError {
         iri: String,
         version: String,
     },
-    #[error("failed to parse JSON from `{file}`: {source}")]
+    #[error("failed to parse JSON from `{file}`")]
     Json {
         file: Utf8PathBuf,
         #[source]

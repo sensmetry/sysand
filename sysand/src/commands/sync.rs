@@ -51,7 +51,7 @@ pub enum CommandSyncError {
     #[error(transparent)]
     Verify(#[from] VerifyError),
     /// `--repair` could not remove a mismatched installation.
-    #[error("removing `{path}` from the environment: {source}")]
+    #[error("removing `{path}` from the environment")]
     Remove {
         path: Utf8PathBuf,
         #[source]
