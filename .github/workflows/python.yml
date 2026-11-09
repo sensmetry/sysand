@@ -184,7 +184,9 @@ jobs:
         with:
           target: ${{ matrix.platform.target }}
           working-directory: bindings/py
-          args: --release --out ../../dist --compatibility pypi
+          # The image also has CPython 3.15, for which maturin would pick
+          # abi3t and build version-specific wheels for 3.10-3.14.
+          args: --release --out ../../dist --compatibility pypi --interpreter python3.10
           manylinux: manylinux2014
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
       - name: Build wheels (musllinux)
