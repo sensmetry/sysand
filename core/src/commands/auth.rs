@@ -14,7 +14,6 @@
 
 use std::fmt::Write as _;
 
-use globset::GlobBuilder;
 use jiff::Timestamp;
 use thiserror::Error;
 use url::Url;
@@ -23,8 +22,8 @@ use serde::Deserialize;
 
 use crate::{
     auth::{
-        BearerSelection, EnvBearerAuth, GlobMap, HTTPAuthentication, Unauthenticated,
-        select_bearer, stored_bearer_map_from_records,
+        BearerSelection, EnvBearerAuth, GlobMap, HTTPAuthentication, Unauthenticated, UrlGlobError,
+        compile_url_glob, select_bearer, stored_bearer_map_from_records, url_glob_under,
     },
     credential_store::{
         CredentialRecord, CredentialScheme, CredentialStoreError, CredentialSubject,
@@ -113,6 +112,10 @@ pub enum AuthCommandError {
     /// remediation (`sysand auth login`, `SYSAND_CRED_*`) from the fields.
     #[error("no credential matches `{url}`")]
     NoWhoamiCredential { url: RedactedUrl, index: String },
+    /// A root the credential would cover has no URL glob matching only
+    /// the URLs under it.
+    #[error("cannot derive the URL patterns the credential covers")]
+    CredentialScope(#[source] UrlGlobError),
     /// The credential store failed.
     #[error(transparent)]
     Store(#[from] CredentialStoreError),
@@ -447,12 +450,11 @@ pub enum AuthLoginOutcome {
     },
 }
 
-/// Derive the escaped URL glob patterns a login covers.
+/// Derive the URL glob patterns a login covers.
 ///
-/// The primary glob anchors on `primary_root`
-/// (`globset::escape(<root ending in />)` + `**`); the resolved
-/// `index_root` and `api_root` add globs only when not covered by an
-/// earlier root, and a root that prefixes an earlier one subsumes it. A
+/// The primary glob anchors on `primary_root`, a root ending in `/`; the
+/// resolved `index_root` and `api_root` add globs only when not covered by
+/// an earlier root, and a root that prefixes an earlier one subsumes it. A
 /// templated `index_root` anchors on its literal prefix cut back to the
 /// last `/`: under `literal_separator(true)` a mid-segment anchor would
 /// not match. Both derivation and runtime matching serialize URLs via
@@ -460,7 +462,7 @@ pub enum AuthLoginOutcome {
 fn derive_credential_globs(
     primary_root: &str,
     endpoints: Option<&ResolvedEndpoints>,
-) -> Vec<String> {
+) -> Result<Vec<String>, AuthCommandError> {
     // Roots already covered, each ending in `/`. A candidate whose string
     // prefix is an existing root is covered: that root's `**` glob
     // matches every URL under the candidate.
@@ -486,7 +488,7 @@ fn derive_credential_globs(
 
     roots
         .into_iter()
-        .map(|root| format!("{}**", globset::escape(&root)))
+        .map(|root| url_glob_under(&root).map_err(AuthCommandError::CredentialScope))
         .collect()
 }
 
@@ -1064,7 +1066,7 @@ fn guidance_globs(
     primary_root: &str,
     runtime: &tokio::runtime::Runtime,
     notify: &mut impl FnMut(AuthLoginNotice),
-) -> Vec<String> {
+) -> Result<Vec<String>, AuthCommandError> {
     let endpoints =
         match runtime.block_on(fetch_index_config(client, &Unauthenticated {}, location)) {
             Ok(endpoints) => Some(endpoints),
@@ -1114,7 +1116,7 @@ pub fn do_auth_login<B: BlobBackend>(
     let records = match store.list() {
         Ok(records) => records,
         Err(CredentialStoreError::BackendAbsent { source }) => {
-            let globs = guidance_globs(client, location, &primary_root, runtime, &mut notify);
+            let globs = guidance_globs(client, location, &primary_root, runtime, &mut notify)?;
             return Ok(AuthLoginOutcome::BackendUnavailable {
                 key,
                 globs,
@@ -1133,7 +1135,7 @@ pub fn do_auth_login<B: BlobBackend>(
         runtime,
         &mut notify,
     );
-    let globs = derive_credential_globs(&primary_root, endpoints.as_ref());
+    let globs = derive_credential_globs(&primary_root, endpoints.as_ref())?;
 
     let outcome = run_validation_probes(
         endpoints.as_ref(),
@@ -1436,15 +1438,11 @@ fn index_key_glob_root(key: &str) -> Option<String> {
     Some(location_glob_root(&IndexLocation::parse(key).ok()?))
 }
 
-/// Whether `pattern` matches `target`, compiled the same way runtime
-/// matching does (`literal_separator(true)`). Lenient: an invalid pattern
-/// matches nothing instead of erroring, because `auth status` must stay
-/// usable to diagnose exactly such patterns.
+/// Whether the credential URL glob `pattern` matches `target`. An invalid
+/// pattern matches nothing, so `auth status` stays usable to diagnose such
+/// patterns.
 fn lenient_glob_matches(pattern: &str, target: &str) -> bool {
-    GlobBuilder::new(pattern)
-        .literal_separator(true)
-        .build()
-        .is_ok_and(|glob| glob.compile_matcher().is_match(target))
+    compile_url_glob(pattern).is_ok_and(|glob| glob.compile_matcher().is_match(target))
 }
 
 /// Assemble the `auth status` view from stored records and environment
@@ -1470,14 +1468,11 @@ pub fn assemble_auth_status(
     for entry in &mut env {
         entry.applies_to_default = default_applies(std::slice::from_ref(&entry.pattern));
     }
-    // Compiled like runtime matching (`literal_separator(true)`); an
-    // invalid pattern cannot shadow anything and is skipped.
+    // An invalid pattern cannot shadow anything and is skipped.
     let env_matchers: Vec<(&str, globset::GlobMatcher)> = env
         .iter()
         .filter_map(|entry| {
-            GlobBuilder::new(&entry.pattern)
-                .literal_separator(true)
-                .build()
+            compile_url_glob(&entry.pattern)
                 .ok()
                 .map(|glob| (entry.label.as_str(), glob.compile_matcher()))
         })

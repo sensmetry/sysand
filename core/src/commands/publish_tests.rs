@@ -47,13 +47,15 @@ fn env_sources(entries: &[(&str, &str)]) -> GlobMap<EnvBearerAuth> {
 fn env_sources_labeled(entries: &[(&str, &str, &str)]) -> GlobMap<EnvBearerAuth> {
     let mut builder = GlobMapBuilder::new();
     for (pattern, token, label) in entries {
-        builder.add(
-            *pattern,
-            EnvBearerAuth {
-                auth: ForceBearerAuth::new(*token),
-                label: (*label).to_owned(),
-            },
-        );
+        builder
+            .add(
+                *pattern,
+                EnvBearerAuth {
+                    auth: ForceBearerAuth::new(*token),
+                    label: (*label).to_owned(),
+                },
+            )
+            .unwrap();
     }
     builder.build().unwrap()
 }
@@ -70,14 +72,16 @@ fn stored_sources_expiring(
 ) -> GlobMap<StoredBearerAuth> {
     let mut builder = GlobMapBuilder::new();
     for (pattern, token) in entries {
-        builder.add(
-            *pattern,
-            StoredBearerAuth::new(
-                ForceBearerAuth::new(*token),
-                STORED_KEY.to_owned(),
-                expires_at,
-            ),
-        );
+        builder
+            .add(
+                *pattern,
+                StoredBearerAuth::new(
+                    ForceBearerAuth::new(*token),
+                    STORED_KEY.to_owned(),
+                    expires_at,
+                ),
+            )
+            .unwrap();
     }
     builder.build().unwrap()
 }
@@ -85,10 +89,12 @@ fn stored_sources_expiring(
 fn stored_sources_keyed(entries: &[(&str, &str, &str)]) -> GlobMap<StoredBearerAuth> {
     let mut builder = GlobMapBuilder::new();
     for (pattern, token, key) in entries {
-        builder.add(
-            *pattern,
-            StoredBearerAuth::new(ForceBearerAuth::new(*token), (*key).to_owned(), None),
-        );
+        builder
+            .add(
+                *pattern,
+                StoredBearerAuth::new(ForceBearerAuth::new(*token), (*key).to_owned(), None),
+            )
+            .unwrap();
     }
     builder.build().unwrap()
 }

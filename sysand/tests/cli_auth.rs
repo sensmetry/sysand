@@ -193,6 +193,28 @@ fn auth_status_errors_on_an_env_pattern_without_a_scheme() -> TestResult {
     Ok(())
 }
 
+#[test]
+fn invalid_env_pattern_error_names_the_variable() -> TestResult {
+    let (_temp_dir, _cwd, out) = run_sysand_with(
+        ["info", "--iri", "http://127.0.0.1:1/"],
+        None,
+        &IndexMap::from([
+            ("SYSAND_CRED_TEST", "http://[::1/**"),
+            ("SYSAND_CRED_TEST_BEARER_TOKEN", "token"),
+        ]),
+    )?;
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "invalid URL pattern `SYSAND_CRED_TEST`",
+        ))
+        .stderr(predicate::str::contains(
+            "credential URL glob `http://[::1/**` starts with an invalid URL origin",
+        ))
+        .stderr(predicate::str::contains("caused by: invalid IPv6 address"));
+    Ok(())
+}
+
 // `sysand auth login`
 
 const SEAM_ENV_VAR: &str = "SYSAND_TEST_CREDENTIAL_STORE";

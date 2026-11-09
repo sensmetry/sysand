@@ -10,7 +10,7 @@ use std::{
 };
 
 use anstream::eprintln;
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context as _, Result, anyhow, bail};
 use fluent_uri::Iri;
 
 use camino::{Utf8Path, Utf8PathBuf};
@@ -341,17 +341,22 @@ pub fn env_auth_policy() -> Result<StandardHTTPAuthentication> {
     let groups = cred_env::validated_env_groups()?;
     let mut auths_builder = StandardHTTPAuthenticationBuilder::new();
     for (k, pattern) in &groups.patterns {
+        let invalid_pattern = || format!("invalid URL pattern `SYSAND_CRED_{k}`");
         if let (Some(username), Some(password)) =
             (groups.basic_users.get(k), groups.basic_passwords.get(k))
         {
             log::debug!("auth: env vars specify HTTP basic for URL glob `{pattern}`");
-            auths_builder.add_basic_auth(pattern, username, password);
+            auths_builder
+                .add_basic_auth(pattern, username, password)
+                .with_context(invalid_pattern)?;
         }
         if let Some(token) = groups.bearer_tokens.get(k) {
             log::debug!("auth: env vars specify bearer token for URL glob `{pattern}`");
             // The label lets a publish auth failure name the
             // `SYSAND_CRED_<LABEL>` variable to fix.
-            auths_builder.add_bearer_auth(pattern, token, k);
+            auths_builder
+                .add_bearer_auth(pattern, token, k)
+                .with_context(invalid_pattern)?;
         }
     }
     Ok(auths_builder.build()?)
