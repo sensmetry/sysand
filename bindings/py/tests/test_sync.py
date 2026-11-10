@@ -234,3 +234,26 @@ def test_sync_auth(tmp_path: Path, mock_index: MockIndex) -> None:
 
     outcome = sysand.sync(path=root, resolution=res, auth=bearer)
     assert changed(outcome["installed"]) == {(DEP, "1.0.0")}
+
+
+def test_sync_in_a_member_locks_the_whole_workspace(tmp_path: Path) -> None:
+    (tmp_path / "model.toml").write_text(
+        'manifest-version = "1.0"\n\n[workspace]\nmembers = ["alpha", "beta"]\n'
+    )
+    for name in ["alpha", "beta"]:
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "model.toml").write_text(
+            'manifest-version = "1.0"\n\n[project]\n'
+            f'publisher = "acme"\nname = "{name}"\nversion = "1.0.0"\n'
+            f'sources = []\nmetamodel = "{SYSML}"\n'
+        )
+
+    sysand.sync(
+        path=tmp_path / "alpha",
+        resolution=sysand.Resolution(use_index=False, use_config=False),
+    )
+
+    lockfile = (tmp_path / "sysand-lock.toml").read_text()
+    assert 'name = "alpha"' in lockfile
+    assert 'name = "beta"' in lockfile
+    assert not (tmp_path / "alpha" / "sysand-lock.toml").exists()

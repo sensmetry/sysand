@@ -34,8 +34,7 @@ use sysand_core::{
 use crate::{
     CliError,
     cli::{CloneProjectLocatorArgs, ResolutionOptions},
-    commands::{init::warn_parent_project, sync::command_sync},
-    default_index_location, get_or_create_env,
+    commands::{init::warn_parent_project, sync::sync_context},
     style::{GOOD, USAGE},
 };
 
@@ -112,7 +111,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
     // Update project context with the new cloned project
     // TODO: Consider under which circumstances (if any)
     //       the workspace should carry over.
-    let ctx = ProjectContext {
+    let mut ctx = ProjectContext {
         model_workspace_root: None,
         current_project: Some(local_project.clone()),
         current_directory: ctx.current_directory,
@@ -177,23 +176,16 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         let lockfile = Lockfile::new(project.inner().root_path(), lock.canonicalize());
         lockfile.write()?;
 
-        let mut env = get_or_create_env(
-            ctx.env,
-            ctx.model_workspace_root.as_deref(),
-            ctx.current_project.as_ref(),
-            ctx.current_directory,
-            ctx.workspace_lock.as_ref(),
-        )?;
-        command_sync(
+        sync_context(
             lockfile.lock(),
-            project.inner().root_path(),
-            &mut env,
+            &mut ctx,
+            false,
+            false,
+            false,
             client,
             &provided_usages,
             runtime,
             auth_policy,
-            false,
-            ctx.cancellation,
             &mut SyncOutcome::default(),
         )?;
     }
@@ -220,17 +212,8 @@ fn obtain_project<Policy: HTTPAuthentication>(
     ),
     anyhow::Error,
 > {
-    let ResolutionOptions {
-        index,
-        default_index,
-        no_index,
-        include_std,
-    } = resolution_opts;
-    let index_urls = if no_index {
-        None
-    } else {
-        Some(config.index_urls(index, vec![default_index_location()], default_index))
-    };
+    let index_urls = resolution_opts.index_urls(config);
+    let include_std = resolution_opts.include_std;
     let locator = match locator {
         CloneProjectLocatorArgs {
             identifier: Some((publisher, name)),

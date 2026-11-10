@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     ffi::OsString,
     iter,
     sync::{Arc, LazyLock},
@@ -21,13 +21,12 @@ use sysand_core::{
         StandardLazyHTTPAuthentication,
     },
     cancel::CancellationToken,
-    commands::{lock::DEFAULT_LOCKFILE_NAME, sync::SyncOutcome, verify::ManifestUsages},
+    commands::{lock::DEFAULT_LOCKFILE_NAME, sync::SyncOutcome},
     config::{
         Config,
         local_fs::{CONFIG_FILE, get_config, load_configs, read_config},
     },
     context::ProjectContext,
-    discover::discover_project,
     env::{
         DEFAULT_ENV_NAME,
         local_directory::{LocalDirectoryEnvironment, metadata::EnvMetadataError},
@@ -35,7 +34,7 @@ use sysand_core::{
     index::RemoveTarget,
     index_location::IndexSource,
     lock::Lockfile,
-    manifest::{diagnostics::ReadWarning, workspace_table::WorkspaceTable},
+    manifest::diagnostics::ReadWarning,
     model::InterchangeProjectUsage,
     project::{
         any::{AnyProject, OverrideProject},
@@ -49,11 +48,9 @@ use sysand_core::{
         net_utils::{HttpOptions, create_reqwest_client_with},
     },
     stdlib::known_std_libs,
-    workspace::model_toml::{
-        DiscoverError, MemberChecks, Selector, StartRegion, Workspace, discover_table,
-        member_index, start_region,
-    },
-    workspace_lock::{ExclusiveLock, LockMode, WorkspaceLock},
+    utils::ProvidedProjects,
+    workspace::model_toml::{MemberChecks, Selector, Workspace},
+    workspace_lock::{ExclusiveLock, LockMode},
 };
 use url::Url;
 
@@ -74,13 +71,14 @@ use crate::{
             command_info_project,
         },
         init::{command_init, parse_metamodel},
-        lock::{command_lock, command_lock_workspace},
+        lock::command_lock,
         print_root::command_print_root,
         publish::command_publish,
         remove::command_remove,
         sources::{command_sources_env, command_sources_project, command_sources_workspace},
-        sync::{VerifyStatus, command_sync, command_sync_verify},
+        sync::{VerifyStatus, lock_for_sync, sync_context},
     },
+    context::{ContextOptions, Discovered, discover_context},
     output::RunReport,
 };
 
@@ -101,6 +99,7 @@ pub type CliAuthPolicy = StandardLazyHTTPAuthentication<credential_store::CliBlo
 
 pub mod cli;
 pub mod commands;
+pub mod context;
 pub(crate) mod cred_env;
 pub mod credential_store;
 pub mod env_vars;
@@ -730,46 +729,9 @@ fn run_cli_with(
     }
     log::debug!("sysand v{}", env!("CARGO_PKG_VERSION"));
 
-    let current_project = discover_project(&cwd)?;
-    let project_root = current_project.as_ref().map(|p| p.root_path().to_owned());
-
-    // One upward walk serves both configuration (read at the workspace
-    // root) and commands with a scope. It runs ahead of the environment,
-    // which is rooted at the workspace.
-    let discovered = discover_table(&cwd);
-    let workspace_root = match &discovered {
-        Ok(Some((root, _))) => Some(root.clone()),
-        Ok(None) => None,
-        // Not fatal *here*: see `config_root`.
-        Err(error) => {
-            log::debug!("not reading configuration from a workspace root: {error}");
-            None
-        }
-    };
-
-    // For the commands that have a scope: the workspace root and where
-    // under it the command started (`StartRegion` carries no root).
-    //
-    // The table is kept: a member's manifest cannot be read without it.
-    let mut workspace_table: Option<(Utf8PathBuf, Arc<WorkspaceTable>)> = None;
-    let scope: Option<(Utf8PathBuf, StartRegion)> = if consults_the_workspace(&command) {
-        match discovered {
-            Ok(Some((root, table))) => {
-                let start = start_region(&root, &table, &cwd)?;
-                workspace_table = Some((root.clone(), Arc::new(table)));
-                Some((root, start))
-            }
-            Ok(None) => None,
-            Err(error) => return Err(error.into()),
-        }
-    } else {
-        None
-    };
-
-    // A selector replaces which member the command acts on, so it is
-    // applied before `current_project` is settled. `Current` for every
-    // command that takes no selector, and for every invocation that gives
-    // none.
+    // A selector replaces which member the command acts on. `Current` for
+    // every command that takes no selector, and for every invocation that
+    // gives none.
     let selector = match &command {
         Command::Build {
             selector,
@@ -823,20 +785,6 @@ fn run_cli_with(
         } => selector.selector(),
         _ => Selector::Current,
     };
-    let selected = selected_member(&cwd, workspace_root.as_deref(), selector)?;
-    let current_project = match (&selected, &workspace_table) {
-        (Some(dir), Some((_, table))) => Some(LocalSrcProject::new_member(
-            dir.clone(),
-            None,
-            table.clone(),
-        )),
-        // "`--workspace` forces all members": the commands that have an
-        // all-members path take it when there is no current project, so
-        // forcing it is dropping the one the working directory implies.
-        _ if selector == Selector::Workspace && workspace_root.is_some() => None,
-        _ => current_project,
-    };
-    let project_root = selected.clone().or(project_root);
 
     // These commands need a project, so `--member` is required at the
     // root: in a workspace, with no member to act on.
@@ -871,77 +819,26 @@ fn run_cli_with(
             edits: _
         }
     );
-    if needs_a_member && current_project.is_none() && workspace_root.is_some() {
-        return Err(DiscoverError::NeedsProject.into());
-    }
 
-    // A marker resolves against the workspace table, and only for a member,
-    // so a member that inherits cannot be read without it. `member_index`,
-    // not `scope`: `StartRegion::Member` prefix-matches, so it also holds
-    // for a project nested inside a member, which is not one.
-    let current_project = match (current_project, &workspace_table) {
-        (Some(project), Some((root, table)))
-            if member_index(root, table, project.root_path())?.is_some() =>
-        {
-            Some(LocalSrcProject::new_member(
-                project.root_path().to_owned(),
-                None,
-                table.clone(),
-            ))
-        }
-        (project, _) => project,
-    };
-
-    // A workspace has a single `.sysand`, at its root. Taken from `scope`,
-    // not `workspace_root`: the latter is also `Some` for an `exclude`d
-    // standalone project, which keeps its own state.
-    let model_workspace_root = scope.as_ref().and_then(|(root, start)| {
-        matches!(start, StartRegion::Member(_) | StartRegion::Workspace).then(|| root.clone())
-    });
-
-    // A mutating command holds the workspace's advisory lock for the whole
-    // invocation, taken once before the environment is read and handed to
-    // every environment it writes. `lock_root` is where `sysand-lock.toml`
-    // and `.sysand` live.
-    let lock_root = model_workspace_root
-        .clone()
-        .or_else(|| project_root.clone())
-        .unwrap_or_else(|| cwd.clone());
-    let workspace_lock = match lock_mode(&command, &lock_root) {
-        Some(mode) => Some(Arc::new(WorkspaceLock::acquire(
-            &lock_root,
-            mode,
-            global_opts.lock_wait.map(Duration::from_secs),
-        )?)),
-        None => None,
-    };
-
-    let env = match (&model_workspace_root, &current_project) {
-        (Some(root), _) => get_env(root),
-        (None, Some(pr)) => get_env(pr.root_path()),
-        // TODO: does it make sense to support env unassociated with a project
-        // when index and env are different?
-        (None, None) => get_env(&cwd),
-    }
-    .map_err(CliError::InvalidEnvironment)?;
-    // The environment writes under an exclusive lock only.
-    let env = match (env, workspace_lock.clone().and_then(ExclusiveLock::new)) {
-        (Some(mut env), Some(lock)) => {
-            env.hold(lock)?;
-            Some(env)
-        }
-        (env, _) => env,
-    };
-    let config_root = config_root(&cwd, project_root.as_deref(), workspace_root.as_deref());
-    let ctx = ProjectContext {
-        env,
-        workspace_lock,
-        cancellation,
-        model_workspace_root: model_workspace_root.clone(),
-        current_project,
-        current_directory: cwd,
-        config_root,
-    };
+    let Discovered {
+        mut ctx,
+        selected,
+        project_root,
+        scope,
+    } = discover_context(
+        cwd,
+        ContextOptions {
+            consults_workspace: consults_the_workspace(&command),
+            selector,
+            needs_a_member,
+            needs_a_project: false,
+            lock_wait: global_opts.lock_wait.map(Duration::from_secs),
+            cancellation,
+        },
+        |lock_root| lock_mode(&command, lock_root),
+    )?;
+    let model_workspace_root = ctx.model_workspace_root.clone();
+    let lock_root = ctx.state_root();
 
     let auto_config = if global_opts.no_config {
         Config::default()
@@ -1066,17 +963,10 @@ fn run_cli_with(
         }
         Command::Env { command } => match command {
             None => {
-                let env_dir = {
-                    // The workspace root first, so a member's `sysand env`
-                    // does not create a second environment beside the
-                    // workspace's single `.sysand`.
-                    let mut p = model_workspace_root
-                        .or(project_root)
-                        .unwrap_or(ctx.current_directory);
-                    p.push(DEFAULT_ENV_NAME);
-                    p
-                };
-                command_env(env_dir)?;
+                // The workspace root first, so a member's `sysand env`
+                // does not create a second environment beside the
+                // workspace's single `.sysand`.
+                command_env(lock_root.join(DEFAULT_ENV_NAME))?;
 
                 Ok(())
             }
@@ -1170,36 +1060,9 @@ fn run_cli_with(
         Command::Lock { resolution_opts } => {
             // One lockfile for the whole workspace, at its root, from
             // anywhere under it.
-            if let Some(root) = &model_workspace_root {
-                let lock = command_lock_workspace(
-                    root,
-                    resolution_opts,
-                    &config,
-                    client,
-                    runtime,
-                    auth_policy,
-                    &ctx,
-                )?;
-                output::lock_document(&lock, &root.join(DEFAULT_LOCKFILE_NAME));
-                Ok(())
-            } else if let Some(project_root) = project_root {
-                let lock = command_lock(
-                    ".",
-                    resolution_opts,
-                    &config,
-                    &project_root,
-                    client,
-                    runtime,
-                    auth_policy,
-                    &ctx,
-                )?;
-                output::lock_document(&lock, &project_root.join(DEFAULT_LOCKFILE_NAME));
-                Ok(())
-            } else {
-                bail!(
-                    "not inside a project - neither current nor any of the parent directories contain a SysML v2 or KerML project"
-                )
-            }
+            let lock = command_lock(resolution_opts, &config, client, runtime, auth_policy, &ctx)?;
+            output::lock_document(&lock, &lock_root.join(DEFAULT_LOCKFILE_NAME));
+            Ok(())
         }
         Command::Sync {
             resolution_opts,
@@ -1207,118 +1070,64 @@ fn run_cli_with(
             verify,
             repair,
         } => {
-            let provided_iris = if resolution_opts.include_std {
-                HashMap::default()
-            } else {
-                known_std_libs()
-            };
-
-            // The lockfile and the root its `src_path`s are relative to are
-            // the workspace's when there is one.
-            let project_root = model_workspace_root
-                .clone()
-                .or(project_root)
-                .unwrap_or_else(|| ctx.current_directory.clone());
-            let lock = match Lockfile::try_read(&project_root).map_err(CliError::InvalidLockfile)? {
-                Some(lockfile) => {
-                    lockfile.lock().warn_release_mismatches();
-                    lockfile.into_lock()
-                }
-                // Lock a workspace as a whole: one member at a time would
-                // write a single-member solve over the shared file.
-                None => match &model_workspace_root {
-                    Some(root) => command_lock_workspace(
-                        root,
-                        resolution_opts,
-                        &config,
-                        client.clone(),
-                        runtime.clone(),
-                        auth_policy.clone(),
-                        &ctx,
-                    )?,
-                    None => command_lock(
-                        ".",
-                        resolution_opts,
-                        &config,
-                        &project_root,
-                        client.clone(),
-                        runtime.clone(),
-                        auth_policy.clone(),
-                        &ctx,
-                    )?,
-                },
-            };
-            if verify || repair {
-                // `--verify` reads; it must not create a `.sysand` that
-                // was not there (with the directory gone every locked
-                // project is reported as not installed).
-                let manifests = ManifestUsages::for_context(&ctx)?;
-                let env_dir = project_root.join(DEFAULT_ENV_NAME);
-                let mut outcome = SyncOutcome::default();
-                let status = command_sync_verify(
-                    &lock,
-                    &project_root,
-                    ctx.env,
-                    &env_dir,
-                    &manifests,
-                    client,
-                    &provided_iris,
-                    runtime,
-                    auth_policy,
-                    no_prune,
-                    repair,
-                    ctx.cancellation.clone(),
-                    &mut outcome,
-                )?;
-                output::document(
-                    "verify",
-                    match status {
-                        VerifyStatus::Clean {
-                            verified,
-                            repaired: _,
-                        } => {
-                            serde_json::json!({ "clean": true, "problems": 0, "verified": verified })
-                        }
-                        VerifyStatus::Problems { count, repaired: _ } => {
-                            serde_json::json!({ "clean": false, "problems": count, "verified": outcome.verified.len() })
-                        }
-                    },
-                );
-                output::sync_document(&outcome);
-                return match status {
-                    VerifyStatus::Clean {
-                        verified: _,
-                        repaired: _,
-                    } => Ok(report),
-                    VerifyStatus::Problems { count, repaired } => Err(VerifyFailed {
-                        count,
-                        repaired: repair.then_some(repaired),
-                    }
-                    .into()),
-                };
-            }
-            let mut local_environment = get_or_create_env(
-                ctx.env,
-                ctx.model_workspace_root.as_deref(),
-                ctx.current_project.as_ref(),
-                &ctx.current_directory,
-                ctx.workspace_lock.as_ref(),
+            let provided_iris = resolution_opts.provided_iris(ProvidedProjects::default());
+            // The lockfile is read, or written, before the environment is
+            // created, so a failure to lock leaves no environment behind.
+            let (lockfile, fresh) = lock_for_sync(
+                resolution_opts,
+                &config,
+                ProvidedProjects::default(),
+                client.clone(),
+                runtime.clone(),
+                auth_policy.clone(),
+                &ctx,
             )?;
+            if fresh {
+                lockfile.write()?;
+            }
             let mut outcome = SyncOutcome::default();
-            command_sync(
-                &lock,
-                project_root,
-                &mut local_environment,
+            let status = sync_context(
+                lockfile.lock(),
+                &mut ctx,
+                verify,
+                repair,
+                no_prune,
                 client,
                 &provided_iris,
                 runtime,
                 auth_policy,
-                no_prune,
-                ctx.cancellation.clone(),
                 &mut outcome,
             )?;
+            let Some(status) = status else {
+                output::sync_document(&outcome);
+                return Ok(report);
+            };
+            output::document(
+                "verify",
+                match status {
+                    VerifyStatus::Clean {
+                        verified,
+                        repaired: _,
+                    } => {
+                        serde_json::json!({ "clean": true, "problems": 0, "verified": verified })
+                    }
+                    VerifyStatus::Problems { count, repaired: _ } => {
+                        serde_json::json!({ "clean": false, "problems": count, "verified": outcome.verified.len() })
+                    }
+                },
+            );
             output::sync_document(&outcome);
-            Ok(())
+            return match status {
+                VerifyStatus::Clean {
+                    verified: _,
+                    repaired: _,
+                } => Ok(report),
+                VerifyStatus::Problems { count, repaired } => Err(VerifyFailed {
+                    count,
+                    repaired: repair.then_some(repaired),
+                }
+                .into()),
+            };
         }
         Command::Auth { command: _ } => {
             unreachable!("`auth` is dispatched before the auth policy is built")
@@ -1349,19 +1158,8 @@ fn run_cli_with(
                 Path(Utf8PathBuf, LocalProjectKind),
             }
 
-            let cli::ResolutionOptions {
-                index,
-                default_index,
-                no_index,
-                include_std,
-                // `info` does not solve
-            } = resolution_opts;
-            let index_urls = if no_index {
-                None
-            } else {
-                Some(config.index_urls(index, vec![default_index_location()], default_index))
-            };
-            let excluded_usages: HashSet<_> = if include_std {
+            let index_urls = resolution_opts.index_urls(&config);
+            let excluded_usages: HashSet<_> = if resolution_opts.include_std {
                 HashSet::default()
             } else {
                 known_std_libs().into_keys().collect()
@@ -1566,12 +1364,7 @@ fn run_cli_with(
             //
             // Computed before `ctx.current_project` moves below. A member
             // never holds its own lockfile, so the workspace root wins.
-            let lock_root = model_workspace_root.clone().or_else(|| {
-                ctx.current_project
-                    .as_ref()
-                    .map(|p| p.root_path().to_owned())
-            });
-            if let Some(root) = lock_root
+            if let Some(root) = ctx.sources_root()
                 && let Some(lockfile) = Lockfile::try_read(&root)?
             {
                 lockfile.lock().warn_release_mismatches();
@@ -1678,17 +1471,7 @@ fn run_cli_with(
             iri,
             resolution_opts,
         } => {
-            let cli::ResolutionOptions {
-                index,
-                default_index,
-                no_index,
-                include_std: _,
-            } = resolution_opts;
-            let index_urls = if no_index {
-                None
-            } else {
-                Some(config.index_urls(index, vec![default_index_location()], default_index))
-            };
+            let index_urls = resolution_opts.index_urls(&config);
             crate::commands::versions::command_versions(
                 iri,
                 client,
@@ -1758,25 +1541,14 @@ pub fn get_env(
     LocalDirectoryEnvironment::try_read(root.as_ref().join(DEFAULT_ENV_NAME))
 }
 
-/// Unpack `env`, or create an empty environment otherwise
-pub fn get_or_create_env(
-    env: Option<LocalDirectoryEnvironment>,
-    model_workspace_root: Option<&Utf8Path>,
-    project: Option<&LocalSrcProject>,
-    cwd: impl AsRef<Utf8Path>,
-    lock: Option<&Arc<WorkspaceLock>>,
-) -> Result<LocalDirectoryEnvironment> {
-    if let Some(env) = env {
+/// Take `ctx`'s environment, or create an empty one at its state root,
+/// holding `ctx`'s lock when it is exclusive.
+pub fn get_or_create_env(ctx: &mut ProjectContext) -> Result<LocalDirectoryEnvironment> {
+    if let Some(env) = ctx.env.take() {
         return Ok(env);
     }
-    // One `.sysand` per workspace, at its root.
-    let base_path = match (model_workspace_root, project) {
-        (Some(root), _) => root,
-        (None, Some(pr)) => pr.root_path(),
-        (None, None) => cwd.as_ref(),
-    };
-    let mut env = command_env(base_path.join(DEFAULT_ENV_NAME))?;
-    if let Some(lock) = lock.cloned().and_then(ExclusiveLock::new) {
+    let mut env = command_env(ctx.state_root().join(DEFAULT_ENV_NAME))?;
+    if let Some(lock) = ctx.workspace_lock.clone().and_then(ExclusiveLock::new) {
         env.hold(lock)?;
     }
     Ok(env)
@@ -1789,21 +1561,13 @@ pub fn get_or_create_env(
 /// or absent and takes none.
 fn lock_mode(command: &cli::Command, lock_root: &Utf8Path) -> Option<LockMode> {
     match command {
-        // `sync` with no lockfile locks first (writes), so the shared
-        // mode is only for a verification that has one to read.
         cli::Command::Sync {
-            verify: true,
-            repair: false,
+            verify,
+            repair,
             resolution_opts: _,
             no_prune: _,
-        } if lock_root.join(DEFAULT_LOCKFILE_NAME).is_file() => Some(LockMode::Shared),
+        } => Some(sync_lock_mode(*verify, *repair, lock_root)),
         cli::Command::Lock { resolution_opts: _ }
-        | cli::Command::Sync {
-            resolution_opts: _,
-            no_prune: _,
-            verify: _,
-            repair: _,
-        }
         | cli::Command::Add {
             selector: _,
             locator: _,
@@ -1824,6 +1588,17 @@ fn lock_mode(command: &cli::Command, lock_root: &Utf8Path) -> Option<LockMode> {
             Some(_) => None,
         },
         _ => None,
+    }
+}
+
+/// The advisory lock `sync` takes at `lock_root`: shared for a verification
+/// that has a lockfile to read, exclusive otherwise, as `sync` with no
+/// lockfile locks first (writes).
+pub fn sync_lock_mode(verify: bool, repair: bool, lock_root: &Utf8Path) -> LockMode {
+    if verify && !repair && lock_root.join(DEFAULT_LOCKFILE_NAME).is_file() {
+        LockMode::Shared
+    } else {
+        LockMode::Exclusive
     }
 }
 
@@ -1930,55 +1705,6 @@ fn stray_configs(cwd: &Utf8Path, root: &Utf8Path) -> Result<Vec<Utf8PathBuf>> {
     }
     // `root` is not an ancestor of `cwd`: no workspace above, nothing ignored.
     Ok(Vec::new())
-}
-
-/// The member directory `--member` names, if it names one.
-///
-/// `--member <path-or-name>` picks one member, matched against its
-/// `members` entry as written or against its project name. The rule is
-/// [`Workspace::member`](sysand_core::workspace::model_toml::Workspace::member),
-/// which refuses anything but a single answer.
-///
-/// Loading, not consulting: a project's name is in its own manifest, so a
-/// name selector cannot be answered from the table. The workspace is loaded
-/// only when the flag is given.
-///
-/// A selector with no workspace around `cwd` is an error.
-///
-/// With `MemberChecks::All` a member holding its own lockfile, `.sysand` or
-/// `output` is refused.
-fn selected_member(
-    cwd: &Utf8Path,
-    workspace_root: Option<&Utf8Path>,
-    selector: Selector<'_>,
-) -> Result<Option<Utf8PathBuf>> {
-    let Selector::Member(selector) = selector else {
-        return Ok(None);
-    };
-    let Some(root) = workspace_root else {
-        bail!("`--member {selector}` needs a workspace, but `{cwd}` is not in one");
-    };
-    let workspace = Workspace::load_with(root, MemberChecks::All)?;
-    Ok(Some(workspace.member(selector)?.dir.clone()))
-}
-
-/// Where `sysand.toml` is read and written for a command run in `cwd`.
-///
-/// The workspace root when there is one, the project root otherwise, and
-/// the current directory when there is no project either.
-///
-/// `workspace_root` comes from [`discover_table`], so a broken member does
-/// not change where `sysand.toml` is read from.
-///
-/// A discovery error (a nested workspace, an ancestor `model.toml` that
-/// does not parse) arrives here as `None`. The command that needs the
-/// workspace reports it; failing here would take down every command.
-fn config_root(
-    cwd: &Utf8Path,
-    project_root: Option<&Utf8Path>,
-    workspace_root: Option<&Utf8Path>,
-) -> Utf8PathBuf {
-    workspace_root.or(project_root).unwrap_or(cwd).to_owned()
 }
 
 pub fn get_overrides<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(

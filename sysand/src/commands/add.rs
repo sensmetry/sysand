@@ -11,14 +11,7 @@ use semver::VersionReq;
 use sysand_core::{
     add::{IndexSpellingError, IndexUsageToAdd, do_add, index_usage_to_add, spell_index_usage},
     auth::HTTPAuthentication,
-    commands::{
-        lock::{
-            LockOutcome, do_lock_local_editable, do_lock_local_editable_respelling,
-            do_lock_workspace, do_lock_workspace_respelling,
-        },
-        remove::do_remove,
-        sync::SyncOutcome,
-    },
+    commands::{remove::do_remove, sync::SyncOutcome},
     config::{
         Config, ConfigProject, OverrideSource,
         local_fs::{CONFIG_FILE, add_project_source_to_config},
@@ -38,17 +31,16 @@ use sysand_core::{
     },
     resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead as _, standard::standard_resolver},
     utils::{ProvidedProjects, format_err},
-    workspace::model_toml::{MemberChecks, Workspace},
 };
 
 use crate::{
     CliError,
     cli::{AddProjectLocatorArgs, ProjectSourceOptions, ResolutionOptions},
     commands::{
-        lock::{CliResolver, create_resolver},
-        sync::command_sync,
+        lock::{CliResolver, create_resolver, lock_scope},
+        sync::sync_context,
     },
-    default_index_location, iri_or_path_to_iri,
+    iri_or_path_to_iri,
     style::{GOOD, USAGE},
 };
 
@@ -345,22 +337,11 @@ pub fn command_add<Policy: HTTPAuthentication>(
         )
     });
 
-    // `model.toml` has no alias IRIs.
-    let alias_iris = None;
-
-    let project_root = current_project.root_path().to_owned();
     let locked = resolver.and_then(|resolver| {
         let respelled = pending
             .as_ref()
             .and_then(|(_, pending)| pending.respelled());
-        let lock = lock_project(
-            resolver,
-            &project_root,
-            alias_iris,
-            &provided_iris,
-            &ctx,
-            respelled.as_ref(),
-        )?;
+        let lock = lock_scope(resolver, &provided_iris, &ctx, respelled.as_ref())?;
         if let Some((placeholder, pending)) = pending {
             settle_from_lock(&mut current_project, &lock, &placeholder, pending)?;
         }
@@ -374,7 +355,6 @@ pub fn command_add<Policy: HTTPAuthentication>(
             client,
             runtime,
             auth_policy,
-            &project_root,
             &provided_iris,
             ctx,
         )
@@ -480,18 +460,7 @@ fn process_overrides<Policy: HTTPAuthentication>(
             bail!("path `{path}` is neither a directory nor a file");
         }
     } else if let Some(url) = source_overrides.from_url {
-        let ResolutionOptions {
-            index,
-            default_index,
-            no_index,
-            include_std: _,
-        } = resolution_opts.clone();
-
-        let index_urls = if no_index {
-            None
-        } else {
-            Some(config.index_urls(index, vec![default_index_location()], default_index))
-        };
+        let index_urls = resolution_opts.index_urls(config);
         let std_resolver = standard_resolver(
             // TODO: why not use env here?
             None,
@@ -728,127 +697,52 @@ fn settle_from_lock(
     Ok(())
 }
 
-/// Lock the project at `project_root` with `resolver` (see
-/// [`create_resolver`]), without writing the lockfile. The spelling of its
-/// typed usage of `respelled` is not checked, see
-/// [`do_lock_local_editable_respelling`]
-fn lock_project<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
-    resolver: CliResolver<Policy>,
-    project_root: P,
-    project_identifiers: Option<Vec<Iri<String>>>,
-    provided_iris: &ProvidedProjects,
-    ctx: &ProjectContext,
-    respelled: Option<&Identifier>,
-) -> Result<Lock> {
-    // In a workspace, `add` and `remove` re-lock the *workspace*: a
-    // single-member solve written over the shared file would drop every
-    // other member
-    if let Some(root) = &ctx.model_workspace_root {
-        let workspace = Workspace::load_with(root, MemberChecks::All)?;
-        let LockOutcome {
-            lock,
-            dependencies: _,
-        } = match respelled {
-            None => do_lock_workspace(&workspace, resolver, provided_iris, ctx),
-            Some(respelled) => {
-                do_lock_workspace_respelling(&workspace, resolver, provided_iris, ctx, respelled)
-            }
-        }?;
-        return Ok(lock.canonicalize());
-    }
-    let LockOutcome {
-        lock,
-        dependencies: _,
-    } = match respelled {
-        None => do_lock_local_editable(
-            ".",
-            &project_root,
-            project_identifiers,
-            provided_iris,
-            resolver,
-            ctx,
-        )?,
-        Some(respelled) => do_lock_local_editable_respelling(
-            ".",
-            &project_root,
-            project_identifiers,
-            provided_iris,
-            resolver,
-            ctx,
-            respelled,
-        )?,
-    };
-    Ok(lock.canonicalize())
-}
-
-/// Write `lock` as the lockfile of the project at `project_root`, and sync
-/// unless `no_sync`
+/// Write `lock` as the lockfile at `ctx`'s state root, and sync unless
+/// `no_sync`
 #[expect(clippy::too_many_arguments)]
-fn write_lock_and_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
+fn write_lock_and_sync<Policy: HTTPAuthentication>(
     lock: Lock,
     no_sync: bool,
     no_prune: bool,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
-    project_root: P,
     provided_iris: &ProvidedProjects,
-    ctx: ProjectContext,
+    mut ctx: ProjectContext,
 ) -> Result<(), anyhow::Error> {
-    // In a workspace the lockfile is the shared one at the root, and so
-    // is the directory its `src_path`s are relative to
-    let lock_root = ctx
-        .model_workspace_root
-        .clone()
-        .unwrap_or_else(|| project_root.as_ref().to_owned());
-    let lockfile = Lockfile::new(&lock_root, lock);
+    let lockfile = Lockfile::new(ctx.state_root(), lock);
     lockfile.write()?;
     if !no_sync {
-        let mut env = crate::get_or_create_env(
-            ctx.env,
-            ctx.model_workspace_root.as_deref(),
-            ctx.current_project.as_ref(),
-            ctx.current_directory,
-            ctx.workspace_lock.as_ref(),
-        )?;
-        command_sync(
+        sync_context(
             lockfile.lock(),
-            &lock_root,
-            &mut env,
+            &mut ctx,
+            false,
+            false,
+            no_prune,
             client,
             provided_iris,
             runtime,
             auth_policy,
-            no_prune,
-            ctx.cancellation,
             &mut SyncOutcome::default(),
         )?;
     }
     Ok(())
 }
 
-/// Lock with `resolver` (see [`create_resolver`]), and sync unless `no_sync`
+/// Lock `ctx`'s scope with `resolver` (see [`create_resolver`]), and sync
+/// unless `no_sync`
 #[expect(clippy::too_many_arguments)]
-pub fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
+pub fn resolve_deps<Policy: HTTPAuthentication>(
     no_sync: bool,
     no_prune: bool,
     resolver: CliResolver<Policy>,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
-    project_root: P,
-    project_identifiers: Option<Vec<Iri<String>>>,
     provided_iris: ProvidedProjects,
     ctx: ProjectContext,
 ) -> Result<(), anyhow::Error> {
-    let lock = lock_project(
-        resolver,
-        &project_root,
-        project_identifiers,
-        &provided_iris,
-        &ctx,
-        None,
-    )?;
+    let lock = lock_scope(resolver, &provided_iris, &ctx, None)?;
     write_lock_and_sync(
         lock,
         no_sync,
@@ -856,7 +750,6 @@ pub fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         client,
         runtime,
         auth_policy,
-        project_root,
         &provided_iris,
         ctx,
     )

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::{Result, bail};
 use camino::Utf8PathBuf;
@@ -20,12 +20,13 @@ use sysand_core::{
     model::{InterchangeProjectUsageRaw, UsageRef},
     project::{ProjectFormat, ProjectRead as _, utils::Identifier},
     remove::do_remove,
+    utils::ProvidedProjects,
 };
 
 use crate::{
     CliError,
     cli::{RemoveProjectLocatorArgs, ResolutionOptions},
-    commands::{add::resolve_deps, lock::create_resolver, sync::command_sync},
+    commands::{add::resolve_deps, lock::create_resolver, sync::sync_context},
     iri_or_path_to_iri,
 };
 
@@ -67,7 +68,6 @@ pub fn command_remove<Policy: HTTPAuthentication>(
              cannot declare: name the dependency as `<publisher>/<name>`"
         );
     }
-    let project_root = current_project.root_path().to_owned();
     let config_path =
         config_file.or_else(|| (!no_config).then(|| ctx.config_root.join(CONFIG_FILE)));
 
@@ -93,7 +93,6 @@ pub fn command_remove<Policy: HTTPAuthentication>(
             client,
             runtime,
             auth_policy,
-            project_root,
             &removed_identifiers,
         )?;
     }
@@ -120,7 +119,7 @@ pub fn command_remove<Policy: HTTPAuthentication>(
 }
 
 fn lock_sync<Policy: HTTPAuthentication>(
-    ctx: ProjectContext,
+    mut ctx: ProjectContext,
     config: Config,
     no_sync: bool,
     no_prune: bool,
@@ -128,23 +127,15 @@ fn lock_sync<Policy: HTTPAuthentication>(
     client: ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
-    project_root: Utf8PathBuf,
     removed_usages: &[Identifier],
 ) -> Result<(), anyhow::Error> {
-    let provided_iris = if resolution_opts.include_std {
-        HashMap::default()
-    } else {
-        crate::known_std_libs()
-    };
+    let provided_iris = resolution_opts.provided_iris(ProvidedProjects::default());
     let current_project = ctx.current_project.as_ref().unwrap();
 
     // In a workspace the lockfile is the shared one at the root, and so
     // is the directory its `src_path`s are relative to.
-    let lock_root = ctx
-        .model_workspace_root
-        .clone()
-        .unwrap_or_else(|| project_root.clone());
-    if let Some(mut lockfile) = Lockfile::try_read(&lock_root).map_err(CliError::InvalidLockfile)? {
+    let lock_root = ctx.state_root();
+    if let Some(mut lockfile) = Lockfile::try_read(&lock_root)? {
         let definition = current_project
             .get_project()?
             .ok_or(CliError::MissingProjectCurrentDir)?;
@@ -197,23 +188,16 @@ fn lock_sync<Policy: HTTPAuthentication>(
             lockfile.write()?;
         }
         if !no_sync {
-            let mut env = crate::get_or_create_env(
-                ctx.env,
-                ctx.model_workspace_root.as_deref(),
-                ctx.current_project.as_ref(),
-                ctx.current_directory,
-                ctx.workspace_lock.as_ref(),
-            )?;
-            command_sync(
+            sync_context(
                 lockfile.lock(),
-                &lock_root,
-                &mut env,
+                &mut ctx,
+                false,
+                false,
+                no_prune,
                 client,
                 &provided_iris,
                 runtime,
                 auth_policy,
-                no_prune,
-                ctx.cancellation.clone(),
                 &mut SyncOutcome::default(),
             )?;
         }
@@ -234,9 +218,6 @@ fn lock_sync<Policy: HTTPAuthentication>(
             client,
             runtime,
             auth_policy,
-            project_root,
-            // `model.toml` has no alias IRIs.
-            None,
             provided_iris,
             ctx,
         )?;

@@ -17,14 +17,13 @@ use semver::Version;
 use sysand::{
     CliAuthPolicy,
     cli::{AddProjectLocatorArgs, ResolutionOptions},
-    commands::sync::command_sync_verify,
     commands::{
         add::command_add,
-        lock::{CliLockError, create_resolver, resolve_lock},
-        sync::{CliSyncError, CommandSyncError, command_sync},
+        lock::{CliLockError, resolve_lock},
+        sync::{CliSyncError, CommandSyncError, SyncContextError, lock_for_sync, sync_context},
     },
-    default_index_location, get_env, get_or_create_env, get_overrides, http_options_from_env,
-    standard_auth_policy,
+    context::{ContextOptions, discover_context},
+    get_overrides, http_options_from_env, standard_auth_policy, sync_lock_mode,
 };
 use sysand_core::{
     auth::{GlobMapResult, StandardHTTPAuthenticationBuilder},
@@ -38,7 +37,6 @@ use sysand_core::{
         init::do_init_local_file,
         lock::{LockError, LockProjectError},
         sync::SyncOutcome,
-        verify::ManifestUsages,
     },
     config::{
         Config,
@@ -66,10 +64,7 @@ use sysand_core::{
     index_location::IndexSource,
     info::{InfoError, InfoProjectError, do_info, do_info_project},
     init::InitError,
-    lock::{
-        CURRENT_LOCK_VERSION, Lock, Lockfile, LockfileError, ParseError as LockParseError,
-        Project as LockedProject, VersionError,
-    },
+    lock::{Lockfile, Project as LockedProject},
     manifest::inherit::MetaProperty,
     model::{
         IndexName, IndexPublisher, InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw,
@@ -98,12 +93,12 @@ use sysand_core::{
         Dependencies, SourcesEnvError, do_sources_env_parse, do_sources_local_src_project_no_deps,
         resolve_dependencies,
     },
-    stdlib::known_std_libs,
     usage::{ConstraintChange, do_set_index_usage_constraint_local, do_set_usage_constraint_local},
     utils::ProvidedProjects,
     utils::format_err,
     versions::do_versions,
-    workspace_lock::{ExclusiveLock, LockError as WorkspaceLockError, LockMode, WorkspaceLock},
+    workspace::model_toml::Selector,
+    workspace_lock::{LockError as WorkspaceLockError, LockMode, WorkspaceLock},
 };
 use typed_path::Utf8UnixPathBuf;
 
@@ -167,17 +162,13 @@ fn do_migrate_py(
         let path = Utf8PathBuf::from(path);
         // `Scope::Project`: an unlisted json project under a workspace
         // root is the one a user most wants to migrate.
-        let context = project_context(&path, Scope::Project, None)?;
-        let (ctx, project_root) = (context.ctx, context.root);
-        let config = config_for(&resolution, &project_root)?;
-        let client = http_client()?;
-        let runtime = Arc::new(
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(PyErr::from)?,
-        );
-        let auth_policy = build_auth_policy(&auth)?;
+        let ctx = project_context(&path, Scope::Project, |_| None)?;
+        let config = config_for(&resolution, &ctx.config_root)?;
+        let Transport {
+            client,
+            runtime,
+            auth_policy,
+        } = transport(&auth)?;
 
         sysand::commands::migrate::command_migrate(
             Some(path),
@@ -430,21 +421,6 @@ fn build_auth_policy(spec: &AuthSpec) -> PyResult<Arc<CliAuthPolicy>> {
     Ok(Arc::new(policy))
 }
 
-/// The index URLs a call resolves against: `None` means "no index" (the
-/// `use_index=False`), otherwise the CLI's merge of explicit indexes,
-/// configuration files, and the default index.
-fn index_locations(spec: &ResolutionSpec, config: &Config) -> PyResult<Option<Vec<IndexSource>>> {
-    if !spec.use_index {
-        return Ok(None);
-    }
-    let locations = config.index_urls(
-        parse_index_locations(&spec.index)?,
-        vec![default_index_location()],
-        parse_index_locations(&spec.default_index)?,
-    );
-    Ok(Some(locations))
-}
-
 fn parse_index_locations(urls: &[String]) -> PyResult<Vec<IndexSource>> {
     urls.iter()
         .map(|url| IndexSource::parse(url).map_err(|e| PyValueError::new_err(format_err(e))))
@@ -556,6 +532,27 @@ fn combined_error_to_pyerr<F, L, R>(
     }
 }
 
+/// What a resolving call needs besides its context.
+struct Transport {
+    client: reqwest_middleware::ClientWithMiddleware,
+    runtime: Arc<tokio::runtime::Runtime>,
+    auth_policy: Arc<CliAuthPolicy>,
+}
+
+/// The CLI's HTTP client, a current-thread runtime, and the policy `auth`
+/// builds.
+fn transport(auth: &AuthSpec) -> PyResult<Transport> {
+    Ok(Transport {
+        client: http_client()?,
+        runtime: Arc::new(
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?,
+        ),
+        auth_policy: build_auth_policy(auth)?,
+    })
+}
+
 /// The HTTP client the CLI would use, with timeouts and retries from the
 /// same `SYSAND_HTTP_*` variables.
 fn http_client() -> PyResult<reqwest_middleware::ClientWithMiddleware> {
@@ -575,63 +572,32 @@ fn cli_resolver_for(
     impl ResolveRead<Error = PriorityError<impl ErrorBound, StandardResolverError>>,
     Arc<CliAuthPolicy>,
 )> {
-    let project_error = |e: String| ProjectError::new_err(e);
-    let cwd = wrapfs::canonicalize(".").map_err(|e| project_error(format_err(e)))?;
-    let current_project = discover_project(&cwd).map_err(|e| project_error(format_err(e)))?;
-    // The environment is the workspace's when the path is inside one, as
-    // `run_cli` roots it; an excluded project keeps its own, and an
-    // unlisted one is an error
-    let model_workspace_root = match sysand_core::workspace::model_toml::discover_table(&cwd)
-        .map_err(|e| project_error(format_err(e)))?
-    {
-        Some((root, table)) => {
-            match sysand_core::workspace::model_toml::start_region(&root, &table, &cwd)
-                .map_err(|e| project_error(format_err(e)))?
-            {
-                sysand_core::workspace::model_toml::StartRegion::Member(_)
-                | sysand_core::workspace::model_toml::StartRegion::Workspace => Some(root),
-                sysand_core::workspace::model_toml::StartRegion::Standalone(_) => None,
-            }
-        }
-        None => None,
-    };
-    let env_root = model_workspace_root
-        .as_deref()
-        .or_else(|| {
-            current_project
-                .as_ref()
-                .map(sysand_core::project::local_src::LocalSrcProject::root_path)
-        })
-        .unwrap_or(cwd.as_path());
-    let env = get_env(env_root).map_err(env_error)?;
-    let project_root = current_project
-        .as_ref()
-        .map_or(cwd.as_path(), |project| project.root_path());
+    // As the CLI's `info`: the environment is the workspace's when the
+    // directory is inside one, and the configuration the workspace root's
+    let ctx = project_context(Utf8Path::new("."), Scope::Any, |_| None)?;
 
-    let config = config_for(resolution, project_root)?;
-    let index_urls = index_locations(resolution, &config)?;
-    let client = http_client()?;
-    let runtime = Arc::new(
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?,
-    );
-    let auth_policy = build_auth_policy(auth)?;
+    let config = config_for(resolution, &ctx.config_root)?;
+    let index_urls = resolution_options(resolution)?.index_urls(&config);
+    let Transport {
+        client,
+        runtime,
+        auth_policy,
+    } = transport(auth)?;
     let overrides = get_overrides(
         &config,
-        project_root,
+        &ctx.config_root,
         &client,
         runtime.clone(),
         auth_policy.clone(),
     )
-    .map_err(|e| project_error(format_err(&*e)))?;
+    .map_err(|e| ProjectError::new_err(format_err(&*e)))?;
     let resolver = standard_resolver(
-        env,
+        ctx.env,
         Some(client),
         index_urls,
         runtime,
         auth_policy.clone(),
-        CancellationToken::new(),
+        ctx.cancellation,
     )
     .map_err(|err| PyValueError::new_err(format_err(err)))?;
     Ok((
@@ -727,112 +693,53 @@ enum Scope {
     Workspace,
     /// The project alone, whatever it sits inside.
     Project,
+    /// [`Scope::Workspace`], from a directory that need not be inside a
+    /// project.
+    Any,
 }
 
-/// What `project_context` found.
-struct Context {
-    ctx: ProjectContext,
-    /// Where a lockfile belongs and where configuration is read.
-    root: Utf8PathBuf,
-}
-
-/// The CLI's view of where a call runs: the enclosing project and, under
-/// [`Scope::Workspace`], the workspace it belongs to: `run_cli`'s own
-/// steps, including rooting the environment and the configuration where
-/// the CLI roots them.
+/// The CLI's view of where a call runs (see [`discover_context`]): the
+/// enclosing project and, under [`Scope::Workspace`], the workspace it
+/// belongs to. `lock` is given the state root and picks the advisory lock
+/// to take there, fail-fast: an embedder retries itself.
 ///
 /// Fails when `start` is not inside a project *and* is not a workspace
-/// root under [`Scope::Workspace`].
-fn project_context(start: &Utf8Path, scope: Scope, lock: Option<LockMode>) -> PyResult<Context> {
-    let project_error = |e: String| ProjectError::new_err(e);
-    let cwd = wrapfs::canonicalize(start).map_err(|e| project_error(format_err(e)))?;
-    let current_project = discover_project(&cwd).map_err(|e| project_error(format_err(e)))?;
-    // Where a lockfile belongs when the path is not in a workspace.
-    let project_root = current_project.as_ref().map(|p| p.root_path().to_owned());
-
-    // As in `run_cli`, a discovery error is fatal only for a call that
-    // consults the workspace.
-    let discovered = match (
-        sysand_core::workspace::model_toml::discover_table(&cwd),
-        scope,
-    ) {
-        (Ok(found), _) => found,
-        (Err(error), Scope::Workspace) => return Err(project_error(format_err(error))),
-        (Err(error), Scope::Project) => {
-            log::debug!("not reading configuration from a workspace root: {error}");
-            None
-        }
-    };
-
-    // Only a member or the root itself is *in* the workspace. An excluded
-    // project is not, and is locked on its own; an unlisted one is an
-    // error, as it is for the CLI.
-    let model_workspace_root = match (&discovered, scope) {
-        (Some((root, table)), Scope::Workspace) => {
-            match sysand_core::workspace::model_toml::start_region(root, table, &cwd)
-                .map_err(|e| project_error(format_err(e)))?
-            {
-                sysand_core::workspace::model_toml::StartRegion::Member(_)
-                | sysand_core::workspace::model_toml::StartRegion::Workspace => Some(root.clone()),
-                sysand_core::workspace::model_toml::StartRegion::Standalone(_) => None,
-            }
-        }
-        _ => None,
-    };
-
-    let Some(root) = model_workspace_root
-        .clone()
-        .or_else(|| project_root.clone())
-    else {
-        return Err(project_error(format!(
-            "`{cwd}` is not inside a project - neither it nor any of its parent directories \
-             contain a SysML v2 or KerML project"
-        )));
-    };
-
-    // The environment and the configuration go where the lockfile goes:
-    // a half-moved context would leave `sources_root()` at the workspace
-    // and `ctx.env` at the member, which `do_lock_workspace` asserts
-    // against.
-    // A mutating call holds the workspace's advisory lock, taken before
-    // the environment is read. Fail-fast only: an embedder retries
-    // itself.
-    let workspace_lock = match lock {
-        Some(mode) => Some(Arc::new(WorkspaceLock::try_acquire(&root, mode).map_err(
-            |err| match err {
-                WorkspaceLockError::Held { root: _ } => PyLockHeldError::new_err(format_err(err)),
-                WorkspaceLockError::Io(_) => PyIOError::new_err(format_err(err)),
-            },
-        )?)),
-        None => None,
-    };
-    let mut env = get_env(&root).map_err(env_error)?;
-    // A shared lock is not handed on: the environment writes under an
-    // exclusive one only
-    if let (Some(env), Some(lock)) = (
-        &mut env,
-        workspace_lock.clone().and_then(ExclusiveLock::new),
-    ) {
-        env.hold(lock).map_err(|e| project_error(format_err(e)))?;
-    }
-    let config_root = match (&discovered, scope) {
-        // A project-local `sysand.toml` belongs at the workspace root.
-        (Some((workspace_root, _)), Scope::Workspace) => workspace_root.clone(),
-        _ => root.clone(),
-    };
-
-    Ok(Context {
-        ctx: ProjectContext {
-            model_workspace_root,
-            env,
-            workspace_lock,
+/// root, except under [`Scope::Any`].
+fn project_context(
+    start: &Utf8Path,
+    scope: Scope,
+    lock: impl FnOnce(&Utf8Path) -> Option<LockMode>,
+) -> PyResult<ProjectContext> {
+    let cwd = wrapfs::canonicalize(start).map_err(|e| ProjectError::new_err(format_err(e)))?;
+    discover_context(
+        cwd,
+        ContextOptions {
+            consults_workspace: scope != Scope::Project,
+            selector: Selector::Current,
+            needs_a_member: false,
+            needs_a_project: scope != Scope::Any,
+            lock_wait: None,
             cancellation: CancellationToken::new(),
-            current_project,
-            current_directory: cwd,
-            config_root,
         },
-        root,
-    })
+        lock,
+    )
+    .map(|discovered| discovered.ctx)
+    .map_err(|err| context_error_to_pyerr(&err))
+}
+
+/// A held workspace lock is a `LockHeldError`, failing to take one an
+/// `OSError`, and an unreadable `.sysand` an `EnvError`; anything else is
+/// a `ProjectError`.
+fn context_error_to_pyerr(err: &anyhow::Error) -> PyErr {
+    let message = format_err(&**err);
+    if err.downcast_ref::<EnvMetadataError>().is_some() {
+        return PyEnvError::new_err(message);
+    }
+    match err.downcast_ref::<WorkspaceLockError>() {
+        Some(WorkspaceLockError::Held { root: _ }) => PyLockHeldError::new_err(message),
+        Some(WorkspaceLockError::Io(_)) => PyIOError::new_err(message),
+        None => ProjectError::new_err(message),
+    }
 }
 
 fn resolution_options(spec: &ResolutionSpec) -> PyResult<ResolutionOptions> {
@@ -1023,73 +930,30 @@ fn do_lock_py(
     let provided = provided_projects(provided)?;
     let outcome: Result<(String, Vec<LockedProject>), Failure> = py.detach(|| {
         let auth = auth.unwrap_or_default();
-        let context = project_context(
-            Utf8Path::new(&path),
-            Scope::Workspace,
-            write.then_some(LockMode::Exclusive),
-        )?;
-        let Context { ctx, root } = context;
+        let ctx = project_context(Utf8Path::new(&path), Scope::Workspace, |_| {
+            write.then_some(LockMode::Exclusive)
+        })?;
+        let root = ctx.state_root();
         // At the root the workspace's configuration is read: a
         // member-local `sysand.toml` is not the workspace's.
         let config = config_for(&resolution, &ctx.config_root)?;
-        let client = http_client()?;
-        let runtime = Arc::new(
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(PyErr::from)?,
-        );
-        let auth_policy = build_auth_policy(&auth)?;
+        let Transport {
+            client,
+            runtime,
+            auth_policy,
+        } = transport(&auth)?;
 
-        let lock: Lock = match &ctx.model_workspace_root {
-            // One solve for the whole workspace, at its root. Not
-            // `command_lock_workspace`: this needs `write=False`, an
-            // error it can downcast, and `provided`.
-            Some(workspace_root) => {
-                let mut provided_iris = if resolution.include_std {
-                    std::collections::HashMap::default()
-                } else {
-                    sysand_core::stdlib::known_std_libs()
-                };
-                provided_iris.extend(provided);
-                let workspace = sysand_core::workspace::model_toml::Workspace::load_with(
-                    workspace_root,
-                    // As `do_lock_workspace` asks for.
-                    sysand_core::workspace::model_toml::MemberChecks::All,
-                )
-                .map_err(|e| Failure::Py(ProjectError::new_err(format_err(e))))?;
-                let resolver = create_resolver(
-                    resolution_options(&resolution)?,
-                    &config,
-                    &ctx,
-                    provided_iris.clone(),
-                    client,
-                    runtime,
-                    auth_policy.clone(),
-                )
-                .map_err(|e| Failure::Py(ProjectError::new_err(format!("{e:#}"))))?;
-                let outcome = sysand_core::commands::lock::do_lock_workspace(
-                    &workspace,
-                    resolver,
-                    &provided_iris,
-                    &ctx,
-                )
-                .map_err(|e| lock_error_to_failure(anyhow::Error::new(e), &auth, &auth_policy))?;
-                outcome.lock.canonicalize()
-            }
-            None => resolve_lock(
-                ".",
-                resolution_options(&resolution)?,
-                &config,
-                &root,
-                provided,
-                client,
-                runtime,
-                auth_policy.clone(),
-                &ctx,
-            )
-            .map_err(|e| lock_error_to_failure(e, &auth, &auth_policy))?,
-        };
+        // The whole workspace in one solve when the path is in one.
+        let lock = resolve_lock(
+            resolution_options(&resolution)?,
+            &config,
+            provided,
+            client,
+            runtime,
+            auth_policy.clone(),
+            &ctx,
+        )
+        .map_err(|e| lock_error_to_failure(e, &auth, &auth_policy))?;
 
         let text = Lockfile::to_text(&lock);
         let lock = if write {
@@ -1155,139 +1019,79 @@ fn do_sync_py(
     let outcome: Result<_, Failure> = py.detach(|| {
         let auth = auth.unwrap_or_default();
         // As `lock`: the lockfile and the environment are the workspace's
-        let context = project_context(
-            Utf8Path::new(&path),
-            Scope::Workspace,
-            Some(if verify && !repair {
-                LockMode::Shared
-            } else {
-                LockMode::Exclusive
-            }),
-        )?;
-        let (mut ctx, project_root) = (context.ctx, context.root);
+        let mut ctx = project_context(Utf8Path::new(&path), Scope::Workspace, |root| {
+            Some(sync_lock_mode(verify, repair, root))
+        })?;
 
-        let client = http_client()?;
-        let runtime = Arc::new(
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(PyErr::from)?,
-        );
-        let auth_policy = build_auth_policy(&auth)?;
+        let Transport {
+            client,
+            runtime,
+            auth_policy,
+        } = transport(&auth)?;
+        let resolution_opts = resolution_options(&resolution)?;
+        let provided = resolution_opts.provided_iris(extra_provided.clone());
 
         // The lockfile is read, or written, before the environment is
         // created, so a failure to lock leaves no environment behind.
-        let (lock, wrote_lock) = match lock_text {
-            Some(text) => {
-                let lock = Lockfile::parse_text(&text).map_err(|e| lockfile_error(None, e))?;
-                lock.warn_release_mismatches();
-                (lock, false)
-            }
-            None => {
-                if let Some(lockfile) =
-                    Lockfile::try_read(&project_root).map_err(lockfile_read_error)?
-                {
-                    lockfile.lock().warn_release_mismatches();
-                    (lockfile.into_lock(), false)
-                } else {
-                    // As the CLI: without a lockfile, lock first and write it.
-                    let config = config_for(&resolution, &project_root)?;
-                    let lock = resolve_lock(
-                        ".",
-                        resolution_options(&resolution)?,
-                        &config,
-                        &project_root,
-                        extra_provided.clone(),
-                        client.clone(),
-                        runtime.clone(),
-                        auth_policy.clone(),
-                        &ctx,
-                    )
-                    .map_err(|e| lock_error_to_failure(e, &auth, &auth_policy))?;
-                    let lockfile = Lockfile::new(&project_root, lock);
-                    lockfile
-                        .write()
-                        .map_err(|e| Failure::Wrote(format_err(e)))?;
-                    (lockfile.into_lock(), true)
-                }
-            }
-        };
-
-        let mut provided = if resolution.include_std {
-            ProvidedProjects::default()
+        let (lock, wrote_lock) = if let Some(text) = lock_text {
+            let lock = Lockfile::parse_text(&text).map_err(|e| {
+                ProjectError::new_err(format!("invalid lockfile: {}", format_err(e)))
+            })?;
+            lock.warn_release_mismatches();
+            (lock, false)
         } else {
-            known_std_libs()
+            let config = config_for(&resolution, &ctx.config_root)?;
+            let (lockfile, fresh) = lock_for_sync(
+                resolution_opts,
+                &config,
+                extra_provided,
+                client.clone(),
+                runtime.clone(),
+                auth_policy.clone(),
+                &ctx,
+            )
+            .map_err(|e| lock_error_to_failure(e, &auth, &auth_policy))?;
+            if fresh {
+                lockfile
+                    .write()
+                    .map_err(|e| Failure::Wrote(format_err(e)))?;
+            }
+            (lockfile.into_lock(), fresh)
         };
-        provided.extend(extra_provided);
 
         let mut outcome = SyncOutcome::default();
-        if verify || repair {
-            // Findings are data here: the outcome carries them and the
-            // caller decides; only reading or repairing failing is an
-            // error.
-            let manifests = ManifestUsages::for_context(&ctx)
-                .map_err(|e| ProjectError::new_err(format_err(e)))?;
-            let env_dir = project_root.join(DEFAULT_ENV_NAME);
-            let env = ctx.env.take();
-            let env_dir_for_listing = env
-                .as_ref()
-                .map_or_else(|| env_dir.clone(), |env| env.root_path().to_path_buf());
-            if let Err(err) = command_sync_verify(
-                &lock,
-                &project_root,
-                env,
-                &env_dir,
-                &manifests,
-                client,
-                &provided,
-                runtime,
-                auth_policy,
-                // Always prune: `no_prune` is not exposed.
-                false,
-                repair,
-                CancellationToken::new(),
-                &mut outcome,
-            ) {
-                return Err(sync_failure(err, outcome, wrote_lock));
-            }
-            let projects = LocalDirectoryEnvironment::try_read(&env_dir_for_listing)
-                .map_err(|e| Failure::Env {
-                    message: format_err(e),
-                    wrote: repair,
-                })?
-                .map(|env| env.projects().to_vec())
-                .unwrap_or_default();
-            return Ok((outcome, projects));
-        }
-
-        let mut env = get_or_create_env(
-            ctx.env.take(),
-            ctx.model_workspace_root.as_deref(),
-            ctx.current_project.as_ref(),
-            &ctx.current_directory,
-            ctx.workspace_lock.as_ref(),
-        )
-        .map_err(|e| Failure::Env {
-            message: format_err(&*e),
-            wrote: wrote_lock,
-        })?;
-
-        if let Err(err) = command_sync(
+        // Findings are data here: the outcome carries them and the caller
+        // decides; only reading or repairing failing is an error.
+        if let Err(err) = sync_context(
             &lock,
-            &project_root,
-            &mut env,
+            &mut ctx,
+            verify,
+            repair,
+            // Always prune: `no_prune` is not exposed.
+            false,
             client,
             &provided,
             runtime,
             auth_policy,
-            // Always prune: `no_prune` is not exposed.
-            false,
-            CancellationToken::new(),
             &mut outcome,
         ) {
-            return Err(sync_failure(err, outcome, wrote_lock));
+            return Err(match err {
+                SyncContextError::Manifests(e) => Failure::Py(ProjectError::new_err(format_err(e))),
+                SyncContextError::Env(e) => Failure::Env {
+                    message: format_err(&*e),
+                    wrote: wrote_lock,
+                },
+                SyncContextError::Sync(e) => sync_failure(e, outcome, wrote_lock),
+            });
         }
-        Ok((outcome, env.projects().to_vec()))
+        let projects = LocalDirectoryEnvironment::try_read(ctx.state_root().join(DEFAULT_ENV_NAME))
+            .map_err(|e| Failure::Env {
+                message: format_err(e),
+                wrote: wrote_lock || outcome.wrote(),
+            })?
+            .map(|env| env.projects().to_vec())
+            .unwrap_or_default();
+        Ok((outcome, projects))
     });
     outcome.map_err(|failure| failure.into_pyerr(py))
 }
@@ -1494,27 +1298,7 @@ pub fn do_sources_project_py(
         } else {
             // As the CLI: the environment of the project's workspace, or
             // else its own, if there is one.
-            let workspace_root =
-                match sysand_core::workspace::model_toml::discover_table(Utf8Path::new(&path)) {
-                    Ok(Some((root, table))) => {
-                        match sysand_core::workspace::model_toml::start_region(
-                            &root,
-                            &table,
-                            Utf8Path::new(&path),
-                        ) {
-                            Ok(
-                                sysand_core::workspace::model_toml::StartRegion::Member(_)
-                                | sysand_core::workspace::model_toml::StartRegion::Workspace,
-                            ) => Some(root),
-                            _ => None,
-                        }
-                    }
-                    _ => None,
-                };
-            let env_root = workspace_root
-                .as_deref()
-                .unwrap_or_else(|| Utf8Path::new(&path));
-            get_env(env_root).map_err(env_read_to_pyerr)?
+            project_context(Utf8Path::new(&path), Scope::Workspace, |_| None)?.env
         };
         result.extend(match env {
             Some(env) => collect_dependency_sources(env, usages, dependencies)?,
@@ -1680,21 +1464,15 @@ fn do_add_py(
         let auth = auth.unwrap_or_default();
         // As the CLI: `add` re-locks the workspace the project is in, and
         // holds its advisory lock while it does
-        let context = project_context(
-            Utf8Path::new(&path),
-            Scope::Workspace,
-            Some(LockMode::Exclusive),
-        )?;
-        let (ctx, project_root) = (context.ctx, context.root);
-        let config = config_for(&resolution, &project_root)?;
-        let client = http_client()?;
-        let runtime = Arc::new(
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(PyErr::from)?,
-        );
-        let auth_policy = build_auth_policy(&auth)?;
+        let ctx = project_context(Utf8Path::new(&path), Scope::Workspace, |_| {
+            Some(LockMode::Exclusive)
+        })?;
+        let config = config_for(&resolution, &ctx.config_root)?;
+        let Transport {
+            client,
+            runtime,
+            auth_policy,
+        } = transport(&auth)?;
 
         command_add(
             locator,

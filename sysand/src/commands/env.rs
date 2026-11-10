@@ -40,7 +40,7 @@ use typed_path::Utf8UnixPathBuf;
 use crate::{
     cli::{InstallOptions, ResolutionOptions},
     commands::sync::command_sync,
-    default_index_location, get_overrides,
+    get_overrides,
 };
 
 pub fn command_env<P: AsRef<Utf8Path>>(path: P) -> Result<LocalDirectoryEnvironment> {
@@ -62,13 +62,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
     mut ctx: ProjectContext,
 ) -> Result<()> {
     let project_root = project_root.unwrap_or_else(|| ctx.current_directory.clone());
-    let env = crate::get_or_create_env(
-        ctx.env,
-        ctx.model_workspace_root.as_deref(),
-        ctx.current_project.as_ref(),
-        &ctx.current_directory,
-        ctx.workspace_lock.as_ref(),
-    )?;
+    let env = crate::get_or_create_env(&mut ctx)?;
     ctx.env = Some(env);
 
     let InstallOptions {
@@ -76,12 +70,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
         allow_multiple,
         no_deps,
     } = install_opts;
-    let ResolutionOptions {
-        index,
-        default_index,
-        no_index,
-        include_std,
-    } = resolution_opts;
+    let include_std = resolution_opts.include_std;
 
     // TODO: should probably first check that current project exists
     let provided_usages = if include_std {
@@ -95,11 +84,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
         sysml_std
     };
 
-    let index_urls = if no_index {
-        None
-    } else {
-        Some(config.index_urls(index, vec![default_index_location()], default_index))
-    };
+    let index_urls = resolution_opts.index_urls(config);
 
     let overrides = get_overrides(
         config,
@@ -221,13 +206,7 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
     mut ctx: ProjectContext,
 ) -> Result<()> {
     let project_root = project_root.unwrap_or_else(|| ctx.current_directory.clone());
-    let env = crate::get_or_create_env(
-        ctx.env,
-        ctx.model_workspace_root.as_deref(),
-        ctx.current_project.as_ref(),
-        &ctx.current_directory,
-        ctx.workspace_lock.as_ref(),
-    )?;
+    let env = crate::get_or_create_env(&mut ctx)?;
     ctx.env = Some(env);
 
     let InstallOptions {
@@ -235,12 +214,7 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
         allow_multiple,
         no_deps,
     } = install_opts;
-    let ResolutionOptions {
-        index,
-        default_index,
-        no_index,
-        include_std,
-    } = resolution_opts;
+    let include_std = resolution_opts.include_std;
 
     let metadata = wrapfs::metadata(&path)?;
     let project = if metadata.is_dir() {
@@ -271,11 +245,7 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
         sysml_std
     };
 
-    let index_urls = if no_index {
-        None
-    } else {
-        Some(config.index_urls(index, vec![default_index_location()], default_index))
-    };
+    let index_urls = resolution_opts.index_urls(config);
 
     let definition = project
         .get_project()?

@@ -66,6 +66,14 @@ impl ProjectContext {
             .clone()
             .or_else(|| self.project_root())
     }
+
+    /// Where `sysand-lock.toml` and `.sysand` live: the workspace root,
+    /// else the project root, else the current directory.
+    #[cfg(feature = "filesystem")]
+    pub fn state_root(&self) -> Utf8PathBuf {
+        self.sources_root()
+            .unwrap_or_else(|| self.current_directory.clone())
+    }
 }
 
 #[cfg(test)]

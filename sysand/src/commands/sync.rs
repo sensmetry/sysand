@@ -15,11 +15,13 @@ use sysand_core::{
         sync::{MismatchKind, SyncError, SyncOutcome},
         verify::{ManifestUsages, VerifyError, VerifyReport, do_verify},
     },
+    config::Config,
+    context::ProjectContext,
     env::{
-        WriteEnvironment as _,
+        DEFAULT_ENV_NAME, WriteEnvironment as _,
         local_directory::{LocalDirectoryEnvironment, LocalWriteError},
     },
-    lock::Lock,
+    lock::{Lock, Lockfile},
     project::{
         AsSyncProjectTokio, KparMeta, ProjectReadAsync as _,
         gix_git_download::{GixDownloadedError, GixDownloadedProject},
@@ -33,6 +35,8 @@ use sysand_core::{
     },
     utils::ProvidedProjects,
 };
+
+use crate::{cli::ResolutionOptions, commands::lock::resolve_lock, get_or_create_env};
 
 /// The `SyncError` instantiation `command_sync` fails with when the sync
 /// itself fails.
@@ -72,6 +76,105 @@ pub enum CommandSyncError {
     /// `--repair` could not remove an unrecorded installation.
     #[error(transparent)]
     RemoveUnrecorded(Box<FsIoError>),
+}
+
+/// Why [`sync_context`] failed.
+#[derive(Debug, Error)]
+pub enum SyncContextError {
+    /// The manifests `--verify` checks the lockfile against could not be
+    /// read.
+    #[error(transparent)]
+    Manifests(VerifyError),
+    /// The environment to install into could not be created.
+    #[error(transparent)]
+    Env(anyhow::Error),
+    #[error(transparent)]
+    Sync(#[from] CommandSyncError),
+}
+
+/// The lock `sync` installs: the lockfile at `ctx`'s state root, or, when
+/// there is none, a fresh lock of `ctx`'s scope (see [`resolve_lock`]).
+/// The flag says the lock is fresh, so the caller still has to write it.
+pub fn lock_for_sync<Policy: HTTPAuthentication>(
+    resolution_opts: ResolutionOptions,
+    config: &Config,
+    extra_provided: ProvidedProjects,
+    client: reqwest_middleware::ClientWithMiddleware,
+    runtime: Arc<tokio::runtime::Runtime>,
+    auth_policy: Arc<Policy>,
+    ctx: &ProjectContext,
+) -> anyhow::Result<(Lockfile, bool)> {
+    let root = ctx.state_root();
+    if let Some(lockfile) = Lockfile::try_read(&root)? {
+        lockfile.lock().warn_release_mismatches();
+        return Ok((lockfile, false));
+    }
+    let lock = resolve_lock(
+        resolution_opts,
+        config,
+        extra_provided,
+        client,
+        runtime,
+        auth_policy,
+        ctx,
+    )?;
+    Ok((Lockfile::new(root, lock), true))
+}
+
+/// Install `lock` into `ctx`'s environment, creating it when missing, or,
+/// with `verify` or `repair`, check the environment against `lock` and
+/// `lock` against `ctx`'s manifests (see [`command_sync_verify`]).
+///
+/// `--verify` reads: it does not create a `.sysand` that was not there.
+/// Returns the verification's status, `None` for a plain sync. `outcome`
+/// is filled in progressively, as `command_sync` fills it.
+#[expect(clippy::too_many_arguments)]
+pub fn sync_context<Policy: HTTPAuthentication>(
+    lock: &Lock,
+    ctx: &mut ProjectContext,
+    verify: bool,
+    repair: bool,
+    no_prune: bool,
+    client: reqwest_middleware::ClientWithMiddleware,
+    provided_usages: &ProvidedProjects,
+    runtime: Arc<tokio::runtime::Runtime>,
+    auth_policy: Arc<Policy>,
+    outcome: &mut SyncOutcome,
+) -> Result<Option<VerifyStatus>, SyncContextError> {
+    let root = ctx.state_root();
+    if verify || repair {
+        let manifests = ManifestUsages::for_context(ctx).map_err(SyncContextError::Manifests)?;
+        let status = command_sync_verify(
+            lock,
+            &root,
+            ctx.env.take(),
+            &root.join(DEFAULT_ENV_NAME),
+            &manifests,
+            client,
+            provided_usages,
+            runtime,
+            auth_policy,
+            no_prune,
+            repair,
+            ctx.cancellation.clone(),
+            outcome,
+        )?;
+        return Ok(Some(status));
+    }
+    let mut env = get_or_create_env(ctx).map_err(SyncContextError::Env)?;
+    command_sync(
+        lock,
+        &root,
+        &mut env,
+        client,
+        provided_usages,
+        runtime,
+        auth_policy,
+        no_prune,
+        ctx.cancellation.clone(),
+        outcome,
+    )?;
+    Ok(None)
 }
 
 /// What `command_sync_verify` found, for the caller's exit code. The

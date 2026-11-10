@@ -13,13 +13,15 @@ use semver::{Version, VersionReq};
 use sysand_core::{
     build::KparCompressionMethod,
     commands::{auth::IndexKey, publish::TrustedPublishingMode, sources::Dependencies},
+    config::Config,
     index_location::{IndexLocation, IndexSource},
     manifest::common::root_path,
     model::{
         IndexName, IndexPublisher, LICENSE_EXPRESSION_HELP, MetamodelRelease, ProjectFieldError,
         ProjectName, ProjectPublisher, SpecKind,
     },
-    utils::format_err,
+    stdlib::known_std_libs,
+    utils::{ProvidedProjects, format_err},
     workspace::model_toml::Selector,
 };
 
@@ -1361,6 +1363,32 @@ pub struct ResolutionOptions {
     /// Don't ignore KerML/SysML v2 standard libraries if specified as dependencies
     #[arg(long, global = true, help_heading = "Resolution options")]
     pub include_std: bool,
+}
+
+impl ResolutionOptions {
+    /// The indexes to resolve against, in order, or `None` with
+    /// `--no-index`.
+    pub fn index_urls(&self, config: &Config) -> Option<Vec<IndexSource>> {
+        (!self.no_index).then(|| {
+            config.index_urls(
+                self.index.clone(),
+                vec![crate::default_index_location()],
+                self.default_index.clone(),
+            )
+        })
+    }
+
+    /// The projects a solve treats as already provided: the standard
+    /// libraries unless `--include-std`, then `extra`.
+    pub fn provided_iris(&self, extra: ProvidedProjects) -> ProvidedProjects {
+        let mut provided = if self.include_std {
+            ProvidedProjects::default()
+        } else {
+            known_std_libs()
+        };
+        provided.extend(extra);
+        provided
+    }
 }
 
 /// Which member of a workspace a command acts on.
