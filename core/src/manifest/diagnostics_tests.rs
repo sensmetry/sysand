@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use std::ops::Range;
+
 use serde::{Deserialize, Serialize};
 
 use crate::manifest::diagnostics::{
@@ -116,31 +118,6 @@ fn ignored_source_overrides_warning_text() {
 }
 
 #[test]
-fn position_resolves_line_and_column_from_a_span() {
-    let text = "manifest-version = 1\n\n[project]\nname = \"ä-project\"\nversion = 1\n";
-    let span = |needle: &str| {
-        let start = text.find(needle).expect("needle is in the text");
-        start..start + needle.len()
-    };
-
-    let start = Position::from_span("model.toml", text, span("manifest-version"));
-    assert_eq!((start.line, start.column), (1, 1));
-
-    let project = Position::from_span("model.toml", text, span("[project]"));
-    assert_eq!((project.line, project.column), (3, 1));
-
-    let version_line = span("\nversion = 1");
-    let version = Position::from_span("model.toml", text, version_line.start + 1..version_line.end);
-    assert_eq!((version.line, version.column), (5, 1));
-
-    // The column counts characters, not bytes: `ä` is two bytes, so the
-    // `-` that follows it is the tenth character of its line.
-    let inside = Position::from_span("model.toml", text, span("-project"));
-    assert_eq!((inside.line, inside.column), (4, 10));
-    assert_eq!(inside.span, Some(span("-project")));
-}
-
-#[test]
 fn report_into_result_separates_errors_from_warnings() {
     let mut warnings_only = Report::new();
     warnings_only.push(Diagnostic::warning("something to know"));
@@ -159,14 +136,9 @@ fn report_into_result_separates_errors_from_warnings() {
 
 #[test]
 fn report_display_lists_every_diagnostic() {
-    let text = "a = 1\nname = 2\n";
     let mut report = Report::new();
     report.push(Diagnostic::error("first problem"));
-    report.push(Diagnostic::error("second problem").at(Position::from_span(
-        "manifest.toml",
-        text,
-        6..10,
-    )));
+    report.push(Diagnostic::error("second problem").at(positioned("manifest.toml", 2, 1, 6..10)));
 
     assert_eq!(
         report.to_string(),
@@ -216,4 +188,93 @@ fn missing_key_names_its_location_and_the_metamodel() {
         "missing key `index` in `.meta.json`; this may be because the project uses a metamodel \
          this version of Sysand does not support: `https://example.com/x`"
     );
+}
+
+/// A missing key in a usage entry: an array of tables is written with
+/// double brackets, so naming it with the single-bracket form of a plain
+/// table would send the reader looking for a table that is not there.
+#[test]
+fn array_tables_are_named_with_double_brackets() {
+    assert_eq!(
+        missing_key(
+            "name",
+            &KeyLocation::ArrayTable("inline-usages".to_owned()),
+            None
+        )
+        .to_string(),
+        "missing key `name` in `[[inline-usages]]`"
+    );
+}
+
+/// A diagnostic about a key that is *absent* often has nowhere to point,
+/// and a manifest that was not parsed from text has no spans at all.
+/// Neither may invent a position.
+#[test]
+fn a_diagnostic_without_a_position_is_unchanged() {
+    let position = Position::at("model.toml", 3, 5);
+    assert_eq!(Diagnostic::error("x").at_opt(None), Diagnostic::error("x"));
+    assert_eq!(
+        Diagnostic::error("x").at_opt(Some(position.clone())),
+        Diagnostic::error("x").at(position)
+    );
+}
+
+/// The checks that produce diagnostics run in field order, and unknown
+/// keys are found alphabetically; neither is the order the reader reads
+/// the file in.
+#[test]
+fn a_report_sorts_by_position() {
+    let mut report = Report::new();
+    report.push(Diagnostic::error("third").at(positioned("f", 3, 1, 8..13)));
+    report.push(Diagnostic::error("first").at(positioned("f", 1, 1, 0..3)));
+    report.push(Diagnostic::warning("second").at(positioned("f", 2, 1, 4..7)));
+    report.sort_by_position();
+
+    let messages: Vec<&str> = report
+        .diagnostics()
+        .iter()
+        .map(|diagnostic| diagnostic.message.as_str())
+        .collect();
+    assert_eq!(messages, ["first", "second", "third"]);
+}
+
+/// A diagnostic with no position cannot be placed among the ones that
+/// have one, and two diagnostics at the same key keep the order the
+/// checks found them in.
+#[test]
+fn a_positionless_diagnostic_sorts_last() {
+    let mut report = Report::new();
+    report.push(Diagnostic::error("nowhere"));
+    report.push(Diagnostic::error("same place, first"));
+    report.push(Diagnostic::error("later").at(positioned("f", 2, 1, 4..7)));
+    report.push(Diagnostic::error("earlier").at(positioned("f", 1, 1, 0..3)));
+    // Two diagnostics about one key.
+    report.push(Diagnostic::error("same place, second"));
+    report.sort_by_position();
+
+    let messages: Vec<&str> = report
+        .diagnostics()
+        .iter()
+        .map(|diagnostic| diagnostic.message.as_str())
+        .collect();
+    assert_eq!(
+        messages,
+        [
+            "earlier",
+            "later",
+            "nowhere",
+            "same place, first",
+            "same place, second"
+        ]
+    );
+}
+
+/// A position at `span`, at the line and column it starts on.
+fn positioned(file: &str, line: usize, column: usize, span: Range<usize>) -> Position {
+    Position {
+        file: file.to_owned(),
+        line,
+        column,
+        span: Some(span),
+    }
 }
