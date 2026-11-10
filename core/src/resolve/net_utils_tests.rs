@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use std::assert_matches;
 use std::{
     net::TcpListener,
     sync::{
@@ -79,10 +80,7 @@ fn stalled_server_times_out_after_retries() {
     let started = Instant::now();
     let err = send(&client, reqwest::Method::GET, &format!("http://{addr}/")).unwrap_err();
 
-    assert!(
-        matches!(&err, reqwest_middleware::Error::Reqwest(e) if e.is_timeout()),
-        "expected a timeout, got {err:?}"
-    );
+    assert_matches!(&err, reqwest_middleware::Error::Reqwest(e) if e.is_timeout(), "expected a timeout, got {err:?}");
     assert_eq!(accepted.load(Ordering::SeqCst), 3);
     assert!(started.elapsed() < Duration::from_secs(5));
 }
@@ -140,10 +138,7 @@ fn tls_failure_is_not_retried() {
     let client = create_reqwest_client_with(options(Duration::from_secs(5), 0)).unwrap();
     let result = send(&client, reqwest::Method::GET, &url);
 
-    assert!(
-        matches!(&result, Err(reqwest_middleware::Error::Reqwest(e)) if e.is_connect()),
-        "expected a connection error, got {result:?}"
-    );
+    assert_matches!(&result, Err(reqwest_middleware::Error::Reqwest(e)) if e.is_connect(), "expected a connection error, got {result:?}");
     assert_eq!(retry_reason(&result), None);
 }
 

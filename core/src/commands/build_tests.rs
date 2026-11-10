@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use std::assert_matches;
+
 use camino_tempfile::tempdir;
 
 use super::{
@@ -505,15 +507,13 @@ fn a_target_that_declares_another_project_is_refused() -> Result<(), Box<dyn std
     json_target(&dir, "dep", "1.0.0");
     let error = built(&dir, false).expect_err("the target declares `acme`/`dep`");
     let text = error.to_string();
-    assert!(
-        matches!(
-            error,
-            KParBuildError::TomlTargetSpelling {
-                usage: _,
-                path: _,
-                declared: _
-            }
-        ),
+    assert_matches!(
+        error,
+        KParBuildError::TomlTargetSpelling {
+            usage: _,
+            path: _,
+            declared: _
+        },
         "{text}"
     );
     assert!(text.contains("which declares `acme/dep`"), "{text}");
@@ -524,10 +524,10 @@ fn a_target_that_declares_another_project_is_refused() -> Result<(), Box<dyn std
 fn a_missing_target_defines_no_project() -> Result<(), Box<dyn std::error::Error>> {
     let dir = toml_project(DIR_USAGE)?;
     let error = built(&dir, false).expect_err("there is no `dep`");
-    assert!(matches!(
+    assert_matches!(
         error,
         KParBuildError::TomlTargetMissing { usage: _, path: _ }
-    ));
+    );
     let text = error.to_string();
     assert!(text.contains("acme/dep"), "{text}");
     assert!(text.contains("defines no project"), "{text}");
@@ -539,10 +539,10 @@ fn an_empty_target_defines_no_project() -> Result<(), Box<dyn std::error::Error>
     let dir = toml_project(DIR_USAGE)?;
     std::fs::create_dir_all(dir.path().join("dep"))?;
     let error = built(&dir, false).expect_err("`dep` holds no manifest");
-    assert!(matches!(
+    assert_matches!(
         error,
         KParBuildError::TomlTargetMissing { usage: _, path: _ }
-    ));
+    );
     Ok(())
 }
 
@@ -553,14 +553,14 @@ fn a_non_semver_target_is_refused_with_a_hint() -> Result<(), Box<dyn std::error
     let dir = toml_project(DIR_USAGE)?;
     json_target(&dir, "dep", "2025-02-01");
     let error = built(&dir, false).expect_err("`2025-02-01` is not semver");
-    assert!(matches!(
+    assert_matches!(
         error,
         KParBuildError::TomlTargetVersion {
             usage: _,
             path: _,
             version: _
         }
-    ));
+    );
     let text = error.to_string();
     assert!(text.contains("2025-02-01"), "{text}");
     assert!(text.contains("--allow-path-usage"), "{text}");
@@ -577,14 +577,14 @@ fn a_target_that_does_not_read_is_its_own_error() -> Result<(), Box<dyn std::err
     json_target(&dir, "dep", "1.0.0");
     toml_target(&dir, "dep", "1.0.0", "");
     let error = built(&dir, false).expect_err("`dep` holds both manifests");
-    assert!(matches!(
+    assert_matches!(
         error,
         KParBuildError::TomlTargetRead {
             usage: _,
             path: _,
             source: _
         }
-    ));
+    );
     Ok(())
 }
 
@@ -699,22 +699,18 @@ fn a_target_of_the_wrong_kind_defines_no_project() -> Result<(), Box<dyn std::er
     )?;
     std::fs::create_dir_all(dir.path().join("dep"))?;
     let error = built(&dir, false).expect_err("a directory is not an archive");
-    assert!(
-        matches!(
-            error,
-            KParBuildError::TomlTargetMissing { usage: _, path: _ }
-        ),
+    assert_matches!(
+        error,
+        KParBuildError::TomlTargetMissing { usage: _, path: _ },
         "{error}"
     );
 
     let other = toml_project(DIR_USAGE)?;
     std::fs::write(other.path().join("dep"), b"not a directory\n")?;
     let error = built(&other, false).expect_err("a file is not a project directory");
-    assert!(
-        matches!(
-            error,
-            KParBuildError::TomlTargetMissing { usage: _, path: _ }
-        ),
+    assert_matches!(
+        error,
+        KParBuildError::TomlTargetMissing { usage: _, path: _ },
         "{error}"
     );
     Ok(())
@@ -1068,8 +1064,9 @@ fn a_member_that_cannot_be_read_fails_as_itself() -> Result<(), Box<dyn std::err
         panic!("one failure: {:?}", failure.failed);
     };
     assert_eq!(failed.member, "alpha");
-    assert!(
-        matches!(*failed.error, KParBuildError::ProjectRead(_)),
+    assert_matches!(
+        *failed.error,
+        KParBuildError::ProjectRead(_),
         "{}",
         failed.error
     );

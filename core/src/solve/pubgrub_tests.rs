@@ -2114,19 +2114,17 @@ mod index_usages {
         let Err(err) = result else {
             panic!("solved");
         };
-        assert!(
-            matches!(
-                err.inner.as_ref(),
-                pubgrub::PubGrubError::ErrorRetrievingDependencies {
-                    source: InternalSolverError::InvalidProject {
-                        usage: _,
-                        version: _,
-                        source: _
-                    },
-                    package: _,
-                    version: _
-                }
-            ),
+        assert_matches!(
+            err.inner.as_ref(),
+            pubgrub::PubGrubError::ErrorRetrievingDependencies {
+                source: InternalSolverError::InvalidProject {
+                    usage: _,
+                    version: _,
+                    source: _
+                },
+                package: _,
+                version: _
+            },
             "{err:?}"
         );
     }
@@ -2138,20 +2136,15 @@ mod index_usages {
         let Err(err) = result else {
             panic!("solved");
         };
-        assert!(
-            matches!(
-                err.inner.as_ref(),
-                pubgrub::PubGrubError::ErrorRetrievingDependencies {
-                    source: InternalSolverError::BrokenIndexVersion {
-                        version: Some(version),
-                        source: CandidateError::InvalidProject { version: _, source: _ },
-                        usage: _
-                    },
-                    package: _, version: _
-                } if version == "2.0.0"
-            ),
-            "{err:?}"
-        );
+        assert_matches!(err.inner.as_ref(),
+        pubgrub::PubGrubError::ErrorRetrievingDependencies {
+            source: InternalSolverError::BrokenIndexVersion {
+                version: Some(version),
+                source: CandidateError::InvalidProject { version: _, source: _ },
+                usage: _
+            },
+            package: _, version: _
+        } if version == "2.0.0", "{err:?}");
     }
 
     #[test]

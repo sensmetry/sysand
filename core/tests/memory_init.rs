@@ -83,14 +83,14 @@ fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
 
     // The refusal comes back through the manifest writer, which is
     // what `init` stores through.
-    assert!(matches!(
+    assert_matches!(
         second_result,
         Err(sysand_core::commands::init::InitError::Write(
             ManifestWriteError::Project(
                 sysand_core::project::memory::InMemoryError::AlreadyExists(_)
             )
         ))
-    ));
+    );
 
     assert_eq!(memory_storage.model_toml, original);
 

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use std::assert_matches;
+
 use crate::commands::init::{InitError, do_init_memory};
 use crate::manifest::common::InheritFrom;
 use crate::manifest::inherit::{Inherited, MetaProperty};
@@ -52,10 +54,7 @@ fn an_unrecognized_metamodel_is_refused() {
         )),
     )
     .expect_err("an unrecognized metamodel is refused");
-    assert!(
-        matches!(&error, InitError::Metamodel(value) if &**value == "https://example.com/spec"),
-        "unexpected error: {error}"
-    );
+    assert_matches!(&error, InitError::Metamodel(value) if &**value == "https://example.com/spec", "unexpected error: {error}");
     assert!(
         error
             .to_string()

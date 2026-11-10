@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use std::assert_matches;
+
 use typed_path::Utf8UnixPathBuf;
 
 use super::{ExcludeError, do_exclude};
@@ -43,7 +45,7 @@ fn excluding_the_root_file_is_refused() {
             error.to_string(),
             format!("`{spelling}` is the project's `root`; set another `root` before excluding it")
         );
-        assert!(matches!(error, ExcludeError::RootExcluded(_)));
+        assert_matches!(error, ExcludeError::RootExcluded(_));
     }
 
     let mut project = syside_project();

@@ -3,6 +3,7 @@
 
 //! `do_verify` against a real `.sysand` in a temp directory.
 
+use std::assert_matches;
 use std::{collections::HashMap, convert::Infallible, io::Write as _, num::NonZeroU64};
 
 use camino::{Utf8Path, Utf8PathBuf};
@@ -549,14 +550,12 @@ fn an_index_usage_keeps_its_constraint() {
 fn an_unparsable_constraint_is_an_error() {
     let error =
         read_usages(r#"{"resource":"urn:dep0","versionConstraint":"not a version"}"#).unwrap_err();
-    assert!(
-        matches!(
-            error,
-            VerifyError::InvalidUsage {
-                manifest: _,
-                source: _
-            }
-        ),
+    assert_matches!(
+        error,
+        VerifyError::InvalidUsage {
+            manifest: _,
+            source: _
+        },
         "{error:?}"
     );
 }

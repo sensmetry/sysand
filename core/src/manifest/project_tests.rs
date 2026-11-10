@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use std::assert_matches;
+
 use crate::manifest::common::{InheritFrom, Sources};
 use crate::manifest::diagnostics::{Diagnostic, Diagnostics, KeyLocation, Severity, Validated};
 use crate::manifest::inherit::MetaProperty;
@@ -223,26 +225,18 @@ fn every_documented_key_is_read() {
     );
 
     assert_eq!(read.inline_usages.len(), 4);
-    assert!(matches!(
-        &read.inline_usages[0],
-        MemberUsage::Declared(Usage::Index { name, version_constraint, publisher: _ })
-            if name.as_str() == "index-dep" && version_constraint.to_string() == "^1.0"
-    ));
-    assert!(matches!(
-        &read.inline_usages[1],
-        MemberUsage::Declared(Usage::SourcePath { name, dir, publisher: _ })
-            if name.as_str() == "src-dep" && dir.as_str() == "deps/src-dep"
-    ));
-    assert!(matches!(
-        &read.inline_usages[2],
-        MemberUsage::Declared(Usage::KparPath { name, kpar_path, publisher: _ })
-            if name.as_str() == "kpar-dep" && kpar_path.as_str() == "deps/kpar-dep.kpar"
-    ));
-    assert!(matches!(
-        &read.inline_usages[3],
-        MemberUsage::Declared(Usage::RemoteKpar { name, url, publisher: _ })
-            if name.as_str() == "remote-kpar-dep" && url.as_str() == "https://example.com/remote.kpar"
-    ));
+    assert_matches!(&read.inline_usages[0],
+    MemberUsage::Declared(Usage::Index { name, version_constraint, publisher: _ })
+        if name.as_str() == "index-dep" && version_constraint.to_string() == "^1.0");
+    assert_matches!(&read.inline_usages[1],
+    MemberUsage::Declared(Usage::SourcePath { name, dir, publisher: _ })
+        if name.as_str() == "src-dep" && dir.as_str() == "deps/src-dep");
+    assert_matches!(&read.inline_usages[2],
+    MemberUsage::Declared(Usage::KparPath { name, kpar_path, publisher: _ })
+        if name.as_str() == "kpar-dep" && kpar_path.as_str() == "deps/kpar-dep.kpar");
+    assert_matches!(&read.inline_usages[3],
+    MemberUsage::Declared(Usage::RemoteKpar { name, url, publisher: _ })
+        if name.as_str() == "remote-kpar-dep" && url.as_str() == "https://example.com/remote.kpar");
 }
 
 /// Every field is optional at parse time, and the missing ones are
@@ -876,15 +870,15 @@ fn inline_usages_are_read_from_the_top_level() {
          [[inline-usages]]\npublisher = \"acme\"\nname = \"shared\"\nworkspace = true\n"
     );
     let read = read(&text).expect("validates").into_parts().0;
-    assert!(matches!(
+    assert_matches!(
         &read.inline_usages[0],
         MemberUsage::Declared(Usage::SourcePath {
             publisher: _,
             name: _,
             dir: _
         })
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         &read.inline_usages[1],
         MemberUsage::Inherited {
             publisher: _,
@@ -892,7 +886,7 @@ fn inline_usages_are_read_from_the_top_level() {
             from: _,
             at: _
         }
-    ));
+    );
     assert!(read.inherits());
 }
 
@@ -1175,11 +1169,9 @@ fn an_opt_in_takes_the_group_entry_whole() {
         .into_parts()
         .0;
     assert_eq!(project.usages.len(), 3);
-    assert!(matches!(
-        &project.usages[0].usage,
-        Usage::Index { name, version_constraint, publisher: _ }
-            if name.as_str() == "shared-dep" && version_constraint.to_string() == "^2.0"
-    ));
+    assert_matches!(&project.usages[0].usage,
+    Usage::Index { name, version_constraint, publisher: _ }
+        if name.as_str() == "shared-dep" && version_constraint.to_string() == "^2.0");
     assert_eq!(project.usages[1].base, UsageBase::WorkspaceRoot);
     assert_eq!(
         project.usages[1]

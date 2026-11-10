@@ -37,7 +37,7 @@ fn bridge_returns_the_future_s_result() {
     let value: Result<u8, Cancellable<()>> = bridge(&rt, &token, async { Ok::<_, ()>(7) });
     assert_eq!(value.unwrap(), 7);
     let error: Result<u8, Cancellable<&str>> = bridge(&rt, &token, async { Err("boom") });
-    assert!(matches!(error, Err(Cancellable::Inner("boom"))));
+    assert_matches!(error, Err(Cancellable::Inner("boom")));
 }
 
 #[test]
@@ -51,7 +51,7 @@ fn bridge_is_cancelled_mid_future() {
         &token,
         std::future::pending::<Result<(), std::io::Error>>(),
     );
-    assert!(matches!(result, Err(Cancellable::Cancelled(_))));
+    assert_matches!(result, Err(Cancellable::Cancelled(_)));
     assert!(started.elapsed() < Duration::from_secs(2));
     assert_eq!(result.unwrap_err().to_string(), "cancelled");
 }
@@ -121,12 +121,12 @@ fn project_adapter_reports_cancelled() {
     assert_matches!(project.get_project(), Err(Cancellable::Cancelled(_)));
     // Once cancelled, every further bridge answers at once.
     assert_matches!(project.version(), Err(Cancellable::Cancelled(_)));
-    assert!(matches!(
+    assert_matches!(
         project.checksum_canonical_hex(),
         Err(crate::project::CanonicalizationError::ProjectRead(
             Cancellable::Cancelled(_)
         ))
-    ));
+    );
     assert!(!project.is_definitely_invalid());
 }
 
@@ -151,9 +151,9 @@ fn stream_iter_yields_cancelled_once() {
     let items: Vec<Result<u8, ()>> = vec![Ok(1), Ok(2)];
     let mut iter = SyncStreamIter::new(runtime(), futures::stream::iter(items))
         .with_cancellation(token.clone());
-    assert!(matches!(iter.next(), Some(Ok(1))));
+    assert_matches!(iter.next(), Some(Ok(1)));
     token.cancel();
-    assert!(matches!(iter.next(), Some(Err(Cancellable::Cancelled(_)))));
+    assert_matches!(iter.next(), Some(Err(Cancellable::Cancelled(_))));
     assert!(iter.next().is_none());
 }
 
@@ -200,7 +200,7 @@ fn environment_adapter_propagates_the_token() {
     let project = env.get_project("urn:one", "1.0.0").unwrap();
     token.cancel();
     assert_matches!(project.get_project(), Err(Cancellable::Cancelled(_)));
-    assert!(matches!(env.uris(), Err(Cancellable::Cancelled(_))));
+    assert_matches!(env.uris(), Err(Cancellable::Cancelled(_)));
 }
 
 #[cfg(feature = "networking")]
@@ -224,6 +224,8 @@ fn git_interrupt_guard_serializes_and_cancels_independently() {
     // Dropped: the flag is lowered for the next holder ...
     assert!(!GitInterrupt::flag_raised());
     // ... and a clone whose token was already cancelled never starts.
+    // `GitInterrupt` is not `Debug`, which `assert_matches!` needs.
+    // ast-grep-ignore: assert-matches
     assert!(matches!(
         GitInterrupt::begin(&b),
         Err(crate::cancel::Cancelled)
@@ -246,8 +248,5 @@ fn git_clone_is_cancelled_before_it_starts() {
     let project = GixDownloadedProject::new(repo.as_str())
         .unwrap()
         .with_cancellation(token);
-    assert!(matches!(
-        project.get_project(),
-        Err(GixDownloadedError::Cancelled(_))
-    ));
+    assert_matches!(project.get_project(), Err(GixDownloadedError::Cancelled(_)));
 }

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use std::assert_matches;
+
 use super::{InMemoryError, InMemoryProject};
 use crate::manifest::edit::DocumentMut;
 use crate::model::InterchangeProjectInfoRaw;
@@ -63,7 +65,7 @@ fn a_memory_project_with_a_manifest_refuses_a_json_write() {
     let error = project
         .put_info(&info(), false)
         .expect_err("a toml project takes no json documents");
-    assert!(matches!(error, InMemoryError::JsonWriteToTomlProject(_)));
+    assert_matches!(error, InMemoryError::JsonWriteToTomlProject(_));
 }
 
 #[test]
@@ -80,10 +82,7 @@ fn a_memory_project_holding_both_is_ambiguous() {
     };
 
     assert_eq!(project.format().expect("a format"), ProjectFormat::Both);
-    assert!(matches!(
-        project.get_project(),
-        Err(InMemoryError::AmbiguousFormat)
-    ));
+    assert_matches!(project.get_project(), Err(InMemoryError::AmbiguousFormat));
 }
 
 #[test]
@@ -124,10 +123,10 @@ fn a_memory_manifest_naming_a_missing_source_reads() {
         )
         .expect("a manifest");
 
-    assert!(matches!(
+    assert_matches!(
         project.get_project(),
         Ok(Some(crate::project::ProjectDefinition::Toml(_)))
-    ));
+    );
 }
 
 #[test]
@@ -135,10 +134,10 @@ fn a_json_memory_project_refuses_a_manifest_write() {
     let mut project = InMemoryProject::default();
     project.put_info(&info(), false).expect("a json project");
 
-    assert!(matches!(
+    assert_matches!(
         project.put_manifest_document(&document(MANIFEST), false),
         Err(crate::project::ManifestWriteError::Project(
             InMemoryError::TomlWriteToJsonProject
         ))
-    ));
+    );
 }

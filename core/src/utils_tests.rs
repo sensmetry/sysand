@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use std::assert_matches;
+
 use typed_path::Utf8UnixPathBuf;
 
 use crate::utils::{NormalizeRelativeError, is_newer_format_version, normalize_relative};
@@ -31,8 +33,9 @@ fn normalize_relative_resolves_dot_segments() {
 #[test]
 fn normalize_relative_rejects_absolute_paths() {
     for path in ["/x", "//x", "C:/x", "C:\\x"] {
-        assert!(
-            matches!(error(path), NormalizeRelativeError::Absolute { path: _ }),
+        assert_matches!(
+            error(path),
+            NormalizeRelativeError::Absolute { path: _ },
             "{path} should be absolute"
         );
     }
@@ -41,25 +44,24 @@ fn normalize_relative_rejects_absolute_paths() {
 #[test]
 fn normalize_relative_rejects_windows_separators_and_nul() {
     for path in ["a\\b", "a\\\\b", "src\\main.sysml"] {
-        assert!(
-            matches!(
-                error(path),
-                NormalizeRelativeError::ContainsBackslash { path: _ }
-            ),
+        assert_matches!(
+            error(path),
+            NormalizeRelativeError::ContainsBackslash { path: _ },
             "{path} should be rejected for its backslash"
         );
     }
-    assert!(matches!(
+    assert_matches!(
         error("a\0b"),
         NormalizeRelativeError::ContainsNull { path: _ }
-    ));
+    );
 }
 
 #[test]
 fn normalize_relative_rejects_escaping_paths() {
     for path in ["../x", "a/../../x", "./../x"] {
-        assert!(
-            matches!(error(path), NormalizeRelativeError::EscapesRoot { path: _ }),
+        assert_matches!(
+            error(path),
+            NormalizeRelativeError::EscapesRoot { path: _ },
             "{path} should escape the root"
         );
     }
@@ -68,8 +70,9 @@ fn normalize_relative_rejects_escaping_paths() {
 #[test]
 fn normalize_relative_rejects_the_root_itself() {
     for path in [".", "", "a/..", "a/b/../..", "./"] {
-        assert!(
-            matches!(error(path), NormalizeRelativeError::IsRoot { path: _ }),
+        assert_matches!(
+            error(path),
+            NormalizeRelativeError::IsRoot { path: _ },
             "{path} should resolve to the root"
         );
     }

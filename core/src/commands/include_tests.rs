@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use std::assert_matches;
+
 use typed_path::Utf8UnixPathBuf;
 
 use super::{IncludeError, do_include};
@@ -94,7 +96,7 @@ fn including_a_duplicate_is_refused() {
 
     // Normalized, so `./Base.kerml` is the entry that is already there.
     let error = include(&mut project, "./Base.kerml").expect_err("a duplicate");
-    assert!(matches!(error, IncludeError::Edit(_)));
+    assert_matches!(error, IncludeError::Edit(_));
 }
 
 #[test]
@@ -118,7 +120,7 @@ fn compute_checksum_is_refused_on_a_toml_project() {
     )
     .expect_err("a computed field");
 
-    assert!(matches!(error, IncludeError::ComputedField("checksum")));
+    assert_matches!(error, IncludeError::ComputedField("checksum"));
     assert!(
         error
             .to_string()
@@ -139,7 +141,7 @@ fn no_index_symbols_is_refused_on_a_toml_project() {
     )
     .expect_err("a computed field");
 
-    assert!(matches!(error, IncludeError::ComputedField("index")));
+    assert_matches!(error, IncludeError::ComputedField("index"));
 }
 
 #[test]
@@ -155,7 +157,7 @@ fn force_format_is_refused_on_a_toml_project() {
     )
     .expect_err("nothing to extract");
 
-    assert!(matches!(error, IncludeError::ForceFormat));
+    assert_matches!(error, IncludeError::ForceFormat);
 }
 
 #[test]
@@ -213,7 +215,7 @@ fn excluding_a_path_that_is_not_listed_is_refused() {
     let mut project = toml_project();
 
     let error = do_exclude(&mut project, ["Parts.sysml"].into_iter()).expect_err("not listed");
-    assert!(matches!(error, ExcludeError::SourceNotFound(_)));
+    assert_matches!(error, ExcludeError::SourceNotFound(_));
 }
 
 #[test]
@@ -310,10 +312,7 @@ fn including_a_language_the_metamodel_does_not_admit_is_refused() {
         None,
     )
     .expect_err("a SysML file in a KerML project");
-    assert!(
-        matches!(&error, IncludeError::NotAdmitted(message) if message.contains("does not admit")),
-        "unexpected error: {error}"
-    );
+    assert_matches!(&error, IncludeError::NotAdmitted(message) if message.contains("does not admit"), "unexpected error: {error}");
     assert!(
         !project
             .model_toml

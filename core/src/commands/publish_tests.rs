@@ -1959,10 +1959,7 @@ mod prepare_publish {
             let meta = syside_meta(&keep, "main.sysml", &["Main"], SYSIDE_SYSML);
             let (_tmp, path) = syside_zip(&meta, &[]);
             let err = prepare_publish_payload(&path).expect_err(missing);
-            assert!(
-                matches!(&err, PublishError::ChecksumMissesFile { path } if &**path == missing),
-                "{missing}: {err}"
-            );
+            assert_matches!(&err, PublishError::ChecksumMissesFile { path } if &**path == missing, "{missing}: {err}");
         }
     }
 
@@ -1978,10 +1975,7 @@ mod prepare_publish {
         );
         let (_tmp, path) = syside_zip(&meta, &[]);
         let err = prepare_publish_payload(&path).expect_err("root not checksummed");
-        assert!(
-            matches!(&err, PublishError::ChecksumMissesFile { path } if &**path == "main.sysml"),
-            "{err}"
-        );
+        assert_matches!(&err, PublishError::ChecksumMissesFile { path } if &**path == "main.sysml", "{err}");
     }
 
     /// The two manifests are the exception to

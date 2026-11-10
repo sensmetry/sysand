@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use std::assert_matches;
+
 use fluent_uri::Iri;
 use semver::{Version, VersionReq};
 use spdx::Expression;
@@ -883,10 +885,7 @@ fn including_a_path_that_is_already_listed_is_refused() {
 
     // Normalized, so `./Base.kerml` is the same entry.
     let error = include_source(&mut doc, "./Base.kerml").expect_err("a duplicate");
-    assert!(matches!(
-        error,
-        EditError::Sources(SourcesError::Duplicate(_))
-    ));
+    assert_matches!(error, EditError::Sources(SourcesError::Duplicate(_)));
 }
 
 #[test]
@@ -1374,10 +1373,7 @@ fn a_list_key_that_is_not_there_is_created() {
 fn including_a_path_outside_the_project_is_refused() {
     let mut doc = opened(&with_sources("[]"));
     let error = include_source(&mut doc, "../Parts.sysml").expect_err("outside the project");
-    assert!(
-        matches!(&error, EditError::SourceOutsideProject(path) if path == "../Parts.sysml"),
-        "unexpected error: {error}"
-    );
+    assert_matches!(&error, EditError::SourceOutsideProject(path) if path == "../Parts.sysml", "unexpected error: {error}");
     assert!(sources_of(&doc).contains("[]"), "nothing was written");
 }
 
@@ -1396,17 +1392,12 @@ fn excluding_converts_what_it_is_given() {
 fn excluding_a_file_that_is_no_source_says_so() {
     let mut doc = opened(&with_sources("[]"));
     let error = exclude_source(&mut doc, "README.md").expect_err("not a model file");
-    assert!(
-        matches!(
-            &error,
-            EditError::Sources(SourcesError::Path(PathError {
-                key: PathKey::Sources,
-                path,
-                problem: PathProblem::NotModelFile,
-            })) if path == "README.md"
-        ),
-        "unexpected error: {error}"
-    );
+    assert_matches!(&error,
+    EditError::Sources(SourcesError::Path(PathError {
+        key: PathKey::Sources,
+        path,
+        problem: PathProblem::NotModelFile,
+    })) if path == "README.md", "unexpected error: {error}");
 }
 
 // ------------------- the standard-library entry
@@ -1533,10 +1524,10 @@ fn an_opt_in_with_a_broken_marker_still_holds_its_place() {
         with_sources("[]")
     );
     let mut doc = opened(&text);
-    assert!(matches!(
+    assert_matches!(
         push_usage(&mut doc, &stdlib_usage()),
         Err(EditError::DuplicateUsage(_))
-    ));
+    );
 }
 
 fn metamodel(value: &str) -> KnownMetamodel {

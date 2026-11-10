@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+use std::assert_matches;
 use std::io::Read;
 
 use thiserror::Error;
@@ -254,8 +255,8 @@ fn a_hand_written_project_refuses_a_manifest() {
     let mut project: GenericProject<InMemoryProject, InMemoryProject> =
         GenericProject::Variant3(Box::new(InMemoryProject::new()));
 
-    assert!(matches!(
+    assert_matches!(
         project.put_manifest_document(&document, false),
         Err(ManifestWriteError::Unsupported)
-    ));
+    );
 }

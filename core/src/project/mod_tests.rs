@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use std::assert_matches;
 use std::collections::HashMap;
 
 use indexmap::IndexMap;
@@ -256,10 +257,10 @@ fn a_mutable_reference_forwards_a_manifest_write() {
 
 #[test]
 fn a_project_without_a_manifest_has_no_document() {
-    assert!(matches!(
+    assert_matches!(
         Silent.manifest_document(),
         Err(ManifestError::NoTomlManifest)
-    ));
+    );
 }
 
 #[test]

@@ -298,6 +298,8 @@ fn project_field_max_len() {
 }
 
 mod index_usage {
+    use std::assert_matches;
+
     use crate::{
         model::{
             InterchangeProjectUsage, InterchangeProjectUsageRaw, InterchangeProjectValidationError,
@@ -377,7 +379,7 @@ mod index_usage {
                 version_constraint: semver::VersionReq::parse("^1.2").unwrap(),
             }
         );
-        assert!(matches!(
+        assert_matches!(
             index("A", "My Lib", "^1").validate(),
             Err(
                 InterchangeProjectValidationError::InvalidIndexUsagePublisher {
@@ -385,15 +387,15 @@ mod index_usage {
                     name: _
                 }
             )
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             index("Acme", "my..lib", "^1").validate(),
             Err(InterchangeProjectValidationError::InvalidIndexUsageName {
                 publisher: _,
                 name: _
             })
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             index("Acme", "My Lib", "not a constraint").validate(),
             Err(
                 InterchangeProjectValidationError::InvalidIndexUsageVersionConstraint {
@@ -403,7 +405,7 @@ mod index_usage {
                     source: _
                 }
             )
-        ));
+        );
     }
 
     #[test]
@@ -664,28 +666,24 @@ fn directory_and_kpar_usages_validate_their_spelling() {
     assert_eq!((publisher.as_str(), name.as_str()), ("Foo & Bar", "My_Lib"));
 
     for usage in [dir("a/b", "lib"), kpar("a/b", "lib")] {
-        assert!(
-            matches!(
-                usage.validate(),
-                Err(InterchangeProjectValidationError::InvalidUsagePublisher {
-                    publisher: _,
-                    name: _,
-                    source: _
-                })
-            ),
+        assert_matches!(
+            usage.validate(),
+            Err(InterchangeProjectValidationError::InvalidUsagePublisher {
+                publisher: _,
+                name: _,
+                source: _
+            }),
             "{usage:?}"
         );
     }
     for usage in [dir("acme", ""), kpar("acme", "")] {
-        assert!(
-            matches!(
-                usage.validate(),
-                Err(InterchangeProjectValidationError::InvalidUsageName {
-                    publisher: _,
-                    name: _,
-                    source: _
-                })
-            ),
+        assert_matches!(
+            usage.validate(),
+            Err(InterchangeProjectValidationError::InvalidUsageName {
+                publisher: _,
+                name: _,
+                source: _
+            }),
             "{usage:?}"
         );
     }
@@ -723,8 +721,9 @@ fn a_dependency_declared_twice_is_refused() {
             usage,
         };
         let error = info.validate().expect_err("a duplicate usage");
-        assert!(
-            matches!(&error, InterchangeProjectValidationError::DuplicateUsage(_)),
+        assert_matches!(
+            &error,
+            InterchangeProjectValidationError::DuplicateUsage(_),
             "{error}"
         );
         assert!(
@@ -748,10 +747,7 @@ fn urn_sysand_resource_usage_is_rejected() {
             version_constraint: None,
         };
         let err = usage.validate().unwrap_err();
-        assert!(
-            matches!(&err, InterchangeProjectValidationError::UrnSysandUsage(r) if r == resource),
-            "{err:?}"
-        );
+        assert_matches!(&err, InterchangeProjectValidationError::UrnSysandUsage(r) if r == resource, "{err:?}");
     }
 
     // Only the `urn:sysand` namespace is internal

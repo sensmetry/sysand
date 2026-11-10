@@ -1016,15 +1016,13 @@ fn an_inherited_local_usage_is_refused() {
          publisher = \"acme\"\nname = \"shared\"\ndir = \"vendor/shared\"\n",
     );
     let error = lock_workspace(&dir).expect_err("an inherited local usage");
-    assert!(
-        matches!(
-            error,
-            LockProjectError::InheritedLocalUsage {
-                member: _,
-                usage: _,
-                path: _
-            }
-        ),
+    assert_matches!(
+        error,
+        LockProjectError::InheritedLocalUsage {
+            member: _,
+            usage: _,
+            path: _
+        },
         "{error}"
     );
     let text = error.to_string();

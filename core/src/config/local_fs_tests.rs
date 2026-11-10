@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use std::assert_matches;
 use std::{error::Error, io::Write as _};
 
 use camino_tempfile::tempdir;
@@ -81,10 +82,7 @@ fn get_config_defaults_where_read_config_fails() -> Result<(), Box<dyn Error>> {
     for path in [missing.as_path(), dir.path()] {
         assert_eq!(local_fs::get_config(path)?, Config::default());
         let err = local_fs::read_config(path).unwrap_err();
-        assert!(
-            matches!(err, local_fs::ConfigReadError::Io(_)),
-            "{path}: {err:?}"
-        );
+        assert_matches!(err, local_fs::ConfigReadError::Io(_), "{path}: {err:?}");
         assert!(err.to_string().contains(path.as_str()), "{err}");
     }
 

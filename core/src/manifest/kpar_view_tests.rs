@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use std::assert_matches;
+
 use fluent_uri::Iri;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
@@ -632,7 +634,7 @@ fn a_resource_usage_has_no_manifest_form() {
         let error = usage_of_raw(&raw_resource(resource, Some("^1")), ".project.json")
             .expect_err("a resource usage");
 
-        assert!(matches!(&error, NoManifestForm::Resource(r) if r == resource));
+        assert_matches!(&error, NoManifestForm::Resource(r) if r == resource);
         assert!(
             error
                 .to_string()
@@ -653,14 +655,14 @@ fn a_directory_usage_becomes_a_dir_entry() {
     )
     .expect("a dir usage");
 
-    assert!(matches!(
+    assert_matches!(
         usage,
         Usage::SourcePath {
             publisher: _,
             name: _,
             dir: _
         }
-    ));
+    );
 }
 
 #[test]
@@ -675,14 +677,14 @@ fn a_kpar_path_usage_becomes_a_kpar_path_entry() {
     )
     .expect("a kpar-path usage");
 
-    assert!(matches!(
+    assert_matches!(
         usage,
         Usage::KparPath {
             publisher: _,
             name: _,
             kpar_path: _
         }
-    ));
+    );
 }
 
 #[test]
@@ -700,13 +702,13 @@ fn a_target_whose_identifiers_the_rule_refuses_names_its_file() {
     )
     .expect_err("an identifier a manifest cannot hold");
 
-    assert!(matches!(
+    assert_matches!(
         error,
         NoManifestForm::Identifier {
             file: _,
             problem: _
         }
-    ));
+    );
     assert!(error.to_string().contains("../lib/.project.json"));
 }
 

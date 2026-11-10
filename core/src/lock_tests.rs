@@ -120,10 +120,7 @@ sources = [{{ index_kpar = "https://example.org/project.kpar", kpar_size = 0, kp
 #[test]
 fn check_missing_lock_version() {
     let document = DocumentMut::from_str("").unwrap();
-    let Err(err) = check_lock_version(&document) else {
-        panic!()
-    };
-    let VersionError::Missing = err else { panic!() };
+    assert_matches!(check_lock_version(&document), Err(VersionError::Missing));
 }
 
 fn to_toml_matches_expected<D: Display>(projects: Vec<Project>, toml: D) {
@@ -1724,10 +1721,7 @@ fn lockfile_parse_error_includes_path() {
     };
     assert_eq!(err_path, &path);
     assert_eq!(v, "0.4");
-    assert!(matches!(
-        Lockfile::read(dir.path()),
-        Err(LockfileError::Parse(..))
-    ));
+    assert_matches!(Lockfile::read(dir.path()), Err(LockfileError::Parse(..)));
 }
 
 #[test]

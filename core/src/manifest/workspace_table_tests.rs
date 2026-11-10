@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use std::assert_matches;
+
 use toml::de::DeTable;
 
 use crate::manifest::diagnostics::{Diagnostic, Diagnostics, KeyLocation, Validated};
@@ -631,11 +633,8 @@ fn a_default_group_usage_is_declared() {
     let table = validated.into_parts().0;
     let usages = &table.default_group.inline_usages;
     assert_eq!(usages.len(), 1);
-    assert!(
-        matches!(&usages[0], Usage::Index { name, publisher: _, version_constraint: _ } if name.as_str() == "shared-dep"),
-        "unexpected usage: {:?}",
-        usages[0]
-    );
+    assert_matches!(&usages[0], Usage::Index { name, publisher: _, version_constraint: _ } if name.as_str() == "shared-dep", "unexpected usage: {:?}",
+    usages[0]);
 }
 
 /// A group entry's `dir` is relative to the workspace root, so it is kept
@@ -646,15 +645,10 @@ fn a_named_group_usage_is_declared() {
     let table = validated.into_parts().0;
     let usages = &table.groups["legacy"].inline_usages;
     assert_eq!(usages.len(), 1);
-    assert!(
-        matches!(
-            &usages[0],
-            Usage::SourcePath { name, dir, publisher: _ }
-                if name.as_str() == "legacy-dep" && dir.as_str() == "legacy/dep"
-        ),
-        "unexpected usage: {:?}",
-        usages[0]
-    );
+    assert_matches!(&usages[0],
+    Usage::SourcePath { name, dir, publisher: _ }
+        if name.as_str() == "legacy-dep" && dir.as_str() == "legacy/dep", "unexpected usage: {:?}",
+    usages[0]);
 }
 
 /// Duplicates are counted per array, and the arrays are counted
