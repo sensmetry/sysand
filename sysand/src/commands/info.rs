@@ -10,12 +10,14 @@ use sysand_core::{
     auth::HTTPAuthentication,
     context::ProjectContext,
     index_location::IndexSource,
+    manifest::project::ResolvedProject,
     model::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
         InterchangeProjectUsageRaw,
     },
     project::{
-        ProjectMut, ProjectRead, any::OverrideProject, local_kpar::KparInnerPath, utils::Identifier,
+        ProjectDefinition, ProjectMut, ProjectRead, any::OverrideProject,
+        local_kpar::KparInnerPath, symbol_index, utils::Identifier,
     },
     resolve::{
         ResolutionInfo, file::FileResolverProject, memory::MemoryResolver,
@@ -34,31 +36,109 @@ use sysand_core::{
     project::utils::wrapfs,
 };
 
-/// Report a project: its two manifests as the `info` document under
-/// `--format json`, the text summary otherwise.
-pub fn report_interchange_project(
-    info: &InterchangeProjectInfoRaw,
-    meta: &InterchangeProjectMetadataRaw,
-    excluded_iris: &ProvidedIdentifiers,
-) {
+/// Report a project: under `--format json` its two json manifests as the
+/// `project` and `metadata` documents, or a `model.toml` project's
+/// manifest as the `manifest` document; the text summary otherwise.
+pub fn report_project(definition: &ProjectDefinition, excluded_iris: &ProvidedIdentifiers) {
     if crate::output::is_json() {
-        crate::output::document(
-            "project",
-            serde_json::to_value(info).expect("a manifest serializes"),
-        );
-        crate::output::document(
-            "metadata",
-            serde_json::to_value(meta).expect("a manifest serializes"),
-        );
+        match definition {
+            ProjectDefinition::Json { info, meta } => {
+                crate::output::document(
+                    "project",
+                    serde_json::to_value(info).expect("a manifest serializes"),
+                );
+                crate::output::document(
+                    "metadata",
+                    serde_json::to_value(meta).expect("a manifest serializes"),
+                );
+            }
+            ProjectDefinition::Toml(manifest) => {
+                crate::output::document("manifest", manifest_json(manifest));
+            }
+        }
         return;
     }
-    pprint_interchange_project(info, excluded_iris);
+    pprint_project(&Summary::of(definition), excluded_iris);
 }
 
-pub fn pprint_interchange_project(
-    info: &InterchangeProjectInfoRaw,
-    excluded_iris: &ProvidedIdentifiers,
-) {
+/// A resolved `model.toml` project as JSON, keyed as the manifest is.
+fn manifest_json(manifest: &ResolvedProject) -> serde_json::Value {
+    serde_json::json!({
+        "name": manifest.name.as_str(),
+        "publisher": manifest.publisher.as_str(),
+        "version": manifest.version.to_string(),
+        "description": manifest.description,
+        "license": manifest.license.as_ref().map(ToString::to_string),
+        "maintainers": manifest.maintainers.iter().map(ToString::to_string).collect::<Vec<_>>(),
+        "topics": manifest.topics,
+        "metamodel": manifest.metamodel.to_string(),
+        "stdlib": manifest.stdlib.as_ref().map(ToString::to_string),
+        "root": manifest.root.as_ref().map(|root| root.as_str()),
+        "sources": manifest.sources.iter().map(|source| source.as_str()).collect::<Vec<_>>(),
+        "urls": {
+            "website": manifest.urls.website.as_ref().map(fluent_uri::Iri::as_str),
+            "documentation": manifest.urls.documentation.as_ref().map(fluent_uri::Iri::as_str),
+            "repository": manifest.urls.repository.as_ref().map(fluent_uri::Iri::as_str),
+        },
+        "usages": manifest
+            .usages
+            .iter()
+            .map(|located| located.usage.to_string())
+            .collect::<Vec<_>>(),
+    })
+}
+
+/// What the text summary shows, from either manifest.
+struct Summary {
+    name: String,
+    publisher: Option<String>,
+    description: Option<String>,
+    version: String,
+    license: Option<String>,
+    website: Option<String>,
+    maintainers: Vec<String>,
+    topics: Vec<String>,
+    usages: Vec<InterchangeProjectUsageRaw>,
+}
+
+impl Summary {
+    fn of(definition: &ProjectDefinition) -> Self {
+        match definition {
+            ProjectDefinition::Json { info, meta: _ } => Self {
+                name: info.name.clone(),
+                publisher: info.publisher.clone(),
+                description: info.description.clone(),
+                version: info.version.clone(),
+                license: info.license.clone(),
+                website: info.website.clone(),
+                maintainers: info.maintainer.clone(),
+                topics: info.topic.clone(),
+                usages: info.usage.clone(),
+            },
+            ProjectDefinition::Toml(manifest) => Self {
+                name: manifest.name.as_str().to_owned(),
+                publisher: Some(manifest.publisher.as_str().to_owned()),
+                description: manifest.description.clone(),
+                version: manifest.version.to_string(),
+                license: manifest.license.as_ref().map(ToString::to_string),
+                website: manifest
+                    .urls
+                    .website
+                    .as_ref()
+                    .map(|website| website.as_str().to_owned()),
+                maintainers: manifest
+                    .maintainers
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect(),
+                topics: manifest.topics.clone(),
+                usages: definition.usages(),
+            },
+        }
+    }
+}
+
+fn pprint_project(info: &Summary, excluded_iris: &ProvidedIdentifiers) {
     let header = style::get_style_config().header;
     println!("{header}Name:{header:#} {}", info.name);
     if let Some(publisher) = &info.publisher {
@@ -74,20 +154,20 @@ pub fn pprint_interchange_project(
     if let Some(website) = &info.website {
         println!("{header}Website:{header:#} {}", website);
     }
-    if !info.maintainer.is_empty() {
+    if !info.maintainers.is_empty() {
         println!(
             "{header}Maintainer(s):{header:#} {}",
-            info.maintainer.join(", ")
+            info.maintainers.join(", ")
         );
     }
-    if !info.topic.is_empty() {
-        println!("{header}Topics:{header:#} {}", info.topic.join(", "));
+    if !info.topics.is_empty() {
+        println!("{header}Topics:{header:#} {}", info.topics.join(", "));
     }
-    if info.usage.is_empty() {
+    if info.usages.is_empty() {
         println!("No usages.");
     } else {
         let usages_to_print: Vec<_> = info
-            .usage
+            .usages
             .iter()
             .filter(|u| match u {
                 InterchangeProjectUsageRaw::Resource {
@@ -111,7 +191,7 @@ pub fn pprint_interchange_project(
                 } => true,
             })
             .collect();
-        let has_ignored_usages = info.usage.len() > usages_to_print.len();
+        let has_ignored_usages = info.usages.len() > usages_to_print.len();
         if has_ignored_usages && usages_to_print.is_empty() {
             // TODO: distinguish between provided iris in general and std libs in
             // particular. Here it's assumed that non-empty excluded_iris == std is ignored,
@@ -200,8 +280,8 @@ pub fn command_info_project(
     excluded_iris: &HashSet<Identifier>,
 ) -> Result<()> {
     match do_info_project(&project) {
-        Ok((info, meta)) => {
-            report_interchange_project(&info, &meta, excluded_iris);
+        Ok(definition) => {
+            report_project(&definition, excluded_iris);
 
             Ok(())
         }
@@ -241,8 +321,8 @@ pub fn command_info_resolve<Policy: HTTPAuthentication>(
         )?,
     );
 
-    let (info, meta) = do_info_usage(resolve, &combined_resolver)?;
-    report_interchange_project(&info, &meta, excluded_iris);
+    let (definition, _) = do_info_usage(resolve, &combined_resolver)?;
+    report_project(&definition, excluded_iris);
     Ok(())
 }
 
@@ -261,11 +341,7 @@ pub fn log_license_files_note() {
 
 /// Prints the value of `field` of `project`, a list field one entry per line
 pub fn command_info_field<Project: ProjectRead>(project: &Project, field: InfoField) -> Result<()> {
-    print_lines(field_lines(
-        field,
-        || get_info_or_bail(project),
-        || get_meta_or_bail(project),
-    )?);
+    print_lines(field_lines(field, project, &get_project_or_bail(project)?)?);
     Ok(())
 }
 
@@ -298,8 +374,8 @@ pub fn command_info_field_resolve<Policy: HTTPAuthentication>(
             ctx.cancellation,
         )?,
     );
-    let (info, meta) = do_info_usage(resolve, &combined_resolver)?;
-    print_lines(field_lines(field, || Ok(info), || Ok(meta))?);
+    let (definition, project) = do_info_usage(resolve, &combined_resolver)?;
+    print_lines(field_lines(field, &project, &definition)?);
     Ok(())
 }
 
@@ -324,24 +400,33 @@ fn print_member_lines(member: Option<&str>, lines: Vec<String>) {
 }
 
 /// The value of `field`, a list field one entry per line, nothing if not set.
-/// Only the manifest holding the field is read.
-fn field_lines(
+fn field_lines<Project: ProjectRead>(
     field: InfoField,
-    info: impl FnOnce() -> Result<InterchangeProjectInfoRaw>,
-    meta: impl FnOnce() -> Result<InterchangeProjectMetadataRaw>,
+    project: &Project,
+    definition: &ProjectDefinition,
 ) -> Result<Vec<String>> {
-    Ok(match field {
-        InfoField::Name => vec![info()?.name],
-        InfoField::Publisher => info()?.publisher.into_iter().collect(),
-        InfoField::Description => info()?.description.into_iter().collect(),
-        InfoField::Version => vec![info()?.version],
-        InfoField::License => info()?.license.into_iter().collect(),
-        InfoField::Maintainer => info()?.maintainer,
-        InfoField::Website => info()?.website.into_iter().collect(),
-        InfoField::Topic => info()?.topic,
-        InfoField::Usage => info()?.usage.iter().map(ToString::to_string).collect(),
+    match definition {
+        ProjectDefinition::Json { info, meta } => Ok(json_field_lines(field, info, meta)),
+        ProjectDefinition::Toml(manifest) => toml_field_lines(field, project, definition, manifest),
+    }
+}
+
+fn json_field_lines(
+    field: InfoField,
+    info: &InterchangeProjectInfoRaw,
+    meta: &InterchangeProjectMetadataRaw,
+) -> Vec<String> {
+    match field {
+        InfoField::Name => vec![info.name.clone()],
+        InfoField::Publisher => info.publisher.iter().cloned().collect(),
+        InfoField::Description => info.description.iter().cloned().collect(),
+        InfoField::Version => vec![info.version.clone()],
+        InfoField::License => info.license.iter().cloned().collect(),
+        InfoField::Maintainer => info.maintainer.clone(),
+        InfoField::Website => info.website.iter().cloned().collect(),
+        InfoField::Topic => info.topic.clone(),
+        InfoField::Usage => info.usage.iter().map(ToString::to_string).collect(),
         InfoField::Index => {
-            let meta = meta()?;
             // A root-shaped document has no `index`; the list stays the
             // list a script reads, and the explanation goes to stderr.
             if meta.index.is_none() {
@@ -349,37 +434,32 @@ fn field_lines(
                     "the project has no `index`; a Syside KPAR carries `root` and `exports`"
                 );
             }
-            meta.index
-                .into_iter()
-                .flatten()
-                .map(|(symbol, path)| format!("`{symbol}` in `{path}`"))
-                .collect()
+            index_lines(meta.index.iter().flatten())
         }
-        InfoField::Created => vec![meta()?.created],
-        InfoField::Root => meta()?.root.into_iter().collect(),
+        InfoField::Created => vec![meta.created.clone()],
+        InfoField::Root => meta.root.iter().cloned().collect(),
         InfoField::Exports => {
-            let meta = meta()?;
             // The mirror of `info index` on a root-shaped document: an
             // OMG-shaped one has no `exports`.
             if meta.exports.is_none() {
                 log::warn!("the project has no `exports`; an OMG KPAR carries `index`");
             }
-            meta.exports.unwrap_or_default()
+            meta.exports.clone().unwrap_or_default()
         }
-        InfoField::Metamodel => meta()?.metamodel.into_iter().collect(),
-        InfoField::IncludesDerived => meta()?
+        InfoField::Metamodel => meta.metamodel.iter().cloned().collect(),
+        InfoField::IncludesDerived => meta
             .includes_derived
             .map(|x| x.to_string())
             .into_iter()
             .collect(),
-        InfoField::IncludesImplied => meta()?
+        InfoField::IncludesImplied => meta
             .includes_implied
             .map(|x| x.to_string())
             .into_iter()
             .collect(),
-        InfoField::Checksum => meta()?
+        InfoField::Checksum => meta
             .checksum
-            .into_iter()
+            .iter()
             .flatten()
             .map(
                 |(path, InterchangeProjectChecksumRaw { value, algorithm })| {
@@ -387,30 +467,94 @@ fn field_lines(
                 },
             )
             .collect(),
-    })
-}
-
-pub(crate) fn get_info_or_bail<Project: ProjectRead>(
-    project: &Project,
-) -> Result<InterchangeProjectInfoRaw> {
-    match project.get_info() {
-        Ok(Some(info)) => Ok(info),
-        Ok(None) => bail!("project does not appear to have a valid `.project.json`"),
-        Err(err) => {
-            bail!("failed to read `.project.json`: {}", format_err(err))
-        }
     }
 }
 
-pub(crate) fn get_meta_or_bail<Project: ProjectRead>(
+/// `index` and `exports` are computed from the sources, in the shape the
+/// project's KPAR would carry. The fields a KPAR records when it is built
+/// do not exist in a `model.toml` project.
+fn toml_field_lines<Project: ProjectRead>(
+    field: InfoField,
     project: &Project,
-) -> Result<InterchangeProjectMetadataRaw> {
-    match project.get_meta() {
-        Ok(Some(meta)) => Ok(meta),
-        Ok(None) => bail!("project does not appear to have a valid `.meta.json`"),
-        Err(err) => {
-            bail!("failed to read `.meta.json`: {}", format_err(err))
+    definition: &ProjectDefinition,
+    manifest: &ResolvedProject,
+) -> Result<Vec<String>> {
+    Ok(match field {
+        InfoField::Name => vec![manifest.name.as_str().to_owned()],
+        InfoField::Publisher => vec![manifest.publisher.as_str().to_owned()],
+        InfoField::Description => manifest.description.iter().cloned().collect(),
+        InfoField::Version => vec![manifest.version.to_string()],
+        InfoField::License => manifest.license.iter().map(ToString::to_string).collect(),
+        InfoField::Maintainer => manifest
+            .maintainers
+            .iter()
+            .map(ToString::to_string)
+            .collect(),
+        InfoField::Website => manifest
+            .urls
+            .website
+            .iter()
+            .map(|website| website.as_str().to_owned())
+            .collect(),
+        InfoField::Topic => manifest.topics.clone(),
+        InfoField::Usage => definition
+            .usages()
+            .iter()
+            .map(ToString::to_string)
+            .collect(),
+        InfoField::Index => {
+            if manifest.root.is_some() {
+                log::warn!(
+                    "the project has no `index`; a Syside KPAR carries `root` and `exports`"
+                );
+                Vec::new()
+            } else {
+                index_lines(&symbol_index(project, manifest)?)
+            }
         }
+        InfoField::Exports => {
+            if manifest.root.is_none() {
+                log::warn!("the project has no `exports`; an OMG KPAR carries `index`");
+                Vec::new()
+            } else {
+                let mut exports: Vec<String> =
+                    symbol_index(project, manifest)?.into_keys().collect();
+                exports.sort();
+                exports
+            }
+        }
+        InfoField::Root => manifest
+            .root
+            .iter()
+            .map(|root| root.as_str().to_owned())
+            .collect(),
+        InfoField::Metamodel => vec![manifest.metamodel.to_string()],
+        InfoField::Created => built_only("created")?,
+        InfoField::IncludesDerived => built_only("includes-derived")?,
+        InfoField::IncludesImplied => built_only("includes-implied")?,
+        InfoField::Checksum => built_only("checksum")?,
+    })
+}
+
+fn built_only(field: &str) -> Result<Vec<String>> {
+    bail!("`{field}` is recorded when the KPAR is built; a `model.toml` project has none")
+}
+
+fn index_lines<'a>(index: impl IntoIterator<Item = (&'a String, &'a String)>) -> Vec<String> {
+    index
+        .into_iter()
+        .map(|(symbol, path)| format!("`{symbol}` in `{path}`"))
+        .collect()
+}
+
+/// A project's manifest, or the reason it has none.
+pub(crate) fn get_project_or_bail<Project: ProjectRead>(
+    project: &Project,
+) -> Result<ProjectDefinition> {
+    match project.get_project() {
+        Ok(Some(definition)) => Ok(definition),
+        Ok(None) => bail!("project does not appear to have a manifest"),
+        Err(err) => bail!("failed to read the project manifest: {}", format_err(err)),
     }
 }
 
@@ -458,11 +602,7 @@ pub fn command_info_workspace(
     for (at, member) in workspace.members().iter().enumerate() {
         let project = LocalSrcProject::new_member(member.dir.clone(), None, table.clone());
         if let Some(field) = field {
-            let lines = field_lines(
-                field,
-                || get_info_or_bail(&project),
-                || get_meta_or_bail(&project),
-            )?;
+            let lines = field_lines(field, &project, &get_project_or_bail(&project)?)?;
             print_member_lines(Some(member.project.name.as_str()), lines);
         } else {
             if at > 0 {

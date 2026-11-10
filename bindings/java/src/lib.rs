@@ -24,8 +24,9 @@ use sysand_core::{
     commands,
     env::{DEFAULT_ENV_NAME, local_directory::LocalWriteError},
     init::InitError,
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
-        ProjectMut as _,
+        ProjectDefinition, ProjectMut as _,
         local_src::{LocalSrcError, LocalSrcProject},
         utils::wrapfs,
     },
@@ -138,6 +139,7 @@ fn init<'local>(
                     LocalSrcError::Deserialize(_)
                     | LocalSrcError::AmbiguousFormat { dir: _, json: _ }
                     | LocalSrcError::Symbols(_)
+                    | LocalSrcError::TomlProjectHasNoChecksum { dir: _ }
                     | LocalSrcError::JsonWriteToTomlProject { dir: _, file: _ }
                     | LocalSrcError::TomlWriteToJsonProject { dir: _ } => {
                         env.throw_exception(ExceptionKind::InvalidValue, e)
@@ -223,6 +225,11 @@ fn create_env<'local>(
                         identifier: _,
                         version: _,
                         kind: _,
+                    }
+                    | LocalWriteError::RemoveNotInstalled {
+                        identifier: _,
+                        version: _,
+                        kind: _,
                     } => env.throw_exception(ExceptionKind::SysandException, e),
                 },
             }
@@ -253,7 +260,10 @@ fn info_path<'local>(
 
     let command_result = commands::info::do_info_project(&project);
     match command_result {
-        Ok(info_metadata) => {
+        Ok(definition) => {
+            let Some(info_metadata) = json_documents(env, definition) else {
+                ret_null!()
+            };
             if let Some(project) = info_metadata.to_jobject(env) {
                 return Ok(project);
             }
@@ -263,6 +273,23 @@ fn info_path<'local>(
         }
     }
     ret_null!()
+}
+
+/// A json project's two documents, or `None` with an exception thrown.
+// TODO: report a `model.toml` project's manifest.
+fn json_documents(
+    env: &mut Env<'_>,
+    definition: ProjectDefinition,
+) -> Option<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)> {
+    let name = definition.name().to_owned();
+    let documents = definition.into_json();
+    if documents.is_none() {
+        env.throw_exception(
+            ExceptionKind::SysandException,
+            format!("`{name}` is a `model.toml` project, which `info` cannot report yet"),
+        );
+    }
+    documents
 }
 
 const SYSAND_INFO: NativeMethod = native_method!(
@@ -352,12 +379,15 @@ fn info<'local>(
             ret_null!()
         }
     };
-    let info_meta = match commands::info::do_info(&uri, &combined_resolver) {
-        Ok(info_meta) => info_meta,
+    let definition = match commands::info::do_info(&uri, &combined_resolver) {
+        Ok(definition) => definition,
         Err(e) => {
             env.throw_exception(ExceptionKind::ResolutionError, format_err(e));
             ret_null!()
         }
+    };
+    let Some(info_meta) = json_documents(env, definition) else {
+        ret_null!()
     };
 
     Ok(info_meta.to_jobject(env).unwrap_or_default())

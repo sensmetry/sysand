@@ -77,7 +77,7 @@ use sysand_core::{
         ProjectFieldError, ProjectName, ProjectPublisher, UsageRef, parse_index_usage_spelling,
     },
     project::{
-        ProjectRead as _,
+        ProjectDefinition, ProjectRead as _,
         local_src::{LocalSrcError, LocalSrcProject},
         memory::InMemoryProject,
         utils::{Identifier, wrapfs},
@@ -250,6 +250,7 @@ fn do_init_py_local_file(
                 | LocalSrcError::Deserialize(_)
                 | LocalSrcError::AmbiguousFormat { dir: _, json: _ }
                 | LocalSrcError::Symbols(_)
+                | LocalSrcError::TomlProjectHasNoChecksum { dir: _ }
                 | LocalSrcError::JsonWriteToTomlProject { dir: _, file: _ }
                 | LocalSrcError::TomlWriteToJsonProject { dir: _ } => PyValueError::new_err(e),
                 LocalSrcError::MissingMeta | LocalSrcError::MissingInfoMeta { missing: _ } => {
@@ -296,6 +297,11 @@ fn do_env_py_local_dir(path: String) -> PyResult<()> {
                     identifier: _,
                     version: _,
                     kind: _,
+                }
+                | LocalWriteError::RemoveNotInstalled {
+                    identifier: _,
+                    version: _,
+                    kind: _,
                 } => PyValueError::new_err(e),
                 LocalWriteError::Io(_)
                 | LocalWriteError::TryMove(_)
@@ -324,14 +330,24 @@ fn do_info_py_path(
         .map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
 
     match do_info_project(&project) {
-        Ok((info, meta)) => Ok((info, meta)),
-        Err(
-            e @ (InfoProjectError::MissingProject
-            | InfoProjectError::MissingInfo
-            | InfoProjectError::MissingMeta
-            | InfoProjectError::InvalidProject(..)),
-        ) => Err(PyRuntimeError::new_err(format_err(e))),
+        Ok(definition) => json_documents(definition),
+        Err(e @ (InfoProjectError::MissingProject | InfoProjectError::InvalidProject(..))) => {
+            Err(PyRuntimeError::new_err(format_err(e)))
+        }
     }
+}
+
+/// A json project's two documents.
+// TODO: report a `model.toml` project's manifest.
+fn json_documents(
+    definition: ProjectDefinition,
+) -> PyResult<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)> {
+    let name = definition.name().to_owned();
+    definition.into_json().ok_or_else(|| {
+        PyRuntimeError::new_err(format!(
+            "`{name}` is a `model.toml` project, which `info` cannot report yet"
+        ))
+    })
 }
 
 /// Pure configuration of an authentication policy, as `AuthPolicy._spec()`
@@ -654,7 +670,9 @@ fn do_info_py(
         let auth = auth.unwrap_or_default();
         let (resolver, auth_policy) = cli_resolver_for(&resolution, &auth)?;
         let uri = parse_iri(uri)?;
-        do_info(&uri, &resolver).map_err(|e| info_error_to_pyerr(e, &auth, &auth_policy))
+        json_documents(
+            do_info(&uri, &resolver).map_err(|e| info_error_to_pyerr(e, &auth, &auth_policy))?,
+        )
     })
 }
 
@@ -1111,7 +1129,10 @@ fn sync_failure(err: CommandSyncError, outcome: SyncOutcome, wrote_lock: bool) -
         // mismatched installation from it.
         | CommandSyncError::Verify(_)
         | CommandSyncError::Remove { path: _, source: _ } => Failure::Env { message, wrote },
-        CommandSyncError::Sync(_) | CommandSyncError::IncludeStd(_) => Failure::Sync {
+        CommandSyncError::Sync(_)
+        | CommandSyncError::IncludeStd(_)
+        | CommandSyncError::Relock(_)
+        | CommandSyncError::Workspace(_) => Failure::Sync {
             message,
             wrote,
             partial: Box::new(outcome),
@@ -1468,8 +1489,8 @@ pub fn do_sources_project_py(
 
     if dependencies != Dependencies::None {
         // TODO: Better bail early?
-        let Some(info) = current_project
-            .get_info()
+        let Some(definition) = current_project
+            .get_project()
             .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
         else {
             return Err(PyRuntimeError::new_err(
@@ -1477,17 +1498,14 @@ pub fn do_sources_project_py(
             ));
         };
 
-        let usages = info
-            .validate()
-            .map_err(|e| {
-                PyRuntimeError::new_err(format!(
-                    "project `{}` {} has invalid metadata:\n{}",
-                    info.name,
-                    info.version,
-                    format_err(e)
-                ))
-            })?
-            .usage;
+        let usages = definition.validated_usages().map_err(|e| {
+            PyRuntimeError::new_err(format!(
+                "project `{}` {} has invalid metadata:\n{}",
+                definition.name(),
+                definition.version(),
+                format_err(e)
+            ))
+        })?;
 
         let env = if let Some(env_path) = env_path {
             Some(LocalDirectoryEnvironment::read(&env_path).map_err(env_read_to_pyerr)?)
@@ -1995,9 +2013,12 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
             | EnvInstallPathError::Installation(
                 EnvInstallError::ProjectRead(_)
                 | EnvInstallError::Installation(PutProjectError::Callback(
-                    CloneError::ProjectRead(_) | CloneError::IncompleteSource(_),
+                    CloneError::ProjectRead(_)
+                    | CloneError::IncompleteSource(_)
+                    | CloneError::TomlProject(_),
                 )),
             ) => ProjectError::new_err(e),
+            EnvInstallPathError::TomlProject(_) => ProjectError::new_err(e),
             EnvInstallPathError::Installation(
                 EnvInstallError::AlreadyInstalled(_)
                 | EnvInstallError::AlreadyInstalledVersion(..)

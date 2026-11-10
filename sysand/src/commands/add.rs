@@ -31,7 +31,7 @@ use sysand_core::{
         ProjectName, ProjectPublisher, UsageRef,
     },
     project::{
-        ProjectFormat, ProjectMut as _, ProjectRead as _,
+        ProjectDefinition, ProjectFormat, ProjectMut as _, ProjectRead as _,
         local_kpar::{KparInnerPath, LocalKParProject},
         local_src::LocalSrcProject,
         utils::{Identifier, relativize_path, wrapfs},
@@ -91,7 +91,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
         } => {
             // Source overrides are only for resource usages
             assert_no_overrides(&source_overrides);
-            let Some(info) = current_project.get_info()? else {
+            let Some(current) = current_project.get_project()? else {
                 bail!(CliError::MissingProjectCurrentDir);
             };
             let index_usage = |publisher, name, version_constraint: &VersionReq| {
@@ -103,7 +103,12 @@ pub fn command_add<Policy: HTTPAuthentication>(
             };
             // Refused, already present or settled by what is declared, before
             // anything is resolved or looked up
-            match index_usage_to_add::<!>(&info.usage, publisher, name, version_constraint)? {
+            match index_usage_to_add::<!>(
+                &current.usages(),
+                publisher,
+                name,
+                version_constraint,
+            )? {
                 IndexUsageToAdd::AlreadyPresent => UsageToAdd::AlreadyPresent,
                 IndexUsageToAdd::Ready(usage) => UsageToAdd::Ready(usage),
                 IndexUsageToAdd::New {
@@ -180,14 +185,17 @@ pub fn command_add<Policy: HTTPAuthentication>(
             let abs_path = wrapfs::canonicalize(dir)?;
             let relative = relativize_path(&abs_path, current_project.root_path())?;
             let project = sysand_core::workspace::model_toml::project_at_path(abs_path, None)?;
-            let info = project
-                .get_info()?
+            let definition = project
+                .get_project()?
                 .ok_or_else(|| CliError::MissingProject(project.root_path().to_string()))?;
-            let publisher = info.publisher.ok_or_else(|| {
+            let publisher = definition.publisher().ok_or_else(|| {
                 CliError::MissingPublisherForUsage(project.root_path().to_string())
             })?;
-            let (publisher, name) =
-                parse_project_spelling(publisher, info.name, project.root_path().as_str())?;
+            let (publisher, name) = parse_project_spelling(
+                publisher.to_owned(),
+                definition.name().to_owned(),
+                project.root_path().as_str(),
+            )?;
             let usage = InterchangeProjectUsage::Directory {
                 dir: relative,
                 publisher,
@@ -207,14 +215,17 @@ pub fn command_add<Policy: HTTPAuthentication>(
             let abs_path = wrapfs::canonicalize(kpar_path)?;
             let relative = relativize_path(&abs_path, current_project.root_path())?;
             let project = LocalKParProject::new_access(abs_path.clone(), KparInnerPath::Root, None);
-            let info = project
-                .get_info()?
+            let definition = project
+                .get_project()?
                 .ok_or_else(|| CliError::MissingProject(abs_path.to_string()))?;
-            let publisher = info
-                .publisher
+            let publisher = definition
+                .publisher()
                 .ok_or_else(|| CliError::MissingPublisherForUsage(abs_path.to_string()))?;
-            let (publisher, name) =
-                parse_project_spelling(publisher, info.name, abs_path.as_str())?;
+            let (publisher, name) = parse_project_spelling(
+                publisher.to_owned(),
+                definition.name().to_owned(),
+                abs_path.as_str(),
+            )?;
             let usage = InterchangeProjectUsage::KparPath {
                 kpar_path: relative,
                 publisher,
@@ -452,9 +463,10 @@ fn process_overrides<Policy: HTTPAuthentication>(
     #[expect(clippy::manual_map)] // For readability and compactness
     let source = if let Some(path) = source_overrides.from_path {
         let metadata = wrapfs::metadata(&path)?;
+        // A local directory is used in place, as a `dir` usage is locked.
         if metadata.is_dir() {
-            Some(OverrideSource::LocalSrc {
-                src_path: get_relative(path, current_project.root_path(), &ctx.current_directory)?
+            Some(OverrideSource::Editable {
+                editable: get_relative(path, current_project.root_path(), &ctx.current_directory)?
                     .as_str()
                     .into(),
             })
@@ -703,9 +715,9 @@ fn settle_from_lock(
         do_add(project, &settled)?;
         return Ok(());
     }
-    let mut info = project
-        .get_info()?
-        .ok_or(CliError::MissingProjectCurrentDir)?;
+    let Some(ProjectDefinition::Json { mut info, meta: _ }) = project.get_project()? else {
+        bail!(CliError::MissingProjectCurrentDir);
+    };
     // FIXME: write once, after spelling is known
     for usage in &mut info.usage {
         if usage == placeholder {

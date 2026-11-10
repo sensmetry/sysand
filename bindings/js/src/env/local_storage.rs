@@ -219,4 +219,13 @@ impl WriteEnvironment for LocalBrowserStorageEnvironment {
     fn del_uri<S: AsRef<str>>(&mut self, uri: S) -> Result<(), Self::WriteError> {
         Ok(self.vfs.delete(self.versions_path(&uri))?)
     }
+
+    /// Every project here is a copy.
+    fn is_installed<S: AsRef<str>, T: AsRef<str>>(
+        &self,
+        uri: S,
+        version: T,
+    ) -> Result<bool, Self::WriteError> {
+        self.has_version(uri, version)
+    }
 }

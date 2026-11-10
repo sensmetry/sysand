@@ -28,7 +28,7 @@ use syn::{Data, DataEnum, DeriveInput, parse_macro_input};
 ///
 /// `get_project`, `read_source`, `sources`, `project_root`,
 /// `source_may_offer_multiple_versions`, `format`, `manifest_document`,
-/// `manifest`, `get_info`, `get_meta`, `version`, `usage`,
+/// `version`, `usage`,
 /// `checksum_canonical_hex` and `checksum_canonical_variant` are delegated to
 /// the active variant by a `match` on `self`, wrapping errors and readers in
 /// the generated enums. Delegating the leaf accessors lets their overrides
@@ -51,9 +51,6 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
         source_may_offer_multiple_versions_match_part: TokenStream2,
         format_match_part: TokenStream2,
         manifest_document_match_part: TokenStream2,
-        manifest_match_part: TokenStream2,
-        get_info_match_part: TokenStream2,
-        get_meta_match_part: TokenStream2,
         version_match_part: TokenStream2,
         usage_match_part: TokenStream2,
         checksum_canonical_hex_match_part: TokenStream2,
@@ -154,21 +151,6 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
                         .manifest_document()
                         .map_err(|e| e.map_project_read(#error_ident::#variant_ident))
                 },
-                manifest_match_part: quote! {
-                    #enum_ident::#variant_ident(project) => project
-                        .manifest()
-                        .map_err(|e| e.map_project_read(#error_ident::#variant_ident))
-                },
-                get_info_match_part: quote! {
-                    #enum_ident::#variant_ident(project) => project
-                        .get_info()
-                        .map_err(#error_ident::#variant_ident)
-                },
-                get_meta_match_part: quote! {
-                    #enum_ident::#variant_ident(project) => project
-                        .get_meta()
-                        .map_err(#error_ident::#variant_ident)
-                },
                 version_match_part: quote! {
                     #enum_ident::#variant_ident(project) => project
                         .version()
@@ -215,9 +197,6 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
     let mut sources_match = vec![];
     let mut format_match = vec![];
     let mut manifest_document_match = vec![];
-    let mut manifest_match = vec![];
-    let mut get_info_match = vec![];
-    let mut get_meta_match = vec![];
     let mut version_match = vec![];
     let mut usage_match = vec![];
     let mut checksum_canonical_hex_match = vec![];
@@ -238,9 +217,6 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
         source_may_offer_multiple_versions_match_part,
         format_match_part,
         manifest_document_match_part,
-        manifest_match_part,
-        get_info_match_part,
-        get_meta_match_part,
         version_match_part,
         usage_match_part,
         checksum_canonical_hex_match_part,
@@ -262,9 +238,6 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
         sources_match.push(sources_match_part);
         format_match.push(format_match_part);
         manifest_document_match.push(manifest_document_match_part);
-        manifest_match.push(manifest_match_part);
-        get_info_match.push(get_info_match_part);
-        get_meta_match.push(get_meta_match_part);
         version_match.push(version_match_part);
         usage_match.push(usage_match_part);
         checksum_canonical_hex_match.push(checksum_canonical_hex_match_part);
@@ -306,10 +279,7 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
             fn get_project(
                 &self,
             ) -> ::std::result::Result<
-                (
-                    ::std::option::Option<InterchangeProjectInfoRaw>,
-                    ::std::option::Option<InterchangeProjectMetadataRaw>,
-                ),
+                ::std::option::Option<::sysand_core::project::ProjectDefinition>,
                 Self::Error,
             > {
                 match self {
@@ -367,33 +337,6 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
             > {
                 match self {
                     #( #manifest_document_match ),*
-                }
-            }
-
-            fn manifest(
-                &self,
-            ) -> ::std::result::Result<
-                ::sysand_core::manifest::project::ResolvedProject,
-                ::sysand_core::project::ManifestError<Self::Error>,
-            > {
-                match self {
-                    #( #manifest_match ),*
-                }
-            }
-
-            fn get_info(
-                &self,
-            ) -> ::std::result::Result<::std::option::Option<InterchangeProjectInfoRaw>, Self::Error> {
-                match self {
-                    #( #get_info_match ),*
-                }
-            }
-
-            fn get_meta(
-                &self,
-            ) -> ::std::result::Result<::std::option::Option<InterchangeProjectMetadataRaw>, Self::Error> {
-                match self {
-                    #( #get_meta_match ),*
                 }
             }
 

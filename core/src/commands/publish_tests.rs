@@ -1252,7 +1252,16 @@ mod prepare_publish {
     fn missing_meta() {
         let (_tmp, path) = write_zip(&[(".project.json", base_project().as_slice(), deflate())]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert_matches!(err, PublishError::MissingMeta);
+        assert_matches!(
+            err,
+            PublishError::KparRead(
+                _,
+                crate::project::local_kpar::LocalKParError::MissingDocument {
+                    path: _,
+                    missing: ".meta.json"
+                }
+            )
+        );
     }
 
     #[test]

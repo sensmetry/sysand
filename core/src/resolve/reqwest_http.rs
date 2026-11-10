@@ -10,9 +10,9 @@ use crate::{
     auth::HTTPAuthentication,
     context::ProjectContext,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsage},
+    model::InterchangeProjectUsage,
     project::{
-        CanonicalizationError, ProjectReadAsync,
+        CanonicalizationError, ProjectDefinition, ProjectReadAsync,
         reqwest_kpar_download::ReqwestRemoteKparDownloadedProject,
         reqwest_src::ReqwestSrcProjectAsync,
     },
@@ -67,15 +67,7 @@ impl<Policy: HTTPAuthentication> AsyncRead for HTTPProjectAsyncReader<'_, Policy
 impl<Policy: HTTPAuthentication> ProjectReadAsync for HTTPProjectAsync<Policy> {
     type Error = HTTPProjectError<Policy>;
 
-    async fn get_project_async(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    async fn get_project_async(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         match self {
             Self::HTTPSrcProject(proj) => proj
                 .get_project_async()
@@ -133,32 +125,6 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for HTTPProjectAsync<Policy> {
         match self {
             Self::HTTPSrcProject(proj) => proj.source_may_offer_multiple_versions(),
             Self::HTTPKParProjectDownloaded(proj) => proj.source_may_offer_multiple_versions(),
-        }
-    }
-
-    async fn get_info_async(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
-        match self {
-            Self::HTTPSrcProject(proj) => proj
-                .get_info_async()
-                .await
-                .map_err(HTTPProjectError::SrcProject),
-            Self::HTTPKParProjectDownloaded(proj) => proj
-                .get_info_async()
-                .await
-                .map_err(HTTPProjectError::KparDownloaded),
-        }
-    }
-
-    async fn get_meta_async(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
-        match self {
-            Self::HTTPSrcProject(proj) => proj
-                .get_meta_async()
-                .await
-                .map_err(HTTPProjectError::SrcProject),
-            Self::HTTPKParProjectDownloaded(proj) => proj
-                .get_meta_async()
-                .await
-                .map_err(HTTPProjectError::KparDownloaded),
         }
     }
 

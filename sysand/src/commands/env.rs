@@ -22,7 +22,7 @@ use sysand_core::{
     lock::Lock,
     model::InterchangeProjectUsage,
     project::{
-        ProjectRead as _,
+        ProjectDefinition, ProjectFormat, ProjectRead as _,
         local_kpar::{KparInnerPath, LocalKParProject},
         utils::wrapfs,
     },
@@ -136,6 +136,10 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
         let resolve = ResolutionInfo::iri(iri);
         let (version, storage) =
             crate::commands::clone::get_project_version(&resolve, version_constraint, &resolver)?;
+        // TODO: install `model.toml` projects, rewriting path usages as a build does.
+        if storage.format()? == ProjectFormat::Toml {
+            bail!("`{resolve}` is a `model.toml` project, which cannot be copied yet");
+        }
         sysand_core::commands::env::do_env_install_project(
             id,
             &version.to_string(),
@@ -273,10 +277,17 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
         Some(config.index_urls(index, vec![default_index_location()], default_index))
     };
 
-    let project_version = project
-        .get_info()?
-        .ok_or_else(|| anyhow!("missing project info"))?
-        .version;
+    let definition = project
+        .get_project()?
+        .ok_or_else(|| anyhow!("missing project info"))?;
+    // TODO: install `model.toml` projects, rewriting path usages as a build does.
+    if let ProjectDefinition::Toml(manifest) = &definition {
+        bail!(
+            "`{}` is a `model.toml` project, which cannot be copied yet",
+            manifest.name.as_str()
+        );
+    }
+    let project_version = definition.version();
     if let Some(version) = version
         && version != project_version
     {

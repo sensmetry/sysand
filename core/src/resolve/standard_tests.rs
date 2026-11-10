@@ -80,9 +80,9 @@ fn standard_index_resolver_unions_remote_and_filesystem() {
     };
     let projects: Vec<_> = projects.into_iter().collect::<Result<_, _>>().unwrap();
     assert_eq!(projects.len(), 1);
-    let info = projects[0].get_info().unwrap().unwrap();
+    let definition = projects[0].get_project().unwrap().unwrap();
     assert_eq!(
-        (info.name.as_str(), info.version.as_str()),
+        (definition.name(), definition.version().as_str()),
         ("dep", "0.1.0")
     );
 

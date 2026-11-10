@@ -127,9 +127,11 @@ impl LocalDirectoryEnvironment {
     /// To install a project in the environment, use `put_project()`.
     /// Call is idempotent. Does not update metadata file
     ///
-    /// The `workspace` flag of every `EnvProject` it adds is `false`.
-    pub fn merge_lock(&mut self, lock: &Lock) {
-        self.metadata.projects.retain(Self::is_installed);
+    /// An editable project at one of `workspace_members` (see
+    /// [`crate::workspace::model_toml::workspace_members`]) is marked as a
+    /// workspace project.
+    pub fn merge_lock(&mut self, lock: &Lock, workspace_members: &[Utf8UnixPathBuf]) {
+        self.metadata.projects.retain(Self::holds_copy);
         for project in &lock.projects {
             // Projects that are installed in the environment are ignored, so only
             // editable (and workspace, which are a subset of editable) projects have to be added
@@ -152,7 +154,7 @@ impl LocalDirectoryEnvironment {
                         .collect(),
                     usages,
                     editable: true,
-                    workspace: false,
+                    workspace: workspace_members.contains(editable),
                     checksum: None,
                 });
             }
@@ -305,7 +307,20 @@ impl LocalDirectoryEnvironment {
     }
 
     /// Whether `p` is installed in the environment, i.e. lives under `lib/`.
-    fn is_installed(p: &EnvProject) -> bool {
+    /// The refusal to remove `project`, if it is not a copy the env holds.
+    fn not_installed(identifier: &str, project: &EnvProject) -> Option<LocalWriteError> {
+        (project.editable || project.workspace).then(|| LocalWriteError::RemoveNotInstalled {
+            identifier: identifier.into(),
+            version: project.version.as_str().into(),
+            kind: if project.workspace {
+                "a workspace"
+            } else {
+                "an editable"
+            },
+        })
+    }
+
+    fn holds_copy(p: &EnvProject) -> bool {
         p.path.starts_with(PROJECT_PATH_PREFIX)
     }
 
@@ -318,7 +333,7 @@ impl LocalDirectoryEnvironment {
             .metadata
             .projects
             .iter()
-            .any(|p| Self::is_installed(p) && p.path.file_name().unwrap() == candidate)
+            .any(|p| Self::holds_copy(p) && p.path.file_name().unwrap() == candidate)
         {
             candidate = path_iter.next_candidate();
         }
@@ -483,6 +498,19 @@ pub enum LocalWriteError {
     MissingInfoMeta,
     #[error("project `{0}` not found in env")]
     ProjectNotFound(String),
+    /// The entry points at a project used in place; the lockfile, not
+    /// the environment, decides whether it is there.
+    #[error(
+        "project `{identifier}` {version} is {kind} project, which is not installed in the env\n\
+        {SP:>8} and cannot be removed from it",
+        SP = ' '
+    )]
+    RemoveNotInstalled {
+        identifier: Box<str>,
+        version: Box<str>,
+        /// "an editable" or "a workspace"
+        kind: &'static str,
+    },
     /// A directory whose manifests do not say what kind of project it
     /// is, or that is a `model.toml` project and so cannot be written
     /// as a json one.
@@ -518,6 +546,7 @@ impl From<LocalSrcError> for LocalWriteError {
             error @ LocalSrcError::MissingInfoMeta { missing: _ } => Self::Format(error),
             error @ (LocalSrcError::AmbiguousFormat { dir: _, json: _ }
             | LocalSrcError::Symbols(_)
+            | LocalSrcError::TomlProjectHasNoChecksum { dir: _ }
             | LocalSrcError::JsonWriteToTomlProject { dir: _, file: _ }
             | LocalSrcError::TomlWriteToJsonProject { dir: _ }) => Self::Format(error),
         }
@@ -576,17 +605,17 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
                 .map_err(LocalWriteError::from)?;
             tentative_project.set_path(absolute_path);
 
-            let info = match tentative_project.get_info() {
-                Ok(Some(info)) => info,
+            let definition = match tentative_project.get_project() {
+                Ok(Some(definition)) => definition,
                 Ok(None) => return Err(PutProjectError::Write(LocalWriteError::MissingInfoMeta)),
                 Err(e) => return Err(PutProjectError::Write(LocalWriteError::from(e))),
             };
 
-            existing.publisher = info.publisher;
-            existing.name = info.name;
-            existing.version = info.version;
-            existing.usages = info
-                .usage
+            existing.publisher = definition.publisher().map(ToOwned::to_owned);
+            existing.name = definition.name().to_owned();
+            existing.version = definition.version();
+            existing.usages = definition
+                .usages()
                 .into_iter()
                 .map(|u| Identifier::from_interchange_usage_unchecked(&u).into_string())
                 .collect();
@@ -635,20 +664,18 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
         let version = version.as_ref();
         self.note_unlocked_write("del_project_version");
         if let Some((idx, project)) = self.metadata.find_project_version_idx(identifier, version) {
-            // Doesn't make sense to remove workspace projects
-            assert!(!project.workspace);
-            // Editable projects are not owned by the env
-            if !project.editable {
-                // TODO: maybe surface IO errors?
-                let project_dir = self.root_dir.join(project.path.as_str());
-                log::debug!(
-                    "removing project `{identifier}` ({version}) from env at `{}`",
-                    self.root_dir
-                );
-                clean_dir(&project_dir);
-                if let Err(e) = fs::remove_dir(&project_dir) {
-                    log::warn!("failed to remove empty dir `{project_dir}`: {e}");
-                }
+            if let Some(error) = Self::not_installed(identifier, project) {
+                return Err(error);
+            }
+            // TODO: maybe surface IO errors?
+            let project_dir = self.root_dir.join(project.path.as_str());
+            log::debug!(
+                "removing project `{identifier}` ({version}) from env at `{}`",
+                self.root_dir
+            );
+            clean_dir(&project_dir);
+            if let Err(e) = fs::remove_dir(&project_dir) {
+                log::warn!("failed to remove empty dir `{project_dir}`: {e}");
             }
             self.metadata.projects.swap_remove(idx);
             self.write()?;
@@ -657,6 +684,17 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
         }
 
         Ok(())
+    }
+
+    fn is_installed<S: AsRef<str>, T: AsRef<str>>(
+        &self,
+        uri: S,
+        version: T,
+    ) -> Result<bool, Self::WriteError> {
+        Ok(self
+            .metadata
+            .find_project_version_idx(uri.as_ref(), version.as_ref())
+            .is_some_and(|(_, project)| Self::holds_copy(project)))
     }
 
     fn del_uri<S: AsRef<str>>(&mut self, uri: S) -> Result<(), Self::WriteError> {
@@ -668,23 +706,25 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
         if project_versions.peek().is_none() {
             return Err(LocalWriteError::ProjectNotFound(uri.as_ref().to_owned()));
         }
+        let project_versions: Vec<_> = project_versions.collect();
+        for (_, p) in &project_versions {
+            if let Some(error) = Self::not_installed(uri.as_ref(), p) {
+                return Err(error);
+            }
+        }
         let mut indices_to_remove = Vec::new();
         for (idx, p) in project_versions {
-            // Doesn't make sense to remove workspace projects
-            assert!(!p.workspace);
-            if !p.editable {
-                // TODO: maybe surface IO errors?
-                let project_dir = self.root_dir.join(p.path.as_str());
-                log::debug!(
-                    "removing project `{}` ({}) from env at `{}`",
-                    uri.as_ref(),
-                    p.version,
-                    self.root_dir
-                );
-                clean_dir(&project_dir);
-                if let Err(e) = fs::remove_dir(&project_dir) {
-                    log::warn!("failed to remove empty dir `{project_dir}`: {e}");
-                }
+            // TODO: maybe surface IO errors?
+            let project_dir = self.root_dir.join(p.path.as_str());
+            log::debug!(
+                "removing project `{}` ({}) from env at `{}`",
+                uri.as_ref(),
+                p.version,
+                self.root_dir
+            );
+            clean_dir(&project_dir);
+            if let Err(e) = fs::remove_dir(&project_dir) {
+                log::warn!("failed to remove empty dir `{project_dir}`: {e}");
             }
             indices_to_remove.push(idx);
         }

@@ -229,7 +229,7 @@ fn lock_document() -> Result<(), Box<dyn Error>> {
     assert!(
         projects
             .iter()
-            .any(|p| p["name"] == "dep" && p["sources"][0].as_str().unwrap().contains("src_path"))
+            .any(|p| p["name"] == "dep" && p["sources"][0].as_str().unwrap().contains("editable"))
     );
     assert!(
         projects

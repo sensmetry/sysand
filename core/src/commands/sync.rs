@@ -374,6 +374,9 @@ impl<'py> pyo3::IntoPyObject<'py> for StaleUsage {
 // TODO: Use AnyProject::try_from_source to avoid having so many arguments
 pub fn do_sync<
     Environment,
+    CreateEditableStorage,
+    EditableStorage,
+    EditableError: ErrorBound,
     CreateSrcPathStorage,
     SrcPathStorage,
     CreateRemoteSrcStorage,
@@ -391,6 +394,7 @@ pub fn do_sync<
 >(
     lockfile: &Lock,
     env: &mut Environment,
+    editable_storage: Option<CreateEditableStorage>,
     src_path_storage: Option<CreateSrcPathStorage>,
     remote_src_storage: Option<CreateRemoteSrcStorage>,
     kpar_path_storage: Option<CreateKParPathStorage>,
@@ -403,6 +407,8 @@ pub fn do_sync<
 ) -> Result<(), SyncError<UrlParseError, GitError, Environment>>
 where
     Environment: ReadEnvironment + WriteEnvironment,
+    CreateEditableStorage: Fn(Utf8UnixPathBuf) -> Result<EditableStorage, EditableError>,
+    EditableStorage: ProjectRead,
     CreateSrcPathStorage: Fn(Utf8UnixPathBuf, String) -> SrcPathStorage,
     SrcPathStorage: ProjectRead,
     CreateRemoteSrcStorage: Fn(String, String) -> Result<RemoteSrcStorage, UrlParseError>,
@@ -498,7 +504,20 @@ where
         for source in &project.sources {
             match source {
                 Source::Editable { editable } => {
-                    // Nothing to install for editable
+                    // Nothing to install, but the project at the path must
+                    // still be the one the lockfile records.
+                    if let Some(editable_storage) = editable_storage.as_ref() {
+                        let storage = editable_storage(editable.clone())
+                            .map_err(|e| SyncError::ProjectRead(format_err(e)))?;
+                        let label = main_uri.map_or(project.name.as_str(), |iri| iri.as_str());
+                        check_against_lock(
+                            label,
+                            project,
+                            ("editable", editable.as_str()),
+                            &storage,
+                            true,
+                        )?;
+                    }
                     log::debug!("skipping installation of editable project from `{editable}`");
                     outcome.kept.extend(synced(project));
                     continue 'main_loop;
@@ -709,15 +728,21 @@ where
         for p_id in env.uris().map_err(SyncError::EnvRead)? {
             let p_id = p_id.map_err(SyncError::EnvRead)?;
             // TODO: more efficient interface to get uri+version+checksum
+            // Only copies the env installed are pruned; an entry that points
+            // at a project used in place is rebuilt from the lockfile.
+            let mut installed = Vec::new();
+            for v in env.versions(&p_id).map_err(SyncError::EnvRead)? {
+                let v = v.map_err(SyncError::EnvRead)?;
+                if env.is_installed(&p_id, &v).map_err(SyncError::EnvWrite)? {
+                    installed.push(v);
+                }
+            }
             if let Some(versions) = lock_projects.get(&p_id.as_str()) {
                 // TODO: make sure checksums match; current env trait does not expose them
-                let mut versions_to_remove = Vec::new();
-                for v in env.versions(&p_id).map_err(SyncError::EnvRead)? {
-                    let env_v = v.map_err(SyncError::EnvRead)?;
-                    if !versions.contains(&env_v.as_str()) {
-                        versions_to_remove.push(env_v);
-                    }
-                }
+                let versions_to_remove: Vec<String> = installed
+                    .into_iter()
+                    .filter(|v| !versions.contains(&v.as_str()))
+                    .collect();
                 for v in versions_to_remove {
                     log::debug!(
                         "deleting project `{p_id}` version {v} from env: not present in lock"
@@ -730,19 +755,16 @@ where
                     });
                     updated = true;
                 }
-            } else {
+            } else if !installed.is_empty() {
                 log::debug!("deleting project `{p_id}` from env: not present in lock");
-                let mut removed = Vec::new();
-                for v in env.versions(&p_id).map_err(SyncError::EnvRead)? {
-                    removed.push(v.map_err(SyncError::EnvRead)?);
-                }
-                env.del_uri(&p_id).map_err(SyncError::EnvWrite)?;
-                outcome
-                    .pruned
-                    .extend(removed.into_iter().map(|version| SyncedProject {
+                for version in installed {
+                    env.del_project_version(&p_id, &version)
+                        .map_err(SyncError::EnvWrite)?;
+                    outcome.pruned.push(SyncedProject {
                         iri: p_id.clone(),
                         version,
-                    }));
+                    });
+                }
                 updated = true;
             }
         }
@@ -765,8 +787,8 @@ fn check_against_lock<U: ErrorBound, G: ErrorBound, E: ReadEnvironment + WriteEn
     storage: &impl ProjectRead,
     check_version: bool,
 ) -> Result<(), SyncError<U, G, E>> {
-    let info = storage
-        .get_info()
+    let definition = storage
+        .get_project()
         .map_err(|e| SyncError::ProjectRead(format_err(e)))?
         .ok_or_else(|| {
             SyncError::ProjectRead(format!(
@@ -783,18 +805,19 @@ fn check_against_lock<U: ErrorBound, G: ErrorBound, E: ReadEnvironment + WriteEn
             actual: actual.to_owned(),
         }))
     };
-    if info.publisher != project.publisher {
+    if definition.publisher() != project.publisher.as_deref() {
         return Err(mismatch(
             "publisher",
             project.publisher.as_deref().unwrap_or("<none>"),
-            info.publisher.as_deref().unwrap_or("<none>"),
+            definition.publisher().unwrap_or("<none>"),
         ));
     }
-    if info.name != project.name {
-        return Err(mismatch("name", &project.name, &info.name));
+    if definition.name() != project.name {
+        return Err(mismatch("name", &project.name, definition.name()));
     }
-    if check_version && info.version != project.version {
-        return Err(mismatch("version", &project.version, &info.version));
+    let version = definition.version();
+    if check_version && version != project.version {
+        return Err(mismatch("version", &project.version, &version));
     }
     Ok(())
 }

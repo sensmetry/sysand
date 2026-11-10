@@ -105,10 +105,10 @@ fn the_built_workspace_equals_the_published_release() {
             .iter()
             .find(|built| {
                 built
-                    .get_info()
+                    .get_project()
                     .ok()
                     .flatten()
-                    .is_some_and(|info| info.name == published_name(asset))
+                    .is_some_and(|definition| definition.name() == published_name(asset))
             })
             .unwrap_or_else(|| panic!("`{asset}` was built"));
 

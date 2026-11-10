@@ -64,9 +64,9 @@ fn iri(iri: &str) -> Iri<String> {
 fn highest_version_is_described() {
     let resolver = resolver(IRI, &["1.0.0", "2.0.0", "0.10.3"]);
 
-    let (info, _meta) = do_info(&iri(IRI), &resolver).unwrap();
+    let info = do_info(&iri(IRI), &resolver).unwrap();
 
-    assert_eq!(info.version, "2.0.0");
+    assert_eq!(info.version(), "2.0.0");
 }
 
 /// Non-semver candidates are skipped.
@@ -74,9 +74,9 @@ fn highest_version_is_described() {
 fn non_semver_versions_are_skipped() {
     let resolver = resolver(IRI, &["nightly", "1.0.0"]);
 
-    let (info, _meta) = do_info(&iri(IRI), &resolver).unwrap();
+    let info = do_info(&iri(IRI), &resolver).unwrap();
 
-    assert_eq!(info.version, "1.0.0");
+    assert_eq!(info.version(), "1.0.0");
 }
 
 #[test]
@@ -103,9 +103,9 @@ fn only_non_semver_versions_is_an_error() {
 fn prerelease_only_non_purl_project_is_described() {
     let resolver = resolver(IRI, &["1.0.0-alpha.1"]);
 
-    let (info, _meta) = do_info(&iri(IRI), &resolver).unwrap();
+    let info = do_info(&iri(IRI), &resolver).unwrap();
 
-    assert_eq!(info.version, "1.0.0-alpha.1");
+    assert_eq!(info.version(), "1.0.0-alpha.1");
 }
 
 /// And a non-PURL IRI with several candidates takes the highest, prerelease
@@ -114,9 +114,9 @@ fn prerelease_only_non_purl_project_is_described() {
 fn non_purl_iri_takes_the_highest_version_including_a_prerelease() {
     let resolver = resolver(IRI, &["2.0.0-beta.1", "1.0.0"]);
 
-    let (info, _meta) = do_info(&iri(IRI), &resolver).unwrap();
+    let info = do_info(&iri(IRI), &resolver).unwrap();
 
-    assert_eq!(info.version, "2.0.0-beta.1");
+    assert_eq!(info.version(), "2.0.0-beta.1");
 }
 
 /// A PURL is the only case where solver and info behaviors don't match
@@ -125,9 +125,9 @@ fn purl_iri_takes_the_highest_version_including_a_prerelease() {
     // Index order: descending, as `versions.json` must be.
     let resolver = resolver(PURL, &["3.0.0-beta.1", "2.0.0", "1.0.0"]);
 
-    let (info, _meta) = do_info(&iri(PURL), &resolver).unwrap();
+    let info = do_info(&iri(PURL), &resolver).unwrap();
 
-    assert_eq!(info.version, "3.0.0-beta.1");
+    assert_eq!(info.version(), "3.0.0-beta.1");
 }
 
 #[test]

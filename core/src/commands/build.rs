@@ -12,13 +12,16 @@ use crate::{
     env::utils::ErrorBound,
     graph::DependencyGraph,
     include::{IncludeError, extract_symbols, read_project_file_to_string},
-    manifest::usage::{Usage, UsageBase},
+    manifest::{
+        kpar_view::{self, ViewError},
+        usage::{Usage, UsageBase},
+    },
     model::{
         InterchangeProjectChecksumRaw, InterchangeProjectUsageRaw,
-        InterchangeProjectValidationError, KerMlChecksumAlg, format_created,
+        InterchangeProjectValidationError, KerMlChecksumAlg,
     },
     project::{
-        ManifestError, ProjectFormat, ProjectRead,
+        ProjectDefinition, ProjectRead,
         local_kpar::{KparInnerPath, LocalKParProject, LocalKParProjectRaw},
         local_src::{LocalSrcError, LocalSrcProject},
         utils::{FsIoError, ZipArchiveError, wrapfs},
@@ -240,6 +243,7 @@ impl<ProjectReadError: ErrorBound> From<IncludeError<ProjectReadError>>
             | IncludeError::NoIndexSymbolsOnRoot
             | IncludeError::ForceFormat
             | IncludeError::NotAdmitted(_)
+            | IncludeError::MissingManifest
             | IncludeError::Edit(_)
             | IncludeError::Manifest(_)
             | IncludeError::ManifestWrite(_) => Self::Extract(format_err(value)),
@@ -269,17 +273,17 @@ pub fn default_kpar_path<Pr: ProjectRead>(
 pub fn default_kpar_file_name<Pr: ProjectRead>(
     project: &Pr,
 ) -> Result<String, KParBuildError<Pr::Error>> {
-    let Some(project_info) = project.get_info().map_err(KParBuildError::ProjectRead)? else {
+    let Some(definition) = project.get_project().map_err(KParBuildError::ProjectRead)? else {
         return Err(KParBuildError::MissingInfo);
     };
     Ok(format!(
         "{}-{}.kpar",
-        project_info
-            .name
+        definition
+            .name()
             .chars()
             .map(|c| if c.is_alphanumeric() { c } else { '_' })
             .collect::<String>(),
-        project_info.version
+        definition.version()
     ))
 }
 
@@ -324,13 +328,23 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     let header = crate::style::get_style_config().header;
     log::info!("{header}{building:>12}{header:#} kpar `{}`", path.as_ref());
 
-    let (mut info, mut meta) = match project.get_project() {
-        Ok(im) => match im {
-            (Some(i), Some(m)) => (i, m),
-            (None, Some(_)) => return Err(KParBuildError::MissingInfo),
-            (Some(_), None) => return Err(KParBuildError::MissingMeta),
-            (None, None) => return Err(KParBuildError::MissingInfoMeta),
-        },
+    // A `model.toml` project's documents are written now, recording the
+    // build time as `created`. Two builds of identical sources are
+    // therefore not byte-identical.
+    let (mut info, mut meta, manifest) = match project.get_project() {
+        Ok(None) => return Err(KParBuildError::MissingInfoMeta),
+        Ok(Some(ProjectDefinition::Json { info, meta })) => (info, meta, None),
+        Ok(Some(ProjectDefinition::Toml(manifest))) => {
+            let (info, meta) = kpar_view::view(&manifest, &jiff::Timestamp::now(), |path| {
+                read_project_file_to_string(project, &path)
+            })
+            .map_err(|error| match error {
+                ViewError::Read(error) => KParBuildError::from(error),
+                ViewError::Symbols(error) => KParBuildError::from(IncludeError::from(error)),
+                ViewError::Manifest(_) => unreachable!("`view` reads no manifest"),
+            })?;
+            (info, meta, Some(manifest))
+        }
         Err(e) => return Err(KParBuildError::ProjectRead(e)),
     };
     let info_valid = info.validate().map_err(|e| KParBuildError::Validation {
@@ -342,18 +356,11 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         source: e,
     })?;
 
-    // Archive rules the KPAR view leaves out, and `created`. Only for a
-    // `model.toml` project: a json `.project.json` may legally carry a
+    // Archive rules the KPAR view leaves out. Only for a `model.toml`
+    // project: a json `.project.json` may legally carry a
     // `pkg:sysand/omg/...` resource, and a json project with a typed path
     // usage builds under `--allow-path-usage`.
-    if project.format().map_err(KParBuildError::ProjectRead)? == ProjectFormat::Toml {
-        let manifest = project.manifest().map_err(|error| match error {
-            ManifestError::Project(error) => KParBuildError::ProjectRead(error),
-            // `get_project` above produced a view, which only a
-            // `model.toml` project can do.
-            ManifestError::NoTomlManifest => unreachable!("a toml project has a manifest"),
-        })?;
-
+    if let Some(manifest) = manifest {
         // The typed usages know each usage's kind and target.
         let root = project.project_root();
         for (located, raw) in manifest.usages.iter().zip(info.usage.iter_mut()) {
@@ -392,10 +399,6 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
                 _ => {}
             }
         }
-
-        // The view records the epoch, so `created` is set to the build time.
-        // Two builds of identical sources are therefore not byte-identical.
-        meta.created = format_created(&jiff::Timestamp::now());
 
         // A project carrying `stdlib` has no publisher, so a locally built
         // standard-library KPAR matches the published one.
@@ -707,12 +710,11 @@ fn local_target_usage<E: ErrorBound>(
         // `Root` is what the resolver uses for a `kpar-path` usage.
         let kpar = LocalKParProject::new_access(target, KparInnerPath::Root, None);
         match kpar.get_project() {
-            Ok((Some(info), _)) => {
-                spelled(info.publisher.as_deref(), &info.name)?;
-                info.version
+            Ok(Some(definition)) => {
+                spelled(definition.publisher(), definition.name())?;
+                definition.version()
             }
-            // An archive with no `.project.json` defines no project.
-            Ok((None, _)) => return Err(missing()),
+            Ok(None) => return Err(missing()),
             Err(error) => return Err(unreadable(&error)),
         }
     } else {
@@ -720,12 +722,8 @@ fn local_target_usage<E: ErrorBound>(
             Some(table) => LocalSrcProject::new_member(target, None, table.clone()),
             None => LocalSrcProject::new_access(target, None),
         };
-        // Read `manifest()` rather than `version()`: `version()` goes through
-        // `get_info`, which for a toml target builds the whole KPAR view,
-        // reading every file the target's `sources` lists. A target with a
-        // missing source would fail this project's build.
-        match source.manifest() {
-            Ok(manifest) => {
+        match source.get_project() {
+            Ok(Some(ProjectDefinition::Toml(manifest))) => {
                 spelled(Some(manifest.publisher.as_str()), manifest.name.as_str())?;
                 // A usage whose target carries `stdlib` is written as
                 // `resource = "<target's metamodel>/<target's stdlib>.kpar"`
@@ -748,15 +746,12 @@ fn local_target_usage<E: ErrorBound>(
                 manifest.version.to_string()
             }
             // A json target, the one `TomlTargetVersion` is for.
-            Err(ManifestError::NoTomlManifest) => match source.get_project() {
-                Ok((Some(info), _)) => {
-                    spelled(info.publisher.as_deref(), &info.name)?;
-                    info.version
-                }
-                Ok((None, _)) => return Err(missing()),
-                Err(error) => return Err(unreadable(&error)),
-            },
-            Err(ManifestError::Project(error)) => return Err(unreadable(&error)),
+            Ok(Some(ProjectDefinition::Json { info, meta: _ })) => {
+                spelled(info.publisher.as_deref(), &info.name)?;
+                info.version
+            }
+            Ok(None) => return Err(missing()),
+            Err(error) => return Err(unreadable(&error)),
         }
     };
 
@@ -962,15 +957,11 @@ fn canonical_or(path: Utf8PathBuf) -> Utf8PathBuf {
 /// The `dir` usages a member declares, as written: what the publish
 /// order needs from it.
 ///
-/// A toml member is read through `manifest()`, since `get_info` builds the
-/// whole KPAR view, reading every source file the member lists. A json
-/// member has no `model.toml`, so its usages come from `.project.json`.
-///
 /// A member that cannot be read at all contributes no edges; it fails with
 /// its own message when its archive name is asked for.
 fn member_dependencies(project: &LocalSrcProject) -> Vec<String> {
-    match project.manifest() {
-        Ok(manifest) => manifest
+    match project.get_project() {
+        Ok(Some(ProjectDefinition::Toml(manifest))) => manifest
             .usages
             .iter()
             .filter_map(|located| match &located.usage {
@@ -982,22 +973,19 @@ fn member_dependencies(project: &LocalSrcProject) -> Vec<String> {
                 _ => None,
             })
             .collect(),
-        Err(ManifestError::NoTomlManifest) => match project.get_info() {
-            Ok(Some(info)) => info
-                .usage
-                .iter()
-                .filter_map(|usage| match usage {
-                    InterchangeProjectUsageRaw::Directory {
-                        dir,
-                        publisher: _,
-                        name: _,
-                    } => Some(dir.as_str().to_owned()),
-                    _ => None,
-                })
-                .collect(),
-            Ok(None) | Err(_) => Vec::new(),
-        },
-        Err(ManifestError::Project(_)) => Vec::new(),
+        Ok(Some(ProjectDefinition::Json { info, meta: _ })) => info
+            .usage
+            .iter()
+            .filter_map(|usage| match usage {
+                InterchangeProjectUsageRaw::Directory {
+                    dir,
+                    publisher: _,
+                    name: _,
+                } => Some(dir.as_str().to_owned()),
+                _ => None,
+            })
+            .collect(),
+        Ok(None) | Err(_) => Vec::new(),
     }
 }
 

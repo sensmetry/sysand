@@ -65,7 +65,11 @@ fn build_warns_about_an_unknown_key() -> Result<(), Box<dyn std::error::Error>> 
     ));
 
     let kpar_project = LocalKParProjectRaw::new_guess_root(cwd.join("test-unknown.kpar"))?;
-    let (Some(_), Some(_)) = kpar_project.get_project()? else {
+    let (Some(_), Some(_)) = kpar_project
+        .get_project()?
+        .and_then(sysand_core::project::ProjectDefinition::into_json)
+        .unzip()
+    else {
         panic!("failed to get built project info/meta");
     };
     Ok(())
@@ -102,7 +106,11 @@ fn project_build() -> Result<(), Box<dyn std::error::Error>> {
 
     let kpar_project = LocalKParProjectRaw::new_guess_root(cwd.join("test-build.kpar"))?;
 
-    let (Some(info), Some(meta)) = kpar_project.get_project()? else {
+    let (Some(info), Some(meta)) = kpar_project
+        .get_project()?
+        .and_then(sysand_core::project::ProjectDefinition::into_json)
+        .unzip()
+    else {
         panic!("failed to get built project info/meta");
     };
 
@@ -129,7 +137,11 @@ fn project_build() -> Result<(), Box<dyn std::error::Error>> {
     out.assert().success();
     let kpar_project = LocalKParProjectRaw::new_guess_root(cwd.join("test-build2.kpar"))?;
 
-    let (Some(_), Some(meta)) = kpar_project.get_project()? else {
+    let (Some(_), Some(meta)) = kpar_project
+        .get_project()?
+        .and_then(sysand_core::project::ProjectDefinition::into_json)
+        .unzip()
+    else {
         panic!("failed to get built project info/meta");
     };
     // File hash should be updated
@@ -299,7 +311,11 @@ fn project_build_path_usage() -> Result<(), Box<dyn std::error::Error>> {
 
     let kpar_project = LocalKParProjectRaw::new_guess_root(cwd1.join("test-build.kpar"))?;
 
-    let (Some(_), Some(_)) = kpar_project.get_project()? else {
+    let (Some(_), Some(_)) = kpar_project
+        .get_project()?
+        .and_then(sysand_core::project::ProjectDefinition::into_json)
+        .unzip()
+    else {
         panic!("failed to get built project info/meta");
     };
 
@@ -441,7 +457,11 @@ fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
             .stdout(predicate::str::contains("Version: 1.2.3"));
 
         let kpar_project = LocalKParProjectRaw::new_guess_root(kpar_path)?;
-        let (Some(info), Some(meta)) = kpar_project.get_project()? else {
+        let (Some(info), Some(meta)) = kpar_project
+            .get_project()?
+            .and_then(sysand_core::project::ProjectDefinition::into_json)
+            .unzip()
+        else {
             panic!("failed to get built project info/meta");
         };
         assert_eq!(info.name, name);
@@ -481,7 +501,11 @@ fn workspace_build_with_inherited_metamodel() -> Result<(), Box<dyn std::error::
     assert!(kpar_path.is_file(), "kpar file does not exist: {kpar_path}");
 
     let kpar_project = LocalKParProjectRaw::new_guess_root(kpar_path)?;
-    let (Some(_), Some(meta)) = kpar_project.get_project()? else {
+    let (Some(_), Some(meta)) = kpar_project
+        .get_project()?
+        .and_then(sysand_core::project::ProjectDefinition::into_json)
+        .unzip()
+    else {
         panic!("failed to get built project info/meta");
     };
     assert_eq!(
@@ -514,7 +538,11 @@ fn a_member_that_does_not_inherit_declares_its_own() -> Result<(), Box<dyn std::
 
     let kpar_project =
         LocalKParProjectRaw::new_guess_root(cwd.join("output").join("project1-1.0.0.kpar"))?;
-    let (Some(_), Some(meta)) = kpar_project.get_project()? else {
+    let (Some(_), Some(meta)) = kpar_project
+        .get_project()?
+        .and_then(sysand_core::project::ProjectDefinition::into_json)
+        .unzip()
+    else {
         panic!("failed to get built project info/meta");
     };
     assert_eq!(
@@ -581,7 +609,11 @@ fn a_member_declares_its_own_metamodel() -> Result<(), Box<dyn std::error::Error
 
     let kpar_project =
         LocalKParProjectRaw::new_guess_root(cwd.join("output").join("project1-1.0.0.kpar"))?;
-    let (Some(_), Some(meta)) = kpar_project.get_project()? else {
+    let (Some(_), Some(meta)) = kpar_project
+        .get_project()?
+        .and_then(sysand_core::project::ProjectDefinition::into_json)
+        .unzip()
+    else {
         panic!("failed to get built project info/meta");
     };
     assert_eq!(
@@ -1013,7 +1045,11 @@ fn compression_method(compression: Option<&str>) -> Result<(), Box<dyn std::erro
 
     let kpar_project = LocalKParProjectRaw::new_guess_root(cwd.join("test-build.kpar"))?;
 
-    let (Some(info), Some(meta)) = kpar_project.get_project()? else {
+    let (Some(info), Some(meta)) = kpar_project
+        .get_project()?
+        .and_then(sysand_core::project::ProjectDefinition::into_json)
+        .unzip()
+    else {
         panic!("failed to get built project info/meta");
     };
 
@@ -1364,7 +1400,11 @@ fn a_syside_project_builds_the_root_shape() -> Result<(), Box<dyn std::error::Er
         .success();
 
     let kpar_project = LocalKParProjectRaw::new_guess_root(cwd.join("widgets.kpar"))?;
-    let (Some(_), Some(meta)) = kpar_project.get_project()? else {
+    let (Some(_), Some(meta)) = kpar_project
+        .get_project()?
+        .and_then(sysand_core::project::ProjectDefinition::into_json)
+        .unzip()
+    else {
         panic!("failed to get built project info/meta");
     };
     assert_eq!(meta.root.as_deref(), Some("test.sysml"));
@@ -1463,7 +1503,11 @@ fn a_syside_kpar_checksums_every_file_but_the_manifests() -> Result<(), Box<dyn 
         ]
     );
     let kpar = LocalKParProjectRaw::new_guess_root(cwd.join("widgets.kpar"))?;
-    let (Some(info), Some(meta)) = kpar.get_project()? else {
+    let (Some(info), Some(meta)) = kpar
+        .get_project()?
+        .and_then(sysand_core::project::ProjectDefinition::into_json)
+        .unzip()
+    else {
         panic!("info and meta");
     };
     assert_eq!(info.name, "widgets");
@@ -1498,7 +1542,11 @@ fn a_syside_kpar_checksums_every_file_but_the_manifests() -> Result<(), Box<dyn 
         .assert()
         .success();
     let kpar = LocalKParProjectRaw::new_guess_root(omg.join("gadgets.kpar"))?;
-    let (Some(_), Some(meta)) = kpar.get_project()? else {
+    let (Some(_), Some(meta)) = kpar
+        .get_project()?
+        .and_then(sysand_core::project::ProjectDefinition::into_json)
+        .unzip()
+    else {
         panic!("info and meta");
     };
     assert!(meta.root.is_none() && meta.exports.is_none());
@@ -1526,14 +1574,22 @@ fn a_mixed_family_workspace_builds_both_shapes_into_one_output()
 
     let omg =
         LocalKParProjectRaw::new_guess_root(cwd.join("output").join("omg_member-1.0.0.kpar"))?;
-    let (Some(_), Some(meta)) = omg.get_project()? else {
+    let (Some(_), Some(meta)) = omg
+        .get_project()?
+        .and_then(sysand_core::project::ProjectDefinition::into_json)
+        .unzip()
+    else {
         panic!("omg meta");
     };
     assert!(meta.index.is_some() && meta.root.is_none());
 
     let syside =
         LocalKParProjectRaw::new_guess_root(cwd.join("output").join("syside_member-1.0.0.kpar"))?;
-    let (Some(_), Some(meta)) = syside.get_project()? else {
+    let (Some(_), Some(meta)) = syside
+        .get_project()?
+        .and_then(sysand_core::project::ProjectDefinition::into_json)
+        .unzip()
+    else {
         panic!("syside meta");
     };
     assert_eq!(meta.root.as_deref(), Some("test.sysml"));

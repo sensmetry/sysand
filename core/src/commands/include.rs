@@ -8,7 +8,10 @@ use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
 use crate::{
     model::KerMlChecksumAlg,
-    project::{ProjectFormat, ProjectMut, ProjectOrIOError, ProjectRead, utils::FsIoError},
+    project::{
+        ProjectDefinition, ProjectFormat, ProjectMut, ProjectOrIOError, ProjectRead,
+        utils::FsIoError,
+    },
     symbols::{ExtractError, Language, SymbolsError},
     utils::sha256_lowercase_hex,
 };
@@ -42,6 +45,8 @@ pub enum IncludeError<ProjectError> {
     /// The file is not of a type the project's metamodel admits.
     #[error("{0}")]
     NotAdmitted(Box<str>),
+    #[error("project has no `.project.json` and `.meta.json`")]
+    MissingManifest,
     /// The manifest could not be read, or the edit was refused.
     #[error(transparent)]
     Edit(crate::manifest::edit::EditError),
@@ -95,11 +100,11 @@ pub fn do_include<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
         );
     }
 
-    // TODO: is `unwrap_or_default()` appropriate here?
-    let mut meta = project
-        .get_meta()
-        .map_err(IncludeError::Project)?
-        .unwrap_or_default();
+    let Some(ProjectDefinition::Json { info: _, mut meta }) =
+        project.get_project().map_err(IncludeError::Project)?
+    else {
+        return Err(IncludeError::MissingManifest);
+    };
     if meta.root.is_some() && !index_symbols {
         return Err(IncludeError::NoIndexSymbolsOnRoot);
     }
@@ -229,8 +234,11 @@ fn project_metamodel<Pr: ProjectRead>(
     project: &Pr,
     document: &crate::manifest::edit::DocumentMut,
 ) -> Option<crate::model::KnownMetamodel> {
-    if let Ok(manifest) = project.manifest() {
-        return Some(manifest.metamodel);
+    match project.get_project() {
+        Ok(Some(ProjectDefinition::Toml(manifest))) => return Some(manifest.metamodel),
+        Ok(_) => {}
+        // Falls back to the metamodel the document declares.
+        Err(error) => log::debug!("the project's manifest does not resolve: {error}"),
     }
     let declared = document
         .get("project")?

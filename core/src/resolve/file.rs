@@ -15,12 +15,14 @@ use crate::{
     context::ProjectContext,
     lock::Source,
     manifest::workspace_table::WorkspaceTable,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsage},
+    model::{InterchangeProjectUsage, InterchangeProjectUsageRaw},
     project::{
-        self, ProjectFormat, ProjectRead,
+        self, ProjectDefinition, ProjectFormat, ProjectRead,
         local_kpar::{KparInnerPath, LocalKParError, LocalKParProject},
         local_src::{LocalSrcError, LocalSrcProject},
-        utils::{FsIoError, ProjectDeserializationError, RelativizePathError, wrapfs},
+        utils::{
+            FsIoError, ProjectDeserializationError, RelativizePathError, relativize_path, wrapfs,
+        },
     },
     resolve::UsageOrigin,
     resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead},
@@ -286,6 +288,10 @@ impl From<LocalKParError> for FileResolverProjectError {
                 actual,
             },
             LocalKParError::EmptyKpar { path } => Self::EmptyKpar { path },
+            error @ LocalKParError::MissingDocument {
+                path: _,
+                missing: _,
+            } => Self::Other(error.to_string()),
         }
     }
 }
@@ -314,21 +320,6 @@ impl ProjectRead for FileResolverProject {
     }
 
     /// Forwarded for the same reason as [`Self::format`].
-    fn manifest(
-        &self,
-    ) -> Result<sysand_core::manifest::project::ResolvedProject, project::ManifestError<Self::Error>>
-    {
-        match self {
-            Self::LocalSrcProject(project) => project
-                .manifest()
-                .map_err(|e| e.map_project_read(Into::into)),
-            Self::LocalKParProject(project) => project
-                .manifest()
-                .map_err(|e| e.map_project_read(Into::into)),
-        }
-    }
-
-    /// Forwarded for the same reason as [`Self::format`].
     fn manifest_document(
         &self,
     ) -> Result<sysand_core::manifest::edit::DocumentMut, project::ManifestError<Self::Error>> {
@@ -344,15 +335,7 @@ impl ProjectRead for FileResolverProject {
 
     type Error = FileResolverProjectError;
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         match self {
             Self::LocalSrcProject(local_src_project) => Ok(local_src_project.get_project()?),
             Self::LocalKParProject(local_kpar_project) => Ok(local_kpar_project.get_project()?),
@@ -385,12 +368,35 @@ impl ProjectRead for FileResolverProject {
         }
     }
 
+    /// A local directory is locked as an editable project, whatever its
+    /// manifest; a KPAR by its path and digest.
     fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         match self {
-            Self::LocalSrcProject(proj) => proj
-                .sources(ctx)
-                .map_err(FileResolverProjectError::LocalSrc),
+            Self::LocalSrcProject(proj) => {
+                let editable = if let Some(nominal) = proj.nominal_path() {
+                    nominal.as_str().into()
+                } else if let Some(root) = ctx.sources_root() {
+                    relativize_path(proj.path(), &root)?.into_string().into()
+                } else {
+                    panic!("a directory without `nominal_path` has no lockfile source");
+                };
+                Ok(vec![Source::Editable { editable }])
+            }
             Self::LocalKParProject(proj) => Ok(proj.sources(ctx)?),
+        }
+    }
+
+    fn version(&self) -> Result<Option<String>, Self::Error> {
+        match self {
+            Self::LocalSrcProject(proj) => Ok(proj.version()?),
+            Self::LocalKParProject(proj) => Ok(proj.version()?),
+        }
+    }
+
+    fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
+        match self {
+            Self::LocalSrcProject(proj) => Ok(proj.usage()?),
+            Self::LocalKParProject(proj) => Ok(proj.usage()?),
         }
     }
 

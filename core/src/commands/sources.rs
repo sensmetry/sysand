@@ -10,8 +10,10 @@ use typed_path::Utf8UnixPathBuf;
 
 use crate::{
     env::ReadEnvironment,
-    model::{InterchangeProjectUsage, InterchangeProjectValidationError},
-    project::{ProjectRead, utils::Identifier},
+    model::{
+        InterchangeProjectUsage, InterchangeProjectUsageRaw, InterchangeProjectValidationError,
+    },
+    project::{ProjectDefinition, ProjectRead, utils::Identifier},
     resolve::{
         ResolveRead, UsageOrigin,
         env::EnvResolver,
@@ -89,8 +91,12 @@ pub fn do_sources_project_no_deps<Pr: ProjectRead>(
     project: &Pr,
     include_index: bool,
 ) -> Result<Vec<Utf8UnixPathBuf>, SourcesError<Pr::Error>> {
-    let Some(meta) = project.get_meta().map_err(SourcesError::Project)? else {
-        return Ok(vec![]);
+    let meta = match project.get_project().map_err(SourcesError::Project)? {
+        None => return Ok(vec![]),
+        Some(ProjectDefinition::Toml(project)) => {
+            return Ok(project.sources.iter().cloned().collect());
+        }
+        Some(ProjectDefinition::Json { info: _, meta }) => meta,
     };
 
     Ok(meta
@@ -314,13 +320,13 @@ pub fn do_sources_env(
                 break None;
             };
             // Projects with non-semver versions cannot match the constraint
-            if let Some(info) = candidate.get_info()? {
-                match Version::parse(&info.version) {
+            if let Some(definition) = candidate.get_project()? {
+                match Version::parse(&definition.version()) {
                     Ok(v) if vr.matches(&v) => break Some(candidate),
                     Ok(_) => {}
                     Err(e) => log::debug!(
                         "ignoring env project `{}` because it has invalid semver version:\n{e}",
-                        info.name
+                        definition.name()
                     ),
                 }
             }
@@ -339,16 +345,19 @@ pub fn do_sources_env(
     }
 
     if dependencies != Dependencies::None {
-        let Some(info) = installed.get_info()? else {
+        let Some(definition) = installed.get_project()? else {
             return Err(SourcesEnvError::MissingInfo(project.to_string().into()));
         };
-        let info = info
-            .validate()
+        let usages = definition
+            .usages()
+            .iter()
+            .map(InterchangeProjectUsageRaw::validate)
+            .collect::<Result<Vec<_>, _>>()
             .map_err(|source| SourcesEnvError::InvalidMetadata {
                 project: project.to_string().into(),
                 source,
             })?;
-        let deps = resolve_dependencies(info.usage, env, dependencies).map_err(|e| {
+        let deps = resolve_dependencies(usages, env, dependencies).map_err(|e| {
             SourcesEnvError::Dependencies {
                 project: project.to_string().into(),
                 source: Box::new(e),

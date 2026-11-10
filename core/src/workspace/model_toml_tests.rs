@@ -1876,7 +1876,7 @@ fn a_listed_member_is_read_with_the_table() {
     let project = super::project_at_path(fixture.under("app"), None)
         .expect("a listed member is not an unlisted one");
     assert!(
-        project.get_info().is_ok(),
+        project.get_project().is_ok(),
         "a listed member resolves against its workspace's table"
     );
 }
@@ -1924,7 +1924,7 @@ fn a_broken_sibling_does_not_stop_a_member_being_read() {
     let project = super::project_at_path(fixture.under("app"), None)
         .expect("a sibling that does not parse is not this project's problem");
     assert!(
-        project.get_info().is_ok(),
+        project.get_project().is_ok(),
         "a sibling that does not parse is not this project's problem"
     );
 }
@@ -1948,9 +1948,9 @@ fn a_project_outside_a_workspace_reads_table_less() {
     let project = super::project_at_path(fixture.base().join("outside"), None)
         .expect("a project outside any workspace is not unlisted");
     assert!(
-        project.get_info().is_ok(),
+        project.get_project().is_ok(),
         "a plain project still reads: {:?}",
-        project.get_info().err()
+        project.get_project().err()
     );
 }
 
@@ -1999,8 +1999,8 @@ fn an_excluded_project_at_a_path_still_reads() {
     let project = super::project_at_path(fixture.under("vendor/dep"), None)
         .expect("an excluded project is standalone, not unlisted");
     assert!(
-        project.get_info().is_ok(),
+        project.get_project().is_ok(),
         "and it still reads: {:?}",
-        project.get_info().err()
+        project.get_project().err()
     );
 }

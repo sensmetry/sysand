@@ -7,7 +7,7 @@
 mod browser_tests {
     use std::error::Error;
 
-    use sysand_core::{model::InterchangeProjectInfoRaw, project::ProjectRead as _};
+    use sysand_core::project::{ProjectDefinition, ProjectRead as _};
 
     use sysand_js::{
         do_env_js_local_storage, do_init_js_local_storage,
@@ -58,34 +58,22 @@ mod browser_tests {
 
         let project = open_project_local_storage("sysand_storage", Utf8UnixPath::new("/"))?;
 
-        let (Some(info), Some(meta)) = project.get_project()? else {
+        let Some(ProjectDefinition::Toml(manifest)) = project.get_project()? else {
             return Err("Failed".into());
         };
 
+        assert_eq!(manifest.name.as_str(), "basic-init");
+        assert_eq!(manifest.publisher.as_str(), "acme");
+        assert_eq!(manifest.version.to_string(), "1.2.3");
         assert_eq!(
-            info,
-            InterchangeProjectInfoRaw {
-                name: "basic-init".to_owned(),
-                publisher: Some(String::from("acme")),
-                description: None,
-                version: "1.2.3".to_owned(),
-                license: Some("MIT OR Apache-2.0".to_owned()),
-                maintainer: vec![],
-                website: None,
-                topic: vec![],
-                usage: vec![],
-            }
+            manifest.license.as_ref().map(ToString::to_string),
+            Some("MIT OR Apache-2.0".to_owned())
         );
-
-        assert!(meta.checksum.is_none());
-        assert!(meta.includes_derived.is_none());
-        assert!(meta.includes_implied.is_none());
-        // `IndexMap` is not a dependency of this crate, so its method cannot be
-        // named by path and the closure stays.
-        #[expect(clippy::redundant_closure_for_method_calls)]
-        let index_is_empty = meta.index.as_ref().is_some_and(|index| index.is_empty());
-        assert!(index_is_empty);
-        assert!(meta.metamodel.is_none());
+        assert!(manifest.sources.is_empty());
+        assert_eq!(
+            manifest.usages,
+            [] as [sysand_core::manifest::usage::LocatedUsage; 0]
+        );
 
         // Local storage is not automatically cleared between tests.
         local_storage.clear().unwrap();

@@ -50,10 +50,9 @@ def remove(
         name: The dependency's name, given together with ``publisher``.
 
     Returns:
-        The usages that were removed, in declaration order, in the shape
-        :func:`info_path` returns them. Normally one: sysand never adds the
-        same project twice, but it tolerates a manifest that declares it
-        more than once.
+        The usages that were removed, in declaration order. Normally one:
+        sysand never adds the same project twice, but it tolerates a
+        manifest that declares it more than once.
 
     Raises:
         TypeError: neither form was given, both were, or only one of

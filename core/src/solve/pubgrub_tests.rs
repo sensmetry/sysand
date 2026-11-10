@@ -171,8 +171,8 @@ fn solution_projects<P: ProjectRead>(solution: &HashMap<Identifier, P>) -> Vec<(
     solution
         .values()
         .map(|p| {
-            let info = p.get_info().unwrap().unwrap();
-            (info.name, info.version)
+            let definition = p.get_project().unwrap().unwrap();
+            (definition.name().to_owned(), definition.version())
         })
         .collect()
 }
@@ -540,15 +540,7 @@ struct StubProject {
 impl ProjectRead for StubProject {
     type Error = StubError;
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    fn get_project(&self) -> Result<Option<crate::project::ProjectDefinition>, Self::Error> {
         unimplemented!("not used by the solver")
     }
 
@@ -935,6 +927,12 @@ fn directory_usage_candidate_rejection_reason_is_reported() -> Result<(), Box<dy
     std::fs::write(
         tmp.path().join(".project.json"),
         serde_json::to_string(&info)?,
+    )?;
+    std::fs::write(
+        tmp.path().join(".meta.json"),
+        serde_json::to_string(&crate::model::InterchangeProjectMetadataRaw::minimal(
+            "1970-01-01T00:00:00Z".to_owned(),
+        ))?,
     )?;
 
     let project = LocalSrcProject::new_access(tmp.path().to_owned(), None);
@@ -2503,6 +2501,12 @@ fn a_transitive_usage_takes_the_format_of_its_candidate() -> Result<(), Box<dyn 
         json.path().join(".project.json"),
         serde_json::to_string(&info)?,
     )?;
+    std::fs::write(
+        json.path().join(".meta.json"),
+        serde_json::to_string(&crate::model::InterchangeProjectMetadataRaw::minimal(
+            "1970-01-01T00:00:00Z".to_owned(),
+        ))?,
+    )?;
     assert_eq!(
         origin_of_the_transitive_usage(json.path())?,
         UsageOrigin::Json
@@ -2534,15 +2538,7 @@ fn a_candidate_whose_format_cannot_be_read_is_skipped_unless_typed() {
             Err(std::io::Error::other("cannot tell which manifest this is").into())
         }
 
-        fn get_project(
-            &self,
-        ) -> Result<
-            (
-                Option<InterchangeProjectInfoRaw>,
-                Option<InterchangeProjectMetadataRaw>,
-            ),
-            Self::Error,
-        > {
+        fn get_project(&self) -> Result<Option<crate::project::ProjectDefinition>, Self::Error> {
             self.0.get_project()
         }
 
@@ -2564,6 +2560,14 @@ fn a_candidate_whose_format_cannot_be_read_is_skipped_unless_typed() {
 
         fn project_root(&self) -> Option<&camino::Utf8Path> {
             self.0.project_root()
+        }
+
+        fn version(&self) -> Result<Option<String>, Self::Error> {
+            self.0.version()
+        }
+
+        fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
+            self.0.usage()
         }
 
         fn checksum_canonical_variant(
@@ -2635,6 +2639,14 @@ fn project_dir(at: &camino::Utf8Path, name: &str) {
     std::fs::write(
         at.join(".project.json"),
         serde_json::to_string(&info).expect("serializable"),
+    )
+    .expect("a manifest");
+    std::fs::write(
+        at.join(".meta.json"),
+        serde_json::to_string(&crate::model::InterchangeProjectMetadataRaw::minimal(
+            "1970-01-01T00:00:00Z".to_owned(),
+        ))
+        .expect("serializable"),
     )
     .expect("a manifest");
 }

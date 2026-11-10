@@ -44,12 +44,18 @@ pub enum CommandSyncError {
     /// The sync itself, where the remedy names a flag only the CLI has.
     #[error("{0}\n       (hint: pass `--include-std` to fetch it from its IRI)")]
     IncludeStd(CliSyncError),
+    /// An editable project no longer matches the lockfile.
+    #[error("{0}\n       (hint: run `sysand lock` to update the lockfile)")]
+    Relock(CliSyncError),
     /// Writing the environment metadata after a completed sync.
     #[error(transparent)]
     WriteMetadata(#[from] Box<FsIoError>),
     /// `--verify` could not read the environment or the manifests.
     #[error(transparent)]
     Verify(#[from] VerifyError),
+    /// The workspace at the lockfile's root could not be read.
+    #[error(transparent)]
+    Workspace(#[from] sysand_core::workspace::model_toml::DiscoverError),
     /// `--repair` could not remove a mismatched installation.
     #[error("removing `{path}` from the environment")]
     Remove {
@@ -239,9 +245,19 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     // `project_root` is the root the lockfile's `src_path`s are relative
     // to: the workspace root for a workspace's lockfile.
     let relative_root = project_root.as_ref();
+    let members = sysand_core::workspace::model_toml::workspace_members(relative_root)?;
     sysand_core::commands::sync::do_sync(
         lock,
         env,
+        // A workspace member resolves its manifest against the table.
+        Some(|editable: Utf8UnixPathBuf| {
+            let path = relative_root.join(editable.as_str());
+            if members.contains(&editable) {
+                sysand_core::workspace::model_toml::project_at_path(path, Some(editable))
+            } else {
+                Ok(LocalSrcProject::new_access(path, Some(editable)))
+            }
+        }),
         Some(
             |src_path: Utf8UnixPathBuf, checksum: String| -> LocalSrcProject {
                 LocalSrcProject::new_access_with_checksum(
@@ -343,10 +359,13 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
             version: _,
             provided_versions: _,
         } => CommandSyncError::IncludeStd(error),
+        SyncError::ProjectMismatch(mismatch) if mismatch.source_kind == "editable" => {
+            CommandSyncError::Relock(error)
+        }
         _ => CommandSyncError::Sync(error),
     })?;
 
-    env.merge_lock(lock);
+    env.merge_lock(lock, &members);
     env.write()?;
 
     Ok(())

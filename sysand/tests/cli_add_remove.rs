@@ -873,7 +873,7 @@ identifiers = [
     "urn:kpar:test-src",
 ]
 sources = [
-    { src_path = "local/test" },
+    { editable = "local/test" },
 ]
 
 [[project]]
@@ -979,8 +979,8 @@ fn add_and_remove_from_url() -> Result<(), Box<dyn std::error::Error>> {
 
     let config = std::fs::read_to_string(&config_path)?;
     assert!(
-        config.contains("src_path"),
-        "config should record a src_path source resolved from the file:// URL"
+        config.contains("editable"),
+        "config should record an editable source resolved from the file:// URL"
     );
     assert!(config.contains("urn:kpar:add-from-url-dep"));
 
@@ -1959,6 +1959,10 @@ fn add_dir_missing_publisher_fails() -> Result<(), Box<dyn std::error::Error>> {
 }
 "#,
     )?;
+    std::fs::write(
+        dep_dir.join(".meta.json"),
+        r#"{"index":{},"created":"1970-01-01T00:00:00Z"}"#,
+    )?;
 
     let out = run_sysand_in(&cwd, ["add", "--no-lock", "--dir", "dep"], None)?;
 
@@ -2165,6 +2169,8 @@ fn add_kpar_path_missing_publisher_fails() -> Result<(), Box<dyn std::error::Err
             .unix_permissions(0o644);
         zip.start_file(".project.json", options)?;
         zip.write_all(br#"{"name":"no-publisher-dep","version":"1.0.0"}"#)?;
+        zip.start_file(".meta.json", options)?;
+        zip.write_all(br#"{"index":{},"created":"1970-01-01T00:00:00Z"}"#)?;
         zip.finish()?;
     }
 
@@ -2309,8 +2315,9 @@ fn remove_identifier_keeps_lockfile_valid_and_syncs() -> Result<(), Box<dyn std:
     run_sysand_in(&cwd, ["lock"], None)?.assert().success();
     run_sysand_in(&cwd, ["sync"], None)?.assert().success();
 
-    let env_lib = cwd.join(DEFAULT_ENV_NAME).join("lib");
-    assert!(env_lib.join("acme-labs-remove-lock-dep_1.0.0").is_dir());
+    // A `dir` dependency is used in place: `env.toml` points at it.
+    let env_toml = cwd.join(DEFAULT_ENV_NAME).join("env.toml");
+    assert!(fs::read_to_string(&env_toml)?.contains("Remove Lock Dep"));
 
     run_sysand_in(&cwd, ["remove", "Acme Labs/Remove Lock Dep"], None)?
         .assert()
@@ -2324,7 +2331,7 @@ fn remove_identifier_keeps_lockfile_valid_and_syncs() -> Result<(), Box<dyn std:
     );
 
     assert!(
-        !env_lib.join("acme-labs-remove-lock-dep_1.0.0").exists(),
+        !fs::read_to_string(&env_toml)?.contains("Remove Lock Dep"),
         "the dependency dropped by `remove <publisher>/<name>` must be pruned"
     );
 

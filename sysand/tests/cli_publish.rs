@@ -138,14 +138,13 @@ fn mock_publish_with_bearer_times(server: &mut Server, token: &str, times: usize
 }
 
 /// A workspace publish resolves every member's archive before it
-/// uploads anything, so an unbuildable member stops the command with
+/// uploads anything, so a member with no archive stops the command with
 /// nothing sent.
 #[test]
-fn publish_workspace_with_an_unreadable_member_uploads_nothing() -> TestResult {
+fn publish_workspace_with_an_unbuilt_member_uploads_nothing() -> TestResult {
     let (_temp_dir, cwd) = new_temp_cwd()?;
     workspace_of(&cwd, &["project1"])?;
-    // Loads, and cannot be read as a project. A member defining no project
-    // at all would fail the whole load before per-member resolution.
+    // Reads as a project, and cannot be built.
     std::fs::create_dir(cwd.join("project1"))?;
     std::fs::write(
         cwd.join("project1/model.toml"),
@@ -166,8 +165,7 @@ fn publish_workspace_with_an_unreadable_member_uploads_nothing() -> TestResult {
     )?
     .assert()
     .failure()
-    // The failure names the member, which the underlying build error does not.
-    .stderr(predicate::str::contains("`project1`"));
+    .stderr(predicate::str::contains("project1-1.0.0.kpar"));
     upload_mock.assert();
 
     Ok(())

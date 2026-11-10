@@ -445,4 +445,14 @@ pub trait WriteEnvironment {
     ) -> Result<(), Self::WriteError>;
 
     fn del_uri<S: AsRef<str>>(&mut self, uri: S) -> Result<(), Self::WriteError>;
+
+    /// Whether the environment holds its own copy of `uri` at `version`,
+    /// one it installed and may remove. An entry that only points at a
+    /// project used in place (an editable project or a workspace member)
+    /// is not one; neither is a version it does not have.
+    fn is_installed<S: AsRef<str>, T: AsRef<str>>(
+        &self,
+        uri: S,
+        version: T,
+    ) -> Result<bool, Self::WriteError>;
 }

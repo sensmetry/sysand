@@ -254,20 +254,20 @@ impl EnvMetadata {
         workspace: bool,
         checksum: Option<ProjectChecksum>,
     ) -> Result<(), AddProjectError> {
-        let info = project
-            .get_info()?
+        let definition = project
+            .get_project()?
             .ok_or_else(|| AddProjectError::MissingInfo(project.root_path().to_owned()))?;
         let project = EnvProject {
-            publisher: info.publisher,
-            name: info.name,
-            version: info.version,
+            publisher: definition.publisher().map(ToOwned::to_owned),
+            name: definition.name().to_owned(),
+            version: definition.version(),
             path: project
                 .nominal_path()
                 .expect("BUG: no nominal path for project")
                 .to_owned(),
             identifiers,
-            usages: info
-                .usage
+            usages: definition
+                .usages()
                 .iter()
                 .map(|u| Identifier::from_interchange_usage_unchecked(u).into_string())
                 .collect(),

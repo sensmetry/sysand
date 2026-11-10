@@ -29,6 +29,9 @@ fn project() -> InMemoryProject {
             usage: vec![],
             website: None,
         }),
+        meta: Some(crate::model::InterchangeProjectMetadataRaw::minimal(
+            "1970-01-01T00:00:00Z".to_owned(),
+        )),
         ..InMemoryProject::default()
     }
 }
@@ -298,6 +301,9 @@ mod spell_index_usage {
                 usage: vec![],
                 website: None,
             }),
+            meta: Some(crate::model::InterchangeProjectMetadataRaw::minimal(
+                "1970-01-01T00:00:00Z".to_owned(),
+            )),
             ..InMemoryProject::default()
         }
     }

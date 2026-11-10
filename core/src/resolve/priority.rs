@@ -12,8 +12,7 @@ use crate::{
     context::ProjectContext,
     env::utils::ErrorBound,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{CanonicalizationError, ProjectFormat, ProjectRead},
+    project::{CanonicalizationError, ProjectDefinition, ProjectFormat, ProjectRead},
     resolve::{ResolutionInfo, ResolveRead},
 };
 
@@ -108,15 +107,7 @@ impl<HigherProject: ProjectRead, LowerProject: ProjectRead> ProjectRead
 {
     type Error = PriorityError<HigherProject::Error, LowerProject::Error>;
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         match self {
             Self::HigherProject(project) => project.get_project().map_err(PriorityError::Higher),
             Self::LowerProject(project) => project.get_project().map_err(PriorityError::Lower),
@@ -165,20 +156,6 @@ impl<HigherProject: ProjectRead, LowerProject: ProjectRead> ProjectRead
         match self {
             Self::HigherProject(project) => project.source_may_offer_multiple_versions(),
             Self::LowerProject(project) => project.source_may_offer_multiple_versions(),
-        }
-    }
-
-    fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
-        match self {
-            Self::HigherProject(project) => project.get_info().map_err(PriorityError::Higher),
-            Self::LowerProject(project) => project.get_info().map_err(PriorityError::Lower),
-        }
-    }
-
-    fn get_meta(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
-        match self {
-            Self::HigherProject(project) => project.get_meta().map_err(PriorityError::Higher),
-            Self::LowerProject(project) => project.get_meta().map_err(PriorityError::Lower),
         }
     }
 

@@ -27,9 +27,8 @@ use crate::{
         local_index::{LocalIndexEnvironment, LocalIndexError},
     },
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
-        AsAsyncProject, CanonicalizationError, ProjectFormat, ProjectReadAsync,
+        AsAsyncProject, CanonicalizationError, ProjectDefinition, ProjectFormat, ProjectReadAsync,
         index_entry::{IndexEntryProject, IndexEntryProjectError},
         local_kpar::{LocalKParError, LocalKParProject},
     },
@@ -107,15 +106,7 @@ impl<Policy: HTTPAuthentication> AsyncRead for AnyIndexSourceReader<'_, Policy> 
 impl<Policy: HTTPAuthentication> ProjectReadAsync for AnyIndexProject<Policy> {
     type Error = AnyIndexProjectError;
 
-    async fn get_project_async(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    async fn get_project_async(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         match self {
             Self::Remote(p) => p.get_project_async().await.map_err(Into::into),
             Self::Filesystem(p) => p.get_project_async().await.map_err(Into::into),
@@ -153,31 +144,6 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for AnyIndexProject<Policy> {
         }
     }
 
-    // Every optional method is forwarded so an arm's override (the
-    // HTTP entry answers `version`/`usage` from `versions.json` without
-    // a download; the archive arm honours prefetched digests) stays in
-    // force behind the enum.
-    async fn get_info_async(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
-        match self {
-            Self::Remote(p) => p.get_info_async().await.map_err(Into::into),
-            Self::Filesystem(p) => p.get_info_async().await.map_err(Into::into),
-        }
-    }
-
-    async fn get_meta_async(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
-        match self {
-            Self::Remote(p) => p.get_meta_async().await.map_err(Into::into),
-            Self::Filesystem(p) => p.get_meta_async().await.map_err(Into::into),
-        }
-    }
-
-    async fn name_async(&self) -> Result<Option<String>, Self::Error> {
-        match self {
-            Self::Remote(p) => p.name_async().await.map_err(Into::into),
-            Self::Filesystem(p) => p.name_async().await.map_err(Into::into),
-        }
-    }
-
     async fn is_definitely_invalid_async(&self) -> bool {
         match self {
             Self::Remote(p) => p.is_definitely_invalid_async().await,
@@ -198,27 +164,6 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for AnyIndexProject<Policy> {
         match self {
             Self::Remote(p) => p.usage_async().await.map_err(Into::into),
             Self::Filesystem(p) => p.usage_async().await.map_err(Into::into),
-        }
-    }
-
-    async fn checksum_async(
-        &self,
-    ) -> Result<
-        Option<indexmap::IndexMap<String, crate::model::InterchangeProjectChecksumRaw>>,
-        Self::Error,
-    > {
-        match self {
-            Self::Remote(p) => p.checksum_async().await.map_err(Into::into),
-            Self::Filesystem(p) => p.checksum_async().await.map_err(Into::into),
-        }
-    }
-
-    async fn canonical_meta_async(
-        &self,
-    ) -> Result<Option<InterchangeProjectMetadataRaw>, CanonicalizationError<Self::Error>> {
-        match self {
-            Self::Remote(p) => canonical(p.canonical_meta_async().await),
-            Self::Filesystem(p) => canonical(p.canonical_meta_async().await),
         }
     }
 

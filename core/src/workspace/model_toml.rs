@@ -608,6 +608,36 @@ pub fn candidate_root(from: impl AsRef<Utf8Path>) -> Result<Option<Utf8PathBuf>,
     }
 }
 
+/// The projects a lockfile at `lock_root` was made for, as the lockfile
+/// names them in their `editable` sources: a workspace's `members`, or
+/// else the one project at `lock_root`, which is `.`.
+pub fn lock_roots(
+    lock_root: impl AsRef<Utf8Path>,
+) -> Result<Vec<typed_path::Utf8UnixPathBuf>, DiscoverError> {
+    let lock_root = lock_root.as_ref();
+    if is_workspace_file(lock_root)? {
+        workspace_members(lock_root)
+    } else {
+        Ok(vec![typed_path::Utf8UnixPathBuf::from(".")])
+    }
+}
+
+/// The `members` of the workspace whose root is `dir`, relative to it;
+/// none when `dir` is not a workspace root.
+pub fn workspace_members(
+    dir: impl AsRef<Utf8Path>,
+) -> Result<Vec<typed_path::Utf8UnixPathBuf>, DiscoverError> {
+    let dir = dir.as_ref();
+    if !is_workspace_file(dir)? {
+        return Ok(Vec::new());
+    }
+    Ok(workspace_table_at(dir)?
+        .members
+        .into_iter()
+        .map(|member| member.path)
+        .collect())
+}
+
 /// The workspace `from` belongs to, as its `[workspace]` table.
 ///
 /// Unlike [`Workspace::discover`], this does not load the members, so

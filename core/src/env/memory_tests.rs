@@ -11,11 +11,21 @@ use crate::{
         utils::{CloneError, clone_project},
     },
     init::do_init_memory,
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
-        ProjectRead as _,
+        ProjectDefinition, ProjectRead as _,
         memory::{InMemoryError, InMemoryProject},
     },
 };
+
+/// A json project: an environment holds copies, and only a json project
+/// is copied.
+fn json_project(name: &str, version: &str) -> InMemoryProject {
+    InMemoryProject::from_info_meta(
+        InterchangeProjectInfoRaw::minimal(name.to_owned(), version.to_owned()),
+        InterchangeProjectMetadataRaw::minimal("1970-01-01T00:00:00Z".to_owned()),
+    )
+}
 
 fn new_env() -> MemoryStorageEnvironment<InMemoryProject> {
     MemoryStorageEnvironment::<InMemoryProject>::new()
@@ -33,9 +43,9 @@ fn write_environment() {
     let uri1 = "urn:kpar:first".to_owned();
     let uri2 = "urn:kpar:second".to_owned();
     let version = "0.0.1".to_owned();
-    let project1 = do_init_memory("First", "acme", &version, None, Some(sysml())).unwrap();
+    let project1 = json_project("First", &version);
     let c1 = project1.checksum_canonical_variant().unwrap();
-    let project2 = do_init_memory("Second", "bravo", &version, None, Some(sysml())).unwrap();
+    let project2 = json_project("Second", &version);
     let c2 = project2.checksum_canonical_variant().unwrap();
     let mut env = new_env();
 
@@ -47,11 +57,15 @@ fn write_environment() {
     .unwrap();
 
     assert_eq!(env.projects.len(), 1);
-    // Not the same project value: a `model.toml` source becomes a json copy
-    // in the environment. What has to survive is what the copy reads as.
     assert_eq!(
-        env.projects[&uri1][&version].get_project().unwrap(),
-        project1.get_project().unwrap()
+        env.projects[&uri1][&version]
+            .get_project()
+            .unwrap()
+            .and_then(ProjectDefinition::into_json),
+        project1
+            .get_project()
+            .unwrap()
+            .and_then(ProjectDefinition::into_json)
     );
 
     env.put_project(&uri2, &version, Some(c2), |p| {
@@ -63,8 +77,14 @@ fn write_environment() {
 
     assert_eq!(env.projects.len(), 2);
     assert_eq!(
-        env.projects[&uri2][&version].get_project().unwrap(),
-        project2.get_project().unwrap()
+        env.projects[&uri2][&version]
+            .get_project()
+            .unwrap()
+            .and_then(ProjectDefinition::into_json),
+        project2
+            .get_project()
+            .unwrap()
+            .and_then(ProjectDefinition::into_json)
     );
 
     env.del_project_version(&uri1, version).unwrap();

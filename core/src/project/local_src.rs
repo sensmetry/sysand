@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 use std::{
-    cell::OnceCell,
     collections::HashSet,
     fs::File,
     io::{Read, Write as _},
@@ -18,18 +17,14 @@ use crate::{
     context::ProjectContext,
     env::utils::{CloneError, clone_project},
     lock::Source,
-    manifest::{
-        MODEL_TOML_FILE,
-        kpar_view::{self, ViewError},
-        project::ResolvedProject,
-    },
+    manifest::{MODEL_TOML_FILE, kpar_view, project::ResolvedProject},
     model::{
         InterchangeProjectInfoPartial, InterchangeProjectInfoRaw,
-        InterchangeProjectMetadataPartial, InterchangeProjectMetadataRaw, META_JSON_FILE,
-        PROJECT_JSON_FILE,
+        InterchangeProjectMetadataPartial, InterchangeProjectMetadataRaw,
+        InterchangeProjectUsageRaw, META_JSON_FILE, PROJECT_JSON_FILE,
     },
     project::{
-        ManifestError, ProjectMut, ProjectRead,
+        ManifestError, ProjectDefinition, ProjectMut, ProjectRead,
         utils::{RelativizePathError, ToPathBuf as _, ToUnixPathBuf as _, relativize_path, wrapfs},
     },
 };
@@ -89,23 +84,7 @@ pub struct LocalSrcProject {
     /// with `None` refuses every one of them. The table is never looked up
     /// from the filesystem.
     workspace: Option<std::sync::Arc<crate::manifest::workspace_table::WorkspaceTable>>,
-    /// The pair a `model.toml` project answers with, computed once because
-    /// building it parses the manifest and reads every source.
-    ///
-    /// Filled on the toml path only: on the json path the writers of
-    /// [`ProjectMut`] and [`LocalSrcProject::set_index`] change the files
-    /// underneath it.
-    ///
-    /// Boxed to keep the struct small.
-    view: OnceCell<Box<ViewPair>>,
 }
-
-/// The `.project.json`/`.meta.json` pair, as [`ProjectRead::get_project`]
-/// answers with it.
-type ViewPair = (
-    Option<InterchangeProjectInfoRaw>,
-    Option<InterchangeProjectMetadataRaw>,
-);
 
 impl LocalSrcProject {
     /// Access the project. No invariants will be checked. If `nominal_path` is provided,
@@ -116,7 +95,6 @@ impl LocalSrcProject {
             project_path: path.into(),
             expected_checksum: None,
             workspace: None,
-            view: OnceCell::new(),
         }
     }
 
@@ -253,10 +231,17 @@ impl LocalSrcProject {
     pub fn get_source_paths(&self) -> Result<HashSet<Utf8PathBuf>, LocalSrcError> {
         let mut result = HashSet::new();
 
-        if let Some(meta) = self.get_meta()? {
-            for path in meta.source_paths(true) {
-                let source_path = self.get_source_path(path)?;
-                result.insert(source_path);
+        match self.get_project()? {
+            None => {}
+            Some(ProjectDefinition::Toml(project)) => {
+                for path in project.sources.iter() {
+                    result.insert(self.get_source_path(path)?);
+                }
+            }
+            Some(ProjectDefinition::Json { info: _, meta }) => {
+                for path in meta.source_paths(true) {
+                    result.insert(self.get_source_path(path)?);
+                }
             }
         }
 
@@ -283,7 +268,16 @@ impl LocalSrcProject {
     }
 
     pub fn set_index(&mut self, new_index: IndexMap<String, String>) -> Result<(), LocalSrcError> {
-        let mut meta = self.get_meta()?.ok_or(LocalSrcError::MissingMeta)?;
+        let mut meta = match self.get_project()? {
+            None => return Err(LocalSrcError::MissingMeta),
+            Some(ProjectDefinition::Toml(_)) => {
+                return Err(LocalSrcError::JsonWriteToTomlProject {
+                    dir: self.project_path.clone(),
+                    file: META_JSON_FILE,
+                });
+            }
+            Some(ProjectDefinition::Json { info: _, meta }) => meta,
+        };
         meta.index = Some(new_index);
         self.put_meta(&meta, true)?;
         Ok(())
@@ -341,57 +335,43 @@ impl LocalSrcProject {
 }
 
 impl LocalSrcProject {
-    /// The pair a `model.toml` project answers with, read once.
-    ///
-    /// A failure is not cached: `OnceCell::get_or_try_init` is unstable,
-    /// and these errors are not `Clone`.
-    fn toml_view(&self) -> Result<&ViewPair, LocalSrcError> {
-        if let Some(view) = self.view.get() {
-            return Ok(view);
-        }
-        let view = Box::new(self.read_model_toml()?);
-        Ok(self.view.get_or_init(|| view))
+    /// Read `model.toml`, resolved against the workspace this project is
+    /// a member of.
+    fn read_model_toml(&self) -> Result<ResolvedProject, LocalSrcError> {
+        let text = self.model_toml_text()?;
+        Ok(kpar_view::resolved_of_text_in(
+            MODEL_TOML_FILE,
+            &text,
+            self.workspace.as_deref(),
+        )?)
     }
 
-    /// Read `model.toml` and synthesize the KPAR view of it, supplying the
-    /// manifest text and a safe way to read source files inside the project.
-    fn read_model_toml(&self) -> Result<ViewPair, LocalSrcError> {
-        let text = self.model_toml_text()?;
-        let (info, meta) =
-            kpar_view::of_model_toml_in(&text, self.workspace.as_deref(), |source| {
-                let source_path = self.get_source_path(source)?;
-                Ok(wrapfs::read_to_string(&source_path)?)
+    /// The project's hash, which only a json project has.
+    fn project_checksum(&self) -> Result<String, LocalSrcError> {
+        if let Some(checksum) = &self.expected_checksum {
+            return Ok(checksum.clone());
+        }
+        if detect_format(&self.project_path)? == ProjectFormat::Toml {
+            return Err(LocalSrcError::TomlProjectHasNoChecksum {
+                dir: self.project_path.clone(),
+            });
+        }
+        self.checksum_canonical_hex()
+            .map_err(|e| match e {
+                CanonicalizationError::ProjectRead(e) => e,
+                CanonicalizationError::FileRead(path, error) => {
+                    LocalSrcError::Io(FsIoError::ReadFile(String::from(path).into(), error).into())
+                }
+            })?
+            .ok_or(LocalSrcError::MissingInfoMeta {
+                missing: NO_MANIFEST,
             })
-            .map_err(|error| match error {
-                ViewError::Manifest(error) => LocalSrcError::Deserialize(error),
-                ViewError::Read(error) => error,
-                ViewError::Symbols(error) => LocalSrcError::Symbols(error),
-            })?;
-
-        Ok((Some(info), Some(meta)))
     }
 
     fn model_toml_text(&self) -> Result<String, LocalSrcError> {
         Ok(wrapfs::read_to_string(
             self.project_path.join(MODEL_TOML_FILE),
         )?)
-    }
-
-    /// Which manifest this project would have to have.
-    ///
-    /// A directory with none of the three is missing all of them; one that
-    /// has a json manifest is missing the other json one, and naming
-    /// `model.toml` there would point at the wrong fix. A toml project
-    /// cannot get here, since its view always has both documents.
-    fn missing_manifest(&self) -> LocalSrcError {
-        const JSON: &str = "`.project.json` and/or `.meta.json` files";
-        let missing = match detect_format(&self.project_path) {
-            Ok(ProjectFormat::Neither) => "`model.toml`, or `.project.json` and/or `.meta.json`",
-            Ok(_) => JSON,
-            // The format could not be read: name every possible manifest.
-            Err(_) => "`model.toml`, or `.project.json` and/or `.meta.json`",
-        };
-        LocalSrcError::MissingInfoMeta { missing }
     }
 
     /// Refuse to write a json manifest into a `model.toml` project.
@@ -492,8 +472,6 @@ impl ProjectMut for LocalSrcProject {
         wrapfs::write(&path, document.to_string())
             .map_err(|e| ManifestWriteError::Project(LocalSrcError::from(e)))?;
 
-        // The cached view is of the old manifest.
-        self.view.take();
         Ok(())
     }
 
@@ -522,18 +500,27 @@ impl ProjectMut for LocalSrcProject {
     }
 }
 
+/// What a directory with no manifest is missing.
+const NO_MANIFEST: &str = "`model.toml`, or `.project.json` and `.meta.json`";
+
 #[derive(Error, Debug)]
 pub enum LocalSrcError {
     #[error("{0}")]
     AlreadyExists(String),
     #[error("project is missing metadata file `.meta.json`")]
     MissingMeta,
-    /// The project has no manifest to read. `missing` names the files
-    /// that would be one, which depends on the format: naming
-    /// `model.toml` at a json project that is merely missing one of its
-    /// two documents would point at the wrong fix.
+    /// The project has no manifest to read, or a json project lacks one
+    /// of its two documents. `missing` names what is missing.
     #[error("project is missing {missing}")]
     MissingInfoMeta { missing: &'static str },
+    /// A project source pinned by checksum is a `model.toml` project,
+    /// which has no project checksum.
+    #[error(
+        "`{dir}` is a `model.toml` project, which has no project checksum;\n\
+        {SP:>8} it can only be used as an editable project",
+        SP = ' '
+    )]
+    TomlProjectHasNoChecksum { dir: Utf8PathBuf },
     /// A directory holding both manifest kinds. The message carries no
     /// `sysand migrate` hint.
     #[error(
@@ -628,24 +615,7 @@ impl ProjectRead for LocalSrcProject {
             .map_err(|e| ManifestError::Project(LocalSrcError::Deserialize(e)))
     }
 
-    fn manifest(&self) -> Result<ResolvedProject, ManifestError<Self::Error>> {
-        if self.format().map_err(ManifestError::Project)? != ProjectFormat::Toml {
-            return Err(ManifestError::NoTomlManifest);
-        }
-        let text = self.model_toml_text().map_err(ManifestError::Project)?;
-        kpar_view::resolved_of_text_in(MODEL_TOML_FILE, &text, self.workspace.as_deref())
-            .map_err(|error| ManifestError::Project(LocalSrcError::Deserialize(error)))
-    }
-
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        LocalSrcError,
-    > {
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, LocalSrcError> {
         match detect_format(&self.project_path)? {
             // Refused before either manifest is read.
             ProjectFormat::Both => {
@@ -654,7 +624,11 @@ impl ProjectRead for LocalSrcProject {
                     json: json_manifest(&self.project_path)?.unwrap_or(PROJECT_JSON_FILE),
                 });
             }
-            ProjectFormat::Toml => return self.toml_view().cloned(),
+            ProjectFormat::Toml => {
+                return Ok(Some(ProjectDefinition::Toml(Box::new(
+                    self.read_model_toml()?,
+                ))));
+            }
             ProjectFormat::Json | ProjectFormat::Neither => {}
         }
 
@@ -691,7 +665,24 @@ impl ProjectRead for LocalSrcProject {
             None
         };
 
-        Ok((info_json, meta_json))
+        match (info_json, meta_json) {
+            (Some(info), Some(meta)) => Ok(Some(ProjectDefinition::Json { info, meta })),
+            (None, None) => Ok(None),
+            (Some(_), None) => Err(LocalSrcError::MissingInfoMeta {
+                missing: "`.meta.json`",
+            }),
+            (None, Some(_)) => Err(LocalSrcError::MissingInfoMeta {
+                missing: "`.project.json`",
+            }),
+        }
+    }
+
+    fn version(&self) -> Result<Option<String>, Self::Error> {
+        Ok(self.get_project()?.map(|project| project.version()))
+    }
+
+    fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
+        Ok(self.get_project()?.map(|project| project.usages()))
     }
 
     type SourceReader<'a> = File;
@@ -713,18 +704,7 @@ impl ProjectRead for LocalSrcProject {
     // consistent design for all project types. E.g. should they contain any checksums? when
     // should they be verified to match the project?
     fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
-        let checksum = match &self.expected_checksum {
-            Some(c) => c.clone(),
-            None => self
-                .checksum_canonical_hex()
-                .map_err(|e| match e {
-                    CanonicalizationError::ProjectRead(e) => e,
-                    CanonicalizationError::FileRead(path, error) => LocalSrcError::Io(
-                        FsIoError::ReadFile(String::from(path).into(), error).into(),
-                    ),
-                })?
-                .ok_or_else(|| self.missing_manifest())?,
-        };
+        let checksum = self.project_checksum()?;
         let src_path = if let Some(np) = self.nominal_path.as_ref() {
             np.as_str().into()
         } else if let Some(root) = ctx.sources_root() {
@@ -743,18 +723,7 @@ impl ProjectRead for LocalSrcProject {
     }
 
     fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
-        match self.checksum_canonical_hex() {
-            Ok(c) => match c {
-                Some(c) => Ok(ProjectChecksum::Project(c)),
-                None => Err(self.missing_manifest()),
-            },
-            Err(e) => match e {
-                CanonicalizationError::ProjectRead(e) => Err(e),
-                CanonicalizationError::FileRead(path, error) => Err(LocalSrcError::Io(
-                    FsIoError::ReadFile(String::from(path).into(), error).into(),
-                )),
-            },
-        }
+        Ok(ProjectChecksum::Project(self.project_checksum()?))
     }
 }
 

@@ -12,11 +12,11 @@ use crate::{
     manifest::edit::DocumentMut,
     model::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
-        KerMlChecksumAlg,
+        InterchangeProjectUsageRaw, KerMlChecksumAlg,
     },
     project::{
-        ManifestError, ManifestWriteError, ProjectChecksum, ProjectFormat, ProjectMut, ProjectRead,
-        hash_reader,
+        ManifestError, ManifestWriteError, ProjectChecksum, ProjectDefinition, ProjectFormat,
+        ProjectMut, ProjectRead, hash_reader,
         memory::{InMemoryError, InMemoryProject},
         reference::ProjectReference,
     },
@@ -75,9 +75,7 @@ fn canonicalization_no_checksums() -> Result<(), Box<dyn std::error::Error>> {
         source_may_offer_multiple_versions: false,
     };
 
-    let Some(canonical_info) = project.canonical_meta()? else {
-        panic!()
-    };
+    let canonical_info = super::canonicalize_meta(&project, project.meta.clone().unwrap())?;
 
     let Some(checksums) = canonical_info.checksum else {
         panic!()
@@ -115,16 +113,16 @@ impl ProjectRead for Silent {
         false
     }
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
-        Ok((None, None))
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
+        Ok(None)
+    }
+
+    fn version(&self) -> Result<Option<String>, Self::Error> {
+        Ok(None)
+    }
+
+    fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
+        Ok(None)
     }
 
     type SourceReader<'a> = &'a [u8];
@@ -172,16 +170,16 @@ impl ProjectRead for Toml {
         Ok(ProjectFormat::Toml)
     }
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
-        Ok((None, None))
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
+        Ok(None)
+    }
+
+    fn version(&self) -> Result<Option<String>, Self::Error> {
+        Ok(None)
+    }
+
+    fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
+        Ok(None)
     }
 
     type SourceReader<'a> = std::io::Cursor<String>;

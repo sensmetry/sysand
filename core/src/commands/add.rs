@@ -9,7 +9,7 @@ use crate::{
     model::{
         IndexName, IndexPublisher, InterchangeProjectUsageRaw, InterchangeProjectValidationError,
     },
-    project::{ProjectFormat, ProjectMut, ProjectRead, utils::Identifier},
+    project::{ProjectDefinition, ProjectFormat, ProjectMut, ProjectRead, utils::Identifier},
     utils::SP,
 };
 
@@ -140,18 +140,18 @@ pub fn spell_index_usage<Env: ReadEnvironment>(
     let (Some(env), Some(version)) = (env, version) else {
         return Err(IndexSpellingError::NotInstalled { usage, normalized });
     };
-    let info = env
+    let definition = env
         .get_project(identifier.as_str(), &version)
         .map_err(IndexSpellingError::Env)?
-        .get_info()
+        .get_project()
         .map_err(IndexSpellingError::Project)?;
-    let Some(info) = info else {
+    let Some(definition) = definition else {
         return Err(IndexSpellingError::MissingInfo { usage, version });
     };
-    let Some(found_publisher) = info.publisher else {
+    let Some(found_publisher) = definition.publisher().map(ToOwned::to_owned) else {
         return Err(IndexSpellingError::NoPublisher { usage, version });
     };
-    let found_name = info.name;
+    let found_name = definition.name().to_owned();
     if normalized || (found_publisher == publisher.as_str() && found_name == name.as_str()) {
         let spelling = format!("{found_publisher}/{found_name}");
         match (
@@ -400,7 +400,9 @@ pub fn do_add<P: ProjectMut>(
         return add_toml(project, &usage);
     }
 
-    if let Some(info) = project.get_info().map_err(AddError::Project)?.as_mut() {
+    if let Some(ProjectDefinition::Json { info, meta: _ }) =
+        project.get_project().map_err(AddError::Project)?.as_mut()
+    {
         let mut dont_add = false;
         match &usage {
             InterchangeProjectUsageRaw::Resource {

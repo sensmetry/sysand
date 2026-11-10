@@ -39,20 +39,25 @@ def write_dep(root: Path) -> None:
 def synced_app(tmp_path: Path) -> Path:
     app = tmp_path / "app"
     app.mkdir()
-    # A directory usage: `lock` resolves it without an index and records
-    # the dependency's canonical digest, which the tests then verify.
+    # A KPAR usage: `lock` resolves it without an index, and `sync` copies
+    # it into the environment, where the tests verify it. A directory
+    # usage would be used in place, with nothing to verify.
     (app / ".project.json").write_text(
         json.dumps(
             {
                 "name": "app",
                 "publisher": "acme",
                 "version": "0.1.0",
-                "usage": [{"dir": "deps/dep", "publisher": "acme", "name": "dep"}],
+                "usage": [
+                    {"kparPath": "deps/dep.kpar", "publisher": "acme", "name": "dep"}
+                ],
             }
         )
     )
     (app / ".meta.json").write_text('{"index":{},"created":"2026-01-01T00:00:00Z"}')
-    write_dep(app / "deps" / "dep")
+    write_dep(tmp_path / "dep")
+    (app / "deps").mkdir()
+    sysand.build(output_path=app / "deps" / "dep.kpar", project_dir=tmp_path / "dep")
     sysand.lock(path=str(app), resolution=sysand.Resolution(use_index=False))
     sysand.sync(path=str(app), resolution=sysand.Resolution(use_index=False))
     return app

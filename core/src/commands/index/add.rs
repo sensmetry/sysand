@@ -28,7 +28,7 @@ use crate::{
         IndexName, IndexPublisher, InterchangeProjectInfoRaw, InterchangeProjectValidationError,
     },
     project::{
-        CanonicalizationError, ProjectRead as _,
+        CanonicalizationError, ProjectDefinition, ProjectRead as _,
         local_kpar::{LocalKParError, LocalKParProjectRaw},
         utils::{FsIoError, wrapfs},
     },
@@ -208,11 +208,11 @@ pub fn do_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
             root_in_kpar: p.as_str().into(),
         });
     }
-    let Some(info) = local_project.get_info()? else {
+    let Some((info, meta)) = local_project
+        .get_project()?
+        .and_then(ProjectDefinition::into_json)
+    else {
         return Err(IndexAddError::MissingInfo(kpar_path_abs));
-    };
-    let Some(meta) = local_project.get_meta()? else {
-        return Err(IndexAddError::MissingMeta(kpar_path_abs));
     };
 
     let map_invalid_project_err = |e| IndexAddError::InvalidProject {

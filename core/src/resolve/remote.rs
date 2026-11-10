@@ -8,7 +8,7 @@ use thiserror::Error;
 use crate::{
     context::ProjectContext,
     lock::Source,
-    project::{CanonicalizationError, ProjectRead},
+    project::{CanonicalizationError, ProjectDefinition, ProjectRead},
     resolve::{ResolutionInfo, ResolveRead, null::NullResolver},
 };
 
@@ -72,15 +72,7 @@ impl<HTTPProject: ProjectRead, GitProject: ProjectRead> ProjectRead
 {
     type Error = RemoteProjectError<HTTPProject::Error, GitProject::Error>;
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<crate::model::InterchangeProjectInfoRaw>,
-            Option<crate::model::InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         match self {
             Self::HTTPProject(project) => {
                 project.get_project().map_err(RemoteProjectError::HTTPRead)
@@ -130,20 +122,6 @@ impl<HTTPProject: ProjectRead, GitProject: ProjectRead> ProjectRead
         match self {
             Self::HTTPProject(project) => project.is_definitely_invalid(),
             Self::GitProject(project) => project.is_definitely_invalid(),
-        }
-    }
-
-    fn get_info(&self) -> Result<Option<crate::model::InterchangeProjectInfoRaw>, Self::Error> {
-        match self {
-            Self::HTTPProject(project) => project.get_info().map_err(RemoteProjectError::HTTPRead),
-            Self::GitProject(project) => project.get_info().map_err(RemoteProjectError::GitRead),
-        }
-    }
-
-    fn get_meta(&self) -> Result<Option<crate::model::InterchangeProjectMetadataRaw>, Self::Error> {
-        match self {
-            Self::HTTPProject(project) => project.get_meta().map_err(RemoteProjectError::HTTPRead),
-            Self::GitProject(project) => project.get_meta().map_err(RemoteProjectError::GitRead),
         }
     }
 

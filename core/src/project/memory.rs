@@ -13,16 +13,14 @@ use crate::{
     context::ProjectContext,
     env::utils::{CloneError, clone_project},
     lock::Source,
-    manifest::{
-        MODEL_TOML_FILE,
-        edit::DocumentMut,
-        kpar_view::{self, ViewError},
-        project::ResolvedProject,
+    manifest::{MODEL_TOML_FILE, edit::DocumentMut, kpar_view},
+    model::{
+        InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsageRaw,
+        META_JSON_FILE, PROJECT_JSON_FILE,
     },
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, PROJECT_JSON_FILE},
     project::{
-        CanonicalizationError, ManifestError, ManifestWriteError, ProjectFormat, ProjectMut,
-        ProjectRead,
+        CanonicalizationError, ManifestError, ManifestWriteError, ProjectDefinition, ProjectFormat,
+        ProjectMut, ProjectRead,
     },
 };
 
@@ -34,7 +32,7 @@ pub struct InMemoryProject {
     pub info: Option<InterchangeProjectInfoRaw>,
     pub meta: Option<InterchangeProjectMetadataRaw>,
     /// The project's `model.toml` text, if it has one; parsing it is
-    /// [`ProjectRead::manifest`]'s job.
+    /// [`ProjectRead::get_project`]'s job.
     ///
     /// A project holding this *and* `info`/`meta` is ambiguous, and is
     /// refused when read.
@@ -85,30 +83,6 @@ impl InMemoryProject {
 }
 
 impl InMemoryProject {
-    /// The KPAR view of this project's `model.toml`.
-    ///
-    /// Rebuilt per call, as a cached field would break the derived
-    /// `PartialEq`, `Eq` and `Clone`.
-    fn view(
-        &self,
-    ) -> Result<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw), InMemoryError> {
-        let text = self
-            .model_toml
-            .as_ref()
-            .ok_or(InMemoryError::MissingInfoMeta)?;
-        kpar_view::of_model_toml(text, |source| {
-            self.files
-                .get(source)
-                .cloned()
-                .ok_or_else(|| InMemoryError::FileNotFound(source.to_path_buf()))
-        })
-        .map_err(|error| match error {
-            ViewError::Manifest(error) => InMemoryError::Manifest(error),
-            ViewError::Read(error) => error,
-            ViewError::Symbols(error) => InMemoryError::Symbols(error),
-        })
-    }
-
     /// Refuse to write a json manifest into a `model.toml` project.
     fn refuse_json_write(&self, file: &'static str) -> Result<(), InMemoryError> {
         if self.format()? == ProjectFormat::Toml {
@@ -205,6 +179,9 @@ pub enum InMemoryError {
     IoRead(#[from] std::io::Error),
     #[error("project is missing `.project.json` and/or `.meta.json` files")]
     MissingInfoMeta,
+    /// A json project with only one of its two documents.
+    #[error("project is missing `{0}`")]
+    MissingDocument(&'static str),
     /// The project holds a `model.toml` *and* json documents.
     #[error("project has both a `model.toml` and json manifests")]
     AmbiguousFormat,
@@ -224,26 +201,36 @@ pub enum InMemoryError {
 impl ProjectRead for InMemoryProject {
     type Error = InMemoryError;
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        InMemoryError,
-    > {
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, InMemoryError> {
         match self.format()? {
             // Refused before either manifest is read.
             ProjectFormat::Both => Err(InMemoryError::AmbiguousFormat),
             ProjectFormat::Toml => {
-                let (info, meta) = self.view()?;
-                Ok((Some(info), Some(meta)))
+                let text = self
+                    .model_toml
+                    .as_ref()
+                    .ok_or(InMemoryError::MissingInfoMeta)?;
+                Ok(Some(ProjectDefinition::Toml(Box::new(
+                    kpar_view::resolved_of_text(MODEL_TOML_FILE, text)?,
+                ))))
             }
             ProjectFormat::Json | ProjectFormat::Neither => {
-                Ok((self.info.clone(), self.meta.clone()))
+                match (self.info.clone(), self.meta.clone()) {
+                    (Some(info), Some(meta)) => Ok(Some(ProjectDefinition::Json { info, meta })),
+                    (None, None) => Ok(None),
+                    (Some(_), None) => Err(InMemoryError::MissingDocument(META_JSON_FILE)),
+                    (None, Some(_)) => Err(InMemoryError::MissingDocument(PROJECT_JSON_FILE)),
+                }
             }
         }
+    }
+
+    fn version(&self) -> Result<Option<String>, Self::Error> {
+        Ok(self.get_project()?.map(|project| project.version()))
+    }
+
+    fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
+        Ok(self.get_project()?.map(|project| project.usages()))
     }
 
     fn format(&self) -> Result<ProjectFormat, InMemoryError> {
@@ -264,14 +251,6 @@ impl ProjectRead for InMemoryProject {
         };
         crate::manifest::edit::validated(MODEL_TOML_FILE, text)
             .map_err(|e| ManifestError::Project(InMemoryError::Manifest(e)))
-    }
-
-    fn manifest(&self) -> Result<ResolvedProject, ManifestError<InMemoryError>> {
-        let Some(text) = &self.model_toml else {
-            return Err(ManifestError::NoTomlManifest);
-        };
-        kpar_view::resolved_of_text(MODEL_TOML_FILE, text)
-            .map_err(|error| ManifestError::Project(InMemoryError::Manifest(error)))
     }
 
     type SourceReader<'a> = &'a [u8];

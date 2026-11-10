@@ -146,8 +146,10 @@ fn built(
         true,
         allow_path_usage,
     )?;
-    let (info, meta) = crate::project::ProjectRead::get_project(&kpar).expect("the pair reads");
-    Ok((info.expect("an info"), meta.expect("a meta")))
+    Ok(crate::project::ProjectRead::get_project(&kpar)
+        .expect("the pair reads")
+        .and_then(crate::project::ProjectDefinition::into_json)
+        .expect("the pair"))
 }
 
 #[test]
@@ -312,8 +314,10 @@ fn a_workspace_of_toml_members_records_the_build_time() -> Result<(), Box<dyn st
     )?;
     let (_, meta) =
         crate::project::ProjectRead::get_project(built.first().expect("one member was built"))
-            .expect("the pair reads");
-    let created: jiff::Timestamp = meta.expect("a meta").created.parse()?;
+            .expect("the pair reads")
+            .and_then(crate::project::ProjectDefinition::into_json)
+            .expect("the pair");
+    let created: jiff::Timestamp = meta.created.parse()?;
     assert_ne!(created, VIEW_CREATED);
     Ok(())
 }
@@ -981,9 +985,10 @@ fn names(archives: &[super::LocalKParProjectRaw]) -> Vec<String> {
     archives
         .iter()
         .map(|p| {
-            crate::project::ProjectRead::name(p)
+            crate::project::ProjectRead::get_project(p)
                 .ok()
                 .flatten()
+                .map(|definition| definition.name().to_owned())
                 .unwrap_or_default()
         })
         .collect()
@@ -1107,22 +1112,18 @@ fn publish_order_refuses_a_cycle() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Found while mapping members to archives, before the caller uploads
-/// anything, and named, since `KParBuildError` carries no identity.
+/// Mapping members to archives reads their manifests, not their sources:
+/// a member with a missing source fails when it is built.
 #[test]
-fn publish_order_refuses_a_member_that_cannot_be_read() -> Result<(), Box<dyn std::error::Error>> {
+fn publish_order_reads_no_member_source() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
     workspace_root(&dir, &["alpha", "beta"]);
     broken_member(&dir, "alpha");
     toml_member(&dir, "beta", &[], false);
 
     let workspace = load_workspace(&dir);
-    let failure = super::workspace_publish_order(&workspace).expect_err("alpha cannot be read");
-    assert_eq!(failure.member, "alpha");
-    assert!(
-        matches!(*failure.error, KParBuildError::ProjectRead(_)),
-        "{failure}"
-    );
+    let order = super::workspace_publish_order(&workspace).map_err(|e| e.to_string())?;
+    assert_eq!(order.len(), 2);
     Ok(())
 }
 
@@ -1242,8 +1243,9 @@ fn the_extracted_form_of_a_syside_kpar_builds_again() -> Result<(), Box<dyn std:
     )?;
     assert_eq!(archive_names(&second)?, archive_names(&first)?);
     let again = crate::project::local_kpar::LocalKParProjectRaw::new_guess_root(&second)?;
-    let (_, again_meta) = crate::project::ProjectRead::get_project(&again)?;
-    let again_meta = again_meta.expect("meta");
+    let (_, again_meta) = crate::project::ProjectRead::get_project(&again)?
+        .and_then(crate::project::ProjectDefinition::into_json)
+        .expect("the pair");
     assert_eq!(again_meta.root, meta.root);
     assert_eq!(again_meta.exports, meta.exports);
     assert_eq!(

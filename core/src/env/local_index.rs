@@ -51,7 +51,7 @@ use crate::{
         },
     },
     project::{
-        AsAsyncProject, KparMeta, ProjectRead as _,
+        AsAsyncProject, KparMeta, ProjectDefinition, ProjectRead as _,
         local_kpar::{KparInnerPath, LocalKParError, LocalKParProject, LocalKParProjectRaw},
         utils::{FsIoError, wrapfs},
     },
@@ -284,7 +284,7 @@ impl LocalIndexEnvironment {
         let mut table: BTreeMap<String, Vec<(Candidate, Utf8PathBuf)>> = BTreeMap::new();
         for archive in archives {
             let raw = LocalKParProjectRaw::new_guess_root(&archive)?;
-            let Some(info) = raw.get_info()? else {
+            let Some((info, _)) = raw.get_project()?.and_then(ProjectDefinition::into_json) else {
                 return Err(LocalIndexError::MissingInfo { archive });
             };
             let Some(publisher) = info.publisher else {

@@ -17,6 +17,7 @@ use crate::{
 #[cfg(feature = "filesystem")]
 use crate::{
     project::{
+        ProjectFormat,
         local_kpar::{KparInnerPath, LocalKParProject},
         utils::{FsIoError, Identifier, wrapfs},
     },
@@ -184,6 +185,10 @@ pub enum EnvInstallPathError<InstallError> {
     Workspace(crate::workspace::model_toml::DiscoverError),
     #[error(transparent)]
     Installation(InstallError),
+    // TODO: install `model.toml` projects, rewriting path usages as a build does.
+    /// `model.toml` projects are used only in place, as editable projects.
+    #[error("`{0}` is a `model.toml` project, which cannot be copied yet")]
+    TomlProject(Utf8PathBuf),
 }
 
 /// Same as [`do_env_install_project`], but installs the project at `location`
@@ -213,6 +218,9 @@ pub fn do_env_install_path<E: WriteEnvironment + ReadEnvironment>(
         return Err(EnvInstallPathError::NotFound(location.to_owned()));
     };
 
+    if project.format()? == ProjectFormat::Toml {
+        return Err(EnvInstallPathError::TomlProject(location.to_owned()));
+    }
     let Some(version) = project.version()? else {
         return Err(EnvInstallPathError::MissingInfo(location.to_owned()));
     };

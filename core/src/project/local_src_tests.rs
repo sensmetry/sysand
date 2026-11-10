@@ -108,9 +108,13 @@ fn an_unknown_key_does_not_stop_a_read() -> Result<(), Box<dyn std::error::Error
         dir.path(),
         r#"{"name":"p","version":"1.0.0","x-unknown":true}"#,
     );
+    write_meta_json(
+        dir.path(),
+        r#"{"index":{},"created":"1970-01-01T00:00:00Z"}"#,
+    );
 
-    let (info, _) = LocalSrcProject::new_access(dir.path(), None).get_project()?;
-    assert_eq!(info.expect("a project").name, "p");
+    let project = LocalSrcProject::new_access(dir.path(), None).get_project()?;
+    assert_eq!(project.expect("a project").name(), "p");
     Ok(())
 }
 
@@ -221,8 +225,16 @@ fn toml_project(dir: &camino::Utf8Path) -> LocalSrcProject {
     LocalSrcProject::new_access(dir, None)
 }
 
+/// The manifest of a project, which must be a `model.toml` one.
+fn toml_manifest(project: &LocalSrcProject) -> Box<crate::manifest::project::ResolvedProject> {
+    match project.get_project().expect("readable") {
+        Some(crate::project::ProjectDefinition::Toml(manifest)) => manifest,
+        other => panic!("not a `model.toml` project: {other:?}"),
+    }
+}
+
 #[test]
-fn a_model_toml_project_reads_as_the_pair_a_build_would_write() {
+fn a_model_toml_project_reads_as_its_manifest() {
     let dir = tempdir().expect("a temporary directory");
     write_model_toml(
         dir.path(),
@@ -238,98 +250,74 @@ fn a_model_toml_project_reads_as_the_pair_a_build_would_write() {
     );
     std::fs::write(dir.path().join("a.sysml"), "part def A;").expect("write a.sysml");
 
-    let (info, meta) = toml_project(dir.path()).get_project().expect("readable");
-    let info = info.expect("`.project.json`");
-    let meta = meta.expect("`.meta.json`");
-    assert_eq!(info.name, "widgets");
-    assert_eq!(info.publisher.as_deref(), Some("acme"));
-    assert_eq!(info.version, "1.2.3");
-    assert_eq!(info.description.as_deref(), Some("A description."));
-    assert_eq!(info.license.as_deref(), Some("MIT"));
+    let manifest = toml_manifest(&toml_project(dir.path()));
+    assert_eq!(manifest.name.as_str(), "widgets");
+    assert_eq!(manifest.publisher.as_str(), "acme");
+    assert_eq!(manifest.version.to_string(), "1.2.3");
+    assert_eq!(manifest.description.as_deref(), Some("A description."));
     assert_eq!(
-        meta.metamodel.as_deref(),
-        Some("https://www.omg.org/spec/SysML/20250201")
+        manifest
+            .license
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
+        Some("MIT")
+    );
+    assert_eq!(
+        manifest.metamodel.to_string(),
+        "https://www.omg.org/spec/SysML/20250201"
+    );
+    assert_eq!(
+        manifest
+            .sources
+            .iter()
+            .map(|p| p.as_str())
+            .collect::<Vec<_>>(),
+        ["a.sysml"]
     );
 }
 
+/// Reading a `model.toml` project reads the manifest alone: a source
+/// that is missing or does not parse is found when the sources are used.
 #[test]
-fn a_model_toml_projects_sources_are_indexed_and_hashed() {
+fn reading_a_model_toml_project_reads_no_source() {
     let dir = tempdir().expect("a temporary directory");
     write_model_toml(
         dir.path(),
-        &TOML_REQUIRED.replace("sources = []", "sources = [\"a.sysml\"]"),
+        &TOML_REQUIRED.replace("sources = []", "sources = [\"gone.sysml\", \"a.sysml\"]"),
     );
-    std::fs::write(dir.path().join("a.sysml"), "part def A;").expect("write a.sysml");
+    std::fs::write(dir.path().join("a.sysml"), "package Foo { /*").expect("write a.sysml");
 
-    let meta = toml_project(dir.path())
-        .get_meta()
-        .expect("readable")
-        .expect("`.meta.json`");
-    assert_eq!(
-        meta.index.as_ref().expect("an OMG document")["A"],
-        "a.sysml"
-    );
-    let checksum = &meta.checksum.expect("checksums")["a.sysml"];
-    assert_eq!(
-        checksum.value,
-        crate::utils::sha256_lowercase_hex("part def A;")
-    );
-    assert_eq!(checksum.algorithm, "SHA256");
+    let manifest = toml_manifest(&toml_project(dir.path()));
+    assert_eq!(manifest.sources.iter().count(), 2);
 }
 
-/// A view's `created` is not the time it was taken: the project checksum
-/// covers it, and that checksum reaches the lockfile.
+/// A `model.toml` project has no project checksum, so it cannot be a
+/// source pinned by one.
 #[test]
-fn a_model_toml_project_has_a_fixed_created() {
+fn a_model_toml_project_has_no_project_checksum() {
     let dir = tempdir().expect("a temporary directory");
     write_model_toml(dir.path(), TOML_REQUIRED);
-    let meta = toml_project(dir.path())
-        .get_meta()
-        .expect("readable")
-        .expect("`.meta.json`");
-    assert_eq!(meta.created, "1970-01-01T00:00:00Z");
+    let project = LocalSrcProject::new_access(dir.path(), Some("lib".into()));
+
+    assert_matches!(
+        project.checksum_canonical_variant(),
+        Err(LocalSrcError::TomlProjectHasNoChecksum { dir: _ })
+    );
+    assert_matches!(
+        project.sources(&crate::context::ProjectContext::default()),
+        Err(LocalSrcError::TomlProjectHasNoChecksum { dir: _ })
+    );
 }
 
-/// The property the fixed `created` exists for, asserted across two project
-/// values since one would answer from its cache either way.
-///
-/// `format_created` truncates to whole seconds, so two reads inside the same
-/// second would agree even against a clock; this cannot enforce it alone.
 #[test]
-fn two_reads_of_one_model_toml_project_agree_on_its_checksum() {
+#[should_panic(expected = "which has no project hash")]
+fn hashing_a_model_toml_project_panics() {
     let dir = tempdir().expect("a temporary directory");
-    write_model_toml(
-        dir.path(),
-        &TOML_REQUIRED.replace("sources = []", "sources = [\"a.sysml\"]"),
-    );
-    std::fs::write(dir.path().join("a.sysml"), "part def A;").expect("write a.sysml");
-
-    let first = toml_project(dir.path())
+    write_model_toml(dir.path(), TOML_REQUIRED);
+    toml_project(dir.path())
         .checksum_canonical_hex()
-        .expect("readable");
-    let second = toml_project(dir.path())
-        .checksum_canonical_hex()
-        .expect("readable");
-    assert!(first.is_some());
-    assert_eq!(first, second);
-}
-
-/// The cache is observable only through what it stops happening:
-/// `get_project` is what reads the sources, so an uncached second read
-/// would fail on a file that is gone.
-#[test]
-fn a_model_toml_project_is_read_once() {
-    let dir = tempdir().expect("a temporary directory");
-    write_model_toml(
-        dir.path(),
-        &TOML_REQUIRED.replace("sources = []", "sources = [\"a.sysml\"]"),
-    );
-    std::fs::write(dir.path().join("a.sysml"), "part def A;").expect("write a.sysml");
-
-    let project = toml_project(dir.path());
-    let first = project.get_project().expect("readable");
-    std::fs::remove_file(dir.path().join("a.sysml")).expect("remove a.sysml");
-    assert_eq!(project.get_project().expect("cached"), first);
+        .expect("never returns");
 }
 
 #[test]
@@ -392,37 +380,6 @@ fn a_model_toml_that_inherits_outside_a_workspace_says_so() {
     );
     assert!(
         read_error(dir.path()).contains("not a member of any workspace"),
-        "unexpected message: {}",
-        read_error(dir.path())
-    );
-}
-
-/// `sources` does not check that its files exist, so a missing one is found
-/// when the view is built, and the message is the reader's own.
-#[test]
-fn a_source_that_cannot_be_read_names_the_file_on_disk() {
-    let dir = tempdir().expect("a temporary directory");
-    write_model_toml(
-        dir.path(),
-        &TOML_REQUIRED.replace("sources = []", "sources = [\"gone.sysml\"]"),
-    );
-    assert!(
-        read_error(dir.path()).contains("gone.sysml"),
-        "unexpected message: {}",
-        read_error(dir.path())
-    );
-}
-
-#[test]
-fn a_source_that_does_not_parse_is_reported() {
-    let dir = tempdir().expect("a temporary directory");
-    write_model_toml(
-        dir.path(),
-        &TOML_REQUIRED.replace("sources = []", "sources = [\"a.sysml\"]"),
-    );
-    std::fs::write(dir.path().join("a.sysml"), "package Foo { /*").expect("write a.sysml");
-    assert!(
-        read_error(dir.path()).starts_with("failed to extract symbol names from `a.sysml`"),
         "unexpected message: {}",
         read_error(dir.path())
     );
@@ -523,48 +480,13 @@ fn an_editable_project_reports_the_format_of_what_it_wraps() {
     assert_eq!(wrapped.format().expect("readable"), ProjectFormat::Toml);
 }
 
-// ----- the manifest behind the view -----
-
-#[test]
-fn reading_from_text_gives_what_reading_from_disk_gives() {
-    let dir = tempdir().expect("a temporary directory");
-    let text = TOML_REQUIRED.replace("sources = []", "sources = [\"a.sysml\"]");
-    write_model_toml(dir.path(), &text);
-    std::fs::write(dir.path().join("a.sysml"), "part def A;").expect("write a.sysml");
-
-    let from_disk = toml_project(dir.path()).get_project().expect("readable");
-    let from_text = crate::manifest::kpar_view::of_model_toml(&text, |source| {
-        std::fs::read_to_string(dir.path().join(source.as_str())).map_err(|e| e.to_string())
-    })
-    .expect("readable");
-    assert_eq!(from_disk, (Some(from_text.0), Some(from_text.1)));
-}
-
-#[test]
-fn a_model_toml_project_gives_its_manifest() {
-    let dir = tempdir().expect("a temporary directory");
-    write_model_toml(
-        dir.path(),
-        &TOML_REQUIRED.replace("sources = []", "sources = [\"a.sysml\"]"),
-    );
-    let manifest = toml_project(dir.path()).manifest().expect("a manifest");
-    assert_eq!(manifest.publisher.as_str(), "acme");
-    assert_eq!(manifest.name.as_str(), "widgets");
-    assert_eq!(
-        manifest
-            .sources
-            .iter()
-            .map(|p| p.as_str())
-            .collect::<Vec<_>>(),
-        ["a.sysml"]
-    );
-}
+// ----- the manifest -----
 
 /// A `.project.json` has no room for some of what a `model.toml` says
 /// (`urls.repository` and `urls.documentation`, for one), and the manifest
 /// carries it.
 #[test]
-fn a_manifest_carries_what_the_view_drops() {
+fn a_manifest_carries_what_a_project_json_has_no_room_for() {
     let dir = tempdir().expect("a temporary directory");
     write_model_toml(
         dir.path(),
@@ -576,9 +498,8 @@ fn a_manifest_carries_what_the_view_drops() {
              repository = \"https://example.com/git\"\n"
         ),
     );
-    let project = toml_project(dir.path());
 
-    let manifest = project.manifest().expect("a manifest");
+    let manifest = toml_manifest(&toml_project(dir.path()));
     assert_eq!(
         manifest
             .urls
@@ -595,37 +516,26 @@ fn a_manifest_carries_what_the_view_drops() {
             .map(fluent_uri::Iri::as_str),
         Some("https://example.com/docs")
     );
-
-    let rendered = serde_json::to_string(&project.get_info().expect("readable").expect("info"))
-        .expect("serializes");
-    assert!(!rendered.contains("example.com/git"), "{rendered}");
-    assert!(!rendered.contains("example.com/docs"), "{rendered}");
 }
 
 #[test]
-fn a_json_project_has_no_toml_manifest() {
+fn a_json_project_reads_as_its_two_documents() {
     let dir = tempdir().expect("a temporary directory");
     write_project_json(
         dir.path(),
         r#"{"name":"widgets","publisher":"acme","version":"1.2.3"}"#,
     );
-    let error = toml_project(dir.path())
-        .manifest()
-        .expect_err("a json project");
-    assert_eq!(
-        error.to_string(),
-        "this project has no `model.toml` manifest"
+    write_meta_json(
+        dir.path(),
+        r#"{"index":{},"created":"1970-01-01T00:00:00Z"}"#,
     );
-}
-
-#[test]
-fn a_project_that_cannot_be_read_reports_its_own_error() {
-    let dir = tempdir().expect("a temporary directory");
-    write_model_toml(dir.path(), "this is not toml\n");
-    let error = toml_project(dir.path())
-        .manifest()
-        .expect_err("not a manifest");
-    assert_matches!(error, crate::project::ManifestError::Project(_));
+    assert_matches!(
+        toml_project(dir.path()).get_project(),
+        Ok(Some(crate::project::ProjectDefinition::Json {
+            info: _,
+            meta: _
+        }))
+    );
 }
 
 #[test]
@@ -638,9 +548,10 @@ fn an_editable_project_forwards_the_manifest() {
         typed_path::Utf8UnixPathBuf::from("lib"),
         toml_project(dir.path()),
     );
-    assert_eq!(
-        wrapped.manifest().expect("a manifest").name.as_str(),
-        "widgets"
+    assert_matches!(
+        wrapped.get_project(),
+        Ok(Some(crate::project::ProjectDefinition::Toml(manifest)))
+            if manifest.name.as_str() == "widgets"
     );
 }
 
@@ -654,26 +565,23 @@ fn a_directory_with_no_manifest_at_all_names_all_three() {
         .expect_err("no manifest");
     assert_eq!(
         error.to_string(),
-        "project is missing `model.toml`, or `.project.json` and/or `.meta.json`"
+        "project is missing `model.toml`, or `.project.json` and `.meta.json`"
     );
 }
 
 /// A json project that has one of its two documents is not reported as
 /// missing a `model.toml`.
 #[test]
-fn a_json_project_missing_one_file_is_unchanged() {
+fn a_json_project_missing_one_file_names_it() {
     let dir = tempdir().expect("a temporary directory");
     write_meta_json(
         dir.path(),
         r#"{"index":{},"created":"1970-01-01T00:00:00Z"}"#,
     );
     let error = toml_project(dir.path())
-        .checksum_canonical_variant()
+        .get_project()
         .expect_err("no `.project.json`");
-    assert_eq!(
-        error.to_string(),
-        "project is missing `.project.json` and/or `.meta.json` files"
-    );
+    assert_eq!(error.to_string(), "project is missing `.project.json`");
 }
 
 // --- storing a manifest -----------------------------------------------
@@ -753,10 +661,7 @@ fn a_manifest_written_to_a_local_project_is_read_back_as_toml()
     project.put_manifest_document(&document(MANIFEST), false)?;
 
     assert_eq!(project.format()?, ProjectFormat::Toml);
-    assert_eq!(
-        project.manifest().expect("a manifest").name.as_str(),
-        "widgets"
-    );
+    assert_eq!(toml_manifest(&project).name.as_str(), "widgets");
     Ok(())
 }
 
@@ -766,18 +671,14 @@ fn a_manifest_overwritten_after_a_read_is_read_again() -> Result<(), Box<dyn std
     write_model_toml(dir.path(), MANIFEST);
     let mut project = LocalSrcProject::new_access(dir.path(), None);
 
-    // Fills the cached view *before* the write, which is the only order
-    // in which a stale cache can be observed.
-    let (info, _) = project.get_project()?;
-    assert_eq!(info.expect("info").version, "1.0.0");
+    assert_eq!(toml_manifest(&project).version.to_string(), "1.0.0");
 
     project.put_manifest_document(
         &document(&MANIFEST.replace("\nversion = \"1.0.0\"", "\nversion = \"2.0.0\"")),
         true,
     )?;
 
-    let (info, _) = project.get_project()?;
-    assert_eq!(info.expect("info").version, "2.0.0");
+    assert_eq!(toml_manifest(&project).version.to_string(), "2.0.0");
     Ok(())
 }
 
@@ -832,25 +733,11 @@ fn a_member_project_resolves_against_its_table() {
     let dir = tempdir().expect("a temporary directory");
     write_model_toml(dir.path(), INHERITS_VERSION);
 
-    let (info, _) = LocalSrcProject::new_member(dir.path(), None, versioned_table())
-        .get_project()
-        .expect("a member reads");
-    assert_eq!(info.expect("an info").version, "9.9.9");
-}
-
-/// `manifest()` is a second read path with its own resolve, so it
-/// follows the table too.
-#[test]
-fn a_member_projects_manifest_resolves_against_its_table() {
-    let dir = tempdir().expect("a temporary directory");
-    write_model_toml(dir.path(), INHERITS_VERSION);
-
-    let manifest = crate::project::ProjectRead::manifest(&LocalSrcProject::new_member(
+    let manifest = toml_manifest(&LocalSrcProject::new_member(
         dir.path(),
         None,
         versioned_table(),
-    ))
-    .expect("a member's manifest reads");
+    ));
     assert_eq!(manifest.version.to_string(), "9.9.9");
 }
 
@@ -870,10 +757,12 @@ fn a_member_project_prefers_its_own_values() {
          metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
     );
 
-    let (info, _) = LocalSrcProject::new_member(dir.path(), None, versioned_table())
-        .get_project()
-        .expect("a member reads");
-    assert_eq!(info.expect("an info").version, "1.2.3");
+    let manifest = toml_manifest(&LocalSrcProject::new_member(
+        dir.path(),
+        None,
+        versioned_table(),
+    ));
+    assert_eq!(manifest.version.to_string(), "1.2.3");
 }
 
 /// The extracted form of a Syside archive is a json project like any

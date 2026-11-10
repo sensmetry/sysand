@@ -106,7 +106,11 @@ fn structured_index_lists_versions_and_reads_archive() {
     assert_eq!(versions(&rt, &env, DEP), vec!["0.2.0", "0.1.0"]);
 
     let project = rt.block_on(env.get_project_async(DEP, "0.2.0")).unwrap();
-    let (info, meta) = rt.block_on(project.get_project_async()).unwrap();
+    let (info, meta) = rt
+        .block_on(project.get_project_async())
+        .unwrap()
+        .and_then(crate::project::ProjectDefinition::into_json)
+        .unzip();
     let info = info.expect("info");
     assert_eq!(info.name, "dep");
     assert_eq!(info.publisher.as_deref(), Some("mock"));
@@ -211,8 +215,8 @@ fn folder_index_enumerates_case_insensitively() {
     );
 
     let project = rt.block_on(env.get_project_async(DEP, "0.2.0")).unwrap();
-    let info = rt.block_on(project.get_info_async()).unwrap().unwrap();
-    assert_eq!(info.version, "0.2.0");
+    let version = rt.block_on(project.version_async()).unwrap().unwrap();
+    assert_eq!(version, "0.2.0");
     let ctx = workspace_ctx(cwd.path());
     let sources = rt.block_on(project.sources_async(&ctx)).unwrap();
     assert_matches!(

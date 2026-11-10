@@ -28,6 +28,9 @@ fn project_with_usage(resource: &str) -> InMemoryProject {
             }],
             website: None,
         }),
+        meta: Some(crate::model::InterchangeProjectMetadataRaw::minimal(
+            "1970-01-01T00:00:00Z".to_owned(),
+        )),
         ..InMemoryProject::default()
     }
 }

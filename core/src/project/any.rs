@@ -14,7 +14,6 @@ use crate::{
     context::ProjectContext,
     env::memory::MemoryStorageEnvironment,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
         AsSyncProjectTokio, ProjectRead, ProjectReadAsync as _,
         editable::EditableProject,

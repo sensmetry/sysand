@@ -12,8 +12,8 @@ use thiserror::Error;
 use crate::{
     context::ProjectContext,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{ProjectRead, ProjectReadAsync},
+    model::InterchangeProjectUsageRaw,
+    project::{ProjectDefinition, ProjectRead, ProjectReadAsync},
 };
 
 use super::ProjectChecksum;
@@ -52,15 +52,7 @@ impl AsyncRead for ImpossibleReader {
 impl ProjectRead for NullProject {
     type Error = NotARealProjectError;
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         match self.nothing {}
     }
 
@@ -84,6 +76,14 @@ impl ProjectRead for NullProject {
         match self.nothing {}
     }
 
+    fn version(&self) -> Result<Option<String>, Self::Error> {
+        match self.nothing {}
+    }
+
+    fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
+        match self.nothing {}
+    }
+
     fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
         match self.nothing {}
     }
@@ -96,15 +96,7 @@ impl ProjectRead for NullProject {
 impl ProjectReadAsync for NullProject {
     type Error = NotARealProjectError;
 
-    async fn get_project_async(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    async fn get_project_async(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         match self.nothing {}
     }
 
@@ -125,6 +117,14 @@ impl ProjectReadAsync for NullProject {
     }
 
     fn source_may_offer_multiple_versions(&self) -> bool {
+        match self.nothing {}
+    }
+
+    async fn version_async(&self) -> Result<Option<String>, Self::Error> {
+        match self.nothing {}
+    }
+
+    async fn usage_async(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
         match self.nothing {}
     }
 

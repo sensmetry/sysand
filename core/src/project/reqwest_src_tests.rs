@@ -88,7 +88,11 @@ fn basic_project_urls_http_src() -> Result<(), Box<dyn std::error::Error>> {
             .build()?,
     ));
 
-    let (Some(info), Some(meta)) = project.get_project()? else {
+    let (Some(info), Some(meta)) = project
+        .get_project()?
+        .and_then(crate::project::ProjectDefinition::into_json)
+        .unzip()
+    else {
         panic!()
     };
 

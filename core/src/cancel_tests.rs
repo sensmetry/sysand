@@ -8,9 +8,9 @@ use std::{sync::Arc, time::Duration};
 use super::*;
 use crate::{
     env::{ReadEnvironment as _, ReadEnvironmentAsync, SyncStreamIter},
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{ProjectRead as _, ProjectReadAsync},
 };
+use std::assert_matches;
 
 fn runtime() -> Arc<tokio::runtime::Runtime> {
     Arc::new(
@@ -65,13 +65,7 @@ impl ProjectReadAsync for Stalled {
 
     async fn get_project_async(
         &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    ) -> Result<Option<crate::project::ProjectDefinition>, Self::Error> {
         std::future::pending().await
     }
 
@@ -98,6 +92,16 @@ impl ProjectReadAsync for Stalled {
         false
     }
 
+    async fn version_async(&self) -> Result<Option<String>, Self::Error> {
+        std::future::pending().await
+    }
+
+    async fn usage_async(
+        &self,
+    ) -> Result<Option<Vec<crate::model::InterchangeProjectUsageRaw>>, Self::Error> {
+        std::future::pending().await
+    }
+
     async fn checksum_canonical_variant_async(
         &self,
     ) -> Result<crate::project::ProjectChecksum, Self::Error> {
@@ -114,9 +118,9 @@ fn project_adapter_reports_cancelled() {
     let token = CancellationToken::new();
     let project = Stalled.to_tokio_sync_with(runtime(), token.clone());
     cancel_later(&token, Duration::from_millis(100));
-    assert!(matches!(project.get_info(), Err(Cancellable::Cancelled(_))));
+    assert_matches!(project.get_project(), Err(Cancellable::Cancelled(_)));
     // Once cancelled, every further bridge answers at once.
-    assert!(matches!(project.get_meta(), Err(Cancellable::Cancelled(_))));
+    assert_matches!(project.version(), Err(Cancellable::Cancelled(_)));
     assert!(matches!(
         project.checksum_canonical_hex(),
         Err(crate::project::CanonicalizationError::ProjectRead(
@@ -195,7 +199,7 @@ fn environment_adapter_propagates_the_token() {
     assert_eq!(uris.len(), 1);
     let project = env.get_project("urn:one", "1.0.0").unwrap();
     token.cancel();
-    assert!(matches!(project.get_info(), Err(Cancellable::Cancelled(_))));
+    assert_matches!(project.get_project(), Err(Cancellable::Cancelled(_)));
     assert!(matches!(env.uris(), Err(Cancellable::Cancelled(_))));
 }
 
@@ -243,7 +247,7 @@ fn git_clone_is_cancelled_before_it_starts() {
         .unwrap()
         .with_cancellation(token);
     assert!(matches!(
-        project.get_info(),
+        project.get_project(),
         Err(GixDownloadedError::Cancelled(_))
     ));
 }

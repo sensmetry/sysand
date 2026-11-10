@@ -57,13 +57,14 @@ pub fn command_sources_project(
         .current_project
         .ok_or(CliError::MissingProjectCurrentDir)?;
     // TODO: Better bail early?
-    let Some(info) = current_project.get_info()? else {
+    let Some(definition) = current_project.get_project()? else {
         bail!("project is missing project information")
     };
-    let info = info.validate().with_context(|| {
+    let usages = definition.validated_usages().with_context(|| {
         format!(
             "project `{}` {} has invalid metadata",
-            info.name, info.version
+            definition.name(),
+            definition.version()
         )
     })?;
 
@@ -76,10 +77,10 @@ pub fn command_sources_project(
     if dependencies != DependenciesCli::None {
         let dependencies = dependencies.into();
         let deps = if let Some(env) = ctx.env {
-            resolve_dependencies(info.usage, env, dependencies)?
+            resolve_dependencies(usages, env, dependencies)?
         } else {
             let env = NullEnvironment::new();
-            resolve_dependencies(info.usage, env, dependencies)?
+            resolve_dependencies(usages, env, dependencies)?
         };
 
         for dep in deps {
@@ -158,16 +159,14 @@ pub fn command_sources_workspace(
         }
 
         if dependencies != DependenciesCli::None {
-            let Some(info) = project.get_info()? else {
+            let Some(definition) = project.get_project()? else {
                 bail!("member `{}` is missing project information", member.dir)
             };
-            let info = info.validate()?;
+            let usages = definition.validated_usages()?;
             let deps = match &ctx.env {
                 // `resolve_dependencies` takes the environment by value.
-                Some(env) => resolve_dependencies(info.usage, env.clone(), dependencies.into())?,
-                None => {
-                    resolve_dependencies(info.usage, NullEnvironment::new(), dependencies.into())?
-                }
+                Some(env) => resolve_dependencies(usages, env.clone(), dependencies.into())?,
+                None => resolve_dependencies(usages, NullEnvironment::new(), dependencies.into())?,
             };
             for dep in deps {
                 for src_path in do_sources_local_src_project_no_deps(&dep, true)? {

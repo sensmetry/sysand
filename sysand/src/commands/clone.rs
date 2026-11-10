@@ -378,12 +378,12 @@ fn clone_local<P: ProjectRead>(
     remote_project: P,
 ) -> Result<(), anyhow::Error> {
     if let Some(vc) = version_constraint {
-        let project_version = remote_project
-            .get_info()?
+        let version = remote_project
+            .get_project()?
             .ok_or_else(|| anyhow!("missing project info"))?
-            .validate()
-            .with_context(|| format!("project at `{path}` has invalid metadata"))?
-            .version;
+            .version();
+        let project_version = Version::parse(&version)
+            .with_context(|| format!("project at `{path}` has invalid version `{version}`"))?;
         if !vc.matches(&project_version) {
             bail!(
                 "project version {project_version} does not match the given version constraint `{vc}`"
@@ -466,7 +466,7 @@ pub fn get_project_version<R: ResolveRead>(
                         continue;
                     }
                 };
-                let maybe_info = match candidate_project.get_info() {
+                let maybe_definition = match candidate_project.get_project() {
                     Ok(mi) => mi,
                     Err(e) => {
                         log::debug!(
@@ -476,16 +476,16 @@ pub fn get_project_version<R: ResolveRead>(
                         continue;
                     }
                 };
-                let Some(info) = maybe_info else {
+                let Some(definition) = maybe_definition else {
                     log::debug!("skipping candidate project with missing info");
                     continue;
                 };
-                let candidate_version = match Version::parse(&info.version) {
+                let candidate_version = match Version::parse(&definition.version()) {
                     Ok(v) => v,
                     Err(e) => {
                         log::warn!(
                             "skipping candidate project with invalid SemVer version {}: {e}",
-                            info.version
+                            definition.version()
                         );
                         continue;
                     }

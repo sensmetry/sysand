@@ -145,16 +145,19 @@ fn lock_sync<Policy: HTTPAuthentication>(
         .clone()
         .unwrap_or_else(|| project_root.clone());
     if let Some(mut lockfile) = Lockfile::try_read(&lock_root).map_err(CliError::InvalidLockfile)? {
-        let info = current_project
-            .get_info()?
+        let definition = current_project
+            .get_project()?
             .ok_or(CliError::MissingProjectCurrentDir)?;
+        let roots = sysand_core::workspace::model_toml::lock_roots(&lock_root)?;
         let mut modified = false;
         let mut root_found = true;
         for id in removed_usages {
-            match lockfile
-                .lock_mut()
-                .remove_usage(info.publisher.as_deref(), &info.name, id)
-            {
+            match lockfile.lock_mut().remove_usage(
+                &roots,
+                definition.publisher(),
+                definition.name(),
+                id,
+            ) {
                 RemoveUsageOutcome::RootNotFound => {
                     root_found = false;
                     break;

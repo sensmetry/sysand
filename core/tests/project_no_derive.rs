@@ -8,7 +8,10 @@ use thiserror::Error;
 use sysand_core::{
     context::ProjectContext,
     lock::Source,
-    project::{ProjectChecksum, ProjectMut, ProjectRead, memory::InMemoryProject},
+    model::InterchangeProjectUsageRaw,
+    project::{
+        ProjectChecksum, ProjectDefinition, ProjectMut, ProjectRead, memory::InMemoryProject,
+    },
 };
 
 pub enum GenericProject<A, B>
@@ -72,15 +75,7 @@ where
         <InMemoryProject as ProjectRead>::Error,
     >;
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<sysand_core::model::InterchangeProjectInfoRaw>,
-            Option<sysand_core::model::InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         match self {
             Self::Variant1(project) => project.get_project().map_err(GenericProjectError::Variant1),
             Self::Variant2(project) => project.get_project().map_err(GenericProjectError::Variant2),
@@ -130,6 +125,22 @@ where
             Self::Variant1(project) => project.source_may_offer_multiple_versions(),
             Self::Variant2(project) => project.source_may_offer_multiple_versions(),
             Self::Variant3(project) => project.source_may_offer_multiple_versions(),
+        }
+    }
+
+    fn version(&self) -> Result<Option<String>, Self::Error> {
+        match self {
+            Self::Variant1(project) => project.version().map_err(GenericProjectError::Variant1),
+            Self::Variant2(project) => project.version().map_err(GenericProjectError::Variant2),
+            Self::Variant3(project) => project.version().map_err(GenericProjectError::Variant3),
+        }
+    }
+
+    fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
+        match self {
+            Self::Variant1(project) => project.usage().map_err(GenericProjectError::Variant1),
+            Self::Variant2(project) => project.usage().map_err(GenericProjectError::Variant2),
+            Self::Variant3(project) => project.usage().map_err(GenericProjectError::Variant3),
         }
     }
 

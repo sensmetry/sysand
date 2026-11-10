@@ -10,8 +10,7 @@ use typed_path::Utf8UnixPath;
 use crate::{
     context::ProjectContext,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{ProjectRead, cached::CachedProject},
+    project::{ProjectFormat, ProjectRead, cached::CachedProject},
     resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead, null::NullResolver},
     utils::format_err,
 };
@@ -331,13 +330,20 @@ impl<
                                     format_err(err)
                                 );
                             }
+                            // A `model.toml` project has no project hash to
+                            // match by.
+                            Ok(project) if matches!(project.format(), Ok(ProjectFormat::Toml)) => {
+                                log::debug!(
+                                    "local resolver skipping `model.toml` project for {resolve}: it has no project hash"
+                                );
+                            }
                             Ok(project) => match project.checksum_canonical_hex() {
                                 Ok(Some(checksum)) => {
                                     locals.insert(checksum, project);
                                 }
                                 Ok(None) => {
                                     log::debug!(
-                                        "local resolver rejected project {resolve}: no `.project.json` or `.meta.json`",
+                                        "local resolver rejected project {resolve}: no manifest",
                                     );
                                 }
                                 Err(err) => {
@@ -403,7 +409,7 @@ impl<
                                 }
 
                                 match project.get_project() {
-                                    Ok((Some(_), Some(_))) => {
+                                    Ok(Some(_)) => {
                                         // Found at least one nominally valid project
                                         return Ok(ResolutionOutcome::Resolved(CombinedIterator {
                                             state: CombinedIteratorState::ResolvedRemote(
@@ -412,9 +418,9 @@ impl<
                                             locals,
                                         }));
                                     }
-                                    Ok(_) => {
+                                    Ok(None) => {
                                         log::debug!(
-                                            "remote resolver skipping project for {resolve} due to missing info/meta"
+                                            "remote resolver skipping project for {resolve} due to missing manifest"
                                         );
                                         remote_projects.next();
                                     }

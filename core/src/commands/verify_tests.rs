@@ -25,6 +25,7 @@ use crate::{
 type NoRemoteSrc = fn(String, String) -> Result<InMemoryProject, Infallible>;
 type NoRemoteKpar = fn(String, NonZeroU64, String) -> Result<InMemoryProject, Infallible>;
 type NoGit = fn(String) -> Result<InMemoryProject, Infallible>;
+type NoEditable = fn(Utf8UnixPathBuf) -> Result<InMemoryProject, Infallible>;
 
 /// A dependency project directory: one model file, checksummed in
 /// `.meta.json`.
@@ -163,6 +164,7 @@ impl Fixture {
         do_sync(
             &self.lock,
             env,
+            None::<NoEditable>,
             Some(|src_path: Utf8UnixPathBuf, checksum: String| {
                 LocalSrcProject::new_access_with_checksum(
                     root.join(src_path.as_str()),

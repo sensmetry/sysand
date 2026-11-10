@@ -6,7 +6,7 @@ use typed_path::Utf8UnixPath;
 
 use crate::{
     model::InterchangeProjectChecksumRaw,
-    project::{ProjectFormat, ProjectMut, ProjectOrIOError, utils::FsIoError},
+    project::{ProjectDefinition, ProjectFormat, ProjectMut, ProjectOrIOError, utils::FsIoError},
 };
 
 #[derive(Error, Debug)]
@@ -50,7 +50,9 @@ pub fn do_exclude<Pr: ProjectMut, P: AsRef<Utf8UnixPath>, I: Iterator<Item = P>>
         return exclude_toml(project, paths);
     }
 
-    let Some(mut meta) = project.get_meta().map_err(ProjectOrIOError::Project)? else {
+    let Some(ProjectDefinition::Json { info: _, mut meta }) =
+        project.get_project().map_err(ProjectOrIOError::Project)?
+    else {
         return Err(ExcludeError::MissingMeta);
     };
 

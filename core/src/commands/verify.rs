@@ -32,7 +32,7 @@ use crate::{
     lock::{Lock, Source},
     model::{InterchangeProjectValidationError, KerMlChecksumAlg, project_hash_hex},
     project::{
-        ProjectChecksum, ProjectRead as _, hash_reader,
+        ProjectChecksum, ProjectDefinition, ProjectRead as _, hash_reader,
         local_src::{LocalSrcError, LocalSrcProject},
         utils::{FsIoError, Identifier},
     },
@@ -88,19 +88,19 @@ impl ManifestUsages {
 
     /// Read a project's manifest.
     pub fn read(project: &LocalSrcProject) -> Result<Self, VerifyError> {
-        let Some(info) = project.get_info().map_err(VerifyError::Manifest)? else {
+        let Some(definition) = project.get_project().map_err(VerifyError::Manifest)? else {
             return Err(VerifyError::Manifest(LocalSrcError::MissingInfoMeta {
                 missing: "its manifest",
             }));
         };
-        let manifest = match project.format() {
-            Ok(crate::project::ProjectFormat::Toml) => {
+        let manifest = match definition {
+            ProjectDefinition::Toml(_) => {
                 project.root_path().join(crate::manifest::MODEL_TOML_FILE)
             }
-            _ => project.info_path(),
+            ProjectDefinition::Json { info: _, meta: _ } => project.info_path(),
         };
-        let usages = info
-            .usage
+        let usages = definition
+            .usages()
             .iter()
             .map(|usage| {
                 let constraint = usage
@@ -119,8 +119,8 @@ impl ManifestUsages {
             .collect::<Result<_, VerifyError>>()?;
         Ok(Self {
             manifest,
-            publisher: info.publisher,
-            name: info.name,
+            publisher: definition.publisher().map(ToOwned::to_owned),
+            name: definition.name().to_owned(),
             usages,
         })
     }
@@ -282,8 +282,14 @@ fn verify_installed(
     if !crate::project::utils::wrapfs::is_dir(installed.root_path())? {
         return Ok(Some(MismatchKind::MissingFromDisk));
     }
-    let (Some(info), Some(meta)) = installed.get_project()? else {
-        return Ok(Some(MismatchKind::MissingFromDisk));
+    let (info, meta) = match installed.get_project()? {
+        None => return Ok(Some(MismatchKind::MissingFromDisk)),
+        Some(ProjectDefinition::Toml(_)) => {
+            return Err(LocalSrcError::TomlProjectHasNoChecksum {
+                dir: installed.root_path().to_owned(),
+            });
+        }
+        Some(ProjectDefinition::Json { info, meta }) => (info, meta),
     };
     // Every file the manifest checksums, hashed from disk. Checked first,
     // so that a changed file is named in the report. A project without a

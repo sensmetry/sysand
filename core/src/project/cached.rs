@@ -4,8 +4,7 @@
 use crate::{
     context::ProjectContext,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{CanonicalizationError, ProjectFormat, ProjectRead, Utf8UnixPath},
+    project::{CanonicalizationError, ProjectDefinition, ProjectFormat, ProjectRead, Utf8UnixPath},
 };
 
 /// Pair of project storages where `local` and `remote` contain the same project
@@ -32,14 +31,6 @@ impl<Local: ProjectRead, Remote: ProjectRead> ProjectRead for CachedProject<Loca
         self.local.format()
     }
 
-    /// Forwarded for the same reason as [`Self::format`].
-    fn manifest(
-        &self,
-    ) -> Result<crate::manifest::project::ResolvedProject, crate::project::ManifestError<Self::Error>>
-    {
-        self.local.manifest()
-    }
-
     fn manifest_document(
         &self,
     ) -> Result<crate::manifest::edit::DocumentMut, crate::project::ManifestError<Self::Error>>
@@ -49,15 +40,7 @@ impl<Local: ProjectRead, Remote: ProjectRead> ProjectRead for CachedProject<Loca
 
     type Error = Local::Error;
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         self.local.get_project()
     }
 
@@ -83,14 +66,6 @@ impl<Local: ProjectRead, Remote: ProjectRead> ProjectRead for CachedProject<Loca
     fn source_may_offer_multiple_versions(&self) -> bool {
         // `remote` is the authoritative source; `local` is only a faster copy of it.
         self.remote.source_may_offer_multiple_versions()
-    }
-
-    fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
-        self.local.get_info()
-    }
-
-    fn get_meta(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
-        self.local.get_meta()
     }
 
     fn version(&self) -> Result<Option<String>, Self::Error> {

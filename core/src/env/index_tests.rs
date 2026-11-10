@@ -1175,7 +1175,10 @@ mod get_project {
         let meta_json_mock = mock_json_get(&mut server, "/admin/proj0/0.3.0/.meta.json", meta_json);
 
         let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
-        let (info, _meta) = project.get_project()?;
+        let (info, _meta) = project
+            .get_project()?
+            .and_then(crate::project::ProjectDefinition::into_json)
+            .unzip();
         let info = info.expect("info should be prefetched for yanked entries too");
         assert_eq!(info.name, "proj0");
         assert_eq!(info.version, "0.3.0");
@@ -1217,7 +1220,10 @@ mod get_project {
 
         // get_project should return the prefetched info without hitting the
         // kpar URL (no mock for the kpar body).
-        let (info, meta) = project.get_project()?;
+        let (info, meta) = project
+            .get_project()?
+            .and_then(crate::project::ProjectDefinition::into_json)
+            .unzip();
         let info = info.expect("info should be prefetched");
         assert_eq!(info.name, "proj0");
         assert_eq!(info.publisher.as_deref(), Some("admin"));
@@ -1311,7 +1317,10 @@ mod get_project {
             )
         );
 
-        let (info, _) = project.get_project()?;
+        let (info, _) = project
+            .get_project()?
+            .and_then(crate::project::ProjectDefinition::into_json)
+            .unzip();
         let info = info.expect("info should be prefetched");
         assert_eq!(info.name, "b");
         assert_eq!(info.publisher, None);
@@ -1352,7 +1361,10 @@ mod get_project {
         let meta_json_mock = mock_json_get(&mut server, "/admin/proj0/0.3.0/.meta.json", meta_json);
 
         let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
-        let (info, _) = project.get_project()?;
+        let (info, _) = project
+            .get_project()?
+            .and_then(crate::project::ProjectDefinition::into_json)
+            .unzip();
         let info = info.expect("info should be prefetched");
 
         assert_eq!(info.usage.len(), 2);
@@ -1402,7 +1414,10 @@ mod get_project {
         );
 
         let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
-        let (info, _) = project.get_project()?;
+        let (info, _) = project
+            .get_project()?
+            .and_then(crate::project::ProjectDefinition::into_json)
+            .unzip();
         let info = info.expect("info should be prefetched");
 
         assert_eq!(
@@ -1459,11 +1474,11 @@ mod get_project {
         let meta_json_mock = mock_json_get(&mut server, "/admin/proj0/0.3.0/.meta.json", meta_json);
 
         let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
-        let info = project
-            .get_info()
+        let definition = project
+            .get_project()
             .expect("textual usage drift must be ignored; server is authoritative")
             .expect("info must be present");
-        assert_eq!(info.name, "proj0");
+        assert_eq!(definition.name(), "proj0");
 
         versions_mock.assert();
         project_json_mock.assert();
@@ -1513,7 +1528,10 @@ mod get_project {
         );
 
         let project = env.get_project(IRI, "0.3.0")?;
-        let (info, meta) = project.get_project()?;
+        let (info, meta) = project
+            .get_project()?
+            .and_then(crate::project::ProjectDefinition::into_json)
+            .unzip();
         let info = info.expect("info should be prefetched");
         let meta = meta.expect("meta should be prefetched");
 
@@ -2005,7 +2023,9 @@ mod digest {
         let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
         let (info, meta) = project
             .get_project()
-            .expect("canonical digest reconciliation must succeed for mixed-case SHA256 meta");
+            .expect("canonical digest reconciliation must succeed for mixed-case SHA256 meta")
+            .and_then(crate::project::ProjectDefinition::into_json)
+            .unzip();
         assert_eq!(info.as_ref().map(|i| i.name.as_str()), Some("proj0"));
         assert!(meta.is_some());
 
@@ -2062,11 +2082,10 @@ mod caching {
 
         let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
         // Hit each accessor multiple times in mixed order; cache must hold.
-        let _ = project.get_info()?;
-        let _ = project.get_meta()?;
         let _ = project.get_project()?;
-        let _ = project.get_info()?;
-        let _ = project.get_meta()?;
+        let _ = project.checksum_canonical_hex()?;
+        let _ = project.get_project()?;
+        let _ = project.checksum_canonical_hex()?;
 
         versions_mock.assert();
         project_json_mock.assert();

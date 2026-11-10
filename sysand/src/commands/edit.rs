@@ -11,15 +11,16 @@ use sysand_core::{
         IndexName, IndexPublisher, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
         KnownMetamodel, MetamodelFamily,
     },
-    project::{ProjectFormat, ProjectMut, ProjectRead, local_src::LocalSrcProject},
+    project::{
+        ProjectDefinition, ProjectFormat, ProjectMut, ProjectRead, local_src::LocalSrcProject,
+    },
     utils::format_err,
 };
 
 use crate::{
     cli::{EditArgs, MetamodelKindCli},
     commands::info::{
-        get_info_or_bail, get_meta_or_bail, log_license_files_note, set_info_or_bail,
-        set_meta_or_bail,
+        get_project_or_bail, log_license_files_note, set_info_or_bail, set_meta_or_bail,
     },
 };
 
@@ -38,14 +39,15 @@ pub fn command_edit(mut project: LocalSrcProject, edits: EditArgs) -> Result<()>
         }
         return Ok(());
     }
+    let ProjectDefinition::Json { mut info, mut meta } = get_project_or_bail(&project)? else {
+        bail!("`{}` is a `model.toml` project", project.root_path());
+    };
     if edits_info {
-        let mut info = get_info_or_bail(&project)?;
         edit_info(&edits, &mut info)?;
         set_info_or_bail(&mut project, &info)?;
     }
     if edits_meta {
         refuse_computed_fields(&project, &edits)?;
-        let mut meta = get_meta_or_bail(&project)?;
         edit_meta(&edits, &mut meta);
         set_meta_or_bail(&mut project, &meta)?;
     }

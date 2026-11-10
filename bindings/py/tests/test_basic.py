@@ -796,6 +796,7 @@ def test_add_refuses_an_invalid_publisher_or_name(tmp_path: Path) -> None:
         version="1.0.0",
         metamodel=SYSML,
     )
+    manifest = (tmp_path / "model.toml").read_text()
 
     # With the messages `sysand add <publisher>/<name>` gives
     for publisher, name, message in [
@@ -814,8 +815,7 @@ def test_add_refuses_an_invalid_publisher_or_name(tmp_path: Path) -> None:
                 version_constraint="*",
             )
 
-    info, _ = sysand.info_path(project_dir=tmp_path)
-    assert info["usage"] == []
+    assert (tmp_path / "model.toml").read_text() == manifest
 
 
 @pytest.mark.parametrize(
@@ -870,6 +870,7 @@ def test_add_needs_a_version_constraint(tmp_path: Path) -> None:
         version="1.0.0",
         metamodel=SYSML,
     )
+    manifest = (tmp_path / "model.toml").read_text()
 
     for kwargs in [
         {"publisher": "acme", "name": "lib"},
@@ -887,8 +888,7 @@ def test_add_needs_a_version_constraint(tmp_path: Path) -> None:
             usage={"dir": "../dep", "publisher": "acme", "name": "dep"},
         )
 
-    info, _ = sysand.info_path(project_dir=tmp_path)
-    assert info["usage"] == []
+    assert (tmp_path / "model.toml").read_text() == manifest
 
 
 def _project_with_dir_usage(tmp_path: Path) -> tuple[Path, Path]:
@@ -933,15 +933,15 @@ def test_env_projects_lists_installed_and_editable(tmp_path: Path) -> None:
     assert own["usages"] == ["pkg:sysand/acme/dir-dep"]
     assert own["checksum"] is None
 
-    # A directory usage is installed as a copy, relative to the env dir.
+    # A directory usage is used in place: an editable entry, relative to
+    # the project root, with no checksum.
     dir_dep = projects["dir-dep"]
-    assert dir_dep["editable"] is False
+    assert dir_dep["editable"] is True
+    assert dir_dep["workspace"] is False
     assert dir_dep["identifiers"][0] == "pkg:sysand/acme/dir-dep"
-    assert (env_dir / dir_dep["path"] / "dir-dep.sysml").is_file()
+    assert (root / dir_dep["path"] / "dir-dep.sysml").is_file()
     assert dir_dep["usages"] == []
-    # Installed from a source directory, so `env.toml` records `src_cksum`.
-    assert set(dir_dep["checksum"]) == {"src_cksum"}
-    assert re.fullmatch(r"[0-9a-f]{64}", dir_dep["checksum"]["src_cksum"])
+    assert dir_dep["checksum"] is None
 
     kpar_dep = projects["kpar-dep"]
     assert kpar_dep["editable"] is False
@@ -1115,13 +1115,7 @@ def test_basic_info(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(level)
 
     with tempfile.TemporaryDirectory() as tmpdirname:
-        sysand.init(
-            project_dir=tmpdirname,
-            name="test-basic-info",
-            publisher="acme",
-            version="1.2.3",
-            metamodel=SYSML,
-        )
+        write_legacy_project(Path(tmpdirname), "acme", "test-basic-info", "1.2.3")
 
         info_meta = sysand.info_path(project_dir=tmpdirname)
         assert info_meta is not None
@@ -1139,23 +1133,25 @@ def test_basic_info(caplog: pytest.LogCaptureFixture) -> None:
             "topic": [],
             "usage": [],
         }
-
         assert meta["index"] == {}
-        # A view of a source project is not a function of the clock:
-        # `created` is computed at build, so until then it is the epoch.
-        assert meta["created"] == "1970-01-01T00:00:00Z"
-        assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", meta["created"])
-        assert meta["metamodel"] == SYSML
-        assert meta["includes_derived"] is None
-        assert meta["includes_implied"] is None
-        # The view computes the map; a project with no sources has an
-        # empty one rather than none at all.
-        assert meta["checksum"] == {}
 
         file_uri = Path(tmpdirname).resolve().as_uri()
 
         info_meta2 = sysand.info(iri=file_uri, resolution=NO_INDEX)
         assert info_meta2 == info_meta
+
+
+def test_info_refuses_a_model_toml_project(tmp_path: Path) -> None:
+    sysand.init(
+        project_dir=tmp_path,
+        name="test-info-toml",
+        publisher="acme",
+        version="1.2.3",
+        metamodel=SYSML,
+    )
+
+    with pytest.raises(RuntimeError, match="is a `model.toml` project"):
+        sysand.info_path(project_dir=tmp_path)
 
 
 def test_http_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) -> None:

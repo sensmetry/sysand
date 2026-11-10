@@ -446,14 +446,14 @@ fn clone_identifier_errors() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// A member that inherits its `metamodel` can be cloned.
+/// A `model.toml` project is not cloned yet.
 ///
-/// `clone` reads the project at the path it is given, and that read must
-/// see the workspace table: without it, a member carrying
-/// `metamodel.workspace = "<group>"` is refused as "the project is not a
-/// member of any workspace", though it is listed in `members`.
+/// The project is a member that inherits its `metamodel`, so the read
+/// must see the workspace table: without it, it is refused as "the
+/// project is not a member of any workspace", though it is listed in
+/// `members`.
 #[test]
-fn clone_a_member_that_inherits_its_metamodel() -> Result<(), Box<dyn std::error::Error>> {
+fn cloning_a_model_toml_member_is_refused() -> Result<(), Box<dyn std::error::Error>> {
     let (_source_dir, source) = new_temp_cwd()?;
     std::fs::write(
         source.join("model.toml"),
@@ -469,17 +469,10 @@ fn clone_a_member_that_inherits_its_metamodel() -> Result<(), Box<dyn std::error
     )?;
     std::fs::write(source.join("app/m.sysml"), b"package M;\n")?;
 
-    let (_temp_dir, cwd, out) = run_sysand(["clone", "--dir", source.join("app").as_str()], None)?;
-    out.assert()
-        .success()
-        .stderr(predicate::str::contains("Cloned `member` 1.0.0"));
-
-    // The inherited value reaches the clone: a `model.toml` project is
-    // written out as a json pair, and the metamodel lands in the meta.
-    let meta = std::fs::read_to_string(cwd.join(".meta.json"))?;
-    assert!(
-        meta.contains("https://www.omg.org/spec/SysML/20250201"),
-        "the group's metamodel is resolved into the clone:\n{meta}"
-    );
+    // The member reads, so what refuses it is the copy, not the read.
+    let (_temp_dir, _cwd, out) = run_sysand(["clone", "--dir", source.join("app").as_str()], None)?;
+    out.assert().failure().stderr(predicate::str::contains(
+        "`member` is a `model.toml` project, which cannot be copied yet",
+    ));
     Ok(())
 }

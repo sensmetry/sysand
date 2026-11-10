@@ -13,8 +13,7 @@
 //!   `checksum_canonical_hex_async` is *not* among them: it is the canonical
 //!   project digest, computed from the fetched info and metadata, so it goes
 //!   through the lazy fetch below.
-//! - Lazily-fetched reads
-//!   ([`ProjectReadAsync::get_project_async`]/`get_info_async`/`get_meta_async`)
+//! - Lazily-fetched reads ([`ProjectReadAsync::get_project_async`])
 //!   guarded by `fetched_info_meta`'s `OnceCell`.
 //! - [`ProjectReadAsync::read_source_async`] delegating to
 //!   [`crate::project::reqwest_kpar_download::ReqwestIndexKparDownloadedProject`],
@@ -41,7 +40,7 @@ use crate::{
         InterchangeProjectUsageRaw, PartialManifest,
     },
     project::{
-        ProjectReadAsync,
+        ProjectDefinition, ProjectReadAsync,
         reqwest_kpar_download::{
             ReqwestIndexKparDownloadedProject, ReqwestKparDownloadedError,
             ReqwestRemoteKparDownloadedProject,
@@ -199,17 +198,12 @@ impl<Policy: HTTPAuthentication> IndexEntryProject<Policy> {
 impl<Policy: HTTPAuthentication> ProjectReadAsync for IndexEntryProject<Policy> {
     type Error = IndexEntryProjectError;
 
-    async fn get_project_async(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    async fn get_project_async(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         let (info, meta) = self.ensure_downloaded().await?;
-        Ok((Some(info.clone()), Some(meta.clone())))
+        Ok(Some(ProjectDefinition::Json {
+            info: info.clone(),
+            meta: meta.clone(),
+        }))
     }
 
     type SourceReader<'a>
@@ -239,14 +233,6 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for IndexEntryProject<Policy> 
     fn source_may_offer_multiple_versions(&self) -> bool {
         // An index advertises every version of a project it holds.
         true
-    }
-
-    async fn get_info_async(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
-        Ok(Some(self.ensure_downloaded().await?.0.clone()))
-    }
-
-    async fn get_meta_async(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
-        Ok(Some(self.ensure_downloaded().await?.1.clone()))
     }
 
     async fn version_async(&self) -> Result<Option<String>, Self::Error> {

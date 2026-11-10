@@ -395,9 +395,9 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
     let c_url = mock_project(
         &mut server,
         &mut project_mocks,
-        // A `.project.json` GET more for sync to check the project against
-        // the lockfile before installing it
-        [1, 8, 1, 5],
+        // A `.project.json` and a `.meta.json` GET more for sync to check
+        // the project against the lockfile before installing it
+        [1, 8, 1, 6],
         "charlie",
         "lock_basic_http_deps_c",
         "1.0.0",
@@ -407,9 +407,9 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
     let a_url = mock_project(
         &mut server,
         &mut project_mocks,
-        // A `.project.json` GET more for sync to check the project against
-        // the lockfile before installing it
-        [1, 8, 1, 5],
+        // A `.project.json` and a `.meta.json` GET more for sync to check
+        // the project against the lockfile before installing it
+        [1, 8, 1, 6],
         "acme",
         "lock_basic_http_deps_a",
         "1.0.0",
@@ -418,9 +418,9 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
     let b_url = mock_project(
         &mut server,
         &mut project_mocks,
-        // A `.project.json` GET more for sync to check the project against
-        // the lockfile before installing it
-        [1, 8, 1, 5],
+        // A `.project.json` and a `.meta.json` GET more for sync to check
+        // the project against the lockfile before installing it
+        [1, 8, 1, 6],
         "bravo",
         "lock_basic_http_deps_b",
         "1.0.0",
@@ -805,7 +805,7 @@ fn lock_directory_usage_transitive() -> Result<(), Box<dyn std::error::Error>> {
 
     // Resolved paths are relativized back against the top-level project
     // root when recorded in the lockfile
-    for (name, version, expected_src_path) in [
+    for (name, version, expected_path) in [
         ("widget", "1.0.0", "deps/widget"),
         ("gadget", "2.0.0", "deps/gadget"),
     ] {
@@ -814,86 +814,10 @@ fn lock_directory_usage_transitive() -> Result<(), Box<dyn std::error::Error>> {
             .find(|p| p.name == name)
             .unwrap_or_else(|| panic!("`{name}` missing from lockfile: {projects:#?}"));
         assert_eq!(project.version, version);
-        let [
-            Source::LocalSrc {
-                src_path,
-                checksum: _,
-            },
-        ] = project.sources.as_slice()
-        else {
-            panic!("expected a single local source for `{name}`, got: {project:#?}");
+        let [Source::Editable { editable }] = project.sources.as_slice() else {
+            panic!("expected a single editable source for `{name}`, got: {project:#?}");
         };
-        assert_eq!(src_path.as_str(), expected_src_path);
-    }
-
-    Ok(())
-}
-
-/// A dependency resolved *from the environment* can declare a directory
-/// usage whose relative path only made sense in its original source tree:
-/// `app` was authored next to `widget` and uses `../widget`, but once `app`
-/// is installed into `.sysand`, that path (relative to the env-internal
-/// project root) points at nothing. Resolution must then fall back to the
-/// environment, where the usage's publisher/name identify `widget`, instead
-/// of failing the whole lock on the file resolver's `NotFound`
-#[test]
-fn lock_directory_usage_env_installed_dependency() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "consumer", "1.0.0", None)?;
-
-    // Source tree: `app` uses `widget` via the directory usage `../widget`
-    let app_dir = cwd.join("src").join("app");
-    let widget_dir = cwd.join("src").join("widget");
-    std::fs::create_dir_all(&app_dir)?;
-    std::fs::create_dir_all(&widget_dir)?;
-    write_legacy_project(&widget_dir, "acme", "widget", "1.0.0", None)?;
-    write_legacy_project(&app_dir, "acme", "app", "1.0.0", None)?;
-    run_sysand_in(&app_dir, ["add", "--no-lock", "--dir", "../widget"], None)?
-        .assert()
-        .success();
-
-    // Add `app` as a usage of the consumer while the source tree still
-    // exists: this resolves and installs both `app` and (transitively,
-    // via its `../widget` directory usage) `widget` into `.sysand`.
-    run_sysand_in(
-        &cwd,
-        [
-            "add",
-            "--iri",
-            "pkg:sysand/acme/app",
-            "--as-local-src",
-            "src/app",
-            "--no-index",
-        ],
-        None,
-    )?
-    .assert()
-    .success();
-
-    // Delete the source tree: the env copies are the only ones left, and the
-    // `../widget` recorded in `app` now points at a non-existent path inside
-    // `.sysand`. Also drop the lockfile written by `add` (the `--as-local-src`
-    // override itself is not persisted, as there is no config file), so
-    // `lock` below can only resolve from the env
-    std::fs::remove_dir_all(cwd.join("src"))?;
-    std::fs::remove_file(cwd.join(DEFAULT_LOCKFILE_NAME))?;
-
-    let out = run_sysand_in(&cwd, ["lock", "--no-index"], None)?;
-    out.assert().success();
-
-    let lock_file = Lockfile::read(&cwd)?.into_lock();
-    let projects = lock_file.projects;
-
-    assert_eq!(
-        projects.len(),
-        3,
-        "expected consumer, app and widget in the lockfile, got: {projects:#?}"
-    );
-    for name in ["app", "widget"] {
-        let project = projects
-            .iter()
-            .find(|p| p.name == name)
-            .unwrap_or_else(|| panic!("`{name}` missing from lockfile: {projects:#?}"));
-        assert_eq!(project.version, "1.0.0");
+        assert_eq!(editable.as_str(), expected_path);
     }
 
     Ok(())
@@ -1411,41 +1335,6 @@ fn sync_without_a_lockfile_refuses_the_same_mismatch() -> Result<(), Box<dyn std
         .assert()
         .failure()
         .stderr(predicate::str::contains(SPELLS_AS_DECLARED));
-    Ok(())
-}
-
-/// `clone` does **not** refuse the mismatch.
-///
-/// It locks its *destination*, and cloning a `model.toml` project writes a
-/// `.project.json` pair there. By the time the lock runs there is no
-/// `model.toml` to read the declared pair from, and json has no field to
-/// carry it, so a mismatch `lock` refuses in the source project is
-/// accepted in a clone of it.
-///
-/// A characterisation test: if `clone` comes to preserve the toml
-/// project, this test fails and says so.
-#[test]
-fn cloning_does_not_carry_the_identity_check() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, app) = kpar_url_identity_case("acme", "wrongname")?;
-    let target = app.join("cloned");
-    run_sysand_in(
-        &app,
-        [
-            "clone",
-            "--dir",
-            app.as_str(),
-            "--target",
-            target.as_str(),
-            "--no-index",
-        ],
-        None,
-    )?
-    .assert()
-    .success();
-    assert!(
-        target.join(".project.json").is_file(),
-        "the destination is json, which is why the check cannot apply"
-    );
     Ok(())
 }
 

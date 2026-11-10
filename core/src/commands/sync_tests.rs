@@ -200,6 +200,7 @@ type NoRemoteSrc = fn(String, String) -> Result<InMemoryProject, !>;
 type NoKparPath = fn(Utf8UnixPathBuf, NonZeroU64, String) -> InMemoryProject;
 type NoRemoteKpar = fn(String, NonZeroU64, String) -> Result<InMemoryProject, !>;
 type NoGit = fn(String) -> Result<InMemoryProject, !>;
+type NoEditable = fn(Utf8UnixPathBuf) -> Result<InMemoryProject, !>;
 
 const URI: &str = "urn:kpar:install_test";
 
@@ -244,6 +245,7 @@ fn run_sync(
     let result = do_sync(
         lock,
         env,
+        None::<NoEditable>,
         Some(|_src_path: Utf8UnixPathBuf, _checksum: String| storage_example()),
         None::<NoRemoteSrc>,
         None::<NoKparPath>,
@@ -332,6 +334,7 @@ fn run_sync_git(
     do_sync(
         lock,
         env,
+        None::<NoEditable>,
         None::<fn(Utf8UnixPathBuf, String) -> InMemoryProject>,
         None::<NoRemoteSrc>,
         None::<NoKparPath>,

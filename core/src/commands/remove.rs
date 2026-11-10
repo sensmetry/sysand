@@ -5,7 +5,7 @@ use thiserror::Error;
 
 use crate::{
     model::{InterchangeProjectUsageRaw, InterchangeProjectValidationError, UsageRef},
-    project::{ProjectFormat, ProjectMut, ProjectRead as _, utils::Identifier},
+    project::{ProjectDefinition, ProjectFormat, ProjectMut, ProjectRead as _, utils::Identifier},
 };
 
 #[derive(Error, Debug)]
@@ -94,7 +94,9 @@ pub fn do_remove<P: ProjectMut>(
         return remove_toml(project, &usage);
     }
 
-    let Some(mut info) = project.get_info().map_err(RemoveError::Project)? else {
+    let Some(ProjectDefinition::Json { mut info, meta: _ }) =
+        project.get_project().map_err(RemoveError::Project)?
+    else {
         return Err(RemoveError::MissingInfo);
     };
     let popped = info.pop_usage(&usage);

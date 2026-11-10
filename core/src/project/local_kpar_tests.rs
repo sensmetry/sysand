@@ -36,7 +36,11 @@ fn basic_kpar_archive() -> Result<(), Box<dyn std::error::Error>> {
 
     let project = super::LocalKParProject::new_access(zip_path, KparInnerPath::Guess, None);
 
-    let (Some(info), Some(meta)) = project.get_project()? else {
+    let (Some(info), Some(meta)) = project
+        .get_project()?
+        .and_then(crate::project::ProjectDefinition::into_json)
+        .unzip()
+    else {
         panic!();
     };
 
@@ -79,7 +83,11 @@ fn nested_kpar_archive() -> Result<(), Box<dyn std::error::Error>> {
 
     let project = super::LocalKParProject::new_access(zip_path, KparInnerPath::Guess, None);
 
-    let (Some(info), Some(meta)) = project.get_project()? else {
+    let (Some(info), Some(meta)) = project
+        .get_project()?
+        .and_then(crate::project::ProjectDefinition::into_json)
+        .unzip()
+    else {
         panic!();
     };
 
@@ -190,11 +198,7 @@ fn a_kpar_with_a_model_toml_beside_the_pair_is_refused() -> Result<(), Box<dyn s
         )
     );
     assert_matches!(
-        project.get_info().expect_err("a toml manifest"),
-        super::LocalKParError::TomlInKpar { archive: _ }
-    );
-    assert_matches!(
-        project.get_meta().expect_err("a toml manifest"),
+        project.version().expect_err("a toml manifest"),
         super::LocalKParError::TomlInKpar { archive: _ }
     );
 
@@ -235,7 +239,10 @@ fn a_kpar_with_a_model_toml_among_its_sources_is_read() -> Result<(), Box<dyn st
     )?;
 
     let project = super::LocalKParProject::new_access(zip_path, KparInnerPath::Guess, None);
-    let (info, _) = project.get_project()?;
+    let (info, _) = project
+        .get_project()?
+        .and_then(crate::project::ProjectDefinition::into_json)
+        .unzip();
     assert_eq!(info.expect("`.project.json`").name, "widgets");
 
     Ok(())

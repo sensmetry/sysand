@@ -252,19 +252,18 @@ fn a_generated_project_is_read_back_by_info() -> Result<(), Box<dyn std::error::
     Ok(())
 }
 
-/// `created` is the Unix epoch for a generated project: it is computed at
-/// build, and a view of a source project must not depend on the clock.
-///
-/// The value appears only through `info`, which is what this test
-/// reads.
+/// `created` is recorded when the KPAR is built, so a generated project
+/// has none.
 #[test]
-fn created_is_the_epoch_for_a_generated_project() -> Result<(), Box<dyn std::error::Error>> {
+fn a_generated_project_has_no_created() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = init_ok(&[])?;
 
     run_sysand_in(&cwd.join("project"), ["info", "--get", "created"], None)?
         .assert()
-        .success()
-        .stdout(predicate::str::contains("1970-01-01T00:00:00Z"));
+        .failure()
+        .stderr(predicate::str::contains(
+            "`created` is recorded when the KPAR is built",
+        ));
     Ok(())
 }
 

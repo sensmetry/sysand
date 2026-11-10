@@ -257,6 +257,14 @@ fn a_json_project_hashes_and_indexes() {
         )
         .expect("a json project");
     project
+        .put_meta(
+            &crate::model::InterchangeProjectMetadataRaw::minimal(
+                "1970-01-01T00:00:00Z".to_owned(),
+            ),
+            false,
+        )
+        .expect("a json project");
+    project
         .files
         .insert("Parts.sysml".into(), "package Parts;\n".to_owned());
 

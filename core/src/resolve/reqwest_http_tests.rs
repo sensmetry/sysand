@@ -68,7 +68,11 @@ fn basic_http_src_url_non_lax() -> Result<(), Box<dyn std::error::Error>> {
     for project in projects {
         let project = project?;
 
-        let (Some(info), Some(meta)) = project.get_project()? else {
+        let (Some(info), Some(meta)) = project
+            .get_project()?
+            .and_then(crate::project::ProjectDefinition::into_json)
+            .unzip()
+        else {
             panic!()
         };
 

@@ -8,9 +8,10 @@ use std::{
 
 use sysand_core::{
     manifest::edit::DocumentMut,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsageRaw},
     project::{
-        CanonicalizationError, ProjectChecksum, ProjectMut, ProjectRead, memory::InMemoryProject,
+        CanonicalizationError, ProjectChecksum, ProjectDefinition, ProjectMut, ProjectRead,
+        memory::InMemoryProject,
     },
 };
 
@@ -86,7 +87,13 @@ fn macro_get_project() {
         source_may_offer_multiple_versions: false,
     });
 
-    assert_eq!(test_double.get_project().unwrap(), (Some(info), Some(meta)));
+    assert_eq!(
+        test_double
+            .get_project()
+            .unwrap()
+            .and_then(ProjectDefinition::into_json),
+        Some((info, meta))
+    );
 }
 
 #[test]
@@ -138,11 +145,12 @@ fn macro_put_info() {
     };
     let mut project = OneVariantProjectMut::Variant(InMemoryProject::new());
 
-    assert!(project.get_info().unwrap().is_none());
+    assert!(project.get_project().unwrap().is_none());
 
     project.put_info(&info, false).unwrap();
 
-    assert_eq!(project.get_info().unwrap().unwrap(), info);
+    let OneVariantProjectMut::Variant(inner) = &project;
+    assert_eq!(inner.info.as_ref(), Some(&info));
 }
 
 #[test]
@@ -159,11 +167,12 @@ fn macro_put_meta() {
     };
     let mut project = OneVariantProjectMut::Variant(InMemoryProject::new());
 
-    assert!(project.get_meta().unwrap().is_none());
+    assert!(project.get_project().unwrap().is_none());
 
     project.put_meta(&meta, false).unwrap();
 
-    assert_eq!(project.get_meta().unwrap().unwrap(), meta);
+    let OneVariantProjectMut::Variant(inner) = &project;
+    assert_eq!(inner.meta.as_ref(), Some(&meta));
 }
 
 #[test]
@@ -214,18 +223,18 @@ struct FixedDigestProject {
 impl ProjectRead for FixedDigestProject {
     type Error = !;
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
-        // None/None: the derived enum must return the *prefetched* digest
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
+        // No manifest: the derived enum must return the *prefetched* digest
         // directly rather than fall through to the trait default.
-        Ok((None, None))
+        Ok(None)
+    }
+
+    fn version(&self) -> Result<Option<String>, Self::Error> {
+        Ok(None)
+    }
+
+    fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
+        Ok(None)
     }
 
     type SourceReader<'a>

@@ -286,6 +286,18 @@ impl<Project: ProjectMut + Clone + Default> WriteEnvironment for MemoryStorageEn
         Ok(tentative_project)
     }
 
+    /// Every project here is a copy.
+    fn is_installed<S: AsRef<str>, T: AsRef<str>>(
+        &self,
+        uri: S,
+        version: T,
+    ) -> Result<bool, Self::WriteError> {
+        Ok(self
+            .projects
+            .get(uri.as_ref())
+            .is_some_and(|versions| versions.contains_key(version.as_ref())))
+    }
+
     fn del_project_version<S: AsRef<str>, T: AsRef<str>>(
         &mut self,
         uri: S,

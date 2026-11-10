@@ -37,7 +37,7 @@ use crate::{
         Metamodel, MetamodelRelease, PROJECT_JSON_FILE, SYSML_SPEC_PREFIX, SpecKind,
     },
     project::{
-        ProjectRead as _,
+        ProjectDefinition, ProjectRead as _,
         local_kpar::{LocalKParError, LocalKParProjectRaw},
         utils::{FsIoError, wrapfs},
     },
@@ -1116,9 +1116,10 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
 
     let (info, meta) = kpar_project
         .get_project()
-        .map_err(|e| PublishError::KparRead(path.as_str().into(), e))?;
+        .map_err(|e| PublishError::KparRead(path.as_str().into(), e))?
+        .and_then(ProjectDefinition::into_json)
+        .ok_or(PublishError::MissingInfo)?;
 
-    let info = info.ok_or(PublishError::MissingInfo)?;
     let validated_info = info
         .validate()
         .map_err(|e| PublishError::InfoMetaValidation {
@@ -1128,7 +1129,6 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
     let Some(license_expr) = validated_info.license else {
         return Err(PublishError::MissingLicense);
     };
-    let meta = meta.ok_or(PublishError::MissingMeta)?;
     let validated_meta = meta
         .validate()
         .map_err(|e| PublishError::InfoMetaValidation {

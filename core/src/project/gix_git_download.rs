@@ -12,9 +12,9 @@ use crate::{
     cancel::CancellationToken,
     context::ProjectContext,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    model::InterchangeProjectUsageRaw,
     project::{
-        ProjectRead,
+        ProjectDefinition, ProjectRead,
         local_src::{LocalSrcError, LocalSrcProject, PathError},
         utils::{FileWithLifetime, RelativizePathError, ToPathBuf as _},
     },
@@ -33,6 +33,10 @@ pub struct GixDownloadedProject {
 
 #[derive(Error, Debug)]
 pub enum GixDownloadedError {
+    // TODO: support `model.toml` projects from git.
+    /// `model.toml` projects are used only in place, as editable projects.
+    #[error("`{0}` is a `model.toml` project, which cannot be used from git yet")]
+    TomlProject(String),
     #[error("git clone from `{0}` failed")]
     Clone(String, #[source] Box<gix::Error>),
     /// The clone was cancelled, before it began or while gix was
@@ -85,6 +89,7 @@ impl From<LocalSrcError> for GixDownloadedError {
             error @ LocalSrcError::MissingInfoMeta { missing: _ } => Self::Other(error.to_string()),
             error @ (LocalSrcError::AmbiguousFormat { dir: _, json: _ }
             | LocalSrcError::Symbols(_)
+            | LocalSrcError::TomlProjectHasNoChecksum { dir: _ }
             | LocalSrcError::JsonWriteToTomlProject { dir: _, file: _ }
             | LocalSrcError::TomlWriteToJsonProject { dir: _ }) => Self::Other(error.to_string()),
         }
@@ -157,18 +162,23 @@ impl GixDownloadedProject {
 impl ProjectRead for GixDownloadedProject {
     type Error = GixDownloadedError;
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         self.ensure_downloaded()?;
 
-        Ok(self.inner.get_project()?)
+        match self.inner.get_project()? {
+            Some(ProjectDefinition::Toml(_)) => {
+                Err(GixDownloadedError::TomlProject(self.url.to_string()))
+            }
+            definition => Ok(definition),
+        }
+    }
+
+    fn version(&self) -> Result<Option<String>, Self::Error> {
+        Ok(self.get_project()?.map(|project| project.version()))
+    }
+
+    fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
+        Ok(self.get_project()?.map(|project| project.usages()))
     }
 
     type SourceReader<'a>

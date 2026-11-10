@@ -87,7 +87,11 @@ pub fn basic_gix_access() -> Result<(), Box<dyn std::error::Error>> {
     let path = wrapfs::canonicalize(repo_dir.path())?;
     let project = GixDownloadedProject::new(format!("file://{path}"))?;
 
-    let (Some(info), Some(meta)) = project.get_project()? else {
+    let (Some(info), Some(meta)) = project
+        .get_project()?
+        .and_then(crate::project::ProjectDefinition::into_json)
+        .unzip()
+    else {
         panic!("expected info and meta");
     };
 

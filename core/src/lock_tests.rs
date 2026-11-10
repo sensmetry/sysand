@@ -1433,30 +1433,38 @@ fn project_names(lock: &Lock) -> Vec<String> {
     names
 }
 
-#[test]
-fn is_root_true_for_dot_editable() {
-    // The nominal path of the current project's own lock entry.
-    let project = project_with_sources(vec![Source::Editable {
-        editable: Utf8UnixPathBuf::from("."),
-    }]);
-    assert!(Lock::is_root(&project));
+/// The roots of a lockfile made outside a workspace.
+fn single_root() -> Vec<Utf8UnixPathBuf> {
+    vec![Utf8UnixPathBuf::from(".")]
+}
+
+fn editable(path: &str) -> Source {
+    Source::Editable {
+        editable: Utf8UnixPathBuf::from(path),
+    }
 }
 
 #[test]
-fn is_root_true_for_subpath_editable() {
-    // The nominal path used for a workspace member's lock entry.
-    let project = project_with_sources(vec![Source::Editable {
-        editable: Utf8UnixPathBuf::from("packages/foo"),
-    }]);
-    assert!(Lock::is_root(&project));
+fn is_root_true_for_a_listed_editable() {
+    let roots = [
+        Utf8UnixPathBuf::from("."),
+        Utf8UnixPathBuf::from("packages/foo"),
+    ];
+    assert!(Lock::is_root(
+        &project_with_sources(vec![editable(".")]),
+        &roots
+    ));
+    assert!(Lock::is_root(
+        &project_with_sources(vec![editable("packages/foo")]),
+        &roots
+    ));
 }
 
+/// An editable dependency under the lockfile's directory is not a root.
 #[test]
-fn is_root_false_for_parent_relative_editable() {
-    let project = project_with_sources(vec![Source::Editable {
-        editable: Utf8UnixPathBuf::from(".."),
-    }]);
-    assert!(!Lock::is_root(&project));
+fn is_root_false_for_an_unlisted_editable() {
+    let project = project_with_sources(vec![editable("vendor/dep")]);
+    assert!(!Lock::is_root(&project, &single_root()));
 }
 
 #[test]
@@ -1464,26 +1472,44 @@ fn is_root_false_for_non_editable_source() {
     let project = project_with_sources(vec![Source::RemoteGit {
         remote_git: iri("https://example.com/foo.git"),
     }]);
-    assert!(!Lock::is_root(&project));
+    assert!(!Lock::is_root(&project, &single_root()));
 }
 
 #[test]
 fn is_root_false_for_multiple_sources() {
     let project = project_with_sources(vec![
-        Source::Editable {
-            editable: Utf8UnixPathBuf::from("."),
-        },
+        editable("."),
         Source::RemoteGit {
             remote_git: iri("https://example.com/foo.git"),
         },
     ]);
-    assert!(!Lock::is_root(&project));
+    assert!(!Lock::is_root(&project, &single_root()));
 }
 
 #[test]
 fn is_root_false_for_no_sources() {
     let project = project_with_sources(vec![]);
-    assert!(!Lock::is_root(&project));
+    assert!(!Lock::is_root(&project, &single_root()));
+}
+
+/// A `dir` dependency inside the project is locked as editable, and is
+/// pruned like any other dependency.
+#[test]
+fn remove_usage_prunes_an_editable_dependency_inside_the_project() {
+    let mut dep = dep_project("dep", "urn:dep", &[]);
+    dep.sources = vec![editable("dep")];
+    let mut lock = Lock {
+        lock_version: CURRENT_LOCK_VERSION.to_owned(),
+        projects: vec![root_project(Some("me"), "root", &["urn:dep"]), dep],
+    };
+
+    let RemoveUsageOutcome::Removed { pruned } =
+        lock.remove_usage(&single_root(), Some("me"), "root", "urn:dep")
+    else {
+        panic!("usage should be removed");
+    };
+    assert_eq!(pruned.len(), 1);
+    assert_eq!(project_names(&lock), vec!["root".to_owned()]);
 }
 
 #[test]
@@ -1497,7 +1523,7 @@ fn remove_usage_prunes_unreachable_dependency() {
     };
 
     let RemoveUsageOutcome::Removed { pruned: removed } =
-        lock.remove_usage(Some("me"), "root", "urn:dep")
+        lock.remove_usage(&single_root(), Some("me"), "root", "urn:dep")
     else {
         panic!("usage should be removed");
     };
@@ -1518,7 +1544,7 @@ fn remove_usage_reports_root_not_found() {
         ],
     };
 
-    let outcome = lock.remove_usage(Some("someone-else"), "root", "urn:dep");
+    let outcome = lock.remove_usage(&single_root(), Some("someone-else"), "root", "urn:dep");
 
     assert_eq!(outcome, RemoveUsageOutcome::RootNotFound);
     assert_eq!(
@@ -1538,7 +1564,7 @@ fn remove_usage_reports_usage_not_present() {
         ],
     };
 
-    let outcome = lock.remove_usage(Some("me"), "root", "urn:other");
+    let outcome = lock.remove_usage(&single_root(), Some("me"), "root", "urn:other");
 
     assert_eq!(outcome, RemoveUsageOutcome::UsageNotFound);
     assert_eq!(
@@ -1561,9 +1587,12 @@ fn remove_usage_keeps_dependency_needed_by_sibling_root() {
         ],
     };
 
-    let RemoveUsageOutcome::Removed { pruned: removed } =
-        lock.remove_usage(Some("me"), "app", "urn:shared")
-    else {
+    let RemoveUsageOutcome::Removed { pruned: removed } = lock.remove_usage(
+        &[Utf8UnixPathBuf::from("app"), Utf8UnixPathBuf::from("lib")],
+        Some("me"),
+        "app",
+        "urn:shared",
+    ) else {
         panic!("usage should be removed");
     };
 
@@ -1590,7 +1619,7 @@ fn remove_usage_prunes_transitive_chain() {
     };
 
     let RemoveUsageOutcome::Removed { pruned: removed } =
-        lock.remove_usage(Some("me"), "root", "urn:b")
+        lock.remove_usage(&single_root(), Some("me"), "root", "urn:b")
     else {
         panic!("usage should be removed");
     };
@@ -1618,7 +1647,7 @@ fn remove_usage_keeps_sibling_usage_and_its_own_subtree() {
     };
 
     let RemoveUsageOutcome::Removed { pruned: removed } =
-        lock.remove_usage(Some("me"), "root", "urn:b")
+        lock.remove_usage(&single_root(), Some("me"), "root", "urn:b")
     else {
         panic!("usage should be removed");
     };

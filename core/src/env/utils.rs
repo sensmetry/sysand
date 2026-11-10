@@ -3,7 +3,7 @@
 
 use crate::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{ProjectMut, ProjectRead, utils::FsIoError},
+    project::{ProjectDefinition, ProjectMut, ProjectRead, utils::FsIoError},
     utils::license_file_stems,
 };
 
@@ -23,6 +23,10 @@ pub enum CloneError<ProjectReadError: ErrorBound, EnvironmentWriteError: ErrorBo
     EnvWrite(#[source] EnvironmentWriteError),
     #[error("incomplete project: {0}")]
     IncompleteSource(&'static str),
+    // TODO: copy `model.toml` projects, rewriting path usages as a build does.
+    /// `model.toml` projects are used only in place, as editable projects.
+    #[error("`{0}` is a `model.toml` project, which cannot be copied yet")]
+    TomlProject(String),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
 }
@@ -45,12 +49,13 @@ pub fn clone_project<P: ProjectRead, Q: ProjectMut>(
     CloneError<P::Error, Q::Error>,
 > {
     match from.get_project().map_err(CloneError::ProjectRead)? {
-        (None, None) => Err(CloneError::IncompleteSource(
+        None => Err(CloneError::IncompleteSource(
             "missing `.project.json` and `.meta.json`",
         )),
-        (None, _) => Err(CloneError::IncompleteSource("missing `.project.json`")),
-        (_, None) => Err(CloneError::IncompleteSource("missing `.meta.json`")),
-        (Some(info), Some(meta)) => {
+        Some(ProjectDefinition::Toml(project)) => {
+            Err(CloneError::TomlProject(project.name.as_str().to_owned()))
+        }
+        Some(ProjectDefinition::Json { info, meta }) => {
             to.put_project(&info, &meta, overwrite)
                 .map_err(CloneError::EnvWrite)?;
 

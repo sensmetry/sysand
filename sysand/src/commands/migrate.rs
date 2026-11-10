@@ -25,7 +25,7 @@ use sysand_core::{
         InterchangeProjectMetadataPartial, META_JSON_FILE, PROJECT_JSON_FILE,
     },
     project::{
-        ProjectRead as _,
+        ProjectDefinition, ProjectRead as _,
         local_kpar::{KparInnerPath, LocalKParProject},
         local_src::{LocalSrcProject, ProjectFormat, detect_format},
         utils::{ProjectDeserializationError, relativize_path, validate_manifest, wrapfs},
@@ -413,11 +413,11 @@ fn read_identity(target: &Utf8Path) -> Result<(IndexPublisher, IndexName, bool),
     })?;
     if !is_dir {
         let kpar = LocalKParProject::new_access(target.to_owned(), KparInnerPath::Guess, None);
-        let info = match kpar.get_info() {
-            Ok(Some(info)) => Some((info, true)),
+        let definition = match kpar.get_project() {
+            Ok(Some(definition)) => Some((definition, true)),
             Ok(None) | Err(_) => None,
         };
-        return finish_identity(target, info);
+        return finish_identity(target, definition);
     }
     let source = match member_table(target)? {
         // A member's inherited keys resolve against the table.
@@ -426,27 +426,27 @@ fn read_identity(target: &Utf8Path) -> Result<(IndexPublisher, IndexName, bool),
     };
     // Only "there is no source project here" falls back to a KPAR; a
     // source project that cannot be read is an error.
-    let info = match source.get_info() {
-        Ok(Some(info)) => Some((info, false)),
+    let definition = match source.get_project() {
+        Ok(Some(definition)) => Some((definition, false)),
         Err(error) => return Err(format!("usage target `{target}`: {error}")),
         // A project's kind is not decided from its extension, so try a KPAR.
         Ok(None) => {
             let kpar = LocalKParProject::new_access(target.to_owned(), KparInnerPath::Guess, None);
-            match kpar.get_info() {
-                Ok(Some(info)) => Some((info, true)),
+            match kpar.get_project() {
+                Ok(Some(definition)) => Some((definition, true)),
                 Ok(None) | Err(_) => None,
             }
         }
     };
-    finish_identity(target, info)
+    finish_identity(target, definition)
 }
 
 /// The identity half, shared by the directory and archive paths.
 fn finish_identity(
     target: &Utf8Path,
-    info: Option<(sysand_core::model::InterchangeProjectInfoRaw, bool)>,
+    definition: Option<(ProjectDefinition, bool)>,
 ) -> Result<(IndexPublisher, IndexName, bool), String> {
-    let Some((info, is_kpar)) = info else {
+    let Some((definition, is_kpar)) = definition else {
         return Err(format!(
             "`{target}` does not contain a project that `sysand migrate` can read"
         ));
@@ -454,7 +454,7 @@ fn finish_identity(
 
     // `model.toml` requires a publisher, and the target's own is the only
     // source for it.
-    let Some(publisher) = info.publisher else {
+    let Some(publisher) = definition.publisher() else {
         return Err(format!(
             "usage target `{target}` declares no `publisher`, which `model.toml` requires;\n\
              {SP:>8} add one to the target before migrating this project",
@@ -462,8 +462,10 @@ fn finish_identity(
         ));
     };
     Ok((
-        IndexPublisher::parse(publisher).map_err(|e| format!("usage target `{target}`: {e}"))?,
-        IndexName::parse(info.name).map_err(|e| format!("usage target `{target}`: {e}"))?,
+        IndexPublisher::parse(publisher.to_owned())
+            .map_err(|e| format!("usage target `{target}`: {e}"))?,
+        IndexName::parse(definition.name().to_owned())
+            .map_err(|e| format!("usage target `{target}`: {e}"))?,
         is_kpar,
     ))
 }
@@ -558,17 +560,18 @@ fn resolve_remote_target<Policy: HTTPAuthentication>(
     let (version, project) = get_project_version(&resolve, None, resolver)
         .map_err(|e| format!("cannot resolve `{resource}`: {e:#}"))?;
 
-    let info = project
-        .get_info()
+    let definition = project
+        .get_project()
         .map_err(|e| format!("cannot read the target of `{resource}`: {e}"))?
         .ok_or_else(|| format!("`{resource}` resolves to nothing that declares a project"))?;
-    let Some(publisher) = info.publisher else {
+    let Some(publisher) = definition.publisher().map(ToOwned::to_owned) else {
         return Err(format!(
             "usage target `{resource}` declares no `publisher`, which `model.toml` requires"
         ));
     };
     let publisher = IndexPublisher::parse(publisher).map_err(|e| format!("`{resource}`: {e}"))?;
-    let name = IndexName::parse(info.name).map_err(|e| format!("`{resource}`: {e}"))?;
+    let name =
+        IndexName::parse(definition.name().to_owned()).map_err(|e| format!("`{resource}`: {e}"))?;
 
     if sysand_core::purl::parse_sysand_purl(resource)
         .ok()

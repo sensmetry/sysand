@@ -17,9 +17,10 @@ use crate::{
     manifest::diagnostics::Report,
     model::{
         InterchangeProjectInfoPartial, InterchangeProjectInfoRaw,
-        InterchangeProjectMetadataPartial, InterchangeProjectMetadataRaw, PartialManifest,
+        InterchangeProjectMetadataPartial, InterchangeProjectMetadataRaw,
+        InterchangeProjectUsageRaw, PartialManifest,
     },
-    project::{CanonicalizationError, ProjectReadAsync, utils::FsIoError},
+    project::{CanonicalizationError, ProjectDefinition, ProjectReadAsync, utils::FsIoError},
     redact::{HttpError, RedactedUrl, ResponseUrl},
     resolve::net_utils::{json_get_request, json_head_request, text_get_request},
 };
@@ -87,12 +88,25 @@ pub enum ReqwestSrcError {
     BadStatus(ResponseUrl, reqwest::StatusCode),
     #[error("project is missing `.project.json` and/or `.meta.json` files")]
     MissingInfoMeta,
+    /// One of a json project's two documents is not there.
+    #[error("`{0}` does not exist; a project needs both `.project.json` and `.meta.json`")]
+    MissingDocument(RedactedUrl),
     // `checksum_canonical_hex` reports network/HTTP failures as `io::Error`
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
 }
 
 impl<Policy: HTTPAuthentication> ReqwestSrcProjectAsync<Policy> {
+    /// `.project.json` alone, for the reads that need nothing else.
+    async fn fetch_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, ReqwestSrcError> {
+        // No metamodel is passed: fetching the metadata just for an error
+        // message is not worth a second request.
+        self.fetch(self.info_url())
+            .await?
+            .map(|(url, body)| Self::validate::<InterchangeProjectInfoPartial>(url, body, None))
+            .transpose()
+    }
+
     /// The body of one manifest document and where it came from, or
     /// `None` when the server does not have it.
     async fn fetch(
@@ -147,18 +161,11 @@ impl<Policy: HTTPAuthentication> ReqwestSrcProjectAsync<Policy> {
 impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Policy> {
     type Error = ReqwestSrcError;
 
-    async fn get_project_async(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    async fn get_project_async(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         // Fetched concurrently, validated afterwards: the metadata carries
         // the metamodel that errors about the info document may name.
-        let (info, meta) = join!(self.fetch(self.info_url()), self.fetch(self.meta_url()));
+        let (info_url, meta_url) = (self.info_url(), self.meta_url());
+        let (info, meta) = join!(self.fetch(info_url.clone()), self.fetch(meta_url.clone()));
         let (info, meta) = (info?, meta?);
 
         let meta = meta
@@ -173,23 +180,20 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Pol
             })
             .transpose()?;
 
-        Ok((info, meta))
+        match (info, meta) {
+            (Some(info), Some(meta)) => Ok(Some(ProjectDefinition::Json { info, meta })),
+            (None, None) => Ok(None),
+            (Some(_), None) => Err(ReqwestSrcError::MissingDocument((&meta_url).into())),
+            (None, Some(_)) => Err(ReqwestSrcError::MissingDocument((&info_url).into())),
+        }
     }
 
-    async fn get_info_async(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
-        // No metamodel is passed: fetching the metadata just for an error
-        // message is not worth a second request.
-        self.fetch(self.info_url())
-            .await?
-            .map(|(url, body)| Self::validate::<InterchangeProjectInfoPartial>(url, body, None))
-            .transpose()
+    async fn version_async(&self) -> Result<Option<String>, Self::Error> {
+        Ok(self.fetch_info().await?.map(|info| info.version))
     }
 
-    async fn get_meta_async(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
-        self.fetch(self.meta_url())
-            .await?
-            .map(|(url, body)| Self::validate::<InterchangeProjectMetadataPartial>(url, body, None))
-            .transpose()
+    async fn usage_async(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
+        Ok(self.fetch_info().await?.map(|info| info.usage))
     }
 
     type SourceReader<'a>

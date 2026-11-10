@@ -231,7 +231,7 @@ fn sync_to_remote() -> Result<(), Box<dyn std::error::Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect(2) // TODO: Reduce this to 1 after caching
+        .expect(3) // TODO: Reduce this to 1 after caching
         .match_request(|r| r.has_header(header::USER_AGENT))
         .create();
 
@@ -335,7 +335,7 @@ fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
         .with_status(404)
         .with_header("content-type", "application/json")
         .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect(2) // TODO: Reduce this to 1
+        .expect(3) // TODO: Reduce this to 1
         .create();
 
     let meta_mock_auth = server
@@ -347,7 +347,7 @@ fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect(2) // TODO: Reduce this to 1
+        .expect(3) // TODO: Reduce this to 1
         .create();
 
     fs::write(
@@ -436,11 +436,12 @@ fn sync_to_remote_incorrect_auth() -> Result<(), Box<dyn std::error::Error>> {
         .expect(0)
         .create();
 
+    // Fetched alongside `.project.json`.
     let meta_mock = server
         .mock("GET", "/.meta.json")
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
-        .expect(0)
+        .expect(1)
         .create();
 
     let meta_mock_auth = server
@@ -666,16 +667,10 @@ fn sync_kpar_path_usage_transitive() -> Result<(), Box<dyn std::error::Error>> {
         .find(|p| p.name == "widget")
         .unwrap_or_else(|| panic!("`widget` missing from lockfile: {projects:#?}"));
     assert_eq!(widget.version, "1.0.0");
-    let [
-        Source::LocalSrc {
-            src_path,
-            checksum: _,
-        },
-    ] = widget.sources.as_slice()
-    else {
-        panic!("expected a single local src source for `widget`, got: {widget:#?}");
+    let [Source::Editable { editable }] = widget.sources.as_slice() else {
+        panic!("expected a single editable source for `widget`, got: {widget:#?}");
     };
-    assert_eq!(src_path.as_str(), "deps/widget");
+    assert_eq!(editable.as_str(), "deps/widget");
 
     let gadget = projects
         .iter()
@@ -940,8 +935,9 @@ fn sync_fails_on_a_renamed_directory_dependency() -> Result<(), Box<dyn std::err
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "from src_path `dep` has name `My Library`,\nbut the lockfile records name `My Lib`",
-        ));
+            "from editable `dep` has name `My Library`,\nbut the lockfile records name `My Lib`",
+        ))
+        .stderr(predicate::str::contains("run `sysand lock`"));
 
     Ok(())
 }
@@ -1171,11 +1167,15 @@ fn sync_refuses_a_lockfile_with_a_direction_error() -> Result<(), Box<dyn std::e
 #[test]
 fn sync_warns_on_a_non_semver_version() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
+    // A `.project.json` can carry a version that is not semver, which a
+    // `model.toml` refuses.
     fs::write(
-        cwd.join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"app\"\n\
-         version = \"1.0.0\"\nsources = []\n\
-         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+        cwd.join(".project.json"),
+        r#"{"publisher":"acme","name":"app","version":"2023-11"}"#,
+    )?;
+    fs::write(
+        cwd.join(".meta.json"),
+        r#"{"index":{},"created":"1970-01-01T00:00:00Z","metamodel":"https://www.omg.org/spec/SysML/20250201"}"#,
     )?;
     fs::write(
         cwd.join("sysand-lock.toml"),
@@ -1214,7 +1214,14 @@ fn sync_warns_on_a_metamodel_release_mismatch() -> Result<(), Box<dyn std::error
          sources = [{ editable = \".\" }]\n\
          \n[[project]]\npublisher = \"acme\"\nname = \"lib\"\nversion = \"1.0.0\"\n\
          metamodel = \"https://www.omg.org/spec/SysML/20230201\"\n\
-         identifiers = [\"urn:lib\"]\nsources = [{ editable = \".\" }]\n",
+         identifiers = [\"urn:lib\"]\nsources = [{ editable = \"lib\" }]\n",
+    )?;
+    fs::create_dir_all(cwd.join("lib"))?;
+    fs::write(
+        cwd.join("lib/model.toml"),
+        "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"lib\"\n\
+         version = \"1.0.0\"\nsources = []\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20230201\"\n",
     )?;
 
     let output = run_sysand_in(&cwd, ["sync"], None)?;

@@ -6,7 +6,7 @@ use sysand_core::{
     commands::init::do_init,
     init::do_init_memory,
     manifest::inherit::MetaProperty,
-    project::{ManifestWriteError, ProjectFormat, ProjectRead as _},
+    project::{ManifestWriteError, ProjectDefinition, ProjectFormat, ProjectRead as _},
     utils::format_err,
 };
 
@@ -43,8 +43,10 @@ fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
     assert!(memory_storage.info.is_none());
     assert!(memory_storage.meta.is_none());
 
-    // What a json-shaped caller sees is synthesized from the manifest.
-    let manifest = memory_storage.manifest().expect("a manifest");
+    let Some(ProjectDefinition::Toml(manifest)) = memory_storage.get_project().expect("a manifest")
+    else {
+        panic!("a `model.toml` project");
+    };
     assert_eq!(manifest.name.as_str(), "init-basic");
     assert_eq!(manifest.publisher.as_str(), "echo");
     assert_eq!(

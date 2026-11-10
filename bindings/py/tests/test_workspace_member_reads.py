@@ -37,8 +37,9 @@ def inheriting_workspace(root: Path) -> Path:
 
 def test_info_path_reads_an_inheriting_member(tmp_path: Path) -> None:
     member = inheriting_workspace(tmp_path)
-    info, _meta = sysand.info_path(project_dir=str(member))
-    assert info["name"] == "member"
+    # The refusal names the project, so the member's manifest resolved.
+    with pytest.raises(RuntimeError, match="`member` is a `model.toml` project"):
+        sysand.info_path(project_dir=str(member))
 
 
 def test_sources_reads_an_inheriting_member(tmp_path: Path) -> None:

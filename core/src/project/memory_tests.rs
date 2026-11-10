@@ -38,19 +38,19 @@ fn a_memory_project_stores_and_reports_a_manifest() {
 }
 
 #[test]
-fn a_memory_project_with_a_manifest_synthesizes_the_kpar_view() {
+fn a_memory_project_with_a_manifest_reads_as_it() {
     let mut project = InMemoryProject::default();
     project
         .put_manifest_document(&document(MANIFEST), false)
         .expect("a manifest");
 
-    // What a json-shaped caller is entitled to see, built from the
-    // manifest rather than from `info`/`meta`, which are empty.
-    let (info, meta) = project.get_project().expect("a view");
-    let info = info.expect("synthesized info");
-    assert_eq!(info.name, "widgets");
-    assert_eq!(info.publisher.as_deref(), Some("acme"));
-    assert!(meta.is_some());
+    let Some(crate::project::ProjectDefinition::Toml(manifest)) =
+        project.get_project().expect("a manifest")
+    else {
+        panic!("a `model.toml` project");
+    };
+    assert_eq!(manifest.name.as_str(), "widgets");
+    assert_eq!(manifest.publisher.as_str(), "acme");
 }
 
 #[test]
@@ -73,6 +73,9 @@ fn a_memory_project_holding_both_is_ambiguous() {
     let project = InMemoryProject {
         info: Some(info()),
         model_toml: Some(MANIFEST.to_owned()),
+        meta: Some(crate::model::InterchangeProjectMetadataRaw::minimal(
+            "1970-01-01T00:00:00Z".to_owned(),
+        )),
         ..InMemoryProject::default()
     };
 
@@ -110,10 +113,9 @@ fn writing_a_memory_manifest_that_is_there_is_refused_without_overwrite() {
     );
 }
 
+/// Reading a `model.toml` project reads the manifest alone.
 #[test]
-fn a_memory_manifest_naming_a_missing_source_fails_the_view() {
-    // Only a toml project can fail this way: its view reads the files
-    // its `sources` name.
+fn a_memory_manifest_naming_a_missing_source_reads() {
     let mut project = InMemoryProject::default();
     project
         .put_manifest_document(
@@ -124,7 +126,7 @@ fn a_memory_manifest_naming_a_missing_source_fails_the_view() {
 
     assert!(matches!(
         project.get_project(),
-        Err(InMemoryError::FileNotFound(_))
+        Ok(Some(crate::project::ProjectDefinition::Toml(_)))
     ));
 }
 

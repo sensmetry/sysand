@@ -22,7 +22,7 @@ use crate::{
     lock::{Lock, Project, Usage, hash_str},
     model::{InterchangeProjectUsage, InterchangeProjectValidationError},
     project::{
-        ProjectRead,
+        ProjectDefinition, ProjectRead, SourceSymbolsError, SymbolIndexError, exported_symbols,
         utils::{FsIoError, Identifier},
     },
     resolve::{ResolveRead, UsageOrigin},
@@ -167,6 +167,12 @@ impl fmt::Display for TypedUsageMismatchError {
 pub enum LockError<PD: ProjectRead, R: ResolveRead + Debug + 'static> {
     #[error(transparent)]
     DependencyProject(PD::Error),
+    #[error("failed to read the symbols of project {project_label}")]
+    Symbols {
+        project_label: String,
+        #[source]
+        source: Box<SourceSymbolsError>,
+    },
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
     #[error("incomplete project {project_label}: missing {field}")]
@@ -320,8 +326,8 @@ fn lock_projects<
                 .map_err(LockProjectError::InputProjectError)?,
         );
 
-        let info = project
-            .get_info()
+        let definition = project
+            .get_project()
             .map_err(LockProjectError::InputProjectError)?
             .ok_or_else(|| {
                 LockProjectError::LockError(LockError::IncompleteProject {
@@ -329,64 +335,62 @@ fn lock_projects<
                     field: IncompleteField::Info,
                 })
             })?;
-        let named_project_label = format!("`{}` {}", info.name, info.version);
-        let validated_info = info.validate().map_err(|e| LockError::InvalidProject {
-            identifier: named_project_label.clone(),
-            source: e,
-        })?;
-        let meta = project
-            .get_meta()
-            .map_err(LockProjectError::InputProjectError)?
-            .ok_or_else(|| {
-                LockProjectError::LockError(LockError::IncompleteProject {
-                    project_label: named_project_label.clone(),
-                    field: IncompleteField::Meta,
-                })
+        let named_project_label = format!("`{}` {}", definition.name(), definition.version());
+        let usages = definition
+            .validated_usages()
+            .map_err(|e| LockError::InvalidProject {
+                identifier: named_project_label.clone(),
+                source: e,
             })?;
+        let exports = exported_symbols(project, &definition).map_err(|e| match e {
+            SymbolIndexError::Project(e) => LockProjectError::InputProjectError(e),
+            SymbolIndexError::Source(source) => LockProjectError::LockError(LockError::Symbols {
+                project_label: named_project_label.clone(),
+                source: Box::new(source),
+            }),
+        })?;
         let sources = project
             .sources(ctx)
             .map_err(LockProjectError::InputProjectError)?;
         debug_assert_ne!(sources, []);
 
         lock.projects.push(Project {
-            name: info.name,
-            publisher: info.publisher,
-            version: info.version,
+            name: definition.name().to_owned(),
+            publisher: definition.publisher().map(ToOwned::to_owned),
+            version: definition.version(),
             // Without the root's own metamodel the edge checks read it as an
             // OMG project, and a Syside root with a Syside dependency is a
             // false direction error.
-            metamodel: meta.metamodel.clone(),
-            exports: meta.exported_symbols().cloned().collect(),
+            metamodel: definition.metamodel(),
+            exports,
             identifiers: identifiers
                 .map_or_default(|ids| ids.into_iter().map(Into::into).collect()),
             sources,
-            usages: validated_info.usage.iter().map(Usage::from).collect(),
+            usages: usages.iter().map(Usage::from).collect(),
         });
 
         // The publisher and name a toml `kpar-url` usage declares, by IRI.
         // The usage view cannot carry them, so they are read from the
         // manifest and travel on the `ResolutionInfo`. A json project has no
         // manifest and declares none.
-        let declared_identities: HashMap<String, (String, String)> = project
-            .manifest()
-            .map(|manifest| {
-                manifest
-                    .usages
-                    .iter()
-                    .filter_map(|located| match &located.usage {
-                        crate::manifest::usage::Usage::RemoteKpar {
-                            publisher: Some(publisher),
-                            name,
-                            url,
-                        } => Some((url.to_string(), (publisher.to_string(), name.to_string()))),
-                        // Nothing to check without a declared publisher.
-                        _ => None,
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+        let declared_identities: HashMap<String, (String, String)> = match &definition {
+            ProjectDefinition::Toml(manifest) => manifest
+                .usages
+                .iter()
+                .filter_map(|located| match &located.usage {
+                    crate::manifest::usage::Usage::RemoteKpar {
+                        publisher: Some(publisher),
+                        name,
+                        url,
+                    } => Some((url.to_string(), (publisher.to_string(), name.to_string()))),
+                    // Nothing to check without a declared publisher.
+                    _ => None,
+                })
+                .collect(),
+            ProjectDefinition::Json { info: _, meta: _ } => HashMap::new(),
+        };
 
-        all_deps.extend(validated_info.usage.into_iter().map(|usage| {
+        all_deps.extend(usages.into_iter().map(|usage| {
             let declared_identity = match &usage {
                 crate::model::InterchangeProjectUsage::Resource {
                     resource,
@@ -525,44 +529,41 @@ fn lock_extend<
     }
 
     for (identifier, project) in solution {
-        // TODO: use get_info, that can be more efficient
-        let info = project
-            .get_info()
+        let definition = project
+            .get_project()
             .map_err(LockError::DependencyProject)?
             .ok_or_else(|| LockError::IncompleteProject {
                 project_label: identifier.to_string(),
                 field: IncompleteField::Info,
             })?;
-        let validated_info = info.validate().map_err(|e| LockError::InvalidProject {
-            identifier: format!("`{identifier}` {}", info.version),
-            source: e,
-        })?;
-        let meta = project
-            .get_meta()
-            .map_err(LockError::DependencyProject)?
-            .ok_or_else(|| LockError::IncompleteProject {
-                project_label: identifier.to_string(),
-                field: IncompleteField::Meta,
+        let version = definition.version();
+        let usages = definition
+            .validated_usages()
+            .map_err(|e| LockError::InvalidProject {
+                identifier: format!("`{identifier}` {version}"),
+                source: e,
             })?;
+        let exports = exported_symbols(&project, &definition).map_err(|e| match e {
+            SymbolIndexError::Project(e) => LockError::DependencyProject(e),
+            SymbolIndexError::Source(source) => LockError::Symbols {
+                project_label: format!("`{identifier}` {version}"),
+                source: Box::new(source),
+            },
+        })?;
+        let name = definition.name().to_owned();
+        let publisher = definition.publisher().map(ToOwned::to_owned);
 
-        for usage in &validated_info.usage {
+        for usage in &usages {
             if let Some(spelling) = TypedSpelling::of(usage) {
                 typed_usages.push((
                     spelling,
-                    DeclaredBy::Dependency(format!(
-                        "`{}` {} (`{identifier}`)",
-                        info.name, info.version
-                    )),
+                    DeclaredBy::Dependency(format!("`{name}` {version} (`{identifier}`)")),
                 ));
             }
         }
         solved.insert(
             identifier.clone(),
-            (
-                info.publisher.clone(),
-                info.name.clone(),
-                info.version.clone(),
-            ),
+            (publisher.clone(), name.clone(), version.clone()),
         );
 
         let sources = if provided_usages.contains_key(&identifier) {
@@ -574,15 +575,15 @@ fn lock_extend<
         };
 
         let lock_project = Project {
-            name: info.name,
-            publisher: info.publisher,
-            version: info.version,
-            metamodel: meta.metamodel.clone(),
-            exports: meta.exported_symbols().cloned().collect(),
+            name,
+            publisher,
+            version,
+            metamodel: definition.metamodel(),
+            exports,
             identifiers: vec![identifier.to_string()],
             sources,
             // TODO: into_iter
-            usages: validated_info.usage.iter().map(Usage::from).collect(),
+            usages: usages.iter().map(Usage::from).collect(),
         };
         if lock_projects.contains(identifier.as_str()) {
             log::debug!(

@@ -26,7 +26,9 @@ use std::collections::BTreeMap;
 use camino::Utf8Path;
 use serde_json::Value;
 
-use crate::project::{ProjectRead as _, local_kpar::LocalKParProjectRaw, utils::wrapfs};
+use crate::project::{
+    ProjectDefinition, ProjectRead as _, local_kpar::LocalKParProjectRaw, utils::wrapfs,
+};
 
 /// Where each standard library's sources sit in a release checkout.
 ///
@@ -193,7 +195,7 @@ pub fn compare_to_published(
     let mut differences = Vec::new();
 
     let (info, meta) = match built.get_project() {
-        Ok((Some(info), Some(meta))) => (info, meta),
+        Ok(Some(ProjectDefinition::Json { info, meta })) => (info, meta),
         Ok(_) => {
             differences.push(Difference::Unreadable(
                 "the archive has no `.project.json`/`.meta.json` pair".to_owned(),

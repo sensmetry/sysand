@@ -72,7 +72,11 @@ fn basic_download_request() -> Result<(), Box<dyn std::error::Error>> {
             .unwrap(),
     ));
 
-    let (Some(info), Some(meta)) = project.get_project()? else {
+    let (Some(info), Some(meta)) = project
+        .get_project()?
+        .and_then(crate::project::ProjectDefinition::into_json)
+        .unzip()
+    else {
         panic!()
     };
 
@@ -156,10 +160,10 @@ fn concurrent_downloads_fan_in_to_single_fetch() -> Result<(), Box<dyn std::erro
     get_kpar.assert();
 
     // The downloaded archive must parse.
-    let (Some(info), Some(_meta)) = runtime.block_on(project.get_project_async())? else {
+    let Some(definition) = runtime.block_on(project.get_project_async())? else {
         panic!("installed archive failed to expose project");
     };
-    assert_eq!(info.name, "concurrent");
+    assert_eq!(definition.name(), "concurrent");
 
     Ok(())
 }

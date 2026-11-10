@@ -20,12 +20,12 @@ use crate::{
     lock::Source,
     manifest::MODEL_TOML_FILE,
     model::{
-        InterchangeProjectInfoPartial, InterchangeProjectInfoRaw,
-        InterchangeProjectMetadataPartial, InterchangeProjectMetadataRaw, META_JSON_FILE,
+        InterchangeProjectInfoPartial, InterchangeProjectMetadataPartial,
+        InterchangeProjectMetadataRaw, InterchangeProjectUsageRaw, META_JSON_FILE,
         PROJECT_JSON_FILE, PartialManifest,
     },
     project::{
-        self, KparMeta, ProjectChecksum, ProjectRead, hash_reader,
+        self, KparMeta, ProjectChecksum, ProjectDefinition, ProjectRead, hash_reader,
         utils::{RelativizePathError, ZipArchiveError, relativize_path},
     },
     utils::{lowercase_hex, sha256_lowercase_hex},
@@ -124,6 +124,12 @@ pub enum LocalKParError {
     },
     #[error("kpar at `{path}` is an empty file")]
     EmptyKpar { path: Box<str> },
+    /// One of the two json documents is not in the archive.
+    #[error("kpar at `{path}` has no `{missing}`")]
+    MissingDocument {
+        path: Box<Utf8Path>,
+        missing: &'static str,
+    },
 }
 
 impl From<FsIoError> for LocalKParError {
@@ -213,33 +219,19 @@ type KParFile<'a> = super::utils::FileWithLifetime<'a>;
 impl ProjectRead for LocalKParProject {
     type Error = LocalKParError;
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         match self.ensure_initialized() {
             Ok((inner, _)) => inner.get_project(),
             Err(e) => Err(e),
         }
     }
 
-    fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
-        match self.ensure_initialized() {
-            Ok((inner, _)) => inner.get_info(),
-            Err(e) => Err(e),
-        }
+    fn version(&self) -> Result<Option<String>, Self::Error> {
+        self.ensure_initialized()?.0.version()
     }
 
-    fn get_meta(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
-        match self.ensure_initialized() {
-            Ok((inner, _)) => inner.get_meta(),
-            Err(e) => Err(e),
-        }
+    fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
+        self.ensure_initialized()?.0.usage()
     }
 
     type SourceReader<'a>
@@ -516,15 +508,7 @@ impl LocalKParProjectRaw {
 impl ProjectRead for LocalKParProjectRaw {
     type Error = LocalKParError;
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         let mut archive = self.open_archive()?;
         self.ensure_no_model_toml(&mut archive)?;
         // The metadata carries the metamodel, so it is read first.
@@ -534,28 +518,24 @@ impl ProjectRead for LocalKParProjectRaw {
             PROJECT_JSON_FILE,
             meta.as_ref().and_then(|meta| meta.metamodel.as_deref()),
         )?;
-        Ok((info, meta))
+        let missing = |missing| LocalKParError::MissingDocument {
+            path: self.archive_path.as_path().into(),
+            missing,
+        };
+        match (info, meta) {
+            (Some(info), Some(meta)) => Ok(Some(ProjectDefinition::Json { info, meta })),
+            (None, None) => Ok(None),
+            (Some(_), None) => Err(missing(META_JSON_FILE)),
+            (None, Some(_)) => Err(missing(PROJECT_JSON_FILE)),
+        }
     }
 
-    fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
-        let mut archive = self.open_archive()?;
-        self.ensure_no_model_toml(&mut archive)?;
-        // Read the metadata too, so the error names the metamodel as
-        // `get_project` does.
-        let metamodel = self
-            .get_meta_from(&mut archive)?
-            .and_then(|meta| meta.metamodel);
-        self.get_parsed::<InterchangeProjectInfoPartial, _>(
-            &mut archive,
-            PROJECT_JSON_FILE,
-            metamodel.as_deref(),
-        )
+    fn version(&self) -> Result<Option<String>, Self::Error> {
+        Ok(self.get_project()?.map(|project| project.version()))
     }
 
-    fn get_meta(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
-        let mut archive = self.open_archive()?;
-        self.ensure_no_model_toml(&mut archive)?;
-        self.get_meta_from(&mut archive)
+    fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
+        Ok(self.get_project()?.map(|project| project.usages()))
     }
 
     type SourceReader<'a>

@@ -460,8 +460,10 @@ fn a_requested_usage_takes_the_origin_of_the_project_that_declared_it() {
     use crate::project::local_src::LocalSrcProject;
 
     fn origins_of(dir: &camino::Utf8Path) -> Vec<UsageOrigin> {
-        let project =
-            LocalSrcProject::new_access(dir, Some(typed_path::Utf8UnixPathBuf::from(".")));
+        let project = crate::project::editable::EditableProject::new(
+            typed_path::Utf8UnixPathBuf::from("."),
+            LocalSrcProject::new_access(dir, None),
+        );
         let resolver = RecordingResolver::default();
         let seen = resolver.seen.clone();
         do_lock_projects(
@@ -498,6 +500,11 @@ fn a_requested_usage_takes_the_origin_of_the_project_that_declared_it() {
         r#"{"name":"app","version":"1.0.0","usage":[{"resource":"pkg:sysand/acme/lib"}]}"#,
     )
     .expect("write .project.json");
+    std::fs::write(
+        json.path().join(".meta.json"),
+        r#"{"index":{},"created":"1970-01-01T00:00:00Z"}"#,
+    )
+    .expect("write .meta.json");
     std::fs::write(
         json.path().join(".meta.json"),
         r#"{"index":{},"created":"1970-01-01T00:00:00Z"}"#,
@@ -766,6 +773,10 @@ fn workspace_ctx(root: &camino::Utf8Path) -> ProjectContext {
 }
 
 #[cfg(feature = "filesystem")]
+#[expect(
+    clippy::result_large_err,
+    reason = "the lock's own error, returned as is so tests can match on it"
+)]
 fn lock_workspace(
     dir: &camino_tempfile::Utf8TempDir,
 ) -> Result<
@@ -1067,8 +1078,7 @@ fn members_are_identified_by_their_purls() -> Result<(), Box<dyn std::error::Err
 /// target is `../vendor/dep`; in the lockfile it is `vendor/dep`.
 #[cfg(feature = "filesystem")]
 #[test]
-fn a_dependency_src_path_is_relative_to_the_workspace_root()
--> Result<(), Box<dyn std::error::Error>> {
+fn a_dependency_path_is_relative_to_the_workspace_root() -> Result<(), Box<dyn std::error::Error>> {
     let dir = workspace_tree(
         &[(
             "app",
@@ -1085,19 +1095,18 @@ fn a_dependency_src_path_is_relative_to_the_workspace_root()
     project_dir(&dir.path().join("vendor/dep"), "dep");
 
     let lock = lock_workspace(&dir).map_err(|e| e.to_string())?;
-    let src_paths: Vec<&str> = lock
+    let dep_sources: Vec<&Source> = lock
         .projects
         .iter()
+        .filter(|p| p.name == "dep")
         .flat_map(|p| &p.sources)
-        .filter_map(|s| match s {
-            Source::LocalSrc {
-                src_path,
-                checksum: _,
-            } => Some(src_path.as_str()),
-            _ => None,
-        })
         .collect();
-    assert_eq!(src_paths, vec!["vendor/dep"]);
+    assert_eq!(
+        dep_sources,
+        [&Source::Editable {
+            editable: "vendor/dep".into()
+        }]
+    );
     Ok(())
 }
 

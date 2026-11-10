@@ -6,8 +6,8 @@ use typed_path::Utf8UnixPathBuf;
 use crate::{
     context::ProjectContext,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{ProjectFormat, ProjectRead},
+    model::InterchangeProjectUsageRaw,
+    project::{ProjectDefinition, ProjectFormat, ProjectRead},
 };
 
 #[derive(Debug)]
@@ -46,14 +46,6 @@ impl<P: ProjectRead> ProjectRead for EditableProject<P> {
         self.inner.format()
     }
 
-    /// Forwarded for the same reason as [`Self::format`].
-    fn manifest(
-        &self,
-    ) -> Result<crate::manifest::project::ResolvedProject, crate::project::ManifestError<Self::Error>>
-    {
-        self.inner.manifest()
-    }
-
     fn manifest_document(
         &self,
     ) -> Result<crate::manifest::edit::DocumentMut, crate::project::ManifestError<Self::Error>>
@@ -63,15 +55,7 @@ impl<P: ProjectRead> ProjectRead for EditableProject<P> {
 
     type Error = P::Error;
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         self.inner.get_project()
     }
 
@@ -106,6 +90,14 @@ impl<P: ProjectRead> ProjectRead for EditableProject<P> {
 
     fn source_may_offer_multiple_versions(&self) -> bool {
         self.inner.source_may_offer_multiple_versions()
+    }
+
+    fn version(&self) -> Result<Option<String>, Self::Error> {
+        self.inner.version()
+    }
+
+    fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
+        self.inner.usage()
     }
 
     fn checksum_canonical_variant(&self) -> Result<super::ProjectChecksum, Self::Error> {
