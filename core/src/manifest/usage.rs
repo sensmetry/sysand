@@ -136,19 +136,6 @@ impl Usage {
         normalized_identity(self.publisher().unwrap_or(&OMG_PUBLISHER), self.name())
     }
 
-    /// Whether this is a standard-library usage: a `kpar-url` at an OMG
-    /// standard-library IRI that declares no publisher.
-    pub fn is_stdlib(&self) -> bool {
-        matches!(
-            self,
-            Self::RemoteKpar {
-                publisher: None,
-                name: _,
-                url: _
-            }
-        )
-    }
-
     /// The `dir`/`kpar-path` of a local usage, as written.
     pub fn local_path(&self) -> Option<&Utf8UnixPathBuf> {
         match self {
@@ -209,30 +196,6 @@ impl LocatedUsage {
             usage,
             base: UsageBase::WorkspaceRoot,
         }
-    }
-
-    /// The path a resolver opens for a local usage, given the project's
-    /// and the workspace root's directories.
-    ///
-    /// The two directories are filesystem paths and the usage's own is a
-    /// manifest path; this join is the boundary between the two.
-    ///
-    /// # Panics
-    ///
-    /// If an inherited usage is resolved without a workspace root.
-    pub fn resolve_local_path(
-        &self,
-        project_dir: &camino::Utf8Path,
-        workspace_root: Option<&camino::Utf8Path>,
-    ) -> Option<camino::Utf8PathBuf> {
-        let relative = self.usage.local_path()?;
-        let base = match self.base {
-            UsageBase::Project => project_dir,
-            UsageBase::WorkspaceRoot => {
-                workspace_root.expect("an inherited usage comes from a workspace")
-            }
-        };
-        Some(base.join(relative.as_str()))
     }
 }
 

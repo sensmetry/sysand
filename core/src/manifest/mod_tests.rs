@@ -137,7 +137,10 @@ fn a_newer_version_stops_the_read() {
 
 #[test]
 fn the_supported_version_is_accepted() {
-    assert!(accepted(PROJECT).value.as_project().is_some());
+    accepted(PROJECT)
+        .value
+        .into_project("model.toml")
+        .expect("a project");
 }
 
 /// Only absent and too new are failures, so a version below this one is
@@ -224,17 +227,25 @@ fn a_workspace_config_carries_a_version_too() {
 fn a_project_file_reads_as_a_project() {
     let read = accepted(PROJECT).into_parts().0;
     assert_eq!(
-        read.as_project().expect("a project").project.name.as_str(),
+        read.into_project("model.toml")
+            .expect("a project")
+            .project
+            .name
+            .as_str(),
         "widgets"
     );
-    assert!(read.as_workspace().is_none());
 }
 
 #[test]
 fn a_workspace_file_reads_as_a_workspace() {
     let read = accepted(WORKSPACE).into_parts().0;
-    assert_eq!(read.as_workspace().expect("a workspace").members.len(), 1);
-    assert!(read.as_project().is_none());
+    assert_eq!(
+        read.into_workspace("model.toml")
+            .expect("a workspace")
+            .members
+            .len(),
+        1
+    );
 }
 
 /// A file that defines both tables is an error.
@@ -627,7 +638,7 @@ fn every_example_in_workspaces_md_parses() {
     )
     .into_parts()
     .0;
-    let workspace = read.as_workspace().expect("a workspace");
+    let workspace = read.into_workspace("model.toml").expect("a workspace");
     assert_eq!(workspace.members.len(), 2);
     assert_eq!(workspace.exclude.len(), 1);
 
@@ -657,11 +668,13 @@ fn every_example_in_workspaces_md_parses() {
     ))
     .into_parts()
     .0;
-    let workspace = read.as_workspace().expect("a workspace");
+    let workspace = read.into_workspace("model.toml").expect("a workspace");
     assert_eq!(workspace.groups.len(), 2);
     assert_eq!(workspace.groups["kerml"].inline_usages.len(), 1);
     assert!(
-        workspace.groups["kerml"].inline_usages[0].is_stdlib(),
+        workspace.groups["kerml"].inline_usages[0]
+            .publisher()
+            .is_none(),
         "{:?}",
         workspace.groups["kerml"].inline_usages[0]
     );

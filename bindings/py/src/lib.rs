@@ -147,7 +147,7 @@ fn render_long_help(prog: &str, args: Vec<String>) -> String {
 /// `init`'s do.
 #[pyfunction(name = "do_migrate_py")]
 #[pyo3(
-    signature = (path, publisher=None, metamodel=None, allow_dirty=false, allow_no_vcs=false, resolution=None, auth=None),
+    signature = (path, publisher, metamodel, allow_dirty, allow_no_vcs, resolution, auth=None),
 )]
 fn do_migrate_py(
     py: Python,
@@ -156,21 +156,13 @@ fn do_migrate_py(
     metamodel: Option<String>,
     allow_dirty: bool,
     allow_no_vcs: bool,
-    resolution: Option<ResolutionSpec>,
+    resolution: ResolutionSpec,
     auth: Option<AuthSpec>,
 ) -> PyResult<()> {
     common_init();
 
     // `py.detach`: the resolver stack is `!Send`.
     py.detach(|| {
-        let resolution = resolution.unwrap_or(ResolutionSpec {
-            index: vec![],
-            default_index: vec![],
-            use_index: true,
-            include_std: false,
-            use_config: true,
-            config_file: None,
-        });
         let auth = auth.unwrap_or_default();
         let path = Utf8PathBuf::from(path);
         // `Scope::Project`: an unlisted json project under a workspace
@@ -249,7 +241,6 @@ fn do_init_py_local_file(
                 | LocalSrcError::ImpossibleRelativePath(_)
                 | LocalSrcError::Deserialize(_)
                 | LocalSrcError::AmbiguousFormat { dir: _, json: _ }
-                | LocalSrcError::Symbols(_)
                 | LocalSrcError::TomlProjectHasNoChecksum { dir: _ }
                 | LocalSrcError::JsonWriteToTomlProject { dir: _, file: _ }
                 | LocalSrcError::TomlWriteToJsonProject { dir: _ } => PyValueError::new_err(e),
@@ -1347,7 +1338,6 @@ fn do_build_py(
                 | KParBuildError::Extract(_)
                 | KParBuildError::UnknownFormat(_)
                 | KParBuildError::MissingInfo
-                | KParBuildError::MissingMeta
                 | KParBuildError::MissingInfoMeta
                 | KParBuildError::InheritedLocalUsage { usage: _, path: _ }
                 | KParBuildError::TomlTargetMissing { usage: _, path: _ }

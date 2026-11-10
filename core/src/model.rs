@@ -100,14 +100,6 @@ impl SpecKind {
         }
     }
 
-    /// The language its source files are written in, as messages name it.
-    pub fn lang(self) -> &'static str {
-        match self {
-            Self::SysMl => "SysMLv2",
-            Self::KerMl => "KerML",
-        }
-    }
-
     /// Whether a source file of this language belongs to a project with
     /// this specification.
     ///

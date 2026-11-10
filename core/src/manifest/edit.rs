@@ -360,20 +360,6 @@ fn group(table: &mut Table, properties: &GroupProperties) {
 // moves decor.
 // ---------------------------------------------------------------------
 
-/// The `[project]` keys a member may inherit from a workspace group.
-///
-/// The reader has no such list; it must agree with the keys the reader
-/// reads with `inheritable(..)`.
-pub const INHERITABLE_KEYS: &[&str] = &[
-    "publisher",
-    "version",
-    "license",
-    "topics",
-    "metamodel",
-    "maintainers",
-    "urls",
-];
-
 /// Why an edit was refused.
 ///
 /// Every variant is a fact about the document, not about a command's flags.
@@ -385,8 +371,6 @@ pub enum EditError {
     NotAWorkspace,
     #[error("`{0}` is not a `[project]` key")]
     UnknownKey(String),
-    #[error("`{0}` cannot be inherited from a workspace")]
-    NotInheritable(String),
     #[error("`[project]` has no `sources` array; add one")]
     NoSources,
     #[error(transparent)]
@@ -450,7 +434,8 @@ fn project_mut(doc: &mut DocumentMut) -> Result<&mut Table, EditError> {
 ///
 /// A scalar keeps the first on its own key and the second on its value; a
 /// dotted marker (`version.workspace = true`) keeps both on the inner
-/// `workspace` key and value, and its outer key carries nothing.
+/// `workspace` key and value, and its outer key carries nothing. Both are
+/// put back on the scalar that replaces it.
 #[derive(Default)]
 struct KeyComments {
     above: Option<String>,
@@ -504,21 +489,6 @@ impl KeyComments {
         {
             key.leaf_decor_mut().set_prefix(above);
         }
-    }
-
-    /// Put them back on a dotted marker's inner key and value.
-    fn onto_marker(self, table: &mut Table, key: &str, mut marker: Table) {
-        if let Some(after) = self.after
-            && let Some(value) = marker.get_mut(MARKER).and_then(Item::as_value_mut)
-        {
-            value.decor_mut().set_suffix(after);
-        }
-        if let Some(above) = self.above
-            && let Some(mut inner) = marker.key_mut(MARKER)
-        {
-            inner.leaf_decor_mut().set_prefix(above);
-        }
-        table.insert(key, Item::Table(marker));
     }
 }
 
@@ -660,35 +630,6 @@ fn check_url_key(key: &str) -> Result<(), EditError> {
     } else {
         Err(EditError::UnknownKey(key.to_owned()))
     }
-}
-
-/// Replace a `[project]` key's value with an inheritance marker.
-///
-/// Comments around the key are kept. The exception is `urls`: a
-/// whole-table marker replaces the table, so comments written inside
-/// `[project.urls]` are lost with it.
-pub fn set_inherit_marker(
-    doc: &mut DocumentMut,
-    key: &str,
-    from: &InheritFrom,
-) -> Result<(), EditError> {
-    if !PROJECT_KEYS.contains(&key) {
-        return Err(EditError::UnknownKey(key.to_owned()));
-    }
-    if !INHERITABLE_KEYS.contains(&key) {
-        return Err(EditError::NotInheritable(key.to_owned()));
-    }
-    let project = project_mut(doc)?;
-    let comments = KeyComments::read(project, key);
-    comments.onto_marker(
-        project,
-        key,
-        marker(&Inherited {
-            from: from.clone(),
-            at: None,
-        }),
-    );
-    Ok(())
 }
 
 /// Append a path to `sources`, normalized as on read, rejecting a

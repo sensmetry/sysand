@@ -6,6 +6,7 @@ use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
 use super::*;
 
+use crate::manifest::MODEL_TOML_FILE;
 use crate::manifest::usage::LocatedUsage;
 
 fn publisher(raw: &str) -> IndexPublisher {
@@ -609,46 +610,6 @@ fn the_view_is_the_two_halves() {
     assert_eq!(whole_meta, meta(&project, &created, index, checksum));
 }
 
-// ----- the view of a manifest text -----
-
-const MANIFEST: &str = "\
-manifest-version = \"1.0\"
-
-[project]
-publisher = \"acme\"
-name = \"widgets\"
-version = \"1.2.3\"
-sources = []
-metamodel = \"https://www.omg.org/spec/SysML/20250201\"
-";
-
-fn nothing_to_read(path: &Utf8UnixPath) -> Result<String, String> {
-    Err(format!("no such file `{path}`"))
-}
-
-#[test]
-fn a_manifest_that_does_not_parse_is_reported_as_a_deserialization_error() {
-    let error =
-        of_text("model.toml", "this is not toml\n", nothing_to_read).expect_err("not a manifest");
-    assert!(
-        matches!(error, ViewError::Manifest(_)),
-        "unexpected error: {error}"
-    );
-    assert!(
-        error.to_string().contains("`model.toml` is not valid TOML"),
-        "unexpected message: {error}"
-    );
-}
-
-/// A view's `created` is not the instant it was taken, because the
-/// project checksum covers it and that checksum reaches the lockfile.
-#[test]
-fn the_view_of_a_text_records_the_fixed_created() {
-    let (_, meta) = of_text("model.toml", MANIFEST, nothing_to_read).expect("no sources to read");
-    assert_eq!(meta.created, crate::model::format_created(&VIEW_CREATED));
-    assert_eq!(meta.created, "1970-01-01T00:00:00Z");
-}
-
 // --- reading a json usage as a manifest usage -------------------------
 
 use super::{NoManifestForm, usage_of_raw};
@@ -818,7 +779,8 @@ fn a_source_project_view_carries_an_empty_checksum_map() {
                 version = \"1.0.0\"\n\
                 sources = []\n\
                 metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n";
-    let (_info, meta) = super::of_model_toml_in(text, None, |_path| {
+    let project = super::resolved_of_text(MODEL_TOML_FILE, text).expect("a project");
+    let (_info, meta) = view(&project, &jiff::Timestamp::UNIX_EPOCH, |_path| {
         Err::<String, _>("no source is read: the project lists none")
     })
     .expect("the view is built");

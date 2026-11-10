@@ -193,11 +193,6 @@ impl LocalDirectoryEnvironment {
         Ok(())
     }
 
-    /// The lock this environment writes under, if one was handed in.
-    pub fn lock(&self) -> Option<&ExclusiveLock> {
-        self.lock.as_ref()
-    }
-
     /// Note a write that runs without an exclusive workspace lock; an
     /// embedder may serialize writers its own way.
     fn note_unlocked_write(&self, what: &str) {
@@ -545,7 +540,6 @@ impl From<LocalSrcError> for LocalWriteError {
             LocalSrcError::MissingMeta => Self::MissingMeta,
             error @ LocalSrcError::MissingInfoMeta { missing: _ } => Self::Format(error),
             error @ (LocalSrcError::AmbiguousFormat { dir: _, json: _ }
-            | LocalSrcError::Symbols(_)
             | LocalSrcError::TomlProjectHasNoChecksum { dir: _ }
             | LocalSrcError::JsonWriteToTomlProject { dir: _, file: _ }
             | LocalSrcError::TomlWriteToJsonProject { dir: _ }) => Self::Format(error),

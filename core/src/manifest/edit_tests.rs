@@ -13,10 +13,9 @@ use crate::manifest::common::{
 };
 use crate::manifest::diagnostics::Position;
 use crate::manifest::edit::{
-    EditError, INHERITABLE_KEYS, ListKey, ProjectKey, clear_project_key, clear_url_key,
-    exclude_source, include_source, open, push_list_entry, push_member, push_usage,
-    remove_list_entry, remove_usage, render_new, set_inherit_marker, set_project_key, set_url_key,
-    set_usage_version,
+    EditError, ListKey, ProjectKey, clear_project_key, clear_url_key, exclude_source,
+    include_source, open, push_list_entry, push_member, push_usage, remove_list_entry,
+    remove_usage, render_new, set_project_key, set_url_key, set_usage_version,
 };
 use crate::manifest::inherit::{Inherited, MetaProperty};
 use crate::manifest::project::{PROJECT_KEYS, ProjectManifest, ProjectTable, Urls};
@@ -813,18 +812,6 @@ fn clearing_the_last_url_key_leaves_the_container() {
 }
 
 #[test]
-fn a_marker_replaces_a_value_and_keeps_both_its_comments() {
-    let commented = "manifest-version = \"1.0\"\n\n[project]\n# which version\nversion = \"1.0.0\"  # pinned\nname = \"w\"\n";
-    let mut doc = opened(commented);
-    set_inherit_marker(&mut doc, "version", &InheritFrom::DefaultGroup).expect("inheritable");
-
-    assert_eq!(
-        doc.to_string(),
-        "manifest-version = \"1.0\"\n\n[project]\n# which version\nversion.workspace = true  # pinned\nname = \"w\"\n"
-    );
-}
-
-#[test]
 fn a_value_replaces_a_marker_and_keeps_both_its_comments() {
     let inherited = "manifest-version = \"1.0\"\n\n[project]\n# which version\nversion.workspace = true  # inherited\nname = \"w\"\n";
     let mut doc = opened(inherited);
@@ -833,55 +820,6 @@ fn a_value_replaces_a_marker_and_keeps_both_its_comments() {
     assert_eq!(
         doc.to_string(),
         "manifest-version = \"1.0\"\n\n[project]\n# which version\nversion = \"2.0.0\"  # inherited\nname = \"w\"\n"
-    );
-}
-
-#[test]
-fn inheriting_a_whole_urls_table_loses_the_comments_inside_it() {
-    // Inherent: the table those comments annotate no longer exists.
-    let mut doc = open_commented();
-    set_inherit_marker(&mut doc, "urls", &InheritFrom::DefaultGroup).expect("inheritable");
-
-    let text = doc.to_string();
-    assert!(text.contains("urls.workspace = true"));
-    assert!(!text.contains("[project.urls]"));
-    assert!(!text.contains("# the site"));
-}
-
-#[test]
-fn the_inheritable_keys_are_the_ones_the_reader_accepts_a_marker_for() {
-    // The editor's list of inheritable keys must agree with the reader.
-    for key in PROJECT_KEYS {
-        // The marker takes the place of the key's own value: writing
-        // both is a duplicate key, which is a different refusal.
-        let required: String = [
-            ("publisher", "publisher = \"acme\"\n"),
-            ("name", "name = \"widgets\"\n"),
-            ("version", "version = \"1.0.0\"\n"),
-            ("sources", "sources = []\n"),
-        ]
-        .into_iter()
-        .filter(|(name, _)| name != key)
-        .map(|(_, line)| line)
-        .collect();
-        let text =
-            format!("manifest-version = \"1.0\"\n\n[project]\n{required}{key}.workspace = true\n");
-        let accepted = ModelToml::parse("model.toml", &text).is_ok();
-        assert_eq!(
-            accepted,
-            INHERITABLE_KEYS.contains(key),
-            "`{key}`: the reader and `INHERITABLE_KEYS` disagree"
-        );
-    }
-}
-
-#[test]
-fn a_key_that_cannot_be_inherited_is_refused_a_marker() {
-    let mut doc = open_commented();
-
-    assert_eq!(
-        set_inherit_marker(&mut doc, "name", &InheritFrom::DefaultGroup),
-        Err(EditError::NotInheritable("name".to_owned()))
     );
 }
 

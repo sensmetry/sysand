@@ -454,7 +454,6 @@ fn a_publisher_less_kpar_url_at_an_omg_iri_is_accepted() {
         "name = \"Semantic-Library\"\n\
          kpar-url = \"https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar\"\n",
     );
-    assert!(usage.is_stdlib(), "{usage:?}");
     assert!(usage.publisher().is_none(), "{usage:?}");
     assert_eq!(usage.identity().publisher, "omg");
     assert_eq!(usage.identity().name, "semantic-library");
@@ -470,7 +469,6 @@ fn a_declared_publisher_is_kept_at_an_omg_iri() {
         "publisher = \"OMG\"\nname = \"Semantic-Library\"\n\
          kpar-url = \"https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar\"\n",
     );
-    assert!(!usage.is_stdlib(), "{usage:?}");
     assert_eq!(usage.publisher().expect("a publisher").as_str(), "OMG");
     assert_eq!(usage.to_string(), "OMG/Semantic-Library");
 }

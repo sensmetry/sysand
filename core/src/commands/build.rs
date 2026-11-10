@@ -208,8 +208,6 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
     MissingInfoMeta,
     #[error("missing project info file `.project.json`")]
     MissingInfo,
-    #[error("missing project metadata file `.meta.json`")]
-    MissingMeta,
     #[error(transparent)]
     Zip(#[from] ZipArchiveError),
     #[error("project serialization error: {0}")]
@@ -351,7 +349,6 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
             .map_err(|error| match error {
                 ViewError::Read(error) => KParBuildError::from(error),
                 ViewError::Symbols(error) => KParBuildError::from(IncludeError::from(error)),
-                ViewError::Manifest(_) => unreachable!("`view` reads no manifest"),
             })?;
             (info, meta, Some(manifest))
         }

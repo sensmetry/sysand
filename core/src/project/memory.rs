@@ -194,8 +194,6 @@ pub enum InMemoryError {
     TomlWriteToJsonProject,
     #[error(transparent)]
     Manifest(#[from] crate::project::utils::ProjectDeserializationError),
-    #[error(transparent)]
-    Symbols(#[from] crate::symbols::SymbolsError),
 }
 
 impl ProjectRead for InMemoryProject {

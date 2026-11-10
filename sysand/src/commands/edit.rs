@@ -47,7 +47,6 @@ pub fn command_edit(mut project: LocalSrcProject, edits: EditArgs) -> Result<()>
         set_info_or_bail(&mut project, &info)?;
     }
     if edits_meta {
-        refuse_computed_fields(&project, &edits)?;
         edit_meta(&edits, &mut meta);
         set_meta_or_bail(&mut project, &meta)?;
     }
@@ -215,35 +214,28 @@ fn edit_list(
 /// `sysand edit` has no flag for the first three, so only the `includes*`
 /// fields can reach here. The manifest has no room for them, so the refusal
 /// is permanent.
-fn refuse_computed_fields(project: &LocalSrcProject, edits: &EditArgs) -> Result<()> {
+fn refuse_computed_fields(edits: &EditArgs) -> Result<()> {
     if edits.includes_derived.is_some() {
-        refuse_computed_field(project, "includes-derived", "set")?;
+        refuse_computed_field("includes-derived", "set")?;
     }
     if edits.clear_includes_derived {
-        refuse_computed_field(project, "includes-derived", "cleared")?;
+        refuse_computed_field("includes-derived", "cleared")?;
     }
     if edits.includes_implied.is_some() {
-        refuse_computed_field(project, "includes-implied", "set")?;
+        refuse_computed_field("includes-implied", "set")?;
     }
     if edits.clear_includes_implied {
-        refuse_computed_field(project, "includes-implied", "cleared")?;
+        refuse_computed_field("includes-implied", "cleared")?;
     }
     Ok(())
 }
 
-fn refuse_computed_field<Project: ProjectRead>(
-    project: &Project,
-    field: &str,
-    verb: &str,
-) -> Result<()> {
-    if project.format()? == ProjectFormat::Toml {
-        bail!(
-            "`{field}` is computed when the KPAR is built\n\
-            {SP:>8} and cannot be {verb} on a `model.toml` project",
-            SP = ' '
-        );
-    }
-    Ok(())
+fn refuse_computed_field(field: &str, verb: &str) -> Result<()> {
+    bail!(
+        "`{field}` is computed when the KPAR is built\n\
+        {SP:>8} and cannot be {verb} on a `model.toml` project",
+        SP = ' '
+    );
 }
 
 fn edit_meta(edits: &EditArgs, meta: &mut InterchangeProjectMetadataRaw) {
@@ -306,7 +298,7 @@ fn write_manifest<Project: ProjectMut>(
 }
 
 fn edit_toml(project: &mut LocalSrcProject, edits: &EditArgs) -> Result<()> {
-    refuse_computed_fields(project, edits)?;
+    refuse_computed_fields(edits)?;
     let mut document = manifest_document(project)?;
 
     if let Some(name) = &edits.name {

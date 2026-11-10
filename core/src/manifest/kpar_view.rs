@@ -21,12 +21,12 @@ use indexmap::IndexMap;
 use thiserror::Error;
 use typed_path::Utf8UnixPath;
 
+use crate::manifest::ModelToml;
 use crate::manifest::common::Sources;
 use crate::manifest::diagnostics::Diagnostics;
 use crate::manifest::project::{ProjectManifest, ResolvedProject};
 use crate::manifest::usage::Usage;
 use crate::manifest::workspace_table::WorkspaceTable;
-use crate::manifest::{MODEL_TOML_FILE, ModelToml};
 use crate::model::{
     IndexName, IndexPublisher, InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw,
     InterchangeProjectMetadataRaw, InterchangeProjectUsageRaw, KerMlChecksumAlg, format_created,
@@ -42,20 +42,9 @@ pub type SymbolIndex = IndexMap<String, String>;
 /// `checksum`, as a `.meta.json` carries it: one entry per source file.
 pub type ChecksumMap = IndexMap<String, InterchangeProjectChecksumRaw>;
 
-/// What a view records as `created`.
-///
-/// A build records the instant it ran. A view records a fixed value: the
-/// project checksum covers the whole `.meta.json`, so a view must be a
-/// function of the manifest and the source files only.
-pub const VIEW_CREATED: jiff::Timestamp = jiff::Timestamp::UNIX_EPOCH;
-
 /// Why a view could not be built.
 #[derive(Debug, Error)]
 pub enum ViewError<E> {
-    /// The `model.toml` is not one, or does not define a project, or
-    /// does not validate.
-    #[error(transparent)]
-    Manifest(#[from] ProjectDeserializationError),
     /// The caller could not hand over a source file's contents. Passed
     /// through: the caller's error already names the file.
     #[error(transparent)]
@@ -368,48 +357,6 @@ pub fn resolved_of_text_in(
             ProjectDeserializationError::invalid(file, Diagnostics::from_iter([problem]))
         })?;
     validate_manifest(file, manifest.resolve(table))
-}
-
-/// The KPAR view of a `model.toml`, from its text.
-///
-/// `read` hands over one source file's contents; nothing here opens
-/// anything.
-pub fn of_text<E>(
-    file: &str,
-    text: &str,
-    read: impl FnMut(&Utf8UnixPath) -> Result<String, E>,
-) -> Result<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw), ViewError<E>> {
-    of_text_in(file, text, None, read)
-}
-
-/// [`of_text`], resolved against the workspace the project is a member
-/// of. See [`resolved_of_text_in`].
-pub fn of_text_in<E>(
-    file: &str,
-    text: &str,
-    table: Option<&WorkspaceTable>,
-    read: impl FnMut(&Utf8UnixPath) -> Result<String, E>,
-) -> Result<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw), ViewError<E>> {
-    let project = resolved_of_text_in(file, text, table)?;
-    view(&project, &VIEW_CREATED, read)
-}
-
-/// [`of_text`] for a document named `model.toml`.
-pub fn of_model_toml<E>(
-    text: &str,
-    read: impl FnMut(&Utf8UnixPath) -> Result<String, E>,
-) -> Result<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw), ViewError<E>> {
-    of_model_toml_in(text, None, read)
-}
-
-/// [`of_model_toml`], resolved against the workspace the project is a
-/// member of. See [`resolved_of_text_in`].
-pub fn of_model_toml_in<E>(
-    text: &str,
-    table: Option<&WorkspaceTable>,
-    read: impl FnMut(&Utf8UnixPath) -> Result<String, E>,
-) -> Result<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw), ViewError<E>> {
-    of_text_in(MODEL_TOML_FILE, text, table, read)
 }
 
 #[cfg(test)]

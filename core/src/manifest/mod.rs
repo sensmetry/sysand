@@ -202,20 +202,6 @@ impl ModelToml {
         })
     }
 
-    pub fn as_project(&self) -> Option<&ProjectManifest> {
-        match self {
-            Self::Project(manifest) => Some(manifest),
-            Self::Workspace(_) => None,
-        }
-    }
-
-    pub fn as_workspace(&self) -> Option<&WorkspaceTable> {
-        match self {
-            Self::Workspace(table) => Some(table),
-            Self::Project(_) => None,
-        }
-    }
-
     /// The project this file defines, or the error that it defines the
     /// other thing.
     pub fn into_project(self, file: &str) -> Result<ProjectManifest, Diagnostic> {

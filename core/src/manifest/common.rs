@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 use std::fmt::Display;
 
 use fluent_uri::Iri;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::Serialize;
 use thiserror::Error;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
@@ -102,21 +102,8 @@ impl Display for StdlibStem {
     }
 }
 
-impl Serialize for StdlibStem {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        self.0.serialize(serializer)
-    }
-}
-
-impl<'de> Deserialize<'de> for StdlibStem {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let raw = String::deserialize(deserializer)?;
-        Self::parse(raw).map_err(serde::de::Error::custom)
-    }
-}
-
 /// A maintainer is a string of the form `name <email>`; both parts are
-/// mandatory. Each entry is a string and serializes as the text it was
+/// mandatory. Each entry is a string and displays as the text it was
 /// parsed from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Maintainer {
@@ -163,19 +150,6 @@ impl Maintainer {
 impl Display for Maintainer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.raw)
-    }
-}
-
-impl Serialize for Maintainer {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        self.to_string().serialize(serializer)
-    }
-}
-
-impl<'de> Deserialize<'de> for Maintainer {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let s = String::deserialize(deserializer)?;
-        Self::parse(&s).map_err(serde::de::Error::custom)
     }
 }
 
@@ -449,12 +423,6 @@ impl Sources {
 
     pub fn as_slice(&self) -> &[Utf8UnixPathBuf] {
         &self.0
-    }
-}
-
-impl Serialize for Sources {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.collect_seq(self.0.iter().map(|path| path.as_str()))
     }
 }
 

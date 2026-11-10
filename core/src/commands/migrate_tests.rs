@@ -213,9 +213,10 @@ fn supplying(metamodel: &str) -> MigrateOptions {
 }
 
 fn declared_metamodel(manifest: &ModelToml) -> Option<String> {
+    let ModelToml::Project(manifest) = manifest else {
+        panic!("a project");
+    };
     manifest
-        .as_project()
-        .expect("a project")
         .project
         .metamodel
         .as_ref()

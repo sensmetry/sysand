@@ -194,11 +194,6 @@ impl LocalIndexEnvironment {
         }
     }
 
-    /// The directory as the user spelled it.
-    pub fn display_path(&self) -> &Utf8Path {
-        &self.display
-    }
-
     fn detect(&self) -> Result<Arc<(Utf8PathBuf, Shape)>, LocalIndexError> {
         let mut guard = self
             .detected

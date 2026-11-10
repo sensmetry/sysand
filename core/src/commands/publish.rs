@@ -885,9 +885,6 @@ pub enum PublishError {
     #[error("missing project info in kpar")]
     MissingInfo,
 
-    #[error("missing project metadata in kpar")]
-    MissingMeta,
-
     #[error(
         "missing publisher in project info; publisher has\n\
         to be set for publishing, for more details see\n\

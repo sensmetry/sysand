@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use serde::{Deserialize, Serialize};
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
 use crate::manifest::common::{
@@ -101,14 +100,7 @@ fn stdlib_publisher_is_recognized_after_normalization() {
 /// parts mandatory.
 #[test]
 fn maintainer_string_must_match_name_email_format() {
-    #[derive(Debug, Deserialize)]
-    struct Wrapper {
-        #[expect(dead_code)]
-        maintainers: Vec<Maintainer>,
-    }
-
-    let error = toml_edit::de::from_str::<Wrapper>("maintainers = [\"no email here\"]\n")
-        .expect_err("not a maintainer");
+    let error = Maintainer::parse("no email here").expect_err("not a maintainer");
     assert!(
         error.to_string().contains("name <email>"),
         "unexpected error: {error}"
@@ -140,17 +132,13 @@ fn maintainer_string_must_match_name_email_format() {
     assert_eq!(maintainer.to_string(), "A B <a@b.c>");
 }
 
-/// A maintainer serializes as the text it was parsed from, so the
+/// A maintainer displays as the text it was parsed from, so the
 /// `.project.json` `maintainer` array keeps its spelling.
 #[test]
 fn maintainer_keeps_its_spelling() {
     for raw in ["A <b@c>", "A B <a@b.c>"] {
         let maintainer = Maintainer::parse(raw).expect("a maintainer");
         assert_eq!(maintainer.to_string(), raw);
-        assert_eq!(
-            serde_json::to_string(&maintainer).expect("serializes"),
-            serde_json::to_string(raw).expect("serializes")
-        );
     }
     let maintainer = Maintainer::parse("A <b@c>").expect("a maintainer");
     assert_eq!(maintainer.name, "A");
@@ -313,24 +301,6 @@ fn sources_entries_must_be_model_files() {
     assert_eq!(
         sources_error(&["readme.md"]).to_string(),
         "`sources` entry `readme.md` is not a KerML (`.kerml`) or SysML (`.sysml`) file"
-    );
-}
-
-/// The entry as written is what the `checksum` and `index` maps of a
-/// built KPAR are keyed by.
-#[test]
-fn sources_serializes_what_was_written() {
-    #[derive(Debug, Serialize)]
-    struct Wrapper {
-        sources: Sources,
-    }
-
-    let wrapper = Wrapper {
-        sources: sources(&["a.sysml", "src/b.kerml"]).expect("valid sources"),
-    };
-    assert_eq!(
-        toml_edit::ser::to_string(&wrapper).expect("serializes"),
-        "sources = [\"a.sysml\", \"src/b.kerml\"]\n"
     );
 }
 

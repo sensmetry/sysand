@@ -41,8 +41,16 @@ def migrate(
         ProjectError: the project could not be read or converted, the
             working tree is dirty, or it is not inside a git work tree.
     """
+    if resolution is None:
+        resolution = Resolution()
     sysand_rs.do_migrate_py(
-        str(path), publisher, metamodel, allow_dirty, allow_no_vcs, resolution, auth
+        str(path),
+        publisher,
+        metamodel,
+        allow_dirty,
+        allow_no_vcs,
+        resolution._spec(),
+        auth._spec() if auth is not None else None,
     )
 
 

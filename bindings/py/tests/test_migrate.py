@@ -87,3 +87,15 @@ def test_migrate_refuses_a_directory_with_no_repository(tmp_path: Path) -> None:
 
     sysand.migrate(tmp_path, allow_no_vcs=True)
     assert (tmp_path / "model.toml").is_file()
+
+
+def test_migrate_takes_a_resolution_and_an_auth_policy(tmp_path: Path) -> None:
+    _json_project(tmp_path)
+    _repo(tmp_path)
+
+    sysand.migrate(
+        tmp_path,
+        resolution=sysand.Resolution(use_index=False, use_config=False),
+        auth=sysand.AuthPolicy.none(),
+    )
+    assert (tmp_path / "model.toml").is_file()

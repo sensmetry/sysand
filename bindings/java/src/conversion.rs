@@ -906,9 +906,6 @@ pub(crate) fn handle_build_error(env: &mut Env<'_>, error: &KParBuildError<Local
                 "Missing project information",
             );
         }
-        KParBuildError::MissingMeta => {
-            env.throw_exception(ExceptionKind::SysandException, "Missing project metadata");
-        }
         KParBuildError::InheritedLocalUsage { usage: _, path: _ }
         | KParBuildError::KeepIndexOnRoot
         | KParBuildError::TomlTargetMissing { usage: _, path: _ }

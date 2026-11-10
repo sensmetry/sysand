@@ -138,7 +138,6 @@ fn init<'local>(
                     }
                     LocalSrcError::Deserialize(_)
                     | LocalSrcError::AmbiguousFormat { dir: _, json: _ }
-                    | LocalSrcError::Symbols(_)
                     | LocalSrcError::TomlProjectHasNoChecksum { dir: _ }
                     | LocalSrcError::JsonWriteToTomlProject { dir: _, file: _ }
                     | LocalSrcError::TomlWriteToJsonProject { dir: _ } => {

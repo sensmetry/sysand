@@ -33,7 +33,6 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IncompleteField {
     Info,
-    Meta,
     CanonicalDigest,
 }
 
@@ -41,7 +40,6 @@ impl fmt::Display for IncompleteField {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Info => f.write_str("info"),
-            Self::Meta => f.write_str("meta"),
             Self::CanonicalDigest => f.write_str("canonical digest"),
         }
     }
@@ -257,8 +255,11 @@ pub fn do_lock_projects<
 /// [`do_lock_projects`], with each input project's own base path.
 ///
 /// A workspace's members are its input projects, and a member's `dir`
-/// usages are relative to that member. See
-/// [`do_lock_extend_with_bases`] for what `ctx` is still for.
+/// usages are relative to that member.
+///
+/// `ctx` still supplies the root a solved dependency's sources are
+/// relativized against. A `ctx` with neither a project nor a workspace
+/// panics.
 pub fn do_lock_projects_with_bases<
     'a,
     PI: ProjectRead + Debug + 'a,
@@ -454,7 +455,9 @@ pub fn do_lock_extend<
     )
 }
 
-/// [`do_lock_extend`], with each usage's own base path.
+/// [`do_lock_extend`], with each usage's own base path, and with the
+/// spelling of the typed usage of `respelled` among the inputs not checked
+/// (see [`check_typed_usages`]).
 ///
 /// A workspace is solved as one unit and its members do not share a
 /// base: a usage's `dir` is relative to the member, a group entry's
@@ -463,22 +466,6 @@ pub fn do_lock_extend<
 /// `ctx` still supplies the root a solved dependency's sources are
 /// relativized against, which is separate from the base its usages resolve
 /// against. A `ctx` with neither a project nor a workspace panics.
-pub fn do_lock_extend_with_bases<
-    PD: ProjectRead + Debug,
-    I: IntoIterator<Item = (crate::resolve::ResolutionInfo, DeclaredBy)>,
-    R: ResolveRead<ProjectStorage = PD> + Debug,
->(
-    lock: Lock,
-    usages: I,
-    resolver: R,
-    provided_usages: &ProvidedProjects,
-    ctx: &ProjectContext,
-) -> Result<LockOutcome<PD>, LockError<PD, R>> {
-    lock_extend(lock, usages, resolver, provided_usages, ctx, None)
-}
-
-/// [`do_lock_extend_with_bases`], with the spelling of the typed usage of
-/// `respelled` among the inputs not checked (see [`check_typed_usages`])
 fn lock_extend<
     PD: ProjectRead + Debug,
     I: IntoIterator<Item = (crate::resolve::ResolutionInfo, DeclaredBy)>,

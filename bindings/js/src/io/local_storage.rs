@@ -91,9 +91,6 @@ pub enum Error {
     TomlWriteToJsonProject,
     #[error(transparent)]
     Deserialize(#[from] sysand_core::project::utils::ProjectDeserializationError),
-    /// A source file listed in `sources` could not be indexed.
-    #[error(transparent)]
-    Symbols(#[from] sysand_core::symbols::SymbolsError),
     #[error("`{}` is not a valid manifest:\n{report}", .report.file())]
     InvalidManifest { report: Report },
     /// A `model.toml` that is not one, or does not define a project, or

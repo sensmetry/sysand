@@ -15,9 +15,7 @@ use crate::{
         inherit::MetaProperty,
         project::{ProjectManifest, ProjectTable},
     },
-    model::{
-        IdentifierError, IndexName, IndexPublisher, KnownMetamodel, MetamodelFamily, SpecKind,
-    },
+    model::{IdentifierError, IndexName, IndexPublisher, KnownMetamodel, MetamodelFamily},
     project::{ManifestWriteError, ProjectMut, ProjectRead as _, memory::InMemoryProject},
 };
 use typed_path::Utf8UnixPathBuf;
@@ -114,11 +112,7 @@ pub fn do_init_ext<P: ProjectMut>(
     let syside_root = kind
         .filter(|kind| kind.family == MetamodelFamily::Syside)
         .map(|kind| {
-            let extension = match kind.spec {
-                SpecKind::KerMl => "kerml",
-                SpecKind::SysMl => "sysml",
-            };
-            Utf8UnixPathBuf::from(format!("{}.{extension}", name.normalized()))
+            Utf8UnixPathBuf::from(format!("{}{}", name.normalized(), kind.spec.file_ext()))
         });
     let root_exists = syside_root
         .as_ref()

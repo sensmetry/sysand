@@ -126,8 +126,6 @@ pub struct RunReport {
     pub command: String,
     /// The paths the command writes, by kind, not observed on disk.
     pub changed: Vec<String>,
-    /// Extra result fields (`published`, ...).
-    pub extra: Map<String, Value>,
 }
 
 impl RunReport {
@@ -149,12 +147,6 @@ impl RunReport {
         for path in paths {
             self.changed.push(path.as_ref().to_string());
         }
-        self
-    }
-
-    #[must_use]
-    pub fn with(mut self, key: &str, value: impl Into<Value>) -> Self {
-        self.extra.insert(key.to_owned(), value.into());
         self
     }
 }
@@ -179,7 +171,6 @@ pub fn finish_ok(report: &RunReport) {
         let mut result = Map::new();
         result.insert("command".to_owned(), json!(report.command));
         result.insert("changed".to_owned(), json!(report.changed));
-        result.extend(report.extra.clone());
         result
     } else {
         payload

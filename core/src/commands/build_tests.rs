@@ -105,7 +105,6 @@ fn license_stems_deduplicates() {
 
 // ------------------------------- building a `model.toml` project
 
-use crate::manifest::kpar_view::VIEW_CREATED;
 use crate::model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw};
 use crate::project::local_src::LocalSrcProject;
 
@@ -166,11 +165,12 @@ fn a_toml_project_builds() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn a_toml_build_records_the_build_time() -> Result<(), Box<dyn std::error::Error>> {
     let dir = toml_project("")?;
+    let before = jiff::Timestamp::now() - jiff::SignedDuration::from_secs(1);
     let (_, meta) = built(&dir, false)?;
     let created: jiff::Timestamp = meta.created.parse()?;
-    assert_ne!(
-        created, VIEW_CREATED,
-        "the view's placeholder reached the archive"
+    assert!(
+        created >= before,
+        "`created` is {created}, not the build time"
     );
     Ok(())
 }
@@ -286,7 +286,7 @@ fn a_json_project_with_a_typed_local_usage_builds_under_the_flag()
 }
 
 /// Through `do_build_workspace_kpars`: a `model.toml` member built from
-/// a workspace root records the build time too, not the view's epoch.
+/// a workspace root records the build time too.
 #[test]
 fn a_workspace_of_toml_members_records_the_build_time() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
@@ -305,6 +305,7 @@ fn a_workspace_of_toml_members_records_the_build_time() -> Result<(), Box<dyn st
     let workspace = load_workspace(&dir);
     let out = dir.path().join("output");
     std::fs::create_dir_all(&out)?;
+    let before = jiff::Timestamp::now() - jiff::SignedDuration::from_secs(1);
     let built = super::do_build_workspace_kpars(
         &workspace,
         &out,
@@ -318,7 +319,10 @@ fn a_workspace_of_toml_members_records_the_build_time() -> Result<(), Box<dyn st
             .and_then(crate::project::ProjectDefinition::into_json)
             .expect("the pair");
     let created: jiff::Timestamp = meta.created.parse()?;
-    assert_ne!(created, VIEW_CREATED);
+    assert!(
+        created >= before,
+        "`created` is {created}, not the build time"
+    );
     Ok(())
 }
 

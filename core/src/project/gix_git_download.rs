@@ -88,7 +88,6 @@ impl From<LocalSrcError> for GixDownloadedError {
             LocalSrcError::MissingMeta => Self::MissingMeta,
             error @ LocalSrcError::MissingInfoMeta { missing: _ } => Self::Other(error.to_string()),
             error @ (LocalSrcError::AmbiguousFormat { dir: _, json: _ }
-            | LocalSrcError::Symbols(_)
             | LocalSrcError::TomlProjectHasNoChecksum { dir: _ }
             | LocalSrcError::JsonWriteToTomlProject { dir: _, file: _ }
             | LocalSrcError::TomlWriteToJsonProject { dir: _ }) => Self::Other(error.to_string()),

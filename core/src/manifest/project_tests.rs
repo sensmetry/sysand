@@ -1182,19 +1182,19 @@ fn an_opt_in_takes_the_group_entry_whole() {
     ));
     assert_eq!(project.usages[1].base, UsageBase::WorkspaceRoot);
     assert_eq!(
-        project.usages[1].resolve_local_path(
-            camino::Utf8Path::new("/repo/projects/a"),
-            Some(camino::Utf8Path::new("/repo")),
-        ),
-        Some(camino::Utf8PathBuf::from("/repo/legacy/dep"))
+        project.usages[1]
+            .usage
+            .local_path()
+            .map(|path| path.as_str()),
+        Some("legacy/dep")
     );
     assert_eq!(project.usages[2].base, UsageBase::Project);
     assert_eq!(
-        project.usages[2].resolve_local_path(
-            camino::Utf8Path::new("/repo/projects/a"),
-            Some(camino::Utf8Path::new("/repo")),
-        ),
-        Some(camino::Utf8PathBuf::from("/repo/projects/a/../own"))
+        project.usages[2]
+            .usage
+            .local_path()
+            .map(|path| path.as_str()),
+        Some("../own")
     );
 }
 
@@ -1662,7 +1662,7 @@ fn an_opt_in_takes_a_publisher_less_group_entry() {
     .into_parts()
     .0;
     let usage = &project.usages[0].usage;
-    assert!(usage.is_stdlib(), "{usage:?}");
+    assert!(usage.publisher().is_none(), "{usage:?}");
     assert_eq!(usage.identity().name, "kernel-semantic-library");
 }
 

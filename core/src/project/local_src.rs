@@ -532,9 +532,6 @@ pub enum LocalSrcError {
         dir: Utf8PathBuf,
         json: &'static str,
     },
-    /// A source file listed in `sources` could not be indexed.
-    #[error(transparent)]
-    Symbols(#[from] crate::symbols::SymbolsError),
     /// A command that writes a json manifest was pointed at a
     /// `model.toml` project. Writing one would leave the directory
     /// holding both manifests, which nothing can read.

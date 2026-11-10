@@ -167,15 +167,6 @@ pub struct Mismatch {
     pub kind: MismatchKind,
 }
 
-impl Mismatch {
-    pub fn synced(&self) -> SyncedProject {
-        SyncedProject {
-            iri: self.iri.clone(),
-            version: self.version.clone(),
-        }
-    }
-}
-
 impl fmt::Display for Mismatch {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let Self { iri, version, kind } = self;

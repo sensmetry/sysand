@@ -40,20 +40,6 @@ pub enum Cancellable<E> {
     Cancelled(Cancelled),
 }
 
-impl<E> Cancellable<E> {
-    pub fn is_cancelled(&self) -> bool {
-        matches!(self, Self::Cancelled(_))
-    }
-
-    /// Map the inner error, keeping cancellation.
-    pub fn map_inner<F, G: FnOnce(E) -> F>(self, f: G) -> Cancellable<F> {
-        match self {
-            Self::Inner(e) => Cancellable::Inner(f(e)),
-            Self::Cancelled(cancelled) => Cancellable::Cancelled(cancelled),
-        }
-    }
-}
-
 impl<E> From<E> for Cancellable<E> {
     fn from(value: E) -> Self {
         Self::Inner(value)
