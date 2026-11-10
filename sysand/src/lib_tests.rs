@@ -37,6 +37,7 @@ mod http_options {
                 connect_timeout: Duration::from_secs(5),
                 read_timeout: Duration::from_secs(120),
                 retries: 0,
+                insecure_hosts: Vec::new(),
             }
         );
     }

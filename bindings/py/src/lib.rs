@@ -22,8 +22,7 @@ use sysand::{
         lock::{CliLockError, resolve_lock},
         sync::{CliSyncError, CommandSyncError, command_sync},
     },
-    default_index_location, get_env, get_or_create_env, get_overrides, http_options_from_env,
-    standard_auth_policy,
+    default_index_location, get_env, get_or_create_env, get_overrides, standard_auth_policy,
 };
 use sysand_core::{
     auth::{GlobMapResult, StandardHTTPAuthenticationBuilder},
@@ -77,7 +76,7 @@ use sysand_core::{
         ResolveRead,
         combined::CombinedResolverError,
         memory::MemoryResolver,
-        net_utils::create_reqwest_client_with,
+        net_utils::{HttpOptions, create_reqwest_client_with},
         priority::{PriorityError, PriorityResolver},
         standard::{StandardResolver, standard_resolver},
     },
@@ -445,11 +444,11 @@ fn combined_error_to_pyerr<F, L, R>(
     }
 }
 
-/// The HTTP client the CLI would use, with timeouts and retries from the
-/// same `SYSAND_HTTP_*` variables.
+/// The HTTP client with the default [`HttpOptions`]. The `SYSAND_HTTP_*`
+/// variables of the CLI are not read.
 fn http_client() -> PyResult<reqwest_middleware::ClientWithMiddleware> {
-    let options = http_options_from_env().map_err(|e| PyValueError::new_err(format_err(&*e)))?;
-    create_reqwest_client_with(options).map_err(|e| PyRuntimeError::new_err(format_err(e)))
+    create_reqwest_client_with(&HttpOptions::default())
+        .map_err(|e| PyRuntimeError::new_err(format_err(e)))
 }
 
 /// The resolver stack `info` and `versions` use, built as the CLI's `info`

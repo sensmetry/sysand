@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 import sysand
-from mockindex import MockIndex, usage
+from mockindex import OUTLAST_RETRIES, MockIndex, usage
 
 DEP = "pkg:sysand/mock/dep"
 OTHER = "pkg:sysand/mock/other"
@@ -124,7 +124,7 @@ def test_sync_reports_the_written_lockfile_on_failure(
 ) -> None:
     mock_index.publish(DEP, "1.0.0")
     root = project_with(tmp_path, [usage(DEP, ">=1.0.0")])
-    mock_index.fail_next(MockIndex.kpar_path(DEP, "1.0.0"), 500)
+    mock_index.fail_next(MockIndex.kpar_path(DEP, "1.0.0"), 500, OUTLAST_RETRIES)
 
     with pytest.raises(sysand.SyncError) as excinfo:
         sysand.sync(path=root, resolution=resolution(mock_index))
@@ -148,9 +148,8 @@ def test_sync_takes_the_lock_given(tmp_path: Path, mock_index: MockIndex) -> Non
 
 
 def test_sync_retries_a_transient_failure(
-    tmp_path: Path, mock_index: MockIndex, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, mock_index: MockIndex
 ) -> None:
-    monkeypatch.setenv("SYSAND_HTTP_RETRIES", "1")
     mock_index.publish(DEP, "1.0.0")
     root = project_with(tmp_path, [usage(DEP, ">=1.0.0")])
     kpar = MockIndex.kpar_path(DEP, "1.0.0")
@@ -159,16 +158,6 @@ def test_sync_retries_a_transient_failure(
     outcome = sysand.sync(path=root, resolution=resolution(mock_index))
     assert changed(outcome["installed"]) == {(DEP, "1.0.0")}
     assert mock_index.requests(kpar) == [kpar, kpar]
-
-
-def test_sync_rejects_a_malformed_http_setting(
-    tmp_path: Path, mock_index: MockIndex, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("SYSAND_HTTP_TIMEOUT", "soon")
-    root = project_with(tmp_path, [usage(DEP, ">=1.0.0")])
-
-    with pytest.raises(ValueError, match="SYSAND_HTTP_TIMEOUT"):
-        sysand.sync(path=root, resolution=resolution(mock_index))
 
 
 def test_sync_half_synced(tmp_path: Path, mock_index: MockIndex) -> None:
@@ -182,7 +171,7 @@ def test_sync_half_synced(tmp_path: Path, mock_index: MockIndex) -> None:
         "dep",
         "other",
     ]
-    mock_index.fail_next(MockIndex.kpar_path(OTHER, "2.0.0"), 500)
+    mock_index.fail_next(MockIndex.kpar_path(OTHER, "2.0.0"), 500, OUTLAST_RETRIES)
 
     with pytest.raises(sysand.SyncError) as excinfo:
         sysand.sync(path=root, resolution=res)

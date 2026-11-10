@@ -23,6 +23,7 @@ fn global_opts() -> GlobalOptions {
         quiet: true,
         no_config: true,
         config_file: None,
+        https_insecure_hosts: Vec::new(),
         help: None,
     }
 }

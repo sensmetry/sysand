@@ -343,7 +343,7 @@ fn get<P: HTTPAuthentication>(
     policy: &P,
     url: &str,
 ) -> reqwest::Response {
-    let client = create_reqwest_client_with(HttpOptions {
+    let client = create_reqwest_client_with(&HttpOptions {
         retries: 0,
         ..HttpOptions::default()
     })

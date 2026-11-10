@@ -16,6 +16,7 @@ use sysand_core::{
         MetamodelFamily, MetamodelRelease, ProjectFieldError, ProjectName, ProjectPublisher,
         SYSML_SPEC_PREFIX, SpecKind,
     },
+    resolve::net_utils::InsecureHost,
     utils::format_err,
 };
 
@@ -1330,6 +1331,18 @@ pub struct GlobalOptions {
     /// Give path to `sysand.toml` to use for configuration
     #[arg(long, global = true, help_heading = "Global options", env = env_vars::SYSAND_CONFIG_FILE)]
     pub config_file: Option<Utf8PathBuf>,
+    /// INSECURE: comma-delimited list of hosts (host names or IP
+    /// addresses) whose TLS certificates are not verified. Does not apply to
+    /// git dependencies
+    #[arg(
+        long,
+        global = true,
+        value_name = "HOSTS",
+        help_heading = "Global options",
+        env = env_vars::SYSAND_HTTPS_INSECURE_HOSTS,
+        value_delimiter = ','
+    )]
+    pub https_insecure_hosts: Vec<InsecureHost>,
     /// Print help
     #[arg(long, global = true, action = clap::ArgAction::HelpLong, help_heading = "Global options")]
     pub help: Option<bool>,
