@@ -10,9 +10,6 @@ import typing
 from pathlib import Path
 
 import pytest
-from pytest_httpserver import HTTPServer
-
-import sysand
 from mockindex import (
     LEGACY_CONSTRAINT,
     LIBRARY,
@@ -20,6 +17,9 @@ from mockindex import (
     run_cli_in,
     usage,
 )
+from pytest_httpserver import HTTPServer
+
+import sysand
 
 
 @pytest.fixture(scope="session", autouse=True)

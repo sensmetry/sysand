@@ -17,9 +17,9 @@ import json
 from pathlib import Path
 
 import pytest
+from mockindex import MockIndex, usage
 
 import sysand
-from mockindex import MockIndex, usage
 
 IRI = "urn:kpar:defaults_probe"
 NO_INDEX = sysand.Resolution(use_index=False)

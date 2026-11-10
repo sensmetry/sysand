@@ -2,11 +2,11 @@
 # SPDX-FileCopyrightText: © 2025-2026 Sysand contributors <opensource@sensmetry.com>
 
 from __future__ import annotations
-from typing import List
+
 from pathlib import Path
 
-from .._model import Dependencies
 from .. import _sysand_core as sysand_rs
+from .._model import Dependencies
 
 
 def sources(
@@ -16,7 +16,7 @@ def sources(
     version: str | None = None,
     include_own: bool = True,
     dependencies: Dependencies = Dependencies.DEPS,
-) -> List[Path]:
+) -> list[Path]:
     """List the source files of an (already installed) project in an environment.
 
     By default, as with ``sysand env sources``, the project's own sources are

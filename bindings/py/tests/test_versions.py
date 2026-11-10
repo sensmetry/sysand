@@ -12,9 +12,9 @@ from __future__ import annotations
 import json
 
 import pytest
+from mockindex import LIBRARY, MockIndex
 
 import sysand
-from mockindex import LIBRARY, MockIndex
 
 IRI = "urn:kpar:versions_probe"
 

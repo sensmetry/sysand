@@ -6,11 +6,11 @@
 import argparse
 import json
 import os
-from pathlib import Path
 import platform
 import shutil
 import subprocess
-from typing import Any, Union
+from pathlib import Path
+from typing import Any
 
 ROOT_DIR = Path(__file__).absolute().parent.parent.parent.parent
 CARGO_METADATA = json.loads(
@@ -98,7 +98,7 @@ def execute(command: "list[str]", *args: Any, **kwargs: Any) -> None:
     except subprocess.CalledProcessError as error:
         print("Error:", error.returncode)
         print(error.output)
-        raise error
+        raise
     print("Success")
     print(output)
 
@@ -127,7 +127,7 @@ def compute_full_version(version: str, release_jar_version: bool) -> str:
 
 def build(
     use_release_build: bool,
-    use_existing_native_libs: Union[Path, None],
+    use_existing_native_libs: Path | None,
     sign_artifacts: bool,
     release_jar_version: bool,
     version: str,

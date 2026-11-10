@@ -3,25 +3,24 @@
 
 import json
 import logging
-import tempfile
-from pathlib import Path
 import os
-import typing
 import re
-from typing import Callable, List, Union
+import tempfile
+from collections.abc import Callable
+from pathlib import Path
 
 import pytest
+from mockindex import MockIndex, run_cli_in
 from pytest_httpserver import HTTPServer
 
 import sysand
-from mockindex import MockIndex, run_cli_in
 
 # `info` defaults to the CLI's resolution, which reaches the public index.
 NO_INDEX = sysand.Resolution(use_index=False, use_config=False)
 
 
 def _install_in_env(
-    root: Union[str, Path], publisher: str, name: str, version: str = "1.0.0"
+    root: str | Path, publisher: str, name: str, version: str = "1.0.0"
 ) -> None:
     """Install version ``version`` of the project ``publisher``/``name`` into
     the environment of the project at ``root``, creating it if missing, so
@@ -920,7 +919,7 @@ def test_env_projects_lists_installed_and_editable(tmp_path: Path) -> None:
 
 
 def test_env_sources_is_exported(tmp_path: Path) -> None:
-    root, env_dir = _project_with_dir_usage(tmp_path)
+    _root, env_dir = _project_with_dir_usage(tmp_path)
     [kpar_dep] = [
         p for p in sysand.env.projects(env_path=env_dir) if p["name"] == "kpar-dep"
     ]
@@ -932,7 +931,7 @@ def test_env_sources_is_exported(tmp_path: Path) -> None:
 
 
 def test_env_functions_reject_non_iri(tmp_path: Path) -> None:
-    root, env_dir = _project_with_dir_usage(tmp_path)
+    _root, env_dir = _project_with_dir_usage(tmp_path)
     before = sysand.env.projects(env_path=env_dir)
 
     # `publisher/name` is not an IRI: refused, not looked up or stored as one
@@ -1181,8 +1180,8 @@ def test_model_roundtrip() -> None:
 
 
 def _model_roundtrip(
-    usage: typing.List[sysand.InterchangeProjectUsage],
-) -> typing.List[sysand.InterchangeProjectUsage]:
+    usage: list[sysand.InterchangeProjectUsage],
+) -> list[sysand.InterchangeProjectUsage]:
     from sysand._sysand_core import _do_model_roundtrip_py  # type: ignore
 
     info: sysand.InterchangeProjectInfo = {
@@ -1209,7 +1208,7 @@ def _model_roundtrip(
 
 
 def test_usages_round_trip_as_given() -> None:
-    usage: typing.List[sysand.InterchangeProjectUsage] = [
+    usage: list[sysand.InterchangeProjectUsage] = [
         sysand.InterchangeProjectUsageResource(
             resource="pkg:sysand/acme/index-lib", version_constraint=None
         ),
@@ -1225,15 +1224,15 @@ def test_usages_round_trip_as_given() -> None:
 
 
 def test_an_index_usage_needs_a_constraint() -> None:
-    with pytest.raises(Exception):
+    with pytest.raises(TypeError, match="usage"):
         _model_roundtrip(
             [{"publisher": "Acme Labs", "name": "Other Lib"}]  # type: ignore[list-item]
         )
 
 
 def compare_sources(
-    sources: Union[List[Path], List[str]],
-    expected_sources: Union[List[Path], List[str]],
+    sources: list[Path] | list[str],
+    expected_sources: list[Path] | list[str],
 ) -> None:
     assert len(sources) == len(expected_sources)
     for source, expected_source in zip(sources, expected_sources):
@@ -1443,7 +1442,7 @@ def test_root_not_in_project() -> None:
     "compression",
     [None, sysand.CompressionMethod.STORED, sysand.CompressionMethod.DEFLATED],
 )
-def test_build(compression: Union[sysand.CompressionMethod, None]) -> None:
+def test_build(compression: sysand.CompressionMethod | None) -> None:
     with tempfile.TemporaryDirectory() as tmp_main:
         tmp_main = Path(tmp_main).resolve()
         sysand.init(

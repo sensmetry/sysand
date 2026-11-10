@@ -20,8 +20,6 @@ import os
 import typing
 
 import pytest
-
-import sysand
 from conftest import Baseline, MakeBaseline
 from mockindex import (
     DEPENDENT,
@@ -31,6 +29,8 @@ from mockindex import (
     MockIndex,
     usage,
 )
+
+import sysand
 
 
 def resolution(index: MockIndex) -> sysand.Resolution:

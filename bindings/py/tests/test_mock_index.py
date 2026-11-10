@@ -14,13 +14,12 @@ import urllib.error
 import urllib.request
 
 import pytest
-
 from conftest import Baseline, MakeBaseline, isolate_sysand_env
 from mockindex import DEPENDENT, LIBRARY, MockIndex, run_cli_in, usage
 
 
-def _get(url: str, headers: dict[str, str] = {}) -> tuple[int, bytes]:
-    request = urllib.request.Request(url, headers=headers)
+def _get(url: str, headers: dict[str, str] | None = None) -> tuple[int, bytes]:
+    request = urllib.request.Request(url, headers=headers or {})
     try:
         with urllib.request.urlopen(request) as response:
             return response.status, response.read()

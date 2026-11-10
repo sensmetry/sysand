@@ -4,24 +4,20 @@
 from __future__ import annotations
 
 import typing
+from pathlib import Path
 
 from . import _sysand_core as sysand_rs
-
 from ._model import InterchangeProjectUsage
-
-from pathlib import Path
 
 
 @typing.overload
-def remove(
-    *, project_dir: Path | str, iri: str
-) -> typing.List[InterchangeProjectUsage]: ...
+def remove(*, project_dir: Path | str, iri: str) -> list[InterchangeProjectUsage]: ...
 
 
 @typing.overload
 def remove(
     *, project_dir: Path | str, publisher: str, name: str
-) -> typing.List[InterchangeProjectUsage]: ...
+) -> list[InterchangeProjectUsage]: ...
 
 
 def remove(
@@ -30,7 +26,7 @@ def remove(
     iri: str | None = None,
     publisher: str | None = None,
     name: str | None = None,
-) -> typing.List[InterchangeProjectUsage]:
+) -> list[InterchangeProjectUsage]:
     """Remove a dependency from the project in ``project_dir``.
 
     The dependency is named one of two ways:
