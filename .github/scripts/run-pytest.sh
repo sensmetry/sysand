@@ -16,6 +16,7 @@ rm -f bindings/py/.python-version
 uv python list --only-installed
 cd bindings/py
 uv venv --clear --no-project
+# shellcheck source=/dev/null
 . "${ACTIVATION_SCRIPT}"
 uv sync --only-dev --active --no-install-project --locked --no-progress
 uv pip install sysand --find-links ../../dist --force-reinstall --no-index

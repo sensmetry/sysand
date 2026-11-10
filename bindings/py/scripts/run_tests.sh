@@ -18,6 +18,7 @@ unset CONDA_PREFIX CONDA_DEFAULT_ENV CONDA_PROMPT_MODIFIER CONDA_SHLVL
 
 uv run maturin develop
 
+# shellcheck source=scripts/py_path.sh
 source ../../scripts/py_path.sh
 # `--no-default-features` drops `extension-module` so the test binary
 # links, but it also drops the crypto provider, which the tests need, and

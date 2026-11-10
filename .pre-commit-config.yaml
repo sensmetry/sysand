@@ -143,3 +143,25 @@ repos:
         args:
           - --fix=safe
           # - --fix=all # fix more things with a manual review
+
+  # Lint: github actions workflows, including shellcheck on `run:` scripts.
+  #
+  # The upstream hook (rhysd/actionlint) gets shellcheck only as a WebAssembly
+  # build, which takes ~25s per run. These PyPI packages ship native binaries.
+  - repo: local
+    hooks:
+      - id: actionlint
+        name: actionlint
+        language: python
+        entry: actionlint
+        additional_dependencies:
+          - actionlint-py==1.7.12.25
+          - shellcheck-py==0.11.0.1
+        types: [yaml]
+        files: ^\.github/workflows/
+
+  # Lint: shell scripts. Config in .shellcheckrc
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1
+    hooks:
+      - id: shellcheck
