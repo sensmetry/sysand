@@ -753,8 +753,7 @@ fn lock_project<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
             Some(respelled) => {
                 do_lock_workspace_respelling(&workspace, resolver, provided_iris, ctx, respelled)
             }
-        }
-        .map_err(|error| anyhow::anyhow!("{error}"))?;
+        }?;
         return Ok(lock.canonicalize());
     }
     let LockOutcome {

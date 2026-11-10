@@ -925,9 +925,9 @@ pub(crate) fn handle_build_error(env: &mut Env<'_>, error: &KParBuildError<Local
         | KParBuildError::TomlTargetRead {
             usage: _,
             path: _,
-            reason: _,
+            source: _,
         } => {
-            env.throw_exception(ExceptionKind::SysandException, error.to_string());
+            env.throw_exception(ExceptionKind::SysandException, e);
         }
         KParBuildError::MissingInfoMeta => {
             env.throw_exception(

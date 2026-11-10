@@ -132,10 +132,12 @@ fn a_file_with_no_model_extension_names_itself() {
 fn a_source_that_does_not_parse_names_the_file() {
     let error = top_level_symbols(&Utf8UnixPath::new("a.sysml"), "package Foo { /*", None)
         .expect_err("an unterminated comment");
+    assert_eq!(
+        error.to_string(),
+        "failed to extract symbol names from `a.sysml`"
+    );
     assert!(
-        error
-            .to_string()
-            .starts_with("failed to extract symbol names from `a.sysml`"),
-        "unexpected message: {error}"
+        std::error::Error::source(&error).is_some(),
+        "the parse error is the source: {error:?}"
     );
 }

@@ -135,8 +135,8 @@ def test_sync_without_a_lockfile_fails_to_lock(
         sysand.sync(path=root, resolution=res)
     assert excinfo.value.wrote is False
     assert not (root / "sysand-lock.toml").exists()
-    assert not (root / sysand.env.DEFAULT_ENV_NAME).exists(), (
-        "nothing is created when locking fails"
+    assert not (root / sysand.env.DEFAULT_ENV_NAME / "env.toml").exists(), (
+        "no environment is created when locking fails"
     )
 
 

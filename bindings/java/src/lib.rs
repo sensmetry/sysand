@@ -127,7 +127,7 @@ fn init<'local>(
                     env.throw_exception(ExceptionKind::InvalidSemanticVersion, e)
                 }
                 InitError::Identifier(..) | InitError::Write(..) => {
-                    env.throw_exception(ExceptionKind::SysandException, error.to_string());
+                    env.throw_exception(ExceptionKind::SysandException, e);
                 }
                 InitError::SPDXLicenseParse(..) => {
                     env.throw_exception(ExceptionKind::InvalidSPDXLicense, e)

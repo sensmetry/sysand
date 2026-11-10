@@ -203,8 +203,7 @@ fn resolve_publish_archives(
                 https://github.com/sensmetry/sysand/issues/101."
             );
             let workspace = Workspace::load_with(root, MemberChecks::All)?;
-            Ok(workspace_publish_order(&workspace)
-                .map_err(|failure| anyhow::anyhow!("{failure}"))?
+            Ok(workspace_publish_order(&workspace)?
                 .into_iter()
                 .map(|(_, archive)| archive)
                 .collect())

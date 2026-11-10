@@ -689,11 +689,18 @@ pub enum VcsError {
         #[source]
         source: Box<gix::Error>,
     },
-    #[error("failed to read the status of the git repository at `{path}`: {reason}")]
+    #[error("failed to read the status of the git repository at `{path}`")]
     Status {
         path: camino::Utf8PathBuf,
-        reason: String,
+        #[source]
+        source: Box<gix::Error>,
     },
+    #[error("the git repository at `{0}` has no work tree")]
+    NoWorkTree(camino::Utf8PathBuf),
+    #[error("the work tree of the git repository at `{0}` is not valid UTF-8")]
+    NonUtf8WorkTree(camino::Utf8PathBuf),
+    #[error("failed to resolve the project's location in the git repository")]
+    Canonicalize(#[source] Box<crate::project::utils::FsIoError>),
 }
 
 /// The state of the work tree *at `root`*.
@@ -740,9 +747,9 @@ pub fn check_vcs(root: &camino::Utf8Path) -> Result<VcsState, VcsError> {
         }
     };
 
-    let fail = |reason: String| VcsError::Status {
+    let fail = |source: gix::Error| VcsError::Status {
         path: root.to_owned(),
-        reason,
+        source: Box::new(source),
     };
 
     // Scope the walk to the project. Without a pathspec the status
@@ -750,13 +757,13 @@ pub fn check_vcs(root: &camino::Utf8Path) -> Result<VcsState, VcsError> {
     // modified file would refuse every migration in it.
     let workdir = repo
         .workdir()
-        .ok_or_else(|| fail("the repository has no work tree".to_owned()))?;
+        .ok_or_else(|| VcsError::NoWorkTree(root.to_owned()))?;
     let workdir = camino::Utf8Path::from_path(workdir)
-        .ok_or_else(|| fail("the repository's work tree is not valid UTF-8".to_owned()))?;
-    let absolute = crate::project::utils::wrapfs::canonicalize(root)
-        .map_err(|error| fail(error.to_string()))?;
-    let workdir = crate::project::utils::wrapfs::canonicalize(workdir)
-        .map_err(|error| fail(error.to_string()))?;
+        .ok_or_else(|| VcsError::NonUtf8WorkTree(root.to_owned()))?;
+    let absolute =
+        crate::project::utils::wrapfs::canonicalize(root).map_err(VcsError::Canonicalize)?;
+    let workdir =
+        crate::project::utils::wrapfs::canonicalize(workdir).map_err(VcsError::Canonicalize)?;
     let pathspec: Vec<BString> = match absolute.strip_prefix(&workdir) {
         Ok(relative) if !relative.as_str().is_empty() => vec![BString::from(relative.as_str())],
         // The project *is* the work tree root: no filter needed.
@@ -765,18 +772,18 @@ pub fn check_vcs(root: &camino::Utf8Path) -> Result<VcsState, VcsError> {
 
     let status = repo
         .status(gix::progress::Discard)
-        .map_err(|error| fail(error.to_string()))?
+        .map_err(fail)?
         // Explicit, because `Repository::status` otherwise takes
         // `status.showUntrackedFiles` from the user's configuration, so
         // a `no` there would silently stop untracked files counting.
         // `Files` so the report names files.
         .untracked_files(UntrackedFiles::Files)
         .into_iter(pathspec)
-        .map_err(|error| fail(error.to_string()))?;
+        .map_err(fail)?;
 
     let mut dirty = Vec::new();
     for item in status {
-        let item = item.map_err(|error| fail(error.to_string()))?;
+        let item = item.map_err(fail)?;
         let counts = match &item {
             // Staged.
             Item::TreeIndex(_) => true,

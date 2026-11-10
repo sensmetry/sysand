@@ -1126,9 +1126,10 @@ fn sync_failure(err: CommandSyncError, outcome: SyncOutcome, wrote_lock: bool) -
         CommandSyncError::Sync(CliSyncError::EnvRead(_) | CliSyncError::EnvWrite(_))
         | CommandSyncError::WriteMetadata(_)
         // `--verify` reading the environment, or `--repair` removing a
-        // mismatched installation from it.
+        // mismatched or unrecorded installation from it.
         | CommandSyncError::Verify(_)
-        | CommandSyncError::Remove { path: _, source: _ } => Failure::Env { message, wrote },
+        | CommandSyncError::Remove { path: _, source: _ }
+        | CommandSyncError::RemoveUnrecorded(_) => Failure::Env { message, wrote },
         CommandSyncError::Sync(_)
         | CommandSyncError::IncludeStd(_)
         | CommandSyncError::Relock(_)
@@ -1206,8 +1207,8 @@ fn do_sync_py(
                         &config,
                         &project_root,
                         extra_provided.clone(),
-                        client,
-                        runtime,
+                        client.clone(),
+                        runtime.clone(),
                         auth_policy.clone(),
                         &ctx,
                     )
@@ -1227,15 +1228,6 @@ fn do_sync_py(
             known_std_libs()
         };
         provided.extend(extra_provided);
-
-        let client = http_client()?;
-        let runtime = Arc::new(
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(PyErr::from)?,
-        );
-        let auth_policy = build_auth_policy(&auth)?;
 
         let mut outcome = SyncOutcome::default();
         if verify || repair {
@@ -1372,7 +1364,7 @@ fn do_build_py(
                 | KParBuildError::TomlTargetRead {
                     usage: _,
                     path: _,
-                    reason: _,
+                    source: _,
                 }
                 | KParBuildError::Serialize(..)
                 | KParBuildError::MissingIndexSymbol(_, _)

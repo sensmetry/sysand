@@ -15,7 +15,10 @@ use sysand_core::{
         sync::{MismatchKind, SyncError, SyncOutcome},
         verify::{ManifestUsages, VerifyError, VerifyReport, do_verify},
     },
-    env::{WriteEnvironment as _, local_directory::LocalDirectoryEnvironment},
+    env::{
+        WriteEnvironment as _,
+        local_directory::{LocalDirectoryEnvironment, LocalWriteError},
+    },
     lock::Lock,
     project::{
         AsSyncProjectTokio, KparMeta, ProjectReadAsync as _,
@@ -26,7 +29,7 @@ use sysand_core::{
             ReqwestIndexKparDownloadedProject, ReqwestRemoteKparDownloadedProject,
         },
         reqwest_src::ReqwestSrcProjectAsync,
-        utils::FsIoError,
+        utils::{FsIoError, wrapfs},
     },
     utils::ProvidedProjects,
 };
@@ -42,7 +45,10 @@ pub enum CommandSyncError {
     #[error(transparent)]
     Sync(#[from] CliSyncError),
     /// The sync itself, where the remedy names a flag only the CLI has.
-    #[error("{0}\n       (hint: pass `--include-std` to fetch it from its IRI)")]
+    #[error(
+        "{0}\n{SP:>8} (hint: pass `--include-std` to fetch it from its IRI)",
+        SP = ' '
+    )]
     IncludeStd(CliSyncError),
     /// An editable project no longer matches the lockfile.
     #[error("{0}\n       (hint: run `sysand lock` to update the lockfile)")]
@@ -61,8 +67,11 @@ pub enum CommandSyncError {
     Remove {
         path: Utf8PathBuf,
         #[source]
-        source: Box<dyn std::error::Error + Send + Sync>,
+        source: LocalWriteError,
     },
+    /// `--repair` could not remove an unrecorded installation.
+    #[error(transparent)]
+    RemoveUnrecorded(Box<FsIoError>),
 }
 
 /// What `command_sync_verify` found, for the caller's exit code. The
@@ -174,7 +183,7 @@ pub fn command_sync_verify<Policy: HTTPAuthentication>(
                 env.del_project_version(&mismatch.iri, &mismatch.version)
                     .map_err(|source| CommandSyncError::Remove {
                         path: env_dir.to_path_buf(),
-                        source: Box::new(source),
+                        source,
                     })?;
             }
             MismatchKind::NotRecorded => {}
@@ -183,10 +192,7 @@ pub fn command_sync_verify<Policy: HTTPAuthentication>(
     for path in &report.unrecorded {
         let absolute = env.root_path().join(path.as_str());
         log::info!("{header}{repairing:>12}{header:#} removing unrecorded `{path}`");
-        std::fs::remove_dir_all(&absolute).map_err(|source| CommandSyncError::Remove {
-            path: absolute.clone(),
-            source: Box::new(source),
-        })?;
+        wrapfs::remove_dir_all(&absolute).map_err(CommandSyncError::RemoveUnrecorded)?;
     }
     // A plain sync then installs everything `env.toml` lacks and prunes
     // the rest.

@@ -26,7 +26,6 @@ use sysand_core::{
         local_src::LocalSrcProject,
         utils::{relativize_path, wrapfs},
     },
-    utils::format_err,
     utils::{RelativePathKind, parse_relative_unix_path},
     workspace::model_toml::discover_table,
 };
@@ -80,18 +79,13 @@ pub fn command_init(
         inherited_kind,
         &mut LocalSrcProject::new_access(target, None),
     )
-    .map_err(|error| match &error {
+    .map_err(|error| match error {
         // The name came from the directory, so the fix is not where the
         // message points. A publisher never comes from a directory.
         InitError::Identifier(identifier) if !named && identifier.kind == IdentifierKind::Name => {
-            anyhow::anyhow!(
-                "{}\n\
-                {SP:>8} the name came from the directory; pass `--name` to choose another",
-                format_err(&error),
-                SP = ' '
-            )
+            CliError::InvalidDirectoryIdentifier(identifier).into()
         }
-        _ => anyhow::Error::new(error),
+        error => anyhow::Error::new(error),
     })?;
     if has_license {
         log_license_files_note();

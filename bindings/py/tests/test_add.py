@@ -95,7 +95,7 @@ def test_add_without_sync_only_locks(tmp_path: Path, mock_index: MockIndex) -> N
     )
 
     assert (root / "sysand-lock.toml").is_file()
-    assert not (root / sysand.env.DEFAULT_ENV_NAME).exists()
+    assert not (root / sysand.env.DEFAULT_ENV_NAME / "env.toml").exists()
 
 
 def test_add_normalized_takes_the_locked_spelling(

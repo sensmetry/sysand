@@ -124,7 +124,7 @@ def test_verify_reports_environment_gone(tmp_path: Path) -> None:
     )
     [mismatch] = outcome["mismatched"]
     assert mismatch["kind"] == "not-recorded"
-    assert not (app / ".sysand").exists()
+    assert not (app / ".sysand" / "env.toml").exists()
 
 
 def test_stale_lockfile_is_reported_not_repaired(tmp_path: Path) -> None:

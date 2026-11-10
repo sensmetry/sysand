@@ -22,7 +22,7 @@ use crate::{
     },
     project::{
         ProjectDefinition, ProjectRead,
-        local_kpar::{KparInnerPath, LocalKParProject, LocalKParProjectRaw},
+        local_kpar::{KparInnerPath, LocalKParError, LocalKParProject, LocalKParProjectRaw},
         local_src::{LocalSrcError, LocalSrcProject},
         utils::{FsIoError, ZipArchiveError, wrapfs},
     },
@@ -184,11 +184,12 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
     /// The target is there and does not read: it holds both manifests,
     /// its `model.toml` does not parse, its `.project.json` has no
     /// `version`, its archive is not a zip.
-    #[error("usage `{usage}` targets `{path}`, which could not be read: {reason}")]
+    #[error("usage `{usage}` targets `{path}`, which could not be read")]
     TomlTargetRead {
         usage: String,
         path: String,
-        reason: String,
+        #[source]
+        source: Box<TomlTargetReadError>,
     },
     /// A member inheriting a group usage whose path is relative to the
     /// workspace root.
@@ -220,6 +221,15 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
     PathUsage(String),
     #[error("file `{0}` is missing symbol `{1}` found in index")]
     MissingIndexSymbol(Box<str>, String),
+}
+
+/// Why the target of a local usage could not be read.
+#[derive(Error, Debug)]
+pub enum TomlTargetReadError {
+    #[error(transparent)]
+    Kpar(#[from] LocalKParError),
+    #[error(transparent)]
+    Src(#[from] LocalSrcError),
 }
 
 impl<ProjectReadError: ErrorBound> From<FsIoError> for KParBuildError<ProjectReadError> {
@@ -686,10 +696,10 @@ fn local_target_usage<E: ErrorBound>(
             })
         }
     };
-    let unreadable = |error: &dyn std::fmt::Display| KParBuildError::TomlTargetRead {
+    let unreadable = |source: TomlTargetReadError| KParBuildError::TomlTargetRead {
         usage: usage.to_string(),
         path: relative.to_owned(),
-        reason: error.to_string(),
+        source: Box::new(source),
     };
 
     let Some(root) = root else {
@@ -715,7 +725,7 @@ fn local_target_usage<E: ErrorBound>(
                 definition.version()
             }
             Ok(None) => return Err(missing()),
-            Err(error) => return Err(unreadable(&error)),
+            Err(error) => return Err(unreadable(error.into())),
         }
     } else {
         let source = match workspace {
@@ -751,7 +761,7 @@ fn local_target_usage<E: ErrorBound>(
                 info.version
             }
             Ok(None) => return Err(missing()),
-            Err(error) => return Err(unreadable(&error)),
+            Err(error) => return Err(unreadable(error.into())),
         }
     };
 
@@ -894,7 +904,7 @@ pub struct WorkspaceBuildFailure {
 ///
 /// Boxed because `KParBuildError` is large.
 #[derive(Debug, Error)]
-#[error("`{member}`")]
+#[error("workspace member `{member}` cannot be built")]
 pub struct MemberFailure {
     pub member: Utf8PathBuf,
     #[source]

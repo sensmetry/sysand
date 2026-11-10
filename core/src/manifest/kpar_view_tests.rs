@@ -572,11 +572,16 @@ fn a_source_that_does_not_parse_stops_the_view() {
     let project = resolved(&REQUIRED.replace("sources = []", "sources = [\"a.sysml\"]"));
     let files = files(&[("a.sysml", "package Foo { /*")]);
     let error = source_maps(&project.sources, reader(&files)).expect_err("an unterminated comment");
+    assert_eq!(
+        error.to_string(),
+        "failed to extract symbol names from `a.sysml`"
+    );
+    let ViewError::Symbols(symbols) = &error else {
+        panic!("a symbols error: {error:?}");
+    };
     assert!(
-        error
-            .to_string()
-            .starts_with("failed to extract symbol names from `a.sysml`"),
-        "unexpected message: {error}"
+        std::error::Error::source(symbols).is_some(),
+        "the parse error is the source: {symbols:?}"
     );
 }
 

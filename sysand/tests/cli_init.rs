@@ -159,7 +159,8 @@ fn a_name_from_the_directory_names_the_name_flag() -> Result<(), Box<dyn std::er
             "name must be 3-50 ASCII alphanumeric chars",
         ))
         .stderr(predicate::str::contains(
-            "the name came from the directory; pass `--name` to choose another",
+            "cannot use the directory name `my_project` as the project name; \
+             use `--name` to set it\n  caused by: ",
         ));
     Ok(())
 }
@@ -187,7 +188,7 @@ fn a_name_from_the_name_flag_is_refused_without_the_hint() -> Result<(), Box<dyn
         .stderr(predicate::str::contains(
             "name must be 3-50 ASCII alphanumeric chars",
         ))
-        .stderr(predicate::str::contains("the name came from the directory").not());
+        .stderr(predicate::str::contains("use `--name` to set it").not());
     Ok(())
 }
 

@@ -13,9 +13,9 @@ use crate::{
     model::{
         InterchangeProjectUsage, InterchangeProjectUsageRaw, InterchangeProjectValidationError,
     },
-    project::{ProjectDefinition, ProjectRead, utils::Identifier},
+    project::{ProjectDefinition, ProjectRead, memory::InMemoryProject, utils::Identifier},
     resolve::{
-        ResolveRead, UsageOrigin,
+        UsageOrigin,
         env::EnvResolver,
         memory::{AcceptAll, MemoryResolver},
         priority::{PriorityProject, PriorityResolver},
@@ -152,6 +152,14 @@ pub fn do_sources_local_src_project_no_deps(
     Ok(sources?)
 }
 
+/// The resolver the dependency enumeration solves with: the provided
+/// projects first, then the environment.
+pub type EnvSolverResolver<Env> =
+    PriorityResolver<MemoryResolver<AcceptAll, InMemoryProject>, EnvResolver<Env>>;
+
+/// The error of resolving dependencies in an environment.
+pub type EnvSolverError<Env> = SolverError<EnvSolverResolver<Env>>;
+
 /// Transitively resolves a list of usages (typically the usages of some project)
 /// in an environment and enumerates the resolved projects together with their IRIs.
 ///
@@ -161,10 +169,8 @@ fn solve_dependencies<Env: ReadEnvironment + Debug + 'static>(
     requested: Vec<InterchangeProjectUsage>,
     env: Env,
     provided_usages: &ProvidedProjects,
-) -> Result<
-    Vec<(Identifier, <Env as ReadEnvironment>::InterchangeProjectRead)>,
-    SolverError<impl ResolveRead + Debug + use<Env>>,
-> {
+) -> Result<Vec<(Identifier, <Env as ReadEnvironment>::InterchangeProjectRead)>, EnvSolverError<Env>>
+{
     let resolver = PriorityResolver::new(
         MemoryResolver {
             iri_predicate: AcceptAll {},
@@ -201,10 +207,7 @@ pub fn find_project_dependencies<Env: ReadEnvironment + Debug + 'static>(
     requested: Vec<InterchangeProjectUsage>,
     env: Env,
     provided_usages: &ProvidedProjects,
-) -> Result<
-    Vec<<Env as ReadEnvironment>::InterchangeProjectRead>,
-    SolverError<impl ResolveRead + Debug + use<Env>>,
-> {
+) -> Result<Vec<<Env as ReadEnvironment>::InterchangeProjectRead>, EnvSolverError<Env>> {
     Ok(solve_dependencies(requested, env, provided_usages)?
         .into_iter()
         .map(|(_, project)| project)
@@ -221,10 +224,7 @@ pub fn resolve_dependencies<Env: ReadEnvironment + Debug + 'static>(
     requested: Vec<InterchangeProjectUsage>,
     env: Env,
     dependencies: Dependencies,
-) -> Result<
-    Vec<<Env as ReadEnvironment>::InterchangeProjectRead>,
-    SolverError<impl ResolveRead + Debug + use<Env>>,
-> {
+) -> Result<Vec<<Env as ReadEnvironment>::InterchangeProjectRead>, EnvSolverError<Env>> {
     // No need to resolve dependencies if they are not gonna be used
     if dependencies == Dependencies::None {
         return Ok(Vec::new());
@@ -281,7 +281,7 @@ pub enum SourcesEnvError {
     #[error("failed to resolve dependencies of project `{project}`")]
     Dependencies {
         project: Box<str>,
-        source: Box<dyn std::error::Error + Send + Sync>,
+        source: Box<EnvSolverError<LocalDirectoryEnvironment>>,
     },
 }
 

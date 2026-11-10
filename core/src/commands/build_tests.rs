@@ -578,7 +578,7 @@ fn a_target_that_does_not_read_is_its_own_error() -> Result<(), Box<dyn std::err
         KParBuildError::TomlTargetRead {
             usage: _,
             path: _,
-            reason: _
+            source: _
         }
     ));
     Ok(())
