@@ -23,7 +23,7 @@ use crate::{
     manifest::diagnostics::{Diagnostics, Report, Validated},
     model::{
         IndexName, IndexPublisher, InterchangeProjectUsage, InterchangeProjectUsageRaw,
-        ProjectName, ProjectPublisher, normalize_typed_name, normalize_typed_publisher,
+        ProjectName, ProjectPublisher,
     },
     purl::sysand_purl,
     utils::SP,
@@ -713,17 +713,6 @@ impl Display for Identifier {
     }
 }
 
-/// The identity a usage expects to find at its target.
-///
-/// Every usage carries `publisher` and `name`: that pair is the identity
-/// a usage is resolved by, and the target must declare the same one after
-/// normalization.
-#[derive(Clone, Debug)]
-pub struct ExpectedIdentity {
-    publisher: Option<String>,
-    name: String,
-}
-
 /// How a mismatch spells one side of a comparison: `<publisher>/<name>`,
 /// with `<none>` for a side that declares no publisher.
 #[cfg_attr(
@@ -737,55 +726,6 @@ pub(crate) fn pair(publisher: Option<&str>, name: &str) -> String {
     match publisher {
         Some(publisher) => format!("{publisher}/{name}"),
         None => format!("<none>/{name}"),
-    }
-}
-
-/// How the identity a target declares differs from the expected one.
-#[derive(Clone, Debug)]
-pub enum IdentityMismatch {
-    Publisher {
-        expected: Option<String>,
-        actual: Option<String>,
-    },
-    Name {
-        expected: String,
-        actual: String,
-    },
-}
-
-impl ExpectedIdentity {
-    /// A usage being resolved. `publisher` is `None` when the usage
-    /// expects a target that declares none.
-    pub fn resolving(publisher: Option<String>, name: String) -> Self {
-        Self { publisher, name }
-    }
-
-    /// Compare what the target declares with what the usage expected.
-    pub fn check(
-        &self,
-        actual_publisher: Option<&str>,
-        actual_name: &str,
-    ) -> Result<(), IdentityMismatch> {
-        match (&self.publisher, actual_publisher) {
-            (Some(expected), Some(actual))
-                if normalize_typed_publisher(expected) == normalize_typed_publisher(actual) => {}
-            (None, None) => {}
-            (expected, actual) => {
-                return Err(IdentityMismatch::Publisher {
-                    expected: expected.clone(),
-                    actual: actual.map(ToOwned::to_owned),
-                });
-            }
-        }
-
-        if normalize_typed_name(&self.name) == normalize_typed_name(actual_name) {
-            Ok(())
-        } else {
-            Err(IdentityMismatch::Name {
-                expected: self.name.clone(),
-                actual: actual_name.to_owned(),
-            })
-        }
     }
 }
 

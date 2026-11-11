@@ -351,15 +351,69 @@ mod typed_usage_spelling {
     fn target_without_publisher() {
         let lib = project(None, "My Lib", vec![]);
         let err = lock(
-            &root(index("Acme Labs", "My Lib")),
+            &root(kpar("Acme Labs", "My Lib")),
             vec![("acme labs", "my lib", lib)],
         )
         .unwrap_err();
         assert_eq!(
             err.to_string(),
-            "an index usage `Acme Labs/My Lib` in `app` 1.0.0 resolved to version 1.0.0 of \
+            "a KPAR path usage `Acme Labs/My Lib` in `app` 1.0.0 resolved to version 1.0.0 of \
              `My Lib`, which declares no publisher, so no typed usage can name it;\n\
              use a resource usage of it instead (e.g. `sysand add --iri <IRI>`)"
+        );
+    }
+
+    /// An index entry that declares another identity than the one it is
+    /// served under is the index's error, not a spelling to adopt
+    #[test]
+    fn index_entry_declaring_another_project() {
+        let lib = project(Some("Globex"), "My Lib", vec![]);
+        let err = lock(
+            &root(index("Acme Labs", "My Lib")),
+            vec![("acme labs", "my lib", lib)],
+        )
+        .unwrap_err();
+        assert!(err.invalid_index_entry);
+        assert_eq!(
+            err.to_string(),
+            "an index usage `Acme Labs/My Lib` in `app` 1.0.0 resolved to version 1.0.0 of \
+             `Globex/My Lib`, which is not the project the usage names;\n\
+             the index entry for `Acme Labs/My Lib` is invalid and has to be fixed by the \
+             index's maintainers"
+        );
+    }
+
+    #[test]
+    fn index_entry_without_publisher() {
+        let lib = project(None, "My Lib", vec![]);
+        let err = lock(
+            &root(index("Acme Labs", "My Lib")),
+            vec![("acme labs", "my lib", lib)],
+        )
+        .unwrap_err();
+        assert!(err.invalid_index_entry);
+        assert!(
+            err.to_string()
+                .contains("of `<none>/My Lib`, which is not the project"),
+            "{err}"
+        );
+    }
+
+    /// A path usage's target declaring another identity is still a
+    /// spelling to adopt
+    #[test]
+    fn path_target_declaring_another_project() {
+        let lib = project(Some("Globex"), "My Lib", vec![]);
+        let err = lock(
+            &root(kpar("Acme Labs", "My Lib")),
+            vec![("acme labs", "my lib", lib)],
+        )
+        .unwrap_err();
+        assert!(!err.invalid_index_entry);
+        assert!(
+            err.to_string()
+                .ends_with("spell the usage exactly as `Globex/My Lib`"),
+            "{err}"
         );
     }
 
@@ -549,13 +603,14 @@ fn dir_usage(dir: &str, name: &str) -> crate::model::InterchangeProjectUsage {
 /// locking panics.
 #[cfg(feature = "filesystem")]
 fn ctx_rooted_at(at: &camino::Utf8Path) -> ProjectContext {
-    ProjectContext {
-        current_project: Some(crate::project::local_src::LocalSrcProject::new_access(
+    ProjectContext::new(
+        None,
+        Some(crate::project::local_src::LocalSrcProject::new_access(
             at.to_owned(),
             None,
         )),
-        ..Default::default()
-    }
+        None,
+    )
 }
 
 /// A member's `dir` is relative to that member, so two input projects do not share a base.
@@ -762,16 +817,6 @@ fn member_toml(name: &str, usages: &str) -> String {
     )
 }
 
-/// The context `do_lock_workspace` requires: its sources root is the
-/// workspace root, canonicalized as `load_with` reports it.
-#[cfg(feature = "filesystem")]
-fn workspace_ctx(root: &camino::Utf8Path) -> ProjectContext {
-    ProjectContext {
-        model_workspace_root: Some(root.to_owned()),
-        ..Default::default()
-    }
-}
-
 #[cfg(feature = "filesystem")]
 #[expect(
     clippy::result_large_err,
@@ -790,9 +835,9 @@ fn lock_workspace(
     use crate::workspace::model_toml::{MemberChecks, Workspace};
     let workspace =
         Workspace::load_with(dir.path(), MemberChecks::All).expect("the workspace loads");
-    let ctx = workspace_ctx(workspace.root());
+    let ctx = ProjectContext::new(Some(workspace), None, None);
     super::do_lock_workspace(
-        &workspace,
+        ctx.workspace().expect("just set"),
         crate::resolve::file::FileResolver::default(),
         &HashMap::default(),
         &ctx,
@@ -824,9 +869,14 @@ where
     use crate::workspace::model_toml::{MemberChecks, Workspace};
     let workspace =
         Workspace::load_with(dir.path(), MemberChecks::All).expect("the workspace loads");
-    let ctx = workspace_ctx(workspace.root());
-    super::do_lock_workspace(&workspace, resolver, &HashMap::default(), &ctx)
-        .map(|outcome| outcome.lock)
+    let ctx = ProjectContext::new(Some(workspace), None, None);
+    super::do_lock_workspace(
+        ctx.workspace().expect("just set"),
+        resolver,
+        &HashMap::default(),
+        &ctx,
+    )
+    .map(|outcome| outcome.lock)
 }
 
 /// A candidate `acme/lib` at `version`, for a resolver to offer.

@@ -58,7 +58,6 @@ fn make_fixture_with_kpar_url(kpar_url: reqwest::Url) -> IndexEntryProject<Unaut
         advertised,
         create_reqwest_client().expect("reqwest client builder succeeds"),
         Arc::new(Unauthenticated {}),
-        None,
     )
     .expect("IndexEntryProject::new has no fallible steps given a temp dir")
 }

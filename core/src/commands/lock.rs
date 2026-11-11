@@ -120,6 +120,9 @@ pub struct TypedUsageMismatchError {
     pub version: String,
     pub publisher: Option<String>,
     pub name: String,
+    /// The usage is an index usage, and the entry the index serves for it
+    /// declares a publisher and name that do not normalize to the usage's.
+    pub invalid_index_entry: bool,
 }
 
 impl fmt::Display for TypedUsageMismatchError {
@@ -132,8 +135,19 @@ impl fmt::Display for TypedUsageMismatchError {
             version,
             publisher,
             name,
+            invalid_index_entry,
         } = self;
         let usage = format!("{kind} usage `{usage_publisher}/{usage_name}` in {declared_by}");
+        if *invalid_index_entry {
+            let declared = publisher.as_deref().unwrap_or("<none>");
+            return write!(
+                f,
+                "{usage} resolved to version {version} of `{declared}/{name}`, which is not \
+                 the project the usage names;\n\
+                 the index entry for `{usage_publisher}/{usage_name}` is invalid and has to be \
+                 fixed by the index's maintainers"
+            );
+        }
         match publisher {
             Some(publisher) => writeln!(
                 f,
@@ -639,6 +653,8 @@ struct TypedSpelling {
     /// What the usage resolves under: the publisher and name for a typed
     /// usage, the IRI for a `kpar-url` usage that declares them
     identifier: Identifier,
+    /// Whether the usage is an index usage
+    index: bool,
 }
 
 impl TypedSpelling {
@@ -650,6 +666,14 @@ impl TypedSpelling {
             publisher: publisher.to_owned(),
             name: name.to_owned(),
             identifier: Identifier::from(usage),
+            index: matches!(
+                usage,
+                InterchangeProjectUsage::Index {
+                    publisher: _,
+                    name: _,
+                    version_constraint: _,
+                }
+            ),
         })
     }
 
@@ -666,6 +690,7 @@ impl TypedSpelling {
             publisher: publisher.to_owned(),
             name: name.to_owned(),
             identifier: info.id(),
+            index: false,
         })
     }
 }
@@ -693,7 +718,14 @@ fn check_typed_usages(
             continue;
         };
         if publisher.as_deref() != Some(usage.publisher.as_str()) || *name != usage.name {
+            // An index entry is found by the usage's identifier, so one that
+            // declares a different identity is the index's error.
+            let invalid_index_entry = usage.index
+                && publisher
+                    .as_deref()
+                    .is_none_or(|p| Identifier::from_pub_name(p, name) != usage.identifier);
             return Err(Box::new(TypedUsageMismatchError {
+                invalid_index_entry,
                 kind: usage.kind,
                 usage_publisher: usage.publisher,
                 usage_name: usage.name,

@@ -343,6 +343,28 @@ mod spell_index_usage {
         );
     }
 
+    /// A project installed under the usage's identifier that declares another
+    /// identity is refused, whether or not the usage is normalized
+    #[test]
+    fn refuses_a_project_that_declares_another_identity() {
+        let env = env(vec![("1.0.0", installed("Globex", "1.0.0"))]);
+        for (publisher, name, normalized) in [
+            ("acme-labs", "my-lib", true),
+            ("ACME Labs", "My Lib", false),
+        ] {
+            assert_matches!(
+                spell_index_usage(
+                    Some(&env),
+                    &crate::model::IndexPublisher::parse(publisher.to_owned()).unwrap(),
+                    &crate::model::IndexName::parse(name.to_owned()).unwrap(),
+                    normalized
+                ),
+                Err(IndexSpellingError::OtherProject { spelling, usage: _, version: _ })
+                    if spelling == "Globex/My Lib"
+            );
+        }
+    }
+
     #[test]
     fn fails_without_project_information() {
         let env = env(vec![("1.0.0", InMemoryProject::default())]);

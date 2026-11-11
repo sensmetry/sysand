@@ -104,6 +104,15 @@ pub enum IndexSpellingError<EnvError, ProjectError> {
         version: String,
         spelling: String,
     },
+    #[error(
+        "index usage `{usage}` cannot be used: version {version} installed in the local \
+         environment declares itself `{spelling}`, which is not the project the usage names"
+    )]
+    OtherProject {
+        usage: String,
+        version: String,
+        spelling: String,
+    },
 }
 
 /// The publisher and name an index usage of `publisher`/`name` has to spell,
@@ -113,7 +122,8 @@ pub enum IndexSpellingError<EnvError, ProjectError> {
 /// otherwise, once checked to be that spelling. `normalized` is whether
 /// `publisher`/`name` is normalized.
 ///
-/// Fails when no version is installed.
+/// Fails when no version is installed, or when the installed project
+/// declares a publisher and name that do not normalize to `publisher`/`name`.
 #[expect(clippy::type_complexity)]
 pub fn spell_index_usage<Env: ReadEnvironment>(
     env: Option<&Env>,
@@ -152,6 +162,13 @@ pub fn spell_index_usage<Env: ReadEnvironment>(
         return Err(IndexSpellingError::NoPublisher { usage, version });
     };
     let found_name = definition.name().to_owned();
+    if Identifier::from_pub_name(&found_publisher, &found_name) != identifier {
+        return Err(IndexSpellingError::OtherProject {
+            usage,
+            version,
+            spelling: format!("{found_publisher}/{found_name}"),
+        });
+    }
     if normalized || (found_publisher == publisher.as_str() && found_name == name.as_str()) {
         let spelling = format!("{found_publisher}/{found_name}");
         match (

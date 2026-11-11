@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use std::assert_matches;
-
 use fluent_uri::Iri;
 use typed_path::Utf8UnixPathBuf;
 
 use crate::{
     model::{InterchangeProjectUsage, InterchangeProjectUsageRaw},
-    project::utils::{ExpectedIdentity, Identifier, IdentityMismatch},
+    project::utils::Identifier,
 };
 
 // --- Identifier constructors ---
@@ -179,61 +177,4 @@ fn identifier_from_project_decides_by_the_spelling_as_given() {
         &ProjectName::parse("Foo".to_owned()).unwrap(),
     );
     assert_eq!(project, index);
-}
-
-/// A usage is resolved by the normalized identity, regardless of how it
-/// is declared. Both directions.
-#[test]
-fn an_identity_matches_after_normalization() {
-    ExpectedIdentity::resolving(Some("Acme Corp".to_owned()), "widgets".to_owned())
-        .check(Some("acme-corp"), "widgets")
-        .expect("`Acme Corp` and `acme-corp` are one publisher");
-    ExpectedIdentity::resolving(Some("acme-corp".to_owned()), "widgets".to_owned())
-        .check(Some("Acme Corp"), "widgets")
-        .expect("and the other way round");
-}
-
-/// Two identities are equal when their publishers and names are equal after
-/// normalization.
-#[test]
-fn a_name_is_normalized_too() {
-    ExpectedIdentity::resolving(Some("acme".to_owned()), "My Lib".to_owned())
-        .check(Some("acme"), "my-lib")
-        .expect("`My Lib` and `my-lib` are one name");
-}
-
-/// Normalization is not laxity: a different identity is still a
-/// mismatch, and says which half of the pair differed.
-#[test]
-fn a_different_identity_is_still_a_mismatch() {
-    assert_matches!(
-        ExpectedIdentity::resolving(Some("acme".to_owned()), "widgets".to_owned())
-            .check(Some("globex"), "widgets")
-            .expect_err("another publisher"),
-        IdentityMismatch::Publisher { expected, actual }
-            if expected.as_deref() == Some("acme") && actual.as_deref() == Some("globex")
-    );
-    assert_matches!(
-        ExpectedIdentity::resolving(Some("acme".to_owned()), "widgets".to_owned())
-            .check(Some("acme"), "gadgets")
-            .expect_err("another name"),
-        IdentityMismatch::Name { expected, actual }
-            if expected == "widgets" && actual == "gadgets"
-    );
-}
-
-/// A usage that expects a target with no publisher is not the same thing as a
-/// target that is missing one; this pins the direction that is a match.
-#[test]
-fn a_usage_may_expect_a_target_with_no_publisher() {
-    ExpectedIdentity::resolving(None, "widgets".to_owned())
-        .check(None, "widgets")
-        .expect("neither side has a publisher");
-    assert_matches!(
-        ExpectedIdentity::resolving(None, "widgets".to_owned())
-            .check(Some("surprise"), "widgets")
-            .expect_err("the target has one after all"),
-        IdentityMismatch::Publisher { expected, actual }
-            if expected.is_none() && actual.as_deref() == Some("surprise")
-    );
 }
