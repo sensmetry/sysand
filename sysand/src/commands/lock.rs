@@ -25,7 +25,6 @@ use sysand_core::{
         standard::{StandardResolver, standard_resolver},
     },
     utils::ProvidedProjects,
-    workspace::model_toml::MemberChecks,
 };
 
 /// The resolver [`create_resolver`] builds: overrides, then provided
@@ -67,14 +66,14 @@ pub fn lock_scope<Policy: HTTPAuthentication>(
     // `MemberChecks::All`: the lockfile, `.sysand` and `output` live at
     // the workspace root, so a member holds no state of its own and a
     // member that does is refused.
-    if let Some(workspace) = ctx.load_workspace(MemberChecks::All)? {
+    if let Some(workspace) = ctx.load_workspace()? {
         let LockOutcome {
             lock,
             dependencies: _,
         } = match respelled {
-            None => do_lock_workspace(&workspace, resolver, provided_iris, ctx),
+            None => do_lock_workspace(workspace, resolver, provided_iris, ctx),
             Some(respelled) => {
-                do_lock_workspace_respelling(&workspace, resolver, provided_iris, ctx, respelled)
+                do_lock_workspace_respelling(workspace, resolver, provided_iris, ctx, respelled)
             }
         }?;
         return Ok(lock.canonicalize());

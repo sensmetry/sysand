@@ -17,11 +17,14 @@ use sysand_core::{
     },
     project::{
         ProjectDefinition, ProjectMut, ProjectRead, any::OverrideProject,
-        local_kpar::KparInnerPath, symbol_index, utils::Identifier,
+        local_kpar::KparInnerPath, local_src::LocalSrcProject, symbol_index, utils::Identifier,
     },
     resolve::{
-        ResolutionInfo, file::FileResolverProject, memory::MemoryResolver,
-        priority::PriorityResolver, standard::standard_resolver,
+        ResolutionInfo,
+        file::{FileResolverProject, FileResolverProjectError},
+        memory::MemoryResolver,
+        priority::PriorityResolver,
+        standard::standard_resolver,
     },
     style,
     utils::{ProvidedIdentifiers, format_err},
@@ -31,7 +34,7 @@ use anstream::println;
 use anyhow::{Result, bail};
 use std::{collections::HashSet, sync::Arc};
 use sysand_core::{
-    info::{do_info_project, do_info_usage},
+    info::{InfoProjectError, do_info_project, do_info_usage},
     project::local_kpar::LocalKParProject,
     project::utils::wrapfs,
 };
@@ -231,7 +234,32 @@ pub fn command_info_project(
     iri: &Utf8Path,
     excluded_iris: &HashSet<Identifier>,
 ) -> Result<()> {
-    match do_info_project(&project) {
+    report_info(do_info_project(&project), iri, excluded_iris)
+}
+
+/// [`command_info_project`] for the context's current project, whose
+/// manifest is taken from `ctx` when it has already been parsed.
+pub fn command_info_current(
+    ctx: &ProjectContext,
+    iri: &Utf8Path,
+    excluded_iris: &HashSet<Identifier>,
+) -> Result<()> {
+    let definition = match ctx.current_definition() {
+        Ok(Some(definition)) => Ok(definition),
+        Ok(None) => Err(InfoProjectError::MissingProject),
+        Err(error) => Err(InfoProjectError::InvalidProject(
+            FileResolverProjectError::from(error),
+        )),
+    };
+    report_info(definition, iri, excluded_iris)
+}
+
+fn report_info(
+    definition: Result<ProjectDefinition, InfoProjectError<FileResolverProjectError>>,
+    iri: &Utf8Path,
+    excluded_iris: &HashSet<Identifier>,
+) -> Result<()> {
+    match definition {
         Ok(definition) => {
             report_project(&definition, excluded_iris);
 
@@ -294,6 +322,18 @@ pub fn log_license_files_note() {
 /// Prints the value of `field` of `project`, a list field one entry per line
 pub fn command_info_field<Project: ProjectRead>(project: &Project, field: InfoField) -> Result<()> {
     print_lines(field_lines(field, project, &get_project_or_bail(project)?)?);
+    Ok(())
+}
+
+/// [`command_info_field`] for the context's current project, whose
+/// manifest is taken from `ctx` when it has already been parsed.
+pub fn command_info_current_field(
+    ctx: &ProjectContext,
+    project: &LocalSrcProject,
+    field: InfoField,
+) -> Result<()> {
+    let definition = definition_or_bail(ctx.current_definition())?;
+    print_lines(field_lines(field, project, &definition)?);
     Ok(())
 }
 
@@ -503,7 +543,13 @@ fn index_lines<'a>(index: impl IntoIterator<Item = (&'a String, &'a String)>) ->
 pub(crate) fn get_project_or_bail<Project: ProjectRead>(
     project: &Project,
 ) -> Result<ProjectDefinition> {
-    match project.get_project() {
+    definition_or_bail(project.get_project())
+}
+
+fn definition_or_bail<Error: std::error::Error>(
+    read: Result<Option<ProjectDefinition>, Error>,
+) -> Result<ProjectDefinition> {
+    match read {
         Ok(Some(definition)) => Ok(definition),
         Ok(None) => bail!("project does not appear to have a manifest"),
         Err(err) => bail!("failed to read the project manifest: {}", format_err(err)),
@@ -542,24 +588,19 @@ pub fn command_info_workspace(
     field: Option<InfoField>,
     excluded_iris: &HashSet<Identifier>,
 ) -> Result<()> {
-    use sysand_core::project::local_src::LocalSrcProject;
-
     let table = workspace.table().clone();
 
     for (at, member) in workspace.members().iter().enumerate() {
-        let project = LocalSrcProject::new_member(member.dir.clone(), None, table.clone());
+        let definition = ProjectDefinition::Toml(Box::new(member.project.clone()));
         if let Some(field) = field {
-            let lines = field_lines(field, &project, &get_project_or_bail(&project)?)?;
+            let project = LocalSrcProject::new_member(member.dir.clone(), None, table.clone());
+            let lines = field_lines(field, &project, &definition)?;
             print_member_lines(Some(member.project.name.as_str()), lines);
         } else {
             if at > 0 {
                 crate::output::text(|| println!());
             }
-            command_info_project(
-                FileResolverProject::LocalSrcProject(project),
-                &member.dir,
-                excluded_iris,
-            )?;
+            report_project(&definition, excluded_iris);
         }
     }
 

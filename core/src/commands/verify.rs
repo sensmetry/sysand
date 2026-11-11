@@ -61,30 +61,36 @@ impl ManifestUsages {
     /// workspace when there is one, else the current project. Nothing
     /// outside a project.
     pub fn for_context(ctx: &crate::context::ProjectContext) -> Result<Vec<Self>, VerifyError> {
-        if let Some(workspace) =
-            ctx.load_workspace(crate::workspace::model_toml::MemberChecks::All)?
-        {
+        if let Some(workspace) = ctx.load_workspace()? {
             return workspace
-                .into_members()
-                .into_iter()
+                .members()
+                .iter()
                 .map(|member| {
                     Self::of_definition(
-                        &ProjectDefinition::Toml(Box::new(member.project)),
+                        &ProjectDefinition::Toml(Box::new(member.project.clone())),
                         member.dir.join(crate::manifest::MODEL_TOML_FILE),
                     )
                 })
                 .collect();
         }
-        ctx.current_project
-            .as_ref()
-            .map(Self::read)
-            .into_iter()
-            .collect()
+        let Some(project) = &ctx.current_project else {
+            return Ok(Vec::new());
+        };
+        let definition = ctx.current_definition();
+        Self::of_read(project, definition).map(|usages| vec![usages])
     }
 
     /// Read a project's manifest.
     pub fn read(project: &LocalSrcProject) -> Result<Self, VerifyError> {
-        let Some(definition) = project.get_project().map_err(VerifyError::Manifest)? else {
+        Self::of_read(project, project.get_project())
+    }
+
+    /// The usages of `project`, whose manifest read as `definition`.
+    fn of_read(
+        project: &LocalSrcProject,
+        definition: Result<Option<ProjectDefinition>, LocalSrcError>,
+    ) -> Result<Self, VerifyError> {
+        let Some(definition) = definition.map_err(VerifyError::Manifest)? else {
             return Err(VerifyError::Manifest(LocalSrcError::MissingInfoMeta {
                 missing: "its manifest",
             }));

@@ -290,6 +290,15 @@ fn output_path_in(
     path
 }
 
+/// [`default_kpar_path`] for a manifest already read.
+pub fn default_kpar_path_of(
+    definition: &ProjectDefinition,
+    workspace_root: Option<&Utf8Path>,
+    project_path: &Utf8Path,
+) -> Utf8PathBuf {
+    output_path_in(workspace_root, project_path, &kpar_file_name_of(definition))
+}
+
 pub fn default_kpar_file_name<Pr: ProjectRead>(
     project: &Pr,
 ) -> Result<String, KParBuildError<Pr::Error>> {
@@ -320,10 +329,30 @@ pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     update_index: bool,
     allow_path_usage: bool,
 ) -> Result<LocalKParProjectRaw, KParBuildError<Pr::Error>> {
+    do_build_kpar_with(
+        project,
+        || project.get_project(),
+        path,
+        compression,
+        update_index,
+        allow_path_usage,
+    )
+}
+
+/// [`do_build_kpar`] for a caller that has the project's manifest in
+/// hand: `definition` supplies it, once the build has started.
+pub fn do_build_kpar_with<P: AsRef<Utf8Path>, Pr: ProjectRead>(
+    project: &Pr,
+    definition: impl FnOnce() -> Result<Option<ProjectDefinition>, Pr::Error>,
+    path: P,
+    compression: KparCompressionMethod,
+    update_index: bool,
+    allow_path_usage: bool,
+) -> Result<LocalKParProjectRaw, KParBuildError<Pr::Error>> {
     let path = path.as_ref();
     match do_build_kpar_inner(
         project,
-        || project.get_project(),
+        definition,
         path,
         compression,
         update_index,
@@ -807,7 +836,7 @@ fn caret<E: ErrorBound>(
         })
 }
 
-/// Every member, its manifest read once.
+/// Every member, with the manifest the workspace load parsed.
 fn read_members(workspace: &model_toml::Workspace) -> Vec<Member> {
     // Every member carries the workspace table: a member that inherits a
     // key resolves its manifest only with the table in hand.
@@ -818,7 +847,7 @@ fn read_members(workspace: &model_toml::Workspace) -> Vec<Member> {
         .map(|member| {
             let dir = canonical_or(member.dir.clone());
             let project = LocalSrcProject::new_member(dir.clone(), None, table.clone());
-            let definition = project.get_project();
+            let definition = ProjectDefinition::Toml(Box::new(member.project.clone()));
             Member {
                 dir,
                 project,
@@ -831,30 +860,16 @@ fn read_members(workspace: &model_toml::Workspace) -> Vec<Member> {
 /// The members in dependency order, each with the archive `sysand build`
 /// writes for it, `<root>/output/<name>-<version>.kpar`.
 ///
-/// Every member is read here, before the caller uploads anything.
-///
-/// The error names the member, as `KParBuildError` does not.
 pub fn workspace_publish_order(
     workspace: &model_toml::Workspace,
-) -> Result<Vec<(Utf8PathBuf, Utf8PathBuf)>, MemberFailure> {
+) -> Vec<(Utf8PathBuf, Utf8PathBuf)> {
     let root = workspace.root();
     let members: Vec<_> = read_members(workspace)
         .into_iter()
-        .map(|member| {
-            let dependencies = match &member.definition {
-                Ok(Some(definition)) => usage_dirs(definition),
-                Ok(None) | Err(_) => Vec::new(),
-            };
-            let file_name = match member.definition {
-                Ok(Some(definition)) => Ok(kpar_file_name_of(&definition)),
-                Ok(None) => Err(KParBuildError::MissingInfo),
-                Err(error) => Err(KParBuildError::ProjectRead(error)),
-            };
-            OrderedMember {
-                dir: member.dir,
-                dependencies,
-                file_name,
-            }
+        .map(|member| OrderedMember {
+            dependencies: usage_dirs(&member.definition),
+            file_name: kpar_file_name_of(&member.definition),
+            dir: member.dir,
         })
         .collect();
 
@@ -878,15 +893,13 @@ pub fn workspace_publish_order(
     let order: Vec<Utf8PathBuf> = graph.dependency_order().into_iter().cloned().collect();
     let mut members = members;
     members.sort_by_key(|member| order.iter().position(|dir| dir == &member.dir));
-    let mut archives = Vec::new();
-    for member in members {
-        let short = shorten(&member.dir, root);
-        let file_name = member
-            .file_name
-            .map_err(|error| MemberFailure::at(&short, error))?;
-        archives.push((short, output_path_in(Some(root), &member.dir, &file_name)));
-    }
-    Ok(archives)
+    members
+        .into_iter()
+        .map(|member| {
+            let path = output_path_in(Some(root), &member.dir, &member.file_name);
+            (shorten(&member.dir, root), path)
+        })
+        .collect()
 }
 
 /// Build every member, in `members` order, and return the archives.
@@ -963,9 +976,6 @@ impl MemberFailure {
 }
 
 /// One member's build, with its archive removed if it failed.
-///
-/// `default_kpar_file_name` is called inside: for a member with no
-/// manifest that call is the failure.
 fn build_member(
     member: Member,
     output: &Utf8Path,
@@ -979,9 +989,6 @@ fn build_member(
         project,
         definition,
     } = member;
-    let definition = definition
-        .map_err(KParBuildError::ProjectRead)?
-        .ok_or(KParBuildError::MissingInfo)?;
     let output_path = output.join(kpar_file_name_of(&definition));
     do_build_kpar_inner(
         &project,
@@ -1005,8 +1012,7 @@ struct Member {
     /// canonical where the filesystem allows it.
     dir: Utf8PathBuf,
     project: LocalSrcProject,
-    /// The manifest, as read when the member was.
-    definition: Result<Option<ProjectDefinition>, LocalSrcError>,
+    definition: ProjectDefinition,
 }
 
 /// What the publish order needs of a member.
@@ -1015,7 +1021,7 @@ struct OrderedMember {
     /// The `dir` usages the member declares, as written.
     dependencies: Vec<String>,
     /// The member's archive name, or why it has none.
-    file_name: Result<String, KParBuildError<LocalSrcError>>,
+    file_name: String,
 }
 
 /// `path`, canonicalized, or `path` itself where it cannot be.

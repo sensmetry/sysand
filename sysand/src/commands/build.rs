@@ -3,22 +3,39 @@
 
 use anyhow::{Result, bail};
 use camino::Utf8Path;
+
+use crate::CliError;
 use sysand_core::{
-    build::{KParBuildError, KparCompressionMethod, do_build_kpar, do_build_workspace_kpars},
-    project::local_src::LocalSrcProject,
+    build::{KParBuildError, KparCompressionMethod, do_build_kpar_with, do_build_workspace_kpars},
+    context::ProjectContext,
+    project::{ProjectDefinition, local_src::LocalSrcError},
     utils::format_err,
     workspace::model_toml::Workspace,
 };
 
+/// The manifest of the context's current project, for a build.
+pub fn current_definition_for_build(
+    ctx: &ProjectContext,
+) -> Result<ProjectDefinition, KParBuildError<LocalSrcError>> {
+    ctx.current_definition()
+        .map_err(KParBuildError::ProjectRead)?
+        .ok_or(KParBuildError::MissingInfo)
+}
+
 pub fn command_build_for_project<P: AsRef<Utf8Path>>(
     path: P,
     compression: KparCompressionMethod,
-    current_project: LocalSrcProject,
+    ctx: &ProjectContext,
     update_index: bool,
     allow_path_usage: bool,
 ) -> Result<()> {
-    match do_build_kpar(
-        &current_project,
+    let current_project = ctx
+        .current_project
+        .as_ref()
+        .ok_or(CliError::MissingProjectCurrentDir)?;
+    match do_build_kpar_with(
+        current_project,
+        || ctx.current_definition(),
         &path,
         compression,
         update_index,

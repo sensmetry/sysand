@@ -71,6 +71,8 @@ pub struct Ancestry {
     /// The nearest project directory, spelled as the starting path spells
     /// it when that names the same directory.
     project: Option<Utf8PathBuf>,
+    /// The position of the project's directory in `found`.
+    project_at: Option<usize>,
     /// Every directory that holds a manifest, nearest first.
     found: Vec<(Utf8PathBuf, DirManifest)>,
     /// The read that ended the walk, after the project was found.
@@ -98,6 +100,7 @@ impl Ancestry {
         let canonical = wrapfs::canonicalize(from)?;
         let mut ancestry = Self {
             project: None,
+            project_at: None,
             found: Vec::new(),
             failed: None,
         };
@@ -116,6 +119,7 @@ impl Ancestry {
             if let Some(manifest) = manifest {
                 if seek == Seek::ProjectToo && ancestry.project.is_none() && manifest.is_project() {
                     ancestry.project = Some(spelled(lexical, dir));
+                    ancestry.project_at = Some(ancestry.found.len());
                 }
                 let kind = manifest.kind();
                 ancestry.found.push((dir.to_owned(), manifest));
@@ -138,6 +142,15 @@ impl Ancestry {
     /// walk that did not seek one.
     pub fn project(&self) -> Option<&Utf8Path> {
         self.project.as_deref()
+    }
+
+    /// The parse of the nearest project's `model.toml`, as the walk read it.
+    /// `None` for a json project or when the walk found no project.
+    pub fn project_model_toml(&self) -> Option<&ParsedModelToml> {
+        match self.found.get(self.project_at?)? {
+            (_, DirManifest::ModelToml { file: _, parsed }) => Some(parsed),
+            (_, DirManifest::Json) => None,
+        }
     }
 
     /// The directories that hold a manifest, nearest first, and the read

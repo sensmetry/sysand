@@ -144,6 +144,14 @@ impl LocalSrcProject {
         &self.project_path
     }
 
+    /// The workspace table the manifest resolves against, if the project
+    /// was given one.
+    pub fn workspace_table(
+        &self,
+    ) -> Option<&std::sync::Arc<crate::manifest::workspace_table::WorkspaceTable>> {
+        self.workspace.as_ref()
+    }
+
     pub fn set_path(&mut self, path: impl Into<Utf8PathBuf>) {
         self.project_path = path.into();
     }

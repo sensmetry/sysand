@@ -38,6 +38,15 @@ pub struct ProjectContext {
     #[cfg(feature = "filesystem")]
     pub model_workspace_table:
         Option<std::sync::Arc<crate::manifest::workspace_table::WorkspaceTable>>,
+    /// The workspace with its members loaded, filled by the first load
+    /// and kept for the rest of the command.
+    #[cfg(feature = "filesystem")]
+    pub workspace: std::sync::OnceLock<crate::workspace::model_toml::Workspace>,
+    /// The parse of `current_project`'s `model.toml` that discovery made,
+    /// when `current_project` is the project discovery found. It reflects
+    /// the file as it was when the command started.
+    #[cfg(feature = "filesystem")]
+    pub current_parse: Option<crate::manifest::ParsedModelToml>,
     /// Metadata of the current workspace/project `.sysand`. `Some` if
     /// the workspace root or `current_project` is known and the
     /// environment metadata file exists.
@@ -81,24 +90,69 @@ impl ProjectContext {
             .unwrap_or_else(|| self.current_directory.clone())
     }
 
-    /// The workspace the command runs in, with its members loaded; `None`
-    /// outside one.
+    /// The workspace the command runs in, with its members loaded and
+    /// every member requirement checked; `None` outside one.
+    ///
+    /// Loaded on the first call and kept: later calls, and
+    /// [`ProjectContext::current_definition`], reuse it.
     #[cfg(feature = "filesystem")]
     pub fn load_workspace(
         &self,
-        checks: crate::workspace::model_toml::MemberChecks,
     ) -> Result<
-        Option<crate::workspace::model_toml::Workspace>,
+        Option<&crate::workspace::model_toml::Workspace>,
         crate::workspace::model_toml::LoadError,
     > {
-        use crate::workspace::model_toml::Workspace;
+        use crate::workspace::model_toml::{MemberChecks, Workspace};
+        if let Some(workspace) = self.workspace.get() {
+            return Ok(Some(workspace));
+        }
         let Some(root) = &self.model_workspace_root else {
             return Ok(None);
         };
-        match &self.model_workspace_table {
-            Some(table) => Workspace::with_table(root.clone(), table.clone(), checks).map(Some),
-            None => Workspace::load_with(root, checks).map(Some),
+        let workspace = match &self.model_workspace_table {
+            Some(table) => Workspace::with_table(root.clone(), table.clone(), MemberChecks::All)?,
+            None => Workspace::load_with(root, MemberChecks::All)?,
+        };
+        Ok(Some(self.workspace.get_or_init(|| workspace)))
+    }
+
+    /// The definition of `current_project`, from a parse already in hand
+    /// when there is one: the kept workspace's member, else the parse
+    /// discovery made, else a read of the project.
+    ///
+    /// It reflects the files as they were when the command started, so it
+    /// must not be used after the command has written the project.
+    #[cfg(feature = "filesystem")]
+    pub fn current_definition(
+        &self,
+    ) -> Result<Option<crate::project::ProjectDefinition>, crate::project::local_src::LocalSrcError>
+    {
+        use crate::project::{ProjectDefinition, ProjectFormat, ProjectRead as _};
+        let Some(project) = &self.current_project else {
+            return Ok(None);
+        };
+        if let Some(member) = self.workspace.get().and_then(|workspace| {
+            workspace
+                .members()
+                .iter()
+                .find(|m| m.dir == project.root_path())
+        }) {
+            return Ok(Some(ProjectDefinition::Toml(Box::new(
+                member.project.clone(),
+            ))));
         }
+        // A directory holding both manifests is refused by the read.
+        if let Some(parsed) = &self.current_parse
+            && project.format()? == ProjectFormat::Toml
+            && let Ok(resolved) = crate::manifest::kpar_view::resolved_of_parsed(
+                crate::manifest::MODEL_TOML_FILE,
+                parsed.manifest.clone(),
+                project.workspace_table().map(|table| &**table),
+            )
+        {
+            return Ok(Some(ProjectDefinition::Toml(Box::new(resolved))));
+        }
+        project.get_project()
     }
 
     /// The `members` of the workspace the command runs in, relative to its

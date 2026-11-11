@@ -13,7 +13,6 @@ use sysand_core::{
     context::ProjectContext,
     env::{local_directory::LocalDirectoryEnvironment, null::NullEnvironment},
     model::UsageRef,
-    project::ProjectRead as _,
     sources::{do_sources_env, do_sources_local_src_project_no_deps, resolve_dependencies},
 };
 
@@ -53,11 +52,11 @@ pub fn command_sources_project(
     dependencies: DependenciesCli,
     ctx: ProjectContext,
 ) -> Result<()> {
-    let current_project = ctx
-        .current_project
-        .ok_or(CliError::MissingProjectCurrentDir)?;
+    if ctx.current_project.is_none() {
+        bail!(CliError::MissingProjectCurrentDir);
+    }
     // TODO: Better bail early?
-    let Some(definition) = current_project.get_project()? else {
+    let Some(definition) = ctx.current_definition()? else {
         bail!("project is missing project information")
     };
     let usages = definition.validated_usages().with_context(|| {
@@ -68,6 +67,9 @@ pub fn command_sources_project(
         )
     })?;
 
+    let current_project = ctx
+        .current_project
+        .ok_or(CliError::MissingProjectCurrentDir)?;
     if !no_own {
         for src_path in do_sources_local_src_project_no_deps(&current_project, true)? {
             emit_source(&src_path);
@@ -111,10 +113,10 @@ pub fn command_sources_workspace(
     ctx: ProjectContext,
 ) -> Result<()> {
     use std::collections::HashSet;
-    use sysand_core::{project::local_src::LocalSrcProject, workspace::model_toml::MemberChecks};
+    use sysand_core::project::{ProjectDefinition, local_src::LocalSrcProject};
 
     let workspace = ctx
-        .load_workspace(MemberChecks::All)?
+        .load_workspace()?
         .expect("a workspace root means a workspace");
 
     // A group entry's path is relative to the workspace root, which is not
@@ -147,8 +149,8 @@ pub fn command_sources_workspace(
     for member in workspace.members() {
         let project = LocalSrcProject::new_member(member.dir.clone(), None, table.clone());
 
-        for src_path in do_sources_local_src_project_no_deps(&project, true)? {
-            let rendered = src_path.to_string();
+        for source in member.project.sources.iter() {
+            let rendered = project.get_source_path(source)?.to_string();
             own.insert(rendered.clone());
             if seen.insert(rendered.clone()) {
                 listed.push(rendered);
@@ -156,10 +158,8 @@ pub fn command_sources_workspace(
         }
 
         if dependencies != DependenciesCli::None {
-            let Some(definition) = project.get_project()? else {
-                bail!("member `{}` is missing project information", member.dir)
-            };
-            let usages = definition.validated_usages()?;
+            let usages =
+                ProjectDefinition::Toml(Box::new(member.project.clone())).validated_usages()?;
             let deps = match &ctx.env {
                 // `resolve_dependencies` takes the environment by value.
                 Some(env) => resolve_dependencies(usages, env.clone(), dependencies.into())?,

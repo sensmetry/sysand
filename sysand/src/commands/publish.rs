@@ -6,7 +6,7 @@ use std::sync::Arc;
 use anyhow::{Result, bail};
 use camino::Utf8PathBuf;
 use sysand_core::{
-    build::{default_kpar_path, workspace_publish_order},
+    build::{default_kpar_path_of, workspace_publish_order},
     commands::publish::{
         PublishBearerProvenance, PublishError, TrustedPublishingEnvironment, do_publish,
         prepare_publish_payload, resolve_publish_bearer, validate_api_root_url_shape,
@@ -15,10 +15,12 @@ use sysand_core::{
     env::discovery::{ResolvedEndpoints, fetch_index_config},
     index_location::IndexSource,
     project::utils::wrapfs,
-    workspace::model_toml::MemberChecks,
 };
 
-use crate::{CliAuthPolicy, CliError, cli::TrustedPublishingModeCli};
+use crate::{
+    CliAuthPolicy, CliError, cli::TrustedPublishingModeCli,
+    commands::build::current_definition_for_build,
+};
 
 pub fn command_publish(
     path: Option<Utf8PathBuf>,
@@ -189,11 +191,11 @@ fn resolve_publish_archives(
         ctx.model_workspace_root.as_ref(),
     ) {
         // A member publishes the archive `sysand build` wrote for it.
-        (Some(current_project), workspace_root) => Ok(vec![default_kpar_path(
-            current_project,
+        (Some(current_project), workspace_root) => Ok(vec![default_kpar_path_of(
+            &current_definition_for_build(ctx)?,
             workspace_root.map(camino::Utf8PathBuf::as_path),
             current_project.root_path(),
-        )?]),
+        )]),
         // From a workspace root, every member, in dependency order.
         (None, Some(_)) => {
             log::warn!(
@@ -203,9 +205,9 @@ fn resolve_publish_archives(
                 https://github.com/sensmetry/sysand/issues/101."
             );
             let workspace = ctx
-                .load_workspace(MemberChecks::All)?
+                .load_workspace()?
                 .expect("a workspace root means a workspace");
-            Ok(workspace_publish_order(&workspace)?
+            Ok(workspace_publish_order(workspace)
                 .into_iter()
                 .map(|(_, archive)| archive)
                 .collect())

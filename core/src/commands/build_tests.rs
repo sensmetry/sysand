@@ -1052,8 +1052,7 @@ fn a_workspace_that_builds_reports_every_member_built() -> Result<(), Box<dyn st
     Ok(())
 }
 
-/// `default_kpar_file_name` is the call that fails for a member whose
-/// project cannot be read.
+/// A member whose source file is missing fails with its own name.
 #[test]
 fn a_member_that_cannot_be_read_fails_as_itself() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
@@ -1085,7 +1084,7 @@ fn publish_order_is_the_dependency_order() -> Result<(), Box<dyn std::error::Err
     toml_member(&dir, "gamma", &["../beta"], false);
 
     let workspace = load_workspace(&dir);
-    let order = super::workspace_publish_order(&workspace).map_err(|e| e.to_string())?;
+    let order = super::workspace_publish_order(&workspace);
 
     let root = crate::project::utils::wrapfs::canonicalize(dir.path())?;
     assert_eq!(
@@ -1124,7 +1123,7 @@ fn publish_order_reads_no_member_source() -> Result<(), Box<dyn std::error::Erro
     toml_member(&dir, "beta", &[], false);
 
     let workspace = load_workspace(&dir);
-    let order = super::workspace_publish_order(&workspace).map_err(|e| e.to_string())?;
+    let order = super::workspace_publish_order(&workspace);
     assert_eq!(order.len(), 2);
     Ok(())
 }

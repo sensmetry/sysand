@@ -44,12 +44,11 @@ use sysand_core::{
     },
     resolve::{
         ResolutionInfo,
-        file::FileResolverProject,
         net_utils::{HttpOptions, create_reqwest_client_with},
     },
     stdlib::known_std_libs,
     utils::ProvidedProjects,
-    workspace::model_toml::{MemberChecks, Selector},
+    workspace::model_toml::Selector,
     workspace_lock::{ExclusiveLock, LockMode},
 };
 use url::Url;
@@ -66,10 +65,7 @@ use crate::{
         exclude::command_exclude,
         include::command_include,
         index::{command_index_add, command_index_init, command_index_remove, command_index_yank},
-        info::{
-            LocalProjectKind, command_info_field, command_info_field_path, command_info_path,
-            command_info_project,
-        },
+        info::{LocalProjectKind, command_info_field_path, command_info_path},
         init::{command_init, parse_metamodel},
         lock::command_lock,
         print_root::command_print_root,
@@ -1219,25 +1215,27 @@ fn run_cli_with(
 
             match (location, get) {
                 (Location::WorkDir, get) => {
-                    if let Some(current_project) = ctx.current_project {
+                    if let Some(current_project) = &ctx.current_project {
                         if let Some(field) = get {
-                            command_info_field(&current_project, field)
+                            crate::commands::info::command_info_current_field(
+                                &ctx,
+                                current_project,
+                                field,
+                            )
                         } else {
-                            // The discovered project carries the workspace
-                            // table a member needs. The root is copied out
-                            // before the project moves.
-                            let root = current_project.root_path().to_owned();
-                            command_info_project(
-                                FileResolverProject::LocalSrcProject(current_project),
-                                &root,
+                            // The context's manifest carries the workspace
+                            // table a member needs.
+                            crate::commands::info::command_info_current(
+                                &ctx,
+                                current_project.root_path(),
                                 &excluded_usages,
                             )
                         }
-                    } else if let Some(workspace) = ctx.load_workspace(MemberChecks::All)? {
+                    } else if let Some(workspace) = ctx.load_workspace()? {
                         // All members, from the root or a non-member
                         // directory under it.
                         crate::commands::info::command_info_workspace(
-                            &workspace,
+                            workspace,
                             get,
                             &excluded_usages,
                         )
@@ -1357,25 +1355,25 @@ fn run_cli_with(
             // parsing it is the validation. Without a lockfile `build`
             // proceeds, as it resolves no usages.
             //
-            // Computed before `ctx.current_project` moves below. A member
+            // A member
             // never holds its own lockfile, so the workspace root wins.
             if let Some(root) = ctx.sources_root()
                 && let Some(lockfile) = Lockfile::try_read(&root)?
             {
                 lockfile.lock().warn_release_mismatches();
             }
-            if let Some(current_project) = ctx.current_project {
+            if let Some(current_project) = &ctx.current_project {
                 // Even in a workspace, the project takes precedence; the
                 // workspace root still decides where the archive goes, as
                 // a workspace has one `output/`.
                 let path = if let Some(path) = path {
                     path
                 } else {
-                    let path = sysand_core::build::default_kpar_path(
-                        &current_project,
+                    let path = sysand_core::build::default_kpar_path_of(
+                        &crate::commands::build::current_definition_for_build(&ctx)?,
                         model_workspace_root.as_deref(),
                         current_project.root_path(),
-                    )?;
+                    );
                     if let Some(output_dir) = path.parent()
                         && !wrapfs::is_dir(output_dir)?
                     {
@@ -1386,7 +1384,7 @@ fn run_cli_with(
                 command_build_for_project(
                     path,
                     compression.into(),
-                    current_project,
+                    &ctx,
                     !keep_index,
                     allow_path_usage,
                 )
@@ -1394,7 +1392,7 @@ fn run_cli_with(
                 // With no workspace either, report a missing project.
                 let root = model_workspace_root.ok_or(CliError::MissingProjectCurrentDir)?;
                 let workspace = ctx
-                    .load_workspace(MemberChecks::All)?
+                    .load_workspace()?
                     .expect("a workspace root means a workspace");
                 let output_dir =
                     path.unwrap_or_else(|| root.join(sysand_core::build::DEFAULT_OUTPUT_NAME));
@@ -1424,7 +1422,7 @@ fn run_cli_with(
                 command_build_for_workspace(
                     output_dir,
                     compression.into(),
-                    &workspace,
+                    workspace,
                     !keep_index,
                     allow_path_usage,
                 )

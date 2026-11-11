@@ -23,6 +23,7 @@ use typed_path::Utf8UnixPath;
 
 use crate::manifest::ModelToml;
 use crate::manifest::common::Sources;
+use crate::manifest::diagnostics::{Diagnostics, Validated};
 use crate::manifest::project::{ProjectManifest, ResolvedProject};
 use crate::manifest::usage::Usage;
 use crate::manifest::workspace_table::WorkspaceTable;
@@ -361,7 +362,16 @@ pub fn resolved_of_text_in(
     text: &str,
     table: Option<&WorkspaceTable>,
 ) -> Result<ResolvedProject, ProjectDeserializationError> {
-    let manifest: ProjectManifest = validate_manifest(file, ModelToml::parse(file, text))?
+    resolved_of_parsed(file, ModelToml::parse(file, text), table)
+}
+
+/// [`resolved_of_text_in`] for a `model.toml` that was already parsed.
+pub fn resolved_of_parsed(
+    file: &str,
+    parsed: Result<Validated<ModelToml>, Diagnostics>,
+    table: Option<&WorkspaceTable>,
+) -> Result<ResolvedProject, ProjectDeserializationError> {
+    let manifest: ProjectManifest = validate_manifest(file, parsed)?
         .into_project(file)
         .map_err(|problem| ProjectDeserializationError::invalid(file, problem))?;
     validate_manifest(file, manifest.resolve(table))

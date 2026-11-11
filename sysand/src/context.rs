@@ -91,6 +91,7 @@ pub fn discover_context(
     // the workspace root) and commands with a scope.
     let ancestry = Ancestry::walk(&cwd, Seek::ProjectToo)?;
     let project_root = ancestry.project().map(Utf8Path::to_owned);
+    let walk_parse = ancestry.project_model_toml().cloned();
     // FIXME: assuming nominal path "." is incorrect
     let current_project = project_root
         .clone()
@@ -117,7 +118,10 @@ pub fn discover_context(
 
     // A selector replaces which member the command acts on, so it is
     // applied before `current_project` is settled.
-    let selected = selected_member(&cwd, discovered.as_ref(), selector)?;
+    let selected_workspace = selected_member(&cwd, discovered.as_ref(), selector)?;
+    let selected = selected_workspace
+        .as_ref()
+        .map(|(member, _)| member.clone());
     let workspace_table = discovered.filter(|_| consults_workspace);
     let current_project = match (&selected, &workspace_table) {
         (Some(dir), Some((_, table))) => Some(LocalSrcProject::new_member(
@@ -131,6 +135,14 @@ pub fn discover_context(
         _ if selector == Selector::Workspace && workspace_root.is_some() => None,
         _ => current_project,
     };
+    // The walk's parse belongs to the project the walk found, which a
+    // selector replaces.
+    let current_parse = walk_parse.filter(|_| {
+        selected.is_none()
+            && current_project
+                .as_ref()
+                .is_some_and(|project| Some(project.root_path()) == project_root.as_deref())
+    });
     let project_root = selected.clone().or(project_root);
 
     if needs_a_member && current_project.is_none() && workspace_root.is_some() {
@@ -181,6 +193,10 @@ pub fn discover_context(
         cancellation,
         model_workspace_root,
         model_workspace_table,
+        workspace: selected_workspace
+            .map(|(_, workspace)| std::sync::OnceLock::from(workspace))
+            .unwrap_or_default(),
+        current_parse,
         current_project,
         current_directory: cwd,
         config_root,
@@ -214,7 +230,8 @@ pub fn discover_context(
     })
 }
 
-/// The member directory `--member` names, if it names one.
+/// The member directory `--member` names, if it names one, and the
+/// workspace it was found in.
 ///
 /// `--member <path-or-name>` picks one member, matched against its
 /// `members` entry as written or against its project name. The rule is
@@ -232,7 +249,7 @@ fn selected_member(
     cwd: &Utf8Path,
     workspace: Option<&(Utf8PathBuf, Arc<WorkspaceTable>)>,
     selector: Selector<'_>,
-) -> Result<Option<Utf8PathBuf>> {
+) -> Result<Option<(Utf8PathBuf, Workspace)>> {
     let Selector::Member(selector) = selector else {
         return Ok(None);
     };
@@ -240,5 +257,6 @@ fn selected_member(
         bail!("`--member {selector}` needs a workspace, but `{cwd}` is not in one");
     };
     let workspace = Workspace::with_table(root.clone(), table.clone(), MemberChecks::All)?;
-    Ok(Some(workspace.member(selector)?.dir.clone()))
+    let dir = workspace.member(selector)?.dir.clone();
+    Ok(Some((dir, workspace)))
 }

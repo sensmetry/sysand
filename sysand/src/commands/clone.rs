@@ -114,6 +114,8 @@ pub fn command_clone<Policy: HTTPAuthentication>(
     let mut ctx = ProjectContext {
         model_workspace_root: None,
         model_workspace_table: None,
+        workspace: std::sync::OnceLock::new(),
+        current_parse: None,
         current_project: Some(local_project.clone()),
         current_directory: ctx.current_directory,
         // A clone creates a project outside any scope, so its config is
