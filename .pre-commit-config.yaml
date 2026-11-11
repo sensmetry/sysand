@@ -22,7 +22,7 @@ minimum_prek_version: "0.2.27"
 repos:
   # Autoformat: markdown, yaml, json, js
   - repo: https://github.com/rbubley/mirrors-prettier
-    rev: v3.8.1
+    rev: v3.9.10
     hooks:
       - id: prettier
         exclude: |-
@@ -94,13 +94,13 @@ repos:
 
   # Autoformat: toml
   - repo: https://github.com/tombi-toml/tombi-pre-commit
-    rev: v1.3.1
+    rev: v1.11.2
     hooks:
       - id: tombi-format
 
   # Autoformat: python
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.17.3
+    rev: v0.17.4
     hooks:
       - id: ruff-check
         args: [--fix]
@@ -108,7 +108,7 @@ repos:
 
   # Lint: python type checking
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.20.0
+    rev: v2.4.1
     hooks:
       - id: mypy
         args:
@@ -122,7 +122,7 @@ repos:
 
   # Lint: javascript
   - repo: https://github.com/pre-commit/mirrors-eslint
-    rev: v10.1.0
+    rev: v10.14.0
     hooks:
       - id: eslint
         # Renovate updates `additional_dependencies` only when `language` is
@@ -131,13 +131,13 @@ repos:
         files: ^bindings/js/
         types: [javascript]
         additional_dependencies:
-          - eslint@^10.1.0
+          - eslint@^10.14.0
           - "@eslint/js@^10.0.1"
-          - globals@^17.4.0
+          - globals@^17.14.0
 
   # Security: github actions security checks
   - repo: https://github.com/zizmorcore/zizmor-pre-commit
-    rev: v1.23.1
+    rev: v1.32.0
     hooks:
       - id: zizmor
         args:
@@ -162,6 +162,6 @@ repos:
 
   # Lint: shell scripts. Config in .shellcheckrc
   - repo: https://github.com/shellcheck-py/shellcheck-py
-    rev: v0.11.0.1
+    rev: v0.11.0.1-1
     hooks:
       - id: shellcheck
