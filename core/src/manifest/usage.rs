@@ -958,28 +958,6 @@ fn is_normal_local_path(raw: &str) -> bool {
     })
 }
 
-/// Convert a relative `dir` or `kpar-path` into the form
-/// [`is_normal_local_path`] admits, for a command that writes one from a
-/// path it was given: `.` components and empty ones are dropped, and a
-/// `..` cancels the component before it unless that is a `..` too. `None`
-/// when nothing is left: the directory the path is relative to.
-///
-/// Expects a path with no backslash and no NUL, and not absolute; this
-/// only rearranges components.
-pub fn normalize_local_path(raw: &str) -> Option<Utf8UnixPathBuf> {
-    let mut parts: Vec<&str> = Vec::new();
-    for part in raw.split('/') {
-        match part {
-            "" | "." => {}
-            ".." if parts.last().is_some_and(|last| *last != "..") => {
-                parts.pop();
-            }
-            part => parts.push(part),
-        }
-    }
-    (!parts.is_empty()).then(|| Utf8UnixPathBuf::from(parts.join("/")))
-}
-
 #[cfg(test)]
 #[path = "./usage_tests.rs"]
 mod tests;

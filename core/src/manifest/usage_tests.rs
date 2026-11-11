@@ -8,9 +8,7 @@ use crate::manifest::common::InheritFrom;
 use crate::manifest::diagnostics::{Diagnostics, KeyLocation, Severity};
 use crate::manifest::reader::TableReader;
 use crate::manifest::spans::Source;
-use crate::manifest::usage::{
-    MemberUsage, Usage, UsageRaw, UsageSite, check_duplicates, normalize_local_path,
-};
+use crate::manifest::usage::{MemberUsage, Usage, UsageRaw, UsageSite, check_duplicates};
 use crate::model::{IndexName, IndexPublisher};
 
 /// The reading flow of a `model.toml`, minus the `[project]` and
@@ -315,28 +313,6 @@ fn a_local_path_not_in_normal_form_is_refused() {
             "`{path}`"
         );
         assert_eq!(places(&report), [(4, 1)], "`{path}`");
-    }
-}
-
-/// What a command writes when it converts a path it was given.
-#[test]
-fn a_local_path_is_normalized_into_the_form_a_manifest_admits() {
-    for (raw, normal) in [
-        ("lib", Some("lib")),
-        ("./lib/", Some("lib")),
-        ("libs//lib", Some("libs/lib")),
-        ("libs/./x/../lib", Some("libs/lib")),
-        ("../lib", Some("../lib")),
-        ("./../../lib", Some("../../lib")),
-        ("../a/../../lib", Some("../../lib")),
-        ("lib/..", None),
-        (".", None),
-    ] {
-        assert_eq!(
-            normalize_local_path(raw).as_ref().map(|p| p.as_str()),
-            normal,
-            "`{raw}`"
-        );
     }
 }
 

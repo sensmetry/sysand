@@ -632,7 +632,7 @@ fn local_path(
 ) -> Option<Utf8UnixPathBuf> {
     match parse_relative_unix_path(raw, kind) {
         Ok(_) => {
-            let normalized = crate::manifest::usage::normalize_local_path(raw);
+            let normalized = normalize_local_path(raw);
             if normalized.is_none() {
                 report.push(Diagnostic::error(format!(
                     "usage path `{raw}` names the project itself, which cannot use itself"
@@ -647,6 +647,27 @@ fn local_path(
             None
         }
     }
+}
+
+/// Convert a relative path into the form a `model.toml` `dir` or `kpar-path`
+/// takes: `.` components and empty ones are dropped, and a `..` cancels the
+/// component before it unless that is a `..` too. `None` when nothing is
+/// left: the directory the path is relative to.
+///
+/// Expects a path with no backslash and no NUL, and not absolute; this
+/// only rearranges components.
+fn normalize_local_path(raw: &str) -> Option<Utf8UnixPathBuf> {
+    let mut parts: Vec<&str> = Vec::new();
+    for part in raw.split('/') {
+        match part {
+            "" | "." => {}
+            ".." if parts.last().is_some_and(|last| *last != "..") => {
+                parts.pop();
+            }
+            part => parts.push(part),
+        }
+    }
+    (!parts.is_empty()).then(|| Utf8UnixPathBuf::from(parts.join("/")))
 }
 
 fn parse_or_report<T, E: std::fmt::Display>(

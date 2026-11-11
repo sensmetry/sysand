@@ -3,7 +3,7 @@
 
 use indexmap::IndexMap;
 
-use super::{MigrateOptions, migrate_project};
+use super::{MigrateOptions, migrate_project, normalize_local_path};
 use crate::{
     manifest::{ModelToml, diagnostics::Diagnostics, project::ProjectManifest},
     model::{
@@ -1274,4 +1274,26 @@ fn an_omg_json_project_refuses_a_non_model_checksum_key() {
         rendered.contains("run `sysand exclude` on them before migrating"),
         "{rendered}"
     );
+}
+
+/// What `migrate` writes for a json usage path.
+#[test]
+fn a_local_path_is_normalized_into_the_form_a_manifest_admits() {
+    for (raw, normal) in [
+        ("lib", Some("lib")),
+        ("./lib/", Some("lib")),
+        ("libs//lib", Some("libs/lib")),
+        ("libs/./x/../lib", Some("libs/lib")),
+        ("../lib", Some("../lib")),
+        ("./../../lib", Some("../../lib")),
+        ("../a/../../lib", Some("../../lib")),
+        ("lib/..", None),
+        (".", None),
+    ] {
+        assert_eq!(
+            normalize_local_path(raw).as_ref().map(|p| p.as_str()),
+            normal,
+            "`{raw}`"
+        );
+    }
 }
