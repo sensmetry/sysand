@@ -175,7 +175,6 @@ fn a_usage_path_the_manifest_accepts_may_still_not_validate() {
 use std::collections::{BTreeMap, HashSet};
 
 use crate::manifest::project::ProjectManifest;
-use crate::manifest::spans::Positions;
 use crate::manifest::spans::Source;
 use crate::model::{IndexName, IndexPublisher};
 

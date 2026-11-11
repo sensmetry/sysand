@@ -175,10 +175,12 @@ fn do_init_py_local_file(
                 LocalSrcError::Serialize(_)
                 | LocalSrcError::ImpossibleRelativePath(_)
                 | LocalSrcError::Deserialize(_)
-                | LocalSrcError::AmbiguousFormat { .. }
+                | LocalSrcError::AmbiguousFormat { dir: _, json: _ }
                 | LocalSrcError::Symbols(_)
-                | LocalSrcError::JsonWriteToTomlProject { .. } => PyValueError::new_err(e),
-                LocalSrcError::MissingMeta | LocalSrcError::MissingInfoMeta { .. } => {
+                | LocalSrcError::JsonWriteToTomlProject { dir: _, file: _ } => {
+                    PyValueError::new_err(e)
+                }
+                LocalSrcError::MissingMeta | LocalSrcError::MissingInfoMeta { missing: _ } => {
                     PyFileNotFoundError::new_err(e)
                 }
             },

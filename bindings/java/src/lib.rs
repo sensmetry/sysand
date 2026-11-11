@@ -125,9 +125,9 @@ fn init<'local>(
                         env.throw_exception(ExceptionKind::ProjectAlreadyExists, e)
                     }
                     LocalSrcError::Deserialize(_)
-                    | LocalSrcError::AmbiguousFormat { .. }
+                    | LocalSrcError::AmbiguousFormat { dir: _, json: _ }
                     | LocalSrcError::Symbols(_)
-                    | LocalSrcError::JsonWriteToTomlProject { .. } => {
+                    | LocalSrcError::JsonWriteToTomlProject { dir: _, file: _ } => {
                         env.throw_exception(ExceptionKind::InvalidValue, e)
                     }
                     LocalSrcError::Io(_) => env.throw_exception(ExceptionKind::IOError, e),
@@ -138,7 +138,7 @@ fn init<'local>(
                     LocalSrcError::ImpossibleRelativePath(_) => {
                         env.throw_exception(ExceptionKind::PathError, e)
                     }
-                    LocalSrcError::MissingMeta | LocalSrcError::MissingInfoMeta { .. } => {
+                    LocalSrcError::MissingMeta | LocalSrcError::MissingInfoMeta { missing: _ } => {
                         env.throw_exception(ExceptionKind::SysandException, e)
                     }
                 },
