@@ -174,8 +174,13 @@ fn do_init_py_local_file(
                 LocalSrcError::Io(_) | LocalSrcError::Path(_) => PyIOError::new_err(e),
                 LocalSrcError::Serialize(_)
                 | LocalSrcError::ImpossibleRelativePath(_)
-                | LocalSrcError::Deserialize(_) => PyValueError::new_err(e),
-                LocalSrcError::MissingMeta | LocalSrcError::MissingInfoMeta => {
+                | LocalSrcError::Deserialize(_)
+                | LocalSrcError::AmbiguousFormat { dir: _, json: _ }
+                | LocalSrcError::Symbols(_)
+                | LocalSrcError::JsonWriteToTomlProject { dir: _, file: _ } => {
+                    PyValueError::new_err(e)
+                }
+                LocalSrcError::MissingMeta | LocalSrcError::MissingInfoMeta { missing: _ } => {
                     PyFileNotFoundError::new_err(e)
                 }
             },
@@ -199,6 +204,7 @@ fn do_env_py_local_dir(path: String) -> PyResult<()> {
             EnvError::Write(werr) => match werr {
                 LocalWriteError::AlreadyExists(_) => PyFileExistsError::new_err(e),
                 LocalWriteError::Deserialize(_)
+                | LocalWriteError::Format(_)
                 | LocalWriteError::Path(_)
                 | LocalWriteError::Serialize(_)
                 | LocalWriteError::ImpossibleRelativePath(_)

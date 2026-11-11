@@ -7,13 +7,17 @@ use sysand_core::context::ProjectContext;
 use sysand_core::lock::Source;
 use sysand_core::project::{CanonicalizationError, ProjectChecksum};
 use sysand_core::{
-    manifest::diagnostics::Report,
+    manifest::{
+        MODEL_TOML_FILE,
+        diagnostics::Report,
+        kpar_view::{self, ViewError},
+    },
     model::{
         InterchangeProjectInfoPartial, InterchangeProjectInfoRaw,
         InterchangeProjectMetadataPartial, InterchangeProjectMetadataRaw, META_JSON_FILE,
         PROJECT_JSON_FILE, PartialManifest,
     },
-    project::{ProjectMut, ProjectRead, utils::FsIoError},
+    project::{ProjectFormat, ProjectMut, ProjectRead, utils::FsIoError},
 };
 
 use thiserror::Error;
@@ -60,10 +64,27 @@ pub enum Error {
     SerializeHandle(#[from] serde_json::Error),
     #[error("key `{0}` not found in local storage")]
     KeyNotFound(String),
-    #[error("project is missing `.project.json` and/or `.meta.json` files")]
+    #[error("project is missing `model.toml`, or `.project.json` and/or `.meta.json`")]
     MissingInfoMeta,
+    /// model-toml.md "Mixed manifests": a project that holds both kinds
+    /// of manifest is neither a non-zipped KPAR nor a development
+    /// project, and there is no way to tell which was meant.
+    #[error(
+        "`{0}` has both `model.toml` and a json manifest;\n\
+        {SP:>8} it is unclear whether it is a non-zipped KPAR or a development project",
+        SP = ' '
+    )]
+    AmbiguousFormat(Utf8UnixPathBuf),
+    /// A source file listed in `sources` could not be indexed.
+    #[error(transparent)]
+    Symbols(#[from] sysand_core::symbols::SymbolsError),
     #[error("`{0}` is not a valid manifest:\n{1}")]
     InvalidManifest(&'static str, Report),
+    /// A `model.toml` that is not one, or does not define a project, or
+    /// does not validate. Carried whole, as the filesystem store carries
+    /// it.
+    #[error(transparent)]
+    InvalidModelToml(sysand_core::project::utils::ProjectDeserializationError),
 }
 
 impl From<wasm_bindgen::JsValue> for Error {
@@ -91,8 +112,41 @@ impl From<LocalStorageError> for Error {
     }
 }
 
+impl ProjectLocalBrowserStorage {
+    /// The KPAR view of the `model.toml` under `root_path`.
+    ///
+    /// Everything but the storage is `kpar_view`'s, which is free of
+    /// Cargo features exactly so that this store answers with the pair a
+    /// directory would.
+    fn read_model_toml(
+        &self,
+    ) -> Result<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw), Error> {
+        let text = self.vfs.read_string(self.root_path.join(MODEL_TOML_FILE))?;
+        kpar_view::of_model_toml(&text, |source| {
+            self.vfs.read_string(self.root_path.join(source))
+        })
+        .map_err(|error| match error {
+            ViewError::Manifest(error) => Error::InvalidModelToml(error),
+            ViewError::Read(error) => error.into(),
+            ViewError::Symbols(error) => Error::Symbols(error),
+        })
+    }
+}
+
 impl ProjectRead for ProjectLocalBrowserStorage {
     type Error = Error;
+
+    fn format(&self) -> Result<ProjectFormat, Self::Error> {
+        let toml = self.vfs.exists(self.root_path.join(MODEL_TOML_FILE))?;
+        let json = self.vfs.exists(self.root_path.join(PROJECT_JSON_FILE))?
+            || self.vfs.exists(self.root_path.join(META_JSON_FILE))?;
+        Ok(match (toml, json) {
+            (true, true) => ProjectFormat::Both,
+            (true, false) => ProjectFormat::Toml,
+            (false, true) => ProjectFormat::Json,
+            (false, false) => ProjectFormat::Neither,
+        })
+    }
 
     fn get_project(
         &self,
@@ -103,6 +157,17 @@ impl ProjectRead for ProjectLocalBrowserStorage {
         ),
         Self::Error,
     > {
+        match self.format()? {
+            ProjectFormat::Both => {
+                return Err(Error::AmbiguousFormat(self.root_path.clone()));
+            }
+            ProjectFormat::Toml => {
+                let (info, meta) = self.read_model_toml()?;
+                return Ok((Some(info), Some(meta)));
+            }
+            ProjectFormat::Json | ProjectFormat::Neither => {}
+        }
+
         // The metadata is read first because it carries the metamodel,
         // which a message about the other document may need to name.
         let meta_path = self.root_path.join(META_JSON_FILE);

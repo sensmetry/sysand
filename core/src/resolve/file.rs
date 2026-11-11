@@ -16,7 +16,7 @@ use crate::{
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsage},
     project::{
-        self, ProjectRead,
+        self, ProjectFormat, ProjectRead,
         local_kpar::{KparInnerPath, LocalKParError, LocalKParProject},
         local_src::{LocalSrcError, LocalSrcProject},
         utils::{FsIoError, ProjectDeserializationError, RelativizePathError, wrapfs},
@@ -197,6 +197,7 @@ impl From<LocalKParError> for FileResolverProjectError {
     fn from(value: LocalKParError) -> Self {
         match value {
             LocalKParError::NotFound(err) => Self::NotFound(err),
+            error @ LocalKParError::TomlInKpar { archive: _ } => Self::Other(error.to_string()),
             LocalKParError::Deserialize(error) => Self::Deserialize(error),
             LocalKParError::Io(error) => Self::Io(error),
             LocalKParError::Zip(err) => Self::Zip(err),
@@ -238,6 +239,30 @@ impl From<LocalSrcError> for FileResolverProjectError {
 }
 
 impl ProjectRead for FileResolverProject {
+    /// Forwarded, not defaulted: a `dir` usage resolves through here, so
+    /// the default would claim json for every `model.toml` target.
+    fn format(&self) -> Result<ProjectFormat, Self::Error> {
+        match self {
+            Self::LocalSrcProject(project) => Ok(project.format()?),
+            Self::LocalKParProject(project) => Ok(project.format()?),
+        }
+    }
+
+    /// Forwarded for the same reason as [`Self::format`].
+    fn manifest(
+        &self,
+    ) -> Result<sysand_core::manifest::project::ResolvedProject, project::ManifestError<Self::Error>>
+    {
+        match self {
+            Self::LocalSrcProject(project) => project
+                .manifest()
+                .map_err(|e| e.map_project_read(Into::into)),
+            Self::LocalKParProject(project) => project
+                .manifest()
+                .map_err(|e| e.map_project_read(Into::into)),
+        }
+    }
+
     type Error = FileResolverProjectError;
 
     fn get_project(

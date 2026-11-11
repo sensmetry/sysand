@@ -5,6 +5,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 use typed_path::Utf8UnixPathBuf;
 
 use crate::{
+    manifest::{MODEL_TOML_FILE, ModelToml, ModelTomlKind},
     project::{
         local_src::LocalSrcProject,
         utils::{FsIoError, ToPathBuf as _, wrapfs},
@@ -12,7 +13,28 @@ use crate::{
     workspace::{Workspace, WorkspaceReadError},
 };
 
+/// Whether `path` is a project directory.
+///
+/// A json project is one that holds either of its two manifests. A
+/// `model.toml` needs reading, because the same file name is used for
+/// workspace configuration: a workspace root defines no project, and
+/// stopping the upward walk there would answer a question nobody asked.
+/// [`ModelToml::peek`] is that question and nothing more -- it parses the
+/// document and looks for the two table names, without validating either.
+///
+/// A `model.toml` that is not TOML, or that defines neither table, counts
+/// as *found*. The file is this directory's manifest and it is broken;
+/// walking past it to a parent would answer a different directory's
+/// question and bury the error.
 fn is_project_file(path: &Utf8Path) -> Result<bool, Box<FsIoError>> {
+    let model_toml = path.join(MODEL_TOML_FILE);
+    if wrapfs::is_file(&model_toml)? {
+        let text = wrapfs::read_to_string(&model_toml)?;
+        return Ok(!matches!(
+            ModelToml::peek(MODEL_TOML_FILE, &text),
+            Ok(Some(ModelTomlKind::Workspace))
+        ));
+    }
     Ok(wrapfs::is_file(path.join(".project.json"))? || wrapfs::is_file(path.join(".meta.json"))?)
 }
 
@@ -46,6 +68,10 @@ pub fn discover_workspace<P: AsRef<Utf8Path>>(
     };
     Some(Workspace::new(path)).transpose()
 }
+
+#[cfg(test)]
+#[path = "./discover_tests.rs"]
+mod tests;
 
 /// Discover a directory that satisfies `predicate`. Tries
 /// `working_directory` and all its ancestors.

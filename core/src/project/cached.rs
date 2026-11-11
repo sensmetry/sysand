@@ -5,7 +5,7 @@ use crate::{
     context::ProjectContext,
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{CanonicalizationError, ProjectRead, Utf8UnixPath},
+    project::{CanonicalizationError, ProjectFormat, ProjectRead, Utf8UnixPath},
 };
 
 /// Pair of project storages where `local` and `remote` contain the same project
@@ -26,6 +26,20 @@ impl<Local: ProjectRead, Remote: ProjectRead> CachedProject<Local, Remote> {
 }
 
 impl<Local: ProjectRead, Remote: ProjectRead> ProjectRead for CachedProject<Local, Remote> {
+    /// Forwarded, not defaulted: this type wraps another project, and
+    /// the default would claim json for a `model.toml` project it holds.
+    fn format(&self) -> Result<ProjectFormat, Self::Error> {
+        self.local.format()
+    }
+
+    /// Forwarded for the same reason as [`Self::format`].
+    fn manifest(
+        &self,
+    ) -> Result<crate::manifest::project::ResolvedProject, crate::project::ManifestError<Self::Error>>
+    {
+        self.local.manifest()
+    }
+
     type Error = Local::Error;
 
     fn get_project(

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 use std::{
+    cell::OnceCell,
     collections::HashSet,
     fs::File,
     io::{Read, Write as _},
@@ -17,13 +18,18 @@ use crate::{
     context::ProjectContext,
     env::utils::{CloneError, clone_project},
     lock::Source,
+    manifest::{
+        MODEL_TOML_FILE,
+        kpar_view::{self, ViewError},
+        project::ResolvedProject,
+    },
     model::{
         InterchangeProjectInfoPartial, InterchangeProjectInfoRaw,
         InterchangeProjectMetadataPartial, InterchangeProjectMetadataRaw, META_JSON_FILE,
         PROJECT_JSON_FILE,
     },
     project::{
-        ProjectMut, ProjectRead,
+        ManifestError, ProjectMut, ProjectRead,
         utils::{RelativizePathError, ToPathBuf as _, ToUnixPathBuf as _, relativize_path, wrapfs},
     },
 };
@@ -32,6 +38,35 @@ use super::{
     CanonicalizationError, ProjectChecksum,
     utils::{FsIoError, ProjectDeserializationError, ProjectSerializationError, validate_manifest},
 };
+
+pub use crate::project::ProjectFormat;
+
+/// Which manifests `dir` holds.
+///
+/// `wrapfs::is_file` rather than `Utf8Path::exists`, so that an IO error
+/// is reported instead of swallowed and a *directory* named
+/// `.project.json` is not mistaken for a manifest.
+pub fn detect_format(dir: &Utf8Path) -> Result<ProjectFormat, Box<FsIoError>> {
+    let toml = wrapfs::is_file(dir.join(MODEL_TOML_FILE))?;
+    Ok(match (toml, json_manifest(dir)?.is_some()) {
+        (true, true) => ProjectFormat::Both,
+        (true, false) => ProjectFormat::Toml,
+        (false, true) => ProjectFormat::Json,
+        (false, false) => ProjectFormat::Neither,
+    })
+}
+
+/// The json manifest `dir` holds, `.project.json` first when it holds
+/// both. Only a message needs to know which one, and naming a file that
+/// is not there would send the reader looking for it.
+fn json_manifest(dir: &Utf8Path) -> Result<Option<&'static str>, Box<FsIoError>> {
+    for file in [PROJECT_JSON_FILE, META_JSON_FILE] {
+        if wrapfs::is_file(dir.join(file))? {
+            return Ok(Some(file));
+        }
+    }
+    Ok(None)
+}
 
 /// Project stored in a local directory as an extracted KPAR archive.
 /// Source file paths with (unix) segments `segment1/.../segmentN` are
@@ -51,7 +86,27 @@ pub struct LocalSrcProject {
     // TODO: enforce that the project matches the checksum if provided
     // before reading; see LocalKparProject for example
     expected_checksum: Option<String>,
+    /// The pair a `model.toml` project answers with, computed once.
+    ///
+    /// Building it parses the manifest and then reads, hashes and
+    /// extracts symbols from every source, while `checksum_canonical_hex`
+    /// alone asks for the project twice (`get_info` and `get_meta`). It
+    /// is filled on the toml path only: on the json path the writers of
+    /// [`ProjectMut`] and [`LocalSrcProject::set_index`] change the files
+    /// underneath it, and a cached pair would then contradict them.
+    ///
+    /// Boxed because a `LocalSrcProject` is a variant of
+    /// `FileResolverProject`, and the pair inline makes that enum several
+    /// hundred bytes larger than its other variant.
+    view: OnceCell<Box<ViewPair>>,
 }
+
+/// The `.project.json`/`.meta.json` pair, as [`ProjectRead::get_project`]
+/// answers with it.
+type ViewPair = (
+    Option<InterchangeProjectInfoRaw>,
+    Option<InterchangeProjectMetadataRaw>,
+);
 
 impl LocalSrcProject {
     /// Access the project. No invariants will be checked. If `nominal_path` is provided,
@@ -61,6 +116,7 @@ impl LocalSrcProject {
             nominal_path,
             project_path: path.into(),
             expected_checksum: None,
+            view: OnceCell::new(),
         }
     }
 
@@ -258,12 +314,92 @@ impl LocalSrcProject {
     }
 }
 
+impl LocalSrcProject {
+    /// The pair a `model.toml` project answers with, read once.
+    ///
+    /// A failure is not cached: `OnceCell::get_or_try_init` is unstable,
+    /// and these errors are not `Clone` -- the same reason
+    /// `LocalKParProject::ensure_initialized` gives.
+    fn toml_view(&self) -> Result<&ViewPair, LocalSrcError> {
+        if let Some(view) = self.view.get() {
+            return Ok(view);
+        }
+        let view = Box::new(self.read_model_toml()?);
+        Ok(self.view.get_or_init(|| view))
+    }
+
+    /// Read `model.toml` and synthesize the KPAR view of it.
+    ///
+    /// The reading, parsing and mapping all live in `kpar_view`, which
+    /// is free of Cargo features, so that a store without a filesystem
+    /// answers with the same pair. What is left here is the two things
+    /// only a directory can supply: the manifest's text, and a way to
+    /// read a source file safely from inside the project.
+    fn read_model_toml(&self) -> Result<ViewPair, LocalSrcError> {
+        let text = self.model_toml_text()?;
+        let (info, meta) = kpar_view::of_model_toml(&text, |source| {
+            let source_path = self.get_source_path(source)?;
+            Ok(wrapfs::read_to_string(&source_path)?)
+        })
+        .map_err(|error| match error {
+            ViewError::Manifest(error) => LocalSrcError::Deserialize(error),
+            ViewError::Read(error) => error,
+            ViewError::Symbols(error) => LocalSrcError::Symbols(error),
+        })?;
+
+        Ok((Some(info), Some(meta)))
+    }
+
+    fn model_toml_text(&self) -> Result<String, LocalSrcError> {
+        Ok(wrapfs::read_to_string(
+            self.project_path.join(MODEL_TOML_FILE),
+        )?)
+    }
+
+    /// Which manifest this project would have to have.
+    ///
+    /// A directory with none of the three is missing all of them; one
+    /// that has a json manifest is missing the other json one, and
+    /// saying `model.toml` there would send the reader to write the
+    /// wrong file. A toml project cannot get here at all, since its view
+    /// always has both documents.
+    fn missing_manifest(&self) -> LocalSrcError {
+        const JSON: &str = "`.project.json` and/or `.meta.json` files";
+        let missing = match detect_format(&self.project_path) {
+            Ok(ProjectFormat::Neither) => "`model.toml`, or `.project.json` and/or `.meta.json`",
+            Ok(_) => JSON,
+            // The format could not be read, so the honest answer is the
+            // one that names everything a manifest could be.
+            Err(_) => "`model.toml`, or `.project.json` and/or `.meta.json`",
+        };
+        LocalSrcError::MissingInfoMeta { missing }
+    }
+
+    /// Refuse to write a json manifest into a `model.toml` project.
+    ///
+    /// A json manifest reaches the filesystem through `put_info` or
+    /// `put_meta`, so the guard sits there. Without it the write would
+    /// succeed and leave a directory holding both manifests, which is
+    /// the ambiguity `get_project` then refuses: the project would be
+    /// unreadable and nothing would say why.
+    fn refuse_json_write(&self, file: &'static str) -> Result<(), LocalSrcError> {
+        if detect_format(&self.project_path)? == ProjectFormat::Toml {
+            return Err(LocalSrcError::JsonWriteToTomlProject {
+                dir: self.project_path.clone(),
+                file,
+            });
+        }
+        Ok(())
+    }
+}
+
 impl ProjectMut for LocalSrcProject {
     fn put_info(
         &mut self,
         info: &InterchangeProjectInfoRaw,
         overwrite: bool,
     ) -> Result<(), LocalSrcError> {
+        self.refuse_json_write(PROJECT_JSON_FILE)?;
         let project_json_path = self.info_path();
 
         if !overwrite && project_json_path.exists() {
@@ -290,6 +426,7 @@ impl ProjectMut for LocalSrcProject {
         meta: &InterchangeProjectMetadataRaw,
         overwrite: bool,
     ) -> Result<(), LocalSrcError> {
+        self.refuse_json_write(META_JSON_FILE)?;
         let meta_json_path = self.meta_path();
         if !overwrite && meta_json_path.exists() {
             return Err(LocalSrcError::AlreadyExists(
@@ -341,8 +478,37 @@ pub enum LocalSrcError {
     AlreadyExists(String),
     #[error("project is missing metadata file `.meta.json`")]
     MissingMeta,
-    #[error("project is missing `.project.json` and/or `.meta.json` files")]
-    MissingInfoMeta,
+    /// The project has no manifest to read. `missing` names the files
+    /// that would be one, which depends on the format: naming
+    /// `model.toml` at a json project that is merely missing one of its
+    /// two documents would point at the wrong fix.
+    #[error("project is missing {missing}")]
+    MissingInfoMeta { missing: &'static str },
+    /// model-toml.md "Mixed manifests".
+    #[error(
+        "`{dir}` has both `model.toml` and `{json}`;\n\
+        {SP:>8} it is unclear whether it is a non-zipped KPAR or a development project",
+        SP = ' '
+    )]
+    AmbiguousFormat {
+        dir: Utf8PathBuf,
+        json: &'static str,
+    },
+    /// A source file listed in `sources` could not be indexed.
+    #[error(transparent)]
+    Symbols(#[from] crate::symbols::SymbolsError),
+    /// A command that writes a json manifest was pointed at a
+    /// `model.toml` project. Writing one would leave the directory
+    /// holding both manifests, which nothing can read.
+    #[error(
+        "`{dir}` is a `model.toml` project;\n\
+        {SP:>8} `{file}` cannot be written into one",
+        SP = ' '
+    )]
+    JsonWriteToTomlProject {
+        dir: Utf8PathBuf,
+        file: &'static str,
+    },
     #[error(transparent)]
     Deserialize(#[from] ProjectDeserializationError),
     #[error(transparent)]
@@ -387,6 +553,19 @@ impl ProjectRead for LocalSrcProject {
         Some(&self.project_path)
     }
 
+    fn format(&self) -> Result<ProjectFormat, Self::Error> {
+        Ok(detect_format(&self.project_path)?)
+    }
+
+    fn manifest(&self) -> Result<ResolvedProject, ManifestError<Self::Error>> {
+        if self.format().map_err(ManifestError::Project)? != ProjectFormat::Toml {
+            return Err(ManifestError::NoTomlManifest);
+        }
+        let text = self.model_toml_text().map_err(ManifestError::Project)?;
+        kpar_view::resolved_of_text(MODEL_TOML_FILE, &text)
+            .map_err(|error| ManifestError::Project(LocalSrcError::Deserialize(error)))
+    }
+
     fn get_project(
         &self,
     ) -> Result<
@@ -396,6 +575,19 @@ impl ProjectRead for LocalSrcProject {
         ),
         LocalSrcError,
     > {
+        match detect_format(&self.project_path)? {
+            // model-toml.md "Mixed manifests": a directory holding both
+            // kinds of manifest is refused before either is read.
+            ProjectFormat::Both => {
+                return Err(LocalSrcError::AmbiguousFormat {
+                    dir: self.project_path.clone(),
+                    json: json_manifest(&self.project_path)?.unwrap_or(PROJECT_JSON_FILE),
+                });
+            }
+            ProjectFormat::Toml => return self.toml_view().cloned(),
+            ProjectFormat::Json | ProjectFormat::Neither => {}
+        }
+
         let info_json_path = self.info_path();
         let meta_json_path = self.meta_path();
 
@@ -461,7 +653,7 @@ impl ProjectRead for LocalSrcProject {
                         FsIoError::ReadFile(String::from(path).into(), error).into(),
                     ),
                 })?
-                .ok_or(LocalSrcError::MissingInfoMeta)?,
+                .ok_or_else(|| self.missing_manifest())?,
         };
         let src_path = if let Some(np) = self.nominal_path.as_ref() {
             np.as_str().into()
@@ -490,7 +682,7 @@ impl ProjectRead for LocalSrcProject {
         match self.checksum_canonical_hex() {
             Ok(c) => match c {
                 Some(c) => Ok(ProjectChecksum::Project(c)),
-                None => Err(LocalSrcError::MissingInfoMeta),
+                None => Err(self.missing_manifest()),
             },
             Err(e) => match e {
                 CanonicalizationError::ProjectRead(e) => Err(e),

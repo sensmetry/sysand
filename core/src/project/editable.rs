@@ -7,7 +7,7 @@ use crate::{
     context::ProjectContext,
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::ProjectRead,
+    project::{ProjectFormat, ProjectRead},
 };
 
 #[derive(Debug)]
@@ -40,6 +40,20 @@ impl<P: ProjectRead> EditableProject<P> {
 }
 
 impl<P: ProjectRead> ProjectRead for EditableProject<P> {
+    /// Forwarded, not defaulted: this type wraps another project, and
+    /// the default would claim json for a `model.toml` project it holds.
+    fn format(&self) -> Result<ProjectFormat, Self::Error> {
+        self.inner.format()
+    }
+
+    /// Forwarded for the same reason as [`Self::format`].
+    fn manifest(
+        &self,
+    ) -> Result<crate::manifest::project::ResolvedProject, crate::project::ManifestError<Self::Error>>
+    {
+        self.inner.manifest()
+    }
+
     type Error = P::Error;
 
     fn get_project(

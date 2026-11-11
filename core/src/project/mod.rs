@@ -130,6 +130,35 @@ impl<E: ErrorBound> CanonicalizationError<E> {
     }
 }
 
+/// Why a project's manifest could not be had.
+#[derive(Debug, Error)]
+pub enum ManifestError<ReadError: ErrorBound> {
+    #[error(transparent)]
+    Project(ReadError),
+    /// The project is not written as a `model.toml`. A json project's
+    /// documents can be converted into the manifest model, but the
+    /// conversion has failures of its own and belongs with the command
+    /// that reports them.
+    #[error("this project has no `model.toml` manifest")]
+    NoTomlManifest,
+}
+
+impl<E: ErrorBound> ManifestError<E> {
+    /// Map the inner read error while leaving the rest alone, as
+    /// [`CanonicalizationError::map_project_read`] does. The
+    /// `ProjectRead` derive needs it to rewrap a variant's error.
+    pub fn map_project_read<F, E2>(self, f: F) -> ManifestError<E2>
+    where
+        F: FnOnce(E) -> E2,
+        E2: ErrorBound,
+    {
+        match self {
+            Self::Project(e) => ManifestError::Project(f(e)),
+            Self::NoTomlManifest => ManifestError::NoTomlManifest,
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum IntoProjectError<ReadError: ErrorBound, W: ProjectMut> {
     #[error(transparent)]
@@ -159,6 +188,24 @@ impl Display for ProjectChecksum {
             Self::Kpar(c) => write!(f, "src:{c}"),
         }
     }
+}
+
+/// Which manifest a directory holds, and so which kind of project it is.
+///
+/// model-toml.md "Mixed manifests": a directory with only json config or
+/// only toml config is supported without warnings, and one with both is
+/// an error -- "it's unclear if the project is meant to be a non-zipped
+/// KPAR, or dev project".
+///
+/// The json side is *either* of the two json manifests, not both: a
+/// directory holding only a `.meta.json` is a broken json project rather
+/// than a directory without one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProjectFormat {
+    Json,
+    Toml,
+    Both,
+    Neither,
 }
 
 /// Anything implementing `ProjectRead` can be treated as a method for accessing (one
@@ -222,6 +269,37 @@ pub trait ProjectRead {
     /// It is used, among other things, to resolve relative path usages. Such
     /// usages will fail resolution if `None` is returned here
     fn project_root(&self) -> Option<&Utf8Path>;
+
+    /// Which manifest this project is written in.
+    ///
+    /// The default is [`ProjectFormat::Json`], which is right for every
+    /// project that has only ever had the two json documents -- a KPAR,
+    /// a remote source project, an index entry, one held in memory.
+    ///
+    /// It is *not* right for a wrapper: a type that forwards the rest of
+    /// this trait to another project must forward this too, or it will
+    /// claim json for a `model.toml` project it is holding.
+    fn format(&self) -> Result<ProjectFormat, Self::Error> {
+        Ok(ProjectFormat::Json)
+    }
+
+    /// The project's own manifest, rather than the KPAR view of it.
+    ///
+    /// Only a `model.toml` project has one. The view drops what a
+    /// `.project.json` has no room for -- a usage's declared kind and
+    /// constraint, the documentation and repository urls, `stdlib` --
+    /// so a caller that needs any of those comes here.
+    ///
+    /// The default refuses. Converting a json project's documents into
+    /// the manifest model is a command of its own: it fails for a
+    /// `resource` usage that is no `pkg:sysand` PURL, for a `checksum`
+    /// listing files `sources` cannot hold, and for values that never
+    /// had to satisfy the manifest's rules.
+    fn manifest(
+        &self,
+    ) -> Result<crate::manifest::project::ResolvedProject, ManifestError<Self::Error>> {
+        Err(ManifestError::NoTomlManifest)
+    }
 
     fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
         Ok(self.get_project()?.0)
@@ -340,6 +418,16 @@ impl<T: ProjectRead> ProjectRead for &T {
 
     type Error = T::Error;
 
+    fn format(&self) -> Result<ProjectFormat, Self::Error> {
+        (**self).format()
+    }
+
+    fn manifest(
+        &self,
+    ) -> Result<crate::manifest::project::ResolvedProject, ManifestError<Self::Error>> {
+        (**self).manifest()
+    }
+
     fn get_project(
         &self,
     ) -> Result<
@@ -427,6 +515,16 @@ impl<T: ProjectRead> ProjectRead for &mut T {
     }
 
     type Error = T::Error;
+
+    fn format(&self) -> Result<ProjectFormat, Self::Error> {
+        (**self).format()
+    }
+
+    fn manifest(
+        &self,
+    ) -> Result<crate::manifest::project::ResolvedProject, ManifestError<Self::Error>> {
+        (**self).manifest()
+    }
 
     fn get_project(
         &self,
@@ -698,6 +796,12 @@ pub trait ProjectReadAsync {
     fn project_root(&self) -> Option<&Utf8Path>;
 
     /// Treat this `ProjectReadAsync` as a `ProjectRead` using the provided tokio runtime.
+    /// See [`ProjectRead::format`]. Deciding the format never waits on
+    /// anything, so the async side asks the same question the same way.
+    fn format(&self) -> Result<ProjectFormat, Self::Error> {
+        Ok(ProjectFormat::Json)
+    }
+
     fn to_tokio_sync(self, runtime: Arc<tokio::runtime::Runtime>) -> AsSyncProjectTokio<Self>
     where
         Self: Sized,
@@ -715,6 +819,10 @@ impl<T: ProjectReadAsync> ProjectReadAsync for &T {
     }
 
     type Error = T::Error;
+
+    fn format(&self) -> Result<ProjectFormat, Self::Error> {
+        (**self).format()
+    }
 
     fn get_project_async(
         &self,
@@ -823,6 +931,10 @@ impl<T: ProjectReadAsync> ProjectReadAsync for &mut T {
     }
 
     type Error = T::Error;
+
+    fn format(&self) -> Result<ProjectFormat, Self::Error> {
+        (**self).format()
+    }
 
     fn get_project_async(
         &self,
@@ -1041,6 +1153,10 @@ where
 
     type Error = <T as ProjectRead>::Error;
 
+    fn format(&self) -> Result<ProjectFormat, Self::Error> {
+        self.inner.format()
+    }
+
     async fn get_project_async(
         &self,
     ) -> Result<
@@ -1139,6 +1255,10 @@ impl<T: ProjectReadAsync> ProjectRead for AsSyncProjectTokio<T> {
     }
 
     type Error = <T as ProjectReadAsync>::Error;
+
+    fn format(&self) -> Result<ProjectFormat, Self::Error> {
+        self.inner.format()
+    }
 
     fn get_project(
         &self,
