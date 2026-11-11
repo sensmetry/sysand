@@ -10,9 +10,9 @@ import zipfile
 from pathlib import Path
 
 import pytest
+from mockindex import run_cli_in
 
 import sysand
-from mockindex import run_cli_in
 
 DEP = "pkg:sysand/mock/dep"
 

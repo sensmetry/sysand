@@ -32,7 +32,7 @@ def hold(root: Path, shared: bool = False):
     import fcntl
 
     (root / ".sysand").mkdir(exist_ok=True)
-    handle = open(root / ".sysand" / ".lock", "a+")
+    handle = open(root / ".sysand" / ".lock", "a+")  # noqa: SIM115
     fcntl.flock(handle, (fcntl.LOCK_SH if shared else fcntl.LOCK_EX) | fcntl.LOCK_NB)
     return handle
 
