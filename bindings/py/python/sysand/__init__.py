@@ -1,99 +1,81 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # SPDX-FileCopyrightText: © 2025-2026 Sysand contributors <opensource@sensmetry.com>
 
+from . import env
+from ._add import (
+    add,
+)
+from ._auth import (
+    AuthPolicy,
+    Resolution,
+)
+from ._build import build
+from ._discover import (
+    discover,
+)
+from ._errors import (
+    AuthError,
+    EnvError,
+    IndexProtocolError,
+    NotFoundError,
+    ProjectError,
+    ResolutionError,
+    SolveError,
+    SyncError,
+    SysandError,
+)
+from ._exclude import (
+    exclude,
+)
+from ._include import (
+    include,
+)
+from ._info import info, info_path
+from ._init import (
+    init,
+)
+from ._lock import lock
 from ._model import (
-    InterchangeProjectUsageResource,
-    InterchangeProjectUsageDirectory,
-    InterchangeProjectUsageKparPath,
-    InterchangeProjectUsageIndex,
-    InterchangeProjectUsage,
-    InterchangeProjectInfo,
-    InterchangeProjectChecksum,
-    InterchangeProjectMetadata,
-    Dependencies,
     CompressionMethod,
-    UsageConstraintChange,
+    Dependencies,
+    Discovery,
     EnvProject,
     EnvProjectChecksum,
     EnvProjectChecksumKpar,
     EnvProjectChecksumSrc,
-    Discovery,
-    VersionListing,
+    InterchangeProjectChecksum,
+    InterchangeProjectInfo,
+    InterchangeProjectMetadata,
+    InterchangeProjectUsage,
+    InterchangeProjectUsageDirectory,
+    InterchangeProjectUsageIndex,
+    InterchangeProjectUsageKparPath,
+    InterchangeProjectUsageResource,
     LockedProject,
     LockResult,
     ProvidedProject,
     SyncedProject,
     SyncOutcome,
+    UsageConstraintChange,
+    VersionListing,
 )
-
-from ._errors import (
-    SysandError,
-    ProjectError,
-    ResolutionError,
-    NotFoundError,
-    SolveError,
-    AuthError,
-    IndexProtocolError,
-    SyncError,
-    EnvError,
-)
-
-from ._auth import (
-    AuthPolicy,
-    Resolution,
-)
-
-from ._info import info_path, info
-
-from ._versions import versions
-
-from ._lock import lock
-
-from ._sync import sync
-
-from . import env
-
-from ._init import (
-    init,
-)
-
-from ._add import (
-    add,
-)
-
-from ._usage import (
-    set_usage_constraint,
-)
-
-
 from ._remove import (
     remove,
 )
-
-from ._include import (
-    include,
-)
-
-from ._exclude import (
-    exclude,
-)
-
-
-from ._sources import (
-    sources,
-)
-
-from ._build import build
-
 from ._root import (
     root,
 )
-
-from ._discover import (
-    discover,
+from ._sources import (
+    sources,
 )
+from ._sync import sync
+from ._usage import (
+    set_usage_constraint,
+)
+from ._versions import versions
 
-__all__ = [
+# Grouped by topic
+__all__ = [  # ruff: ignore[RUF022]
     "InterchangeProjectUsageResource",
     "InterchangeProjectUsageDirectory",
     "InterchangeProjectUsageKparPath",

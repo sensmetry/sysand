@@ -100,6 +100,7 @@ def test_verbosity_still_reaches_the_host_logger(tmp_path: Path) -> None:
         env={**os.environ, "NO_COLOR": "1"},
         capture_output=True,
         text=True,
+        check=False,
     )
     assert result.returncode == 0, (
         f"no debug records reached the host logger:\n{result.stdout}\n{result.stderr}"

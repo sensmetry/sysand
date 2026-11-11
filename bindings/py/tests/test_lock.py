@@ -9,9 +9,9 @@ import json
 from pathlib import Path
 
 import pytest
+from mockindex import DEPENDENT, LIBRARY, MockIndex, usage
 
 import sysand
-from mockindex import DEPENDENT, LIBRARY, MockIndex, usage
 
 DEP = "pkg:sysand/mock/dep"
 

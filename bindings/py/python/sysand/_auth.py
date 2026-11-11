@@ -26,7 +26,7 @@ class AuthPolicy:
     :meth:`from_env` with the default ``keyring=True`` opts in.
     """
 
-    __slots__ = ("_kind", "_keyring", "_url_glob", "_secret", "_username", "_label")
+    __slots__ = ("_keyring", "_kind", "_label", "_secret", "_url_glob", "_username")
 
     def __init__(
         self,
@@ -122,12 +122,12 @@ class Resolution:
     """
 
     __slots__ = (
-        "index",
-        "default_index",
-        "use_index",
-        "include_std",
-        "use_config",
         "config_file",
+        "default_index",
+        "include_std",
+        "index",
+        "use_config",
+        "use_index",
     )
 
     def __init__(

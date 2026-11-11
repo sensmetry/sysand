@@ -11,4 +11,4 @@ PACKAGE_DIR=$(dirname "$SCRIPT_DIR")
 
 cd "$PACKAGE_DIR"
 
-cargo test --features filesystem,networking,keyring,js,python,alltests,tls-aws-lc-rs $@
+cargo test --features filesystem,networking,keyring,js,python,alltests,tls-aws-lc-rs "$@"

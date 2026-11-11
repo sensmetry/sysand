@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 from . import _sysand_core as sysand_rs
-
 from ._auth import AuthPolicy, Resolution
 from ._model import VersionListing
 

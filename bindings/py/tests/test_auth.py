@@ -7,9 +7,9 @@
 from __future__ import annotations
 
 import pytest
+from mockindex import MockIndex
 
 import sysand
-from mockindex import MockIndex
 
 IRI = "urn:kpar:auth_probe"
 

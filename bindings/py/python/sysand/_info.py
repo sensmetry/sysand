@@ -3,19 +3,17 @@
 
 from __future__ import annotations
 
-from ._auth import AuthPolicy, Resolution
-from ._model import InterchangeProjectInfo, InterchangeProjectMetadata
+from pathlib import Path
 
 from . import _sysand_core as sysand_rs
-
-import typing
-from pathlib import Path
+from ._auth import AuthPolicy, Resolution
+from ._model import InterchangeProjectInfo, InterchangeProjectMetadata
 
 
 def info_path(
     *,
     project_dir: str | Path = ".",
-) -> typing.Tuple[InterchangeProjectInfo, InterchangeProjectMetadata]:
+) -> tuple[InterchangeProjectInfo, InterchangeProjectMetadata]:
     """Read the ``.project.json`` and ``.meta.json`` of the project in
     ``project_dir``.
 
@@ -35,7 +33,7 @@ def info(
     iri: str,
     resolution: Resolution | None = None,
     auth: AuthPolicy | None = None,
-) -> typing.Tuple[InterchangeProjectInfo, InterchangeProjectMetadata]:
+) -> tuple[InterchangeProjectInfo, InterchangeProjectMetadata]:
     """Fetch the best-matching version's ``.project.json`` and ``.meta.json``
     for ``iri``.
 
@@ -72,6 +70,6 @@ def info(
 
 
 __all__ = [
-    "info_path",
     "info",
+    "info_path",
 ]

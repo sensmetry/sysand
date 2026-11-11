@@ -54,7 +54,7 @@ class SolveError(SysandError):
             ``"choosing_version"``.
     """
 
-    conflicts: typing.List[typing.Dict[str, typing.Any]]
+    conflicts: list[dict[str, typing.Any]]
     report: str
     kind: str
 
@@ -63,7 +63,7 @@ class SolveError(SysandError):
         message: str,
         *,
         wrote: bool = False,
-        conflicts: typing.Sequence[typing.Dict[str, typing.Any]] = (),
+        conflicts: typing.Sequence[dict[str, typing.Any]] = (),
         report: str = "",
         kind: str = "no_solution",
     ) -> None:
@@ -97,14 +97,14 @@ class SyncError(SysandError):
             ``version`` only: install paths are known once a sync completes.
     """
 
-    partial: typing.Optional[typing.Dict[str, typing.Any]]
+    partial: dict[str, typing.Any] | None
 
     def __init__(
         self,
         message: str,
         *,
         wrote: bool = False,
-        partial: typing.Optional[typing.Dict[str, typing.Any]] = None,
+        partial: dict[str, typing.Any] | None = None,
     ) -> None:
         super().__init__(message, wrote=wrote)
         self.partial = partial
@@ -132,13 +132,13 @@ _sysand_rs._register_errors(
 
 
 __all__ = [
-    "SysandError",
+    "AuthError",
+    "EnvError",
+    "IndexProtocolError",
+    "NotFoundError",
     "ProjectError",
     "ResolutionError",
-    "NotFoundError",
     "SolveError",
-    "AuthError",
-    "IndexProtocolError",
     "SyncError",
-    "EnvError",
+    "SysandError",
 ]

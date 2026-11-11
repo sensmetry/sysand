@@ -7,7 +7,6 @@ import typing
 from pathlib import Path
 
 from . import _sysand_core as sysand_rs
-
 from ._auth import AuthPolicy, Resolution
 from ._model import LockResult, ProvidedProject
 

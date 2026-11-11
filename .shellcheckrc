@@ -1,0 +1,6 @@
+# ShellCheck config, also used by actionlint for `run:` scripts.
+#
+# config ref: https://github.com/koalaman/shellcheck/blob/master/shellcheck.1.md#rc-files
+
+# Follow `source`d files outside the checked set (same as `shellcheck -x`)
+external-sources=true

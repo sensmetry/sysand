@@ -33,9 +33,8 @@ from pathlib import Path
 from urllib.parse import quote
 
 from pytest_httpserver import HTTPServer
-from werkzeug.wrappers import Request, Response
-
 from sysand._sysand_core import _run_cli  # type: ignore
+from werkzeug.wrappers import Request, Response
 
 # The library under test and the constraints the scenarios move between.
 LIBRARY = "pkg:sysand/mock/library"
@@ -269,13 +268,15 @@ class MockIndex:
 
     def _handle(self, request: Request) -> Response:
         path = request.path
-        if self._bearer is not None:
-            if request.headers.get("Authorization") != f"Bearer {self._bearer}":
-                return Response(
-                    "unauthorized",
-                    status=401,
-                    headers={"WWW-Authenticate": "Bearer"},
-                )
+        if (
+            self._bearer is not None
+            and request.headers.get("Authorization") != f"Bearer {self._bearer}"
+        ):
+            return Response(
+                "unauthorized",
+                status=401,
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         status = self._fail_next.pop(path, None)
         if status is not None:
             return Response(f"injected failure {status}", status=status)

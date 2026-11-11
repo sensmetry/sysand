@@ -4,12 +4,10 @@
 from __future__ import annotations
 
 import typing
+from pathlib import Path
 
 from . import _sysand_core as sysand_rs
-
 from ._auth import AuthPolicy, Resolution
-
-from pathlib import Path
 
 
 @typing.overload

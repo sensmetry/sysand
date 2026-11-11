@@ -3,10 +3,10 @@
 
 from __future__ import annotations
 
-from ._model import CompressionMethod
-from . import _sysand_core as sysand_rs
-
 from pathlib import Path
+
+from . import _sysand_core as sysand_rs
+from ._model import CompressionMethod
 
 
 def build(

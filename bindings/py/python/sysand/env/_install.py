@@ -3,9 +3,9 @@
 
 from __future__ import annotations
 
-from .. import _sysand_core as sysand_rs
-
 from pathlib import Path
+
+from .. import _sysand_core as sysand_rs
 
 
 def install_path(*, env_path: str | Path, iri: str, location: str | Path) -> None:

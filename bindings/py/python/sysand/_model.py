@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # SPDX-FileCopyrightText: © 2025-2026 Sysand contributors <opensource@sensmetry.com>
 
-from enum import Enum, auto
 import typing
+from enum import Enum, auto
 
 # IMPORTANT
 # Keep the types here in sync with Rust types from sysand-core.
@@ -24,7 +24,7 @@ class InterchangeProjectUsageResource(
     Legacy: typed usages will replace it.
     """
 
-    version_constraint: typing.Optional[str]
+    version_constraint: str | None
 
 
 class InterchangeProjectUsageDirectory(typing.TypedDict):
@@ -60,12 +60,12 @@ class InterchangeProjectUsageIndex(typing.TypedDict):
     version_constraint: str
 
 
-InterchangeProjectUsage = typing.Union[
-    InterchangeProjectUsageResource,
-    InterchangeProjectUsageDirectory,
-    InterchangeProjectUsageKparPath,
-    InterchangeProjectUsageIndex,
-]
+InterchangeProjectUsage = (
+    InterchangeProjectUsageResource
+    | InterchangeProjectUsageDirectory
+    | InterchangeProjectUsageKparPath
+    | InterchangeProjectUsageIndex
+)
 
 
 class UsageConstraintChange(typing.TypedDict):
@@ -73,8 +73,8 @@ class UsageConstraintChange(typing.TypedDict):
 
     found: bool
     changed: bool
-    old_version_constraint: typing.Optional[str]
-    new_version_constraint: typing.Optional[str]
+    old_version_constraint: str | None
+    new_version_constraint: str | None
     """The constraint now declared; ``None`` only when nothing was found."""
 
 
@@ -88,26 +88,26 @@ class EnvProjectChecksumSrc(typing.TypedDict):
     """Checksum of the source directory the project was installed from."""
 
 
-EnvProjectChecksum = typing.Union[EnvProjectChecksumKpar, EnvProjectChecksumSrc]
+EnvProjectChecksum = EnvProjectChecksumKpar | EnvProjectChecksumSrc
 
 
 class EnvProject(typing.TypedDict):
     """One entry of an environment's ``env.toml``, see
     :func:`sysand.env.projects`."""
 
-    publisher: typing.Optional[str]
+    publisher: str | None
     name: str
     version: str
     path: str
     """Verbatim from ``env.toml``: relative to the environment directory, or
     to the workspace/project root when ``editable``. Not joined."""
-    identifiers: typing.List[str]
+    identifiers: list[str]
     """IRIs of the project; the first is canonical. Empty only for
     ``editable`` entries."""
-    usages: typing.List[str]
+    usages: list[str]
     editable: bool
     workspace: bool
-    checksum: typing.Optional[EnvProjectChecksum]
+    checksum: EnvProjectChecksum | None
     """Checksum of what the project was installed from, or ``None`` when
     ``env.toml`` records none (``editable`` entries)."""
 
@@ -115,10 +115,10 @@ class EnvProject(typing.TypedDict):
 class Discovery(typing.TypedDict):
     """Result of :func:`sysand.discover`."""
 
-    project_root: typing.Optional[str]
+    project_root: str | None
     """Canonical path of the enclosing project (the directory holding
     ``.project.json`` or ``.meta.json``), or ``None``."""
-    workspace_root: typing.Optional[str]
+    workspace_root: str | None
     """Canonical path of the enclosing workspace (the directory holding
     ``.workspace.json``), or ``None``."""
 
@@ -127,10 +127,10 @@ class VersionListing(typing.TypedDict):
     """Result of :func:`sysand.versions`."""
 
     iri: str
-    versions: typing.List[str]
+    versions: list[str]
     """Distinct semver versions, highest first. Over an index these are the
     *available* versions: yanked and removed entries are never listed."""
-    ignored: typing.List[str]
+    ignored: list[str]
     """Version strings that are not valid semver, in encounter order. An
     index cannot publish such entries, but other sources can."""
 
@@ -140,7 +140,7 @@ class SyncedProject(typing.TypedDict):
 
     iri: str
     version: str
-    path: typing.Optional[str]
+    path: str | None
     """Install directory relative to the environment directory, or ``None``
     once the project has been pruned."""
 
@@ -150,24 +150,24 @@ class SyncOutcome(typing.TypedDict):
     alone. Also carried by :class:`SyncError` as ``partial`` when a sync
     failed part-way, then without ``path``."""
 
-    installed: typing.List[SyncedProject]
-    pruned: typing.List[SyncedProject]
-    kept: typing.List[SyncedProject]
+    installed: list[SyncedProject]
+    pruned: list[SyncedProject]
+    kept: list[SyncedProject]
     """Lockfile entries that were already installed and verified."""
 
 
 class LockedProject(typing.TypedDict):
     """One ``[[project]]`` entry of a lockfile, see :func:`sysand.lock`."""
 
-    publisher: typing.Optional[str]
+    publisher: str | None
     name: str
     version: str
-    identifiers: typing.List[str]
-    exports: typing.List[str]
-    usages: typing.List[str]
+    identifiers: list[str]
+    exports: list[str]
+    usages: list[str]
     """The usages this project declares, as lockfile usage strings — names
     who pins what."""
-    sources: typing.List[str]
+    sources: list[str]
     """Where the project can be obtained from, as the lockfile renders each
     source (opaque; for diagnostics)."""
 
@@ -175,7 +175,7 @@ class LockedProject(typing.TypedDict):
 class LockResult(typing.TypedDict):
     """Result of :func:`sysand.lock`."""
 
-    projects: typing.List[LockedProject]
+    projects: list[LockedProject]
     text: str
     """The canonical ``sysand-lock.toml`` content that was written, or would
     have been written with ``write=True``. Byte-exact, so a caller can diff
@@ -183,15 +183,15 @@ class LockResult(typing.TypedDict):
 
 
 class InterchangeProjectInfo(typing.TypedDict):
-    publisher: typing.Optional[str]
+    publisher: str | None
     name: str
-    description: typing.Optional[str]
+    description: str | None
     version: str
-    license: typing.Optional[str]
-    maintainer: typing.List[str]
-    website: typing.Optional[str]
-    topic: typing.List[str]
-    usage: typing.List[InterchangeProjectUsage]
+    license: str | None
+    maintainer: list[str]
+    website: str | None
+    topic: list[str]
+    usage: list[InterchangeProjectUsage]
 
 
 class InterchangeProjectChecksum(typing.TypedDict):
@@ -200,12 +200,12 @@ class InterchangeProjectChecksum(typing.TypedDict):
 
 
 class InterchangeProjectMetadata(typing.TypedDict):
-    index: typing.Dict[str, str]
+    index: dict[str, str]
     created: str
-    metamodel: typing.Optional[str]
-    includes_derived: typing.Optional[bool]
-    includes_implied: typing.Optional[bool]
-    checksum: typing.Optional[typing.Dict[str, InterchangeProjectChecksum]]
+    metamodel: str | None
+    includes_derived: bool | None
+    includes_implied: bool | None
+    checksum: dict[str, InterchangeProjectChecksum] | None
 
 
 class Dependencies(Enum):
@@ -235,16 +235,16 @@ class CompressionMethod(Enum):
 
 
 __all__ = [
-    "InterchangeProjectUsageResource",
-    "InterchangeProjectUsageDirectory",
-    "InterchangeProjectUsageKparPath",
-    "InterchangeProjectUsageIndex",
-    "InterchangeProjectUsage",
-    "InterchangeProjectInfo",
-    "InterchangeProjectChecksum",
-    "InterchangeProjectMetadata",
-    "Dependencies",
     "CompressionMethod",
+    "Dependencies",
+    "InterchangeProjectChecksum",
+    "InterchangeProjectInfo",
+    "InterchangeProjectMetadata",
+    "InterchangeProjectUsage",
+    "InterchangeProjectUsageDirectory",
+    "InterchangeProjectUsageIndex",
+    "InterchangeProjectUsageKparPath",
+    "InterchangeProjectUsageResource",
 ]
 
 

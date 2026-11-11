@@ -11,9 +11,9 @@ import logging
 from pathlib import Path
 
 import pytest
+from mockindex import MockIndex
 
 import sysand
-from mockindex import MockIndex
 
 DEP = "pkg:sysand/acme-labs/my-lib"
 

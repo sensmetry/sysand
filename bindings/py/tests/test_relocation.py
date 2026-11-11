@@ -21,7 +21,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-import sysand._sysand_core as _sysand_core  # type: ignore
+from sysand import _sysand_core  # type: ignore
 
 PACKAGE = Path(__file__).parents[1] / "python" / "sysand"
 
@@ -119,6 +119,7 @@ def test_tree_works_vendored_under_another_package(tmp_path: Path) -> None:
         },
         capture_output=True,
         text=True,
+        check=False,
     )
 
     assert result.returncode == 0, (

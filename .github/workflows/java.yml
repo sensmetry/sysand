@@ -230,7 +230,7 @@ jobs:
       - name: List .jar files and more
         run: |
           find . -iname "*.jar"
-          ls -la *
+          ls -la -- *
           ls -la target/*
           ls -la target/java/*
           ls -la target/java/target/*

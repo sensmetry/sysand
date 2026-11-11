@@ -15,13 +15,14 @@
 # FIXME: transition to a prek official config as we now require prek
 #        Blocked until renovate gets prek.toml support:
 #        https://github.com/renovatebot/renovate/pull/42254
-# FIXME: ensure hooks gets updated over time automatically
 #
 fail_fast: true
+# Hook-level `env` needs 0.2.27
+minimum_prek_version: "0.2.27"
 repos:
   # Autoformat: markdown, yaml, json, js
   - repo: https://github.com/rbubley/mirrors-prettier
-    rev: v3.8.1
+    rev: v3.9.10
     hooks:
       - id: prettier
         exclude: |-
@@ -35,8 +36,11 @@ repos:
     hooks:
       - id: reuse-annotate
         name: reuse annotate
-        language: system
-        entry: uv tool run reuse annotate
+        # Renovate updates `additional_dependencies` only when `language` is
+        # set explicitly
+        language: python
+        additional_dependencies: [reuse==6.3.0]
+        entry: reuse annotate
         args:
           - --license=MIT OR Apache-2.0
           - --copyright=Sysand contributors <opensource@sensmetry.com>
@@ -90,13 +94,13 @@ repos:
 
   # Autoformat: toml
   - repo: https://github.com/tombi-toml/tombi-pre-commit
-    rev: v1.3.1
+    rev: v1.11.2
     hooks:
       - id: tombi-format
 
   # Autoformat: python
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.4
+    rev: v0.17.4
     hooks:
       - id: ruff-check
         args: [--fix]
@@ -104,7 +108,7 @@ repos:
 
   # Lint: python type checking
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.20.0
+    rev: v2.4.1
     hooks:
       - id: mypy
         args:
@@ -118,21 +122,46 @@ repos:
 
   # Lint: javascript
   - repo: https://github.com/pre-commit/mirrors-eslint
-    rev: v10.1.0
+    rev: v10.14.0
     hooks:
       - id: eslint
+        # Renovate updates `additional_dependencies` only when `language` is
+        # set explicitly
+        language: node
         files: ^bindings/js/
         types: [javascript]
         additional_dependencies:
-          - eslint@^10.1.0
+          - eslint@^10.14.0
           - "@eslint/js@^10.0.1"
-          - globals@^17.4.0
+          - globals@^17.14.0
 
   # Security: github actions security checks
   - repo: https://github.com/zizmorcore/zizmor-pre-commit
-    rev: v1.23.1
+    rev: v1.32.0
     hooks:
       - id: zizmor
         args:
           - --fix=safe
           # - --fix=all # fix more things with a manual review
+
+  # Lint: github actions workflows, including shellcheck on `run:` scripts.
+  #
+  # The upstream hook (rhysd/actionlint) gets shellcheck only as a WebAssembly
+  # build, which takes ~25s per run. These PyPI packages ship native binaries.
+  - repo: local
+    hooks:
+      - id: actionlint
+        name: actionlint
+        language: python
+        entry: actionlint
+        additional_dependencies:
+          - actionlint-py==1.7.12.25
+          - shellcheck-py==0.11.0.1
+        types: [yaml]
+        files: ^\.github/workflows/
+
+  # Lint: shell scripts. Config in .shellcheckrc
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1-1
+    hooks:
+      - id: shellcheck

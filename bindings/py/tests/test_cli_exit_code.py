@@ -17,9 +17,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from sysand._sysand_core import _run_cli  # type: ignore
-
 from mockindex import run_cli_in
+from sysand._sysand_core import _run_cli  # type: ignore
 
 
 def test_returns_an_int_not_a_bool() -> None:
@@ -50,6 +49,7 @@ def test_module_entry_point_propagates_the_code(tmp_path: Path) -> None:
         [sys.executable, "-m", "sysand", "--not-a-flag"],
         cwd=tmp_path,
         capture_output=True,
+        check=False,
     )
 
     assert result.returncode == 2, result.stderr.decode()

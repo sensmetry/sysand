@@ -110,7 +110,7 @@ jobs:
           cd "$RUNNER_TEMP/fake-release"
           python3 -m http.server 8765 --bind 127.0.0.1 &
 
-          for attempt in $(seq 1 20); do
+          for _ in $(seq 1 20); do
             if curl -fsS "http://127.0.0.1:8765/v1/${{ matrix.asset }}" >/dev/null; then
               exit 0
             fi
@@ -143,7 +143,7 @@ jobs:
 
           # Two sequential runs: an update over v1 and an idempotency check.
           out=""
-          for run in 1 2; do
+          for _ in 1 2; do
             out="$(env -u GITHUB_PATH -u CI \
               HOME="$fake_home" SHELL="${{ matrix.shell }}" \
               SYSAND_INSTALL_BASE_URL="http://127.0.0.1:8765/v2" \
@@ -159,10 +159,11 @@ jobs:
           version="$("$fake_home/.local/bin/sysand" --version)"
           test "$version" = "sysand 0.0.0-test2"
 
+          # shellcheck disable=SC2016 # matches the literal line the installer writes
           count="$(grep -cF 'export PATH="$HOME/.local/bin:$PATH"' "$fake_home/${{ matrix.profile }}")"
           test "$count" = "1"
 
-          extra="$(cd "$fake_home/.local/bin" && ls -A | grep -vx sysand || true)"
+          extra="$(find "$fake_home/.local/bin" -mindepth 1 -maxdepth 1 ! -name sysand)"
           if [ -n "$extra" ]; then
             echo "unexpected files in install dir: $extra" >&2
             exit 1
@@ -230,7 +231,7 @@ jobs:
           cd "$GITHUB_WORKSPACE"
 
           started=""
-          for attempt in $(seq 1 20); do
+          for _ in $(seq 1 20); do
             if curl -fsS "http://127.0.0.1:8765/sysand-linux-x86_64-musl.tar.gz" >/dev/null; then
               started="yes"
               break

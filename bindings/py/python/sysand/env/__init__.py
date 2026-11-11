@@ -3,22 +3,19 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from .. import _sysand_core as sysand_rs
 from .._sysand_core import DEFAULT_ENV_NAME  # type: ignore
-
 from ._install import (
     install_path,
 )
-
 from ._projects import (
     projects,
 )
-
 from ._sources import (
     sources,
 )
-
-from pathlib import Path
 
 
 def env(*, path: str | Path = DEFAULT_ENV_NAME) -> None:
@@ -31,7 +28,8 @@ def env(*, path: str | Path = DEFAULT_ENV_NAME) -> None:
     sysand_rs.do_env_py_local_dir(str(path))
 
 
-__all__ = [
+# Grouped by topic
+__all__ = [  # ruff: ignore[RUF022]
     "env",
     "DEFAULT_ENV_NAME",
     ## Install

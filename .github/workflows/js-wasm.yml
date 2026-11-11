@@ -77,7 +77,8 @@ jobs:
           # A cache saved by a PR is visible only to that PR, and it evicts
           # main's caches once the repository's 10GB limit is reached.
           save-if: ${{ github.ref == 'refs/heads/main' }}
-          key: ubuntu-24.04
+          # The job id `test` is also used in other workflows
+          key: js-wasm
 
       - uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
         with:
