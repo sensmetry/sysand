@@ -11,7 +11,7 @@ use crate::{
     env::{SyncStreamIter, utils::ErrorBound},
     model::InterchangeProjectUsage,
     project::{
-        AsAsyncProject, AsSyncProjectTokio, ProjectFormat, ProjectRead, ProjectReadAsync,
+        AsAsyncProject, AsSyncProjectTokio, ProjectRead, ProjectReadAsync,
         utils::{Identifier, wrapfs},
     },
 };
@@ -83,33 +83,6 @@ impl<T> ResolutionOutcome<T> {
     }
 }
 
-/// The manifest a usage was written in.
-///
-/// A usage reaches resolution stripped of the format it was declared in:
-/// the KPAR view maps a `model.toml` usage onto the same
-/// `InterchangeProjectUsageRaw` a `.project.json` would carry. Some rules
-/// are about the manifest rather than the usage (a target that declares no
-/// publisher is refused as such only under a usage written in a
-/// `model.toml`), so the format travels beside the usage.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UsageOrigin {
-    Json,
-    Toml,
-}
-
-impl UsageOrigin {
-    /// The origin of a usage declared by a project of this format.
-    ///
-    /// `Both` and `Neither` are not projects a usage was read from, so
-    /// they map to json.
-    pub fn of_format(format: ProjectFormat) -> Self {
-        match format {
-            ProjectFormat::Toml => Self::Toml,
-            ProjectFormat::Json | ProjectFormat::Both | ProjectFormat::Neither => Self::Json,
-        }
-    }
-}
-
 /// Information needed to resolve a usage
 #[derive(Debug, Clone)]
 pub struct ResolutionInfo {
@@ -117,24 +90,12 @@ pub struct ResolutionInfo {
     /// Base path to resolve this usage against. Not relevant for
     /// usages that do not involve filesystem paths
     base_path: Option<Utf8PathBuf>,
-    /// The manifest this usage was declared in.
-    origin: UsageOrigin,
     /// The identifier of the project that declared this usage, set when
     /// there is more than one declaring project (a workspace lock, where it
     /// is the member) and `None` for a single-project lock. It reaches the
     /// user as `SolveConflict::required_by`, so it is an `Identifier`
     /// string.
     declared_by: Option<String>,
-    /// The `(publisher, name)` a **toml** `kpar-url` usage declared, for
-    /// the identity check at the target.
-    ///
-    /// `InterchangeProjectUsage::Resource` cannot carry it, as the IRI is
-    /// its identity, so it travels here beside [`Self::origin`]. `None` for
-    /// every other usage: they either carry the pair in the usage itself or,
-    /// for a standard-library `kpar-url`, declare no publisher at all.
-    ///
-    /// Boxed to keep `ResolutionInfo` small.
-    declared_identity: Option<Box<(String, String)>>,
 }
 
 /// Information needed to resolve a usage, which determines equivalency
@@ -146,12 +107,8 @@ pub struct CoalescingUsage {
 }
 
 impl CoalescingUsage {
-    pub fn new_usage(
-        usage: InterchangeProjectUsage,
-        base_path: Option<Utf8PathBuf>,
-        origin: UsageOrigin,
-    ) -> Self {
-        let usage = ResolutionInfo::new_declared_in(usage, base_path, origin);
+    pub fn new_usage(usage: InterchangeProjectUsage, base_path: Option<Utf8PathBuf>) -> Self {
+        let usage = ResolutionInfo::new(usage, base_path);
         Self {
             id: usage.id(),
             usage,
@@ -221,22 +178,11 @@ impl PartialEq for CoalescingUsage {
 impl Eq for CoalescingUsage {}
 
 impl ResolutionInfo {
-    /// A usage of unrecorded origin, which is taken to be json.
     pub fn new(usage: InterchangeProjectUsage, base_path: Option<Utf8PathBuf>) -> Self {
-        Self::new_declared_in(usage, base_path, UsageOrigin::Json)
-    }
-
-    pub fn new_declared_in(
-        usage: InterchangeProjectUsage,
-        base_path: Option<Utf8PathBuf>,
-        origin: UsageOrigin,
-    ) -> Self {
         Self {
             usage,
             base_path,
-            origin,
             declared_by: None,
-            declared_identity: None,
         }
     }
 
@@ -245,22 +191,6 @@ impl ResolutionInfo {
     pub fn declared_by(mut self, declarer: Option<String>) -> Self {
         self.declared_by = declarer;
         self
-    }
-
-    /// Records the identity a toml `kpar-url` usage declared; see
-    /// `declared_identity`.
-    #[must_use]
-    pub fn declaring_identity(mut self, identity: Option<(String, String)>) -> Self {
-        self.declared_identity = identity.map(Box::new);
-        self
-    }
-
-    /// The identity this usage declared, for a resolver that can check
-    /// it at the target.
-    pub fn declared_identity(&self) -> Option<(&str, &str)> {
-        self.declared_identity
-            .as_deref()
-            .map(|(publisher, name)| (publisher.as_str(), name.as_str()))
     }
 
     pub fn iri(iri: Iri<String>) -> Self {
@@ -279,11 +209,6 @@ impl ResolutionInfo {
 
     pub fn base_path(&self) -> Option<&Utf8Path> {
         self.base_path.as_deref()
-    }
-
-    /// The manifest this usage was declared in.
-    pub fn origin(&self) -> UsageOrigin {
-        self.origin
     }
 
     /// The project that declared this usage, if it is worth reporting;
@@ -563,7 +488,3 @@ where
         )
     }
 }
-
-#[cfg(test)]
-#[path = "./mod_tests.rs"]
-mod tests;

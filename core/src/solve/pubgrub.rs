@@ -22,7 +22,7 @@ use crate::{
     cancel::CancellationToken,
     model::{InterchangeProjectUsage, InterchangeProjectValidationError},
     project::{ProjectRead, utils::Identifier},
-    resolve::{CoalescingUsage, ResolutionInfo, ResolutionOutcome, ResolveRead, UsageOrigin},
+    resolve::{CoalescingUsage, ResolutionInfo, ResolutionOutcome, ResolveRead},
     utils::format_err,
 };
 
@@ -294,14 +294,6 @@ impl<'a> OnBrokenCandidate<'a> {
     fn of(info: &'a ResolutionInfo) -> Self {
         // Candidates from env don't change the logic here
         match info.usage() {
-            // A toml `kpar-url` that declared an identity counts as typed:
-            // identity is the declared publisher+name, and the source is
-            // explicit. It offers one candidate, so a failure is *the*
-            // answer.
-            InterchangeProjectUsage::Resource {
-                resource: _,
-                version_constraint: _,
-            } if info.declared_identity().is_some() => Self::Fail,
             // Resource usages may produce invalid candidates that should not fail
             // the whole resolution (e.g. both src and kpar variants for paths and http)
             InterchangeProjectUsage::Resource {
@@ -378,12 +370,6 @@ pub enum CandidateError<R: ResolveRead> {
         #[source]
         source: StorageError<R>,
     },
-    #[error("its manifest format cannot be read")]
-    FormatObtain {
-        version: Version,
-        #[source]
-        source: StorageError<R>,
-    },
 }
 
 impl<R: ResolveRead> CandidateError<R> {
@@ -392,8 +378,7 @@ impl<R: ResolveRead> CandidateError<R> {
         match self {
             Self::InvalidProject { version, source: _ }
             | Self::MissingUsage { version }
-            | Self::UsageObtain { version, source: _ }
-            | Self::FormatObtain { version, source: _ } => Some(version),
+            | Self::UsageObtain { version, source: _ } => Some(version),
             Self::Resolved(_)
             | Self::InvalidVersion {
                 version: _,
@@ -442,9 +427,6 @@ impl<R: ResolveRead> CandidateError<R> {
             Self::UsageObtain { source, version: _ } => {
                 InternalSolverError::UsageObtain { usage, source }
             }
-            Self::FormatObtain { source, version: _ } => {
-                InternalSolverError::FormatObtain { usage, source }
-            }
         }
     }
 }
@@ -475,15 +457,10 @@ fn read_candidate<R: ResolveRead>(
         Ok(None) => return Err(CandidateError::MissingUsage { version }),
         Err(source) => return Err(CandidateError::UsageObtain { version, source }),
     };
-    // The usages a candidate declares were written in its manifest
-    let origin = match project.format() {
-        Ok(format) => UsageOrigin::of_format(format),
-        Err(source) => return Err(CandidateError::FormatObtain { version, source }),
-    };
     let relative_root = project.project_root().map(camino::Utf8Path::to_path_buf);
     let usage = usage
         .into_iter()
-        .map(|u| CoalescingUsage::new_usage(u, relative_root.clone(), origin))
+        .map(|u| CoalescingUsage::new_usage(u, relative_root.clone()))
         .collect();
 
     Ok(Candidate {
@@ -943,7 +920,6 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
                 | InternalSolverError::InvalidResolvedVersion { usage, version: _, source: _ }
                 | InternalSolverError::VersionObtain { usage, source: _ }
                 | InternalSolverError::UsageObtain { usage, source: _ }
-                | InternalSolverError::FormatObtain { usage, source: _ }
                 // Two local sources for one identity: the usage is
                 // what the reader has to look at, and the message
                 // carries both paths.
@@ -1513,11 +1489,6 @@ pub enum InternalSolverError<R: ResolveRead> {
         usage: ResolutionInfo,
         source: StorageError<R>,
     },
-    #[error("failed to obtain manifest format of resolved usage {usage}")]
-    FormatObtain {
-        usage: ResolutionInfo,
-        source: StorageError<R>,
-    },
 }
 
 impl<R: ResolveRead> ProjectSolver<R> {
@@ -1665,21 +1636,17 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
 
 type Solution<ProjectStorage> = HashMap<Identifier, ProjectStorage>;
 
-/// `requested` pairs each usage with the manifest it was declared in;
-/// pass [`UsageOrigin::Json`] when none was read. Every
-/// usage resolves its relative paths against the same `base_path`; see
-/// [`solve_with_bases`] for when they do not share one.
+/// Every usage resolves its relative paths against the same `base_path`;
+/// see [`solve_with_bases`] for when they do not share one.
 pub fn solve<R: ResolveRead + fmt::Debug + 'static>(
-    requested: Vec<(InterchangeProjectUsage, UsageOrigin)>,
+    requested: Vec<InterchangeProjectUsage>,
     base_path: Option<Utf8PathBuf>,
     resolver: R,
 ) -> Result<Solution<R::ProjectStorage>, SolverError<R>> {
     solve_with_bases(
         requested
             .into_iter()
-            .map(|(usage, origin)| {
-                ResolutionInfo::new_declared_in(usage, base_path.clone(), origin)
-            })
+            .map(|usage| ResolutionInfo::new(usage, base_path.clone()))
             .collect(),
         resolver,
     )

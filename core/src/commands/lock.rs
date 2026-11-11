@@ -22,10 +22,10 @@ use crate::{
     lock::{Lock, Project, Usage, hash_str},
     model::{InterchangeProjectUsage, InterchangeProjectValidationError},
     project::{
-        ProjectDefinition, ProjectRead, SourceSymbolsError, SymbolIndexError, exported_symbols,
+        ProjectRead, SourceSymbolsError, SymbolIndexError, exported_symbols,
         utils::{FsIoError, Identifier},
     },
-    resolve::{ResolveRead, UsageOrigin},
+    resolve::ResolveRead,
     solve::pubgrub::{SolverError, solve_with_bases_cancellable},
     utils::ProvidedProjects,
 };
@@ -335,12 +335,6 @@ fn lock_projects<
             .and_then(|ids| ids.first())
             .map(ToString::to_string);
 
-        let origin = UsageOrigin::of_format(
-            project
-                .format()
-                .map_err(LockProjectError::InputProjectError)?,
-        );
-
         let definition = project
             .get_project()
             .map_err(LockProjectError::InputProjectError)?
@@ -384,39 +378,10 @@ fn lock_projects<
             usages: usages.iter().map(Usage::from).collect(),
         });
 
-        // The publisher and name a toml `kpar-url` usage declares, by IRI.
-        // The usage view cannot carry them, so they are read from the
-        // manifest and travel on the `ResolutionInfo`. A json project has no
-        // manifest and declares none.
-        let declared_identities: HashMap<String, (String, String)> = match &definition {
-            ProjectDefinition::Toml(manifest) => manifest
-                .usages
-                .iter()
-                .filter_map(|located| match &located.usage {
-                    crate::manifest::usage::Usage::RemoteKpar {
-                        publisher: Some(publisher),
-                        name,
-                        url,
-                    } => Some((url.to_string(), (publisher.to_string(), name.to_string()))),
-                    // Nothing to check without a declared publisher.
-                    _ => None,
-                })
-                .collect(),
-            ProjectDefinition::Json { info: _, meta: _ } => HashMap::new(),
-        };
-
         all_deps.extend(usages.into_iter().map(|usage| {
-            let declared_identity = match &usage {
-                crate::model::InterchangeProjectUsage::Resource {
-                    resource,
-                    version_constraint: _,
-                } => declared_identities.get(&resource.to_string()).cloned(),
-                _ => None,
-            };
             (
-                crate::resolve::ResolutionInfo::new_declared_in(usage, base_path.clone(), origin)
-                    .declared_by(declarer.clone())
-                    .declaring_identity(declared_identity),
+                crate::resolve::ResolutionInfo::new(usage, base_path.clone())
+                    .declared_by(declarer.clone()),
                 DeclaredBy::Input(named_project_label.clone()),
             )
         }));
@@ -429,8 +394,7 @@ fn lock_projects<
 
 /// Solves for compatible set of dependencies based on usages and adds the solution
 /// to existing lockfile. Each usage comes with the project that declares it,
-/// for error messages, and with the manifest it was declared in; a caller
-/// that did not read one passes [`UsageOrigin::Json`].
+/// for error messages.
 /// Note: The content of the lockfile is taken into account only to avoid
 ///       including duplicate projects (same project, same version) in lock.
 ///       This can cause incorrect version selection, as possible
@@ -441,7 +405,7 @@ fn lock_projects<
 //         already in lockfile
 pub fn do_lock_extend<
     PD: ProjectRead + Debug,
-    I: IntoIterator<Item = (InterchangeProjectUsage, DeclaredBy, UsageOrigin)>,
+    I: IntoIterator<Item = (InterchangeProjectUsage, DeclaredBy)>,
     R: ResolveRead<ProjectStorage = PD> + Debug,
 >(
     lock: Lock,
@@ -456,9 +420,9 @@ pub fn do_lock_extend<
     let base_path = None;
     lock_extend(
         lock,
-        usages.into_iter().map(|(usage, declared_by, origin)| {
+        usages.into_iter().map(|(usage, declared_by)| {
             (
-                crate::resolve::ResolutionInfo::new_declared_in(usage, base_path.clone(), origin),
+                crate::resolve::ResolutionInfo::new(usage, base_path.clone()),
                 declared_by,
             )
         }),
@@ -497,7 +461,7 @@ fn lock_extend<
     let mut typed_usages: Vec<(TypedSpelling, DeclaredBy)> = inputs
         .iter()
         .zip(declared_by)
-        .filter_map(|(info, declared_by)| Some((TypedSpelling::of_info(info)?, declared_by)))
+        .filter_map(|(info, declared_by)| Some((TypedSpelling::of(info.usage())?, declared_by)))
         .collect();
     // Publisher, name and version of each solved project
     let mut solved = HashMap::new();
@@ -650,15 +614,16 @@ struct TypedSpelling {
     kind: &'static str,
     publisher: String,
     name: String,
-    /// What the usage resolves under: the publisher and name for a typed
-    /// usage, the IRI for a `kpar-url` usage that declares them
+    /// What the usage resolves under: the publisher and name for most typed
+    /// usages, the IRI for a KPAR URL usage
     identifier: Identifier,
     /// Whether the usage is an index usage
     index: bool,
 }
 
 impl TypedSpelling {
-    /// `None` for a resource usage, which names no publisher or name
+    /// `None` for a resource usage and a standard-library KPAR URL usage,
+    /// which name no publisher
     fn of(usage: &InterchangeProjectUsage) -> Option<Self> {
         let (publisher, name) = usage.typed_publisher_name()?;
         Some(Self {
@@ -674,23 +639,6 @@ impl TypedSpelling {
                     version_constraint: _,
                 }
             ),
-        })
-    }
-
-    /// [`Self::of`], and also a toml `kpar-url` usage that declares a
-    /// publisher and name, which travel on the
-    /// [`crate::resolve::ResolutionInfo`].
-    fn of_info(info: &crate::resolve::ResolutionInfo) -> Option<Self> {
-        if let Some(spelling) = Self::of(info.usage()) {
-            return Some(spelling);
-        }
-        let (publisher, name) = info.declared_identity()?;
-        Some(Self {
-            kind: "a `kpar-url`",
-            publisher: publisher.to_owned(),
-            name: name.to_owned(),
-            identifier: info.id(),
-            index: false,
         })
     }
 }

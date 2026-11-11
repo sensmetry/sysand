@@ -8,6 +8,7 @@ use fluent_uri::Iri;
 use indexmap::IndexMap;
 use semver::VersionReq;
 
+use super::solve;
 use crate::{
     env::memory::MemoryStorageEnvironment,
     model::{
@@ -16,30 +17,12 @@ use crate::{
     },
     project::{ProjectRead, memory::InMemoryProject, utils::Identifier},
     resolve::{
-        ResolutionInfo, ResolutionOutcome, ResolveRead, UsageOrigin,
+        ResolutionInfo, ResolutionOutcome, ResolveRead,
         env::EnvResolver,
         memory::{AcceptAll, IRIPredicate, MemoryResolver},
         sequential::SequentialResolver,
     },
 };
-
-/// A test that is not about the origin resolves usages of a
-/// `.project.json`, which is what the json origin says. Tests that are
-/// *about* the origin call `super::solve` with the pairs.
-fn solve<R: ResolveRead + Debug + 'static>(
-    requested: Vec<InterchangeProjectUsage>,
-    base_path: Option<camino::Utf8PathBuf>,
-    resolver: R,
-) -> Result<super::Solution<R::ProjectStorage>, super::SolverError<R>> {
-    super::solve(
-        requested
-            .into_iter()
-            .map(|u| (u, UsageOrigin::Json))
-            .collect(),
-        base_path,
-        resolver,
-    )
-}
 
 fn trivial_memory_project<'a>(
     name: &str,
@@ -703,14 +686,11 @@ fn typed_usage_error_candidate_fails_resolution() {
 #[test]
 fn index_usage_unreadable_candidate_is_a_read_error() {
     let err = super::solve(
-        vec![(
-            InterchangeProjectUsage::Index {
-                publisher: crate::model::IndexPublisher::parse("acme".to_owned()).unwrap(),
-                name: crate::model::IndexName::parse("widget".to_owned()).unwrap(),
-                version_constraint: VersionReq::STAR,
-            },
-            UsageOrigin::Json,
-        )],
+        vec![InterchangeProjectUsage::Index {
+            publisher: crate::model::IndexPublisher::parse("acme".to_owned()).unwrap(),
+            name: crate::model::IndexName::parse("widget".to_owned()).unwrap(),
+            version_constraint: VersionReq::STAR,
+        }],
         None,
         ErrorCandidateResolver,
     )
@@ -886,12 +866,7 @@ fn index_usage_skips_an_unreadable_version_it_rules_out() {
         version_constraint: VersionReq::parse(constraint).unwrap(),
     };
 
-    let solution = super::solve(
-        vec![(index_usage("^2"), UsageOrigin::Json)],
-        None,
-        resolver(),
-    )
-    .unwrap();
+    let solution = super::solve(vec![index_usage("^2")], None, resolver()).unwrap();
     assert_eq!(
         solution[&Identifier::from_pub_name("acme", "widget")]
             .version()
@@ -900,12 +875,7 @@ fn index_usage_skips_an_unreadable_version_it_rules_out() {
         "2.0.0"
     );
 
-    let err = super::solve(
-        vec![(index_usage("*"), UsageOrigin::Json)],
-        None,
-        resolver(),
-    )
-    .unwrap_err();
+    let err = super::solve(vec![index_usage("*")], None, resolver()).unwrap_err();
     assert!(err.to_string().contains("version 0.1.0"), "{err}");
 }
 
@@ -1159,8 +1129,7 @@ fn solve_declared<R: ResolveRead + Debug + 'static>(
         requested
             .into_iter()
             .map(|(usage, declarer)| {
-                ResolutionInfo::new_declared_in(usage, None, UsageOrigin::Json)
-                    .declared_by(declarer.map(ToOwned::to_owned))
+                ResolutionInfo::new(usage, None).declared_by(declarer.map(ToOwned::to_owned))
             })
             .collect(),
         resolver,
@@ -1442,12 +1411,7 @@ fn no_matching_version_for_a_dependency_names_the_dependent_in_the_report() {
     let widget = trivial_memory_project("widget", "1.0.0", vec![]);
     let resolver = memory_resolver(&[("urn:kpar:app", &[app]), ("urn:kpar:widget", &[widget])]);
 
-    let err = super::solve(
-        vec![(root_usage("urn:kpar:app", None), UsageOrigin::Json)],
-        None,
-        resolver,
-    )
-    .unwrap_err();
+    let err = super::solve(vec![root_usage("urn:kpar:app", None)], None, resolver).unwrap_err();
 
     assert_eq!(err.kind(), "no_solution");
     assert!(
@@ -1529,7 +1493,7 @@ fn prerelease_is_ignored_by_a_release_constraint() -> Result<(), Box<dyn std::er
     let resolver = memory_resolver(&[("urn:kpar:widget", &[prerelease, release])]);
 
     let solution = super::solve(
-        vec![(root_usage("urn:kpar:widget", Some("^1")), UsageOrigin::Json)],
+        vec![root_usage("urn:kpar:widget", Some("^1"))],
         None,
         resolver,
     )?;
@@ -1548,7 +1512,7 @@ fn star_constraint_ignores_prereleases() -> Result<(), Box<dyn std::error::Error
     let resolver = memory_resolver(&[("urn:kpar:widget", &[prerelease, release])]);
 
     let solution = super::solve(
-        vec![(root_usage("urn:kpar:widget", Some("*")), UsageOrigin::Json)],
+        vec![root_usage("urn:kpar:widget", Some("*"))],
         None,
         resolver,
     )?;
@@ -1569,10 +1533,7 @@ fn prerelease_is_selected_when_the_constraint_names_one() -> Result<(), Box<dyn 
     let resolver = memory_resolver(&[("urn:kpar:widget", &[alpha, release])]);
 
     let solution = super::solve(
-        vec![(
-            root_usage("urn:kpar:widget", Some("^1.1.0-alpha")),
-            UsageOrigin::Json,
-        )],
+        vec![root_usage("urn:kpar:widget", Some("^1.1.0-alpha"))],
         None,
         resolver,
     )?;
@@ -1593,10 +1554,7 @@ fn prerelease_constraint_does_not_admit_other_prereleases() -> Result<(), Box<dy
     let resolver = memory_resolver(&[("urn:kpar:widget", &[beta, alpha])]);
 
     let solution = super::solve(
-        vec![(
-            root_usage("urn:kpar:widget", Some(">=1.0.0-alpha")),
-            UsageOrigin::Json,
-        )],
+        vec![root_usage("urn:kpar:widget", Some(">=1.0.0-alpha"))],
         None,
         resolver,
     )?;
@@ -1616,7 +1574,7 @@ fn only_prereleases_published_is_a_no_versions_failure() {
     let resolver = memory_resolver(&[("urn:kpar:widget", &[beta, alpha])]);
 
     let err = super::solve(
-        vec![(root_usage("urn:kpar:widget", Some("^1")), UsageOrigin::Json)],
+        vec![root_usage("urn:kpar:widget", Some("^1"))],
         None,
         resolver,
     )
@@ -1647,11 +1605,7 @@ fn transitive_constraint_ignores_prereleases() -> Result<(), Box<dyn std::error:
         ("urn:kpar:widget", &[prerelease, release]),
     ]);
 
-    let solution = super::solve(
-        vec![(root_usage("urn:kpar:app", Some("^1")), UsageOrigin::Json)],
-        None,
-        resolver,
-    )?;
+    let solution = super::solve(vec![root_usage("urn:kpar:app", Some("^1"))], None, resolver)?;
 
     let install = &solution[&Identifier::from_iri_unchecked_str("urn:kpar:widget")];
     assert_eq!(install.version()?.unwrap(), "1.0.0");
@@ -1679,8 +1633,8 @@ fn prerelease_opt_in_of_one_dependent_conflicts_with_a_release_pin() {
 
     let err = super::solve(
         vec![
-            (root_usage("urn:kpar:app_a", None), UsageOrigin::Json),
-            (root_usage("urn:kpar:app_b", None), UsageOrigin::Json),
+            root_usage("urn:kpar:app_a", None),
+            root_usage("urn:kpar:app_b", None),
         ],
         None,
         resolver,
@@ -1705,10 +1659,7 @@ fn unconstrained_purl_usage_ignores_prereleases() -> Result<(), Box<dyn std::err
     let resolver = memory_resolver(&[("pkg:sysand/acme/widget", &candidates)]);
 
     let solution = super::solve(
-        vec![(
-            root_usage("pkg:sysand/acme/widget", None),
-            UsageOrigin::Json,
-        )],
+        vec![root_usage("pkg:sysand/acme/widget", None)],
         None,
         resolver,
     )?;
@@ -1729,10 +1680,7 @@ fn unconstrained_purl_usage_of_a_prerelease_only_project_is_a_no_versions_failur
     let resolver = memory_resolver(&[("pkg:sysand/acme/widget", &[alpha])]);
 
     let err = super::solve(
-        vec![(
-            root_usage("pkg:sysand/acme/widget", None),
-            UsageOrigin::Json,
-        )],
+        vec![root_usage("pkg:sysand/acme/widget", None)],
         None,
         resolver,
     )
@@ -1771,11 +1719,7 @@ fn unconstrained_transitive_purl_usage_ignores_prereleases()
         ("pkg:sysand/acme/widget", &[prerelease, release]),
     ]);
 
-    let solution = super::solve(
-        vec![(root_usage("urn:kpar:app", None), UsageOrigin::Json)],
-        None,
-        resolver,
-    )?;
+    let solution = super::solve(vec![root_usage("urn:kpar:app", None)], None, resolver)?;
 
     let install = &solution[&Identifier::from_iri_unchecked_str("pkg:sysand/acme/widget")];
     assert_eq!(install.version()?.unwrap(), "1.0.0");
@@ -1801,11 +1745,7 @@ fn unconstrained_usage_of_a_single_project_source_admits_a_prerelease()
         let prerelease = single_project_source("widget", "1.0.0-alpha.1", vec![]);
         let resolver = memory_resolver(&[(iri, &[prerelease])]);
 
-        let solution = super::solve(
-            vec![(root_usage(iri, None), UsageOrigin::Json)],
-            None,
-            resolver,
-        )?;
+        let solution = super::solve(vec![root_usage(iri, None)], None, resolver)?;
 
         let install = &solution[&Identifier::from_iri_unchecked_str(iri)];
         assert_eq!(install.version()?.unwrap(), "1.0.0-alpha.1", "for `{iri}`");
@@ -1824,11 +1764,7 @@ fn unconstrained_usage_of_a_multi_version_source_ignores_prereleases()
     let prerelease = trivial_memory_project("widget", "2.0.0-beta.1", vec![]);
     let resolver = memory_resolver(&[("urn:kpar:widget", &[prerelease, release])]);
 
-    let solution = super::solve(
-        vec![(root_usage("urn:kpar:widget", None), UsageOrigin::Json)],
-        None,
-        resolver,
-    )?;
+    let solution = super::solve(vec![root_usage("urn:kpar:widget", None)], None, resolver)?;
 
     let install = &solution[&Identifier::from_iri_unchecked_str("urn:kpar:widget")];
     assert_eq!(install.version()?.unwrap(), "1.0.0");
@@ -1846,11 +1782,7 @@ fn unconstrained_usage_of_a_single_project_source_takes_the_highest_version()
     let prerelease = single_project_source("widget", "2.0.0-beta.1", vec![]);
     let resolver = memory_resolver(&[("urn:kpar:widget", &[release, prerelease])]);
 
-    let solution = super::solve(
-        vec![(root_usage("urn:kpar:widget", None), UsageOrigin::Json)],
-        None,
-        resolver,
-    )?;
+    let solution = super::solve(vec![root_usage("urn:kpar:widget", None)], None, resolver)?;
 
     let install = &solution[&Identifier::from_iri_unchecked_str("urn:kpar:widget")];
     assert_eq!(install.version()?.unwrap(), "2.0.0-beta.1");
@@ -1867,14 +1799,11 @@ fn directory_usage_admits_a_prerelease() -> Result<(), Box<dyn std::error::Error
     let resolver = simple_resolver_environment(&[("pkg:sysand/acme/widget", &[widget])]);
 
     let solution = super::solve(
-        vec![(
-            InterchangeProjectUsage::Directory {
-                dir: "some/dir".into(),
-                publisher: crate::model::ProjectPublisher::parse("acme".to_owned()).unwrap(),
-                name: crate::model::ProjectName::parse("widget".to_owned()).unwrap(),
-            },
-            UsageOrigin::Json,
-        )],
+        vec![InterchangeProjectUsage::Directory {
+            dir: "some/dir".into(),
+            publisher: crate::model::ProjectPublisher::parse("acme".to_owned()).unwrap(),
+            name: crate::model::ProjectName::parse("widget".to_owned()).unwrap(),
+        }],
         None,
         resolver,
     )?;
@@ -1911,10 +1840,7 @@ fn constrained_usage_picks_by_candidate_order_not_by_version()
         let resolver = memory_resolver(&[("urn:kpar:widget", &candidates)]);
 
         let solution = super::solve(
-            vec![(
-                root_usage("urn:kpar:widget", Some("^1.0.0-alpha")),
-                UsageOrigin::Json,
-            )],
+            vec![root_usage("urn:kpar:widget", Some("^1.0.0-alpha"))],
             None,
             resolver,
         )?;
@@ -1940,7 +1866,7 @@ fn constrained_usage_picks_the_highest_matching_version_within_one_source() {
     let resolver = simple_resolver_environment(&[("urn:kpar:widget", &candidates)]);
 
     let solution = super::solve(
-        vec![(root_usage("urn:kpar:widget", Some("^1")), UsageOrigin::Json)],
+        vec![root_usage("urn:kpar:widget", Some("^1"))],
         None,
         resolver,
     )
@@ -1985,10 +1911,7 @@ fn index_order_makes_the_lowest_candidate_index_the_highest_version()
         let resolver = memory_resolver(&[("pkg:sysand/acme/widget", &candidates)]);
 
         let solution = super::solve(
-            vec![(
-                root_usage("pkg:sysand/acme/widget", constraint),
-                UsageOrigin::Json,
-            )],
+            vec![root_usage("pkg:sysand/acme/widget", constraint)],
             None,
             resolver,
         )?;
@@ -2026,11 +1949,7 @@ fn solve_backtracks_past_a_constraint_that_selects_nothing()
         ("urn:kpar:widget", &[widget]),
     ]);
 
-    let solution = super::solve(
-        vec![(root_usage("urn:kpar:app", Some("*")), UsageOrigin::Json)],
-        None,
-        resolver,
-    )?;
+    let solution = super::solve(vec![root_usage("urn:kpar:app", Some("*"))], None, resolver)?;
 
     let app = &solution[&Identifier::from_iri_unchecked_str("urn:kpar:app")];
     assert_eq!(app.version()?.unwrap(), "1.0.0");
@@ -2056,7 +1975,7 @@ fn solve_backtracks_past_a_default_constraint_that_selects_nothing()
     ]);
 
     let solution = super::solve(
-        vec![(root_usage("pkg:sysand/acme/app", None), UsageOrigin::Json)],
+        vec![root_usage("pkg:sysand/acme/app", None)],
         None,
         resolver,
     )?;
@@ -2149,12 +2068,8 @@ mod index_usages {
 
     #[test]
     fn broken_version_fails_the_solve() {
-        let err = super::super::solve(
-            vec![(index_usage("*"), UsageOrigin::Json)],
-            None,
-            lib_with_broken_newest(),
-        )
-        .unwrap_err();
+        let err = super::super::solve(vec![index_usage("*")], None, lib_with_broken_newest())
+            .unwrap_err();
         assert_eq!(
             err.to_string(),
             "version 2.0.0 offered for index usage `acme/lib` (*) is not a valid project;\n\
@@ -2192,7 +2107,7 @@ mod index_usages {
             version_constraint: VersionReq::parse("^1").unwrap(),
         };
 
-        let err = super::super::solve(vec![(root, UsageOrigin::Json)], None, resolver).unwrap_err();
+        let err = super::super::solve(vec![root], None, resolver).unwrap_err();
 
         assert_eq!(
             err.to_string(),
@@ -2235,15 +2150,8 @@ mod index_usages {
             version_constraint: VersionReq::parse("^1").unwrap(),
         };
 
-        let err = super::super::solve(
-            vec![
-                (mid_usage, UsageOrigin::Json),
-                (index_usage("*"), UsageOrigin::Json),
-            ],
-            None,
-            resolver,
-        )
-        .unwrap_err();
+        let err =
+            super::super::solve(vec![mid_usage, index_usage("*")], None, resolver).unwrap_err();
 
         assert!(
             err.to_string()
@@ -2255,26 +2163,19 @@ mod index_usages {
 
     #[test]
     fn broken_version_excluded_by_the_constraint_is_not_looked_at() {
-        let result = super::super::solve(
-            vec![(index_usage("^1"), UsageOrigin::Json)],
-            None,
-            lib_with_broken_newest(),
-        );
+        let result = super::super::solve(vec![index_usage("^1")], None, lib_with_broken_newest());
         assert_eq!(solved_version(result), "1.0.0");
     }
 
     #[test]
     fn other_kinds_keep_their_own_handling() {
         assert_fails_on_broken(super::super::solve(
-            vec![(directory_usage(), UsageOrigin::Json)],
+            vec![directory_usage()],
             None,
             lib_with_broken_newest(),
         ));
-        let result = super::super::solve(
-            vec![(root_usage(LIB, None), UsageOrigin::Json)],
-            None,
-            lib_with_broken_newest(),
-        );
+        let result =
+            super::super::solve(vec![root_usage(LIB, None)], None, lib_with_broken_newest());
         assert_eq!(solved_version(result), "1.0.0");
     }
 
@@ -2287,7 +2188,7 @@ mod index_usages {
         let index = index_usage("*");
         for usages in [vec![lenient.clone(), index.clone()], vec![index, lenient]] {
             assert_broken_index_version(super::super::solve(
-                usages.into_iter().map(|u| (u, UsageOrigin::Json)).collect(),
+                usages,
                 None,
                 lib_with_broken_newest(),
             ));
@@ -2302,7 +2203,7 @@ mod index_usages {
         let wide = index_usage("*");
         for usages in [vec![narrow.clone(), wide.clone()], vec![wide, narrow]] {
             assert_broken_index_version(super::super::solve(
-                usages.into_iter().map(|u| (u, UsageOrigin::Json)).collect(),
+                usages,
                 None,
                 lib_with_broken_newest(),
             ));
@@ -2310,11 +2211,7 @@ mod index_usages {
         let lenient = root_usage(LIB, None);
         let narrow = index_usage("^1");
         for usages in [vec![lenient.clone(), narrow.clone()], vec![narrow, lenient]] {
-            let result = super::super::solve(
-                usages.into_iter().map(|u| (u, UsageOrigin::Json)).collect(),
-                None,
-                lib_with_broken_newest(),
-            );
+            let result = super::super::solve(usages, None, lib_with_broken_newest());
             assert_eq!(solved_version(result), "1.0.0");
         }
     }
@@ -2338,8 +2235,8 @@ mod index_usages {
 
         assert_fails_on_broken(super::super::solve(
             vec![
-                (root_usage(LIB, Some("^1")), UsageOrigin::Json),
-                (root_usage("urn:kpar:app", None), UsageOrigin::Json),
+                root_usage(LIB, Some("^1")),
+                root_usage("urn:kpar:app", None),
             ],
             None,
             resolver,
@@ -2351,7 +2248,7 @@ mod index_usages {
         let v1 = trivial_memory_project("lib", "1.0.0", vec![]);
         let v2 = trivial_memory_project("lib", "2.0.0", vec![]);
         let result = super::super::solve(
-            vec![(index_usage("^1"), UsageOrigin::Json)],
+            vec![index_usage("^1")],
             None,
             memory_resolver(&[(LIB, &[v1, v2])]),
         );
@@ -2362,7 +2259,7 @@ mod index_usages {
     fn constraint_is_reported_in_conflicts() {
         let v1 = trivial_memory_project("lib", "1.0.0", vec![]);
         let err = super::super::solve(
-            vec![(index_usage(">=3"), UsageOrigin::Json)],
+            vec![index_usage(">=3")],
             None,
             memory_resolver(&[(LIB, &[v1])]),
         )
@@ -2380,13 +2277,13 @@ mod index_usages {
     }
 }
 
-/// A resolver that records the origin of every usage it is asked to
-/// resolve and otherwise behaves like the one it wraps.
+/// A resolver that records every usage it is asked to resolve and
+/// otherwise behaves like the one it wraps.
 #[cfg(feature = "filesystem")]
 #[derive(Debug)]
 struct RecordingResolver<R> {
     inner: R,
-    seen: std::rc::Rc<std::cell::RefCell<Vec<(String, UsageOrigin)>>>,
+    seen: std::rc::Rc<std::cell::RefCell<Vec<InterchangeProjectUsage>>>,
 }
 
 #[cfg(feature = "filesystem")]
@@ -2411,57 +2308,18 @@ impl<R: ResolveRead> ResolveRead for RecordingResolver<R> {
         &self,
         resolve: &ResolutionInfo,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
-        self.seen
-            .borrow_mut()
-            .push((resolve.id().to_string(), resolve.origin()));
+        self.seen.borrow_mut().push(resolve.usage().clone());
         self.inner.resolve_read(resolve)
     }
 }
 
-/// A transitive usage's origin is the format of the project that
-/// declared it, which is the candidate the solver has just read. The
-/// two halves differ only in which manifest the project on disk has;
-/// the usage they declare is the same either way, which is what the
-/// KPAR view is for.
+/// A dependency's `model.toml` `kpar-url` usage reaches the resolver as a
+/// typed KPAR URL usage, carrying the publisher and name it declares, as
+/// the input project's own usages do.
 #[cfg(feature = "filesystem")]
 #[test]
-fn a_transitive_usage_takes_the_format_of_its_candidate() -> Result<(), Box<dyn std::error::Error>>
-{
+fn a_transitive_kpar_url_usage_is_typed() -> Result<(), Box<dyn std::error::Error>> {
     use crate::project::local_src::LocalSrcProject;
-
-    fn origin_of_the_transitive_usage(
-        dir: &camino::Utf8Path,
-    ) -> Result<UsageOrigin, Box<dyn std::error::Error>> {
-        let project = LocalSrcProject::new_access(
-            dir.to_owned(),
-            Some(typed_path::Utf8UnixPathBuf::from(".")),
-        );
-        let resolver = RecordingResolver::new(MemoryResolver {
-            iri_predicate: AcceptAll {},
-            projects: [(Identifier::from_pub_name("acme", "app"), vec![project])].into(),
-        });
-        let seen = resolver.seen.clone();
-
-        // The transitive usage resolves to nothing, which fails the
-        // solve after the resolver has been asked for it
-        solve(
-            vec![InterchangeProjectUsage::Directory {
-                dir: "app".into(),
-                publisher: crate::model::ProjectPublisher::parse("acme".to_owned()).unwrap(),
-                name: crate::model::ProjectName::parse("app".to_owned()).unwrap(),
-            }],
-            None,
-            resolver,
-        )
-        .expect_err("`acme/lib` is not in the resolver");
-
-        let seen = seen.borrow();
-        let (_, origin) = seen
-            .iter()
-            .find(|(id, _)| id.contains("acme/lib"))
-            .ok_or("the transitive usage was never resolved")?;
-        Ok(*origin)
-    }
 
     let toml = camino_tempfile::tempdir()?;
     std::fs::write(
@@ -2476,149 +2334,57 @@ fn a_transitive_usage_takes_the_format_of_its_candidate() -> Result<(), Box<dyn 
          [[inline-usages]]\n\
          publisher = \"acme\"\n\
          name = \"lib\"\n\
-         version = \"^1\"\n",
+         kpar-url = \"https://example.com/lib.kpar\"\n",
     )?;
-    assert_eq!(
-        origin_of_the_transitive_usage(toml.path())?,
-        UsageOrigin::Toml
+    let project = LocalSrcProject::new_access(
+        toml.path().to_owned(),
+        Some(typed_path::Utf8UnixPathBuf::from(".")),
     );
+    let resolver = RecordingResolver::new(MemoryResolver {
+        iri_predicate: AcceptAll {},
+        projects: [(Identifier::from_pub_name("acme", "app"), vec![project])].into(),
+    });
+    let seen = resolver.seen.clone();
 
-    let json = camino_tempfile::tempdir()?;
-    let mut info = memory_project("app", "1.0.0", vec![]).info.unwrap();
-    info.publisher = Some("acme".to_owned());
-    info.usage = vec![InterchangeProjectUsageRaw::Resource {
-        resource: "pkg:sysand/acme/lib".to_owned(),
-        version_constraint: Some("^1".to_owned()),
-    }];
-    std::fs::write(
-        json.path().join(".project.json"),
-        serde_json::to_string(&info)?,
-    )?;
-    std::fs::write(
-        json.path().join(".meta.json"),
-        serde_json::to_string(&crate::model::InterchangeProjectMetadataRaw::minimal(
-            "1970-01-01T00:00:00Z".to_owned(),
-        ))?,
-    )?;
-    assert_eq!(
-        origin_of_the_transitive_usage(json.path())?,
-        UsageOrigin::Json
-    );
-
-    Ok(())
-}
-
-/// A project whose storage cannot say which manifest it has fails the
-/// same way every other unreadable candidate does: fatal for a typed
-/// usage, which has exactly one place its project can come from, and
-/// skipped for an untyped one, whose alternatives normally include
-/// candidates that are not projects at all.
-#[test]
-fn a_candidate_whose_format_cannot_be_read_is_skipped_unless_typed() {
-    /// An otherwise ordinary project that cannot say which manifest it
-    /// has.
-    #[derive(Debug)]
-    struct NoFormat(InMemoryProject);
-
-    impl ProjectRead for NoFormat {
-        type Error = crate::project::memory::InMemoryError;
-
-        fn source_may_offer_multiple_versions(&self) -> bool {
-            self.0.source_may_offer_multiple_versions()
-        }
-
-        fn format(&self) -> Result<crate::project::ProjectFormat, Self::Error> {
-            Err(std::io::Error::other("cannot tell which manifest this is").into())
-        }
-
-        fn get_project(&self) -> Result<Option<crate::project::ProjectDefinition>, Self::Error> {
-            self.0.get_project()
-        }
-
-        type SourceReader<'a> = <InMemoryProject as ProjectRead>::SourceReader<'a>;
-
-        fn read_source<P: AsRef<typed_path::Utf8UnixPath>>(
-            &self,
-            path: P,
-        ) -> Result<Self::SourceReader<'_>, Self::Error> {
-            self.0.read_source(path)
-        }
-
-        fn sources(
-            &self,
-            ctx: &crate::context::ProjectContext,
-        ) -> Result<Vec<crate::lock::Source>, Self::Error> {
-            self.0.sources(ctx)
-        }
-
-        fn project_root(&self) -> Option<&camino::Utf8Path> {
-            self.0.project_root()
-        }
-
-        fn version(&self) -> Result<Option<String>, Self::Error> {
-            self.0.version()
-        }
-
-        fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
-            self.0.usage()
-        }
-
-        fn checksum_canonical_variant(
-            &self,
-        ) -> Result<crate::project::ProjectChecksum, Self::Error> {
-            self.0.checksum_canonical_variant()
-        }
-    }
-
-    /// Serves the one candidate whatever it is asked for.
-    #[derive(Debug)]
-    struct OneCandidate;
-
-    impl ResolveRead for OneCandidate {
-        type Error = !;
-
-        type ProjectStorage = NoFormat;
-
-        type ResolvedStorages = Vec<Result<NoFormat, Self::Error>>;
-
-        fn resolve_read(
-            &self,
-            _resolve: &ResolutionInfo,
-        ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
-            Ok(ResolutionOutcome::Resolved(vec![Ok(NoFormat(
-                trivial_memory_project("widget", "1.0.0", vec![]),
-            ))]))
-        }
-    }
-
-    let untyped = solve(
-        vec![InterchangeProjectUsage::Resource {
-            resource: Iri::parse("urn:kpar:widget".to_owned()).unwrap(),
-            version_constraint: None,
-        }],
-        None,
-        OneCandidate,
-    )
-    .expect_err("the only candidate was skipped");
-    let msg = format!("{untyped:?}");
-    assert!(msg.contains("NoValidCandidates"), "got: {msg}");
-
-    let typed = solve(
+    // The transitive usage resolves to nothing, which fails the solve
+    // after the resolver has been asked for it
+    solve(
         vec![InterchangeProjectUsage::Directory {
-            dir: "widget".into(),
+            dir: "app".into(),
             publisher: crate::model::ProjectPublisher::parse("acme".to_owned()).unwrap(),
-            name: crate::model::ProjectName::parse("widget".to_owned()).unwrap(),
+            name: crate::model::ProjectName::parse("app".to_owned()).unwrap(),
         }],
         None,
-        OneCandidate,
+        resolver,
     )
-    .expect_err("a typed usage has nowhere else to look");
-    // The reason is the error's cause (`Error::source`).
-    let msg = std::error::Error::source(&typed).map_or_default(ToString::to_string);
-    assert!(
-        msg.contains("failed to obtain manifest format of resolved usage"),
-        "got: {typed} / {msg}"
-    );
+    .expect_err("the KPAR URL is not in the resolver");
+
+    let seen = seen.borrow();
+    let transitive = seen
+        .iter()
+        .find(|usage| {
+            !matches!(
+                usage,
+                InterchangeProjectUsage::Directory {
+                    dir: _,
+                    publisher: _,
+                    name: _
+                }
+            )
+        })
+        .ok_or("the transitive usage was never resolved")?;
+    let InterchangeProjectUsage::KparUrl {
+        kpar_url,
+        publisher: Some(publisher),
+        name,
+    } = transitive
+    else {
+        panic!("expected a typed KPAR URL usage, got {transitive:?}");
+    };
+    assert_eq!(kpar_url.as_str(), "https://example.com/lib.kpar");
+    assert_eq!(publisher.as_str(), "acme");
+    assert_eq!(name.as_str(), "lib");
+    Ok(())
 }
 
 // ---------------------------- one base path per usage
@@ -2670,16 +2436,8 @@ fn two_usages_resolve_against_their_own_bases() -> Result<(), Box<dyn std::error
 
     let solution = super::solve_with_bases(
         vec![
-            ResolutionInfo::new_declared_in(
-                dir_usage("dep", "one"),
-                Some(tmp.path().join("alpha")),
-                UsageOrigin::Json,
-            ),
-            ResolutionInfo::new_declared_in(
-                dir_usage("dep", "two"),
-                Some(tmp.path().join("beta")),
-                UsageOrigin::Json,
-            ),
+            ResolutionInfo::new(dir_usage("dep", "one"), Some(tmp.path().join("alpha"))),
+            ResolutionInfo::new(dir_usage("dep", "two"), Some(tmp.path().join("beta"))),
         ],
         FileResolver::default(),
     )?;
@@ -2701,12 +2459,8 @@ fn a_usage_with_no_base_is_unresolvable_beside_one_that_has_it()
 
     let error = super::solve_with_bases(
         vec![
-            ResolutionInfo::new_declared_in(
-                dir_usage("dep", "one"),
-                Some(tmp.path().join("alpha")),
-                UsageOrigin::Json,
-            ),
-            ResolutionInfo::new_declared_in(dir_usage("other", "two"), None, UsageOrigin::Json),
+            ResolutionInfo::new(dir_usage("dep", "one"), Some(tmp.path().join("alpha"))),
+            ResolutionInfo::new(dir_usage("other", "two"), None),
         ],
         FileResolver::default(),
     )

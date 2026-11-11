@@ -27,7 +27,7 @@ use sysand_core::{
         utils::wrapfs,
     },
     resolve::{
-        ResolutionInfo, UsageOrigin,
+        ResolutionInfo,
         file::FileResolverProject,
         memory::{AcceptAll, MemoryResolver},
         priority::PriorityResolver,
@@ -136,14 +136,12 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
             allow_multiple,
         )?;
     } else {
-        // The usage was written on the command line, so it takes the json origin.
         let usages = [(
             InterchangeProjectUsage::Resource {
                 resource: iri,
                 version_constraint,
             },
             DeclaredBy::Input("the command line".to_owned()),
-            UsageOrigin::Json,
         )];
 
         let LockOutcome {

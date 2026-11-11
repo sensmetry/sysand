@@ -23,7 +23,6 @@ use crate::{
         local_src::{LocalSrcError, LocalSrcProject},
         utils::{FsIoError, ProjectDeserializationError, wrapfs},
     },
-    resolve::UsageOrigin,
     resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead},
     utils::scheme::SCHEME_FILE,
     workspace::model_toml::PathRegion,
@@ -67,26 +66,31 @@ impl FileResolver {
         }
     }
 
-    /// The same rule for a path a `kpar-url` names.
+    /// The same rule for the path a `file:` resource names.
     ///
     /// A `file:` resource is two candidates at once (an unpacked directory
     /// and an archive), and only a directory is a project the rule is
     /// about. An archive *file* under the root must keep resolving:
     /// `output/<name>.kpar` is where this workspace's own builds land.
-    fn resource_is_unlisted(&self, path: &Utf8Path) -> Result<bool, FileResolverError> {
+    fn check_resource_listed(&self, path: &Utf8Path) -> Result<(), FileResolverError> {
         let Some((root, table)) = &self.workspace else {
-            return Ok(false);
+            return Ok(());
         };
         if !crate::project::utils::wrapfs::is_dir(path)? {
-            return Ok(false);
+            return Ok(());
         }
         // `region_of` compares against the canonical root, while a URL's
         // path is as written (e.g. `/var` for `/private/var` on macOS)
-        let path = wrapfs::canonicalize(path)?;
-        Ok(matches!(
-            crate::workspace::model_toml::region_of(root, table, &path),
-            PathRegion::Unlisted
-        ))
+        let canonical = wrapfs::canonicalize(path)?;
+        match crate::workspace::model_toml::region_of(root, table, &canonical) {
+            PathRegion::Unlisted => Err(FileResolverError::Workspace(
+                crate::workspace::model_toml::DiscoverError::Unlisted {
+                    project: path.to_owned(),
+                    root: root.clone(),
+                },
+            )),
+            PathRegion::Member | PathRegion::Standalone => Ok(()),
+        }
     }
 }
 
@@ -449,56 +453,17 @@ impl ResolveRead for FileResolver {
                 // TODO: check that the project version satisfies this
                 version_constraint: _,
             } => match try_file_uri_to_path(url)? {
-                Some(path) => {
-                    let res = self.check_sandbox(path)?;
-                    let origin = resolve.origin();
-                    // Whether a toml `kpar-url` usage declared a publisher and
-                    // name. It decides the candidates here; the lock checks
-                    // the target against them.
-                    let declares_identity = resolve.declared_identity().is_some();
-                    res.try_map(|path| {
-                        // A toml `kpar-url` names a KPAR, so a directory is
-                        // refused. Tested on `origin` because a json
-                        // `resource` usage is the same value here and keeps
-                        // both candidates.
-                        if origin == UsageOrigin::Toml
-                            && crate::project::utils::wrapfs::is_dir(&path)?
-                        {
-                            return Err(FileResolverError::KparUrlNamesADirectory(path));
-                        }
-                        if self.resource_is_unlisted(&path)? {
-                            let (root, _) = self.workspace.as_ref().expect("checked above");
-                            return Err(FileResolverError::Workspace(
-                                crate::workspace::model_toml::DiscoverError::Unlisted {
-                                    project: path,
-                                    root: root.clone(),
-                                },
-                            ));
-                        }
-                        // No identity is declared by a json `resource` usage
-                        // (the IRI is the identity) or a standard-library
-                        // `kpar-url`.
-                        Ok(if declares_identity {
-                            // Only the KPAR candidate: a directory candidate
-                            // cannot succeed here, and two failing
-                            // candidates would be reported as "no valid
-                            // candidates found", hiding the identity
-                            // mismatch.
-                            vec![Ok(FileResolverProject::LocalKParProject(
-                                LocalKParProject::new_access(path, KparInnerPath::Guess, None),
-                            ))]
-                        } else {
-                            vec![
-                                Ok(FileResolverProject::LocalSrcProject(
-                                    LocalSrcProject::new_access(path.clone(), None),
-                                )),
-                                Ok(FileResolverProject::LocalKParProject(
-                                    LocalKParProject::new_access(path, KparInnerPath::Guess, None),
-                                )),
-                            ]
-                        })
-                    })
-                }
+                Some(path) => self.check_sandbox(path)?.try_map(|path| {
+                    self.check_resource_listed(&path)?;
+                    Ok(vec![
+                        Ok(FileResolverProject::LocalSrcProject(
+                            LocalSrcProject::new_access(path.clone(), None),
+                        )),
+                        Ok(FileResolverProject::LocalKParProject(
+                            LocalKParProject::new_access(path, KparInnerPath::Guess, None),
+                        )),
+                    ])
+                }),
                 None => Ok(ResolutionOutcome::UnsupportedUsageType {
                     reason: String::from("resource is not a file URL"),
                 }),
@@ -511,15 +476,6 @@ impl ResolveRead for FileResolver {
                 Some(path) => self.check_sandbox(path)?.try_map(|path| {
                     if crate::project::utils::wrapfs::is_dir(&path)? {
                         return Err(FileResolverError::KparUrlNamesADirectory(path));
-                    }
-                    if self.resource_is_unlisted(&path)? {
-                        let (root, _) = self.workspace.as_ref().expect("checked above");
-                        return Err(FileResolverError::Workspace(
-                            crate::workspace::model_toml::DiscoverError::Unlisted {
-                                project: path,
-                                root: root.clone(),
-                            },
-                        ));
                     }
                     // The lock checks that the project is `publisher`/`name`,
                     // as for every typed usage

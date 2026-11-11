@@ -10,7 +10,7 @@ use crate::{
     commands::lock::{LockError, do_lock_extend, do_lock_projects},
     context::ProjectContext,
     lock::{Lock, Project, Source},
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsage},
     project::memory::InMemoryProject,
     resolve::null::NullResolver,
 };
@@ -18,7 +18,7 @@ use crate::{
 #[cfg(feature = "filesystem")]
 use crate::commands::lock::LockProjectError;
 #[cfg(feature = "filesystem")]
-use crate::resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead, UsageOrigin};
+use crate::resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead};
 
 #[test]
 fn lock_export_conflict() {
@@ -477,13 +477,13 @@ mod typed_usage_spelling {
     }
 }
 
-/// A resolver that records the origin of every usage it is asked to
-/// resolve, and resolves nothing: the solve fails after the first
-/// usage, which is enough to see what was asked.
+/// A resolver that records every usage it is asked to resolve, and
+/// resolves nothing: the solve fails after the first usage, which is
+/// enough to see what was asked.
 #[cfg(feature = "filesystem")]
 #[derive(Debug, Default)]
 struct RecordingResolver {
-    seen: std::rc::Rc<std::cell::RefCell<Vec<UsageOrigin>>>,
+    seen: std::rc::Rc<std::cell::RefCell<Vec<InterchangeProjectUsage>>>,
 }
 
 #[cfg(feature = "filesystem")]
@@ -498,37 +498,19 @@ impl ResolveRead for RecordingResolver {
         &self,
         resolve: &ResolutionInfo,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
-        self.seen.borrow_mut().push(resolve.origin());
+        self.seen.borrow_mut().push(resolve.usage().clone());
         Ok(ResolutionOutcome::NotFound {
             reason: "recording resolver".to_owned(),
         })
     }
 }
 
-/// The usages of the projects handed to `do_lock_projects` are the
-/// solve's *requested* usages, and their origin is the format of the
-/// project that declared them, as there is no candidate to ask.
+/// A `model.toml` `kpar-url` usage reaches the resolver as a typed KPAR
+/// URL usage, carrying the publisher and name it declares.
 #[cfg(feature = "filesystem")]
 #[test]
-fn a_requested_usage_takes_the_origin_of_the_project_that_declared_it() {
+fn a_toml_kpar_url_usage_is_requested_as_a_typed_kpar_url_usage() {
     use crate::project::local_src::LocalSrcProject;
-
-    fn origins_of(dir: &camino::Utf8Path) -> Vec<UsageOrigin> {
-        let project = crate::project::editable::EditableProject::new(
-            typed_path::Utf8UnixPathBuf::from("."),
-            LocalSrcProject::new_access(dir, None),
-        );
-        let resolver = RecordingResolver::default();
-        let seen = resolver.seen.clone();
-        do_lock_projects(
-            [(None, &project)],
-            resolver,
-            &HashMap::new(),
-            &ProjectContext::default(),
-        )
-        .expect_err("the resolver finds nothing");
-        seen.borrow().clone()
-    }
 
     let toml = camino_tempfile::tempdir().expect("a temporary directory");
     std::fs::write(
@@ -543,28 +525,36 @@ fn a_requested_usage_takes_the_origin_of_the_project_that_declared_it() {
          [[inline-usages]]\n\
          publisher = \"acme\"\n\
          name = \"lib\"\n\
-         version = \"^1\"\n",
+         kpar-url = \"https://example.com/lib.kpar\"\n",
     )
     .expect("write model.toml");
-    assert_eq!(origins_of(toml.path()), [UsageOrigin::Toml]);
-
-    let json = camino_tempfile::tempdir().expect("a temporary directory");
-    std::fs::write(
-        json.path().join(".project.json"),
-        r#"{"name":"app","version":"1.0.0","usage":[{"resource":"pkg:sysand/acme/lib"}]}"#,
+    let project = crate::project::editable::EditableProject::new(
+        typed_path::Utf8UnixPathBuf::from("."),
+        LocalSrcProject::new_access(toml.path(), None),
+    );
+    let resolver = RecordingResolver::default();
+    let seen = resolver.seen.clone();
+    do_lock_projects(
+        [(None, &project)],
+        resolver,
+        &HashMap::new(),
+        &ProjectContext::default(),
     )
-    .expect("write .project.json");
-    std::fs::write(
-        json.path().join(".meta.json"),
-        r#"{"index":{},"created":"1970-01-01T00:00:00Z"}"#,
-    )
-    .expect("write .meta.json");
-    std::fs::write(
-        json.path().join(".meta.json"),
-        r#"{"index":{},"created":"1970-01-01T00:00:00Z"}"#,
-    )
-    .expect("write .meta.json");
-    assert_eq!(origins_of(json.path()), [UsageOrigin::Json]);
+    .expect_err("the resolver finds nothing");
+    let seen = seen.borrow();
+    let [
+        InterchangeProjectUsage::KparUrl {
+            kpar_url,
+            publisher: Some(publisher),
+            name,
+        },
+    ] = seen.as_slice()
+    else {
+        panic!("expected one typed KPAR URL usage, got {seen:?}");
+    };
+    assert_eq!(kpar_url.as_str(), "https://example.com/lib.kpar");
+    assert_eq!(publisher.as_str(), "acme");
+    assert_eq!(name.as_str(), "lib");
 }
 
 // ------------------------ a base per input project
@@ -768,7 +758,6 @@ fn do_lock_extend_still_derives_one_base() -> Result<(), Box<dyn std::error::Err
         vec![(
             dir_usage("dep", "one"),
             crate::commands::lock::DeclaredBy::Input("the test".to_owned()),
-            UsageOrigin::Json,
         )],
         FileResolver::default(),
         &HashMap::default(),
@@ -1269,9 +1258,6 @@ fn a_file_url_usage_of_an_unlisted_project_is_refused() {
 
 /// `kpar-url` is for standard-compliant KPARs, so a directory target is
 /// refused.
-///
-/// The narrowing is on `UsageOrigin`: a toml `kpar-url` and a json
-/// `resource` usage are the same value by the time the resolver sees them.
 ///
 /// The target is **excluded**, so it is a legitimate standalone project
 /// under the root: that way the refusal can only be this rule, and not

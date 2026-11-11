@@ -15,7 +15,6 @@ use crate::{
     },
     project::{ProjectDefinition, ProjectRead, memory::InMemoryProject, utils::Identifier},
     resolve::{
-        UsageOrigin,
         env::EnvResolver,
         memory::{AcceptAll, MemoryResolver},
         priority::{PriorityProject, PriorityResolver},
@@ -197,13 +196,6 @@ fn solve_dependencies<Env: ReadEnvironment + Debug + 'static>(
     );
 
     // `base_path` does not matter here, since the resolver only looks in env
-    // TODO: the origin of the usages is not passed to this function, so a
-    // toml project's usages resolve as json. This makes no difference while
-    // resolving against the environment, but a path usage would need the origin.
-    let requested = requested
-        .into_iter()
-        .map(|u| (u, UsageOrigin::Json))
-        .collect();
     let mut resolved = crate::solve::pubgrub::solve(requested, None, resolver)?;
 
     Ok(resolved
