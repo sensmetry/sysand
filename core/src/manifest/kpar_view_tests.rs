@@ -151,21 +151,26 @@ fn a_view_usage_is_one_sysand_accepts() {
     }
 }
 
-/// The identity of a usage is guaranteed encodable, but its *path* is
-/// not checked at all when the manifest is read, unlike `sources`. So a
-/// manifest the reader accepts can still produce a view that no consumer
-/// validates, with a message that names neither the key nor the file.
-///
-/// Pinned as it stands.
+/// A manifest admits an absolute `dir` or `kpar-path`, but a
+/// `.project.json` usage path must be relative, so a view carrying one
+/// does not validate. The error names the usage and chains the cause.
 #[test]
-fn a_usage_path_the_manifest_accepts_may_still_not_validate() {
-    let error = usage(&dir("acme", "widgets", ""))
-        .validate()
-        .expect_err("an empty path");
-    assert!(
-        error.to_string().contains("references an invalid path"),
-        "unexpected message: {error}"
-    );
+fn an_absolute_usage_path_does_not_validate_in_a_view() {
+    for declared in [
+        dir("acme", "widgets", "/opt/libs/widgets"),
+        kpar_path("acme", "widgets", "/opt/libs/widgets.kpar"),
+    ] {
+        let error = usage(&declared).validate().expect_err("an absolute path");
+        assert!(
+            error.to_string().contains("references an invalid path"),
+            "unexpected message: {error}"
+        );
+        assert!(
+            std::error::Error::source(&error)
+                .is_some_and(|cause| cause.to_string().contains("is absolute")),
+            "unexpected cause: {error:?}"
+        );
+    }
 }
 
 // ----- the pair -----

@@ -5,7 +5,10 @@ use std::assert_matches;
 
 use typed_path::Utf8UnixPathBuf;
 
-use crate::utils::{NormalizeRelativeError, is_newer_format_version, normalize_relative};
+use crate::utils::{
+    NormalizeRelativeError, RelativePathKind, RelativeUnixPathError, is_newer_format_version,
+    normalize_relative, parse_relative_unix_path, parse_unix_path_or_absolute,
+};
 
 fn normalized(path: &str) -> Utf8UnixPathBuf {
     normalize_relative(path).expect("path should normalize")
@@ -114,4 +117,41 @@ fn anything_but_two_integers_is_unknown_rather_than_newer() {
         assert!(!is_newer_format_version(version, "0.5"), "{version:?}");
     }
     assert!(!is_newer_format_version("0.6", "x.y"));
+}
+
+#[test]
+fn an_absolute_path_is_admitted_only_where_asked_for() {
+    for path in ["/opt/lib", "C:/libs/lib"] {
+        assert_matches!(
+            parse_relative_unix_path(path, RelativePathKind::File),
+            Err(RelativeUnixPathError::Absolute { path: _ }),
+            "`{path}`"
+        );
+        assert_eq!(
+            parse_unix_path_or_absolute(path, RelativePathKind::File)
+                .unwrap()
+                .as_str(),
+            path
+        );
+    }
+}
+
+#[test]
+fn an_absolute_path_is_held_to_the_rules_past_its_root() {
+    assert_matches!(
+        parse_unix_path_or_absolute("/opt//lib", RelativePathKind::File),
+        Err(RelativeUnixPathError::ContainsDoubleSlash { path: _ })
+    );
+    assert_matches!(
+        parse_unix_path_or_absolute("//opt/lib", RelativePathKind::File),
+        Err(RelativeUnixPathError::ContainsDoubleSlash { path: _ })
+    );
+    assert_matches!(
+        parse_unix_path_or_absolute("/opt/lib/", RelativePathKind::File),
+        Err(RelativeUnixPathError::DirectoryPath { path: _ })
+    );
+    assert_matches!(
+        parse_unix_path_or_absolute("/opt/..", RelativePathKind::SubDirectory),
+        Err(RelativeUnixPathError::ContainsParent { path: _ })
+    );
 }

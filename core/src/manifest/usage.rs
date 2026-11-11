@@ -26,7 +26,7 @@ use crate::manifest::diagnostics::{
 };
 use crate::manifest::reader::{TableReader, describe};
 use crate::model::{IndexName, IndexPublisher, is_omg_stdlib_iri};
-use crate::utils::is_absolute_on_any_os;
+use crate::utils::{RelativePathKind, is_absolute_on_any_os, parse_unix_path_or_absolute};
 
 /// The keys a usage entry accepts, quoted as the message lists them.
 const ACCEPTED_KEYS: &str =
@@ -961,27 +961,28 @@ impl Display for Usage {
 }
 
 /// A `dir` or `kpar-path` is taken exactly as written, and admitted only
-/// in the one form Sysand writes: `/`-separated, with no backslash or
-/// NUL, no `.` component, `..` only as the leading components of a
-/// relative path, and no empty component (so no repeated or trailing
-/// slash). Unlike `sources` and `members`, such a path may leave the
-/// directory it is relative to. An absolute path is admitted, and held to
-/// the same rules past its root.
+/// in the one form Sysand writes: a path [`parse_unix_path_or_absolute`]
+/// accepts, with no `.` component and `..` only as the leading components
+/// of a relative path. Unlike `sources` and `members`, such a path may
+/// leave the directory it is relative to. An absolute path is admitted,
+/// and held to the same rules past its root.
 fn is_normal_local_path(raw: &str) -> bool {
-    if raw.contains(['\\', '\0']) {
+    // `File` refuses a trailing slash; whether the path names a file or a
+    // directory is not known here.
+    if parse_unix_path_or_absolute(raw, RelativePathKind::File).is_err() {
         return false;
     }
-    let absolute = is_absolute_on_any_os(raw);
-    let rest = raw.strip_prefix('/').unwrap_or(raw);
-    let mut leading = !absolute;
-    rest.split('/').all(|part| match part {
-        "" | "." => false,
-        ".." => leading,
-        _ => {
-            leading = false;
-            true
-        }
-    })
+    let mut leading = !is_absolute_on_any_os(raw);
+    raw.split('/')
+        .filter(|part| !part.is_empty())
+        .all(|part| match part {
+            "." => false,
+            ".." => leading,
+            _ => {
+                leading = false;
+                true
+            }
+        })
 }
 
 #[cfg(test)]

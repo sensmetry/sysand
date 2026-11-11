@@ -242,18 +242,42 @@ pub fn parse_relative_unix_path(
     path: &str,
     kind: RelativePathKind,
 ) -> Result<&Utf8UnixPath, RelativeUnixPathError> {
+    parse_unix_path(path, kind, false)
+}
+
+/// [`parse_relative_unix_path`] for a path that may also be absolute.
+/// An absolute path is held to the same rules past its root.
+pub fn parse_unix_path_or_absolute(
+    path: &str,
+    kind: RelativePathKind,
+) -> Result<&Utf8UnixPath, RelativeUnixPathError> {
+    parse_unix_path(path, kind, true)
+}
+
+fn parse_unix_path(
+    path: &str,
+    kind: RelativePathKind,
+    allow_absolute: bool,
+) -> Result<&Utf8UnixPath, RelativeUnixPathError> {
     // Path "." is always allowed for directories
     if !kind.is_file() && path == "." {
         return Ok(Utf8UnixPath::new(path));
     }
 
-    if is_absolute_on_any_os(path) {
-        return Err(RelativeUnixPathError::Absolute {
-            path: path.to_owned(),
-        });
-    }
+    let body = if is_absolute_on_any_os(path) {
+        if !allow_absolute {
+            return Err(RelativeUnixPathError::Absolute {
+                path: path.to_owned(),
+            });
+        }
+        // Past the root of a Unix path; a Windows drive is an ordinary
+        // first component here.
+        path.strip_prefix('/').unwrap_or(path)
+    } else {
+        path
+    };
 
-    for c in path.bytes() {
+    for c in body.bytes() {
         if c == b'\0' {
             return Err(RelativeUnixPathError::ContainsNull {
                 path: path.to_owned(),
@@ -264,7 +288,7 @@ pub fn parse_relative_unix_path(
             });
         }
     }
-    let stripped = if let Some(s) = path.strip_suffix('/') {
+    let stripped = if let Some(s) = body.strip_suffix('/') {
         if kind.is_file() {
             return Err(RelativeUnixPathError::DirectoryPath {
                 path: path.to_owned(),
@@ -273,7 +297,7 @@ pub fn parse_relative_unix_path(
             s
         }
     } else {
-        path
+        body
     };
 
     // Manually split into components, `Utf8UnixPath::components()` does
