@@ -43,7 +43,7 @@ use crate::model::{IndexName, IndexPublisher, KnownMetamodel, Metamodel, Metamod
 
 /// Every key model-toml.md "Main project metadata" documents, in the
 /// order it documents them, which is the order a generated file writes.
-const PROJECT_KEYS: &[&str] = &[
+pub(crate) const PROJECT_KEYS: &[&str] = &[
     "publisher",
     "name",
     "version",
@@ -60,7 +60,7 @@ const PROJECT_KEYS: &[&str] = &[
 
 /// model-toml.md `urls`: "currently allowed keys: website, repository,
 /// documentation".
-const URL_KEYS: &[&str] = &["website", "documentation", "repository"];
+pub(crate) const URL_KEYS: &[&str] = &["website", "documentation", "repository"];
 
 /// How this table names itself in a message and addresses itself in the
 /// span index.
@@ -156,6 +156,49 @@ impl ResolvedProject {
 }
 
 impl ProjectTable {
+    /// A `[project]` table built from values rather than read from a
+    /// file: the three keys every metamodel requires, and nothing else.
+    ///
+    /// This is where a command that *writes* a manifest starts one.
+    /// Every other key is public, so the caller sets
+    /// what it has; a constructor taking all twelve would say no more
+    /// and read far worse.
+    ///
+    /// `publisher` and `version` are wrapped as
+    /// [`MetaProperty::Provided`]: a generated file gives its values
+    /// rather than inheriting them. A caller that wants a marker assigns
+    /// the field.
+    ///
+    /// The returned table has **no `sources`**, which for the OMG
+    /// metamodel is not a manifest that resolves -- "a project with no
+    /// source files writes `sources = []`", which is
+    /// `Some(Sources::default())`, not `None`. It is still renderable:
+    /// what [`crate::manifest::edit::render_new`] writes is what the
+    /// table holds.
+    ///
+    /// Neither of the two private position fields can be set from
+    /// outside, so the diagnostics a built manifest raises in
+    /// [`ProjectManifest::resolve`] are unpositioned. There is no file
+    /// for them to point into.
+    pub fn new(publisher: IndexPublisher, name: IndexName, version: Version) -> Self {
+        Self {
+            name,
+            publisher: MetaProperty::Provided(publisher),
+            version: MetaProperty::Provided(version),
+            sources: None,
+            license: None,
+            description: None,
+            topics: None,
+            metamodel: None,
+            maintainers: None,
+            stdlib: None,
+            root: false,
+            urls: None,
+            stdlib_at: None,
+            table_at: None,
+        }
+    }
+
     /// Read and check the contents of a `[project]` table.
     ///
     /// Every key is read, and every problem pushed, before the value is

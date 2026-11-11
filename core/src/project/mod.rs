@@ -24,6 +24,7 @@ use crate::{
     context::ProjectContext,
     env::utils::ErrorBound,
     lock::Source,
+    manifest::edit::DocumentMut,
     model::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
         InterchangeProjectUsageRaw, KerMlChecksumAlg, ProjectHash, project_hash_hex,
@@ -141,6 +142,38 @@ pub enum ManifestError<ReadError: ErrorBound> {
     /// that reports them.
     #[error("this project has no `model.toml` manifest")]
     NoTomlManifest,
+}
+
+/// Why a manifest could not be stored.
+///
+/// The same shape as [`ManifestError`], and for the same reason: a
+/// default trait body cannot produce a `Self::Error`, which belongs to
+/// the implementation.
+#[derive(Error, Debug)]
+pub enum ManifestWriteError<WriteError: ErrorBound> {
+    #[error(transparent)]
+    Project(WriteError),
+    /// The project has nowhere to put one. A KPAR, a remote source
+    /// project, an index entry: their contents are not this Sysand's to
+    /// write.
+    #[error("this project cannot store a `model.toml` manifest")]
+    Unsupported,
+}
+
+impl<E: ErrorBound> ManifestWriteError<E> {
+    /// Map the inner write error while leaving the rest alone, as
+    /// [`ManifestError::map_project_read`] does. The `ProjectMut` derive
+    /// needs it to rewrap a variant's error.
+    pub fn map_project_write<F, E2>(self, f: F) -> ManifestWriteError<E2>
+    where
+        F: FnOnce(E) -> E2,
+        E2: ErrorBound,
+    {
+        match self {
+            Self::Project(e) => ManifestWriteError::Project(f(e)),
+            Self::Unsupported => ManifestWriteError::Unsupported,
+        }
+    }
 }
 
 impl<E: ErrorBound> ManifestError<E> {
@@ -1081,6 +1114,31 @@ pub trait ProjectMut: ProjectRead {
         source: &mut R,
         overwrite: bool,
     ) -> Result<(), Self::Error>;
+
+    /// Store a `model.toml` manifest.
+    ///
+    /// The document is what [`crate::manifest::edit::render_new`] built
+    /// or [`crate::manifest::edit::open`] parsed: one document type
+    /// serves generated and edited files, so a writer takes the type
+    /// rather than the text.
+    ///
+    /// The default refuses, because most projects have nowhere to put
+    /// one -- and so that an implementation outside this crate compiles
+    /// without writing it.
+    ///
+    /// `overwrite` governs a manifest that is already there, as it does
+    /// for the two json documents. Whether a project that holds json
+    /// documents accepts a manifest beside them is the implementation's
+    /// to decide: for a directory it is the ambiguity every reader
+    /// refuses, so the filesystem implementation says no.
+    fn put_manifest_document(
+        &mut self,
+        document: &DocumentMut,
+        overwrite: bool,
+    ) -> Result<(), ManifestWriteError<Self::Error>> {
+        let _ = (document, overwrite);
+        Err(ManifestWriteError::Unsupported)
+    }
 }
 
 // ----- Blanket trait impls -----
@@ -1118,6 +1176,17 @@ impl<T: ProjectMut> ProjectMut for &mut T {
         overwrite: bool,
     ) -> Result<(), Self::Error> {
         (**self).put_project(info, meta, overwrite)
+    }
+
+    // Without this the call would fall through to the trait's default
+    // and answer `Unsupported` for a project that can store one --
+    // silently, since it is not a compile failure.
+    fn put_manifest_document(
+        &mut self,
+        document: &DocumentMut,
+        overwrite: bool,
+    ) -> Result<(), ManifestWriteError<Self::Error>> {
+        (**self).put_manifest_document(document, overwrite)
     }
 }
 

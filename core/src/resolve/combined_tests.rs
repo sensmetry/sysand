@@ -46,6 +46,7 @@ fn minimal_project<S: AsRef<str>, T: AsRef<str>>(name: S, version: T) -> InMemor
             checksum: None,
         }),
         files: HashMap::new(),
+        model_toml: None,
         nominal_sources: vec![],
         source_may_offer_multiple_versions: false,
     }

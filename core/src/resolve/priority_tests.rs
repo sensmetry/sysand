@@ -43,6 +43,7 @@ fn mock_project<S: AsRef<str>, T: AsRef<str>, V: AsRef<str>>(
                 checksum: Some(IndexMap::default()),
             }),
             files: HashMap::default(),
+            model_toml: None,
             nominal_sources: vec![],
             source_may_offer_multiple_versions: false,
         },

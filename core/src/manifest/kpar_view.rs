@@ -83,7 +83,9 @@ pub enum ViewError<E> {
 ///
 /// A typed usage "carries `publisher` and `name` exactly as the manifest
 /// spells them, without normalization, because Sysand requires them to
-/// match the values found at the target". A PURL is built from the
+/// match the values found at the target". That is about what is
+/// *written*; the identity check when the usage resolves normalizes
+/// both sides, as model-toml.md "Normalization" requires. A PURL is built from the
 /// normalized pair instead, and cannot fail: `Publisher` and `Name`
 /// accept only values that are valid PURL segments once normalized (see
 /// `purl::is_valid_unnormalized_publisher`), so the identity a usage

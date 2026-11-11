@@ -38,7 +38,7 @@ use crate::utils::{NormalizeRelativeError, normalize_relative};
 /// `stdlib` and `manifest-version` are deliberately absent -- in a
 /// workspace they are "an unknown key like any other (a warning)" -- and
 /// so are `name`, `description` and `root`, which identify one project.
-const GROUP_KEYS: &[&str] = &[
+pub(crate) const GROUP_KEYS: &[&str] = &[
     "publisher",
     "version",
     "license",

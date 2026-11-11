@@ -39,6 +39,7 @@ fn project(version: &str) -> InMemoryProject {
             checksum: None,
         }),
         files: HashMap::new(),
+        model_toml: None,
         nominal_sources: vec![],
         source_may_offer_multiple_versions: false,
     }

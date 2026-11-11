@@ -15,6 +15,9 @@ use crate::{
     resolve::null::NullResolver,
 };
 
+#[cfg(feature = "filesystem")]
+use crate::resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead, UsageOrigin};
+
 #[test]
 fn lock_export_conflict() {
     let exports = vec!["sym1".into(), "sym2".into(), "sym3".into()];
@@ -408,4 +411,86 @@ mod typed_usage_spelling {
             DeclaredBy::Dependency("`Mid` 1.0.0 (`pkg:sysand/acme/mid`)".to_owned())
         );
     }
+}
+
+/// A resolver that records the origin of every usage it is asked to
+/// resolve, and resolves nothing: the solve fails after the first
+/// usage, which is enough to see what was asked.
+#[cfg(feature = "filesystem")]
+#[derive(Debug, Default)]
+struct RecordingResolver {
+    seen: std::rc::Rc<std::cell::RefCell<Vec<UsageOrigin>>>,
+}
+
+#[cfg(feature = "filesystem")]
+impl ResolveRead for RecordingResolver {
+    type Error = std::convert::Infallible;
+
+    type ProjectStorage = crate::project::null::NullProject;
+
+    type ResolvedStorages = std::iter::Empty<Result<Self::ProjectStorage, Self::Error>>;
+
+    fn resolve_read(
+        &self,
+        resolve: &ResolutionInfo,
+    ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
+        self.seen.borrow_mut().push(resolve.origin());
+        Ok(ResolutionOutcome::NotFound {
+            reason: "recording resolver".to_owned(),
+        })
+    }
+}
+
+/// The usages of the projects handed to `do_lock_projects` are the
+/// solve's *requested* usages, and their origin is the format of the
+/// project that declared them -- there is no candidate to ask.
+#[cfg(feature = "filesystem")]
+#[test]
+fn a_requested_usage_takes_the_origin_of_the_project_that_declared_it() {
+    use crate::project::local_src::LocalSrcProject;
+
+    fn origins_of(dir: &camino::Utf8Path) -> Vec<UsageOrigin> {
+        let project =
+            LocalSrcProject::new_access(dir, Some(typed_path::Utf8UnixPathBuf::from(".")));
+        let resolver = RecordingResolver::default();
+        let seen = resolver.seen.clone();
+        do_lock_projects(
+            [(None, &project)],
+            resolver,
+            &HashMap::new(),
+            &ProjectContext::default(),
+        )
+        .expect_err("the resolver finds nothing");
+        seen.borrow().clone()
+    }
+
+    let toml = camino_tempfile::tempdir().expect("a temporary directory");
+    std::fs::write(
+        toml.path().join("model.toml"),
+        "manifest-version = 1\n\n\
+         [project]\n\
+         publisher = \"acme\"\n\
+         name = \"app\"\n\
+         version = \"1.0.0\"\n\
+         sources = []\n\n\
+         [[inline-usages]]\n\
+         publisher = \"acme\"\n\
+         name = \"lib\"\n\
+         version = \"^1\"\n",
+    )
+    .expect("write model.toml");
+    assert_eq!(origins_of(toml.path()), [UsageOrigin::Toml]);
+
+    let json = camino_tempfile::tempdir().expect("a temporary directory");
+    std::fs::write(
+        json.path().join(".project.json"),
+        r#"{"name":"app","version":"1.0.0","usage":[{"resource":"pkg:sysand/acme/lib"}]}"#,
+    )
+    .expect("write .project.json");
+    std::fs::write(
+        json.path().join(".meta.json"),
+        r#"{"index":{},"created":"1970-01-01T00:00:00Z"}"#,
+    )
+    .expect("write .meta.json");
+    assert_eq!(origins_of(json.path()), [UsageOrigin::Json]);
 }

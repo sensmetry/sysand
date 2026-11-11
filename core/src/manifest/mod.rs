@@ -13,6 +13,7 @@
 
 pub mod common;
 pub mod diagnostics;
+pub mod edit;
 pub mod inherit;
 pub mod kpar_view;
 pub mod project;

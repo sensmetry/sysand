@@ -816,6 +816,12 @@ fn project_json_for(name: &str, version: &str) -> String {
     format!(r#"{{"name":"{name}","version":"{version}"}}"#)
 }
 
+/// [`project_json_for`] for a project served under a `pkg:sysand` route,
+/// which names a publisher the entry has to agree with.
+fn project_json_with_publisher_for(publisher: &str, name: &str, version: &str) -> String {
+    format!(r#"{{"name":"{name}","publisher":"{publisher}","version":"{version}"}}"#)
+}
+
 /// Render a minimal `.meta.json` body. The fixed timestamp keeps any test
 /// that hashes the body reproducible.
 const TEST_META_JSON_BODY: &str = r#"{"index":{},"created":"2026-01-01T00:00:00.000000000Z"}"#;
@@ -956,6 +962,13 @@ fn mock_index_project(
             .create(),
     ];
 
+    // The route names the publisher, and an index entry is checked against
+    // the identity that found it
+    let publisher = project_dir
+        .trim_start_matches('/')
+        .split('/')
+        .next()
+        .unwrap();
     for version in versions {
         mocks.push(
             server
@@ -965,7 +978,7 @@ fn mock_index_project(
                 )
                 .with_status(200)
                 .with_header("content-type", "application/json")
-                .with_body(project_json_for(name, version))
+                .with_body(project_json_with_publisher_for(publisher, name, version))
                 .create(),
         );
         mocks.push(

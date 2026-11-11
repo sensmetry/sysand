@@ -453,7 +453,8 @@ impl From<LocalSrcError> for LocalWriteError {
             error @ LocalSrcError::MissingInfoMeta { missing: _ } => Self::Format(error),
             error @ (LocalSrcError::AmbiguousFormat { dir: _, json: _ }
             | LocalSrcError::Symbols(_)
-            | LocalSrcError::JsonWriteToTomlProject { dir: _, file: _ }) => Self::Format(error),
+            | LocalSrcError::JsonWriteToTomlProject { dir: _, file: _ }
+            | LocalSrcError::TomlWriteToJsonProject { dir: _ }) => Self::Format(error),
         }
     }
 }

@@ -13,7 +13,7 @@ use crate::{
     model::{InterchangeProjectUsage, InterchangeProjectValidationError},
     project::{ProjectRead, utils::Identifier},
     resolve::{
-        ResolveRead,
+        ResolveRead, UsageOrigin,
         env::EnvResolver,
         memory::{AcceptAll, MemoryResolver},
         priority::{PriorityProject, PriorityResolver},
@@ -168,6 +168,16 @@ fn solve_dependencies<Env: ReadEnvironment + Debug + 'static>(
     );
 
     // `base_path` does not matter here, since the resolver only looks in env
+    // TODO: the caller knows the format of the project these usages came
+    // from, but `find_project_dependencies` is public and reached from the
+    // bindings, so the origin is not threaded through it yet. A toml
+    // project's own usages therefore resolve as json here, which decides
+    // only whether a publisher-less target is an `IdentityMismatch::NoPublisher`
+    // or an ordinary `IdentityMismatch::Publisher`.
+    let requested = requested
+        .into_iter()
+        .map(|u| (u, UsageOrigin::Json))
+        .collect();
     let mut resolved = crate::solve::pubgrub::solve(requested, None, resolver)?;
 
     Ok(resolved

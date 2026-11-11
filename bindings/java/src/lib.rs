@@ -127,7 +127,8 @@ fn init<'local>(
                     LocalSrcError::Deserialize(_)
                     | LocalSrcError::AmbiguousFormat { dir: _, json: _ }
                     | LocalSrcError::Symbols(_)
-                    | LocalSrcError::JsonWriteToTomlProject { dir: _, file: _ } => {
+                    | LocalSrcError::JsonWriteToTomlProject { dir: _, file: _ }
+                    | LocalSrcError::TomlWriteToJsonProject { dir: _ } => {
                         env.throw_exception(ExceptionKind::InvalidValue, e)
                     }
                     LocalSrcError::Io(_) => env.throw_exception(ExceptionKind::IOError, e),
