@@ -485,21 +485,41 @@ pub fn is_above_root(relative: &Utf8UnixPath) -> bool {
         .any(|c| c == Utf8UnixComponent::ParentDir)
 }
 
+/// A path that could not be made absolute or canonicalized.
+#[derive(Debug, Error)]
+#[error("failed to resolve path `{path}`")]
+pub struct ResolvePathError {
+    pub path: Utf8PathBuf,
+    #[source]
+    pub source: std::io::Error,
+}
+
 /// Tries to canonicalize the (longest possible) prefix of a path.
 /// Useful if you have /path/to/file/that/does/not/exist
 /// but where some prefix, say, /path/to/file can be canonicalized.
 ///
 /// The part that does not exist is appended as written, including any `..`.
-pub(crate) fn canonicalize_prefix<P: AsRef<Utf8Path>>(path: P) -> Utf8PathBuf {
+/// Any other canonicalization failure, such as a permission error or a path
+/// inside a regular file, is returned.
+pub(crate) fn canonicalize_prefix<P: AsRef<Utf8Path>>(
+    path: P,
+) -> Result<Utf8PathBuf, ResolvePathError> {
     let mut relative_part = Utf8PathBuf::new();
     let mut absolute_part = path.to_path_buf();
 
     loop {
-        // A path that cannot be canonicalized is treated as not existing
-        // ast-grep-ignore: if-let-ok
-        if let Ok(canonical_absolute) = wrapfs::canonicalize_raw(&absolute_part) {
-            absolute_part = canonical_absolute;
-            break;
+        match wrapfs::canonicalize_raw(&absolute_part) {
+            Ok(canonical_absolute) => {
+                absolute_part = canonical_absolute;
+                break;
+            }
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => {}
+            Err(source) => {
+                return Err(ResolvePathError {
+                    path: absolute_part,
+                    source,
+                });
+            }
         }
 
         match (absolute_part.parent(), absolute_part.file_name()) {
@@ -514,38 +534,43 @@ pub(crate) fn canonicalize_prefix<P: AsRef<Utf8Path>>(path: P) -> Utf8PathBuf {
     }
 
     absolute_part.push(relative_part);
-    absolute_part
+    Ok(absolute_part)
 }
 
+/// `path` relative to `relative_to`, or `None` if `path` is outside it.
 pub(crate) fn relativize_path_in<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
     path: P,
     relative_to: Q,
-) -> Option<Utf8UnixPathBuf> {
+) -> Result<Option<Utf8UnixPathBuf>, ResolvePathError> {
     let path = if path.as_ref().is_absolute() {
-        canonicalize_prefix(path)
+        canonicalize_prefix(path)?
     } else {
-        // `None` means no relative form exists
-        // ast-grep-ignore: dot-ok
-        let path = camino::absolute_utf8(path.as_ref()).ok()?;
-        canonicalize_prefix(path)
+        let absolute = camino::absolute_utf8(path.as_ref()).map_err(|source| ResolvePathError {
+            path: path.as_ref().to_owned(),
+            source,
+        })?;
+        canonicalize_prefix(absolute)?
     };
 
-    let root = canonicalize_prefix(relative_to);
+    let root = canonicalize_prefix(relative_to)?;
     // `..` can survive in the part of a path that does not exist, and
     // `relativize_path` requires none
     if contains_non_canonical_components(&path) || contains_non_canonical_components(&root) {
-        return None;
+        return Ok(None);
     }
+    // `NoCommonPrefix` is the only error and means `path` is outside `root`
     // ast-grep-ignore: dot-ok
-    let relative = relativize_path(path, root).ok()?;
+    let Some(relative) = relativize_path(path, root).ok() else {
+        return Ok(None);
+    };
     if is_above_root(&relative) {
-        return None;
+        return Ok(None);
     }
     // `relativize_path` names the root itself `.`; here it is the empty path
     if relative.as_str() == "." {
-        return Some(Utf8UnixPathBuf::new());
+        return Ok(Some(Utf8UnixPathBuf::new()));
     }
-    Some(relative)
+    Ok(Some(relative))
 }
 
 #[cfg(test)]

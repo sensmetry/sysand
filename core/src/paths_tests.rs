@@ -266,7 +266,9 @@ fn relativize_path_error_non_common_prefix() -> Result<(), Box<dyn Error>> {
 #[test]
 fn relativize_path_in_stays_inside_the_root() {
     let inside = |path: &str| {
-        relativize_path_in(path, "/sysand-no-such-dir/a").map(typed_path::Utf8PathBuf::into_string)
+        relativize_path_in(path, "/sysand-no-such-dir/a")
+            .unwrap()
+            .map(typed_path::Utf8PathBuf::into_string)
     };
     assert_eq!(inside("/sysand-no-such-dir/a/b/c").as_deref(), Some("b/c"));
     assert_eq!(inside("/sysand-no-such-dir/a").as_deref(), Some(""));
@@ -274,4 +276,34 @@ fn relativize_path_in_stays_inside_the_root() {
     // a `..` that survives canonicalization of the existing prefix leaves the root
     assert_eq!(inside("/sysand-no-such-dir/a/../b"), None);
     assert_eq!(inside("/sysand-no-such-dir/a/b/../../.."), None);
+}
+
+#[cfg(unix)]
+#[test]
+fn canonicalize_prefix_returns_errors_other_than_missing() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let dir = camino_tempfile::tempdir().unwrap();
+    let locked = dir.path().join("locked");
+    std::fs::create_dir(&locked).unwrap();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let result = canonicalize_prefix(locked.join("inner/file"));
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+    // root can read everything
+    if std::fs::read_dir(&locked).is_ok() {
+        return;
+    }
+    let err = result.unwrap_err();
+    assert_eq!(err.source.kind(), std::io::ErrorKind::PermissionDenied);
+}
+
+#[cfg(unix)]
+#[test]
+fn canonicalize_prefix_rejects_a_path_inside_a_file() {
+    let dir = camino_tempfile::tempdir().unwrap();
+    let file = dir.path().join("file");
+    std::fs::write(&file, "").unwrap();
+    let err = canonicalize_prefix(file.join("inner")).unwrap_err();
+    assert_eq!(err.source.kind(), std::io::ErrorKind::NotADirectory);
 }

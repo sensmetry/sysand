@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 use crate::paths::{
-    RelativeUnixPathError, RelativizePathError, normalize_relative, relativize_path,
-    relativize_path_in,
+    RelativeUnixPathError, RelativizePathError, ResolvePathError, normalize_relative,
+    relativize_path, relativize_path_in,
 };
 use std::{
     collections::HashSet,
@@ -184,7 +184,7 @@ impl LocalSrcProject {
         let project_path = wrapfs::canonicalize_raw(root_path)
             .map_err(|e| UnixPathError::Canonicalize(root_path.to_owned(), e))?;
 
-        let path = relativize_path_in(&path, project_path)
+        let path = relativize_path_in(&path, project_path)?
             .ok_or_else(|| UnixPathError::PathOutsideProject(path.to_path_buf()))?;
 
         Ok(path)
@@ -649,6 +649,8 @@ pub enum UnixPathError {
     PathOutsideProject(Utf8PathBuf),
     #[error("failed to canonicalize\n  `{0}`")]
     Canonicalize(Utf8PathBuf, #[source] std::io::Error),
+    #[error(transparent)]
+    Resolve(#[from] ResolvePathError),
 }
 
 #[derive(Error, Debug)]
