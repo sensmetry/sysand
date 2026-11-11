@@ -171,86 +171,37 @@ fn pprint_project(definition: &ProjectDefinition, excluded_iris: &ProvidedIdenti
     }
 }
 
-/// How a local project path given on the command line is to be interpreted
-#[derive(Clone, Copy, Debug)]
-pub enum LocalProjectKind {
-    Dir,
-    Kpar,
-}
-
-fn interpret_project_path<P: AsRef<Utf8Path>>(
-    path: P,
-    kind: LocalProjectKind,
-) -> Result<FileResolverProject> {
+fn interpret_kpar_path<P: AsRef<Utf8Path>>(path: P) -> Result<FileResolverProject> {
     let path = path.as_ref();
-    let metadata = wrapfs::metadata(path)?;
-    Ok(match kind {
-        LocalProjectKind::Dir => {
-            if !metadata.is_dir() {
-                bail!(
-                    "`{path}` is not a directory\n\
-                    {USAGE}hint:{USAGE:#} to use a KPAR, use `--kpar-path`"
-                );
-            }
-            FileResolverProject::LocalSrcProject(
-                sysand_core::workspace::model_toml::project_at_path(path, None)?,
-            )
-        }
-        LocalProjectKind::Kpar => {
-            if !metadata.is_file() {
-                bail!(
-                    "`{path}` is not a file\n\
-                    {USAGE}hint:{USAGE:#} to use a directory, use `--dir`"
-                );
-            }
-            FileResolverProject::LocalKParProject(LocalKParProject::new_access(
-                path,
-                KparInnerPath::Guess,
-                None,
-            ))
-        }
-    })
+    if !wrapfs::metadata(path)?.is_file() {
+        bail!(
+            "`{path}` is not a file\n\
+            {USAGE}hint:{USAGE:#} to use a directory, use `--dir`"
+        );
+    }
+    Ok(FileResolverProject::LocalKParProject(
+        LocalKParProject::new_access(path, KparInnerPath::Guess, None),
+    ))
 }
 
 pub fn command_info_path<P: AsRef<Utf8Path>>(
     path: P,
-    kind: LocalProjectKind,
     excluded_iris: &HashSet<Identifier>,
 ) -> Result<()> {
-    command_info_project(
-        interpret_project_path(&path, kind)?,
-        path.as_ref(),
-        excluded_iris,
-    )
+    let project = interpret_kpar_path(&path)?;
+    report_info(do_info_project(&project), path.as_ref(), excluded_iris)
 }
 
-/// [`command_info_path`] for a project that is already open.
-///
-/// Re-opening the working directory's project would drop the workspace
-/// table a member needs, and a member with `version.workspace = true`
-/// would read as an invalid project.
-pub fn command_info_project(
-    project: FileResolverProject,
-    iri: &Utf8Path,
-    excluded_iris: &HashSet<Identifier>,
-) -> Result<()> {
-    report_info(do_info_project(&project), iri, excluded_iris)
-}
-
-/// [`command_info_project`] for the context's current project, whose
-/// manifest is taken from `ctx` when it has already been parsed.
+/// Report the context's current project.
 pub fn command_info_current(
     ctx: &ProjectContext,
     iri: &Utf8Path,
     excluded_iris: &HashSet<Identifier>,
 ) -> Result<()> {
-    let definition = match ctx.current_definition() {
-        Ok(Some(definition)) => Ok(definition),
-        Ok(None) => Err(InfoProjectError::MissingProject),
-        Err(error) => Err(InfoProjectError::InvalidProject(
-            FileResolverProjectError::from(error),
-        )),
-    };
+    let definition = ctx
+        .current_definition()
+        .cloned()
+        .ok_or(InfoProjectError::MissingProject);
     report_info(definition, iri, excluded_iris)
 }
 
@@ -325,24 +276,21 @@ pub fn command_info_field<Project: ProjectRead>(project: &Project, field: InfoFi
     Ok(())
 }
 
-/// [`command_info_field`] for the context's current project, whose
-/// manifest is taken from `ctx` when it has already been parsed.
+/// [`command_info_field`] for the context's current project.
 pub fn command_info_current_field(
     ctx: &ProjectContext,
     project: &LocalSrcProject,
     field: InfoField,
 ) -> Result<()> {
-    let definition = definition_or_bail(ctx.current_definition())?;
-    print_lines(field_lines(field, project, &definition)?);
+    let Some(definition) = ctx.current_definition() else {
+        bail!("project does not appear to have a manifest");
+    };
+    print_lines(field_lines(field, project, definition)?);
     Ok(())
 }
 
-pub fn command_info_field_path<P: AsRef<Utf8Path>>(
-    path: P,
-    kind: LocalProjectKind,
-    field: InfoField,
-) -> Result<()> {
-    command_info_field(&interpret_project_path(&path, kind)?, field)
+pub fn command_info_field_path<P: AsRef<Utf8Path>>(path: P, field: InfoField) -> Result<()> {
+    command_info_field(&interpret_kpar_path(&path)?, field)
 }
 
 pub fn command_info_field_resolve<Policy: HTTPAuthentication>(

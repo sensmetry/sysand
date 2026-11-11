@@ -19,18 +19,15 @@ use sysand_core::{
     discover::DirManifest,
     manifest::usage::{MemberUsage, Usage},
     manifest::{
-        MODEL_TOML_FILE, ModelToml, ModelTomlKind, ParsedModelToml, edit::render_new,
+        MODEL_TOML_FILE, ModelToml, ModelTomlKind, edit::render_new,
         workspace_table::WorkspaceTable,
     },
-    model::{
-        IndexName, IndexPublisher, InterchangeProjectInfoPartial,
-        InterchangeProjectMetadataPartial, META_JSON_FILE, PROJECT_JSON_FILE,
-    },
+    model::{IndexName, IndexPublisher, META_JSON_FILE, PROJECT_JSON_FILE},
     project::{
         ProjectDefinition, ProjectRead as _,
         local_kpar::{KparInnerPath, LocalKParProject},
-        local_src::{LocalSrcProject, ProjectFormat, detect_format},
-        utils::{ProjectDeserializationError, validate_manifest, wrapfs},
+        local_src::LocalSrcProject,
+        utils::wrapfs,
     },
     resolve::ResolutionInfo,
     utils::ProvidedProjects,
@@ -65,29 +62,35 @@ pub fn command_migrate<Policy: HTTPAuthentication>(
         .clone()
         .unwrap_or_else(|| ctx.current_directory.clone());
 
-    // From a workspace root a path must name the project. Unlisted json
-    // projects under a workspace root are valid targets, so workspace
-    // discovery errors must not be fatal for this command.
-    // Read once, for the workspace check here and the `Both` comparison.
-    let model_toml = match DirManifest::read(&dir)? {
-        Some(DirManifest::ModelToml { file, parsed }) => Some((file, parsed)),
-        Some(DirManifest::Json) | None => None,
+    // The context was built at `dir`: the project it holds is the target,
+    // and one found above `dir` is not.
+    let holds_project = match ctx.current_project() {
+        Some(project) => wrapfs::canonicalize(project.root_path())? == wrapfs::canonicalize(&dir)?,
+        None => false,
     };
-    if path.is_none()
-        && model_toml
-            .as_ref()
-            .is_some_and(|(_, parsed)| parsed.kind == ModelTomlKind::Workspace)
-    {
-        bail!("run from a workspace root, `migrate` needs the path of the json project to convert");
-    }
-
-    // `Both` is compared only after the working-tree check: a dirty
-    // project with a mismatched pair must hear about the dirty tree first.
-    let keep_existing_toml = match detect_format(&dir)? {
-        ProjectFormat::Json => false,
-        ProjectFormat::Toml => bail!("`{dir}` is already a `model.toml` project"),
-        ProjectFormat::Neither => bail!("`{dir}` does not contain a project to migrate"),
-        ProjectFormat::Both => true,
+    let definition = match ctx.current_definition() {
+        Some(definition) if holds_project => definition,
+        _ => {
+            // From a workspace root a path must name the project. Unlisted
+            // json projects under a workspace root are valid targets, so
+            // workspace discovery errors are not fatal for this command.
+            if path.is_none()
+                && matches!(
+                    DirManifest::read(&dir)?,
+                    Some(DirManifest::ModelToml { file: _, parsed })
+                        if parsed.kind == ModelTomlKind::Workspace
+                )
+            {
+                bail!(
+                    "run from a workspace root, `migrate` needs the path of the json project to \
+                     convert"
+                );
+            }
+            bail!("`{dir}` does not contain a project to migrate");
+        }
+    };
+    let ProjectDefinition::Json { info, meta } = definition else {
+        bail!("`{dir}` is already a `model.toml` project");
     };
 
     // Before anything is written: the json manifests are deleted, so the
@@ -111,32 +114,6 @@ pub fn command_migrate<Policy: HTTPAuthentication>(
             VcsState::NoRepository => {}
         }
     }
-
-    if keep_existing_toml {
-        // The existing `model.toml` is kept untouched and only the json
-        // files are deleted, after checking that both agree on `name`
-        // and `version`.
-        let (file, parsed) = model_toml.expect("`Both` means `model.toml` is there");
-        check_both_agree(&dir, &file, parsed)?;
-        delete_json_pair(&dir)?;
-        let header = sysand_core::style::get_style_config().header;
-        let migrated = "Migrated";
-        log::info!(
-            "{header}{migrated:>12}{header:#} `{dir}`: kept the existing `{MODEL_TOML_FILE}` \
-             and removed the json manifests"
-        );
-        return Ok(());
-    }
-
-    // Through the `Partial` types and `validate_manifest`, so unknown
-    // keys are warned about. The metadata comes first: `validate` takes
-    // the metamodel from it.
-    let meta = parse_meta_json(&dir, &wrapfs::read_to_string(dir.join(META_JSON_FILE))?)?;
-    let info = parse_info_json(
-        &dir,
-        &wrapfs::read_to_string(dir.join(PROJECT_JSON_FILE))?,
-        &meta,
-    )?;
 
     // Built on the first resource that needs it, so a project with no
     // `resource` usages does not fail on configuration it never reads.
@@ -194,8 +171,8 @@ pub fn command_migrate<Policy: HTTPAuthentication>(
         crate::commands::check_metamodel(value)?;
     }
     let validated = migrate_project(
-        &info,
-        &meta,
+        info,
+        meta,
         &MigrateOptions {
             publisher,
             metamodel,
@@ -226,35 +203,6 @@ pub fn command_migrate<Policy: HTTPAuthentication>(
     Ok(())
 }
 
-/// Parse and validate `.meta.json`'s `text` through the `Partial` type, so
-/// unknown keys are warned about.
-fn parse_meta_json(
-    dir: &Utf8Path,
-    text: &str,
-) -> Result<sysand_core::model::InterchangeProjectMetadataRaw> {
-    let partial: InterchangeProjectMetadataPartial = serde_json::from_str(text)
-        .map_err(|e| anyhow::anyhow!("failed to read `{META_JSON_FILE}`: {e}"))?;
-    Ok(validate_manifest(
-        dir.join(META_JSON_FILE),
-        partial.validate(META_JSON_FILE, None),
-    )?)
-}
-
-/// Parse and validate `.project.json`'s `text`, which takes the metamodel
-/// from `meta`.
-fn parse_info_json(
-    dir: &Utf8Path,
-    text: &str,
-    meta: &sysand_core::model::InterchangeProjectMetadataRaw,
-) -> Result<sysand_core::model::InterchangeProjectInfoRaw> {
-    let partial: InterchangeProjectInfoPartial = serde_json::from_str(text)
-        .map_err(|e| anyhow::anyhow!("failed to read `{PROJECT_JSON_FILE}`: {e}"))?;
-    Ok(validate_manifest(
-        dir.join(PROJECT_JSON_FILE),
-        partial.validate(PROJECT_JSON_FILE, meta.metamodel.as_deref()),
-    )?)
-}
-
 fn delete_json_pair(dir: &Utf8Path) -> Result<()> {
     for json in [PROJECT_JSON_FILE, META_JSON_FILE] {
         let at = dir.join(json);
@@ -262,121 +210,6 @@ fn delete_json_pair(dir: &Utf8Path) -> Result<()> {
             wrapfs::remove_file(&at)?;
         }
     }
-    Ok(())
-}
-
-/// The `Both` case: a `model.toml` beside a json pair. `parsed` is the
-/// `model.toml`, read from `file`.
-///
-/// Neither side goes through `ProjectRead`: `get_project` refuses an
-/// ambiguous directory before reading anything.
-///
-/// Only `name` and `version` are compared. Nothing checks that the two
-/// manifests agree about `sources` or usages, so a `model.toml` that agrees on
-/// the identity has the json project's usages deleted silently.
-fn check_both_agree(dir: &Utf8Path, file: &Utf8Path, parsed: ParsedModelToml) -> Result<()> {
-    let manifest = parsed
-        .manifest
-        .map_err(|report| ProjectDeserializationError::invalid(file, report))?;
-    let ModelToml::Project(project) = manifest.value else {
-        bail!(
-            "`{dir}/{MODEL_TOML_FILE}` defines a workspace, not a project, so it cannot be the \
-             `model.toml` of the json project beside it"
-        );
-    };
-
-    // An inherited value cannot be resolved without the workspace table,
-    // which `migrate` does not load. `publisher` is refused too, though it
-    // is not compared: if it cannot be resolved the manifests may name
-    // different projects.
-    let toml_version = match project.project.version.provided() {
-        Some(version) => version.to_string(),
-        None => bail!(
-            "`{dir}/{MODEL_TOML_FILE}` inherits `version` from a workspace, so it cannot be \
-             compared with the json manifest beside it"
-        ),
-    };
-    if project.project.publisher.provided().is_none() {
-        bail!(
-            "`{dir}/{MODEL_TOML_FILE}` inherits `publisher` from a workspace, so it cannot be \
-             compared with the json manifest beside it"
-        );
-    }
-
-    // Through the `Partial` types and `validate_manifest`, as the Json
-    // path above does, so unknown keys are warned about. The metadata
-    // comes first, `validate` taking the metamodel from it. Absent is not
-    // an error: a directory is `Both` when either json file is there.
-    let meta = match wrapfs::read_to_string(dir.join(META_JSON_FILE)) {
-        Ok(text) => parse_meta_json(dir, &text)?,
-        Err(_) => sysand_core::model::InterchangeProjectMetadataRaw::default(),
-    };
-    // A `model.toml` beside a lone `.meta.json` is the state an interrupted
-    // `migrate` leaves, as `.project.json` is deleted first. Finishing the
-    // job loses nothing readable: `.meta.json` alone is not a project.
-    let json_text = match wrapfs::read_to_string(dir.join(PROJECT_JSON_FILE)) {
-        Ok(text) => text,
-        // Nothing to compare against; the caller removes the stray.
-        Err(error)
-            if matches!(
-                &*error,
-                sysand_core::project::utils::FsIoError::ReadFile(_, source) if source.kind() == std::io::ErrorKind::NotFound
-            ) =>
-        {
-            return Ok(());
-        }
-        Err(error) => return Err(error.into()),
-    };
-    let json = parse_info_json(dir, &json_text, &meta)?;
-
-    // Names compare normalized: `Lib test` and `lib-test` are the same
-    // name, but `IndexName`'s `PartialEq` compares the written string.
-    let json_name = IndexName::parse(json.name.clone())
-        .map_err(|e| anyhow::anyhow!("`{PROJECT_JSON_FILE}` has an invalid `name`: {e}"))?;
-    if json_name.normalized() != project.project.name.normalized() {
-        bail!(
-            "`{MODEL_TOML_FILE}` names `{}` but `{PROJECT_JSON_FILE}` names `{}`; \
-             migrating a project that has both requires them to agree",
-            project.project.name.as_str(),
-            json.name
-        );
-    }
-
-    // A json version that is not semver is a parse error, not a
-    // disagreement.
-    let json_version = semver::Version::parse(&json.version).map_err(|e| {
-        anyhow::anyhow!(
-            "`{PROJECT_JSON_FILE}` has version `{}`, which is not a semantic version: {e}",
-            json.version
-        )
-    })?;
-    if json_version.to_string() != toml_version {
-        bail!(
-            "`{MODEL_TOML_FILE}` is version `{toml_version}` but `{PROJECT_JSON_FILE}` is \
-             version `{}`; migrating a project that has both requires them to agree",
-            json.version
-        );
-    }
-
-    // Resolve, not only parse: `metamodel` is required, and a `model.toml`
-    // without one would be left unreadable once the json pair is deleted.
-    //
-    // `None` for the workspace: `migrate` does not load one, which is why
-    // the inherited keys above are refused by hand.
-    let resolved = project
-        .resolve(None)
-        .map_err(|report| {
-            anyhow::anyhow!(
-                "`{file}` would not be readable on its own:\n{}\n\
-                 the json manifests beside it are left in place",
-                report.in_file(file.as_str())
-            )
-        })?
-        .into_parts()
-        .0;
-
-    warn_about_what_the_json_holds(&resolved, &json, &meta);
-
     Ok(())
 }
 
@@ -678,100 +511,4 @@ fn spell_path_usages_as_targets(manifest: &mut ModelToml, dir: &Utf8Path) {
             _ => {}
         }
     }
-}
-
-/// Say what the json manifests hold that the `model.toml` does not,
-/// before they are deleted.
-///
-/// This warns rather than refuses: it tells the user what the migration
-/// costs. The `.meta.json` symbol index and checksums are not compared, as
-/// a `model.toml` cannot hold either; `sources` covers what they become.
-///
-/// A json usage is rendered as the json spells it: a `resource` usage has
-/// no publisher or name until its target is fetched, and this path builds
-/// no resolver.
-fn warn_about_what_the_json_holds(
-    toml: &sysand_core::manifest::project::ResolvedProject,
-    json: &sysand_core::model::InterchangeProjectInfoRaw,
-    meta: &sysand_core::model::InterchangeProjectMetadataRaw,
-) {
-    let mut lost: Vec<String> = Vec::new();
-
-    if !json.usage.is_empty() && toml.usages.is_empty() {
-        for usage in &json.usage {
-            lost.push(format!("usage {usage}"));
-        }
-    }
-
-    // The json side is normalized first: migration rewrites `./a.sysml`
-    // and `a//b.sysml` into the strict form `sources` takes, so raw
-    // strings would report differences migration erases.
-    let mut discard = sysand_core::manifest::diagnostics::Diagnostics::new();
-    if let Some(from_json) =
-        sysand_core::commands::migrate::migrate_sources(meta, Some(&toml.metamodel), &mut discard)
-    {
-        let held: std::collections::BTreeSet<String> =
-            toml.sources.iter().map(ToString::to_string).collect();
-        let missing: Vec<String> = from_json
-            .iter()
-            .map(ToString::to_string)
-            .filter(|path| !held.contains(path))
-            .collect();
-        if !missing.is_empty() {
-            lost.push(format!(
-                "{} source file{} listed in `{META_JSON_FILE}`: {}",
-                missing.len(),
-                if missing.len() == 1 { "" } else { "s" },
-                missing.join(", ")
-            ));
-        }
-    }
-
-    let scalars: [(&str, Option<String>, bool); 3] = [
-        (
-            "description",
-            json.description.clone(),
-            toml.description.is_some(),
-        ),
-        ("license", json.license.clone(), toml.license.is_some()),
-        ("website", json.website.clone(), toml.urls.website.is_some()),
-    ];
-    for (key, in_json, in_toml) in scalars {
-        if let Some(value) = in_json
-            && !in_toml
-        {
-            lost.push(format!("`{key}` (`{value}`)"));
-        }
-    }
-
-    let lists: [(&str, usize, bool); 2] = [
-        (
-            "maintainer",
-            json.maintainer.len(),
-            toml.maintainers.is_empty(),
-        ),
-        ("topic", json.topic.len(), toml.topics.is_empty()),
-    ];
-    for (key, count, toml_empty) in lists {
-        if count > 0 && toml_empty {
-            lost.push(format!(
-                "{count} `{key}` entr{}",
-                if count == 1 { "y" } else { "ies" }
-            ));
-        }
-    }
-
-    if lost.is_empty() {
-        return;
-    }
-
-    log::warn!(
-        "the json manifests hold what `{MODEL_TOML_FILE}` does not, and are about to be \
-         deleted:\n{}\nthe `{MODEL_TOML_FILE}` is kept untouched; copy anything wanted into \
-         it first, and re-run `sysand include` for the source list",
-        lost.iter()
-            .map(|item| format!("             - {item}"))
-            .collect::<Vec<_>>()
-            .join("\n")
-    );
 }

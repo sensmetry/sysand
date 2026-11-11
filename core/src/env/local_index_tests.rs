@@ -75,10 +75,16 @@ const DEP: &str = "pkg:sysand/mock/dep";
 /// A context whose lockfile lives at `root`, so `sources` are relative
 /// to it.
 fn workspace_ctx(root: &Utf8Path) -> ProjectContext {
-    ProjectContext {
-        model_workspace_root: Some(root.to_path_buf()),
-        ..ProjectContext::default()
-    }
+    std::fs::write(
+        root.join("model.toml"),
+        "manifest-version = \"1.0\"\n\n[workspace]\nmembers = []\n",
+    )
+    .unwrap();
+    ProjectContext::new(
+        Some(crate::workspace::model_toml::Workspace::load(root).unwrap()),
+        None,
+        None,
+    )
 }
 
 /// A structured index written by the real `index init` + `index add`,
@@ -98,7 +104,8 @@ fn structured_index(cwd: &Utf8Path) -> (Utf8PathBuf, Vec<u8>) {
 #[test]
 fn structured_index_lists_versions_and_reads_archive() {
     let cwd = tempdir().unwrap();
-    let (root, bytes) = structured_index(cwd.path());
+    let cwd = cwd.path().canonicalize_utf8().unwrap();
+    let (root, bytes) = structured_index(&cwd);
     let rt = runtime();
     let env = LocalIndexEnvironment::new(&root);
 
@@ -119,7 +126,7 @@ fn structured_index_lists_versions_and_reads_archive() {
 
     // The lockfile source is the archive relative to the workspace root,
     // carrying the entry's size and digest (verified on open).
-    let ctx = workspace_ctx(cwd.path());
+    let ctx = workspace_ctx(&cwd);
     let sources = rt.block_on(project.sources_async(&ctx)).unwrap();
     assert_eq!(sources.len(), 1);
     match &sources[0] {
@@ -192,7 +199,8 @@ fn structured_index_digest_mismatch_is_refused() {
 #[test]
 fn folder_index_enumerates_case_insensitively() {
     let cwd = tempdir().unwrap();
-    let root = cwd.path().join("folder");
+    let cwd = cwd.path().canonicalize_utf8().unwrap();
+    let root = cwd.join("folder");
     std::fs::create_dir_all(&root).unwrap();
     write_kpar(&root.join("a.kpar"), Some("mock"), "dep", "0.1.0");
     write_kpar(&root.join("B.KPAR"), Some("mock"), "dep", "0.2.0");
@@ -217,7 +225,7 @@ fn folder_index_enumerates_case_insensitively() {
     let project = rt.block_on(env.get_project_async(DEP, "0.2.0")).unwrap();
     let version = rt.block_on(project.version_async()).unwrap().unwrap();
     assert_eq!(version, "0.2.0");
-    let ctx = workspace_ctx(cwd.path());
+    let ctx = workspace_ctx(&cwd);
     let sources = rt.block_on(project.sources_async(&ctx)).unwrap();
     assert_matches!(
         sources.as_slice(),

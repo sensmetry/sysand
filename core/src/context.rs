@@ -2,16 +2,44 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 #[cfg(feature = "filesystem")]
-use camino::Utf8PathBuf;
+use std::sync::Arc;
 
 #[cfg(feature = "filesystem")]
-use crate::{env::local_directory::LocalDirectoryEnvironment, project::local_src::LocalSrcProject};
+use camino::{Utf8Path, Utf8PathBuf};
+#[cfg(feature = "filesystem")]
+use thiserror::Error;
+#[cfg(feature = "filesystem")]
+use typed_path::Utf8UnixPathBuf;
 
+use crate::cancel::CancellationToken;
+#[cfg(feature = "filesystem")]
+use crate::{
+    env::local_directory::LocalDirectoryEnvironment,
+    manifest::{MODEL_TOML_FILE, edit::DocumentMut, kpar_view},
+    project::{
+        ManifestError, ManifestWriteError, ProjectDefinition, ProjectMut as _, ProjectRead as _,
+        local_src::{LocalSrcError, LocalSrcProject},
+        utils::{FsIoError, ProjectDeserializationError},
+    },
+    workspace::model_toml::{LoadError, Workspace},
+    workspace_lock::WorkspaceLock,
+};
+
+/// A snapshot of the project and the workspace a command runs in, read in
+/// full when the context is built.
+///
+/// The files are not read again: the writes a command makes to the
+/// current project go through [`ProjectContext::edit_project`] and
+/// [`ProjectContext::edit_manifest`], which bring the snapshot up to date.
 #[derive(Debug, Default)]
 pub struct ProjectContext {
     /// Current project if found
     #[cfg(feature = "filesystem")]
-    pub current_project: Option<LocalSrcProject>,
+    current_project: Option<LocalSrcProject>,
+    /// The manifest of `current_project`, as read. `Some` whenever there
+    /// is a current project that has one.
+    #[cfg(feature = "filesystem")]
+    current_definition: Option<ProjectDefinition>,
     /// Path to current directory
     #[cfg(feature = "filesystem")]
     pub current_directory: Utf8PathBuf,
@@ -22,31 +50,13 @@ pub struct ProjectContext {
     /// project root, or the current directory when there is no project.
     #[cfg(feature = "filesystem")]
     pub config_root: Utf8PathBuf,
-    /// The root of the workspace the command is running in, if it is
-    /// running in one.
+    /// The workspace the command is running in, with every member loaded.
     ///
-    /// Unlike `config_root`, there is no fallback to the project root:
-    /// this is `None` outside a workspace.
-    ///
-    /// A solved local dependency's `src_path` is relativized against this
-    /// root in the workspace lockfile.
+    /// There is no fallback to the project: this is `None` outside a
+    /// workspace. A solved local dependency's `src_path` is relativized
+    /// against its root in the workspace lockfile.
     #[cfg(feature = "filesystem")]
-    pub model_workspace_root: Option<Utf8PathBuf>,
-    /// The `[workspace]` table at `model_workspace_root`, as discovery
-    /// parsed it. `None` with a root means the context was built without
-    /// discovery, and the table is read from the root when needed.
-    #[cfg(feature = "filesystem")]
-    pub model_workspace_table:
-        Option<std::sync::Arc<crate::manifest::workspace_table::WorkspaceTable>>,
-    /// The workspace with its members loaded, filled by the first load
-    /// and kept for the rest of the command.
-    #[cfg(feature = "filesystem")]
-    pub workspace: std::sync::OnceLock<crate::workspace::model_toml::Workspace>,
-    /// The parse of `current_project`'s `model.toml` that discovery made,
-    /// when `current_project` is the project discovery found. It reflects
-    /// the file as it was when the command started.
-    #[cfg(feature = "filesystem")]
-    pub current_parse: Option<crate::manifest::ParsedModelToml>,
+    workspace: Option<Workspace>,
     /// Metadata of the current workspace/project `.sysand`. `Some` if
     /// the workspace root or `current_project` is known and the
     /// environment metadata file exists.
@@ -56,138 +66,211 @@ pub struct ProjectContext {
     /// once at command top and handed to every environment the command
     /// writes; `None` for readers.
     #[cfg(feature = "filesystem")]
-    pub workspace_lock: Option<std::sync::Arc<crate::workspace_lock::WorkspaceLock>>,
+    pub workspace_lock: Option<Arc<WorkspaceLock>>,
     /// The command's cancellation token, observed at every bridge the
     /// command's resolvers and storages cross and by the solver between
     /// candidates. Never cancelled by default.
-    pub cancellation: crate::cancel::CancellationToken,
+    pub cancellation: CancellationToken,
 }
 
+/// Why a snapshot could not be brought up to date after a write.
+#[cfg(feature = "filesystem")]
+#[derive(Debug, Error)]
+pub enum ReloadError {
+    #[error(transparent)]
+    Project(#[from] LocalSrcError),
+    #[error(transparent)]
+    Io(#[from] Box<FsIoError>),
+    /// The workspace no longer holds together with the written manifest.
+    #[error(transparent)]
+    Workspace(#[from] Box<LoadError>),
+    /// A member that is not a `model.toml` project.
+    #[error("the member at `{0}` is not a `model.toml` project")]
+    NotAModelToml(Utf8PathBuf),
+}
+
+/// Why a write to the current project's manifest failed.
+#[cfg(feature = "filesystem")]
+#[derive(Debug, Error)]
+pub enum EditError<E> {
+    #[error("there is no current project")]
+    NoProject,
+    /// The edit itself failed.
+    #[error(transparent)]
+    Edit(E),
+    /// The edit was written, and the files no longer pass the checks the
+    /// context makes.
+    #[error(transparent)]
+    Reload(ReloadError),
+}
+
+/// The failures of [`ProjectContext::edit_manifest`] that are about the
+/// manifest document.
+#[cfg(feature = "filesystem")]
+#[derive(Debug, Error)]
+pub enum ManifestStep<E> {
+    #[error(transparent)]
+    Read(ManifestError<LocalSrcError>),
+    #[error(transparent)]
+    Edit(E),
+    /// The edited manifest does not resolve, so it is not written.
+    #[error(transparent)]
+    Invalid(ProjectDeserializationError),
+    #[error(transparent)]
+    Write(ManifestWriteError<LocalSrcError>),
+}
+
+#[cfg(feature = "filesystem")]
 impl ProjectContext {
-    #[cfg(feature = "filesystem")]
+    /// A context holding the given snapshot; every other field starts at
+    /// its default.
+    ///
+    /// `current_definition` is the manifest of `current_project`, and
+    /// `workspace` has the current project among its members when it is
+    /// one.
+    pub fn new(
+        workspace: Option<Workspace>,
+        current_project: Option<LocalSrcProject>,
+        current_definition: Option<ProjectDefinition>,
+    ) -> Self {
+        Self {
+            current_project,
+            current_definition,
+            workspace,
+            ..Self::default()
+        }
+    }
+
+    /// The current project, if there is one.
+    pub fn current_project(&self) -> Option<&LocalSrcProject> {
+        self.current_project.as_ref()
+    }
+
+    /// The manifest of the current project, as of the last read or write.
+    pub fn current_definition(&self) -> Option<&ProjectDefinition> {
+        self.current_definition.as_ref()
+    }
+
+    /// The workspace the command runs in, with every member loaded.
+    pub fn workspace(&self) -> Option<&Workspace> {
+        self.workspace.as_ref()
+    }
+
     pub fn project_root(&self) -> Option<Utf8PathBuf> {
         self.current_project
             .as_ref()
             .map(|p| p.root_path().to_owned())
     }
 
+    /// The root of the workspace the command runs in, if it is running in
+    /// one.
+    pub fn model_workspace_root(&self) -> Option<&Utf8Path> {
+        self.workspace.as_ref().map(Workspace::root)
+    }
+
     /// The root a `src_path` in this command's lockfile is relative to.
     ///
     /// The `model.toml` workspace root first, since its lockfile lives
     /// there; otherwise the project root.
-    #[cfg(feature = "filesystem")]
     pub fn sources_root(&self) -> Option<Utf8PathBuf> {
-        self.model_workspace_root
-            .clone()
+        self.model_workspace_root()
+            .map(Utf8Path::to_owned)
             .or_else(|| self.project_root())
     }
 
     /// Where `sysand-lock.toml` and `.sysand` live: the workspace root,
     /// else the project root, else the current directory.
-    #[cfg(feature = "filesystem")]
     pub fn state_root(&self) -> Utf8PathBuf {
         self.sources_root()
             .unwrap_or_else(|| self.current_directory.clone())
     }
 
-    /// The workspace the command runs in, with its members loaded and
-    /// every member requirement checked; `None` outside one.
-    ///
-    /// Loaded on the first call and kept: later calls, and
-    /// [`ProjectContext::current_definition`], reuse it.
-    #[cfg(feature = "filesystem")]
-    pub fn load_workspace(
-        &self,
-    ) -> Result<
-        Option<&crate::workspace::model_toml::Workspace>,
-        crate::workspace::model_toml::LoadError,
-    > {
-        use crate::workspace::model_toml::{MemberChecks, Workspace};
-        if let Some(workspace) = self.workspace.get() {
-            return Ok(Some(workspace));
-        }
-        let Some(root) = &self.model_workspace_root else {
-            return Ok(None);
-        };
-        let workspace = match &self.model_workspace_table {
-            Some(table) => Workspace::with_table(root.clone(), table.clone(), MemberChecks::All)?,
-            None => Workspace::load_with(root, MemberChecks::All)?,
-        };
-        Ok(Some(self.workspace.get_or_init(|| workspace)))
-    }
-
-    /// The definition of `current_project`, from a parse already in hand
-    /// when there is one: the kept workspace's member, else the parse
-    /// discovery made, else a read of the project.
-    ///
-    /// It reflects the files as they were when the command started, so it
-    /// must not be used after the command has written the project.
-    #[cfg(feature = "filesystem")]
-    pub fn current_definition(
-        &self,
-    ) -> Result<Option<crate::project::ProjectDefinition>, crate::project::local_src::LocalSrcError>
-    {
-        use crate::project::{ProjectDefinition, ProjectFormat, ProjectRead as _};
-        let Some(project) = &self.current_project else {
-            return Ok(None);
-        };
-        if let Some(member) = self.workspace.get().and_then(|workspace| {
-            workspace
-                .members()
-                .iter()
-                .find(|m| m.dir == project.root_path())
-        }) {
-            return Ok(Some(ProjectDefinition::Toml(Box::new(
-                member.project.clone(),
-            ))));
-        }
-        // A directory holding both manifests is refused by the read.
-        if let Some(parsed) = &self.current_parse
-            && project.format()? == ProjectFormat::Toml
-            && let Ok(resolved) = crate::manifest::kpar_view::resolved_of_parsed(
-                crate::manifest::MODEL_TOML_FILE,
-                parsed.manifest.clone(),
-                project.workspace_table().map(|table| &**table),
-            )
-        {
-            return Ok(Some(ProjectDefinition::Toml(Box::new(resolved))));
-        }
-        project.get_project()
-    }
-
     /// The `members` of the workspace the command runs in, relative to its
     /// root; none outside one.
-    #[cfg(feature = "filesystem")]
-    pub fn workspace_members(
-        &self,
-    ) -> Result<Vec<typed_path::Utf8UnixPathBuf>, crate::workspace::model_toml::DiscoverError> {
-        match (&self.model_workspace_root, &self.model_workspace_table) {
-            (Some(_), Some(table)) => Ok(table
+    pub fn workspace_members(&self) -> Vec<Utf8UnixPathBuf> {
+        self.workspace.as_ref().map_or_else(Vec::new, |workspace| {
+            workspace
+                .table()
                 .members
                 .iter()
                 .map(|member| member.path.clone())
-                .collect()),
-            (Some(root), None) => crate::workspace::model_toml::workspace_members(root),
-            (None, _) => Ok(Vec::new()),
-        }
+                .collect()
+        })
     }
 
     /// The projects this command's lockfile is made for, as the lockfile
     /// names them in their `editable` sources: the workspace's `members`,
     /// or else the one project at the state root, which is `.`.
-    #[cfg(feature = "filesystem")]
-    pub fn lock_roots(
-        &self,
-    ) -> Result<Vec<typed_path::Utf8UnixPathBuf>, crate::workspace::model_toml::DiscoverError> {
-        match (&self.model_workspace_root, &self.model_workspace_table) {
-            (Some(_), Some(table)) => Ok(table
-                .members
-                .iter()
-                .map(|member| member.path.clone())
-                .collect()),
-            (Some(root), None) => crate::workspace::model_toml::lock_roots(root),
-            (None, _) => Ok(vec![typed_path::Utf8UnixPathBuf::from(".")]),
+    pub fn lock_roots(&self) -> Vec<Utf8UnixPathBuf> {
+        match &self.workspace {
+            Some(_) => self.workspace_members(),
+            None => vec![Utf8UnixPathBuf::from(".")],
         }
+    }
+
+    /// Let `edit` change the current project, then read it again, so the
+    /// snapshot matches what `edit` wrote. In a workspace the checks that
+    /// span members run again over the members in hand.
+    ///
+    /// The snapshot is read again also when `edit` fails, as it may have
+    /// written before failing; the error of `edit` is the one returned.
+    pub fn edit_project<T, E>(
+        &mut self,
+        edit: impl FnOnce(&mut LocalSrcProject) -> Result<T, E>,
+    ) -> Result<T, EditError<E>> {
+        let Some(project) = self.current_project.as_mut() else {
+            return Err(EditError::NoProject);
+        };
+        let edited = edit(project);
+        let reloaded = self.reload_current();
+        match edited {
+            Err(error) => Err(EditError::Edit(error)),
+            Ok(value) => reloaded.map(|()| value).map_err(EditError::Reload),
+        }
+    }
+
+    /// [`ProjectContext::edit_project`] for a `model.toml` project:
+    /// loads the manifest document, applies `edit` to it, and writes it,
+    /// refusing a manifest that does not resolve.
+    pub fn edit_manifest<T, E>(
+        &mut self,
+        edit: impl FnOnce(&mut DocumentMut) -> Result<T, E>,
+    ) -> Result<T, EditError<ManifestStep<E>>> {
+        self.edit_project(|project| {
+            let mut document = project.manifest_document().map_err(ManifestStep::Read)?;
+            let value = edit(&mut document).map_err(ManifestStep::Edit)?;
+            kpar_view::resolved_of_text_in(
+                MODEL_TOML_FILE,
+                &document.to_string(),
+                project.workspace_table().map(|table| &**table),
+            )
+            .map_err(ManifestStep::Invalid)?;
+            project
+                .put_manifest_document(&document, true)
+                .map_err(ManifestStep::Write)?;
+            Ok(value)
+        })
+    }
+
+    /// Read the current project again into the snapshot.
+    fn reload_current(&mut self) -> Result<(), ReloadError> {
+        let Some(project) = &self.current_project else {
+            return Ok(());
+        };
+        let definition = project.get_project()?;
+        self.current_definition = definition;
+        let Some(workspace) = self.workspace.as_mut() else {
+            return Ok(());
+        };
+        let Some(index) = workspace.member_index_of(project.root_path())? else {
+            return Ok(());
+        };
+        let Some(ProjectDefinition::Toml(resolved)) = &self.current_definition else {
+            return Err(ReloadError::NotAModelToml(project.root_path().to_owned()));
+        };
+        workspace
+            .replace_member(index, (**resolved).clone())
+            .map_err(|error| ReloadError::Workspace(Box::new(error)))
     }
 }
 

@@ -142,7 +142,7 @@ pub fn sync_context<Policy: HTTPAuthentication>(
     outcome: &mut SyncOutcome,
 ) -> Result<Option<VerifyStatus>, SyncContextError> {
     let root = ctx.state_root();
-    let members = ctx.workspace_members().map_err(CommandSyncError::from)?;
+    let members = ctx.workspace_members();
     if verify || repair {
         let manifests = ManifestUsages::for_context(ctx).map_err(SyncContextError::Manifests)?;
         let status = command_sync_verify(

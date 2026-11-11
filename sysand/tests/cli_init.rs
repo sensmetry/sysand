@@ -665,7 +665,12 @@ fn workspace(root_text: &str) -> Result<camino_tempfile::Utf8TempDir, Box<dyn st
 
 fn member(dir: &Utf8Path, at: &str, name: &str) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(dir.join(at))?;
-    write_toml_project(dir.join(at), name, "1.0.0", "sources = []\n")?;
+    write_toml_project(
+        dir.join(at),
+        name,
+        "1.0.0",
+        &format!("sources = []\nmetamodel = \"{SYSML}\"\n"),
+    )?;
     Ok(())
 }
 
@@ -817,19 +822,20 @@ fn init_in_an_unlisted_existing_project_is_refused() -> Result<(), Box<dyn std::
     Ok(())
 }
 
-/// Creating a new project cannot be blocked by an unrelated member's
-/// mistake.
+/// A workspace is read in full, so a member that does not load stops
+/// `init` before anything is created.
 #[test]
-fn init_in_a_workspace_with_a_broken_member_still_works() -> Result<(), Box<dyn std::error::Error>>
-{
+fn init_in_a_workspace_with_a_broken_member_is_refused() -> Result<(), Box<dyn std::error::Error>> {
     let dir =
         workspace("manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"app\", \"gone\"]\n")?;
     member(dir.path(), "app", "alpha")?;
 
-    init_in(dir.path(), "lib")?.assert().success();
+    init_in(dir.path(), "lib")?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("member `gone` does not exist"));
 
-    let text = members_of(dir.path())?;
-    assert!(text.contains("\"lib\""), "{text}");
+    assert!(!members_of(dir.path())?.contains("\"lib\""));
     Ok(())
 }
 

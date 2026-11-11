@@ -13,7 +13,7 @@ use sysand_core::{
     cancel::CancellationToken,
     commands::{lock::LockOutcome, sync::SyncOutcome},
     config::Config,
-    context::ProjectContext,
+    discover::discover_project,
     env::{local_directory::utils::clean_dir, utils::clone_project},
     lock::Lockfile,
     model::InterchangeProjectUsage,
@@ -29,12 +29,14 @@ use sysand_core::{
     },
     solve::pubgrub::DEFAULT_INDEX_CONSTRAINT,
     utils::{SP, format_err},
+    workspace::model_toml::Selector,
 };
 
 use crate::{
     CliError,
     cli::{CloneProjectLocatorArgs, ResolutionOptions},
-    commands::{init::warn_parent_project, sync::sync_context},
+    commands::sync::sync_context,
+    context::{ContextOptions, discover_context},
     style::{GOOD, USAGE},
 };
 
@@ -54,7 +56,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
     locator: CloneProjectLocatorArgs,
     version_constraint: Option<VersionReq>,
     target: Option<Utf8PathBuf>,
-    ctx: ProjectContext,
+    cancellation: CancellationToken,
     no_deps: bool,
     resolution_opts: ResolutionOptions,
     config: &Config,
@@ -86,7 +88,14 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         }
         canonical
     };
-    warn_parent_project(target, &ctx)?;
+    if let Some(existing_project) = discover_project(target)? {
+        log::warn!(
+            "found an existing project in one of target path's parent\n\
+            {:>8} directories `{}`",
+            ' ',
+            existing_project.root_path()
+        );
+    }
 
     let (include_std, locator, local_project, std_resolver) = match obtain_project(
         locator,
@@ -96,8 +105,8 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         &client,
         &runtime,
         auth_policy.clone(),
-        project_path,
-        ctx.cancellation.clone(),
+        project_path.clone(),
+        cancellation.clone(),
     ) {
         Ok(ret) => ret,
         Err(e) => {
@@ -108,24 +117,21 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         }
     };
 
-    // Update project context with the new cloned project
-    // TODO: Consider under which circumstances (if any)
-    //       the workspace should carry over.
-    let mut ctx = ProjectContext {
-        model_workspace_root: None,
-        model_workspace_table: None,
-        workspace: std::sync::OnceLock::new(),
-        current_parse: None,
-        current_project: Some(local_project.clone()),
-        current_directory: ctx.current_directory,
-        // A clone creates a project outside any scope, so its config is
-        // its own.
-        config_root: local_project.root_path().to_owned(),
-        env: None,
-        // `clone` populates a fresh directory; no advisory lock.
-        workspace_lock: None,
-        cancellation: ctx.cancellation,
-    };
+    // The context of the cloned project. A clone creates a project outside
+    // any scope, so no workspace is consulted and no lock is taken.
+    let mut ctx = discover_context(
+        project_path,
+        ContextOptions {
+            consults_workspace: false,
+            selector: Selector::Current,
+            needs_a_member: false,
+            needs_a_project: true,
+            lock_wait: None,
+            cancellation,
+        },
+        |_| None,
+    )?
+    .ctx;
 
     if !no_deps {
         let provided_usages = if include_std {

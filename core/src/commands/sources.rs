@@ -91,12 +91,23 @@ pub fn do_sources_project_no_deps<Pr: ProjectRead>(
     project: &Pr,
     include_index: bool,
 ) -> Result<Vec<Utf8UnixPathBuf>, SourcesError<Pr::Error>> {
-    let meta = match project.get_project().map_err(SourcesError::Project)? {
-        None => return Ok(vec![]),
-        Some(ProjectDefinition::Toml(project)) => {
+    match project.get_project().map_err(SourcesError::Project)? {
+        None => Ok(vec![]),
+        Some(definition) => do_sources_definition(&definition, include_index),
+    }
+}
+
+/// [`do_sources_project_no_deps`] for a project whose manifest is already
+/// read as `definition`.
+pub fn do_sources_definition<ProjectError>(
+    definition: &ProjectDefinition,
+    include_index: bool,
+) -> Result<Vec<Utf8UnixPathBuf>, SourcesError<ProjectError>> {
+    let meta = match definition {
+        ProjectDefinition::Toml(project) => {
             return Ok(project.sources.iter().cloned().collect());
         }
-        Some(ProjectDefinition::Json { info: _, meta }) => meta,
+        ProjectDefinition::Json { info: _, meta } => meta,
     };
 
     Ok(meta
@@ -143,13 +154,19 @@ pub fn do_sources_local_src_project_no_deps(
     include_index: bool,
 ) -> Result<Vec<Utf8PathBuf>, LocalSourcesError> {
     let unix_sources = do_sources_project_no_deps(project, include_index)?;
+    real_source_paths(project, &unix_sources)
+}
 
-    let sources: Result<Vec<_>, _> = unix_sources
-        .iter()
-        .map(|path| project.get_source_path(path))
-        .collect();
-
-    Ok(sources?)
+#[cfg(feature = "filesystem")]
+/// [`do_sources_local_src_project_no_deps`] for a project whose manifest is
+/// already read as `definition`.
+pub fn do_sources_local_src_definition(
+    project: &LocalSrcProject,
+    definition: &ProjectDefinition,
+    include_index: bool,
+) -> Result<Vec<Utf8PathBuf>, LocalSourcesError> {
+    let unix_sources = do_sources_definition::<LocalSrcError>(definition, include_index)?;
+    real_source_paths(project, &unix_sources)
 }
 
 /// The resolver the dependency enumeration solves with: the provided
@@ -393,4 +410,17 @@ pub fn do_sources_env_parse(
         no_own,
         dependencies,
     )
+}
+
+#[cfg(feature = "filesystem")]
+fn real_source_paths(
+    project: &LocalSrcProject,
+    unix_sources: &[Utf8UnixPathBuf],
+) -> Result<Vec<Utf8PathBuf>, LocalSourcesError> {
+    let sources: Result<Vec<_>, _> = unix_sources
+        .iter()
+        .map(|path| project.get_source_path(path))
+        .collect();
+
+    Ok(sources?)
 }

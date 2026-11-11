@@ -10,10 +10,9 @@ use anyhow::{Result, bail};
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::ValueEnum as _;
 use semver::Version;
-use sysand_core::paths::{is_relative_subdirectory, relativize_path};
+use sysand_core::paths::relativize_path;
 use sysand_core::{
     context::ProjectContext,
-    discover::discover_project,
     init::InitError,
     manifest::{
         MODEL_TOML_FILE,
@@ -23,12 +22,7 @@ use sysand_core::{
         workspace_table::Region,
     },
     model::{IdentifierKind, KnownMetamodel, ProjectName, ProjectPublisher},
-    project::{
-        ProjectFormat,
-        local_src::{LocalSrcProject, detect_format},
-        utils::wrapfs,
-    },
-    workspace::model_toml::discover_table,
+    project::{local_src::LocalSrcProject, utils::wrapfs},
 };
 
 const DEFAULT_VERSION: &str = "0.0.1";
@@ -42,17 +36,13 @@ pub fn command_init(
     path: Option<Utf8PathBuf>,
     ctx: ProjectContext,
 ) -> Result<()> {
-    let target = match path {
-        Some(p) => {
-            wrapfs::create_dir_all(&p)?;
-            p
-        }
-        None => Utf8PathBuf::from("."),
-    };
-    warn_parent_project(&target, &ctx)?;
+    let target = path.unwrap_or_else(|| Utf8PathBuf::from("."));
+    if let Some(existing_project) = ctx.current_project() {
+        warn_found_project(existing_project);
+    }
     // Before `do_init`: a refusal should be about the workspace, not a file
     // collision the workspace explains.
-    let member = workspace_member(&target)?;
+    let member = workspace_member(&target, &ctx)?;
     // The metamodel is mandatory and must be known before anything is
     // written, unless the project is created inside a workspace whose
     // default group defines one.
@@ -153,16 +143,14 @@ struct Member {
 /// `members`. `Ok(Some(..))` is the root to append to and the path to
 /// write; `Ok(None)` is every case where nothing is appended: no
 /// workspace, or an excluded directory.
-///
-/// The table is read rather than the workspace loaded, so an unrelated
-/// member's mistake does not block `init`.
-fn workspace_member(target: &Utf8Path) -> Result<Option<Member>> {
+fn workspace_member(target: &Utf8Path, ctx: &ProjectContext) -> Result<Option<Member>> {
+    let Some(workspace) = ctx.workspace() else {
+        return Ok(None);
+    };
+    let (root, table) = (workspace.root(), workspace.table());
     // `relativize_path` asserts absolute, dot-free paths, and `target`
     // is a raw command-line argument.
     let target = wrapfs::canonicalize(target)?;
-    let Some((root, table)) = discover_table(&target)? else {
-        return Ok(None);
-    };
 
     // `do_init` would refuse this anyway as the root holds a `model.toml`;
     // this gives the reason.
@@ -174,7 +162,7 @@ fn workspace_member(target: &Utf8Path) -> Result<Option<Member>> {
         );
     }
 
-    let relative = relativize_path(&target, &root)?;
+    let relative = relativize_path(&target, root)?;
     match table.region(&relative) {
         Region::Member(_, entry) if relative == entry.path => bail!(
             "`{relative}` is already member `{}`;\n\
@@ -191,25 +179,11 @@ fn workspace_member(target: &Utf8Path) -> Result<Option<Member>> {
         // Anything under an excluded directory is outside the workspace:
         // a standalone project, which `members` must not list.
         Region::Excluded(_) => Ok(None),
-        Region::Unlisted => {
-            // A project under the root in neither list is a hard error;
-            // `model.toml` already existing says nothing about the workspace.
-            // `root` is the nearest workspace root above `target`, so a
-            // manifest here is a project's.
-            if detect_format(&target)? != ProjectFormat::Neither {
-                bail!(
-                    "the project at `{target}` lies under the workspace at `{root}`\n\
-                    {SP:>8} but is neither listed in `workspace.members` nor under\n\
-                    {SP:>8} `workspace.exclude`; add it to one of the two",
-                    SP = ' '
-                );
-            }
-            Ok(Some(Member {
-                group_metamodel: table.default_group.metamodel.clone(),
-                root,
-                path: relative.to_string(),
-            }))
-        }
+        Region::Unlisted => Ok(Some(Member {
+            group_metamodel: table.default_group.metamodel.clone(),
+            root: root.to_owned(),
+            path: relative.to_string(),
+        })),
     }
 }
 
@@ -236,23 +210,6 @@ fn default_name_from_path<P: AsRef<Utf8Path>>(path: P) -> Result<ProjectName> {
         .to_owned();
     Ok(ProjectName::parse(dir_name)
         .map_err(|(dir_name, e)| CliError::InvalidDirectoryName(dir_name, e))?)
-}
-
-/// Warn about a project above `target`. A workspace above it is
-/// [`workspace_member`]'s concern, which acts on it.
-pub fn warn_parent_project(target: &Utf8Path, ctx: &ProjectContext) -> Result<()> {
-    if is_relative_subdirectory(target.as_str()) {
-        // Target is a subdirectory of cwd
-        if let Some(existing_project) = &ctx.current_project {
-            warn_found_project(existing_project);
-        }
-    } else {
-        // Target may be out of cwd, so cwd-derived ctx is irrelevant
-        if let Some(existing_project) = discover_project(target)? {
-            warn_found_project(&existing_project);
-        }
-    }
-    Ok(())
 }
 
 fn warn_found_project(existing_project: &LocalSrcProject) {

@@ -234,6 +234,22 @@ fn info_dir_and_kpar_path_are_not_interchangeable() -> Result<(), Box<dyn Error>
     Ok(())
 }
 
+/// `info --dir` on a directory with no project and no workspace around it
+/// says so, rather than suggesting `--dir`.
+#[test]
+fn info_dir_outside_a_project_says_it_is_not_inside_one() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    std::fs::create_dir(cwd.join("empty"))?;
+
+    run_sysand_in(&cwd, ["info", "--dir", "empty"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("is not inside a project"))
+        .stderr(predicate::str::contains("did you mean to use `--dir`").not());
+
+    Ok(())
+}
+
 #[test]
 fn info_basic_http_url_noauth() -> Result<(), Box<dyn Error>> {
     let mut server = mockito::Server::new();
@@ -2526,7 +2542,15 @@ fn info_root_gets_sets_and_clears_on_a_toml_project() -> Result<(), Box<dyn Erro
         .assert()
         .success()
         .stdout(predicate::str::contains("lib.sysml"));
+    // A Syside project requires `root`, so clearing it alone would leave a
+    // manifest that does not read; it is refused and the file is kept.
+    let before = std::fs::read_to_string(cwd.join("model.toml"))?;
     run_sysand_in(&cwd, ["edit", "--clear-root"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("missing key `root`"));
+    assert_eq!(std::fs::read_to_string(cwd.join("model.toml"))?, before);
+    run_sysand_in(&cwd, ["edit", "--metamodel", "sysml", "--clear-root"], None)?
         .assert()
         .success();
     assert!(!std::fs::read_to_string(cwd.join("model.toml"))?.contains("root"));

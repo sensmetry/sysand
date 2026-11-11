@@ -16,10 +16,8 @@ use sysand_core::{
 /// The manifest of the context's current project, for a build.
 pub fn current_definition_for_build(
     ctx: &ProjectContext,
-) -> Result<ProjectDefinition, KParBuildError<LocalSrcError>> {
-    ctx.current_definition()
-        .map_err(KParBuildError::ProjectRead)?
-        .ok_or(KParBuildError::MissingInfo)
+) -> Result<&ProjectDefinition, KParBuildError<LocalSrcError>> {
+    ctx.current_definition().ok_or(KParBuildError::MissingInfo)
 }
 
 pub fn command_build_for_project<P: AsRef<Utf8Path>>(
@@ -30,12 +28,11 @@ pub fn command_build_for_project<P: AsRef<Utf8Path>>(
     allow_path_usage: bool,
 ) -> Result<()> {
     let current_project = ctx
-        .current_project
-        .as_ref()
+        .current_project()
         .ok_or(CliError::MissingProjectCurrentDir)?;
     match do_build_kpar_with(
         current_project,
-        || ctx.current_definition(),
+        || Ok(ctx.current_definition().cloned()),
         &path,
         compression,
         update_index,

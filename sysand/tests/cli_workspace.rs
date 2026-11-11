@@ -1648,3 +1648,27 @@ fn editing_a_member_changes_the_root_lockfile() -> Result<(), Box<dyn std::error
     );
     Ok(())
 }
+
+/// The workspace is read in full when a command starts, so a member that
+/// does not load stops every command run in it, `print-root` included.
+#[test]
+fn a_broken_member_stops_every_command_in_the_workspace() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    write_workspace_root(&cwd, &["app", "gone"], "")?;
+    std::fs::create_dir(cwd.join("app"))?;
+    write_toml_project(
+        cwd.join("app"),
+        "app",
+        "1.0.0",
+        "sources = []\nmetamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    )?;
+
+    for args in [["print-root"], ["info"], ["lock"]] {
+        run_sysand_in(&cwd, args, None)?
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("member `gone` does not exist"));
+    }
+    Ok(())
+}

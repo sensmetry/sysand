@@ -81,6 +81,32 @@ fn member_info_reads_an_inherited_value() -> Result<(), Box<dyn std::error::Erro
     Ok(())
 }
 
+/// `info --dir` names the member from outside it, and still resolves the
+/// inherited values against the workspace.
+#[test]
+fn info_dir_reads_an_inherited_value() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, root) = workspace()?;
+    run_sysand_in(
+        &root,
+        [
+            "info",
+            "--dir",
+            root.join("app").as_str(),
+            "--get",
+            "version",
+        ],
+        None,
+    )?
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("1.2.3"));
+    run_sysand_in(&root, ["info", "--dir", root.join("app").as_str()], None)?
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("acme"));
+    Ok(())
+}
+
 #[test]
 fn member_sources_lists_its_own_file() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp, root) = workspace()?;

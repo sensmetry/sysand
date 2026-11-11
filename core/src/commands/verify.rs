@@ -25,6 +25,7 @@ use typed_path::Utf8UnixPathBuf;
 
 use crate::{
     commands::sync::{Mismatch, MismatchKind, StaleKind, StaleUsage, SyncOutcome, SyncedProject},
+    context::ProjectContext,
     env::{
         ProjectChecksumResult, ReadEnvironment as _,
         local_directory::{LocalDirectoryEnvironment, LocalReadError},
@@ -60,8 +61,8 @@ impl ManifestUsages {
     /// The manifests a command's context covers: every member of the
     /// workspace when there is one, else the current project. Nothing
     /// outside a project.
-    pub fn for_context(ctx: &crate::context::ProjectContext) -> Result<Vec<Self>, VerifyError> {
-        if let Some(workspace) = ctx.load_workspace()? {
+    pub fn for_context(ctx: &ProjectContext) -> Result<Vec<Self>, VerifyError> {
+        if let Some(workspace) = ctx.workspace() {
             return workspace
                 .members()
                 .iter()
@@ -73,24 +74,26 @@ impl ManifestUsages {
                 })
                 .collect();
         }
-        let Some(project) = &ctx.current_project else {
+        let Some(project) = ctx.current_project() else {
             return Ok(Vec::new());
         };
-        let definition = ctx.current_definition();
-        Self::of_read(project, definition).map(|usages| vec![usages])
+        Self::of_read(project, ctx.current_definition().cloned()).map(|usages| vec![usages])
     }
 
     /// Read a project's manifest.
     pub fn read(project: &LocalSrcProject) -> Result<Self, VerifyError> {
-        Self::of_read(project, project.get_project())
+        Self::of_read(
+            project,
+            project.get_project().map_err(VerifyError::Manifest)?,
+        )
     }
 
     /// The usages of `project`, whose manifest read as `definition`.
     fn of_read(
         project: &LocalSrcProject,
-        definition: Result<Option<ProjectDefinition>, LocalSrcError>,
+        definition: Option<ProjectDefinition>,
     ) -> Result<Self, VerifyError> {
-        let Some(definition) = definition.map_err(VerifyError::Manifest)? else {
+        let Some(definition) = definition else {
             return Err(VerifyError::Manifest(LocalSrcError::MissingInfoMeta {
                 missing: "its manifest",
             }));

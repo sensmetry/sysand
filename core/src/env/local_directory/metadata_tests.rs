@@ -86,6 +86,23 @@ fn editable_project_with_parent_dir_is_accepted() {
 }
 
 #[test]
+fn editable_project_in_env_parent_is_accepted() {
+    EnvMetadata::from_str(&minimal_toml(".", true)).unwrap();
+}
+
+#[test]
+fn editable_unnormalized_paths_are_rejected() {
+    for path in ["a/../b", "../a/./b", "a/..", "a/", "../a/../b"] {
+        let err = EnvMetadata::from_str(&minimal_toml(path, true)).unwrap_err();
+        assert_matches!(
+            err,
+            ParseError::InvalidProjectPath { .. },
+            "`{path}`: unexpected error: {err}"
+        );
+    }
+}
+
+#[test]
 fn unsupported_version_is_rejected() {
     let toml = r#"version = "x.y""#;
     let err = EnvMetadata::from_str(toml).unwrap_err();

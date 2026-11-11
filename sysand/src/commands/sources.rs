@@ -13,7 +13,10 @@ use sysand_core::{
     context::ProjectContext,
     env::{local_directory::LocalDirectoryEnvironment, null::NullEnvironment},
     model::UsageRef,
-    sources::{do_sources_env, do_sources_local_src_project_no_deps, resolve_dependencies},
+    sources::{
+        do_sources_env, do_sources_local_src_definition, do_sources_local_src_project_no_deps,
+        resolve_dependencies,
+    },
 };
 
 pub fn command_sources_env(
@@ -52,11 +55,11 @@ pub fn command_sources_project(
     dependencies: DependenciesCli,
     ctx: ProjectContext,
 ) -> Result<()> {
-    if ctx.current_project.is_none() {
+    let Some(current_project) = ctx.current_project() else {
         bail!(CliError::MissingProjectCurrentDir);
-    }
+    };
     // TODO: Better bail early?
-    let Some(definition) = ctx.current_definition()? else {
+    let Some(definition) = ctx.current_definition() else {
         bail!("project is missing project information")
     };
     let usages = definition.validated_usages().with_context(|| {
@@ -67,11 +70,8 @@ pub fn command_sources_project(
         )
     })?;
 
-    let current_project = ctx
-        .current_project
-        .ok_or(CliError::MissingProjectCurrentDir)?;
     if !no_own {
-        for src_path in do_sources_local_src_project_no_deps(&current_project, true)? {
+        for src_path in do_sources_local_src_definition(current_project, definition, true)? {
             emit_source(&src_path);
         }
     }
@@ -115,9 +115,7 @@ pub fn command_sources_workspace(
     use std::collections::HashSet;
     use sysand_core::project::{ProjectDefinition, local_src::LocalSrcProject};
 
-    let workspace = ctx
-        .load_workspace()?
-        .expect("a workspace root means a workspace");
+    let workspace = ctx.workspace().expect("a workspace root means a workspace");
 
     // A group entry's path is relative to the workspace root, which is not
     // known below, so resolving it would look in the member's directory.

@@ -3,6 +3,7 @@
 
 use anyhow::{Result, bail};
 use sysand_core::{
+    context::{EditError, ManifestStep, ProjectContext},
     manifest::{
         common::Maintainer,
         edit::{self, Array, DocumentMut, ListKey, ProjectKey, Value},
@@ -11,49 +12,82 @@ use sysand_core::{
         IndexName, IndexPublisher, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
         KnownMetamodel, MetamodelFamily,
     },
-    project::{
-        ProjectDefinition, ProjectFormat, ProjectMut, ProjectRead, local_src::LocalSrcProject,
-    },
+    project::ProjectDefinition,
     utils::format_err,
 };
 
 use crate::{
     cli::{EditArgs, MetamodelKindCli},
-    commands::info::{
-        get_project_or_bail, log_license_files_note, set_info_or_bail, set_meta_or_bail,
-    },
+    commands::info::{log_license_files_note, set_info_or_bail, set_meta_or_bail},
 };
 
-/// Applies `edits` to `project`. Each of `.project.json` and `.meta.json` is
-/// read and written (once) only if one of its fields is edited.
-pub fn command_edit(mut project: LocalSrcProject, edits: EditArgs) -> Result<()> {
+/// A failure of an edit, carried through the context's write path.
+#[derive(Debug, thiserror::Error)]
+#[error("{0:#}")]
+struct EditFailed(anyhow::Error);
+
+/// Applies `edits` to the context's current project. Each of `.project.json`
+/// and `.meta.json` is written (once) only if one of its fields is edited.
+pub fn command_edit(ctx: &mut ProjectContext, edits: EditArgs) -> Result<()> {
     let (edits_info, edits_meta) = (edits_info(&edits), edits_meta(&edits));
     if !edits_info && !edits_meta {
         unreachable!()
     }
-    // `Both` falls through to the json arm, where the read refuses it
-    if project.format()? == ProjectFormat::Toml {
-        edit_toml(&mut project, &edits)?;
+    let definition = ctx
+        .current_definition()
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("project does not appear to have a manifest"))?;
+    if matches!(definition, ProjectDefinition::Toml(_)) {
+        refuse_computed_fields(&edits)?;
+        ctx.edit_manifest(|document| edit_toml(document, &edits).map_err(EditFailed))
+            .map_err(toml_edit_error)?;
         if edits.license.is_some() {
             log_license_files_note();
         }
         return Ok(());
     }
-    let ProjectDefinition::Json { mut info, mut meta } = get_project_or_bail(&project)? else {
-        bail!("`{}` is a `model.toml` project", project.root_path());
+    let ProjectDefinition::Json { mut info, mut meta } = definition else {
+        unreachable!("a definition is a `model.toml` or a json pair")
     };
     if edits_info {
         edit_info(&edits, &mut info)?;
-        set_info_or_bail(&mut project, &info)?;
     }
     if edits_meta {
         edit_meta(&edits, &mut meta);
-        set_meta_or_bail(&mut project, &meta)?;
     }
+    ctx.edit_project(|project| -> Result<(), EditFailed> {
+        if edits_info {
+            set_info_or_bail(project, &info).map_err(EditFailed)?;
+        }
+        if edits_meta {
+            set_meta_or_bail(project, &meta).map_err(EditFailed)?;
+        }
+        Ok(())
+    })
+    .map_err(|error| match error {
+        EditError::Edit(EditFailed(error)) => error,
+        error => error.into(),
+    })?;
     if edits.license.is_some() {
         log_license_files_note();
     }
     Ok(())
+}
+
+/// The failure of a `model.toml` edit, spelled as the manifest read and
+/// write errors always were.
+fn toml_edit_error(error: EditError<ManifestStep<EditFailed>>) -> anyhow::Error {
+    match error {
+        EditError::Edit(ManifestStep::Read(error)) => {
+            anyhow::anyhow!("failed to read `model.toml`: {}", format_err(error))
+        }
+        EditError::Edit(ManifestStep::Write(error)) => {
+            anyhow::anyhow!("failed to write `model.toml`: {}", format_err(error))
+        }
+        EditError::Edit(ManifestStep::Edit(EditFailed(error))) => error,
+        EditError::Edit(ManifestStep::Invalid(error)) => anyhow::Error::new(error),
+        error => error.into(),
+    }
 }
 
 fn edits_info(edits: &EditArgs) -> bool {
@@ -282,74 +316,44 @@ fn edit_meta(edits: &EditArgs, meta: &mut InterchangeProjectMetadataRaw) {
 // Lists go through the in-place array editors so `--add-*` and
 // `--remove-*` keep the comments inside them.
 
-fn manifest_document<Project: ProjectRead>(project: &Project) -> Result<DocumentMut> {
-    project
-        .manifest_document()
-        .map_err(|e| anyhow::anyhow!("failed to read `model.toml`: {}", format_err(e)))
-}
-
-fn write_manifest<Project: ProjectMut>(
-    project: &mut Project,
-    document: &DocumentMut,
-) -> Result<()> {
-    project
-        .put_manifest_document(document, true)
-        .map_err(|e| anyhow::anyhow!("failed to write `model.toml`: {}", format_err(e)))
-}
-
-fn edit_toml(project: &mut LocalSrcProject, edits: &EditArgs) -> Result<()> {
-    refuse_computed_fields(edits)?;
-    let mut document = manifest_document(project)?;
-
+fn edit_toml(document: &mut DocumentMut, edits: &EditArgs) -> Result<()> {
     if let Some(name) = &edits.name {
         IndexName::parse(name.as_str()).map_err(|e| anyhow::anyhow!("`{}`: {e}", e.value))?;
-        edit::set_project_key(&mut document, ProjectKey::Name, name.as_str().into())?;
+        edit::set_project_key(document, ProjectKey::Name, name.as_str().into())?;
     }
     if let Some(publisher) = &edits.publisher {
         IndexPublisher::parse(publisher.as_str())
             .map_err(|e| anyhow::anyhow!("`{}`: {e}", e.value))?;
-        edit::set_project_key(
-            &mut document,
-            ProjectKey::Publisher,
-            publisher.as_str().into(),
-        )?;
+        edit::set_project_key(document, ProjectKey::Publisher, publisher.as_str().into())?;
     }
     if let Some(version) = &edits.version {
-        edit::set_project_key(
-            &mut document,
-            ProjectKey::Version,
-            version.to_string().into(),
-        )?;
+        edit::set_project_key(document, ProjectKey::Version, version.to_string().into())?;
     }
     if let Some(description) = &edits.description {
         edit::set_project_key(
-            &mut document,
+            document,
             ProjectKey::Description,
             description.as_str().into(),
         )?;
     } else if edits.clear_description {
-        edit::clear_project_key(&mut document, ProjectKey::Description)?;
+        edit::clear_project_key(document, ProjectKey::Description)?;
     }
     if let Some(license) = &edits.license {
-        edit::set_project_key(
-            &mut document,
-            ProjectKey::License,
-            license.to_string().into(),
-        )?;
+        edit::set_project_key(document, ProjectKey::License, license.to_string().into())?;
     } else if edits.clear_license {
-        edit::clear_project_key(&mut document, ProjectKey::License)?;
+        edit::clear_project_key(document, ProjectKey::License)?;
     }
     // `urls` is a table, so this is not a `[project]` key
     if let Some(website) = &edits.website {
-        edit::set_url_key(&mut document, "website", website.as_str())?;
+        edit::set_url_key(document, "website", website.as_str())?;
     } else if edits.clear_website {
-        edit::clear_url_key(&mut document, "website")?;
+        edit::clear_url_key(document, "website")?;
     }
     for value in &edits.add_maintainer {
         Maintainer::parse(value)?;
     }
     edit_toml_list(
-        &mut document,
+        document,
         "maintainer",
         ListKey::Maintainers,
         edits.clear_maintainers,
@@ -357,7 +361,7 @@ fn edit_toml(project: &mut LocalSrcProject, edits: &EditArgs) -> Result<()> {
         &edits.add_maintainer,
     )?;
     edit_toml_list(
-        &mut document,
+        document,
         "topic",
         ListKey::Topics,
         edits.clear_topics,
@@ -366,9 +370,9 @@ fn edit_toml(project: &mut LocalSrcProject, edits: &EditArgs) -> Result<()> {
     )?;
     // `root` first, so that a metamodel switch in the same edit sees it
     if let Some(root) = &edits.root {
-        edit::set_project_key(&mut document, ProjectKey::Root, root.as_str().into())?;
+        edit::set_project_key(document, ProjectKey::Root, root.as_str().into())?;
     } else if edits.clear_root {
-        edit::clear_project_key(&mut document, ProjectKey::Root)?;
+        edit::clear_project_key(document, ProjectKey::Root)?;
     }
     let metamodel = match (edits.metamodel, &edits.custom_metamodel) {
         (Some(kind), _) => Some(omg_metamodel(kind, edits)),
@@ -401,7 +405,7 @@ fn edit_toml(project: &mut LocalSrcProject, edits: &EditArgs) -> Result<()> {
             }
             _ => {}
         }
-        edit::set_project_key(&mut document, ProjectKey::Metamodel, value.into())?;
+        edit::set_project_key(document, ProjectKey::Metamodel, value.into())?;
     } else if edits.clear_metamodel {
         // A `model.toml` without a metamodel is unreadable; a json project
         // has no such rule and keeps the flag.
@@ -412,7 +416,7 @@ fn edit_toml(project: &mut LocalSrcProject, edits: &EditArgs) -> Result<()> {
         );
     }
 
-    write_manifest(project, &document)
+    Ok(())
 }
 
 /// [`edit_list`] on the `[project]` list `key`: clears it (if `clear`),

@@ -373,8 +373,8 @@ fn a_member_holding_both_manifests_is_refused() {
     //
     // The member's message appends a remedy the owned one cannot give
     // (`AmbiguousFormat` is raised for standalone projects too), so the
-    // hint is stripped before the comparison and asserted on its own.
-    let hint = " (`sysand migrate app` keeps the `model.toml` and removes the json)";
+    // remedy is stripped before the comparison.
+    let hint = "; remove the one that does not define the project";
     let shared = message
         .strip_suffix(hint)
         .expect("the member's message ends with its remedy");

@@ -18,7 +18,7 @@ use sysand_core::{
     context::ProjectContext,
     lock::{Lockfile, RemoveUsageOutcome},
     model::{InterchangeProjectUsageRaw, UsageRef},
-    project::{ProjectFormat, ProjectRead as _, utils::Identifier},
+    project::{ProjectDefinition, utils::Identifier},
     remove::do_remove,
     utils::ProvidedProjects,
 };
@@ -58,11 +58,11 @@ pub fn command_remove<Policy: HTTPAuthentication>(
         UsageRef::Resource(resolved_iri.borrow())
     };
 
-    let current_project = ctx
-        .current_project
-        .as_mut()
-        .ok_or(CliError::MissingProjectCurrentDir)?;
-    if identifier.is_none() && current_project.format()? == ProjectFormat::Toml {
+    if ctx.current_project().is_none() {
+        bail!(CliError::MissingProjectCurrentDir);
+    }
+    if identifier.is_none() && matches!(ctx.current_definition(), Some(ProjectDefinition::Toml(_)))
+    {
         bail!(
             "`--iri` and `--iri-path` name a resource usage, which a `model.toml` project\n\
              cannot declare: name the dependency as `<publisher>/<name>`"
@@ -73,7 +73,7 @@ pub fn command_remove<Policy: HTTPAuthentication>(
 
     // No rollback on lock/sync failure (unlike `add`): such a failure is
     // not caused by the removal.
-    let removed = do_remove(current_project, usage)?;
+    let removed = ctx.edit_project(|project| do_remove(project, usage))?;
     print_removed(&removed);
 
     // Identifiers must be derived from the removed usages, not from `usage`,
@@ -130,16 +130,14 @@ fn lock_sync<Policy: HTTPAuthentication>(
     removed_usages: &[Identifier],
 ) -> Result<(), anyhow::Error> {
     let provided_iris = resolution_opts.provided_iris(ProvidedProjects::default());
-    let current_project = ctx.current_project.as_ref().unwrap();
-
     // In a workspace the lockfile is the shared one at the root, and so
     // is the directory its `src_path`s are relative to.
     let lock_root = ctx.state_root();
     if let Some(mut lockfile) = Lockfile::try_read(&lock_root)? {
-        let definition = current_project
-            .get_project()?
+        let definition = ctx
+            .current_definition()
             .ok_or(CliError::MissingProjectCurrentDir)?;
-        let roots = ctx.lock_roots()?;
+        let roots = ctx.lock_roots();
         let mut modified = false;
         let mut root_found = true;
         for id in removed_usages {

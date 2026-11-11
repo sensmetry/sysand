@@ -190,8 +190,7 @@ impl Workspace {
         // Only over the members that loaded: a cycle running through a
         // broken member is invisible here, and its own diagnostic comes
         // first.
-        report.extend(duplicate_identities(&members));
-        report.extend(member_cycles(&members));
+        report.extend(cross_member_checks(&members));
 
         if report.is_empty() && broken.is_empty() {
             return Ok(Self {
@@ -206,6 +205,42 @@ impl Workspace {
                 .then(|| ProjectDeserializationError::invalid(MODEL_TOML_FILE, report)),
             members: broken,
         })))
+    }
+
+    /// Replace the manifest of the member at `index` with `project`, its
+    /// manifest as just read, and run the checks that span members over
+    /// the members in hand.
+    ///
+    /// The member is replaced even when a check fails, so the workspace
+    /// keeps matching the files.
+    pub fn replace_member(
+        &mut self,
+        index: usize,
+        project: ResolvedProject,
+    ) -> Result<(), LoadError> {
+        self.members[index].project = project;
+        let mut report = Diagnostics::new();
+        report.extend(cross_member_checks(&self.members));
+        if report.is_empty() {
+            return Ok(());
+        }
+        report.sort_by_position();
+        Err(LoadError::Invalid(Box::new(LoadFailure {
+            root: Some(ProjectDeserializationError::invalid(
+                MODEL_TOML_FILE,
+                report,
+            )),
+            members: Vec::new(),
+        })))
+    }
+
+    /// The index of the member whose directory is `dir`, if there is one.
+    pub fn member_index_of(
+        &self,
+        dir: impl AsRef<Utf8Path>,
+    ) -> Result<Option<usize>, Box<FsIoError>> {
+        let dir = wrapfs::canonicalize(dir.as_ref())?;
+        Ok(self.members.iter().position(|member| member.dir == dir))
     }
 
     /// Find the workspace a command run in `from` belongs to.
@@ -821,8 +856,8 @@ fn load_member(
             report.push(
                 Diagnostic::error(format!(
                     "member `{raw}` has both `model.toml` and `{json}`; it is unclear whether it \
-                     is a non-zipped KPAR or a development project (`sysand migrate {raw}` keeps \
-                     the `model.toml` and removes the json)"
+                     is a non-zipped KPAR or a development project; remove the one that does not \
+                     define the project"
                 ))
                 .at_opt(path.at.clone()),
             );
@@ -871,6 +906,13 @@ fn load_member(
             }
         }
     }
+}
+
+/// The checks that span members, over the members that loaded.
+fn cross_member_checks(members: &[Member]) -> Vec<Diagnostic> {
+    let mut found = duplicate_identities(members);
+    found.extend(member_cycles(members));
+    found
 }
 
 /// Two members that are the same project.

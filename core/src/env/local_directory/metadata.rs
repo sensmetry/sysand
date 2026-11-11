@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use crate::paths::{RelativePathKind, RelativeUnixPathError, parse_relative_unix_path};
+use crate::paths::{
+    RelativePathKind, RelativeUnixPathError, parse_local_path, parse_relative_unix_path,
+};
 use std::{fmt::Display, str::FromStr};
 
 use camino::{Utf8Path, Utf8PathBuf};
@@ -69,7 +71,7 @@ pub enum ParseError {
         current = CURRENT_METADATA_VERSION
     )]
     NewerVersion(String),
-    #[error("non-editable project has invalid path `{path}`")]
+    #[error("project has invalid path `{path}`")]
     InvalidProjectPath {
         path: Utf8UnixPathBuf,
         #[source]
@@ -116,22 +118,26 @@ impl FromStr for EnvMetadata {
         CURRENT_METADATA_VERSION.clone_into(&mut metadata.version);
 
         for project in &metadata.projects {
-            // Non-editable projects must not leave env directory
-            if !project.editable {
-                let path = project.path.as_str();
-                // `.` is the env directory itself, which is no project
-                let checked = if path == "." {
-                    Err(RelativeUnixPathError::ContainsCurrent {
-                        path: path.to_owned(),
-                    })
+            let path = project.path.as_str();
+            let checked = if project.editable {
+                // `.` is the directory the environment sits in
+                if path == "." {
+                    Ok(())
                 } else {
-                    parse_relative_unix_path(path, RelativePathKind::SubDirectory).map(|_| ())
-                };
-                checked.map_err(|source| ParseError::InvalidProjectPath {
-                    path: project.path.clone(),
-                    source,
-                })?;
-            }
+                    parse_local_path(path).map(|_| ())
+                }
+            } else if path == "." {
+                // `.` is the env directory itself, which is no project
+                Err(RelativeUnixPathError::ContainsCurrent {
+                    path: path.to_owned(),
+                })
+            } else {
+                parse_relative_unix_path(path, RelativePathKind::SubDirectory).map(|_| ())
+            };
+            checked.map_err(|source| ParseError::InvalidProjectPath {
+                path: project.path.clone(),
+                source,
+            })?;
         }
 
         Ok(metadata)

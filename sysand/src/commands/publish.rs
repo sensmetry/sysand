@@ -15,6 +15,7 @@ use sysand_core::{
     env::discovery::{ResolvedEndpoints, fetch_index_config},
     index_location::IndexSource,
     project::utils::wrapfs,
+    workspace::model_toml::Workspace,
 };
 
 use crate::{
@@ -186,27 +187,21 @@ fn resolve_publish_archives(
         return Ok(vec![path]);
     }
 
-    match (
-        ctx.current_project.as_ref(),
-        ctx.model_workspace_root.as_ref(),
-    ) {
+    match (ctx.current_project(), ctx.workspace()) {
         // A member publishes the archive `sysand build` wrote for it.
-        (Some(current_project), workspace_root) => Ok(vec![default_kpar_path_of(
-            &current_definition_for_build(ctx)?,
-            workspace_root.map(camino::Utf8PathBuf::as_path),
+        (Some(current_project), workspace) => Ok(vec![default_kpar_path_of(
+            current_definition_for_build(ctx)?,
+            workspace.map(Workspace::root),
             current_project.root_path(),
         )]),
         // From a workspace root, every member, in dependency order.
-        (None, Some(_)) => {
+        (None, Some(workspace)) => {
             log::warn!(
                 "Workspaces are an experimental feature\n\
                 and their behavior may change even with minor\n\
                 releases. For the status of this feature, see\n\
                 https://github.com/sensmetry/sysand/issues/101."
             );
-            let workspace = ctx
-                .load_workspace()?
-                .expect("a workspace root means a workspace");
             Ok(workspace_publish_order(workspace)
                 .into_iter()
                 .map(|(_, archive)| archive)

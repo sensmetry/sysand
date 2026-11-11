@@ -38,7 +38,6 @@ use sysand_core::{
     model::InterchangeProjectUsage,
     project::{
         any::{AnyProject, OverrideProject},
-        local_src::LocalSrcProject,
         reference::ProjectReference,
         utils::{Identifier, wrapfs},
     },
@@ -65,7 +64,7 @@ use crate::{
         exclude::command_exclude,
         include::command_include,
         index::{command_index_add, command_index_init, command_index_remove, command_index_yank},
-        info::{LocalProjectKind, command_info_field_path, command_info_path},
+        info::{command_info_field_path, command_info_path},
         init::{command_init, parse_metamodel},
         lock::command_lock,
         print_root::command_print_root,
@@ -74,7 +73,10 @@ use crate::{
         sources::{command_sources_env, command_sources_project, command_sources_workspace},
         sync::{VerifyStatus, lock_for_sync, sync_context},
     },
-    context::{ContextOptions, Discovered, discover_context},
+    context::{
+        ContextOptions, Discovered, NotADirectory, NotInProject, Start, config_root_of,
+        context_needs, discover_context,
+    },
     output::RunReport,
 };
 
@@ -453,13 +455,14 @@ fn http_options_from(lookup: impl Fn(&str) -> Option<OsString>) -> Result<HttpOp
 }
 
 /// The manifest a project's writing commands touch.
-fn manifest_path(project: &LocalSrcProject) -> Utf8PathBuf {
-    match sysand_core::project::ProjectRead::format(project) {
-        Ok(sysand_core::project::ProjectFormat::Toml) => project
+fn manifest_path(ctx: &ProjectContext) -> Option<Utf8PathBuf> {
+    let project = ctx.current_project()?;
+    Some(match ctx.current_definition() {
+        Some(sysand_core::project::ProjectDefinition::Toml(_)) => project
             .root_path()
             .join(sysand_core::manifest::MODEL_TOML_FILE),
         _ => project.info_path(),
-    }
+    })
 }
 
 /// The result document of a mutating command: its name and the paths it
@@ -722,116 +725,72 @@ fn run_cli_with(
     }
     log::debug!("sysand v{}", env!("CARGO_PKG_VERSION"));
 
-    // A selector replaces which member the command acts on. `Current` for
-    // every command that takes no selector, and for every invocation that
-    // gives none.
-    let selector = match &command {
-        Command::Build {
-            selector,
-            path: _,
-            compression: _,
-            allow_path_usage: _,
-            keep_index: _,
+    // The commands that act in the current project or workspace read it in
+    // full, once; the rest need only the working directory.
+    let (ctx, selected, project_root, scope) = match context_needs(&command) {
+        Some(needs) => {
+            let start = match needs.start {
+                Start::Cwd => cwd.clone(),
+                Start::Dir(dir) => {
+                    if !wrapfs::metadata(dir)?.is_dir() {
+                        let error = NotADirectory {
+                            dir: dir.to_owned(),
+                        };
+                        let usage = style::USAGE;
+                        return Err(match &command {
+                            Command::Info {
+                                locator,
+                                selector: _,
+                                get: _,
+                                resolution_opts: _,
+                            } if locator.dir.is_some() => {
+                                anyhow::anyhow!(
+                                    "{error}\n\
+                                    {usage}hint:{usage:#} to use a KPAR, use `--kpar-path`"
+                                )
+                            }
+                            _ => error.into(),
+                        });
+                    }
+                    wrapfs::canonicalize(dir)?
+                }
+                Start::NewDir(dir) => {
+                    wrapfs::create_dir_all(dir)?;
+                    wrapfs::canonicalize(dir)?
+                }
+            };
+            let Discovered {
+                ctx,
+                selected,
+                project_root,
+                scope,
+            } = discover_context(
+                start,
+                ContextOptions {
+                    consults_workspace: needs.consults_workspace,
+                    selector: needs.selector,
+                    needs_a_member: needs.needs_a_member,
+                    needs_a_project: false,
+                    lock_wait: global_opts.lock_wait.map(Duration::from_secs),
+                    cancellation: cancellation.clone(),
+                },
+                |lock_root| lock_mode(&command, lock_root),
+            )?;
+            (Some(ctx), selected, project_root, scope)
         }
-        | Command::Publish {
-            selector,
-            path: _,
-            index: _,
-            trusted_publishing: _,
-        }
-        | Command::Info {
-            selector,
-            locator: _,
-            get: _,
-            resolution_opts: _,
-        }
-        | Command::Sources {
-            selector,
-            sources_opts: _,
-        } => selector.selector(),
-        Command::Add {
-            selector,
-            locator: _,
-            version_constraint: _,
-            sync: _,
-            resolution_opts: _,
-            source_opts: _,
-        }
-        | Command::Remove {
-            selector,
-            locator: _,
-            sync: _,
-            resolution_opts: _,
-        }
-        | Command::Include {
-            selector,
-            paths: _,
-            compute_checksum: _,
-            no_index_symbols: _,
-        }
-        | Command::Exclude { selector, paths: _ }
-        | Command::PrintRoot { selector }
-        | Command::Edit {
-            selector,
-            dir: _,
-            edits: _,
-        } => selector.selector(),
-        _ => Selector::Current,
+        None => (None, None, None, None),
     };
-
-    // These commands need a project, so `--member` is required at the
-    // root: in a workspace, with no member to act on.
-    //
-    // `edit --dir` names its project directly, so only a bare `edit`
-    // belongs to the row.
-    let needs_a_member = matches!(
-        &command,
-        Command::Add {
-            selector: _,
-            locator: _,
-            version_constraint: _,
-            sync: _,
-            resolution_opts: _,
-            source_opts: _
-        } | Command::Remove {
-            selector: _,
-            locator: _,
-            sync: _,
-            resolution_opts: _
-        } | Command::Include {
-            selector: _,
-            paths: _,
-            compute_checksum: _,
-            no_index_symbols: _
-        } | Command::Exclude {
-            selector: _,
-            paths: _
-        } | Command::Edit {
-            dir: None,
-            selector: _,
-            edits: _
-        }
-    );
-
-    let Discovered {
-        mut ctx,
-        selected,
-        project_root,
-        scope,
-    } = discover_context(
-        cwd,
-        ContextOptions {
-            consults_workspace: consults_the_workspace(&command),
-            selector,
-            needs_a_member,
-            needs_a_project: false,
-            lock_wait: global_opts.lock_wait.map(Duration::from_secs),
-            cancellation,
-        },
-        |lock_root| lock_mode(&command, lock_root),
-    )?;
-    let model_workspace_root = ctx.model_workspace_root.clone();
-    let lock_root = ctx.state_root();
+    let (lock_root, config_root, config_start) = match &ctx {
+        Some(ctx) => (
+            ctx.state_root(),
+            ctx.config_root.clone(),
+            ctx.current_directory.clone(),
+        ),
+        None => (cwd.clone(), config_root_of(&cwd)?, cwd.clone()),
+    };
+    let model_workspace_root = ctx
+        .as_ref()
+        .and_then(|ctx| ctx.model_workspace_root().map(Utf8Path::to_owned));
 
     let auto_config = if global_opts.no_config {
         Config::default()
@@ -839,7 +798,7 @@ fn run_cli_with(
         // A `sysand.toml` under the workspace but not at its root is
         // ignored with a warning, which `--no-config` silences.
         if reads_configuration(&command) {
-            for stray in stray_configs(&ctx.current_directory, &ctx.config_root)? {
+            for stray in stray_configs(&config_start, &config_root)? {
                 log::warn!(
                     "{}",
                     ReadWarning::IgnoredSourceOverrides {
@@ -848,7 +807,7 @@ fn run_cli_with(
                 );
             }
         }
-        load_configs(&ctx.config_root)?
+        load_configs(&config_root)?
     };
 
     let mut config = match &global_opts.config_file {
@@ -929,8 +888,8 @@ fn run_cli_with(
         &command,
         &lock_root,
         project_root.as_deref(),
-        ctx.current_project.as_ref().map(manifest_path),
-        &ctx.current_directory,
+        ctx.as_ref().and_then(manifest_path),
+        &cwd,
     );
 
     let outcome: Result<()> = match command {
@@ -946,7 +905,15 @@ fn run_cli_with(
             let metamodel = metamodel
                 .map(|metamodel| parse_metamodel(&metamodel, metamodel_release))
                 .transpose()?;
-            command_init(name, publisher, version, license, metamodel, path, ctx)
+            command_init(
+                name,
+                publisher,
+                version,
+                license,
+                metamodel,
+                path,
+                required(ctx),
+            )
         }
         Command::Env { command } => match command {
             None => {
@@ -1001,7 +968,7 @@ fn run_cli_with(
             //         Ok(())
             //     }
             // }
-            Some(EnvCommand::List) => command_env_list(ctx.env),
+            Some(EnvCommand::List) => command_env_list(required(ctx).env),
             Some(EnvCommand::Sources {
                 locator,
                 version_constraint,
@@ -1011,12 +978,11 @@ fn run_cli_with(
                 version_constraint,
                 sources_opts.no_own,
                 sources_opts.deps,
-                ctx.env,
+                required(ctx).env,
             ),
         },
         Command::Index { command } => {
-            let root =
-                |index_root: Option<Utf8PathBuf>| index_root.unwrap_or(ctx.current_directory);
+            let root = |index_root: Option<Utf8PathBuf>| index_root.unwrap_or(cwd);
             match command {
                 IndexCommand::Init { index_root } => command_index_init(root(index_root))?,
                 IndexCommand::Add {
@@ -1047,7 +1013,14 @@ fn run_cli_with(
         Command::Lock { resolution_opts } => {
             // One lockfile for the whole workspace, at its root, from
             // anywhere under it.
-            let lock = command_lock(resolution_opts, &config, client, runtime, auth_policy, &ctx)?;
+            let lock = command_lock(
+                resolution_opts,
+                &config,
+                client,
+                runtime,
+                auth_policy,
+                &required(ctx),
+            )?;
             output::lock_document(&lock, &lock_root.join(DEFAULT_LOCKFILE_NAME));
             Ok(())
         }
@@ -1057,6 +1030,7 @@ fn run_cli_with(
             verify,
             repair,
         } => {
+            let mut ctx = required(ctx);
             let provided_iris = resolution_opts.provided_iris(ProvidedProjects::default());
             // The lockfile is read, or written, before the environment is
             // created, so a failure to lock leaves no environment behind.
@@ -1128,7 +1102,7 @@ fn run_cli_with(
                 Ok(())
             }
             None => command_print_root(
-                &ctx.current_directory,
+                &cwd,
                 scope.as_ref().map(|(root, start)| (root.as_path(), start)),
             ),
         },
@@ -1142,7 +1116,7 @@ fn run_cli_with(
             enum Location {
                 WorkDir,
                 Resolve(ResolutionInfo),
-                Path(Utf8PathBuf, LocalProjectKind),
+                KparPath(Utf8PathBuf),
             }
 
             let index_urls = resolution_opts.index_urls(&config);
@@ -1156,12 +1130,13 @@ fn run_cli_with(
             // written in, which in a workspace is the root's.
             let overrides = get_overrides(
                 &config,
-                &ctx.config_root,
+                &config_root,
                 &client,
                 runtime.clone(),
                 auth_policy.clone(),
             )?;
 
+            let names_dir = locator.dir.is_some();
             let location = match locator {
                 cli::InfoProjectLocatorArgs {
                     identifier: Some((publisher, name)),
@@ -1179,16 +1154,16 @@ fn run_cli_with(
                 )),
                 cli::InfoProjectLocatorArgs {
                     identifier: None,
-                    dir: Some(dir),
+                    dir: Some(_),
                     kpar_path: None,
                     iri: None,
-                } => Location::Path(dir, LocalProjectKind::Dir),
+                } => Location::WorkDir,
                 cli::InfoProjectLocatorArgs {
                     identifier: None,
                     dir: None,
                     kpar_path: Some(kpar_path),
                     iri: None,
-                } => Location::Path(kpar_path, LocalProjectKind::Kpar),
+                } => Location::KparPath(kpar_path),
                 cli::InfoProjectLocatorArgs {
                     identifier: None,
                     dir: None,
@@ -1206,7 +1181,9 @@ fn run_cli_with(
 
             // `--dir`/`--kpar-path`/`--iri` name their own target, so a
             // workspace selector alongside one is a contradiction.
-            if !matches!(location, Location::WorkDir) && selector.selector() != Selector::Current {
+            if (names_dir || !matches!(location, Location::WorkDir))
+                && selector.selector() != Selector::Current
+            {
                 bail!(
                     "`--workspace` and `--member` select a member of the current workspace, \
                      which `--dir`, `--kpar-path` and `--iri` already answer; pass one or the other"
@@ -1215,7 +1192,8 @@ fn run_cli_with(
 
             match (location, get) {
                 (Location::WorkDir, get) => {
-                    if let Some(current_project) = &ctx.current_project {
+                    let ctx = required(ctx);
+                    if let Some(current_project) = ctx.current_project() {
                         if let Some(field) = get {
                             crate::commands::info::command_info_current_field(
                                 &ctx,
@@ -1223,25 +1201,29 @@ fn run_cli_with(
                                 field,
                             )
                         } else {
-                            // The context's manifest carries the workspace
-                            // table a member needs.
                             crate::commands::info::command_info_current(
                                 &ctx,
                                 current_project.root_path(),
                                 &excluded_usages,
                             )
                         }
-                    } else if let Some(workspace) = ctx.load_workspace()? {
+                    } else {
                         // All members, from the root or a non-member
                         // directory under it.
+                        let Some(workspace) = ctx.workspace() else {
+                            if names_dir {
+                                bail!(NotInProject {
+                                    dir: ctx.current_directory
+                                });
+                            }
+                            bail!(
+                                "run outside of an active project, did you mean to use `--dir`, `--kpar-path` or `--iri`?"
+                            )
+                        };
                         crate::commands::info::command_info_workspace(
                             workspace,
                             get,
                             &excluded_usages,
-                        )
-                    } else {
-                        bail!(
-                            "run outside of an active project, did you mean to use `--dir`, `--kpar-path` or `--iri`?"
                         )
                     }
                 }
@@ -1254,7 +1236,7 @@ fn run_cli_with(
                     overrides,
                     runtime,
                     auth_policy,
-                    ctx,
+                    required(ctx),
                 ),
                 (Location::Resolve(resolve), Some(field)) => {
                     crate::commands::info::command_info_field_resolve(
@@ -1265,34 +1247,23 @@ fn run_cli_with(
                         overrides,
                         runtime,
                         auth_policy,
-                        ctx,
+                        required(ctx),
                     )
                 }
-                (Location::Path(path, kind), None) => {
-                    command_info_path(&path, kind, &excluded_usages)
-                }
-                (Location::Path(path, kind), Some(field)) => {
-                    command_info_field_path(&path, kind, field)
-                }
+                (Location::KparPath(path), None) => command_info_path(&path, &excluded_usages),
+                (Location::KparPath(path), Some(field)) => command_info_field_path(&path, field),
             }
         }
         Command::Edit {
-            dir,
+            dir: _,
             edits,
             selector: _,
         } => {
-            let project = match dir {
-                Some(dir) => {
-                    if !wrapfs::metadata(&dir)?.is_dir() {
-                        bail!("`{dir}` is not a directory");
-                    }
-                    LocalSrcProject::new_access(dir, None)
-                }
-                None => ctx
-                    .current_project
-                    .ok_or(CliError::MissingProjectCurrentDir)?,
-            };
-            command_edit(project, *edits)
+            let mut ctx = required(ctx);
+            if ctx.current_project().is_none() {
+                bail!(CliError::MissingProjectCurrentDir);
+            }
+            command_edit(&mut ctx, *edits)
         }
         Command::Add {
             selector: _,
@@ -1312,7 +1283,7 @@ fn run_cli_with(
             config,
             global_opts.config_file,
             global_opts.no_config,
-            ctx,
+            required(ctx),
             client,
             runtime,
             auth_policy,
@@ -1325,7 +1296,7 @@ fn run_cli_with(
             resolution_opts,
         } => command_remove(
             locator,
-            ctx,
+            required(ctx),
             config,
             global_opts.config_file,
             global_opts.no_config,
@@ -1342,8 +1313,8 @@ fn run_cli_with(
             paths,
             compute_checksum: add_checksum,
             no_index_symbols,
-        } => command_include(paths, add_checksum, !no_index_symbols, ctx),
-        Command::Exclude { selector: _, paths } => command_exclude(paths, ctx),
+        } => command_include(paths, add_checksum, !no_index_symbols, required(ctx)),
+        Command::Exclude { selector: _, paths } => command_exclude(paths, required(ctx)),
         Command::Build {
             selector: _,
             path,
@@ -1357,12 +1328,13 @@ fn run_cli_with(
             //
             // A member
             // never holds its own lockfile, so the workspace root wins.
+            let ctx = required(ctx);
             if let Some(root) = ctx.sources_root()
                 && let Some(lockfile) = Lockfile::try_read(&root)?
             {
                 lockfile.lock().warn_release_mismatches();
             }
-            if let Some(current_project) = &ctx.current_project {
+            if let Some(current_project) = ctx.current_project() {
                 // Even in a workspace, the project takes precedence; the
                 // workspace root still decides where the archive goes, as
                 // a workspace has one `output/`.
@@ -1370,7 +1342,7 @@ fn run_cli_with(
                     path
                 } else {
                     let path = sysand_core::build::default_kpar_path_of(
-                        &crate::commands::build::current_definition_for_build(&ctx)?,
+                        crate::commands::build::current_definition_for_build(&ctx)?,
                         model_workspace_root.as_deref(),
                         current_project.root_path(),
                     );
@@ -1391,9 +1363,7 @@ fn run_cli_with(
             } else {
                 // With no workspace either, report a missing project.
                 let root = model_workspace_root.ok_or(CliError::MissingProjectCurrentDir)?;
-                let workspace = ctx
-                    .load_workspace()?
-                    .expect("a workspace root means a workspace");
+                let workspace = ctx.workspace().expect("a workspace root means a workspace");
                 let output_dir =
                     path.unwrap_or_else(|| root.join(sysand_core::build::DEFAULT_OUTPUT_NAME));
 
@@ -1443,7 +1413,7 @@ fn run_cli_with(
             allow_no_vcs,
             resolution_opts,
             &config,
-            &ctx,
+            &required(ctx),
             client,
             runtime,
             auth_policy,
@@ -1457,7 +1427,7 @@ fn run_cli_with(
             path,
             index,
             trusted_publishing,
-            &ctx,
+            &required(ctx),
             auth_policy,
             client,
             runtime,
@@ -1473,20 +1443,23 @@ fn run_cli_with(
                 index_urls,
                 runtime,
                 auth_policy,
-                ctx,
+                required(ctx),
             )
         }
         Command::Sources {
             selector: _,
             sources_opts,
-        } => match (&ctx.current_project, ctx.model_workspace_root.clone()) {
-            // All members from the root or from a non-member directory
-            // under it: a workspace, and no member the directory implies.
-            (None, Some(_)) => {
-                command_sources_workspace(sources_opts.no_own, sources_opts.deps, ctx)
+        } => {
+            let ctx = required(ctx);
+            match (ctx.current_project(), ctx.workspace()) {
+                // All members from the root or from a non-member directory
+                // under it: a workspace, and no member the directory implies.
+                (None, Some(_)) => {
+                    command_sources_workspace(sources_opts.no_own, sources_opts.deps, ctx)
+                }
+                _ => command_sources_project(sources_opts.no_own, sources_opts.deps, ctx),
             }
-            _ => command_sources_project(sources_opts.no_own, sources_opts.deps, ctx),
-        },
+        }
         Command::Clone {
             locator,
             version_constraint,
@@ -1497,7 +1470,7 @@ fn run_cli_with(
             locator,
             version_constraint,
             target,
-            ctx,
+            cancellation,
             no_deps,
             resolution_opts,
             &config,
@@ -1534,6 +1507,11 @@ pub fn get_env(
     root: impl AsRef<Utf8Path>,
 ) -> Result<Option<LocalDirectoryEnvironment>, EnvMetadataError> {
     LocalDirectoryEnvironment::try_read(root.as_ref().join(DEFAULT_ENV_NAME))
+}
+
+/// The context of a command that has one.
+fn required(ctx: Option<ProjectContext>) -> ProjectContext {
+    ctx.expect("BUG: the command needs a context, and `context_needs` gave it none")
 }
 
 /// Take `ctx`'s environment, or create an empty one at its state root,
@@ -1631,52 +1609,6 @@ fn reads_configuration(command: &cli::Command) -> bool {
         | cli::Command::Migrate { path: _, publisher: _, metamodel: _, allow_dirty: _, allow_no_vcs: _, resolution_opts: _ } => true,
         cli::Command::Info { locator, selector: _, get: _, resolution_opts: _ } => locator.iri.is_some() || locator.identifier.is_some(),
         _ => false,
-    }
-}
-
-/// Whether a command consults the `[workspace]` table before it runs.
-///
-/// Every command has a target (the whole workspace, or the member the
-/// command was run in) except `clone`, `index` and `auth`, which are
-/// scope-free: `clone` creates a project outside any scope, `index` and
-/// `auth` are configuration. `init` and `migrate` are scope-free too, as
-/// they read what they need themselves and must not be blocked by an
-/// unrelated member's mistake.
-///
-/// So a nested workspace, or one the command was started outside of, stops
-/// the other commands and not these. A project under the root that is
-/// neither a member nor excluded is likewise an error only for the
-/// commands that have a scope.
-///
-/// This is consulting, not loading: `Workspace::load` also rejects stray
-/// per-member state, which would refuse the workspace a member's own
-/// previous run created (a lockfile, `.sysand` or `output`). See
-/// `StartRegion`.
-fn consults_the_workspace(command: &cli::Command) -> bool {
-    match command {
-        cli::Command::Build { selector: _, path: _, compression: _, allow_path_usage: _, keep_index: _ }
-        | cli::Command::Sources { selector: _, sources_opts: _ }
-        | cli::Command::Info { selector: _, locator: _, get: _, resolution_opts: _ }
-        | cli::Command::Edit { dir: _, selector: _, edits: _ }
-        | cli::Command::Publish { selector: _, path: _, index: _, trusted_publishing: _ }
-        | cli::Command::Add { selector: _, locator: _, version_constraint: _, sync: _, resolution_opts: _, source_opts: _ }
-        | cli::Command::Remove { selector: _, locator: _, sync: _, resolution_opts: _ }
-        | cli::Command::Include { selector: _, paths: _, compute_checksum: _, no_index_symbols: _ }
-        | cli::Command::Exclude { selector: _, paths: _ }
-        | cli::Command::Experimental {  }
-        | cli::Command::Lock { resolution_opts: _ }
-        | cli::Command::Sync { resolution_opts: _, no_prune: _, verify: _, repair: _ }
-        | cli::Command::Versions { iri: _, resolution_opts: _ }
-        | cli::Command::Env { command: _ }
-        | cli::Command::PrintRoot { selector: _ } => true,
-        cli::Command::Init { path: _, name: _, publisher: _, version: _, license: _, metamodel: _, metamodel_release: _ }
-        // An unlisted json project under a workspace root is a valid
-        // `migrate` target, and a bare `migrate` at a workspace root is
-        // refused by the command itself.
-        | cli::Command::Migrate { path: _, publisher: _, metamodel: _, allow_dirty: _, allow_no_vcs: _, resolution_opts: _ }
-        | cli::Command::Clone { locator: _, target: _, version_constraint: _, no_deps: _, resolution_opts: _ }
-        | cli::Command::Index { command: _ }
-        | cli::Command::Auth { command: _ } => false,
     }
 }
 

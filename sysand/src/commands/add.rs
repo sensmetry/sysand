@@ -17,7 +17,7 @@ use sysand_core::{
         Config, ConfigProject, OverrideSource,
         local_fs::{CONFIG_FILE, add_project_source_to_config},
     },
-    context::ProjectContext,
+    context::{EditError, ProjectContext},
     lock::{Lock, Lockfile},
     manifest::MODEL_TOML_FILE,
     model::{
@@ -25,9 +25,8 @@ use sysand_core::{
         ProjectName, ProjectPublisher, UsageRef,
     },
     project::{
-        ProjectDefinition, ProjectFormat, ProjectMut as _, ProjectRead as _,
+        ProjectDefinition, ProjectMut as _, ProjectRead as _,
         local_kpar::{KparInnerPath, LocalKParProject},
-        local_src::LocalSrcProject,
         utils::{Identifier, wrapfs},
     },
     resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead as _, standard::standard_resolver},
@@ -61,14 +60,13 @@ pub fn command_add<Policy: HTTPAuthentication>(
     mut config: Config,
     config_file: Option<Utf8PathBuf>,
     no_config: bool,
-    ctx: ProjectContext,
+    mut ctx: ProjectContext,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
 ) -> Result<bool> {
-    let mut current_project = ctx
-        .current_project
-        .clone()
+    let project_root = ctx
+        .project_root()
         .ok_or(CliError::MissingProjectCurrentDir)?;
 
     // The source override of a resource usage, recorded only once the
@@ -84,7 +82,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
         } => {
             // Source overrides are only for resource usages
             assert_no_overrides(&source_overrides);
-            let Some(current) = current_project.get_project()? else {
+            let Some(current) = ctx.current_definition() else {
                 bail!(CliError::MissingProjectCurrentDir);
             };
             let index_usage = |publisher, name, version_constraint: &VersionReq| {
@@ -176,7 +174,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
             assert_no_overrides(&source_overrides);
             assert_eq!(version_constraint, None);
             let abs_path = wrapfs::canonicalize(dir)?;
-            let relative = relativize_path(&abs_path, current_project.root_path())?;
+            let relative = relativize_path(&abs_path, &project_root)?;
             let project = sysand_core::workspace::model_toml::project_at_path(abs_path, None)?;
             let definition = project
                 .get_project()?
@@ -206,7 +204,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
             assert_no_overrides(&source_overrides);
             assert_eq!(version_constraint, None);
             let abs_path = wrapfs::canonicalize(kpar_path)?;
-            let relative = relativize_path(&abs_path, current_project.root_path())?;
+            let relative = relativize_path(&abs_path, &project_root)?;
             let project = LocalKParProject::new_access(abs_path.clone(), KparInnerPath::Root, None);
             let definition = project
                 .get_project()?
@@ -234,7 +232,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
             iri_path,
         } => {
             // A resource usage has no `model.toml` form
-            if current_project.format()? == ProjectFormat::Toml {
+            if matches!(ctx.current_definition(), Some(ProjectDefinition::Toml(_))) {
                 bail!(
                     "`--iri` and `--iri-path` add a resource usage, which a `model.toml` project\n\
                      cannot declare: name the dependency as `<publisher>/<name>`, or use\n\
@@ -252,9 +250,13 @@ pub fn command_add<Policy: HTTPAuthentication>(
         _ => unreachable!(),
     };
 
+    // Taken before the manifest changes, so a change that does not hold
+    // together with the rest of the workspace can be put back.
+    let backup = manifest_backup(&ctx)?;
+
     if no_lock {
         let added = match usage {
-            UsageToAdd::Ready(usage) => do_add(&mut current_project, &usage)?,
+            UsageToAdd::Ready(usage) => add_usage(&mut ctx, &usage, &backup)?,
             UsageToAdd::AlreadyPresent => false,
             UsageToAdd::PendingIndex(_) => {
                 unreachable!("without locking, an index usage is settled from the environment")
@@ -270,12 +272,10 @@ pub fn command_add<Policy: HTTPAuthentication>(
             &client,
             &runtime,
             &auth_policy,
-            &current_project,
+            &project_root,
         )?;
         return Ok(added);
     }
-
-    let (backup_path, backup) = manifest_backup(&current_project)?;
 
     let provided_iris = if resolution_opts.include_std {
         HashMap::default()
@@ -301,13 +301,13 @@ pub fn command_add<Policy: HTTPAuthentication>(
     // Even when nothing is added, lock and sync, since the environment may
     // be missing or stale
     let (added, pending) = match usage {
-        UsageToAdd::Ready(usage) => (do_add(&mut current_project, &usage)?, None),
+        UsageToAdd::Ready(usage) => (add_usage(&mut ctx, &usage, &backup)?, None),
         UsageToAdd::AlreadyPresent => (false, None),
         // Added as given, and settled once locked
         UsageToAdd::PendingIndex(pending) => {
             let placeholder = pending.placeholder();
             (
-                do_add(&mut current_project, &placeholder)?,
+                add_usage(&mut ctx, &placeholder, &backup)?,
                 Some((placeholder, pending)),
             )
         }
@@ -324,7 +324,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
         &client,
         &runtime,
         &auth_policy,
-        &current_project,
+        &project_root,
     )
     .and_then(|()| {
         create_resolver(
@@ -344,7 +344,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
             .and_then(|(_, pending)| pending.respelled());
         let lock = lock_scope(resolver, &provided_iris, &ctx, respelled.as_ref())?;
         if let Some((placeholder, pending)) = pending {
-            settle_from_lock(&mut current_project, &lock, &placeholder, pending)?;
+            settle_from_lock(&mut ctx, &lock, &placeholder, pending)?;
         }
         Ok::<_, anyhow::Error>(lock)
     });
@@ -357,14 +357,14 @@ pub fn command_add<Policy: HTTPAuthentication>(
             runtime,
             auth_policy,
             &provided_iris,
-            ctx,
+            &mut ctx,
         )
     });
     match result {
         Ok(()) => Ok(added),
         Err(e) => {
             // Roll back the manifest edit.
-            wrapfs::write(&backup_path, backup)?;
+            backup.restore(&mut ctx)?;
             Err(e)
         }
     }
@@ -379,17 +379,51 @@ enum UsageToAdd {
 }
 
 /// The manifest a rollback has to put back.
+struct ManifestBackup {
+    path: Utf8PathBuf,
+    text: String,
+}
+
+impl ManifestBackup {
+    /// Write the manifest back through `ctx`, so its snapshot follows.
+    fn restore(&self, ctx: &mut ProjectContext) -> Result<()> {
+        ctx.edit_project(|_| wrapfs::write(&self.path, &self.text))?;
+        Ok(())
+    }
+}
+
+/// The manifest a rollback has to put back.
 ///
 /// The file is the one the project's format names: restoring a
 /// `.project.json` into a `model.toml` project would leave both, which
 /// cannot be read.
-fn manifest_backup(project: &LocalSrcProject) -> Result<(Utf8PathBuf, String)> {
-    let path = match project.format()? {
-        ProjectFormat::Toml => project.root_path().join(MODEL_TOML_FILE),
+fn manifest_backup(ctx: &ProjectContext) -> Result<ManifestBackup> {
+    let project = ctx
+        .current_project()
+        .ok_or(CliError::MissingProjectCurrentDir)?;
+    let path = match ctx.current_definition() {
+        Some(ProjectDefinition::Toml(_)) => project.root_path().join(MODEL_TOML_FILE),
         _ => project.info_path(),
     };
     let text = wrapfs::read_to_string(&path)?;
-    Ok((path, text))
+    Ok(ManifestBackup { path, text })
+}
+
+/// Add `usage` to the current project. A change that the context's checks
+/// refuse once written is put back with `backup`.
+fn add_usage(
+    ctx: &mut ProjectContext,
+    usage: &InterchangeProjectUsageRaw,
+    backup: &ManifestBackup,
+) -> Result<bool> {
+    match ctx.edit_project(|project| do_add(project, usage)) {
+        Ok(added) => Ok(added),
+        Err(EditError::Reload(error)) => {
+            backup.restore(ctx)?;
+            Err(EditError::<Infallible>::Reload(error).into())
+        }
+        Err(error) => Err(error.into()),
+    }
 }
 
 /// Record the source override `pending` carries, if any, in the
@@ -408,7 +442,7 @@ fn record_override<Policy: HTTPAuthentication>(
     client: &reqwest_middleware::ClientWithMiddleware,
     runtime: &Arc<tokio::runtime::Runtime>,
     auth_policy: &Arc<Policy>,
-    current_project: &LocalSrcProject,
+    project_root: &Utf8Path,
 ) -> Result<()> {
     let Some((source_overrides, iri)) = pending else {
         return Ok(());
@@ -423,7 +457,7 @@ fn record_override<Policy: HTTPAuthentication>(
         client,
         runtime,
         auth_policy,
-        current_project,
+        project_root,
         &iri,
     )
 }
@@ -438,7 +472,7 @@ fn process_overrides<Policy: HTTPAuthentication>(
     client: &reqwest_middleware::ClientWithMiddleware,
     runtime: &Arc<tokio::runtime::Runtime>,
     auth_policy: &Arc<Policy>,
-    current_project: &LocalSrcProject,
+    project_root: &Utf8Path,
     iri: &Iri<String>,
 ) -> Result<(), anyhow::Error> {
     #[expect(clippy::manual_map)] // For readability and compactness
@@ -447,13 +481,13 @@ fn process_overrides<Policy: HTTPAuthentication>(
         // A local directory is used in place, as a `dir` usage is locked.
         if metadata.is_dir() {
             Some(OverrideSource::Editable {
-                editable: get_relative(path, current_project.root_path(), &ctx.current_directory)?
+                editable: get_relative(path, project_root, &ctx.current_directory)?
                     .as_str()
                     .into(),
             })
         } else if metadata.is_file() {
             Some(OverrideSource::LocalKpar {
-                kpar_path: get_relative(path, current_project.root_path(), &ctx.current_directory)?
+                kpar_path: get_relative(path, project_root, &ctx.current_directory)?
                     .as_str()
                     .into(),
             })
@@ -504,33 +538,21 @@ fn process_overrides<Policy: HTTPAuthentication>(
         source
     } else if let Some(editable) = source_overrides.as_editable {
         Some(OverrideSource::Editable {
-            editable: get_relative(
-                editable,
-                current_project.root_path(),
-                &ctx.current_directory,
-            )?
-            .as_str()
-            .into(),
+            editable: get_relative(editable, project_root, &ctx.current_directory)?
+                .as_str()
+                .into(),
         })
     } else if let Some(src_path) = source_overrides.as_local_src {
         Some(OverrideSource::LocalSrc {
-            src_path: get_relative(
-                src_path,
-                current_project.root_path(),
-                &ctx.current_directory,
-            )?
-            .as_str()
-            .into(),
+            src_path: get_relative(src_path, project_root, &ctx.current_directory)?
+                .as_str()
+                .into(),
         })
     } else if let Some(kpar_path) = source_overrides.as_local_kpar {
         Some(OverrideSource::LocalKpar {
-            kpar_path: get_relative(
-                kpar_path,
-                current_project.root_path(),
-                &ctx.current_directory,
-            )?
-            .as_str()
-            .into(),
+            kpar_path: get_relative(kpar_path, project_root, &ctx.current_directory)?
+                .as_str()
+                .into(),
         })
     } else if let Some(remote_src) = source_overrides.as_remote_src {
         Some(OverrideSource::RemoteSrc { remote_src })
@@ -608,12 +630,12 @@ impl PendingIndexUsage {
     }
 }
 
-/// Replace `placeholder`, the usage `pending` added as given, in `project`:
-/// spelled as the project it locked to when it was normalized, and
-/// constrained to `^` the locked version when it had no constraint, as
-/// `cargo add` does.
+/// Replace `placeholder`, the usage `pending` added as given, in the
+/// current project: spelled as the project it locked to when it was
+/// normalized, and constrained to `^` the locked version when it had no
+/// constraint, as `cargo add` does.
 fn settle_from_lock(
-    project: &mut LocalSrcProject,
+    ctx: &mut ProjectContext,
     lock: &Lock,
     placeholder: &InterchangeProjectUsageRaw,
     pending: PendingIndexUsage,
@@ -669,7 +691,7 @@ fn settle_from_lock(
     }
     // A `model.toml` entry goes through the manifest editor: the
     // placeholder out by its identity, the settled usage in.
-    if project.format()? == ProjectFormat::Toml {
+    if matches!(ctx.current_definition(), Some(ProjectDefinition::Toml(_))) {
         let InterchangeProjectUsageRaw::Index {
             publisher,
             name,
@@ -681,11 +703,12 @@ fn settle_from_lock(
         // An index spelling is always a valid project spelling
         let publisher = ProjectPublisher::parse(publisher.clone()).map_err(|(_, e)| anyhow!(e))?;
         let name = ProjectName::parse(name.clone()).map_err(|(_, e)| anyhow!(e))?;
-        do_remove(project, UsageRef::Typed(&publisher, &name))?;
-        do_add(project, &settled)?;
+        ctx.edit_project(|project| do_remove(project, UsageRef::Typed(&publisher, &name)))?;
+        ctx.edit_project(|project| do_add(project, &settled))?;
         return Ok(());
     }
-    let Some(ProjectDefinition::Json { mut info, meta: _ }) = project.get_project()? else {
+    let Some(ProjectDefinition::Json { mut info, meta: _ }) = ctx.current_definition().cloned()
+    else {
         bail!(CliError::MissingProjectCurrentDir);
     };
     // FIXME: write once, after spelling is known
@@ -694,7 +717,7 @@ fn settle_from_lock(
             *usage = settled.clone();
         }
     }
-    project.put_info(&info, true)?;
+    ctx.edit_project(|project| project.put_info(&info, true))?;
     Ok(())
 }
 
@@ -709,14 +732,14 @@ fn write_lock_and_sync<Policy: HTTPAuthentication>(
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
     provided_iris: &ProvidedProjects,
-    mut ctx: ProjectContext,
+    ctx: &mut ProjectContext,
 ) -> Result<(), anyhow::Error> {
     let lockfile = Lockfile::new(ctx.state_root(), lock);
     lockfile.write()?;
     if !no_sync {
         sync_context(
             lockfile.lock(),
-            &mut ctx,
+            ctx,
             false,
             false,
             no_prune,
@@ -741,7 +764,7 @@ pub fn resolve_deps<Policy: HTTPAuthentication>(
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
     provided_iris: ProvidedProjects,
-    ctx: ProjectContext,
+    mut ctx: ProjectContext,
 ) -> Result<(), anyhow::Error> {
     let lock = lock_scope(resolver, &provided_iris, &ctx, None)?;
     write_lock_and_sync(
@@ -752,7 +775,7 @@ pub fn resolve_deps<Policy: HTTPAuthentication>(
         runtime,
         auth_policy,
         &provided_iris,
-        ctx,
+        &mut ctx,
     )
 }
 

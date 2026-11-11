@@ -63,10 +63,7 @@ pub fn lock_scope<Policy: HTTPAuthentication>(
 ) -> Result<Lock> {
     // A single-member solve written over a workspace's shared lockfile
     // would drop every other member.
-    // `MemberChecks::All`: the lockfile, `.sysand` and `output` live at
-    // the workspace root, so a member holds no state of its own and a
-    // member that does is refused.
-    if let Some(workspace) = ctx.load_workspace()? {
+    if let Some(workspace) = ctx.workspace() {
         let LockOutcome {
             lock,
             dependencies: _,

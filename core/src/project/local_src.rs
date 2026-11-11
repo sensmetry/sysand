@@ -21,7 +21,7 @@ use crate::{
     context::ProjectContext,
     env::utils::{CloneError, clone_project},
     lock::Source,
-    manifest::{MODEL_TOML_FILE, kpar_view, project::ResolvedProject},
+    manifest::{MODEL_TOML_FILE, ParsedModelToml, kpar_view, project::ResolvedProject},
     model::{
         InterchangeProjectInfoPartial, InterchangeProjectInfoRaw,
         InterchangeProjectMetadataPartial, InterchangeProjectMetadataRaw, META_JSON_FILE,
@@ -339,6 +339,79 @@ impl LocalSrcProject {
         )?)
     }
 
+    /// [`ProjectRead::get_project`], taking `model_toml` as the read of the
+    /// project's `model.toml` when one is given and the project has one.
+    pub fn get_project_parsed(
+        &self,
+        model_toml: Option<ParsedModelToml>,
+    ) -> Result<Option<ProjectDefinition>, LocalSrcError> {
+        match detect_format(&self.project_path)? {
+            // Refused before either manifest is read.
+            ProjectFormat::Both => {
+                return Err(LocalSrcError::AmbiguousFormat {
+                    dir: self.project_path.clone(),
+                    json: json_manifest(&self.project_path)?.unwrap_or(PROJECT_JSON_FILE),
+                });
+            }
+            ProjectFormat::Toml => {
+                let resolved = match model_toml {
+                    Some(parsed) => kpar_view::resolved_of_parsed(
+                        MODEL_TOML_FILE,
+                        parsed.manifest,
+                        self.workspace.as_deref(),
+                    )?,
+                    None => self.read_model_toml()?,
+                };
+                return Ok(Some(ProjectDefinition::Toml(Box::new(resolved))));
+            }
+            ProjectFormat::Json | ProjectFormat::Neither => {}
+        }
+
+        let info_json_path = self.info_path();
+        let meta_json_path = self.meta_path();
+
+        // Metadata first: it carries the metamodel that errors about the
+        // other document may name.
+        let meta_json = if meta_json_path.exists() {
+            let partial: InterchangeProjectMetadataPartial =
+                serde_json::from_reader(wrapfs::File::open(&meta_json_path)?)
+                    .map_err(|e| ProjectDeserializationError::new(META_JSON_FILE, e))?;
+            Some(validate_manifest(
+                META_JSON_FILE,
+                partial.validate(META_JSON_FILE, None),
+            )?)
+        } else {
+            None
+        };
+        let metamodel = meta_json
+            .as_ref()
+            .and_then(|meta: &InterchangeProjectMetadataRaw| meta.metamodel.as_deref());
+
+        let info_json = if info_json_path.exists() {
+            let partial: InterchangeProjectInfoPartial =
+                serde_json::from_reader(wrapfs::File::open(&info_json_path)?)
+                    .map_err(|e| ProjectDeserializationError::new(PROJECT_JSON_FILE, e))?;
+            let info = validate_manifest(
+                PROJECT_JSON_FILE,
+                partial.validate(PROJECT_JSON_FILE, metamodel),
+            )?;
+            Some(info)
+        } else {
+            None
+        };
+
+        match (info_json, meta_json) {
+            (Some(info), Some(meta)) => Ok(Some(ProjectDefinition::Json { info, meta })),
+            (None, None) => Ok(None),
+            (Some(_), None) => Err(LocalSrcError::MissingInfoMeta {
+                missing: "`.meta.json`",
+            }),
+            (None, Some(_)) => Err(LocalSrcError::MissingInfoMeta {
+                missing: "`.project.json`",
+            }),
+        }
+    }
+
     /// The project's hash, which only a json project has.
     fn project_checksum(&self) -> Result<String, LocalSrcError> {
         if let Some(checksum) = &self.expected_checksum {
@@ -613,65 +686,7 @@ impl ProjectRead for LocalSrcProject {
     }
 
     fn get_project(&self) -> Result<Option<ProjectDefinition>, LocalSrcError> {
-        match detect_format(&self.project_path)? {
-            // Refused before either manifest is read.
-            ProjectFormat::Both => {
-                return Err(LocalSrcError::AmbiguousFormat {
-                    dir: self.project_path.clone(),
-                    json: json_manifest(&self.project_path)?.unwrap_or(PROJECT_JSON_FILE),
-                });
-            }
-            ProjectFormat::Toml => {
-                return Ok(Some(ProjectDefinition::Toml(Box::new(
-                    self.read_model_toml()?,
-                ))));
-            }
-            ProjectFormat::Json | ProjectFormat::Neither => {}
-        }
-
-        let info_json_path = self.info_path();
-        let meta_json_path = self.meta_path();
-
-        // Metadata first: it carries the metamodel that errors about the
-        // other document may name.
-        let meta_json = if meta_json_path.exists() {
-            let partial: InterchangeProjectMetadataPartial =
-                serde_json::from_reader(wrapfs::File::open(&meta_json_path)?)
-                    .map_err(|e| ProjectDeserializationError::new(META_JSON_FILE, e))?;
-            Some(validate_manifest(
-                META_JSON_FILE,
-                partial.validate(META_JSON_FILE, None),
-            )?)
-        } else {
-            None
-        };
-        let metamodel = meta_json
-            .as_ref()
-            .and_then(|meta: &InterchangeProjectMetadataRaw| meta.metamodel.as_deref());
-
-        let info_json = if info_json_path.exists() {
-            let partial: InterchangeProjectInfoPartial =
-                serde_json::from_reader(wrapfs::File::open(&info_json_path)?)
-                    .map_err(|e| ProjectDeserializationError::new(PROJECT_JSON_FILE, e))?;
-            let info = validate_manifest(
-                PROJECT_JSON_FILE,
-                partial.validate(PROJECT_JSON_FILE, metamodel),
-            )?;
-            Some(info)
-        } else {
-            None
-        };
-
-        match (info_json, meta_json) {
-            (Some(info), Some(meta)) => Ok(Some(ProjectDefinition::Json { info, meta })),
-            (None, None) => Ok(None),
-            (Some(_), None) => Err(LocalSrcError::MissingInfoMeta {
-                missing: "`.meta.json`",
-            }),
-            (None, Some(_)) => Err(LocalSrcError::MissingInfoMeta {
-                missing: "`.project.json`",
-            }),
-        }
+        self.get_project_parsed(None)
     }
 
     type SourceReader<'a> = File;

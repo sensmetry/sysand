@@ -72,7 +72,6 @@ use sysand_core::{
         ProjectFieldError, ProjectName, ProjectPublisher, UsageRef, parse_index_usage_spelling,
     },
     project::{
-        ProjectRead as _,
         local_src::{LocalSrcError, LocalSrcProject},
         memory::InMemoryProject,
         utils::{Identifier, wrapfs},
@@ -90,8 +89,8 @@ use sysand_core::{
     root::do_root,
     solve::pubgrub::SolveConflict,
     sources::{
-        Dependencies, SourcesEnvError, do_sources_env_parse, do_sources_local_src_project_no_deps,
-        resolve_dependencies,
+        Dependencies, SourcesEnvError, do_sources_env_parse, do_sources_local_src_definition,
+        do_sources_local_src_project_no_deps, resolve_dependencies,
     },
     usage::{ConstraintChange, do_set_index_usage_constraint_local, do_set_usage_constraint_local},
     utils::ProvidedProjects,
@@ -1248,11 +1247,28 @@ pub fn do_sources_project_py(
 
     let mut result = vec![];
 
-    let current_project = sysand_core::workspace::model_toml::project_at_path(path.clone(), None)
-        .map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
+    // The project and its workspace are read once; the environment is the
+    // workspace's, or else the project's own, if there is one.
+    let ctx = discover_context(
+        wrapfs::canonicalize(Utf8Path::new(&path))
+            .map_err(|e| PyRuntimeError::new_err(format_err(e)))?,
+        ContextOptions {
+            consults_workspace: true,
+            selector: Selector::Current,
+            needs_a_member: false,
+            needs_a_project: false,
+            lock_wait: None,
+            cancellation: CancellationToken::new(),
+        },
+        |_| None,
+    )
+    .map_err(|e| PyRuntimeError::new_err(format_err(&*e)))?
+    .ctx;
 
-    if include_own {
-        for src_path in do_sources_local_src_project_no_deps(&current_project, true)
+    if include_own
+        && let (Some(project), Some(definition)) = (ctx.current_project(), ctx.current_definition())
+    {
+        for src_path in do_sources_local_src_definition(project, definition, true)
             .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
         {
             result.push(src_path.into_string());
@@ -1261,10 +1277,7 @@ pub fn do_sources_project_py(
 
     if dependencies != Dependencies::None {
         // TODO: Better bail early?
-        let Some(definition) = current_project
-            .get_project()
-            .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
-        else {
+        let Some(definition) = ctx.current_definition() else {
             return Err(PyRuntimeError::new_err(
                 "project is missing project information",
             ));
@@ -1282,9 +1295,7 @@ pub fn do_sources_project_py(
         let env = if let Some(env_path) = env_path {
             Some(LocalDirectoryEnvironment::read(&env_path).map_err(env_read_to_pyerr)?)
         } else {
-            // As the CLI: the environment of the project's workspace, or
-            // else its own, if there is one.
-            project_context(Utf8Path::new(&path), Scope::Workspace, |_| None)?.env
+            ctx.env
         };
         result.extend(match env {
             Some(env) => collect_dependency_sources(env, usages, dependencies)?,
