@@ -503,6 +503,34 @@ impl ResolveRead for FileResolver {
                     reason: String::from("resource is not a file URL"),
                 }),
             },
+            InterchangeProjectUsage::KparUrl {
+                kpar_url: url,
+                publisher: _,
+                name: _,
+            } => match try_file_uri_to_path(url)? {
+                Some(path) => self.check_sandbox(path)?.try_map(|path| {
+                    if crate::project::utils::wrapfs::is_dir(&path)? {
+                        return Err(FileResolverError::KparUrlNamesADirectory(path));
+                    }
+                    if self.resource_is_unlisted(&path)? {
+                        let (root, _) = self.workspace.as_ref().expect("checked above");
+                        return Err(FileResolverError::Workspace(
+                            crate::workspace::model_toml::DiscoverError::Unlisted {
+                                project: path,
+                                root: root.clone(),
+                            },
+                        ));
+                    }
+                    // The lock checks that the project is `publisher`/`name`,
+                    // as for every typed usage
+                    Ok(vec![Ok(FileResolverProject::LocalKParProject(
+                        LocalKParProject::new_access(path, KparInnerPath::Guess, None),
+                    ))])
+                }),
+                None => Ok(ResolutionOutcome::UnsupportedUsageType {
+                    reason: String::from("KPAR URL is not a file URL"),
+                }),
+            },
             InterchangeProjectUsage::Directory {
                 dir,
                 publisher: _,

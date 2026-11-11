@@ -225,8 +225,8 @@ fn a_local_usage_builds_under_allow_path_usage() -> Result<(), Box<dyn std::erro
 }
 
 /// The standard library is declared as a publisher-less `kpar-url`, and
-/// a build never resolves usages, so it reaches the KPAR view as the IRI it
-/// already names, with no publisher and no version constraint to invent.
+/// a build never resolves usages, so it reaches the KPAR view as a typed
+/// KPAR URL usage with no publisher.
 #[test]
 fn a_stdlib_kpar_url_usage_reaches_the_kpar_view_unchanged()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -235,7 +235,7 @@ fn a_stdlib_kpar_url_usage_reaches_the_kpar_view_unchanged()
         "\n[[inline-usages]]\nname = \"Kernel Semantic Library\"\nkpar-url = \"{iri}\"\n"
     ))?;
     let (info, _) = built(&dir, false)?;
-    assert_eq!(resource(&info.usage[0]), (iri.to_owned(), None));
+    assert_eq!(kpar_url(&info.usage[0]), (iri.to_owned(), None));
     Ok(())
 }
 
@@ -250,7 +250,7 @@ fn a_stdlib_kpar_url_usage_is_copied_under_the_flag_too() -> Result<(), Box<dyn 
          kpar-url = \"{iri}\"\n"
     ))?;
     let (info, _) = built(&dir, true)?;
-    assert_eq!(resource(&info.usage[0]), (iri.to_owned(), None));
+    assert_eq!(kpar_url(&info.usage[0]), (iri.to_owned(), None));
     Ok(())
 }
 
@@ -444,6 +444,18 @@ fn resource(raw: &crate::model::InterchangeProjectUsageRaw) -> (String, Option<S
             version_constraint,
         } => (resource.clone(), version_constraint.clone()),
         other => panic!("expected a resource usage, got `{other:?}`"),
+    }
+}
+
+/// A typed KPAR URL usage: the URL and publisher.
+fn kpar_url(raw: &crate::model::InterchangeProjectUsageRaw) -> (String, Option<String>) {
+    match raw {
+        crate::model::InterchangeProjectUsageRaw::KparUrl {
+            kpar_url,
+            publisher,
+            name: _,
+        } => (kpar_url.clone(), publisher.clone()),
+        other => panic!("expected a KPAR URL usage, got `{other:?}`"),
     }
 }
 
@@ -646,7 +658,13 @@ fn the_typed_and_raw_usage_lists_correspond() -> Result<(), Box<dyn std::error::
         index_usage(&info.usage[1]),
         ("acme".to_owned(), "dep".to_owned(), "^1.2.3".to_owned())
     );
-    assert_eq!(resource(&info.usage[2]).0, "https://example.com/r.kpar");
+    assert_eq!(
+        kpar_url(&info.usage[2]),
+        (
+            "https://example.com/r.kpar".to_owned(),
+            Some("acme".to_owned())
+        )
+    );
     Ok(())
 }
 

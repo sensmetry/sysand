@@ -534,6 +534,40 @@ pub fn do_add<P: ProjectMut>(
                     }
                 }
             }
+            InterchangeProjectUsageRaw::KparUrl {
+                kpar_url: new_kpar_url,
+                publisher: new_publisher,
+                name: new_name,
+            } => {
+                for u in &mut info.usage {
+                    let InterchangeProjectUsageRaw::KparUrl {
+                        kpar_url,
+                        publisher,
+                        name,
+                    } = u
+                    else {
+                        continue;
+                    };
+                    if kpar_url != new_kpar_url {
+                        continue;
+                    }
+                    if publisher == new_publisher && name == new_name {
+                        log::warn!(
+                            "ignoring usage `{new_kpar_url}`,\n\
+                             {SP:>8} since it is already present"
+                        );
+                        return Ok(false);
+                    }
+                    log::warn!(
+                        "existing usage `{name}` already points to KPAR URL\n\
+                         {SP:>8} `{kpar_url}`; existing usage will be overwritten"
+                    );
+                    publisher.clone_from(new_publisher);
+                    name.clone_from(new_name);
+                    dont_add = true;
+                    break;
+                }
+            }
             InterchangeProjectUsageRaw::Index {
                 publisher: new_publisher,
                 name: new_name,

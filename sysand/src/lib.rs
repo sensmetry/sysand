@@ -1115,7 +1115,7 @@ fn run_cli_with(
         } => {
             enum Location {
                 WorkDir,
-                Resolve(ResolutionInfo),
+                Resolve(Box<ResolutionInfo>),
                 KparPath(Utf8PathBuf),
             }
 
@@ -1143,7 +1143,7 @@ fn run_cli_with(
                     dir: None,
                     kpar_path: None,
                     iri: None,
-                } => Location::Resolve(ResolutionInfo::new(
+                } => Location::Resolve(Box::new(ResolutionInfo::new(
                     InterchangeProjectUsage::Index {
                         publisher,
                         name,
@@ -1151,7 +1151,7 @@ fn run_cli_with(
                         version_constraint: semver::VersionReq::STAR,
                     },
                     None,
-                )),
+                ))),
                 cli::InfoProjectLocatorArgs {
                     identifier: None,
                     dir: Some(_),
@@ -1169,7 +1169,7 @@ fn run_cli_with(
                     dir: None,
                     kpar_path: None,
                     iri: Some(iri),
-                } => Location::Resolve(ResolutionInfo::iri(iri)),
+                } => Location::Resolve(Box::new(ResolutionInfo::iri(iri))),
                 cli::InfoProjectLocatorArgs {
                     identifier: None,
                     dir: None,
@@ -1228,7 +1228,7 @@ fn run_cli_with(
                     }
                 }
                 (Location::Resolve(resolve), None) => crate::commands::info::command_info_resolve(
-                    resolve,
+                    *resolve,
                     true, // !no_normalise,
                     client,
                     index_urls,
@@ -1240,7 +1240,7 @@ fn run_cli_with(
                 ),
                 (Location::Resolve(resolve), Some(field)) => {
                     crate::commands::info::command_info_field_resolve(
-                        resolve,
+                        *resolve,
                         field,
                         client,
                         index_urls,

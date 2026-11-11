@@ -638,12 +638,14 @@ name that is not alphanumeric replaced by `_`.
     usage can reach such a target, `stdlib` being a `model.toml` key that
     no KPAR and no index carries. Under `--allow-path-usage` a local
     usage stays a typed path usage, stdlib target or not; a remote-kpar
-    usage is always its URL, which for a standard-library usage is the
-    IRI it already names
+    usage is always a typed `KparUrl` usage, which for a standard-library
+    usage carries no publisher
   - git: cannot occur in v1, as git usages are not declarable there.
     When introduced: not supported, because the project may not be at
     repo root; proper support requires typed git usage in json project
-  - remote-kpar: use the URL as-is
+  - remote-kpar: turn into a typed `KparUrl` usage (`kparUrl`,
+    `publisher`, `name`), with `publisher` omitted for a
+    standard-library usage
 
 `build` never resolves usages, so building needs neither network nor
 index; the target versions it needs come from the targets' manifests
@@ -724,6 +726,8 @@ Field by field:
     - index (`publisher`, `name`, `versionConstraint`): used as-is. The
       usage already spells the target's real publisher and name, so
       nothing is looked up
+    - KPAR URL (`KparUrl`): used as-is for `kpar-url`, with the
+      publisher and name it declares
     - source path (`Directory`), kpar path (`KparPath`): the path,
       rewritten into the form a `dir` or `kpar-path` requires (see
       Usages) -- a leading `./`, a `.` component and a trailing slash

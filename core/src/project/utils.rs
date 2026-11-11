@@ -512,6 +512,11 @@ impl From<&InterchangeProjectUsage> for Identifier {
             InterchangeProjectUsage::Resource {
                 resource,
                 version_constraint: _,
+            }
+            | InterchangeProjectUsage::KparUrl {
+                kpar_url: resource,
+                publisher: _,
+                name: _,
             } => Self(resource.to_string()),
             InterchangeProjectUsage::Directory {
                 publisher,
@@ -538,6 +543,11 @@ impl From<InterchangeProjectUsage> for Identifier {
             InterchangeProjectUsage::Resource {
                 resource,
                 version_constraint: _,
+            }
+            | InterchangeProjectUsage::KparUrl {
+                kpar_url: resource,
+                publisher: _,
+                name: _,
             } => Self(resource.into_string()),
             typed => Self::from(&typed),
         }
@@ -626,6 +636,11 @@ impl Identifier {
             InterchangeProjectUsageRaw::Resource {
                 resource,
                 version_constraint: _,
+            }
+            | InterchangeProjectUsageRaw::KparUrl {
+                kpar_url: resource,
+                publisher: _,
+                name: _,
             } => Self(resource.clone()),
             typed => {
                 let (publisher, name) = typed

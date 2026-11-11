@@ -32,7 +32,7 @@ pub enum DependencyIdentifier {
     Requested(Vec<CoalescingUsage>),
     /// Found dependencies. Note that this does not mean that the
     /// required version was found, just that the usage was resolved.
-    Remote(CoalescingUsage),
+    Remote(Box<CoalescingUsage>),
 }
 
 impl Display for DependencyIdentifier {
@@ -308,7 +308,8 @@ impl<'a> OnBrokenCandidate<'a> {
                 resource: _,
                 version_constraint: _,
             } => Self::Skip,
-            // Path usages name one project outright, so it must be a valid one
+            // Path and KPAR URL usages name one project outright, so it must
+            // be a valid one
             InterchangeProjectUsage::Directory {
                 dir: _,
                 publisher: _,
@@ -316,6 +317,11 @@ impl<'a> OnBrokenCandidate<'a> {
             }
             | InterchangeProjectUsage::KparPath {
                 kpar_path: _,
+                publisher: _,
+                name: _,
+            }
+            | InterchangeProjectUsage::KparUrl {
+                kpar_url: _,
                 publisher: _,
                 name: _,
             } => Self::Fail,
@@ -611,12 +617,17 @@ fn local_target(resolve: &CoalescingUsage) -> Option<Utf8PathBuf> {
             publisher: _,
             name: _,
         } => kpar_path.as_str(),
-        // A `file:` resource names a place too, but comparing one
-        // against a path usage needs a URL-to-path conversion, so it is
+        // A `file:` resource or KPAR URL names a place too, but comparing
+        // one against a path usage needs a URL-to-path conversion, so it is
         // not compared. An index usage names no local place.
         InterchangeProjectUsage::Resource {
             resource: _,
             version_constraint: _,
+        }
+        | InterchangeProjectUsage::KparUrl {
+            kpar_url: _,
+            publisher: _,
+            name: _,
         }
         | InterchangeProjectUsage::Index {
             publisher: _,
@@ -657,18 +668,23 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
                 version_constraint,
                 resource: _,
             } => {
-                // A constraint that selects nothing yields known dependencies,
-                // so it is not `Dependencies::Unavailable`.
-                // Handing pubgrub the empty set states exactly that: this
-                // candidate requires something no published version provides,
-                // so it is ruled out, but the solve is not aborted.
-                let selected = selected_by(
-                    numbered(&candidates).map(|(index, c)| (index, &c.version)),
-                    version_constraint.as_ref(),
-                    default_constraint(&candidates).as_ref(),
-                );
-
-                deps.push((DependencyIdentifier::Remote(usage.to_owned()), selected));
+                deps.push((
+                    DependencyIdentifier::Remote(Box::new(usage.to_owned())),
+                    resource_selection(&candidates, version_constraint.as_ref()),
+                ));
+            }
+            // A source override can make any IRI resolve to a source offering
+            // several versions, so it is selected as an unconstrained
+            // resource usage.
+            InterchangeProjectUsage::KparUrl {
+                kpar_url: _,
+                publisher: _,
+                name: _,
+            } => {
+                deps.push((
+                    DependencyIdentifier::Remote(Box::new(usage.to_owned())),
+                    resource_selection(&candidates, None),
+                ));
             }
             InterchangeProjectUsage::Index {
                 version_constraint,
@@ -681,7 +697,10 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
                     None,
                 );
 
-                deps.push((DependencyIdentifier::Remote(usage.to_owned()), selected));
+                deps.push((
+                    DependencyIdentifier::Remote(Box::new(usage.to_owned())),
+                    selected,
+                ));
             }
             InterchangeProjectUsage::Directory {
                 dir: _,
@@ -697,7 +716,7 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
                 // but e.g. environment may have multiple project versions, and will
                 // return all of them based on the identifier
                 deps.push((
-                    DependencyIdentifier::Remote(usage.to_owned()),
+                    DependencyIdentifier::Remote(Box::new(usage.to_owned())),
                     DiscreteHashSet::empty().complement(),
                 ));
             }
@@ -706,6 +725,23 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
 
     let constraints = DependencyConstraints::from_iter(deps);
     Ok(pubgrub::Dependencies::Available(constraints))
+}
+
+/// The candidates a resource usage with `constraint` selects.
+///
+/// A constraint that selects nothing yields known dependencies, so it is
+/// not `Dependencies::Unavailable`. Handing pubgrub the empty set states
+/// exactly that: this candidate requires something no published version
+/// provides, so it is ruled out, but the solve is not aborted.
+fn resource_selection(
+    candidates: &[CandidateSummary],
+    constraint: Option<&VersionReq>,
+) -> DiscreteHashSet {
+    selected_by(
+        numbered(candidates).map(|(index, c)| (index, &c.version)),
+        constraint,
+        default_constraint(candidates).as_ref(),
+    )
 }
 
 /// The versions a `NoVersions` conflict lists: ascending, each once.
@@ -1113,6 +1149,10 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
             InterchangeProjectUsage::Resource {
                 version_constraint: None,
                 resource: _
+            } | InterchangeProjectUsage::KparUrl {
+                kpar_url: _,
+                publisher: _,
+                name: _
             }
         ) && self.candidates.get(usage.id()).is_some_and(|candidates| {
             candidates

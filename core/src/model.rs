@@ -461,6 +461,19 @@ pub enum InterchangeProjectUsageG<Iri, VersionReq, Path, Publisher, Name, IdxPub
         publisher: Publisher,
         name: Name,
     },
+    /// The project KPAR at the IRI `kpar_url`. No version constraint, as
+    /// the IRI names a single KPAR. Its identifier is `kpar_url`.
+    ///
+    /// `publisher` is absent exactly for an OMG standard-library IRI (see
+    /// [`is_omg_stdlib_iri`]), whose KPARs declare no publisher.
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "python", pyo3(from_item_all))]
+    KparUrl {
+        kpar_url: Iri,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        publisher: Option<Publisher>,
+        name: Name,
+    },
     /// The project `publisher`/`name` from the configured indexes, or from
     /// any other source that resolves by identity (the local environment,
     /// workspace members).
@@ -535,6 +548,7 @@ enum Usage<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName> {
     Resource(ResourceUsage<Iri, VersionReq>),
     Directory(DirectoryUsage<Path, Publisher, Name>),
     KparPath(KparPathUsage<Path, Publisher, Name>),
+    KparUrl(KparUrlUsage<Iri, Publisher, Name>),
     Index(IndexUsage<VersionReq, IdxPublisher, IdxName>),
 }
 
@@ -558,6 +572,14 @@ struct DirectoryUsage<Path, Publisher, Name> {
 struct KparPathUsage<Path, Publisher, Name> {
     kpar_path: Path,
     publisher: Publisher,
+    name: Name,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct KparUrlUsage<Iri, Publisher, Name> {
+    kpar_url: Iri,
+    publisher: Option<Publisher>,
     name: Name,
 }
 
@@ -597,6 +619,15 @@ impl<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName>
                 name,
             }) => Self::KparPath {
                 kpar_path,
+                publisher,
+                name,
+            },
+            Usage::KparUrl(KparUrlUsage {
+                kpar_url,
+                publisher,
+                name,
+            }) => Self::KparUrl {
+                kpar_url,
                 publisher,
                 name,
             },
@@ -707,6 +738,42 @@ impl InterchangeProjectUsageRaw {
                     source: e,
                 }),
             },
+            Self::KparUrl {
+                kpar_url,
+                publisher,
+                name,
+            } => {
+                let url = fluent_uri::Iri::parse(kpar_url.clone()).map_err(|(e, val)| {
+                    InterchangeProjectValidationError::InvalidUsageResource(val, e)
+                })?;
+                let (publisher, name) = match publisher {
+                    Some(publisher) => {
+                        let (publisher, name) = parse_project_usage_spelling(publisher, name)?;
+                        (Some(publisher), name)
+                    }
+                    None if is_omg_stdlib_iri(kpar_url) => (
+                        None,
+                        ProjectName::parse(name.clone()).map_err(|(name, source)| {
+                            InterchangeProjectValidationError::InvalidKparUrlUsageName {
+                                kpar_url: kpar_url.clone(),
+                                name,
+                                source,
+                            }
+                        })?,
+                    ),
+                    None => {
+                        return Err(InterchangeProjectValidationError::KparUrlUsageNoPublisher {
+                            kpar_url: kpar_url.clone(),
+                            name: name.clone(),
+                        });
+                    }
+                };
+                Ok(InterchangeProjectUsage::KparUrl {
+                    kpar_url: url,
+                    publisher,
+                    name,
+                })
+            }
             Self::Index {
                 publisher,
                 name,
@@ -748,7 +815,8 @@ impl<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName>
     }
 
     /// The `publisher` and `name` of a typed usage; `None` for a resource
-    /// usage
+    /// usage and a standard-library `kpar_url` usage, which declares no
+    /// publisher
     pub fn typed_publisher_name(&self) -> Option<(&str, &str)>
     where
         Publisher: AsRef<str>,
@@ -771,6 +839,11 @@ impl<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName>
                 name,
                 kpar_path: _,
             } => Some((publisher.as_ref(), name.as_ref())),
+            Self::KparUrl {
+                publisher,
+                name,
+                kpar_url: _,
+            } => publisher.as_ref().map(|p| (p.as_ref(), name.as_ref())),
             Self::Index {
                 publisher,
                 name,
@@ -797,6 +870,11 @@ impl<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName>
                 publisher: _,
                 name: _,
             } => "a KPAR path",
+            Self::KparUrl {
+                kpar_url: _,
+                publisher: _,
+                name: _,
+            } => "a KPAR URL",
             Self::Index {
                 publisher: _,
                 name: _,
@@ -825,6 +903,11 @@ impl<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName>
             }
             | Self::KparPath {
                 kpar_path: _,
+                publisher: _,
+                name: _,
+            }
+            | Self::KparUrl {
+                kpar_url: _,
                 publisher: _,
                 name: _,
             } => None,
@@ -858,6 +941,15 @@ impl From<InterchangeProjectUsage> for InterchangeProjectUsageRaw {
             } => Self::KparPath {
                 kpar_path: kpar_path.into_string(),
                 publisher: publisher.into_string(),
+                name: name.into_string(),
+            },
+            InterchangeProjectUsage::KparUrl {
+                kpar_url,
+                publisher,
+                name,
+            } => Self::KparUrl {
+                kpar_url: kpar_url.into_string(),
+                publisher: publisher.map(ProjectPublisher::into_string),
                 name: name.into_string(),
             },
             InterchangeProjectUsage::Index {
@@ -909,6 +1001,14 @@ impl<
             } => {
                 write!(f, "`{publisher}/{name}` in `{kpar_path}`")?;
             }
+            Self::KparUrl {
+                kpar_url,
+                publisher,
+                name,
+            } => match publisher {
+                Some(publisher) => write!(f, "`{publisher}/{name}` at `{kpar_url}`")?,
+                None => write!(f, "`{name}` at `{kpar_url}`")?,
+            },
             Self::Index {
                 publisher,
                 name,
@@ -1079,7 +1179,7 @@ pub enum UsageRef<'a> {
 
 impl UsageRef<'_> {
     /// Whether `usage` refers to this project. A `Resource` matches a
-    /// resource usage of exactly this IRI. `Typed` matches a typed usage
+    /// resource or KPAR URL usage of exactly this IRI. `Typed` matches a typed usage
     /// whose publisher and name are each given either exactly as declared,
     /// or normalized (see [`normalize_typed_publisher`] and
     /// [`normalize_typed_name`]); it also matches a `pkg:sysand` resource
@@ -1108,7 +1208,9 @@ impl UsageRef<'_> {
         match self {
             Self::Resource(iri) => matches!(
                 usage,
-                InterchangeProjectUsageG::Resource { resource, version_constraint: _ } if resource.as_ref() == iri.as_str()
+                InterchangeProjectUsageG::Resource { resource, version_constraint: _ }
+                | InterchangeProjectUsageG::KparUrl { kpar_url: resource, publisher: _, name: _ }
+                    if resource.as_ref() == iri.as_str()
             ),
             Self::Typed(publisher, name) => {
                 if let InterchangeProjectUsageG::Resource {
@@ -1123,9 +1225,10 @@ impl UsageRef<'_> {
                         })
                     });
                 }
-                let (p, n) = usage
-                    .typed_publisher_name()
-                    .expect("a non-resource usage is typed");
+                // A standard-library KPAR URL usage declares no publisher
+                let Some((p, n)) = usage.typed_publisher_name() else {
+                    return false;
+                };
                 (publisher.as_str() == p || publisher.as_str() == normalize_typed_publisher(p))
                     && (name.as_str() == n || name.as_str() == normalize_typed_name(n))
             }
@@ -1750,6 +1853,17 @@ pub enum InterchangeProjectValidationError {
     #[error("path usage for `{publisher}`/`{name}` has an invalid name")]
     InvalidUsageName {
         publisher: String,
+        name: String,
+        source: ProjectFieldError,
+    },
+    #[error(
+        "KPAR URL usage `{name}` at `{kpar_url}` has no `publisher`; only a usage of an \
+         OMG standard-library IRI may omit it"
+    )]
+    KparUrlUsageNoPublisher { kpar_url: String, name: String },
+    #[error("KPAR URL usage `{name}` at `{kpar_url}` has an invalid name")]
+    InvalidKparUrlUsageName {
+        kpar_url: String,
         name: String,
         source: ProjectFieldError,
     },

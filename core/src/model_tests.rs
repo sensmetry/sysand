@@ -439,6 +439,93 @@ mod index_usage {
     }
 }
 
+mod kpar_url_usage {
+    use std::assert_matches;
+
+    use crate::{
+        model::{InterchangeProjectUsageRaw, InterchangeProjectValidationError},
+        project::utils::Identifier,
+    };
+
+    const STDLIB: &str = "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar";
+
+    fn parse(json: &str) -> Result<InterchangeProjectUsageRaw, serde_json::Error> {
+        serde_json::from_str(json)
+    }
+
+    fn kpar_url(url: &str, publisher: Option<&str>, name: &str) -> InterchangeProjectUsageRaw {
+        InterchangeProjectUsageRaw::KparUrl {
+            kpar_url: url.to_owned(),
+            publisher: publisher.map(str::to_owned),
+            name: name.to_owned(),
+        }
+    }
+
+    #[test]
+    fn parses_and_round_trips() {
+        for (json, usage) in [
+            (
+                r#"{"kparUrl":"https://example.com/lib.kpar","publisher":"Acme","name":"Lib"}"#,
+                kpar_url("https://example.com/lib.kpar", Some("Acme"), "Lib"),
+            ),
+            (
+                &format!(r#"{{"kparUrl":"{STDLIB}","name":"Kernel Semantic Library"}}"#),
+                kpar_url(STDLIB, None, "Kernel Semantic Library"),
+            ),
+        ] {
+            assert_eq!(parse(json).unwrap(), usage);
+            assert_eq!(serde_json::to_string(&usage).unwrap(), json);
+        }
+    }
+
+    #[test]
+    fn rejects_extra_keys() {
+        for key in ["versionConstraint", "dir", "anything"] {
+            let json =
+                format!(r#"{{"kparUrl":"https://example.com/lib.kpar","name":"Lib","{key}":"x"}}"#);
+            assert!(parse(&json).is_err(), "{json} parsed");
+        }
+    }
+
+    #[test]
+    fn only_a_stdlib_iri_may_omit_the_publisher() {
+        kpar_url(STDLIB, None, "Kernel Semantic Library")
+            .validate()
+            .unwrap();
+        kpar_url("https://example.com/lib.kpar", Some("Acme"), "Lib")
+            .validate()
+            .unwrap();
+        assert_matches!(
+            kpar_url("https://example.com/lib.kpar", None, "Lib").validate(),
+            Err(InterchangeProjectValidationError::KparUrlUsageNoPublisher {
+                kpar_url: _,
+                name: _
+            })
+        );
+    }
+
+    #[test]
+    fn is_identified_by_its_url() {
+        let usage = kpar_url("https://example.com/lib.kpar", Some("Acme"), "Lib");
+        assert_eq!(
+            Identifier::from(&usage.validate().unwrap()).as_str(),
+            "https://example.com/lib.kpar"
+        );
+    }
+
+    #[test]
+    fn a_stdlib_usage_has_no_typed_publisher_name() {
+        assert_eq!(
+            kpar_url(STDLIB, None, "Kernel Semantic Library").typed_publisher_name(),
+            None
+        );
+        assert_eq!(
+            kpar_url("https://example.com/lib.kpar", Some("Acme"), "Lib").typed_publisher_name(),
+            Some(("Acme", "Lib"))
+        );
+    }
+}
+
 #[test]
 fn index_publisher_and_name_follow_the_unnormalized_purl_rules() {
     use crate::model::{IdentifierError, IdentifierKind, IndexName, IndexPublisher};

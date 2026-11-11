@@ -128,6 +128,11 @@ fn pprint_project(definition: &ProjectDefinition, excluded_iris: &ProvidedIdenti
                 InterchangeProjectUsageRaw::Resource {
                     resource,
                     version_constraint: _,
+                }
+                | InterchangeProjectUsageRaw::KparUrl {
+                    kpar_url: resource,
+                    publisher: _,
+                    name: _,
                 } => !excluded_iris.contains(resource),
                 InterchangeProjectUsageRaw::Directory {
                     dir: _,

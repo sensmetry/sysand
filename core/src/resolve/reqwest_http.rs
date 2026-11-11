@@ -303,39 +303,42 @@ impl<Policy: HTTPAuthentication> ResolveReadAsync for HTTPResolverAsync<Policy> 
         &self,
         resolve: &ResolutionInfo,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
-        // Try to resolve as a HTTP src project.
-        let outcome = match resolve.usage() {
+        // A resource usage tries a src project, then a KPAR; a KPAR URL
+        // usage only a KPAR.
+        let (iri, kpar_only) = match resolve.usage() {
             InterchangeProjectUsage::Resource {
-                resource: iri,
+                resource,
                 version_constraint: _,
-            } => {
-                if iri.scheme() == SCHEME_HTTP || iri.scheme() == SCHEME_HTTPS {
-                    match reqwest::Url::parse(iri.as_str()) {
-                        Ok(url) => {
-                            ResolutionOutcome::Resolved(futures::stream::iter(HTTPProjects {
-                                client: self.client.clone(),
-                                url,
-                                src_done: false,
-                                kpar_done: false,
-                                lax: self.lax,
-                                auth_policy: self.auth_policy.clone(),
-                            }))
-                        }
-                        Err(e) => ResolutionOutcome::Unresolvable {
-                            reason: format!("invalid http(s) URL: {e}"),
-                        },
-                    }
-                } else {
-                    ResolutionOutcome::UnsupportedUsageType {
-                        reason: String::from("not an http(s) URL"),
-                    }
-                }
+            } => (resource, false),
+            InterchangeProjectUsage::KparUrl {
+                kpar_url,
+                publisher: _,
+                name: _,
+            } => (kpar_url, true),
+            _ => {
+                return Ok(ResolutionOutcome::UnsupportedUsageType {
+                    reason: String::from("not a url/resource usage"),
+                });
             }
-            _ => ResolutionOutcome::UnsupportedUsageType {
-                reason: String::from("not a url/resource usage"),
-            },
         };
-        Ok(outcome)
+        if iri.scheme() != SCHEME_HTTP && iri.scheme() != SCHEME_HTTPS {
+            return Ok(ResolutionOutcome::UnsupportedUsageType {
+                reason: String::from("not an http(s) URL"),
+            });
+        }
+        Ok(match reqwest::Url::parse(iri.as_str()) {
+            Ok(url) => ResolutionOutcome::Resolved(futures::stream::iter(HTTPProjects {
+                client: self.client.clone(),
+                url,
+                src_done: kpar_only,
+                kpar_done: false,
+                lax: self.lax,
+                auth_policy: self.auth_policy.clone(),
+            })),
+            Err(e) => ResolutionOutcome::Unresolvable {
+                reason: format!("invalid http(s) URL: {e}"),
+            },
+        })
     }
 }
 

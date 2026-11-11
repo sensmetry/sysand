@@ -455,6 +455,29 @@ fn migrate_usage(
             name: parse_or_report(IndexName::parse(name.clone()), "name", report)?,
             kpar_path: local_path(kpar_path, RelativePathKind::File, report)?,
         }),
+        InterchangeProjectUsageRaw::KparUrl {
+            kpar_url,
+            publisher,
+            name,
+        } => {
+            let publisher = match publisher {
+                Some(publisher) => Some(parse_or_report(
+                    IndexPublisher::parse(publisher.clone()),
+                    "publisher",
+                    report,
+                )?),
+                None => None,
+            };
+            Some(Usage::RemoteKpar {
+                publisher,
+                name: parse_or_report(IndexName::parse(name.clone()), "name", report)?,
+                url: parse_or_report(
+                    fluent_uri::Iri::parse(kpar_url.clone()).map_err(|(error, _)| error),
+                    "kparUrl",
+                    report,
+                )?,
+            })
+        }
         InterchangeProjectUsageRaw::Resource {
             resource,
             version_constraint,

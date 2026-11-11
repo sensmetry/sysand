@@ -46,6 +46,23 @@ class InterchangeProjectUsageKparPath(typing.TypedDict):
     name: str
 
 
+class _InterchangeProjectUsageKparUrlRequired(typing.TypedDict):
+    kpar_url: str
+    name: str
+
+
+class InterchangeProjectUsageKparUrl(
+    _InterchangeProjectUsageKparUrlRequired, total=False
+):
+    """A typed usage: the project in the KPAR at the IRI ``kpar_url``. It
+    carries no version constraint: the IRI names a single archive.
+
+    ``publisher`` is absent exactly for an OMG standard-library IRI, whose
+    KPARs declare no publisher."""
+
+    publisher: str | None
+
+
 class InterchangeProjectUsageIndex(typing.TypedDict):
     """A typed usage: the project ``publisher``/``name``, resolved from the
     index (or any other source that finds a project by its publisher and
@@ -63,6 +80,7 @@ InterchangeProjectUsage = (
     InterchangeProjectUsageResource
     | InterchangeProjectUsageDirectory
     | InterchangeProjectUsageKparPath
+    | InterchangeProjectUsageKparUrl
     | InterchangeProjectUsageIndex
 )
 
@@ -293,6 +311,7 @@ __all__ = [
     "InterchangeProjectUsageDirectory",
     "InterchangeProjectUsageIndex",
     "InterchangeProjectUsageKparPath",
+    "InterchangeProjectUsageKparUrl",
     "InterchangeProjectUsageResource",
 ]
 

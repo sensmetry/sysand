@@ -441,6 +441,11 @@ pub fn get_project_version<R: ResolveRead>(
                     InterchangeProjectUsage::Resource {
                         version_constraint: None,
                         resource: _,
+                    }
+                    | InterchangeProjectUsage::KparUrl {
+                        kpar_url: _,
+                        publisher: _,
+                        name: _,
                     },
                 ) => true,
             };

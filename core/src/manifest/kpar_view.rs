@@ -77,9 +77,7 @@ pub enum NoManifestForm {
 
 /// Read a json usage as a manifest usage.
 ///
-/// The reverse of [`usage`], but not its inverse: the forward map turns a
-/// `kpar-url` usage into a bare IRI, dropping the publisher and name a
-/// manifest needs, so nothing can produce a `kpar-url` entry from json.
+/// The inverse of [`usage`].
 ///
 /// `file` names the document the raw usage came from, for the one
 /// refusal whose fix is in another project's manifest.
@@ -127,6 +125,30 @@ pub fn usage_of_raw(raw: &InterchangeProjectUsageRaw, file: &str) -> Result<Usag
                 kpar_path: kpar_path.as_str().into(),
             })
         }
+        InterchangeProjectUsageRaw::KparUrl {
+            kpar_url,
+            publisher,
+            name,
+        } => {
+            let invalid = |problem: String| NoManifestForm::Identifier {
+                file: file.to_owned(),
+                problem,
+            };
+            let publisher = publisher
+                .as_deref()
+                .map(IndexPublisher::parse)
+                .transpose()
+                .map_err(|e| invalid(format!("`{}`: {e}", e.value)))?;
+            let name =
+                IndexName::parse(name).map_err(|e| invalid(format!("`{}`: {e}", e.value)))?;
+            let url = fluent_uri::Iri::parse(kpar_url.clone())
+                .map_err(|(e, _)| invalid(format!("KPAR URL `{kpar_url}`: {e}")))?;
+            Ok(Usage::RemoteKpar {
+                publisher,
+                name,
+                url,
+            })
+        }
         // Already carries everything a manifest entry needs.
         InterchangeProjectUsageRaw::Index {
             publisher,
@@ -153,7 +175,7 @@ pub fn usage_of_raw(raw: &InterchangeProjectUsageRaw, file: &str) -> Result<Usag
 /// One usage as a `.project.json` carries it.
 ///
 /// An index usage becomes a typed index usage with the constraint as
-/// declared, and a remote-kpar usage its URL as-is. The two local kinds
+/// declared, and a remote-kpar usage a typed KPAR URL usage. The two local kinds
 /// become typed *path* usages here, which is where the view and the
 /// archive part company: the archive rewrites them into typed index
 /// usages constrained to the target's version, which needs the target's
@@ -172,14 +194,14 @@ pub fn usage(usage: &Usage) -> InterchangeProjectUsageRaw {
             name: name.as_str().to_owned(),
             version_constraint: version_constraint.to_string(),
         },
-        // The URL as-is; the kind takes no version constraint.
         Usage::RemoteKpar {
             url,
-            publisher: _,
-            name: _,
-        } => InterchangeProjectUsageRaw::Resource {
-            resource: url.as_str().to_owned(),
-            version_constraint: None,
+            publisher,
+            name,
+        } => InterchangeProjectUsageRaw::KparUrl {
+            kpar_url: url.as_str().to_owned(),
+            publisher: publisher.as_ref().map(|p| p.as_str().to_owned()),
+            name: name.as_str().to_owned(),
         },
         Usage::SourcePath {
             publisher,

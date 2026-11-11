@@ -468,16 +468,7 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
             InterchangeProjectUsageRaw::Resource {
                 resource,
                 version_constraint: _,
-            } => {
-                // Case-insensitively match `file:` scheme
-                if let Some(scheme) = resource.get(..5)
-                    && scheme.eq_ignore_ascii_case("file:")
-                {
-                    Some(resource)
-                } else {
-                    None
-                }
-            }
+            } => is_file_url(resource).then_some(resource),
             InterchangeProjectUsageRaw::Directory {
                 dir,
                 publisher: _,
@@ -488,6 +479,11 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
                 publisher: _,
                 name: _,
             } => Some(kpar_path),
+            InterchangeProjectUsageRaw::KparUrl {
+                kpar_url,
+                publisher: _,
+                name: _,
+            } => is_file_url(kpar_url).then_some(kpar_url),
             // Portable: resolved by identity wherever the KPAR is used
             InterchangeProjectUsageRaw::Index {
                 publisher: _,
@@ -1030,6 +1026,12 @@ struct OrderedMember {
 /// node, it gets built, and it fails with its own message.
 fn canonical_or(path: Utf8PathBuf) -> Utf8PathBuf {
     wrapfs::canonicalize(&path).unwrap_or(path)
+}
+
+/// Whether `url` has the `file:` scheme, matched case-insensitively.
+fn is_file_url(url: &str) -> bool {
+    url.get(..5)
+        .is_some_and(|scheme| scheme.eq_ignore_ascii_case("file:"))
 }
 
 /// The `dir` usages a project declares, as written: what the publish

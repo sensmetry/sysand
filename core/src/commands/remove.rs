@@ -181,6 +181,11 @@ fn remove_command(usage: &InterchangeProjectUsageRaw) -> String {
         InterchangeProjectUsageRaw::Resource {
             resource,
             version_constraint: _,
+        }
+        | InterchangeProjectUsageRaw::KparUrl {
+            kpar_url: resource,
+            publisher: _,
+            name: _,
         } => {
             format!("sysand remove {}", quoted(resource))
         }

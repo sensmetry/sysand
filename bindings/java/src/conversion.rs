@@ -33,6 +33,10 @@ pub(crate) const INTERCHANGE_PROJECT_USAGE_KPAR_PATH_CLASS: FieldSignature =
     jni_sig!(com.sensmetry.sysand.model.InterchangeProjectUsageKparPath);
 pub(crate) const INTERCHANGE_PROJECT_USAGE_KPAR_PATH_CLASS_CONSTRUCTOR: MethodSignature =
     jni_sig!((java.lang.String, java.lang.String, java.lang.String));
+pub(crate) const INTERCHANGE_PROJECT_USAGE_KPAR_URL_CLASS: FieldSignature =
+    jni_sig!(com.sensmetry.sysand.model.InterchangeProjectUsageKparUrl);
+pub(crate) const INTERCHANGE_PROJECT_USAGE_KPAR_URL_CLASS_CONSTRUCTOR: MethodSignature =
+    jni_sig!((java.lang.String, java.lang.String, java.lang.String));
 pub(crate) const INTERCHANGE_PROJECT_USAGE_INDEX_CLASS: FieldSignature =
     jni_sig!(com.sensmetry.sysand.model.InterchangeProjectUsageIndex);
 pub(crate) const INTERCHANGE_PROJECT_USAGE_INDEX_CLASS_CONSTRUCTOR: MethodSignature =
@@ -290,6 +294,20 @@ fn get_usage_array_field<'local>(
             let name = get_string_field(env, &elem, jni_str!("name"))?;
             result.push(InterchangeProjectUsageRaw::KparPath {
                 kpar_path,
+                publisher,
+                name,
+            });
+        } else if try_instance_of(
+            env,
+            &elem,
+            &INTERCHANGE_PROJECT_USAGE_KPAR_URL_CLASS,
+            &label,
+        )? {
+            let kpar_url = get_string_field(env, &elem, jni_str!("kparUrl"))?;
+            let publisher = get_nullable_string_field(env, &elem, jni_str!("publisher"))?;
+            let name = get_string_field(env, &elem, jni_str!("name"))?;
+            result.push(InterchangeProjectUsageRaw::KparUrl {
+                kpar_url,
                 publisher,
                 name,
             });
@@ -669,6 +687,28 @@ impl ToJObject for InterchangeProjectUsageRaw {
                         ],
                     ),
                     "Failed to create InterchangeProjectUsageKparPath"
+                )
+            }
+            Self::KparUrl {
+                kpar_url,
+                publisher,
+                name,
+            } => {
+                let kpar_url = kpar_url.to_jstring(env)?;
+                let publisher = publisher.to_jstring(env)?;
+                let name = name.to_jstring(env)?;
+                unwrap_throw!(
+                    env,
+                    env.new_object(
+                        INTERCHANGE_PROJECT_USAGE_KPAR_URL_CLASS.sig(),
+                        INTERCHANGE_PROJECT_USAGE_KPAR_URL_CLASS_CONSTRUCTOR,
+                        &[
+                            JValue::from(&kpar_url),
+                            JValue::from(&publisher),
+                            JValue::from(&name),
+                        ],
+                    ),
+                    "Failed to create InterchangeProjectUsageKparUrl"
                 )
             }
             Self::Index {

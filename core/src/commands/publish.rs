@@ -1680,6 +1680,14 @@ fn check_usage(usage: &InterchangeProjectUsageRaw) -> Result<(), PublishError> {
                 source: e,
             }),
         },
+        // Only a standard-library KPAR URL, matched above, is allowed
+        InterchangeProjectUsageRaw::KparUrl {
+            kpar_url,
+            publisher: _,
+            name: _,
+        } => Err(PublishError::DisallowedUsage {
+            name: kpar_url.as_str().into(),
+        }),
         InterchangeProjectUsageRaw::Directory {
             dir,
             publisher: _,
@@ -1709,34 +1717,16 @@ fn check_std_libs(
     lib_names: &[&str],
     prefix: &str,
 ) -> Result<bool, PublishError> {
-    match usage {
+    let resource = match usage {
         InterchangeProjectUsageRaw::Resource {
             resource,
             version_constraint: _,
-        } => {
-            if let Some(stripped) = resource.strip_prefix(prefix) {
-                for s in lib_names {
-                    if let Some(metamodel_version) = stripped.strip_suffix(s) {
-                        if MetamodelRelease::parse(metamodel_version).is_some() {
-                            // A version constraint on a standard-library
-                            // usage is allowed: the release date in the IRI
-                            // and the version in the manifest are different
-                            // things, and both are kept.
-                            return Ok(true);
-                        } else {
-                            return Err(PublishError::InvalidStdLibVersion {
-                                name: resource.as_str().into(),
-                                std_version: metamodel_version.into(),
-                            });
-                        }
-                    }
-                }
-                return Err(PublishError::UnknownStdLib {
-                    name: resource.as_str().into(),
-                });
-            }
-            Ok(false)
-        }
+        } => resource,
+        InterchangeProjectUsageRaw::KparUrl {
+            kpar_url,
+            publisher: _,
+            name: _,
+        } => kpar_url,
         InterchangeProjectUsageRaw::Directory {
             dir: _,
             publisher: _,
@@ -1751,8 +1741,30 @@ fn check_std_libs(
             publisher: _,
             name: _,
             version_constraint: _,
-        } => Ok(false),
+        } => return Ok(false),
+    };
+    if let Some(stripped) = resource.strip_prefix(prefix) {
+        for s in lib_names {
+            if let Some(metamodel_version) = stripped.strip_suffix(s) {
+                if MetamodelRelease::parse(metamodel_version).is_some() {
+                    // A version constraint on a standard-library
+                    // usage is allowed: the release date in the IRI
+                    // and the version in the manifest are different
+                    // things, and both are kept.
+                    return Ok(true);
+                } else {
+                    return Err(PublishError::InvalidStdLibVersion {
+                        name: resource.as_str().into(),
+                        std_version: metamodel_version.into(),
+                    });
+                }
+            }
+        }
+        return Err(PublishError::UnknownStdLib {
+            name: resource.as_str().into(),
+        });
     }
+    Ok(false)
 }
 
 #[cfg(test)]

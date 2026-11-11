@@ -1996,6 +1996,11 @@ fn info_and_metadata_fields_guard(
                 publisher,
                 name,
             } => {}
+            InterchangeProjectUsageRaw::KparUrl {
+                kpar_url,
+                publisher,
+                name,
+            } => {}
             InterchangeProjectUsageRaw::Index {
                 publisher,
                 name,

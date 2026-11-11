@@ -107,6 +107,11 @@ pub fn command_remove<Policy: HTTPAuthentication>(
             if let InterchangeProjectUsageRaw::Resource {
                 resource,
                 version_constraint: _,
+            }
+            | InterchangeProjectUsageRaw::KparUrl {
+                kpar_url: resource,
+                publisher: _,
+                name: _,
             } = usage
                 && let Ok(iri) = Iri::parse(resource.as_str())
             {
@@ -253,6 +258,18 @@ fn print_removed(usages: &[InterchangeProjectUsageRaw]) {
             } => {
                 log::info!("{header}{removed:>12}{header:#} `{publisher}/{name}` (path `{path}`)");
             }
+            InterchangeProjectUsageRaw::KparUrl {
+                kpar_url,
+                publisher,
+                name,
+            } => match publisher {
+                Some(publisher) => log::info!(
+                    "{header}{removed:>12}{header:#} `{publisher}/{name}` (KPAR URL `{kpar_url}`)"
+                ),
+                None => {
+                    log::info!("{header}{removed:>12}{header:#} `{name}` (KPAR URL `{kpar_url}`)")
+                }
+            },
             InterchangeProjectUsageRaw::Index {
                 publisher,
                 name,
