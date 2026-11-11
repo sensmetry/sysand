@@ -106,7 +106,7 @@ pub fn is_absolute_on_any_os(path: &str) -> bool {
     path.starts_with('/') || Utf8WindowsPath::new(path).is_absolute()
 }
 
-// TODO: use this in config and env validation
+// TODO: use this in config validation
 
 /// Parse a relative file path that uses `/` as separator.
 /// If `allow_relative_components == true`, components `.` and `..` are allowed.
@@ -128,8 +128,8 @@ pub fn parse_unix_path_or_absolute(
 }
 
 /// Parse a `dir` or `kpar-path` as written: a path
-/// [`parse_unix_path_or_absolute`] accepts, with no trailing slash, no `.`
-/// component and `..` only as the leading components of a relative path.
+/// [`parse_unix_path_or_absolute`] accepts, with `.` and a trailing slash rejected
+/// and `..` allowed only as the leading components of a relative path.
 /// Unlike [`normalize_relative`] the path may leave the directory it is
 /// relative to. An absolute path is held to the same rules past its root.
 pub fn parse_local_path(path: &str) -> Result<&Utf8UnixPath, RelativeUnixPathError> {
@@ -241,7 +241,7 @@ fn parse_unix_path(
 
 /// Lexically normalize a `/`-separated relative path: a leading `./` and
 /// inner `.`/`..` components are resolved, repeated slashes are collapsed
-/// and a trailing slash is dropped, without touching the filesystem.
+/// and a trailing slash is dropped. Works on the path text alone.
 ///
 /// Unlike [`parse_relative_unix_path`] it resolves `.` and `..` components
 /// rather than rejecting them, and complains only if the result leaves the
@@ -306,8 +306,8 @@ pub(crate) fn resolve_dot_components(path: &str) -> Vec<&str> {
 }
 
 /// `base` with `relative` appended component by component: `.` is
-/// skipped and `..` drops the last component of the result, without
-/// touching the filesystem.
+/// skipped and `..` drops the last component of the result. Works on the
+/// path text alone.
 pub fn join_lexical(base: &Utf8Path, relative: &Utf8Path) -> Utf8PathBuf {
     let mut joined = base.to_path_buf();
     for component in relative.components() {
@@ -338,7 +338,7 @@ pub enum RelativizePathError {
 }
 
 // Note: `components()` ignores non-leading `CurDir` so paths like `/a/./b`
-// will not register as non-canonical.
+// are reported as canonical.
 fn contains_non_canonical_components(path: &Utf8Path) -> bool {
     path.components()
         .any(|c| matches!(c, Utf8Component::CurDir | Utf8Component::ParentDir))
@@ -355,11 +355,11 @@ fn contains_non_canonical_components(path: &Utf8Path) -> bool {
 ///
 /// # Panics
 ///
-/// Panics if any of these preconditions is not satisfied: they are
-/// invariants for the caller to uphold, not checks on user input.
+/// Panics if any of these preconditions is violated. They are invariants
+/// for the caller to uphold; user input is checked elsewhere.
 ///
-/// This function performs purely syntactic path manipulation. It does **not**
-/// access the filesystem and does not resolve symlinks. Callers are expected
+/// This function manipulates the path text alone: it leaves the filesystem
+/// and symlinks untouched. Callers are expected
 /// to pass paths that have been canonicalized beforehand (e.g., via
 /// [`wrapfs::canonicalize`] or equivalent).
 ///
@@ -495,6 +495,8 @@ pub(crate) fn canonicalize_prefix<P: AsRef<Utf8Path>>(path: P) -> Utf8PathBuf {
     let mut absolute_part = path.to_path_buf();
 
     loop {
+        // A path that cannot be canonicalized is treated as not existing
+        // ast-grep-ignore: if-let-ok
         if let Ok(canonical_absolute) = wrapfs::canonicalize_raw(&absolute_part) {
             absolute_part = canonical_absolute;
             break;
@@ -522,6 +524,8 @@ pub(crate) fn relativize_path_in<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
     let path = if path.as_ref().is_absolute() {
         canonicalize_prefix(path)
     } else {
+        // `None` means no relative form exists
+        // ast-grep-ignore: dot-ok
         let path = camino::absolute_utf8(path.as_ref()).ok()?;
         canonicalize_prefix(path)
     };
@@ -532,6 +536,7 @@ pub(crate) fn relativize_path_in<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
     if contains_non_canonical_components(&path) || contains_non_canonical_components(&root) {
         return None;
     }
+    // ast-grep-ignore: dot-ok
     let relative = relativize_path(path, root).ok()?;
     if is_above_root(&relative) {
         return None;

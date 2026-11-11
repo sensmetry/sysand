@@ -96,7 +96,7 @@ fn editable_unnormalized_paths_are_rejected() {
         let err = EnvMetadata::from_str(&minimal_toml(path, true)).unwrap_err();
         assert_matches!(
             err,
-            ParseError::InvalidProjectPath { .. },
+            ParseError::InvalidProjectPath { path: _, source: _ },
             "`{path}`: unexpected error: {err}"
         );
     }
