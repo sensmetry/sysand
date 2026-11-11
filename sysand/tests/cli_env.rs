@@ -12,7 +12,7 @@ use sysand_core::{
 // Only used by the `env install`/`env uninstall` tests commented out below.
 // use camino::Utf8Path;
 // use mockito::Server;
-// use sysand_core::{project::utils::relativize_path, utils::sha256_lowercase_hex};
+// use sysand_core::{paths::relativize_path, utils::sha256_lowercase_hex};
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
 mod common;

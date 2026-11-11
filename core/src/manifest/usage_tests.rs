@@ -286,31 +286,39 @@ fn a_local_path_in_normal_form_is_accepted() {
 
 #[test]
 fn a_local_path_not_in_normal_form_is_refused() {
-    for (key, path) in [
-        ("dir", ""),
-        ("dir", "."),
-        ("dir", "./lib"),
-        ("dir", "lib/"),
-        ("dir", "libs//lib"),
-        ("dir", "libs/./lib"),
-        ("dir", "libs/../lib"),
-        ("dir", "../libs/../lib"),
-        ("dir", "/opt/../lib"),
-        ("dir", "libs\\\\lib"),
-        ("kpar-path", "./lib.kpar"),
+    const DOUBLE: &str = "contains two consecutive\ndirectory separators `/`, which is forbidden";
+    const CURRENT: &str = "contains a forbidden relative component `.`";
+    const PARENT: &str = "contains a `..` component that is not one of the leading components";
+    for (key, path, reason) in [
+        ("dir", "", DOUBLE),
+        ("dir", ".", CURRENT),
+        ("dir", "./lib", CURRENT),
+        (
+            "dir",
+            "lib/",
+            "ends with a separator `/`, which is forbidden",
+        ),
+        ("dir", "libs//lib", DOUBLE),
+        ("dir", "libs/./lib", CURRENT),
+        ("dir", "libs/../lib", PARENT),
+        ("dir", "../libs/../lib", PARENT),
+        ("dir", "/opt/../lib", PARENT),
+        ("dir", "libs\\\\lib", "contains a backslash"),
+        ("kpar-path", "./lib.kpar", CURRENT),
     ] {
         let report = rejected(&format!(
             "publisher = \"acme\"\nname = \"lib\"\n{key} = \"{path}\"\n"
         ));
         let written = path.replace("\\\\", "\\");
-        assert_eq!(
-            texts(&report),
-            [format!(
-                "usage `acme/lib` sets `{key} = \"{written}\"`, which is not in the form a local \
-                 path takes:\n`/`-separated, with `..` only as leading components, no `.` \
-                 component, no repeated or trailing slash and no backslash"
-            )],
-            "`{path}`"
+        let [text] = texts(&report).try_into().expect("one diagnostic");
+        let prefix = format!(
+            "usage `acme/lib` sets `{key} = \"{written}\"`, which is not a valid local \
+             path:\npath `{written}` "
+        );
+        assert!(
+            text.strip_prefix(&prefix)
+                .is_some_and(|rest| rest.starts_with(reason)),
+            "`{path}`: {text}"
         );
         assert_eq!(places(&report), [(4, 1)], "`{path}`");
     }

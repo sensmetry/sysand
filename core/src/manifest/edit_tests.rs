@@ -465,7 +465,7 @@ const KERML: &str = "https://www.omg.org/spec/KerML/20250201";
 fn member(raw: &str) -> MemberPath {
     MemberPath {
         raw: raw.to_owned(),
-        path: crate::utils::normalize_relative(raw).expect("a valid member path"),
+        path: crate::paths::normalize_relative(raw).expect("a valid member path"),
         at: None,
     }
 }

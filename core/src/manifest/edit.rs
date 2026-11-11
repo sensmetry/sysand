@@ -386,7 +386,7 @@ pub enum EditError {
     #[error("`{0}` is not a list")]
     NotAList(String),
     #[error(transparent)]
-    MemberPath(#[from] crate::utils::NormalizeRelativeError),
+    MemberPath(#[from] crate::paths::RelativeUnixPathError),
 }
 
 /// Parse a `model.toml` for editing, after checking that it is one this
@@ -636,19 +636,29 @@ pub fn include_source(doc: &mut DocumentMut, path: &str) -> Result<Utf8UnixPathB
 /// becomes `a.sysml`, and `../a.sysml` is
 /// [`EditError::SourceOutsideProject`].
 fn strict_entry(path: &str) -> Result<Utf8UnixPathBuf, EditError> {
-    crate::utils::normalize_relative(path).map_err(|error| match error {
-        crate::utils::NormalizeRelativeError::EscapesRoot { path: _ }
-        | crate::utils::NormalizeRelativeError::IsRoot { path: _ } => {
+    use crate::paths::RelativeUnixPathError as E;
+    crate::paths::normalize_relative(path).map_err(|error| match error {
+        E::EscapesRoot { path: _ } | E::IsRoot { path: _ } => {
             EditError::SourceOutsideProject(path.to_owned())
         }
-        crate::utils::NormalizeRelativeError::Absolute { path: _ } => {
+        E::Absolute { path: _ } => {
             EditError::Sources(SourcesError::path(PathProblem::Absolute, path))
         }
-        crate::utils::NormalizeRelativeError::ContainsBackslash { path: _ } => {
+        E::ContainsBackslash { path: _ } => {
             EditError::Sources(SourcesError::path(PathProblem::Backslash, path))
         }
-        crate::utils::NormalizeRelativeError::ContainsNull { path: _ } => {
+        E::ContainsNull { path: _ } => {
             EditError::Sources(SourcesError::path(PathProblem::Null, path))
+        }
+        // `normalize_relative` resolves components and accepts a trailing
+        // slash, so it never reports the rest.
+        E::DirectoryPath { path: _ }
+        | E::TrailingSlash { path: _ }
+        | E::ContainsDoubleSlash { path: _ }
+        | E::ContainsCurrent { path: _ }
+        | E::ContainsParent { path: _ }
+        | E::ContainsNonLeadingParent { path: _ } => {
+            EditError::Sources(SourcesError::path(PathProblem::NotStrict, path))
         }
     })
 }
@@ -941,7 +951,7 @@ pub fn set_usage_version(
 
 /// Add a directory to a workspace's `members`.
 ///
-/// The path is written as [`crate::utils::normalize_relative`] converts
+/// The path is written as [`crate::paths::normalize_relative`] converts
 /// it: `./app/` is written `app`.
 pub fn push_member(doc: &mut DocumentMut, path: &str) -> Result<(), EditError> {
     let workspace = doc
@@ -949,7 +959,7 @@ pub fn push_member(doc: &mut DocumentMut, path: &str) -> Result<(), EditError> {
         .and_then(Item::as_table_mut)
         .ok_or(EditError::NotAWorkspace)?;
 
-    let normalized = crate::utils::normalize_relative(path)?;
+    let normalized = crate::paths::normalize_relative(path)?;
     if !workspace.get("members").is_some_and(Item::is_array) {
         workspace["members"] = value(Array::new());
     }

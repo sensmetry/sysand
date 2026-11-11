@@ -8,6 +8,7 @@ pub mod commands;
 pub use commands::*;
 
 pub mod model;
+pub mod paths;
 
 #[cfg(feature = "networking")]
 pub mod auth;

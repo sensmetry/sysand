@@ -6,6 +6,7 @@ use std::{
     io::{IsTerminal as _, Write as _},
     sync::Arc,
 };
+use sysand_core::paths::relativize_path;
 
 use anyhow::{Context as _, Result, bail};
 use camino::{Utf8Path, Utf8PathBuf};
@@ -29,7 +30,7 @@ use sysand_core::{
         ProjectDefinition, ProjectRead as _,
         local_kpar::{KparInnerPath, LocalKParProject},
         local_src::{LocalSrcProject, ProjectFormat, detect_format},
-        utils::{ProjectDeserializationError, relativize_path, validate_manifest, wrapfs},
+        utils::{ProjectDeserializationError, validate_manifest, wrapfs},
     },
     resolve::ResolutionInfo,
     utils::ProvidedProjects,

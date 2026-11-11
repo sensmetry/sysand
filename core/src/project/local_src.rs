@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+use crate::paths::{
+    RelativeUnixPathError, RelativizePathError, normalize_relative, relativize_path,
+    relativize_path_in,
+};
 use std::{
     collections::HashSet,
     fs::File,
@@ -25,7 +29,7 @@ use crate::{
     },
     project::{
         ManifestError, ProjectDefinition, ProjectMut, ProjectRead,
-        utils::{RelativizePathError, ToPathBuf as _, ToUnixPathBuf as _, relativize_path, wrapfs},
+        utils::{ToPathBuf as _, wrapfs},
     },
 };
 
@@ -183,7 +187,7 @@ impl LocalSrcProject {
         let path = relativize_path_in(&path, project_path)
             .ok_or_else(|| UnixPathError::PathOutsideProject(path.to_path_buf()))?;
 
-        Ok(path.to_unix_path_buf())
+        Ok(path)
     }
 
     pub fn get_source_path<P: AsRef<Utf8UnixPath>>(
@@ -203,32 +207,15 @@ impl LocalSrcProject {
             path
         };
 
-        assert!(utf_path.is_relative());
+        let normalized =
+            normalize_relative(utf_path.as_str()).map_err(|source| PathError::UnsafePath {
+                path: utf_path.as_str().into(),
+                source,
+            })?;
 
         let mut final_path = self.root_path().to_owned();
-        let mut added_components = 0;
-        for component in utf_path.components() {
-            match component {
-                typed_path::Utf8UnixComponent::RootDir => {
-                    unreachable!("root component in a relative path: {utf_path}")
-                }
-                typed_path::Utf8UnixComponent::CurDir => {}
-                typed_path::Utf8UnixComponent::ParentDir => {
-                    if added_components > 0 {
-                        assert!(final_path.pop());
-                        added_components -= 1;
-                    } else {
-                        return Err(PathError::UnsafePath(
-                            utf_path.as_str().into(),
-                            typed_path::CheckedPathError::PathTraversalAttack,
-                        ));
-                    }
-                }
-                typed_path::Utf8UnixComponent::Normal(component_str) => {
-                    final_path.push(component_str);
-                    added_components += 1;
-                }
-            }
+        for component in normalized.as_str().split('/') {
+            final_path.push(component);
         }
         Ok(final_path)
     }
@@ -593,8 +580,12 @@ pub enum UnixPathError {
 
 #[derive(Error, Debug)]
 pub enum PathError {
-    #[error("path `{0}` is unsafe")]
-    UnsafePath(Utf8PathBuf, #[source] typed_path::CheckedPathError),
+    #[error("path `{path}` is unsafe")]
+    UnsafePath {
+        path: Box<str>,
+        #[source]
+        source: RelativeUnixPathError,
+    },
     #[error("path `{0}` is absolute")]
     AbsolutePath(typed_path::Utf8UnixPathBuf),
 }
@@ -723,50 +714,6 @@ impl ProjectRead for LocalSrcProject {
     fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
         Ok(ProjectChecksum::Project(self.project_checksum()?))
     }
-}
-
-/// Tries to canonicalize the (longest possible) prefix of a path.
-/// Useful if you have /path/to/file/that/does/not/exist
-/// but where some prefix, say, /path/to/file can be canonicalized.
-fn canonicalize_prefix<P: AsRef<Utf8Path>>(path: P) -> Utf8PathBuf {
-    let mut relative_part = Utf8PathBuf::new();
-    let mut absolute_part = path.to_path_buf();
-
-    loop {
-        if let Ok(canonical_absolute) = wrapfs::canonicalize_raw(&absolute_part) {
-            absolute_part = canonical_absolute;
-            break;
-        }
-
-        match (absolute_part.parent(), absolute_part.file_name()) {
-            (Some(absolute_part_parent), Some(absolute_part_file)) => {
-                relative_part = Utf8Path::new(absolute_part_file).join(relative_part);
-                absolute_part = absolute_part_parent.to_path_buf();
-            }
-            _ => {
-                break;
-            }
-        }
-    }
-
-    absolute_part.push(relative_part);
-    absolute_part
-}
-
-fn relativize_path_in<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
-    path: P,
-    relative_to: Q,
-) -> Option<Utf8PathBuf> {
-    let path = if path.as_ref().is_absolute() {
-        canonicalize_prefix(path)
-    } else {
-        let path = camino::absolute_utf8(path.as_ref()).ok()?;
-        canonicalize_prefix(path)
-    };
-
-    path.strip_prefix(canonicalize_prefix(relative_to))
-        .ok()
-        .map(camino::Utf8Path::to_path_buf)
 }
 
 #[cfg(test)]

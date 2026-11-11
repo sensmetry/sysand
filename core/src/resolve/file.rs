@@ -3,6 +3,7 @@
 
 // Resolver for file:// URLs
 
+use crate::paths::{RelativizePathError, relativize_path};
 use std::{
     io::{self, ErrorKind, Read},
     path::PathBuf,
@@ -20,9 +21,7 @@ use crate::{
         self, ProjectDefinition, ProjectFormat, ProjectRead,
         local_kpar::{KparInnerPath, LocalKParError, LocalKParProject},
         local_src::{LocalSrcError, LocalSrcProject},
-        utils::{
-            FsIoError, ProjectDeserializationError, RelativizePathError, relativize_path, wrapfs,
-        },
+        utils::{FsIoError, ProjectDeserializationError, wrapfs},
     },
     resolve::UsageOrigin,
     resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead},

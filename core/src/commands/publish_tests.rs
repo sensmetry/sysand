@@ -1135,7 +1135,8 @@ fn validate_api_root_rejects_userinfo() {
 // --- prepare_publish_payload error cases ---
 
 mod prepare_publish {
-    use crate::utils::{RelativeUnixPathError, sha256_lowercase_hex};
+    use crate::paths::RelativeUnixPathError;
+    use crate::utils::sha256_lowercase_hex;
     use std::assert_matches;
 
     use super::super::prepare_publish_payload;

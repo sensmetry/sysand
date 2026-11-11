@@ -500,7 +500,7 @@ fn a_member_position_does_not_change_path_equality() {
     use crate::manifest::diagnostics::Position;
     use crate::manifest::workspace_table::MemberPath;
 
-    let path = crate::utils::normalize_relative("app").expect("a valid path");
+    let path = crate::paths::normalize_relative("app").expect("a valid path");
     let without = MemberPath {
         raw: "app".to_owned(),
         path: path.clone(),

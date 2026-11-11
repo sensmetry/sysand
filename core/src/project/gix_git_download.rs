@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use crate::paths::RelativizePathError;
 use std::num::NonZero;
 
 use camino::Utf8PathBuf;
@@ -15,7 +16,7 @@ use crate::{
     project::{
         ProjectDefinition, ProjectRead,
         local_src::{LocalSrcError, LocalSrcProject, PathError},
-        utils::{FileWithLifetime, RelativizePathError, ToPathBuf as _},
+        utils::{FileWithLifetime, ToPathBuf as _},
     },
 };
 

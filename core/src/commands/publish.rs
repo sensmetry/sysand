@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+use crate::paths::{RelativePathKind, RelativeUnixPathError, parse_relative_unix_path};
 use std::{
     collections::{HashMap, hash_map::Entry},
     env,
@@ -44,10 +45,7 @@ use crate::{
     purl::{SysandPurlError, parse_sysand_purl},
     redact::{HttpError, RedactedUrl, ResponseUrl},
     symbols::Language,
-    utils::{
-        RelativePathKind, RelativeUnixPathError, license_file_stems, parse_relative_unix_path,
-        sha256_lowercase_hex,
-    },
+    utils::{license_file_stems, sha256_lowercase_hex},
 };
 
 /// Defensive upper bound on kpar file size (100 MiB) to catch unexpected uploads by mistake.

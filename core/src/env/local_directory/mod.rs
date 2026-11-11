@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+use crate::paths::{RelativizePathError, join_lexical};
 use std::{
     debug_assert_matches, fs,
     io::{ErrorKind, Write as _},
@@ -29,11 +30,9 @@ use crate::{
         ProjectRead as _,
         local_src::{LocalSrcError, LocalSrcProject, PathError},
         utils::{
-            FsIoError, Identifier, ProjectDeserializationError, ProjectSerializationError,
-            RelativizePathError, wrapfs,
+            FsIoError, Identifier, ProjectDeserializationError, ProjectSerializationError, wrapfs,
         },
     },
-    utils::join_lexical,
     workspace_lock::ExclusiveLock,
 };
 

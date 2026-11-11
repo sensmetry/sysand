@@ -7,6 +7,7 @@
 //! IMPORTANT: when updating any of these types, update the corresponding
 //! bindings' types (in `_model.py` for Python and various Java classes)
 
+use crate::paths::{RelativePathKind, RelativeUnixPathError, parse_relative_unix_path};
 use std::{clone::Clone, collections::HashSet, fmt::Display, hash::Hash};
 
 use digest::array::{Array, typenum};
@@ -27,9 +28,8 @@ use crate::purl::parse_sysand_purl;
 use crate::symbols::Language;
 use crate::utils::{
     CASE_MAPPER, GENERAL_CATEGORY, IGNORABLE, NFKC_NORMALIZER, NFKD_NORMALIZER,
-    PROJECT_FIELD_ASCII_PUNCTUATION, PURL_NAME_SEPARATOR, PURL_SEPARATOR, RelativePathKind,
-    RelativeUnixPathError, UNNORMALIZED_PURL_SEPARATOR, XID_CONTINUE, lowercase_hex,
-    parse_relative_unix_path,
+    PROJECT_FIELD_ASCII_PUNCTUATION, PURL_NAME_SEPARATOR, PURL_SEPARATOR,
+    UNNORMALIZED_PURL_SEPARATOR, XID_CONTINUE, lowercase_hex,
 };
 
 /// The two families of `metamodel` values Sysand recognizes: the OMG

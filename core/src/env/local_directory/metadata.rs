@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+use crate::paths::{RelativePathKind, RelativeUnixPathError, parse_relative_unix_path};
 use std::{fmt::Display, str::FromStr};
 
 use camino::{Utf8Path, Utf8PathBuf};
@@ -9,7 +10,7 @@ use pyo3::IntoPyObject;
 use serde::Deserialize;
 use thiserror::Error;
 use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, Value, value};
-use typed_path::{Utf8UnixComponent, Utf8UnixPathBuf};
+use typed_path::Utf8UnixPathBuf;
 
 use crate::{
     env::ProjectChecksum,
@@ -68,12 +69,12 @@ pub enum ParseError {
         current = CURRENT_METADATA_VERSION
     )]
     NewerVersion(String),
-    #[error(
-        "non-editable project has path `{0}` that contains references to parent or current directory"
-    )]
-    NonNormalizedProjectPath(Utf8UnixPathBuf),
-    #[error("non-editable project has path `{0}` that is absolute")]
-    AbsoluteProjectPath(Utf8UnixPathBuf),
+    #[error("non-editable project has invalid path `{path}`")]
+    InvalidProjectPath {
+        path: Utf8UnixPathBuf,
+        #[source]
+        source: RelativeUnixPathError,
+    },
 }
 
 impl Display for EnvMetadata {
@@ -117,17 +118,19 @@ impl FromStr for EnvMetadata {
         for project in &metadata.projects {
             // Non-editable projects must not leave env directory
             if !project.editable {
-                for c in project.path.components() {
-                    match c {
-                        Utf8UnixComponent::Normal(_) => (),
-                        Utf8UnixComponent::RootDir => {
-                            return Err(ParseError::AbsoluteProjectPath(project.path.clone()));
-                        }
-                        Utf8UnixComponent::CurDir | Utf8UnixComponent::ParentDir => {
-                            return Err(ParseError::NonNormalizedProjectPath(project.path.clone()));
-                        }
-                    }
-                }
+                let path = project.path.as_str();
+                // `.` is the env directory itself, which is no project
+                let checked = if path == "." {
+                    Err(RelativeUnixPathError::ContainsCurrent {
+                        path: path.to_owned(),
+                    })
+                } else {
+                    parse_relative_unix_path(path, RelativePathKind::SubDirectory).map(|_| ())
+                };
+                checked.map_err(|source| ParseError::InvalidProjectPath {
+                    path: project.path.clone(),
+                    source,
+                })?;
             }
         }
 

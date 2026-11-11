@@ -5,6 +5,7 @@
 //! `model.toml`: identifiers, maintainers, inheritance markers, the
 //! `stdlib` key and `sources`.
 
+use crate::paths::{RelativePathKind, RelativeUnixPathError, parse_relative_unix_path};
 use std::collections::BTreeSet;
 use std::fmt::Display;
 
@@ -17,7 +18,6 @@ use crate::manifest::diagnostics::Diagnostic;
 use crate::model::{IndexName, IndexPublisher, KnownMetamodel};
 use crate::purl::{SysandPurlError, parse_sysand_purl, sysand_purl};
 use crate::symbols::Language;
-use crate::utils::is_absolute_on_any_os;
 
 /// The publisher a standard-library usage is resolved under.
 ///
@@ -317,20 +317,20 @@ pub enum PathProblem {
 
 /// The first shared check the path fails, or `None` if it passes all of them.
 pub fn path_problem(raw: &str) -> Option<PathProblem> {
-    if raw.ends_with('/') {
-        return Some(PathProblem::Directory);
-    }
-    if raw.contains('\\') {
-        return Some(PathProblem::Backslash);
-    }
-    if raw.contains('\0') {
-        return Some(PathProblem::Null);
-    }
-    if is_absolute_on_any_os(raw) {
-        return Some(PathProblem::Absolute);
-    }
-    if raw.is_empty() || raw.split('/').any(|part| matches!(part, "" | "." | "..")) {
-        return Some(PathProblem::NotStrict);
+    if let Err(error) = parse_relative_unix_path(raw, RelativePathKind::SubFile) {
+        return Some(match error {
+            RelativeUnixPathError::Absolute { path: _ } => PathProblem::Absolute,
+            RelativeUnixPathError::ContainsBackslash { path: _ } => PathProblem::Backslash,
+            RelativeUnixPathError::ContainsNull { path: _ } => PathProblem::Null,
+            RelativeUnixPathError::DirectoryPath { path: _ }
+            | RelativeUnixPathError::TrailingSlash { path: _ } => PathProblem::Directory,
+            RelativeUnixPathError::ContainsDoubleSlash { path: _ }
+            | RelativeUnixPathError::ContainsCurrent { path: _ }
+            | RelativeUnixPathError::ContainsParent { path: _ }
+            | RelativeUnixPathError::ContainsNonLeadingParent { path: _ }
+            | RelativeUnixPathError::EscapesRoot { path: _ }
+            | RelativeUnixPathError::IsRoot { path: _ } => PathProblem::NotStrict,
+        });
     }
     if Language::guess_from_path(Utf8UnixPath::new(raw)).is_none() {
         return Some(PathProblem::NotModelFile);

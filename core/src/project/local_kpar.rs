@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+use crate::paths::{RelativizePathError, relativize_path};
 use std::{
     cell::OnceCell,
     fs::{self, File},
@@ -26,7 +27,7 @@ use crate::{
     },
     project::{
         self, KparMeta, ProjectChecksum, ProjectDefinition, ProjectRead, hash_reader,
-        utils::{RelativizePathError, ZipArchiveError, relativize_path},
+        utils::ZipArchiveError,
     },
     utils::{lowercase_hex, sha256_lowercase_hex},
 };

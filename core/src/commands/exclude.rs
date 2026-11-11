@@ -104,7 +104,7 @@ fn exclude_toml<Pr: ProjectMut, P: AsRef<Utf8UnixPath>, I: Iterator<Item = P>>(
             .get("project")
             .and_then(|project| project.get("root"))
             .and_then(|root| root.as_str());
-        let normalized = crate::utils::normalize_relative(path.as_str())
+        let normalized = crate::paths::normalize_relative(path.as_str())
             .map_or_else(|_| path.as_str().to_owned(), |p| p.as_str().to_owned());
         if root.is_some_and(|root| root == path.as_str() || root == normalized) {
             return Err(ExcludeError::RootExcluded(path.as_str().into()));

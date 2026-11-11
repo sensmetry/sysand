@@ -9,6 +9,7 @@
 //! ([`MemberUsage`]), or in a workspace group's array, where it is always
 //! declared ([`Usage`]).
 
+use crate::paths::parse_local_path;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Display;
 
@@ -26,7 +27,6 @@ use crate::manifest::diagnostics::{
 };
 use crate::manifest::reader::{TableReader, describe};
 use crate::model::{IndexName, IndexPublisher, is_omg_stdlib_iri};
-use crate::utils::{RelativePathKind, is_absolute_on_any_os, parse_unix_path_or_absolute};
 
 /// The keys a usage entry accepts, quoted as the message lists them.
 const ACCEPTED_KEYS: &str =
@@ -725,20 +725,20 @@ impl UsageRaw {
             }
         };
 
-        let local_path = |report: &mut Diagnostics, key: &str, raw: &str| {
-            if is_normal_local_path(raw) {
-                return Some(Utf8UnixPathBuf::from(raw));
-            }
-            report.push(
-                Diagnostic::error(format!(
-                    "usage `{label}` sets `{key} = \"{raw}\"`, which is not in the form a \
-                     local path takes:\n`/`-separated, with `..` only as leading components, \
-                     no `.` component, no repeated or trailing slash and no backslash"
-                ))
-                .at_opt(site.key(key)),
-            );
-            None
-        };
+        let local_path =
+            |report: &mut Diagnostics, key: &str, raw: &str| match parse_local_path(raw) {
+                Ok(path) => Some(path.to_owned()),
+                Err(error) => {
+                    report.push(
+                        Diagnostic::error(format!(
+                            "usage `{label}` sets `{key} = \"{raw}\"`, which is not a valid local \
+                         path:\n{error}"
+                        ))
+                        .at_opt(site.key(key)),
+                    );
+                    None
+                }
+            };
 
         if let Some(dir) = self.dir.as_deref() {
             reject_version(report, "dir");
@@ -958,31 +958,6 @@ impl Display for Usage {
             None => write!(f, "{}", self.name()),
         }
     }
-}
-
-/// A `dir` or `kpar-path` is taken exactly as written, and admitted only
-/// in the one form Sysand writes: a path [`parse_unix_path_or_absolute`]
-/// accepts, with no `.` component and `..` only as the leading components
-/// of a relative path. Unlike `sources` and `members`, such a path may
-/// leave the directory it is relative to. An absolute path is admitted,
-/// and held to the same rules past its root.
-fn is_normal_local_path(raw: &str) -> bool {
-    // `File` refuses a trailing slash; whether the path names a file or a
-    // directory is not known here.
-    if parse_unix_path_or_absolute(raw, RelativePathKind::File).is_err() {
-        return false;
-    }
-    let mut leading = !is_absolute_on_any_os(raw);
-    raw.split('/')
-        .filter(|part| !part.is_empty())
-        .all(|part| match part {
-            "." => false,
-            ".." => leading,
-            _ => {
-                leading = false;
-                true
-            }
-        })
 }
 
 #[cfg(test)]

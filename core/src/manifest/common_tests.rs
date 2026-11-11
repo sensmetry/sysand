@@ -350,6 +350,21 @@ fn the_two_sources_form_errors_read_in_full() {
     );
 }
 
+/// When a path breaks several rules, the first of: absolute, a NUL or
+/// backslash, a trailing slash, the component rules.
+#[test]
+fn the_first_broken_rule_is_reported() {
+    for (path, problem) in [
+        ("/src/", PathProblem::Absolute),
+        ("src\\/", PathProblem::Backslash),
+        ("../src/", PathProblem::Directory),
+        ("", PathProblem::NotStrict),
+        ("a//b/../c.txt", PathProblem::NotStrict),
+    ] {
+        assert_eq!(path_problem(path), Some(problem), "{path}");
+    }
+}
+
 /// `root` is held to a `sources` entry's syntax, and there is one rule
 /// set. Every problem the shared check finds reads the same for both
 /// keys, apart from the key it names.

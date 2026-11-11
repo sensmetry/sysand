@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+use crate::paths::join_lexical;
 use camino::{Utf8Path, Utf8PathBuf};
 use pubgrub::{
     DefaultStringReporter, DependencyConstraints, DependencyProvider, DerivationTree, External,
@@ -22,7 +23,7 @@ use crate::{
     model::{InterchangeProjectUsage, InterchangeProjectValidationError},
     project::{ProjectRead, utils::Identifier},
     resolve::{CoalescingUsage, ResolutionInfo, ResolutionOutcome, ResolveRead, UsageOrigin},
-    utils::{format_err, join_lexical},
+    utils::format_err,
 };
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]

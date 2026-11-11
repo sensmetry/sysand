@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 use std::{assert_matches, collections::HashMap, convert::Infallible, sync::Arc};
+use sysand_core::paths::relativize_path;
 
 use anyhow::{Result, anyhow, bail};
 use camino::{Utf8Path, Utf8PathBuf};
@@ -27,7 +28,7 @@ use sysand_core::{
         ProjectDefinition, ProjectFormat, ProjectMut as _, ProjectRead as _,
         local_kpar::{KparInnerPath, LocalKParProject},
         local_src::LocalSrcProject,
-        utils::{Identifier, relativize_path, wrapfs},
+        utils::{Identifier, wrapfs},
     },
     resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead as _, standard::standard_resolver},
     utils::{ProvidedProjects, format_err},

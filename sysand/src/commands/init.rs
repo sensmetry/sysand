@@ -10,6 +10,7 @@ use anyhow::{Result, bail};
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::ValueEnum as _;
 use semver::Version;
+use sysand_core::paths::{is_relative_subdirectory, relativize_path};
 use sysand_core::{
     context::ProjectContext,
     discover::discover_project,
@@ -25,9 +26,8 @@ use sysand_core::{
     project::{
         ProjectFormat,
         local_src::{LocalSrcProject, detect_format},
-        utils::{relativize_path, wrapfs},
+        utils::wrapfs,
     },
-    utils::{RelativePathKind, parse_relative_unix_path},
     workspace::model_toml::discover_table,
 };
 
@@ -241,7 +241,7 @@ fn default_name_from_path<P: AsRef<Utf8Path>>(path: P) -> Result<ProjectName> {
 /// Warn about a project above `target`. A workspace above it is
 /// [`workspace_member`]'s concern, which acts on it.
 pub fn warn_parent_project(target: &Utf8Path, ctx: &ProjectContext) -> Result<()> {
-    if parse_relative_unix_path(target.as_str(), RelativePathKind::SubDirectory).is_ok() {
+    if is_relative_subdirectory(target.as_str()) {
         // Target is a subdirectory of cwd
         if let Some(existing_project) = &ctx.current_project {
             warn_found_project(existing_project);

@@ -9,6 +9,9 @@
 //! reported as an error, except for the `resource` usage shapes that need
 //! the target read: those go to the caller's [`TargetLookup`].
 
+use crate::paths::{
+    RelativePathKind, normalize_relative, parse_relative_unix_path, resolve_dot_components,
+};
 use indexmap::IndexSet;
 use semver::{Version, VersionReq};
 use typed_path::Utf8UnixPathBuf;
@@ -29,7 +32,6 @@ use crate::{
     },
     purl::parse_sysand_purl,
     symbols::Language,
-    utils::{RelativePathKind, normalize_relative, parse_relative_unix_path},
 };
 
 /// How a `resource` usage that names its target by location is turned
@@ -657,16 +659,7 @@ fn local_path(
 /// Expects a path with no backslash and no NUL, and not absolute; this
 /// only rearranges components.
 fn normalize_local_path(raw: &str) -> Option<Utf8UnixPathBuf> {
-    let mut parts: Vec<&str> = Vec::new();
-    for part in raw.split('/') {
-        match part {
-            "" | "." => {}
-            ".." if parts.last().is_some_and(|last| *last != "..") => {
-                parts.pop();
-            }
-            part => parts.push(part),
-        }
-    }
+    let parts = resolve_dot_components(raw);
     (!parts.is_empty()).then(|| Utf8UnixPathBuf::from(parts.join("/")))
 }
 

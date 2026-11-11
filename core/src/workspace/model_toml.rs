@@ -9,12 +9,12 @@
 //! ([`crate::manifest::kpar_view::resolved_of_text`]) refuses a member
 //! carrying `version.workspace = true`.
 
+use crate::paths::{RelativizePathError, is_above_root, relativize_path};
 use std::collections::{HashMap, hash_map::Entry};
 use std::sync::Arc;
 
 use camino::{Utf8Path, Utf8PathBuf};
 use thiserror::Error;
-use typed_path::Utf8Component as _;
 
 use crate::commands::build::DEFAULT_OUTPUT_NAME;
 use crate::commands::lock::DEFAULT_LOCKFILE_NAME;
@@ -28,10 +28,7 @@ use crate::manifest::workspace_table::{MemberPath, Region, WorkspaceTable};
 use crate::manifest::{MODEL_TOML_FILE, ModelToml, ModelTomlKind};
 use crate::project::ProjectFormat;
 use crate::project::local_src::{detect_format, json_manifest};
-use crate::project::utils::{
-    FsIoError, ProjectDeserializationError, RelativizePathError, relativize_path,
-    validate_manifest, wrapfs,
-};
+use crate::project::utils::{FsIoError, ProjectDeserializationError, validate_manifest, wrapfs};
 
 /// Why a load failed, split by the file each half is about.
 ///
@@ -352,7 +349,7 @@ impl Workspace {
     /// leaves `vendor/b` excluded.
     pub fn classify(&self, dir: &Utf8Path) -> Result<Classification<'_>, ClassifyError> {
         let relative = relativize_path(dir, &self.root)?;
-        if relative.components().any(|c| c.as_str() == "..") {
+        if is_above_root(&relative) {
             return Ok(Classification::Outside);
         }
 
@@ -543,7 +540,7 @@ pub fn start_region(
         }
         if detect_format(current)? != ProjectFormat::Neither {
             let relative = relativize_path(current, root)?;
-            if relative.components().any(|c| c.as_str() == "..") {
+            if is_above_root(&relative) {
                 return Err(DiscoverError::NotUnderRoot {
                     dir: current.to_owned(),
                     root: root.to_owned(),
@@ -1099,10 +1096,7 @@ pub fn region_of(root: &Utf8Path, table: &WorkspaceTable, path: &Utf8Path) -> Pa
     let Ok(relative) = relativize_path(path, root) else {
         return PathRegion::Standalone;
     };
-    if relative
-        .components()
-        .any(|c| matches!(c, typed_path::Utf8UnixComponent::ParentDir))
-    {
+    if is_above_root(&relative) {
         // Above the root, so outside the workspace altogether.
         return PathRegion::Standalone;
     }
