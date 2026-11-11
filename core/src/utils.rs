@@ -7,6 +7,7 @@ use std::{
     fmt::Write as _,
 };
 
+use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
 use digest::{array::Array, typenum};
 use icu_casemap::CaseMapperBorrowed;
 use icu_normalizer::{ComposingNormalizerBorrowed, DecomposingNormalizerBorrowed};
@@ -226,6 +227,12 @@ impl RelativePathKind {
     }
 }
 
+/// Whether `path` is absolute on Unix or on Windows. A Windows drive
+/// letter counts, so `C:/main.sysml` is absolute.
+pub fn is_absolute_on_any_os(path: &str) -> bool {
+    path.starts_with('/') || Utf8WindowsPath::new(path).is_absolute()
+}
+
 // TODO: use this in config and env validation
 
 /// Parse a relative file path that uses `/` as separator.
@@ -240,8 +247,7 @@ pub fn parse_relative_unix_path(
         return Ok(Utf8UnixPath::new(path));
     }
 
-    // Check for Windows and Unix absolute paths
-    if Utf8WindowsPath::new(&path).is_absolute() || path.starts_with('/') {
+    if is_absolute_on_any_os(path) {
         return Err(RelativeUnixPathError::Absolute {
             path: path.to_owned(),
         });
@@ -330,7 +336,7 @@ pub enum NormalizeRelativeError {
 /// rather than rejecting them. Absolute paths (Unix and Windows alike),
 /// backslashes and NUL characters are rejected exactly as there.
 pub fn normalize_relative(path: &str) -> Result<Utf8UnixPathBuf, NormalizeRelativeError> {
-    if Utf8WindowsPath::new(&path).is_absolute() || path.starts_with('/') {
+    if is_absolute_on_any_os(path) {
         return Err(NormalizeRelativeError::Absolute {
             path: path.to_owned(),
         });
@@ -368,6 +374,23 @@ pub fn normalize_relative(path: &str) -> Result<Utf8UnixPathBuf, NormalizeRelati
     }
 
     Ok(Utf8UnixPathBuf::from(segments.join("/")))
+}
+
+/// `base` with `relative` appended component by component: `.` is
+/// skipped and `..` drops the last component of the result, without
+/// touching the filesystem.
+pub fn join_lexical(base: &Utf8Path, relative: &Utf8Path) -> Utf8PathBuf {
+    let mut joined = base.to_path_buf();
+    for component in relative.components() {
+        match component {
+            Utf8Component::ParentDir => {
+                joined.pop();
+            }
+            Utf8Component::CurDir => {}
+            other => joined.push(other.as_str()),
+        }
+    }
+    joined
 }
 
 pub fn to_pretty_json_string<T: Serialize>(value: &T) -> String {

@@ -162,29 +162,11 @@ impl<Policy: HTTPAuthentication> IndexEntryProject<Policy> {
                     expected
                         .check(info.publisher.as_deref(), &info.name)
                         .map_err(|mismatch| match mismatch {
-                            // No origin reaches an index resolver, so a
-                            // publisher-less entry is a plain publisher
-                            // mismatch rather than `NoPublisher`
-                            IdentityMismatch::NoPublisher { name: _ } => {
-                                IndexEntryProjectError::PublisherMismatch {
-                                    expected: expected.publisher().map(ToOwned::to_owned),
-                                    actual: None,
-                                }
-                            }
                             IdentityMismatch::Publisher { expected, actual } => {
                                 IndexEntryProjectError::PublisherMismatch { expected, actual }
                             }
                             IdentityMismatch::Name { expected, actual } => {
                                 IndexEntryProjectError::NameMismatch { expected, actual }
-                            }
-                            // Unreachable: an index usage is exempt from the
-                            // literal rule, so no expectation an index
-                            // resolver builds carries a toml origin.
-                            IdentityMismatch::Spelling { expected, actual } => {
-                                IndexEntryProjectError::PublisherMismatch {
-                                    expected: expected.0,
-                                    actual: actual.0,
-                                }
                             }
                         })?;
                 }

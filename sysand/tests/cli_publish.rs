@@ -1050,13 +1050,15 @@ fn publish_index_with_unknown_placeholder_reports_parse_error() -> TestResult {
 #[test]
 fn publish_toml_project_with_a_stdlib_usage() -> TestResult {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    fs::write(
-        cwd.join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
-         version = \"1.0.0\"\nlicense = \"MIT\"\n\
-         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\nsources = [\"a.sysml\"]\n\n\
-         [[inline-usages]]\nname = \"Kernel Semantic Library\"\n\
-         kpar-url = \"https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar\"\n",
+    write_toml_project(
+        &cwd,
+        "widgets",
+        "1.0.0",
+        "license = \"MIT\"\n\
+            metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\
+            sources = [\"a.sysml\"]\n\n[[inline-usages]]\n\
+            name = \"Kernel Semantic Library\"\n\
+            kpar-url = \"https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar\"\n",
     )?;
     fs::write(cwd.join("a.sysml"), b"package A;\n")?;
     fs::create_dir(cwd.join("LICENSES"))?;
@@ -1364,11 +1366,13 @@ fn publish_workspace_from_a_member_dir_publishes_every_member() -> TestResult {
 fn publish_accepts_a_built_syside_kpar() -> TestResult {
     let (_temp_dir, cwd) = new_temp_cwd()?;
     fs::create_dir_all(cwd.join("LICENSES"))?;
-    fs::write(
-        cwd.join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
-         version = \"1.0.0\"\nsources = [\"main.sysml\"]\nlicense = \"MIT\"\n\
-         metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\nroot = \"main.sysml\"\n",
+    write_toml_project(
+        &cwd,
+        "widgets",
+        "1.0.0",
+        "sources = [\"main.sysml\"]\nlicense = \"MIT\"\n\
+            metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\n\
+            root = \"main.sysml\"\n",
     )?;
     fs::write(cwd.join("main.sysml"), "package Widgets;\n")?;
     fs::write(cwd.join("README.md"), "# widgets\n")?;

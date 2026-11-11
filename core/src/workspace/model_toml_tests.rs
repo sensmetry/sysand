@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// SPDX-FileCopyrightText: © 2026 Sysand contributors <opensember.com>
+// SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use std::assert_matches;
 
@@ -8,7 +8,7 @@ use camino_tempfile::Utf8TempDir;
 
 use super::{
     Classification, DiscoverError, LoadError, LoadFailure, MemberChecks, SelectError, Selection,
-    Selector, Workspace, candidate_root, confirm_root,
+    Selector, Workspace, discover_table,
 };
 use crate::manifest::diagnostics::{Diagnostic, Report};
 use crate::project::utils::ProjectDeserializationError;
@@ -812,13 +812,23 @@ fn classification_is_by_whole_components() {
 
 // --------------------------------------------------- the upward walk
 
+/// The workspace root discovery from `from` settles on.
+fn found_root(from: impl AsRef<Utf8Path>) -> Result<Option<Utf8PathBuf>, DiscoverError> {
+    Ok(discover_table(from)?.map(|(root, _)| root))
+}
+
+/// Discovery from `candidate`, a workspace root, for its nesting verdict.
+fn confirm(candidate: impl AsRef<Utf8Path>) -> Result<(), DiscoverError> {
+    discover_table(candidate).map(|_| ())
+}
+
 const EMPTY_WORKSPACE: &str = "manifest-version = \"1.0\"\n\n[workspace]\n";
 
 #[test]
 fn a_workspace_is_found_in_the_starting_directory() {
     let fixture = Fixture::new(EMPTY_WORKSPACE);
     assert_eq!(
-        candidate_root(fixture.root()).expect("readable"),
+        found_root(fixture.root()).expect("readable"),
         Some(fixture.root())
     );
 }
@@ -828,7 +838,7 @@ fn a_workspace_is_found_in_an_ancestor() {
     let fixture = Fixture::new(&workspace_with("\"app\""));
     fixture.mkdir("app/src/deep");
     assert_eq!(
-        candidate_root(fixture.under("app/src/deep")).expect("readable"),
+        found_root(fixture.under("app/src/deep")).expect("readable"),
         Some(fixture.root())
     );
 }
@@ -839,7 +849,7 @@ fn a_workspace_is_found_in_an_ancestor() {
 #[test]
 fn no_workspace_above_the_starting_directory_is_none() {
     let dir = camino_tempfile::tempdir().expect("a temporary directory");
-    assert_eq!(candidate_root(dir.path()).expect("readable"), None);
+    assert_eq!(found_root(dir.path()).expect("readable"), None);
 }
 
 /// A member's directory holds a `[project]`, which is not a root.
@@ -848,18 +858,18 @@ fn the_walk_goes_past_a_project() {
     let fixture = Fixture::new(&workspace_with("\"app\""));
     fixture.project("app");
     assert_eq!(
-        candidate_root(fixture.under("app")).expect("readable"),
+        found_root(fixture.under("app")).expect("readable"),
         Some(fixture.root())
     );
 }
 
-/// `peek` answers `None`.
+/// The file names neither table.
 #[test]
 fn the_walk_goes_past_a_manifest_with_neither_table() {
     let fixture = Fixture::new(EMPTY_WORKSPACE);
     fixture.write("odd/model.toml", "manifest-version = \"1.0\"\n");
     assert_eq!(
-        candidate_root(fixture.under("odd")).expect("readable"),
+        found_root(fixture.under("odd")).expect("readable"),
         Some(fixture.root())
     );
 }
@@ -867,10 +877,10 @@ fn the_walk_goes_past_a_manifest_with_neither_table() {
 /// Walking past would answer *no workspace* for a directory whose
 /// manifest may well be one.
 #[test]
-fn a_manifest_the_walk_cannot_peek_is_reported() {
+fn a_manifest_that_is_not_toml_is_reported() {
     let fixture = Fixture::new(EMPTY_WORKSPACE);
     fixture.write("broken/model.toml", "this is not toml\n");
-    match candidate_root(fixture.under("broken")) {
+    match found_root(fixture.under("broken")) {
         Err(DiscoverError::Manifest(error)) => {
             let text = error.to_string();
             assert!(text.contains("broken/model.toml"), "{text}");
@@ -895,7 +905,7 @@ fn the_root_comes_back_canonical() {
         .join("app");
 
     assert_eq!(
-        candidate_root(roundabout).expect("readable"),
+        found_root(roundabout).expect("readable"),
         Some(fixture.root())
     );
 }
@@ -905,7 +915,7 @@ fn a_nested_workspace_is_refused() {
     let fixture = Fixture::at("inner", EMPTY_WORKSPACE);
     fixture.above("model.toml", EMPTY_WORKSPACE);
 
-    match confirm_root(fixture.root()) {
+    match confirm(fixture.root()) {
         Err(error @ DiscoverError::Nested { inner: _, outer: _ }) => assert_eq!(
             error.to_string(),
             format!(
@@ -926,7 +936,7 @@ fn a_nested_workspace_the_outer_excludes_is_confirmed() {
         "model.toml",
         "manifest-version = \"1.0\"\n\n[workspace]\nexclude = [\"inner\"]\n",
     );
-    confirm_root(fixture.root()).expect("the outer excludes it");
+    confirm(fixture.root()).expect("the outer excludes it");
 }
 
 /// The outer workspace may list a directory above the candidate in
@@ -938,7 +948,7 @@ fn a_nested_workspace_excluded_by_a_directory_above_it_is_confirmed() {
         "model.toml",
         "manifest-version = \"1.0\"\n\n[workspace]\nexclude = [\"vendor\"]\n",
     );
-    confirm_root(fixture.root()).expect("an excluded directory above it");
+    confirm(fixture.root()).expect("an excluded directory above it");
 }
 
 /// The first outer settles the question either way; a third workspace
@@ -951,7 +961,7 @@ fn the_outer_workspace_is_not_itself_checked_for_nesting() {
         "manifest-version = \"1.0\"\n\n[workspace]\nexclude = [\"c\"]\n",
     );
     fixture.above("model.toml", EMPTY_WORKSPACE);
-    confirm_root(fixture.root()).expect("`b` excludes `c`; `a` is `b`'s problem");
+    confirm(fixture.root()).expect("`b` excludes `c`; `a` is `b`'s problem");
 }
 
 #[test]
@@ -959,7 +969,7 @@ fn an_outer_workspace_far_above_is_still_found() {
     let fixture = Fixture::at("a/b/c/inner", EMPTY_WORKSPACE);
     fixture.above("model.toml", EMPTY_WORKSPACE);
     assert_matches!(
-        confirm_root(fixture.root()),
+        confirm(fixture.root()),
         Err(DiscoverError::Nested { inner: _, outer: _ })
     );
 }
@@ -974,10 +984,7 @@ fn an_outer_whose_member_paths_do_not_parse_is_reported() {
         "model.toml",
         "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"/absolute\"]\n",
     );
-    assert_matches!(
-        confirm_root(fixture.root()),
-        Err(DiscoverError::Manifest(_))
-    );
+    assert_matches!(confirm(fixture.root()), Err(DiscoverError::Manifest(_)));
 }
 
 /// Parsing is enough to answer the exclusion question; loading is not.
@@ -990,7 +997,7 @@ fn an_outer_whose_member_is_broken_still_confirms_the_candidate() {
         "model.toml",
         "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"gone\"]\nexclude = [\"inner\"]\n",
     );
-    confirm_root(fixture.root()).expect("the outer's own members are not this command's problem");
+    confirm(fixture.root()).expect("the outer's own members are not this command's problem");
 }
 
 // --------------------------------------------------------- discovery
@@ -1018,8 +1025,8 @@ fn discover_reports_a_load_failure_from_the_candidate() {
     assert_matches!(discover_error(fixture.root()), DiscoverError::Load(_));
 }
 
-/// `peek` answers `Workspace` for a file carrying both tables, so such a
-/// member becomes a candidate. Ruling on nesting first would report the
+/// A file carrying both tables counts as a workspace on the walk, so such
+/// a member becomes a candidate. Ruling on nesting first would report the
 /// wrong fault.
 #[test]
 fn a_candidate_defining_both_tables_fails_as_that_not_as_nesting() {
@@ -1537,7 +1544,7 @@ exclude = [\"vendor\", \"app/gen\", \"deep/a/b\"]
 fn shapes() -> WorkspaceTable {
     let fixture = Fixture::new(SHAPES);
     fixture.project_named("app", "alpha");
-    let (_root, table) = super::discover_table(fixture.root())
+    let (_root, table) = discover_table(fixture.root())
         .expect("readable")
         .expect("a workspace");
     table
@@ -1632,7 +1639,7 @@ fn a_table_is_discovered_without_loading_its_members() {
     let fixture = Fixture::new(&workspace_with("\"app\", \"gone\""));
     fixture.project_named("app", "alpha");
 
-    let (root, table) = super::discover_table(fixture.root())
+    let (root, table) = discover_table(fixture.root())
         .expect("the table reads")
         .expect("a workspace");
     assert_eq!(root, fixture.root());
@@ -1649,7 +1656,7 @@ fn a_discovered_table_is_still_checked_for_nesting() {
     let fixture = Fixture::at("inner", EMPTY_WORKSPACE);
     fixture.above("model.toml", EMPTY_WORKSPACE);
     assert_matches!(
-        super::discover_table(fixture.root()),
+        discover_table(fixture.root()),
         Err(DiscoverError::Nested { inner: _, outer: _ })
     );
 }
@@ -1661,7 +1668,7 @@ fn a_candidate_defining_both_tables_still_fails_as_that() {
     let fixture = Fixture::at("inner", &format!("{EMPTY_WORKSPACE}\n{PROJECT}"));
     fixture.above("model.toml", EMPTY_WORKSPACE);
     assert_matches!(
-        super::discover_table(fixture.root()),
+        discover_table(fixture.root()),
         Err(DiscoverError::Manifest(_))
     );
 }
@@ -1682,7 +1689,7 @@ fn start_region_ignores_a_members_own_lockfile() {
         .load()
         .expect_err("the tree is one `load` refuses, which is the point");
 
-    let (root, table) = super::discover_table(fixture.root())
+    let (root, table) = discover_table(fixture.root())
         .expect("the table reads")
         .expect("a workspace");
     assert_eq!(
@@ -1699,7 +1706,7 @@ fn start_region_ignores_a_member_that_does_not_exist() {
     fixture.project("app");
     fixture.load().expect_err("`load` refuses a missing member");
 
-    let (root, table) = super::discover_table(fixture.root())
+    let (root, table) = discover_table(fixture.root())
         .expect("the table reads")
         .expect("a workspace");
     assert_eq!(
@@ -1722,7 +1729,7 @@ fn member_index_refuses_a_project_nested_inside_a_member() {
     fixture.project("app");
     fixture.project("app/dep");
 
-    let (root, table) = super::discover_table(fixture.root())
+    let (root, table) = discover_table(fixture.root())
         .expect("the table reads")
         .expect("a workspace");
 
@@ -1757,7 +1764,7 @@ fn member_index_refuses_the_root() {
     let fixture = Fixture::new(&workspace_with("\"app\""));
     fixture.project("app");
 
-    let (root, table) = super::discover_table(fixture.root())
+    let (root, table) = discover_table(fixture.root())
         .expect("the table reads")
         .expect("a workspace");
     assert_eq!(

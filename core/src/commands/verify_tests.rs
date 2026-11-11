@@ -205,7 +205,7 @@ impl Fixture {
         ]
     }
 
-    fn verify(&self) -> VerifyReport {
+    fn verify(&self) -> SyncOutcome {
         let env = self.env();
         do_verify(
             &self.lock,
@@ -228,7 +228,7 @@ impl Fixture {
     }
 }
 
-fn kinds(report: &VerifyReport) -> Vec<(String, MismatchKind)> {
+fn kinds(report: &SyncOutcome) -> Vec<(String, MismatchKind)> {
     report
         .mismatched
         .iter()

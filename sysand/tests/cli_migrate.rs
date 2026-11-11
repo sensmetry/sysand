@@ -12,7 +12,10 @@ use assert_cmd::prelude::*;
 use camino::{Utf8Path, Utf8PathBuf};
 use predicates::prelude::*;
 
-use common::{git_commit_files, new_temp_cwd, run_sysand_in, write_legacy_project};
+use common::{
+    git_commit_files, new_temp_cwd, run_sysand_in, write_legacy_project, write_toml_project,
+    write_workspace_root,
+};
 
 /// A git repository around `dir`, with everything in it committed, or
 /// with an empty commit when `commit` is false.
@@ -140,10 +143,7 @@ fn migrate_refuses_a_directory_with_no_repository() -> Result<(), Box<dyn std::e
 #[test]
 fn migrate_from_a_workspace_root_needs_a_path() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    std::fs::write(
-        cwd.join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"app\"]\n",
-    )?;
+    write_workspace_root(&cwd, &["app"], "")?;
     let app = cwd.join("app");
     std::fs::create_dir(&app)?;
     json_project(&app)?;
@@ -166,11 +166,7 @@ fn migrate_from_a_workspace_root_needs_a_path() -> Result<(), Box<dyn std::error
 #[test]
 fn migrate_refuses_a_toml_project() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    std::fs::write(
-        cwd.join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
-         version = \"1.0.0\"\nsources = []\n",
-    )?;
+    write_toml_project(&cwd, "widgets", "1.0.0", "sources = []\n")?;
     git_repo(&cwd, true)?;
 
     run_sysand_in(&cwd, ["migrate"], None)?
@@ -600,10 +596,7 @@ fn a_file_usage_to_a_workspace_member_resolves() -> Result<(), Box<dyn std::erro
     let dep = root.join("dep");
     std::fs::create_dir_all(&app)?;
     std::fs::create_dir_all(&dep)?;
-    std::fs::write(
-        root.join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"dep\"]\npublisher = \"acme\"\n",
-    )?;
+    write_workspace_root(&root, &["dep"], "publisher = \"acme\"\n")?;
     std::fs::write(
         dep.join("model.toml"),
         "manifest-version = \"1.0\"\n\n[project]\npublisher.workspace = true\nname = \"dep\"\n\
@@ -638,15 +631,8 @@ fn a_target_nested_inside_a_member_is_not_a_member() -> Result<(), Box<dyn std::
     let dep = member.join("dep");
     std::fs::create_dir_all(&app)?;
     std::fs::create_dir_all(&dep)?;
-    std::fs::write(
-        root.join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"member\"]\npublisher = \"acme\"\n",
-    )?;
-    std::fs::write(
-        member.join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"member\"\n\
-         version = \"1.0.0\"\nsources = []\n",
-    )?;
+    write_workspace_root(&root, &["member"], "publisher = \"acme\"\n")?;
+    write_toml_project(&member, "member", "1.0.0", "sources = []\n")?;
     // Byte-for-byte the target of the unlisted-target test, one directory
     // deeper. Only the location differs.
     std::fs::write(
@@ -676,10 +662,7 @@ fn an_unlisted_target_is_not_given_the_table() -> Result<(), Box<dyn std::error:
     let dep = root.join("dep");
     std::fs::create_dir_all(&app)?;
     std::fs::create_dir_all(&dep)?;
-    std::fs::write(
-        root.join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[workspace]\nmembers = []\npublisher = \"acme\"\n",
-    )?;
+    write_workspace_root(&root, &[], "publisher = \"acme\"\n")?;
     std::fs::write(
         dep.join("model.toml"),
         "manifest-version = \"1.0\"\n\n[project]\npublisher.workspace = true\nname = \"dep\"\n\
@@ -738,11 +721,7 @@ fn an_excluded_target_is_not_given_the_table() -> Result<(), Box<dyn std::error:
     let vendor = root.join("vendor");
     std::fs::create_dir_all(&app)?;
     std::fs::create_dir_all(&vendor)?;
-    std::fs::write(
-        root.join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[workspace]\nmembers = []\nexclude = [\"vendor\"]\n\
-         publisher = \"acme\"\n",
-    )?;
+    write_workspace_root(&root, &[], "exclude = [\"vendor\"]\npublisher = \"acme\"\n")?;
     std::fs::write(
         vendor.join("model.toml"),
         "manifest-version = \"1.0\"\n\n[project]\npublisher.workspace = true\nname = \"dep\"\n\
@@ -1091,12 +1070,14 @@ fn lock_refuses_a_target_that_spells_its_identity_differently()
          version = \"1.0.0\"\nsources = []\n\
          metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
     )?;
-    std::fs::write(
-        app.join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"app\"\n\
-         version = \"1.0.0\"\nsources = []\n\
-         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
-         [[inline-usages]]\npublisher = \"acme-corp\"\nname = \"dep\"\ndir = \"../dep\"\n",
+    write_toml_project(
+        &app,
+        "app",
+        "1.0.0",
+        "sources = []\n\
+            metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
+            [[inline-usages]]\npublisher = \"acme-corp\"\nname = \"dep\"\n\
+            dir = \"../dep\"\n",
     )?;
 
     run_sysand_in(&app, ["lock"], None)?
@@ -1134,19 +1115,23 @@ fn lock_refuses_a_transitively_reached_spelling_difference()
     )?;
     // `mid` is the one with the wrongly-spelled usage, and it is reached
     // through `app` rather than locked directly.
-    std::fs::write(
-        mid.join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"mid\"\n\
-         version = \"1.0.0\"\nsources = []\n\
-         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
-         [[inline-usages]]\npublisher = \"acme-corp\"\nname = \"dep\"\ndir = \"../dep\"\n",
+    write_toml_project(
+        &mid,
+        "mid",
+        "1.0.0",
+        "sources = []\n\
+            metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
+            [[inline-usages]]\npublisher = \"acme-corp\"\nname = \"dep\"\n\
+            dir = \"../dep\"\n",
     )?;
-    std::fs::write(
-        app.join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"app\"\n\
-         version = \"1.0.0\"\nsources = []\n\
-         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
-         [[inline-usages]]\npublisher = \"acme\"\nname = \"mid\"\ndir = \"../mid\"\n",
+    write_toml_project(
+        &app,
+        "app",
+        "1.0.0",
+        "sources = []\n\
+            metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
+            [[inline-usages]]\npublisher = \"acme\"\nname = \"mid\"\n\
+            dir = \"../mid\"\n",
     )?;
 
     run_sysand_in(&app, ["lock"], None)?

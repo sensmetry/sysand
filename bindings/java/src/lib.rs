@@ -24,9 +24,8 @@ use sysand_core::{
     commands,
     env::{DEFAULT_ENV_NAME, local_directory::LocalWriteError},
     init::InitError,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
-        ProjectDefinition, ProjectMut as _,
+        ProjectMut as _,
         local_src::{LocalSrcError, LocalSrcProject},
         utils::wrapfs,
     },
@@ -259,36 +258,21 @@ fn info_path<'local>(
 
     let command_result = commands::info::do_info_project(&project);
     match command_result {
-        Ok(definition) => {
-            let Some(info_metadata) = json_documents(env, definition) else {
-                ret_null!()
-            };
-            if let Some(project) = info_metadata.to_jobject(env) {
-                return Ok(project);
+        Ok(definition) => match definition.into_json_documents() {
+            Ok(info_metadata) => {
+                if let Some(project) = info_metadata.to_jobject(env) {
+                    return Ok(project);
+                }
             }
-        }
+            Err(e) => {
+                env.throw_exception(ExceptionKind::SysandException, format_err(e));
+            }
+        },
         Err(e) => {
             env.throw_exception(ExceptionKind::SysandException, format_err(e));
         }
     }
     ret_null!()
-}
-
-/// A json project's two documents, or `None` with an exception thrown.
-// TODO: report a `model.toml` project's manifest.
-fn json_documents(
-    env: &mut Env<'_>,
-    definition: ProjectDefinition,
-) -> Option<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)> {
-    let name = definition.name().to_owned();
-    let documents = definition.into_json();
-    if documents.is_none() {
-        env.throw_exception(
-            ExceptionKind::SysandException,
-            format!("`{name}` is a `model.toml` project, which `info` cannot report yet"),
-        );
-    }
-    documents
 }
 
 const SYSAND_INFO: NativeMethod = native_method!(
@@ -312,10 +296,7 @@ fn info<'local>(
     };
 
     let runtime = {
-        let r = match tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-        {
+        let r = match sysand_core::cancel::current_thread_runtime() {
             Ok(r) => r,
             Err(e) => {
                 env.throw_exception(
@@ -385,8 +366,12 @@ fn info<'local>(
             ret_null!()
         }
     };
-    let Some(info_meta) = json_documents(env, definition) else {
-        ret_null!()
+    let info_meta = match definition.into_json_documents() {
+        Ok(documents) => documents,
+        Err(e) => {
+            env.throw_exception(ExceptionKind::SysandException, format_err(e));
+            ret_null!()
+        }
     };
 
     Ok(info_meta.to_jobject(env).unwrap_or_default())

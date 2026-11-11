@@ -49,47 +49,57 @@ const SEMANTIC_LIBRARY_INFO_20250201: &str =
 const SEMANTIC_LIBRARY_META_20250201: &str =
     include_str!("stdlib_assets/20250201/semantic-library.meta.json");
 
-/// The releases this Sysand embeds: IRI and `.project.json`.
-const STD_LIB_ASSETS_20250201: [(&str, &str); 10] = [
+/// The releases this Sysand embeds: IRI, `.project.json` and `.meta.json`.
+const STD_LIB_ASSETS_20250201: [(&str, &str, &str); 10] = [
     (
         "https://www.omg.org/spec/SysML/20250201/Quantities-and-Units-Domain-Library.kpar",
         QUANTITIES_AND_UNITS_LIBRARY_INFO_20250201,
+        QUANTITIES_AND_UNITS_LIBRARY_META_20250201,
     ),
     (
         "https://www.omg.org/spec/KerML/20250201/Function-Library.kpar",
         FUNCTION_LIBRARY_INFO_20250201,
+        FUNCTION_LIBRARY_META_20250201,
     ),
     (
         "https://www.omg.org/spec/SysML/20250201/Systems-Library.kpar",
         SYSTEMS_LIBRARY_INFO_20250201,
+        SYSTEMS_LIBRARY_META_20250201,
     ),
     (
         "https://www.omg.org/spec/SysML/20250201/Cause-and-Effect-Domain-Library.kpar",
         CAUSE_AND_EFFECT_LIBRARY_INFO_20250201,
+        CAUSE_AND_EFFECT_LIBRARY_META_20250201,
     ),
     (
         "https://www.omg.org/spec/SysML/20250201/Requirement-Derivation-Domain-Library.kpar",
         REQUIREMENT_DERIVATION_LIBRARY_INFO_20250201,
+        REQUIREMENT_DERIVATION_LIBRARY_META_20250201,
     ),
     (
         "https://www.omg.org/spec/SysML/20250201/Metadata-Domain-Library.kpar",
         METADATA_LIBRARY_INFO_20250201,
+        METADATA_LIBRARY_META_20250201,
     ),
     (
         "https://www.omg.org/spec/SysML/20250201/Geometry-Domain-Library.kpar",
         GEOMETRY_LIBRARY_INFO_20250201,
+        GEOMETRY_LIBRARY_META_20250201,
     ),
     (
         "https://www.omg.org/spec/SysML/20250201/Analysis-Domain-Library.kpar",
         ANALYSIS_LIBRARY_INFO_20250201,
+        ANALYSIS_LIBRARY_META_20250201,
     ),
     (
         "https://www.omg.org/spec/KerML/20250201/Data-Type-Library.kpar",
         DATA_TYPE_LIBRARY_INFO_20250201,
+        DATA_TYPE_LIBRARY_META_20250201,
     ),
     (
         "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar",
         SEMANTIC_LIBRARY_INFO_20250201,
+        SEMANTIC_LIBRARY_META_20250201,
     ),
 ];
 
@@ -117,58 +127,7 @@ pub fn known_std_libs() -> ProvidedProjects {
         result
     }
 
-    entries([
-        (
-            "https://www.omg.org/spec/SysML/20250201/Quantities-and-Units-Domain-Library.kpar",
-            QUANTITIES_AND_UNITS_LIBRARY_INFO_20250201,
-            QUANTITIES_AND_UNITS_LIBRARY_META_20250201,
-        ),
-        (
-            "https://www.omg.org/spec/KerML/20250201/Function-Library.kpar",
-            FUNCTION_LIBRARY_INFO_20250201,
-            FUNCTION_LIBRARY_META_20250201,
-        ),
-        (
-            "https://www.omg.org/spec/SysML/20250201/Systems-Library.kpar",
-            SYSTEMS_LIBRARY_INFO_20250201,
-            SYSTEMS_LIBRARY_META_20250201,
-        ),
-        (
-            "https://www.omg.org/spec/SysML/20250201/Cause-and-Effect-Domain-Library.kpar",
-            CAUSE_AND_EFFECT_LIBRARY_INFO_20250201,
-            CAUSE_AND_EFFECT_LIBRARY_META_20250201,
-        ),
-        (
-            "https://www.omg.org/spec/SysML/20250201/Requirement-Derivation-Domain-Library.kpar",
-            REQUIREMENT_DERIVATION_LIBRARY_INFO_20250201,
-            REQUIREMENT_DERIVATION_LIBRARY_META_20250201,
-        ),
-        (
-            "https://www.omg.org/spec/SysML/20250201/Metadata-Domain-Library.kpar",
-            METADATA_LIBRARY_INFO_20250201,
-            METADATA_LIBRARY_META_20250201,
-        ),
-        (
-            "https://www.omg.org/spec/SysML/20250201/Geometry-Domain-Library.kpar",
-            GEOMETRY_LIBRARY_INFO_20250201,
-            GEOMETRY_LIBRARY_META_20250201,
-        ),
-        (
-            "https://www.omg.org/spec/SysML/20250201/Analysis-Domain-Library.kpar",
-            ANALYSIS_LIBRARY_INFO_20250201,
-            ANALYSIS_LIBRARY_META_20250201,
-        ),
-        (
-            "https://www.omg.org/spec/KerML/20250201/Data-Type-Library.kpar",
-            DATA_TYPE_LIBRARY_INFO_20250201,
-            DATA_TYPE_LIBRARY_META_20250201,
-        ),
-        (
-            "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar",
-            SEMANTIC_LIBRARY_INFO_20250201,
-            SEMANTIC_LIBRARY_META_20250201,
-        ),
-    ])
+    entries(STD_LIB_ASSETS_20250201)
 }
 
 /// The name the standard library published at `iri` declares, or `None`
@@ -185,7 +144,7 @@ pub fn std_lib_name(iri: &str) -> Option<&'static str> {
         std::sync::LazyLock::new(|| {
             STD_LIB_ASSETS_20250201
                 .iter()
-                .filter_map(|(iri, info)| {
+                .filter_map(|(iri, info, _meta)| {
                     let parsed: crate::model::InterchangeProjectInfoRaw =
                         serde_json::from_str(info).ok()?;
                     Some((*iri, parsed.name))

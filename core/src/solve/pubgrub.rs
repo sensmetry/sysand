@@ -22,7 +22,7 @@ use crate::{
     model::{InterchangeProjectUsage, InterchangeProjectValidationError},
     project::{ProjectRead, utils::Identifier},
     resolve::{CoalescingUsage, ResolutionInfo, ResolutionOutcome, ResolveRead, UsageOrigin},
-    utils::format_err,
+    utils::{format_err, join_lexical},
 };
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
@@ -625,20 +625,10 @@ fn local_target(resolve: &CoalescingUsage) -> Option<Utf8PathBuf> {
             return None;
         }
     };
-    let mut joined = info.base_path()?.to_path_buf();
     // Lexical: `..` is the only thing that makes two spellings of one
     // directory differ in practice (`dir = "../v1"` from two members at
     // different depths must not be reported).
-    for component in Utf8Path::new(relative).components() {
-        match component {
-            camino::Utf8Component::ParentDir => {
-                joined.pop();
-            }
-            camino::Utf8Component::CurDir => {}
-            other => joined.push(other.as_str()),
-        }
-    }
-    Some(joined)
+    Some(join_lexical(info.base_path()?, Utf8Path::new(relative)))
 }
 
 #[expect(clippy::result_large_err)]

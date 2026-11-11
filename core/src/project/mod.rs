@@ -218,6 +218,19 @@ pub enum ProjectFormat {
     Neither,
 }
 
+impl ProjectFormat {
+    /// The format of a project that has a `model.toml` (`toml`) and a
+    /// json manifest (`json`), or neither.
+    pub fn from_presence(toml: bool, json: bool) -> Self {
+        match (toml, json) {
+            (true, true) => Self::Both,
+            (true, false) => Self::Toml,
+            (false, true) => Self::Json,
+            (false, false) => Self::Neither,
+        }
+    }
+}
+
 /// A project's manifest, as written: a `model.toml`, or the
 /// `.project.json` and `.meta.json` pair.
 ///
@@ -265,6 +278,38 @@ impl ProjectDefinition {
         match self {
             Self::Toml(project) => project.license.as_ref().map(ToString::to_string),
             Self::Json { info, meta: _ } => info.license.clone(),
+        }
+    }
+
+    pub fn description(&self) -> Option<&str> {
+        match self {
+            Self::Toml(project) => project.description.as_deref(),
+            Self::Json { info, meta: _ } => info.description.as_deref(),
+        }
+    }
+
+    pub fn website(&self) -> Option<&str> {
+        match self {
+            Self::Toml(project) => project.urls.website.as_ref().map(fluent_uri::Iri::as_str),
+            Self::Json { info, meta: _ } => info.website.as_deref(),
+        }
+    }
+
+    pub fn maintainers(&self) -> Vec<String> {
+        match self {
+            Self::Toml(project) => project
+                .maintainers
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+            Self::Json { info, meta: _ } => info.maintainer.clone(),
+        }
+    }
+
+    pub fn topics(&self) -> &[String] {
+        match self {
+            Self::Toml(project) => &project.topics,
+            Self::Json { info, meta: _ } => &info.topic,
         }
     }
 
@@ -325,6 +370,23 @@ impl ProjectDefinition {
             Self::Json { info, meta } => Some((info, meta)),
         }
     }
+
+    /// The json documents, or the error naming a `model.toml` project that
+    /// has none to report.
+    pub fn into_json_documents(
+        self,
+    ) -> Result<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw), NotJsonProject> {
+        let name = self.name().to_owned();
+        self.into_json().ok_or(NotJsonProject { name })
+    }
+}
+
+/// A `model.toml` project where a json project's documents were wanted.
+// TODO: report a `model.toml` project's manifest.
+#[derive(Debug, Error)]
+#[error("`{name}` is a `model.toml` project, which `info` cannot report yet")]
+pub struct NotJsonProject {
+    name: String,
 }
 
 /// Why a `model.toml` project's symbols could not be extracted.
@@ -353,21 +415,23 @@ pub fn symbol_index<P: ProjectRead + ?Sized>(
     project: &P,
     manifest: &ResolvedProject,
 ) -> Result<IndexMap<String, String>, SymbolIndexError<P::Error>> {
-    let mut index = IndexMap::new();
-    for source in manifest.sources.iter() {
-        let mut contents = String::new();
-        project
-            .read_source(source)
-            .map_err(SymbolIndexError::Project)?
-            .read_to_string(&mut contents)
-            .map_err(|e| SourceSymbolsError::Read(source.as_str().into(), e))?;
-        let symbols = crate::symbols::top_level_symbols(source, &contents, None)
-            .map_err(SourceSymbolsError::from)?;
-        for symbol in symbols {
-            index.insert(symbol, source.as_str().to_owned());
-        }
-    }
-    Ok(index)
+    crate::manifest::kpar_view::symbol_index(
+        &manifest.sources,
+        |source| {
+            let mut contents = String::new();
+            project
+                .read_source(source)
+                .map_err(SymbolIndexError::Project)?
+                .read_to_string(&mut contents)
+                .map_err(|e| SourceSymbolsError::Read(source.as_str().into(), e))?;
+            Ok(contents)
+        },
+        |_, _| {},
+    )
+    .map_err(|e| match e {
+        crate::manifest::kpar_view::ViewError::Read(e) => e,
+        crate::manifest::kpar_view::ViewError::Symbols(e) => SourceSymbolsError::from(e).into(),
+    })
 }
 
 /// The top-level symbols `project` exports: what its `.meta.json` lists,
@@ -563,12 +627,16 @@ pub trait ProjectRead {
     /// without reading the manifest (an index entry answers from
     /// `versions.json`).
     ///
-    /// Required, so that a wrapper forwards the wrapped project's answer.
-    fn version(&self) -> Result<Option<String>, Self::Error>;
+    /// A wrapper forwards the wrapped project's answer.
+    fn version(&self) -> Result<Option<String>, Self::Error> {
+        Ok(self.get_project()?.map(|project| project.version()))
+    }
 
     /// The project's usages, as the solver reads them. See
     /// [`ProjectRead::version`].
-    fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error>;
+    fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
+        Ok(self.get_project()?.map(|project| project.usages()))
+    }
 
     /// Produces a project hash based on project information and the *non-canonicalized* metadata.
     ///
@@ -797,12 +865,26 @@ pub trait ProjectReadAsync {
     }
 
     /// See [`ProjectRead::version`].
-    fn version_async(&self) -> impl Future<Output = Result<Option<String>, Self::Error>>;
+    fn version_async(&self) -> impl Future<Output = Result<Option<String>, Self::Error>> {
+        async {
+            Ok(self
+                .get_project_async()
+                .await?
+                .map(|project| project.version()))
+        }
+    }
 
     /// See [`ProjectRead::usage`].
     fn usage_async(
         &self,
-    ) -> impl Future<Output = Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error>>;
+    ) -> impl Future<Output = Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error>> {
+        async {
+            Ok(self
+                .get_project_async()
+                .await?
+                .map(|project| project.usages()))
+        }
+    }
 
     /// See [`ProjectRead::checksum_non_canonical_hex`].
     ///

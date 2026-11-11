@@ -362,32 +362,6 @@ fn project_build_index_usage() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// A `model.toml` workspace root listing `members`.
-fn write_workspace(
-    cwd: &camino::Utf8Path,
-    members: &[&str],
-) -> Result<(), Box<dyn std::error::Error>> {
-    write_workspace_with(cwd, members, "")
-}
-
-/// As [`write_workspace`], with extra `[workspace]` keys, such as a
-/// `metamodel` for members that inherit one.
-fn write_workspace_with(
-    cwd: &camino::Utf8Path,
-    members: &[&str],
-    extra: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let entries: Vec<String> = members.iter().map(|m| format!("\"{m}\"")).collect();
-    std::fs::write(
-        cwd.join("model.toml"),
-        format!(
-            "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [{}]\n{extra}",
-            entries.join(", ")
-        ),
-    )?;
-    Ok(())
-}
-
 /// A `model.toml` member with one source file, `test.sysml`, which is
 /// what [`expected_checksum`] and [`expected_index`] describe.
 ///
@@ -407,12 +381,11 @@ fn write_toml_member(
     } else {
         "metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n"
     };
-    std::fs::write(
-        dir.join("model.toml"),
-        format!(
-            "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"{name}\"\n\
-             version = \"{version}\"\nsources = [\"test.sysml\"]\n{metamodel}{extra}"
-        ),
+    write_toml_project(
+        dir,
+        name,
+        version,
+        &format!("sources = [\"test.sysml\"]\n{metamodel}{extra}"),
     )?;
     std::fs::write(dir.join("test.sysml"), b"package P;\n")?;
     Ok(())
@@ -424,9 +397,10 @@ fn write_toml_member(
 #[test]
 fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    write_workspace(
+    write_workspace_root(
         &cwd,
         &["subgroup/project1", "subgroup/project2", "project3"],
+        "",
     )?;
 
     let members = [
@@ -483,7 +457,7 @@ fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn workspace_build_with_inherited_metamodel() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    write_workspace_with(
+    write_workspace_root(
         &cwd,
         &["project1"],
         "metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
@@ -522,7 +496,7 @@ fn workspace_build_with_inherited_metamodel() -> Result<(), Box<dyn std::error::
 #[test]
 fn a_member_that_does_not_inherit_declares_its_own() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    write_workspace_with(
+    write_workspace_root(
         &cwd,
         &["project1"],
         "metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
@@ -559,7 +533,7 @@ fn a_member_that_does_not_inherit_declares_its_own() -> Result<(), Box<dyn std::
 #[test]
 fn an_unrecognized_workspace_metamodel_is_refused() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    write_workspace_with(
+    write_workspace_root(
         &cwd,
         &["project1"],
         "metamodel = \"https://example.com/spec/SysML/20251201\"\n",
@@ -593,7 +567,7 @@ fn an_unrecognized_workspace_metamodel_is_refused() -> Result<(), Box<dyn std::e
 #[test]
 fn a_member_declares_its_own_metamodel() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    write_workspace_with(
+    write_workspace_root(
         &cwd,
         &["project1"],
         "metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
@@ -684,7 +658,7 @@ fn workspace_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
     let project1_cwd = cwd.join("project1");
     let project2_cwd = cwd.join("project2");
 
-    write_workspace(&cwd, &["project1", "project2"])?;
+    write_workspace_root(&cwd, &["project1", "project2"], "")?;
 
     for (project_cwd, readme_content) in [
         (&project1_cwd, "# Project 1\n"),
@@ -764,7 +738,7 @@ fn workspace_build_with_changelog() -> Result<(), Box<dyn std::error::Error>> {
     let project1_cwd = cwd.join("project1");
     let project2_cwd = cwd.join("project2");
 
-    write_workspace(&cwd, &["project1", "project2"])?;
+    write_workspace_root(&cwd, &["project1", "project2"], "")?;
 
     for (project_cwd, changelog_content) in [
         (&project1_cwd, "# Project 1 Changelog\n"),
@@ -1113,11 +1087,14 @@ fn build_toml_project() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn build_toml_project_with_a_dir_usage() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    std::fs::write(
-        cwd.join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
-         version = \"1.0.0\"\nsources = [\"a.sysml\"]\nmetamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
-         [[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"dep\"\n",
+    write_toml_project(
+        &cwd,
+        "widgets",
+        "1.0.0",
+        "sources = [\"a.sysml\"]\n\
+            metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
+            [[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\n\
+            dir = \"dep\"\n",
     )?;
     std::fs::write(cwd.join("a.sysml"), b"package A;\n")?;
     std::fs::create_dir_all(cwd.join("dep"))?;
@@ -1132,11 +1109,14 @@ fn build_toml_project_with_a_dir_usage() -> Result<(), Box<dyn std::error::Error
 #[test]
 fn build_toml_project_with_a_missing_target() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    std::fs::write(
-        cwd.join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
-         version = \"1.0.0\"\nsources = [\"a.sysml\"]\nmetamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
-         [[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"dep\"\n",
+    write_toml_project(
+        &cwd,
+        "widgets",
+        "1.0.0",
+        "sources = [\"a.sysml\"]\n\
+            metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
+            [[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\n\
+            dir = \"dep\"\n",
     )?;
     std::fs::write(cwd.join("a.sysml"), b"package A;\n")?;
 
@@ -1159,12 +1139,14 @@ fn build_toml_project_with_a_missing_target() -> Result<(), Box<dyn std::error::
 #[test]
 fn build_toml_project_with_a_stdlib_usage() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    std::fs::write(
-        cwd.join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
-         version = \"1.0.0\"\nsources = [\"a.sysml\"]\nmetamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
-         [[inline-usages]]\nname = \"Kernel Semantic Library\"\n\
-         kpar-url = \"https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar\"\n",
+    write_toml_project(
+        &cwd,
+        "widgets",
+        "1.0.0",
+        "sources = [\"a.sysml\"]\n\
+            metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
+            [[inline-usages]]\nname = \"Kernel Semantic Library\"\n\
+            kpar-url = \"https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar\"\n",
     )?;
     std::fs::write(cwd.join("a.sysml"), b"package A;\n")?;
 
@@ -1189,7 +1171,7 @@ fn build_toml_project_with_a_stdlib_usage() -> Result<(), Box<dyn std::error::Er
 #[test]
 fn workspace_build_follows_members_order() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    write_workspace(&cwd, &["gamma", "beta", "alpha"])?;
+    write_workspace_root(&cwd, &["gamma", "beta", "alpha"], "")?;
     for (at, dep) in [
         ("alpha", None),
         ("beta", Some("../alpha")),
@@ -1200,11 +1182,13 @@ fn workspace_build_follows_members_order() -> Result<(), Box<dyn std::error::Err
         let usage = dep.map_or_else(String::new, |d| {
             format!("\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"{d}\"\n")
         });
-        std::fs::write(
-            path.join("model.toml"),
-            format!(
-                "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"{at}\"\n\
-                 version = \"1.0.0\"\nsources = [\"m.kerml\"]\nmetamodel = \"https://www.omg.org/spec/SysML/20250201\"\n{usage}"
+        write_toml_project(
+            &path,
+            at,
+            "1.0.0",
+            &format!(
+                "sources = [\"m.kerml\"]\n\
+            metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n{usage}"
             ),
         )?;
         std::fs::write(path.join("m.kerml"), b"package M;\n")?;
@@ -1235,12 +1219,12 @@ fn write_broken_member(
     name: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(dir)?;
-    std::fs::write(
-        dir.join("model.toml"),
-        format!(
-            "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"{name}\"\n\
-             version = \"1.0.0\"\nsources = [\"missing.sysml\"]\nmetamodel = \"https://www.omg.org/spec/SysML/20250201\"\n"
-        ),
+    write_toml_project(
+        dir,
+        name,
+        "1.0.0",
+        "sources = [\"missing.sysml\"]\n\
+            metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
     )?;
     Ok(())
 }
@@ -1253,7 +1237,7 @@ fn write_broken_member(
 #[test]
 fn workspace_build_reports_every_failure() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    write_workspace(&cwd, &["alpha", "beta", "gamma"])?;
+    write_workspace_root(&cwd, &["alpha", "beta", "gamma"], "")?;
     write_broken_member(&cwd.join("alpha"), "alpha")?;
     write_broken_member(&cwd.join("beta"), "beta")?;
     write_toml_member(&cwd.join("gamma"), "gamma", "1.0.0", "")?;
@@ -1279,7 +1263,7 @@ fn workspace_build_reports_every_failure() -> Result<(), Box<dyn std::error::Err
 fn workspace_build_builds_a_dependent_of_a_failed_member() -> Result<(), Box<dyn std::error::Error>>
 {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    write_workspace(&cwd, &["beta", "alpha"])?;
+    write_workspace_root(&cwd, &["beta", "alpha"], "")?;
     write_broken_member(&cwd.join("alpha"), "alpha")?;
     write_toml_member(
         &cwd.join("beta"),
@@ -1448,13 +1432,13 @@ fn write_syside_project_with_extras(
     name: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(dir.join("LICENSES"))?;
-    std::fs::write(
-        dir.join("model.toml"),
-        format!(
-            "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"{name}\"\n\
-             version = \"1.0.0\"\nsources = [\"a.sysml\", \"b.sysml\"]\nlicense = \"MIT\"\n\
-             metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\nroot = \"a.sysml\"\n"
-        ),
+    write_toml_project(
+        dir,
+        name,
+        "1.0.0",
+        "sources = [\"a.sysml\", \"b.sysml\"]\nlicense = \"MIT\"\n\
+            metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\n\
+            root = \"a.sysml\"\n",
     )?;
     std::fs::write(dir.join("a.sysml"), b"package A;\n")?;
     std::fs::write(dir.join("b.sysml"), b"package B; package A;\n")?;
@@ -1561,7 +1545,7 @@ fn a_syside_kpar_checksums_every_file_but_the_manifests() -> Result<(), Box<dyn 
 fn a_mixed_family_workspace_builds_both_shapes_into_one_output()
 -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    write_workspace_with(&cwd, &["omg", "syside"], "")?;
+    write_workspace_root(&cwd, &["omg", "syside"], "")?;
     write_toml_member(&cwd.join("omg"), "omg-member", "1.0.0", "")?;
     write_toml_member(
         &cwd.join("syside"),
@@ -1689,12 +1673,14 @@ fn a_syside_kpar_round_trips_through_info_and_a_local_index()
 
     let app = cwd.join("app");
     std::fs::create_dir_all(&app)?;
-    std::fs::write(
-        app.join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"app\"\n\
-         version = \"1.0.0\"\nsources = [\"main.sysml\"]\n\
-         metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\nroot = \"main.sysml\"\n\
-         \n[[inline-usages]]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"^1\"\n",
+    write_toml_project(
+        &app,
+        "app",
+        "1.0.0",
+        "sources = [\"main.sysml\"]\n\
+            metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\n\
+            root = \"main.sysml\"\n\n[[inline-usages]]\n\
+            publisher = \"acme\"\nname = \"widgets\"\nversion = \"^1\"\n",
     )?;
     std::fs::write(app.join("main.sysml"), b"package App;\n")?;
     run_sysand_in(

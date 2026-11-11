@@ -455,17 +455,18 @@ fn clone_identifier_errors() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn cloning_a_model_toml_member_is_refused() -> Result<(), Box<dyn std::error::Error>> {
     let (_source_dir, source) = new_temp_cwd()?;
-    std::fs::write(
-        source.join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"app\"]\n\n\
-         [workspace.group.sysml]\n\
-         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    write_workspace_root(
+        &source,
+        &["app"],
+        "\n[workspace.group.sysml]\n\
+            metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
     )?;
     std::fs::create_dir_all(source.join("app"))?;
-    std::fs::write(
-        source.join("app/model.toml"),
-        "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"member\"\n\
-         version = \"1.0.0\"\nsources = [\"m.sysml\"]\nmetamodel.workspace = \"sysml\"\n",
+    write_toml_project(
+        source.join("app"),
+        "member",
+        "1.0.0",
+        "sources = [\"m.sysml\"]\nmetamodel.workspace = \"sysml\"\n",
     )?;
     std::fs::write(source.join("app/m.sysml"), b"package M;\n")?;
 

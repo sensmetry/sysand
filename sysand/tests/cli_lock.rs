@@ -1520,10 +1520,11 @@ fn the_stdlib_workspace_locks() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn lock_from_inside_a_member_writes_at_the_root() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    std::fs::write(
-        cwd.join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"app\", \"lib\"]\n\n\
-         [workspace.group.fam]\nmetamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    write_workspace_root(
+        &cwd,
+        &["app", "lib"],
+        "\n[workspace.group.fam]\n\
+            metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
     )?;
     for (at, body) in [
         (
@@ -1579,12 +1580,11 @@ fn write_metamodel_member(
     } else {
         "sources = []\n"
     };
-    std::fs::write(
-        path.join("model.toml"),
-        format!(
-            "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"{name}\"\n\
-             version = \"1.0.0\"\n{sources}metamodel = \"{metamodel}\"\n{extra}"
-        ),
+    write_toml_project(
+        &path,
+        name,
+        "1.0.0",
+        &format!("{sources}metamodel = \"{metamodel}\"\n{extra}"),
     )?;
     Ok(())
 }
@@ -1598,10 +1598,7 @@ const SYSIDE_SYSML: &str = "https://www.sysand.com/spec/SysML/20250201";
 #[test]
 fn lock_refuses_a_metamodel_direction_error() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    std::fs::write(
-        cwd.join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"app\", \"lib\"]\n",
-    )?;
+    write_workspace_root(&cwd, &["app", "lib"], "")?;
     write_metamodel_member(
         &cwd,
         "app",
@@ -1644,10 +1641,7 @@ fn lock_refuses_a_metamodel_direction_error() -> Result<(), Box<dyn std::error::
 #[test]
 fn lock_warns_on_a_metamodel_release_mismatch() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    std::fs::write(
-        cwd.join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"app\", \"lib\"]\n",
-    )?;
+    write_workspace_root(&cwd, &["app", "lib"], "")?;
     write_metamodel_member(
         &cwd,
         "app",
@@ -1725,12 +1719,13 @@ fn write_syside_project(
     extra: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(dir)?;
-    std::fs::write(
-        dir.join("model.toml"),
-        format!(
-            "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"{name}\"\n\
-             version = \"{version}\"\nsources = [\"main.sysml\"]\nmetamodel = \"{SYSIDE_SYSML}\"\n\
-             root = \"main.sysml\"\n{extra}"
+    write_toml_project(
+        dir,
+        name,
+        version,
+        &format!(
+            "sources = [\"main.sysml\"]\nmetamodel = \"{SYSIDE_SYSML}\"\n\
+            root = \"main.sysml\"\n{extra}"
         ),
     )?;
     std::fs::write(dir.join("main.sysml"), format!("package {package};\n"))?;
@@ -1747,12 +1742,11 @@ fn write_omg_project(
     extra: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(dir)?;
-    std::fs::write(
-        dir.join("model.toml"),
-        format!(
-            "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"{name}\"\n\
-             version = \"{version}\"\nsources = [\"main.sysml\"]\nmetamodel = \"{metamodel}\"\n{extra}"
-        ),
+    write_toml_project(
+        dir,
+        name,
+        version,
+        &format!("sources = [\"main.sysml\"]\nmetamodel = \"{metamodel}\"\n{extra}"),
     )?;
     std::fs::write(dir.join("main.sysml"), format!("package {package};\n"))?;
     Ok(())
@@ -1832,11 +1826,7 @@ fn the_direction_rule_reaches_a_syside_leaf_through_an_omg_intermediate()
 fn a_syside_project_may_depend_on_omg_and_syside_projects_and_archives()
 -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    std::fs::write(
-        cwd.join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"app\", \"omg\", \"lib\"]\n\
-         exclude = [\"deps\"]\n",
-    )?;
+    write_workspace_root(&cwd, &["app", "omg", "lib"], "exclude = [\"deps\"]\n")?;
     write_syside_project(
         &cwd.join("app"),
         "app",
@@ -1925,10 +1915,7 @@ fn a_syside_project_may_depend_on_the_standard_library() -> Result<(), Box<dyn s
 #[test]
 fn a_release_mismatch_warns_across_families() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    std::fs::write(
-        cwd.join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"app\", \"lib\"]\n",
-    )?;
+    write_workspace_root(&cwd, &["app", "lib"], "")?;
     write_syside_project(
         &cwd.join("app"),
         "app",

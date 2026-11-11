@@ -11,7 +11,6 @@ use typed_path::Utf8UnixPathBuf;
 use crate::{
     model::{InterchangeProjectUsage, InterchangeProjectUsageRaw},
     project::utils::{ExpectedIdentity, Identifier, IdentityMismatch, relativize_path},
-    resolve::UsageOrigin,
 };
 
 #[test]
@@ -357,117 +356,18 @@ fn a_different_identity_is_still_a_mismatch() {
     );
 }
 
-/// `sysand sync` checks an installed project against the pair the lockfile
-/// recorded by literal string equality.
-#[test]
-fn a_recorded_identity_is_compared_literally() {
-    assert_matches!(
-        ExpectedIdentity::recorded(Some("Acme Corp".to_owned()), "widgets".to_owned())
-            .check(Some("acme-corp"), "widgets")
-            .expect_err("the lockfile recorded the other spelling"),
-        IdentityMismatch::Publisher {
-            expected: _,
-            actual: _
-        }
-    );
-}
-
-/// The manifest the usage was written in decides only what a
-/// publisher-less target is told, and never turns a mismatch into a
-/// match.
-#[test]
-fn only_a_toml_usage_gets_the_message_that_names_the_fix() {
-    let expected = ExpectedIdentity::resolving(Some("acme".to_owned()), "widgets".to_owned());
-    assert_matches!(
-        expected
-            .clone()
-            .declared_in(UsageOrigin::Toml)
-            .check(None, "widgets")
-            .expect_err("the target declares no publisher"),
-        IdentityMismatch::NoPublisher { name } if name == "widgets"
-    );
-    assert_matches!(
-        expected
-            .declared_in(UsageOrigin::Json)
-            .check(None, "widgets")
-            .expect_err("the same target, under a json usage"),
-        IdentityMismatch::Publisher { expected, actual }
-            if expected.as_deref() == Some("acme") && actual.is_none()
-    );
-}
-
 /// A usage that expects a target with no publisher is not the same thing as a
 /// target that is missing one; this pins the direction that is a match.
 #[test]
 fn a_usage_may_expect_a_target_with_no_publisher() {
     ExpectedIdentity::resolving(None, "widgets".to_owned())
-        .declared_in(UsageOrigin::Toml)
         .check(None, "widgets")
         .expect("neither side has a publisher");
-    // A toml usage's mismatch is a `Spelling`, which names both halves of
-    // both sides, including the publisher the usage expected not to find.
     assert_matches!(
         ExpectedIdentity::resolving(None, "widgets".to_owned())
-            .declared_in(UsageOrigin::Toml)
             .check(Some("surprise"), "widgets")
             .expect_err("the target has one after all"),
-        IdentityMismatch::Spelling { expected, actual }
-            if expected.0.is_none() && actual.0.as_deref() == Some("surprise")
-    );
-}
-
-// ------------------------------- a toml usage is satisfied literally
-
-/// A `model.toml` never holds a normalized identity, so a usage written
-/// there is satisfied only by the spelling the target declares.
-#[test]
-fn a_toml_usage_is_satisfied_literally() {
-    let expected = || {
-        ExpectedIdentity::resolving(Some("Acme Corp".to_owned()), "My.Project".to_owned())
-            .declared_in(UsageOrigin::Toml)
-    };
-    expected()
-        .check(Some("Acme Corp"), "My.Project")
-        .expect("the spelling the usage wrote");
-    assert_matches!(
-        expected()
-            .check(Some("acme-corp"), "My.Project")
-            .expect_err("normalized is not the same spelling"),
-        IdentityMismatch::Spelling { expected, actual }
-            if expected.0.as_deref() == Some("Acme Corp")
-                && actual.0.as_deref() == Some("acme-corp")
-    );
-    // Both halves in one message, even when only the name differs.
-    assert_matches!(
-        expected()
-            .check(Some("Acme Corp"), "my.project")
-            .expect_err("the name differs"),
-        IdentityMismatch::Spelling { expected, actual }
-            if expected.1 == "My.Project" && actual.1 == "my.project"
-    );
-}
-
-/// A json usage keeps the normalized comparison the json format means.
-#[test]
-fn a_json_usage_normalizes() {
-    ExpectedIdentity::resolving(Some("Acme Corp".to_owned()), "My.Project".to_owned())
-        .declared_in(UsageOrigin::Json)
-        .check(Some("acme-corp"), "my.project")
-        .expect("json normalizes");
-}
-
-/// The lockfile's recorded pairs compare literally too, but they are not
-/// a usage against a target: a mismatch there is drift between the
-/// lockfile and what is installed, and keeps its own message.
-#[test]
-fn a_recorded_pair_mismatch_is_not_a_spelling_mismatch() {
-    assert_matches!(
-        ExpectedIdentity::recorded(Some("Acme Corp".to_owned()), "My.Project".to_owned())
-            .check(Some("acme-corp"), "My.Project")
-            .expect_err("the installed copy declares another spelling"),
-        IdentityMismatch::Publisher {
-            expected: _,
-            actual: _
-        }
+        IdentityMismatch::Publisher { expected, actual }
+            if expected.is_none() && actual.as_deref() == Some("surprise")
     );
 }

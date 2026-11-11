@@ -12,7 +12,6 @@ use crate::{
     cancel::CancellationToken,
     context::ProjectContext,
     lock::Source,
-    model::InterchangeProjectUsageRaw,
     project::{
         ProjectDefinition, ProjectRead,
         local_src::{LocalSrcError, LocalSrcProject, PathError},
@@ -170,14 +169,6 @@ impl ProjectRead for GixDownloadedProject {
             }
             definition => Ok(definition),
         }
-    }
-
-    fn version(&self) -> Result<Option<String>, Self::Error> {
-        Ok(self.get_project()?.map(|project| project.version()))
-    }
-
-    fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
-        Ok(self.get_project()?.map(|project| project.usages()))
     }
 
     type SourceReader<'a>

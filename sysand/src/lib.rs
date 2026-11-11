@@ -49,7 +49,7 @@ use sysand_core::{
     },
     stdlib::known_std_libs,
     utils::ProvidedProjects,
-    workspace::model_toml::{MemberChecks, Selector, Workspace},
+    workspace::model_toml::{MemberChecks, Selector},
     workspace_lock::{ExclusiveLock, LockMode},
 };
 use url::Url;
@@ -668,10 +668,7 @@ fn install_ctrl_c(token: CancellationToken) {
     let spawned = std::thread::Builder::new()
         .name("sysand-ctrl-c".to_owned())
         .spawn(move || {
-            let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-            else {
+            let Ok(runtime) = sysand_core::cancel::current_thread_runtime() else {
                 return;
             };
             runtime.block_on(async move {
@@ -872,13 +869,7 @@ fn run_cli_with(
     let http_options = http_options_from_env()?;
     let client = create_reqwest_client_with(http_options)?;
 
-    let runtime = Arc::new(
-        tokio::runtime::Builder::new_current_thread()
-            .enable_io()
-            .enable_time()
-            .build()
-            .unwrap(),
-    );
+    let runtime = Arc::new(sysand_core::cancel::current_thread_runtime().unwrap());
 
     let _runtime_keep_alive = runtime.clone();
 
@@ -1242,10 +1233,14 @@ fn run_cli_with(
                                 &excluded_usages,
                             )
                         }
-                    } else if let Some(root) = ctx.model_workspace_root.clone() {
+                    } else if let Some(workspace) = ctx.load_workspace(MemberChecks::All)? {
                         // All members, from the root or a non-member
                         // directory under it.
-                        crate::commands::info::command_info_workspace(&root, get, &excluded_usages)
+                        crate::commands::info::command_info_workspace(
+                            &workspace,
+                            get,
+                            &excluded_usages,
+                        )
                     } else {
                         bail!(
                             "run outside of an active project, did you mean to use `--dir`, `--kpar-path` or `--iri`?"
@@ -1398,7 +1393,9 @@ fn run_cli_with(
             } else {
                 // With no workspace either, report a missing project.
                 let root = model_workspace_root.ok_or(CliError::MissingProjectCurrentDir)?;
-                let workspace = Workspace::load_with(&root, MemberChecks::All)?;
+                let workspace = ctx
+                    .load_workspace(MemberChecks::All)?
+                    .expect("a workspace root means a workspace");
                 let output_dir =
                     path.unwrap_or_else(|| root.join(sysand_core::build::DEFAULT_OUTPUT_NAME));
 
@@ -1487,8 +1484,8 @@ fn run_cli_with(
         } => match (&ctx.current_project, ctx.model_workspace_root.clone()) {
             // All members from the root or from a non-member directory
             // under it: a workspace, and no member the directory implies.
-            (None, Some(root)) => {
-                command_sources_workspace(&root, sources_opts.no_own, sources_opts.deps, ctx)
+            (None, Some(_)) => {
+                command_sources_workspace(sources_opts.no_own, sources_opts.deps, ctx)
             }
             _ => command_sources_project(sources_opts.no_own, sources_opts.deps, ctx),
         },

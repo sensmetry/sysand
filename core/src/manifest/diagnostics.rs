@@ -207,6 +207,21 @@ impl Diagnostics {
         }
     }
 
+    /// Take in the result of a nested read: its warnings when it
+    /// succeeded, with its value, or its errors when it failed.
+    pub fn merge<T>(&mut self, result: Result<Validated<T>, Self>) -> Option<T> {
+        match result {
+            Ok(Validated { value, warnings }) => {
+                self.0.extend(warnings);
+                Some(value)
+            }
+            Err(problems) => {
+                self.0.extend(problems.0);
+                None
+            }
+        }
+    }
+
     /// The end of every validating function: `value` is only produced if
     /// nothing in the report is an error, and the warnings travel with it.
     pub fn into_result<T>(self, value: T) -> Result<Validated<T>, Self> {
@@ -217,6 +232,12 @@ impl Diagnostics {
             value,
             warnings: self.0,
         })
+    }
+}
+
+impl From<Diagnostic> for Diagnostics {
+    fn from(diagnostic: Diagnostic) -> Self {
+        Self(vec![diagnostic])
     }
 }
 

@@ -140,3 +140,26 @@ fn remove_project_source_from_config() -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
+
+#[test]
+fn adding_a_project_source_refuses_an_invalid_config() -> Result<(), Box<dyn Error>> {
+    let dir = tempdir()?;
+    let path = dir.path().join(local_fs::CONFIG_FILE);
+    let invalid = "[[project]]\nidentifiers = 5\n";
+    wrapfs::write(&path, invalid)?;
+
+    let source = OverrideSource::Editable {
+        editable: ".".into(),
+    };
+    let result =
+        local_fs::add_project_source_to_config(&path, Iri::parse("urn:kpar:b").unwrap(), &source);
+
+    assert_matches!(result, Err(local_fs::ConfigProjectSourceError::Invalid(_)));
+    assert_eq!(wrapfs::read_to_string(&path)?, invalid);
+    assert_matches!(
+        local_fs::remove_project_source_from_config(&path, Iri::parse("urn:kpar:a").unwrap()),
+        Err(local_fs::ConfigProjectSourceError::Invalid(_))
+    );
+    assert_eq!(wrapfs::read_to_string(&path)?, invalid);
+    Ok(())
+}

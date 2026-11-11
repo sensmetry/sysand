@@ -18,7 +18,6 @@ use crate::{
     auth::HTTPAuthentication,
     context::ProjectContext,
     lock::Source,
-    model::InterchangeProjectUsageRaw,
     project::{
         KparMeta, ProjectDefinition, ProjectRead, ProjectReadAsync,
         local_kpar::{LocalKParError, LocalKParProject, LocalKParProjectRaw},
@@ -304,14 +303,6 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestRemoteKparDownloade
         }
     }
 
-    async fn version_async(&self) -> Result<Option<String>, Self::Error> {
-        Ok(self.ensure_downloaded_verified().await?.0.version()?)
-    }
-
-    async fn usage_async(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
-        Ok(self.ensure_downloaded_verified().await?.0.usage()?)
-    }
-
     type SourceReader<'a>
         = AsAsyncRead<<LocalKParProject as ProjectRead>::SourceReader<'a>>
     where
@@ -523,14 +514,6 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestIndexKparDownloaded
 
     async fn get_project_async(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         Ok(self.ensure_downloaded_verified().await?.get_project()?)
-    }
-
-    async fn version_async(&self) -> Result<Option<String>, Self::Error> {
-        Ok(self.ensure_downloaded_verified().await?.version()?)
-    }
-
-    async fn usage_async(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
-        Ok(self.ensure_downloaded_verified().await?.usage()?)
     }
 
     type SourceReader<'a>

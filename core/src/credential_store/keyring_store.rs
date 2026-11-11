@@ -23,10 +23,10 @@ use std::fs;
 use std::path::PathBuf;
 
 use camino::{Utf8Path, Utf8PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use super::{CredentialBlob, CredentialRecord, CredentialStoreError, parse_blob, serialize_blob};
-use crate::project::utils::{FsIoError, LockMode};
+use crate::project::utils::{FsIoError, LockMode, LockPollError};
 
 /// Keyring service name of the single sysand credential entry.
 #[cfg(all(
@@ -257,30 +257,24 @@ impl<B: BlobBackend> LockedBlobStore<B> {
         body: impl FnOnce(&B) -> Result<T, CredentialStoreError>,
     ) -> Result<T, CredentialStoreError> {
         let file = self.open_lock_file()?;
-        let deadline = Instant::now() + self.lock_timeout;
-        loop {
-            match mode.try_lock(&file) {
-                Ok(()) => {
-                    let result = body(&self.backend);
-                    // Release explicitly (it would also unlock on `file` drop)
-                    if let Err(e) = file.unlock() {
-                        log::debug!("failed to unlock lock file `{}`: {e}", self.lock_path);
-                    }
-                    return result;
-                }
-                Err(fs::TryLockError::WouldBlock) => {
-                    if Instant::now() >= deadline {
-                        return Err(CredentialStoreError::LockTimeout {
-                            path: self.lock_path.to_string(),
-                        });
-                    }
-                    std::thread::sleep(self.lock_poll_interval);
-                }
-                Err(fs::TryLockError::Error(err)) => {
-                    return Err(FsIoError::LockFile(self.lock_path.clone(), err).into());
-                }
-            }
+        mode.lock_polling(
+            &file,
+            Some(self.lock_timeout),
+            self.lock_poll_interval,
+            || {},
+        )
+        .map_err(|err| match err {
+            LockPollError::Blocked => CredentialStoreError::LockTimeout {
+                path: self.lock_path.to_string(),
+            },
+            LockPollError::Io(err) => FsIoError::LockFile(self.lock_path.clone(), err).into(),
+        })?;
+        let result = body(&self.backend);
+        // Release explicitly (it would also unlock on `file` drop)
+        if let Err(e) = file.unlock() {
+            log::debug!("failed to unlock lock file `{}`: {e}", self.lock_path);
         }
+        result
     }
 }
 

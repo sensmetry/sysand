@@ -650,6 +650,17 @@ fn a_dir_usage_has_no_constraint_to_set() {
     assert_eq!(doc.to_string(), TOML);
 }
 
+/// An entry with neither a source nor a `version` is invalid, and is
+/// refused like a `dir` usage.
+#[test]
+fn a_usage_with_no_source_and_no_version_is_refused() {
+    let text = TOML.replace("dir = \"../local\"\n", "");
+    let mut doc = toml_doc(&text);
+    let error = by_identity(&mut doc, "acme", "local", "^1").expect_err("refused");
+    assert_matches!(error, SetConstraintError::TomlUsageHasNoConstraint(_));
+    assert_eq!(doc.to_string(), text);
+}
+
 /// A `model.toml` usage is addressed by identity.
 #[test]
 fn a_toml_usage_is_addressed_by_identity() {

@@ -530,14 +530,6 @@ impl ProjectRead for LocalKParProjectRaw {
         }
     }
 
-    fn version(&self) -> Result<Option<String>, Self::Error> {
-        Ok(self.get_project()?.map(|project| project.version()))
-    }
-
-    fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
-        Ok(self.get_project()?.map(|project| project.usages()))
-    }
-
     type SourceReader<'a>
         = KParFile<'a>
     where

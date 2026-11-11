@@ -1129,11 +1129,12 @@ fn a_non_stdlib_entry_without_sources_gets_no_include_std_hint()
 #[test]
 fn sync_refuses_a_lockfile_with_a_direction_error() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    fs::write(
-        cwd.join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"app\"\n\
-         version = \"1.0.0\"\nsources = []\n\
-         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    write_toml_project(
+        &cwd,
+        "app",
+        "1.0.0",
+        "sources = []\n\
+            metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
     )?;
     fs::write(
         cwd.join("sysand-lock.toml"),
@@ -1199,11 +1200,12 @@ fn sync_warns_on_a_non_semver_version() -> Result<(), Box<dyn std::error::Error>
 #[test]
 fn sync_warns_on_a_metamodel_release_mismatch() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    fs::write(
-        cwd.join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"app\"\n\
-         version = \"1.0.0\"\nsources = []\n\
-         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    write_toml_project(
+        &cwd,
+        "app",
+        "1.0.0",
+        "sources = []\n\
+            metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
     )?;
     fs::write(
         cwd.join("sysand-lock.toml"),
@@ -1217,11 +1219,12 @@ fn sync_warns_on_a_metamodel_release_mismatch() -> Result<(), Box<dyn std::error
          identifiers = [\"urn:lib\"]\nsources = [{ editable = \"lib\" }]\n",
     )?;
     fs::create_dir_all(cwd.join("lib"))?;
-    fs::write(
-        cwd.join("lib/model.toml"),
-        "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"lib\"\n\
-         version = \"1.0.0\"\nsources = []\n\
-         metamodel = \"https://www.omg.org/spec/SysML/20230201\"\n",
+    write_toml_project(
+        cwd.join("lib"),
+        "lib",
+        "1.0.0",
+        "sources = []\n\
+            metamodel = \"https://www.omg.org/spec/SysML/20230201\"\n",
     )?;
 
     let output = run_sysand_in(&cwd, ["sync"], None)?;
@@ -1251,27 +1254,26 @@ fn a_mixed_family_workspace_locks_and_syncs_in_one_pass() -> Result<(), Box<dyn 
     const SYSIDE: &str = "https://www.sysand.com/spec/SysML/20250201";
     const OMG: &str = "https://www.omg.org/spec/SysML/20250201";
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    fs::write(
-        cwd.join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"omg\", \"app\"]\nexclude = [\"deps\"]\n",
-    )?;
+    write_workspace_root(&cwd, &["omg", "app"], "exclude = [\"deps\"]\n")?;
     fs::create_dir_all(cwd.join("omg"))?;
-    fs::write(
-        cwd.join("omg/model.toml"),
-        format!(
-            "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"omg\"\n\
-             version = \"1.0.0\"\nsources = [\"main.sysml\"]\nmetamodel = \"{OMG}\"\n"
-        ),
+    write_toml_project(
+        cwd.join("omg"),
+        "omg",
+        "1.0.0",
+        &format!("sources = [\"main.sysml\"]\nmetamodel = \"{OMG}\"\n"),
     )?;
     fs::write(cwd.join("omg/main.sysml"), "package Omg;\n")?;
     fs::create_dir_all(cwd.join("app"))?;
-    fs::write(
-        cwd.join("app/model.toml"),
-        format!(
-            "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"app\"\n\
-             version = \"1.0.0\"\nsources = [\"main.sysml\"]\nmetamodel = \"{SYSIDE}\"\nroot = \"main.sysml\"\n\
-             \n[[inline-usages]]\npublisher = \"acme\"\nname = \"omg\"\ndir = \"../omg\"\n\
-             \n[[inline-usages]]\npublisher = \"acme\"\nname = \"gadget\"\nkpar-path = \"../deps/gadget.kpar\"\n"
+    write_toml_project(
+        cwd.join("app"),
+        "app",
+        "1.0.0",
+        &format!(
+            "sources = [\"main.sysml\"]\nmetamodel = \"{SYSIDE}\"\n\
+            root = \"main.sysml\"\n\n[[inline-usages]]\n\
+            publisher = \"acme\"\nname = \"omg\"\ndir = \"../omg\"\n\n\
+            [[inline-usages]]\npublisher = \"acme\"\nname = \"gadget\"\n\
+            kpar-path = \"../deps/gadget.kpar\"\n"
         ),
     )?;
     fs::write(cwd.join("app/main.sysml"), "package App;\n")?;
@@ -1279,11 +1281,13 @@ fn a_mixed_family_workspace_locks_and_syncs_in_one_pass() -> Result<(), Box<dyn 
     // checksummed.
     let src = cwd.join("deps/gadget-src");
     fs::create_dir_all(&src)?;
-    fs::write(
-        src.join("model.toml"),
-        format!(
-            "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"gadget\"\n\
-             version = \"1.0.0\"\nsources = [\"lib.sysml\"]\nmetamodel = \"{SYSIDE}\"\nroot = \"lib.sysml\"\n"
+    write_toml_project(
+        &src,
+        "gadget",
+        "1.0.0",
+        &format!(
+            "sources = [\"lib.sysml\"]\nmetamodel = \"{SYSIDE}\"\n\
+            root = \"lib.sysml\"\n"
         ),
     )?;
     fs::write(src.join("lib.sysml"), "package Gadget;\n")?;

@@ -45,22 +45,25 @@ fn remove_toml<P: ProjectMut>(
     project: &mut P,
     usage: &UsageRef<'_>,
 ) -> Result<Vec<InterchangeProjectUsageRaw>, RemoveError<P::Error>> {
-    use crate::manifest::{common::normalized_identity, edit};
+    use crate::manifest::{
+        common::{NormalizedIdentity, normalized_identity},
+        edit,
+    };
     use crate::model::{IndexName, IndexPublisher};
 
     let not_found = || RemoveError::UsageNotFound(usage.to_string().into_boxed_str());
-    let (publisher, name) = match usage {
+    let identity = match usage {
         UsageRef::Typed(publisher, name) => {
-            (publisher.as_str().to_owned(), name.as_str().to_owned())
+            let publisher = IndexPublisher::parse(publisher.as_str())
+                .map_err(|_not_an_identity| not_found())?;
+            let name = IndexName::parse(name.as_str()).map_err(|_not_an_identity| not_found())?;
+            normalized_identity(&publisher, &name)
         }
-        UsageRef::Resource(iri) => match crate::purl::parse_sysand_purl(iri.as_str()) {
-            Ok(Some((publisher, name))) => (publisher.to_owned(), name.to_owned()),
-            _ => return Err(not_found()),
+        UsageRef::Resource(iri) => match NormalizedIdentity::from_purl(iri.as_str()) {
+            Ok(Some(identity)) => identity,
+            Ok(None) | Err(_) => return Err(not_found()),
         },
     };
-    let publisher = IndexPublisher::parse(publisher).map_err(|_not_an_identity| not_found())?;
-    let name = IndexName::parse(name).map_err(|_not_an_identity| not_found())?;
-    let identity = normalized_identity(&publisher, &name);
 
     let mut document = project.manifest_document().map_err(|e| match e {
         crate::project::ManifestError::Project(e) => RemoveError::Project(e),

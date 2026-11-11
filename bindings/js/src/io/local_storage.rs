@@ -10,8 +10,8 @@ use sysand_core::{
     manifest::{MODEL_TOML_FILE, diagnostics::Report, kpar_view, project::ResolvedProject},
     model::{
         InterchangeProjectInfoPartial, InterchangeProjectInfoRaw,
-        InterchangeProjectMetadataPartial, InterchangeProjectMetadataRaw,
-        InterchangeProjectUsageRaw, META_JSON_FILE, PROJECT_JSON_FILE, PartialManifest,
+        InterchangeProjectMetadataPartial, InterchangeProjectMetadataRaw, META_JSON_FILE,
+        PROJECT_JSON_FILE, PartialManifest,
     },
     project::{ProjectDefinition, ProjectFormat, ProjectMut, ProjectRead, utils::FsIoError},
 };
@@ -179,12 +179,7 @@ impl ProjectRead for ProjectLocalBrowserStorage {
         let toml = self.vfs.exists(self.root_path.join(MODEL_TOML_FILE))?;
         let json = self.vfs.exists(self.root_path.join(PROJECT_JSON_FILE))?
             || self.vfs.exists(self.root_path.join(META_JSON_FILE))?;
-        Ok(match (toml, json) {
-            (true, true) => ProjectFormat::Both,
-            (true, false) => ProjectFormat::Toml,
-            (false, true) => ProjectFormat::Json,
-            (false, false) => ProjectFormat::Neither,
-        })
+        Ok(ProjectFormat::from_presence(toml, json))
     }
 
     fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
@@ -231,14 +226,6 @@ impl ProjectRead for ProjectLocalBrowserStorage {
             (Some(_), None) => Err(Error::MissingDocument(META_JSON_FILE)),
             (None, Some(_)) => Err(Error::MissingDocument(PROJECT_JSON_FILE)),
         }
-    }
-
-    fn version(&self) -> Result<Option<String>, Self::Error> {
-        Ok(self.get_project()?.map(|project| project.version()))
-    }
-
-    fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
-        Ok(self.get_project()?.map(|project| project.usages()))
     }
 
     type SourceReader<'a> = Cursor<String>;
@@ -350,8 +337,11 @@ impl ProjectMut for ProjectLocalBrowserStorage {
             )));
         }
 
+        let text = document.to_string();
+        sysand_core::manifest::edit::validated(MODEL_TOML_FILE, &text)
+            .map_err(|e| ManifestWriteError::Project(Error::Deserialize(e)))?;
         self.vfs
-            .write_string(&manifest_path, document.to_string())
+            .write_string(&manifest_path, text)
             .map_err(|e| ManifestWriteError::Project(Error::from(e)))?;
         Ok(())
     }

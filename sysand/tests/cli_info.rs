@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{error::Error, io::Write as _};
+use std::error::Error;
 
 use assert_cmd::prelude::*;
 use camino::Utf8PathBuf;
@@ -683,21 +683,19 @@ fn info_basic_local_kpar() -> Result<(), Box<dyn Error>> {
     let cwd = Utf8TempDir::new()?;
     let zip_path = wrapfs::canonicalize(cwd.path())?.join("test.kpar");
 
-    {
-        let file = std::fs::File::create(&zip_path).unwrap();
-        let mut zip = zip::ZipWriter::new(file);
-
-        let options = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Stored)
-            .unix_permissions(0o755);
-
-        zip.start_file("some_root_dir/.project.json", options)?;
-        zip.write_all(br#"{"name":"info_basic_local_kpar","version":"1.2.3"}"#)?;
-        zip.start_file("some_root_dir/.meta.json", options)?;
-        zip.write_all(br#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)?;
-
-        zip.finish().unwrap();
-    }
+    std::fs::write(
+        &zip_path,
+        kpar_bytes(&[
+            (
+                "some_root_dir/.project.json",
+                br#"{"name":"info_basic_local_kpar","version":"1.2.3"}"#,
+            ),
+            (
+                "some_root_dir/.meta.json",
+                br#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#,
+            ),
+        ]),
+    )?;
 
     let (_, _, out) = run_sysand(["info", "--kpar-path", zip_path.as_str()], None)?;
     out.assert()
@@ -1996,15 +1994,12 @@ fn edit_accepts_spaces_in_name_and_publisher() -> Result<(), Box<dyn Error>> {
 #[test]
 fn info_reads_a_model_toml_project() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    wrapfs::write(
-        cwd.join("model.toml"),
-        "manifest-version = \"1.0\"\n\n\
-         [project]\n\
-         publisher = \"acme\"\n\
-         name = \"widgets\"\n\
-         version = \"1.2.3\"\n\
-         sources = []\n\
-         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    write_toml_project(
+        &cwd,
+        "widgets",
+        "1.2.3",
+        "sources = []\n\
+            metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
     )?;
 
     let out = run_sysand_in(&cwd, ["info"], None)?;
@@ -2020,15 +2015,12 @@ fn info_reads_a_model_toml_project() -> Result<(), Box<dyn Error>> {
 /// Write a bare `model.toml` project into a fresh directory.
 fn toml_project_cwd() -> Result<(Utf8TempDir, Utf8PathBuf), Box<dyn Error>> {
     let (temp_dir, cwd) = new_temp_cwd()?;
-    wrapfs::write(
-        cwd.join("model.toml"),
-        "manifest-version = \"1.0\"\n\n\
-         [project]\n\
-         publisher = \"acme\"\n\
-         name = \"widgets\"\n\
-         version = \"1.2.3\"\n\
-         sources = []\n\
-         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    write_toml_project(
+        &cwd,
+        "widgets",
+        "1.2.3",
+        "sources = []\n\
+            metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
     )?;
     Ok((temp_dir, cwd))
 }
@@ -2390,17 +2382,18 @@ fn edit_keeps_the_comments_and_key_order() -> Result<(), Box<dyn std::error::Err
 #[test]
 fn info_at_a_member_path_reads_the_inherited_metamodel() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    wrapfs::write(
-        cwd.join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"app\"]\n\n\
-         [workspace.group.sysml]\n\
-         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    write_workspace_root(
+        &cwd,
+        &["app"],
+        "\n[workspace.group.sysml]\n\
+            metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
     )?;
     wrapfs::create_dir_all(cwd.join("app"))?;
-    wrapfs::write(
-        cwd.join("app/model.toml"),
-        "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"member\"\n\
-         version = \"1.0.0\"\nsources = []\nmetamodel.workspace = \"sysml\"\n",
+    write_toml_project(
+        cwd.join("app"),
+        "member",
+        "1.0.0",
+        "sources = []\nmetamodel.workspace = \"sysml\"\n",
     )?;
 
     run_sysand_in(&cwd, ["info", "--dir", cwd.join("app").as_str()], None)?
@@ -2446,12 +2439,13 @@ fn init_with_a_syside_metamodel_writes_a_readable_project() -> Result<(), Box<dy
 #[test]
 fn a_syside_project_reads_with_no_warning_from_the_cli() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    std::fs::write(
-        cwd.join("model.toml"),
-        format!(
-            "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
-             version = \"1.0.0\"\nsources = [\"main.sysml\"]\nmetamodel = \"{SYSIDE_SYSML}\"\n\
-             root = \"main.sysml\"\n"
+    write_toml_project(
+        &cwd,
+        "widgets",
+        "1.0.0",
+        &format!(
+            "sources = [\"main.sysml\"]\nmetamodel = \"{SYSIDE_SYSML}\"\n\
+            root = \"main.sysml\"\n"
         ),
     )?;
     std::fs::write(cwd.join("main.sysml"), "package Widgets;\n")?;
@@ -2499,12 +2493,13 @@ fn info_index_get_on_a_root_shaped_project_prints_nothing_and_warns() -> Result<
 /// `root`, `exports` and metamodel-switch tests.
 fn syside_toml_project_cwd() -> Result<(Utf8TempDir, Utf8PathBuf), Box<dyn Error>> {
     let (temp_dir, cwd) = new_temp_cwd()?;
-    wrapfs::write(
-        cwd.join("model.toml"),
-        format!(
-            "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
-             version = \"1.0.0\"\nsources = [\"main.sysml\", \"lib.sysml\"]\n\
-             metamodel = \"{SYSIDE_SYSML}\"\nroot = \"main.sysml\"\n"
+    write_toml_project(
+        &cwd,
+        "widgets",
+        "1.0.0",
+        &format!(
+            "sources = [\"main.sysml\", \"lib.sysml\"]\n\
+            metamodel = \"{SYSIDE_SYSML}\"\nroot = \"main.sysml\"\n"
         ),
     )?;
     wrapfs::write(cwd.join("main.sysml"), "package Main;\n")?;

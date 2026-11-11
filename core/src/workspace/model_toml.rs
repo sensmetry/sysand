@@ -10,6 +10,7 @@
 //! carrying `version.workspace = true`.
 
 use std::collections::{HashMap, hash_map::Entry};
+use std::sync::Arc;
 
 use camino::{Utf8Path, Utf8PathBuf};
 use thiserror::Error;
@@ -17,9 +18,10 @@ use typed_path::Utf8Component as _;
 
 use crate::commands::build::DEFAULT_OUTPUT_NAME;
 use crate::commands::lock::DEFAULT_LOCKFILE_NAME;
+use crate::discover::{Ancestry, DirManifest, Seek};
 use crate::env::DEFAULT_ENV_NAME;
 use crate::graph::DependencyGraph;
-use crate::manifest::diagnostics::{Diagnostic, Diagnostics};
+use crate::manifest::diagnostics::{Diagnostic, Diagnostics, Validated};
 use crate::manifest::project::ResolvedProject;
 use crate::manifest::usage::Usage;
 use crate::manifest::workspace_table::{MemberPath, Region, WorkspaceTable};
@@ -117,7 +119,7 @@ pub enum ClassifyError {
 #[derive(Debug)]
 pub struct Workspace {
     root: Utf8PathBuf,
-    table: WorkspaceTable,
+    table: Arc<WorkspaceTable>,
     members: Vec<Member>,
 }
 
@@ -153,13 +155,30 @@ impl Workspace {
     pub fn load_with(root: impl AsRef<Utf8Path>, checks: MemberChecks) -> Result<Self, LoadError> {
         let root = wrapfs::canonicalize(root.as_ref())?;
         let text = wrapfs::read_to_string(root.join(MODEL_TOML_FILE))?;
-        let manifest = validate_manifest(MODEL_TOML_FILE, ModelToml::parse(MODEL_TOML_FILE, &text))
-            .map_err(LoadError::Root)?;
-        let table = match manifest {
+        Self::load_parsed(root, ModelToml::parse(MODEL_TOML_FILE, &text), checks)
+    }
+
+    /// [`Workspace::load_with`] for a root whose `model.toml` was already
+    /// read: `manifest` is its parse.
+    fn load_parsed(
+        root: Utf8PathBuf,
+        manifest: Result<Validated<ModelToml>, Diagnostics>,
+        checks: MemberChecks,
+    ) -> Result<Self, LoadError> {
+        let table = match validate_manifest(MODEL_TOML_FILE, manifest).map_err(LoadError::Root)? {
             ModelToml::Workspace(table) => *table,
             ModelToml::Project(_) => return Err(LoadError::NotAWorkspace(root)),
         };
+        Self::with_table(root, Arc::new(table), checks)
+    }
 
+    /// [`Workspace::load_with`] for a root whose `[workspace]` table was
+    /// already read. `root` must be canonical.
+    pub fn with_table(
+        root: Utf8PathBuf,
+        table: Arc<WorkspaceTable>,
+        checks: MemberChecks,
+    ) -> Result<Self, LoadError> {
         let mut report = Diagnostics::new();
         let mut broken = Vec::new();
         let mut members = Vec::with_capacity(table.members.len());
@@ -195,9 +214,9 @@ impl Workspace {
     /// Find the workspace a command run in `from` belongs to.
     ///
     /// The steps are ordered: find the candidate, load it, then confirm it
-    /// is not nested. [`ModelToml::peek`] answers `Workspace` for a file
-    /// carrying both tables, so asking the nesting question before loading
-    /// would misreport that fault as nested workspaces.
+    /// is not nested. A file carrying both tables counts as a workspace on
+    /// the walk, so asking the nesting question before loading would
+    /// misreport that fault as nested workspaces.
     pub fn discover(from: impl AsRef<Utf8Path>) -> Result<Option<Self>, DiscoverError> {
         Self::discover_with(from, MemberChecks::All)
     }
@@ -207,12 +226,13 @@ impl Workspace {
         from: impl AsRef<Utf8Path>,
         checks: MemberChecks,
     ) -> Result<Option<Self>, DiscoverError> {
-        let Some(candidate) = candidate_root(from)? else {
+        let Some(candidate) = Candidate::find(Ancestry::walk(from, Seek::Workspace)?)? else {
             return Ok(None);
         };
-        let workspace =
-            Self::load_with(&candidate, checks).map_err(|e| DiscoverError::Load(Box::new(e)))?;
-        confirm_root(&candidate)?;
+        let root = candidate.root;
+        let workspace = Self::load_parsed(root.dir.clone(), root.manifest, checks)
+            .map_err(|e| DiscoverError::Load(Box::new(e)))?;
+        confirm_root(&root.dir, candidate.above)?;
         Ok(Some(workspace))
     }
 
@@ -309,7 +329,7 @@ impl Workspace {
         &self.root
     }
 
-    pub fn table(&self) -> &WorkspaceTable {
+    pub fn table(&self) -> &Arc<WorkspaceTable> {
         &self.table
     }
 
@@ -496,11 +516,14 @@ pub fn member_index(
 /// Classifies a project under a workspace root, over a
 /// [`WorkspaceTable`] and a root path.
 ///
-/// The project `from` sits in is the one [`crate::discover::discover_project`]
-/// would find, found with the same predicate. The search is bounded at the
-/// root: a project above the root is a different project.
+/// The search for the project `from` sits in is bounded at the root: a
+/// project above the root is a different project.
 ///
-/// `root` must be canonical ([`candidate_root`] and [`Workspace::load`]
+/// `root` must be the nearest workspace root above `from`, as discovery
+/// finds it: no other `[workspace]` lies between them, so any manifest on
+/// the way is a project's, and its presence is all that is checked.
+///
+/// `root` must be canonical ([`discover_table`] and [`Workspace::load`]
 /// both canonicalize what they return), since `from` is canonicalized here
 /// and the two are compared.
 pub fn start_region(
@@ -514,7 +537,7 @@ pub fn start_region(
         if current == root {
             return Ok(StartRegion::Workspace);
         }
-        if crate::discover::is_project_file(current)? {
+        if detect_format(current)? != ProjectFormat::Neither {
             let relative = relativize_path(current, root)?;
             if relative.components().any(|c| c.as_str() == "..") {
                 return Err(DiscoverError::NotUnderRoot {
@@ -546,68 +569,6 @@ pub fn start_region(
     }
 }
 
-/// Whether `dir` holds a `model.toml` that defines a `[workspace]`.
-///
-/// Only [`ModelToml::peek`]: ancestors are not validated.
-///
-/// A file that does not parse ends the walk, as treating it as "not a
-/// workspace" would read every member under it as a standalone project. A
-/// file with neither table is walked past.
-fn is_workspace_file(dir: &Utf8Path) -> Result<bool, DiscoverError> {
-    let file = dir.join(MODEL_TOML_FILE);
-    if !wrapfs::is_file(&file)? {
-        return Ok(false);
-    }
-    let text = wrapfs::read_to_string(&file)?;
-    match ModelToml::peek(file.as_str(), &text) {
-        Ok(Some(ModelTomlKind::Workspace)) => Ok(true),
-        Ok(_) => Ok(false),
-        Err(diagnostic) => Err(DiscoverError::Manifest(
-            ProjectDeserializationError::invalid(&file, Diagnostics::from_iter([diagnostic])),
-        )),
-    }
-}
-
-/// The `[workspace]` table `dir` defines.
-///
-/// Parsed, not loaded: the members are not checked, so a command inside a
-/// separate workspace does not fail because a neighbour's member is
-/// missing. The table itself must validate.
-fn workspace_table_at(dir: &Utf8Path) -> Result<WorkspaceTable, DiscoverError> {
-    let file = dir.join(MODEL_TOML_FILE);
-    let text = wrapfs::read_to_string(&file)?;
-    let manifest = validate_manifest(&file, ModelToml::parse(file.as_str(), &text))
-        .map_err(DiscoverError::Manifest)?;
-    manifest.into_workspace(file.as_str()).map_err(|problem| {
-        DiscoverError::Manifest(ProjectDeserializationError::invalid(
-            &file,
-            Diagnostics::from_iter([problem]),
-        ))
-    })
-}
-
-/// Pass 1: the first ancestor of `from` whose `model.toml` defines a
-/// `[workspace]`: the candidate workspace root.
-///
-/// A candidate, because it may be nested (see [`confirm_root`]) and, as a
-/// file carrying both tables peeks as a workspace, may not be readable.
-///
-/// `from` is canonicalized once, and every ancestor of a canonical path is
-/// canonical.
-pub fn candidate_root(from: impl AsRef<Utf8Path>) -> Result<Option<Utf8PathBuf>, DiscoverError> {
-    let from = wrapfs::canonicalize(from.as_ref())?;
-    let mut current: &Utf8Path = &from;
-    loop {
-        if is_workspace_file(current)? {
-            return Ok(Some(current.to_owned()));
-        }
-        match current.parent() {
-            Some(parent) => current = parent,
-            None => return Ok(None),
-        }
-    }
-}
-
 /// The projects a lockfile at `lock_root` was made for, as the lockfile
 /// names them in their `editable` sources: a workspace's `members`, or
 /// else the one project at `lock_root`, which is `.`.
@@ -615,10 +576,9 @@ pub fn lock_roots(
     lock_root: impl AsRef<Utf8Path>,
 ) -> Result<Vec<typed_path::Utf8UnixPathBuf>, DiscoverError> {
     let lock_root = lock_root.as_ref();
-    if is_workspace_file(lock_root)? {
-        workspace_members(lock_root)
-    } else {
-        Ok(vec![typed_path::Utf8UnixPathBuf::from(".")])
+    match root_table(lock_root)? {
+        Some(table) => Ok(member_paths(table)),
+        None => Ok(vec![typed_path::Utf8UnixPathBuf::from(".")]),
     }
 }
 
@@ -627,35 +587,123 @@ pub fn lock_roots(
 pub fn workspace_members(
     dir: impl AsRef<Utf8Path>,
 ) -> Result<Vec<typed_path::Utf8UnixPathBuf>, DiscoverError> {
-    let dir = dir.as_ref();
-    if !is_workspace_file(dir)? {
-        return Ok(Vec::new());
-    }
-    Ok(workspace_table_at(dir)?
-        .members
-        .into_iter()
-        .map(|member| member.path)
-        .collect())
+    Ok(root_table(dir.as_ref())?.map_or_else(Vec::new, member_paths))
 }
 
 /// The workspace `from` belongs to, as its `[workspace]` table.
 ///
 /// Unlike [`Workspace::discover`], this does not load the members, so
 /// creating a new project is not blocked by an unrelated member's mistake.
-///
-/// The steps are [`candidate_root`], the parse, and [`confirm_root`], in
-/// that order. A bad candidate therefore arrives as
-/// [`DiscoverError::Manifest`], where [`Workspace::discover`] would
-/// report [`DiscoverError::Load`].
 pub fn discover_table(
     from: impl AsRef<Utf8Path>,
 ) -> Result<Option<(Utf8PathBuf, WorkspaceTable)>, DiscoverError> {
-    let Some(candidate) = candidate_root(from)? else {
+    table_of(Ancestry::walk(from, Seek::Workspace)?)
+}
+
+/// [`discover_table`] over a walk already made.
+///
+/// The steps are pass 1 (the nearest `[workspace]`), the parse of its
+/// table, and [`confirm_root`], in that order. A bad candidate therefore
+/// arrives as [`DiscoverError::Manifest`], where [`Workspace::discover`]
+/// would report [`DiscoverError::Load`].
+pub fn table_of(
+    ancestry: Ancestry,
+) -> Result<Option<(Utf8PathBuf, WorkspaceTable)>, DiscoverError> {
+    let Some(candidate) = Candidate::find(ancestry)? else {
         return Ok(None);
     };
-    let table = workspace_table_at(&candidate)?;
-    confirm_root(&candidate)?;
-    Ok(Some((candidate, table)))
+    let root = candidate.root;
+    let table = workspace_table(&root.file, root.manifest)?;
+    confirm_root(&root.dir, candidate.above)?;
+    Ok(Some((root.dir, table)))
+}
+
+/// The nearest `[workspace]` a walk found: the candidate workspace root.
+///
+/// A candidate, because it may be nested (see [`confirm_root`]) and, as a
+/// file carrying both tables counts as a workspace, may not be readable.
+struct Candidate {
+    root: WorkspaceFile,
+    /// The rest of the walk, above the root.
+    above: Above,
+}
+
+/// A directory whose `model.toml` names a `[workspace]`, and its parse.
+struct WorkspaceFile {
+    dir: Utf8PathBuf,
+    file: Utf8PathBuf,
+    manifest: Result<Validated<ModelToml>, Diagnostics>,
+}
+
+/// What a walk found above a directory, and the read that ended it early.
+struct Above {
+    found: std::vec::IntoIter<(Utf8PathBuf, DirManifest)>,
+    failed: Option<Box<FsIoError>>,
+}
+
+impl Candidate {
+    /// Pass 1: the first directory of the walk whose `model.toml` names
+    /// a `[workspace]`.
+    ///
+    /// A file that is not TOML ends the walk with its error, as treating
+    /// it as "not a workspace" would read every member under it as a
+    /// standalone project. A file with neither table is walked past.
+    fn find(ancestry: Ancestry) -> Result<Option<Self>, DiscoverError> {
+        let (found, failed) = ancestry.into_found();
+        let mut above = Above {
+            found: found.into_iter(),
+            failed,
+        };
+        Ok(above.next_workspace()?.map(|root| Self { root, above }))
+    }
+}
+
+impl Above {
+    /// The next directory whose `model.toml` names a `[workspace]`.
+    fn next_workspace(&mut self) -> Result<Option<WorkspaceFile>, DiscoverError> {
+        for (dir, manifest) in self.found.by_ref() {
+            let DirManifest::ModelToml { file, parsed } = manifest else {
+                continue;
+            };
+            match parsed.kind {
+                ModelTomlKind::Workspace => {
+                    return Ok(Some(WorkspaceFile {
+                        dir,
+                        file,
+                        manifest: parsed.manifest,
+                    }));
+                }
+                ModelTomlKind::NotToml => {
+                    return Err(DiscoverError::Manifest(
+                        ProjectDeserializationError::invalid(
+                            &file,
+                            parsed.manifest.err().unwrap_or_default(),
+                        ),
+                    ));
+                }
+                ModelTomlKind::Project | ModelTomlKind::Neither => {}
+            }
+        }
+        match self.failed.take() {
+            Some(error) => Err(DiscoverError::Io(error)),
+            None => Ok(None),
+        }
+    }
+}
+
+/// The `[workspace]` table of a parsed `model.toml`.
+///
+/// Parsed, not loaded: the members are not checked, so a command inside a
+/// separate workspace does not fail because a neighbour's member is
+/// missing. The table itself must validate.
+fn workspace_table(
+    file: &Utf8Path,
+    manifest: Result<Validated<ModelToml>, Diagnostics>,
+) -> Result<WorkspaceTable, DiscoverError> {
+    let manifest = validate_manifest(file, manifest).map_err(DiscoverError::Manifest)?;
+    manifest.into_workspace(file.as_str()).map_err(|problem| {
+        DiscoverError::Manifest(ProjectDeserializationError::invalid(file, problem))
+    })
 }
 
 /// Pass 2: refuse a candidate nested in another workspace.
@@ -664,25 +712,43 @@ pub fn discover_table(
 /// is inside another workspace. That is allowed only if the outer
 /// workspace lists the candidate's directory, or a directory above it, in
 /// `exclude`. Only the first outer is consulted.
-pub fn confirm_root(candidate: impl AsRef<Utf8Path>) -> Result<(), DiscoverError> {
-    let candidate = wrapfs::canonicalize(candidate.as_ref())?;
-    let mut current = candidate.parent().map(Utf8Path::to_owned);
-    while let Some(dir) = current {
-        if is_workspace_file(&dir)? {
-            let table = workspace_table_at(&dir)?;
-            let relative = relativize_path(&candidate, &dir)?;
-            return if table.excluding(&relative).is_some() {
-                Ok(())
-            } else {
-                Err(DiscoverError::Nested {
-                    inner: candidate,
-                    outer: dir,
-                })
-            };
-        }
-        current = dir.parent().map(Utf8Path::to_owned);
+fn confirm_root(candidate: &Utf8Path, mut above: Above) -> Result<(), DiscoverError> {
+    let Some(outer) = above.next_workspace()? else {
+        return Ok(());
+    };
+    let table = workspace_table(&outer.file, outer.manifest)?;
+    let relative = relativize_path(candidate, &outer.dir)?;
+    if table.excluding(&relative).is_some() {
+        Ok(())
+    } else {
+        Err(DiscoverError::Nested {
+            inner: candidate.to_owned(),
+            outer: outer.dir,
+        })
     }
-    Ok(())
+}
+
+/// The `[workspace]` table `dir`'s own `model.toml` defines, if it names
+/// one. A file that is not TOML is an error.
+fn root_table(dir: &Utf8Path) -> Result<Option<WorkspaceTable>, DiscoverError> {
+    let Some(DirManifest::ModelToml { file, parsed }) = DirManifest::read(dir)? else {
+        return Ok(None);
+    };
+    match parsed.kind {
+        ModelTomlKind::Workspace => workspace_table(&file, parsed.manifest).map(Some),
+        ModelTomlKind::NotToml => Err(DiscoverError::Manifest(
+            ProjectDeserializationError::invalid(&file, parsed.manifest.err().unwrap_or_default()),
+        )),
+        ModelTomlKind::Project | ModelTomlKind::Neither => Ok(None),
+    }
+}
+
+fn member_paths(table: WorkspaceTable) -> Vec<typed_path::Utf8UnixPathBuf> {
+    table
+        .members
+        .into_iter()
+        .map(|member| member.path)
+        .collect()
 }
 
 /// Whether `path` is there, and if so whether it is a directory.

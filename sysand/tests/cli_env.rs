@@ -7,7 +7,7 @@ use assert_cmd::prelude::*;
 use predicates::prelude::*;
 use sysand_core::{
     env::{DEFAULT_ENV_NAME, local_directory::METADATA_PATH},
-    workspace_lock::LOCK_FILE_NAME,
+    workspace_lock::WorkspaceLock,
 };
 // Only used by the `env install`/`env uninstall` tests commented out below.
 // use camino::Utf8Path;
@@ -35,7 +35,7 @@ fn env_init_empty_env() -> Result<(), Box<dyn std::error::Error>> {
 
     // Inside the environment, the advisory lock `env` held while creating
     // it: an empty file, kept.
-    let lock_path = cwd.join(DEFAULT_ENV_NAME).join(LOCK_FILE_NAME);
+    let lock_path = WorkspaceLock::path_for(&cwd);
     assert_eq!(std::fs::metadata(&lock_path)?.len(), 0);
 
     assert_eq!(

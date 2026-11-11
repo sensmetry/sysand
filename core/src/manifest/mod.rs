@@ -81,11 +81,27 @@ const PROJECT_TOP_KEYS: &[&str] = &["manifest-version", "project", "inline-usage
 /// fix, not treated as an unknown key.
 const WORKSPACE_TOP_KEYS: &[&str] = &["manifest-version", "workspace", "inline-usages"];
 
-/// Which table a `model.toml` defines, without reading either.
+/// Which table a `model.toml` names, decided before either is validated.
+///
+/// Walks over ancestor files classify by this, so an unrelated file's
+/// missing `manifest-version` does not end a walk.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ModelTomlKind {
     Project,
+    /// The file names `[workspace]`, whether or not it also names
+    /// `[project]`; reading it reports the second.
     Workspace,
+    Neither,
+    /// The file is not TOML.
+    NotToml,
+}
+
+/// A `model.toml` read in full, with which table it names.
+#[derive(Clone, Debug)]
+pub struct ParsedModelToml {
+    pub kind: ModelTomlKind,
+    /// The result of [`ModelToml::parse`].
+    pub manifest: Result<Validated<ModelToml>, Diagnostics>,
 }
 
 /// A whole `model.toml`, whichever of the two tables it defines.
@@ -122,84 +138,31 @@ impl ModelToml {
     /// in play, so this reader's own applies and the rest of the file is
     /// read as usual.
     pub fn parse(file: &str, text: &str) -> Result<Validated<Self>, Diagnostics> {
-        let source = Source::new(file, text);
-        let document = source.read().map_err(|problem| {
-            let mut report = Diagnostics::new();
-            report.push(problem);
-            report
-        })?;
-        let top = TableReader::new(document.get_ref(), None, KeyLocation::TopLevel, &source);
-        let mut report = Diagnostics::new();
-
-        if matches!(manifest_version(&source, &top, &mut report), Stop::Yes) {
-            return Err(report);
-        }
-
-        // Presence, not readability: `project = 3` writes the key
-        // `project`. What is wrong with the value is reported by whoever
-        // reads the table.
-        let manifest = match (top.has("project"), top.has("workspace")) {
-            (true, true) => {
-                report.push(at_file(
-                    &source,
-                    format!(
-                        "`{file}` defines both `[project]` and `[workspace]`;\n\
-                             a workspace root must not contain a project"
-                    ),
-                ));
-                return Err(report);
-            }
-            (false, false) => {
-                report.push(at_file(
-                    &source,
-                    format!(
-                        "`{file}` defines neither `[project]` nor `[workspace]`;\n\
-                         a `model.toml` defines one or the other"
-                    ),
-                ));
-                return Err(report);
-            }
-            (true, false) => {
-                let manifest = fold(ProjectManifest::validate(&top), &mut report)
-                    .map(|manifest| Self::Project(Box::new(manifest)));
-                report.extend(top.unknown_keys(PROJECT_TOP_KEYS, None));
-                manifest
-            }
-            (false, true) => {
-                let manifest =
-                    workspace(&top, &mut report).map(|table| Self::Workspace(Box::new(table)));
-                report.extend(top.unknown_keys(WORKSPACE_TOP_KEYS, None));
-                manifest
-            }
-        };
-
-        // The table readers sort their own reports; sort the merge again.
-        report.sort_by_position();
-        match manifest {
-            Some(manifest) => report.into_result(manifest),
-            None => Err(report),
-        }
+        Self::parse_with_kind(file, text).manifest
     }
 
-    /// Which table a file defines, without validating either.
-    ///
-    /// Meant for walks over ancestor files: an unrelated file's missing
-    /// `manifest-version` must not end the walk.
-    ///
-    /// `Ok(None)` is a file with neither table.
-    ///
-    /// A file with *both* tables answers `Workspace`; reading it reports the
-    /// error.
-    pub fn peek(file: &str, text: &str) -> Result<Option<ModelTomlKind>, Diagnostic> {
-        let document = Source::new(file, text).read()?;
-        let document = document.get_ref();
-        Ok(if document.contains_key("workspace") {
-            Some(ModelTomlKind::Workspace)
-        } else if document.contains_key("project") {
-            Some(ModelTomlKind::Project)
-        } else {
-            None
-        })
+    /// [`ModelToml::parse`], also answering which table the file names.
+    pub fn parse_with_kind(file: &str, text: &str) -> ParsedModelToml {
+        let source = Source::new(file, text);
+        let document = match source.read() {
+            Ok(document) => document,
+            Err(diagnostic) => {
+                return ParsedModelToml {
+                    kind: ModelTomlKind::NotToml,
+                    manifest: Err(Diagnostics::from(diagnostic)),
+                };
+            }
+        };
+        let top = TableReader::new(document.get_ref(), None, KeyLocation::TopLevel, &source);
+        let kind = match (top.has("project"), top.has("workspace")) {
+            (_, true) => ModelTomlKind::Workspace,
+            (true, false) => ModelTomlKind::Project,
+            (false, false) => ModelTomlKind::Neither,
+        };
+        ParsedModelToml {
+            kind,
+            manifest: read_manifest(&source, &top),
+        }
     }
 
     /// The project this file defines, or the error that it defines the
@@ -227,6 +190,65 @@ impl ModelToml {
 enum Stop {
     Yes,
     No,
+}
+
+/// The read of a document already known to be TOML.
+fn read_manifest(
+    source: &Source<'_>,
+    top: &TableReader<'_>,
+) -> Result<Validated<ModelToml>, Diagnostics> {
+    let file = source.file();
+    let mut report = Diagnostics::new();
+
+    if matches!(manifest_version(source, top, &mut report), Stop::Yes) {
+        return Err(report);
+    }
+
+    // Presence, not readability: `project = 3` writes the key
+    // `project`. What is wrong with the value is reported by whoever
+    // reads the table.
+    let manifest = match (top.has("project"), top.has("workspace")) {
+        (true, true) => {
+            report.push(at_file(
+                source,
+                format!(
+                    "`{file}` defines both `[project]` and `[workspace]`;\n\
+                         a workspace root must not contain a project"
+                ),
+            ));
+            return Err(report);
+        }
+        (false, false) => {
+            report.push(at_file(
+                source,
+                format!(
+                    "`{file}` defines neither `[project]` nor `[workspace]`;\n\
+                     a `model.toml` defines one or the other"
+                ),
+            ));
+            return Err(report);
+        }
+        (true, false) => {
+            let manifest = report
+                .merge(ProjectManifest::validate(top))
+                .map(|manifest| ModelToml::Project(Box::new(manifest)));
+            report.extend(top.unknown_keys(PROJECT_TOP_KEYS, None));
+            manifest
+        }
+        (false, true) => {
+            let manifest =
+                workspace(top, &mut report).map(|table| ModelToml::Workspace(Box::new(table)));
+            report.extend(top.unknown_keys(WORKSPACE_TOP_KEYS, None));
+            manifest
+        }
+    };
+
+    // The table readers sort their own reports; sort the merge again.
+    report.sort_by_position();
+    match manifest {
+        Some(manifest) => report.into_result(manifest),
+        None => Err(report),
+    }
 }
 
 /// The key is mandatory and not inheritable: a member's file must be
@@ -312,22 +334,7 @@ fn workspace(top: &TableReader<'_>, report: &mut Diagnostics) -> Option<Workspac
         );
     }
     let table = top.table("workspace", report)?;
-    fold(WorkspaceTable::validate(&table), report)
-}
-
-/// Fold one table's result into the file's report.
-fn fold<T>(result: Result<Validated<T>, Diagnostics>, report: &mut Diagnostics) -> Option<T> {
-    match result {
-        Ok(validated) => {
-            let (value, warnings) = validated.into_parts();
-            report.extend(warnings);
-            Some(value)
-        }
-        Err(problems) => {
-            report.extend(problems.into_diagnostics());
-            None
-        }
-    }
+    report.merge(WorkspaceTable::validate(&table))
 }
 
 /// A diagnostic about the file itself.

@@ -21,17 +21,15 @@
 //! ([`crate::env::local_directory::LocalDirectoryEnvironment::hold`]);
 //! an embedder does the same itself. Nothing relies on re-entrant locking.
 
-use std::{
-    fs,
-    io::ErrorKind,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{fs, io::ErrorKind, sync::Arc, time::Duration};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use thiserror::Error;
 
-use crate::{env::DEFAULT_ENV_NAME, project::utils::FsIoError};
+use crate::{
+    env::DEFAULT_ENV_NAME,
+    project::utils::{FsIoError, LockPollError},
+};
 
 /// The lock file's name, inside the environment directory
 /// ([`DEFAULT_ENV_NAME`]) at the workspace root.
@@ -96,45 +94,26 @@ impl WorkspaceLock {
             .truncate(false)
             .open(&path)
             .map_err(|err| Box::new(FsIoError::OpenFile(path.clone(), err)))?;
-        let deadline = wait.map(|wait| Instant::now() + wait);
-        let mut announced = false;
-        loop {
-            match mode.try_lock(&file) {
-                Ok(()) => {
-                    log::debug!("holding the {mode:?} lock on `{root}` (`{path}`)");
-                    return Ok(Self {
-                        file,
-                        root: root.to_path_buf(),
-                        path,
-                        mode,
-                    });
-                }
-                Err(fs::TryLockError::WouldBlock) => {
-                    let Some(deadline) = deadline else {
-                        return Err(LockError::Held {
-                            root: root.to_path_buf(),
-                        });
-                    };
-                    if Instant::now() >= deadline {
-                        return Err(LockError::Held {
-                            root: root.to_path_buf(),
-                        });
-                    }
-                    if !announced {
-                        announced = true;
-                        log::info!(
-                            "{:>12} another process is using `{root}`; waiting up to {} seconds",
-                            ' ',
-                            wait.map_or(0, |w| w.as_secs())
-                        );
-                    }
-                    std::thread::sleep(POLL_INTERVAL);
-                }
-                Err(fs::TryLockError::Error(err)) => {
-                    return Err(Box::new(FsIoError::LockFile(path, err)).into());
-                }
-            }
-        }
+        mode.lock_polling(&file, wait, POLL_INTERVAL, || {
+            log::info!(
+                "{:>12} another process is using `{root}`; waiting up to {} seconds",
+                ' ',
+                wait.map_or(0, |w| w.as_secs())
+            );
+        })
+        .map_err(|err| match err {
+            LockPollError::Blocked => LockError::Held {
+                root: root.to_path_buf(),
+            },
+            LockPollError::Io(err) => Box::new(FsIoError::LockFile(path.clone(), err)).into(),
+        })?;
+        log::debug!("holding the {mode:?} lock on `{root}` (`{path}`)");
+        Ok(Self {
+            file,
+            root: root.to_path_buf(),
+            path,
+            mode,
+        })
     }
 
     pub fn mode(&self) -> LockMode {

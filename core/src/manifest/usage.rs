@@ -26,6 +26,7 @@ use crate::manifest::diagnostics::{
 };
 use crate::manifest::reader::{TableReader, describe};
 use crate::model::{IndexName, IndexPublisher, is_omg_stdlib_iri};
+use crate::utils::is_absolute_on_any_os;
 
 /// The keys a usage entry accepts, quoted as the message lists them.
 const ACCEPTED_KEYS: &str =
@@ -822,6 +823,33 @@ impl Kind {
     }
 }
 
+/// Read the `inline-usages` array of tables of `reader`, each entry
+/// checked by `validate`. `array` is the dotted name used in messages.
+///
+/// Duplicates are counted per array; only validated entries are compared.
+pub fn read_usages<E: UsageEntry>(
+    reader: &TableReader<'_>,
+    array: &str,
+    report: &mut Diagnostics,
+    validate: impl Fn(UsageRaw, &UsageSite<'_>) -> Result<E, Diagnostics>,
+) -> Vec<E> {
+    let tables = reader.tables("inline-usages", report);
+    let mut entries = Vec::with_capacity(tables.len());
+    for (index, entry) in tables.iter().enumerate() {
+        let site = UsageSite {
+            array,
+            index,
+            entry,
+        };
+        match validate(UsageRaw::from_table(entry.raw()), &site) {
+            Ok(usage) => entries.push((site, usage)),
+            Err(problems) => report.extend(problems.into_diagnostics()),
+        }
+    }
+    report.extend(check_duplicates(&entries));
+    entries.into_iter().map(|(_, usage)| usage).collect()
+}
+
 /// Two entries whose identities normalize to the same value are the same
 /// project declared twice and are rejected, whether or not they agree on
 /// kind or constraint. Each array is counted separately.
@@ -943,10 +971,8 @@ fn is_normal_local_path(raw: &str) -> bool {
     if raw.contains(['\\', '\0']) {
         return false;
     }
-    let (absolute, rest) = match raw.strip_prefix('/') {
-        Some(rest) => (true, rest),
-        None => (typed_path::Utf8WindowsPath::new(raw).is_absolute(), raw),
-    };
+    let absolute = is_absolute_on_any_os(raw);
+    let rest = raw.strip_prefix('/').unwrap_or(raw);
     let mut leading = !absolute;
     rest.split('/').all(|part| match part {
         "" | "." => false,

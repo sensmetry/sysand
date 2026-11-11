@@ -1600,10 +1600,7 @@ mod get_project {
         Ok(())
     }
 
-    /// A publisher-less entry is the same failure, against `<none>`. An
-    /// index resolver is given no usage origin, so the entry gets the
-    /// plain publisher mismatch rather than `IdentityMismatch::NoPublisher`,
-    /// which names the fix.
+    /// A publisher-less entry is the same failure, against `<none>`.
     #[test]
     fn an_index_entry_with_no_publisher_is_refused() -> Result<(), Box<dyn std::error::Error>> {
         let mut server = mockito::Server::new();

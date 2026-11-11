@@ -12,7 +12,7 @@ use clap::ValueEnum as _;
 use semver::Version;
 use sysand_core::{
     context::ProjectContext,
-    discover::{discover_project, is_project_file},
+    discover::discover_project,
     init::InitError,
     manifest::{
         MODEL_TOML_FILE,
@@ -23,7 +23,8 @@ use sysand_core::{
     },
     model::{IdentifierKind, KnownMetamodel, ProjectName, ProjectPublisher},
     project::{
-        local_src::LocalSrcProject,
+        ProjectFormat,
+        local_src::{LocalSrcProject, detect_format},
         utils::{relativize_path, wrapfs},
     },
     utils::{RelativePathKind, parse_relative_unix_path},
@@ -193,7 +194,9 @@ fn workspace_member(target: &Utf8Path) -> Result<Option<Member>> {
         Region::Unlisted => {
             // A project under the root in neither list is a hard error;
             // `model.toml` already existing says nothing about the workspace.
-            if is_project_file(&target)? {
+            // `root` is the nearest workspace root above `target`, so a
+            // manifest here is a project's.
+            if detect_format(&target)? != ProjectFormat::Neither {
                 bail!(
                     "the project at `{target}` lies under the workspace at `{root}`\n\
                     {SP:>8} but is neither listed in `workspace.members` nor under\n\
@@ -217,7 +220,9 @@ fn append_member(root: &Utf8Path, path: &str) -> Result<()> {
     let text = wrapfs::read_to_string(&file)?;
     let mut document = validated(file.as_str(), &text)?;
     push_member(&mut document, path)?;
-    wrapfs::write(&file, document.to_string())?;
+    let edited = document.to_string();
+    validated(file.as_str(), &edited)?;
+    wrapfs::write(&file, edited)?;
     log::info!("added `{path}` to the workspace at `{root}`");
     Ok(())
 }

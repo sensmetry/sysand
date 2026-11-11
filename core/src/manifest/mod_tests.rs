@@ -428,27 +428,33 @@ fn the_wrong_variant_says_so() {
     );
 }
 
-/// The upward walk to a workspace asks one question of every ancestor,
-/// and must not be stopped by an unrelated file's problems.
+/// The upward walk to a workspace classifies every ancestor by the
+/// table it names, and must not be stopped by an unrelated file's
+/// problems.
 #[test]
-fn peek_answers_without_validating() {
+fn the_kind_is_answered_without_validating() {
+    let parsed = ModelToml::parse_with_kind(FILE, "[workspace]\nmembers = 3\n");
+    assert_eq!(parsed.kind, ModelTomlKind::Workspace);
+    parsed.manifest.expect_err("invalid");
     assert_eq!(
-        ModelToml::peek(FILE, "[workspace]\nmembers = 3\n").expect("parses"),
-        Some(ModelTomlKind::Workspace)
+        ModelToml::parse_with_kind(FILE, "[project]\n").kind,
+        ModelTomlKind::Project
     );
     assert_eq!(
-        ModelToml::peek(FILE, "[project]\n").expect("parses"),
-        Some(ModelTomlKind::Project)
+        ModelToml::parse_with_kind(FILE, "x =\n").kind,
+        ModelTomlKind::NotToml
     );
-    // Not TOML at all is still an answer a walk has to hear.
-    ModelToml::peek(FILE, "x =\n").expect_err("not TOML");
+    assert_eq!(
+        ModelToml::parse_with_kind(FILE, "[project]\n[workspace]\n").kind,
+        ModelTomlKind::Workspace
+    );
 }
 
 #[test]
-fn peek_on_a_file_with_neither_table_is_none() {
+fn a_file_with_neither_table_is_neither() {
     assert_eq!(
-        ModelToml::peek(FILE, "manifest-version = \"1.0\"\n").expect("parses"),
-        None
+        ModelToml::parse_with_kind(FILE, "manifest-version = \"1.0\"\n").kind,
+        ModelTomlKind::Neither
     );
 }
 

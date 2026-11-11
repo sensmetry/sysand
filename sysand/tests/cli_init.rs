@@ -665,13 +665,7 @@ fn workspace(root_text: &str) -> Result<camino_tempfile::Utf8TempDir, Box<dyn st
 
 fn member(dir: &Utf8Path, at: &str, name: &str) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(dir.join(at))?;
-    std::fs::write(
-        dir.join(at).join("model.toml"),
-        format!(
-            "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"{name}\"\n\
-             version = \"1.0.0\"\nsources = []\n"
-        ),
-    )?;
+    write_toml_project(dir.join(at), name, "1.0.0", "sources = []\n")?;
     Ok(())
 }
 
@@ -1215,12 +1209,7 @@ fn init_does_not_overwrite_an_existing_root_file() -> Result<(), Box<dyn std::er
 fn init_in_a_workspace_with_a_syside_default_group_writes_the_layout_and_the_marker()
 -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    std::fs::write(
-        cwd.join("model.toml"),
-        format!(
-            "manifest-version = \"1.0\"\n\n[workspace]\nmembers = []\nmetamodel = \"{SYSIDE_SYSML}\"\n"
-        ),
-    )?;
+    write_workspace_root(&cwd, &[], &format!("metamodel = \"{SYSIDE_SYSML}\"\n"))?;
     run_sysand_in(
         &cwd,
         ["init", "--publisher", "acme", "--name", "widgets", "app"],

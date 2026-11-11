@@ -43,7 +43,7 @@ use sysand_core::{
         local_fs::{load_configs, read_config},
     },
     context::ProjectContext,
-    discover::discover_project,
+    discover::{Ancestry, Seek, discover_project},
     env::{
         DEFAULT_ENV_NAME, PutProjectError, ReadEnvironment,
         any_index::AnyIndexError,
@@ -72,7 +72,7 @@ use sysand_core::{
         ProjectFieldError, ProjectName, ProjectPublisher, UsageRef, parse_index_usage_spelling,
     },
     project::{
-        ProjectDefinition, ProjectRead as _,
+        ProjectRead as _,
         local_src::{LocalSrcError, LocalSrcProject},
         memory::InMemoryProject,
         utils::{Identifier, wrapfs},
@@ -312,24 +312,13 @@ fn do_info_py_path(
         .map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
 
     match do_info_project(&project) {
-        Ok(definition) => json_documents(definition),
+        Ok(definition) => definition
+            .into_json_documents()
+            .map_err(|e| PyRuntimeError::new_err(format_err(e))),
         Err(e @ (InfoProjectError::MissingProject | InfoProjectError::InvalidProject(..))) => {
             Err(PyRuntimeError::new_err(format_err(e)))
         }
     }
-}
-
-/// A json project's two documents.
-// TODO: report a `model.toml` project's manifest.
-fn json_documents(
-    definition: ProjectDefinition,
-) -> PyResult<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)> {
-    let name = definition.name().to_owned();
-    definition.into_json().ok_or_else(|| {
-        PyRuntimeError::new_err(format!(
-            "`{name}` is a `model.toml` project, which `info` cannot report yet"
-        ))
-    })
 }
 
 /// Pure configuration of an authentication policy, as `AuthPolicy._spec()`
@@ -544,11 +533,7 @@ struct Transport {
 fn transport(auth: &AuthSpec) -> PyResult<Transport> {
     Ok(Transport {
         client: http_client()?,
-        runtime: Arc::new(
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()?,
-        ),
+        runtime: Arc::new(sysand_core::cancel::current_thread_runtime()?),
         auth_policy: build_auth_policy(auth)?,
     })
 }
@@ -627,9 +612,10 @@ fn do_info_py(
         let auth = auth.unwrap_or_default();
         let (resolver, auth_policy) = cli_resolver_for(&resolution, &auth)?;
         let uri = parse_iri(uri)?;
-        json_documents(
-            do_info(&uri, &resolver).map_err(|e| info_error_to_pyerr(e, &auth, &auth_policy))?,
-        )
+        do_info(&uri, &resolver)
+            .map_err(|e| info_error_to_pyerr(e, &auth, &auth_policy))?
+            .into_json_documents()
+            .map_err(|e| PyRuntimeError::new_err(format_err(e)))
     })
 }
 
@@ -1919,21 +1905,27 @@ fn do_discover_py(path: String) -> PyResult<(Option<String>, Option<String>)> {
     common_init();
 
     let path = Utf8PathBuf::from(path);
-    let project_root = discover_project(&path)
-        .map_err(|e| ProjectError::new_err(format_err(e)))?
-        .map(|project| wrapfs::canonicalize(project.root_path()))
-        .transpose()
-        .map_err(|e| ProjectError::new_err(format_err(e)))?;
-    // `discover_table` opens with a canonicalize, so a missing path
+    // Workspace discovery opens with a canonicalize, so a missing path
     // would raise where `discover_project` answered `None`.
-    let workspace_root = if wrapfs::canonicalize(&path).is_ok() {
-        sysand_core::workspace::model_toml::discover_table(&path)
-            .map_err(|e| ProjectError::new_err(format_err(e)))?
-            .map(|(root, _)| wrapfs::canonicalize(root))
+    let (project_root, workspace_root) = if wrapfs::canonicalize(&path).is_ok() {
+        let ancestry = Ancestry::walk(&path, Seek::ProjectToo)
+            .map_err(|e| ProjectError::new_err(format_err(e)))?;
+        let project_root = ancestry
+            .project()
+            .map(wrapfs::canonicalize)
             .transpose()
+            .map_err(|e| ProjectError::new_err(format_err(e)))?;
+        let workspace_root = sysand_core::workspace::model_toml::table_of(ancestry)
             .map_err(|e| ProjectError::new_err(format_err(e)))?
+            .map(|(root, _)| root);
+        (project_root, workspace_root)
     } else {
-        None
+        let project_root = discover_project(&path)
+            .map_err(|e| ProjectError::new_err(format_err(e)))?
+            .map(|project| wrapfs::canonicalize(project.root_path()))
+            .transpose()
+            .map_err(|e| ProjectError::new_err(format_err(e)))?;
+        (project_root, None)
     };
     Ok((
         project_root.map(Utf8PathBuf::into_string),

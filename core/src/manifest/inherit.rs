@@ -20,7 +20,7 @@ use toml::de::DeValue;
 
 use crate::manifest::common::{InheritFrom, InheritMarker};
 use crate::manifest::diagnostics::{Diagnostic, Diagnostics, Position};
-use crate::manifest::reader::{TableReader, describe, marker_value};
+use crate::manifest::reader::{TableReader, describe};
 use crate::manifest::workspace_table::{GroupProperties, WorkspaceTable};
 
 /// A marker that was read: which group it points at, and where it was
@@ -70,10 +70,7 @@ pub fn inheritable<T>(
     report: &mut Diagnostics,
     read: impl FnOnce(&mut Diagnostics) -> Option<T>,
 ) -> Option<MetaProperty<T>> {
-    match reader
-        .get(key)
-        .and_then(|value| marker_value(value.get_ref()))
-    {
+    match reader.marker(key) {
         Some(marker) => read_marker(reader, key, marker, report).map(MetaProperty::Inherited),
         // Not a marker (including a `workspace` key among others): `read`
         // reports a table where none can go.
@@ -132,11 +129,7 @@ pub fn own<T>(
     report: &mut Diagnostics,
     read: impl FnOnce(&mut Diagnostics) -> Option<T>,
 ) -> Option<T> {
-    if reader
-        .get(key)
-        .and_then(|value| marker_value(value.get_ref()))
-        .is_some()
-    {
+    if reader.marker(key).is_some() {
         report.push(
             Diagnostic::error(format!(
                 "`{key}` in {} cannot be inherited from the workspace;\n{reason}",
@@ -218,30 +211,28 @@ pub fn from_group<U>(
 
 /// Resolve one key that a `[project]` must have: either the value it
 /// gives, or the one its marker points at.
-pub fn resolve_property<T, U>(
+pub fn resolve_property<T>(
     property: MetaProperty<T>,
     key: &str,
     workspace: Option<&WorkspaceTable>,
-    pick: impl FnOnce(&GroupProperties) -> Option<U>,
-    convert: impl FnOnce(T) -> U,
-) -> Result<U, Diagnostic> {
+    pick: impl FnOnce(&GroupProperties) -> Option<T>,
+) -> Result<T, Diagnostic> {
     match property {
-        MetaProperty::Provided(value) => Ok(convert(value)),
+        MetaProperty::Provided(value) => Ok(value),
         MetaProperty::Inherited(inherited) => from_group(&inherited, key, workspace, pick),
     }
 }
 
 /// The same for a key that may be absent, which is not the same as a
 /// group that does not give it.
-pub fn resolve_optional<T, U>(
+pub fn resolve_optional<T>(
     property: Option<MetaProperty<T>>,
     key: &str,
     workspace: Option<&WorkspaceTable>,
-    pick: impl FnOnce(&GroupProperties) -> Option<U>,
-    convert: impl FnOnce(T) -> U,
-) -> Result<Option<U>, Diagnostic> {
+    pick: impl FnOnce(&GroupProperties) -> Option<T>,
+) -> Result<Option<T>, Diagnostic> {
     property
-        .map(|property| resolve_property(property, key, workspace, pick, convert))
+        .map(|property| resolve_property(property, key, workspace, pick))
         .transpose()
 }
 

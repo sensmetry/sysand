@@ -26,7 +26,7 @@ use toml::de::{DeTable, DeValue, ValueDeserializer};
 use typed_path::Utf8UnixPathBuf;
 
 use crate::manifest::common::{
-    InheritFrom, Maintainer, NormalizedIdentity, ResolvedUrls, Sources, StdlibStem,
+    InheritFrom, Maintainer, NormalizedIdentity, ResolvedUrls, Sources, StdlibStem, UrlsG,
     admitted_source, normalized_identity, root_path,
 };
 use crate::manifest::diagnostics::{
@@ -36,10 +36,8 @@ use crate::manifest::inherit::{
     MetaProperty, from_group, inheritable, inheritable_table, own, resolve_optional,
     resolve_property,
 };
-use crate::manifest::reader::{self, TableReader, checked, describe, maintainers, parsed};
-use crate::manifest::usage::{
-    LocatedUsage, MemberUsage, Usage, UsageRaw, UsageSite, check_duplicates,
-};
+use crate::manifest::reader::{self, TableReader, describe, parsed};
+use crate::manifest::usage::{LocatedUsage, MemberUsage, Usage, UsageRaw, read_usages};
 use crate::manifest::workspace_table::{GroupProperties, WorkspaceTable};
 use crate::model::{IndexName, IndexPublisher, KnownMetamodel, MetamodelFamily};
 
@@ -59,9 +57,6 @@ pub(crate) const PROJECT_KEYS: &[&str] = &[
     "urls",
 ];
 
-/// The keys `urls` admits.
-pub(crate) const URL_KEYS: &[&str] = &["website", "documentation", "repository"];
-
 /// How this table names itself in a message.
 const TABLE: &str = "project";
 
@@ -69,12 +64,7 @@ const TABLE: &str = "project";
 ///
 /// `urls` is inheritable as a whole table or key by key, so both levels
 /// are a [`MetaProperty`]; the two cannot be combined.
-#[derive(Clone, Debug, Default)]
-pub struct Urls {
-    pub website: Option<MetaProperty<Iri<String>>>,
-    pub documentation: Option<MetaProperty<Iri<String>>>,
-    pub repository: Option<MetaProperty<Iri<String>>>,
-}
+pub type Urls = UrlsG<MetaProperty<Iri<String>>>;
 
 /// The `[project]` table as the file writes it.
 #[derive(Clone, Debug)]
@@ -216,19 +206,10 @@ impl ProjectTable {
             },
         );
         let publisher = inheritable(reader, "publisher", &mut report, |report| {
-            let raw = reader.string("publisher", report)?;
-            parsed(IndexPublisher::parse(raw), reader, "publisher", report)
+            reader::publisher(reader, report)
         });
         let version = inheritable(reader, "version", &mut report, |report| {
-            let raw = reader.string("version", report)?;
-            checked(
-                Version::parse(raw),
-                reader,
-                "version",
-                raw,
-                "a valid version",
-                report,
-            )
+            reader::version(reader, report)
         });
         let sources = own(
             reader,
@@ -242,15 +223,7 @@ impl ProjectTable {
             None => (None, Vec::new()),
         };
         let license = inheritable(reader, "license", &mut report, |report| {
-            let raw = reader.string("license", report)?;
-            checked(
-                Expression::parse(raw),
-                reader,
-                "license",
-                raw,
-                "a valid SPDX expression",
-                report,
-            )
+            reader::license(reader, report)
         });
         let description = own(
             reader,
@@ -260,12 +233,10 @@ impl ProjectTable {
             |report| reader.string("description", report).map(ToOwned::to_owned),
         );
         let topics = inheritable(reader, "topics", &mut report, |report| {
-            reader
-                .strings("topics", report)
-                .map(|values| values.into_iter().map(ToOwned::to_owned).collect())
+            reader::topics(reader, report)
         });
         let maintainers = inheritable(reader, "maintainers", &mut report, |report| {
-            maintainers(reader, report)
+            reader::maintainers(reader, report)
         });
         let stdlib = own(
             reader,
@@ -286,7 +257,11 @@ impl ProjectTable {
             &mut report,
             |_| reader.get("root").map(written),
         );
-        let urls = inheritable_table(reader, "urls", &mut report, |report| urls(reader, report));
+        let urls = inheritable_table(reader, "urls", &mut report, |report| {
+            reader::urls(reader, report, |urls, key, report| {
+                inheritable(urls, key, report, |report| reader::url(urls, key, report))
+            })
+        });
 
         for (key, present) in [
             ("publisher", publisher.is_some()),
@@ -367,32 +342,6 @@ fn sources(
     }
 }
 
-fn urls(reader: &TableReader<'_>, report: &mut Diagnostics) -> Option<Urls> {
-    let urls = reader.table("urls", report)?;
-    let one = |key: &str, report: &mut Diagnostics| {
-        inheritable(&urls, key, report, |report| {
-            let raw = urls.string(key, report)?;
-            checked(
-                Iri::parse(raw.to_owned()).map_err(|(error, _)| error),
-                &urls,
-                key,
-                raw,
-                "a valid URL",
-                report,
-            )
-        })
-    };
-    let website = one("website", report);
-    let documentation = one("documentation", report);
-    let repository = one("repository", report);
-    report.extend(urls.unknown_keys(URL_KEYS, None));
-    Some(Urls {
-        website,
-        documentation,
-        repository,
-    })
-}
-
 impl ProjectManifest {
     /// Read the project side of a document: the `[project]` table and the
     /// top-level `inline-usages` array.
@@ -419,40 +368,17 @@ impl ProjectManifest {
                     top.source(),
                 )
             });
-            match ProjectTable::validate(&table) {
-                Ok(validated) => {
-                    let (value, warnings) = validated.into_parts();
-                    report.extend(warnings);
-                    Some(value)
-                }
-                Err(problems) => {
-                    report.extend(problems.into_diagnostics());
-                    None
-                }
-            }
+            report.merge(ProjectTable::validate(&table))
         };
 
-        let mut entries = Vec::new();
-        let tables = top.tables("inline-usages", &mut report);
-        for (index, entry) in tables.iter().enumerate() {
-            let site = UsageSite {
-                array: "inline-usages",
-                index,
-                entry,
-            };
-            match UsageRaw::from_table(entry.raw()).validate_member(&site) {
-                Ok(usage) => entries.push((site, usage)),
-                Err(problems) => report.extend(problems.into_diagnostics()),
-            }
-        }
-        // Duplicates are counted per array; only validated entries are compared.
-        report.extend(check_duplicates(&entries));
+        let inline_usages =
+            read_usages(top, "inline-usages", &mut report, UsageRaw::validate_member);
 
         report.sort_by_position();
         match project {
             Some(project) => report.into_result(Self {
                 project,
-                inline_usages: entries.into_iter().map(|(_, usage)| usage).collect(),
+                inline_usages,
             }),
             None => Err(report),
         }
@@ -527,56 +453,30 @@ impl ProjectManifest {
         } = project;
 
         let publisher = collect(
-            resolve_property(
-                publisher,
-                "publisher",
-                workspace,
-                |group| group.publisher.clone(),
-                |value| value,
-            ),
+            resolve_property(publisher, "publisher", workspace, |group| {
+                group.publisher.clone()
+            }),
             &mut report,
         );
         let version = collect(
-            resolve_property(
-                version,
-                "version",
-                workspace,
-                |group| group.version.clone(),
-                |value| value,
-            ),
+            resolve_property(version, "version", workspace, |group| group.version.clone()),
             &mut report,
         );
         let license = collect(
-            resolve_optional(
-                license,
-                "license",
-                workspace,
-                |group| group.license.clone(),
-                |value| value,
-            ),
+            resolve_optional(license, "license", workspace, |group| group.license.clone()),
             &mut report,
         )
         .flatten();
         let topics = collect(
-            resolve_optional(
-                topics,
-                "topics",
-                workspace,
-                |group| group.topics.clone(),
-                |value| value,
-            ),
+            resolve_optional(topics, "topics", workspace, |group| group.topics.clone()),
             &mut report,
         )
         .flatten()
         .unwrap_or_default();
         let maintainers = collect(
-            resolve_optional(
-                maintainers,
-                "maintainers",
-                workspace,
-                |group| group.maintainers.clone(),
-                |value| value,
-            ),
+            resolve_optional(maintainers, "maintainers", workspace, |group| {
+                group.maintainers.clone()
+            }),
             &mut report,
         )
         .flatten()
@@ -585,13 +485,9 @@ impl ProjectManifest {
         // opposed to being absent; the checks below are skipped when it did
         // not.
         let metamodel = collect(
-            resolve_optional(
-                metamodel,
-                "metamodel",
-                workspace,
-                |group| group.metamodel.clone(),
-                |value| value,
-            ),
+            resolve_optional(metamodel, "metamodel", workspace, |group| {
+                group.metamodel.clone()
+            }),
             &mut report,
         );
         // Mandatory, checked after inheritance so that a marker satisfies it.
@@ -800,21 +696,18 @@ fn resolve_urls(
                 "urls.website",
                 workspace,
                 url(|urls| &urls.website),
-                |value| value,
             )?,
             documentation: resolve_optional(
                 urls.documentation,
                 "urls.documentation",
                 workspace,
                 url(|urls| &urls.documentation),
-                |value| value,
             )?,
             repository: resolve_optional(
                 urls.repository,
                 "urls.repository",
                 workspace,
                 url(|urls| &urls.repository),
-                |value| value,
             )?,
         }),
     }

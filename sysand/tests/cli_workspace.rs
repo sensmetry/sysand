@@ -733,33 +733,24 @@ fn print_root_outside_a_workspace_prints_the_project_root() -> Result<(), Box<dy
 /// refuses.
 fn two_member_workspace() -> Result<camino_tempfile::Utf8TempDir, Box<dyn std::error::Error>> {
     let dir = camino_tempfile::tempdir()?;
-    std::fs::write(
-        dir.path().join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"app\", \"libs/gamma\"]\n\
-         exclude = [\"local-dep\"]\n",
+    write_workspace_root(
+        dir.path(),
+        &["app", "libs/gamma"],
+        "exclude = [\"local-dep\"]\n",
     )?;
     std::fs::create_dir_all(dir.path().join("app"))?;
     std::fs::write(dir.path().join("app/model.toml"), MEMBER)?;
     std::fs::create_dir_all(dir.path().join("libs/gamma"))?;
-    std::fs::write(
-        dir.path().join("libs/gamma/model.toml"),
-        "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"gamma\"\n\
-         version = \"1.0.0\"\nsources = []\n\
-         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
-         [[inline-usages]]\npublisher = \"acme\"\nname = \"alpha\"\ndir = \"../../app\"\n",
+    write_toml_project(
+        dir.path().join("libs/gamma"),
+        "gamma",
+        "1.0.0",
+        "sources = []\n\
+            metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
+            [[inline-usages]]\npublisher = \"acme\"\nname = \"alpha\"\n\
+            dir = \"../../app\"\n",
     )?;
     Ok(dir)
-}
-
-#[test]
-fn lock_in_a_member_writes_at_the_workspace_root() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = two_member_workspace()?;
-    run_sysand_discovering(&dir.path().join("app"), ["lock"])?
-        .assert()
-        .success();
-    assert!(dir.path().join(DEFAULT_LOCKFILE_NAME).exists());
-    assert!(!dir.path().join("app").join(DEFAULT_LOCKFILE_NAME).exists());
-    Ok(())
 }
 
 /// Both members, and each recorded editable at its own path: the member at
@@ -772,6 +763,12 @@ fn the_workspace_lockfile_records_every_member() -> Result<(), Box<dyn std::erro
         .assert()
         .success();
 
+    assert!(
+        !dir.path()
+            .join("libs/gamma")
+            .join(DEFAULT_LOCKFILE_NAME)
+            .exists()
+    );
     let text = std::fs::read_to_string(dir.path().join(DEFAULT_LOCKFILE_NAME))?;
     for expected in [
         "pkg:sysand/acme/alpha",
@@ -1017,10 +1014,7 @@ fn env_in_a_member_uses_the_root_sysand() -> Result<(), Box<dyn std::error::Erro
 fn two_member_workspace_with_sources()
 -> Result<camino_tempfile::Utf8TempDir, Box<dyn std::error::Error>> {
     let dir = camino_tempfile::tempdir()?;
-    std::fs::write(
-        dir.path().join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"app\", \"lib\"]\n",
-    )?;
+    write_workspace_root(dir.path(), &["app", "lib"], "")?;
     for (at, name, extra) in [
         (
             "app",
@@ -1030,13 +1024,14 @@ fn two_member_workspace_with_sources()
         ("lib", "lib", ""),
     ] {
         std::fs::create_dir_all(dir.path().join(at))?;
-        std::fs::write(
-            dir.path().join(at).join("model.toml"),
-            format!(
-                "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\n\
-                 name = \"{name}\"\nversion = \"1.0.0\"\nsources = [\"{at}.sysml\"]\n\
-                 topics = [\"{at}-one\", \"{at}-two\"]\n\
-                 metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n{extra}"
+        write_toml_project(
+            dir.path().join(at),
+            name,
+            "1.0.0",
+            &format!(
+                "sources = [\"{at}.sysml\"]\n\
+            topics = [\"{at}-one\", \"{at}-two\"]\n\
+            metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n{extra}"
             ),
         )?;
         // A distinct symbol per member: two members exporting the same
@@ -1351,20 +1346,20 @@ fn build_workspace_refuses_an_output_path_inside_a_member() -> Result<(), Box<dy
 #[test]
 fn build_refuses_a_member_inheriting_a_local_usage() -> Result<(), Box<dyn std::error::Error>> {
     let dir = camino_tempfile::tempdir()?;
-    std::fs::write(
-        dir.path().join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"app\"]\n\n\
-         [[workspace.inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"dep\"\n",
+    write_workspace_root(
+        dir.path(),
+        &["app"],
+        "\n[[workspace.inline-usages]]\npublisher = \"acme\"\n\
+            name = \"dep\"\ndir = \"dep\"\n",
     )?;
     for (at, name) in [("app", "app"), ("dep", "dep")] {
         std::fs::create_dir_all(dir.path().join(at))?;
-        std::fs::write(
-            dir.path().join(at).join("model.toml"),
-            format!(
-                "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\n\
-                 name = \"{name}\"\nversion = \"1.0.0\"\nsources = []\n\
-                 metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n"
-            ),
+        write_toml_project(
+            dir.path().join(at),
+            name,
+            "1.0.0",
+            "sources = []\n\
+            metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
         )?;
     }
     // `app` opts into the group's `dir` usage.
@@ -1434,20 +1429,18 @@ fn migrate_warns_about_a_stray_config() -> Result<(), Box<dyn std::error::Error>
 #[test]
 fn lock_refuses_a_cyclic_workspace() -> Result<(), Box<dyn std::error::Error>> {
     let dir = camino_tempfile::tempdir()?;
-    std::fs::write(
-        dir.path().join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"alpha\", \"beta\"]\n",
-    )?;
+    write_workspace_root(dir.path(), &["alpha", "beta"], "")?;
     for (this, other) in [("alpha", "beta"), ("beta", "alpha")] {
         std::fs::create_dir_all(dir.path().join(this))?;
-        std::fs::write(
-            dir.path().join(this).join("model.toml"),
-            format!(
-                "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\n\
-                 name = \"{this}\"\nversion = \"1.0.0\"\nsources = []\n\
-                 metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
-                 [[inline-usages]]\npublisher = \"acme\"\nname = \"{other}\"\n\
-                 dir = \"../{other}\"\n"
+        write_toml_project(
+            dir.path().join(this),
+            this,
+            "1.0.0",
+            &format!(
+                "sources = []\n\
+            metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n\n\
+            [[inline-usages]]\npublisher = \"acme\"\nname = \"{other}\"\n\
+            dir = \"../{other}\"\n"
             ),
         )?;
     }
@@ -1472,20 +1465,20 @@ fn lock_refuses_a_cyclic_workspace() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn sources_refuses_a_member_inheriting_a_local_usage() -> Result<(), Box<dyn std::error::Error>> {
     let dir = camino_tempfile::tempdir()?;
-    std::fs::write(
-        dir.path().join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"app\"]\n\n\
-         [[workspace.inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"dep\"\n",
+    write_workspace_root(
+        dir.path(),
+        &["app"],
+        "\n[[workspace.inline-usages]]\npublisher = \"acme\"\n\
+            name = \"dep\"\ndir = \"dep\"\n",
     )?;
     for at in ["app", "dep"] {
         std::fs::create_dir_all(dir.path().join(at))?;
-        std::fs::write(
-            dir.path().join(at).join("model.toml"),
-            format!(
-                "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\n\
-                 name = \"{at}\"\nversion = \"1.0.0\"\nsources = []\n\
-                 metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n"
-            ),
+        write_toml_project(
+            dir.path().join(at),
+            at,
+            "1.0.0",
+            "sources = []\n\
+            metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
         )?;
     }
     let app = dir.path().join("app").join("model.toml");

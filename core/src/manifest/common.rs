@@ -15,8 +15,9 @@ use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
 use crate::manifest::diagnostics::Diagnostic;
 use crate::model::{IndexName, IndexPublisher, KnownMetamodel};
-use crate::purl::sysand_purl;
+use crate::purl::{SysandPurlError, parse_sysand_purl, sysand_purl};
 use crate::symbols::Language;
+use crate::utils::is_absolute_on_any_os;
 
 /// The publisher a standard-library usage is resolved under.
 ///
@@ -50,6 +51,15 @@ pub struct NormalizedIdentity {
 }
 
 impl NormalizedIdentity {
+    /// The identity a `pkg:sysand` PURL names: `Ok(None)` for an IRI that
+    /// is not one, an error for a malformed one.
+    pub fn from_purl(iri: &str) -> Result<Option<Self>, SysandPurlError> {
+        Ok(parse_sysand_purl(iri)?.map(|(publisher, name)| Self {
+            publisher: publisher.to_owned(),
+            name: name.to_owned(),
+        }))
+    }
+
     pub fn lock_identifier(&self) -> String {
         sysand_purl(&self.publisher, &self.name)
     }
@@ -153,12 +163,39 @@ impl Display for Maintainer {
     }
 }
 
+/// The keys `urls` admits.
+pub const URL_KEYS: [&str; 3] = ["website", "documentation", "repository"];
+
+/// The `urls` table, one optional `T` per key of [`URL_KEYS`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UrlsG<T> {
+    pub website: Option<T>,
+    pub documentation: Option<T>,
+    pub repository: Option<T>,
+}
+
 /// The three URLs as concrete values, with no marker left to follow.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct ResolvedUrls {
-    pub website: Option<Iri<String>>,
-    pub documentation: Option<Iri<String>>,
-    pub repository: Option<Iri<String>>,
+pub type ResolvedUrls = UrlsG<Iri<String>>;
+
+impl<T> Default for UrlsG<T> {
+    fn default() -> Self {
+        Self {
+            website: None,
+            documentation: None,
+            repository: None,
+        }
+    }
+}
+
+impl<T> UrlsG<T> {
+    /// Each key with its value, in [`URL_KEYS`] order.
+    pub fn entries(&self) -> impl Iterator<Item = (&'static str, Option<&T>)> {
+        URL_KEYS.into_iter().zip([
+            self.website.as_ref(),
+            self.documentation.as_ref(),
+            self.repository.as_ref(),
+        ])
+    }
 }
 
 /// Which group a `<key>.workspace` marker points at. `workspace = true`
@@ -289,9 +326,7 @@ pub fn path_problem(raw: &str) -> Option<PathProblem> {
     if raw.contains('\0') {
         return Some(PathProblem::Null);
     }
-    // A Windows drive letter is absolute too, and a test for a leading
-    // `/` alone would take `C:/main.sysml` for a relative path.
-    if raw.starts_with('/') || typed_path::Utf8WindowsPath::new(raw).is_absolute() {
+    if is_absolute_on_any_os(raw) {
         return Some(PathProblem::Absolute);
     }
     if raw.is_empty() || raw.split('/').any(|part| matches!(part, "" | "." | "..")) {

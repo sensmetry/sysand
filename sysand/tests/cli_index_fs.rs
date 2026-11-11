@@ -269,20 +269,12 @@ fn lock_refuses_neither_index_nor_folder() -> Result<(), Box<dyn Error>> {
 fn lock_refuses_folder_archive_without_publisher() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, app, folder, _) = project_and_folder()?;
     // A publisher-less archive: the `.project.json` names no publisher.
-    let mut buf: Vec<u8> = Vec::new();
-    {
-        use std::io::Write as _;
-        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut buf));
-        let options = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Stored);
-        zip.start_file(".project.json", options)?;
-        zip.write_all(br#"{"name":"widgets","version":"1.2.3"}"#)?;
-        zip.start_file(".meta.json", options)?;
-        zip.write_all(br#"{"index":{},"created":"2026-01-01T00:00:00Z"}"#)?;
-        zip.finish()?;
-    }
     let archive = folder.join("widgets.kpar");
-    std::fs::write(&archive, buf)?;
+    write_kpar(
+        &archive,
+        r#"{"name":"widgets","version":"1.2.3"}"#,
+        r#"{"index":{},"created":"2026-01-01T00:00:00Z"}"#,
+    )?;
     let out = run_sysand_in(&app, ["lock", "--default-index", folder.as_str()], None)?;
     out.assert()
         .failure()

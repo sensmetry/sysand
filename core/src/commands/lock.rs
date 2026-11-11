@@ -815,7 +815,7 @@ fn lock_workspace<PD: ProjectRead + Debug, R: ResolveRead<ProjectStorage = PD> +
         }
     }
 
-    let table = std::sync::Arc::new(workspace.table().clone());
+    let table = workspace.table().clone();
     // A member that inherits keys cannot be read without the table.
     let resolver = resolver.within_workspace(workspace.root().to_owned(), table.clone());
     let members: Vec<EditableLocalSrcProject> = workspace

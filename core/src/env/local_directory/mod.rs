@@ -7,7 +7,7 @@ use std::{
     vec,
 };
 
-use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
+use camino::{Utf8Path, Utf8PathBuf};
 use fluent_uri::Iri;
 use thiserror::Error;
 use typed_path::Utf8UnixPathBuf;
@@ -33,6 +33,7 @@ use crate::{
             RelativizePathError, wrapfs,
         },
     },
+    utils::join_lexical,
     workspace_lock::ExclusiveLock,
 };
 
@@ -272,18 +273,7 @@ impl LocalDirectoryEnvironment {
             // In principle thus it should be enough to strip however many `../` are
             // at the start of `relative` from `parent`, and then join (stripped) relative
             // to (stripped) parent.
-            let mut absolute = self.parent_dir().to_path_buf();
-            for c in Utf8Path::new(relative).components() {
-                match c {
-                    Utf8Component::ParentDir => {
-                        absolute.pop();
-                    }
-                    Utf8Component::Normal(c) => absolute.push(c),
-                    Utf8Component::CurDir | Utf8Component::Prefix(_) | Utf8Component::RootDir => {
-                        unreachable!()
-                    }
-                }
-            }
+            let absolute = join_lexical(self.parent_dir(), Utf8Path::new(relative));
             // Editable projects must not have checksums
             debug_assert_matches!(project.checksum, None);
             LocalSrcProject::new_access(absolute, Some(relative.into()))

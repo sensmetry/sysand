@@ -941,7 +941,7 @@ fn a_cycle_with_one_non_stdlib_member_is_refused() -> Result<(), Box<dyn std::er
 
 /// A json member's `dir` usages are read from `.project.json`.
 ///
-/// Through `member_dependencies` directly rather than through a
+/// Through `usage_dirs` directly rather than through a
 /// workspace: a json member is refused at load (`load_member`), so the
 /// arm this pins is not reachable that way. It is the arm every json
 /// *project* takes.
@@ -950,9 +950,10 @@ fn a_json_project_s_dir_usages_are_its_dependencies() -> Result<(), Box<dyn std:
     let dir = tempdir()?;
     json_member(&dir, "alpha", &["../beta"]);
 
-    let dependencies = super::member_dependencies(
-        &crate::project::local_src::LocalSrcProject::new_access(dir.path().join("alpha"), None),
-    );
+    let project =
+        crate::project::local_src::LocalSrcProject::new_access(dir.path().join("alpha"), None);
+    let dependencies =
+        super::usage_dirs(&crate::project::ProjectRead::get_project(&project)?.expect("a project"));
     assert_eq!(dependencies, vec!["../beta".to_owned()]);
     Ok(())
 }

@@ -8,13 +8,8 @@
 //! the dispatch is an enum, one arm per transport; the resolver-facing
 //! project and its errors are enums the same way.
 
-use std::{
-    pin::Pin,
-    task::{Context, Poll},
-};
-
 use camino::Utf8Path;
-use futures::{future::Either, io::AsyncRead};
+use futures::future::Either;
 use thiserror::Error;
 use typed_path::Utf8UnixPath;
 
@@ -72,37 +67,6 @@ pub enum AnyIndexProjectError {
     Filesystem(#[from] LocalKParError),
 }
 
-fn canonical<E, F: crate::env::utils::ErrorBound + Into<AnyIndexProjectError>>(
-    result: Result<E, CanonicalizationError<F>>,
-) -> Result<E, CanonicalizationError<AnyIndexProjectError>> {
-    result.map_err(|e| match e {
-        CanonicalizationError::ProjectRead(inner) => {
-            CanonicalizationError::ProjectRead(inner.into())
-        }
-        CanonicalizationError::FileRead(path, io) => CanonicalizationError::FileRead(path, io),
-    })
-}
-
-/// The source reader of either arm; both are `Unpin` by the trait's
-/// bound, so polling projects through a plain `Pin::new`.
-pub enum AnyIndexSourceReader<'a, Policy: HTTPAuthentication + 'a> {
-    Remote(<IndexEntryProject<Policy> as ProjectReadAsync>::SourceReader<'a>),
-    Filesystem(<AsAsyncProject<LocalKParProject> as ProjectReadAsync>::SourceReader<'a>),
-}
-
-impl<Policy: HTTPAuthentication> AsyncRead for AnyIndexSourceReader<'_, Policy> {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<std::io::Result<usize>> {
-        match self.get_mut() {
-            Self::Remote(reader) => Pin::new(reader).poll_read(cx, buf),
-            Self::Filesystem(reader) => Pin::new(reader).poll_read(cx, buf),
-        }
-    }
-}
-
 impl<Policy: HTTPAuthentication> ProjectReadAsync for AnyIndexProject<Policy> {
     type Error = AnyIndexProjectError;
 
@@ -114,7 +78,10 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for AnyIndexProject<Policy> {
     }
 
     type SourceReader<'a>
-        = AnyIndexSourceReader<'a, Policy>
+        = Either<
+        <IndexEntryProject<Policy> as ProjectReadAsync>::SourceReader<'a>,
+        <AsAsyncProject<LocalKParProject> as ProjectReadAsync>::SourceReader<'a>,
+    >
     where
         Self: 'a;
 
@@ -123,10 +90,8 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for AnyIndexProject<Policy> {
         path: P,
     ) -> Result<Self::SourceReader<'_>, Self::Error> {
         Ok(match self {
-            Self::Remote(p) => AnyIndexSourceReader::Remote(p.read_source_async(path).await?),
-            Self::Filesystem(p) => {
-                AnyIndexSourceReader::Filesystem(p.read_source_async(path).await?)
-            }
+            Self::Remote(p) => Either::Left(p.read_source_async(path).await?),
+            Self::Filesystem(p) => Either::Right(p.read_source_async(path).await?),
         })
     }
 
@@ -184,8 +149,14 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for AnyIndexProject<Policy> {
         &self,
     ) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
         match self {
-            Self::Remote(p) => canonical(p.checksum_canonical_hex_async().await),
-            Self::Filesystem(p) => canonical(p.checksum_canonical_hex_async().await),
+            Self::Remote(p) => p
+                .checksum_canonical_hex_async()
+                .await
+                .map_err(|e| e.map_project_read(Into::into)),
+            Self::Filesystem(p) => p
+                .checksum_canonical_hex_async()
+                .await
+                .map_err(|e| e.map_project_read(Into::into)),
         }
     }
 

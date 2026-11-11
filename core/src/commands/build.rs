@@ -271,11 +271,23 @@ pub fn default_kpar_path<Pr: ProjectRead>(
     workspace_root: Option<&Utf8Path>,
     project_path: &Utf8Path,
 ) -> Result<Utf8PathBuf, KParBuildError<Pr::Error>> {
+    Ok(output_path_in(
+        workspace_root,
+        project_path,
+        &default_kpar_file_name(project)?,
+    ))
+}
+
+fn output_path_in(
+    workspace_root: Option<&Utf8Path>,
+    project_path: &Utf8Path,
+    file_name: &str,
+) -> Utf8PathBuf {
     let mut path = workspace_root
         .unwrap_or(project_path)
         .join(DEFAULT_OUTPUT_NAME);
-    path.push(default_kpar_file_name(project)?);
-    Ok(path)
+    path.push(file_name);
+    path
 }
 
 pub fn default_kpar_file_name<Pr: ProjectRead>(
@@ -284,7 +296,11 @@ pub fn default_kpar_file_name<Pr: ProjectRead>(
     let Some(definition) = project.get_project().map_err(KParBuildError::ProjectRead)? else {
         return Err(KParBuildError::MissingInfo);
     };
-    Ok(format!(
+    Ok(kpar_file_name_of(&definition))
+}
+
+fn kpar_file_name_of(definition: &ProjectDefinition) -> String {
+    format!(
         "{}-{}.kpar",
         definition
             .name()
@@ -292,7 +308,7 @@ pub fn default_kpar_file_name<Pr: ProjectRead>(
             .map(|c| if c.is_alphanumeric() { c } else { '_' })
             .collect::<String>(),
         definition.version()
-    ))
+    )
 }
 
 /// `update_index` controls whether to parse symbols from current
@@ -307,6 +323,7 @@ pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     let path = path.as_ref();
     match do_build_kpar_inner(
         project,
+        || project.get_project(),
         path,
         compression,
         update_index,
@@ -324,8 +341,11 @@ pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
 }
 
 /// The created archive is left in place on error; the caller must delete it.
+///
+/// `definition` reads the project's manifest, once the build has started.
 fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     project: &Pr,
+    definition: impl FnOnce() -> Result<Option<ProjectDefinition>, Pr::Error>,
     path: P,
     compression: KparCompressionMethod,
     update_index: bool,
@@ -339,7 +359,7 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     // A `model.toml` project's documents are written now, recording the
     // build time as `created`. Two builds of identical sources are
     // therefore not byte-identical.
-    let (mut info, mut meta, manifest) = match project.get_project() {
+    let (mut info, mut meta, manifest) = match definition() {
         Ok(None) => return Err(KParBuildError::MissingInfoMeta),
         Ok(Some(ProjectDefinition::Json { info, meta })) => (info, meta, None),
         Ok(Some(ProjectDefinition::Toml(manifest))) => {
@@ -787,19 +807,23 @@ fn caret<E: ErrorBound>(
         })
 }
 
-/// Every member, read once: a `LocalSrcProject` caches its own view, and
-/// two instances of the same member would read it twice.
+/// Every member, its manifest read once.
 fn read_members(workspace: &model_toml::Workspace) -> Vec<Member> {
     // Every member carries the workspace table: a member that inherits a
     // key resolves its manifest only with the table in hand.
-    let table = std::sync::Arc::new(workspace.table().clone());
+    let table = workspace.table().clone();
     workspace
         .members()
         .iter()
         .map(|member| {
             let dir = canonical_or(member.dir.clone());
             let project = LocalSrcProject::new_member(dir.clone(), None, table.clone());
-            Member { dir, project }
+            let definition = project.get_project();
+            Member {
+                dir,
+                project,
+                definition,
+            }
         })
         .collect()
 }
@@ -814,7 +838,25 @@ pub fn workspace_publish_order(
     workspace: &model_toml::Workspace,
 ) -> Result<Vec<(Utf8PathBuf, Utf8PathBuf)>, MemberFailure> {
     let root = workspace.root();
-    let members = read_members(workspace);
+    let members: Vec<_> = read_members(workspace)
+        .into_iter()
+        .map(|member| {
+            let dependencies = match &member.definition {
+                Ok(Some(definition)) => usage_dirs(definition),
+                Ok(None) | Err(_) => Vec::new(),
+            };
+            let file_name = match member.definition {
+                Ok(Some(definition)) => Ok(kpar_file_name_of(&definition)),
+                Ok(None) => Err(KParBuildError::MissingInfo),
+                Err(error) => Err(KParBuildError::ProjectRead(error)),
+            };
+            OrderedMember {
+                dir: member.dir,
+                dependencies,
+                file_name,
+            }
+        })
+        .collect();
 
     // Dependency order is a topological sort of the members' `dir` usages of
     // each other. Loading the workspace refused every cycle.
@@ -826,21 +868,23 @@ pub fn workspace_publish_order(
         graph.add_node(member.dir.clone());
     }
     for member in &members {
-        for dependency in member_dependencies(&member.project) {
+        for dependency in &member.dependencies {
             // `add_edge` ignores an endpoint the graph does not hold, such as
             // a usage of a project outside the workspace.
             graph.add_edge(&member.dir, &canonical_or(member.dir.join(dependency)));
         }
     }
 
+    let order: Vec<Utf8PathBuf> = graph.dependency_order().into_iter().cloned().collect();
+    let mut members = members;
+    members.sort_by_key(|member| order.iter().position(|dir| dir == &member.dir));
     let mut archives = Vec::new();
-    for dir in graph.dependency_order() {
-        for member in members.iter().filter(|member| &member.dir == dir) {
-            let short = shorten(&member.dir, root);
-            let archive = default_kpar_path(&member.project, Some(root), &member.dir)
-                .map_err(|error| MemberFailure::at(&short, error))?;
-            archives.push((short, archive));
-        }
+    for member in members {
+        let short = shorten(&member.dir, root);
+        let file_name = member
+            .file_name
+            .map_err(|error| MemberFailure::at(&short, error))?;
+        archives.push((short, output_path_in(Some(root), &member.dir, &file_name)));
     }
     Ok(archives)
 }
@@ -858,12 +902,13 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
 ) -> Result<Vec<LocalKParProjectRaw>, WorkspaceBuildFailure> {
     let root = workspace.root();
     // A `dir` usage of a member that inherits keys needs the table to read the target.
-    let table = std::sync::Arc::new(workspace.table().clone());
+    let table = workspace.table().clone();
     let mut built = Vec::new();
     let mut failed = Vec::new();
     for member in read_members(workspace) {
+        let dir = member.dir.clone();
         match build_member(
-            &member,
+            member,
             path.as_ref(),
             compression,
             update_index,
@@ -871,7 +916,7 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
             Some(&table),
         ) {
             Ok(kpar) => built.push(kpar),
-            Err(error) => failed.push(MemberFailure::at(&shorten(&member.dir, root), error)),
+            Err(error) => failed.push(MemberFailure::at(&shorten(&dir, root), error)),
         }
     }
     if failed.is_empty() {
@@ -922,16 +967,25 @@ impl MemberFailure {
 /// `default_kpar_file_name` is called inside: for a member with no
 /// manifest that call is the failure.
 fn build_member(
-    member: &Member,
+    member: Member,
     output: &Utf8Path,
     compression: KparCompressionMethod,
     update_index: bool,
     allow_path_usage: bool,
     workspace: TargetWorkspace<'_>,
 ) -> Result<LocalKParProjectRaw, KParBuildError<LocalSrcError>> {
-    let output_path = output.join(default_kpar_file_name(&member.project)?);
+    let Member {
+        dir: _,
+        project,
+        definition,
+    } = member;
+    let definition = definition
+        .map_err(KParBuildError::ProjectRead)?
+        .ok_or(KParBuildError::MissingInfo)?;
+    let output_path = output.join(kpar_file_name_of(&definition));
     do_build_kpar_inner(
-        &member.project,
+        &project,
+        || Ok(Some(definition)),
         &output_path,
         compression,
         update_index,
@@ -951,6 +1005,17 @@ struct Member {
     /// canonical where the filesystem allows it.
     dir: Utf8PathBuf,
     project: LocalSrcProject,
+    /// The manifest, as read when the member was.
+    definition: Result<Option<ProjectDefinition>, LocalSrcError>,
+}
+
+/// What the publish order needs of a member.
+struct OrderedMember {
+    dir: Utf8PathBuf,
+    /// The `dir` usages the member declares, as written.
+    dependencies: Vec<String>,
+    /// The member's archive name, or why it has none.
+    file_name: Result<String, KParBuildError<LocalSrcError>>,
 }
 
 /// `path`, canonicalized, or `path` itself where it cannot be.
@@ -961,14 +1026,11 @@ fn canonical_or(path: Utf8PathBuf) -> Utf8PathBuf {
     wrapfs::canonicalize(&path).unwrap_or(path)
 }
 
-/// The `dir` usages a member declares, as written: what the publish
-/// order needs from it.
-///
-/// A member that cannot be read at all contributes no edges; it fails with
-/// its own message when its archive name is asked for.
-fn member_dependencies(project: &LocalSrcProject) -> Vec<String> {
-    match project.get_project() {
-        Ok(Some(ProjectDefinition::Toml(manifest))) => manifest
+/// The `dir` usages a project declares, as written: what the publish
+/// order needs from a member.
+fn usage_dirs(definition: &ProjectDefinition) -> Vec<String> {
+    match definition {
+        ProjectDefinition::Toml(manifest) => manifest
             .usages
             .iter()
             .filter_map(|located| match &located.usage {
@@ -980,7 +1042,7 @@ fn member_dependencies(project: &LocalSrcProject) -> Vec<String> {
                 _ => None,
             })
             .collect(),
-        Ok(Some(ProjectDefinition::Json { info, meta: _ })) => info
+        ProjectDefinition::Json { info, meta: _ } => info
             .usage
             .iter()
             .filter_map(|usage| match usage {
@@ -992,7 +1054,6 @@ fn member_dependencies(project: &LocalSrcProject) -> Vec<String> {
                 _ => None,
             })
             .collect(),
-        Ok(None) | Err(_) => Vec::new(),
     }
 }
 

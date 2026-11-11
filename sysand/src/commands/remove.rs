@@ -139,7 +139,7 @@ fn lock_sync<Policy: HTTPAuthentication>(
         let definition = current_project
             .get_project()?
             .ok_or(CliError::MissingProjectCurrentDir)?;
-        let roots = sysand_core::workspace::model_toml::lock_roots(&lock_root)?;
+        let roots = ctx.lock_roots()?;
         let mut modified = false;
         let mut root_found = true;
         for id in removed_usages {

@@ -8,7 +8,7 @@
 //! a `model.toml`; they are the coverage of the json format. The
 //! `model.toml` tests are at the end of the file.
 
-use std::{fs, io::Write as _};
+use std::fs;
 
 use assert_cmd::prelude::*;
 use mockito::Server;
@@ -263,467 +263,77 @@ fn config_file_must_be_readable() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn add_and_remove_as_editable() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd) = cli_init_json_project(None, "juliet", "add-and-remove", "1.2.3", None)?;
-
-    let config_path = cwd.join("sysand.toml");
-
-    let out = run_sysand_in(
-        &cwd,
-        [
-            "add",
-            "--no-lock",
-            "--iri",
-            "urn:kpar:test",
-            "--as-editable",
-            "local/test",
-        ],
-        Some(config_path.as_str()),
-    )?;
-
-    out.assert().success().stderr(contains(format!(
-        "  Adding usage: IRI `urn:kpar:test`
-    Creating configuration file at `{config_path}`
-      Adding source for `urn:kpar:test` to configuration file at `{config_path}`"
-    )));
-
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
-
-    assert_eq!(
-        info_json,
-        r#"{
-  "name": "add-and-remove",
-  "publisher": "juliet",
-  "version": "1.2.3",
-  "usage": [
-    {
-      "resource": "urn:kpar:test"
-    }
-  ]
-}
-"#
-    );
-
-    let config = std::fs::read_to_string(&config_path)?;
-
-    assert_eq!(
-        config,
-        r#"[[project]]
-identifiers = [
-    "urn:kpar:test",
-]
-sources = [
-    { editable = "local/test" },
-]
-"#
-    );
-
-    let out = run_sysand_in(
-        &cwd,
-        ["remove", "--iri", "urn:kpar:test"],
-        Some(config_path.as_str()),
-    )?;
-
-    out.assert().success().stderr(contains(format!(
-        "Removing `urn:kpar:test` from usages
-     Removed `urn:kpar:test`
-    Creating env
-     Syncing env
-             nothing to do: env is already up to date
-    Removing source for `urn:kpar:test` from configuration file at `{config_path}`
-    Removing empty configuration file at `{config_path}`"
-    )));
-
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
-
-    assert_eq!(
-        info_json,
-        r#"{
-  "name": "add-and-remove",
-  "publisher": "juliet",
-  "version": "1.2.3"
-}
-"#
-    );
-
-    assert!(!config_path.is_file());
-
-    Ok(())
+    check_add_and_remove_with_source(
+        "juliet",
+        "--as-editable",
+        "local/test",
+        r#"editable = "local/test""#,
+    )
 }
 
 #[test]
 fn add_and_remove_as_local_src() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd) = cli_init_json_project(None, "kilo", "add-and-remove", "1.2.3", None)?;
-
-    let config_path = cwd.join("sysand.toml");
-
-    let out = run_sysand_in(
-        &cwd,
-        [
-            "add",
-            "--no-lock",
-            "--iri",
-            "urn:kpar:test",
-            "--as-local-src",
-            "local/test",
-        ],
-        Some(config_path.as_str()),
-    )?;
-
-    out.assert().success().stderr(contains(format!(
-        "  Adding usage: IRI `urn:kpar:test`
-    Creating configuration file at `{config_path}`
-      Adding source for `urn:kpar:test` to configuration file at `{config_path}`"
-    )));
-
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
-
-    assert_eq!(
-        info_json,
-        r#"{
-  "name": "add-and-remove",
-  "publisher": "kilo",
-  "version": "1.2.3",
-  "usage": [
-    {
-      "resource": "urn:kpar:test"
-    }
-  ]
-}
-"#
-    );
-
-    let config = std::fs::read_to_string(&config_path)?;
-
-    assert_eq!(
-        config,
-        r#"[[project]]
-identifiers = [
-    "urn:kpar:test",
-]
-sources = [
-    { src_path = "local/test" },
-]
-"#
-    );
-
-    let out = run_sysand_in(
-        &cwd,
-        ["remove", "--iri", "urn:kpar:test"],
-        Some(config_path.as_str()),
-    )?;
-
-    out.assert().success().stderr(contains(format!(
-        "Removing `urn:kpar:test` from usages
-     Removed `urn:kpar:test`
-    Creating env
-     Syncing env
-             nothing to do: env is already up to date
-    Removing source for `urn:kpar:test` from configuration file at `{config_path}`
-    Removing empty configuration file at `{config_path}`"
-    )));
-
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
-
-    assert_eq!(
-        info_json,
-        r#"{
-  "name": "add-and-remove",
-  "publisher": "kilo",
-  "version": "1.2.3"
-}
-"#
-    );
-
-    assert!(!config_path.is_file());
-
-    Ok(())
+    check_add_and_remove_with_source(
+        "kilo",
+        "--as-local-src",
+        "local/test",
+        r#"src_path = "local/test""#,
+    )
 }
 
 #[test]
 fn add_and_remove_as_local_kpar() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd) = cli_init_json_project(None, "lima", "add-and-remove", "1.2.3", None)?;
-
-    let config_path = cwd.join("sysand.toml");
-
-    let out = run_sysand_in(
-        &cwd,
-        [
-            "add",
-            "--no-lock",
-            "--iri",
-            "urn:kpar:test",
-            "--as-local-kpar",
-            "local/test.kpar",
-        ],
-        Some(config_path.as_str()),
-    )?;
-
-    out.assert().success().stderr(contains(format!(
-        "  Adding usage: IRI `urn:kpar:test`
-    Creating configuration file at `{config_path}`
-      Adding source for `urn:kpar:test` to configuration file at `{config_path}`"
-    )));
-
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
-
-    assert_eq!(
-        info_json,
-        r#"{
-  "name": "add-and-remove",
-  "publisher": "lima",
-  "version": "1.2.3",
-  "usage": [
-    {
-      "resource": "urn:kpar:test"
-    }
-  ]
-}
-"#
-    );
-
-    let config = std::fs::read_to_string(&config_path)?;
-
-    assert_eq!(
-        config,
-        r#"[[project]]
-identifiers = [
-    "urn:kpar:test",
-]
-sources = [
-    { kpar_path = "local/test.kpar" },
-]
-"#
-    );
-
-    let out = run_sysand_in(
-        &cwd,
-        ["remove", "--iri", "urn:kpar:test"],
-        Some(config_path.as_str()),
-    )?;
-
-    out.assert().success().stderr(contains(format!(
-        "Removing `urn:kpar:test` from usages
-     Removed `urn:kpar:test`
-    Creating env
-     Syncing env
-             nothing to do: env is already up to date
-    Removing source for `urn:kpar:test` from configuration file at `{config_path}`
-    Removing empty configuration file at `{config_path}`"
-    )));
-
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
-
-    assert_eq!(
-        info_json,
-        r#"{
-  "name": "add-and-remove",
-  "publisher": "lima",
-  "version": "1.2.3"
-}
-"#
-    );
-
-    assert!(!config_path.is_file());
-
-    Ok(())
+    check_add_and_remove_with_source(
+        "lima",
+        "--as-local-kpar",
+        "local/test.kpar",
+        r#"kpar_path = "local/test.kpar""#,
+    )
 }
 
 #[test]
 fn add_and_remove_as_remote_src() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd) = cli_init_json_project(None, "mike", "add-and-remove", "1.2.3", None)?;
-
-    let config_path = cwd.join("sysand.toml");
-
-    let out = run_sysand_in(
-        &cwd,
-        [
-            "add",
-            "--no-lock",
-            "--iri",
-            "urn:kpar:test",
-            "--as-remote-src",
-            "https://www.example.com/test",
-        ],
-        Some(config_path.as_str()),
-    )?;
-
-    out.assert().success().stderr(contains(format!(
-        "  Adding usage: IRI `urn:kpar:test`
-    Creating configuration file at `{config_path}`
-      Adding source for `urn:kpar:test` to configuration file at `{config_path}`"
-    )));
-
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
-
-    assert_eq!(
-        info_json,
-        r#"{
-  "name": "add-and-remove",
-  "publisher": "mike",
-  "version": "1.2.3",
-  "usage": [
-    {
-      "resource": "urn:kpar:test"
-    }
-  ]
-}
-"#
-    );
-
-    let config = std::fs::read_to_string(&config_path)?;
-
-    assert_eq!(
-        config,
-        r#"[[project]]
-identifiers = [
-    "urn:kpar:test",
-]
-sources = [
-    { remote_src = "https://www.example.com/test" },
-]
-"#
-    );
-
-    let out = run_sysand_in(
-        &cwd,
-        ["remove", "--iri", "urn:kpar:test"],
-        Some(config_path.as_str()),
-    )?;
-
-    out.assert().success().stderr(contains(format!(
-        "Removing `urn:kpar:test` from usages
-     Removed `urn:kpar:test`
-    Creating env
-     Syncing env
-             nothing to do: env is already up to date
-    Removing source for `urn:kpar:test` from configuration file at `{config_path}`
-    Removing empty configuration file at `{config_path}`"
-    )));
-
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
-
-    assert_eq!(
-        info_json,
-        r#"{
-  "name": "add-and-remove",
-  "publisher": "mike",
-  "version": "1.2.3"
-}
-"#
-    );
-
-    assert!(!config_path.is_file());
-
-    Ok(())
+    check_add_and_remove_with_source(
+        "mike",
+        "--as-remote-src",
+        "https://www.example.com/test",
+        r#"remote_src = "https://www.example.com/test""#,
+    )
 }
 
 #[test]
 fn add_and_remove_as_remote_kpar() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd) =
-        cli_init_json_project(None, "november", "add-and-remove", "1.2.3", None)?;
-
-    let config_path = cwd.join("sysand.toml");
-
-    let out = run_sysand_in(
-        &cwd,
-        [
-            "add",
-            "--no-lock",
-            "--iri",
-            "urn:kpar:test",
-            "--as-remote-kpar",
-            "https://www.example.com/test.kpar",
-        ],
-        Some(config_path.as_str()),
-    )?;
-
-    out.assert().success().stderr(contains(format!(
-        "  Adding usage: IRI `urn:kpar:test`
-    Creating configuration file at `{config_path}`
-      Adding source for `urn:kpar:test` to configuration file at `{config_path}`"
-    )));
-
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
-
-    assert_eq!(
-        info_json,
-        r#"{
-  "name": "add-and-remove",
-  "publisher": "november",
-  "version": "1.2.3",
-  "usage": [
-    {
-      "resource": "urn:kpar:test"
-    }
-  ]
-}
-"#
-    );
-
-    let config = std::fs::read_to_string(&config_path)?;
-
-    assert_eq!(
-        config,
-        r#"[[project]]
-identifiers = [
-    "urn:kpar:test",
-]
-sources = [
-    { remote_kpar = "https://www.example.com/test.kpar" },
-]
-"#
-    );
-
-    let out = run_sysand_in(
-        &cwd,
-        ["remove", "--iri", "urn:kpar:test"],
-        Some(config_path.as_str()),
-    )?;
-
-    out.assert().success().stderr(contains(format!(
-        "Removing `urn:kpar:test` from usages
-     Removed `urn:kpar:test`
-    Creating env
-     Syncing env
-             nothing to do: env is already up to date
-    Removing source for `urn:kpar:test` from configuration file at `{config_path}`
-    Removing empty configuration file at `{config_path}`"
-    )));
-
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
-
-    assert_eq!(
-        info_json,
-        r#"{
-  "name": "add-and-remove",
-  "publisher": "november",
-  "version": "1.2.3"
-}
-"#
-    );
-
-    assert!(!config_path.is_file());
-
-    Ok(())
+    check_add_and_remove_with_source(
+        "november",
+        "--as-remote-kpar",
+        "https://www.example.com/test.kpar",
+        r#"remote_kpar = "https://www.example.com/test.kpar""#,
+    )
 }
 
 #[test]
 fn add_and_remove_as_remote_git() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd) =
-        cli_init_json_project(None, "november", "add-and-remove", "1.2.3", None)?;
+    check_add_and_remove_with_source(
+        "november",
+        "--as-remote-git",
+        "https://www.example.com/test.git",
+        r#"remote_git = "https://www.example.com/test.git""#,
+    )
+}
+
+fn check_add_and_remove_with_source(
+    publisher: &str,
+    flag: &str,
+    value: &str,
+    expected_source: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = cli_init_json_project(None, publisher, "add-and-remove", "1.2.3", None)?;
 
     let config_path = cwd.join("sysand.toml");
 
     let out = run_sysand_in(
         &cwd,
-        [
-            "add",
-            "--no-lock",
-            "--iri",
-            "urn:kpar:test",
-            "--as-remote-git",
-            "https://www.example.com/test.git",
-        ],
+        ["add", "--no-lock", "--iri", "urn:kpar:test", flag, value],
         Some(config_path.as_str()),
     )?;
 
@@ -737,31 +347,35 @@ fn add_and_remove_as_remote_git() -> Result<(), Box<dyn std::error::Error>> {
 
     assert_eq!(
         info_json,
-        r#"{
+        format!(
+            r#"{{
   "name": "add-and-remove",
-  "publisher": "november",
+  "publisher": "{publisher}",
   "version": "1.2.3",
   "usage": [
-    {
+    {{
       "resource": "urn:kpar:test"
-    }
+    }}
   ]
-}
+}}
 "#
+        )
     );
 
     let config = std::fs::read_to_string(&config_path)?;
 
     assert_eq!(
         config,
-        r#"[[project]]
+        format!(
+            r#"[[project]]
 identifiers = [
     "urn:kpar:test",
 ]
 sources = [
-    { remote_git = "https://www.example.com/test.git" },
+    {{ {expected_source} }},
 ]
 "#
+        )
     );
 
     let out = run_sysand_in(
@@ -784,12 +398,14 @@ sources = [
 
     assert_eq!(
         info_json,
-        r#"{
+        format!(
+            r#"{{
   "name": "add-and-remove",
-  "publisher": "november",
+  "publisher": "{publisher}",
   "version": "1.2.3"
-}
+}}
 "#
+        )
     );
 
     assert!(!config_path.is_file());
@@ -1867,23 +1483,11 @@ fn write_dep_kpar(
     name: &str,
     version: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let file = std::fs::File::create(kpar_path)?;
-    let mut zip = zip::ZipWriter::new(file);
-
-    let options = zip::write::SimpleFileOptions::default()
-        .compression_method(zip::CompressionMethod::Stored)
-        .unix_permissions(0o644);
-
-    zip.start_file(".project.json", options)?;
-    zip.write_all(
-        format!(r#"{{"name":"{name}","publisher":"{publisher}","version":"{version}"}}"#)
-            .as_bytes(),
-    )?;
-    zip.start_file(".meta.json", options)?;
-    zip.write_all(br#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)?;
-
-    zip.finish()?;
-    Ok(())
+    write_kpar(
+        kpar_path,
+        &format!(r#"{{"name":"{name}","publisher":"{publisher}","version":"{version}"}}"#),
+        r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#,
+    )
 }
 
 #[test]
@@ -2161,18 +1765,11 @@ fn add_kpar_path_missing_publisher_fails() -> Result<(), Box<dyn std::error::Err
     )?;
 
     let dep_kpar = cwd.join("dep.kpar");
-    {
-        let file = std::fs::File::create(&dep_kpar)?;
-        let mut zip = zip::ZipWriter::new(file);
-        let options = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Stored)
-            .unix_permissions(0o644);
-        zip.start_file(".project.json", options)?;
-        zip.write_all(br#"{"name":"no-publisher-dep","version":"1.0.0"}"#)?;
-        zip.start_file(".meta.json", options)?;
-        zip.write_all(br#"{"index":{},"created":"1970-01-01T00:00:00Z"}"#)?;
-        zip.finish()?;
-    }
+    write_kpar(
+        &dep_kpar,
+        r#"{"name":"no-publisher-dep","version":"1.0.0"}"#,
+        r#"{"index":{},"created":"1970-01-01T00:00:00Z"}"#,
+    )?;
 
     let out = run_sysand_in(&cwd, ["add", "--no-lock", "--kpar-path", "dep.kpar"], None)?;
 

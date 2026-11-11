@@ -33,12 +33,12 @@ pub use toml_edit::{Array, DocumentMut, Value};
 use typed_path::Utf8UnixPathBuf;
 
 use crate::manifest::common::{
-    InheritFrom, NormalizedIdentity, OMG_PUBLISHER, PathProblem, Sources, SourcesError,
+    InheritFrom, NormalizedIdentity, OMG_PUBLISHER, PathProblem, Sources, SourcesError, URL_KEYS,
     normalized_identity,
 };
 use crate::manifest::diagnostics::Diagnostic;
 use crate::manifest::inherit::{Inherited, MetaProperty};
-use crate::manifest::project::{PROJECT_KEYS, ProjectTable, URL_KEYS, Urls};
+use crate::manifest::project::{PROJECT_KEYS, ProjectTable, Urls};
 use crate::manifest::spans::Source;
 use crate::manifest::usage::{MemberUsage, UsageRaw};
 use crate::manifest::workspace_table::{GROUP_KEYS, GroupProperties, WorkspaceTable};
@@ -192,13 +192,7 @@ fn urls(table: &mut Table, key: &str, property: Option<&MetaProperty<Urls>>) {
     };
 
     let mut written = Table::new();
-    for url_key in URL_KEYS {
-        let property = match *url_key {
-            "website" => urls.website.as_ref(),
-            "documentation" => urls.documentation.as_ref(),
-            "repository" => urls.repository.as_ref(),
-            _ => None,
-        };
+    for (url_key, property) in urls.entries() {
         optional(&mut written, url_key, property, |iri| {
             Value::from(iri.as_str())
         });
@@ -324,13 +318,7 @@ fn group(table: &mut Table, properties: &GroupProperties) {
             "urls" => {
                 if let Some(urls) = &properties.urls {
                     let mut written = Table::new();
-                    for url_key in URL_KEYS {
-                        let iri = match *url_key {
-                            "website" => urls.website.as_ref(),
-                            "documentation" => urls.documentation.as_ref(),
-                            "repository" => urls.repository.as_ref(),
-                            _ => None,
-                        };
+                    for (url_key, iri) in urls.entries() {
                         if let Some(iri) = iri {
                             written[url_key] = value(iri.as_str());
                         }
@@ -410,12 +398,7 @@ pub enum EditError {
 pub fn validated(file: &str, text: &str) -> Result<DocumentMut, ProjectDeserializationError> {
     crate::manifest::ModelToml::parse(file, text)
         .map_err(|report| ProjectDeserializationError::invalid(file, report))?;
-    open(file, text).map_err(|problem| {
-        ProjectDeserializationError::invalid(
-            file,
-            crate::manifest::diagnostics::Diagnostics::from_iter([problem]),
-        )
-    })
+    open(file, text).map_err(|problem| ProjectDeserializationError::invalid(file, problem))
 }
 
 /// Parse a `model.toml` for editing. The failure is the reader's.
@@ -444,11 +427,7 @@ struct KeyComments {
 
 impl KeyComments {
     fn read(table: &Table, key: &str) -> Self {
-        let outer = table
-            .key(key)
-            .and_then(|key| key.leaf_decor().prefix())
-            .and_then(|prefix| prefix.as_str())
-            .map(str::to_owned);
+        let outer = key_prefix(table, key);
         match table.get(key) {
             Some(Item::Value(value)) => Self {
                 above: outer,
@@ -458,11 +437,7 @@ impl KeyComments {
             Some(Item::Table(inner)) if inner.is_dotted() => {
                 let (above, after) = inner.iter().next().map_or_default(|(name, _)| {
                     (
-                        inner
-                            .key(name)
-                            .and_then(|key| key.leaf_decor().prefix())
-                            .and_then(|prefix| prefix.as_str())
-                            .map(str::to_owned),
+                        key_prefix(inner, name),
                         inner
                             .get(name)
                             .and_then(Item::as_value)
@@ -494,6 +469,15 @@ impl KeyComments {
 
 /// The key a marker is written under.
 const MARKER: &str = "workspace";
+
+/// What is written before a key: the comment on the line above it.
+fn key_prefix(table: &Table, key: &str) -> Option<String> {
+    table
+        .key(key)
+        .and_then(|key| key.leaf_decor().prefix())
+        .and_then(|prefix| prefix.as_str())
+        .map(str::to_owned)
+}
 
 fn decor_suffix(decor: &Decor) -> Option<String> {
     decor

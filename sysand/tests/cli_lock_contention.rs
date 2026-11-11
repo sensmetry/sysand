@@ -11,90 +11,16 @@
 use std::{error::Error, fs, thread, time::Duration};
 
 use assert_cmd::prelude::*;
-use camino::{Utf8Path, Utf8PathBuf};
-use camino_tempfile::Utf8TempDir;
+use camino::Utf8Path;
 use predicates::prelude::*;
 use sysand_core::{
     commands::lock::DEFAULT_LOCKFILE_NAME,
     env::{DEFAULT_ENV_NAME, local_directory::METADATA_PATH},
-    lock::{Lock, Lockfile, Project, Source, Usage},
-    project::{ProjectRead as _, local_src::LocalSrcProject},
-    utils::sha256_lowercase_hex,
     workspace_lock::{LockMode, WorkspaceLock},
 };
-use typed_path::Utf8UnixPathBuf;
 
 mod common;
 pub use common::*;
-
-fn write_dep(dir: &Utf8Path, name: &str) -> Result<(), Box<dyn Error>> {
-    fs::create_dir_all(dir)?;
-    let model = format!("package {name} {{ }}\n");
-    fs::write(dir.join(format!("{name}.sysml")), &model)?;
-    fs::write(
-        dir.join(".project.json"),
-        format!(r#"{{"name":"{name}","publisher":"acme","version":"1.0.0"}}"#),
-    )?;
-    fs::write(
-        dir.join(".meta.json"),
-        format!(
-            r#"{{"index":{{"{name}":"{name}.sysml"}},"created":"2026-01-01T00:00:00Z","checksum":{{"{name}.sysml":{{"algorithm":"SHA256","value":"{}"}}}}}}"#,
-            sha256_lowercase_hex(&model)
-        ),
-    )?;
-    Ok(())
-}
-
-/// An app in a fresh directory using `dep` from `deps/dep`, with a
-/// lockfile but not yet synced.
-fn locked_app() -> Result<(Utf8TempDir, Utf8PathBuf), Box<dyn Error>> {
-    let (temp_dir, cwd) = new_temp_cwd()?;
-    fs::write(
-        cwd.join(".project.json"),
-        r#"{"name":"app","publisher":"acme","version":"0.1.0","usage":[{"resource":"urn:dep","versionConstraint":"^1.0.0"}]}"#,
-    )?;
-    fs::write(
-        cwd.join(".meta.json"),
-        r#"{"index":{},"created":"2026-01-01T00:00:00Z"}"#,
-    )?;
-    let dir = cwd.join("deps/dep");
-    write_dep(&dir, "dep")?;
-    let checksum = LocalSrcProject::new_access(&dir, None)
-        .checksum_canonical_hex()?
-        .expect("manifests");
-    let lock = Lock {
-        projects: vec![
-            Project {
-                publisher: Some("acme".to_owned()),
-                name: "app".to_owned(),
-                version: "0.1.0".to_owned(),
-                metamodel: None,
-                exports: vec![],
-                identifiers: vec![],
-                usages: vec![Usage::from_str_unchecked("urn:dep")],
-                sources: vec![Source::Editable {
-                    editable: Utf8UnixPathBuf::from("."),
-                }],
-            },
-            Project {
-                publisher: Some("acme".to_owned()),
-                name: "dep".to_owned(),
-                version: "1.0.0".to_owned(),
-                metamodel: None,
-                exports: vec![],
-                identifiers: vec!["urn:dep".to_owned()],
-                usages: vec![],
-                sources: vec![Source::LocalSrc {
-                    src_path: Utf8UnixPathBuf::from("deps/dep"),
-                    checksum,
-                }],
-            },
-        ],
-        ..Lock::default()
-    };
-    Lockfile::new(&cwd, lock).write()?;
-    Ok((temp_dir, cwd))
-}
 
 fn held_text(root: &Utf8Path) -> String {
     format!("another process is using `{root}`")

@@ -11,11 +11,12 @@ use camino::{Utf8Path, Utf8PathBuf};
 use sysand_core::{
     cancel::CancellationToken,
     context::ProjectContext,
-    discover::discover_project,
+    discover::{Ancestry, Seek},
+    manifest::workspace_table::WorkspaceTable,
     project::local_src::LocalSrcProject,
     workspace::model_toml::{
-        DiscoverError, MemberChecks, Selector, StartRegion, Workspace, discover_table,
-        member_index, start_region,
+        DiscoverError, MemberChecks, Selector, StartRegion, Workspace, member_index, start_region,
+        table_of,
     },
     workspace_lock::{ExclusiveLock, LockMode, WorkspaceLock},
 };
@@ -85,42 +86,39 @@ pub fn discover_context(
         cancellation,
     } = options;
 
-    let current_project = discover_project(&cwd)?;
-    let project_root = current_project.as_ref().map(|p| p.root_path().to_owned());
+    // One upward walk, reading each ancestor's manifest once, finds the
+    // project and the workspace, which serves both configuration (read at
+    // the workspace root) and commands with a scope.
+    let ancestry = Ancestry::walk(&cwd, Seek::ProjectToo)?;
+    let project_root = ancestry.project().map(Utf8Path::to_owned);
+    // FIXME: assuming nominal path "." is incorrect
+    let current_project = project_root
+        .clone()
+        .map(|root| LocalSrcProject::new_access(root, Some(".".into())));
 
-    // One upward walk serves both configuration (read at the workspace
-    // root) and commands with a scope.
-    let discovered = discover_table(&cwd);
-    let workspace_root = match &discovered {
-        Ok(Some((root, _))) => Some(root.clone()),
-        Ok(None) => None,
-        // Not fatal here: a command that consults the workspace reports it
-        // below, and failing here would take down every command.
+    // The table is kept: a member's manifest cannot be read without it.
+    let discovered = match table_of(ancestry) {
+        Ok(found) => found.map(|(root, table)| (root, Arc::new(table))),
+        Err(error) if consults_workspace => return Err(error.into()),
+        // Not fatal here: failing would take down every command that does
+        // not consult the workspace.
         Err(error) => {
             log::debug!("not reading configuration from a workspace root: {error}");
             None
         }
     };
-
-    // The table is kept: a member's manifest cannot be read without it.
-    let mut workspace_table: Option<(Utf8PathBuf, Arc<_>)> = None;
-    let scope = if consults_workspace {
-        match discovered {
-            Ok(Some((root, table))) => {
-                let start = start_region(&root, &table, &cwd)?;
-                workspace_table = Some((root.clone(), Arc::new(table)));
-                Some((root, start))
-            }
-            Ok(None) => None,
-            Err(error) => return Err(error.into()),
+    let workspace_root = discovered.as_ref().map(|(root, _)| root.clone());
+    let scope = match &discovered {
+        Some((root, table)) if consults_workspace => {
+            Some((root.clone(), start_region(root, table, &cwd)?))
         }
-    } else {
-        None
+        _ => None,
     };
 
     // A selector replaces which member the command acts on, so it is
     // applied before `current_project` is settled.
-    let selected = selected_member(&cwd, workspace_root.as_deref(), selector)?;
+    let selected = selected_member(&cwd, discovered.as_ref(), selector)?;
+    let workspace_table = discovered.filter(|_| consults_workspace);
     let current_project = match (&selected, &workspace_table) {
         (Some(dir), Some((_, table))) => Some(LocalSrcProject::new_member(
             dir.clone(),
@@ -163,6 +161,11 @@ pub fn discover_context(
         matches!(start, StartRegion::Member(_) | StartRegion::Workspace).then(|| root.clone())
     });
 
+    let model_workspace_table = model_workspace_root
+        .as_ref()
+        .and(workspace_table)
+        .map(|(_, table)| table);
+
     if needs_a_project && model_workspace_root.is_none() && current_project.is_none() {
         bail!(NotInProject { dir: cwd });
     }
@@ -177,6 +180,7 @@ pub fn discover_context(
         workspace_lock: None,
         cancellation,
         model_workspace_root,
+        model_workspace_table,
         current_project,
         current_directory: cwd,
         config_root,
@@ -226,15 +230,15 @@ pub fn discover_context(
 /// `output` is refused.
 fn selected_member(
     cwd: &Utf8Path,
-    workspace_root: Option<&Utf8Path>,
+    workspace: Option<&(Utf8PathBuf, Arc<WorkspaceTable>)>,
     selector: Selector<'_>,
 ) -> Result<Option<Utf8PathBuf>> {
     let Selector::Member(selector) = selector else {
         return Ok(None);
     };
-    let Some(root) = workspace_root else {
+    let Some((root, table)) = workspace else {
         bail!("`--member {selector}` needs a workspace, but `{cwd}` is not in one");
     };
-    let workspace = Workspace::load_with(root, MemberChecks::All)?;
+    let workspace = Workspace::with_table(root.clone(), table.clone(), MemberChecks::All)?;
     Ok(Some(workspace.member(selector)?.dir.clone()))
 }

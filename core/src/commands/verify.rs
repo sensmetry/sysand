@@ -24,7 +24,7 @@ use thiserror::Error;
 use typed_path::Utf8UnixPathBuf;
 
 use crate::{
-    commands::sync::{Mismatch, MismatchKind, StaleKind, StaleUsage, SyncedProject},
+    commands::sync::{Mismatch, MismatchKind, StaleKind, StaleUsage, SyncOutcome, SyncedProject},
     env::{
         ProjectChecksumResult, ReadEnvironment as _,
         local_directory::{LocalDirectoryEnvironment, LocalReadError},
@@ -61,12 +61,10 @@ impl ManifestUsages {
     /// workspace when there is one, else the current project. Nothing
     /// outside a project.
     pub fn for_context(ctx: &crate::context::ProjectContext) -> Result<Vec<Self>, VerifyError> {
-        if let Some(root) = &ctx.model_workspace_root {
-            let workspace = crate::workspace::model_toml::Workspace::load_with(
-                root,
-                crate::workspace::model_toml::MemberChecks::All,
-            )?;
-            let table = std::sync::Arc::new(workspace.table().clone());
+        if let Some(workspace) =
+            ctx.load_workspace(crate::workspace::model_toml::MemberChecks::All)?
+        {
+            let table = workspace.table().clone();
             return workspace
                 .members()
                 .iter()
@@ -126,44 +124,6 @@ impl ManifestUsages {
     }
 }
 
-/// What a verification found.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct VerifyReport {
-    /// Lockfile entries whose installation matches.
-    pub verified: Vec<SyncedProject>,
-    /// Entries that do not.
-    pub mismatched: Vec<Mismatch>,
-    /// Directories under `lib/` that `env.toml` does not record,
-    /// relative to the environment root.
-    pub unrecorded: Vec<Utf8UnixPathBuf>,
-    /// Manifest usages the lockfile does not reflect.
-    pub stale: Vec<StaleUsage>,
-}
-
-impl VerifyReport {
-    pub fn is_clean(&self) -> bool {
-        self.mismatched.is_empty() && self.unrecorded.is_empty() && self.stale.is_empty()
-    }
-
-    pub fn problems(&self) -> usize {
-        self.mismatched.len() + self.unrecorded.len() + self.stale.len()
-    }
-
-    /// Every finding's text, in report order.
-    pub fn findings(&self) -> Vec<String> {
-        self.mismatched
-            .iter()
-            .map(ToString::to_string)
-            .chain(
-                self.unrecorded
-                    .iter()
-                    .map(|path| format!("`{path}` is installed but not recorded in `env.toml`")),
-            )
-            .chain(self.stale.iter().map(ToString::to_string))
-            .collect()
-    }
-}
-
 #[derive(Error, Debug)]
 pub enum VerifyError {
     #[error(transparent)]
@@ -190,12 +150,12 @@ pub fn do_verify(
     env: Option<&LocalDirectoryEnvironment>,
     manifests: &[ManifestUsages],
     provided: &ProvidedProjects,
-) -> Result<VerifyReport, VerifyError> {
+) -> Result<SyncOutcome, VerifyError> {
     let verifying = "Verifying";
     let header = crate::style::get_style_config().header;
     log::info!("{header}{verifying:>12}{header:#} env");
 
-    let mut report = VerifyReport::default();
+    let mut report = SyncOutcome::default();
 
     'projects: for project in &lock.projects {
         let Some(iri) = project.identifiers.first() else {

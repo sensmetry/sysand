@@ -15,15 +15,14 @@
 
 use std::collections::BTreeMap;
 
-use fluent_uri::Iri;
 use semver::Version;
 use spdx::Expression;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
 use crate::manifest::common::{InheritFrom, Maintainer, ResolvedUrls, is_valid_group_name};
 use crate::manifest::diagnostics::{Diagnostic, Diagnostics, Position, Validated};
-use crate::manifest::reader::{self, TableReader, checked, maintainers, parsed};
-use crate::manifest::usage::{Usage, UsageRaw, UsageSite, check_duplicates};
+use crate::manifest::reader::{self, TableReader};
+use crate::manifest::usage::{Usage, UsageRaw, read_usages};
 use crate::model::{IndexPublisher, KnownMetamodel};
 use crate::utils::{NormalizeRelativeError, normalize_relative};
 
@@ -50,9 +49,6 @@ pub(crate) const GROUP_KEYS: &[&str] = &[
 /// The keys of `[workspace]` itself, which is the default group plus the
 /// membership lists and the named groups.
 const WORKSPACE_KEYS: &[&str] = &["members", "exclude", "group"];
-
-/// The keys `urls` admits.
-const URL_KEYS: &[&str] = &["website", "documentation", "repository"];
 
 /// The values a group provides for members to inherit.
 ///
@@ -236,36 +232,19 @@ fn read_group(
         );
     }
 
-    let publisher = reader
-        .string("publisher", report)
-        .and_then(|raw| parsed(IndexPublisher::parse(raw), reader, "publisher", report));
-    let version = reader.string("version", report).and_then(|raw| {
-        checked(
-            Version::parse(raw),
-            reader,
-            "version",
-            raw,
-            "a valid version",
-            report,
-        )
-    });
-    let license = reader.string("license", report).and_then(|raw| {
-        checked(
-            Expression::parse(raw),
-            reader,
-            "license",
-            raw,
-            "a valid SPDX expression",
-            report,
-        )
-    });
-    let topics = reader
-        .strings("topics", report)
-        .map(|values| values.into_iter().map(ToOwned::to_owned).collect());
+    let publisher = reader::publisher(reader, report);
+    let version = reader::version(reader, report);
+    let license = reader::license(reader, report);
+    let topics = reader::topics(reader, report);
     let metamodel = reader::metamodel(reader, report);
-    let maintainers = maintainers(reader, report);
-    let urls = urls(reader, report);
-    let inline_usages = group_usages(reader, table, report);
+    let maintainers = reader::maintainers(reader, report);
+    let urls = reader::urls(reader, report, reader::url);
+    let inline_usages = read_usages(
+        reader,
+        &format!("{table}.inline-usages"),
+        report,
+        UsageRaw::validate_declared,
+    );
 
     report.extend(reader.unknown_keys(known, None));
 
@@ -279,51 +258,6 @@ fn read_group(
         urls,
         inline_usages,
     }
-}
-
-fn urls(reader: &TableReader<'_>, report: &mut Diagnostics) -> Option<ResolvedUrls> {
-    let urls = reader.table("urls", report)?;
-    let url = |key: &str, report: &mut Diagnostics| {
-        let raw = urls.string(key, report)?;
-        checked(
-            Iri::parse(raw.to_owned()).map_err(|(error, _)| error),
-            &urls,
-            key,
-            raw,
-            "a valid URL",
-            report,
-        )
-    };
-    let website = url("website", report);
-    let documentation = url("documentation", report);
-    let repository = url("repository", report);
-    report.extend(urls.unknown_keys(URL_KEYS, None));
-    Some(ResolvedUrls {
-        website,
-        documentation,
-        repository,
-    })
-}
-
-/// A group's own entries, which have nothing above them to inherit from.
-fn group_usages(reader: &TableReader<'_>, table: &str, report: &mut Diagnostics) -> Vec<Usage> {
-    let array = format!("{table}.inline-usages");
-    let mut entries = Vec::new();
-    let tables = reader.tables("inline-usages", report);
-    for (index, entry) in tables.iter().enumerate() {
-        let site = UsageSite {
-            array: &array,
-            index,
-            entry,
-        };
-        match UsageRaw::from_table(entry.raw()).validate_declared(&site) {
-            Ok(usage) => entries.push((site, usage)),
-            Err(problems) => report.extend(problems.into_diagnostics()),
-        }
-    }
-    // Duplicates are counted per array; only validated entries are compared.
-    report.extend(check_duplicates(&entries));
-    entries.into_iter().map(|(_, usage)| usage).collect()
 }
 
 /// The `members` (or `exclude`) entries, as paths relative to the

@@ -873,57 +873,6 @@ impl From<InterchangeProjectUsage> for InterchangeProjectUsageRaw {
     }
 }
 
-impl From<InterchangeProjectUsage>
-    for InterchangeProjectUsageG<
-        String,
-        semver::VersionReq,
-        Utf8UnixPathBuf,
-        ProjectPublisher,
-        ProjectName,
-        IndexPublisher,
-        IndexName,
-    >
-{
-    fn from(value: InterchangeProjectUsage) -> Self {
-        match value {
-            InterchangeProjectUsageG::Resource {
-                resource,
-                version_constraint,
-            } => Self::Resource {
-                resource: resource.into_string(),
-                version_constraint,
-            },
-            InterchangeProjectUsage::Directory {
-                dir,
-                publisher,
-                name,
-            } => Self::Directory {
-                dir,
-                publisher,
-                name,
-            },
-            InterchangeProjectUsageG::KparPath {
-                kpar_path,
-                publisher,
-                name,
-            } => Self::KparPath {
-                kpar_path,
-                publisher,
-                name,
-            },
-            InterchangeProjectUsageG::Index {
-                publisher,
-                name,
-                version_constraint,
-            } => Self::Index {
-                publisher,
-                name,
-                version_constraint,
-            },
-        }
-    }
-}
-
 impl<
     Iri: Display,
     VersionReq: Display,

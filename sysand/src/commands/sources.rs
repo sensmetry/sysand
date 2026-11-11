@@ -106,19 +106,16 @@ pub fn command_sources_project(
 /// Own-source order is deterministic; dependency order is up to the
 /// solver.
 pub fn command_sources_workspace(
-    root: &camino::Utf8Path,
     no_own: bool,
     dependencies: DependenciesCli,
     ctx: ProjectContext,
 ) -> Result<()> {
     use std::collections::HashSet;
-    use std::sync::Arc;
-    use sysand_core::{
-        project::local_src::LocalSrcProject,
-        workspace::model_toml::{MemberChecks, Workspace},
-    };
+    use sysand_core::{project::local_src::LocalSrcProject, workspace::model_toml::MemberChecks};
 
-    let workspace = Workspace::load_with(root, MemberChecks::All)?;
+    let workspace = ctx
+        .load_workspace(MemberChecks::All)?
+        .expect("a workspace root means a workspace");
 
     // A group entry's path is relative to the workspace root, which is not
     // known below, so resolving it would look in the member's directory.
@@ -138,7 +135,7 @@ pub fn command_sources_workspace(
         }
     }
 
-    let table = Arc::new(workspace.table().clone());
+    let table = workspace.table().clone();
 
     let mut seen = HashSet::new();
     let mut listed: Vec<String> = Vec::new();

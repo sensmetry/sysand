@@ -26,7 +26,6 @@ use crate::{
         ProjectName, ProjectPublisher, normalize_typed_name, normalize_typed_publisher,
     },
     purl::sysand_purl,
-    resolve::UsageOrigin,
     utils::SP,
 };
 
@@ -163,6 +162,46 @@ impl LockMode {
             Self::Exclusive => file.try_lock(),
         }
     }
+
+    /// Take this lock on `file`, polling every `poll_interval` for up to
+    /// `wait` (not at all when `None`). `on_wait` runs once, before the
+    /// first sleep.
+    pub fn lock_polling(
+        self,
+        file: &std::fs::File,
+        wait: Option<std::time::Duration>,
+        poll_interval: std::time::Duration,
+        on_wait: impl FnOnce(),
+    ) -> Result<(), LockPollError> {
+        let deadline = wait.map(|wait| std::time::Instant::now() + wait);
+        let mut on_wait = Some(on_wait);
+        loop {
+            match self.try_lock(file) {
+                Ok(()) => return Ok(()),
+                Err(std::fs::TryLockError::WouldBlock) => {
+                    let Some(deadline) = deadline else {
+                        return Err(LockPollError::Blocked);
+                    };
+                    if std::time::Instant::now() >= deadline {
+                        return Err(LockPollError::Blocked);
+                    }
+                    if let Some(on_wait) = on_wait.take() {
+                        on_wait();
+                    }
+                    std::thread::sleep(poll_interval);
+                }
+                Err(std::fs::TryLockError::Error(err)) => return Err(LockPollError::Io(err)),
+            }
+        }
+    }
+}
+
+/// Why [`LockMode::lock_polling`] gave up.
+#[derive(Debug)]
+pub enum LockPollError {
+    /// Another holder kept the lock for the whole wait.
+    Blocked,
+    Io(std::io::Error),
 }
 
 /// Wrappers for filesystem I/O functions to return `FsIoError`.
@@ -376,9 +415,9 @@ impl ProjectDeserializationError {
         }
     }
 
-    pub fn invalid(path: impl AsRef<Utf8Path>, diagnostics: Diagnostics) -> Self {
+    pub fn invalid(path: impl AsRef<Utf8Path>, diagnostics: impl Into<Diagnostics>) -> Self {
         Self::Invalid {
-            report: diagnostics.in_file(path.as_ref().as_str()),
+            report: diagnostics.into().in_file(path.as_ref().as_str()),
         }
     }
 }
@@ -713,60 +752,28 @@ impl Identifier {
     /// assertion). Usages of *any* kind can be compared by identity
     /// without trusting the manifest first.
     pub fn from_unvalidated_usage(usage: &InterchangeProjectUsageRaw) -> Option<Self> {
+        if usage
+            .typed_publisher_name()
+            .is_some_and(|(publisher, name)| publisher.is_empty() || name.is_empty())
+        {
+            return None;
+        }
+        Some(Self::from_interchange_usage_unchecked(usage))
+    }
+
+    pub fn from_interchange_usage_unchecked(usage: &InterchangeProjectUsageRaw) -> Self {
         match usage {
             InterchangeProjectUsageRaw::Resource {
                 resource,
                 version_constraint: _,
-            } => Some(Self(resource.clone())),
-            InterchangeProjectUsageRaw::Directory {
-                publisher,
-                name,
-                dir: _,
-            }
-            | InterchangeProjectUsageRaw::KparPath {
-                publisher,
-                name,
-                kpar_path: _,
-            }
-            | InterchangeProjectUsageRaw::Index {
-                publisher,
-                name,
-                version_constraint: _,
-            } => {
-                if publisher.is_empty() || name.is_empty() {
-                    None
-                } else {
-                    Some(Self::make_identifier_iri(publisher, name))
-                }
+            } => Self(resource.clone()),
+            typed => {
+                let (publisher, name) = typed
+                    .typed_publisher_name()
+                    .expect("a non-resource usage is typed");
+                Self::make_identifier_iri(publisher, name)
             }
         }
-    }
-
-    pub fn from_interchange_usage_unchecked(usage: &InterchangeProjectUsageRaw) -> Self {
-        let (publisher, name) = match usage {
-            InterchangeProjectUsageRaw::Resource {
-                resource,
-                version_constraint: _,
-            } => {
-                return Self(resource.clone());
-            }
-            InterchangeProjectUsageRaw::Directory {
-                publisher,
-                name,
-                dir: _,
-            }
-            | InterchangeProjectUsageRaw::KparPath {
-                publisher,
-                name,
-                kpar_path: _,
-            }
-            | InterchangeProjectUsageRaw::Index {
-                publisher,
-                name,
-                version_constraint: _,
-            } => (publisher, name),
-        };
-        Self::make_identifier_iri(publisher, name)
     }
 
     pub fn from_iri_owned(iri: Iri<String>) -> Self {
@@ -846,34 +853,19 @@ impl Display for Identifier {
     }
 }
 
-/// How an expected identity is compared with the one the target
-/// declares.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum IdentityMatch {
-    /// Both sides are normalized before comparing. Resolving a usage
-    /// is the only comparison that does this.
-    Normalized,
-    /// Literal string equality, which catches drift that normalizing
-    /// would hide.
-    Literal,
-}
-
 /// The identity a usage expects to find at its target.
 ///
 /// Every usage carries `publisher` and `name`: that pair is the identity
-/// a usage is resolved by, and the target must declare the same one.
+/// a usage is resolved by, and the target must declare the same one after
+/// normalization.
 #[derive(Clone, Debug)]
 pub struct ExpectedIdentity {
     publisher: Option<String>,
     name: String,
-    matching: IdentityMatch,
-    origin: UsageOrigin,
 }
 
-/// How a [`IdentityMismatch::Spelling`] spells one side of the
-/// comparison: `<publisher>/<name>`, with `<none>` for a target that
-/// declares no publisher (which a toml usage only reaches when it
-/// expects none either).
+/// How a mismatch spells one side of a comparison: `<publisher>/<name>`,
+/// with `<none>` for a side that declares no publisher.
 #[cfg_attr(
     not(feature = "filesystem"),
     expect(
@@ -891,13 +883,6 @@ pub(crate) fn pair(publisher: Option<&str>, name: &str) -> String {
 /// How the identity a target declares differs from the expected one.
 #[derive(Clone, Debug)]
 pub enum IdentityMismatch {
-    /// The target declares no publisher at all, and the usage was
-    /// written in a `model.toml`, where one is required. The same target
-    /// under a json usage is an ordinary
-    /// [`Self::Publisher`] mismatch against `<none>`.
-    NoPublisher {
-        name: String,
-    },
     Publisher {
         expected: Option<String>,
         actual: Option<String>,
@@ -906,64 +891,13 @@ pub enum IdentityMismatch {
         expected: String,
         actual: String,
     },
-    /// A usage written in a `model.toml`, where the target must declare
-    /// the pair as the usage spells it. Carries both halves because one
-    /// message names both.
-    Spelling {
-        expected: (Option<String>, String),
-        actual: (Option<String>, String),
-    },
 }
 
 impl ExpectedIdentity {
     /// A usage being resolved. `publisher` is `None` when the usage
     /// expects a target that declares none.
     pub fn resolving(publisher: Option<String>, name: String) -> Self {
-        Self {
-            publisher,
-            name,
-            matching: IdentityMatch::Normalized,
-            origin: UsageOrigin::Json,
-        }
-    }
-
-    /// A pair the lockfile recorded, which is compared literally.
-    pub fn recorded(publisher: Option<String>, name: String) -> Self {
-        Self {
-            publisher,
-            name,
-            matching: IdentityMatch::Literal,
-            origin: UsageOrigin::Json,
-        }
-    }
-
-    /// The manifest the usage was written in, which decides how the pair is
-    /// compared and what a mismatch is called.
-    ///
-    /// A usage written in a `model.toml` is satisfied only by a target that
-    /// declares the pair as the usage spells it. A json usage keeps the
-    /// normalized comparison. The origin also decides whether a
-    /// publisher-less target is [`IdentityMismatch::NoPublisher`] or
-    /// [`IdentityMismatch::Publisher`].
-    #[must_use]
-    pub fn declared_in(self, origin: UsageOrigin) -> Self {
-        let matching = match origin {
-            UsageOrigin::Toml => IdentityMatch::Literal,
-            UsageOrigin::Json => self.matching,
-        };
-        Self {
-            matching,
-            origin,
-            ..self
-        }
-    }
-
-    pub fn publisher(&self) -> Option<&str> {
-        self.publisher.as_deref()
-    }
-
-    pub fn name(&self) -> &str {
-        &self.name
+        Self { publisher, name }
     }
 
     /// Compare what the target declares with what the usage expected.
@@ -972,49 +906,9 @@ impl ExpectedIdentity {
         actual_publisher: Option<&str>,
         actual_name: &str,
     ) -> Result<(), IdentityMismatch> {
-        let same = |expected: &str, actual: &str, normalize: fn(&str) -> String| match self.matching
-        {
-            IdentityMatch::Normalized => normalize(expected) == normalize(actual),
-            IdentityMatch::Literal => expected == actual,
-        };
-
-        // A toml usage's mismatch is one message naming both halves, so
-        // both are compared before returning, unlike the json arms below. A
-        // target declaring no publisher is still `NoPublisher`, which says
-        // what to do.
-        if self.origin == UsageOrigin::Toml {
-            if self.publisher.is_some() && actual_publisher.is_none() {
-                return Err(IdentityMismatch::NoPublisher {
-                    name: self.name.clone(),
-                });
-            }
-            let publisher_same = match (&self.publisher, actual_publisher) {
-                (Some(expected), Some(actual)) => same(expected, actual, normalize_typed_publisher),
-                (None, None) => true,
-                _ => false,
-            };
-            if publisher_same && same(&self.name, actual_name, normalize_typed_name) {
-                return Ok(());
-            }
-            return Err(IdentityMismatch::Spelling {
-                expected: (self.publisher.clone(), self.name.clone()),
-                actual: (
-                    actual_publisher.map(ToOwned::to_owned),
-                    actual_name.to_owned(),
-                ),
-            });
-        }
-
         match (&self.publisher, actual_publisher) {
-            (Some(expected), Some(actual)) if same(expected, actual, normalize_typed_publisher) => {
-            }
-            // A publisher-less target under a toml usage gets the message
-            // that names the fix instead of a comparison against `<none>`
-            (Some(_), None) if self.origin == UsageOrigin::Toml => {
-                return Err(IdentityMismatch::NoPublisher {
-                    name: self.name.clone(),
-                });
-            }
+            (Some(expected), Some(actual))
+                if normalize_typed_publisher(expected) == normalize_typed_publisher(actual) => {}
             (None, None) => {}
             (expected, actual) => {
                 return Err(IdentityMismatch::Publisher {
@@ -1024,7 +918,7 @@ impl ExpectedIdentity {
             }
         }
 
-        if same(&self.name, actual_name, normalize_typed_name) {
+        if normalize_typed_name(&self.name) == normalize_typed_name(actual_name) {
             Ok(())
         } else {
             Err(IdentityMismatch::Name {

@@ -23,7 +23,6 @@ use typed_path::Utf8UnixPath;
 
 use crate::manifest::ModelToml;
 use crate::manifest::common::Sources;
-use crate::manifest::diagnostics::Diagnostics;
 use crate::manifest::project::{ProjectManifest, ResolvedProject};
 use crate::manifest::usage::Usage;
 use crate::manifest::workspace_table::WorkspaceTable;
@@ -298,26 +297,37 @@ pub fn meta(
 /// no room for both.
 pub fn source_maps<E>(
     sources: &Sources,
-    mut read: impl FnMut(&Utf8UnixPath) -> Result<String, E>,
+    read: impl FnMut(&Utf8UnixPath) -> Result<String, E>,
 ) -> Result<(SymbolIndex, ChecksumMap), ViewError<E>> {
-    let mut index = SymbolIndex::new();
     let mut checksum = ChecksumMap::new();
-
-    for source in sources.iter() {
-        let contents = read(source).map_err(ViewError::Read)?;
+    let index = symbol_index(sources, read, |source, contents| {
         checksum.insert(
             source.as_str().to_owned(),
             InterchangeProjectChecksumRaw {
-                value: sha256_lowercase_hex(&contents),
+                value: sha256_lowercase_hex(contents),
                 algorithm: KerMlChecksumAlg::Sha256.into(),
             },
         );
+    })?;
+    Ok((index, checksum))
+}
+
+/// The `index` map of [`source_maps`] alone. `each` sees every source
+/// file's contents after `read` hands them over.
+pub fn symbol_index<E>(
+    sources: &Sources,
+    mut read: impl FnMut(&Utf8UnixPath) -> Result<String, E>,
+    mut each: impl FnMut(&Utf8UnixPath, &str),
+) -> Result<SymbolIndex, ViewError<E>> {
+    let mut index = SymbolIndex::new();
+    for source in sources.iter() {
+        let contents = read(source).map_err(ViewError::Read)?;
+        each(source, &contents);
         for symbol in top_level_symbols(&source, &contents, None)? {
             index.insert(symbol, source.as_str().to_owned());
         }
     }
-
-    Ok((index, checksum))
+    Ok(index)
 }
 
 /// The whole view: [`info`] and [`meta`] over one run of [`source_maps`].
@@ -353,9 +363,7 @@ pub fn resolved_of_text_in(
 ) -> Result<ResolvedProject, ProjectDeserializationError> {
     let manifest: ProjectManifest = validate_manifest(file, ModelToml::parse(file, text))?
         .into_project(file)
-        .map_err(|problem| {
-            ProjectDeserializationError::invalid(file, Diagnostics::from_iter([problem]))
-        })?;
+        .map_err(|problem| ProjectDeserializationError::invalid(file, problem))?;
     validate_manifest(file, manifest.resolve(table))
 }
 

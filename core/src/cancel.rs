@@ -46,6 +46,14 @@ impl<E> From<E> for Cancellable<E> {
     }
 }
 
+/// A current-thread runtime with every driver enabled, as the bridges
+/// expect.
+pub fn current_thread_runtime() -> std::io::Result<tokio::runtime::Runtime> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+}
+
 /// Run `future` on `runtime` until it completes or `token` is cancelled.
 pub fn bridge<T, E, F: Future<Output = Result<T, E>>>(
     runtime: &tokio::runtime::Runtime,

@@ -15,8 +15,7 @@ use crate::{
     lock::Source,
     manifest::{MODEL_TOML_FILE, edit::DocumentMut, kpar_view},
     model::{
-        InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsageRaw,
-        META_JSON_FILE, PROJECT_JSON_FILE,
+        InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, META_JSON_FILE, PROJECT_JSON_FILE,
     },
     project::{
         CanonicalizationError, ManifestError, ManifestWriteError, ProjectDefinition, ProjectFormat,
@@ -142,7 +141,10 @@ impl ProjectMut for InMemoryProject {
                 format!("project already has a `{MODEL_TOML_FILE}`"),
             )));
         }
-        self.model_toml = Some(document.to_string());
+        let text = document.to_string();
+        crate::manifest::edit::validated(MODEL_TOML_FILE, &text)
+            .map_err(|e| ManifestWriteError::Project(InMemoryError::Manifest(e)))?;
+        self.model_toml = Some(text);
         Ok(())
     }
 
@@ -223,22 +225,12 @@ impl ProjectRead for InMemoryProject {
         }
     }
 
-    fn version(&self) -> Result<Option<String>, Self::Error> {
-        Ok(self.get_project()?.map(|project| project.version()))
-    }
-
-    fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
-        Ok(self.get_project()?.map(|project| project.usages()))
-    }
-
     fn format(&self) -> Result<ProjectFormat, InMemoryError> {
         let json = self.info.is_some() || self.meta.is_some();
-        Ok(match (self.model_toml.is_some(), json) {
-            (true, true) => ProjectFormat::Both,
-            (true, false) => ProjectFormat::Toml,
-            (false, true) => ProjectFormat::Json,
-            (false, false) => ProjectFormat::Neither,
-        })
+        Ok(ProjectFormat::from_presence(
+            self.model_toml.is_some(),
+            json,
+        ))
     }
 
     fn manifest_document(

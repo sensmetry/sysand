@@ -20,8 +20,8 @@ use crate::{
     manifest::{MODEL_TOML_FILE, kpar_view, project::ResolvedProject},
     model::{
         InterchangeProjectInfoPartial, InterchangeProjectInfoRaw,
-        InterchangeProjectMetadataPartial, InterchangeProjectMetadataRaw,
-        InterchangeProjectUsageRaw, META_JSON_FILE, PROJECT_JSON_FILE,
+        InterchangeProjectMetadataPartial, InterchangeProjectMetadataRaw, META_JSON_FILE,
+        PROJECT_JSON_FILE,
     },
     project::{
         ManifestError, ProjectDefinition, ProjectMut, ProjectRead,
@@ -42,12 +42,10 @@ pub use crate::project::ProjectFormat;
 /// named `.project.json` is ignored.
 pub fn detect_format(dir: &Utf8Path) -> Result<ProjectFormat, Box<FsIoError>> {
     let toml = wrapfs::is_file(dir.join(MODEL_TOML_FILE))?;
-    Ok(match (toml, json_manifest(dir)?.is_some()) {
-        (true, true) => ProjectFormat::Both,
-        (true, false) => ProjectFormat::Toml,
-        (false, true) => ProjectFormat::Json,
-        (false, false) => ProjectFormat::Neither,
-    })
+    Ok(ProjectFormat::from_presence(
+        toml,
+        json_manifest(dir)?.is_some(),
+    ))
 }
 
 /// The json manifest `dir` holds, `.project.json` first when it holds both.
@@ -469,7 +467,10 @@ impl ProjectMut for LocalSrcProject {
             )));
         }
 
-        wrapfs::write(&path, document.to_string())
+        let text = document.to_string();
+        crate::manifest::edit::validated(MODEL_TOML_FILE, &text)
+            .map_err(|e| ManifestWriteError::Project(LocalSrcError::Deserialize(e)))?;
+        wrapfs::write(&path, text)
             .map_err(|e| ManifestWriteError::Project(LocalSrcError::from(e)))?;
 
         Ok(())
@@ -672,14 +673,6 @@ impl ProjectRead for LocalSrcProject {
                 missing: "`.project.json`",
             }),
         }
-    }
-
-    fn version(&self) -> Result<Option<String>, Self::Error> {
-        Ok(self.get_project()?.map(|project| project.version()))
-    }
-
-    fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
-        Ok(self.get_project()?.map(|project| project.usages()))
     }
 
     type SourceReader<'a> = File;

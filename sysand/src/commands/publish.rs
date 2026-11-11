@@ -15,7 +15,7 @@ use sysand_core::{
     env::discovery::{ResolvedEndpoints, fetch_index_config},
     index_location::IndexSource,
     project::utils::wrapfs,
-    workspace::model_toml::{MemberChecks, Workspace},
+    workspace::model_toml::MemberChecks,
 };
 
 use crate::{CliAuthPolicy, CliError, cli::TrustedPublishingModeCli};
@@ -195,14 +195,16 @@ fn resolve_publish_archives(
             current_project.root_path(),
         )?]),
         // From a workspace root, every member, in dependency order.
-        (None, Some(root)) => {
+        (None, Some(_)) => {
             log::warn!(
                 "Workspaces are an experimental feature\n\
                 and their behavior may change even with minor\n\
                 releases. For the status of this feature, see\n\
                 https://github.com/sensmetry/sysand/issues/101."
             );
-            let workspace = Workspace::load_with(root, MemberChecks::All)?;
+            let workspace = ctx
+                .load_workspace(MemberChecks::All)?
+                .expect("a workspace root means a workspace");
             Ok(workspace_publish_order(&workspace)?
                 .into_iter()
                 .map(|(_, archive)| archive)

@@ -300,6 +300,31 @@ impl SyncOutcome {
     pub fn wrote(&self) -> bool {
         !self.installed.is_empty() || !self.pruned.is_empty() || !self.repaired.is_empty()
     }
+
+    /// Whether verification found nothing wrong.
+    pub fn is_clean(&self) -> bool {
+        self.problems() == 0
+    }
+
+    /// The number of verification findings.
+    pub fn problems(&self) -> usize {
+        self.mismatched.len() + self.unrecorded.len() + self.stale.len()
+    }
+
+    /// The text of a directory under `lib/` that `env.toml` does not record.
+    pub fn unrecorded_message(path: &Utf8UnixPathBuf) -> String {
+        format!("`{path}` is installed but not recorded in `env.toml`")
+    }
+
+    /// Every verification finding's text, in report order.
+    pub fn findings(&self) -> Vec<String> {
+        self.mismatched
+            .iter()
+            .map(ToString::to_string)
+            .chain(self.unrecorded.iter().map(Self::unrecorded_message))
+            .chain(self.stale.iter().map(ToString::to_string))
+            .collect()
+    }
 }
 
 #[cfg(feature = "python")]

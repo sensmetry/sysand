@@ -15,9 +15,10 @@ use sysand_core::{
     commands::migrate::{MigrateOptions, VcsState, check_vcs, migrate_project},
     config::Config,
     context::ProjectContext,
+    discover::DirManifest,
     manifest::usage::{MemberUsage, Usage},
     manifest::{
-        MODEL_TOML_FILE, ModelToml, ModelTomlKind, edit::render_new,
+        MODEL_TOML_FILE, ModelToml, ModelTomlKind, ParsedModelToml, edit::render_new,
         workspace_table::WorkspaceTable,
     },
     model::{
@@ -66,7 +67,16 @@ pub fn command_migrate<Policy: HTTPAuthentication>(
     // From a workspace root a path must name the project. Unlisted json
     // projects under a workspace root are valid targets, so workspace
     // discovery errors must not be fatal for this command.
-    if path.is_none() && is_workspace_root(&dir)? {
+    // Read once, for the workspace check here and the `Both` comparison.
+    let model_toml = match DirManifest::read(&dir)? {
+        Some(DirManifest::ModelToml { file, parsed }) => Some((file, parsed)),
+        Some(DirManifest::Json) | None => None,
+    };
+    if path.is_none()
+        && model_toml
+            .as_ref()
+            .is_some_and(|(_, parsed)| parsed.kind == ModelTomlKind::Workspace)
+    {
         bail!("run from a workspace root, `migrate` needs the path of the json project to convert");
     }
 
@@ -105,7 +115,8 @@ pub fn command_migrate<Policy: HTTPAuthentication>(
         // The existing `model.toml` is kept untouched and only the json
         // files are deleted, after checking that both agree on `name`
         // and `version`.
-        check_both_agree(&dir)?;
+        let (file, parsed) = model_toml.expect("`Both` means `model.toml` is there");
+        check_both_agree(&dir, &file, parsed)?;
         delete_json_pair(&dir)?;
         let header = sysand_core::style::get_style_config().header;
         let migrated = "Migrated";
@@ -119,19 +130,11 @@ pub fn command_migrate<Policy: HTTPAuthentication>(
     // Through the `Partial` types and `validate_manifest`, so unknown
     // keys are warned about. The metadata comes first: `validate` takes
     // the metamodel from it.
-    let meta_text = wrapfs::read_to_string(dir.join(META_JSON_FILE))?;
-    let meta: InterchangeProjectMetadataPartial = serde_json::from_str(&meta_text)
-        .map_err(|e| anyhow::anyhow!("failed to read `{META_JSON_FILE}`: {e}"))?;
-    let meta = validate_manifest(
-        dir.join(META_JSON_FILE),
-        meta.validate(META_JSON_FILE, None),
-    )?;
-    let info_text = wrapfs::read_to_string(dir.join(PROJECT_JSON_FILE))?;
-    let info: InterchangeProjectInfoPartial = serde_json::from_str(&info_text)
-        .map_err(|e| anyhow::anyhow!("failed to read `{PROJECT_JSON_FILE}`: {e}"))?;
-    let info = validate_manifest(
-        dir.join(PROJECT_JSON_FILE),
-        info.validate(PROJECT_JSON_FILE, meta.metamodel.as_deref()),
+    let meta = parse_meta_json(&dir, &wrapfs::read_to_string(dir.join(META_JSON_FILE))?)?;
+    let info = parse_info_json(
+        &dir,
+        &wrapfs::read_to_string(dir.join(PROJECT_JSON_FILE))?,
+        &meta,
     )?;
 
     // Built on the first resource that needs it, so a project with no
@@ -222,17 +225,33 @@ pub fn command_migrate<Policy: HTTPAuthentication>(
     Ok(())
 }
 
-/// Whether `dir`'s own `model.toml` defines a workspace.
-fn is_workspace_root(dir: &Utf8Path) -> Result<bool> {
-    let at = dir.join(MODEL_TOML_FILE);
-    if !wrapfs::is_file(&at)? {
-        return Ok(false);
-    }
-    let text = wrapfs::read_to_string(&at)?;
-    Ok(matches!(
-        ModelToml::peek(MODEL_TOML_FILE, &text),
-        Ok(Some(ModelTomlKind::Workspace))
-    ))
+/// Parse and validate `.meta.json`'s `text` through the `Partial` type, so
+/// unknown keys are warned about.
+fn parse_meta_json(
+    dir: &Utf8Path,
+    text: &str,
+) -> Result<sysand_core::model::InterchangeProjectMetadataRaw> {
+    let partial: InterchangeProjectMetadataPartial = serde_json::from_str(text)
+        .map_err(|e| anyhow::anyhow!("failed to read `{META_JSON_FILE}`: {e}"))?;
+    Ok(validate_manifest(
+        dir.join(META_JSON_FILE),
+        partial.validate(META_JSON_FILE, None),
+    )?)
+}
+
+/// Parse and validate `.project.json`'s `text`, which takes the metamodel
+/// from `meta`.
+fn parse_info_json(
+    dir: &Utf8Path,
+    text: &str,
+    meta: &sysand_core::model::InterchangeProjectMetadataRaw,
+) -> Result<sysand_core::model::InterchangeProjectInfoRaw> {
+    let partial: InterchangeProjectInfoPartial = serde_json::from_str(text)
+        .map_err(|e| anyhow::anyhow!("failed to read `{PROJECT_JSON_FILE}`: {e}"))?;
+    Ok(validate_manifest(
+        dir.join(PROJECT_JSON_FILE),
+        partial.validate(PROJECT_JSON_FILE, meta.metamodel.as_deref()),
+    )?)
 }
 
 fn delete_json_pair(dir: &Utf8Path) -> Result<()> {
@@ -245,7 +264,8 @@ fn delete_json_pair(dir: &Utf8Path) -> Result<()> {
     Ok(())
 }
 
-/// The `Both` case: a `model.toml` beside a json pair.
+/// The `Both` case: a `model.toml` beside a json pair. `parsed` is the
+/// `model.toml`, read from `file`.
 ///
 /// Neither side goes through `ProjectRead`: `get_project` refuses an
 /// ambiguous directory before reading anything.
@@ -253,11 +273,10 @@ fn delete_json_pair(dir: &Utf8Path) -> Result<()> {
 /// Only `name` and `version` are compared. Nothing checks that the two
 /// manifests agree about `sources` or usages, so a `model.toml` that agrees on
 /// the identity has the json project's usages deleted silently.
-fn check_both_agree(dir: &Utf8Path) -> Result<()> {
-    let file = dir.join(MODEL_TOML_FILE);
-    let text = wrapfs::read_to_string(&file)?;
-    let manifest = ModelToml::parse(file.as_str(), &text)
-        .map_err(|report| ProjectDeserializationError::invalid(&file, report))?;
+fn check_both_agree(dir: &Utf8Path, file: &Utf8Path, parsed: ParsedModelToml) -> Result<()> {
+    let manifest = parsed
+        .manifest
+        .map_err(|report| ProjectDeserializationError::invalid(file, report))?;
     let ModelToml::Project(project) = manifest.value else {
         bail!(
             "`{dir}/{MODEL_TOML_FILE}` defines a workspace, not a project, so it cannot be the \
@@ -288,30 +307,26 @@ fn check_both_agree(dir: &Utf8Path) -> Result<()> {
     // comes first, `validate` taking the metamodel from it. Absent is not
     // an error: a directory is `Both` when either json file is there.
     let meta = match wrapfs::read_to_string(dir.join(META_JSON_FILE)) {
-        Ok(text) => {
-            let partial: InterchangeProjectMetadataPartial = serde_json::from_str(&text)
-                .map_err(|e| anyhow::anyhow!("failed to read `{META_JSON_FILE}`: {e}"))?;
-            validate_manifest(
-                dir.join(META_JSON_FILE),
-                partial.validate(META_JSON_FILE, None),
-            )?
-        }
+        Ok(text) => parse_meta_json(dir, &text)?,
         Err(_) => sysand_core::model::InterchangeProjectMetadataRaw::default(),
     };
     // A `model.toml` beside a lone `.meta.json` is the state an interrupted
     // `migrate` leaves, as `.project.json` is deleted first. Finishing the
     // job loses nothing readable: `.meta.json` alone is not a project.
-    if !wrapfs::is_file(dir.join(PROJECT_JSON_FILE))? {
+    let json_text = match wrapfs::read_to_string(dir.join(PROJECT_JSON_FILE)) {
+        Ok(text) => text,
         // Nothing to compare against; the caller removes the stray.
-        return Ok(());
-    }
-    let json_text = wrapfs::read_to_string(dir.join(PROJECT_JSON_FILE))?;
-    let partial: InterchangeProjectInfoPartial = serde_json::from_str(&json_text)
-        .map_err(|e| anyhow::anyhow!("failed to read `{PROJECT_JSON_FILE}`: {e}"))?;
-    let json = validate_manifest(
-        dir.join(PROJECT_JSON_FILE),
-        partial.validate(PROJECT_JSON_FILE, meta.metamodel.as_deref()),
-    )?;
+        Err(error)
+            if matches!(
+                &*error,
+                sysand_core::project::utils::FsIoError::ReadFile(_, source) if source.kind() == std::io::ErrorKind::NotFound
+            ) =>
+        {
+            return Ok(());
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let json = parse_info_json(dir, &json_text, &meta)?;
 
     // Names compare normalized: `Lib test` and `lib-test` are the same
     // name, but `IndexName`'s `PartialEq` compares the written string.

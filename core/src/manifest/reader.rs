@@ -22,13 +22,16 @@
 
 use std::ops::Range;
 
+use fluent_uri::Iri;
+use semver::Version;
+use spdx::Expression;
 use toml::Spanned;
 use toml::de::{DeTable, DeValue};
 
-use crate::manifest::common::Maintainer;
+use crate::manifest::common::{Maintainer, URL_KEYS, UrlsG};
 use crate::manifest::diagnostics::{Diagnostic, Diagnostics, KeyLocation, Position, ReadWarning};
 use crate::manifest::spans::Source;
-use crate::model::KnownMetamodel;
+use crate::model::{IndexPublisher, KnownMetamodel};
 
 /// How a message names a TOML type, given as the `type_str` of a value,
 /// with the article that reads in "but it is ...".
@@ -48,7 +51,7 @@ pub fn describe(type_str: &str) -> &'static str {
 /// A marker is the table `{ workspace = <bool-or-string> }` sitting where
 /// a plain value would otherwise go; this is the value it carries, when it
 /// is one.
-pub fn marker_value<'v, 'i>(value: &'v DeValue<'i>) -> Option<&'v DeValue<'i>> {
+fn marker_value<'v, 'i>(value: &'v DeValue<'i>) -> Option<&'v DeValue<'i>> {
     match value {
         DeValue::Table(table) if table.len() == 1 => table.get("workspace").map(Spanned::get_ref),
         _ => None,
@@ -100,6 +103,12 @@ impl<'a> TableReader<'a> {
     /// The value of a key, whatever its type.
     pub fn get(&self, key: &str) -> Option<&'a Spanned<DeValue<'a>>> {
         self.table.get(key)
+    }
+
+    /// The value a key's inheritance marker carries, when the key holds
+    /// one.
+    pub fn marker(&self, key: &str) -> Option<&'a DeValue<'a>> {
+        marker_value(self.get(key)?.get_ref())
     }
 
     pub fn has(&self, key: &str) -> bool {
@@ -366,6 +375,72 @@ pub fn checked<T, E: std::fmt::Display>(
             None
         }
     }
+}
+
+pub fn publisher(reader: &TableReader<'_>, report: &mut Diagnostics) -> Option<IndexPublisher> {
+    let raw = reader.string("publisher", report)?;
+    parsed(IndexPublisher::parse(raw), reader, "publisher", report)
+}
+
+pub fn version(reader: &TableReader<'_>, report: &mut Diagnostics) -> Option<Version> {
+    let raw = reader.string("version", report)?;
+    checked(
+        Version::parse(raw),
+        reader,
+        "version",
+        raw,
+        "a valid version",
+        report,
+    )
+}
+
+pub fn license(reader: &TableReader<'_>, report: &mut Diagnostics) -> Option<Expression> {
+    let raw = reader.string("license", report)?;
+    checked(
+        Expression::parse(raw),
+        reader,
+        "license",
+        raw,
+        "a valid SPDX expression",
+        report,
+    )
+}
+
+pub fn topics(reader: &TableReader<'_>, report: &mut Diagnostics) -> Option<Vec<String>> {
+    reader
+        .strings("topics", report)
+        .map(|values| values.into_iter().map(ToOwned::to_owned).collect())
+}
+
+/// Read the `urls` table, each of its keys with `read`.
+pub fn urls<T>(
+    reader: &TableReader<'_>,
+    report: &mut Diagnostics,
+    read: impl Fn(&TableReader<'_>, &str, &mut Diagnostics) -> Option<T>,
+) -> Option<UrlsG<T>> {
+    let urls = reader.table("urls", report)?;
+    let website = read(&urls, "website", report);
+    let documentation = read(&urls, "documentation", report);
+    let repository = read(&urls, "repository", report);
+    report.extend(urls.unknown_keys(&URL_KEYS, None));
+    Some(UrlsG {
+        website,
+        documentation,
+        repository,
+    })
+}
+
+/// One key of `urls`.
+pub fn url(urls: &TableReader<'_>, key: &str, report: &mut Diagnostics) -> Option<Iri<String>> {
+    let raw = urls.string(key, report)?;
+    checked(
+        Iri::parse(raw.to_owned()).map_err(|(error, _)| error),
+        urls,
+        key,
+        raw,
+        "a valid URL",
+        report,
+    )
 }
 
 /// An array of strings, each of the form `name <email>`. Every entry that

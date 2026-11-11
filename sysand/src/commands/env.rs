@@ -176,6 +176,8 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
         command_sync(
             &lock,
             project_root,
+            // The lock holds a resolved IRI and its dependencies, never a member.
+            &[],
             &mut ctx.env.unwrap(),
             client,
             &provided_usages,
@@ -320,6 +322,8 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
         command_sync(
             &lock,
             project_root,
+            // The lock holds a resolved IRI and its dependencies, never a member.
+            &[],
             &mut ctx.env.unwrap(),
             client,
             &provided_usages,

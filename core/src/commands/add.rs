@@ -327,6 +327,7 @@ fn add_toml<P: ProjectMut>(
     project: &mut P,
     usage_raw: &InterchangeProjectUsageRaw,
 ) -> Result<bool, AddError<P::Error>> {
+    use crate::commands::usage::{ConstraintChange, set_toml_index_constraint};
     use crate::manifest::edit;
 
     let usage =
@@ -337,29 +338,26 @@ fn add_toml<P: ProjectMut>(
     let mut document = project.manifest_document().map_err(AddError::Manifest)?;
 
     // Already declared: only a changed constraint needs writing.
-    if edit::usage_constraint(&document, &identity).is_some() {
-        let new = match &usage {
-            Usage::Index {
-                version_constraint,
-                publisher: _,
-                name: _,
-            } => Some(version_constraint.clone()),
-            _ => None,
-        };
-        let Some(new) = new else {
-            log::warn!("ignoring usage `{identity}`, since it is already present");
-            return Ok(false);
-        };
-        let current = edit::usage_constraint(&document, &identity).flatten();
-        if current.as_ref() == Some(&new.to_string()) {
-            log::warn!("ignoring usage `{identity}`, since it is already present");
-            return Ok(false);
-        }
-        // Fails for a `dir`/`kpar-path`/`kpar-url`/opt-in entry, which has
-        // no constraint to set.
-        edit::set_usage_version(&mut document, &identity, &new).map_err(AddError::Edit)?;
-        write_manifest(project, &document)?;
-        return Ok(true);
+    let declared = match &usage {
+        Usage::Index {
+            version_constraint,
+            publisher: _,
+            name: _,
+        } => match set_toml_index_constraint(&mut document, &identity, version_constraint)
+            .map_err(AddError::Edit)?
+        {
+            ConstraintChange::Replaced { old: _, new: _ } => {
+                write_manifest(project, &document)?;
+                return Ok(true);
+            }
+            ConstraintChange::Unchanged { constraint: _ } => true,
+            ConstraintChange::NotFound => false,
+        },
+        _ => edit::usage_constraint(&document, &identity).is_some(),
+    };
+    if declared {
+        log::warn!("ignoring usage `{identity}`, since it is already present");
+        return Ok(false);
     }
 
     edit::push_usage(&mut document, &MemberUsage::Declared(usage)).map_err(AddError::Edit)?;

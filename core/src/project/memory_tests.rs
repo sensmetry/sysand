@@ -141,3 +141,18 @@ fn a_json_memory_project_refuses_a_manifest_write() {
         ))
     );
 }
+
+#[test]
+fn a_memory_project_refuses_to_store_an_invalid_manifest() {
+    let mut project = InMemoryProject::default();
+    let invalid = MANIFEST.replace("version = \"1.0.0\"", "version = \"not a version\"");
+    let result = project.put_manifest_document(&document(&invalid), false);
+
+    assert_matches!(
+        result,
+        Err(crate::project::ManifestWriteError::Project(
+            InMemoryError::Manifest(_)
+        ))
+    );
+    assert_eq!(project.model_toml, None);
+}

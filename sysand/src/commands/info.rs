@@ -58,7 +58,7 @@ pub fn report_project(definition: &ProjectDefinition, excluded_iris: &ProvidedId
         }
         return;
     }
-    pprint_project(&Summary::of(definition), excluded_iris);
+    pprint_project(definition, excluded_iris);
 }
 
 /// A resolved `model.toml` project as JSON, keyed as the manifest is.
@@ -88,86 +88,38 @@ fn manifest_json(manifest: &ResolvedProject) -> serde_json::Value {
     })
 }
 
-/// What the text summary shows, from either manifest.
-struct Summary {
-    name: String,
-    publisher: Option<String>,
-    description: Option<String>,
-    version: String,
-    license: Option<String>,
-    website: Option<String>,
-    maintainers: Vec<String>,
-    topics: Vec<String>,
-    usages: Vec<InterchangeProjectUsageRaw>,
-}
-
-impl Summary {
-    fn of(definition: &ProjectDefinition) -> Self {
-        match definition {
-            ProjectDefinition::Json { info, meta: _ } => Self {
-                name: info.name.clone(),
-                publisher: info.publisher.clone(),
-                description: info.description.clone(),
-                version: info.version.clone(),
-                license: info.license.clone(),
-                website: info.website.clone(),
-                maintainers: info.maintainer.clone(),
-                topics: info.topic.clone(),
-                usages: info.usage.clone(),
-            },
-            ProjectDefinition::Toml(manifest) => Self {
-                name: manifest.name.as_str().to_owned(),
-                publisher: Some(manifest.publisher.as_str().to_owned()),
-                description: manifest.description.clone(),
-                version: manifest.version.to_string(),
-                license: manifest.license.as_ref().map(ToString::to_string),
-                website: manifest
-                    .urls
-                    .website
-                    .as_ref()
-                    .map(|website| website.as_str().to_owned()),
-                maintainers: manifest
-                    .maintainers
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect(),
-                topics: manifest.topics.clone(),
-                usages: definition.usages(),
-            },
-        }
-    }
-}
-
-fn pprint_project(info: &Summary, excluded_iris: &ProvidedIdentifiers) {
+fn pprint_project(definition: &ProjectDefinition, excluded_iris: &ProvidedIdentifiers) {
     let header = style::get_style_config().header;
-    println!("{header}Name:{header:#} {}", info.name);
-    if let Some(publisher) = &info.publisher {
+    println!("{header}Name:{header:#} {}", definition.name());
+    if let Some(publisher) = definition.publisher() {
         println!("{header}Publisher:{header:#} {}", publisher);
     }
-    if let Some(description) = &info.description {
+    if let Some(description) = definition.description() {
         println!("{header}Description:{header:#} {}", description);
     }
-    println!("{header}Version:{header:#} {}", info.version);
-    if let Some(license) = &info.license {
+    println!("{header}Version:{header:#} {}", definition.version());
+    if let Some(license) = definition.license() {
         println!("{header}License:{header:#} {}", license);
     }
-    if let Some(website) = &info.website {
+    if let Some(website) = definition.website() {
         println!("{header}Website:{header:#} {}", website);
     }
-    if !info.maintainers.is_empty() {
+    let maintainers = definition.maintainers();
+    if !maintainers.is_empty() {
         println!(
             "{header}Maintainer(s):{header:#} {}",
-            info.maintainers.join(", ")
+            maintainers.join(", ")
         );
     }
-    if !info.topics.is_empty() {
-        println!("{header}Topics:{header:#} {}", info.topics.join(", "));
+    let topics = definition.topics();
+    if !topics.is_empty() {
+        println!("{header}Topics:{header:#} {}", topics.join(", "));
     }
-    if info.usages.is_empty() {
+    let usages = definition.usages();
+    if usages.is_empty() {
         println!("No usages.");
     } else {
-        let usages_to_print: Vec<_> = info
-            .usages
+        let usages_to_print: Vec<_> = usages
             .iter()
             .filter(|u| match u {
                 InterchangeProjectUsageRaw::Resource {
@@ -191,7 +143,7 @@ fn pprint_project(info: &Summary, excluded_iris: &ProvidedIdentifiers) {
                 } => true,
             })
             .collect();
-        let has_ignored_usages = info.usages.len() > usages_to_print.len();
+        let has_ignored_usages = usages.len() > usages_to_print.len();
         if has_ignored_usages && usages_to_print.is_empty() {
             // TODO: distinguish between provided iris in general and std libs in
             // particular. Here it's assumed that non-empty excluded_iris == std is ignored,
@@ -586,18 +538,13 @@ pub(crate) fn set_meta_or_bail<Project: ProjectMut>(
 /// a member emits is prefixed with its name, so a list field stays
 /// attributable line by line.
 pub fn command_info_workspace(
-    root: &Utf8Path,
+    workspace: &sysand_core::workspace::model_toml::Workspace,
     field: Option<InfoField>,
     excluded_iris: &HashSet<Identifier>,
 ) -> Result<()> {
-    use std::sync::Arc;
-    use sysand_core::{
-        project::local_src::LocalSrcProject,
-        workspace::model_toml::{MemberChecks, Workspace},
-    };
+    use sysand_core::project::local_src::LocalSrcProject;
 
-    let workspace = Workspace::load_with(root, MemberChecks::All)?;
-    let table = Arc::new(workspace.table().clone());
+    let table = workspace.table().clone();
 
     for (at, member) in workspace.members().iter().enumerate() {
         let project = LocalSrcProject::new_member(member.dir.clone(), None, table.clone());

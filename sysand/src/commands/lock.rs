@@ -25,7 +25,7 @@ use sysand_core::{
         standard::{StandardResolver, standard_resolver},
     },
     utils::ProvidedProjects,
-    workspace::model_toml::{MemberChecks, Workspace},
+    workspace::model_toml::MemberChecks,
 };
 
 /// The resolver [`create_resolver`] builds: overrides, then provided
@@ -64,11 +64,10 @@ pub fn lock_scope<Policy: HTTPAuthentication>(
 ) -> Result<Lock> {
     // A single-member solve written over a workspace's shared lockfile
     // would drop every other member.
-    if let Some(root) = &ctx.model_workspace_root {
-        // `MemberChecks::All`: the lockfile, `.sysand` and `output` live at
-        // the workspace root, so a member holds no state of its own and a
-        // member that does is refused.
-        let workspace = Workspace::load_with(root, MemberChecks::All)?;
+    // `MemberChecks::All`: the lockfile, `.sysand` and `output` live at
+    // the workspace root, so a member holds no state of its own and a
+    // member that does is refused.
+    if let Some(workspace) = ctx.load_workspace(MemberChecks::All)? {
         let LockOutcome {
             lock,
             dependencies: _,

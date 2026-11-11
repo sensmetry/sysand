@@ -12,6 +12,10 @@
 use thiserror::Error;
 
 use crate::{
+    manifest::{
+        common::{NormalizedIdentity, normalized_identity},
+        edit::{self, EditError},
+    },
     model::{IndexName, IndexPublisher, InterchangeProjectUsageRaw},
     project::utils::Identifier,
 };
@@ -70,7 +74,7 @@ pub enum SetConstraintError {
     /// The editor's text: a `model.toml` `dir`, `kpar-path`, `kpar-url`,
     /// `git` or opt-in entry has no constraint to set.
     #[error(transparent)]
-    TomlUsageHasNoConstraint(crate::manifest::edit::EditError),
+    TomlUsageHasNoConstraint(EditError),
     /// A `model.toml` usage is addressed by identity, and an IRI that is
     /// not a `pkg:sysand` PURL names none.
     #[error("`{0}` is not a `pkg:sysand` PURL; a `model.toml` usage is named `publisher/name`")]
@@ -403,11 +407,8 @@ pub fn do_set_usage_constraint_toml(
     resource: &str,
     constraint: &str,
 ) -> Result<ConstraintChange, SetConstraintError> {
-    use crate::manifest::common::normalized_identity;
-    use crate::model::{IndexName, IndexPublisher};
-
-    let (publisher, name) = match crate::purl::parse_sysand_purl(resource) {
-        Ok(Some(parts)) => parts,
+    let wanted = match NormalizedIdentity::from_purl(resource) {
+        Ok(Some(wanted)) => wanted,
         Ok(None) => return Err(SetConstraintError::NotAnIdentity(resource.to_owned())),
         Err(source) => {
             return Err(SetConstraintError::MalformedPurl {
@@ -416,11 +417,7 @@ pub fn do_set_usage_constraint_toml(
             });
         }
     };
-    let (Ok(publisher), Ok(name)) = (IndexPublisher::parse(publisher), IndexName::parse(name))
-    else {
-        return Err(SetConstraintError::NotAnIdentity(resource.to_owned()));
-    };
-    set_toml_index_constraint(doc, &normalized_identity(&publisher, &name), constraint)
+    set_toml_constraint_str(doc, &wanted, constraint)
 }
 
 /// The `model.toml` arm of [`do_set_index_usage_constraint`]: the entry
@@ -432,46 +429,44 @@ pub fn do_set_index_usage_constraint_toml(
     name: &IndexName,
     constraint: &str,
 ) -> Result<ConstraintChange, SetConstraintError> {
-    use crate::manifest::common::normalized_identity;
-    use crate::model::{IndexName, IndexPublisher};
-
-    let identity = format!("{}/{}", publisher.as_str(), name.as_str());
-    let (Ok(publisher), Ok(name)) = (
-        IndexPublisher::parse(publisher.as_str()),
-        IndexName::parse(name.as_str()),
-    ) else {
-        return Err(SetConstraintError::NotAnIdentity(identity));
-    };
-    set_toml_index_constraint(doc, &normalized_identity(&publisher, &name), constraint)
+    set_toml_constraint_str(doc, &normalized_identity(publisher, name), constraint)
 }
 
 /// Sets the `version` of the `[[inline-usages]]` entry `wanted` names.
-fn set_toml_index_constraint(
+///
+/// An entry with a `dir`, `kpar-path`, `kpar-url`, `git` or opt-in marker
+/// has no constraint to set, and is refused, as is an entry with neither a
+/// source nor a `version`.
+pub(crate) fn set_toml_index_constraint(
     doc: &mut toml_edit::DocumentMut,
-    wanted: &crate::manifest::common::NormalizedIdentity,
+    wanted: &NormalizedIdentity,
+    requirement: &semver::VersionReq,
+) -> Result<ConstraintChange, EditError> {
+    let old = match edit::usage_constraint(doc, wanted) {
+        None => return Ok(ConstraintChange::NotFound),
+        Some(None) => return Err(EditError::NotAnIndexUsage(wanted.clone())),
+        Some(Some(old)) => old,
+    };
+    let new = requirement.to_string();
+    if old == new {
+        return Ok(ConstraintChange::Unchanged { constraint: new });
+    }
+    edit::set_usage_version(doc, wanted, requirement)?;
+    Ok(ConstraintChange::Replaced {
+        old: Some(old),
+        new,
+    })
+}
+
+fn set_toml_constraint_str(
+    doc: &mut toml_edit::DocumentMut,
+    wanted: &NormalizedIdentity,
     constraint: &str,
 ) -> Result<ConstraintChange, SetConstraintError> {
     let requirement = semver::VersionReq::parse(constraint)
         .map_err(|e| SetConstraintError::InvalidConstraint(constraint.to_owned(), e))?;
-    match crate::manifest::edit::usage_constraint(doc, wanted) {
-        None => Ok(ConstraintChange::NotFound),
-        // The entry is there and has no `version`: not an index usage.
-        Some(None) => Err(SetConstraintError::TomlUsageHasNoConstraint(
-            crate::manifest::edit::EditError::NotAnIndexUsage(wanted.clone()),
-        )),
-        Some(Some(old)) => {
-            let new = requirement.to_string();
-            if old == new {
-                return Ok(ConstraintChange::Unchanged { constraint: old });
-            }
-            crate::manifest::edit::set_usage_version(doc, wanted, &requirement)
-                .map_err(SetConstraintError::TomlUsageHasNoConstraint)?;
-            Ok(ConstraintChange::Replaced {
-                old: Some(old),
-                new,
-            })
-        }
-    }
+    set_toml_index_constraint(doc, wanted, &requirement)
+        .map_err(SetConstraintError::TomlUsageHasNoConstraint)
 }
 
 /// Edits the `model.toml` of `project` in place, writing it back only when

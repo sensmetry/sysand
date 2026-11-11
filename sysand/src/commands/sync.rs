@@ -13,7 +13,7 @@ use sysand_core::{
     cancel::CancellationToken,
     commands::{
         sync::{MismatchKind, SyncError, SyncOutcome},
-        verify::{ManifestUsages, VerifyError, VerifyReport, do_verify},
+        verify::{ManifestUsages, VerifyError, do_verify},
     },
     config::Config,
     context::ProjectContext,
@@ -142,6 +142,7 @@ pub fn sync_context<Policy: HTTPAuthentication>(
     outcome: &mut SyncOutcome,
 ) -> Result<Option<VerifyStatus>, SyncContextError> {
     let root = ctx.state_root();
+    let members = ctx.workspace_members().map_err(CommandSyncError::from)?;
     if verify || repair {
         let manifests = ManifestUsages::for_context(ctx).map_err(SyncContextError::Manifests)?;
         let status = command_sync_verify(
@@ -149,6 +150,7 @@ pub fn sync_context<Policy: HTTPAuthentication>(
             &root,
             ctx.env.take(),
             &root.join(DEFAULT_ENV_NAME),
+            &members,
             &manifests,
             client,
             provided_usages,
@@ -165,6 +167,7 @@ pub fn sync_context<Policy: HTTPAuthentication>(
     command_sync(
         lock,
         &root,
+        &members,
         &mut env,
         client,
         provided_usages,
@@ -196,7 +199,7 @@ fn hint_for(finding: &str, kind: Option<&MismatchKind>, stale: bool) -> String {
 }
 
 /// Print every finding of `report` as an error line, with hints.
-fn print_findings(report: &VerifyReport) {
+fn print_findings(report: &SyncOutcome) {
     for mismatch in &report.mismatched {
         log::error!(
             "{}",
@@ -204,14 +207,14 @@ fn print_findings(report: &VerifyReport) {
         );
     }
     for path in &report.unrecorded {
-        log::error!("`{path}` is installed but not recorded in `env.toml`");
+        log::error!("{}", SyncOutcome::unrecorded_message(path));
     }
     for stale in &report.stale {
         log::error!("{}", hint_for(&stale.to_string(), None, true));
     }
 }
 
-fn record(outcome: &mut SyncOutcome, report: &VerifyReport) {
+fn record(outcome: &mut SyncOutcome, report: &SyncOutcome) {
     outcome.verified = report.verified.clone();
     outcome.mismatched = report.mismatched.clone();
     outcome.unrecorded = report.unrecorded.clone();
@@ -232,6 +235,7 @@ pub fn command_sync_verify<Policy: HTTPAuthentication>(
     project_root: &Utf8Path,
     env: Option<LocalDirectoryEnvironment>,
     env_dir: &Utf8Path,
+    members: &[Utf8UnixPathBuf],
     manifests: &[ManifestUsages],
     client: reqwest_middleware::ClientWithMiddleware,
     provided_usages: &ProvidedProjects,
@@ -303,6 +307,7 @@ pub fn command_sync_verify<Policy: HTTPAuthentication>(
     command_sync(
         lock,
         project_root,
+        members,
         &mut env,
         client,
         provided_usages,
@@ -342,6 +347,7 @@ pub fn command_sync_verify<Policy: HTTPAuthentication>(
 pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     lock: &Lock,
     project_root: P,
+    members: &[Utf8UnixPathBuf],
     env: &mut LocalDirectoryEnvironment,
     client: reqwest_middleware::ClientWithMiddleware,
     provided_usages: &ProvidedProjects,
@@ -354,7 +360,6 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     // `project_root` is the root the lockfile's `src_path`s are relative
     // to: the workspace root for a workspace's lockfile.
     let relative_root = project_root.as_ref();
-    let members = sysand_core::workspace::model_toml::workspace_members(relative_root)?;
     sysand_core::commands::sync::do_sync(
         lock,
         env,
@@ -474,7 +479,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         _ => CommandSyncError::Sync(error),
     })?;
 
-    env.merge_lock(lock, &members);
+    env.merge_lock(lock, members);
     env.write()?;
 
     Ok(())

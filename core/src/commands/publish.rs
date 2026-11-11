@@ -21,7 +21,7 @@ use zip::result::ZipError;
 use indexmap::IndexMap;
 use jiff::{SignedDuration, Timestamp};
 use std::collections::HashSet;
-use typed_path::Utf8UnixPathBuf;
+use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
 use crate::{
     auth::{
@@ -1309,62 +1309,33 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
                 });
             }
 
-            match kpar_files.get_mut(src_file.as_str()) {
-                Some(v) => {
-                    *v = true;
+            let source =
+                read_verified_member(&src_file, &file_checksum, &mut kpar_files, &mut archive)?;
 
-                    let mut file = archive.by_path(src_file.as_str()).map_err(|e| {
-                        PublishError::KparFileRead {
+            // Guessed from the path: a SysML project may
+            // carry `.kerml` files, and the two have different
+            // extractors.
+            let actual_symbols = extract_symbols(&src_file, &source, None)
+                .map_err(|e| PublishError::IndexFail { source: e })?;
+            // Actual symbols must be a superset of recorded
+            if let Some(symbols) = symbols_for_files.get(&src_file) {
+                for s in symbols {
+                    if !actual_symbols.contains(s) {
+                        return Err(PublishError::NonexistentSymbolExported {
                             path: src_file.as_str().into(),
-                            source: e,
-                        }
-                    })?;
-                    let mut source = String::new();
-                    file.read_to_string(&mut source)
-                        .map_err(|e| PublishError::KparFileReadIo {
-                            path: src_file.as_str().into(),
-                            source: e,
-                        })?;
-                    let actual_checksum = sha256_lowercase_hex(&source);
-                    if !actual_checksum.eq_ignore_ascii_case(&file_checksum.value) {
-                        return Err(PublishError::IncorrectFileChecksum {
-                            path: src_file.as_str().into(),
-                            expected: file_checksum.value.into_boxed_str(),
-                            actual: actual_checksum.into_boxed_str(),
+                            symbol: s.as_str().into(),
+                            actual_symbols: actual_symbols.into_boxed_slice(),
                         });
                     }
-
-                    // Guessed from the path: a SysML project may
-                    // carry `.kerml` files, and the two have different
-                    // extractors.
-                    let actual_symbols = extract_symbols(&src_file, &source, None)
-                        .map_err(|e| PublishError::IndexFail { source: e })?;
-                    // Actual symbols must be a superset of recorded
-                    if let Some(symbols) = symbols_for_files.get(&src_file) {
-                        for s in symbols {
-                            if !actual_symbols.contains(s) {
-                                return Err(PublishError::NonexistentSymbolExported {
-                                    path: src_file.as_str().into(),
-                                    symbol: s.as_str().into(),
-                                    actual_symbols: actual_symbols.into_boxed_slice(),
-                                });
-                            }
-                        }
-                    } else if !actual_symbols.is_empty() {
-                        // It is valid for a file to not export any symbols
-                        log::warn!(
-                            "project file `{src_file}` exports symbols {actual_symbols:?},\n\
-                    {0:>8} but they are not mentioned in `.meta.json`; this is valid,\n\
-                    {0:>8} but likely to be an error",
-                            ' '
-                        );
-                    }
                 }
-                None => {
-                    return Err(PublishError::MissingFile {
-                        path: src_file.as_str().into(),
-                    });
-                }
+            } else if !actual_symbols.is_empty() {
+                // It is valid for a file to not export any symbols
+                log::warn!(
+                    "project file `{src_file}` exports symbols {actual_symbols:?},\n\
+            {0:>8} but they are not mentioned in `.meta.json`; this is valid,\n\
+            {0:>8} but likely to be an error",
+                    ' '
+                );
             }
         }
     }
@@ -1473,34 +1444,7 @@ fn publish_root_shape(
                 alg: file_checksum.algorithm,
             });
         }
-        let Some(expected) = kpar_files.get_mut(src_file.as_str()) else {
-            return Err(PublishError::MissingFile {
-                path: src_file.as_str().into(),
-            });
-        };
-        *expected = true;
-
-        let mut file =
-            archive
-                .by_path(src_file.as_str())
-                .map_err(|e| PublishError::KparFileRead {
-                    path: src_file.as_str().into(),
-                    source: e,
-                })?;
-        let mut contents = String::new();
-        file.read_to_string(&mut contents)
-            .map_err(|e| PublishError::KparFileReadIo {
-                path: src_file.as_str().into(),
-                source: e,
-            })?;
-        let actual_checksum = sha256_lowercase_hex(&contents);
-        if !actual_checksum.eq_ignore_ascii_case(&file_checksum.value) {
-            return Err(PublishError::IncorrectFileChecksum {
-                path: src_file.as_str().into(),
-                expected: file_checksum.value.clone().into_boxed_str(),
-                actual: actual_checksum.into_boxed_str(),
-            });
-        }
+        let contents = read_verified_member(src_file, file_checksum, kpar_files, archive)?;
         if is_model_file {
             declared.extend(
                 extract_symbols(src_file, &contents, None)
@@ -1536,6 +1480,44 @@ fn publish_root_shape(
         }
     }
     Ok(())
+}
+
+/// Marks `path` as expected, reads it from the archive and checks it against
+/// `checksum`.
+fn read_verified_member(
+    path: &Utf8UnixPath,
+    checksum: &InterchangeProjectChecksum,
+    kpar_files: &mut HashMap<String, bool>,
+    archive: &mut zip::ZipArchive<std::fs::File>,
+) -> Result<String, PublishError> {
+    let Some(expected) = kpar_files.get_mut(path.as_str()) else {
+        return Err(PublishError::MissingFile {
+            path: path.as_str().into(),
+        });
+    };
+    *expected = true;
+
+    let mut file = archive
+        .by_path(path.as_str())
+        .map_err(|e| PublishError::KparFileRead {
+            path: path.as_str().into(),
+            source: e,
+        })?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)
+        .map_err(|e| PublishError::KparFileReadIo {
+            path: path.as_str().into(),
+            source: e,
+        })?;
+    let actual_checksum = sha256_lowercase_hex(&contents);
+    if !actual_checksum.eq_ignore_ascii_case(&checksum.value) {
+        return Err(PublishError::IncorrectFileChecksum {
+            path: path.as_str().into(),
+            expected: checksum.value.clone().into_boxed_str(),
+            actual: actual_checksum.into_boxed_str(),
+        });
+    }
+    Ok(contents)
 }
 
 /// The index holds projects of the SysML/KerML metamodels, of either
