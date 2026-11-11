@@ -337,6 +337,10 @@ impl Workspace {
         &self.members
     }
 
+    pub fn into_members(self) -> Vec<Member> {
+        self.members
+    }
+
     /// Which of the workspace's three regions `dir` falls in.
     ///
     /// `dir` must be absolute and free of `.`/`..` components, which is

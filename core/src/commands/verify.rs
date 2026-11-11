@@ -64,16 +64,14 @@ impl ManifestUsages {
         if let Some(workspace) =
             ctx.load_workspace(crate::workspace::model_toml::MemberChecks::All)?
         {
-            let table = workspace.table().clone();
             return workspace
-                .members()
-                .iter()
+                .into_members()
+                .into_iter()
                 .map(|member| {
-                    Self::read(&LocalSrcProject::new_member(
-                        member.dir.clone(),
-                        None,
-                        table.clone(),
-                    ))
+                    Self::of_definition(
+                        &ProjectDefinition::Toml(Box::new(member.project)),
+                        member.dir.join(crate::manifest::MODEL_TOML_FILE),
+                    )
                 })
                 .collect();
         }
@@ -97,6 +95,14 @@ impl ManifestUsages {
             }
             ProjectDefinition::Json { info: _, meta: _ } => project.info_path(),
         };
+        Self::of_definition(&definition, manifest)
+    }
+
+    /// The usages of an already-read manifest; `manifest` is its path.
+    fn of_definition(
+        definition: &ProjectDefinition,
+        manifest: Utf8PathBuf,
+    ) -> Result<Self, VerifyError> {
         let usages = definition
             .usages()
             .iter()
