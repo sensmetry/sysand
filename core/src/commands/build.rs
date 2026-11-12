@@ -20,7 +20,7 @@ use crate::{
         usage::{Usage, UsageBase},
     },
     model::{
-        InterchangeProjectChecksumRaw, InterchangeProjectUsageRaw,
+        InterchangeProjectChecksumRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsageRaw,
         InterchangeProjectValidationError, KerMlChecksumAlg,
     },
     project::{
@@ -547,37 +547,39 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
                 Some(source) => source,
                 None => read_project_file_to_string(project, &p)?,
             };
-            zip.start_file(&p, options)
-                .map_err(|e| ZipArchiveError::Write(Utf8Path::new(&p).into(), e))?;
-            zip.write_all(source.as_bytes())
-                .map_err(|e| FsIoError::WriteFile(path.as_ref().into(), e))?;
+            write_entry(&mut zip, &p, &source, options, path.as_ref())?;
         }
-    } else if update_index {
+    } else {
         let mut index = IndexMap::new();
         let mut exports: Vec<String> = Vec::new();
+        let progress = if update_index {
+            "updating file metadata"
+        } else {
+            "updating file checksums"
+        };
         for (i, p) in source_paths.into_iter().enumerate() {
             // `log` always appends a newline, so `\r` does not work with it
-            eprint!("\rupdating file metadata ({}/{len})", i + 1);
+            eprint!("\r{progress} ({}/{len})", i + 1);
 
             let source = read_project_file_to_string(project, &p)?;
             let checksum = sha256_lowercase_hex(&source);
             let symbols = extract_symbols(&p, &source, None)?;
-
-            zip.start_file(&p, options)
-                .map_err(|e| ZipArchiveError::Write(Utf8Path::new(&p).into(), e))?;
-            zip.write_all(source.as_bytes())
-                .map_err(|e| FsIoError::WriteFile(path.as_ref().into(), e))?;
-
-            for s in symbols {
-                if root_shape {
-                    // Each name once; sorted below.
-                    if !exports.contains(&s) {
-                        exports.push(s);
+            if update_index {
+                for s in symbols {
+                    if root_shape {
+                        // Each name once; sorted below.
+                        if !exports.contains(&s) {
+                            exports.push(s);
+                        }
+                    } else {
+                        index.insert(s, p.clone());
                     }
-                } else {
-                    index.insert(s, p.clone());
                 }
+            } else {
+                check_kept_index(&meta, &p, symbols)?;
             }
+
+            write_entry(&mut zip, &p, &source, options, path.as_ref())?;
             checksums.insert(
                 p,
                 InterchangeProjectChecksumRaw {
@@ -586,50 +588,14 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
                 },
             );
         }
-        if root_shape {
-            // Each name once, sorted.
-            exports.sort();
-            meta.exports = Some(exports);
-        } else {
-            meta.index = Some(index);
-        }
-    } else {
-        for (i, p) in source_paths.into_iter().enumerate() {
-            eprint!("\rupdating file checksums ({}/{len})", i + 1);
-
-            let source = read_project_file_to_string(project, &p)?;
-            let checksum = sha256_lowercase_hex(&source);
-            let new_symbols = extract_symbols(&p, &source, None)?;
-
-            let new_symbols: HashSet<String> = new_symbols.into_iter().collect();
-            let old_symbols = meta.file_index_symbols(&p);
-            if let Some(only_in_old) = old_symbols.difference(&new_symbols).next() {
-                return Err(KParBuildError::MissingIndexSymbol(
-                    p.as_str().into(),
-                    only_in_old.clone(),
-                ));
+        if update_index {
+            if root_shape {
+                // Each name once, sorted.
+                exports.sort();
+                meta.exports = Some(exports);
+            } else {
+                meta.index = Some(index);
             }
-            for only_in_new in new_symbols.difference(&old_symbols) {
-                // TODO: figure out a way to only print suggestions when running the CLI
-                log::warn!(
-                    "index is missing symbol `{only_in_new}` found in file `{p}`;\n\
-                    if this is not intentional, include the file again to update its\n\
-                    exported symbols, or omit `--keep-index` to do so for all files"
-                );
-            }
-
-            zip.start_file(&p, options)
-                .map_err(|e| ZipArchiveError::Write(Utf8Path::new(&p).into(), e))?;
-            zip.write_all(source.as_bytes())
-                .map_err(|e| FsIoError::WriteFile(path.as_ref().into(), e))?;
-
-            checksums.insert(
-                p,
-                InterchangeProjectChecksumRaw {
-                    value: checksum,
-                    algorithm: KerMlChecksumAlg::Sha256.into(),
-                },
-            );
         }
     }
     eprintln!();
@@ -670,10 +636,7 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     meta.checksum = Some(checksums);
 
     for (archive_path, content) in extra_files {
-        zip.start_file(&archive_path, options)
-            .map_err(|e| ZipArchiveError::Write(Utf8Path::new(&archive_path).into(), e))?;
-        zip.write_all(content.as_bytes())
-            .map_err(|e| FsIoError::WriteFile(path.as_ref().into(), e))?;
+        write_entry(&mut zip, &archive_path, &content, options, path.as_ref())?;
     }
 
     // KerML Clause 10.3: “In addition, the archive shall contain, at its
@@ -683,20 +646,67 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     let info_content = to_pretty_json_string(&info);
     let meta_content = to_pretty_json_string(&meta);
 
-    zip.start_file(".project.json", options)
-        .map_err(|e| ZipArchiveError::Write(Utf8Path::new(".project.json").into(), e))?;
-    zip.write_all(info_content.as_bytes())
-        .map_err(|e| FsIoError::WriteFile(path.as_ref().into(), e))?;
-
-    zip.start_file(".meta.json", options)
-        .map_err(|e| ZipArchiveError::Write(Utf8Path::new(".meta.json").into(), e))?;
-    zip.write_all(meta_content.as_bytes())
-        .map_err(|e| FsIoError::WriteFile(path.as_ref().into(), e))?;
+    write_entry(
+        &mut zip,
+        ".project.json",
+        &info_content,
+        options,
+        path.as_ref(),
+    )?;
+    write_entry(
+        &mut zip,
+        ".meta.json",
+        &meta_content,
+        options,
+        path.as_ref(),
+    )?;
 
     zip.finish()
         .map_err(|e| ZipArchiveError::Finish(path.as_ref().into(), e))?;
 
     Ok(LocalKParProjectRaw::new_project_at_root(&path)?)
+}
+
+/// Write one file into the archive at `archive`.
+fn write_entry<E: ErrorBound>(
+    zip: &mut zip::ZipWriter<std::fs::File>,
+    name: &str,
+    content: &str,
+    options: zip::write::SimpleFileOptions,
+    archive: &Utf8Path,
+) -> Result<(), KParBuildError<E>> {
+    zip.start_file(name, options)
+        .map_err(|e| ZipArchiveError::Write(Utf8Path::new(name).into(), e))?;
+    zip.write_all(content.as_bytes())
+        .map_err(|e| FsIoError::WriteFile(archive.into(), e))?;
+    Ok(())
+}
+
+/// Check a file's symbols against the index kept from its `.meta.json`:
+/// a symbol the index lists but the file lacks is an error, and one the
+/// index lacks is a warning.
+fn check_kept_index<E: ErrorBound>(
+    meta: &InterchangeProjectMetadataRaw,
+    path: &str,
+    symbols: Vec<String>,
+) -> Result<(), KParBuildError<E>> {
+    let new_symbols: HashSet<String> = symbols.into_iter().collect();
+    let old_symbols = meta.file_index_symbols(path);
+    if let Some(only_in_old) = old_symbols.difference(&new_symbols).next() {
+        return Err(KParBuildError::MissingIndexSymbol(
+            path.into(),
+            only_in_old.clone(),
+        ));
+    }
+    for only_in_new in new_symbols.difference(&old_symbols) {
+        // TODO: figure out a way to only print suggestions when running the CLI
+        log::warn!(
+            "index is missing symbol `{only_in_new}` found in file `{path}`;\n\
+            if this is not intentional, include the file again to update its\n\
+            exported symbols, or omit `--keep-index` to do so for all files"
+        );
+    }
+    Ok(())
 }
 
 fn read_optional_project_file(

@@ -1291,30 +1291,17 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
         }
 
         for (src_file, file_checksum) in file_checksums {
-            // A file that is no model file at all fails this check too.
-            if !Language::guess_from_path(&src_file).is_some_and(|lang| metamodel_kind.admits(lang))
-            {
-                return Err(PublishError::IncorrectFileFormat {
-                    path: src_file.as_str().into(),
-                    metamodel_iri: metamodel.to_string().into(),
-                });
-            }
-
-            if file_checksum.algorithm != KerMlChecksumAlg::Sha256 {
-                return Err(PublishError::UnsupportedFileChecksumType {
-                    path: src_file.as_str().into(),
-                    alg: file_checksum.algorithm,
-                });
-            }
-
-            let source =
-                read_verified_member(&src_file, &file_checksum, &mut kpar_files, &mut archive)?;
-
-            // Guessed from the path: a SysML project may
-            // carry `.kerml` files, and the two have different
-            // extractors.
-            let actual_symbols = extract_symbols(&src_file, &source, None)
-                .map_err(|e| PublishError::IndexFail { source: e })?;
+            // A file that is no model file at all is refused.
+            let actual_symbols = checked_member_symbols(
+                &src_file,
+                &file_checksum,
+                &mut kpar_files,
+                &mut archive,
+                metamodel_kind,
+                metamodel,
+                false,
+            )?
+            .unwrap_or_default();
             // Actual symbols must be a superset of recorded
             if let Some(symbols) = symbols_for_files.get(&src_file) {
                 for s in symbols {
@@ -1427,27 +1414,16 @@ fn publish_root_shape(
 
     let mut declared: Vec<String> = Vec::new();
     for (src_file, file_checksum) in file_checksums {
-        let is_model_file = Language::guess_from_path(src_file).is_some();
-        if is_model_file
-            && !Language::guess_from_path(src_file).is_some_and(|lang| metamodel_kind.admits(lang))
-        {
-            return Err(PublishError::IncorrectFileFormat {
-                path: src_file.as_str().into(),
-                metamodel_iri: metamodel.to_string().into(),
-            });
-        }
-        if file_checksum.algorithm != KerMlChecksumAlg::Sha256 {
-            return Err(PublishError::UnsupportedFileChecksumType {
-                path: src_file.as_str().into(),
-                alg: file_checksum.algorithm,
-            });
-        }
-        let contents = read_verified_member(src_file, file_checksum, kpar_files, archive)?;
-        if is_model_file {
-            declared.extend(
-                extract_symbols(src_file, &contents, None)
-                    .map_err(|e| PublishError::IndexFail { source: e })?,
-            );
+        if let Some(symbols) = checked_member_symbols(
+            src_file,
+            file_checksum,
+            kpar_files,
+            archive,
+            metamodel_kind,
+            metamodel,
+            true,
+        )? {
+            declared.extend(symbols);
         }
     }
 
@@ -1478,6 +1454,47 @@ fn publish_root_shape(
         }
     }
     Ok(())
+}
+
+/// Checks an archive member's format and checksum, reads it, and returns
+/// the symbols it declares, or `None` for a file that is no model file.
+/// A model file must be in a language the metamodel admits; any other
+/// file is refused unless `other_files` is set.
+fn checked_member_symbols(
+    src_file: &Utf8UnixPath,
+    file_checksum: &InterchangeProjectChecksum,
+    kpar_files: &mut HashMap<String, bool>,
+    archive: &mut zip::ZipArchive<std::fs::File>,
+    metamodel_kind: SpecKind,
+    metamodel: &Metamodel,
+    other_files: bool,
+) -> Result<Option<Vec<String>>, PublishError> {
+    let language = Language::guess_from_path(src_file);
+    let admitted = match language {
+        Some(language) => metamodel_kind.admits(language),
+        None => other_files,
+    };
+    if !admitted {
+        return Err(PublishError::IncorrectFileFormat {
+            path: src_file.as_str().into(),
+            metamodel_iri: metamodel.to_string().into(),
+        });
+    }
+    if file_checksum.algorithm != KerMlChecksumAlg::Sha256 {
+        return Err(PublishError::UnsupportedFileChecksumType {
+            path: src_file.as_str().into(),
+            alg: file_checksum.algorithm,
+        });
+    }
+    let contents = read_verified_member(src_file, file_checksum, kpar_files, archive)?;
+    // Guessed from the path: a SysML project may carry `.kerml` files,
+    // and the two have different extractors.
+    language
+        .map(|_| {
+            extract_symbols(&src_file, &contents, None)
+                .map_err(|e| PublishError::IndexFail { source: e })
+        })
+        .transpose()
 }
 
 /// Marks `path` as expected, reads it from the archive and checks it against
