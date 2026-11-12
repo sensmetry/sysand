@@ -2,7 +2,7 @@ name: Prek (linting and formatting)
 
 on:
   push:
-    branches: [main]
+    branches: [main, stable-api-1]
     tags: ["v*"]
   pull_request:
     branches: [main]
