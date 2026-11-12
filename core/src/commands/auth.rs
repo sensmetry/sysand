@@ -35,7 +35,7 @@ use crate::{
     },
     env::index::HttpFetchError,
     index_location::{IndexLocation, IndexLocationError, IndexUrlTemplate},
-    redact::{HttpError, RedactedUrl},
+    redact::{HttpError, HttpFailure, RedactedUrl},
     resolve::net_utils::HttpOptions,
 };
 
@@ -881,9 +881,10 @@ fn fetch_login_endpoints(
         location,
     )) {
         Ok(endpoints) => Some(endpoints),
-        Err(DiscoveryError::Fetch(HttpFetchError::BadHttpStatus { status, url: _ }))
-            if status.is_client_error() && status != reqwest::StatusCode::TOO_MANY_REQUESTS =>
-        {
+        Err(DiscoveryError::Fetch(HttpFetchError::Http(HttpFailure::BadHttpStatus {
+            status,
+            url: _,
+        }))) if status.is_client_error() && status != reqwest::StatusCode::TOO_MANY_REQUESTS => {
             forced_discovery_fetch(location, secret, http_options, runtime, notify)
         }
         // Network failures, 5xx, a 429 baseline, and a present-but-invalid

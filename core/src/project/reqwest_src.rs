@@ -21,7 +21,7 @@ use crate::{
         InterchangeProjectUsageRaw, PartialManifest,
     },
     project::{CanonicalizationError, ProjectDefinition, ProjectReadAsync, utils::FsIoError},
-    redact::{HttpError, RedactedUrl, ResponseUrl},
+    redact::{HttpFailure, RedactedUrl, ResponseUrl},
     resolve::net_utils::{json_get_request, json_head_request, text_get_request},
 };
 
@@ -65,18 +65,8 @@ impl<Policy> ReqwestSrcProjectAsync<Policy> {
 
 #[derive(Error, Debug)]
 pub enum ReqwestSrcError {
-    #[error("HTTP request to `{url}` failed")]
-    Request {
-        url: RedactedUrl,
-        #[source]
-        source: HttpError,
-    },
-    #[error("failed to read HTTP response body from {url}")]
-    Body {
-        url: ResponseUrl,
-        #[source]
-        source: HttpError,
-    },
+    #[error(transparent)]
+    Http(#[from] HttpFailure),
     #[error("HTTP request to\n  {0}\n  returned malformed data")]
     Deserialize(ResponseUrl, #[source] serde_json::Error),
     #[error(
@@ -84,8 +74,6 @@ pub enum ReqwestSrcError {
         .report.file()
     )]
     InvalidManifest { report: Report },
-    #[error("HTTP request to {0} returned unexpected status code {1}")]
-    BadStatus(ResponseUrl, reqwest::StatusCode),
     #[error("project is missing `.project.json` and/or `.meta.json` files")]
     MissingInfoMeta,
     /// One of a json project's two documents is not there.
@@ -117,7 +105,7 @@ impl<Policy: HTTPAuthentication> ReqwestSrcProjectAsync<Policy> {
             .auth_policy
             .with_authentication(&self.client, &json_get_request(url.clone()))
             .await
-            .map_err(|source| ReqwestSrcError::Request {
+            .map_err(|source| HttpFailure::Request {
                 url: (&url).into(),
                 source: source.into(),
             })?;
@@ -128,10 +116,11 @@ impl<Policy: HTTPAuthentication> ReqwestSrcProjectAsync<Policy> {
         let response_url = ResponseUrl::new(&url, response.url());
         match response.text().await {
             Ok(body) => Ok(Some((response_url, body))),
-            Err(source) => Err(ReqwestSrcError::Body {
+            Err(source) => Err(HttpFailure::Body {
                 url: response_url,
                 source: source.into(),
-            }),
+            }
+            .into()),
         }
     }
 
@@ -208,7 +197,7 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Pol
             .auth_policy
             .with_authentication(&self.client, &text_get_request(url.clone()))
             .await
-            .map_err(|source| ReqwestSrcError::Request {
+            .map_err(|source| HttpFailure::Request {
                 url: (&url).into(),
                 source: source.into(),
             })?;
@@ -218,15 +207,19 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Pol
             Ok(resp
                 .bytes_stream()
                 .map_err(move |source| {
-                    io::Error::other(ReqwestSrcError::Body {
+                    io::Error::other(ReqwestSrcError::from(HttpFailure::Body {
                         url: response_url.clone(),
                         source: source.into(),
-                    })
+                    }))
                 })
                 .boxed()
                 .into_async_read())
         } else {
-            Err(ReqwestSrcError::BadStatus(response_url, resp.status()))
+            Err(HttpFailure::BadHttpStatus {
+                url: response_url,
+                status: resp.status(),
+            }
+            .into())
         }
     }
 

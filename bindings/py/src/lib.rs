@@ -76,7 +76,7 @@ use sysand_core::{
         memory::InMemoryProject,
         utils::{Identifier, wrapfs},
     },
-    redact::RedactedUrl,
+    redact::{HttpFailure, RedactedUrl},
     remove::{RemoveError, do_remove},
     resolve::{
         ResolveRead,
@@ -494,7 +494,7 @@ fn combined_error_to_pyerr<F, L, R>(
             IndexEnvironmentError::Discovery(DiscoveryError::Fetch(fetch))
             | IndexEnvironmentError::Fetch(fetch),
         ))) => match fetch {
-            HttpFetchError::BadHttpStatus { url, status }
+            HttpFetchError::Http(HttpFailure::BadHttpStatus { url, status })
                 if matches!(status.as_u16(), 401 | 403) =>
             {
                 PyAuthError::new_err(format!(
@@ -503,7 +503,9 @@ fn combined_error_to_pyerr<F, L, R>(
                 ))
             }
             // Connection-level failures are not the index's fault.
-            HttpFetchError::Request { url: _, source: _ } => PyResolutionError::new_err(message),
+            HttpFetchError::Http(HttpFailure::Request { url: _, source: _ }) => {
+                PyResolutionError::new_err(message)
+            }
             _ => PyIndexProtocolError::new_err(message),
         },
         // A filesystem index that cannot be reached or is not an index

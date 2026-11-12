@@ -106,8 +106,9 @@ fn basic_project_urls_http_src() -> Result<(), Box<dyn std::error::Error>> {
 
     assert_eq!(src, src_buf);
 
-    let Err(crate::cancel::Cancellable::Inner(super::ReqwestSrcError::BadStatus(..))) =
-        project.read_source(Utf8UnixPath::new("Mekanik/Kommandoh.sysml").to_path_buf())
+    let Err(crate::cancel::Cancellable::Inner(super::ReqwestSrcError::Http(
+        crate::redact::HttpFailure::BadHttpStatus { url: _, status: _ },
+    ))) = project.read_source(Utf8UnixPath::new("Mekanik/Kommandoh.sysml").to_path_buf())
     else {
         panic!();
     };

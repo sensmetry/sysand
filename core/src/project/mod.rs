@@ -1227,6 +1227,12 @@ pub struct AsAsyncReader<T> {
     inner: T,
 }
 
+impl<T> AsAsyncReader<T> {
+    pub const fn new(inner: T) -> Self {
+        Self { inner }
+    }
+}
+
 impl<T: Read + Unpin> AsyncRead for AsAsyncReader<T> {
     fn poll_read(
         self: std::pin::Pin<&mut Self>,

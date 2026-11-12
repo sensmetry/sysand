@@ -440,10 +440,9 @@ mod uris {
             .uris()
             .expect_err("missing index.json must error, not be treated as empty");
         match inner(err) {
-            super::IndexEnvironmentError::Fetch(super::HttpFetchError::BadHttpStatus {
-                url,
-                status,
-            }) => {
+            super::IndexEnvironmentError::Fetch(super::HttpFetchError::Http(
+                crate::redact::HttpFailure::BadHttpStatus { url, status },
+            )) => {
                 assert_eq!(status, reqwest::StatusCode::NOT_FOUND);
                 assert!(
                     url.requested()
@@ -848,10 +847,9 @@ mod versions {
             .versions(purl("admin/proj0"))
             .expect_err("403 on root versions.json must be a hard error");
         match inner(err) {
-            super::IndexEnvironmentError::Fetch(super::HttpFetchError::BadHttpStatus {
-                status,
-                url: _,
-            }) => {
+            super::IndexEnvironmentError::Fetch(super::HttpFetchError::Http(
+                crate::redact::HttpFailure::BadHttpStatus { status, url: _ },
+            )) => {
                 assert_eq!(status, reqwest::StatusCode::FORBIDDEN);
             }
             other => panic!("expected BadHttpStatus(403), got {other:?}"),
@@ -1100,10 +1098,9 @@ mod get_project {
             .get_project(purl("admin/proj0"), "1.0.0")
             .expect_err("5xx on root versions.json must be a hard error");
         match inner(err) {
-            super::IndexEnvironmentError::Fetch(super::HttpFetchError::BadHttpStatus {
-                status,
-                url: _,
-            }) => {
+            super::IndexEnvironmentError::Fetch(super::HttpFetchError::Http(
+                crate::redact::HttpFailure::BadHttpStatus { status, url: _ },
+            )) => {
                 assert_eq!(status, reqwest::StatusCode::SERVICE_UNAVAILABLE);
             }
             other => panic!("expected BadHttpStatus(503), got {other:?}"),

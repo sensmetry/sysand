@@ -40,7 +40,7 @@ use crate::{
     },
     index_location::IndexLocation,
     project::index_entry::{IndexEntryProject, IndexEntryProjectError},
-    redact::{HttpError, RedactedUrl, ResponseUrl},
+    redact::{HttpFailure, RedactedUrl, ResponseUrl},
     resolve::net_utils::json_get_request,
 };
 
@@ -156,23 +156,8 @@ pub enum IndexEnvironmentError {
 /// status, body read, or JSON parse.
 #[derive(Error, Debug)]
 pub enum HttpFetchError {
-    #[error("HTTP request to `{url}` failed")]
-    Request {
-        url: RedactedUrl,
-        #[source]
-        source: HttpError,
-    },
-    #[error("HTTP request to {url} returned status {status}")]
-    BadHttpStatus {
-        url: ResponseUrl,
-        status: reqwest::StatusCode,
-    },
-    #[error("failed to read HTTP response body from {url}")]
-    Body {
-        url: ResponseUrl,
-        #[source]
-        source: HttpError,
-    },
+    #[error(transparent)]
+    Http(#[from] HttpFailure),
     #[error("failed to parse JSON from {url}")]
     JsonParse {
         url: ResponseUrl,
@@ -193,7 +178,7 @@ pub(crate) enum MissingPolicy {
 
 /// Fetch and JSON-parse one document from `url` through `client`+`auth`. A
 /// 404 returns `Ok(None)` under [`MissingPolicy::AllowNotFound`] and a
-/// [`HttpFetchError::BadHttpStatus`] under [`MissingPolicy::RequirePresent`];
+/// [`HttpFailure::BadHttpStatus`] under [`MissingPolicy::RequirePresent`];
 /// any other non-success status is always an error.
 pub(crate) async fn fetch_json<T: DeserializeOwned, P: HTTPAuthentication>(
     client: &reqwest_middleware::ClientWithMiddleware,
@@ -204,7 +189,7 @@ pub(crate) async fn fetch_json<T: DeserializeOwned, P: HTTPAuthentication>(
     let response = auth
         .with_authentication(client, &json_get_request(url.clone()))
         .await
-        .map_err(|source| HttpFetchError::Request {
+        .map_err(|source| HttpFailure::Request {
             url: url.clone().into(),
             source: source.into(),
         })?;
@@ -217,19 +202,17 @@ pub(crate) async fn fetch_json<T: DeserializeOwned, P: HTTPAuthentication>(
 
     let response_url = ResponseUrl::new(url, response.url());
     if !status.is_success() {
-        return Err(HttpFetchError::BadHttpStatus {
+        return Err(HttpFailure::BadHttpStatus {
             url: response_url,
             status,
-        });
+        }
+        .into());
     }
 
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|source| HttpFetchError::Body {
-            url: response_url.clone(),
-            source: source.into(),
-        })?;
+    let bytes = response.bytes().await.map_err(|source| HttpFailure::Body {
+        url: response_url.clone(),
+        source: source.into(),
+    })?;
 
     match serde_json::from_slice::<T>(&bytes) {
         Ok(v) => Ok(Some(v)),
