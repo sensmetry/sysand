@@ -32,7 +32,7 @@ use sysand_core::{
     resolve::ResolutionInfo,
     utils::ProvidedProjects,
     utils::format_err,
-    workspace::model_toml::{discover_table, member_index},
+    workspace::model_toml::{PathRegion, discover_table, region_of},
 };
 
 use crate::{
@@ -346,17 +346,15 @@ fn member_table(target: &Utf8Path) -> Result<Option<WorkspaceTable>, String> {
     else {
         return Ok(None);
     };
-    // `member_index`, not `start_region`: the latter prefix-matches, so a
-    // project nested inside a member would be handed the member's table.
-    // Every "not a member" answer (unlisted, excluded, nested, outside the
-    // root) is `None`, not an error.
-    let index = member_index(&root, &table, target).map_err(|error| {
+    let canonical = wrapfs::canonicalize(target).map_err(|error| {
         format!(
             "cannot place `{target}` in the workspace at `{root}`: {}",
             format_err(error)
         )
     })?;
-    Ok(index.map(|_| table))
+    // Every "not a member" answer (unlisted, excluded, nested, outside the
+    // root) is `None`, not an error.
+    Ok(matches!(region_of(&root, &table, &canonical), PathRegion::Member(_)).then_some(table))
 }
 
 /// Ask for the publisher `model.toml` requires and the json project does

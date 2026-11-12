@@ -10,7 +10,6 @@ use std::{collections::HashSet, fs, io::Write as _};
 
 use crate::{
     env::utils::ErrorBound,
-    graph::DependencyGraph,
     include::{IncludeError, extract_symbols, read_project_file_to_string},
     manifest::{
         kpar_view::{self, ViewError},
@@ -860,40 +859,15 @@ pub fn workspace_publish_order(
     workspace: &model_toml::Workspace,
 ) -> Vec<(Utf8PathBuf, Utf8PathBuf)> {
     let root = workspace.root();
-    let members: Vec<_> = read_members(workspace)
-        .into_iter()
-        .map(|member| OrderedMember {
-            dependencies: usage_dirs(&member.definition),
-            file_name: kpar_file_name_of(&member.definition),
-            dir: member.dir,
-        })
-        .collect();
-
-    // Dependency order is a topological sort of the members' `dir` usages of
-    // each other. Loading the workspace refused every cycle.
-    //
-    // Every member is a node, whether or not its directory resolves: a
-    // member that cannot be read fails with its own message.
-    let mut graph = DependencyGraph::new();
-    for member in &members {
-        graph.add_node(member.dir.clone());
-    }
-    for member in &members {
-        for dependency in &member.dependencies {
-            // `add_edge` ignores an endpoint the graph does not hold, such as
-            // a usage of a project outside the workspace.
-            graph.add_edge(&member.dir, &canonical_or(member.dir.join(dependency)));
-        }
-    }
-
-    let order: Vec<Utf8PathBuf> = graph.dependency_order().into_iter().cloned().collect();
-    let mut members = members;
-    members.sort_by_key(|member| order.iter().position(|dir| dir == &member.dir));
-    members
+    workspace
+        .members_in_dependency_order()
         .into_iter()
         .map(|member| {
-            let path = output_path_in(Some(root), &member.dir, &member.file_name);
-            (shorten(&member.dir, root), path)
+            let dir = canonical_or(member.dir.clone());
+            let file_name =
+                kpar_file_name_of(&ProjectDefinition::Toml(Box::new(member.project.clone())));
+            let path = output_path_in(Some(root), &dir, &file_name);
+            (shorten(&dir, root), path)
         })
         .collect()
 }
@@ -1011,15 +985,6 @@ struct Member {
     definition: ProjectDefinition,
 }
 
-/// What the publish order needs of a member.
-struct OrderedMember {
-    dir: Utf8PathBuf,
-    /// The `dir` usages the member declares, as written.
-    dependencies: Vec<String>,
-    /// The member's archive name, or why it has none.
-    file_name: String,
-}
-
 /// `path`, canonicalized, or `path` itself where it cannot be.
 ///
 /// A member whose directory does not exist is still a member: it gets a
@@ -1032,37 +997,6 @@ fn canonical_or(path: Utf8PathBuf) -> Utf8PathBuf {
 fn is_file_url(url: &str) -> bool {
     url.get(..5)
         .is_some_and(|scheme| scheme.eq_ignore_ascii_case("file:"))
-}
-
-/// The `dir` usages a project declares, as written: what the publish
-/// order needs from a member.
-fn usage_dirs(definition: &ProjectDefinition) -> Vec<String> {
-    match definition {
-        ProjectDefinition::Toml(manifest) => manifest
-            .usages
-            .iter()
-            .filter_map(|located| match &located.usage {
-                Usage::SourcePath {
-                    dir,
-                    publisher: _,
-                    name: _,
-                } => Some(dir.as_str().to_owned()),
-                _ => None,
-            })
-            .collect(),
-        ProjectDefinition::Json { info, meta: _ } => info
-            .usage
-            .iter()
-            .filter_map(|usage| match usage {
-                InterchangeProjectUsageRaw::Directory {
-                    dir,
-                    publisher: _,
-                    name: _,
-                } => Some(dir.as_str().to_owned()),
-                _ => None,
-            })
-            .collect(),
-    }
 }
 
 /// A member directory as the workspace names it.

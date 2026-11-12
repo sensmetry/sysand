@@ -257,6 +257,21 @@ impl Workspace {
     pub fn members(&self) -> &[Member] {
         &self.members
     }
+
+    /// The members with each one after the members its `dir` usages name.
+    ///
+    /// A load refuses every cycle that is not allowed, so only members
+    /// that all carry `stdlib` can be out of order, in `members` order.
+    pub fn members_in_dependency_order(&self) -> Vec<&Member> {
+        let graph = member_graph(&self.members);
+        let nodes = graph.nodes();
+        graph
+            .dependency_order()
+            .into_iter()
+            .filter_map(|node| nodes.iter().position(|n| n == node))
+            .map(|index| &self.members[index])
+            .collect()
+    }
 }
 
 /// Why discovery failed.
@@ -355,31 +370,6 @@ pub enum StartRegion {
     Workspace,
 }
 
-/// The `members` entry that `dir` **is**, if any.
-///
-/// Unlike [`start_region`], which prefix-matches, this answers only for
-/// the entry itself, not for a project of its own under it.
-///
-/// `dir` is a project directory, not a starting point: there is no upward
-/// walk, and anything that is not a member, including a `dir` outside
-/// `root`, answers `None`.
-pub fn member_index(
-    root: &Utf8Path,
-    table: &WorkspaceTable,
-    dir: impl AsRef<Utf8Path>,
-) -> Result<Option<usize>, DiscoverError> {
-    let dir = wrapfs::canonicalize(dir.as_ref())?;
-    if dir == root {
-        return Ok(None);
-    }
-    let relative = relativize_path(&dir, root)?;
-    Ok(match table.region(&relative) {
-        // `region` prefix-matches; require equality.
-        Region::Member(index, member) if member.path == relative => Some(index),
-        _ => None,
-    })
-}
-
 /// Classifies a project under a workspace root, over a
 /// [`WorkspaceTable`] and a root path.
 ///
@@ -405,21 +395,15 @@ pub fn start_region(
             return Ok(StartRegion::Workspace);
         }
         if detect_format(current)? != ProjectFormat::Neither {
-            let relative = relativize_path(current, root)?;
-            if is_above_root(&relative) {
-                return Err(DiscoverError::NotUnderRoot {
-                    dir: current.to_owned(),
-                    root: root.to_owned(),
-                });
-            }
-            return match table.region(&relative) {
-                // The entry itself: `region` prefix-matches.
-                Region::Member(index, member) if member.path == relative => {
-                    Ok(StartRegion::Member(index))
-                }
-                Region::Excluded(_) => Ok(StartRegion::Standalone(current.to_owned())),
-                Region::Member(..) | Region::Unlisted => Err(DiscoverError::Unlisted {
+            return match region_of(root, table, current) {
+                PathRegion::Member(index) => Ok(StartRegion::Member(index)),
+                PathRegion::Excluded => Ok(StartRegion::Standalone(current.to_owned())),
+                PathRegion::Unlisted => Err(DiscoverError::Unlisted {
                     project: current.to_owned(),
+                    root: root.to_owned(),
+                }),
+                PathRegion::Outside => Err(DiscoverError::NotUnderRoot {
+                    dir: current.to_owned(),
                     root: root.to_owned(),
                 }),
             };
@@ -742,27 +726,8 @@ fn duplicate_identities(members: &[Member]) -> Vec<Diagnostic> {
 /// directory. `located.base` is not consulted: an inherited path usage is
 /// not an edge between members.
 fn member_cycles(members: &[Member]) -> Vec<Diagnostic> {
-    let mut graph = DependencyGraph::new();
-    for member in members {
-        graph.add_node(member.dir.clone());
-    }
-    for member in members {
-        for located in &member.project.usages {
-            if let Usage::SourcePath {
-                dir,
-                publisher: _,
-                name: _,
-            } = &located.usage
-            {
-                let target = wrapfs::canonicalize(member.dir.join(dir.as_str()))
-                    .unwrap_or_else(|_| member.dir.join(dir.as_str()));
-                graph.add_edge(&member.dir, &target);
-            }
-        }
-    }
-
-    let by_dir: HashMap<&Utf8PathBuf, &Member> =
-        members.iter().map(|member| (&member.dir, member)).collect();
+    let graph = member_graph(members);
+    let by_dir: HashMap<&Utf8PathBuf, &Member> = graph.nodes().iter().zip(members).collect();
     let stdlib = |dir: &Utf8PathBuf| {
         by_dir
             .get(dir)
@@ -798,6 +763,33 @@ fn member_cycles(members: &[Member]) -> Vec<Diagnostic> {
         );
     }
     diagnostics
+}
+
+/// The members' `dir` usages of each other, as a graph over their
+/// directories, canonical where the filesystem allows it. Node `i` is
+/// `members[i]`.
+///
+/// A usage of a project outside the workspace is no edge.
+fn member_graph(members: &[Member]) -> DependencyGraph<Utf8PathBuf> {
+    let canonical = |path: Utf8PathBuf| wrapfs::canonicalize(&path).unwrap_or(path);
+    let mut graph = DependencyGraph::new();
+    for member in members {
+        graph.add_node(canonical(member.dir.clone()));
+    }
+    let nodes = graph.nodes().to_vec();
+    for (member, node) in members.iter().zip(&nodes) {
+        for located in &member.project.usages {
+            if let Usage::SourcePath {
+                dir,
+                publisher: _,
+                name: _,
+            } = &located.usage
+            {
+                graph.add_edge(node, &canonical(node.join(dir.as_str())));
+            }
+        }
+    }
+    graph
 }
 
 /// Three existence tests; no content is read.
@@ -885,15 +877,14 @@ pub fn project_at_path(
         ));
     };
     match region_of(&root, &table, &canonical) {
-        PathRegion::Member => Ok(crate::project::local_src::LocalSrcProject::new_member(
+        PathRegion::Member(_) => Ok(crate::project::local_src::LocalSrcProject::new_member(
             path,
             nominal_path,
             std::sync::Arc::new(table),
         )),
-        PathRegion::Standalone => Ok(crate::project::local_src::LocalSrcProject::new_access(
-            path,
-            nominal_path,
-        )),
+        PathRegion::Excluded | PathRegion::Outside => Ok(
+            crate::project::local_src::LocalSrcProject::new_access(path, nominal_path),
+        ),
         PathRegion::Unlisted => Err(DiscoverError::Unlisted {
             project: canonical,
             root,
@@ -901,7 +892,7 @@ pub fn project_at_path(
     }
 }
 
-/// Where a path sits relative to a workspace.
+/// Where a project directory sits relative to a workspace.
 ///
 /// An excluded project is standalone, the only kind of non-member project
 /// that may sit under a workspace root, while an unlisted one is a hard
@@ -909,30 +900,38 @@ pub fn project_at_path(
 /// where running from inside it fails.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PathRegion {
-    /// A listed member: resolve its manifest against the table.
-    Member,
-    /// Outside the workspace, or under an `exclude` entry: read it as
-    /// the standalone project it is.
-    Standalone,
-    /// Under the root and in neither list: a hard error.
+    /// The directory of `table.members[index]` itself: resolve its
+    /// manifest against the table.
+    Member(usize),
+    /// Under an `exclude` entry: the standalone project it is.
+    Excluded,
+    /// Under the root and in neither list, which includes a project nested
+    /// inside a member: a hard error.
     Unlisted,
+    /// Not under the root.
+    Outside,
 }
 
-/// [`PathRegion`] for `path` against the workspace rooted at `root`.
+/// [`PathRegion`] for the project directory `dir` against the workspace
+/// rooted at `root`.
 ///
-/// `path` must be canonical when `root` is, since the two are compared.
-pub fn region_of(root: &Utf8Path, table: &WorkspaceTable, path: &Utf8Path) -> PathRegion {
-    let Ok(relative) = relativize_path(path, root) else {
-        return PathRegion::Standalone;
+/// `dir` must be canonical when `root` is, since the two are compared.
+/// [`WorkspaceTable::region`] prefix-matches, so a member is only the
+/// entry itself.
+pub fn region_of(root: &Utf8Path, table: &WorkspaceTable, dir: &Utf8Path) -> PathRegion {
+    let relative = match relativize_path(dir, root) {
+        Ok(relative) => relative,
+        // A different drive or path kind, on Windows.
+        Err(RelativizePathError::NoCommonPrefix { path: _, root: _ }) => {
+            return PathRegion::Outside;
+        }
     };
     if is_above_root(&relative) {
-        // Above the root, so outside the workspace altogether.
-        return PathRegion::Standalone;
+        return PathRegion::Outside;
     }
     match table.region(&relative) {
-        // The entry itself: `region` prefix-matches.
-        Region::Member(_, member) if member.path == relative => PathRegion::Member,
-        Region::Excluded(_) => PathRegion::Standalone,
+        Region::Member(index, member) if member.path == relative => PathRegion::Member(index),
+        Region::Excluded(_) => PathRegion::Excluded,
         Region::Member(..) | Region::Unlisted => PathRegion::Unlisted,
     }
 }

@@ -806,32 +806,6 @@ fn toml_member(dir: &camino_tempfile::Utf8TempDir, at: &str, deps: &[&str], stdl
     std::fs::write(path.join("m.kerml"), b"package M;\n").expect("a member source");
 }
 
-/// A legacy json member: a json manifest has no `stdlib` key.
-fn json_member(dir: &camino_tempfile::Utf8TempDir, at: &str, deps: &[&str]) {
-    let path = dir.path().join(at);
-    std::fs::create_dir_all(&path).expect("the member directory");
-    let usages: Vec<String> = deps
-        .iter()
-        .map(|d| {
-            let name = usage_name(d);
-            format!(r#"{{"dir": "{d}", "publisher": "acme", "name": "{name}"}}"#)
-        })
-        .collect();
-    std::fs::write(
-        path.join(".project.json"),
-        format!(
-            r#"{{"name": "{at}", "publisher": "acme", "version": "1.0.0", "usage": [{}]}}"#,
-            usages.join(", ")
-        ),
-    )
-    .expect("a member manifest");
-    std::fs::write(
-        path.join(".meta.json"),
-        br#"{"created": "2001-02-03T04:05:06Z", "index": {}, "checksum": {}}"#,
-    )
-    .expect("a member metadata");
-}
-
 /// The refusal to load the workspace in `dir`.
 ///
 /// A cycle among members is refused when the workspace is *read*, so a
@@ -954,25 +928,6 @@ fn a_cycle_with_one_non_stdlib_member_is_refused() -> Result<(), Box<dyn std::er
     let text = load_workspace_err(&dir);
     assert!(text.contains("dependency cycle"), "{text}");
     assert!(text.contains("beta"), "{text}");
-    Ok(())
-}
-
-/// A json member's `dir` usages are read from `.project.json`.
-///
-/// Through `usage_dirs` directly rather than through a
-/// workspace: a json member is refused at load (`load_member`), so the
-/// arm this pins is not reachable that way. It is the arm every json
-/// *project* takes.
-#[test]
-fn a_json_project_s_dir_usages_are_its_dependencies() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = tempdir()?;
-    json_member(&dir, "alpha", &["../beta"]);
-
-    let project =
-        crate::project::local_src::LocalSrcProject::new_access(dir.path().join("alpha"), None);
-    let dependencies =
-        super::usage_dirs(&crate::project::ProjectRead::get_project(&project)?.expect("a project"));
-    assert_eq!(dependencies, vec!["../beta".to_owned()]);
     Ok(())
 }
 

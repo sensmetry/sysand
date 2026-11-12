@@ -743,15 +743,13 @@ fn anything_else_is_unlisted() {
     assert_matches!(classify(&workspace, ""), Region::Unlisted);
 }
 
-/// A path above the root is outside the workspace, so it is read as the
-/// standalone project it is.
 #[test]
-fn a_directory_outside_the_root_is_standalone() {
+fn a_directory_outside_the_root_is_outside() {
     let (_fixture, workspace) = classified();
     let outside = workspace.root().parent().expect("the root has a parent");
     assert_eq!(
         super::region_of(workspace.root(), workspace.table(), outside),
-        PathRegion::Standalone
+        PathRegion::Outside
     );
 }
 
@@ -1368,16 +1366,15 @@ fn start_region_ignores_a_member_that_does_not_exist() {
     );
 }
 
-// ------------------------------- `member_index` asks for identity
+// ------------------------------- `region_of` asks for identity
 
-/// The distinction the two functions draw, on one fixture: `app` is a
-/// member, and the project at `app/dep`, which `start_region`
-/// prefix-matches to the same entry, is not.
+/// `app` is a member, and the project at `app/dep`, which
+/// [`WorkspaceTable::region`] prefix-matches to the same entry, is not.
 ///
 /// The consequence is inheritance: the nested project's
 /// `publisher.workspace = true` must not resolve against the table.
 #[test]
-fn member_index_refuses_a_project_nested_inside_a_member() {
+fn a_project_nested_inside_a_member_is_no_member() {
     let fixture = Fixture::new(&workspace_with("\"app\""));
     fixture.project("app");
     fixture.project("app/dep");
@@ -1387,13 +1384,13 @@ fn member_index_refuses_a_project_nested_inside_a_member() {
         .expect("a workspace");
 
     assert_eq!(
-        super::member_index(&root, &table, fixture.under("app")).expect("classifies"),
-        Some(0),
+        super::region_of(&root, &table, &fixture.under("app")),
+        PathRegion::Member(0),
         "`app` is the entry"
     );
     assert_eq!(
-        super::member_index(&root, &table, fixture.under("app/dep")).expect("classifies"),
-        None,
+        super::region_of(&root, &table, &fixture.under("app/dep")),
+        PathRegion::Unlisted,
         "`app/dep` is inside the entry, which is not the same thing"
     );
     // A prefix match would answer `Member(0)` here, so a command run
@@ -1413,7 +1410,7 @@ fn member_index_refuses_a_project_nested_inside_a_member() {
 /// The root defines no project, so it is no member either, and it is the
 /// one path whose relativization is empty.
 #[test]
-fn member_index_refuses_the_root() {
+fn the_root_is_no_member() {
     let fixture = Fixture::new(&workspace_with("\"app\""));
     fixture.project("app");
 
@@ -1421,8 +1418,8 @@ fn member_index_refuses_the_root() {
         .expect("the table reads")
         .expect("a workspace");
     assert_eq!(
-        super::member_index(&root, &table, fixture.root()).expect("classifies"),
-        None
+        super::region_of(&root, &table, &fixture.root()),
+        PathRegion::Unlisted
     );
 }
 
@@ -1521,7 +1518,7 @@ fn a_listed_member_is_read_with_the_table() {
 
 /// A project that merely *sits inside* a member is not one.
 /// `WorkspaceTable::region` prefix-matches, so asking it alone hands the
-/// table to `app/sub`; `member_index` adds the equality.
+/// table to `app/sub`; `region_of` adds the equality.
 #[test]
 fn a_project_nested_in_a_member_is_not_given_the_table() {
     let fixture = Fixture::new(

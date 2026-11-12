@@ -51,8 +51,8 @@ impl FileResolver {
             return Ok(project);
         };
         match crate::workspace::model_toml::region_of(root, table, project.path()) {
-            PathRegion::Member => Ok(project.in_workspace(table.clone())),
-            PathRegion::Standalone => Ok(project),
+            PathRegion::Member(_) => Ok(project.in_workspace(table.clone())),
+            PathRegion::Excluded | PathRegion::Outside => Ok(project),
             // A project under the root that is neither a member nor in
             // `exclude` is an error: it would be recorded in the lockfile
             // like an excluded project, so nothing downstream could tell
@@ -89,7 +89,7 @@ impl FileResolver {
                     root: root.clone(),
                 },
             )),
-            PathRegion::Member | PathRegion::Standalone => Ok(()),
+            PathRegion::Member(_) | PathRegion::Excluded | PathRegion::Outside => Ok(()),
         }
     }
 }
