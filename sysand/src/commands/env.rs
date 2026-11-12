@@ -13,7 +13,7 @@ use sysand_core::{
     auth::HTTPAuthentication,
     commands::{
         env::do_env_local_dir,
-        lock::{DeclaredBy, LockOutcome},
+        lock::DeclaredBy,
         sync::SyncOutcome,
     },
     config::Config,
@@ -144,10 +144,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
             DeclaredBy::Input("the command line".to_owned()),
         )];
 
-        let LockOutcome {
-            lock,
-            dependencies: _dependencies,
-        } = sysand_core::commands::lock::do_lock_extend(
+        let lock = sysand_core::commands::lock::do_lock_extend(
             Lock::default(),
             usages,
             resolver,
@@ -304,10 +301,7 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
                 ctx.cancellation.clone(),
             )?,
         );
-        let LockOutcome {
-            mut lock,
-            dependencies: _dependencies,
-        } = sysand_core::commands::lock::do_lock_projects(
+        let mut lock = sysand_core::commands::lock::do_lock_projects(
             [(Some(vec![iri]), &project)],
             resolver,
             &provided_usages,

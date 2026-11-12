@@ -95,8 +95,7 @@ fn lock_preserves_project_publisher() {
         &HashMap::new(),
         &ProjectContext::default(),
     )
-    .unwrap()
-    .lock;
+    .unwrap();
 
     assert_eq!(lock.projects[0].publisher.as_deref(), Some("Acme Labs"));
 }
@@ -297,7 +296,7 @@ mod typed_usage_spelling {
             &HashMap::new(),
             &ProjectContext::default(),
         ) {
-            Ok(outcome) => Ok(outcome.lock),
+            Ok(lock) => Ok(lock),
             Err(LockProjectError::LockError(LockError::TypedUsageMismatch(e))) => Err(e),
             Err(e) => panic!("{e}"),
         }
@@ -654,10 +653,10 @@ fn two_input_projects_resolve_against_their_own_bases() -> Result<(), Box<dyn st
 
     // Two inputs plus the two distinct targets they each resolve.
     assert_eq!(
-        outcome.lock.projects.len(),
+        outcome.projects.len(),
         4,
         "{:?}",
-        outcome.lock.projects
+        outcome.projects
     );
     Ok(())
 }
@@ -691,7 +690,6 @@ fn an_input_project_records_its_own_editable_path() -> Result<(), Box<dyn std::e
     .map_err(|e| e.to_string())?;
 
     let editables: Vec<&str> = outcome
-        .lock
         .projects
         .iter()
         .flat_map(|p| &p.sources)
@@ -735,10 +733,10 @@ fn do_lock_projects_still_derives_one_base() -> Result<(), Box<dyn std::error::E
     )
     .map_err(|e| e.to_string())?;
     assert_eq!(
-        outcome.lock.projects.len(),
+        outcome.projects.len(),
         3,
         "{:?}",
-        outcome.lock.projects
+        outcome.projects
     );
     Ok(())
 }
@@ -765,10 +763,10 @@ fn do_lock_extend_still_derives_one_base() -> Result<(), Box<dyn std::error::Err
     )
     .map_err(|e| e.to_string())?;
     assert_eq!(
-        outcome.lock.projects.len(),
+        outcome.projects.len(),
         1,
         "{:?}",
-        outcome.lock.projects
+        outcome.projects
     );
     Ok(())
 }
@@ -831,7 +829,6 @@ fn lock_workspace(
         &HashMap::default(),
         &ctx,
     )
-    .map(|outcome| outcome.lock)
 }
 
 /// Two members of one workspace that disagree about a dependency's version.
@@ -865,7 +862,6 @@ where
         &HashMap::default(),
         &ctx,
     )
-    .map(|outcome| outcome.lock)
 }
 
 /// A candidate `acme/lib` at `version`, for a resolver to offer.

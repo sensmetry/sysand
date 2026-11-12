@@ -11,7 +11,7 @@ use std::{collections::HashMap, fs, io::ErrorKind, sync::Arc};
 use sysand_core::{
     auth::HTTPAuthentication,
     cancel::CancellationToken,
-    commands::{lock::LockOutcome, sync::SyncOutcome},
+    commands::sync::SyncOutcome,
     config::Config,
     discover::{Ancestry, Seek},
     env::{local_directory::utils::clean_dir, utils::clone_project},
@@ -159,10 +159,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
             ]),
             ProjectLocator::Dir(_) | ProjectLocator::KparPath(_) => None,
         };
-        let LockOutcome {
-            lock,
-            dependencies: _dependencies,
-        } = sysand_core::commands::lock::do_lock_projects(
+        let lock = sysand_core::commands::lock::do_lock_projects(
             [(identifiers, &project)],
             resolver,
             &provided_usages,

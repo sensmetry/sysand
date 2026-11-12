@@ -219,12 +219,6 @@ pub enum LockError<PD: ProjectRead, R: ResolveRead + Debug + 'static> {
     SelfNameCollision(Box<SelfNameCollisionError>),
 }
 
-#[derive(Debug)]
-pub struct LockOutcome<PD: Debug> {
-    pub lock: Lock,
-    pub dependencies: Vec<(Identifier, PD)>,
-}
-
 /// Generates a lockfile by solving for a (compatible) set of interchange projects
 /// to satisfy interchange project usages in `info`.
 ///
@@ -236,8 +230,6 @@ pub struct LockOutcome<PD: Debug> {
 ///
 /// `resolver` is used to interpret the usage IRIs.
 ///
-/// Returns a lockfile, as well as a list of dependency projects to install (in addition to)
-/// `projects`.
 pub fn do_lock_projects<
     'a,
     PI: ProjectRead + Debug + 'a,
@@ -250,7 +242,7 @@ pub fn do_lock_projects<
     resolver: R,
     provided_usages: &ProvidedProjects,
     ctx: &ProjectContext,
-) -> Result<LockOutcome<PD>, LockProjectError<PI, PD, R>> {
+) -> Result<Lock, LockProjectError<PI, PD, R>> {
     #[cfg(feature = "filesystem")]
     let base_path = ctx.project_root();
     #[cfg(not(feature = "filesystem"))]
@@ -291,7 +283,7 @@ pub fn do_lock_projects_with_bases<
     resolver: R,
     provided_usages: &ProvidedProjects,
     ctx: &ProjectContext,
-) -> Result<LockOutcome<PD>, LockProjectError<PI, PD, R>> {
+) -> Result<Lock, LockProjectError<PI, PD, R>> {
     lock_projects(
         projects
             .into_iter()
@@ -327,7 +319,7 @@ fn lock_projects<
     provided_usages: &ProvidedProjects,
     ctx: &ProjectContext,
     respelled: Option<&Identifier>,
-) -> Result<LockOutcome<PD>, LockProjectError<PI, PD, R>> {
+) -> Result<Lock, LockProjectError<PI, PD, R>> {
     let mut lock = Lock::default();
 
     let mut all_deps = vec![];
@@ -401,9 +393,7 @@ fn lock_projects<
         }));
     }
 
-    let lock_outcome = lock_extend(lock, all_deps, resolver, provided_usages, ctx, respelled)?;
-
-    Ok(lock_outcome)
+    Ok(lock_extend(lock, all_deps, resolver, provided_usages, ctx, respelled)?)
 }
 
 /// Solves for compatible set of dependencies based on usages and adds the solution
@@ -427,7 +417,7 @@ pub fn do_lock_extend<
     resolver: R,
     provided_usages: &ProvidedProjects,
     ctx: &ProjectContext,
-) -> Result<LockOutcome<PD>, LockError<PD, R>> {
+) -> Result<Lock, LockError<PD, R>> {
     #[cfg(feature = "filesystem")]
     let base_path = ctx.project_root();
     #[cfg(not(feature = "filesystem"))]
@@ -469,7 +459,7 @@ fn lock_extend<
     provided_usages: &ProvidedProjects,
     ctx: &ProjectContext,
     respelled: Option<&Identifier>,
-) -> Result<LockOutcome<PD>, LockError<PD, R>> {
+) -> Result<Lock, LockError<PD, R>> {
     let (inputs, declared_by): (Vec<_>, Vec<_>) = usages.into_iter().unzip();
     // Typed usages, to check against the projects they resolve to
     let mut typed_usages: Vec<(TypedSpelling, DeclaredBy)> = inputs
@@ -479,7 +469,6 @@ fn lock_extend<
         .collect();
     // Publisher, name and version of each solved project
     let mut solved = HashMap::new();
-    let mut dependencies = vec![];
     let solution = solve_with_bases_cancellable(inputs, resolver, ctx.cancellation.clone())
         .map_err(LockError::Solver)?;
     let mut lock_projects = HashSet::new();
@@ -602,7 +591,6 @@ fn lock_extend<
             lock.projects.push(lock_project);
         }
 
-        dependencies.push((identifier, project));
     }
 
     check_typed_usages(typed_usages, &solved, respelled).map_err(LockError::TypedUsageMismatch)?;
@@ -618,7 +606,7 @@ fn lock_extend<
         log::warn!("{mismatch}");
     }
 
-    Ok(LockOutcome { lock, dependencies })
+    Ok(lock)
 }
 
 /// A typed usage's kind, publisher and name
@@ -721,7 +709,7 @@ pub fn do_lock_local_editable_respelling<
     resolver: R,
     ctx: &ProjectContext,
     respelled: &Identifier,
-) -> Result<LockOutcome<PD>, LockProjectError<EditableLocalSrcProject, PD, R>> {
+) -> Result<Lock, LockProjectError<EditableLocalSrcProject, PD, R>> {
     let project = EditableProject::new(
         path.as_ref().to_owned(),
         LocalSrcProject::new_access(
@@ -759,7 +747,7 @@ pub fn do_lock_workspace<PD: ProjectRead + Debug, R: ResolveRead<ProjectStorage 
     resolver: R,
     provided_usages: &ProvidedProjects,
     ctx: &ProjectContext,
-) -> Result<LockOutcome<PD>, LockProjectError<EditableLocalSrcProject, PD, R>> {
+) -> Result<Lock, LockProjectError<EditableLocalSrcProject, PD, R>> {
     lock_workspace(workspace, resolver, provided_usages, ctx, None)
 }
 
@@ -776,7 +764,7 @@ pub fn do_lock_workspace_respelling<
     provided_usages: &ProvidedProjects,
     ctx: &ProjectContext,
     respelled: &Identifier,
-) -> Result<LockOutcome<PD>, LockProjectError<EditableLocalSrcProject, PD, R>> {
+) -> Result<Lock, LockProjectError<EditableLocalSrcProject, PD, R>> {
     lock_workspace(workspace, resolver, provided_usages, ctx, Some(respelled))
 }
 
@@ -787,7 +775,7 @@ fn lock_workspace<PD: ProjectRead + Debug, R: ResolveRead<ProjectStorage = PD> +
     provided_usages: &ProvidedProjects,
     ctx: &ProjectContext,
     respelled: Option<&Identifier>,
-) -> Result<LockOutcome<PD>, LockProjectError<EditableLocalSrcProject, PD, R>> {
+) -> Result<Lock, LockProjectError<EditableLocalSrcProject, PD, R>> {
     debug_assert_eq!(
         ctx.sources_root().as_deref(),
         Some(workspace.root()),
@@ -863,7 +851,7 @@ pub fn do_lock_local_editable<
     provided_usages: &ProvidedProjects,
     resolver: R,
     ctx: &ProjectContext,
-) -> Result<LockOutcome<PD>, LockProjectError<EditableLocalSrcProject, PD, R>> {
+) -> Result<Lock, LockProjectError<EditableLocalSrcProject, PD, R>> {
     let path = path.as_ref();
     let project = EditableProject::new(
         path.to_owned(),

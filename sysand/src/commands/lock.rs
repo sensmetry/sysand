@@ -9,7 +9,7 @@ use crate::{cli::ResolutionOptions, context::NotInProject, get_overrides};
 use sysand_core::{
     auth::HTTPAuthentication,
     commands::lock::{
-        EditableLocalSrcProject, LockOutcome, LockProjectError, do_lock_local_editable,
+        EditableLocalSrcProject, LockProjectError, do_lock_local_editable,
         do_lock_local_editable_respelling, do_lock_workspace, do_lock_workspace_respelling,
     },
     config::Config,
@@ -64,10 +64,7 @@ pub fn lock_scope<Policy: HTTPAuthentication>(
     // A single-member solve written over a workspace's shared lockfile
     // would drop every other member.
     if let Some(workspace) = ctx.workspace() {
-        let LockOutcome {
-            lock,
-            dependencies: _,
-        } = match respelled {
+        let lock = match respelled {
             None => do_lock_workspace(workspace, resolver, provided_iris, ctx),
             Some(respelled) => {
                 do_lock_workspace_respelling(workspace, resolver, provided_iris, ctx, respelled)
@@ -81,10 +78,7 @@ pub fn lock_scope<Policy: HTTPAuthentication>(
         });
     };
     // No alias IRIs: `model.toml` has no such key.
-    let LockOutcome {
-        lock,
-        dependencies: _,
-    } = match respelled {
+    let lock = match respelled {
         None => do_lock_local_editable(".", &project_root, None, provided_iris, resolver, ctx)?,
         Some(respelled) => do_lock_local_editable_respelling(
             ".",
