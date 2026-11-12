@@ -16,6 +16,7 @@ use crate::cancel::CancellationToken;
 use crate::{
     env::local_directory::LocalDirectoryEnvironment,
     manifest::{MODEL_TOML_FILE, edit::DocumentMut, kpar_view},
+    paths::{RelativizePathError, relativize_path},
     project::{
         ManifestError, ManifestWriteError, ProjectDefinition, ProjectMut as _, ProjectRead as _,
         local_src::{LocalSrcError, LocalSrcProject},
@@ -176,6 +177,27 @@ impl ProjectContext {
         self.model_workspace_root()
             .map(Utf8Path::to_owned)
             .or_else(|| self.project_root())
+    }
+
+    /// The path a local project at `path` is written under in this
+    /// command's lockfile: `nominal` when given, else `path` relative to
+    /// [`Self::sources_root`].
+    ///
+    /// # Panics
+    ///
+    /// If there is neither a `nominal` path nor a sources root.
+    pub fn lockfile_path(
+        &self,
+        nominal: Option<&Utf8UnixPathBuf>,
+        path: &Utf8Path,
+    ) -> Result<Utf8UnixPathBuf, RelativizePathError> {
+        if let Some(nominal) = nominal {
+            return Ok(nominal.clone());
+        }
+        let root = self
+            .sources_root()
+            .expect("a local project without a nominal path has no lockfile path");
+        relativize_path(path, root)
     }
 
     /// Where `sysand-lock.toml` and `.sysand` live: the workspace root,

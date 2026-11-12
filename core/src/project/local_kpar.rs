@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use crate::paths::{RelativizePathError, relativize_path};
+use crate::paths::RelativizePathError;
 use std::{
     cell::OnceCell,
     fs::{self, File},
@@ -253,17 +253,10 @@ impl ProjectRead for LocalKParProject {
     fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         match self.ensure_initialized() {
             Ok((inner, meta)) => {
-                let kpar_path = if let Some(np) = self.nominal_path.as_ref() {
-                    np.as_str().into()
-                } else if let Some(root) = ctx.sources_root() {
-                    relativize_path(&inner.archive_path, &root)?
-                        .into_string()
-                        .into()
-                } else {
-                    panic!(
-                        "`LocalKparProject` without `nominal_path` does not have any project sources"
-                    );
-                };
+                let kpar_path = ctx
+                    .lockfile_path(self.nominal_path.as_ref(), &inner.archive_path)?
+                    .into_string()
+                    .into();
                 Ok(vec![Source::LocalKpar {
                     kpar_path,
                     kpar_size: meta.size_bytes,

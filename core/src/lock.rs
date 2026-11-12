@@ -556,38 +556,15 @@ impl Lock {
                 }
 
                 // Digest composition and length
-                let (c, kind) = match source {
-                    Source::LocalSrc {
-                        checksum: c,
-                        src_path: _,
-                    }
-                    | Source::RemoteSrc {
-                        checksum: c,
-                        remote_src: _,
-                    } => (c, "project canonical"),
-                    Source::LocalKpar {
-                        kpar_digest: c,
-                        kpar_path: _,
-                        kpar_size: _,
-                    }
-                    | Source::RemoteKpar {
-                        kpar_digest: c,
-                        remote_kpar: _,
-                        kpar_size: _,
-                    }
-                    | Source::IndexKpar {
-                        kpar_digest: c,
-                        index_kpar: _,
-                        kpar_size: _,
-                    } => (c, "kpar"),
-                    Source::RemoteGit { remote_git: _ } | Source::Editable { editable: _ } => {
-                        continue;
-                    }
+                let (c, kind) = match source.to_checksum() {
+                    Some(ProjectChecksum::Project(c)) => (c, "project canonical"),
+                    Some(ProjectChecksum::Kpar(c)) => (c, "kpar"),
+                    None => continue,
                 };
                 if c.len() != 64 || !c.bytes().all(|c| matches!(c, b'0'..=b'9' | b'a'..=b'f')) {
                     // TODO: improve error message
                     return Err(ValidationError::InvalidDigestFormat {
-                        digest: c.clone(),
+                        digest: c,
                         name: project.name.clone(),
                         kind,
                     });

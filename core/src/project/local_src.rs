@@ -2,8 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 use crate::paths::{
-    NormalizeError, RelativizePathError, ResolvePathError, normalize_relative, relativize_path,
-    relativize_path_in,
+    NormalizeError, RelativizePathError, ResolvePathError, normalize_relative, relativize_path_in,
 };
 use std::{
     collections::HashSet,
@@ -705,15 +704,10 @@ impl ProjectRead for LocalSrcProject {
     // should they be verified to match the project?
     fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         let checksum = self.project_checksum()?;
-        let src_path = if let Some(np) = self.nominal_path.as_ref() {
-            np.as_str().into()
-        } else if let Some(root) = ctx.sources_root() {
-            relativize_path(&self.project_path, &root)?
-                .into_string()
-                .into()
-        } else {
-            panic!("`LocalSrcProject` without `nominal_path` does not have any project sources");
-        };
+        let src_path = ctx
+            .lockfile_path(self.nominal_path.as_ref(), &self.project_path)?
+            .into_string()
+            .into();
         Ok(vec![Source::LocalSrc { src_path, checksum }])
     }
 
