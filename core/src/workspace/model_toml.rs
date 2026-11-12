@@ -610,9 +610,9 @@ fn load_member(
         stray_state(root, path, &dir, report)?;
     }
 
-    match detect_format(&dir)? {
-        ProjectFormat::Json => {
-            let json = json_manifest(&dir)?.expect("`Json` means one of the two is there");
+    let has_toml = wrapfs::is_file(dir.join(MODEL_TOML_FILE))?;
+    match (has_toml, json_manifest(&dir)?) {
+        (false, Some(json)) => {
             report.push(
                 Diagnostic::error(format!(
                     "member `{raw}` uses `{json}`; a workspace member must use the `model.toml` \
@@ -622,8 +622,7 @@ fn load_member(
             );
             Ok(None)
         }
-        ProjectFormat::Both => {
-            let json = json_manifest(&dir)?.expect("`Both` means one of the two is there");
+        (true, Some(json)) => {
             report.push(
                 Diagnostic::error(format!(
                     "member `{raw}` has both `model.toml` and `{json}`; it is unclear whether it \
@@ -634,14 +633,14 @@ fn load_member(
             );
             Ok(None)
         }
-        ProjectFormat::Neither => {
+        (false, None) => {
             report.push(
                 Diagnostic::error(format!("member `{raw}` defines no project"))
                     .at_opt(path.at.clone()),
             );
             Ok(None)
         }
-        ProjectFormat::Toml => {
+        (true, None) => {
             let file = format!("{}/{MODEL_TOML_FILE}", path.path);
             let text = wrapfs::read_to_string(dir.join(MODEL_TOML_FILE))?;
             let manifest = match validate_manifest(&file, ModelToml::parse(&file, &text)) {
