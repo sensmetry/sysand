@@ -65,6 +65,7 @@ exclude = ["vendor"]
 ```
 
 Rules on `members`:
+
 - every entry must resolve to a project that uses the `model.toml`
   project definition (see Member requirements); an entry that resolves
   to a json project, to a directory with both manifests, or to no
@@ -104,6 +105,7 @@ Workspace root must not contain a project. No technical reason, just
 nudges people towards a nicer workspace structure.
 
 Enforced in two places:
+
 - the `model.toml` that defines the workspace must not also contain a
   `[project]` table
 - any `members` entry that resolves to the workspace root itself (`"."`,
@@ -111,6 +113,7 @@ Enforced in two places:
   rule above that paths must not go above the workspace root
 
 Consequences:
+
 - every workspace is what Cargo calls a virtual workspace, so no
   terminology is needed to distinguish workspace kinds
 - the workspace root is never a member, so commands run from the
@@ -150,6 +153,7 @@ members.
 - maintainers
 
 The other `[project]` keys are deliberately absent:
+
 - `name` and `description` identify one project
 - `sources` (see model-toml.md) is per-project only, cannot appear in
   `[workspace]` (neither in the default group nor in a named one), and
@@ -253,7 +257,6 @@ A member whose standard-library release differs from the release its
 own `metamodel` names gets the release warning of model-toml.md,
 Metamodel.
 
-
 ## Locking
 
 Always a single lockfile, `sysand-lock.toml`, for the whole workspace in
@@ -261,7 +264,7 @@ the workspace root. It records every project of the solved graph by the
 identifier `pkg:sysand/<publisher>/<name>` (see model-toml.md,
 Normalization), members included.
 
-A `dir` usage is recorded as *editable*: the lockfile keeps the path and
+A `dir` usage is recorded as _editable_: the lockfile keeps the path and
 no checksum, whether the usage resolves to a member, to a project outside
 the workspace root, or -- for a standalone project -- to any directory at
 all, so that editing a source project never churns the lockfile.
@@ -275,7 +278,6 @@ whole workspace, exactly as a member's `Cargo.toml` edit reloads a Cargo
 workspace. Any tool that watches for changes treats a `model.toml` or
 `sysand-lock.toml` change anywhere under the root as one reconcile of the
 workspace.
-
 
 ## Syncing
 
@@ -306,7 +308,6 @@ deadline). The lock is cross-process only; an embedder acquires it
 itself and serializes its own operations. `clone` takes none: it
 populates a directory that must be empty or absent.
 
-
 ## Build output
 
 A single `output` directory in workspace root, the directory Sysand
@@ -325,7 +326,6 @@ cycle is a hard error listing the cycle, unless every project on it
 carries the `stdlib` key (see model-toml.md, Circular dependencies); it
 is reported when the workspace is read, so every command refuses it.
 `sysand build --allow-path-usage` applies to every member built.
-
 
 ## Dependency resolution
 
@@ -379,7 +379,6 @@ warning on any operation touching the overrides or the indexes. The user-level
 the workspace root's file, as it merges beneath a standalone project's
 today.
 
-
 ## Inheritance and overrides
 
 What and how members inherit from workspace config.
@@ -412,7 +411,7 @@ itself would be, required keys included: `publisher.workspace = true`,
 requirement in `[project]`. The exceptions are the deliberately absent
 fields listed in Common metadata.
 
-Markers resolve only against the workspace the project is a *member* of.
+Markers resolve only against the workspace the project is a _member_ of.
 A project that is not a member is outside every workspace regardless of
 where its directory sits, so a `dir` usage that resolves to a
 marker-bearing project which is not a member of any workspace is an
@@ -433,6 +432,7 @@ a table and the key's value is also a table, inheritance cannot be
 specified for any of the inner table's keys, nor can the inner key be
 given a value of its own. The same holds for arrays: an inherited
 `topics` cannot be extended by a member. Example:
+
 ```toml
 urls.workspace = true
 urls.website.workspace = true # invalid
@@ -457,7 +457,6 @@ urls.website = "https://example.com" # invalid
   constraint (remote-kpar) and json targets are therefore not forbidden
   up front; they fail only if what they resolve to is not semver
 
-
 ## Command scopes
 
 Commands follow Cargo's per-command defaults. When run from the
@@ -468,21 +467,20 @@ that is neither a member nor excluded is the hard error of Included
 projects, whatever the command. Every command reads `model.toml`
 projects and workspaces in v1.
 
-| Commands | From the root or a non-member dir | From a member dir | Selectors |
-|---|---|---|---|
-| `build`, `sources`, `info`, `publish` | all members (`publish`: in dependency order) | that member | `--workspace` forces all members, `--member <path-or-name>` picks one; KPARs always land in the root `output` |
-| `add`, `remove`, `include`, `exclude`, the `info` verbs that write | error: these need a project, so `--member` is required at the root | that member | `--member`; `add --workspace` targeting `[[workspace.inline-usages]]` is a later addition |
-| `lock`, `sync` | the whole workspace | the whole workspace: the lockfile is shared, so anything else would be meaningless | none |
-| `init`, `new` | create the project and append it to `members` | error until the new project is listed or excluded, as for any unlisted project | none |
-| `migrate` | error unless `<path>` names a json project | not applicable: a member is already toml | `<path>` |
-| `print-root` | the workspace root | the workspace root | `--member` prints the member's root |
-| `env` | per workspace: the single `.sysand` | same | none |
-| `clone`, `index`, `auth` | scope-free: `clone` creates a project outside any scope, `index`/`auth` are configuration | same | none |
+| Commands                                                           | From the root or a non-member dir                                                         | From a member dir                                                                  | Selectors                                                                                                     |
+| ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `build`, `sources`, `info`, `publish`                              | all members (`publish`: in dependency order)                                              | that member                                                                        | `--workspace` forces all members, `--member <path-or-name>` picks one; KPARs always land in the root `output` |
+| `add`, `remove`, `include`, `exclude`, the `info` verbs that write | error: these need a project, so `--member` is required at the root                        | that member                                                                        | `--member`; `add --workspace` targeting `[[workspace.inline-usages]]` is a later addition                     |
+| `lock`, `sync`                                                     | the whole workspace                                                                       | the whole workspace: the lockfile is shared, so anything else would be meaningless | none                                                                                                          |
+| `init`, `new`                                                      | create the project and append it to `members`                                             | error until the new project is listed or excluded, as for any unlisted project     | none                                                                                                          |
+| `migrate`                                                          | error unless `<path>` names a json project                                                | not applicable: a member is already toml                                           | `<path>`                                                                                                      |
+| `print-root`                                                       | the workspace root                                                                        | the workspace root                                                                 | `--member` prints the member's root                                                                           |
+| `env`                                                              | per workspace: the single `.sysand`                                                       | same                                                                               | none                                                                                                          |
+| `clone`, `index`, `auth`                                           | scope-free: `clone` creates a project outside any scope, `index`/`auth` are configuration | same                                                                               | none                                                                                                          |
 
 Two of Cargo's features have no counterpart: `default-members` (`build`
 from the root builds all members) and a root package (see Included
 projects).
-
 
 ## Extensibility
 
