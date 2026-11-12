@@ -157,7 +157,11 @@ separately:
 - `sysand-lock.toml` carries `lock_version` and `env.toml` has `version`.
   Sysand always writes the latest version it knows about. Reading some
   older versions may be supported, but this is not guaranteed; any
-  unsupported versions always produce an error on read.
+  unsupported versions always produce an error on read. A file of a
+  version above the latest a release reads is reported as written by a
+  newer release, with a hint naming the way out (upgrade, or regenerate
+  the file for this release); older versions that are still readable are
+  migrated on read.
   Any change to the shape (or semantics) of either file needs its version
   bumped before a release is made.
 - `.project.json` and `.meta.json` mostly follow the KerML interchange

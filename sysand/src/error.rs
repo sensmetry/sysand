@@ -3,7 +3,8 @@
 
 use semver::VersionReq;
 use sysand_core::{
-    info::InfoProjectError, model::ProjectFieldError, resolve::file::FileResolverProjectError,
+    env::local_directory::metadata::EnvMetadataError, info::InfoProjectError, lock::LockfileError,
+    model::ProjectFieldError, resolve::file::FileResolverProjectError,
 };
 use thiserror::Error;
 
@@ -39,4 +40,14 @@ pub enum CliError {
         which is required to add it as a path usage"
     )]
     MissingPublisherForUsage(String),
+    /// Any lockfile that fails to read must be reported as this variant: the
+    /// hint for a lockfile a newer release wrote is chosen from the inner
+    /// error.
+    #[error(transparent)]
+    InvalidLockfile(#[from] LockfileError),
+    /// Any environment metadata that fails to read must be reported as this
+    /// variant: the hint for an environment a newer release wrote is chosen
+    /// from the inner error.
+    #[error(transparent)]
+    InvalidEnvironment(#[from] EnvMetadataError),
 }

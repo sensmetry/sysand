@@ -41,6 +41,33 @@ fn env_init_empty_env() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// An environment of a format version this release does not know is a newer
+/// release's. It is read before any command runs, so every command fails,
+/// says so, and the hint names the way out
+#[test]
+fn every_command_refuses_an_environment_a_newer_release_wrote()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(["env"], None)?;
+    out.assert().success();
+    std::fs::write(
+        cwd.join(DEFAULT_ENV_NAME).join(METADATA_PATH),
+        "version = \"99.0\"\n",
+    )?;
+
+    run_sysand_in(&cwd, ["lock", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "env metadata version `99.0` is newer than the latest this release reads",
+        ))
+        .stderr(predicate::str::contains(
+            "hint: upgrade to the release that wrote `.sysand/env.toml`",
+        ))
+        .stderr(predicate::str::contains("`sysand sync`"));
+
+    Ok(())
+}
+
 // The `env install`/`env uninstall` subcommands are commented out (see `EnvCommand` in cli.rs).
 // Installing a local-src project on `add` and removing it again on `remove` is already covered
 // by `add_and_remove_as_local_src` and `remove_keeps_lockfile_valid_and_syncs` in

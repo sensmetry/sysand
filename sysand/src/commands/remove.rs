@@ -144,7 +144,9 @@ fn lock_sync<Policy: HTTPAuthentication>(
         None
     };
 
-    if let Some(mut lockfile) = Lockfile::try_read(&project_root)? {
+    if let Some(mut lockfile) =
+        Lockfile::try_read(&project_root).map_err(CliError::InvalidLockfile)?
+    {
         let info = current_project
             .get_info()?
             .ok_or(CliError::MissingProjectCurrentDir)?;
