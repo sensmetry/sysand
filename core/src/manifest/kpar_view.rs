@@ -125,7 +125,7 @@ pub fn usage_of_raw(raw: &InterchangeProjectUsageRaw, file: &str) -> Result<Usag
                 kpar_path: kpar_path.as_str().into(),
             })
         }
-        InterchangeProjectUsageRaw::KparUrl {
+        InterchangeProjectUsageRaw::RemoteKpar {
             kpar_url,
             publisher,
             name,
@@ -175,7 +175,7 @@ pub fn usage_of_raw(raw: &InterchangeProjectUsageRaw, file: &str) -> Result<Usag
 /// One usage as a `.project.json` carries it.
 ///
 /// An index usage becomes a typed index usage with the constraint as
-/// declared, and a remote-kpar usage a typed KPAR URL usage. The two local kinds
+/// declared, and a remote-kpar usage a typed remote KPAR usage. The two local kinds
 /// become typed *path* usages here, which is where the view and the
 /// archive part company: the archive rewrites them into typed index
 /// usages constrained to the target's version, which needs the target's
@@ -198,7 +198,7 @@ pub fn usage(usage: &Usage) -> InterchangeProjectUsageRaw {
             url,
             publisher,
             name,
-        } => InterchangeProjectUsageRaw::KparUrl {
+        } => InterchangeProjectUsageRaw::RemoteKpar {
             kpar_url: url.as_str().to_owned(),
             publisher: publisher.as_ref().map(|p| p.as_str().to_owned()),
             name: name.as_str().to_owned(),

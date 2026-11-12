@@ -100,11 +100,6 @@ pub enum FileResolverError {
     /// member. Carries [`crate::workspace::model_toml::DiscoverError`].
     #[error(transparent)]
     Workspace(crate::workspace::model_toml::DiscoverError),
-    /// A `kpar-url` whose `file:` target is a directory, not an archive.
-    #[error(
-        "`kpar-url` names `{0}`, which is a directory; a `kpar-url` usage takes a KPAR. Use `kpar-path` for a project directory, or point at its built `.kpar`"
-    )]
-    KparUrlNamesADirectory(Utf8PathBuf),
     #[error("failed to encode path `{0}` in UTF-8")]
     InvalidPath(PathBuf),
     #[error("IRI `{0}` is not a valid URL")]
@@ -468,25 +463,6 @@ impl ResolveRead for FileResolver {
                     reason: String::from("resource is not a file URL"),
                 }),
             },
-            InterchangeProjectUsage::KparUrl {
-                kpar_url: url,
-                publisher: _,
-                name: _,
-            } => match try_file_uri_to_path(url)? {
-                Some(path) => self.check_sandbox(path)?.try_map(|path| {
-                    if crate::project::utils::wrapfs::is_dir(&path)? {
-                        return Err(FileResolverError::KparUrlNamesADirectory(path));
-                    }
-                    // The lock checks that the project is `publisher`/`name`,
-                    // as for every typed usage
-                    Ok(vec![Ok(FileResolverProject::LocalKParProject(
-                        LocalKParProject::new_access(path, KparInnerPath::Guess, None),
-                    ))])
-                }),
-                None => Ok(ResolutionOutcome::UnsupportedUsageType {
-                    reason: String::from("KPAR URL is not a file URL"),
-                }),
-            },
             InterchangeProjectUsage::Directory {
                 dir,
                 publisher: _,
@@ -539,7 +515,12 @@ impl ResolveRead for FileResolver {
                     })
                 }
             }
-            InterchangeProjectUsage::Index {
+            InterchangeProjectUsage::RemoteKpar {
+                kpar_url: _,
+                publisher: _,
+                name: _,
+            }
+            | InterchangeProjectUsage::Index {
                 publisher: _,
                 name: _,
                 version_constraint: _,

@@ -300,7 +300,7 @@ impl<'a> OnBrokenCandidate<'a> {
                 resource: _,
                 version_constraint: _,
             } => Self::Skip,
-            // Path and KPAR URL usages name one project outright, so it must
+            // Path and remote KPAR usages name one project outright, so it must
             // be a valid one
             InterchangeProjectUsage::Directory {
                 dir: _,
@@ -312,7 +312,7 @@ impl<'a> OnBrokenCandidate<'a> {
                 publisher: _,
                 name: _,
             }
-            | InterchangeProjectUsage::KparUrl {
+            | InterchangeProjectUsage::RemoteKpar {
                 kpar_url: _,
                 publisher: _,
                 name: _,
@@ -594,14 +594,14 @@ fn local_target(resolve: &CoalescingUsage) -> Option<Utf8PathBuf> {
             publisher: _,
             name: _,
         } => kpar_path.as_str(),
-        // A `file:` resource or KPAR URL names a place too, but comparing
-        // one against a path usage needs a URL-to-path conversion, so it is
-        // not compared. An index usage names no local place.
+        // A `file:` resource names a place too, but comparing one against
+        // a path usage needs a URL-to-path conversion, so it is not
+        // compared. A remote KPAR or index usage names no local place.
         InterchangeProjectUsage::Resource {
             resource: _,
             version_constraint: _,
         }
-        | InterchangeProjectUsage::KparUrl {
+        | InterchangeProjectUsage::RemoteKpar {
             kpar_url: _,
             publisher: _,
             name: _,
@@ -653,7 +653,7 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
             // A source override can make any IRI resolve to a source offering
             // several versions, so it is selected as an unconstrained
             // resource usage.
-            InterchangeProjectUsage::KparUrl {
+            InterchangeProjectUsage::RemoteKpar {
                 kpar_url: _,
                 publisher: _,
                 name: _,
@@ -1125,7 +1125,7 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
             InterchangeProjectUsage::Resource {
                 version_constraint: None,
                 resource: _
-            } | InterchangeProjectUsage::KparUrl {
+            } | InterchangeProjectUsage::RemoteKpar {
                 kpar_url: _,
                 publisher: _,
                 name: _

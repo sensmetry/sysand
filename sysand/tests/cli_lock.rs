@@ -1156,35 +1156,11 @@ fn lock_reports_why_a_dir_usage_failed() -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
-/// A `kpar-url` naming a **local archive** still resolves.
-///
-/// An archive is a KPAR however it is spelled, and `kpar-path` cannot
-/// express an absolute path, so a `file:` URL is the only way to name one.
+/// A `kpar-url` takes an `http` or `https` URL; a local archive is a
+/// `kpar-path`.
 #[test]
-fn a_kpar_url_naming_a_local_archive_resolves() -> Result<(), Box<dyn std::error::Error>> {
+fn a_kpar_url_naming_a_file_url_is_refused() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--metamodel",
-            "https://www.omg.org/spec/SysML/20250201",
-            "--publisher",
-            "acme",
-            "--name",
-            "dep",
-            "--version",
-            "1.0.0",
-        ],
-        None,
-    )?;
-    out.assert().success();
-    run_sysand_in(&cwd, ["build", "dep.kpar"], None)?
-        .assert()
-        .success();
-
-    let app = cwd.join("app");
-    std::fs::create_dir_all(&app)?;
-    run_sysand_in(
-        &app,
         [
             "init",
             "--metamodel",
@@ -1197,23 +1173,25 @@ fn a_kpar_url_naming_a_local_archive_resolves() -> Result<(), Box<dyn std::error
             "1.0.0",
         ],
         None,
-    )?
-    .assert()
-    .success();
-    let manifest_path = app.join("model.toml");
+    )?;
+    out.assert().success();
+    let manifest_path = cwd.join("model.toml");
     let manifest = std::fs::read_to_string(&manifest_path)?;
+    let url = file_url_from_path(cwd.join("dep.kpar"));
     std::fs::write(
         &manifest_path,
         format!(
             "{manifest}\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\n\
-             kpar-url = \"{}\"\n",
-            file_url_from_path(cwd.join("dep.kpar"))
+             kpar-url = \"{url}\"\n"
         ),
     )?;
 
-    run_sysand_in(&app, ["lock", "--no-index"], None)?
+    run_sysand_in(&cwd, ["lock", "--no-index"], None)?
         .assert()
-        .success();
+        .failure()
+        .stderr(predicate::str::contains(format!(
+            "sets `kpar-url = \"{url}\"`, which is not an `http` or `https` URL"
+        )));
     Ok(())
 }
 
@@ -1221,15 +1199,22 @@ fn a_kpar_url_naming_a_local_archive_resolves() -> Result<(), Box<dyn std::error
 ///
 /// Unchecked, the usage could declare anything and `lock` would write a
 /// lockfile that silently disagreed with the manifest that produced it.
-/// The target is checked against the declared pair exactly as a `dir` or
-/// `kpar-path` target is.
 ///
-/// The comparison is **literal**, as it is for those two, so `Acme`
-/// against `acme` is refused.
+/// The comparison is **literal**, so `Acme` against `acme` is refused.
+///
+/// The target is built and served over HTTP; the server is returned so it
+/// outlives the commands run against it.
 fn kpar_url_identity_case(
     publisher: &str,
     name: &str,
-) -> Result<(camino_tempfile::Utf8TempDir, camino::Utf8PathBuf), Box<dyn std::error::Error>> {
+) -> Result<
+    (
+        camino_tempfile::Utf8TempDir,
+        camino::Utf8PathBuf,
+        ServerGuard,
+    ),
+    Box<dyn std::error::Error>,
+> {
     let (temp_dir, cwd, out) = run_sysand(
         [
             "init",
@@ -1248,6 +1233,15 @@ fn kpar_url_identity_case(
     run_sysand_in(&cwd, ["build", "dep.kpar"], None)?
         .assert()
         .success();
+
+    let mut server = Server::new();
+    server
+        .mock("GET", "/dep.kpar")
+        .with_status(200)
+        .with_header("content-type", "application/zip")
+        .with_body(std::fs::read(cwd.join("dep.kpar"))?)
+        .expect_at_least(1)
+        .create();
 
     let app = cwd.join("app");
     std::fs::create_dir_all(&app)?;
@@ -1274,18 +1268,18 @@ fn kpar_url_identity_case(
         &manifest_path,
         format!(
             "{manifest}\n[[inline-usages]]\npublisher = \"{publisher}\"\nname = \"{name}\"\n\
-             kpar-url = \"{}\"\n",
-            file_url_from_path(cwd.join("dep.kpar"))
+             kpar-url = \"{}/dep.kpar\"\n",
+            server.url()
         ),
     )?;
-    Ok((temp_dir, app))
+    Ok((temp_dir, app, server))
 }
 
 const SPELLS_AS_DECLARED: &str = "is rejected because its spelling does not match the project's";
 
 #[test]
 fn a_kpar_url_usage_with_the_wrong_name_is_refused() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, app) = kpar_url_identity_case("acme", "wrongname")?;
+    let (_temp_dir, app, _server) = kpar_url_identity_case("acme", "wrongname")?;
     run_sysand_in(&app, ["lock", "--no-index"], None)?
         .assert()
         .failure()
@@ -1296,7 +1290,7 @@ fn a_kpar_url_usage_with_the_wrong_name_is_refused() -> Result<(), Box<dyn std::
 #[test]
 fn a_kpar_url_usage_with_the_wrong_publisher_is_refused() -> Result<(), Box<dyn std::error::Error>>
 {
-    let (_temp_dir, app) = kpar_url_identity_case("wrongpub", "dep")?;
+    let (_temp_dir, app, _server) = kpar_url_identity_case("wrongpub", "dep")?;
     run_sysand_in(&app, ["lock", "--no-index"], None)?
         .assert()
         .failure()
@@ -1309,7 +1303,7 @@ fn a_kpar_url_usage_with_the_wrong_publisher_is_refused() -> Result<(), Box<dyn 
 #[test]
 fn a_kpar_url_usage_that_differs_only_by_normalization_is_refused()
 -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, app) = kpar_url_identity_case("Acme", "dep")?;
+    let (_temp_dir, app, _server) = kpar_url_identity_case("Acme", "dep")?;
     run_sysand_in(&app, ["lock", "--no-index"], None)?
         .assert()
         .failure()
@@ -1319,7 +1313,7 @@ fn a_kpar_url_usage_that_differs_only_by_normalization_is_refused()
 
 #[test]
 fn a_kpar_url_usage_that_names_its_target_locks() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, app) = kpar_url_identity_case("acme", "dep")?;
+    let (_temp_dir, app, _server) = kpar_url_identity_case("acme", "dep")?;
     run_sysand_in(&app, ["lock", "--no-index"], None)?
         .assert()
         .success();
@@ -1330,7 +1324,7 @@ fn a_kpar_url_usage_that_names_its_target_locks() -> Result<(), Box<dyn std::err
 /// through its own call; neither goes through `lock`.
 #[test]
 fn sync_without_a_lockfile_refuses_the_same_mismatch() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, app) = kpar_url_identity_case("acme", "wrongname")?;
+    let (_temp_dir, app, _server) = kpar_url_identity_case("acme", "wrongname")?;
     run_sysand_in(&app, ["sync", "--no-index"], None)?
         .assert()
         .failure()

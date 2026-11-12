@@ -261,6 +261,33 @@ fn an_invalid_kpar_url_is_reported() {
     assert_eq!(places(&report), [(4, 1)]);
 }
 
+/// A `kpar-url` takes an `http` or `https` URL; a local archive is a
+/// `kpar-path`.
+#[test]
+fn a_non_http_kpar_url_is_rejected() {
+    for url in ["file:///tmp/lib.kpar", "ftp://example.com/lib.kpar"] {
+        let report = rejected(&format!(
+            "publisher = \"acme\"\nname = \"lib\"\nkpar-url = \"{url}\"\n"
+        ));
+        assert_eq!(
+            texts(&report),
+            [format!(
+                "usage `acme/lib` sets `kpar-url = \"{url}\"`, which is not an `http` or \
+                 `https` URL"
+            )]
+        );
+        assert_eq!(places(&report), [(4, 1)]);
+    }
+    for url in [
+        "http://example.com/lib.kpar",
+        "HTTPS://example.com/lib.kpar",
+    ] {
+        accepted(&format!(
+            "publisher = \"acme\"\nname = \"lib\"\nkpar-url = \"{url}\"\n"
+        ));
+    }
+}
+
 /// A local path is taken exactly as written, so only the normal form is
 /// admitted: `..` may lead, and an absolute path keeps its root.
 #[test]

@@ -46,13 +46,13 @@ class InterchangeProjectUsageKparPath(typing.TypedDict):
     name: str
 
 
-class _InterchangeProjectUsageKparUrlRequired(typing.TypedDict):
+class _InterchangeProjectUsageRemoteKparRequired(typing.TypedDict):
     kpar_url: str
     name: str
 
 
-class InterchangeProjectUsageKparUrl(
-    _InterchangeProjectUsageKparUrlRequired, total=False
+class InterchangeProjectUsageRemoteKpar(
+    _InterchangeProjectUsageRemoteKparRequired, total=False
 ):
     """A typed usage: the project in the KPAR at the IRI ``kpar_url``. It
     carries no version constraint: the IRI names a single archive.
@@ -80,7 +80,7 @@ InterchangeProjectUsage = (
     InterchangeProjectUsageResource
     | InterchangeProjectUsageDirectory
     | InterchangeProjectUsageKparPath
-    | InterchangeProjectUsageKparUrl
+    | InterchangeProjectUsageRemoteKpar
     | InterchangeProjectUsageIndex
 )
 
@@ -311,7 +311,7 @@ __all__ = [
     "InterchangeProjectUsageDirectory",
     "InterchangeProjectUsageIndex",
     "InterchangeProjectUsageKparPath",
-    "InterchangeProjectUsageKparUrl",
+    "InterchangeProjectUsageRemoteKpar",
     "InterchangeProjectUsageResource",
 ]
 

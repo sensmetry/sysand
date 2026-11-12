@@ -226,7 +226,7 @@ fn a_local_usage_builds_under_allow_path_usage() -> Result<(), Box<dyn std::erro
 
 /// The standard library is declared as a publisher-less `kpar-url`, and
 /// a build never resolves usages, so it reaches the KPAR view as a typed
-/// KPAR URL usage with no publisher.
+/// remote KPAR usage with no publisher.
 #[test]
 fn a_stdlib_kpar_url_usage_reaches_the_kpar_view_unchanged()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -447,15 +447,15 @@ fn resource(raw: &crate::model::InterchangeProjectUsageRaw) -> (String, Option<S
     }
 }
 
-/// A typed KPAR URL usage: the URL and publisher.
+/// A typed remote KPAR usage: the URL and publisher.
 fn kpar_url(raw: &crate::model::InterchangeProjectUsageRaw) -> (String, Option<String>) {
     match raw {
-        crate::model::InterchangeProjectUsageRaw::KparUrl {
+        crate::model::InterchangeProjectUsageRaw::RemoteKpar {
             kpar_url,
             publisher,
             name: _,
         } => (kpar_url.clone(), publisher.clone()),
-        other => panic!("expected a KPAR URL usage, got `{other:?}`"),
+        other => panic!("expected a remote KPAR usage, got `{other:?}`"),
     }
 }
 

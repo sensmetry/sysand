@@ -461,14 +461,15 @@ pub enum InterchangeProjectUsageG<Iri, VersionReq, Path, Publisher, Name, IdxPub
         publisher: Publisher,
         name: Name,
     },
-    /// The project KPAR at the IRI `kpar_url`. No version constraint, as
-    /// the IRI names a single KPAR. Its identifier is `kpar_url`.
+    /// The project KPAR at the `http(s)` URL `kpar_url`. No version
+    /// constraint, as the URL names a single KPAR. Its identifier is
+    /// `kpar_url`.
     ///
     /// `publisher` is absent exactly for an OMG standard-library IRI (see
     /// [`is_omg_stdlib_iri`]), whose KPARs declare no publisher.
     #[serde(rename_all = "camelCase")]
     #[cfg_attr(feature = "python", pyo3(from_item_all))]
-    KparUrl {
+    RemoteKpar {
         kpar_url: Iri,
         #[serde(skip_serializing_if = "Option::is_none")]
         publisher: Option<Publisher>,
@@ -484,6 +485,13 @@ pub enum InterchangeProjectUsageG<Iri, VersionReq, Path, Publisher, Name, IdxPub
         name: IdxName,
         version_constraint: VersionReq,
     },
+}
+
+/// Whether `url` has the `http` or `https` scheme, the schemes a remote
+/// KPAR usage accepts.
+pub fn is_http_url(url: &fluent_uri::Iri<String>) -> bool {
+    let scheme = url.scheme().as_str();
+    scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https")
 }
 
 /// Parse how a directory or KPAR usage spells its project, as
@@ -548,7 +556,7 @@ enum Usage<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName> {
     Resource(ResourceUsage<Iri, VersionReq>),
     Directory(DirectoryUsage<Path, Publisher, Name>),
     KparPath(KparPathUsage<Path, Publisher, Name>),
-    KparUrl(KparUrlUsage<Iri, Publisher, Name>),
+    RemoteKpar(RemoteKparUsage<Iri, Publisher, Name>),
     Index(IndexUsage<VersionReq, IdxPublisher, IdxName>),
 }
 
@@ -577,7 +585,7 @@ struct KparPathUsage<Path, Publisher, Name> {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct KparUrlUsage<Iri, Publisher, Name> {
+struct RemoteKparUsage<Iri, Publisher, Name> {
     kpar_url: Iri,
     publisher: Option<Publisher>,
     name: Name,
@@ -622,11 +630,11 @@ impl<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName>
                 publisher,
                 name,
             },
-            Usage::KparUrl(KparUrlUsage {
+            Usage::RemoteKpar(RemoteKparUsage {
                 kpar_url,
                 publisher,
                 name,
-            }) => Self::KparUrl {
+            }) => Self::RemoteKpar {
                 kpar_url,
                 publisher,
                 name,
@@ -738,7 +746,7 @@ impl InterchangeProjectUsageRaw {
                     source: e,
                 }),
             },
-            Self::KparUrl {
+            Self::RemoteKpar {
                 kpar_url,
                 publisher,
                 name,
@@ -746,6 +754,11 @@ impl InterchangeProjectUsageRaw {
                 let url = fluent_uri::Iri::parse(kpar_url.clone()).map_err(|(e, val)| {
                     InterchangeProjectValidationError::InvalidUsageResource(val, e)
                 })?;
+                if !is_http_url(&url) {
+                    return Err(InterchangeProjectValidationError::RemoteKparUsageNotHttp(
+                        kpar_url.clone(),
+                    ));
+                }
                 let (publisher, name) = match publisher {
                     Some(publisher) => {
                         let (publisher, name) = parse_project_usage_spelling(publisher, name)?;
@@ -754,7 +767,7 @@ impl InterchangeProjectUsageRaw {
                     None if is_omg_stdlib_iri(kpar_url) => (
                         None,
                         ProjectName::parse(name.clone()).map_err(|(name, source)| {
-                            InterchangeProjectValidationError::InvalidKparUrlUsageName {
+                            InterchangeProjectValidationError::InvalidRemoteKparUsageName {
                                 kpar_url: kpar_url.clone(),
                                 name,
                                 source,
@@ -762,13 +775,15 @@ impl InterchangeProjectUsageRaw {
                         })?,
                     ),
                     None => {
-                        return Err(InterchangeProjectValidationError::KparUrlUsageNoPublisher {
-                            kpar_url: kpar_url.clone(),
-                            name: name.clone(),
-                        });
+                        return Err(
+                            InterchangeProjectValidationError::RemoteKparUsageNoPublisher {
+                                kpar_url: kpar_url.clone(),
+                                name: name.clone(),
+                            },
+                        );
                     }
                 };
-                Ok(InterchangeProjectUsage::KparUrl {
+                Ok(InterchangeProjectUsage::RemoteKpar {
                     kpar_url: url,
                     publisher,
                     name,
@@ -839,7 +854,7 @@ impl<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName>
                 name,
                 kpar_path: _,
             } => Some((publisher.as_ref(), name.as_ref())),
-            Self::KparUrl {
+            Self::RemoteKpar {
                 publisher,
                 name,
                 kpar_url: _,
@@ -870,11 +885,11 @@ impl<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName>
                 publisher: _,
                 name: _,
             } => "a KPAR path",
-            Self::KparUrl {
+            Self::RemoteKpar {
                 kpar_url: _,
                 publisher: _,
                 name: _,
-            } => "a KPAR URL",
+            } => "a remote KPAR",
             Self::Index {
                 publisher: _,
                 name: _,
@@ -906,7 +921,7 @@ impl<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName>
                 publisher: _,
                 name: _,
             }
-            | Self::KparUrl {
+            | Self::RemoteKpar {
                 kpar_url: _,
                 publisher: _,
                 name: _,
@@ -943,11 +958,11 @@ impl From<InterchangeProjectUsage> for InterchangeProjectUsageRaw {
                 publisher: publisher.into_string(),
                 name: name.into_string(),
             },
-            InterchangeProjectUsage::KparUrl {
+            InterchangeProjectUsage::RemoteKpar {
                 kpar_url,
                 publisher,
                 name,
-            } => Self::KparUrl {
+            } => Self::RemoteKpar {
                 kpar_url: kpar_url.into_string(),
                 publisher: publisher.map(ProjectPublisher::into_string),
                 name: name.into_string(),
@@ -1001,7 +1016,7 @@ impl<
             } => {
                 write!(f, "`{publisher}/{name}` in `{kpar_path}`")?;
             }
-            Self::KparUrl {
+            Self::RemoteKpar {
                 kpar_url,
                 publisher,
                 name,
@@ -1179,7 +1194,7 @@ pub enum UsageRef<'a> {
 
 impl UsageRef<'_> {
     /// Whether `usage` refers to this project. A `Resource` matches a
-    /// resource or KPAR URL usage of exactly this IRI. `Typed` matches a typed usage
+    /// resource or remote KPAR usage of exactly this IRI. `Typed` matches a typed usage
     /// whose publisher and name are each given either exactly as declared,
     /// or normalized (see [`normalize_typed`]); it also matches a `pkg:sysand` resource
     /// usage in any spelling that normalizes to it, as the PURL only holds
@@ -1208,7 +1223,7 @@ impl UsageRef<'_> {
             Self::Resource(iri) => matches!(
                 usage,
                 InterchangeProjectUsageG::Resource { resource, version_constraint: _ }
-                | InterchangeProjectUsageG::KparUrl { kpar_url: resource, publisher: _, name: _ }
+                | InterchangeProjectUsageG::RemoteKpar { kpar_url: resource, publisher: _, name: _ }
                     if resource.as_ref() == iri.as_str()
             ),
             Self::Typed(publisher, name) => {
@@ -1224,7 +1239,7 @@ impl UsageRef<'_> {
                         })
                     });
                 }
-                // A standard-library KPAR URL usage declares no publisher
+                // A standard-library remote KPAR usage declares no publisher
                 let Some((p, n)) = usage.typed_publisher_name() else {
                     return false;
                 };
@@ -1858,12 +1873,14 @@ pub enum InterchangeProjectValidationError {
         source: ProjectFieldError,
     },
     #[error(
-        "KPAR URL usage `{name}` at `{kpar_url}` has no `publisher`; only a usage of an \
+        "remote KPAR usage `{name}` at `{kpar_url}` has no `publisher`; only a usage of an \
          OMG standard-library IRI may omit it"
     )]
-    KparUrlUsageNoPublisher { kpar_url: String, name: String },
-    #[error("KPAR URL usage `{name}` at `{kpar_url}` has an invalid name")]
-    InvalidKparUrlUsageName {
+    RemoteKparUsageNoPublisher { kpar_url: String, name: String },
+    #[error("remote KPAR usage `{0}` is not an `http` or `https` URL")]
+    RemoteKparUsageNotHttp(String),
+    #[error("remote KPAR usage `{name}` at `{kpar_url}` has an invalid name")]
+    InvalidRemoteKparUsageName {
         kpar_url: String,
         name: String,
         source: ProjectFieldError,

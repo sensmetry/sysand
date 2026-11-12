@@ -7,13 +7,13 @@ package com.sensmetry.sysand.model;
  * The project KPAR at the IRI {@code kparUrl}. {@code publisher} is
  * {@code null} exactly for an OMG standard-library IRI.
  */
-public class InterchangeProjectUsageKparUrl implements InterchangeProjectUsage {
+public class InterchangeProjectUsageRemoteKpar implements InterchangeProjectUsage {
 
     private String kparUrl;
     private String publisher;
     private String name;
 
-    public InterchangeProjectUsageKparUrl(String kparUrl, String publisher, String name) {
+    public InterchangeProjectUsageRemoteKpar(String kparUrl, String publisher, String name) {
         this.kparUrl = kparUrl;
         this.publisher = publisher;
         this.name = name;

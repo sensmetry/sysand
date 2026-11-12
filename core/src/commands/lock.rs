@@ -623,14 +623,14 @@ struct TypedSpelling {
     publisher: String,
     name: String,
     /// What the usage resolves under: the publisher and name for most typed
-    /// usages, the IRI for a KPAR URL usage
+    /// usages, the IRI for a remote KPAR usage
     identifier: Identifier,
     /// Whether the usage is an index usage
     index: bool,
 }
 
 impl TypedSpelling {
-    /// `None` for a resource usage and a standard-library KPAR URL usage,
+    /// `None` for a resource usage and a standard-library remote KPAR usage,
     /// which name no publisher
     fn of(usage: &InterchangeProjectUsage) -> Option<Self> {
         let (publisher, name) = usage.typed_publisher_name()?;

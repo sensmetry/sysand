@@ -33,9 +33,9 @@ pub(crate) const INTERCHANGE_PROJECT_USAGE_KPAR_PATH_CLASS: FieldSignature =
     jni_sig!(com.sensmetry.sysand.model.InterchangeProjectUsageKparPath);
 pub(crate) const INTERCHANGE_PROJECT_USAGE_KPAR_PATH_CLASS_CONSTRUCTOR: MethodSignature =
     jni_sig!((java.lang.String, java.lang.String, java.lang.String));
-pub(crate) const INTERCHANGE_PROJECT_USAGE_KPAR_URL_CLASS: FieldSignature =
-    jni_sig!(com.sensmetry.sysand.model.InterchangeProjectUsageKparUrl);
-pub(crate) const INTERCHANGE_PROJECT_USAGE_KPAR_URL_CLASS_CONSTRUCTOR: MethodSignature =
+pub(crate) const INTERCHANGE_PROJECT_USAGE_REMOTE_KPAR_CLASS: FieldSignature =
+    jni_sig!(com.sensmetry.sysand.model.InterchangeProjectUsageRemoteKpar);
+pub(crate) const INTERCHANGE_PROJECT_USAGE_REMOTE_KPAR_CLASS_CONSTRUCTOR: MethodSignature =
     jni_sig!((java.lang.String, java.lang.String, java.lang.String));
 pub(crate) const INTERCHANGE_PROJECT_USAGE_INDEX_CLASS: FieldSignature =
     jni_sig!(com.sensmetry.sysand.model.InterchangeProjectUsageIndex);
@@ -300,13 +300,13 @@ fn get_usage_array_field<'local>(
         } else if try_instance_of(
             env,
             &elem,
-            &INTERCHANGE_PROJECT_USAGE_KPAR_URL_CLASS,
+            &INTERCHANGE_PROJECT_USAGE_REMOTE_KPAR_CLASS,
             &label,
         )? {
             let kpar_url = get_string_field(env, &elem, jni_str!("kparUrl"))?;
             let publisher = get_nullable_string_field(env, &elem, jni_str!("publisher"))?;
             let name = get_string_field(env, &elem, jni_str!("name"))?;
-            result.push(InterchangeProjectUsageRaw::KparUrl {
+            result.push(InterchangeProjectUsageRaw::RemoteKpar {
                 kpar_url,
                 publisher,
                 name,
@@ -689,7 +689,7 @@ impl ToJObject for InterchangeProjectUsageRaw {
                     "Failed to create InterchangeProjectUsageKparPath"
                 )
             }
-            Self::KparUrl {
+            Self::RemoteKpar {
                 kpar_url,
                 publisher,
                 name,
@@ -700,15 +700,15 @@ impl ToJObject for InterchangeProjectUsageRaw {
                 unwrap_throw!(
                     env,
                     env.new_object(
-                        INTERCHANGE_PROJECT_USAGE_KPAR_URL_CLASS.sig(),
-                        INTERCHANGE_PROJECT_USAGE_KPAR_URL_CLASS_CONSTRUCTOR,
+                        INTERCHANGE_PROJECT_USAGE_REMOTE_KPAR_CLASS.sig(),
+                        INTERCHANGE_PROJECT_USAGE_REMOTE_KPAR_CLASS_CONSTRUCTOR,
                         &[
                             JValue::from(&kpar_url),
                             JValue::from(&publisher),
                             JValue::from(&name),
                         ],
                     ),
-                    "Failed to create InterchangeProjectUsageKparUrl"
+                    "Failed to create InterchangeProjectUsageRemoteKpar"
                 )
             }
             Self::Index {

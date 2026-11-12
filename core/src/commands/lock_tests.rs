@@ -552,14 +552,14 @@ fn a_toml_kpar_url_usage_is_requested_as_a_typed_kpar_url_usage() {
     .expect_err("the resolver finds nothing");
     let seen = seen.borrow();
     let [
-        InterchangeProjectUsage::KparUrl {
+        InterchangeProjectUsage::RemoteKpar {
             kpar_url,
             publisher: Some(publisher),
             name,
         },
     ] = seen.as_slice()
     else {
-        panic!("expected one typed KPAR URL usage, got {seen:?}");
+        panic!("expected one typed remote KPAR usage, got {seen:?}");
     };
     assert_eq!(kpar_url.as_str(), "https://example.com/lib.kpar");
     assert_eq!(publisher.as_str(), "acme");
@@ -1201,10 +1201,8 @@ fn a_dir_usage_of_an_unlisted_project_is_refused() {
 /// The unlisted-project rule, reached through the resolver's `Resource`
 /// arm.
 ///
-/// That arm serves two usages at once, and only one of them can name a
-/// directory. A toml `kpar-url` takes a KPAR, so the one route is a **json**
-/// project's legacy `resource` usage, which keeps both candidates because
-/// json projects are read unchanged.
+/// Only a **json** project's legacy `resource` usage reaches it with a
+/// `file:` URL, and it keeps both candidates.
 ///
 /// The topology: an `exclude`d json project reached by a `dir` usage from a
 /// member.
@@ -1253,48 +1251,8 @@ fn a_file_url_usage_of_an_unlisted_project_is_refused() {
     );
 }
 
-/// `kpar-url` is for standard-compliant KPARs, so a directory target is
-/// refused.
-///
-/// The target is **excluded**, so it is a legitimate standalone project
-/// under the root: that way the refusal can only be this rule, and not
-/// the unlisted-project error doing the work.
-#[cfg(feature = "filesystem")]
-#[test]
-fn a_kpar_url_naming_a_directory_is_refused() {
-    let dir = camino_tempfile::tempdir().expect("a temporary directory");
-    std::fs::create_dir_all(dir.path().join("dep")).expect("the target directory");
-    std::fs::write(dir.path().join("dep/model.toml"), member_toml("dep", ""))
-        .expect("the target manifest");
-    let usage = format!(
-        "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\nkpar-url = \"{}\"\n",
-        file_url(dir.path().join("dep"))
-    );
-    std::fs::write(
-        dir.path().join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"app\"]\nexclude = [\"dep\"]\n",
-    )
-    .expect("the root manifest");
-    std::fs::create_dir_all(dir.path().join("app")).expect("the member directory");
-    std::fs::write(
-        dir.path().join("app/model.toml"),
-        member_toml("alpha", &usage),
-    )
-    .expect("the member manifest");
-
-    let error = lock_workspace(&dir).expect_err("a `kpar-url` takes a KPAR");
-    let message = crate::utils::format_err(error);
-    assert!(
-        message.contains("which is a directory; a `kpar-url` usage takes a KPAR"),
-        "got: {message}"
-    );
-}
-
-/// The other half: a **json** project's legacy `resource` usage still
-/// names a directory.
-///
-/// json projects are read unchanged, and a legacy `resource` usage is not
-/// `kpar-url` under another name.
+/// A **json** project's legacy `resource` usage names a directory or an
+/// archive.
 #[cfg(feature = "filesystem")]
 #[test]
 fn a_json_resource_naming_a_directory_still_resolves() {
@@ -1335,32 +1293,16 @@ fn a_json_resource_naming_a_directory_still_resolves() {
     lock_workspace(&dir).expect("a json `resource` usage still names a directory");
 }
 
-/// The same check from a workspace member, which is the other lock
-/// entry point.
-///
-/// Both entry points read the declared pair off the manifest in the same
-/// place, so covering one covers the other.
+/// A workspace member's `kpar-url` usage whose name differs from its
+/// target's is refused.
 #[cfg(feature = "filesystem")]
 #[test]
 fn a_member_kpar_url_that_misnames_its_target_is_refused() {
+    const REMOTE: &str = "https://example.com/dep.kpar";
     let dir = camino_tempfile::tempdir().expect("a temporary directory");
-    std::fs::create_dir_all(dir.path().join("dep")).expect("the target directory");
-    std::fs::write(dir.path().join("dep/model.toml"), member_toml("dep", ""))
-        .expect("the target manifest");
-    // Built rather than written: a `kpar-url` names a KPAR.
-    let archive = dir.path().join("dep.kpar");
-    crate::commands::build::do_build_kpar(
-        &crate::project::local_src::LocalSrcProject::new_access(dir.path().join("dep"), None),
-        &archive,
-        crate::commands::build::KparCompressionMethod::Stored,
-        true,
-        false,
-    )
-    .expect("the target builds");
-
     std::fs::write(
         dir.path().join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"app\"]\nexclude = [\"dep\"]\n",
+        "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"app\"]\n",
     )
     .expect("the root manifest");
     std::fs::create_dir_all(dir.path().join("app")).expect("the member directory");
@@ -1370,14 +1312,31 @@ fn a_member_kpar_url_that_misnames_its_target_is_refused() {
             "alpha",
             &format!(
                 "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"wrongname\"\n\
-                 kpar-url = \"{}\"\n",
-                file_url(&archive)
+                 kpar-url = \"{REMOTE}\"\n"
             ),
         ),
     )
     .expect("the member manifest");
 
-    let error = lock_workspace(&dir).expect_err("a member's usage names its target too");
+    let mut info = InterchangeProjectInfoRaw::minimal("dep".to_owned(), "1.0.0".to_owned());
+    info.publisher = Some("acme".to_owned());
+    let mut target = InMemoryProject::from_info_meta(
+        info,
+        InterchangeProjectMetadataRaw::minimal("1970-01-01T00:00:00Z".to_owned()),
+    );
+    target.nominal_sources = vec![Source::RemoteKpar {
+        remote_kpar: fluent_uri::Iri::parse(REMOTE.to_owned()).expect("a valid IRI"),
+        kpar_size: std::num::NonZeroU64::MIN,
+        kpar_digest: "0".repeat(64),
+    }];
+    let resolver = crate::resolve::memory::MemoryResolver::resources_only([(
+        crate::project::utils::Identifier::from_iri_owned(
+            fluent_uri::Iri::parse(REMOTE.to_owned()).expect("a valid IRI"),
+        ),
+        vec![target],
+    )]);
+    let error =
+        lock_workspace_with(&dir, resolver).expect_err("a member's usage names its target too");
     let message = crate::utils::format_err(error);
     assert!(
         message.contains("is rejected because its spelling does not match the project's"),

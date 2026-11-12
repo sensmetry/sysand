@@ -254,7 +254,7 @@ impl Display for ResolutionInfo {
                     write!(f, "`{publisher}/{name}` from `{path}` (base path unknown)")?;
                 }
             }
-            InterchangeProjectUsage::KparUrl {
+            InterchangeProjectUsage::RemoteKpar {
                 kpar_url: _,
                 publisher: _,
                 name: _,

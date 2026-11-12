@@ -84,7 +84,7 @@ impl ResolveRead for GitResolver {
                 publisher: _,
                 name: _,
             }
-            | InterchangeProjectUsage::KparUrl {
+            | InterchangeProjectUsage::RemoteKpar {
                 kpar_url: _,
                 publisher: _,
                 name: _,

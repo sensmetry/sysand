@@ -1977,7 +1977,7 @@ fn info_and_metadata_fields_guard(
                 publisher,
                 name,
             } => {}
-            InterchangeProjectUsageRaw::KparUrl {
+            InterchangeProjectUsageRaw::RemoteKpar {
                 kpar_url,
                 publisher,
                 name,

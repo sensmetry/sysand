@@ -489,13 +489,14 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
                 publisher: _,
                 name: _,
             } => Some(kpar_path),
-            InterchangeProjectUsageRaw::KparUrl {
-                kpar_url,
+            // Portable: resolved by identity or an `http(s)` URL wherever the
+            // KPAR is used
+            InterchangeProjectUsageRaw::RemoteKpar {
+                kpar_url: _,
                 publisher: _,
                 name: _,
-            } => is_file_url(kpar_url).then_some(kpar_url),
-            // Portable: resolved by identity wherever the KPAR is used
-            InterchangeProjectUsageRaw::Index {
+            }
+            | InterchangeProjectUsageRaw::Index {
                 publisher: _,
                 name: _,
                 version_constraint: _,

@@ -506,7 +506,7 @@ impl From<&InterchangeProjectUsage> for Identifier {
                 resource,
                 version_constraint: _,
             }
-            | InterchangeProjectUsage::KparUrl {
+            | InterchangeProjectUsage::RemoteKpar {
                 kpar_url: resource,
                 publisher: _,
                 name: _,
@@ -537,7 +537,7 @@ impl From<InterchangeProjectUsage> for Identifier {
                 resource,
                 version_constraint: _,
             }
-            | InterchangeProjectUsage::KparUrl {
+            | InterchangeProjectUsage::RemoteKpar {
                 kpar_url: resource,
                 publisher: _,
                 name: _,
@@ -630,7 +630,7 @@ impl Identifier {
                 resource,
                 version_constraint: _,
             }
-            | InterchangeProjectUsageRaw::KparUrl {
+            | InterchangeProjectUsageRaw::RemoteKpar {
                 kpar_url: resource,
                 publisher: _,
                 name: _,

@@ -355,10 +355,11 @@ publisher invalidates the usages that refer to it.
   local clone; nothing points inside the repo)
   Postponed to after v1: not declarable in v1
 - remote-kpar: kpar-url, publisher, name -- this is used for
-  standard-compliant KPARs; version constraint not supported. The key is
-  `kpar-url`, for symmetry with `kpar-path`. `publisher` is omitted only
-  for the standard library, whose KPARs declare none (see Standard
-  library)
+  standard-compliant KPARs; version constraint not supported. `kpar-url`
+  takes an `http` or `https` URL; a local archive is a kpar-path usage.
+  The key is `kpar-url`, for symmetry with `kpar-path`. `publisher` is
+  omitted only for the standard library, whose KPARs declare none (see
+  Standard library)
 - `resource` (the KerML usage type carried by json projects, see
   `InterchangeProjectInfo`) is legacy and is not supported directly:
   it cannot be declared in `model.toml`. It only appears on the KPAR
@@ -638,12 +639,12 @@ name that is not alphanumeric replaced by `_`.
     usage can reach such a target, `stdlib` being a `model.toml` key that
     no KPAR and no index carries. Under `--allow-path-usage` a local
     usage stays a typed path usage, stdlib target or not; a remote-kpar
-    usage is always a typed `KparUrl` usage, which for a standard-library
+    usage is always a typed `RemoteKpar` usage, which for a standard-library
     usage carries no publisher
   - git: cannot occur in v1, as git usages are not declarable there.
     When introduced: not supported, because the project may not be at
     repo root; proper support requires typed git usage in json project
-  - remote-kpar: turn into a typed `KparUrl` usage (`kparUrl`,
+  - remote-kpar: turn into a typed `RemoteKpar` usage (`kparUrl`,
     `publisher`, `name`), with `publisher` omitted for a
     standard-library usage
 
@@ -726,7 +727,7 @@ Field by field:
     - index (`publisher`, `name`, `versionConstraint`): used as-is. The
       usage already spells the target's real publisher and name, so
       nothing is looked up
-    - KPAR URL (`KparUrl`): used as-is for `kpar-url`, with the
+    - remote KPAR (`RemoteKpar`): used as-is for `kpar-url`, with the
       publisher and name it declares
     - source path (`Directory`), kpar path (`KparPath`): the path,
       rewritten into the form a `dir` or `kpar-path` requires (see

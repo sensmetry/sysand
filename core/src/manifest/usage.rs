@@ -27,7 +27,7 @@ use crate::manifest::diagnostics::{
     Diagnostic, Diagnostics, KeyLocation, Position, UnknownKeys, missing_key,
 };
 use crate::manifest::reader::{TableReader, describe};
-use crate::model::{IndexName, IndexPublisher, is_omg_stdlib_iri};
+use crate::model::{IndexName, IndexPublisher, is_http_url, is_omg_stdlib_iri};
 
 /// The keys a usage entry accepts, quoted as the message lists them.
 const ACCEPTED_KEYS: &str =
@@ -760,6 +760,16 @@ impl UsageRaw {
                 );
                 return None;
             };
+            if !is_http_url(&parsed) {
+                report.push(
+                    Diagnostic::error(format!(
+                        "usage `{label}` sets `kpar-url = \"{url}\"`, which is not an `http` or \
+                         `https` URL"
+                    ))
+                    .at_opt(site.key("kpar-url")),
+                );
+                return None;
+            }
             return Some(Kind::RemoteKpar(parsed));
         }
 

@@ -454,7 +454,7 @@ mod kpar_url_usage {
     }
 
     fn kpar_url(url: &str, publisher: Option<&str>, name: &str) -> InterchangeProjectUsageRaw {
-        InterchangeProjectUsageRaw::KparUrl {
+        InterchangeProjectUsageRaw::RemoteKpar {
             kpar_url: url.to_owned(),
             publisher: publisher.map(str::to_owned),
             name: name.to_owned(),
@@ -497,11 +497,24 @@ mod kpar_url_usage {
             .unwrap();
         assert_matches!(
             kpar_url("https://example.com/lib.kpar", None, "Lib").validate(),
-            Err(InterchangeProjectValidationError::KparUrlUsageNoPublisher {
-                kpar_url: _,
-                name: _
-            })
+            Err(
+                InterchangeProjectValidationError::RemoteKparUsageNoPublisher {
+                    kpar_url: _,
+                    name: _
+                }
+            )
         );
+    }
+
+    #[test]
+    fn only_an_http_url_is_accepted() {
+        assert_matches!(
+            kpar_url("file:///tmp/lib.kpar", Some("Acme"), "Lib").validate(),
+            Err(InterchangeProjectValidationError::RemoteKparUsageNotHttp(_))
+        );
+        kpar_url("http://example.com/lib.kpar", Some("Acme"), "Lib")
+            .validate()
+            .unwrap();
     }
 
     #[test]

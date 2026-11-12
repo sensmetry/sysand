@@ -455,7 +455,7 @@ fn migrate_usage(
             name: parse_or_report(IndexName::parse(name.clone()), "name", report)?,
             kpar_path: local_path(kpar_path, RelativePathKind::File, report)?,
         }),
-        InterchangeProjectUsageRaw::KparUrl {
+        InterchangeProjectUsageRaw::RemoteKpar {
             kpar_url,
             publisher,
             name,

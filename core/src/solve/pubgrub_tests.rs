@@ -2314,7 +2314,7 @@ impl<R: ResolveRead> ResolveRead for RecordingResolver<R> {
 }
 
 /// A dependency's `model.toml` `kpar-url` usage reaches the resolver as a
-/// typed KPAR URL usage, carrying the publisher and name it declares, as
+/// typed remote KPAR usage, carrying the publisher and name it declares, as
 /// the input project's own usages do.
 #[cfg(feature = "filesystem")]
 #[test]
@@ -2373,13 +2373,13 @@ fn a_transitive_kpar_url_usage_is_typed() -> Result<(), Box<dyn std::error::Erro
             )
         })
         .ok_or("the transitive usage was never resolved")?;
-    let InterchangeProjectUsage::KparUrl {
+    let InterchangeProjectUsage::RemoteKpar {
         kpar_url,
         publisher: Some(publisher),
         name,
     } = transitive
     else {
-        panic!("expected a typed KPAR URL usage, got {transitive:?}");
+        panic!("expected a typed remote KPAR usage, got {transitive:?}");
     };
     assert_eq!(kpar_url.as_str(), "https://example.com/lib.kpar");
     assert_eq!(publisher.as_str(), "acme");

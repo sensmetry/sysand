@@ -303,14 +303,14 @@ impl<Policy: HTTPAuthentication> ResolveReadAsync for HTTPResolverAsync<Policy> 
         &self,
         resolve: &ResolutionInfo,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
-        // A resource usage tries a src project, then a KPAR; a KPAR URL
+        // A resource usage tries a src project, then a KPAR; a remote KPAR
         // usage only a KPAR.
         let (iri, kpar_only) = match resolve.usage() {
             InterchangeProjectUsage::Resource {
                 resource,
                 version_constraint: _,
             } => (resource, false),
-            InterchangeProjectUsage::KparUrl {
+            InterchangeProjectUsage::RemoteKpar {
                 kpar_url,
                 publisher: _,
                 name: _,

@@ -108,7 +108,7 @@ pub fn command_remove<Policy: HTTPAuthentication>(
                 resource,
                 version_constraint: _,
             }
-            | InterchangeProjectUsageRaw::KparUrl {
+            | InterchangeProjectUsageRaw::RemoteKpar {
                 kpar_url: resource,
                 publisher: _,
                 name: _,
@@ -258,7 +258,7 @@ fn print_removed(usages: &[InterchangeProjectUsageRaw]) {
             } => {
                 log::info!("{header}{removed:>12}{header:#} `{publisher}/{name}` (path `{path}`)");
             }
-            InterchangeProjectUsageRaw::KparUrl {
+            InterchangeProjectUsageRaw::RemoteKpar {
                 kpar_url,
                 publisher,
                 name,

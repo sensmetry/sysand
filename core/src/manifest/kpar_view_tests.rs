@@ -80,13 +80,13 @@ fn a_typed_index_usage_keeps_the_manifest_spelling() {
     );
 }
 
-/// A remote-kpar usage becomes a typed KPAR URL usage with the URL as-is.
+/// A remote-kpar usage becomes a typed remote KPAR usage with the URL as-is.
 #[test]
 fn a_kpar_url_usage_becomes_a_typed_kpar_url_usage() {
     let target = "https://example.com/a/b.kpar?v=2#frag";
     assert_eq!(
         usage(&url("acme", "widgets", target)),
-        InterchangeProjectUsageRaw::KparUrl {
+        InterchangeProjectUsageRaw::RemoteKpar {
             kpar_url: target.to_owned(),
             publisher: Some("acme".to_owned()),
             name: "widgets".to_owned(),
@@ -107,7 +107,7 @@ fn a_stdlib_kpar_url_usage_has_no_publisher() {
     let raw = usage(&stdlib);
     assert_eq!(
         raw,
-        InterchangeProjectUsageRaw::KparUrl {
+        InterchangeProjectUsageRaw::RemoteKpar {
             kpar_url: target.to_owned(),
             publisher: None,
             name: "Kernel Semantic Library".to_owned(),
@@ -385,7 +385,7 @@ fn usages_are_mapped_in_manifest_order() {
                 publisher: "acme".to_owned(),
                 name: "second".to_owned(),
             },
-            InterchangeProjectUsageRaw::KparUrl {
+            InterchangeProjectUsageRaw::RemoteKpar {
                 kpar_url: "https://example.com/third.kpar".to_owned(),
                 publisher: Some("acme".to_owned()),
                 name: "third".to_owned(),

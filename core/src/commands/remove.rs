@@ -182,7 +182,7 @@ fn remove_command(usage: &InterchangeProjectUsageRaw) -> String {
             resource,
             version_constraint: _,
         }
-        | InterchangeProjectUsageRaw::KparUrl {
+        | InterchangeProjectUsageRaw::RemoteKpar {
             kpar_url: resource,
             publisher: _,
             name: _,

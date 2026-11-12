@@ -439,7 +439,7 @@ pub fn get_project_version<R: ResolveRead>(
                         version_constraint: None,
                         resource: _,
                     }
-                    | InterchangeProjectUsage::KparUrl {
+                    | InterchangeProjectUsage::RemoteKpar {
                         kpar_url: _,
                         publisher: _,
                         name: _,

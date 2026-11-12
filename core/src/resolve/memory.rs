@@ -57,7 +57,7 @@ impl IRIPredicate for AcceptAll {
     }
 }
 
-/// Accepts only usages identified by their IRI: resource and KPAR URL
+/// Accepts only usages identified by their IRI: resource and remote KPAR
 /// usages. Source overrides are keyed by those IRIs, so they must not
 /// resolve typed usages that happen to share an [`Identifier`]
 #[derive(Debug)]
@@ -70,7 +70,7 @@ impl IRIPredicate for AcceptResource {
             InterchangeProjectUsage::Resource {
                 resource: _,
                 version_constraint: _
-            } | InterchangeProjectUsage::KparUrl {
+            } | InterchangeProjectUsage::RemoteKpar {
                 kpar_url: _,
                 publisher: _,
                 name: _
@@ -80,7 +80,7 @@ impl IRIPredicate for AcceptResource {
 }
 
 impl<Project: ProjectRead + Clone> MemoryResolver<AcceptResource, Project> {
-    /// A resolver of only resource and KPAR URL usages, e.g. for source
+    /// A resolver of only resource and remote KPAR usages, e.g. for source
     /// overrides
     pub fn resources_only(projects: impl IntoIterator<Item = (Identifier, Vec<Project>)>) -> Self {
         Self {
@@ -102,7 +102,7 @@ impl IRIPredicate for AcceptScheme<'_> {
                 resource,
                 version_constraint: _,
             }
-            | InterchangeProjectUsage::KparUrl {
+            | InterchangeProjectUsage::RemoteKpar {
                 kpar_url: resource,
                 publisher: _,
                 name: _,

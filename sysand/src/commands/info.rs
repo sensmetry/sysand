@@ -129,7 +129,7 @@ fn pprint_project(definition: &ProjectDefinition, excluded_iris: &ProvidedIdenti
                     resource,
                     version_constraint: _,
                 }
-                | InterchangeProjectUsageRaw::KparUrl {
+                | InterchangeProjectUsageRaw::RemoteKpar {
                     kpar_url: resource,
                     publisher: _,
                     name: _,

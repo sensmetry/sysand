@@ -534,13 +534,13 @@ pub fn do_add<P: ProjectMut>(
                     }
                 }
             }
-            InterchangeProjectUsageRaw::KparUrl {
+            InterchangeProjectUsageRaw::RemoteKpar {
                 kpar_url: new_kpar_url,
                 publisher: new_publisher,
                 name: new_name,
             } => {
                 for u in &mut info.usage {
-                    let InterchangeProjectUsageRaw::KparUrl {
+                    let InterchangeProjectUsageRaw::RemoteKpar {
                         kpar_url,
                         publisher,
                         name,
