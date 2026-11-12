@@ -22,7 +22,7 @@ use crate::{
     lock::{Lock, Project, Usage, hash_str},
     model::{InterchangeProjectUsage, InterchangeProjectValidationError},
     project::{
-        ProjectRead, SourceSymbolsError, SymbolIndexError, exported_symbols,
+        ProjectDefinition, ProjectRead, SourceSymbolsError, SymbolIndexError, exported_symbols,
         utils::{FsIoError, Identifier},
     },
     resolve::ResolveRead,
@@ -258,7 +258,7 @@ pub fn do_lock_projects<
     lock_projects(
         projects
             .into_iter()
-            .map(|(identifiers, project)| (identifiers, project, base_path.clone())),
+            .map(|(identifiers, project)| (identifiers, project, base_path.clone(), None)),
         resolver,
         provided_usages,
         ctx,
@@ -292,12 +292,22 @@ pub fn do_lock_projects_with_bases<
     provided_usages: &ProvidedProjects,
     ctx: &ProjectContext,
 ) -> Result<LockOutcome<PD>, LockProjectError<PI, PD, R>> {
-    lock_projects(projects, resolver, provided_usages, ctx, None)
+    lock_projects(
+        projects
+            .into_iter()
+            .map(|(identifiers, project, base_path)| (identifiers, project, base_path, None)),
+        resolver,
+        provided_usages,
+        ctx,
+        None,
+    )
 }
 
 /// [`do_lock_projects_with_bases`], with the spelling of the typed usage
 /// of `respelled` that the projects declare not checked (see
-/// [`check_typed_usages`])
+/// [`check_typed_usages`]).
+///
+/// A project given with its manifest already read is not read again.
 fn lock_projects<
     'a,
     PI: ProjectRead + Debug + 'a,
@@ -307,6 +317,7 @@ fn lock_projects<
             Option<Vec<Iri<String>>>,
             &'a PI,
             Option<camino::Utf8PathBuf>,
+            Option<ProjectDefinition>,
         ),
     >,
     R: ResolveRead<ProjectStorage = PD> + Debug,
@@ -321,7 +332,7 @@ fn lock_projects<
 
     let mut all_deps = vec![];
 
-    for (identifiers, project, base_path) in projects {
+    for (identifiers, project, base_path, definition) in projects {
         let input_project_label = || match identifiers.as_ref().and_then(|ids| ids.first()) {
             Some(iri) => format!("`{iri}`"),
             None => "<unknown input project>".to_owned(),
@@ -335,15 +346,18 @@ fn lock_projects<
             .and_then(|ids| ids.first())
             .map(ToString::to_string);
 
-        let definition = project
-            .get_project()
-            .map_err(LockProjectError::InputProjectError)?
-            .ok_or_else(|| {
-                LockProjectError::LockError(LockError::IncompleteProject {
-                    project_label: input_project_label(),
-                    field: IncompleteField::Info,
-                })
-            })?;
+        let definition = match definition {
+            Some(definition) => Some(definition),
+            None => project
+                .get_project()
+                .map_err(LockProjectError::InputProjectError)?,
+        }
+        .ok_or_else(|| {
+            LockProjectError::LockError(LockError::IncompleteProject {
+                project_label: input_project_label(),
+                field: IncompleteField::Info,
+            })
+        })?;
         let named_project_label = format!("`{}` {}", definition.name(), definition.version());
         let usages = definition
             .validated_usages()
@@ -718,7 +732,7 @@ pub fn do_lock_local_editable_respelling<
 
     let base_path = ctx.project_root();
     lock_projects(
-        [(identifiers, &project, base_path)],
+        [(identifiers, &project, base_path, None)],
         resolver,
         provided_usages,
         ctx,
@@ -820,7 +834,13 @@ fn lock_workspace<PD: ProjectRead + Debug, R: ResolveRead<ProjectStorage = PD> +
                     .lock_identifier()
                     .parse()
                     .expect("a validated publisher and name are a valid PURL");
-                (Some(vec![purl]), project, Some(member.dir.clone()))
+                let definition = ProjectDefinition::Toml(Box::new(member.project.clone()));
+                (
+                    Some(vec![purl]),
+                    project,
+                    Some(member.dir.clone()),
+                    Some(definition),
+                )
             }),
         resolver,
         provided_usages,
