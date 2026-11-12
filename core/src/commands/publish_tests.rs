@@ -755,6 +755,27 @@ fn check_usage_rejects_disallowed_usage() {
     assert_matches!(err, PublishError::DisallowedUsage { name: _ });
 }
 
+fn kpar_url_usage(url: &str) -> InterchangeProjectUsageRaw {
+    InterchangeProjectUsageRaw::KparUrl {
+        kpar_url: url.to_owned(),
+        publisher: Some("Acme".to_owned()),
+        name: "Lib".to_owned(),
+    }
+}
+
+#[test]
+fn check_usage_accepts_a_remote_kpar_url_usage() {
+    check_usage(&kpar_url_usage("https://example.com/lib.kpar")).unwrap();
+}
+
+#[test]
+fn check_usage_rejects_a_file_kpar_url_usage_as_a_path_usage() {
+    for url in ["file:///tmp/lib.kpar", "FILE:///tmp/lib.kpar"] {
+        let err = check_usage(&kpar_url_usage(url)).unwrap_err();
+        assert_matches!(err, PublishError::PathUsage { path: _ });
+    }
+}
+
 #[test]
 fn check_usage_rejects_invalid_purl() {
     // pkg:sysand prefix present but name segment is syntactically invalid.

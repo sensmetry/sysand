@@ -1674,7 +1674,7 @@ const SYSML_STD_LIB_SUFFIXES: [&str; 7] = [
 /// duplicate checks performed by `InterchangeProjectUsage::validate()`.
 ///
 /// A resource usage can be either `pkg:sysand/` or an std lib; a typed
-/// index usage is always allowed.
+/// index usage and a KPAR URL usage of any non-`file:` URL are allowed.
 // TODO: be case insensitive
 fn check_usage(usage: &InterchangeProjectUsageRaw) -> Result<(), PublishError> {
     if check_std_libs(usage, &SYSML_STD_LIB_SUFFIXES, SYSML_SPEC_PREFIX)?
@@ -1697,14 +1697,19 @@ fn check_usage(usage: &InterchangeProjectUsageRaw) -> Result<(), PublishError> {
                 source: e,
             }),
         },
-        // Only a standard-library KPAR URL, matched above, is allowed
+        // A `file:` URL names a local project
         InterchangeProjectUsageRaw::KparUrl {
             kpar_url,
             publisher: _,
             name: _,
-        } => Err(PublishError::DisallowedUsage {
-            name: kpar_url.as_str().into(),
-        }),
+        } => match kpar_url.split_once(':') {
+            Some((scheme, _)) if scheme.eq_ignore_ascii_case("file") => {
+                Err(PublishError::PathUsage {
+                    path: kpar_url.as_str().into(),
+                })
+            }
+            _ => Ok(()),
+        },
         InterchangeProjectUsageRaw::Directory {
             dir,
             publisher: _,
