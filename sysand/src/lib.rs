@@ -822,7 +822,8 @@ fn run_cli_with(
     config.merge(auto_config);
 
     let http_options = http_options_from_env()?;
-    let client = create_reqwest_client_with(http_options)?;
+    // Built only by the commands that reach the network.
+    let client = || create_reqwest_client_with(http_options);
 
     let runtime = Arc::new(sysand_core::cancel::current_thread_runtime().unwrap());
 
@@ -863,13 +864,13 @@ fn run_cli_with(
                     index_url,
                     token_stdin,
                     &config,
-                    &client,
+                    &client()?,
                     &http_options,
                     runtime,
                 )
                 .map(|()| RunReport::new("auth login")),
                 AuthCommand::Whoami { index_url } => {
-                    command_auth_whoami(index_url, &config, &client, &http_options, &runtime)
+                    command_auth_whoami(index_url, &config, &client()?, &http_options, &runtime)
                         .map(|()| RunReport::new("auth whoami"))
                 }
                 AuthCommand::Logout { index_url } => {
@@ -1016,7 +1017,7 @@ fn run_cli_with(
             let lock = command_lock(
                 resolution_opts,
                 &config,
-                client,
+                client()?,
                 runtime,
                 auth_policy,
                 &required(ctx),
@@ -1031,6 +1032,7 @@ fn run_cli_with(
             repair,
         } => {
             let mut ctx = required(ctx);
+            let client = client()?;
             let provided_iris = resolution_opts.provided_iris(ProvidedProjects::default());
             // The lockfile is read, or written, before the environment is
             // created, so a failure to lock leaves no environment behind.
@@ -1102,7 +1104,7 @@ fn run_cli_with(
                 Ok(())
             }
             None => command_print_root(
-                &cwd,
+                project_root.as_deref(),
                 scope.as_ref().map(|(root, start)| (root.as_path(), start)),
             ),
         },
@@ -1125,16 +1127,6 @@ fn run_cli_with(
             } else {
                 known_std_libs().into_keys().collect()
             };
-
-            // A relative override path is relative to the file it is
-            // written in, which in a workspace is the root's.
-            let overrides = get_overrides(
-                &config,
-                &config_root,
-                &client,
-                runtime.clone(),
-                auth_policy.clone(),
-            )?;
 
             let names_dir = locator.dir.is_some();
             let location = match locator {
@@ -1227,28 +1219,40 @@ fn run_cli_with(
                         )
                     }
                 }
-                (Location::Resolve(resolve), None) => crate::commands::info::command_info_resolve(
-                    *resolve,
-                    true, // !no_normalise,
-                    client,
-                    index_urls,
-                    &excluded_usages,
-                    overrides,
-                    runtime,
-                    auth_policy,
-                    required(ctx),
-                ),
-                (Location::Resolve(resolve), Some(field)) => {
-                    crate::commands::info::command_info_field_resolve(
-                        *resolve,
-                        field,
-                        client,
-                        index_urls,
-                        overrides,
-                        runtime,
-                        auth_policy,
-                        required(ctx),
-                    )
+                (Location::Resolve(resolve), get) => {
+                    let client = client()?;
+                    // A relative override path is relative to the file it is
+                    // written in, which in a workspace is the root's.
+                    let overrides = get_overrides(
+                        &config,
+                        &config_root,
+                        &client,
+                        runtime.clone(),
+                        auth_policy.clone(),
+                    )?;
+                    match get {
+                        None => crate::commands::info::command_info_resolve(
+                            *resolve,
+                            true, // !no_normalise,
+                            client,
+                            index_urls,
+                            &excluded_usages,
+                            overrides,
+                            runtime,
+                            auth_policy,
+                            required(ctx),
+                        ),
+                        Some(field) => crate::commands::info::command_info_field_resolve(
+                            *resolve,
+                            field,
+                            client,
+                            index_urls,
+                            overrides,
+                            runtime,
+                            auth_policy,
+                            required(ctx),
+                        ),
+                    }
                 }
                 (Location::KparPath(path), None) => command_info_path(&path, &excluded_usages),
                 (Location::KparPath(path), Some(field)) => command_info_field_path(&path, field),
@@ -1284,7 +1288,7 @@ fn run_cli_with(
             global_opts.config_file,
             global_opts.no_config,
             required(ctx),
-            client,
+            client()?,
             runtime,
             auth_policy,
         )
@@ -1304,7 +1308,7 @@ fn run_cli_with(
             sync.no_sync,
             sync.no_prune,
             resolution_opts,
-            client,
+            client()?,
             runtime,
             auth_policy,
         ),
@@ -1414,7 +1418,7 @@ fn run_cli_with(
             resolution_opts,
             &config,
             &required(ctx),
-            client,
+            client()?,
             runtime,
             auth_policy,
         ),
@@ -1429,7 +1433,7 @@ fn run_cli_with(
             trusted_publishing,
             &required(ctx),
             auth_policy,
-            client,
+            client()?,
             runtime,
         ),
         Command::Versions {
@@ -1439,7 +1443,7 @@ fn run_cli_with(
             let index_urls = resolution_opts.index_urls(&config);
             crate::commands::versions::command_versions(
                 iri,
-                client,
+                client()?,
                 index_urls,
                 runtime,
                 auth_policy,
@@ -1474,7 +1478,7 @@ fn run_cli_with(
             no_deps,
             resolution_opts,
             &config,
-            client,
+            client()?,
             runtime,
             auth_policy,
         ),
