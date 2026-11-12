@@ -967,8 +967,7 @@ fn sync_failure(err: CommandSyncError, outcome: SyncOutcome, wrote_lock: bool) -
         | CommandSyncError::RemoveUnrecorded(_) => Failure::Env { message, wrote },
         CommandSyncError::Sync(_)
         | CommandSyncError::IncludeStd(_)
-        | CommandSyncError::Relock(_)
-        | CommandSyncError::Workspace(_) => Failure::Sync {
+        | CommandSyncError::Relock(_) => Failure::Sync {
             message,
             wrote,
             partial: Box::new(outcome),

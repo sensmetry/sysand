@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{num::NonZeroU64, sync::Arc};
+use std::{convert::Infallible, num::NonZeroU64, sync::Arc};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use thiserror::Error;
@@ -22,6 +22,7 @@ use sysand_core::{
         local_directory::{LocalDirectoryEnvironment, LocalWriteError},
     },
     lock::{Lock, Lockfile},
+    manifest::workspace_table::WorkspaceTable,
     project::{
         AsSyncProjectTokio, KparMeta, ProjectReadAsync as _,
         gix_git_download::{GixDownloadedError, GixDownloadedProject},
@@ -63,9 +64,6 @@ pub enum CommandSyncError {
     /// `--verify` could not read the environment or the manifests.
     #[error(transparent)]
     Verify(#[from] VerifyError),
-    /// The workspace at the lockfile's root could not be read.
-    #[error(transparent)]
-    Workspace(#[from] sysand_core::workspace::model_toml::DiscoverError),
     /// `--repair` could not remove a mismatched installation.
     #[error("removing `{path}` from the environment")]
     Remove {
@@ -142,7 +140,7 @@ pub fn sync_context<Policy: HTTPAuthentication>(
     outcome: &mut SyncOutcome,
 ) -> Result<Option<VerifyStatus>, SyncContextError> {
     let root = ctx.state_root();
-    let members = ctx.workspace_members();
+    let table = ctx.workspace().map(|workspace| workspace.table().clone());
     if verify || repair {
         let manifests = ManifestUsages::for_context(ctx).map_err(SyncContextError::Manifests)?;
         let status = command_sync_verify(
@@ -150,7 +148,7 @@ pub fn sync_context<Policy: HTTPAuthentication>(
             &root,
             &mut ctx.env,
             &root.join(DEFAULT_ENV_NAME),
-            &members,
+            table.as_ref(),
             &manifests,
             client,
             provided_usages,
@@ -167,7 +165,7 @@ pub fn sync_context<Policy: HTTPAuthentication>(
     command_sync(
         lock,
         &root,
-        &members,
+        table.as_ref(),
         &mut env,
         client,
         provided_usages,
@@ -236,7 +234,7 @@ pub fn command_sync_verify<Policy: HTTPAuthentication>(
     project_root: &Utf8Path,
     env: &mut Option<LocalDirectoryEnvironment>,
     env_dir: &Utf8Path,
-    members: &[Utf8UnixPathBuf],
+    workspace: Option<&Arc<WorkspaceTable>>,
     manifests: &[ManifestUsages],
     client: reqwest_middleware::ClientWithMiddleware,
     provided_usages: &ProvidedProjects,
@@ -308,7 +306,7 @@ pub fn command_sync_verify<Policy: HTTPAuthentication>(
     command_sync(
         lock,
         project_root,
-        members,
+        workspace,
         env,
         client,
         provided_usages,
@@ -348,7 +346,7 @@ pub fn command_sync_verify<Policy: HTTPAuthentication>(
 pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     lock: &Lock,
     project_root: P,
-    members: &[Utf8UnixPathBuf],
+    workspace: Option<&Arc<WorkspaceTable>>,
     env: &mut LocalDirectoryEnvironment,
     client: reqwest_middleware::ClientWithMiddleware,
     provided_usages: &ProvidedProjects,
@@ -361,17 +359,25 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     // `project_root` is the root the lockfile's `src_path`s are relative
     // to: the workspace root for a workspace's lockfile.
     let relative_root = project_root.as_ref();
+    let members: Vec<Utf8UnixPathBuf> = workspace.map_or_else(Vec::new, |table| {
+        table
+            .members
+            .iter()
+            .map(|member| member.path.clone())
+            .collect()
+    });
     sysand_core::commands::sync::do_sync(
         lock,
         env,
         // A workspace member resolves its manifest against the table.
         Some(|editable: Utf8UnixPathBuf| {
             let path = relative_root.join(editable.as_str());
-            if members.contains(&editable) {
-                sysand_core::workspace::model_toml::project_at_path(path, Some(editable))
-            } else {
-                Ok(LocalSrcProject::new_access(path, Some(editable)))
-            }
+            Ok::<_, Infallible>(match workspace {
+                Some(table) if members.contains(&editable) => {
+                    LocalSrcProject::new_member(path, Some(editable), table.clone())
+                }
+                _ => LocalSrcProject::new_access(path, Some(editable)),
+            })
         }),
         Some(
             |src_path: Utf8UnixPathBuf, checksum: String| -> LocalSrcProject {
@@ -480,7 +486,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         _ => CommandSyncError::Sync(error),
     })?;
 
-    env.merge_lock(lock, members);
+    env.merge_lock(lock, &members);
     env.write()?;
 
     Ok(())
