@@ -148,7 +148,7 @@ pub fn sync_context<Policy: HTTPAuthentication>(
         let status = command_sync_verify(
             lock,
             &root,
-            ctx.env.take(),
+            &mut ctx.env,
             &root.join(DEFAULT_ENV_NAME),
             &members,
             &manifests,
@@ -177,6 +177,7 @@ pub fn sync_context<Policy: HTTPAuthentication>(
         ctx.cancellation.clone(),
         outcome,
     )?;
+    ctx.env = Some(env);
     Ok(None)
 }
 
@@ -233,7 +234,7 @@ fn record(outcome: &mut SyncOutcome, report: &SyncOutcome) {
 pub fn command_sync_verify<Policy: HTTPAuthentication>(
     lock: &Lock,
     project_root: &Utf8Path,
-    env: Option<LocalDirectoryEnvironment>,
+    env: &mut Option<LocalDirectoryEnvironment>,
     env_dir: &Utf8Path,
     members: &[Utf8UnixPathBuf],
     manifests: &[ManifestUsages],
@@ -270,11 +271,11 @@ pub fn command_sync_verify<Policy: HTTPAuthentication>(
 
     // Repair: an environment to repair into, created directly when it
     // is missing (the directory may survive without its `env.toml`).
-    let mut env = if let Some(env) = env {
+    let env = if let Some(env) = env {
         env
     } else {
         sysand_core::project::utils::wrapfs::create_dir_all(env_dir)?;
-        LocalDirectoryEnvironment::create(env_dir)?
+        env.insert(LocalDirectoryEnvironment::create(env_dir)?)
     };
     let repairing = "Repairing";
     let header = sysand_core::style::get_style_config().header;
@@ -308,7 +309,7 @@ pub fn command_sync_verify<Policy: HTTPAuthentication>(
         lock,
         project_root,
         members,
-        &mut env,
+        env,
         client,
         provided_usages,
         runtime,
@@ -320,7 +321,7 @@ pub fn command_sync_verify<Policy: HTTPAuthentication>(
     outcome.repaired = sync_outcome.installed;
     outcome.pruned = sync_outcome.pruned;
 
-    let again = do_verify(lock, Some(&env), manifests, provided_usages)?;
+    let again = do_verify(lock, Some(env), manifests, provided_usages)?;
     record(outcome, &again);
     print_findings(&again);
     let repaired = outcome.repaired.len();

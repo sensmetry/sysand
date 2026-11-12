@@ -35,7 +35,7 @@ use sysand_core::{
             do_env_local_dir,
         },
         init::do_init_local_file,
-        lock::{LockError, LockProjectError},
+        lock::{DEFAULT_LOCKFILE_NAME, LockError, LockProjectError},
         sync::SyncOutcome,
     },
     config::{
@@ -941,15 +941,10 @@ fn do_lock_py(
         .map_err(|e| lock_error_to_failure(e, &auth, &auth_policy))?;
 
         let text = Lockfile::to_text(&lock);
-        let lock = if write {
-            let lockfile = Lockfile::new(&root, lock);
-            lockfile
-                .write()
+        if write {
+            wrapfs::write(root.join(DEFAULT_LOCKFILE_NAME), &text)
                 .map_err(|e| Failure::Wrote(format_err(e)))?;
-            lockfile.into_lock()
-        } else {
-            lock
-        };
+        }
         Ok((text, lock.projects))
     });
     outcome.map_err(|failure| failure.into_pyerr(py))
@@ -1069,11 +1064,9 @@ fn do_sync_py(
                 SyncContextError::Sync(e) => sync_failure(e, outcome, wrote_lock),
             });
         }
-        let projects = LocalDirectoryEnvironment::try_read(ctx.state_root().join(DEFAULT_ENV_NAME))
-            .map_err(|e| Failure::Env {
-                message: format_err(e),
-                wrote: wrote_lock || outcome.wrote(),
-            })?
+        let projects = ctx
+            .env
+            .as_ref()
             .map(|env| env.projects().to_vec())
             .unwrap_or_default();
         Ok((outcome, projects))
