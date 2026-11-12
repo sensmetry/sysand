@@ -144,17 +144,11 @@ impl<Policy: HTTPAuthentication> ReqwestSrcProjectAsync<Policy> {
     ) -> Result<T::Validated, ReqwestSrcError> {
         let partial: T = serde_json::from_str(&body)
             .map_err(|e| ReqwestSrcError::Deserialize(url.clone(), e))?;
-        match partial.validate_manifest(metamodel) {
-            Ok(validated) => {
-                for warning in &validated.warnings {
-                    log::warn!("{}", warning.in_file(&url.to_string()));
-                }
-                Ok(validated.value)
-            }
-            Err(report) => Err(ReqwestSrcError::InvalidManifest {
-                report: report.in_file(url.to_string()),
-            }),
-        }
+        crate::manifest::diagnostics::take_logged(
+            partial.validate_manifest(metamodel),
+            &url.to_string(),
+        )
+        .map_err(|report| ReqwestSrcError::InvalidManifest { report })
     }
 }
 

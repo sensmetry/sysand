@@ -428,15 +428,8 @@ pub fn validate_manifest<T>(
     path: impl AsRef<Utf8Path>,
     validated: Result<Validated<T>, Diagnostics>,
 ) -> Result<T, ProjectDeserializationError> {
-    match validated {
-        Ok(validated) => {
-            for warning in &validated.warnings {
-                log::warn!("{}", warning.in_file(path.as_ref().as_str()));
-            }
-            Ok(validated.value)
-        }
-        Err(report) => Err(ProjectDeserializationError::invalid(path, report)),
-    }
+    crate::manifest::diagnostics::take_logged(validated, path.as_ref().as_str())
+        .map_err(|report| ProjectDeserializationError::Invalid { report })
 }
 
 /// Indent every line of a multi-line report to align with the first.

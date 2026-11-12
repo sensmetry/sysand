@@ -206,24 +206,18 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for IndexEntryProject<Policy> 
     }
 }
 
-/// One fetched manifest document, validated; its warnings are logged
-/// against the URL they came from.
+/// One fetched manifest document, validated; its warnings and errors
+/// name the URL it came from, redacted.
 fn validate_fetched<T: PartialManifest>(
     url: &reqwest::Url,
     partial: T,
     metamodel: Option<&str>,
 ) -> Result<T::Validated, IndexEntryProjectError> {
-    match partial.validate_manifest(metamodel) {
-        Ok(validated) => {
-            for warning in &validated.warnings {
-                log::warn!("{}", warning.in_file(&RedactedUrl::from(url).to_string()));
-            }
-            Ok(validated.value)
-        }
-        Err(report) => Err(IndexEntryProjectError::InvalidManifest {
-            report: report.in_file(url.as_str()),
-        }),
-    }
+    crate::manifest::diagnostics::take_logged(
+        partial.validate_manifest(metamodel),
+        &RedactedUrl::from(url).to_string(),
+    )
+    .map_err(|report| IndexEntryProjectError::InvalidManifest { report })
 }
 
 #[cfg(test)]

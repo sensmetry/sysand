@@ -327,6 +327,23 @@ impl<T> Validated<T> {
     }
 }
 
+/// The value of a read with each of its warnings logged against `file`,
+/// or its errors as a report on `file`.
+pub fn take_logged<T>(
+    validated: Result<Validated<T>, Diagnostics>,
+    file: &str,
+) -> Result<T, Report> {
+    match validated {
+        Ok(validated) => {
+            for warning in &validated.warnings {
+                log::warn!("{}", warning.in_file(file));
+            }
+            Ok(validated.value)
+        }
+        Err(report) => Err(report.in_file(file)),
+    }
+}
+
 /// Unknown keys are allowed for future compatibility, but generate a
 /// warning upon read: in `model.toml` as a whole, `[project]`,
 /// `[workspace]` and the `urls` tables alike. A table that warns keeps a
