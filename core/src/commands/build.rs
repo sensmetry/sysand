@@ -6,7 +6,11 @@ use indexmap::IndexMap;
 use jiff::tz::TimeZone;
 use thiserror::Error;
 
-use std::{collections::HashSet, fs, io::Write as _};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    io::Write as _,
+};
 
 use crate::{
     env::utils::ErrorBound,
@@ -387,17 +391,24 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     // A `model.toml` project's documents are written now, recording the
     // build time as `created`. Two builds of identical sources are
     // therefore not byte-identical.
+    // A `model.toml` project's view reads, hashes and indexes every source,
+    // and the contents it read are kept for the archive.
+    let mut viewed: Option<HashMap<String, String>> = None;
     let (mut info, mut meta, manifest) = match definition() {
         Ok(None) => return Err(KParBuildError::MissingInfoMeta),
         Ok(Some(ProjectDefinition::Json { info, meta })) => (info, meta, None),
         Ok(Some(ProjectDefinition::Toml(manifest))) => {
+            let mut contents = HashMap::new();
             let (info, meta) = kpar_view::view(&manifest, &jiff::Timestamp::now(), |path| {
-                read_project_file_to_string(project, &path)
+                let source = read_project_file_to_string(project, &path)?;
+                contents.insert(path.to_string(), source.clone());
+                Ok::<_, IncludeError<Pr::Error>>(source)
             })
             .map_err(|error| match error {
                 ViewError::Read(error) => KParBuildError::from(error),
                 ViewError::Symbols(error) => KParBuildError::from(IncludeError::from(error)),
             })?;
+            viewed = Some(contents);
             (info, meta, Some(manifest))
         }
         Err(e) => return Err(KParBuildError::ProjectRead(e)),
@@ -513,11 +524,13 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     // Sorted, so identical builds write the same `.meta.json`.
     let mut source_paths: Vec<_> = meta.source_paths(true).into_iter().collect();
     source_paths.sort();
-    let mut checksums = if let Some(mut checksum) = meta.checksum.take() {
-        checksum.clear();
-        checksum
-    } else {
-        IndexMap::new()
+    let mut checksums = match meta.checksum.take() {
+        Some(checksum) if viewed.is_some() => checksum,
+        Some(mut checksum) => {
+            checksum.clear();
+            checksum
+        }
+        None => IndexMap::new(),
     };
     let len = source_paths.len();
     // A root-shaped document has `exports` in place of `index`, so
@@ -526,7 +539,20 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     if root_shape && !update_index {
         return Err(KParBuildError::KeepIndexOnRoot);
     }
-    if update_index {
+    if let Some(mut contents) = viewed {
+        for (i, p) in source_paths.into_iter().enumerate() {
+            eprint!("\rwriting files ({}/{len})", i + 1);
+
+            let source = match contents.remove(&p) {
+                Some(source) => source,
+                None => read_project_file_to_string(project, &p)?,
+            };
+            zip.start_file(&p, options)
+                .map_err(|e| ZipArchiveError::Write(Utf8Path::new(&p).into(), e))?;
+            zip.write_all(source.as_bytes())
+                .map_err(|e| FsIoError::WriteFile(path.as_ref().into(), e))?;
+        }
+    } else if update_index {
         let mut index = IndexMap::new();
         let mut exports: Vec<String> = Vec::new();
         for (i, p) in source_paths.into_iter().enumerate() {
