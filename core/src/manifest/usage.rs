@@ -10,8 +10,9 @@
 //! declared ([`Usage`]).
 
 use crate::paths::parse_local_path;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, hash_map::Entry};
 use std::fmt::Display;
+use std::hash::Hash;
 
 use fluent_uri::Iri;
 use serde::Serialize;
@@ -874,22 +875,23 @@ pub fn duplicate_message(first: &str, later: &str) -> String {
     )
 }
 
-/// The pairs of entries whose identities are equal, as `(earlier,
-/// later)` indices.
+/// Each entry whose identity an earlier entry already has, as
+/// `(first, later)` indices, `first` being the first entry with that
+/// identity.
 ///
-/// Every colliding pair is returned; positions are the caller's business.
-pub fn duplicate_pairs<T, I: PartialEq>(
+/// Positions are the caller's business.
+pub fn duplicate_pairs<T, I: Eq + Hash>(
     items: &[T],
     identity: impl Fn(&T) -> I,
 ) -> Vec<(usize, usize)> {
+    let mut first_of = HashMap::new();
     let mut pairs = Vec::new();
     for (index, item) in items.iter().enumerate() {
-        let wanted = identity(item);
-        if let Some(first) = items[..index]
-            .iter()
-            .position(|earlier| identity(earlier) == wanted)
-        {
-            pairs.push((first, index));
+        match first_of.entry(identity(item)) {
+            Entry::Occupied(first) => pairs.push((*first.get(), index)),
+            Entry::Vacant(vacant) => {
+                vacant.insert(index);
+            }
         }
     }
     pairs
