@@ -180,11 +180,7 @@ impl LocalSrcProject {
         &self,
         path: P,
     ) -> Result<Utf8UnixPathBuf, UnixPathError> {
-        let root_path = self.root_path();
-        let project_path = wrapfs::canonicalize_raw(root_path)
-            .map_err(|e| UnixPathError::Canonicalize(root_path.to_owned(), e))?;
-
-        let path = relativize_path_in(&path, project_path)?
+        let path = relativize_path_in(&path, self.root_path())?
             .ok_or_else(|| UnixPathError::PathOutsideProject(path.to_path_buf()))?;
 
         Ok(path)
@@ -647,8 +643,6 @@ impl From<FsIoError> for LocalSrcError {
 pub enum UnixPathError {
     #[error("path `{0}`\n  is outside the project directory")]
     PathOutsideProject(Utf8PathBuf),
-    #[error("failed to canonicalize\n  `{0}`")]
-    Canonicalize(Utf8PathBuf, #[source] std::io::Error),
     #[error(transparent)]
     Resolve(#[from] ResolvePathError),
 }
