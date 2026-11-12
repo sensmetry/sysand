@@ -15,7 +15,7 @@ use crate::{
     commands::index::{do_index_add, do_index_init},
     context::ProjectContext,
     lock::Source,
-    project::ProjectReadAsync as _,
+    project::{ProjectReadAsync as _, utils::wrapfs},
     utils::sha256_lowercase_hex,
 };
 
@@ -110,7 +110,7 @@ fn structured_index(cwd: &Utf8Path) -> (Utf8PathBuf, Vec<u8>) {
 #[test]
 fn structured_index_lists_versions_and_reads_archive() {
     let cwd = tempdir().unwrap();
-    let cwd = cwd.path().canonicalize_utf8().unwrap();
+    let cwd = wrapfs::canonicalize(cwd.path()).unwrap();
     let (root, bytes) = structured_index(&cwd);
     let rt = runtime();
     let env = LocalIndexEnvironment::new(&root);
@@ -205,7 +205,7 @@ fn structured_index_digest_mismatch_is_refused() {
 #[test]
 fn folder_index_enumerates_case_insensitively() {
     let cwd = tempdir().unwrap();
-    let cwd = cwd.path().canonicalize_utf8().unwrap();
+    let cwd = wrapfs::canonicalize(cwd.path()).unwrap();
     let root = cwd.join("folder");
     std::fs::create_dir_all(&root).unwrap();
     write_kpar(&root.join("a.kpar"), Some("mock"), "dep", "0.1.0");

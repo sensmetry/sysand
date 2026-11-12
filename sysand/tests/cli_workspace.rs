@@ -21,6 +21,7 @@ use sysand_core::{
     config::{self, ConfigProject, OverrideSource},
     env::DEFAULT_ENV_NAME,
     lock::Lockfile,
+    project::utils::wrapfs,
 };
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
@@ -279,8 +280,7 @@ fn a_config_in_a_member_warns() -> Result<(), Box<dyn std::error::Error>> {
         .assert()
         .stderr(predicate::str::contains(format!(
             "`{}` {NOT_AT_ROOT}",
-            sysand_core::project::utils::wrapfs::canonicalize(&member)?
-                .join(config::local_fs::CONFIG_FILE)
+            wrapfs::canonicalize(&member)?.join(config::local_fs::CONFIG_FILE)
         )));
     Ok(())
 }
@@ -399,7 +399,7 @@ fn canonical_workspace(
     root_text: &str,
 ) -> Result<(camino_tempfile::Utf8TempDir, Utf8PathBuf), Box<dyn std::error::Error>> {
     let dir = workspace(root_text)?;
-    let root = sysand_core::project::utils::wrapfs::canonicalize(dir.path())?;
+    let root = wrapfs::canonicalize(dir.path())?;
     Ok((dir, root))
 }
 
@@ -1416,8 +1416,7 @@ fn migrate_warns_about_a_stray_config() -> Result<(), Box<dyn std::error::Error>
         .assert()
         .stderr(predicate::str::contains(format!(
             "`{}` {NOT_AT_ROOT}",
-            sysand_core::project::utils::wrapfs::canonicalize(&member)?
-                .join(config::local_fs::CONFIG_FILE)
+            wrapfs::canonicalize(&member)?.join(config::local_fs::CONFIG_FILE)
         )));
     Ok(())
 }

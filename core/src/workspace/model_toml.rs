@@ -9,7 +9,7 @@
 //! ([`crate::manifest::kpar_view::resolved_of_text`]) refuses a member
 //! carrying `version.workspace = true`.
 
-use crate::paths::{RelativizePathError, is_above_root, relativize_path};
+use crate::paths::{RelativizePathError, is_above_root, join_lexical, relativize_path};
 use std::collections::{HashMap, hash_map::Entry};
 use std::sync::Arc;
 
@@ -584,7 +584,7 @@ fn load_member(
     broken: &mut Vec<ProjectDeserializationError>,
 ) -> Result<Option<Member>, Box<FsIoError>> {
     let raw = &path.raw;
-    let dir = root.join(path.path.as_str());
+    let dir = join_lexical(root, Utf8Path::new(path.path.as_str()));
 
     let mut refuse = |message: String| {
         report.push(Diagnostic::error(message).at_opt(path.at.clone()));

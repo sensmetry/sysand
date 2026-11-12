@@ -696,7 +696,7 @@ fn run_cli_with(
 ) -> Result<RunReport> {
     sysand_core::style::set_style_config(crate::style::CONFIG);
 
-    // On Windows CWD is generally not canonical.
+    // Discovery needs it canonical.
     let cwd = wrapfs::canonicalize(wrapfs::current_dir()?)?;
     let log_level = get_log_level(global_opts.verbose, global_opts.quiet);
     if logger::init(log_level).is_err() {

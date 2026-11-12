@@ -11,7 +11,7 @@ use super::{
     Workspace, discover_table, start_region,
 };
 use crate::manifest::diagnostics::{Diagnostic, Report};
-use crate::project::utils::ProjectDeserializationError;
+use crate::project::utils::{ProjectDeserializationError, wrapfs};
 
 const PROJECT: &str = "\
 manifest-version = \"1.0\"
@@ -56,10 +56,7 @@ impl Fixture {
     /// The temporary directory, canonicalized: everything above the
     /// workspace root.
     fn base(&self) -> Utf8PathBuf {
-        self.dir
-            .path()
-            .canonicalize_utf8()
-            .expect("the temporary directory resolves")
+        wrapfs::canonicalize(self.dir.path()).expect("the temporary directory resolves")
     }
 
     /// The root, canonicalized, which is what [`Workspace::load_with`]
@@ -837,7 +834,8 @@ fn a_manifest_that_is_not_toml_is_reported() {
     match found_root(fixture.under("broken")) {
         Err(DiscoverError::Manifest(error)) => {
             let text = error.to_string();
-            assert!(text.contains("broken/model.toml"), "{text}");
+            let manifest = Utf8Path::new("broken").join("model.toml");
+            assert!(text.contains(manifest.as_str()), "{text}");
         }
         other => panic!("expected a manifest error, got `{other:?}`"),
     }
