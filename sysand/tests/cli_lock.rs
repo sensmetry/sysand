@@ -1206,8 +1206,8 @@ fn a_kpar_url_naming_a_local_archive_resolves() -> Result<(), Box<dyn std::error
         &manifest_path,
         format!(
             "{manifest}\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\n\
-             kpar-url = \"file://{}\"\n",
-            cwd.join("dep.kpar")
+             kpar-url = \"{}\"\n",
+            file_url_from_path(cwd.join("dep.kpar"))
         ),
     )?;
 
@@ -1274,8 +1274,8 @@ fn kpar_url_identity_case(
         &manifest_path,
         format!(
             "{manifest}\n[[inline-usages]]\npublisher = \"{publisher}\"\nname = \"{name}\"\n\
-             kpar-url = \"file://{}\"\n",
-            cwd.join("dep.kpar")
+             kpar-url = \"{}\"\n",
+            file_url_from_path(cwd.join("dep.kpar"))
         ),
     )?;
     Ok((temp_dir, app))

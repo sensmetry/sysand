@@ -760,6 +760,12 @@ fn do_lock_extend_still_derives_one_base() -> Result<(), Box<dyn std::error::Err
 
 // ------------------------- locking a workspace
 
+/// The `file:` URL of an absolute path.
+#[cfg(feature = "filesystem")]
+fn file_url(path: impl AsRef<std::path::Path>) -> url::Url {
+    url::Url::from_file_path(path).expect("an absolute path")
+}
+
 /// A minimal `model.toml` workspace on disk.
 #[cfg(feature = "filesystem")]
 fn workspace_tree(members: &[(&str, &str)], root_extra: &str) -> camino_tempfile::Utf8TempDir {
@@ -1219,8 +1225,8 @@ fn a_file_url_usage_of_an_unlisted_project_is_refused() {
         dir.path().join("ext/.project.json"),
         format!(
             r#"{{"name": "ext", "publisher": "acme", "version": "1.0.0",
-                "usage": [{{"resource": "file://{}"}}]}}"#,
-            dir.path().join("stray")
+                "usage": [{{"resource": "{}"}}]}}"#,
+            file_url(dir.path().join("stray"))
         ),
     )
     .expect("the excluded manifest");
@@ -1253,8 +1259,8 @@ fn a_kpar_url_naming_a_directory_is_refused() {
     std::fs::write(dir.path().join("dep/model.toml"), member_toml("dep", ""))
         .expect("the target manifest");
     let usage = format!(
-        "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\nkpar-url = \"file://{}\"\n",
-        dir.path().join("dep")
+        "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\nkpar-url = \"{}\"\n",
+        file_url(dir.path().join("dep"))
     );
     std::fs::write(
         dir.path().join("model.toml"),
@@ -1307,8 +1313,8 @@ fn a_json_resource_naming_a_directory_still_resolves() {
         dir.path().join("ext/.project.json"),
         format!(
             r#"{{"name": "ext", "publisher": "acme", "version": "1.0.0",
-                "usage": [{{"resource": "file://{}"}}]}}"#,
-            dir.path().join("dep")
+                "usage": [{{"resource": "{}"}}]}}"#,
+            file_url(dir.path().join("dep"))
         ),
     )
     .expect("the json manifest");
@@ -1356,7 +1362,8 @@ fn a_member_kpar_url_that_misnames_its_target_is_refused() {
             "alpha",
             &format!(
                 "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"wrongname\"\n\
-                 kpar-url = \"file://{archive}\"\n"
+                 kpar-url = \"{}\"\n",
+                file_url(&archive)
             ),
         ),
     )

@@ -344,11 +344,7 @@ def test(version: str, release_jar_version: bool) -> None:
         print("Installing the Java library...")
         # `-DpomFile`: the jar carries no `META-INF/maven` descriptor, so
         # `install-file` has nowhere to read the coordinates from unless
-        # it is handed the pom. Plugin prefix resolution picks
-        # maven-install-plugin 2.4 in some environments, which cannot
-        # infer them from the project and fails with "'groupId' is
-        # missing"; passing the pom this build already wrote works with
-        # either plugin version.
+        # it is handed the pom.
         execute(
             [
                 mvn_executable(),

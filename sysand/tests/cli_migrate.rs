@@ -13,8 +13,8 @@ use camino::{Utf8Path, Utf8PathBuf};
 use predicates::prelude::*;
 
 use common::{
-    git_commit_files, new_temp_cwd, run_sysand_in, write_legacy_project, write_toml_project,
-    write_workspace_root,
+    file_url_from_path, git_commit_files, new_temp_cwd, run_sysand_in, write_legacy_project,
+    write_toml_project, write_workspace_root,
 };
 
 /// A git repository around `dir`, with everything in it committed, or
@@ -372,7 +372,10 @@ fn json_with_file_usage(
     dir: &Utf8Path,
     target: &Utf8Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    json_with_usages(dir, &format!(r#"{{"resource": "file://{target}"}}"#))
+    json_with_usages(
+        dir,
+        &format!(r#"{{"resource": "{}"}}"#, file_url_from_path(target)),
+    )
 }
 
 #[test]
