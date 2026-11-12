@@ -17,7 +17,11 @@ fn the_model_workspace_root_wins_as_the_sources_root() {
         "manifest-version = \"1.0\"\n\n[workspace]\nmembers = []\n",
     )
     .unwrap();
-    let workspace = crate::workspace::model_toml::Workspace::load(dir.path()).unwrap();
+    let workspace = crate::workspace::model_toml::Workspace::load_with(
+        dir.path(),
+        crate::workspace::model_toml::MemberChecks::All,
+    )
+    .unwrap();
     let root = workspace.root().to_owned();
     let ctx = ProjectContext {
         workspace: Some(workspace),
@@ -84,9 +88,9 @@ fn two_members(app_usage: &str) -> camino_tempfile::Utf8TempDir {
 fn member_context(dir: &camino_tempfile::Utf8TempDir, member: &str) -> ProjectContext {
     use crate::{
         project::{ProjectRead as _, local_src::LocalSrcProject},
-        workspace::model_toml::Workspace,
+        workspace::model_toml::{MemberChecks, Workspace},
     };
-    let workspace = Workspace::load(dir.path()).unwrap();
+    let workspace = Workspace::load_with(dir.path(), MemberChecks::All).unwrap();
     let project = LocalSrcProject::new_member(
         workspace.root().join(member),
         None,

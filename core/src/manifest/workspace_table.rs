@@ -110,9 +110,6 @@ pub struct WorkspaceTable {
 
 /// Where a directory sits with respect to a workspace, as far as the
 /// table alone can tell.
-///
-/// `Workspace::classify` adds an absolute path to relativize and the
-/// loaded member to hand back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Region<'a> {
     /// The index of the `members` entry, and the entry. A load that

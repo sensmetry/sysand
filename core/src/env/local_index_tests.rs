@@ -81,7 +81,13 @@ fn workspace_ctx(root: &Utf8Path) -> ProjectContext {
     )
     .unwrap();
     ProjectContext::new(
-        Some(crate::workspace::model_toml::Workspace::load(root).unwrap()),
+        Some(
+            crate::workspace::model_toml::Workspace::load_with(
+                root,
+                crate::workspace::model_toml::MemberChecks::All,
+            )
+            .unwrap(),
+        ),
         None,
         None,
     )

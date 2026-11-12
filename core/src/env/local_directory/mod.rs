@@ -128,7 +128,7 @@ impl LocalDirectoryEnvironment {
     /// Call is idempotent. Does not update metadata file
     ///
     /// An editable project at one of `workspace_members` (see
-    /// [`crate::workspace::model_toml::workspace_members`]) is marked as a
+    /// [`crate::context::ProjectContext::workspace_members`]) is marked as a
     /// workspace project.
     pub fn merge_lock(&mut self, lock: &Lock, workspace_members: &[Utf8UnixPathBuf]) {
         self.metadata.projects.retain(Self::holds_copy);

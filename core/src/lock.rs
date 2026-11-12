@@ -345,7 +345,7 @@ impl Lock {
     /// Remove usage from the root project identified by `root_publisher` and `root_name`,
     /// and prune all projects not reachable from any of the root projects.
     /// The root projects are those whose only source is `editable` at one
-    /// of `roots` (see [`crate::workspace::model_toml::lock_roots`]).
+    /// of `roots` (see [`crate::context::ProjectContext::lock_roots`]).
     /// Assumes that `self` is well formed, i.e. every usage is satisfied by a project
     /// whose first identifier matches the usage
     pub fn remove_usage(

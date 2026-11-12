@@ -89,30 +89,6 @@ pub struct Member {
     pub project: ResolvedProject,
 }
 
-/// Where a directory sits with respect to a workspace.
-#[derive(Debug, Clone, Copy)]
-pub enum Classification<'a> {
-    /// Inside the member's directory, which is the member itself or a
-    /// directory under it.
-    Member(&'a Member),
-    /// Under an `exclude`d directory: a standalone project with its own
-    /// lockfile, `.sysand` and `output`, and a workspace root there is a
-    /// legitimate, separate workspace.
-    Excluded(&'a MemberPath),
-    /// Under the root, but in neither list. A project here is a hard
-    /// error, raised on the upward walk; a directory that holds no project
-    /// is simply nothing.
-    Unlisted,
-    /// Not under the root at all.
-    Outside,
-}
-
-#[derive(Debug, Error)]
-pub enum ClassifyError {
-    #[error(transparent)]
-    Relativize(#[from] RelativizePathError),
-}
-
 #[derive(Debug)]
 pub struct Workspace {
     root: Utf8PathBuf,
@@ -136,32 +112,16 @@ pub enum MemberChecks {
 }
 
 impl Workspace {
-    /// Read the `model.toml` at `root` as a workspace, check every
-    /// member and resolve each member's manifest against the table.
+    /// Read the `model.toml` at `root` as a workspace, check what `checks`
+    /// asks for and resolve each member's manifest against the table.
     ///
-    /// `root` is canonicalized, so that [`Workspace::classify`] can
-    /// relativize against it.
-    ///
-    /// Files are named relative to the root in every report:
-    /// `model.toml` for the root, `app/model.toml` for a member.
-    pub fn load(root: impl AsRef<Utf8Path>) -> Result<Self, LoadError> {
-        Self::load_with(root, MemberChecks::All)
-    }
-
-    /// [`Workspace::load`], checking only what `checks` asks for.
+    /// `root` is canonicalized. Files are named relative to the root in
+    /// every report: `model.toml` for the root, `app/model.toml` for a
+    /// member.
     pub fn load_with(root: impl AsRef<Utf8Path>, checks: MemberChecks) -> Result<Self, LoadError> {
         let root = wrapfs::canonicalize(root.as_ref())?;
         let text = wrapfs::read_to_string(root.join(MODEL_TOML_FILE))?;
-        Self::load_parsed(root, ModelToml::parse(MODEL_TOML_FILE, &text), checks)
-    }
-
-    /// [`Workspace::load_with`] for a root whose `model.toml` was already
-    /// read: `manifest` is its parse.
-    fn load_parsed(
-        root: Utf8PathBuf,
-        manifest: Result<Validated<ModelToml>, Diagnostics>,
-        checks: MemberChecks,
-    ) -> Result<Self, LoadError> {
+        let manifest = ModelToml::parse(MODEL_TOML_FILE, &text);
         let table = match validate_manifest(MODEL_TOML_FILE, manifest).map_err(LoadError::Root)? {
             ModelToml::Workspace(table) => *table,
             ModelToml::Project(_) => return Err(LoadError::NotAWorkspace(root)),
@@ -243,44 +203,6 @@ impl Workspace {
         Ok(self.members.iter().position(|member| member.dir == dir))
     }
 
-    /// Find the workspace a command run in `from` belongs to.
-    ///
-    /// The steps are ordered: find the candidate, load it, then confirm it
-    /// is not nested. A file carrying both tables counts as a workspace on
-    /// the walk, so asking the nesting question before loading would
-    /// misreport that fault as nested workspaces.
-    pub fn discover(from: impl AsRef<Utf8Path>) -> Result<Option<Self>, DiscoverError> {
-        Self::discover_with(from, MemberChecks::All)
-    }
-
-    /// [`Workspace::discover`], checking only what `checks` asks for.
-    pub fn discover_with(
-        from: impl AsRef<Utf8Path>,
-        checks: MemberChecks,
-    ) -> Result<Option<Self>, DiscoverError> {
-        let Some(candidate) = Candidate::find(Ancestry::walk(from, Seek::Workspace)?)? else {
-            return Ok(None);
-        };
-        let root = candidate.root;
-        let workspace = Self::load_parsed(root.dir.clone(), root.manifest, checks)
-            .map_err(|e| DiscoverError::Load(Box::new(e)))?;
-        confirm_root(&root.dir, candidate.above)?;
-        Ok(Some(workspace))
-    }
-
-    /// What the command started in, which is what it acts on when no
-    /// selector says otherwise.
-    ///
-    /// [`start_region`] with the members in hand: a loaded workspace has one
-    /// member per `table.members` entry, in order.
-    pub fn start(&self, from: impl AsRef<Utf8Path>) -> Result<Selection<'_>, DiscoverError> {
-        Ok(match start_region(&self.root, &self.table, from)? {
-            StartRegion::Member(index) => Selection::Member(&self.members[index]),
-            StartRegion::Standalone(dir) => Selection::Standalone(dir),
-            StartRegion::Workspace => Selection::Workspace,
-        })
-    }
-
     /// The member `--member <path-or-name>` names.
     ///
     /// The selector matches a `members` path or a member's `name`, both
@@ -324,39 +246,6 @@ impl Workspace {
         }
     }
 
-    /// What `build`, `sources`, `info` and `publish` act on.
-    ///
-    /// [`Workspace::start`] runs first, so an unlisted project directory is
-    /// a hard error whatever the selector.
-    pub fn select(
-        &self,
-        from: impl AsRef<Utf8Path>,
-        selector: Selector<'_>,
-    ) -> Result<Selection<'_>, DiscoverError> {
-        let start = self.start(from)?;
-        Ok(match selector {
-            Selector::Member(selector) => Selection::Member(self.member(selector)?),
-            Selector::Workspace => Selection::Workspace,
-            Selector::Current => start,
-        })
-    }
-
-    /// What `add`, `remove`, `include`, `exclude` and the writing `info`
-    /// verbs act on.
-    ///
-    /// As [`Workspace::select`], but never returns [`Selection::Workspace`].
-    pub fn select_member(
-        &self,
-        from: impl AsRef<Utf8Path>,
-        member: Option<&str>,
-    ) -> Result<Selection<'_>, DiscoverError> {
-        let selector = member.map_or(Selector::Current, Selector::Member);
-        match self.select(from, selector)? {
-            Selection::Workspace => Err(DiscoverError::NeedsProject),
-            selection => Ok(selection),
-        }
-    }
-
     pub fn root(&self) -> &Utf8Path {
         &self.root
     }
@@ -367,33 +256,6 @@ impl Workspace {
 
     pub fn members(&self) -> &[Member] {
         &self.members
-    }
-
-    pub fn into_members(self) -> Vec<Member> {
-        self.members
-    }
-
-    /// Which of the workspace's three regions `dir` falls in.
-    ///
-    /// `dir` must be absolute and free of `.`/`..` components, which is
-    /// what [`relativize_path`] asserts.
-    ///
-    /// The most specific entry wins: the one whose path is the longest
-    /// prefix of `dir`. So `members = ["vendor"]` with
-    /// `exclude = ["vendor/b"]` puts `vendor/a` inside the member and
-    /// leaves `vendor/b` excluded.
-    pub fn classify(&self, dir: &Utf8Path) -> Result<Classification<'_>, ClassifyError> {
-        let relative = relativize_path(dir, &self.root)?;
-        if is_above_root(&relative) {
-            return Ok(Classification::Outside);
-        }
-
-        Ok(match self.table.region(&relative) {
-            // A loaded workspace has one member per entry, in order.
-            Region::Member(index, _) => Classification::Member(&self.members[index]),
-            Region::Excluded(excluded) => Classification::Excluded(excluded),
-            Region::Unlisted => Classification::Unlisted,
-        })
     }
 }
 
@@ -408,9 +270,6 @@ pub enum DiscoverError {
     /// A `model.toml` on the walk that could not be read.
     #[error(transparent)]
     Manifest(ProjectDeserializationError),
-    /// The candidate root is not a workspace that loads.
-    #[error(transparent)]
-    Load(Box<LoadError>),
     /// A workspace inside another that does not `exclude` it.
     #[error(
         "the workspace at `{inner}` lies inside the workspace at `{outer}`, which does not \
@@ -429,14 +288,12 @@ pub enum DiscoverError {
         project: Utf8PathBuf,
         root: Utf8PathBuf,
     },
-    /// [`Workspace::start`] was given a directory the workspace does not
+    /// [`start_region`] was given a directory the workspace does not
     /// contain.
     #[error("`{dir}` is not under the workspace at `{root}`")]
     NotUnderRoot { dir: Utf8PathBuf, root: Utf8PathBuf },
     #[error(transparent)]
     Relativize(#[from] RelativizePathError),
-    #[error(transparent)]
-    Select(SelectError),
     /// The target is the whole workspace, and the command needs a
     /// project.
     #[error(
@@ -444,14 +301,6 @@ pub enum DiscoverError {
          `--member <path-or-name>`"
     )]
     NeedsProject,
-}
-
-impl From<ClassifyError> for DiscoverError {
-    fn from(error: ClassifyError) -> Self {
-        match error {
-            ClassifyError::Relativize(error) => Self::Relativize(error),
-        }
-    }
 }
 
 /// Why `--member <path-or-name>` did not pick one member.
@@ -465,12 +314,6 @@ pub enum SelectError {
     },
     #[error("`{selector}` is ambiguous: it matches {matches}")]
     AmbiguousMember { selector: String, matches: String },
-}
-
-impl From<SelectError> for DiscoverError {
-    fn from(error: SelectError) -> Self {
-        Self::Select(error)
-    }
 }
 
 /// Which part of a workspace a command was asked to act on.
@@ -488,39 +331,27 @@ pub enum Selector<'a> {
     Member(&'a str),
 }
 
-/// What a command acts on.
+/// Where a command run in `from` starts, answered from the table alone.
+///
+/// A path comparison against [`WorkspaceTable::region`] that does not load
+/// the members, so it works where a load would fail, such as in a member
+/// holding a lockfile, `.sysand/` or `output/` its own previous run
+/// created.
 ///
 /// Run from the workspace root or from a non-member directory under it
 /// that defines no project, the whole workspace is the command's target;
 /// run from a member (sub)dir, only that member is.
-#[derive(Debug)]
-pub enum Selection<'a> {
-    /// No project between the starting directory and the root, so the
-    /// command targets the workspace as a whole. This is what a command
-    /// run at the root gets: the workspace root is never a member.
-    Workspace,
-    Member(&'a Member),
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StartRegion {
+    /// Inside `table.members[index]`.
+    Member(usize),
     /// A project under an `exclude`d directory: the only kind of
     /// non-member project that may sit under a workspace root. The command
     /// acts on the project alone, a standalone project with its own
     /// lockfile, `.sysand` and `output`.
     Standalone(Utf8PathBuf),
-}
-
-/// Where a command run in `from` starts, answered from the table alone.
-///
-/// [`Workspace::start`] is this walk plus the member lookup. This one is a
-/// path comparison against [`WorkspaceTable::region`] and does not load
-/// the members, so it works where a load would fail, such as in a member
-/// holding a lockfile, `.sysand/` or `output/` its own previous run
-/// created.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum StartRegion {
-    /// Inside `table.members[index]`.
-    Member(usize),
-    /// A project under an `exclude`d directory.
-    Standalone(Utf8PathBuf),
     /// The root itself, or a directory under it that defines no project.
+    /// The workspace root is never a member.
     Workspace,
 }
 
@@ -559,7 +390,7 @@ pub fn member_index(
 /// finds it: no other `[workspace]` lies between them, so any manifest on
 /// the way is a project's, and its presence is all that is checked.
 ///
-/// `root` must be canonical ([`discover_table`] and [`Workspace::load`]
+/// `root` must be canonical ([`discover_table`] and [`Workspace::load_with`]
 /// both canonicalize what they return), since `from` is canonicalized here
 /// and the two are compared.
 pub fn start_region(
@@ -605,31 +436,10 @@ pub fn start_region(
     }
 }
 
-/// The projects a lockfile at `lock_root` was made for, as the lockfile
-/// names them in their `editable` sources: a workspace's `members`, or
-/// else the one project at `lock_root`, which is `.`.
-pub fn lock_roots(
-    lock_root: impl AsRef<Utf8Path>,
-) -> Result<Vec<typed_path::Utf8UnixPathBuf>, DiscoverError> {
-    let lock_root = lock_root.as_ref();
-    match root_table(lock_root)? {
-        Some(table) => Ok(member_paths(table)),
-        None => Ok(vec![typed_path::Utf8UnixPathBuf::from(".")]),
-    }
-}
-
-/// The `members` of the workspace whose root is `dir`, relative to it;
-/// none when `dir` is not a workspace root.
-pub fn workspace_members(
-    dir: impl AsRef<Utf8Path>,
-) -> Result<Vec<typed_path::Utf8UnixPathBuf>, DiscoverError> {
-    Ok(root_table(dir.as_ref())?.map_or_else(Vec::new, member_paths))
-}
-
 /// The workspace `from` belongs to, as its `[workspace]` table.
 ///
-/// Unlike [`Workspace::discover`], this does not load the members, so
-/// creating a new project is not blocked by an unrelated member's mistake.
+/// The members are not loaded, so creating a new project is not blocked
+/// by an unrelated member's mistake.
 pub fn discover_table(
     from: impl AsRef<Utf8Path>,
 ) -> Result<Option<(Utf8PathBuf, WorkspaceTable)>, DiscoverError> {
@@ -639,9 +449,9 @@ pub fn discover_table(
 /// [`discover_table`] over a walk already made.
 ///
 /// The steps are pass 1 (the nearest `[workspace]`), the parse of its
-/// table, and [`confirm_root`], in that order. A bad candidate therefore
-/// arrives as [`DiscoverError::Manifest`], where [`Workspace::discover`]
-/// would report [`DiscoverError::Load`].
+/// table, and [`confirm_root`], in that order. A file carrying both tables
+/// counts as a workspace on the walk, so a candidate that is one fails as
+/// that ([`DiscoverError::Manifest`]), not as nested workspaces.
 pub fn table_of(
     ancestry: Ancestry,
 ) -> Result<Option<(Utf8PathBuf, WorkspaceTable)>, DiscoverError> {
@@ -762,29 +572,6 @@ fn confirm_root(candidate: &Utf8Path, mut above: Above) -> Result<(), DiscoverEr
             outer: outer.dir,
         })
     }
-}
-
-/// The `[workspace]` table `dir`'s own `model.toml` defines, if it names
-/// one. A file that is not TOML is an error.
-fn root_table(dir: &Utf8Path) -> Result<Option<WorkspaceTable>, DiscoverError> {
-    let Some(DirManifest::ModelToml { file, parsed }) = DirManifest::read(dir)? else {
-        return Ok(None);
-    };
-    match parsed.kind {
-        ModelTomlKind::Workspace => workspace_table(&file, parsed.manifest).map(Some),
-        ModelTomlKind::NotToml => Err(DiscoverError::Manifest(
-            ProjectDeserializationError::invalid(&file, parsed.manifest.err().unwrap_or_default()),
-        )),
-        ModelTomlKind::Project | ModelTomlKind::Neither => Ok(None),
-    }
-}
-
-fn member_paths(table: WorkspaceTable) -> Vec<typed_path::Utf8UnixPathBuf> {
-    table
-        .members
-        .into_iter()
-        .map(|member| member.path)
-        .collect()
 }
 
 /// Whether `path` is there, and if so whether it is a directory.
@@ -1068,9 +855,9 @@ mod tests;
 /// `<g>`, but the project is not a member of any workspace". This finds
 /// the table for a path the way discovery does for a working directory.
 ///
-/// Built from [`discover_table`] and [`region_of`], which, unlike
-/// [`Workspace::classify`], matches a member's directory exactly, so a
-/// project merely inside one is not handed its table.
+/// Built from [`discover_table`] and [`region_of`], which matches a
+/// member's directory exactly, so a project merely inside one is not
+/// handed its table.
 ///
 /// An excluded project, and one outside any workspace, read table-less as
 /// standalone. An unlisted one is refused, as when walking up from inside

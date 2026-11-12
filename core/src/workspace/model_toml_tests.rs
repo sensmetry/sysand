@@ -7,8 +7,8 @@ use camino::{Utf8Path, Utf8PathBuf};
 use camino_tempfile::Utf8TempDir;
 
 use super::{
-    Classification, DiscoverError, LoadError, LoadFailure, MemberChecks, SelectError, Selection,
-    Selector, Workspace, discover_table,
+    DiscoverError, LoadError, LoadFailure, MemberChecks, PathRegion, SelectError, StartRegion,
+    Workspace, discover_table, start_region,
 };
 use crate::manifest::diagnostics::{Diagnostic, Report};
 use crate::project::utils::ProjectDeserializationError;
@@ -62,8 +62,8 @@ impl Fixture {
             .expect("the temporary directory resolves")
     }
 
-    /// The root, canonicalized, which is what [`Workspace::load`]
-    /// reports and what [`Workspace::classify`] relativizes against.
+    /// The root, canonicalized, which is what [`Workspace::load_with`]
+    /// reports.
     fn root(&self) -> Utf8PathBuf {
         let base = self.base();
         if self.at.is_empty() {
@@ -114,7 +114,7 @@ impl Fixture {
     }
 
     fn load(&self) -> Result<Workspace, LoadError> {
-        Workspace::load(self.dir.path().join(self.at))
+        self.load_with(MemberChecks::All)
     }
 
     fn load_with(&self, checks: MemberChecks) -> Result<Workspace, LoadError> {
@@ -526,7 +526,10 @@ fn a_root_that_is_not_a_workspace_is_refused() {
 #[test]
 fn a_root_with_no_manifest_is_refused() {
     let dir = camino_tempfile::tempdir().expect("a temporary directory");
-    assert_matches!(Workspace::load(dir.path()), Err(LoadError::Io(_)));
+    assert_matches!(
+        Workspace::load_with(dir.path(), MemberChecks::All),
+        Err(LoadError::Io(_))
+    );
 }
 
 // ------------------------------------ inheritance and classification
@@ -597,22 +600,16 @@ fn classified() -> (Fixture, Workspace) {
     (fixture, workspace)
 }
 
-fn at(workspace: &Workspace, path: &str) -> Utf8PathBuf {
-    if path.is_empty() {
-        workspace.root().to_owned()
-    } else {
-        workspace.root().join(path)
-    }
+/// The region of `path`, relative to the root, in the loaded table.
+fn classify<'a>(workspace: &'a Workspace, path: &str) -> Region<'a> {
+    workspace.table().region(Utf8UnixPath::new(path))
 }
 
 #[test]
 fn a_listed_directory_is_a_member() {
     let (_fixture, workspace) = classified();
-    match workspace
-        .classify(&at(&workspace, "app"))
-        .expect("classifies")
-    {
-        Classification::Member(member) => assert_eq!(member.path.raw, "app"),
+    match classify(&workspace, "app") {
+        Region::Member(_, member) => assert_eq!(member.raw, "app"),
         other => panic!("expected a member, got `{other:?}`"),
     }
 }
@@ -620,11 +617,8 @@ fn a_listed_directory_is_a_member() {
 #[test]
 fn an_excluded_directory_is_excluded() {
     let (_fixture, workspace) = classified();
-    match workspace
-        .classify(&at(&workspace, "vendor"))
-        .expect("classifies")
-    {
-        Classification::Excluded(path) => assert_eq!(path.raw, "vendor"),
+    match classify(&workspace, "vendor") {
+        Region::Excluded(path) => assert_eq!(path.raw, "vendor"),
         other => panic!("expected excluded, got `{other:?}`"),
     }
 }
@@ -634,10 +628,8 @@ fn an_excluded_directory_is_excluded() {
 fn a_directory_under_an_excluded_one_is_excluded() {
     let (_fixture, workspace) = classified();
     assert_matches!(
-        workspace
-            .classify(&at(&workspace, "vendor/other/deep"))
-            .expect("classifies"),
-        Classification::Excluded(_)
+        classify(&workspace, "vendor/other/deep"),
+        Region::Excluded(_)
     );
 }
 
@@ -709,12 +701,7 @@ fn a_workspace_root_under_an_excluded_directory_is_excluded() {
         "manifest-version = \"1.0\"\n\n[workspace]\n",
     );
     let workspace = fixture.loaded();
-    assert_matches!(
-        workspace
-            .classify(&at(&workspace, "vendor/inner"))
-            .expect("classifies"),
-        Classification::Excluded(_)
-    );
+    assert_matches!(classify(&workspace, "vendor/inner"), Region::Excluded(_));
 }
 
 /// `exclude` entries may nest, so the most specific one is the one that
@@ -727,11 +714,8 @@ fn the_most_specific_excluded_entry_answers() {
     );
     fixture.project("app");
     let workspace = fixture.loaded();
-    match workspace
-        .classify(&at(&workspace, "vendor/deep/inner"))
-        .expect("classifies")
-    {
-        Classification::Excluded(path) => assert_eq!(path.raw, "vendor/deep"),
+    match classify(&workspace, "vendor/deep/inner") {
+        Region::Excluded(path) => assert_eq!(path.raw, "vendor/deep"),
         other => panic!("expected excluded, got `{other:?}`"),
     }
 }
@@ -745,17 +729,9 @@ fn an_excluded_directory_inside_a_member_is_excluded() {
     );
     fixture.project("app");
     let workspace = fixture.loaded();
-    assert_matches!(
-        workspace
-            .classify(&at(&workspace, "app/src"))
-            .expect("classifies"),
-        Classification::Member(_)
-    );
-    match workspace
-        .classify(&at(&workspace, "app/gen/out"))
-        .expect("classifies")
-    {
-        Classification::Excluded(path) => assert_eq!(path.raw, "app/gen"),
+    assert_matches!(classify(&workspace, "app/src"), Region::Member(0, _));
+    match classify(&workspace, "app/gen/out") {
+        Region::Excluded(path) => assert_eq!(path.raw, "app/gen"),
         other => panic!("expected excluded, got `{other:?}`"),
     }
 }
@@ -763,29 +739,19 @@ fn an_excluded_directory_inside_a_member_is_excluded() {
 #[test]
 fn anything_else_is_unlisted() {
     let (_fixture, workspace) = classified();
-    assert_matches!(
-        workspace
-            .classify(&at(&workspace, "elsewhere"))
-            .expect("classifies"),
-        Classification::Unlisted
-    );
-    assert_matches!(
-        workspace.classify(&at(&workspace, "")).expect("classifies"),
-        Classification::Unlisted
-    );
+    assert_matches!(classify(&workspace, "elsewhere"), Region::Unlisted);
+    assert_matches!(classify(&workspace, ""), Region::Unlisted);
 }
 
+/// A path above the root is outside the workspace, so it is read as the
+/// standalone project it is.
 #[test]
-fn a_directory_outside_the_root_is_outside() {
+fn a_directory_outside_the_root_is_standalone() {
     let (_fixture, workspace) = classified();
-    let outside = workspace
-        .root()
-        .parent()
-        .expect("the root has a parent")
-        .to_owned();
-    assert_matches!(
-        workspace.classify(&outside).expect("classifies"),
-        Classification::Outside
+    let outside = workspace.root().parent().expect("the root has a parent");
+    assert_eq!(
+        super::region_of(workspace.root(), workspace.table(), outside),
+        PathRegion::Standalone
     );
 }
 
@@ -796,18 +762,8 @@ fn classification_is_by_whole_components() {
     fixture.project("app");
     let workspace = fixture.loaded();
 
-    assert_matches!(
-        workspace
-            .classify(&at(&workspace, "app"))
-            .expect("classifies"),
-        Classification::Member(_)
-    );
-    assert_matches!(
-        workspace
-            .classify(&at(&workspace, "app2"))
-            .expect("classifies"),
-        Classification::Unlisted
-    );
+    assert_matches!(classify(&workspace, "app"), Region::Member(0, _));
+    assert_matches!(classify(&workspace, "app2"), Region::Unlisted);
 }
 
 // --------------------------------------------------- the upward walk
@@ -1000,51 +956,24 @@ fn an_outer_whose_member_is_broken_still_confirms_the_candidate() {
     confirm(fixture.root()).expect("the outer's own members are not this command's problem");
 }
 
-// --------------------------------------------------------- discovery
+// ---------------------------------------------------- the starting region
 
-fn discover_error(from: impl AsRef<Utf8Path>) -> DiscoverError {
-    Workspace::discover(from).expect_err("expected discovery to fail")
-}
-
-#[test]
-fn discover_loads_the_workspace_it_found() {
-    let fixture = Fixture::new(&workspace_with("\"app\""));
-    fixture.project("app");
-    fixture.mkdir("app/src");
-
-    let workspace = Workspace::discover(fixture.under("app/src"))
-        .expect("readable")
+/// Where a command run in `from` starts, over the table discovery finds.
+fn start(fixture: &Fixture, from: impl AsRef<Utf8Path>) -> Result<StartRegion, DiscoverError> {
+    let (root, table) = discover_table(fixture.root())
+        .expect("the table reads")
         .expect("a workspace");
-    assert_eq!(workspace.root(), fixture.root());
-    assert_eq!(workspace.members().len(), 1);
-}
-
-#[test]
-fn discover_reports_a_load_failure_from_the_candidate() {
-    let fixture = Fixture::new(&workspace_with("\"app\""));
-    assert_matches!(discover_error(fixture.root()), DiscoverError::Load(_));
-}
-
-/// A file carrying both tables counts as a workspace on the walk, so such
-/// a member becomes a candidate. Ruling on nesting first would report the
-/// wrong fault.
-#[test]
-fn a_candidate_defining_both_tables_fails_as_that_not_as_nesting() {
-    let fixture = Fixture::at("inner", &format!("{EMPTY_WORKSPACE}\n{PROJECT}"));
-    fixture.above("model.toml", EMPTY_WORKSPACE);
-
-    assert_matches!(discover_error(fixture.root()), DiscoverError::Load(_));
+    start_region(&root, &table, from)
 }
 
 #[test]
 fn a_member_directory_starts_in_that_member() {
     let fixture = Fixture::new(&workspace_with("\"app\""));
     fixture.project("app");
-    let workspace = fixture.loaded();
-    match workspace.start(fixture.under("app")).expect("classifies") {
-        Selection::Member(member) => assert_eq!(member.path.raw, "app"),
-        other => panic!("expected a member, got `{other:?}`"),
-    }
+    assert_eq!(
+        start(&fixture, fixture.under("app")).expect("classifies"),
+        StartRegion::Member(0)
+    );
 }
 
 #[test]
@@ -1052,14 +981,10 @@ fn a_directory_under_a_member_starts_in_that_member() {
     let fixture = Fixture::new(&workspace_with("\"app\""));
     fixture.project("app");
     fixture.mkdir("app/src/deep");
-    let workspace = fixture.loaded();
-    match workspace
-        .start(fixture.under("app/src/deep"))
-        .expect("classifies")
-    {
-        Selection::Member(member) => assert_eq!(member.path.raw, "app"),
-        other => panic!("expected a member, got `{other:?}`"),
-    }
+    assert_eq!(
+        start(&fixture, fixture.under("app/src/deep")).expect("classifies"),
+        StartRegion::Member(0)
+    );
 }
 
 /// An excluded project is the only kind of non-member project that may
@@ -1071,14 +996,10 @@ fn an_excluded_project_starts_standalone() {
     );
     fixture.project("app");
     fixture.project("vendor/other");
-    let workspace = fixture.loaded();
-    match workspace
-        .start(fixture.under("vendor/other"))
-        .expect("classifies")
-    {
-        Selection::Standalone(path) => assert_eq!(path, fixture.under("vendor/other")),
-        other => panic!("expected standalone, got `{other:?}`"),
-    }
+    assert_eq!(
+        start(&fixture, fixture.under("vendor/other")).expect("classifies"),
+        StartRegion::Standalone(fixture.under("vendor/other"))
+    );
 }
 
 #[test]
@@ -1086,10 +1007,7 @@ fn an_unlisted_project_is_refused() {
     let fixture = Fixture::new(&workspace_with("\"app\""));
     fixture.project("app");
     fixture.project("stray");
-    let workspace = fixture.loaded();
-    let error = workspace
-        .start(fixture.under("stray"))
-        .expect_err("an unlisted project");
+    let error = start(&fixture, fixture.under("stray")).expect_err("an unlisted project");
     assert_eq!(
         error.to_string(),
         format!(
@@ -1106,10 +1024,9 @@ fn a_directory_with_no_project_starts_in_the_workspace() {
     let fixture = Fixture::new(&workspace_with("\"app\""));
     fixture.project("app");
     fixture.mkdir("notes");
-    let workspace = fixture.loaded();
-    assert_matches!(
-        workspace.start(fixture.under("notes")).expect("classifies"),
-        Selection::Workspace
+    assert_eq!(
+        start(&fixture, fixture.under("notes")).expect("classifies"),
+        StartRegion::Workspace
     );
 }
 
@@ -1119,10 +1036,9 @@ fn a_directory_with_no_project_starts_in_the_workspace() {
 fn the_root_starts_in_the_workspace() {
     let fixture = Fixture::new(&workspace_with("\"app\""));
     fixture.project("app");
-    let workspace = fixture.loaded();
-    assert_matches!(
-        workspace.start(fixture.root()).expect("classifies"),
-        Selection::Workspace
+    assert_eq!(
+        start(&fixture, fixture.root()).expect("classifies"),
+        StartRegion::Workspace
     );
 }
 
@@ -1134,10 +1050,9 @@ fn a_project_above_the_root_is_not_the_starting_project() {
     fixture.project("app");
     fixture.mkdir("notes");
     fixture.above("model.toml", PROJECT);
-    let workspace = fixture.loaded();
-    assert_matches!(
-        workspace.start(fixture.under("notes")).expect("classifies"),
-        Selection::Workspace
+    assert_eq!(
+        start(&fixture, fixture.under("notes")).expect("classifies"),
+        StartRegion::Workspace
     );
 }
 
@@ -1145,9 +1060,8 @@ fn a_project_above_the_root_is_not_the_starting_project() {
 fn a_directory_outside_the_workspace_is_refused() {
     let fixture = Fixture::at("ws", &workspace_with("\"app\""));
     fixture.project("app");
-    let workspace = fixture.loaded();
     assert_matches!(
-        workspace.start(fixture.base()),
+        start(&fixture, fixture.base()),
         Err(DiscoverError::NotUnderRoot { dir: _, root: _ })
     );
 }
@@ -1163,13 +1077,13 @@ fn a_starting_path_with_a_parent_component_is_accepted() {
     fixture.project("app");
     let roundabout = fixture.under("app").join("..").join("app");
 
-    let workspace = Workspace::discover(&roundabout)
+    let (root, table) = discover_table(&roundabout)
         .expect("readable")
         .expect("a workspace");
-    assert_eq!(workspace.root(), fixture.root());
-    assert_matches!(
-        workspace.start(&roundabout).expect("classifies"),
-        Selection::Member(_)
+    assert_eq!(root, fixture.root());
+    assert_eq!(
+        start_region(&root, &table, &roundabout).expect("classifies"),
+        StartRegion::Member(0)
     );
 }
 
@@ -1296,230 +1210,6 @@ fn an_unknown_member_lists_the_ones_that_exist() {
     }
 }
 
-// --------------------------------------------------------------- scope
-
-fn member_of<'a>(selection: &Selection<'a>) -> &'a str {
-    match selection {
-        Selection::Member(member) => member.path.raw.as_str(),
-        other => panic!("expected a member, got `{other:?}`"),
-    }
-}
-
-/// A workspace with a member, an excluded standalone project, a
-/// non-member directory and an unlisted project.
-fn scoped() -> Fixture {
-    let fixture = Fixture::new(
-        "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"app\", \"lib\"]\n\
-         exclude = [\"vendor\"]\n",
-    );
-    fixture.project_named("app", "alpha");
-    fixture.project_named("lib", "beta");
-    fixture.project_named("vendor/thing", "gamma");
-    fixture.mkdir("notes");
-    fixture.project_named("stray", "delta");
-    fixture
-}
-
-#[test]
-fn the_root_selects_the_whole_workspace() {
-    let fixture = scoped();
-    let workspace = fixture.loaded();
-    assert_matches!(
-        workspace
-            .select(fixture.root(), Selector::Current)
-            .expect("selects"),
-        Selection::Workspace
-    );
-}
-
-#[test]
-fn a_non_member_directory_selects_the_whole_workspace() {
-    let fixture = scoped();
-    let workspace = fixture.loaded();
-    assert_matches!(
-        workspace
-            .select(fixture.under("notes"), Selector::Current)
-            .expect("selects"),
-        Selection::Workspace
-    );
-}
-
-#[test]
-fn a_member_directory_selects_that_member() {
-    let fixture = scoped();
-    let workspace = fixture.loaded();
-    let selection = workspace
-        .select(fixture.under("app"), Selector::Current)
-        .expect("selects");
-    assert_eq!(member_of(&selection), "app");
-}
-
-#[test]
-fn a_directory_under_a_member_selects_that_member() {
-    let fixture = scoped();
-    fixture.mkdir("app/src/deep");
-    let workspace = fixture.loaded();
-    let selection = workspace
-        .select(fixture.under("app/src/deep"), Selector::Current)
-        .expect("selects");
-    assert_eq!(member_of(&selection), "app");
-}
-
-#[test]
-fn the_workspace_flag_forces_the_whole_workspace_from_a_member() {
-    let fixture = scoped();
-    let workspace = fixture.loaded();
-    assert_matches!(
-        workspace
-            .select(fixture.under("app"), Selector::Workspace)
-            .expect("selects"),
-        Selection::Workspace
-    );
-}
-
-#[test]
-fn the_member_flag_picks_one_from_the_root() {
-    let fixture = scoped();
-    let workspace = fixture.loaded();
-    let selection = workspace
-        .select(fixture.root(), Selector::Member("lib"))
-        .expect("selects");
-    assert_eq!(member_of(&selection), "lib");
-}
-
-/// Position is only the default.
-#[test]
-fn the_member_flag_picks_another_from_inside_a_member() {
-    let fixture = scoped();
-    let workspace = fixture.loaded();
-    let selection = workspace
-        .select(fixture.under("app"), Selector::Member("lib"))
-        .expect("selects");
-    assert_eq!(member_of(&selection), "lib");
-}
-
-#[test]
-fn an_excluded_project_selects_standalone() {
-    let fixture = scoped();
-    let workspace = fixture.loaded();
-    match workspace
-        .select(fixture.under("vendor/thing"), Selector::Current)
-        .expect("selects")
-    {
-        Selection::Standalone(dir) => assert_eq!(dir, fixture.under("vendor/thing")),
-        other => panic!("expected standalone, got `{other:?}`"),
-    }
-}
-
-#[test]
-fn a_selector_beats_standing_in_an_excluded_project() {
-    let fixture = scoped();
-    let workspace = fixture.loaded();
-    let selection = workspace
-        .select(fixture.under("vendor/thing"), Selector::Member("app"))
-        .expect("selects");
-    assert_eq!(member_of(&selection), "app");
-}
-
-#[test]
-fn the_workspace_flag_beats_standing_in_an_excluded_project() {
-    let fixture = scoped();
-    let workspace = fixture.loaded();
-    assert_matches!(
-        workspace
-            .select(fixture.under("vendor/thing"), Selector::Workspace)
-            .expect("selects"),
-        Selection::Workspace
-    );
-}
-
-#[test]
-fn an_unlisted_project_is_refused_by_select() {
-    let fixture = scoped();
-    let workspace = fixture.loaded();
-    assert_matches!(
-        workspace.select(fixture.under("stray"), Selector::Current),
-        Err(DiscoverError::Unlisted {
-            project: _,
-            root: _
-        })
-    );
-}
-
-/// A project directory under the root that is neither a member nor
-/// excluded is a hard error whatever the command: a selector does not
-/// excuse standing in one.
-#[test]
-fn an_unlisted_project_is_refused_by_select_with_a_selector() {
-    let fixture = scoped();
-    let workspace = fixture.loaded();
-    assert_matches!(
-        workspace.select(fixture.under("stray"), Selector::Member("app")),
-        Err(DiscoverError::Unlisted {
-            project: _,
-            root: _
-        })
-    );
-}
-
-#[test]
-fn select_member_from_a_member_directory_needs_no_flag() {
-    let fixture = scoped();
-    let workspace = fixture.loaded();
-    let selection = workspace
-        .select_member(fixture.under("app"), None)
-        .expect("selects");
-    assert_eq!(member_of(&selection), "app");
-}
-
-#[test]
-fn select_member_from_the_root_is_refused() {
-    let fixture = scoped();
-    let workspace = fixture.loaded();
-    match workspace.select_member(fixture.root(), None) {
-        Err(error @ DiscoverError::NeedsProject) => assert_eq!(
-            error.to_string(),
-            "this command needs a project; run it from a member directory or pass \
-             `--member <path-or-name>`"
-        ),
-        other => panic!("expected `NeedsProject`, got `{other:?}`"),
-    }
-}
-
-#[test]
-fn select_member_from_a_non_member_directory_is_refused() {
-    let fixture = scoped();
-    let workspace = fixture.loaded();
-    assert_matches!(
-        workspace.select_member(fixture.under("notes"), None),
-        Err(DiscoverError::NeedsProject)
-    );
-}
-
-#[test]
-fn select_member_with_the_flag_from_the_root_is_accepted() {
-    let fixture = scoped();
-    let workspace = fixture.loaded();
-    let selection = workspace
-        .select_member(fixture.root(), Some("lib"))
-        .expect("selects");
-    assert_eq!(member_of(&selection), "lib");
-}
-
-/// A writing command in an excluded standalone project acts on that
-/// project, which is why `select_member` cannot return a `&Member`.
-#[test]
-fn select_member_in_an_excluded_project_is_standalone() {
-    let fixture = scoped();
-    let workspace = fixture.loaded();
-    assert_matches!(
-        workspace
-            .select_member(fixture.under("vendor/thing"), None)
-            .expect("selects"),
-        Selection::Standalone(_)
-    );
-}
-
 // ------------------------------------------------------ table regions
 
 use crate::manifest::workspace_table::{Region, WorkspaceTable};
@@ -1595,43 +1285,6 @@ fn a_region_is_decided_by_the_most_specific_entry() {
     }
 }
 
-/// Not a proof that `classify` delegates, as a faithful duplicate of the
-/// rule would pass, but it fails if a second rule ever diverges.
-#[test]
-fn classify_agrees_with_region_everywhere() {
-    let fixture = Fixture::new(SHAPES);
-    fixture.project_named("app", "alpha");
-    let workspace = fixture.loaded();
-
-    for path in [
-        "app",
-        "app/src",
-        "app/gen",
-        "app/gen/out",
-        "vendor",
-        "vendor/other",
-        "deep",
-        "deep/a",
-        "deep/a/b",
-        "deep/a/b/c",
-        "notes",
-    ] {
-        let region = workspace.table().region(Utf8UnixPath::new(path));
-        let classification = workspace
-            .classify(&fixture.under(path))
-            .expect("classifies");
-        let agrees = match (region, classification) {
-            (Region::Member(_, entry), Classification::Member(member)) => {
-                entry.raw == member.path.raw
-            }
-            (Region::Excluded(a), Classification::Excluded(b)) => a.raw == b.raw,
-            (Region::Unlisted, Classification::Unlisted) => true,
-            _ => false,
-        };
-        assert!(agrees, "`{path}`: {region:?} vs the loaded classification");
-    }
-}
-
 /// Creating a new project cannot be blocked by an unrelated member's
 /// mistake.
 #[test]
@@ -1646,7 +1299,7 @@ fn a_table_is_discovered_without_loading_its_members() {
     assert_eq!(table.members.len(), 2);
 
     assert!(
-        Workspace::discover(fixture.root()).is_err(),
+        fixture.load().is_err(),
         "loading the same workspace must still refuse it"
     );
 }
@@ -1693,8 +1346,8 @@ fn start_region_ignores_a_members_own_lockfile() {
         .expect("the table reads")
         .expect("a workspace");
     assert_eq!(
-        super::start_region(&root, &table, fixture.under("app")).expect("classifies"),
-        super::StartRegion::Member(0)
+        start_region(&root, &table, fixture.under("app")).expect("classifies"),
+        StartRegion::Member(0)
     );
 }
 
@@ -1836,19 +1489,6 @@ fn an_inherited_member_resolves_when_stray_state_is_skipped() {
         .load_with(MemberChecks::SkipStrayState)
         .expect("the member reads");
     assert_eq!(workspace.members()[0].project.version.to_string(), "9.9.9");
-}
-
-/// Through the upward walk, not only through `load`.
-#[test]
-fn discover_with_skips_stray_state_too() {
-    let fixture = Fixture::new(&workspace_with("\"app\""));
-    fixture.project("app");
-    fixture.write("app/sysand-lock.toml", "");
-
-    let workspace = Workspace::discover_with(fixture.under("app"), MemberChecks::SkipStrayState)
-        .expect("discovery succeeds")
-        .expect("a workspace");
-    assert_eq!(workspace.members().len(), 1);
 }
 
 // ----------------------------------------------------------------------
