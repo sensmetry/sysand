@@ -1244,6 +1244,16 @@ def test_model_roundtrip() -> None:
                 publisher="archive-pub",
                 name="archive-lib",
             ),
+            sysand.InterchangeProjectUsageRemoteKpar(
+                kpar_url="https://example.com/remote-archive.kpar",
+                publisher="remote-pub",
+                name="remote-archive",
+            ),
+            sysand.InterchangeProjectUsageRemoteKpar(
+                kpar_url="https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar",
+                publisher=None,
+                name="Kernel Semantic Library",
+            ),
         ],
     }
 

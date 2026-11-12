@@ -13,6 +13,7 @@ import com.sensmetry.sysand.model.InterchangeProjectUsage;
 import com.sensmetry.sysand.model.InterchangeProjectUsageDirectory;
 import com.sensmetry.sysand.model.InterchangeProjectUsageIndex;
 import com.sensmetry.sysand.model.InterchangeProjectUsageKparPath;
+import com.sensmetry.sysand.model.InterchangeProjectUsageRemoteKpar;
 import com.sensmetry.sysand.model.InterchangeProjectUsageResource;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -37,6 +38,12 @@ public class ModelRoundtripTest {
                     new InterchangeProjectUsageDirectory("../local-lib", "local-pub", "local-lib"),
                     new InterchangeProjectUsageKparPath("deps/archive-lib.kpar", "archive-pub", "archive-lib"),
                     new InterchangeProjectUsageIndex("Acme Labs", "My Lib", "^1.2"),
+                    new InterchangeProjectUsageRemoteKpar(
+                            "https://example.com/remote-archive.kpar", "remote-pub", "remote-archive"),
+                    new InterchangeProjectUsageRemoteKpar(
+                            "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar",
+                            null,
+                            "Kernel Semantic Library"),
                 });
 
         LinkedHashMap<String, String> index = new LinkedHashMap<>();
@@ -143,6 +150,15 @@ public class ModelRoundtripTest {
         assertEquals(expectedIndex.getPublisher(), actualIndex.getPublisher());
         assertEquals(expectedIndex.getName(), actualIndex.getName());
         assertEquals(expectedIndex.getVersionConstraint(), actualIndex.getVersionConstraint());
+
+        for (int i = 4; i < 6; i++) {
+            InterchangeProjectUsageRemoteKpar expectedRemote = (InterchangeProjectUsageRemoteKpar) expectedUsage[i];
+            assertInstanceOf(InterchangeProjectUsageRemoteKpar.class, actualUsage[i]);
+            InterchangeProjectUsageRemoteKpar actualRemote = (InterchangeProjectUsageRemoteKpar) actualUsage[i];
+            assertEquals(expectedRemote.getKparUrl(), actualRemote.getKparUrl());
+            assertEquals(expectedRemote.getPublisher(), actualRemote.getPublisher());
+            assertEquals(expectedRemote.getName(), actualRemote.getName());
+        }
     }
 
     private static void assertMetadataEquals(

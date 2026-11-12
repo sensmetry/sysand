@@ -1201,13 +1201,55 @@ fn a_kpar_url_naming_a_file_url_is_refused() -> Result<(), Box<dyn std::error::E
 /// lockfile that silently disagreed with the manifest that produced it.
 ///
 /// The comparison is **literal**, so `Acme` against `acme` is refused.
-///
-/// The target is built and served over HTTP; the server is returned so it
-/// outlives the commands run against it.
 fn kpar_url_identity_case(
     publisher: &str,
     name: &str,
 ) -> Result<
+    (
+        camino_tempfile::Utf8TempDir,
+        camino::Utf8PathBuf,
+        ServerGuard,
+    ),
+    Box<dyn std::error::Error>,
+> {
+    let (temp_dir, cwd, server) = served_dependency()?;
+
+    let app = cwd.join("app");
+    std::fs::create_dir_all(&app)?;
+    run_sysand_in(
+        &app,
+        [
+            "init",
+            "--metamodel",
+            "https://www.omg.org/spec/SysML/20250201",
+            "--publisher",
+            "acme",
+            "--name",
+            "app",
+            "--version",
+            "1.0.0",
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+    let manifest_path = app.join("model.toml");
+    let manifest = std::fs::read_to_string(&manifest_path)?;
+    std::fs::write(
+        &manifest_path,
+        format!(
+            "{manifest}\n[[inline-usages]]\npublisher = \"{publisher}\"\nname = \"{name}\"\n\
+             kpar-url = \"{}/dep.kpar\"\n",
+            server.url()
+        ),
+    )?;
+    Ok((temp_dir, app, server))
+}
+
+/// The project `acme/dep` 1.0.0, built and served over HTTP at
+/// `/dep.kpar`. The server is returned so it outlives the commands run
+/// against it.
+fn served_dependency() -> Result<
     (
         camino_tempfile::Utf8TempDir,
         camino::Utf8PathBuf,
@@ -1242,37 +1284,68 @@ fn kpar_url_identity_case(
         .with_body(std::fs::read(cwd.join("dep.kpar"))?)
         .expect_at_least(1)
         .create();
+    Ok((temp_dir, cwd, server))
+}
 
+/// A json project's `kparUrl` usage resolves over HTTP, and its target
+/// is checked against the declared publisher and name.
+fn json_kpar_url_case(
+    name: &str,
+) -> Result<
+    (
+        camino_tempfile::Utf8TempDir,
+        camino::Utf8PathBuf,
+        ServerGuard,
+    ),
+    Box<dyn std::error::Error>,
+> {
+    let (temp_dir, cwd, server) = served_dependency()?;
     let app = cwd.join("app");
     std::fs::create_dir_all(&app)?;
-    run_sysand_in(
-        &app,
-        [
-            "init",
-            "--metamodel",
-            "https://www.omg.org/spec/SysML/20250201",
-            "--publisher",
-            "acme",
-            "--name",
-            "app",
-            "--version",
-            "1.0.0",
-        ],
-        None,
-    )?
-    .assert()
-    .success();
-    let manifest_path = app.join("model.toml");
-    let manifest = std::fs::read_to_string(&manifest_path)?;
     std::fs::write(
-        &manifest_path,
-        format!(
-            "{manifest}\n[[inline-usages]]\npublisher = \"{publisher}\"\nname = \"{name}\"\n\
-             kpar-url = \"{}/dep.kpar\"\n",
-            server.url()
-        ),
+        app.join(".project.json"),
+        serde_json::to_string_pretty(&json!({
+            "name": "app",
+            "publisher": "acme",
+            "version": "1.0.0",
+            "usage": [{
+                "kparUrl": format!("{}/dep.kpar", server.url()),
+                "publisher": "acme",
+                "name": name,
+            }],
+        }))?,
+    )?;
+    std::fs::write(
+        app.join(".meta.json"),
+        serde_json::to_string_pretty(&json!({
+            "index": {},
+            "created": "2026-01-01T00:00:00Z",
+            "metamodel": "https://www.omg.org/spec/SysML/20250201",
+        }))?,
     )?;
     Ok((temp_dir, app, server))
+}
+
+#[test]
+fn a_json_kpar_url_usage_that_names_its_target_locks() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, app, _server) = json_kpar_url_case("dep")?;
+    run_sysand_in(&app, ["lock", "--no-index"], None)?
+        .assert()
+        .success();
+    let lockfile = std::fs::read_to_string(app.join("sysand-lock.toml"))?;
+    assert!(lockfile.contains("/dep.kpar"), "lockfile: {lockfile}");
+    Ok(())
+}
+
+#[test]
+fn a_json_kpar_url_usage_with_the_wrong_name_is_refused() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_temp_dir, app, _server) = json_kpar_url_case("wrongname")?;
+    run_sysand_in(&app, ["lock", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(SPELLS_AS_DECLARED));
+    Ok(())
 }
 
 const SPELLS_AS_DECLARED: &str = "is rejected because its spelling does not match the project's";
