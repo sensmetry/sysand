@@ -20,6 +20,7 @@
 //!
 //! Like the rest of `manifest/`, this module is free of Cargo features.
 
+use fluent_uri::Iri;
 use serde::Serialize as _;
 use thiserror::Error;
 use toml_edit::{ArrayOfTables, Decor, Item, Table, value};
@@ -34,7 +35,7 @@ use typed_path::Utf8UnixPathBuf;
 
 use crate::manifest::common::{
     InheritFrom, NormalizedIdentity, OMG_PUBLISHER, PathProblem, Sources, SourcesError, URL_KEYS,
-    normalized_identity,
+    UrlsG, normalized_identity,
 };
 use crate::manifest::diagnostics::Diagnostic;
 use crate::manifest::inherit::{Inherited, MetaProperty};
@@ -64,11 +65,7 @@ pub fn render_new(model: &ModelToml) -> DocumentMut {
         ModelToml::Project(manifest) => {
             doc["project"] = Item::Table(project_table(&manifest.project));
             if !manifest.inline_usages.is_empty() {
-                let mut usages = ArrayOfTables::new();
-                for usage in &manifest.inline_usages {
-                    usages.push(usage_table(UsageRaw::from(usage.clone())));
-                }
-                doc["inline-usages"] = Item::ArrayOfTables(usages);
+                doc["inline-usages"] = Item::ArrayOfTables(usages_array(&manifest.inline_usages));
             }
         }
         ModelToml::Workspace(table) => {
@@ -83,40 +80,26 @@ fn project_table(project: &ProjectTable) -> Table {
     let mut table = Table::new();
     for key in PROJECT_KEYS {
         match *key {
-            "publisher" => meta(&mut table, key, &project.publisher, |value| {
-                Value::from(value.as_str())
-            }),
+            "publisher" => meta(&mut table, key, &project.publisher, publisher_value),
             "name" => table[key] = value(project.name.as_str()),
-            "version" => meta(&mut table, key, &project.version, |value| {
-                Value::from(value.to_string())
-            }),
+            "version" => meta(&mut table, key, &project.version, display_value),
             "sources" => {
                 if let Some(sources) = &project.sources {
                     table[key] = value(sources_array(sources));
                 }
             }
-            "license" => optional(&mut table, key, project.license.as_ref(), |value| {
-                Value::from(value.to_string())
+            "license" => optional(&mut table, key, project.license.as_ref(), display_value),
+            "description" => plain(&mut table, key, project.description.as_ref(), |text| {
+                Value::from(text.as_str())
             }),
-            "description" => {
-                if let Some(description) = &project.description {
-                    table[key] = value(description.as_str());
-                }
-            }
             "topics" => optional(&mut table, key, project.topics.as_ref(), |topics| {
-                Value::Array(topics.iter().map(String::as_str).collect())
+                list_value(topics)
             }),
-            "metamodel" => optional(&mut table, key, project.metamodel.as_ref(), |value| {
-                Value::from(value.to_string())
-            }),
+            "metamodel" => optional(&mut table, key, project.metamodel.as_ref(), display_value),
             "maintainers" => optional(&mut table, key, project.maintainers.as_ref(), |list| {
-                Value::Array(list.iter().map(ToString::to_string).collect())
+                list_value(list)
             }),
-            "stdlib" => {
-                if let Some(stdlib) = &project.stdlib {
-                    table[key] = value(stdlib.to_string());
-                }
-            }
+            "stdlib" => plain(&mut table, key, project.stdlib.as_ref(), display_value),
             // Written back as it was read.
             "root" => {
                 if let Some(root) = &project.root {
@@ -149,7 +132,48 @@ fn meta<T>(
     }
 }
 
-/// The same, for a key that may also be absent.
+/// A key that may be absent, with no marker.
+fn plain<T>(table: &mut Table, key: &str, property: Option<&T>, render: impl FnOnce(&T) -> Value) {
+    if let Some(property) = property {
+        table[key] = value(render(property));
+    }
+}
+
+fn publisher_value(publisher: &IndexPublisher) -> Value {
+    Value::from(publisher.as_str())
+}
+
+fn display_value<T: ToString>(value: &T) -> Value {
+    Value::from(value.to_string())
+}
+
+fn list_value<T: ToString>(list: &[T]) -> Value {
+    Value::Array(list.iter().map(ToString::to_string).collect())
+}
+
+fn iri_value(iri: &Iri<String>) -> Value {
+    Value::from(iri.as_str())
+}
+
+/// A `urls` table, each present key written by `write`.
+fn urls_table<T>(urls: &UrlsG<T>, write: impl Fn(&mut Table, &str, Option<&T>)) -> Table {
+    let mut written = Table::new();
+    for (url_key, property) in urls.entries() {
+        write(&mut written, url_key, property);
+    }
+    written
+}
+
+/// `[[inline-usages]]` entries.
+fn usages_array<U: Clone + Into<UsageRaw>>(usages: &[U]) -> ArrayOfTables {
+    let mut array = ArrayOfTables::new();
+    for usage in usages {
+        array.push(usage_table(usage.clone().into()));
+    }
+    array
+}
+
+/// A key that may be absent, and may instead carry a marker.
 fn optional<T>(
     table: &mut Table,
     key: &str,
@@ -191,12 +215,9 @@ fn urls(table: &mut Table, key: &str, property: Option<&MetaProperty<Urls>>) {
         Some(MetaProperty::Provided(urls)) => urls,
     };
 
-    let mut written = Table::new();
-    for (url_key, property) in urls.entries() {
-        optional(&mut written, url_key, property, |iri| {
-            Value::from(iri.as_str())
-        });
-    }
+    let written = urls_table(urls, |table, url_key, property| {
+        optional(table, url_key, property, iri_value);
+    });
     table.insert(key, Item::Table(written));
 }
 
@@ -278,60 +299,31 @@ fn workspace_table(workspace: &WorkspaceTable) -> Table {
 fn group(table: &mut Table, properties: &GroupProperties) {
     for key in GROUP_KEYS {
         match *key {
-            "publisher" => {
-                if let Some(publisher) = &properties.publisher {
-                    table[key] = value(IndexPublisher::as_str(publisher));
-                }
-            }
-            "version" => {
-                if let Some(version) = &properties.version {
-                    table[key] = value(version.to_string());
-                }
-            }
-            "license" => {
-                if let Some(license) = &properties.license {
-                    table[key] = value(license.to_string());
-                }
-            }
-            "topics" => {
-                if let Some(topics) = &properties.topics {
-                    table[key] = value(topics.iter().map(String::as_str).collect::<Array>());
-                }
-            }
-            "metamodel" => {
-                if let Some(metamodel) = &properties.metamodel {
-                    table[key] = value(metamodel.to_string());
-                }
-            }
-            "maintainers" => {
-                if let Some(maintainers) = &properties.maintainers {
-                    table[key] = value(
-                        maintainers
-                            .iter()
-                            .map(ToString::to_string)
-                            .collect::<Array>(),
-                    );
-                }
-            }
+            "publisher" => plain(table, key, properties.publisher.as_ref(), publisher_value),
+            "version" => plain(table, key, properties.version.as_ref(), display_value),
+            "license" => plain(table, key, properties.license.as_ref(), display_value),
+            "topics" => plain(table, key, properties.topics.as_ref(), |topics| {
+                list_value(topics)
+            }),
+            "metamodel" => plain(table, key, properties.metamodel.as_ref(), display_value),
+            "maintainers" => plain(table, key, properties.maintainers.as_ref(), |list| {
+                list_value(list)
+            }),
             // Not allowed in a group; there is nothing to write.
             "sources" => {}
             "urls" => {
                 if let Some(urls) = &properties.urls {
-                    let mut written = Table::new();
-                    for (url_key, iri) in urls.entries() {
-                        if let Some(iri) = iri {
-                            written[url_key] = value(iri.as_str());
-                        }
-                    }
-                    table.insert("urls", Item::Table(written));
+                    let written = urls_table(urls, |table, url_key, iri| {
+                        plain(table, url_key, iri, iri_value);
+                    });
+                    table.insert(key, Item::Table(written));
                 }
             }
             "inline-usages" if !properties.inline_usages.is_empty() => {
-                let mut usages = ArrayOfTables::new();
-                for usage in &properties.inline_usages {
-                    usages.push(usage_table(UsageRaw::from(usage.clone())));
-                }
-                table.insert(key, Item::ArrayOfTables(usages));
+                table.insert(
+                    key,
+                    Item::ArrayOfTables(usages_array(&properties.inline_usages)),
+                );
             }
             _ => {}
         }
