@@ -216,10 +216,12 @@ fn lock_sync<Policy: HTTPAuthentication>(
                     )?;
                 }
             }
-            // The path as context, the error itself kept beneath it: the
-            // hint printed with the error reads its type.
-            Err(e) => {
-                return Err(anyhow::Error::new(e).context(format!("invalid lockfile `{lockfile}`")));
+            Err(source) => {
+                return Err(CliError::InvalidLockfile {
+                    path: lockfile.to_string(),
+                    source,
+                }
+                .into());
             }
         },
         Err(e) => {

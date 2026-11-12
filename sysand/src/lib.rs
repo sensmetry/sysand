@@ -222,7 +222,10 @@ pub fn run_parsed_as(
     for cause in causes {
         eprintln!("{style}  caused by:{style:#} {cause}");
     }
-    if let Some(hint) = hints::for_error(&err, program) {
+    if let Some(hint) = err
+        .downcast_ref::<CliError>()
+        .and_then(|e| hints::for_error(e, program))
+    {
         let hint_style = style::NOTE;
         eprintln!("\n{hint_style}hint{hint_style:#}: {hint}");
     }
@@ -425,10 +428,11 @@ fn run_cli_with(
     let env = match (&current_workspace, &current_project) {
         // TODO: does it make sense to support env unassociated with a project
         // when index and env are different?
-        (None, None) => get_env(&cwd)?,
-        (None, Some(pr)) => get_env(pr.root_path())?,
-        (Some(w), _) => get_env(w.root_path())?,
-    };
+        (None, None) => get_env(&cwd),
+        (None, Some(pr)) => get_env(pr.root_path()),
+        (Some(w), _) => get_env(w.root_path()),
+    }
+    .map_err(CliError::InvalidEnvironment)?;
     let ctx = ProjectContext {
         env,
         current_workspace,
@@ -649,12 +653,12 @@ fn run_cli_with(
             let lock = match fs::read_to_string(&lockfile) {
                 Ok(l) => match Lock::from_str(&l) {
                     Ok(l) => l,
-                    // The path as context, the error itself kept beneath it:
-                    // `run_parsed_as` reads its type for the hint.
-                    Err(e) => {
-                        return Err(
-                            anyhow::Error::new(e).context(format!("invalid lockfile `{lockfile}`"))
-                        );
+                    Err(source) => {
+                        return Err(CliError::InvalidLockfile {
+                            path: lockfile.to_string(),
+                            source,
+                        }
+                        .into());
                     }
                 },
                 Err(e) => {

@@ -3,7 +3,6 @@
 
 use std::str::FromStr as _;
 
-use anyhow::Context as _;
 use camino::Utf8PathBuf;
 use sysand_core::{
     env::local_directory::metadata::{EnvMetadataError, ParseError as EnvParseError},
@@ -11,14 +10,13 @@ use sysand_core::{
 };
 
 use super::for_error;
+use crate::CliError;
 
-/// The lockfile error as `sync` raises it: the path as context, the parse
-/// error beneath.
-fn lockfile_error(lock_version: &str) -> anyhow::Error {
-    Lock::from_str(&format!("lock_version = \"{lock_version}\"\n"))
-        .map(|_| ())
-        .context("invalid lockfile `sysand-lock.toml`")
-        .unwrap_err()
+fn lockfile_error(lock_version: &str) -> CliError {
+    CliError::InvalidLockfile {
+        path: "sysand-lock.toml".to_owned(),
+        source: Lock::from_str(&format!("lock_version = \"{lock_version}\"\n")).unwrap_err(),
+    }
 }
 
 #[test]
@@ -40,7 +38,7 @@ fn an_older_or_unknown_lockfile_version_has_no_hint() {
 
 #[test]
 fn an_environment_a_newer_release_wrote_names_the_program_s_sync_command() {
-    let err = anyhow::Error::new(EnvMetadataError::Parse(
+    let err = CliError::InvalidEnvironment(EnvMetadataError::Parse(
         Utf8PathBuf::from(".sysand/env.toml"),
         EnvParseError::NewerVersion("99.0".to_owned()),
     ));
@@ -57,7 +55,7 @@ fn an_environment_a_newer_release_wrote_names_the_program_s_sync_command() {
 
 #[test]
 fn an_unreadable_environment_of_this_version_has_no_hint() {
-    let err = anyhow::Error::new(EnvMetadataError::Parse(
+    let err = CliError::InvalidEnvironment(EnvMetadataError::Parse(
         Utf8PathBuf::from(".sysand/env.toml"),
         EnvParseError::UnsupportedVersion("x.y".to_owned()),
     ));
@@ -67,7 +65,7 @@ fn an_unreadable_environment_of_this_version_has_no_hint() {
 #[test]
 fn an_unrelated_error_has_no_hint() {
     assert_eq!(
-        for_error(&anyhow::anyhow!("something else"), "sysand"),
+        for_error(&CliError::MissingProjectCurrentDir, "sysand"),
         None
     );
 }

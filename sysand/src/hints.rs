@@ -21,22 +21,21 @@ use sysand_core::{
     lock::{CURRENT_LOCK_VERSION, ParseError as LockParseError, VersionError},
 };
 
-/// The way out of `err`, if this frontend knows one: the first cause on the
-/// chain that has a hint decides.
-pub(crate) fn for_error(err: &anyhow::Error, program: &str) -> Option<String> {
-    err.chain().find_map(|cause| {
-        if let Some(LockParseError::Version(VersionError::Newer(_))) =
-            cause.downcast_ref::<LockParseError>()
-        {
-            Some(newer_lockfile(program))
-        } else if let Some(EnvMetadataError::Parse(_, EnvParseError::NewerVersion(_))) =
-            cause.downcast_ref::<EnvMetadataError>()
-        {
-            Some(newer_environment(program))
-        } else {
-            None
-        }
-    })
+use crate::CliError;
+
+/// The way out of `err`, if this frontend knows one.
+pub(crate) fn for_error(err: &CliError, program: &str) -> Option<String> {
+    match err {
+        CliError::InvalidLockfile {
+            source: LockParseError::Version(VersionError::Newer(_)),
+            ..
+        } => Some(newer_lockfile(program)),
+        CliError::InvalidEnvironment(EnvMetadataError::Parse(
+            _,
+            EnvParseError::NewerVersion(_),
+        )) => Some(newer_environment(program)),
+        _ => None,
+    }
 }
 
 /// A lockfile a newer release wrote. Regenerating it is possible, but as the
