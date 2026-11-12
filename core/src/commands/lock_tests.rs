@@ -10,13 +10,15 @@ use crate::{
     commands::lock::{LockError, do_lock_extend, do_lock_projects},
     context::ProjectContext,
     lock::{Lock, Project, Source},
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsage},
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::memory::InMemoryProject,
     resolve::null::NullResolver,
 };
 
 #[cfg(feature = "filesystem")]
 use crate::commands::lock::LockProjectError;
+#[cfg(feature = "filesystem")]
+use crate::model::InterchangeProjectUsage;
 #[cfg(feature = "filesystem")]
 use crate::resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead};
 
@@ -652,12 +654,7 @@ fn two_input_projects_resolve_against_their_own_bases() -> Result<(), Box<dyn st
     .map_err(|e| e.to_string())?;
 
     // Two inputs plus the two distinct targets they each resolve.
-    assert_eq!(
-        outcome.projects.len(),
-        4,
-        "{:?}",
-        outcome.projects
-    );
+    assert_eq!(outcome.projects.len(), 4, "{:?}", outcome.projects);
     Ok(())
 }
 
@@ -732,12 +729,7 @@ fn do_lock_projects_still_derives_one_base() -> Result<(), Box<dyn std::error::E
         &ctx_rooted_at(tmp.path()),
     )
     .map_err(|e| e.to_string())?;
-    assert_eq!(
-        outcome.projects.len(),
-        3,
-        "{:?}",
-        outcome.projects
-    );
+    assert_eq!(outcome.projects.len(), 3, "{:?}", outcome.projects);
     Ok(())
 }
 
@@ -762,12 +754,7 @@ fn do_lock_extend_still_derives_one_base() -> Result<(), Box<dyn std::error::Err
         &ctx_rooted_at(tmp.path()),
     )
     .map_err(|e| e.to_string())?;
-    assert_eq!(
-        outcome.projects.len(),
-        1,
-        "{:?}",
-        outcome.projects
-    );
+    assert_eq!(outcome.projects.len(), 1, "{:?}", outcome.projects);
     Ok(())
 }
 

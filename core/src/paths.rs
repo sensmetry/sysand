@@ -7,6 +7,7 @@ use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
 use thiserror::Error;
 use typed_path::{Utf8UnixComponent, Utf8UnixPath, Utf8UnixPathBuf, Utf8WindowsPath};
 
+#[cfg(feature = "filesystem")]
 use crate::project::utils::{ToPathBuf as _, wrapfs};
 
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
@@ -361,7 +362,7 @@ fn contains_non_canonical_components(path: &Utf8Path) -> bool {
 /// This function manipulates the path text alone: it leaves the filesystem
 /// and symlinks untouched. Callers are expected
 /// to pass paths that have been canonicalized beforehand (e.g., via
-/// [`wrapfs::canonicalize`] or equivalent).
+/// [`crate::project::utils::wrapfs::canonicalize`] or equivalent).
 ///
 /// # Returns
 ///
@@ -486,6 +487,7 @@ pub fn is_above_root(relative: &Utf8UnixPath) -> bool {
 }
 
 /// A path that could not be made absolute or canonicalized.
+#[cfg(feature = "filesystem")]
 #[derive(Debug, Error)]
 #[error("failed to resolve path `{path}`")]
 pub struct ResolvePathError {
@@ -501,6 +503,7 @@ pub struct ResolvePathError {
 /// The part that does not exist is appended as written, including any `..`.
 /// Any other canonicalization failure, such as a permission error or a path
 /// inside a regular file, is returned.
+#[cfg(feature = "filesystem")]
 pub(crate) fn canonicalize_prefix<P: AsRef<Utf8Path>>(
     path: P,
 ) -> Result<Utf8PathBuf, ResolvePathError> {
@@ -538,6 +541,7 @@ pub(crate) fn canonicalize_prefix<P: AsRef<Utf8Path>>(
 }
 
 /// `path` relative to `relative_to`, or `None` if `path` is outside it.
+#[cfg(feature = "filesystem")]
 pub(crate) fn relativize_path_in<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
     path: P,
     relative_to: Q,

@@ -183,8 +183,9 @@ jobs:
       # prints a skip notice.
       - name: check out the SysML v2 release (for the stdlib equivalence test)
         if: matrix.os == 'ubuntu-22.04' && matrix.libc == 'gnu'
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           repository: Systems-Modeling/SysML-v2-Release
           # Not `2025-02`, although that tag is named like this spec
           # version: the library kept changing after February, so its

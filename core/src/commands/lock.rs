@@ -393,7 +393,14 @@ fn lock_projects<
         }));
     }
 
-    Ok(lock_extend(lock, all_deps, resolver, provided_usages, ctx, respelled)?)
+    Ok(lock_extend(
+        lock,
+        all_deps,
+        resolver,
+        provided_usages,
+        ctx,
+        respelled,
+    )?)
 }
 
 /// Solves for compatible set of dependencies based on usages and adds the solution
@@ -590,7 +597,6 @@ fn lock_extend<
             }
             lock.projects.push(lock_project);
         }
-
     }
 
     check_typed_usages(typed_usages, &solved, respelled).map_err(LockError::TypedUsageMismatch)?;

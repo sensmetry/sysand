@@ -254,7 +254,7 @@ jobs:
           docker run \
             --rm -v ${{ github.workspace }}:/io -w /io \
             ghcr.io/astral-sh/uv:python3.10-alpine \
-            sh .github/scripts/run-pytest.sh
+            sh -c 'apk add --no-cache git && sh .github/scripts/run-pytest.sh'
 
   macos:
     needs: [plan]

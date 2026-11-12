@@ -262,7 +262,7 @@ fn relativize_path_error_non_common_prefix() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "filesystem"))]
 #[test]
 fn relativize_path_in_stays_inside_the_root() {
     let inside = |path: &str| {
@@ -278,7 +278,7 @@ fn relativize_path_in_stays_inside_the_root() {
     assert_eq!(inside("/sysand-no-such-dir/a/b/../../.."), None);
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "filesystem"))]
 #[test]
 fn canonicalize_prefix_returns_errors_other_than_missing() {
     use std::os::unix::fs::PermissionsExt as _;
@@ -298,7 +298,7 @@ fn canonicalize_prefix_returns_errors_other_than_missing() {
     assert_eq!(err.source.kind(), std::io::ErrorKind::PermissionDenied);
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "filesystem"))]
 #[test]
 fn canonicalize_prefix_rejects_a_path_inside_a_file() {
     let dir = camino_tempfile::tempdir().unwrap();

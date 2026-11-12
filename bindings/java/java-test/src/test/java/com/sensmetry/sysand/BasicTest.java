@@ -29,8 +29,6 @@ public class BasicTest {
         Files.write(dir.resolve(".project.json"),
                 ("{\n  \"name\": \"" + name + "\",\n  \"publisher\": \"" + publisher
                         + "\",\n  \"version\": \"" + version + "\"" + licenseKey + "\n}\n").getBytes());
-        // The epoch, to agree with a `model.toml` view's fixed `created`.
-        // The metamodel too, as `init` is given one.
         Files.write(dir.resolve(".meta.json"),
                 ("{\n  \"index\": {},\n  \"created\": \"1970-01-01T00:00:00Z\",\n  \"metamodel\": \""
                         + SYSML + "\"\n}\n").getBytes());
@@ -98,16 +96,7 @@ public class BasicTest {
         }
     }
 
-    // The expected checksum map is a parameter: a `model.toml` project's view
-    // has an empty map, while a legacy `.meta.json` without a `checksum` key
-    // has none.
     private void assertExpectedProject(com.sensmetry.sysand.model.InterchangeProject project) {
-        assertExpectedProject(project, null);
-    }
-
-    private void assertExpectedProject(
-            com.sensmetry.sysand.model.InterchangeProject project,
-            java.util.Map<String, Object> expectedChecksum) {
         assertNotNull(project);
         assertNotNull(project.info);
         assertNotNull(project.metadata);
@@ -122,38 +111,27 @@ public class BasicTest {
         assertEquals(project.info.getUsage().length, 0);
 
         assertEquals(project.metadata.getIndex(), new java.util.HashMap<String, String>());
-        // A view of a source project is not a function of the clock:
-        // `created` is computed at build, so until then it is the epoch.
         assertEquals("1970-01-01T00:00:00Z", project.metadata.getCreated());
-        // `init` is given the metamodel; the synthesized view carries it.
         assertEquals(project.metadata.getMetamodel(), SYSML);
         assertEquals(project.metadata.getIncludesDerived(), null);
         assertEquals(project.metadata.getIncludesImplied(), null);
-        assertEquals(project.metadata.getChecksum(), expectedChecksum);
+        assertEquals(project.metadata.getChecksum(), null);
     }
 
     @Test
-    public void testBasicInfo() {
-        try {
-            java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-info");
-            com.sensmetry.sysand.Sysand.init("test-basic-info", "acme", "1.2.3", "MIT", SYSML, tempDir);
+    public void testInfoRefusesAModelTomlProject() throws Exception {
+        java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-info-toml");
+        com.sensmetry.sysand.Sysand.init("test-info-toml", "acme", "1.2.3", "MIT", SYSML, tempDir);
 
-            // `init` wrote a `model.toml`, so both routes read the
-            // synthesized view, whose checksum map is empty rather than
-            // absent.
-            java.util.Map<String, Object> empty = new java.util.HashMap<String, Object>();
+        com.sensmetry.sysand.exceptions.SysandException pathError = assertThrows(
+                com.sensmetry.sysand.exceptions.SysandException.class,
+                () -> com.sensmetry.sysand.Sysand.infoPath(tempDir));
+        assertTrue(pathError.getMessage().contains("is a `model.toml` project"), pathError.getMessage());
 
-            com.sensmetry.sysand.model.InterchangeProject project = com.sensmetry.sysand.Sysand.infoPath(tempDir);
-            assertExpectedProject(project, empty);
-
-            java.net.URI fileUri = tempDir.toUri();
-            com.sensmetry.sysand.model.InterchangeProject project2 = com.sensmetry.sysand.Sysand.info(fileUri);
-            assertExpectedProject(project2, empty);
-        } catch (java.io.IOException e) {
-            fail("Failed during temporary directory operations or Sysand.info: " + e.getMessage());
-        } catch (com.sensmetry.sysand.exceptions.SysandException e) {
-            fail("Failed during temporary directory operations or Sysand.info: " + e.getMessage());
-        }
+        com.sensmetry.sysand.exceptions.SysandException uriError = assertThrows(
+                com.sensmetry.sysand.exceptions.SysandException.class,
+                () -> com.sensmetry.sysand.Sysand.info(tempDir.toUri()));
+        assertTrue(uriError.getMessage().contains("is a `model.toml` project"), uriError.getMessage());
     }
 
     @Test
@@ -271,10 +249,12 @@ public class BasicTest {
                             + "[workspace.group.sysml]\nmetamodel = \"" + SYSML + "\"\n").getBytes());
             writeInheritingMember(member, "acme", "member", "1.0.0");
 
-            com.sensmetry.sysand.model.InterchangeProject project =
-                    com.sensmetry.sysand.Sysand.infoPath(member);
-            assertEquals("member", project.info.getName());
-            assertEquals(SYSML, project.metadata.getMetamodel());
+            // The refusal names the project, so the member's manifest resolved.
+            com.sensmetry.sysand.exceptions.SysandException refusal = assertThrows(
+                    com.sensmetry.sysand.exceptions.SysandException.class,
+                    () -> com.sensmetry.sysand.Sysand.infoPath(member));
+            assertTrue(refusal.getMessage().contains("`member` is a `model.toml` project"),
+                    refusal.getMessage());
 
             java.nio.file.Path kpar = tempDir.resolve("member.kpar");
             com.sensmetry.sysand.Sysand.buildProject(kpar, member, CompressionMethod.DEFLATED);

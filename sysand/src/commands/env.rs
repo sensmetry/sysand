@@ -11,11 +11,7 @@ use fluent_uri::Iri;
 use semver::VersionReq;
 use sysand_core::{
     auth::HTTPAuthentication,
-    commands::{
-        env::do_env_local_dir,
-        lock::DeclaredBy,
-        sync::SyncOutcome,
-    },
+    commands::{env::do_env_local_dir, lock::DeclaredBy, sync::SyncOutcome},
     config::Config,
     context::ProjectContext,
     env::local_directory::LocalDirectoryEnvironment,

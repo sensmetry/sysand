@@ -10,9 +10,7 @@ use typed_path::Utf8UnixPathBuf;
 
 use crate::{
     env::ReadEnvironment,
-    model::{
-        InterchangeProjectUsage, InterchangeProjectUsageRaw, InterchangeProjectValidationError,
-    },
+    model::{InterchangeProjectUsage, InterchangeProjectValidationError},
     project::{ProjectDefinition, ProjectRead, memory::InMemoryProject, utils::Identifier},
     resolve::{
         env::EnvResolver,
@@ -26,7 +24,7 @@ use crate::{
 #[cfg(feature = "filesystem")]
 use crate::{
     env::local_directory::{LocalDirectoryEnvironment, LocalReadError},
-    model::UsageRef,
+    model::{InterchangeProjectUsageRaw, UsageRef},
     project::local_src::{LocalSrcError, LocalSrcProject, PathError},
 };
 #[cfg(feature = "filesystem")]

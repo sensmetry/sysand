@@ -19,13 +19,7 @@ lenient-checks = []
 python = ["dep:pyo3"]
 js = ["jiff/js"]
 filesystem = ["dep:camino-tempfile", "dep:dirs", "dep:zip"]
-networking = [
-  "dep:reqwest",
-  "dep:gix",
-  "dep:rustls",
-  "dep:async-trait",
-  "dep:http"
-]
+networking = ["dep:reqwest", "dep:gix", "dep:rustls", "dep:async-trait", "dep:http"]
 # TLS providers. Enabling both is not an error: `--all-features` does it, and
 # `tls-aws-lc-rs` wins, because that is what Sysand ships. With neither, a
 # consumer that enables `networking` must install a provider itself before the
