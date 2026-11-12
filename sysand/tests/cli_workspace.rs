@@ -987,7 +987,9 @@ fn print_root_member_prints_the_members_root() -> Result<(), Box<dyn std::error:
     run_sysand_discovering(dir.path(), ["print-root", "--member", "gamma"])?
         .assert()
         .success()
-        .stdout(predicate::str::contains("libs/gamma"));
+        .stdout(predicate::str::contains(
+            Utf8Path::new("libs").join("gamma").as_str(),
+        ));
     Ok(())
 }
 
