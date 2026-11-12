@@ -320,8 +320,9 @@ pub fn do_sources_env(
     };
     let mut candidates = env.candidate_projects(&identifier)?.into_iter();
 
-    let installed = match version {
-        None => candidates.next(),
+    // The manifest a version constraint had to read, kept.
+    let found = match version {
+        None => candidates.next().map(|candidate| (candidate, None)),
         Some(vr) => loop {
             let Some(candidate) = candidates.next() else {
                 break None;
@@ -329,7 +330,7 @@ pub fn do_sources_env(
             // Projects with non-semver versions cannot match the constraint
             if let Some(definition) = candidate.get_project()? {
                 match Version::parse(&definition.version()) {
-                    Ok(v) if vr.matches(&v) => break Some(candidate),
+                    Ok(v) if vr.matches(&v) => break Some((candidate, Some(definition))),
                     Ok(_) => {}
                     Err(e) => log::debug!(
                         "ignoring env project `{}` because it has invalid semver version:\n{e}",
@@ -339,22 +340,29 @@ pub fn do_sources_env(
             }
         },
     };
-    let Some(installed) = installed else {
+    let Some((installed, definition)) = found else {
         return Err(SourcesEnvError::NotFound {
             project: project.to_string().into(),
             version: version.cloned(),
         });
     };
+    let definition = match definition {
+        Some(definition) => definition,
+        None => installed
+            .get_project()?
+            .ok_or_else(|| SourcesEnvError::MissingInfo(project.to_string().into()))?,
+    };
 
     let mut result = vec![];
     if !no_own {
-        result.extend(do_sources_local_src_project_no_deps(&installed, true)?);
+        result.extend(do_sources_local_src_definition(
+            &installed,
+            &definition,
+            true,
+        )?);
     }
 
     if dependencies != Dependencies::None {
-        let Some(definition) = installed.get_project()? else {
-            return Err(SourcesEnvError::MissingInfo(project.to_string().into()));
-        };
         let usages = definition
             .usages()
             .iter()

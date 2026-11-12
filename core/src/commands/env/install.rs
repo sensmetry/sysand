@@ -17,7 +17,7 @@ use crate::{
 #[cfg(feature = "filesystem")]
 use crate::{
     project::{
-        ProjectFormat,
+        ProjectDefinition,
         local_kpar::{KparInnerPath, LocalKParProject},
         utils::{FsIoError, Identifier, wrapfs},
     },
@@ -218,11 +218,12 @@ pub fn do_env_install_path<E: WriteEnvironment + ReadEnvironment>(
         return Err(EnvInstallPathError::NotFound(location.to_owned()));
     };
 
-    if project.format()? == ProjectFormat::Toml {
-        return Err(EnvInstallPathError::TomlProject(location.to_owned()));
-    }
-    let Some(version) = project.version()? else {
-        return Err(EnvInstallPathError::MissingInfo(location.to_owned()));
+    let version = match project.get_project()? {
+        Some(ProjectDefinition::Toml(_)) => {
+            return Err(EnvInstallPathError::TomlProject(location.to_owned()));
+        }
+        Some(definition) => definition.version(),
+        None => return Err(EnvInstallPathError::MissingInfo(location.to_owned())),
     };
     let checksum = project.checksum_canonical_variant()?;
     do_env_install_project(
