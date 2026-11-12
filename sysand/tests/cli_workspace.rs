@@ -279,8 +279,7 @@ fn a_config_in_a_member_warns() -> Result<(), Box<dyn std::error::Error>> {
         .assert()
         .stderr(predicate::str::contains(format!(
             "`{}` {NOT_AT_ROOT}",
-            member
-                .canonicalize_utf8()?
+            sysand_core::project::utils::wrapfs::canonicalize(&member)?
                 .join(config::local_fs::CONFIG_FILE)
         )));
     Ok(())
@@ -697,7 +696,7 @@ fn print_root_in_an_excluded_project_prints_that_project() -> Result<(), Box<dyn
     run_sysand_discovering(&dir.path().join("vendor/other"), ["print-root"])?
         .assert()
         .success()
-        .stdout(format!("{}\n", root.join("vendor/other")));
+        .stdout(format!("{}\n", root.join("vendor").join("other")));
     Ok(())
 }
 
@@ -1417,8 +1416,7 @@ fn migrate_warns_about_a_stray_config() -> Result<(), Box<dyn std::error::Error>
         .assert()
         .stderr(predicate::str::contains(format!(
             "`{}` {NOT_AT_ROOT}",
-            member
-                .canonicalize_utf8()?
+            sysand_core::project::utils::wrapfs::canonicalize(&member)?
                 .join(config::local_fs::CONFIG_FILE)
         )));
     Ok(())

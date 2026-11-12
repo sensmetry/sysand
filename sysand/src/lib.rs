@@ -696,7 +696,8 @@ fn run_cli_with(
 ) -> Result<RunReport> {
     sysand_core::style::set_style_config(crate::style::CONFIG);
 
-    let cwd = wrapfs::current_dir()?;
+    // On Windows CWD is generally not canonical.
+    let cwd = wrapfs::canonicalize(wrapfs::current_dir()?)?;
     let log_level = get_log_level(global_opts.verbose, global_opts.quiet);
     if logger::init(log_level).is_err() {
         // Someone else owns the one global logger. The level still reaches it
