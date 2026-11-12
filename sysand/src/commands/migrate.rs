@@ -3,6 +3,7 @@
 
 use std::{
     cell::RefCell,
+    collections::HashSet,
     io::{IsTerminal as _, Write as _},
     sync::Arc,
 };
@@ -136,9 +137,16 @@ pub fn command_migrate<Policy: HTTPAuthentication>(
         Ok(())
     };
 
+    // The paths of the usages built from a `file:` target, which already
+    // carry the spelling that target declares.
+    let read_targets: RefCell<HashSet<typed_path::Utf8UnixPathBuf>> = RefCell::default();
     let lookup = |resource: &str| {
         if resource.starts_with("file:") {
-            return resolve_file_target(resource, &dir);
+            let usage = resolve_file_target(resource, &dir)?;
+            if let Some(path) = usage.local_path() {
+                read_targets.borrow_mut().insert(path.clone());
+            }
+            return Ok(usage);
         }
         // Before the resolver is built: the IRI names the release, so a
         // standard-library usage needs no network.
@@ -190,7 +198,7 @@ pub fn command_migrate<Policy: HTTPAuthentication>(
     // pair as the usage spells it, while a json usage only had to match
     // after normalization.
     let mut manifest = validated.value;
-    spell_path_usages_as_targets(&mut manifest, &dir);
+    spell_path_usages_as_targets(&mut manifest, &dir, &read_targets.borrow());
 
     // Write first, then delete: a failed write must not leave a project
     // with no manifest at all.
@@ -445,12 +453,17 @@ fn resolve_remote_target<Policy: HTTPAuthentication>(
 }
 
 /// Rewrite each typed `dir`/`kpar-path` usage's publisher and name to
-/// the spelling its target declares.
+/// the spelling its target declares. A usage whose path is in `read` is
+/// already spelled that way.
 ///
 /// The json spellings only had to match after normalization, so
 /// `acme-corp` at a target declaring `Acme Corp` is a valid json
 /// project but not a valid `model.toml` one.
-fn spell_path_usages_as_targets(manifest: &mut ModelToml, dir: &Utf8Path) {
+fn spell_path_usages_as_targets(
+    manifest: &mut ModelToml,
+    dir: &Utf8Path,
+    read: &HashSet<typed_path::Utf8UnixPathBuf>,
+) {
     let ModelToml::Project(project) = manifest else {
         return;
     };
@@ -471,6 +484,9 @@ fn spell_path_usages_as_targets(manifest: &mut ModelToml, dir: &Utf8Path) {
             } => kpar_path.clone(),
             _ => continue,
         };
+        if read.contains(&relative) {
+            continue;
+        }
         let target = dir.join(
             relative
                 .as_str()
