@@ -52,6 +52,27 @@ fn check_unsupported_lock_version() {
 }
 
 #[test]
+fn check_newer_lock_version() {
+    let version = "99.0";
+    let document =
+        DocumentMut::from_str(format!(r#"lock_version = "{version}""#).as_str()).unwrap();
+    let Err(err) = check_lock_version(&document) else {
+        panic!()
+    };
+    let VersionError::Newer(s) = &err else {
+        panic!("expected a newer version error, got {err:?}")
+    };
+    assert_eq!(s, version);
+    assert_eq!(
+        format_err(err),
+        format!(
+            "lockfile version `99.0` is newer than the latest this release reads \
+             (`{CURRENT_LOCK_VERSION}`); a newer release wrote the lockfile"
+        )
+    );
+}
+
+#[test]
 fn old_registry_lockfile_is_rejected_by_version_gate() {
     let lockfile = format!(
         r#"{LOCKFILE_PREFIX}lock_version = "0.3"
