@@ -142,7 +142,7 @@ impl ProjectMut for InMemoryProject {
             )));
         }
         let text = document.to_string();
-        crate::manifest::edit::validated(MODEL_TOML_FILE, &text)
+        crate::manifest::edit::check(MODEL_TOML_FILE, &text)
             .map_err(|e| ManifestWriteError::Project(InMemoryError::Manifest(e)))?;
         self.model_toml = Some(text);
         Ok(())

@@ -338,7 +338,7 @@ impl ProjectMut for ProjectLocalBrowserStorage {
         }
 
         let text = document.to_string();
-        sysand_core::manifest::edit::validated(MODEL_TOML_FILE, &text)
+        sysand_core::manifest::edit::check(MODEL_TOML_FILE, &text)
             .map_err(|e| ManifestWriteError::Project(Error::Deserialize(e)))?;
         self.vfs
             .write_string(&manifest_path, text)

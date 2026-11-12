@@ -532,7 +532,7 @@ impl ProjectMut for LocalSrcProject {
         }
 
         let text = document.to_string();
-        crate::manifest::edit::validated(MODEL_TOML_FILE, &text)
+        crate::manifest::edit::check(MODEL_TOML_FILE, &text)
             .map_err(|e| ManifestWriteError::Project(LocalSrcError::Deserialize(e)))?;
         wrapfs::write(&path, text)
             .map_err(|e| ManifestWriteError::Project(LocalSrcError::from(e)))?;

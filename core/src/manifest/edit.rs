@@ -396,9 +396,15 @@ pub enum EditError {
 /// diagnostics alone, and the document is handed back only when there are
 /// none.
 pub fn validated(file: &str, text: &str) -> Result<DocumentMut, ProjectDeserializationError> {
-    crate::manifest::ModelToml::parse(file, text)
-        .map_err(|report| ProjectDeserializationError::invalid(file, report))?;
+    check(file, text)?;
     open(file, text).map_err(|problem| ProjectDeserializationError::invalid(file, problem))
+}
+
+/// Check that `text` is a `model.toml` this Sysand can read.
+pub fn check(file: &str, text: &str) -> Result<(), ProjectDeserializationError> {
+    crate::manifest::ModelToml::parse(file, text)
+        .map(|_| ())
+        .map_err(|report| ProjectDeserializationError::invalid(file, report))
 }
 
 /// Parse a `model.toml` for editing. The failure is the reader's.
