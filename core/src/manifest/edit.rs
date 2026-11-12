@@ -386,7 +386,7 @@ pub enum EditError {
     #[error("`{0}` is not a list")]
     NotAList(String),
     #[error(transparent)]
-    MemberPath(#[from] crate::paths::RelativeUnixPathError),
+    MemberPath(#[from] crate::paths::NormalizeError),
 }
 
 /// Parse a `model.toml` for editing, after checking that it is one this
@@ -642,30 +642,17 @@ pub fn include_source(doc: &mut DocumentMut, path: &str) -> Result<Utf8UnixPathB
 /// becomes `a.sysml`, and `../a.sysml` is
 /// [`EditError::SourceOutsideProject`].
 fn strict_entry(path: &str) -> Result<Utf8UnixPathBuf, EditError> {
-    use crate::paths::RelativeUnixPathError as E;
-    crate::paths::normalize_relative(path).map_err(|error| match error {
-        E::EscapesRoot { path: _ } | E::IsRoot { path: _ } => {
-            EditError::SourceOutsideProject(path.to_owned())
-        }
-        E::Absolute { path: _ } => {
-            EditError::Sources(SourcesError::path(PathProblem::Absolute, path))
-        }
-        E::ContainsBackslash { path: _ } => {
-            EditError::Sources(SourcesError::path(PathProblem::Backslash, path))
-        }
-        E::ContainsNull { path: _ } => {
-            EditError::Sources(SourcesError::path(PathProblem::Null, path))
-        }
-        // `normalize_relative` resolves components and accepts a trailing
-        // slash, so it never reports the rest.
-        E::DirectoryPath { path: _ }
-        | E::TrailingSlash { path: _ }
-        | E::ContainsDoubleSlash { path: _ }
-        | E::ContainsCurrent { path: _ }
-        | E::ContainsParent { path: _ }
-        | E::ContainsNonLeadingParent { path: _ } => {
-            EditError::Sources(SourcesError::path(PathProblem::NotStrict, path))
-        }
+    use crate::paths::NormalizeError as E;
+    crate::paths::normalize_relative(path).map_err(|error| {
+        let problem = match error {
+            E::EscapesRoot { path: _ } | E::IsRoot { path: _ } => {
+                return EditError::SourceOutsideProject(path.to_owned());
+            }
+            E::Absolute { path: _ } => PathProblem::Absolute,
+            E::ContainsBackslash { path: _ } => PathProblem::Backslash,
+            E::ContainsNull { path: _ } => PathProblem::Null,
+        };
+        EditError::Sources(SourcesError::path(problem, path))
     })
 }
 

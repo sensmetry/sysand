@@ -39,19 +39,33 @@ pub enum RelativeUnixPathError {
     ContainsNull { path: String },
     #[error("path `{path}` ends with a separator `/`, which is forbidden")]
     TrailingSlash { path: String },
-    /// Only [`normalize_relative`] reports this: the path points above the
-    /// root it is relative to
-    #[error("path `{path}` points above the root it is relative to")]
-    EscapesRoot { path: String },
-    /// Only [`normalize_relative`] reports this: the path is the root it is
-    /// relative to
-    #[error("path `{path}` is the root it is relative to, not a path inside it")]
-    IsRoot { path: String },
     #[error(
         "path `{path}` is a directory path\n\
         (ends with a separator `/`), but a file path was expected"
     )]
     DirectoryPath { path: String },
+}
+
+/// A path that [`normalize_relative`] rejects.
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
+pub enum NormalizeError {
+    #[error("path `{path}` is absolute")]
+    Absolute { path: String },
+    #[error(
+        "path `{path}` contains a backslash `\\`;\n\
+        backslash is not allowed in paths to preserve consistent\n\
+        interpretation across different operating systems;\n\
+        backslash could be present because the path is Windows path"
+    )]
+    ContainsBackslash { path: String },
+    #[error("path `{path:?}` contains a NULL character")]
+    ContainsNull { path: String },
+    /// The path points above the root it is relative to.
+    #[error("path `{path}` points above the root it is relative to")]
+    EscapesRoot { path: String },
+    /// The path is the root it is relative to.
+    #[error("path `{path}` is the root it is relative to, not a path inside it")]
+    IsRoot { path: String },
 }
 
 // TODO: use newtypes for different kinds of paths
@@ -248,20 +262,20 @@ fn parse_unix_path(
 /// rather than rejecting them, and complains only if the result leaves the
 /// root or *is* the root. Absolute paths (Unix and Windows alike),
 /// backslashes and NUL characters are rejected exactly as there.
-pub fn normalize_relative(path: &str) -> Result<Utf8UnixPathBuf, RelativeUnixPathError> {
+pub fn normalize_relative(path: &str) -> Result<Utf8UnixPathBuf, NormalizeError> {
     if is_absolute_on_any_os(path) {
-        return Err(RelativeUnixPathError::Absolute {
+        return Err(NormalizeError::Absolute {
             path: path.to_owned(),
         });
     }
     match first_nul_or_backslash(path) {
         Some(b'\0') => {
-            return Err(RelativeUnixPathError::ContainsNull {
+            return Err(NormalizeError::ContainsNull {
                 path: path.to_owned(),
             });
         }
         Some(_) => {
-            return Err(RelativeUnixPathError::ContainsBackslash {
+            return Err(NormalizeError::ContainsBackslash {
                 path: path.to_owned(),
             });
         }
@@ -271,12 +285,12 @@ pub fn normalize_relative(path: &str) -> Result<Utf8UnixPathBuf, RelativeUnixPat
     let segments = resolve_dot_components(path);
     // `..` can only be left over at the start, where it has nothing to cancel
     if segments.first() == Some(&"..") {
-        return Err(RelativeUnixPathError::EscapesRoot {
+        return Err(NormalizeError::EscapesRoot {
             path: path.to_owned(),
         });
     }
     if segments.is_empty() {
-        return Err(RelativeUnixPathError::IsRoot {
+        return Err(NormalizeError::IsRoot {
             path: path.to_owned(),
         });
     }

@@ -13,7 +13,7 @@ fn normalized(path: &str) -> Utf8UnixPathBuf {
     normalize_relative(path).expect("path should normalize")
 }
 
-fn error(path: &str) -> RelativeUnixPathError {
+fn error(path: &str) -> NormalizeError {
     normalize_relative(path).expect_err("path should be rejected")
 }
 
@@ -37,7 +37,7 @@ fn normalize_relative_rejects_absolute_paths() {
     for path in ["/x", "//x", "C:/x", "C:\\x"] {
         assert_matches!(
             error(path),
-            RelativeUnixPathError::Absolute { path: _ },
+            NormalizeError::Absolute { path: _ },
             "{path} should be absolute"
         );
     }
@@ -48,14 +48,11 @@ fn normalize_relative_rejects_windows_separators_and_nul() {
     for path in ["a\\b", "a\\\\b", "src\\main.sysml"] {
         assert_matches!(
             error(path),
-            RelativeUnixPathError::ContainsBackslash { path: _ },
+            NormalizeError::ContainsBackslash { path: _ },
             "{path} should be rejected for its backslash"
         );
     }
-    assert_matches!(
-        error("a\0b"),
-        RelativeUnixPathError::ContainsNull { path: _ }
-    );
+    assert_matches!(error("a\0b"), NormalizeError::ContainsNull { path: _ });
 }
 
 #[test]
@@ -63,7 +60,7 @@ fn normalize_relative_rejects_escaping_paths() {
     for path in ["../x", "a/../../x", "./../x"] {
         assert_matches!(
             error(path),
-            RelativeUnixPathError::EscapesRoot { path: _ },
+            NormalizeError::EscapesRoot { path: _ },
             "{path} should escape the root"
         );
     }
@@ -74,7 +71,7 @@ fn normalize_relative_rejects_the_root_itself() {
     for path in [".", "", "a/..", "a/b/../..", "./"] {
         assert_matches!(
             error(path),
-            RelativeUnixPathError::IsRoot { path: _ },
+            NormalizeError::IsRoot { path: _ },
             "{path} should resolve to the root"
         );
     }

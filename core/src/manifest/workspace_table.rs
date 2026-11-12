@@ -13,14 +13,16 @@
 //! here is given directly. [`WorkspaceTable::group_properties`] serves the
 //! groups to `[project]` once markers are resolved.
 
-use crate::paths::{RelativeUnixPathError, normalize_relative};
+use crate::paths::{NormalizeError, normalize_relative};
 use std::collections::BTreeMap;
 
 use semver::Version;
 use spdx::Expression;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
-use crate::manifest::common::{InheritFrom, Maintainer, ResolvedUrls, is_valid_group_name};
+use crate::manifest::common::{
+    InheritFrom, Maintainer, PathProblem, ResolvedUrls, is_valid_group_name,
+};
 use crate::manifest::diagnostics::{Diagnostic, Diagnostics, Position, Validated};
 use crate::manifest::reader::{self, TableReader};
 use crate::manifest::usage::{Usage, UsageRaw, read_usages};
@@ -384,35 +386,23 @@ pub(crate) fn prefix_depth(path: &Utf8UnixPath, entry: &Utf8UnixPath) -> Option<
 }
 
 /// The message for a path that is not in normalizable form.
-fn path_message(key: &str, raw: &str, error: &RelativeUnixPathError) -> String {
+fn path_message(key: &str, raw: &str, error: &NormalizeError) -> String {
     match error {
-        RelativeUnixPathError::Absolute { path: _ } => format!(
+        NormalizeError::Absolute { path: _ } => format!(
             "`{key}` path `{raw}` is absolute; `members` and `exclude` are relative to the \
              workspace root"
         ),
-        RelativeUnixPathError::ContainsBackslash { path: _ } => format!(
-            "`{key}` path `{raw}` contains a backslash `\\`;\n\
-             entries are `/`-separated, so that a manifest reads the same way\n\
-             on every operating system"
-        ),
-        RelativeUnixPathError::ContainsNull { path: _ } => {
-            format!("`{key}` path `{raw}` contains a NULL character")
+        NormalizeError::ContainsBackslash { path: _ } => {
+            format!("`{key}` path `{raw}` {}", PathProblem::Backslash)
         }
-        RelativeUnixPathError::EscapesRoot { path: _ } => {
+        NormalizeError::ContainsNull { path: _ } => {
+            format!("`{key}` path `{raw}` {}", PathProblem::Null)
+        }
+        NormalizeError::EscapesRoot { path: _ } => {
             format!("`{key}` path `{raw}` escapes the workspace root")
         }
-        RelativeUnixPathError::IsRoot { path: _ } => {
+        NormalizeError::IsRoot { path: _ } => {
             format!("`{key}` path `{raw}` is the workspace root, which must not contain a project")
-        }
-        // `normalize_relative` resolves components and accepts a trailing
-        // slash, so it never reports the rest.
-        RelativeUnixPathError::DirectoryPath { path: _ }
-        | RelativeUnixPathError::TrailingSlash { path: _ }
-        | RelativeUnixPathError::ContainsDoubleSlash { path: _ }
-        | RelativeUnixPathError::ContainsCurrent { path: _ }
-        | RelativeUnixPathError::ContainsParent { path: _ }
-        | RelativeUnixPathError::ContainsNonLeadingParent { path: _ } => {
-            format!("`{key}` path `{raw}` is not a valid path: {error}")
         }
     }
 }

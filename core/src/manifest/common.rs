@@ -318,24 +318,28 @@ pub enum PathProblem {
 /// The first shared check the path fails, or `None` if it passes all of them.
 pub fn path_problem(raw: &str) -> Option<PathProblem> {
     if let Err(error) = parse_relative_unix_path(raw, RelativePathKind::SubFile) {
-        return Some(match error {
-            RelativeUnixPathError::Absolute { path: _ } => PathProblem::Absolute,
-            RelativeUnixPathError::ContainsBackslash { path: _ } => PathProblem::Backslash,
-            RelativeUnixPathError::ContainsNull { path: _ } => PathProblem::Null,
-            RelativeUnixPathError::DirectoryPath { path: _ }
-            | RelativeUnixPathError::TrailingSlash { path: _ } => PathProblem::Directory,
-            RelativeUnixPathError::ContainsDoubleSlash { path: _ }
-            | RelativeUnixPathError::ContainsCurrent { path: _ }
-            | RelativeUnixPathError::ContainsParent { path: _ }
-            | RelativeUnixPathError::ContainsNonLeadingParent { path: _ }
-            | RelativeUnixPathError::EscapesRoot { path: _ }
-            | RelativeUnixPathError::IsRoot { path: _ } => PathProblem::NotStrict,
-        });
+        return Some(PathProblem::from(&error));
     }
     if Language::guess_from_path(Utf8UnixPath::new(raw)).is_none() {
         return Some(PathProblem::NotModelFile);
     }
     None
+}
+
+impl From<&RelativeUnixPathError> for PathProblem {
+    fn from(error: &RelativeUnixPathError) -> Self {
+        match error {
+            RelativeUnixPathError::Absolute { path: _ } => Self::Absolute,
+            RelativeUnixPathError::ContainsBackslash { path: _ } => Self::Backslash,
+            RelativeUnixPathError::ContainsNull { path: _ } => Self::Null,
+            RelativeUnixPathError::DirectoryPath { path: _ }
+            | RelativeUnixPathError::TrailingSlash { path: _ } => Self::Directory,
+            RelativeUnixPathError::ContainsDoubleSlash { path: _ }
+            | RelativeUnixPathError::ContainsCurrent { path: _ }
+            | RelativeUnixPathError::ContainsParent { path: _ }
+            | RelativeUnixPathError::ContainsNonLeadingParent { path: _ } => Self::NotStrict,
+        }
+    }
 }
 
 impl Display for PathProblem {

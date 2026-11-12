@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 use crate::paths::{
-    RelativeUnixPathError, RelativizePathError, ResolvePathError, normalize_relative,
-    relativize_path, relativize_path_in,
+    NormalizeError, RelativizePathError, ResolvePathError, normalize_relative, relativize_path,
+    relativize_path_in,
 };
 use std::{
     collections::HashSet,
@@ -653,7 +653,7 @@ pub enum PathError {
     UnsafePath {
         path: Box<str>,
         #[source]
-        source: RelativeUnixPathError,
+        source: NormalizeError,
     },
     #[error("path `{0}` is absolute")]
     AbsolutePath(typed_path::Utf8UnixPathBuf),
