@@ -143,6 +143,9 @@ pub fn command_sources_workspace(
     // union at the end: skipping them per member would let one member's
     // sources back in as another's dependency.
     let mut own: HashSet<String> = HashSet::new();
+    // Every member's usages, solved together as the workspace lock solves
+    // them.
+    let mut usages = Vec::new();
 
     for member in workspace.members() {
         let project = LocalSrcProject::new_member(member.dir.clone(), None, table.clone());
@@ -156,19 +159,22 @@ pub fn command_sources_workspace(
         }
 
         if dependencies != DependenciesCli::None {
-            let usages =
-                ProjectDefinition::Toml(Box::new(member.project.clone())).validated_usages()?;
-            let deps = match &ctx.env {
-                // `resolve_dependencies` takes the environment by value.
-                Some(env) => resolve_dependencies(usages, env.clone(), dependencies.into())?,
-                None => resolve_dependencies(usages, NullEnvironment::new(), dependencies.into())?,
-            };
-            for dep in deps {
-                for src_path in do_sources_local_src_project_no_deps(&dep, true)? {
-                    let rendered = src_path.to_string();
-                    if seen.insert(rendered.clone()) {
-                        listed.push(rendered);
-                    }
+            usages.extend(
+                ProjectDefinition::Toml(Box::new(member.project.clone())).validated_usages()?,
+            );
+        }
+    }
+
+    if dependencies != DependenciesCli::None {
+        let deps = match ctx.env {
+            Some(env) => resolve_dependencies(usages, env, dependencies.into())?,
+            None => resolve_dependencies(usages, NullEnvironment::new(), dependencies.into())?,
+        };
+        for dep in deps {
+            for src_path in do_sources_local_src_project_no_deps(&dep, true)? {
+                let rendered = src_path.to_string();
+                if seen.insert(rendered.clone()) {
+                    listed.push(rendered);
                 }
             }
         }
