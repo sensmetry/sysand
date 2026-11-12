@@ -216,8 +216,13 @@ fn lock_sync<Policy: HTTPAuthentication>(
                     )?;
                 }
             }
-            // Include file path in errors
-            Err(e) => bail!("invalid lockfile `{lockfile}`:\n{}", format_err(e)),
+            Err(source) => {
+                return Err(CliError::InvalidLockfile {
+                    path: lockfile.to_string(),
+                    source,
+                }
+                .into());
+            }
         },
         Err(e) => {
             if e.kind() == ErrorKind::NotFound {
