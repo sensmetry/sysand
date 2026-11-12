@@ -30,7 +30,6 @@ use crate::{
         StoredBearerAuth, select_bearer,
     },
     env::discovery::{HttpBaseUrlShapeError, validate_http_base_url_shape},
-    include::{IncludeError, extract_symbols},
     index_location::IndexLocation,
     model::{
         IndexName, IndexPublisher, InterchangeProjectChecksum, InterchangeProjectUsageRaw,
@@ -44,7 +43,7 @@ use crate::{
     },
     purl::{SysandPurlError, parse_sysand_purl},
     redact::{HttpError, RedactedUrl, ResponseUrl},
-    symbols::Language,
+    symbols::{Language, SymbolsError, top_level_symbols},
     utils::{license_file_stems, sha256_lowercase_hex},
 };
 
@@ -767,9 +766,7 @@ pub enum PublishError {
     )]
     EmptyChecksum,
     #[error("failed to index file")]
-    IndexFail {
-        source: IncludeError<LocalKParError>,
-    },
+    IndexFail { source: SymbolsError },
     #[error(
         "project does not include source file `{path}`,\n\
         which is mentioned by `checksum` field of `.meta.json`"
@@ -1491,7 +1488,7 @@ fn checked_member_symbols(
     // and the two have different extractors.
     language
         .map(|_| {
-            extract_symbols(&src_file, &contents, None)
+            top_level_symbols(&src_file, &contents, None)
                 .map_err(|e| PublishError::IndexFail { source: e })
         })
         .transpose()

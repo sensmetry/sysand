@@ -1684,7 +1684,7 @@ mod prepare_publish {
 
     #[test]
     fn index_fail() {
-        // Garbage content in a .sysml file causes extract_symbols to fail.
+        // Garbage content in a .sysml file makes symbol extraction fail.
         let content = b"@@@NOT VALID SYSML@@@";
         let cksum = sha256_lowercase_hex(content);
         let meta = format!(

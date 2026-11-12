@@ -14,7 +14,7 @@ use std::{
 
 use crate::{
     env::utils::ErrorBound,
-    include::{IncludeError, extract_symbols, read_project_file_to_string},
+    include::read_project_file_to_string,
     manifest::{
         kpar_view::{self, ViewError},
         usage::{Usage, UsageBase},
@@ -24,12 +24,13 @@ use crate::{
         InterchangeProjectValidationError, KerMlChecksumAlg,
     },
     project::{
-        ProjectDefinition, ProjectRead,
+        ProjectDefinition, ProjectOrIOError, ProjectRead,
         local_kpar::{KparInnerPath, LocalKParError, LocalKParProject, LocalKParProjectRaw},
         local_src::{LocalSrcError, LocalSrcProject},
         utils::{FsIoError, ZipArchiveError, wrapfs},
     },
-    utils::{format_err, license_file_stems, sha256_lowercase_hex, to_pretty_json_string},
+    symbols::{SymbolsError, top_level_symbols},
+    utils::{license_file_stems, sha256_lowercase_hex, to_pretty_json_string},
     workspace::model_toml,
 };
 
@@ -142,18 +143,14 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
         name: &'static str,
         source: InterchangeProjectValidationError,
     },
-    #[error("{0}")]
-    Extract(String),
+    #[error(transparent)]
+    Symbols(#[from] SymbolsError),
     /// A Syside project's KPAR has no `index` to keep.
     #[error(
         "`--keep-index` applies to projects with a computed index; a Syside project's KPAR \
          carries `root` and `exports` instead"
     )]
     KeepIndexOnRoot,
-    #[error(
-        "unknown file format of `{0}`, only SysML v2 (.sysml) and KerML (.kerml) files are supported"
-    )]
-    UnknownFormat(Box<str>),
     /// The path of a `dir` or `kpar-path` usage names nothing that defines a
     /// project, which includes a project with no root at all (an in-memory
     /// project).
@@ -239,25 +236,13 @@ impl<ProjectReadError: ErrorBound> From<FsIoError> for KParBuildError<ProjectRea
     }
 }
 
-impl<ProjectReadError: ErrorBound> From<IncludeError<ProjectReadError>>
+impl<ProjectReadError: ErrorBound> From<ProjectOrIOError<ProjectReadError>>
     for KParBuildError<ProjectReadError>
 {
-    fn from(value: IncludeError<ProjectReadError>) -> Self {
+    fn from(value: ProjectOrIOError<ProjectReadError>) -> Self {
         match value {
-            IncludeError::Project(error) => Self::ProjectRead(error),
-            IncludeError::Io(error) => error.into(),
-            IncludeError::Extract(..) => Self::Extract(format_err(value)),
-            IncludeError::UnknownFormat(error) => Self::UnknownFormat(error),
-            // Only raised for a `model.toml` project, which a build refuses
-            // before extracting symbols.
-            IncludeError::ComputedField(_)
-            | IncludeError::NoIndexSymbolsOnRoot
-            | IncludeError::ForceFormat
-            | IncludeError::NotAdmitted(_)
-            | IncludeError::MissingManifest
-            | IncludeError::Edit(_)
-            | IncludeError::Manifest(_)
-            | IncludeError::ManifestWrite(_) => Self::Extract(format_err(value)),
+            ProjectOrIOError::Project(error) => Self::ProjectRead(error),
+            ProjectOrIOError::Io(error) => error.into(),
         }
     }
 }
@@ -402,11 +387,11 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
             let (info, meta) = kpar_view::view(&manifest, &jiff::Timestamp::now(), |path| {
                 let source = read_project_file_to_string(project, &path)?;
                 contents.insert(path.to_string(), source.clone());
-                Ok::<_, IncludeError<Pr::Error>>(source)
+                Ok::<_, ProjectOrIOError<Pr::Error>>(source)
             })
             .map_err(|error| match error {
                 ViewError::Read(error) => KParBuildError::from(error),
-                ViewError::Symbols(error) => KParBuildError::from(IncludeError::from(error)),
+                ViewError::Symbols(error) => KParBuildError::from(error),
             })?;
             viewed = Some(contents);
             (info, meta, Some(manifest))
@@ -564,7 +549,7 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
 
             let source = read_project_file_to_string(project, &p)?;
             let checksum = sha256_lowercase_hex(&source);
-            let symbols = extract_symbols(&p, &source, None)?;
+            let symbols = top_level_symbols(&p, &source, None)?;
             if update_index {
                 for s in symbols {
                     if root_shape {

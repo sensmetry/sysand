@@ -133,7 +133,7 @@ pub fn do_include<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
                 }
             });
 
-            for s in extract_symbols(&path, &source, force_format)? {
+            for s in crate::symbols::top_level_symbols(&path, &source, force_format)? {
                 index.insert(s, path.to_string());
             }
         }
@@ -201,25 +201,17 @@ fn include_toml<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
         .map_err(IncludeError::ManifestWrite)
 }
 
-/// Extract top level symbols from `source`, using `path` for diagnostics
-/// only.
-pub fn extract_symbols<P: AsRef<Utf8UnixPath>, S: AsRef<str>, T>(
-    path: &P,
-    source: S,
-    force_format: Option<Language>,
-) -> Result<Vec<String>, IncludeError<T>> {
-    crate::symbols::top_level_symbols(path, source, force_format).map_err(IncludeError::from)
-}
-
+/// The text of one of `project`'s source files.
 pub fn read_project_file_to_string<Pr: ProjectRead, P: AsRef<Utf8UnixPath>>(
     project: &Pr,
     path: &P,
-) -> Result<String, IncludeError<Pr::Error>> {
-    let mut file = project.read_source(path).map_err(IncludeError::Project)?;
+) -> Result<String, ProjectOrIOError<Pr::Error>> {
+    let mut file = project
+        .read_source(path)
+        .map_err(ProjectOrIOError::Project)?;
     let mut source = String::new();
-    file.read_to_string(&mut source).map_err(|e| {
-        IncludeError::Io(FsIoError::ReadFile(path.as_ref().as_str().into(), e).into())
-    })?;
+    file.read_to_string(&mut source)
+        .map_err(|e| FsIoError::ReadFile(path.as_ref().as_str().into(), e))?;
     Ok(source)
 }
 

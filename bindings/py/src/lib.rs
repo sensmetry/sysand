@@ -1118,8 +1118,7 @@ fn do_build_py(
             let e = format_err(&err);
             match err {
                 KParBuildError::Validation { name: _, source: _ }
-                | KParBuildError::Extract(_)
-                | KParBuildError::UnknownFormat(_)
+                | KParBuildError::Symbols(_)
                 | KParBuildError::MissingInfo
                 | KParBuildError::MissingInfoMeta
                 | KParBuildError::InheritedLocalUsage { usage: _, path: _ }

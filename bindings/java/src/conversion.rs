@@ -16,7 +16,7 @@ use sysand_core::{
         InterchangeProjectMetadataRaw, InterchangeProjectUsageRaw,
     },
 };
-use sysand_core::{project::local_src::LocalSrcError, utils::format_err};
+use sysand_core::{project::local_src::LocalSrcError, symbols::SymbolsError, utils::format_err};
 
 pub(crate) const STRING: FieldSignature = jni_sig!(java.lang.String);
 pub(crate) const BOOLEAN: FieldSignature = jni_sig!(java.lang.Boolean);
@@ -928,13 +928,13 @@ pub(crate) fn handle_build_error(env: &mut Env<'_>, error: &KParBuildError<Local
                 format!("Validation error: {e}"),
             );
         }
-        KParBuildError::Extract(_) => {
+        KParBuildError::Symbols(SymbolsError::Extract(..)) => {
             env.throw_exception(
                 ExceptionKind::SysandException,
                 format!("Extract error: {e}"),
             );
         }
-        KParBuildError::UnknownFormat(_) => {
+        KParBuildError::Symbols(SymbolsError::UnknownFormat(_)) => {
             env.throw_exception(
                 ExceptionKind::SysandException,
                 format!("Unknown format error: {e}"),
