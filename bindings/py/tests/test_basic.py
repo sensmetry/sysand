@@ -1097,16 +1097,9 @@ def test_discover_rejects_a_nested_workspace(tmp_path: Path) -> None:
         sysand.discover(path=proj)
 
 
-def test_discover_on_a_missing_path_is_not_an_error(tmp_path: Path) -> None:
-    """Both halves of the answer agree about a directory that is not there.
-
-    `discover_project` does not canonicalize its input, so it answers
-    `None`; the workspace walk canonicalizes and would otherwise raise.
-    """
-    assert sysand.discover(path=tmp_path / "nope" / "deeper") == {
-        "project_root": None,
-        "workspace_root": None,
-    }
+def test_discover_on_a_missing_path_is_an_error(tmp_path: Path) -> None:
+    with pytest.raises(sysand.ProjectError):
+        sysand.discover(path=tmp_path / "nope" / "deeper")
 
 
 def test_basic_info(caplog: pytest.LogCaptureFixture) -> None:

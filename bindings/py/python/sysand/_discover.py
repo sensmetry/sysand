@@ -20,9 +20,6 @@ def discover(*, path: str | Path = ".") -> Discovery:
     must not operate inside a workspace checks ``workspace_root`` before
     doing anything else.
 
-    A ``path`` that does not exist yields ``None`` for both roots rather
-    than raising.
-
     Args:
         path: Where to start searching. Defaults to the current directory.
 
@@ -31,9 +28,9 @@ def discover(*, path: str | Path = ".") -> Discovery:
         none.
 
     Raises:
-        ProjectError: a directory could not be read; a manifest is malformed;
-            or the workspace found is nested inside another, which sysand
-            does not support.
+        ProjectError: ``path`` does not exist; a directory could not be read;
+            a manifest is malformed; or the workspace found is nested inside
+            another, which sysand does not support.
     """
     project_root, workspace_root = sysand_rs.do_discover_py(str(path))
     return Discovery(project_root=project_root, workspace_root=workspace_root)

@@ -13,7 +13,7 @@ use sysand_core::{
     cancel::CancellationToken,
     commands::{lock::LockOutcome, sync::SyncOutcome},
     config::Config,
-    discover::discover_project,
+    discover::{Ancestry, Seek},
     env::{local_directory::utils::clean_dir, utils::clone_project},
     lock::Lockfile,
     model::InterchangeProjectUsage,
@@ -88,12 +88,12 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         }
         canonical
     };
-    if let Some(existing_project) = discover_project(target)? {
+    if let Some(existing_project) = Ancestry::walk(target, Seek::ProjectToo)?.project() {
         log::warn!(
             "found an existing project in one of target path's parent\n\
             {:>8} directories `{}`",
             ' ',
-            existing_project.root_path()
+            existing_project
         );
     }
 

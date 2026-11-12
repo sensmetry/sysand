@@ -43,7 +43,7 @@ use sysand_core::{
         local_fs::{load_configs, read_config},
     },
     context::ProjectContext,
-    discover::{Ancestry, Seek, discover_project},
+    discover::{Ancestry, Seek},
     env::{
         DEFAULT_ENV_NAME, PutProjectError, ReadEnvironment,
         any_index::AnyIndexError,
@@ -1905,9 +1905,8 @@ fn do_env_projects_py(env_path: String) -> PyResult<Vec<EnvProject>> {
 /// The workspace is a `model.toml` holding a `[workspace]` table, found
 /// by `discover_table`, as `run_cli` does. Does not read the members, so a
 /// malformed member does not fail it. It can still fail on the workspace file
-/// itself, and on a nested workspace, which every command rejects.
-///
-/// A `path` that does not exist answers `(None, None)`.
+/// itself, on a nested workspace, which every command rejects, and on a
+/// `path` that does not exist.
 #[pyfunction(name = "do_discover_py")]
 #[pyo3(
     signature = (path),
@@ -1916,28 +1915,16 @@ fn do_discover_py(path: String) -> PyResult<(Option<String>, Option<String>)> {
     common_init();
 
     let path = Utf8PathBuf::from(path);
-    // Workspace discovery opens with a canonicalize, so a missing path
-    // would raise where `discover_project` answered `None`.
-    let (project_root, workspace_root) = if wrapfs::canonicalize(&path).is_ok() {
-        let ancestry = Ancestry::walk(&path, Seek::ProjectToo)
-            .map_err(|e| ProjectError::new_err(format_err(e)))?;
-        let project_root = ancestry
-            .project()
-            .map(wrapfs::canonicalize)
-            .transpose()
-            .map_err(|e| ProjectError::new_err(format_err(e)))?;
-        let workspace_root = sysand_core::workspace::model_toml::table_of(ancestry)
-            .map_err(|e| ProjectError::new_err(format_err(e)))?
-            .map(|(root, _)| root);
-        (project_root, workspace_root)
-    } else {
-        let project_root = discover_project(&path)
-            .map_err(|e| ProjectError::new_err(format_err(e)))?
-            .map(|project| wrapfs::canonicalize(project.root_path()))
-            .transpose()
-            .map_err(|e| ProjectError::new_err(format_err(e)))?;
-        (project_root, None)
-    };
+    let ancestry = Ancestry::walk(&path, Seek::ProjectToo)
+        .map_err(|e| ProjectError::new_err(format_err(e)))?;
+    let project_root = ancestry
+        .project()
+        .map(wrapfs::canonicalize)
+        .transpose()
+        .map_err(|e| ProjectError::new_err(format_err(e)))?;
+    let workspace_root = sysand_core::workspace::model_toml::table_of(ancestry)
+        .map_err(|e| ProjectError::new_err(format_err(e)))?
+        .map(|(root, _)| root);
     Ok((
         project_root.map(Utf8PathBuf::into_string),
         workspace_root.map(Utf8PathBuf::into_string),

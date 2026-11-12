@@ -1,10 +1,18 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use camino::Utf8Path;
+use camino::{Utf8Path, Utf8PathBuf};
 use camino_tempfile::tempdir;
 
-use super::discover_project;
+use super::{Ancestry, Seek};
+
+/// The nearest project directory at or above `dir`.
+fn project_of(dir: &Utf8Path) -> Option<Utf8PathBuf> {
+    Ancestry::walk(dir, Seek::ProjectToo)
+        .expect("readable")
+        .project()
+        .map(Utf8Path::to_owned)
+}
 
 fn write(dir: &Utf8Path, name: &str, content: &str) {
     std::fs::write(dir.join(name), content).expect("write a manifest");
@@ -31,10 +39,7 @@ members = [\"app\"]
 fn a_model_toml_project_is_discovered() {
     let dir = tempdir().expect("a temporary directory");
     write(dir.path(), "model.toml", PROJECT);
-    let found = discover_project(dir.path())
-        .expect("readable")
-        .expect("a project");
-    assert_eq!(found.root_path(), dir.path());
+    assert_eq!(project_of(dir.path()).as_deref(), Some(dir.path()));
 }
 
 /// A broken `model.toml` is still this directory's manifest: the walk
@@ -43,10 +48,7 @@ fn a_model_toml_project_is_discovered() {
 fn a_model_toml_that_is_not_toml_is_still_this_directorys_manifest() {
     let dir = tempdir().expect("a temporary directory");
     write(dir.path(), "model.toml", "this is not toml\n");
-    let found = discover_project(dir.path())
-        .expect("readable")
-        .expect("a project");
-    assert_eq!(found.root_path(), dir.path());
+    assert_eq!(project_of(dir.path()).as_deref(), Some(dir.path()));
 }
 
 /// A workspace root holds a `model.toml` that defines no
@@ -59,18 +61,12 @@ fn a_model_toml_workspace_is_walked_past() {
     std::fs::create_dir(&root).expect("create the workspace directory");
     write(&root, "model.toml", WORKSPACE);
 
-    let found = discover_project(&root)
-        .expect("readable")
-        .expect("a project");
-    assert_eq!(found.root_path(), outer.path());
+    assert_eq!(project_of(&root).as_deref(), Some(outer.path()));
 }
 
 #[test]
 fn a_json_project_is_still_discovered() {
     let dir = tempdir().expect("a temporary directory");
     write(dir.path(), ".project.json", "{}");
-    let found = discover_project(dir.path())
-        .expect("readable")
-        .expect("a project");
-    assert_eq!(found.root_path(), dir.path());
+    assert_eq!(project_of(dir.path()).as_deref(), Some(dir.path()));
 }

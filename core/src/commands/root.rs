@@ -4,12 +4,14 @@
 use camino::{Utf8Path, Utf8PathBuf};
 
 use crate::{
-    discover::discover_project,
+    discover::{Ancestry, Seek},
     project::utils::{FsIoError, wrapfs},
 };
 
+/// The canonical root of the nearest project at or above `path`.
 pub fn do_root<P: AsRef<Utf8Path>>(path: P) -> Result<Option<Utf8PathBuf>, Box<FsIoError>> {
-    discover_project(path)?
-        .map(|e| wrapfs::canonicalize(e.root_path()))
+    Ancestry::walk(path, Seek::ProjectToo)?
+        .project()
+        .map(wrapfs::canonicalize)
         .transpose()
 }

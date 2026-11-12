@@ -2,13 +2,12 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 use camino::{Utf8Path, Utf8PathBuf};
-use typed_path::Utf8UnixPathBuf;
 
 use crate::{
     manifest::{MODEL_TOML_FILE, ModelToml, ModelTomlKind, ParsedModelToml},
     project::{
-        local_src::{LocalSrcProject, json_manifest},
-        utils::{FsIoError, ToPathBuf as _, wrapfs},
+        local_src::json_manifest,
+        utils::{FsIoError, wrapfs},
     },
 };
 
@@ -160,33 +159,6 @@ impl Ancestry {
     }
 }
 
-/// The project `working_directory` is in, **without a workspace table**.
-///
-/// The project it returns carries no table, so its manifest cannot
-/// resolve a `<key>.workspace` marker: reading one that inherits fails
-/// with "the project is not a member of any workspace", about a project
-/// that may well be listed in `members`.
-///
-/// **A caller that reads the manifest must rebuild the project with its
-/// table**, or use [`crate::workspace::model_toml::project_at_path`],
-/// which does it and additionally refuses a project that lies under a
-/// workspace root in neither `members` nor `exclude`.
-///
-/// The walk is textual, so a `working_directory` that does not exist is
-/// searched from its nearest existing ancestor.
-pub fn discover_project<P: AsRef<Utf8Path>>(
-    working_directory: P,
-) -> Result<Option<LocalSrcProject>, Box<FsIoError>> {
-    log::debug!(
-        "trying to discover project in `{}`",
-        working_directory.as_ref()
-    );
-    // FIXME: assuming nominal path "." is incorrect
-    let project = discover(working_directory)?
-        .map(|path| LocalSrcProject::new_access(path, Some(Utf8UnixPathBuf::from("."))));
-    Ok(project)
-}
-
 #[cfg(test)]
 #[path = "./discover_tests.rs"]
 mod tests;
@@ -208,46 +180,4 @@ fn spelled(lexical: Option<&Utf8Path>, canonical: &Utf8Path) -> Utf8PathBuf {
 fn lexical_parent(path: &Utf8Path) -> Option<&Utf8Path> {
     path.file_name()?;
     path.parent().filter(|parent| !parent.as_str().is_empty())
-}
-
-/// The nearest project directory at or above `working_directory`,
-/// walking textually.
-fn discover<P: AsRef<Utf8Path>>(
-    working_directory: P,
-) -> Result<Option<Utf8PathBuf>, Box<FsIoError>> {
-    let mut current = working_directory.to_path_buf();
-
-    while !DirManifest::read(&current)?.is_some_and(|manifest| manifest.is_project()) {
-        match current.parent() {
-            Some(parent) if parent.as_str().is_empty() => {
-                log::debug!("discover: hit empty relative path, trying to canonicalize");
-                match wrapfs::canonicalize_raw(&current) {
-                    Ok(current_canonical) => {
-                        if let Some(parent_canonical) = current_canonical.parent() {
-                            current = parent_canonical.to_path_buf()
-                        } else {
-                            log::debug!(
-                                "discover: canonicalized path `{current_canonical}` has no parent either"
-                            );
-                            return Ok(None);
-                        }
-                    }
-                    Err(e) => {
-                        log::debug!("discover: unable to canonicalize path `{current}`: {e}");
-                    }
-                }
-            }
-            Some(parent) => {
-                log::debug!("discover: checking in `{parent}`");
-                current = parent.to_path_buf();
-            }
-            None => {
-                log::debug!("discover: not found");
-                return Ok(None);
-            }
-        }
-    }
-    log::debug!("discover: found in `{current}`");
-
-    Ok(Some(current))
 }
