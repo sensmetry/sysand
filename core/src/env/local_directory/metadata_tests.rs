@@ -64,13 +64,59 @@ fn editable_project_with_parent_dir_is_accepted() {
 
 #[test]
 fn unsupported_version_is_rejected() {
-    let toml = r#"version = "99.0""#;
+    let toml = r#"version = "x.y""#;
     let err = EnvMetadata::from_str(toml).unwrap_err();
     assert_matches!(
         err,
         ParseError::UnsupportedVersion(_),
         "unexpected error: {err}"
     );
+}
+
+#[test]
+fn newer_version_is_rejected_as_such() {
+    let toml = r#"version = "99.0""#;
+    let err = EnvMetadata::from_str(toml).unwrap_err();
+    assert_matches!(err, ParseError::NewerVersion(_), "unexpected error: {err}");
+    assert_eq!(
+        err.to_string(),
+        format!(
+            "env metadata version `99.0` is newer than the latest this release reads \
+             (`{CURRENT_METADATA_VERSION}`); a newer release wrote the environment"
+        )
+    );
+}
+
+/// A newer release may have changed what a project entry holds; the version
+/// is still what explains the failure, not the entry.
+#[test]
+fn newer_version_is_reported_before_the_projects_are_read() {
+    let toml = r#"version = "99.0"
+
+[[project]]
+path = "lib/example"
+"#;
+    let err = EnvMetadata::from_str(toml).unwrap_err();
+    assert_matches!(err, ParseError::NewerVersion(_), "unexpected error: {err}");
+}
+
+#[test]
+fn a_malformed_project_of_the_current_version_is_a_parse_error() {
+    let toml = format!(
+        r#"version = "{CURRENT_METADATA_VERSION}"
+
+[[project]]
+path = "lib/example"
+"#
+    );
+    let err = EnvMetadata::from_str(&toml).unwrap_err();
+    assert_matches!(err, ParseError::Toml(_), "unexpected error: {err}");
+}
+
+#[test]
+fn a_missing_version_is_a_parse_error() {
+    let err = EnvMetadata::from_str("").unwrap_err();
+    assert_matches!(err, ParseError::Toml(_), "unexpected error: {err}");
 }
 
 // --- Env identifiers ---
