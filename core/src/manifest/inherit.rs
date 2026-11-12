@@ -186,24 +186,35 @@ pub fn from_group<U>(
 ) -> Result<U, Diagnostic> {
     let from = &inherited.from;
     let at = inherited.at.clone();
+    let group = group_named(&format!("`{key}`"), from, at.clone(), workspace)?;
+    pick(group).ok_or_else(|| {
+        Diagnostic::error(format!(
+            "`{key}` inherits from {from}, which does not give it"
+        ))
+        .at_opt(at)
+    })
+}
+
+/// The group a marker names. `subject` names what inherits in the
+/// errors.
+pub fn group_named<'a>(
+    subject: &str,
+    from: &InheritFrom,
+    at: Option<Position>,
+    workspace: Option<&'a WorkspaceTable>,
+) -> Result<&'a GroupProperties, Diagnostic> {
     // Markers resolve only against the workspace the project is a member of.
     let Some(workspace) = workspace else {
         return Err(Diagnostic::error(format!(
-            "`{key}` inherits from {from}, but the project is not a member of any workspace"
+            "{subject} inherits from {from}, but the project is not a member of any workspace"
         ))
         .at_opt(at));
     };
     // Only a named group can be absent: the default group is the keys of
     // `[workspace]` itself, which always exist.
-    let Some(group) = workspace.group_properties(from) else {
-        return Err(Diagnostic::error(format!(
-            "`{key}` inherits from {from}, which the workspace does not define"
-        ))
-        .at_opt(at));
-    };
-    pick(group).ok_or_else(|| {
+    workspace.group_properties(from).ok_or_else(|| {
         Diagnostic::error(format!(
-            "`{key}` inherits from {from}, which does not give it"
+            "{subject} inherits from {from}, which the workspace does not define"
         ))
         .at_opt(at)
     })

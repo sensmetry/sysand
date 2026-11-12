@@ -33,7 +33,7 @@ use crate::manifest::diagnostics::{
     Diagnostic, Diagnostics, KeyLocation, Position, ReadWarning, Validated, missing_key,
 };
 use crate::manifest::inherit::{
-    MetaProperty, from_group, inheritable, inheritable_table, own, resolve_optional,
+    MetaProperty, from_group, group_named, inheritable, inheritable_table, own, resolve_optional,
     resolve_property,
 };
 use crate::manifest::reader::{self, TableReader, describe, parsed};
@@ -729,18 +729,7 @@ fn from_group_usage(
         Some(publisher) => format!("usage `{publisher}/{name}`"),
         None => format!("usage `{name}`"),
     };
-    let Some(workspace) = workspace else {
-        return Err(Diagnostic::error(format!(
-            "{label} inherits from {from}, but the project is not a member of any workspace"
-        ))
-        .at_opt(at));
-    };
-    let Some(group) = workspace.group_properties(from) else {
-        return Err(Diagnostic::error(format!(
-            "{label} inherits from {from}, which the workspace does not define"
-        ))
-        .at_opt(at));
-    };
+    let group = group_named(&label, from, at.clone(), workspace)?;
     group
         .inline_usages
         .iter()
