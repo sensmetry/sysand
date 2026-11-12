@@ -16,6 +16,14 @@ use crate::{
 };
 
 #[cfg(feature = "filesystem")]
+use std::path::Path;
+
+#[cfg(feature = "filesystem")]
+use camino::Utf8Path;
+#[cfg(feature = "filesystem")]
+use url::Url;
+
+#[cfg(feature = "filesystem")]
 use crate::commands::lock::LockProjectError;
 #[cfg(feature = "filesystem")]
 use crate::model::InterchangeProjectUsage;
@@ -564,7 +572,7 @@ fn a_toml_kpar_url_usage_is_requested_as_a_typed_kpar_url_usage() {
 /// `acme/<name>`. The solver needs only the first; locking an input project
 /// without the second fails with `IncompleteProject { field: Meta }`.
 #[cfg(feature = "filesystem")]
-fn project_dir(at: &camino::Utf8Path, name: &str) {
+fn project_dir(at: &Utf8Path, name: &str) {
     std::fs::create_dir_all(at).expect("the project directory");
     std::fs::write(
         at.join(".project.json"),
@@ -593,7 +601,7 @@ fn dir_usage(dir: &str, name: &str) -> crate::model::InterchangeProjectUsage {
 /// sources are relativized against are different things; without a root,
 /// locking panics.
 #[cfg(feature = "filesystem")]
-fn ctx_rooted_at(at: &camino::Utf8Path) -> ProjectContext {
+fn ctx_rooted_at(at: &Utf8Path) -> ProjectContext {
     ProjectContext::new(
         None,
         Some(crate::project::local_src::LocalSrcProject::new_access(
@@ -762,8 +770,8 @@ fn do_lock_extend_still_derives_one_base() -> Result<(), Box<dyn std::error::Err
 
 /// The `file:` URL of an absolute path.
 #[cfg(feature = "filesystem")]
-fn file_url(path: impl AsRef<std::path::Path>) -> url::Url {
-    url::Url::from_file_path(path).expect("an absolute path")
+fn file_url(path: impl AsRef<Path>) -> Url {
+    Url::from_file_path(path).expect("an absolute path")
 }
 
 /// A minimal `model.toml` workspace on disk.
@@ -1419,7 +1427,8 @@ fn one_identity_at_two_directories_is_refused() {
         "and it names both: {message}"
     );
     assert!(
-        message.contains("deps/v1") && message.contains("deps/v2"),
+        message.contains(Utf8Path::new("deps").join("v1").as_str())
+            && message.contains(Utf8Path::new("deps").join("v2").as_str()),
         "both paths are in the message: {message}"
     );
 }

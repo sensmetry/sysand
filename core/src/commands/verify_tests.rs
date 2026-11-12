@@ -444,7 +444,7 @@ fn stale_constraint_rejects_locked_version() {
         report.stale[0].to_string(),
         format!(
             "the lockfile does not match the manifests: `urn:dep0` is `^2.0.0` in `{}` and `1.0.0` in `sysand-lock.toml`",
-            fixture.root.join("app/.project.json")
+            fixture.root.join("app").join(".project.json")
         )
     );
 }
@@ -471,7 +471,7 @@ fn stale_usage_added_and_removed() {
             ("urn:dep1".to_owned(), StaleKind::Removed),
         ]
     );
-    let manifest = fixture.root.join("app/.project.json");
+    let manifest = fixture.root.join("app").join(".project.json");
     assert_eq!(
         report.stale[0].to_string(),
         format!(
