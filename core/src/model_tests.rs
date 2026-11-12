@@ -713,15 +713,24 @@ fn project_publisher_and_name_must_be_valid_once_normalized() {
 /// and otherwise as a project does
 #[test]
 fn typed_spellings_normalize_as_index_or_project() {
-    use super::{normalize_typed_name, normalize_typed_publisher};
+    use super::{IdentifierKind, normalize_typed};
 
-    assert_eq!(normalize_typed_publisher("Acme Labs"), "acme-labs");
-    assert_eq!(normalize_typed_name("My.Lib v2"), "my.lib-v2");
+    assert_eq!(
+        normalize_typed("Acme Labs", IdentifierKind::Publisher),
+        "acme-labs"
+    );
+    assert_eq!(
+        normalize_typed("My.Lib v2", IdentifierKind::Name),
+        "my.lib-v2"
+    );
     // Not valid in an index: normalized as a project
-    assert_eq!(normalize_typed_publisher("Foo & Bar"), "foo-bar");
-    assert_eq!(normalize_typed_name("My_Lib"), "my-lib");
+    assert_eq!(
+        normalize_typed("Foo & Bar", IdentifierKind::Publisher),
+        "foo-bar"
+    );
+    assert_eq!(normalize_typed("My_Lib", IdentifierKind::Name), "my-lib");
     // Not even a valid project field: kept as it is
-    assert_eq!(normalize_typed_publisher("a/b"), "a/b");
+    assert_eq!(normalize_typed("a/b", IdentifierKind::Publisher), "a/b");
 }
 
 /// A validated directory or KPAR usage holds a project publisher and name,

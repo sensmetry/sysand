@@ -415,17 +415,12 @@ fn set_project_index<'local>(
     project_path: JString<'local>,
     index: JObject<'local>,
 ) -> JniResult<()> {
-    let Some(project_path) = env.get_str(&project_path, "projectPath") else {
-        ret!()
-    };
-    let Some(rust_index) = java_map_to_index_map(env, index) else {
-        ret!()
-    };
-    let mut project = LocalSrcProject::new_access(Utf8PathBuf::from(project_path), None);
-    if let Err(e) = project.set_index(rust_index) {
-        env.throw_exception(ExceptionKind::SysandException, format_err(e));
-    }
-    Ok(())
+    write_project(
+        env,
+        &project_path,
+        |env| java_map_to_index_map(env, index),
+        LocalSrcProject::set_index,
+    )
 }
 
 const SYSAND_SET_PROJECT_INFO: NativeMethod = native_method!(
@@ -437,17 +432,12 @@ fn set_project_info<'local>(
     project_path: JString<'local>,
     info: JObject<'local>,
 ) -> JniResult<()> {
-    let Some(project_path) = env.get_str(&project_path, "projectPath") else {
-        ret!()
-    };
-    let Some(info_raw) = java_info_to_raw(env, &info) else {
-        ret!()
-    };
-    let mut project = LocalSrcProject::new_access(Utf8PathBuf::from(project_path), None);
-    if let Err(e) = project.put_info(&info_raw, true) {
-        env.throw_exception(ExceptionKind::SysandException, format_err(e));
-    }
-    Ok(())
+    write_project(
+        env,
+        &project_path,
+        |env| java_info_to_raw(env, &info),
+        |project, value| project.put_info(&value, true),
+    )
 }
 
 const SYSAND_SET_PROJECT_METADATA: NativeMethod = native_method!(
@@ -459,17 +449,12 @@ fn set_project_metadata<'local>(
     project_path: JString<'local>,
     metadata: JObject<'local>,
 ) -> JniResult<()> {
-    let Some(project_path) = env.get_str(&project_path, "projectPath") else {
-        ret!()
-    };
-    let Some(metadata_raw) = java_metadata_to_raw(env, &metadata) else {
-        ret!()
-    };
-    let mut project = LocalSrcProject::new_access(Utf8PathBuf::from(project_path), None);
-    if let Err(e) = project.put_meta(&metadata_raw, true) {
-        env.throw_exception(ExceptionKind::SysandException, format_err(e));
-    }
-    Ok(())
+    write_project(
+        env,
+        &project_path,
+        |env| java_metadata_to_raw(env, &metadata),
+        |project, value| project.put_meta(&value, true),
+    )
 }
 
 const SYSAND_BUILD_PROJECT: NativeMethod = native_method!(
@@ -657,4 +642,23 @@ pub unsafe extern "system" fn JNI_OnLoad(
             JNI_ERR
         }
     }
+}
+
+/// Writes the value `convert` reads from Java into the project at
+/// `project_path`, throwing a `SysandException` if writing fails.
+fn write_project<'local, T, E: std::error::Error>(
+    env: &mut Env<'local>,
+    project_path: &JString<'local>,
+    convert: impl FnOnce(&mut Env<'local>) -> Option<T>,
+    write: impl FnOnce(&mut LocalSrcProject, T) -> Result<(), E>,
+) -> JniResult<()> {
+    let Some(project_path) = env.get_str(project_path, "projectPath") else {
+        ret!()
+    };
+    let Some(value) = convert(env) else { ret!() };
+    let mut project = LocalSrcProject::new_access(Utf8PathBuf::from(project_path), None);
+    if let Err(e) = write(&mut project, value) {
+        env.throw_exception(ExceptionKind::SysandException, format_err(e));
+    }
+    Ok(())
 }

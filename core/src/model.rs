@@ -1181,8 +1181,7 @@ impl UsageRef<'_> {
     /// Whether `usage` refers to this project. A `Resource` matches a
     /// resource or KPAR URL usage of exactly this IRI. `Typed` matches a typed usage
     /// whose publisher and name are each given either exactly as declared,
-    /// or normalized (see [`normalize_typed_publisher`] and
-    /// [`normalize_typed_name`]); it also matches a `pkg:sysand` resource
+    /// or normalized (see [`normalize_typed`]); it also matches a `pkg:sysand` resource
     /// usage in any spelling that normalizes to it, as the PURL only holds
     /// the normalized form
     pub fn matches<
@@ -1229,8 +1228,10 @@ impl UsageRef<'_> {
                 let Some((p, n)) = usage.typed_publisher_name() else {
                     return false;
                 };
-                (publisher.as_str() == p || publisher.as_str() == normalize_typed_publisher(p))
-                    && (name.as_str() == n || name.as_str() == normalize_typed_name(n))
+                (publisher.as_str() == p
+                    || publisher.as_str() == normalize_typed(p, IdentifierKind::Publisher))
+                    && (name.as_str() == n
+                        || name.as_str() == normalize_typed(n, IdentifierKind::Name))
             }
         }
     }
@@ -2360,81 +2361,85 @@ fn parse_project_field(s: &str, kind: &'static str) -> Result<String, ProjectFie
     Ok(normalized)
 }
 
-/// The publisher of a project, as spelled and normalized
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(try_from = "String", into = "String")]
-pub struct ProjectPublisher {
-    spelling: String,
-    normalized: String,
-}
-
-impl ProjectPublisher {
-    pub fn parse(publisher: String) -> Result<Self, (String, ProjectFieldError)> {
-        match parse_project_field(&publisher, "publisher") {
-            Ok(normalized) => Ok(Self {
-                spelling: publisher,
-                normalized,
-            }),
-            Err(e) => Err((publisher, e)),
+/// A project field as spelled and normalized: `$field` names it in errors.
+macro_rules! project_field {
+    ($(#[$doc:meta])* $ty:ident, $field:literal) => {
+        $(#[$doc])*
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+        #[serde(try_from = "String", into = "String")]
+        pub struct $ty {
+            spelling: String,
+            normalized: String,
         }
-    }
 
-    /// The normalized publisher
-    pub fn normalized(&self) -> &str {
-        &self.normalized
-    }
+        impl $ty {
+            pub fn parse(value: String) -> Result<Self, (String, ProjectFieldError)> {
+                match parse_project_field(&value, $field) {
+                    Ok(normalized) => Ok(Self {
+                        spelling: value,
+                        normalized,
+                    }),
+                    Err(e) => Err((value, e)),
+                }
+            }
 
-    /// The normalized publisher
-    pub fn into_normalized(self) -> String {
-        self.normalized
-    }
+            /// The normalized spelling
+            pub fn normalized(&self) -> &str {
+                &self.normalized
+            }
 
-    pub fn as_str(&self) -> &str {
-        &self.spelling
-    }
+            /// The normalized spelling
+            pub fn into_normalized(self) -> String {
+                self.normalized
+            }
 
-    pub fn into_string(self) -> String {
-        self.spelling
-    }
-}
+            pub fn as_str(&self) -> &str {
+                &self.spelling
+            }
 
-/// The name of a project, as spelled and normalized
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(try_from = "String", into = "String")]
-pub struct ProjectName {
-    spelling: String,
-    normalized: String,
-}
-
-impl ProjectName {
-    pub fn parse(name: String) -> Result<Self, (String, ProjectFieldError)> {
-        match parse_project_field(&name, "name") {
-            Ok(normalized) => Ok(Self {
-                spelling: name,
-                normalized,
-            }),
-            Err(e) => Err((name, e)),
+            pub fn into_string(self) -> String {
+                self.spelling
+            }
         }
-    }
 
-    /// The normalized name
-    pub fn normalized(&self) -> &str {
-        &self.normalized
-    }
+        impl TryFrom<String> for $ty {
+            type Error = ProjectFieldError;
 
-    /// The normalized name
-    pub fn into_normalized(self) -> String {
-        self.normalized
-    }
+            fn try_from(value: String) -> Result<Self, Self::Error> {
+                Self::parse(value).map_err(|(_, e)| e)
+            }
+        }
 
-    pub fn as_str(&self) -> &str {
-        &self.spelling
-    }
+        impl From<$ty> for String {
+            fn from(value: $ty) -> Self {
+                value.spelling
+            }
+        }
 
-    pub fn into_string(self) -> String {
-        self.spelling
-    }
+        impl AsRef<str> for $ty {
+            fn as_ref(&self) -> &str {
+                &self.spelling
+            }
+        }
+
+        impl Display for $ty {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(&self.spelling)
+            }
+        }
+    };
 }
+
+project_field!(
+    /// The publisher of a project, as spelled and normalized
+    ProjectPublisher,
+    "publisher"
+);
+project_field!(
+    /// The name of a project, as spelled and normalized
+    ProjectName,
+    "name"
+);
 
 /// A publisher or a name: which identifier rule applies, and which
 /// identifier an [`IdentifierError`] is about
@@ -2460,6 +2465,23 @@ impl IdentifierKind {
         self == Self::Name
     }
 
+    /// Whether `value` is valid as this field of an index usage, before
+    /// normalizing.
+    fn is_valid_unnormalized(self, value: &str) -> bool {
+        match self {
+            Self::Publisher => crate::purl::is_valid_unnormalized_publisher(value),
+            Self::Name => crate::purl::is_valid_unnormalized_name(value),
+        }
+    }
+
+    /// The field's name in project-field errors.
+    const fn field(self) -> &'static str {
+        match self {
+            Self::Publisher => "publisher",
+            Self::Name => "name",
+        }
+    }
+
     fn rule(self) -> &'static str {
         match self {
             Self::Publisher => {
@@ -2474,114 +2496,45 @@ impl IdentifierKind {
     }
 }
 
-/// The publisher of a project as a `model.toml`, an index usage and an
-/// index spell it: valid, once normalized (see [`Self::normalized`]), as
-/// the publisher of a `pkg:sysand` PURL. Every such publisher is also a
-/// valid [`ProjectPublisher`], but not the other way around
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(try_from = "String", into = "String")]
-pub struct IndexPublisher(String);
+/// A project field as a `model.toml`, an index usage and an index spell
+/// it: valid, once normalized (see `normalized`), as that field of a
+/// `pkg:sysand` PURL.
+macro_rules! index_field {
+    ($(#[$doc:meta])* $ty:ident, $kind:expr) => {
+        $(#[$doc])*
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+        #[serde(try_from = "String", into = "String")]
+        pub struct $ty(String);
 
-impl IndexPublisher {
-    pub fn parse(publisher: impl Into<String>) -> Result<Self, IdentifierError> {
-        let publisher = publisher.into();
-        if crate::purl::is_valid_unnormalized_publisher(&publisher) {
-            Ok(Self(publisher))
-        } else {
-            Err(IdentifierError {
-                kind: IdentifierKind::Publisher,
-                value: publisher,
-            })
+        impl $ty {
+            pub fn parse(value: impl Into<String>) -> Result<Self, IdentifierError> {
+                let value = value.into();
+                if $kind.is_valid_unnormalized(&value) {
+                    Ok(Self(value))
+                } else {
+                    Err(IdentifierError { kind: $kind, value })
+                }
+            }
+
+            pub fn as_str(&self) -> &str {
+                &self.0
+            }
+
+            pub fn into_string(self) -> String {
+                self.0
+            }
+
+            /// The value as the `pkg:sysand` PURL holds it
+            pub fn normalized(&self) -> String {
+                normalize_index_field(&self.0)
+            }
+
+            /// Whether the value is spelled as [`Self::normalized`] makes it
+            pub fn is_normalized(&self) -> bool {
+                is_normalized_index_field(&self.0)
+            }
         }
-    }
 
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-
-    pub fn into_string(self) -> String {
-        self.0
-    }
-
-    /// The publisher as the `pkg:sysand` PURL holds it
-    pub fn normalized(&self) -> String {
-        normalize_index_field(&self.0)
-    }
-
-    /// Whether the publisher is spelled as [`Self::normalized`] makes it
-    pub fn is_normalized(&self) -> bool {
-        is_normalized_index_field(&self.0)
-    }
-}
-
-/// The name of a project as a `model.toml`, an index usage and an index
-/// spell it: valid, once normalized (see [`Self::normalized`]), as the
-/// name of a `pkg:sysand` PURL. Every such name is also a valid
-/// [`ProjectName`], but not the other way around
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(try_from = "String", into = "String")]
-pub struct IndexName(String);
-
-impl IndexName {
-    pub fn parse(name: impl Into<String>) -> Result<Self, IdentifierError> {
-        let name = name.into();
-        if crate::purl::is_valid_unnormalized_name(&name) {
-            Ok(Self(name))
-        } else {
-            Err(IdentifierError {
-                kind: IdentifierKind::Name,
-                value: name,
-            })
-        }
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-
-    pub fn into_string(self) -> String {
-        self.0
-    }
-
-    /// The name as the `pkg:sysand` PURL holds it
-    pub fn normalized(&self) -> String {
-        normalize_index_field(&self.0)
-    }
-
-    /// Whether the name is spelled as [`Self::normalized`] makes it
-    pub fn is_normalized(&self) -> bool {
-        is_normalized_index_field(&self.0)
-    }
-}
-
-/// How the publisher of a typed usage of any kind normalizes: as
-/// [`IndexPublisher::normalized`] if it is spelled as an index usage can
-/// spell it, otherwise as [`ProjectPublisher::normalized`]. A publisher that
-/// is not even a valid project publisher is kept as it is
-pub(crate) fn normalize_typed_publisher(publisher: &str) -> String {
-    match IndexPublisher::parse(publisher) {
-        Ok(publisher) => publisher.normalized(),
-        Err(e) => match ProjectPublisher::parse(e.value) {
-            Ok(publisher) => publisher.into_normalized(),
-            Err((publisher, _)) => publisher,
-        },
-    }
-}
-
-/// How the name of a typed usage of any kind normalizes, as
-/// [`normalize_typed_publisher`] does for the publisher
-pub(crate) fn normalize_typed_name(name: &str) -> String {
-    match IndexName::parse(name) {
-        Ok(name) => name.normalized(),
-        Err(e) => match ProjectName::parse(e.value) {
-            Ok(name) => name.into_normalized(),
-            Err((name, _)) => name,
-        },
-    }
-}
-
-macro_rules! index_field_impls {
-    ($ty:ty) => {
         impl TryFrom<String> for $ty {
             type Error = IdentifierError;
 
@@ -2610,58 +2563,30 @@ macro_rules! index_field_impls {
     };
 }
 
-index_field_impls!(IndexPublisher);
-index_field_impls!(IndexName);
+index_field!(
+    /// The publisher of a project as a `model.toml`, an index usage and an
+    /// index spell it. Every such publisher is also a valid
+    /// [`ProjectPublisher`], but not the other way around
+    IndexPublisher,
+    IdentifierKind::Publisher
+);
+index_field!(
+    /// The name of a project as a `model.toml`, an index usage and an index
+    /// spell it. Every such name is also a valid [`ProjectName`], but not
+    /// the other way around
+    IndexName,
+    IdentifierKind::Name
+);
 
-impl TryFrom<String> for ProjectPublisher {
-    type Error = ProjectFieldError;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        Self::parse(value).map_err(|(_, e)| e)
-    }
-}
-
-impl From<ProjectPublisher> for String {
-    fn from(value: ProjectPublisher) -> Self {
-        value.spelling
-    }
-}
-
-impl AsRef<str> for ProjectPublisher {
-    fn as_ref(&self) -> &str {
-        &self.spelling
-    }
-}
-
-impl Display for ProjectPublisher {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.spelling)
-    }
-}
-
-impl TryFrom<String> for ProjectName {
-    type Error = ProjectFieldError;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        Self::parse(value).map_err(|(_, e)| e)
-    }
-}
-
-impl From<ProjectName> for String {
-    fn from(value: ProjectName) -> Self {
-        value.spelling
-    }
-}
-
-impl AsRef<str> for ProjectName {
-    fn as_ref(&self) -> &str {
-        &self.spelling
-    }
-}
-
-impl Display for ProjectName {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.spelling)
+/// How the publisher or name of a typed usage of any kind normalizes: as
+/// an index usage's if it is spelled as an index usage can spell it,
+/// otherwise as a project's. A value that is not even a valid project
+/// field is kept as it is
+pub(crate) fn normalize_typed(value: &str, kind: IdentifierKind) -> String {
+    if kind.is_valid_unnormalized(value) {
+        normalize_index_field(value)
+    } else {
+        parse_project_field(value, kind.field()).unwrap_or_else(|_| value.to_owned())
     }
 }
 
