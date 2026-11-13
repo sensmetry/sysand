@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{assert_matches, convert::Infallible, sync::Arc};
+use std::{assert_matches, sync::Arc};
 use sysand_core::paths::relativize_path;
 
 use anyhow::{Result, anyhow, bail};
@@ -93,12 +93,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
             };
             // Refused, already present or settled by what is declared, before
             // anything is resolved or looked up
-            match index_usage_to_add::<!>(
-                &current.usages(),
-                publisher,
-                name,
-                version_constraint,
-            )? {
+            match index_usage_to_add::<!>(&current.usages(), publisher, name, version_constraint)? {
                 IndexUsageToAdd::AlreadyPresent => UsageToAdd::AlreadyPresent,
                 IndexUsageToAdd::Ready(usage) => UsageToAdd::Ready(usage),
                 IndexUsageToAdd::New {
@@ -408,7 +403,7 @@ fn add_usage(
         Ok(added) => Ok(added),
         Err(EditError::Reload(error)) => {
             backup.restore(ctx)?;
-            Err(EditError::<Infallible>::Reload(error).into())
+            Err(EditError::<!>::Reload(error).into())
         }
         Err(error) => Err(error.into()),
     }

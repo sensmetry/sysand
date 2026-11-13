@@ -139,13 +139,12 @@ fn declared_sources(manifest: &Utf8Path) -> Result<Vec<String>, String> {
         .get("project")
         .and_then(|project| project.get("sources"))
         .and_then(toml::Value::as_array)
-        .map(|entries| {
+        .map_or_default(|entries| {
             entries
                 .iter()
                 .filter_map(|entry| entry.as_str().map(ToOwned::to_owned))
                 .collect()
-        })
-        .unwrap_or_default())
+        }))
 }
 
 /// One way a built archive differs from the published release.

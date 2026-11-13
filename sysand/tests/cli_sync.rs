@@ -1032,7 +1032,7 @@ fn sync_fails_on_a_rebuilt_kpar_dependency() -> Result<(), Box<dyn std::error::E
 /// command line's own words
 #[test]
 fn sync_refuses_a_lockfile_a_newer_release_wrote() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "newer_lock", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_toml_project_basic("acme", "newer-lock", "1.2.3")?;
     out.assert().success();
     fs::write(cwd.join(DEFAULT_LOCKFILE_NAME), "lock_version = \"99.0\"\n")?;
 

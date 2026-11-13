@@ -170,7 +170,7 @@ fn edit_project_needs_a_current_project() {
     use crate::context::EditError;
     let mut ctx = ProjectContext::default();
     assert!(matches!(
-        ctx.edit_project(|_| Ok::<(), std::convert::Infallible>(())),
+        ctx.edit_project(|_| Ok::<(), !>(())),
         Err(EditError::NoProject)
     ));
 }

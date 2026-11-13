@@ -57,7 +57,7 @@ fn bridge_is_cancelled_mid_future() {
 struct Stalled;
 
 impl ProjectReadAsync for Stalled {
-    type Error = std::convert::Infallible;
+    type Error = !;
 
     async fn get_project_async(
         &self,
@@ -162,7 +162,7 @@ fn environment_adapter_propagates_the_token() {
     #[derive(Debug)]
     struct OneProject;
     impl ReadEnvironmentAsync for OneProject {
-        type ReadError = std::convert::Infallible;
+        type ReadError = !;
         type UriStream = futures::stream::Iter<std::vec::IntoIter<Result<String, Self::ReadError>>>;
         async fn uris_async(&self) -> Result<Self::UriStream, Self::ReadError> {
             Ok(futures::stream::iter(vec![Ok("urn:one".to_owned())]))

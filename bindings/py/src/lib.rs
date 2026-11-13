@@ -64,7 +64,10 @@ use sysand_core::{
     index_location::IndexSource,
     info::{InfoError, InfoProjectError, do_info, do_info_project},
     init::InitError,
-    lock::{Lockfile, Project as LockedProject},
+    lock::{
+        CURRENT_LOCK_VERSION, Lockfile, LockfileError, ParseError as LockParseError,
+        Project as LockedProject, VersionError,
+    },
     manifest::inherit::MetaProperty,
     model::{
         IndexName, IndexPublisher, InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw,
@@ -724,8 +727,8 @@ fn project_context(
 /// a `ProjectError`.
 fn context_error_to_pyerr(err: &anyhow::Error) -> PyErr {
     let message = format_err(&**err);
-    if err.downcast_ref::<EnvMetadataError>().is_some() {
-        return PyEnvError::new_err(message);
+    if let Some(err) = err.downcast_ref::<EnvMetadataError>() {
+        return env_error(err);
     }
     match err.downcast_ref::<WorkspaceLockError>() {
         Some(WorkspaceLockError::Held { root: _ }) => PyLockHeldError::new_err(message),
@@ -887,6 +890,9 @@ impl Failure {
 /// become `SolveError` with their conflicts, unless the solver itself hit a
 /// transport or authentication problem, which is classified like `info`'s.
 fn lock_error_to_failure(err: anyhow::Error, auth: &AuthSpec, policy: &CliAuthPolicy) -> Failure {
+    if let Some(err) = err.downcast_ref::<LockfileError>() {
+        return Failure::Py(lockfile_read_error(err));
+    }
     let message = format_err(&*err);
     match err.downcast_ref::<CliLockError<CliAuthPolicy>>() {
         Some(LockProjectError::LockError(LockError::Solver(solver))) => {
@@ -1020,9 +1026,7 @@ fn do_sync_py(
         // The lockfile is read, or written, before the environment is
         // created, so a failure to lock leaves no environment behind.
         let (lock, wrote_lock) = if let Some(text) = lock_text {
-            let lock = Lockfile::parse_text(&text).map_err(|e| {
-                ProjectError::new_err(format!("invalid lockfile: {}", format_err(e)))
-            })?;
+            let lock = Lockfile::parse_text(&text).map_err(|e| lockfile_error(None, &e))?;
             lock.warn_release_mismatches();
             (lock, false)
         } else {
@@ -1073,8 +1077,7 @@ fn do_sync_py(
         let projects = ctx
             .env
             .as_ref()
-            .map(|env| env.projects().to_vec())
-            .unwrap_or_default();
+            .map_or_default(|env| env.projects().to_vec());
         Ok((outcome, projects))
     });
     outcome.map_err(|failure| failure.into_pyerr(py))
@@ -1846,8 +1849,8 @@ fn with_hint(message: String, hint: Option<String>) -> String {
 }
 
 /// `ProjectError` for an environment that could not be read.
-fn env_error(err: EnvMetadataError) -> PyErr {
-    let hint = newer_environment_hint(&err);
+fn env_error(err: &EnvMetadataError) -> PyErr {
+    let hint = newer_environment_hint(err);
     ProjectError::new_err(with_hint(format_err(err), hint))
 }
 
@@ -1860,7 +1863,7 @@ fn env_read_to_pyerr(err: EnvMetadataError) -> PyErr {
 
 /// `ProjectError` for a lockfile that could not be parsed: the one at `path`,
 /// or text the caller supplied.
-fn lockfile_error(path: Option<&Utf8Path>, err: LockParseError) -> PyErr {
+fn lockfile_error(path: Option<&Utf8Path>, err: &LockParseError) -> PyErr {
     let hint = matches!(err, LockParseError::Version(VersionError::Newer(_))).then(|| {
         format!(
             "upgrade to the release that wrote the lockfile, or call `lock()`, which writes \
@@ -1875,10 +1878,10 @@ fn lockfile_error(path: Option<&Utf8Path>, err: LockParseError) -> PyErr {
 }
 
 /// `ProjectError` for a lockfile that could not be read from disk.
-fn lockfile_read_error(err: LockfileError) -> PyErr {
+fn lockfile_read_error(err: &LockfileError) -> PyErr {
     match err {
-        LockfileError::Parse(path, err) => lockfile_error(Some(&path), err),
-        err @ LockfileError::Io(_) => ProjectError::new_err(format_err(err)),
+        LockfileError::Parse(path, err) => lockfile_error(Some(path), err),
+        LockfileError::Io(_) => ProjectError::new_err(format_err(err)),
     }
 }
 

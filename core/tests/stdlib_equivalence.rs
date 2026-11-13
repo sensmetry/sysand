@@ -53,13 +53,12 @@ fn source_names(asset: &str) -> Result<Vec<String>, String> {
     let mut names: Vec<String> = meta
         .get("index")
         .and_then(serde_json::Value::as_object)
-        .map(|index| {
+        .map_or_default(|index| {
             index
                 .values()
                 .filter_map(|v| v.as_str().map(ToOwned::to_owned))
                 .collect()
-        })
-        .unwrap_or_default();
+        });
     names.sort_unstable();
     names.dedup();
     Ok(names)

@@ -454,13 +454,12 @@ fn edit_toml_list(
             .get("project")
             .and_then(|project| project.get(key.as_str()))
             .and_then(|list| list.as_array())
-            .map(|list| {
+            .map_or_default(|list| {
                 list.iter()
                     .filter_map(Value::as_str)
                     .map(str::to_owned)
                     .collect()
-            })
-            .unwrap_or_default();
+            });
         let mut found = false;
         // Removed from the end, so the indexes of the rest stay valid
         for (at, entry) in entries.iter().enumerate().rev() {

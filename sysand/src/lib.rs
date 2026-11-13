@@ -244,10 +244,7 @@ pub fn run_parsed_as(
     for cause in causes {
         eprintln!("{style}  caused by:{style:#} {cause}");
     }
-    if let Some(hint) = err
-        .downcast_ref::<CliError>()
-        .and_then(|e| hints::for_error(e, program))
-    {
+    if let Some(hint) = hints::for_error(&err, program) {
         let hint_style = style::NOTE;
         eprintln!("\n{hint_style}hint{hint_style:#}: {hint}");
     }

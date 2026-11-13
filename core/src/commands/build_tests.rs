@@ -962,8 +962,7 @@ fn names(archives: &[super::LocalKParProjectRaw]) -> Vec<String> {
             crate::project::ProjectRead::get_project(p)
                 .ok()
                 .flatten()
-                .map(|definition| definition.name().to_owned())
-                .unwrap_or_default()
+                .map_or_default(|definition| definition.name().to_owned())
         })
         .collect()
 }

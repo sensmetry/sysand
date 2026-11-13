@@ -4,7 +4,7 @@
 //! `do_verify` against a real `.sysand` in a temp directory.
 
 use std::assert_matches;
-use std::{collections::HashMap, convert::Infallible, io::Write as _, num::NonZeroU64};
+use std::{collections::HashMap, io::Write as _, num::NonZeroU64};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use camino_tempfile::{Utf8TempDir, tempdir};
@@ -23,10 +23,10 @@ use crate::{
     utils::sha256_lowercase_hex,
 };
 
-type NoRemoteSrc = fn(String, String) -> Result<InMemoryProject, Infallible>;
-type NoRemoteKpar = fn(String, NonZeroU64, String) -> Result<InMemoryProject, Infallible>;
-type NoGit = fn(String) -> Result<InMemoryProject, Infallible>;
-type NoEditable = fn(Utf8UnixPathBuf) -> Result<InMemoryProject, Infallible>;
+type NoRemoteSrc = fn(String, String) -> Result<InMemoryProject, !>;
+type NoRemoteKpar = fn(String, NonZeroU64, String) -> Result<InMemoryProject, !>;
+type NoGit = fn(String) -> Result<InMemoryProject, !>;
+type NoEditable = fn(Utf8UnixPathBuf) -> Result<InMemoryProject, !>;
 
 /// A dependency project directory: one model file, checksummed in
 /// `.meta.json`.

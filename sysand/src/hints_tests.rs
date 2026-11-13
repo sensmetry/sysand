@@ -21,7 +21,11 @@ fn lockfile_error(lock_version: &str) -> CliError {
 
 #[test]
 fn a_lockfile_a_newer_release_wrote_names_the_program_s_lock_command() {
-    let hint = for_error(&lockfile_error("99.0"), "syside project").unwrap();
+    let hint = for_error(
+        &anyhow::Error::from(lockfile_error("99.0")),
+        "syside project",
+    )
+    .unwrap();
     assert!(
         hint.starts_with("upgrade to the release that wrote `sysand-lock.toml`"),
         "{hint}"
@@ -32,8 +36,14 @@ fn a_lockfile_a_newer_release_wrote_names_the_program_s_lock_command() {
 
 #[test]
 fn an_older_or_unknown_lockfile_version_has_no_hint() {
-    assert_eq!(for_error(&lockfile_error("0.3"), "sysand"), None);
-    assert_eq!(for_error(&lockfile_error("X"), "sysand"), None);
+    assert_eq!(
+        for_error(&anyhow::Error::from(lockfile_error("0.3")), "sysand"),
+        None
+    );
+    assert_eq!(
+        for_error(&anyhow::Error::from(lockfile_error("X")), "sysand"),
+        None
+    );
 }
 
 #[test]
@@ -42,7 +52,7 @@ fn an_environment_a_newer_release_wrote_names_the_program_s_sync_command() {
         Utf8PathBuf::from(".sysand/env.toml"),
         EnvParseError::NewerVersion("99.0".to_owned()),
     ));
-    let hint = for_error(&err, "syside project").unwrap();
+    let hint = for_error(&anyhow::Error::from(err), "syside project").unwrap();
     assert!(
         hint.starts_with("upgrade to the release that wrote `.sysand/env.toml`"),
         "{hint}"
@@ -59,13 +69,16 @@ fn an_unreadable_environment_of_this_version_has_no_hint() {
         Utf8PathBuf::from(".sysand/env.toml"),
         EnvParseError::UnsupportedVersion("x.y".to_owned()),
     ));
-    assert_eq!(for_error(&err, "sysand"), None);
+    assert_eq!(for_error(&anyhow::Error::from(err), "sysand"), None);
 }
 
 #[test]
 fn an_unrelated_error_has_no_hint() {
     assert_eq!(
-        for_error(&CliError::MissingProjectCurrentDir, "sysand"),
+        for_error(
+            &anyhow::Error::from(CliError::MissingProjectCurrentDir),
+            "sysand"
+        ),
         None
     );
 }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{convert::Infallible, num::NonZeroU64, sync::Arc};
+use std::{num::NonZeroU64, sync::Arc};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use thiserror::Error;
@@ -372,7 +372,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         // A workspace member resolves its manifest against the table.
         Some(|editable: Utf8UnixPathBuf| {
             let path = relative_root.join(editable.as_str());
-            Ok::<_, Infallible>(match workspace {
+            Ok::<_, !>(match workspace {
                 Some(table) if members.contains(&editable) => {
                     LocalSrcProject::new_member(path, Some(editable), table.clone())
                 }
