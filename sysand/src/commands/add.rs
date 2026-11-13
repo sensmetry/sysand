@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{assert_matches, collections::HashMap, convert::Infallible, sync::Arc};
+use std::{assert_matches, convert::Infallible, sync::Arc};
 use sysand_core::paths::relativize_path;
 
 use anyhow::{Result, anyhow, bail};
@@ -277,26 +277,21 @@ pub fn command_add<Policy: HTTPAuthentication>(
         return Ok(added);
     }
 
-    let provided_iris = if resolution_opts.include_std {
-        HashMap::default()
-    } else {
-        let sysml_std = crate::known_std_libs();
-        if let UsageToAdd::Ready(InterchangeProjectUsageRaw::Resource {
-            resource,
-            version_constraint: _,
-        }) = &usage
-            && sysml_std.contains_key(resource.as_str())
-        {
-            log::info!(
-                "{GOOD}note{GOOD:#}: SysMLv2/KerML standard libraries will not be installed during sync"
-            );
-            // Can't skip either locking or syncing, since lockfile needs to add the usage,
-            // and std version being added may affect version resolution of other packages
-            // in the dependency graph (e.g. older versions used older std, newer use some
-            // newer version)
-        }
-        sysml_std
-    };
+    let provided_iris = resolution_opts.provided_iris(ProvidedProjects::default());
+    if let UsageToAdd::Ready(InterchangeProjectUsageRaw::Resource {
+        resource,
+        version_constraint: _,
+    }) = &usage
+        && provided_iris.contains_key(resource.as_str())
+    {
+        log::info!(
+            "{GOOD}note{GOOD:#}: SysMLv2/KerML standard libraries will not be installed during sync"
+        );
+        // Can't skip either locking or syncing, since lockfile needs to add the usage,
+        // and std version being added may affect version resolution of other packages
+        // in the dependency graph (e.g. older versions used older std, newer use some
+        // newer version)
+    }
 
     // Even when nothing is added, lock and sync, since the environment may
     // be missing or stale

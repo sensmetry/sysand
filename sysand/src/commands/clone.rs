@@ -6,7 +6,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 use fluent_uri::Iri;
 use semver::{Version, VersionReq};
 
-use std::{collections::HashMap, fs, io::ErrorKind, sync::Arc};
+use std::{fs, io::ErrorKind, sync::Arc};
 
 use sysand_core::{
     auth::HTTPAuthentication,
@@ -28,7 +28,7 @@ use sysand_core::{
         standard::{StandardResolver, standard_resolver},
     },
     solve::pubgrub::DEFAULT_INDEX_CONSTRAINT,
-    utils::{SP, format_err},
+    utils::{ProvidedProjects, SP, format_err},
     workspace::model_toml::Selector,
 };
 
@@ -97,7 +97,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         );
     }
 
-    let (include_std, locator, local_project, std_resolver) = match obtain_project(
+    let (provided_usages, locator, local_project, std_resolver) = match obtain_project(
         locator,
         version_constraint,
         resolution_opts,
@@ -134,12 +134,6 @@ pub fn command_clone<Policy: HTTPAuthentication>(
     .ctx;
 
     if !no_deps {
-        let provided_usages = if include_std {
-            HashMap::default()
-        } else {
-            crate::known_std_libs()
-        };
-
         let resolver = PriorityResolver::new(
             MemoryResolver {
                 iri_predicate: AcceptAll {},
@@ -211,7 +205,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
     cancellation: CancellationToken,
 ) -> Result<
     (
-        bool,
+        ProvidedProjects,
         ProjectLocator,
         LocalSrcProject,
         StandardResolver<Policy>,
@@ -219,7 +213,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
     anyhow::Error,
 > {
     let index_urls = resolution_opts.index_urls(config);
-    let include_std = resolution_opts.include_std;
+    let provided_usages = resolution_opts.provided_iris(ProvidedProjects::default());
     let locator = match locator {
         CloneProjectLocatorArgs {
             identifier: Some((publisher, name)),
@@ -354,7 +348,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
         }
     }
 
-    Ok((include_std, locator, local_project, std_resolver))
+    Ok((provided_usages, locator, local_project, std_resolver))
 }
 
 fn clone_local<P: ProjectRead>(

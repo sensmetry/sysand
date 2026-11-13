@@ -143,21 +143,7 @@ pub fn create_resolver<Policy: HTTPAuthentication>(
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
-) -> Result<
-    PriorityResolver<
-        PriorityResolver<
-            MemoryResolver<
-                AcceptResource,
-                sysand_core::project::reference::ProjectReference<
-                    sysand_core::project::any::AnyProject<Policy>,
-                >,
-            >,
-            MemoryResolver<AcceptAll, InMemoryProject>,
-        >,
-        StandardResolver<Policy>,
-    >,
-    anyhow::Error,
-> {
+) -> Result<CliResolver<Policy>> {
     let index_urls = resolution_opts.index_urls(config);
 
     let overrides = get_overrides(
