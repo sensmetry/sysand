@@ -1119,6 +1119,25 @@ impl<ProjectError> From<FsIoError> for ProjectOrIOError<ProjectError> {
     }
 }
 
+/// Read the `model.toml` document of `project`, let `edit` change it, and
+/// write it back if its text changed. `edit` also sees the project.
+pub fn edit_manifest_document<P, T, E>(
+    project: &mut P,
+    edit: impl FnOnce(&P, &mut DocumentMut) -> Result<T, E>,
+) -> Result<T, E>
+where
+    P: ProjectMut + ?Sized,
+    E: From<ManifestError<P::Error>> + From<ManifestWriteError<P::Error>>,
+{
+    let mut document = project.manifest_document()?;
+    let before = document.to_string();
+    let value = edit(project, &mut document)?;
+    if document.to_string() != before {
+        project.put_manifest_document(&document, true)?;
+    }
+    Ok(value)
+}
+
 pub trait ProjectMut: ProjectRead {
     fn put_info(
         &mut self,

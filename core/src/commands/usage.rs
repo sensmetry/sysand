@@ -99,9 +99,11 @@ pub enum SetConstraintLocalError {
     #[error(transparent)]
     Edit(SetConstraintError),
     #[error(transparent)]
-    Manifest(crate::project::ManifestError<crate::project::local_src::LocalSrcError>),
+    Manifest(#[from] crate::project::ManifestError<crate::project::local_src::LocalSrcError>),
     #[error(transparent)]
-    ManifestWrite(crate::project::ManifestWriteError<crate::project::local_src::LocalSrcError>),
+    ManifestWrite(
+        #[from] crate::project::ManifestWriteError<crate::project::local_src::LocalSrcError>,
+    ),
 }
 
 const USAGE_KEY: &str = "usage";
@@ -476,18 +478,9 @@ fn edit_toml_manifest(
     project: &mut crate::project::local_src::LocalSrcProject,
     edit: impl FnOnce(&mut toml_edit::DocumentMut) -> Result<ConstraintChange, SetConstraintError>,
 ) -> Result<ConstraintChange, SetConstraintLocalError> {
-    use crate::project::{ProjectMut as _, ProjectRead as _};
-
-    let mut document = project
-        .manifest_document()
-        .map_err(SetConstraintLocalError::Manifest)?;
-    let outcome = edit(&mut document).map_err(SetConstraintLocalError::Edit)?;
-    if matches!(outcome, ConstraintChange::Replaced { old: _, new: _ }) {
-        project
-            .put_manifest_document(&document, true)
-            .map_err(SetConstraintLocalError::ManifestWrite)?;
-    }
-    Ok(outcome)
+    crate::project::edit_manifest_document(project, |_, document| {
+        edit(document).map_err(SetConstraintLocalError::Edit)
+    })
 }
 
 #[cfg(feature = "filesystem")]

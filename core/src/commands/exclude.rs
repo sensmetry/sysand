@@ -23,9 +23,9 @@ pub enum ExcludeError<ProjectError> {
     #[error(transparent)]
     Edit(crate::manifest::edit::EditError),
     #[error(transparent)]
-    Manifest(crate::project::ManifestError<ProjectError>),
+    Manifest(#[from] crate::project::ManifestError<ProjectError>),
     #[error(transparent)]
-    ManifestWrite(crate::project::ManifestWriteError<ProjectError>),
+    ManifestWrite(#[from] crate::project::ManifestWriteError<ProjectError>),
     /// Removing the `root` from `sources` would leave a manifest that
     /// cannot be read.
     #[error("`{0}` is the project's `root`; set another `root` before excluding it")]
@@ -89,45 +89,39 @@ fn exclude_toml<Pr: ProjectMut, P: AsRef<Utf8UnixPath>, I: Iterator<Item = P>>(
     project: &mut Pr,
     paths: I,
 ) -> Result<Vec<SourceExclusionOutcome>, ExcludeError<Pr::Error>> {
-    let mut document = project
-        .manifest_document()
-        .map_err(ExcludeError::Manifest)?;
+    crate::project::edit_manifest_document(project, |_, document| {
+        let mut outcomes = Vec::new();
+        for path in paths {
+            let path = path.as_ref();
+            let excluding = "Excluding";
+            let header = crate::style::get_style_config().header;
+            log::info!("{header}{excluding:>12}{header:#} file: `{path}`");
 
-    let mut outcomes = Vec::new();
-    for path in paths {
-        let path = path.as_ref();
-        let excluding = "Excluding";
-        let header = crate::style::get_style_config().header;
-        log::info!("{header}{excluding:>12}{header:#} file: `{path}`");
-
-        let root = document
-            .get("project")
-            .and_then(|project| project.get("root"))
-            .and_then(|root| root.as_str());
-        let normalized = crate::paths::normalize_relative(path.as_str())
-            .map_or_else(|_| path.as_str().to_owned(), |p| p.as_str().to_owned());
-        if root.is_some_and(|root| root == path.as_str() || root == normalized) {
-            return Err(ExcludeError::RootExcluded(path.as_str().into()));
-        }
-        crate::manifest::edit::exclude_source(&mut document, path.as_str()).map_err(|e| {
-            match e {
-                // Only this failure has json-arm wording.
-                crate::manifest::edit::EditError::SourceNotListed(_) => {
-                    ExcludeError::SourceNotFound(path.as_str().into())
-                }
-                other => ExcludeError::Edit(other),
+            let root = document
+                .get("project")
+                .and_then(|project| project.get("root"))
+                .and_then(|root| root.as_str());
+            let normalized = crate::paths::normalize_relative(path.as_str())
+                .map_or_else(|_| path.as_str().to_owned(), |p| p.as_str().to_owned());
+            if root.is_some_and(|root| root == path.as_str() || root == normalized) {
+                return Err(ExcludeError::RootExcluded(path.as_str().into()));
             }
-        })?;
-        outcomes.push(SourceExclusionOutcome {
-            removed_checksum: None,
-            removed_symbols: Vec::new(),
-        });
-    }
-
-    project
-        .put_manifest_document(&document, true)
-        .map_err(ExcludeError::ManifestWrite)?;
-    Ok(outcomes)
+            crate::manifest::edit::exclude_source(document, path.as_str()).map_err(|e| {
+                match e {
+                    // Only this failure has json-arm wording.
+                    crate::manifest::edit::EditError::SourceNotListed(_) => {
+                        ExcludeError::SourceNotFound(path.as_str().into())
+                    }
+                    other => ExcludeError::Edit(other),
+                }
+            })?;
+            outcomes.push(SourceExclusionOutcome {
+                removed_checksum: None,
+                removed_symbols: Vec::new(),
+            });
+        }
+        Ok(outcomes)
+    })
 }
 
 #[derive(Debug)]

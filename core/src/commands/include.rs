@@ -51,9 +51,9 @@ pub enum IncludeError<ProjectError> {
     #[error(transparent)]
     Edit(crate::manifest::edit::EditError),
     #[error(transparent)]
-    Manifest(crate::project::ManifestError<ProjectError>),
+    Manifest(#[from] crate::project::ManifestError<ProjectError>),
     #[error(transparent)]
-    ManifestWrite(crate::project::ManifestWriteError<ProjectError>),
+    ManifestWrite(#[from] crate::project::ManifestWriteError<ProjectError>),
 }
 
 impl<ProjectError> From<FsIoError> for IncludeError<ProjectError> {
@@ -155,50 +155,46 @@ fn include_toml<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
     index_symbols: bool,
     force_format: Option<Language>,
 ) -> Result<(), IncludeError<Pr::Error>> {
-    let mut document = project
-        .manifest_document()
-        .map_err(IncludeError::Manifest)?;
-    // If neither the resolved manifest nor the document gives a metamodel,
-    // the file type check is skipped.
-    let metamodel = project_metamodel(project, &document);
+    crate::project::edit_manifest_document(project, |project, document| {
+        // If neither the resolved manifest nor the document gives a metamodel,
+        // the file type check is skipped.
+        let metamodel = project_metamodel(project, document);
 
-    // Checked before the "computed at build" refusals, which would be
-    // misleading on a Syside project.
-    if !index_symbols
-        && metamodel
-            .as_ref()
-            .is_some_and(|kind| kind.family == crate::model::MetamodelFamily::Syside)
-    {
-        return Err(IncludeError::NoIndexSymbolsOnRoot);
-    }
-    if compute_checksum {
-        return Err(IncludeError::ComputedField("checksum"));
-    }
-    if !index_symbols {
-        return Err(IncludeError::ComputedField("index"));
-    }
-    if force_format.is_some() {
-        return Err(IncludeError::ForceFormat);
-    }
-
-    for path in paths {
-        let including = "Including";
-        let header = crate::style::get_style_config().header;
-        log::info!("{header}{including:>12}{header:#} file `{path}`");
-
-        if let Some(kind) = &metamodel
-            && let Err(problem) = crate::manifest::common::admitted_source(&path, kind)
+        // Checked before the "computed at build" refusals, which would be
+        // misleading on a Syside project.
+        if !index_symbols
+            && metamodel
+                .as_ref()
+                .is_some_and(|kind| kind.family == crate::model::MetamodelFamily::Syside)
         {
-            return Err(IncludeError::NotAdmitted(problem.message.into()));
+            return Err(IncludeError::NoIndexSymbolsOnRoot);
+        }
+        if compute_checksum {
+            return Err(IncludeError::ComputedField("checksum"));
+        }
+        if !index_symbols {
+            return Err(IncludeError::ComputedField("index"));
+        }
+        if force_format.is_some() {
+            return Err(IncludeError::ForceFormat);
         }
 
-        crate::manifest::edit::include_source(&mut document, path.as_str())
-            .map_err(IncludeError::Edit)?;
-    }
+        for path in paths {
+            let including = "Including";
+            let header = crate::style::get_style_config().header;
+            log::info!("{header}{including:>12}{header:#} file `{path}`");
 
-    project
-        .put_manifest_document(&document, true)
-        .map_err(IncludeError::ManifestWrite)
+            if let Some(kind) = &metamodel
+                && let Err(problem) = crate::manifest::common::admitted_source(&path, kind)
+            {
+                return Err(IncludeError::NotAdmitted(problem.message.into()));
+            }
+
+            crate::manifest::edit::include_source(document, path.as_str())
+                .map_err(IncludeError::Edit)?;
+        }
+        Ok(())
+    })
 }
 
 /// The text of one of `project`'s source files.

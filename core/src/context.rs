@@ -18,7 +18,7 @@ use crate::{
     manifest::{MODEL_TOML_FILE, edit::DocumentMut, kpar_view},
     paths::{RelativizePathError, relativize_path},
     project::{
-        ManifestError, ManifestWriteError, ProjectDefinition, ProjectMut as _, ProjectRead as _,
+        ManifestError, ManifestWriteError, ProjectDefinition, ProjectRead as _,
         local_src::{LocalSrcError, LocalSrcProject},
         utils::{FsIoError, ProjectDeserializationError},
     },
@@ -111,14 +111,14 @@ pub enum EditError<E> {
 #[derive(Debug, Error)]
 pub enum ManifestStep<E> {
     #[error(transparent)]
-    Read(ManifestError<LocalSrcError>),
+    Read(#[from] ManifestError<LocalSrcError>),
     #[error(transparent)]
     Edit(E),
     /// The edited manifest does not resolve, so it is not written.
     #[error(transparent)]
     Invalid(ProjectDeserializationError),
     #[error(transparent)]
-    Write(ManifestWriteError<LocalSrcError>),
+    Write(#[from] ManifestWriteError<LocalSrcError>),
 }
 
 #[cfg(feature = "filesystem")]
@@ -259,18 +259,16 @@ impl ProjectContext {
         edit: impl FnOnce(&mut DocumentMut) -> Result<T, E>,
     ) -> Result<T, EditError<ManifestStep<E>>> {
         self.edit_project(|project| {
-            let mut document = project.manifest_document().map_err(ManifestStep::Read)?;
-            let value = edit(&mut document).map_err(ManifestStep::Edit)?;
-            kpar_view::resolved_of_text_in(
-                MODEL_TOML_FILE,
-                &document.to_string(),
-                project.workspace_table().map(|table| &**table),
-            )
-            .map_err(ManifestStep::Invalid)?;
-            project
-                .put_manifest_document(&document, true)
-                .map_err(ManifestStep::Write)?;
-            Ok(value)
+            crate::project::edit_manifest_document(project, |project, document| {
+                let value = edit(document).map_err(ManifestStep::Edit)?;
+                kpar_view::resolved_of_text_in(
+                    MODEL_TOML_FILE,
+                    &document.to_string(),
+                    project.workspace_table().map(|table| &**table),
+                )
+                .map_err(ManifestStep::Invalid)?;
+                Ok(value)
+            })
         })
     }
 

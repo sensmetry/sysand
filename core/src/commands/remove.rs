@@ -36,6 +36,26 @@ pub enum RemoveError<ProjectError> {
     MissingInfo,
 }
 
+impl<ProjectError> From<crate::project::ManifestError<ProjectError>> for RemoveError<ProjectError> {
+    fn from(error: crate::project::ManifestError<ProjectError>) -> Self {
+        match error {
+            crate::project::ManifestError::Project(e) => Self::Project(e),
+            crate::project::ManifestError::NoTomlManifest => Self::MissingInfo,
+        }
+    }
+}
+
+impl<ProjectError> From<crate::project::ManifestWriteError<ProjectError>>
+    for RemoveError<ProjectError>
+{
+    fn from(error: crate::project::ManifestWriteError<ProjectError>) -> Self {
+        match error {
+            crate::project::ManifestWriteError::Project(e) => Self::Project(e),
+            crate::project::ManifestWriteError::Unsupported => Self::MissingInfo,
+        }
+    }
+}
+
 /// `remove` on a `model.toml` project.
 ///
 /// A manifest entry is matched by its normalized identity whatever its kind,
@@ -65,19 +85,9 @@ fn remove_toml<P: ProjectMut>(
         },
     };
 
-    let mut document = project.manifest_document().map_err(|e| match e {
-        crate::project::ManifestError::Project(e) => RemoveError::Project(e),
-        crate::project::ManifestError::NoTomlManifest => RemoveError::MissingInfo,
+    crate::project::edit_manifest_document(project, |_, document| {
+        edit::remove_usage(document, &identity).map_err(|_not_declared| not_found())
     })?;
-
-    edit::remove_usage(&mut document, &identity).map_err(|_not_declared| not_found())?;
-
-    project
-        .put_manifest_document(&document, true)
-        .map_err(|e| match e {
-            crate::project::ManifestWriteError::Project(e) => RemoveError::Project(e),
-            crate::project::ManifestWriteError::Unsupported => RemoveError::MissingInfo,
-        })?;
 
     // A manifest entry has no `.project.json` shape to hand back.
     Ok(vec![])
