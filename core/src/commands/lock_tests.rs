@@ -829,6 +829,7 @@ fn lock_workspace(
         crate::resolve::file::FileResolver::default(),
         &HashMap::default(),
         &ctx,
+        None,
     )
 }
 
@@ -862,6 +863,7 @@ where
         resolver,
         &HashMap::default(),
         &ctx,
+        None,
     )
 }
 
@@ -1575,6 +1577,7 @@ fn lock_json_project(dir: &camino::Utf8Path) -> Result<Lock, String> {
         &HashMap::default(),
         crate::resolve::file::FileResolver::default(),
         &ctx,
+        None,
     )
     .map_err(|e| crate::utils::format_err(&e))
 }

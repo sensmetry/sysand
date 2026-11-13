@@ -698,42 +698,6 @@ fn check_typed_usages(
 #[cfg(feature = "filesystem")]
 pub type EditableLocalSrcProject = EditableProject<LocalSrcProject>;
 
-/// [`do_lock_local_editable`], with the spelling of the project's typed usage
-/// of `respelled` not checked: the spelling is taken from the project that
-/// the usage resolved to, as recorded in the lock
-#[cfg(feature = "filesystem")]
-pub fn do_lock_local_editable_respelling<
-    P: AsRef<Utf8UnixPath>,
-    PR: AsRef<Utf8Path>,
-    PD: ProjectRead + Debug,
-    R: ResolveRead<ProjectStorage = PD> + Debug,
->(
-    path: P,
-    project_root: PR,
-    identifiers: Option<Vec<Iri<String>>>,
-    provided_usages: &ProvidedProjects,
-    resolver: R,
-    ctx: &ProjectContext,
-    respelled: &Identifier,
-) -> Result<Lock, LockProjectError<EditableLocalSrcProject, PD, R>> {
-    let project = EditableProject::new(
-        path.as_ref().to_owned(),
-        LocalSrcProject::new_access(
-            wrapfs::canonicalize(&project_root).map_err(LockError::Io)?,
-            None,
-        ),
-    );
-
-    let base_path = ctx.project_root();
-    lock_projects(
-        [(identifiers, &project, base_path, None)],
-        resolver,
-        provided_usages,
-        ctx,
-        Some(respelled),
-    )
-}
-
 /// Lock a whole workspace: every member, in one solve, into one lockfile.
 ///
 /// The lockfile is written in the workspace root. It records every project of
@@ -746,36 +710,11 @@ pub fn do_lock_local_editable_respelling<
 /// **`ctx.sources_root()` must be the workspace root.** Every solved
 /// local dependency's `src_path` is relativized against it. Checked with
 /// a `debug_assert`.
-#[cfg(feature = "filesystem")]
+///
+/// The spelling of the typed usage of `respelled` that the members declare
+/// is not checked (see [`check_typed_usages`]).
 #[cfg(feature = "filesystem")]
 pub fn do_lock_workspace<PD: ProjectRead + Debug, R: ResolveRead<ProjectStorage = PD> + Debug>(
-    workspace: &crate::workspace::model_toml::Workspace,
-    resolver: R,
-    provided_usages: &ProvidedProjects,
-    ctx: &ProjectContext,
-) -> Result<Lock, LockProjectError<EditableLocalSrcProject, PD, R>> {
-    lock_workspace(workspace, resolver, provided_usages, ctx, None)
-}
-
-/// [`do_lock_workspace`], with the spelling of the typed usage of
-/// `respelled` that the members declare not checked (see
-/// [`check_typed_usages`])
-#[cfg(feature = "filesystem")]
-pub fn do_lock_workspace_respelling<
-    PD: ProjectRead + Debug,
-    R: ResolveRead<ProjectStorage = PD> + Debug,
->(
-    workspace: &crate::workspace::model_toml::Workspace,
-    resolver: R,
-    provided_usages: &ProvidedProjects,
-    ctx: &ProjectContext,
-    respelled: &Identifier,
-) -> Result<Lock, LockProjectError<EditableLocalSrcProject, PD, R>> {
-    lock_workspace(workspace, resolver, provided_usages, ctx, Some(respelled))
-}
-
-#[cfg(feature = "filesystem")]
-fn lock_workspace<PD: ProjectRead + Debug, R: ResolveRead<ProjectStorage = PD> + Debug>(
     workspace: &crate::workspace::model_toml::Workspace,
     resolver: R,
     provided_usages: &ProvidedProjects,
@@ -844,6 +783,10 @@ fn lock_workspace<PD: ProjectRead + Debug, R: ResolveRead<ProjectStorage = PD> +
 }
 
 /// Treats a project at `path` as an editable project and solves for its dependencies.
+///
+/// The spelling of the project's typed usage of `respelled` is not checked:
+/// it is taken from the project that the usage resolved to, as recorded in
+/// the lock.
 #[cfg(feature = "filesystem")]
 pub fn do_lock_local_editable<
     P: AsRef<Utf8UnixPath>,
@@ -857,17 +800,23 @@ pub fn do_lock_local_editable<
     provided_usages: &ProvidedProjects,
     resolver: R,
     ctx: &ProjectContext,
+    respelled: Option<&Identifier>,
 ) -> Result<Lock, LockProjectError<EditableLocalSrcProject, PD, R>> {
-    let path = path.as_ref();
     let project = EditableProject::new(
-        path.to_owned(),
+        path.as_ref().to_owned(),
         LocalSrcProject::new_access(
             wrapfs::canonicalize(&project_root).map_err(LockError::Io)?,
             None,
         ),
     );
 
-    do_lock_projects([(identifiers, &project)], resolver, provided_usages, ctx)
+    lock_projects(
+        [(identifiers, &project, ctx.project_root(), None)],
+        resolver,
+        provided_usages,
+        ctx,
+        respelled,
+    )
 }
 
 #[cfg(test)]
