@@ -9,6 +9,7 @@ use fluent_uri::Iri;
 
 use crate::{
     auth::Unauthenticated,
+    cancel::CancellationToken,
     project::ProjectRead as _,
     resolve::{
         ResolutionInfo, ResolutionOutcome, ResolveRead, ResolveReadAsync as _,
@@ -53,12 +54,15 @@ fn basic_http_src_url_non_lax() -> Result<(), Box<dyn std::error::Error>> {
         lax: false,
         auth_policy: Arc::new(Unauthenticated {}), //prefer_ranged: true,
     }
-    .to_tokio_sync(Arc::new(
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap(),
-    ));
+    .to_tokio_sync(
+        Arc::new(
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap(),
+        ),
+        CancellationToken::new(),
+    );
 
     let ResolutionOutcome::Resolved(projects) = resolve(&resolver, &format!("http://{host}/foo/"))?
     else {
@@ -94,12 +98,15 @@ fn template_basic_http_url_lax(with_slash: bool) -> Result<(), Box<dyn std::erro
         lax: true,
         auth_policy: Arc::new(Unauthenticated {}),
     }
-    .to_tokio_sync(Arc::new(
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap(),
-    ));
+    .to_tokio_sync(
+        Arc::new(
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap(),
+        ),
+        CancellationToken::new(),
+    );
 
     let url = if with_slash {
         "http://www.example.invalid/foo/"

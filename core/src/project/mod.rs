@@ -21,7 +21,7 @@ pub use sysand_macros::ProjectRead;
 pub use typed_path::Utf8UnixPath;
 
 use crate::{
-    cancel::{Cancellable, CancellationToken, bridge},
+    cancel::{Bridge, Cancellable, CancellationToken},
     context::ProjectContext,
     env::utils::ErrorBound,
     lock::Source,
@@ -1010,16 +1010,9 @@ pub trait ProjectReadAsync {
         Ok(ProjectFormat::Json)
     }
 
-    /// Treat this `ProjectReadAsync` as a `ProjectRead` using the provided tokio runtime.
-    fn to_tokio_sync(self, runtime: Arc<tokio::runtime::Runtime>) -> AsSyncProjectTokio<Self>
-    where
-        Self: Sized,
-    {
-        AsSyncProjectTokio::new(runtime, self)
-    }
-
-    /// [`Self::to_tokio_sync`] observing `token` at every bridge.
-    fn to_tokio_sync_with(
+    /// Treat this `ProjectReadAsync` as a `ProjectRead` run on `runtime`,
+    /// observing `token` at every bridge.
+    fn to_tokio_sync(
         self,
         runtime: Arc<tokio::runtime::Runtime>,
         token: CancellationToken,
@@ -1027,7 +1020,7 @@ pub trait ProjectReadAsync {
     where
         Self: Sized,
     {
-        AsSyncProjectTokio::new(runtime, self).with_cancellation(token)
+        AsSyncProjectTokio::new(Bridge::new(runtime, token), self)
     }
 }
 
@@ -1408,27 +1401,15 @@ where
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct AsSyncProjectTokio<T> {
-    runtime: Arc<tokio::runtime::Runtime>,
+    bridge: Bridge,
     inner: T,
-    token: CancellationToken,
 }
 
 impl<T> AsSyncProjectTokio<T> {
-    /// Bridge `inner` on `runtime`, with no cancellation.
-    pub fn new(runtime: Arc<tokio::runtime::Runtime>, inner: T) -> Self {
-        Self {
-            runtime,
-            inner,
-            token: CancellationToken::new(),
-        }
+    pub fn new(bridge: Bridge, inner: T) -> Self {
+        Self { bridge, inner }
     }
 
-    /// Observe `token` at every bridge.
-    #[must_use]
-    pub fn with_cancellation(mut self, token: CancellationToken) -> Self {
-        self.token = token;
-        self
-    }
     /// The bridged project.
     pub fn inner(&self) -> &T {
         &self.inner
@@ -1443,39 +1424,22 @@ impl<T> AsSyncProjectTokio<T> {
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct AsSyncReaderTokio<T> {
-    runtime: Arc<tokio::runtime::Runtime>,
+    bridge: Bridge,
     inner: T,
-    token: CancellationToken,
 }
 
 impl<T> AsSyncReaderTokio<T> {
-    pub fn new(runtime: Arc<tokio::runtime::Runtime>, inner: T) -> Self {
-        Self {
-            runtime,
-            inner,
-            token: CancellationToken::new(),
-        }
-    }
-
-    #[must_use]
-    pub fn with_cancellation(mut self, token: CancellationToken) -> Self {
-        self.token = token;
-        self
+    pub fn new(bridge: Bridge, inner: T) -> Self {
+        Self { bridge, inner }
     }
 }
 
 impl<T: AsyncRead + Unpin> Read for AsSyncReaderTokio<T> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         use futures::AsyncReadExt as _;
-        let Self {
-            runtime,
-            inner,
-            token,
-        } = self;
-        match runtime.block_on(token.run_until_cancelled(inner.read(buf))) {
-            Some(result) => result,
-            None => Err(crate::cancel::cancelled_io_error()),
-        }
+        self.bridge
+            .run_value(self.inner.read(buf))
+            .unwrap_or_else(|| Err(crate::cancel::cancelled_io_error()))
     }
 }
 
@@ -1491,7 +1455,7 @@ impl<T: ProjectReadAsync> ProjectRead for AsSyncProjectTokio<T> {
     }
 
     fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
-        bridge(&self.runtime, &self.token, self.inner.get_project_async())
+        self.bridge.run(self.inner.get_project_async())
     }
 
     type SourceReader<'a>
@@ -1503,44 +1467,35 @@ impl<T: ProjectReadAsync> ProjectRead for AsSyncProjectTokio<T> {
         &self,
         path: P,
     ) -> Result<Self::SourceReader<'_>, Self::Error> {
-        let reader = bridge(
-            &self.runtime,
-            &self.token,
-            self.inner.read_source_async(path),
-        )?;
-        Ok(AsSyncReaderTokio::new(self.runtime.clone(), reader)
-            .with_cancellation(self.token.clone()))
+        let reader = self.bridge.run(self.inner.read_source_async(path))?;
+        Ok(AsSyncReaderTokio::new(self.bridge.clone(), reader))
     }
 
     fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
-        bridge(&self.runtime, &self.token, self.inner.sources_async(ctx))
+        self.bridge.run(self.inner.sources_async(ctx))
     }
 
     fn version(&self) -> Result<Option<String>, Self::Error> {
-        bridge(&self.runtime, &self.token, self.inner.version_async())
+        self.bridge.run(self.inner.version_async())
     }
 
     fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
-        bridge(&self.runtime, &self.token, self.inner.usage_async())
+        self.bridge.run(self.inner.usage_async())
     }
 
     fn is_definitely_invalid(&self) -> bool {
         // A cancelled probe says nothing; the next `Result` checkpoint
         // reports the cancellation.
-        crate::cancel::bridge_value(
-            &self.runtime,
-            &self.token,
-            self.inner.is_definitely_invalid_async(),
-        )
-        .unwrap_or(false)
+        self.bridge
+            .run_value(self.inner.is_definitely_invalid_async())
+            .unwrap_or(false)
     }
 
     fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
-        match crate::cancel::bridge_value(
-            &self.runtime,
-            &self.token,
-            self.inner.checksum_canonical_hex_async(),
-        ) {
+        match self
+            .bridge
+            .run_value(self.inner.checksum_canonical_hex_async())
+        {
             Some(Ok(hex)) => Ok(hex),
             Some(Err(CanonicalizationError::ProjectRead(error))) => Err(
                 CanonicalizationError::ProjectRead(Cancellable::Inner(error)),
@@ -1555,11 +1510,8 @@ impl<T: ProjectReadAsync> ProjectRead for AsSyncProjectTokio<T> {
     }
 
     fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
-        bridge(
-            &self.runtime,
-            &self.token,
-            self.inner.checksum_canonical_variant_async(),
-        )
+        self.bridge
+            .run(self.inner.checksum_canonical_variant_async())
     }
 
     fn project_root(&self) -> Option<&Utf8Path> {

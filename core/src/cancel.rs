@@ -4,9 +4,8 @@
 //! Cancellation of long operations.
 //!
 //! A [`CancellationToken`] is observed at the *bridge checkpoints*: every
-//! `block_on` of the `AsSync*Tokio` adapters and of `SyncStreamIter`, the
-//! solver between candidates, and a git clone through
-//! `GitInterrupt`. The synchronous step in flight (an archive's
+//! future run through a [`Bridge`], the solver between candidates, and a
+//! git clone through `GitInterrupt`. The synchronous step in flight (an archive's
 //! extraction, a lockfile's write, a `put_project` move) completes
 //! atomically first; none of those goes through a bridge, and a token
 //! cannot interrupt them. `sync --verify` afterwards is clean or reports
@@ -19,9 +18,9 @@
 //! every other error is [`Cancellable::Inner`]. The CLI turns a cancelled
 //! run into "cancelled" and exit code 130.
 
-use std::future::Future;
 #[cfg(feature = "networking")]
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
+use std::{future::Future, sync::Arc};
 
 use thiserror::Error;
 pub use tokio_util::sync::CancellationToken;
@@ -54,27 +53,35 @@ pub fn current_thread_runtime() -> std::io::Result<tokio::runtime::Runtime> {
         .build()
 }
 
-/// Run `future` on `runtime` until it completes or `token` is cancelled.
-pub fn bridge<T, E, F: Future<Output = Result<T, E>>>(
-    runtime: &tokio::runtime::Runtime,
-    token: &CancellationToken,
-    future: F,
-) -> Result<T, Cancellable<E>> {
-    match runtime.block_on(token.run_until_cancelled(future)) {
-        Some(Ok(value)) => Ok(value),
-        Some(Err(error)) => Err(Cancellable::Inner(error)),
-        None => Err(Cancellable::Cancelled(Cancelled)),
-    }
+/// A runtime that runs each future until it completes or the token is
+/// cancelled.
+#[derive(Debug, Clone)]
+pub struct Bridge {
+    runtime: Arc<tokio::runtime::Runtime>,
+    token: CancellationToken,
 }
 
-/// [`bridge`] for a future whose output is not a `Result`: `None` when
-/// cancelled.
-pub fn bridge_value<T, F: Future<Output = T>>(
-    runtime: &tokio::runtime::Runtime,
-    token: &CancellationToken,
-    future: F,
-) -> Option<T> {
-    runtime.block_on(token.run_until_cancelled(future))
+impl Bridge {
+    pub fn new(runtime: Arc<tokio::runtime::Runtime>, token: CancellationToken) -> Self {
+        Self { runtime, token }
+    }
+
+    /// Run `future`; [`Cancellable::Cancelled`] when the token is cancelled
+    /// first.
+    pub fn run<T, E>(
+        &self,
+        future: impl Future<Output = Result<T, E>>,
+    ) -> Result<T, Cancellable<E>> {
+        self.run_value(future)
+            .ok_or(Cancellable::Cancelled(Cancelled))?
+            .map_err(Cancellable::Inner)
+    }
+
+    /// Run `future`; `None` when the token is cancelled first.
+    pub fn run_value<T>(&self, future: impl Future<Output = T>) -> Option<T> {
+        self.runtime
+            .block_on(self.token.run_until_cancelled(future))
+    }
 }
 
 /// The `io::Error` a cancelled synchronous reader returns. Not

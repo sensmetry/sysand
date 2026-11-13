@@ -7,7 +7,7 @@ use futures::{Stream, StreamExt as _, TryStreamExt as _};
 use thiserror::Error;
 
 use crate::{
-    cancel::{Cancellable, CancellationToken, bridge},
+    cancel::{Bridge, Cancellable, CancellationToken},
     env::utils::ErrorBound,
     project::{
         AsAsyncProject, AsSyncProjectTokio, ProjectChecksum, ProjectMut, ProjectRead,
@@ -196,16 +196,9 @@ pub trait ReadEnvironmentAsync {
 
     // TODO: Maybe make this return an associated type instead? Would, for example, allow
     // .as_async.as_tokio_sync == .as_tokio_sync.as_async == id
-    /// Treat this `ReadEnvironmentAsync` as a `ReadEnvironment`, using the supplied tokio runtime.
-    fn to_tokio_sync(self, runtime: Arc<tokio::runtime::Runtime>) -> AsSyncEnvironmentTokio<Self>
-    where
-        Self: Sized,
-    {
-        AsSyncEnvironmentTokio::new(runtime, self)
-    }
-
-    /// [`Self::to_tokio_sync`] observing `token` at every bridge.
-    fn to_tokio_sync_with(
+    /// Treat this `ReadEnvironmentAsync` as a `ReadEnvironment` run on
+    /// `runtime`, observing `token` at every bridge.
+    fn to_tokio_sync(
         self,
         runtime: Arc<tokio::runtime::Runtime>,
         token: CancellationToken,
@@ -213,7 +206,7 @@ pub trait ReadEnvironmentAsync {
     where
         Self: Sized,
     {
-        AsSyncEnvironmentTokio::new(runtime, self).with_cancellation(token)
+        AsSyncEnvironmentTokio::new(Bridge::new(runtime, token), self)
     }
 }
 
@@ -276,24 +269,13 @@ where
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct AsSyncEnvironmentTokio<T> {
-    runtime: Arc<tokio::runtime::Runtime>,
+    bridge: Bridge,
     inner: T,
-    token: CancellationToken,
 }
 
 impl<T> AsSyncEnvironmentTokio<T> {
-    pub fn new(runtime: Arc<tokio::runtime::Runtime>, inner: T) -> Self {
-        Self {
-            runtime,
-            inner,
-            token: CancellationToken::new(),
-        }
-    }
-
-    #[must_use]
-    pub fn with_cancellation(mut self, token: CancellationToken) -> Self {
-        self.token = token;
-        self
+    pub fn new(bridge: Bridge, inner: T) -> Self {
+        Self { bridge, inner }
     }
 }
 
@@ -303,26 +285,18 @@ impl<T> AsSyncEnvironmentTokio<T> {
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct SyncStreamIter<S> {
-    pub runtime: Arc<tokio::runtime::Runtime>,
-    pub inner: S,
-    pub token: CancellationToken,
+    bridge: Bridge,
+    inner: S,
     done: bool,
 }
 
 impl<S> SyncStreamIter<S> {
-    pub fn new(runtime: Arc<tokio::runtime::Runtime>, inner: S) -> Self {
+    pub fn new(bridge: Bridge, inner: S) -> Self {
         Self {
-            runtime,
+            bridge,
             inner,
-            token: CancellationToken::new(),
             done: false,
         }
-    }
-
-    #[must_use]
-    pub fn with_cancellation(mut self, token: CancellationToken) -> Self {
-        self.token = token;
-        self
     }
 }
 
@@ -336,20 +310,14 @@ where
         if self.done {
             return None;
         }
-        let Self {
-            runtime,
-            inner,
-            token,
-            done,
-        } = self;
-        match runtime.block_on(token.run_until_cancelled(inner.next())) {
+        match self.bridge.run_value(self.inner.next()) {
             Some(Some(item)) => Some(item.map_err(Cancellable::Inner)),
             Some(None) => {
-                *done = true;
+                self.done = true;
                 None
             }
             None => {
-                *done = true;
+                self.done = true;
                 Some(Err(Cancellable::Cancelled(crate::cancel::Cancelled)))
             }
         }
@@ -366,15 +334,15 @@ where
     type UriIter = SyncStreamIter<<T as ReadEnvironmentAsync>::UriStream>;
 
     fn uris(&self) -> Result<Self::UriIter, Self::ReadError> {
-        let stream = bridge(&self.runtime, &self.token, self.inner.uris_async())?;
-        Ok(SyncStreamIter::new(self.runtime.clone(), stream).with_cancellation(self.token.clone()))
+        let stream = self.bridge.run(self.inner.uris_async())?;
+        Ok(SyncStreamIter::new(self.bridge.clone(), stream))
     }
 
     type VersionIter = SyncStreamIter<<T as ReadEnvironmentAsync>::VersionStream>;
 
     fn versions<S: AsRef<str>>(&self, uri: S) -> Result<Self::VersionIter, Self::ReadError> {
-        let stream = bridge(&self.runtime, &self.token, self.inner.versions_async(uri))?;
-        Ok(SyncStreamIter::new(self.runtime.clone(), stream).with_cancellation(self.token.clone()))
+        let stream = self.bridge.run(self.inner.versions_async(uri))?;
+        Ok(SyncStreamIter::new(self.bridge.clone(), stream))
     }
 
     type InterchangeProjectRead =
@@ -385,13 +353,10 @@ where
         uri: S,
         version: V,
     ) -> Result<Self::InterchangeProjectRead, Self::ReadError> {
-        let project = bridge(
-            &self.runtime,
-            &self.token,
-            self.inner.get_project_async(uri, version),
-        )?;
-        Ok(AsSyncProjectTokio::new(self.runtime.clone(), project)
-            .with_cancellation(self.token.clone()))
+        let project = self
+            .bridge
+            .run(self.inner.get_project_async(uri, version))?;
+        Ok(AsSyncProjectTokio::new(self.bridge.clone(), project))
     }
 
     fn has_version_verified<S: AsRef<str>, V: AsRef<str>>(
@@ -400,9 +365,7 @@ where
         version: V,
         checksum: &ProjectChecksum,
     ) -> Result<ProjectChecksumResult, Self::ReadError> {
-        bridge(
-            &self.runtime,
-            &self.token,
+        self.bridge.run(
             self.inner
                 .has_version_verified_async(uri, version, checksum),
         )

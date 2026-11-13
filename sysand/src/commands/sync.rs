@@ -398,7 +398,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
                     auth_policy: auth_policy.clone(),
                     expected_checksum: Some(checksum),
                 }
-                .to_tokio_sync_with(runtime.clone(), token.clone()))
+                .to_tokio_sync(runtime.clone(), token.clone()))
             },
         ),
         Some(
@@ -436,7 +436,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
                     }),
                 )
                 .unwrap();
-                Ok(project.to_tokio_sync_with(runtime.clone(), token.clone()))
+                Ok(project.to_tokio_sync(runtime.clone(), token.clone()))
             },
         ),
         Some(
@@ -455,7 +455,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
                     index_kpar_digest,
                 )
                 .unwrap();
-                Ok(project.to_tokio_sync_with(runtime.clone(), token.clone()))
+                Ok(project.to_tokio_sync(runtime.clone(), token.clone()))
             },
         ),
         Some(

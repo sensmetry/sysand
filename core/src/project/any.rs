@@ -10,6 +10,7 @@ use typed_path::Utf8UnixPath;
 
 use crate::{
     auth::HTTPAuthentication,
+    cancel::CancellationToken,
     config::OverrideSource,
     context::ProjectContext,
     env::memory::MemoryStorageEnvironment,
@@ -107,7 +108,7 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
                     None,
                 )
                 .map_err(TryFromSourceError::RemoteKpar)?
-                .to_tokio_sync(runtime),
+                .to_tokio_sync(runtime, CancellationToken::new()),
             )),
             OverrideSource::RemoteSrc { remote_src } => Ok(Self::RemoteSrc(
                 ReqwestSrcProjectAsync::<Policy> {
@@ -117,7 +118,7 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
                     auth_policy,
                     expected_checksum: None,
                 }
-                .to_tokio_sync(runtime),
+                .to_tokio_sync(runtime, CancellationToken::new()),
             )),
             OverrideSource::RemoteGit { remote_git } => Ok(Self::RemoteGit(
                 GixDownloadedProject::new(remote_git).map_err(TryFromSourceError::RemoteGit)?,

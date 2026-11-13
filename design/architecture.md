@@ -392,10 +392,11 @@ many times in one process; text-mode printing goes through
 that run async code synchronously (`AsSyncProjectTokio`,
 `AsSyncReaderTokio`, `AsSyncEnvironmentTokio`, `AsSyncResolveTokio`,
 `SyncStreamIter`) -- so a cancelled token is observed at the next
-`block_on` and the operation returns `Cancelled`. The adapters carry a
-token (`new(runtime, inner)`, `with_cancellation(token)`,
-`to_tokio_sync_with`) and are `#[non_exhaustive]`, which ends
-construction by struct literal outside the crate. The solver observes
+`block_on` and the operation returns `Cancelled`. Each adapter holds a
+`cancel::Bridge` (the runtime and the token) and hands a clone of it to
+every adapter it returns; `to_tokio_sync(runtime, token)` builds one.
+The adapters are `#[non_exhaustive]`, which ends construction by struct
+literal outside the crate. The solver observes
 the token between candidates through pubgrub's `should_cancel`
 (`SolverError::kind() == "cancelled"`). A git clone observes it through
 `GitInterrupt`: gix's `IS_INTERRUPTED` flag is process-global, so one

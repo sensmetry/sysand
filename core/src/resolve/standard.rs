@@ -88,7 +88,7 @@ pub fn standard_remote_resolver<Policy: HTTPAuthentication>(
                 lax: true,
                 auth_policy, //prefer_ranged: true,
             }
-            .to_tokio_sync_with(runtime, token.clone()),
+            .to_tokio_sync(runtime, token.clone()),
         ),
         git_resolver: Some(GitResolver { token }),
         priority: RemotePriority::PreferHTTP,
@@ -128,7 +128,7 @@ pub fn standard_index_resolver<Policy: HTTPAuthentication>(
             EnvResolver { env }
         })
         .collect();
-    Ok(SequentialResolver::new(envs).to_tokio_sync_with(runtime, token))
+    Ok(SequentialResolver::new(envs).to_tokio_sync(runtime, token))
 }
 
 // TODO: Replace most of these arguments by some general CLIOptions object

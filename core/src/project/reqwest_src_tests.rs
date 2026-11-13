@@ -8,6 +8,7 @@ use typed_path::Utf8UnixPath;
 
 use crate::{
     auth::Unauthenticated,
+    cancel::CancellationToken,
     context::ProjectContext,
     lock::Source,
     project::{ProjectRead as _, ProjectReadAsync as _, reqwest_src::ReqwestSrcProjectAsync},
@@ -28,11 +29,14 @@ fn empty_remote_definitely_invalid_http_src() -> Result<(), Box<dyn std::error::
         auth_policy: Arc::new(Unauthenticated {}),
         expected_checksum: None,
     }
-    .to_tokio_sync(Arc::new(
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?,
-    ));
+    .to_tokio_sync(
+        Arc::new(
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?,
+        ),
+        CancellationToken::new(),
+    );
 
     assert!(project.is_definitely_invalid());
 
@@ -82,11 +86,14 @@ fn basic_project_urls_http_src() -> Result<(), Box<dyn std::error::Error>> {
         auth_policy: Arc::new(Unauthenticated {}),
         expected_checksum: None,
     }
-    .to_tokio_sync(Arc::new(
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?,
-    ));
+    .to_tokio_sync(
+        Arc::new(
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?,
+        ),
+        CancellationToken::new(),
+    );
 
     let (Some(info), Some(meta)) = project
         .get_project()?
@@ -178,11 +185,14 @@ fn remote_project_without_version_names_the_key() -> Result<(), Box<dyn std::err
         auth_policy: Arc::new(Unauthenticated {}),
         expected_checksum: None,
     }
-    .to_tokio_sync(Arc::new(
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?,
-    ));
+    .to_tokio_sync(
+        Arc::new(
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?,
+        ),
+        CancellationToken::new(),
+    );
 
     let error = project
         .get_project()

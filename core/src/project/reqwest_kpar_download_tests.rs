@@ -11,6 +11,7 @@ use url::Url;
 
 use crate::{
     auth::Unauthenticated,
+    cancel::CancellationToken,
     context::ProjectContext,
     lock::Source,
     project::{
@@ -65,12 +66,15 @@ fn basic_download_request() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(Unauthenticated {}),
         None,
     )?
-    .to_tokio_sync(Arc::new(
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap(),
-    ));
+    .to_tokio_sync(
+        Arc::new(
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap(),
+        ),
+        CancellationToken::new(),
+    );
 
     let (Some(info), Some(meta)) = project
         .get_project()?

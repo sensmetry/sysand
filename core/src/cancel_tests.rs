@@ -32,25 +32,21 @@ fn cancel_later(token: &CancellationToken, after: Duration) {
 
 #[test]
 fn bridge_returns_the_future_s_result() {
-    let rt = runtime();
-    let token = CancellationToken::new();
-    let value: Result<u8, Cancellable<()>> = bridge(&rt, &token, async { Ok::<_, ()>(7) });
+    let bridge = Bridge::new(runtime(), CancellationToken::new());
+    let value: Result<u8, Cancellable<()>> = bridge.run(async { Ok::<_, ()>(7) });
     assert_eq!(value.unwrap(), 7);
-    let error: Result<u8, Cancellable<&str>> = bridge(&rt, &token, async { Err("boom") });
+    let error: Result<u8, Cancellable<&str>> = bridge.run(async { Err("boom") });
     assert_matches!(error, Err(Cancellable::Inner("boom")));
 }
 
 #[test]
 fn bridge_is_cancelled_mid_future() {
-    let rt = runtime();
     let token = CancellationToken::new();
+    let bridge = Bridge::new(runtime(), token.clone());
     cancel_later(&token, Duration::from_millis(100));
     let started = std::time::Instant::now();
-    let result: Result<(), Cancellable<std::io::Error>> = bridge(
-        &rt,
-        &token,
-        std::future::pending::<Result<(), std::io::Error>>(),
-    );
+    let result: Result<(), Cancellable<std::io::Error>> =
+        bridge.run(std::future::pending::<Result<(), std::io::Error>>());
     assert_matches!(result, Err(Cancellable::Cancelled(_)));
     assert!(started.elapsed() < Duration::from_secs(2));
     assert_eq!(result.unwrap_err().to_string(), "cancelled");
@@ -116,7 +112,7 @@ impl ProjectReadAsync for Stalled {
 #[test]
 fn project_adapter_reports_cancelled() {
     let token = CancellationToken::new();
-    let project = Stalled.to_tokio_sync_with(runtime(), token.clone());
+    let project = Stalled.to_tokio_sync(runtime(), token.clone());
     cancel_later(&token, Duration::from_millis(100));
     assert_matches!(project.get_project(), Err(Cancellable::Cancelled(_)));
     // Once cancelled, every further bridge answers at once.
@@ -135,8 +131,8 @@ fn reader_adapter_returns_interrupted() {
     use std::io::Read as _;
     let token = CancellationToken::new();
     token.cancel();
-    let mut reader = crate::project::AsSyncReaderTokio::new(runtime(), futures::io::empty())
-        .with_cancellation(token);
+    let mut reader =
+        crate::project::AsSyncReaderTokio::new(Bridge::new(runtime(), token), futures::io::empty());
     let error = reader.read(&mut [0; 4]).unwrap_err();
     assert_eq!(error.kind(), std::io::ErrorKind::Other);
     assert_eq!(error.to_string(), "cancelled");
@@ -149,8 +145,10 @@ fn reader_adapter_returns_interrupted() {
 fn stream_iter_yields_cancelled_once() {
     let token = CancellationToken::new();
     let items: Vec<Result<u8, ()>> = vec![Ok(1), Ok(2)];
-    let mut iter = SyncStreamIter::new(runtime(), futures::stream::iter(items))
-        .with_cancellation(token.clone());
+    let mut iter = SyncStreamIter::new(
+        Bridge::new(runtime(), token.clone()),
+        futures::stream::iter(items),
+    );
     assert_matches!(iter.next(), Some(Ok(1)));
     token.cancel();
     assert_matches!(iter.next(), Some(Err(Cancellable::Cancelled(_))));
@@ -194,7 +192,7 @@ fn environment_adapter_propagates_the_token() {
         }
     }
     let token = CancellationToken::new();
-    let env = OneProject.to_tokio_sync_with(runtime(), token.clone());
+    let env = OneProject.to_tokio_sync(runtime(), token.clone());
     let uris: Vec<_> = env.uris().unwrap().collect();
     assert_eq!(uris.len(), 1);
     let project = env.get_project("urn:one", "1.0.0").unwrap();

@@ -32,6 +32,7 @@ use std::sync::Arc;
 
 use crate::{
     auth::Unauthenticated,
+    cancel::CancellationToken,
     context::ProjectContext,
     env::{ReadEnvironment as _, ReadEnvironmentAsync as _, discovery::ResolvedEndpoints},
     index_location::{IndexLocation, with_trailing_slash},
@@ -150,7 +151,7 @@ fn index_env_sync_discovery(
         &IndexLocation::parse(&server.url())?,
     ))?;
     let env = super::IndexEnvironmentAsync::new(client, auth, endpoints);
-    Ok(env.to_tokio_sync(runtime))
+    Ok(env.to_tokio_sync(runtime, CancellationToken::new()))
 }
 
 /// Build a sync-facing unauthenticated index environment rooted at `server`,
@@ -161,7 +162,7 @@ fn index_env_sync(
     crate::env::AsSyncEnvironmentTokio<super::IndexEnvironmentAsync<Unauthenticated>>,
     Box<dyn std::error::Error>,
 > {
-    Ok(index_env_async(&server.url())?.to_tokio_sync(make_runtime()?))
+    Ok(index_env_async(&server.url())?.to_tokio_sync(make_runtime()?, CancellationToken::new()))
 }
 
 /// Register a mock for `{method} {path}` asserting it must never be called.
@@ -2670,7 +2671,7 @@ mod discovery {
             &discovery_root,
         ))?;
         let env = crate::env::index::IndexEnvironmentAsync::new(client, auth, endpoints);
-        Ok(env.to_tokio_sync(runtime))
+        Ok(env.to_tokio_sync(runtime, CancellationToken::new()))
     }
 
     #[test]
