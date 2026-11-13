@@ -8,7 +8,9 @@ use crate::{
 use camino::Utf8Path;
 use sysand_core::{
     auth::HTTPAuthentication,
+    cancel::CancellationToken,
     context::ProjectContext,
+    env::{discovery::DiscoveryError, local_directory::LocalDirectoryEnvironment},
     index_location::IndexSource,
     manifest::project::{ProjectFiles, ResolvedProject},
     model::{
@@ -20,8 +22,11 @@ use sysand_core::{
         local_kpar::KparInnerPath, local_src::LocalSrcProject, symbol_index, utils::Identifier,
     },
     resolve::{
-        ResolutionInfo, file::FileResolverProject, memory::MemoryResolver,
-        priority::PriorityResolver, standard::standard_resolver,
+        ResolutionInfo,
+        file::FileResolverProject,
+        memory::{AcceptResource, MemoryResolver},
+        priority::PriorityResolver,
+        standard::{StandardResolver, standard_resolver},
     },
     style,
     utils::{ProvidedIdentifiers, format_err},
@@ -248,20 +253,47 @@ pub fn command_info_resolve<Policy: HTTPAuthentication>(
     // interchange project was not found without any hints that the provided
     // URI is invalid.
 
-    let combined_resolver = PriorityResolver::new(
+    let resolver = usage_resolver(
+        overrides,
+        ctx.env,
+        client,
+        index_urls,
+        runtime,
+        auth_policy,
+        ctx.cancellation,
+    )?;
+    let (definition, project) = do_info_usage(resolve, &resolver)?;
+    print_info(&project, &definition, get, excluded_iris)
+}
+
+/// The resolver a usage is looked up with: the source overrides (of
+/// resource usages only), then `env` and the indexes.
+pub fn usage_resolver<Policy: HTTPAuthentication>(
+    overrides: Vec<(Identifier, Vec<OverrideProject<Policy>>)>,
+    env: Option<LocalDirectoryEnvironment>,
+    client: reqwest_middleware::ClientWithMiddleware,
+    index_urls: Option<Vec<IndexSource>>,
+    runtime: Arc<tokio::runtime::Runtime>,
+    auth_policy: Arc<Policy>,
+    cancellation: CancellationToken,
+) -> Result<
+    PriorityResolver<
+        MemoryResolver<AcceptResource, OverrideProject<Policy>>,
+        StandardResolver<Policy>,
+    >,
+    DiscoveryError,
+> {
+    Ok(PriorityResolver::new(
         MemoryResolver::resources_only(overrides),
         standard_resolver(
-            ctx.env,
+            env,
             Some(client),
             index_urls,
             runtime,
             auth_policy,
-            ctx.cancellation,
+            cancellation,
         )?,
-    );
-
-    let (definition, project) = do_info_usage(resolve, &combined_resolver)?;
-    print_info(&project, &definition, get, excluded_iris)
+    ))
 }
 
 /// Print `definition`'s report, or the value of its field `get`.

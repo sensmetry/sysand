@@ -101,10 +101,6 @@ pub fn discover_context(
         project_parse,
         workspace: discovered,
     } = Walk::of(&cwd, consults_workspace)?;
-    // FIXME: assuming nominal path "." is incorrect
-    let walked_project = project_root
-        .clone()
-        .map(|root| LocalSrcProject::new_access(root, Some(".".into())));
     let workspace_root = discovered.as_ref().map(|(root, _)| root.clone());
     let scope = match &discovered {
         Some((root, table)) if consults_workspace => {
@@ -140,49 +136,42 @@ pub fn discover_context(
         }
         Selector::Current | Selector::Workspace => None,
     };
-    let current_project = match (&selected, &workspace) {
-        (Some(dir), Some(workspace)) => Some(LocalSrcProject::new_member(
-            dir.clone(),
-            None,
-            workspace.table().clone(),
-        )),
+    // The root of the project the command acts on.
+    let acting_root = match (&selected, &workspace) {
+        (Some(dir), Some(_)) => Some(dir.clone()),
         // "`--workspace` forces all members": the commands that have an
         // all-members path take it when there is no current project, so
         // forcing it is dropping the one the working directory implies.
         _ if selector == Selector::Workspace && workspace.is_some() => None,
-        _ => walked_project,
+        _ => project_root.clone(),
     };
     // The walk's parse belongs to the project the walk found, which a
     // selector replaces.
     let project_parse = project_parse.filter(|_| {
         selected.is_none()
-            && current_project
+            && acting_root
                 .as_ref()
-                .is_some_and(|project| Some(project.root_path()) == project_root.as_deref())
+                .is_some_and(|root| project_root.as_ref() == Some(root))
     });
     let project_root = selected.clone().or(project_root);
 
-    if needs_a_member && current_project.is_none() && workspace_root.is_some() {
+    if needs_a_member && acting_root.is_none() && workspace_root.is_some() {
         return Err(DiscoverError::NeedsProject.into());
     }
 
     // A marker resolves against the workspace table, and only for a member,
     // so a member that inherits cannot be read without it.
-    let mut member = None;
-    let current_project = match (current_project, &workspace) {
-        (Some(project), Some(workspace)) => {
-            member = workspace.member_index_of(project.root_path())?;
-            Some(match member {
-                Some(_) => LocalSrcProject::new_member(
-                    project.root_path().to_owned(),
-                    None,
-                    workspace.table().clone(),
-                ),
-                None => project,
-            })
-        }
-        (project, _) => project,
+    let member = match (&acting_root, &workspace) {
+        (Some(root), Some(workspace)) => workspace.member_index_of(root)?,
+        _ => None,
     };
+    let current_project = acting_root.map(|root| match (member, &workspace) {
+        (Some(_), Some(workspace)) => {
+            LocalSrcProject::new_member(root, None, workspace.table().clone())
+        }
+        // FIXME: assuming nominal path "." is incorrect
+        _ => LocalSrcProject::new_access(root, Some(".".into())),
+    });
 
     if needs_a_project && workspace.is_none() && current_project.is_none() {
         bail!(NotInProject { dir: cwd });

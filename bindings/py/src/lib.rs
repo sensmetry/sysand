@@ -79,12 +79,8 @@ use sysand_core::{
     redact::{HttpFailure, RedactedUrl},
     remove::{RemoveError, do_remove},
     resolve::{
-        ResolveRead,
-        combined::CombinedResolverError,
-        memory::MemoryResolver,
-        net_utils::create_reqwest_client_with,
-        priority::{PriorityError, PriorityResolver},
-        standard::{StandardResolver, standard_resolver},
+        ResolveRead, combined::CombinedResolverError, net_utils::create_reqwest_client_with,
+        priority::PriorityError, standard::StandardResolver,
     },
     root::do_root,
     solve::pubgrub::SolveConflict,
@@ -574,19 +570,17 @@ fn cli_resolver_for(
         auth_policy.clone(),
     )
     .map_err(|e| ProjectError::new_err(format_err(&*e)))?;
-    let resolver = standard_resolver(
+    let resolver = sysand::commands::info::usage_resolver(
+        overrides,
         ctx.env,
-        Some(client),
+        client,
         index_urls,
         runtime,
         auth_policy.clone(),
         ctx.cancellation,
     )
     .map_err(|err| PyValueError::new_err(format_err(err)))?;
-    Ok((
-        PriorityResolver::new(MemoryResolver::from(overrides), resolver),
-        auth_policy,
-    ))
+    Ok((resolver, auth_policy))
 }
 
 fn parse_iri(iri: String) -> PyResult<Iri<String>> {
