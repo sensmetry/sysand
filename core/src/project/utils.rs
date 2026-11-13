@@ -23,7 +23,7 @@ use crate::{
     manifest::diagnostics::{Diagnostics, Report, Validated},
     model::{
         IndexName, IndexPublisher, InterchangeProjectUsage, InterchangeProjectUsageRaw,
-        ProjectName, ProjectPublisher,
+        PartialManifest, ProjectName, ProjectPublisher,
     },
     purl::sysand_purl,
     utils::SP,
@@ -430,6 +430,18 @@ pub fn validate_manifest<T>(
 ) -> Result<T, ProjectDeserializationError> {
     crate::manifest::diagnostics::take_logged(validated, path.as_ref().as_str())
         .map_err(|report| ProjectDeserializationError::Invalid { report })
+}
+
+/// Parse a json manifest document from `reader` and validate it, logging
+/// its warnings against the document. `metamodel` is named as a possible
+/// reason for a key this version requires but the document does not carry.
+pub fn read_json_manifest<T: PartialManifest>(
+    reader: impl Read,
+    metamodel: Option<&str>,
+) -> Result<T::Validated, ProjectDeserializationError> {
+    let partial: T = serde_json::from_reader(io::BufReader::new(reader))
+        .map_err(|e| ProjectDeserializationError::new(T::FILE, e))?;
+    validate_manifest(T::FILE, partial.validate_manifest(metamodel))
 }
 
 /// Indent every line of a multi-line report to align with the first.

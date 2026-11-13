@@ -18,8 +18,8 @@ use crate::{
         InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, META_JSON_FILE, PROJECT_JSON_FILE,
     },
     project::{
-        CanonicalizationError, ManifestError, ManifestWriteError, ProjectDefinition, ProjectFormat,
-        ProjectMut, ProjectRead,
+        CanonicalizationError, FormatError, ManifestError, ManifestWriteError, ProjectDefinition,
+        ProjectFormat, ProjectMut, ProjectRead,
     },
 };
 
@@ -81,23 +81,13 @@ impl InMemoryProject {
     }
 }
 
-impl InMemoryProject {
-    /// Refuse to write a json manifest into a `model.toml` project.
-    fn refuse_json_write(&self, file: &'static str) -> Result<(), InMemoryError> {
-        if self.format()? == ProjectFormat::Toml {
-            return Err(InMemoryError::JsonWriteToTomlProject(file));
-        }
-        Ok(())
-    }
-}
-
 impl ProjectMut for InMemoryProject {
     fn put_info(
         &mut self,
         info: &InterchangeProjectInfoRaw,
         overwrite: bool,
     ) -> Result<(), InMemoryError> {
-        self.refuse_json_write(PROJECT_JSON_FILE)?;
+        self.format()?.check_json_write(PROJECT_JSON_FILE)?;
         if !overwrite && self.info.is_some() {
             return Err(InMemoryError::AlreadyExists(
                 "project already has an information file".to_owned(),
@@ -114,7 +104,7 @@ impl ProjectMut for InMemoryProject {
         meta: &InterchangeProjectMetadataRaw,
         overwrite: bool,
     ) -> Result<(), InMemoryError> {
-        self.refuse_json_write(crate::model::META_JSON_FILE)?;
+        self.format()?.check_json_write(META_JSON_FILE)?;
         if !overwrite && self.meta.is_some() {
             return Err(InMemoryError::AlreadyExists(
                 "project already has a meta manifest".to_owned(),
@@ -131,20 +121,17 @@ impl ProjectMut for InMemoryProject {
         document: &DocumentMut,
         overwrite: bool,
     ) -> Result<(), ManifestWriteError<InMemoryError>> {
-        if self.format().map_err(ManifestWriteError::Project)? == ProjectFormat::Json {
-            return Err(ManifestWriteError::Project(
-                InMemoryError::TomlWriteToJsonProject,
-            ));
-        }
+        self.format()?
+            .check_toml_write()
+            .map_err(InMemoryError::from)?;
         if !overwrite && self.model_toml.is_some() {
-            return Err(ManifestWriteError::Project(InMemoryError::AlreadyExists(
-                format!("project already has a `{MODEL_TOML_FILE}`"),
-            )));
+            return Err(InMemoryError::AlreadyExists(format!(
+                "project already has a `{MODEL_TOML_FILE}`"
+            ))
+            .into());
         }
-        let text = document.to_string();
-        crate::manifest::edit::check(MODEL_TOML_FILE, &text)
-            .map_err(|e| ManifestWriteError::Project(InMemoryError::Manifest(e)))?;
-        self.model_toml = Some(text);
+        self.model_toml =
+            Some(crate::manifest::edit::checked_text(document).map_err(InMemoryError::from)?);
         Ok(())
     }
 
@@ -181,19 +168,8 @@ pub enum InMemoryError {
     IoRead(#[from] std::io::Error),
     #[error("project is missing `.project.json` and/or `.meta.json` files")]
     MissingInfoMeta,
-    /// A json project with only one of its two documents.
-    #[error("project is missing `{0}`")]
-    MissingDocument(&'static str),
-    /// The project holds a `model.toml` *and* json documents.
-    #[error("project has both a `model.toml` and json manifests")]
-    AmbiguousFormat,
-    #[error("project is a `model.toml` project; `{0}` cannot be written into one")]
-    JsonWriteToTomlProject(&'static str),
-    #[error(
-        "project is a `.project.json` project; `model.toml` cannot be written into one \
-         (see `sysand migrate`)"
-    )]
-    TomlWriteToJsonProject,
+    #[error("project {0}")]
+    Format(#[from] FormatError),
     #[error(transparent)]
     Manifest(#[from] crate::project::utils::ProjectDeserializationError),
 }
@@ -204,7 +180,14 @@ impl ProjectRead for InMemoryProject {
     fn get_project(&self) -> Result<Option<ProjectDefinition>, InMemoryError> {
         match self.format()? {
             // Refused before either manifest is read.
-            ProjectFormat::Both => Err(InMemoryError::AmbiguousFormat),
+            ProjectFormat::Both => Err(FormatError::Ambiguous {
+                json: if self.info.is_some() {
+                    PROJECT_JSON_FILE
+                } else {
+                    META_JSON_FILE
+                },
+            }
+            .into()),
             ProjectFormat::Toml => {
                 let text = self
                     .model_toml
@@ -214,14 +197,10 @@ impl ProjectRead for InMemoryProject {
                     kpar_view::resolved_of_text(MODEL_TOML_FILE, text)?,
                 ))))
             }
-            ProjectFormat::Json | ProjectFormat::Neither => {
-                match (self.info.clone(), self.meta.clone()) {
-                    (Some(info), Some(meta)) => Ok(Some(ProjectDefinition::Json { info, meta })),
-                    (None, None) => Ok(None),
-                    (Some(_), None) => Err(InMemoryError::MissingDocument(META_JSON_FILE)),
-                    (None, Some(_)) => Err(InMemoryError::MissingDocument(PROJECT_JSON_FILE)),
-                }
-            }
+            ProjectFormat::Json | ProjectFormat::Neither => Ok(ProjectDefinition::from_json(
+                self.info.clone(),
+                self.meta.clone(),
+            )?),
         }
     }
 
@@ -239,8 +218,7 @@ impl ProjectRead for InMemoryProject {
         let Some(text) = &self.model_toml else {
             return Err(ManifestError::NoTomlManifest);
         };
-        crate::manifest::edit::validated(MODEL_TOML_FILE, text)
-            .map_err(|e| ManifestError::Project(InMemoryError::Manifest(e)))
+        Ok(crate::manifest::edit::validated(MODEL_TOML_FILE, text).map_err(InMemoryError::from)?)
     }
 
     type SourceReader<'a> = &'a [u8];

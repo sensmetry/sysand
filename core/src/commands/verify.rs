@@ -260,8 +260,9 @@ fn verify_installed(
     let (info, meta) = match installed.get_project()? {
         None => return Ok(Some(MismatchKind::MissingFromDisk)),
         Some(ProjectDefinition::Toml(_)) => {
-            return Err(LocalSrcError::TomlProjectHasNoChecksum {
+            return Err(LocalSrcError::Format {
                 dir: installed.root_path().to_owned(),
+                problem: crate::project::FormatError::TomlHasNoChecksum,
             });
         }
         Some(ProjectDefinition::Json { info, meta }) => (info, meta),

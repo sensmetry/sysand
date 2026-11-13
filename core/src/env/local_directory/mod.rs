@@ -527,11 +527,8 @@ impl From<LocalSrcError> for LocalWriteError {
             LocalSrcError::Serialize(error) => Self::Serialize(error),
             LocalSrcError::ImpossibleRelativePath(err) => Self::ImpossibleRelativePath(err),
             LocalSrcError::MissingMeta => Self::MissingMeta,
-            error @ LocalSrcError::MissingInfoMeta { missing: _ } => Self::Format(error),
-            error @ (LocalSrcError::AmbiguousFormat { dir: _, json: _ }
-            | LocalSrcError::TomlProjectHasNoChecksum { dir: _ }
-            | LocalSrcError::JsonWriteToTomlProject { dir: _, file: _ }
-            | LocalSrcError::TomlWriteToJsonProject { dir: _ }) => Self::Format(error),
+            error @ (LocalSrcError::MissingInfoMeta { missing: _ }
+            | LocalSrcError::Format { dir: _, problem: _ }) => Self::Format(error),
         }
     }
 }

@@ -360,8 +360,7 @@ fn a_member_holding_both_manifests_is_refused() {
     let message = only_root_message(&fixture.failure());
     // The clause is written out in this module; this holds it together
     // with the error that owns it.
-    let owned = crate::project::local_src::LocalSrcError::AmbiguousFormat {
-        dir: Utf8PathBuf::from("app"),
+    let owned = crate::project::FormatError::Ambiguous {
         json: ".project.json",
     }
     .to_string();
@@ -369,7 +368,7 @@ fn a_member_holding_both_manifests_is_refused() {
     // the words.
     //
     // The member's message appends a remedy the owned one cannot give
-    // (`AmbiguousFormat` is raised for standalone projects too), so the
+    // (the owned error is raised for standalone projects too), so the
     // remedy is stripped before the comparison.
     let hint = "; remove the one that does not define the project";
     let shared = message

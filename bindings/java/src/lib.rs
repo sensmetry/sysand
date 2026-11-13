@@ -136,10 +136,7 @@ fn init<'local>(
                         env.throw_exception(ExceptionKind::ProjectAlreadyExists, e)
                     }
                     LocalSrcError::Deserialize(_)
-                    | LocalSrcError::AmbiguousFormat { dir: _, json: _ }
-                    | LocalSrcError::TomlProjectHasNoChecksum { dir: _ }
-                    | LocalSrcError::JsonWriteToTomlProject { dir: _, file: _ }
-                    | LocalSrcError::TomlWriteToJsonProject { dir: _ } => {
+                    | LocalSrcError::Format { dir: _, problem: _ } => {
                         env.throw_exception(ExceptionKind::InvalidValue, e)
                     }
                     LocalSrcError::Io(_) => env.throw_exception(ExceptionKind::IOError, e),

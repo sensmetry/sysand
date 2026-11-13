@@ -22,8 +22,7 @@ use crate::{
     manifest::MODEL_TOML_FILE,
     model::{
         InterchangeProjectInfoPartial, InterchangeProjectMetadataPartial,
-        InterchangeProjectMetadataRaw, InterchangeProjectUsageRaw, META_JSON_FILE,
-        PROJECT_JSON_FILE, PartialManifest,
+        InterchangeProjectUsageRaw, PartialManifest,
     },
     project::{
         self, KparMeta, ProjectChecksum, ProjectDefinition, ProjectRead, hash_reader,
@@ -33,7 +32,7 @@ use crate::{
 };
 
 use super::utils::{
-    FsIoError, ProjectDeserializationError, ToPathBuf as _, validate_manifest, wrapfs,
+    FsIoError, ProjectDeserializationError, ToPathBuf as _, read_json_manifest, wrapfs,
 };
 
 #[derive(Debug, Clone)]
@@ -125,11 +124,10 @@ pub enum LocalKParError {
     },
     #[error("kpar at `{path}` is an empty file")]
     EmptyKpar { path: Box<str> },
-    /// One of the two json documents is not in the archive.
-    #[error("kpar at `{path}` has no `{missing}`")]
-    MissingDocument {
+    #[error("kpar at `{path}` {problem}")]
+    Format {
         path: Box<Utf8Path>,
-        missing: &'static str,
+        problem: project::FormatError,
     },
 }
 
@@ -463,31 +461,15 @@ impl LocalKParProjectRaw {
         }
     }
 
-    fn get_meta_from(
+    /// Reads the manifest document `T` out of the archive, `None` when the
+    /// archive has none.
+    fn get_parsed<T: PartialManifest>(
         &self,
         zip: &mut ZipArchive<File>,
-    ) -> Result<Option<InterchangeProjectMetadataRaw>, LocalKParError> {
-        self.get_parsed::<InterchangeProjectMetadataPartial, _>(zip, META_JSON_FILE, None)
-    }
-
-    /// Reads one of the two manifest documents out of the archive and
-    /// validates it, naming `metamodel` as a possible reason for a key
-    /// this version requires but the document does not carry.
-    fn get_parsed<T: PartialManifest, P: AsRef<Utf8UnixPath>>(
-        &self,
-        zip: &mut ZipArchive<File>,
-        path: P,
         metamodel: Option<&str>,
     ) -> Result<Option<T::Validated>, LocalKParError> {
-        match self.get_relative(zip, &path) {
-            Ok(f) => {
-                let partial: T = serde_json::from_reader(f)
-                    .map_err(|e| ProjectDeserializationError::new(path.as_ref().as_str(), e))?;
-                Ok(Some(validate_manifest(
-                    path.as_ref().as_str(),
-                    partial.validate_manifest(metamodel),
-                )?))
-            }
+        match self.get_relative(zip, T::FILE) {
+            Ok(f) => Ok(Some(read_json_manifest::<T>(f, metamodel)?)),
             Err((_, ZipError::FileNotFound)) => Ok(None),
             Err((path, err)) => Err(LocalKParError::Zip(ZipArchiveError::NamedFileMeta(
                 path.into_string().into(),
@@ -506,22 +488,15 @@ impl ProjectRead for LocalKParProjectRaw {
         let mut archive = self.open_archive()?;
         self.ensure_no_model_toml(&mut archive)?;
         // The metadata carries the metamodel, so it is read first.
-        let meta = self.get_meta_from(&mut archive)?;
-        let info = self.get_parsed::<InterchangeProjectInfoPartial, _>(
+        let meta = self.get_parsed::<InterchangeProjectMetadataPartial>(&mut archive, None)?;
+        let info = self.get_parsed::<InterchangeProjectInfoPartial>(
             &mut archive,
-            PROJECT_JSON_FILE,
             meta.as_ref().and_then(|meta| meta.metamodel.as_deref()),
         )?;
-        let missing = |missing| LocalKParError::MissingDocument {
+        ProjectDefinition::from_json(info, meta).map_err(|problem| LocalKParError::Format {
             path: self.archive_path.as_path().into(),
-            missing,
-        };
-        match (info, meta) {
-            (Some(info), Some(meta)) => Ok(Some(ProjectDefinition::Json { info, meta })),
-            (None, None) => Ok(None),
-            (Some(_), None) => Err(missing(META_JSON_FILE)),
-            (None, Some(_)) => Err(missing(PROJECT_JSON_FILE)),
-        }
+            problem,
+        })
     }
 
     type SourceReader<'a>

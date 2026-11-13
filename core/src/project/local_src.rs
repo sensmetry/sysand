@@ -24,17 +24,19 @@ use crate::{
     model::{
         InterchangeProjectInfoPartial, InterchangeProjectInfoRaw,
         InterchangeProjectMetadataPartial, InterchangeProjectMetadataRaw, META_JSON_FILE,
-        PROJECT_JSON_FILE,
+        PROJECT_JSON_FILE, PartialManifest,
     },
     project::{
-        ManifestError, ProjectDefinition, ProjectMut, ProjectRead,
+        FormatError, ManifestError, ProjectDefinition, ProjectMut, ProjectRead,
         utils::{ToPathBuf as _, wrapfs},
     },
 };
 
 use super::{
     CanonicalizationError, ProjectChecksum,
-    utils::{FsIoError, ProjectDeserializationError, ProjectSerializationError, validate_manifest},
+    utils::{
+        FsIoError, ProjectDeserializationError, ProjectSerializationError, read_json_manifest,
+    },
 };
 
 pub use crate::project::ProjectFormat;
@@ -259,10 +261,7 @@ impl LocalSrcProject {
         let mut meta = match self.get_project()? {
             None => return Err(LocalSrcError::MissingMeta),
             Some(ProjectDefinition::Toml(_)) => {
-                return Err(LocalSrcError::JsonWriteToTomlProject {
-                    dir: self.project_path.clone(),
-                    file: META_JSON_FILE,
-                });
+                return Err(self.format_error(FormatError::JsonWriteToToml(META_JSON_FILE)));
             }
             Some(ProjectDefinition::Json { info: _, meta }) => meta,
         };
@@ -343,10 +342,9 @@ impl LocalSrcProject {
         match detect_format(&self.project_path)? {
             // Refused before either manifest is read.
             ProjectFormat::Both => {
-                return Err(LocalSrcError::AmbiguousFormat {
-                    dir: self.project_path.clone(),
+                return Err(self.format_error(FormatError::Ambiguous {
                     json: json_manifest(&self.project_path)?.unwrap_or(PROJECT_JSON_FILE),
-                });
+                }));
             }
             ProjectFormat::Toml => {
                 let resolved = match model_toml {
@@ -362,48 +360,36 @@ impl LocalSrcProject {
             ProjectFormat::Json | ProjectFormat::Neither => {}
         }
 
-        let info_json_path = self.info_path();
-        let meta_json_path = self.meta_path();
-
         // Metadata first: it carries the metamodel that errors about the
         // other document may name.
-        let meta_json = if meta_json_path.exists() {
-            let partial: InterchangeProjectMetadataPartial =
-                serde_json::from_reader(wrapfs::File::open(&meta_json_path)?)
-                    .map_err(|e| ProjectDeserializationError::new(META_JSON_FILE, e))?;
-            Some(validate_manifest(
-                META_JSON_FILE,
-                partial.validate(META_JSON_FILE, None),
-            )?)
-        } else {
-            None
-        };
-        let metamodel = meta_json
-            .as_ref()
-            .and_then(|meta: &InterchangeProjectMetadataRaw| meta.metamodel.as_deref());
+        let meta = self.read_json::<InterchangeProjectMetadataPartial>(None)?;
+        let info = self.read_json::<InterchangeProjectInfoPartial>(
+            meta.as_ref().and_then(|meta| meta.metamodel.as_deref()),
+        )?;
+        ProjectDefinition::from_json(info, meta).map_err(|problem| self.format_error(problem))
+    }
 
-        let info_json = if info_json_path.exists() {
-            let partial: InterchangeProjectInfoPartial =
-                serde_json::from_reader(wrapfs::File::open(&info_json_path)?)
-                    .map_err(|e| ProjectDeserializationError::new(PROJECT_JSON_FILE, e))?;
-            let info = validate_manifest(
-                PROJECT_JSON_FILE,
-                partial.validate(PROJECT_JSON_FILE, metamodel),
-            )?;
-            Some(info)
-        } else {
-            None
-        };
+    /// The json manifest document `T`, `None` when the project has no such
+    /// file.
+    fn read_json<T: PartialManifest>(
+        &self,
+        metamodel: Option<&str>,
+    ) -> Result<Option<T::Validated>, LocalSrcError> {
+        let path = self.project_path.join(T::FILE);
+        if !path.exists() {
+            return Ok(None);
+        }
+        Ok(Some(read_json_manifest::<T>(
+            wrapfs::File::open(&path)?,
+            metamodel,
+        )?))
+    }
 
-        match (info_json, meta_json) {
-            (Some(info), Some(meta)) => Ok(Some(ProjectDefinition::Json { info, meta })),
-            (None, None) => Ok(None),
-            (Some(_), None) => Err(LocalSrcError::MissingInfoMeta {
-                missing: "`.meta.json`",
-            }),
-            (None, Some(_)) => Err(LocalSrcError::MissingInfoMeta {
-                missing: "`.project.json`",
-            }),
+    /// The error of this project breaking the format rules.
+    fn format_error(&self, problem: FormatError) -> LocalSrcError {
+        LocalSrcError::Format {
+            dir: self.project_path.clone(),
+            problem,
         }
     }
 
@@ -413,9 +399,7 @@ impl LocalSrcProject {
             return Ok(checksum.clone());
         }
         if detect_format(&self.project_path)? == ProjectFormat::Toml {
-            return Err(LocalSrcError::TomlProjectHasNoChecksum {
-                dir: self.project_path.clone(),
-            });
+            return Err(self.format_error(FormatError::TomlHasNoChecksum));
         }
         self.checksum_canonical_hex()
             .map_err(|e| match e {
@@ -435,17 +419,31 @@ impl LocalSrcProject {
         )?)
     }
 
-    /// Refuse to write a json manifest into a `model.toml` project.
-    ///
-    /// Without the guard the write would leave a directory holding both
-    /// manifests, which `get_project` refuses as ambiguous.
-    fn refuse_json_write(&self, file: &'static str) -> Result<(), LocalSrcError> {
-        if detect_format(&self.project_path)? == ProjectFormat::Toml {
-            return Err(LocalSrcError::JsonWriteToTomlProject {
-                dir: self.project_path.clone(),
-                file,
-            });
+    /// Write `value` as the json manifest `file`, pretty-printed with a
+    /// trailing newline.
+    fn write_json(
+        &self,
+        file: &'static str,
+        value: &impl serde::Serialize,
+        overwrite: bool,
+    ) -> Result<(), LocalSrcError> {
+        detect_format(&self.project_path)?
+            .check_json_write(file)
+            .map_err(|problem| self.format_error(problem))?;
+        let path = self.project_path.join(file);
+        if !overwrite && path.exists() {
+            return Err(LocalSrcError::AlreadyExists(format!(
+                "`{file}` already exists"
+            )));
         }
+
+        let mut file = wrapfs::File::create(&path)?;
+        serde_json::to_writer_pretty(&mut file, value).map_err(|e| {
+            ProjectSerializationError::new(format!("failed to serialize and write `{path}`"), e)
+        })?;
+        file.write_all(b"\n")
+            .map_err(|e| FsIoError::WriteFile(path, e))?;
+
         Ok(())
     }
 }
@@ -456,26 +454,7 @@ impl ProjectMut for LocalSrcProject {
         info: &InterchangeProjectInfoRaw,
         overwrite: bool,
     ) -> Result<(), LocalSrcError> {
-        self.refuse_json_write(PROJECT_JSON_FILE)?;
-        let project_json_path = self.info_path();
-
-        if !overwrite && project_json_path.exists() {
-            return Err(LocalSrcError::AlreadyExists(
-                "`.project.json` already exists".to_owned(),
-            ));
-        }
-
-        let mut file = wrapfs::File::create(&project_json_path)?;
-        serde_json::to_writer_pretty(&mut file, info).map_err(|e| {
-            ProjectSerializationError::new(
-                format!("failed to serialize and write project info to `{project_json_path}`"),
-                e,
-            )
-        })?;
-        file.write(b"\n")
-            .map_err(|e| FsIoError::WriteFile(project_json_path, e))?;
-
-        Ok(())
+        self.write_json(PROJECT_JSON_FILE, info, overwrite)
     }
 
     fn put_meta(
@@ -483,25 +462,7 @@ impl ProjectMut for LocalSrcProject {
         meta: &InterchangeProjectMetadataRaw,
         overwrite: bool,
     ) -> Result<(), LocalSrcError> {
-        self.refuse_json_write(META_JSON_FILE)?;
-        let meta_json_path = self.meta_path();
-        if !overwrite && meta_json_path.exists() {
-            return Err(LocalSrcError::AlreadyExists(
-                "'.meta.json' already exists".to_owned(),
-            ));
-        }
-
-        let mut file = wrapfs::File::create(&meta_json_path)?;
-        serde_json::to_writer_pretty(&mut file, meta).map_err(|e| {
-            ProjectSerializationError::new(
-                format!("failed to serialize and write project metadata to `{meta_json_path}`"),
-                e,
-            )
-        })?;
-        file.write(b"\n")
-            .map_err(|e| FsIoError::WriteFile(meta_json_path, e))?;
-
-        Ok(())
+        self.write_json(META_JSON_FILE, meta, overwrite)
     }
 
     fn put_manifest_document(
@@ -509,32 +470,20 @@ impl ProjectMut for LocalSrcProject {
         document: &crate::manifest::edit::DocumentMut,
         overwrite: bool,
     ) -> Result<(), crate::project::ManifestWriteError<LocalSrcError>> {
-        use crate::project::ManifestWriteError;
-
-        let format = detect_format(&self.project_path)
-            .map_err(|e| ManifestWriteError::Project(LocalSrcError::from(e)))?;
-        // Only a json project is refused: a directory already holding both
-        // is unreadable either way.
-        if format == ProjectFormat::Json {
-            return Err(ManifestWriteError::Project(
-                LocalSrcError::TomlWriteToJsonProject {
-                    dir: self.project_path.clone(),
-                },
-            ));
-        }
+        self.format()?
+            .check_toml_write()
+            .map_err(|problem| self.format_error(problem))?;
 
         let path = self.project_path.join(MODEL_TOML_FILE);
         if !overwrite && path.exists() {
-            return Err(ManifestWriteError::Project(LocalSrcError::AlreadyExists(
-                format!("`{MODEL_TOML_FILE}` already exists"),
-            )));
+            return Err(LocalSrcError::AlreadyExists(format!(
+                "`{MODEL_TOML_FILE}` already exists"
+            ))
+            .into());
         }
 
-        let text = document.to_string();
-        crate::manifest::edit::check(MODEL_TOML_FILE, &text)
-            .map_err(|e| ManifestWriteError::Project(LocalSrcError::Deserialize(e)))?;
-        wrapfs::write(&path, text)
-            .map_err(|e| ManifestWriteError::Project(LocalSrcError::from(e)))?;
+        let text = crate::manifest::edit::checked_text(document).map_err(LocalSrcError::from)?;
+        wrapfs::write(&path, text).map_err(LocalSrcError::from)?;
 
         Ok(())
     }
@@ -573,50 +522,15 @@ pub enum LocalSrcError {
     AlreadyExists(String),
     #[error("project is missing metadata file `.meta.json`")]
     MissingMeta,
-    /// The project has no manifest to read, or a json project lacks one
-    /// of its two documents. `missing` names what is missing.
+    /// The project has no manifest to read. `missing` names what is
+    /// missing.
     #[error("project is missing {missing}")]
     MissingInfoMeta { missing: &'static str },
-    /// A project source pinned by checksum is a `model.toml` project,
-    /// which has no project checksum.
-    #[error(
-        "`{dir}` is a `model.toml` project, which has no project checksum;\n\
-        {SP:>8} it can only be used as an editable project",
-        SP = ' '
-    )]
-    TomlProjectHasNoChecksum { dir: Utf8PathBuf },
-    /// A directory holding both manifest kinds. The message carries no
-    /// `sysand migrate` hint.
-    #[error(
-        "`{dir}` has both `model.toml` and `{json}`;\n\
-        {SP:>8} it is unclear whether it is a non-zipped KPAR or a development project",
-        SP = ' '
-    )]
-    AmbiguousFormat {
+    #[error("`{dir}` {problem}")]
+    Format {
         dir: Utf8PathBuf,
-        json: &'static str,
+        problem: FormatError,
     },
-    /// A command that writes a json manifest was pointed at a
-    /// `model.toml` project. Writing one would leave the directory
-    /// holding both manifests, which nothing can read.
-    #[error(
-        "`{dir}` is a `model.toml` project;\n\
-        {SP:>8} `{file}` cannot be written into one",
-        SP = ' '
-    )]
-    JsonWriteToTomlProject {
-        dir: Utf8PathBuf,
-        file: &'static str,
-    },
-    /// The mirror: a command that writes a `model.toml` was pointed at a
-    /// json project. The directory would then hold both manifests, which
-    /// nothing can read.
-    #[error(
-        "`{dir}` is a `.project.json` project;\n\
-        {SP:>8} `{MODEL_TOML_FILE}` cannot be written into one (see `sysand migrate`)",
-        SP = ' '
-    )]
-    TomlWriteToJsonProject { dir: Utf8PathBuf },
     #[error(transparent)]
     Deserialize(#[from] ProjectDeserializationError),
     #[error(transparent)]
@@ -672,12 +586,14 @@ impl ProjectRead for LocalSrcProject {
     fn manifest_document(
         &self,
     ) -> Result<crate::manifest::edit::DocumentMut, ManifestError<Self::Error>> {
-        if self.format().map_err(ManifestError::Project)? != ProjectFormat::Toml {
+        if self.format()? != ProjectFormat::Toml {
             return Err(ManifestError::NoTomlManifest);
         }
-        let text = self.model_toml_text().map_err(ManifestError::Project)?;
-        crate::manifest::edit::validated(MODEL_TOML_FILE, &text)
-            .map_err(|e| ManifestError::Project(LocalSrcError::Deserialize(e)))
+        let text = self.model_toml_text()?;
+        Ok(
+            crate::manifest::edit::validated(MODEL_TOML_FILE, &text)
+                .map_err(LocalSrcError::from)?,
+        )
     }
 
     fn get_project(&self) -> Result<Option<ProjectDefinition>, LocalSrcError> {

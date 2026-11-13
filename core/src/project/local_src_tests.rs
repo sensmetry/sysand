@@ -7,7 +7,7 @@ use std::assert_matches;
 
 use super::{LocalSrcError, LocalSrcProject, ProjectFormat, detect_format};
 use crate::model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw};
-use crate::project::{ProjectMut as _, ProjectRead as _};
+use crate::project::{FormatError, ProjectMut as _, ProjectRead as _};
 
 fn write_project_json(dir: &camino::Utf8Path, content: &str) {
     std::fs::write(dir.join(".project.json"), content).expect("write .project.json");
@@ -302,11 +302,17 @@ fn a_model_toml_project_has_no_project_checksum() {
 
     assert_matches!(
         project.checksum_canonical_variant(),
-        Err(LocalSrcError::TomlProjectHasNoChecksum { dir: _ })
+        Err(LocalSrcError::Format {
+            dir: _,
+            problem: FormatError::TomlHasNoChecksum
+        })
     );
     assert_matches!(
         project.sources(&crate::context::ProjectContext::default()),
-        Err(LocalSrcError::TomlProjectHasNoChecksum { dir: _ })
+        Err(LocalSrcError::Format {
+            dir: _,
+            problem: FormatError::TomlHasNoChecksum
+        })
     );
 }
 
@@ -415,7 +421,10 @@ fn a_model_toml_project_refuses_a_json_meta_write() {
         toml_project(dir.path())
             .put_meta(&InterchangeProjectMetadataRaw::default(), true)
             .expect_err("a json write into a toml project"),
-        LocalSrcError::JsonWriteToTomlProject { dir: _, file: _ }
+        LocalSrcError::Format {
+            dir: _,
+            problem: FormatError::JsonWriteToToml(_)
+        }
     );
 }
 
@@ -581,7 +590,10 @@ fn a_json_project_missing_one_file_names_it() {
     let error = toml_project(dir.path())
         .get_project()
         .expect_err("no `.project.json`");
-    assert_eq!(error.to_string(), "project is missing `.project.json`");
+    assert_eq!(
+        error.to_string(),
+        format!("`{}` is missing `.project.json`", dir.path())
+    );
 }
 
 // --- storing a manifest -----------------------------------------------

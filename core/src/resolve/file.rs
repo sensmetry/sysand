@@ -286,9 +286,9 @@ impl From<LocalKParError> for FileResolverProjectError {
                 actual,
             },
             LocalKParError::EmptyKpar { path } => Self::EmptyKpar { path },
-            error @ LocalKParError::MissingDocument {
+            error @ LocalKParError::Format {
                 path: _,
-                missing: _,
+                problem: _,
             } => Self::Other(error.to_string()),
         }
     }

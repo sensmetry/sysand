@@ -392,8 +392,16 @@ pub fn validated(file: &str, text: &str) -> Result<DocumentMut, ProjectDeseriali
     open(file, text).map_err(|problem| ProjectDeserializationError::invalid(file, problem))
 }
 
+/// The text of `document`, a `model.toml` to be written, after checking
+/// that it is one this Sysand can read.
+pub fn checked_text(document: &DocumentMut) -> Result<String, ProjectDeserializationError> {
+    let text = document.to_string();
+    check(crate::manifest::MODEL_TOML_FILE, &text)?;
+    Ok(text)
+}
+
 /// Check that `text` is a `model.toml` this Sysand can read.
-pub fn check(file: &str, text: &str) -> Result<(), ProjectDeserializationError> {
+fn check(file: &str, text: &str) -> Result<(), ProjectDeserializationError> {
     crate::manifest::ModelToml::parse(file, text)
         .map(|_| ())
         .map_err(|report| ProjectDeserializationError::invalid(file, report))

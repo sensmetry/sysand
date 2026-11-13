@@ -25,13 +25,13 @@ use crate::{
     context::ProjectContext,
     env::utils::ErrorBound,
     lock::Source,
-    manifest::{edit::DocumentMut, project::ResolvedProject},
+    manifest::{MODEL_TOML_FILE, edit::DocumentMut, project::ResolvedProject},
     model::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
         InterchangeProjectUsage, InterchangeProjectUsageRaw, InterchangeProjectValidationError,
-        KerMlChecksumAlg, ProjectHash, project_hash_hex,
+        KerMlChecksumAlg, META_JSON_FILE, PROJECT_JSON_FILE, ProjectHash, project_hash_hex,
     },
-    utils::lowercase_hex,
+    utils::{SP, lowercase_hex},
 };
 
 #[cfg(all(feature = "filesystem", feature = "networking"))]
@@ -131,7 +131,7 @@ impl<E: ErrorBound> CanonicalizationError<E> {
 #[derive(Debug, Error)]
 pub enum ManifestError<ReadError> {
     #[error(transparent)]
-    Project(ReadError),
+    Project(#[from] ReadError),
     /// The project is not written as a `model.toml`. Converting a json
     /// project's documents can fail, so it is left to the command that
     /// reports those failures.
@@ -146,7 +146,7 @@ pub enum ManifestError<ReadError> {
 #[derive(Error, Debug)]
 pub enum ManifestWriteError<WriteError> {
     #[error(transparent)]
-    Project(WriteError),
+    Project(#[from] WriteError),
     /// The project has nowhere to put one (a KPAR, a remote source project,
     /// an index entry).
     #[error("this project cannot store a `model.toml` manifest")]
@@ -229,6 +229,59 @@ impl ProjectFormat {
             (false, false) => Self::Neither,
         }
     }
+
+    /// Refuse to write the json manifest `file` into a `model.toml`
+    /// project, which would then hold both.
+    pub fn check_json_write(self, file: &'static str) -> Result<(), FormatError> {
+        match self {
+            Self::Toml => Err(FormatError::JsonWriteToToml(file)),
+            Self::Json | Self::Both | Self::Neither => Ok(()),
+        }
+    }
+
+    /// Refuse to write a `model.toml` into a json project, which would
+    /// then hold both. A project already holding both is unreadable
+    /// either way.
+    pub fn check_toml_write(self) -> Result<(), FormatError> {
+        match self {
+            Self::Json => Err(FormatError::TomlWriteToJson),
+            Self::Toml | Self::Both | Self::Neither => Ok(()),
+        }
+    }
+}
+
+/// A project's manifests break the format rules: a project is written in
+/// one format, with every document that format needs.
+///
+/// The message is a predicate: the error carrying this one names the
+/// project before it.
+#[derive(Debug, Error)]
+pub enum FormatError {
+    /// The project holds a `model.toml` and the json manifest `json`.
+    #[error(
+        "has both `{MODEL_TOML_FILE}` and `{json}`;\n\
+        {SP:>8} it is unclear whether it is a non-zipped KPAR or a development project"
+    )]
+    Ambiguous { json: &'static str },
+    /// A json project lacks one of its two documents.
+    #[error("is missing `{0}`")]
+    MissingDocument(&'static str),
+    #[error(
+        "is a `{MODEL_TOML_FILE}` project;\n\
+        {SP:>8} `{0}` cannot be written into one"
+    )]
+    JsonWriteToToml(&'static str),
+    #[error(
+        "is a `{PROJECT_JSON_FILE}` project;\n\
+        {SP:>8} `{MODEL_TOML_FILE}` cannot be written into one (see `sysand migrate`)"
+    )]
+    TomlWriteToJson,
+    /// A source pinned by project checksum is a `model.toml` project.
+    #[error(
+        "is a `{MODEL_TOML_FILE}` project, which has no project checksum;\n\
+        {SP:>8} it can only be used as an editable project"
+    )]
+    TomlHasNoChecksum,
 }
 
 /// A project's manifest, as written: a `model.toml`, or the
@@ -253,6 +306,20 @@ pub enum ProjectDefinition {
 }
 
 impl ProjectDefinition {
+    /// The json project of the documents a store holds, each `None` when
+    /// absent. A store holding neither has no project.
+    pub fn from_json(
+        info: Option<InterchangeProjectInfoRaw>,
+        meta: Option<InterchangeProjectMetadataRaw>,
+    ) -> Result<Option<Self>, FormatError> {
+        match (info, meta) {
+            (Some(info), Some(meta)) => Ok(Some(Self::Json { info, meta })),
+            (None, None) => Ok(None),
+            (Some(_), None) => Err(FormatError::MissingDocument(META_JSON_FILE)),
+            (None, Some(_)) => Err(FormatError::MissingDocument(PROJECT_JSON_FILE)),
+        }
+    }
+
     pub fn name(&self) -> &str {
         match self {
             Self::Toml(project) => project.name.as_str(),

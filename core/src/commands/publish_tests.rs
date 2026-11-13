@@ -1270,9 +1270,9 @@ mod prepare_publish {
             err,
             PublishError::KparRead(
                 _,
-                crate::project::local_kpar::LocalKParError::MissingDocument {
+                crate::project::local_kpar::LocalKParError::Format {
                     path: _,
-                    missing: ".meta.json"
+                    problem: crate::project::FormatError::MissingDocument(".meta.json")
                 }
             )
         );
