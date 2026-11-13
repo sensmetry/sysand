@@ -191,37 +191,78 @@ pub fn spell_index_usage<Env: ReadEnvironment>(
     }
 }
 
-/// Common merge logic for path-like usages (`Directory`, `KparPath`): if an
-/// existing usage matches `new_publisher`/`new_name`, update its path; if it
-/// matches `new_path` instead, overwrite its publisher/name. Returns `true`
-/// if a match was found and merged (and thus the new usage should not be
-/// added separately), or `false` if there was no match.
-fn try_merge_path_usage(
+/// What [`merge_located_usage`] did with an existing usage.
+enum Merge {
+    /// The existing usage is the new one.
+    Identical,
+    /// The existing usage took the new location or the new publisher/name.
+    Merged,
+    /// The existing usage is of another project at another location.
+    Unrelated,
+}
+
+/// The publisher of a usage that names a location: required for `dir`
+/// and `kpar-path` usages, optional for a KPAR URL usage.
+trait LocatedPublisher: PartialEq + Clone {
+    /// The usage's publisher and name as the warnings quote them.
+    fn quote(&self, name: &str) -> String;
+}
+
+impl LocatedPublisher for String {
+    fn quote(&self, name: &str) -> String {
+        format!("`{self}`/`{name}`")
+    }
+}
+
+impl LocatedPublisher for Option<String> {
+    fn quote(&self, name: &str) -> String {
+        match self {
+            Some(publisher) => publisher.quote(name),
+            None => format!("`{name}`"),
+        }
+    }
+}
+
+/// Merge logic for usages that name a location and a publisher/name
+/// (`Directory`, `KparPath`, `RemoteKpar`): if the existing usage matches
+/// `new_publisher`/`new_name`, it takes `new_location`; if it matches
+/// `new_location` instead, it takes the new publisher/name. `noun` names
+/// the location in the warnings.
+fn merge_located_usage<P: LocatedPublisher>(
     noun: &str,
-    path: &mut String,
-    publisher: &mut String,
+    location: &mut String,
+    publisher: &mut P,
     name: &mut String,
-    new_path: &str,
-    new_publisher: &str,
+    new_location: &str,
+    new_publisher: &P,
     new_name: &str,
-) -> bool {
-    if publisher == new_publisher && name == new_name {
+) -> Merge {
+    let same_project = publisher == new_publisher && name == new_name;
+    let same_location = location == new_location;
+    let existing = publisher.quote(name);
+    if same_project && same_location {
         log::warn!(
-            "usage `{publisher}`/`{name}` is already present;\n\
-            {SP:>8} it will be updated to point to `{new_path}`"
+            "ignoring usage {existing} at `{new_location}`,\n\
+             {SP:>8} since it is already present"
         );
-        *path = new_path.to_owned();
-        true
-    } else if path == new_path {
+        Merge::Identical
+    } else if same_project {
         log::warn!(
-            "existing usage `{publisher}`/`{name}` already points to {noun}
-            {SP:>8} `{path}`; existing usage will be overwritten"
+            "usage {existing} is already present;\n\
+             {SP:>8} it will be updated to point to `{new_location}`"
         );
-        *publisher = new_publisher.to_owned();
-        *name = new_name.to_owned();
-        true
+        new_location.clone_into(location);
+        Merge::Merged
+    } else if same_location {
+        log::warn!(
+            "existing usage {existing} already points to {noun}\n\
+             {SP:>8} `{location}`; existing usage will be overwritten"
+        );
+        publisher.clone_from(new_publisher);
+        new_name.clone_into(name);
+        Merge::Merged
     } else {
-        false
+        Merge::Unrelated
     }
 }
 
@@ -475,23 +516,29 @@ pub fn do_add<P: ProjectMut>(
                 // a path-like usage of that path already exists, but it is not
                 // currently done.
                 for u in &mut info.usage {
-                    if let InterchangeProjectUsageRaw::Directory {
+                    let InterchangeProjectUsageRaw::Directory {
                         dir,
                         publisher,
                         name,
                     } = u
-                        && try_merge_path_usage(
-                            "path",
-                            dir,
-                            publisher,
-                            name,
-                            new_dir,
-                            new_publisher,
-                            new_name,
-                        )
-                    {
-                        dont_add = true;
-                        break;
+                    else {
+                        continue;
+                    };
+                    match merge_located_usage(
+                        "path",
+                        dir,
+                        publisher,
+                        name,
+                        new_dir,
+                        new_publisher,
+                        new_name,
+                    ) {
+                        Merge::Identical => return Ok(false),
+                        Merge::Merged => {
+                            dont_add = true;
+                            break;
+                        }
+                        Merge::Unrelated => {}
                     }
                 }
             }
@@ -501,23 +548,29 @@ pub fn do_add<P: ProjectMut>(
                 name: new_name,
             } => {
                 for u in &mut info.usage {
-                    if let InterchangeProjectUsageRaw::KparPath {
+                    let InterchangeProjectUsageRaw::KparPath {
                         kpar_path,
                         publisher,
                         name,
                     } = u
-                        && try_merge_path_usage(
-                            "file",
-                            kpar_path,
-                            publisher,
-                            name,
-                            new_kpar_path,
-                            new_publisher,
-                            new_name,
-                        )
-                    {
-                        dont_add = true;
-                        break;
+                    else {
+                        continue;
+                    };
+                    match merge_located_usage(
+                        "file",
+                        kpar_path,
+                        publisher,
+                        name,
+                        new_kpar_path,
+                        new_publisher,
+                        new_name,
+                    ) {
+                        Merge::Identical => return Ok(false),
+                        Merge::Merged => {
+                            dont_add = true;
+                            break;
+                        }
+                        Merge::Unrelated => {}
                     }
                 }
             }
@@ -535,24 +588,22 @@ pub fn do_add<P: ProjectMut>(
                     else {
                         continue;
                     };
-                    if kpar_url != new_kpar_url {
-                        continue;
+                    match merge_located_usage(
+                        "KPAR URL",
+                        kpar_url,
+                        publisher,
+                        name,
+                        new_kpar_url,
+                        new_publisher,
+                        new_name,
+                    ) {
+                        Merge::Identical => return Ok(false),
+                        Merge::Merged => {
+                            dont_add = true;
+                            break;
+                        }
+                        Merge::Unrelated => {}
                     }
-                    if publisher == new_publisher && name == new_name {
-                        log::warn!(
-                            "ignoring usage `{new_kpar_url}`,\n\
-                             {SP:>8} since it is already present"
-                        );
-                        return Ok(false);
-                    }
-                    log::warn!(
-                        "existing usage `{name}` already points to KPAR URL\n\
-                         {SP:>8} `{kpar_url}`; existing usage will be overwritten"
-                    );
-                    publisher.clone_from(new_publisher);
-                    name.clone_from(new_name);
-                    dont_add = true;
-                    break;
                 }
             }
             InterchangeProjectUsageRaw::Index {

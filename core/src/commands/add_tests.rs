@@ -60,6 +60,14 @@ fn kpar(kpar_path: &str, publisher: &str, name: &str) -> InterchangeProjectUsage
     }
 }
 
+fn remote_kpar(kpar_url: &str, publisher: &str, name: &str) -> InterchangeProjectUsageRaw {
+    InterchangeProjectUsageRaw::RemoteKpar {
+        kpar_url: kpar_url.to_owned(),
+        publisher: Some(publisher.to_owned()),
+        name: name.to_owned(),
+    }
+}
+
 fn project_with_usage(usage: InterchangeProjectUsageRaw) -> InMemoryProject {
     let mut project = project();
     project.info.as_mut().unwrap().usage = vec![usage];
@@ -275,6 +283,76 @@ fn add_respells_a_path_usage_from_the_same_path() {
     assert_eq!(
         project.info.unwrap().usage,
         [directory("lib", "acme labs", "my lib")]
+    );
+}
+
+/// A located usage already declared as given is left alone
+#[test]
+fn add_ignores_a_located_usage_already_present() {
+    for usage in [
+        directory("lib", "Acme Labs", "My Lib"),
+        kpar("lib.kpar", "Acme Labs", "My Lib"),
+        remote_kpar("https://example.com/lib.kpar", "Acme Labs", "My Lib"),
+    ] {
+        let mut project = project_with_usage(usage.clone());
+
+        assert!(!do_add(&mut project, &usage).unwrap());
+        assert_eq!(project.info.unwrap().usage, [usage]);
+    }
+}
+
+/// A KPAR URL usage of the same project moves to the new URL
+#[test]
+fn add_moves_a_remote_kpar_usage_to_a_new_url() {
+    let mut project = project_with_usage(remote_kpar(
+        "https://example.com/old.kpar",
+        "Acme Labs",
+        "My Lib",
+    ));
+
+    assert!(
+        do_add(
+            &mut project,
+            &remote_kpar("https://example.com/new.kpar", "Acme Labs", "My Lib"),
+        )
+        .unwrap()
+    );
+
+    assert_eq!(
+        project.info.unwrap().usage,
+        [remote_kpar(
+            "https://example.com/new.kpar",
+            "Acme Labs",
+            "My Lib"
+        )]
+    );
+}
+
+/// From the same URL, the project was renamed, so the usage takes the new
+/// spelling
+#[test]
+fn add_respells_a_remote_kpar_usage_from_the_same_url() {
+    let mut project = project_with_usage(remote_kpar(
+        "https://example.com/lib.kpar",
+        "Acme Labs",
+        "My Lib",
+    ));
+
+    assert!(
+        do_add(
+            &mut project,
+            &remote_kpar("https://example.com/lib.kpar", "acme labs", "my lib"),
+        )
+        .unwrap()
+    );
+
+    assert_eq!(
+        project.info.unwrap().usage,
+        [remote_kpar(
+            "https://example.com/lib.kpar",
+            "acme labs",
+            "my lib"
+        )]
     );
 }
 
