@@ -11,7 +11,8 @@ use std::{
 
 use crate::auth::{
     CredentialStoreAuthentication, GlobMapBuilder, GlobMapResultMut, HTTPAuthentication,
-    StandardHTTPAuthentication, StandardHTTPAuthenticationBuilder,
+    StandardHTTPAuthentication, StandardHTTPAuthenticationBuilder, UrlGlobError, compile_url_glob,
+    url_glob_under,
 };
 use crate::credential_store::keyring_store::{BlobBackend, LockedBlobStore};
 use crate::credential_store::test_support::{InMemoryBlobBackend, unique_lock_path};
@@ -23,27 +24,27 @@ use crate::resolve::net_utils::{HttpOptions, create_reqwest_client_with};
 #[test]
 fn basic_globmap_lookup() -> Result<(), Box<dyn std::error::Error>> {
     let mut builder = GlobMapBuilder::new();
-    builder.add("a*.com/*", 1);
-    builder.add("a*.com/**", 2);
-    builder.add("b.com/*", 3);
-    builder.add("a*.com/*/*", 4);
+    builder.add("https://h.com/a*/*", 1);
+    builder.add("https://h.com/a*/**", 2);
+    builder.add("https://h.com/b/*", 3);
+    builder.add("https://h.com/a*/*/*", 4);
     let mut globmap = builder.build()?;
 
-    if let GlobMapResultMut::Ambiguous(vals) = globmap.lookup_mut("axx.com/xxx") {
+    if let GlobMapResultMut::Ambiguous(vals) = globmap.lookup_mut("https://h.com/axx/xxx") {
         let vals: Vec<i32> = vals.into_iter().map(|(_, i)| *i).collect();
         assert_eq!(vals, vec![1, 2]);
     } else {
         panic!("Expected ambiguous result.");
     }
 
-    if let GlobMapResultMut::Ambiguous(vals) = globmap.lookup_mut("axx.com/xxx/xxx") {
+    if let GlobMapResultMut::Ambiguous(vals) = globmap.lookup_mut("https://h.com/axx/xxx/xxx") {
         let vals: Vec<i32> = vals.into_iter().map(|(_, i)| *i).collect();
         assert_eq!(vals, vec![2, 4]);
     } else {
         panic!("Expected ambiguous result.");
     }
 
-    let key = "axx.com/xxx/xxx/xxx";
+    let key = "https://h.com/axx/xxx/xxx/xxx";
     if let GlobMapResultMut::Found(k, val) = globmap.lookup_mut(key) {
         assert_eq!(k, key);
         assert_eq!(*val, 2);
@@ -51,7 +52,7 @@ fn basic_globmap_lookup() -> Result<(), Box<dyn std::error::Error>> {
         panic!("Expected unambiguous result.");
     }
 
-    let key = "b.com/xxx";
+    let key = "https://h.com/b/xxx";
     if let GlobMapResultMut::Found(k, val) = globmap.lookup_mut(key) {
         assert_eq!(k, key);
         assert_eq!(*val, 3);
@@ -59,16 +60,140 @@ fn basic_globmap_lookup() -> Result<(), Box<dyn std::error::Error>> {
         panic!("Expected unambiguous result.");
     }
 
-    assert_matches!(globmap.lookup_mut("axx.com"), GlobMapResultMut::NotFound);
     assert_matches!(
-        globmap.lookup_mut("bxx.com/xxx"),
+        globmap.lookup_mut("https://h.com/axx"),
         GlobMapResultMut::NotFound
     );
     assert_matches!(
-        globmap.lookup_mut("cxx.com/xxx"),
+        globmap.lookup_mut("https://h.com/bxx/xxx"),
+        GlobMapResultMut::NotFound
+    );
+    assert_matches!(
+        globmap.lookup_mut("https://h.com/cxx/xxx"),
         GlobMapResultMut::NotFound
     );
 
+    Ok(())
+}
+
+#[test]
+fn url_glob_origin_is_literal_and_normalized() -> Result<(), UrlGlobError> {
+    let url = "http://[::1]:8080/index/versions.json";
+    for pattern in [
+        "http://[::1]:8080/**",
+        "HTTP://[0:0::1]:8080/**",
+        "http://[::1]:8080/index/*.json",
+        "http://[::1]:8080/{index,other}/**",
+    ] {
+        assert!(
+            compile_url_glob(pattern)?.compile_matcher().is_match(url),
+            "`{pattern}` should match"
+        );
+    }
+    for pattern in [
+        "http://[::2]:8080/**",
+        "http://[::1]/**",
+        "https://[::1]:8080/**",
+    ] {
+        assert!(
+            !compile_url_glob(pattern)?.compile_matcher().is_match(url),
+            "`{pattern}` should not match"
+        );
+    }
+    assert!(
+        compile_url_glob("https://Example.COM:443/a/**")?
+            .compile_matcher()
+            .is_match("https://example.com/a/b")
+    );
+    Ok(())
+}
+
+#[test]
+fn url_glob_origin_wildcards_match() -> Result<(), UrlGlobError> {
+    for (pattern, url) in [
+        ("http://127.0.0.1:*/**", "http://127.0.0.1:5000/a"),
+        ("https://*.example.com/**", "https://www.example.com/a"),
+        ("HTTPS://*.Example.COM/**", "https://www.example.com/a"),
+        ("*://example.com/**", "http://example.com/a"),
+        ("http://[FD00:0::5]:*/**", "http://[fd00::5]:8080/a"),
+        ("http://user@[::1]:*/**", "http://user@[::1]:8080/a"),
+    ] {
+        assert!(
+            compile_url_glob(pattern)?.compile_matcher().is_match(url),
+            "`{pattern}` should match `{url}`"
+        );
+    }
+    for (pattern, url) in [
+        ("https://*.example.com/**", "https://example.com/a"),
+        (
+            "https://*.example.com/**",
+            "https://evil.com/.example.com/a",
+        ),
+        ("http://[::1]:80*/**", "http://[::1]:9090/a"),
+    ] {
+        assert!(
+            !compile_url_glob(pattern)?.compile_matcher().is_match(url),
+            "`{pattern}` should not match `{url}`"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn url_glob_rejects_an_invalid_or_non_http_origin() {
+    for pattern in ["example.com/**", "**", "ftp://example.com/**"] {
+        assert_matches!(
+            compile_url_glob(pattern),
+            Err(UrlGlobError::NoHttpOrigin(p)) if p == pattern
+        );
+    }
+    for pattern in [
+        "http://[::1/**",
+        "http://[::1*/**",
+        "http://[x*]/**",
+        "http://[::*]:8080/**",
+        "https://[ab].example.com/**",
+        "https://a[b].example.com:*/**",
+        "http://example.com\\a/**",
+        "http://example.com#a/**",
+    ] {
+        assert_matches!(
+            compile_url_glob(pattern),
+            Err(UrlGlobError::InvalidOrigin { pattern: p, source: _ }) if p == pattern
+        );
+    }
+}
+
+#[test]
+fn url_glob_rejects_a_pattern_without_a_path() {
+    for pattern in [
+        "https://example.com",
+        "http://[::1]:8080",
+        "https://*.example.com",
+    ] {
+        assert_matches!(
+            compile_url_glob(pattern),
+            Err(UrlGlobError::NoPath(p)) if p == pattern
+        );
+    }
+}
+
+#[test]
+fn url_glob_error_names_the_pattern_as_written() {
+    let pattern = "http://Example.com/{a,b/**";
+    let err = compile_url_glob(pattern).unwrap_err();
+    assert!(err.to_string().contains(pattern), "{err}");
+}
+
+#[test]
+fn url_glob_under_keeps_the_origin_and_escapes_the_path() -> Result<(), UrlGlobError> {
+    let glob = url_glob_under("http://[::1]:8080/a{b}/");
+    assert_eq!(glob, "http://[::1]:8080/a[{]b[}]/**");
+    assert!(
+        compile_url_glob(&glob)?
+            .compile_matcher()
+            .is_match("http://[::1]:8080/a{b}/c")
+    );
     Ok(())
 }
 

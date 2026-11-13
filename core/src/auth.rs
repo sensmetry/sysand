@@ -8,10 +8,11 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-use globset::{GlobBuilder, GlobSetBuilder};
+use globset::{Glob, GlobBuilder, GlobSetBuilder};
 use jiff::Timestamp;
 use reqwest::{Response, StatusCode, header};
 use reqwest_middleware::{ClientWithMiddleware, RequestBuilder};
+use url::{Host, Position, Url};
 
 use crate::credential_store::{
     CredentialRecord, CredentialScheme, CredentialStoreError,
@@ -230,6 +231,80 @@ impl<Higher: HTTPAuthentication, Lower: HTTPAuthentication> HTTPAuthentication
     }
 }
 
+/// An invalid credential URL glob.
+#[derive(Debug, thiserror::Error)]
+pub enum UrlGlobError {
+    #[error("credential URL glob `{0}` must start with `http://` or `https://` and a host")]
+    NoHttpOrigin(String),
+    #[error(
+        "credential URL glob `{0}` has no path, so it matches no URL;\n\
+         {SP:>8}add `/**` to cover the whole host",
+        SP = ""
+    )]
+    NoPath(String),
+    #[error("credential URL glob `{pattern}` starts with an invalid URL origin")]
+    InvalidOrigin {
+        pattern: String,
+        #[source]
+        source: Option<url::ParseError>,
+    },
+    #[error("invalid credential URL glob `{pattern}`: {kind}")]
+    Glob {
+        pattern: String,
+        kind: globset::ErrorKind,
+    },
+    #[error(transparent)]
+    GlobSet(#[from] globset::Error),
+}
+
+/// Compile a credential URL glob, matched against `url::Url::as_str()`.
+///
+/// The brackets of an IPv6 host match themselves, so `http://[::1]:8080/**`
+/// matches `http://[::1]:8080/x`. An origin (scheme, host and port) without
+/// wildcards is normalized as a request URL's is, so
+/// `https://Example.com:443/**` matches `https://example.com/x`. In an origin
+/// with wildcards, the scheme and host are lowercased.
+pub fn compile_url_glob(pattern: &str) -> Result<Glob, UrlGlobError> {
+    let (origin, rest) = split_url_origin(pattern);
+    if origin.is_empty() {
+        return Err(UrlGlobError::NoHttpOrigin(pattern.to_owned()));
+    }
+    if rest.is_empty() {
+        return Err(UrlGlobError::NoPath(pattern.to_owned()));
+    }
+    let invalid_origin = |source| UrlGlobError::InvalidOrigin {
+        pattern: pattern.to_owned(),
+        source,
+    };
+    let origin = if origin.contains(ORIGIN_WILDCARDS) {
+        wildcard_origin_glob(origin).map_err(invalid_origin)?
+    } else {
+        let origin_url = Url::parse(origin).map_err(|err| invalid_origin(Some(err)))?;
+        if !matches!(origin_url.scheme(), "http" | "https") {
+            return Err(UrlGlobError::NoHttpOrigin(pattern.to_owned()));
+        }
+        // `origin` has no `/`, but a URL parser also splits at `\` and `#`.
+        if &origin_url[Position::BeforePath..] != "/" {
+            return Err(invalid_origin(None));
+        }
+        globset::escape(&origin_url[..Position::BeforePath])
+    };
+    GlobBuilder::new(&format!("{origin}{rest}"))
+        .literal_separator(true)
+        .build()
+        .map_err(|err| UrlGlobError::Glob {
+            pattern: pattern.to_owned(),
+            kind: err.kind().clone(),
+        })
+}
+
+/// The credential URL glob matching every URL under `root`, an absolute URL
+/// ending in `/`.
+pub fn url_glob_under(root: &str) -> String {
+    let (origin, path) = split_url_origin(root);
+    format!("{origin}{}**", globset::escape(path))
+}
+
 #[derive(Debug, Clone)]
 pub struct GlobMapBuilder<T> {
     keys: Vec<String>,
@@ -274,10 +349,10 @@ impl<T> GlobMapBuilder<T> {
         self.values.push(value);
     }
 
-    pub fn build(self) -> Result<GlobMap<T>, globset::Error> {
+    pub fn build(self) -> Result<GlobMap<T>, UrlGlobError> {
         let mut builder = GlobSetBuilder::new();
         for globstr in &self.keys {
-            builder.add(GlobBuilder::new(globstr).literal_separator(true).build()?);
+            builder.add(compile_url_glob(globstr)?);
         }
         Ok(GlobMap {
             keys: self.keys,
@@ -573,7 +648,7 @@ impl StandardHTTPAuthentication {
     /// Extracts the bearer tokens from the configured credential set into a URL-glob map
     /// suitable for driving publish-time credential selection. Basic-auth entries are
     /// dropped, since publish only supports bearer authentication.
-    pub fn publish_bearer_auth_map(&self) -> Result<GlobMap<EnvBearerAuth>, globset::Error> {
+    pub fn publish_bearer_auth_map(&self) -> Result<GlobMap<EnvBearerAuth>, UrlGlobError> {
         let mut partial = GlobMapBuilder::new();
 
         for (key, sequence_auth) in self.restricted.keys.iter().zip(&self.restricted.values) {
@@ -605,7 +680,7 @@ impl StandardHTTPAuthenticationBuilder {
         Self::default()
     }
 
-    pub fn build(self) -> Result<StandardHTTPAuthentication, globset::Error> {
+    pub fn build(self) -> Result<StandardHTTPAuthentication, UrlGlobError> {
         Ok(StandardHTTPAuthentication {
             restricted: self.partial.build()?,
             unrestricted: Unauthenticated {},
@@ -913,9 +988,9 @@ pub(crate) fn stored_bearer_map_from_records(
         for glob in &record.globs {
             // Validate each glob individually so one invalid pattern skips
             // only itself, not every stored credential.
-            if let Err(err) = GlobBuilder::new(glob).literal_separator(true).build() {
+            if let Err(err) = compile_url_glob(glob) {
                 log::warn!(
-                    "ignoring invalid stored credential URL pattern `{glob}` for `{}`:\n{err}",
+                    "ignoring a stored credential URL pattern for `{}`:\n{err}",
                     record.key
                 );
                 continue;
@@ -1011,6 +1086,55 @@ where
         }
         Ok(first_response)
     }
+}
+
+const ORIGIN_WILDCARDS: [char; 4] = ['*', '?', '{', '}'];
+
+/// The glob for a URL glob origin containing wildcards, with the scheme and
+/// host lowercased. A bracketed host must be an IPv6 address: it is
+/// serialized as in a request URL and matched literally. Any other `[` or `]`
+/// is an error.
+fn wildcard_origin_glob(origin: &str) -> Result<String, Option<url::ParseError>> {
+    let scheme_end = origin.find("://").ok_or(None)?;
+    let authority_start = scheme_end + "://".len();
+    let host_start = authority_start + origin[authority_start..].rfind('@').map_or(0, |at| at + 1);
+    let scheme = &origin[..scheme_end];
+    let userinfo = &origin[scheme_end..host_start];
+    let host_and_port = &origin[host_start..];
+    let (ipv6, after_ipv6) = match host_and_port.find(']') {
+        Some(close) if host_and_port.starts_with('[') => {
+            let ipv6 = Host::parse(&host_and_port[..=close]).map_err(Some)?;
+            (
+                globset::escape(&ipv6.to_string()),
+                &host_and_port[close + 1..],
+            )
+        }
+        _ => (String::new(), host_and_port),
+    };
+    if [scheme, userinfo, after_ipv6]
+        .iter()
+        .any(|part| part.contains(['[', ']']))
+    {
+        return Err(None);
+    }
+    Ok(format!(
+        "{}{userinfo}{ipv6}{}",
+        scheme.to_ascii_lowercase(),
+        after_ipv6.to_ascii_lowercase()
+    ))
+}
+
+/// Split a URL or URL glob before the path: `https://host:1/a/**` gives
+/// `https://host:1` and `/a/**`. Without `://`, the origin is empty.
+fn split_url_origin(pattern: &str) -> (&str, &str) {
+    let Some(scheme_end) = pattern.find("://") else {
+        return ("", pattern);
+    };
+    let authority_start = scheme_end + "://".len();
+    let path_start = pattern[authority_start..]
+        .find('/')
+        .map_or(pattern.len(), |offset| authority_start + offset);
+    pattern.split_at(path_start)
 }
 
 #[cfg(test)]

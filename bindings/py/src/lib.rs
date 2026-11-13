@@ -330,9 +330,11 @@ fn build_auth_policy(spec: &AuthSpec) -> PyResult<Arc<CliAuthPolicy>> {
                 let username = spec.username.as_deref().ok_or_else(missing)?;
                 builder.add_basic_auth(url_glob, username, secret);
             }
-            CliAuthPolicy::without_store(builder.build().map_err(|e| {
-                PyValueError::new_err(format!("invalid URL glob `{url_glob}`: {e}"))
-            })?)
+            CliAuthPolicy::without_store(
+                builder
+                    .build()
+                    .map_err(|e| PyValueError::new_err(format!("{:#}", anyhow::Error::from(e))))?,
+            )
         }
         other => {
             return Err(PyValueError::new_err(format!(
