@@ -771,7 +771,7 @@ fn run_cli_with(
                     consults_workspace: needs.consults_workspace,
                     selector: needs.selector,
                     needs_a_member: needs.needs_a_member,
-                    needs_a_project: false,
+                    needs_a_project: needs.needs_a_project,
                     lock_wait: global_opts.lock_wait.map(Duration::from_secs),
                     cancellation: cancellation.clone(),
                 },
@@ -1263,13 +1263,7 @@ fn run_cli_with(
             dir: _,
             edits,
             selector: _,
-        } => {
-            let mut ctx = required(ctx);
-            if ctx.current_project().is_none() {
-                bail!(CliError::MissingProjectCurrentDir);
-            }
-            command_edit(&mut ctx, *edits)
-        }
+        } => command_edit(&mut required(ctx), *edits),
         Command::Add {
             selector: _,
             locator,
@@ -1366,8 +1360,8 @@ fn run_cli_with(
                     allow_path_usage,
                 )
             } else {
-                // With no workspace either, report a missing project.
-                let root = model_workspace_root.ok_or(CliError::MissingProjectCurrentDir)?;
+                let root = model_workspace_root
+                    .expect("BUG: `build` needs a project, and its context has none");
                 let workspace = ctx.workspace().expect("a workspace root means a workspace");
                 let output_dir =
                     path.unwrap_or_else(|| root.join(sysand_core::build::DEFAULT_OUTPUT_NAME));

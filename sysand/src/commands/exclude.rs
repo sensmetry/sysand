@@ -5,12 +5,10 @@ use anyhow::Result;
 use camino::Utf8PathBuf;
 use sysand_core::{context::ProjectContext, exclude::do_exclude};
 
-use crate::CliError;
-
 pub fn command_exclude(paths: Vec<Utf8PathBuf>, mut ctx: ProjectContext) -> Result<()> {
     let current_project = ctx
         .current_project()
-        .ok_or(CliError::MissingProjectCurrentDir)?;
+        .expect("BUG: the command needs a project, and its context has none");
 
     let mut unix_paths = Vec::with_capacity(paths.len());
     for f in paths {

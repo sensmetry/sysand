@@ -254,6 +254,7 @@ pub struct Needs<'a> {
     pub consults_workspace: bool,
     pub selector: Selector<'a>,
     pub needs_a_member: bool,
+    pub needs_a_project: bool,
 }
 
 /// What `command` needs of its context, or `None` when it has none: it
@@ -266,12 +267,14 @@ pub struct Needs<'a> {
 /// `clone` (which builds the context of the project it creates).
 pub fn context_needs(command: &cli::Command) -> Option<Needs<'_>> {
     use cli::Command;
+    /// A command that acts on one member also needs a project.
     fn acting(selector: Selector<'_>, needs_a_member: bool) -> Needs<'_> {
         Needs {
             start: Start::Cwd,
             consults_workspace: true,
             selector,
             needs_a_member,
+            needs_a_project: needs_a_member,
         }
     }
     match command {
@@ -282,17 +285,24 @@ pub fn context_needs(command: &cli::Command) -> Option<Needs<'_>> {
             allow_path_usage: _,
             keep_index: _,
         }
-        | Command::Publish {
+        | Command::Sources {
+            selector,
+            sources_opts: _,
+        } => Some(Needs {
+            needs_a_project: true,
+            ..acting(selector.selector(), false)
+        }),
+        // An explicit archive path needs no project.
+        Command::Publish {
             selector,
             path: _,
             index: _,
             trusted_publishing: _,
-        }
-        | Command::Sources {
-            selector,
-            sources_opts: _,
         } => Some(acting(selector.selector(), false)),
-        Command::PrintRoot { selector } => Some(acting(selector.selector(), false)),
+        Command::PrintRoot { selector } => Some(Needs {
+            needs_a_project: true,
+            ..acting(selector.selector(), false)
+        }),
         // `--kpar-path` names its own project; `--dir` starts the context
         // there; an identifier or an IRI is looked up in the environment too.
         Command::Info {
@@ -334,6 +344,7 @@ pub fn context_needs(command: &cli::Command) -> Option<Needs<'_>> {
             consults_workspace: true,
             selector: selector.selector(),
             needs_a_member: true,
+            needs_a_project: true,
         }),
         Command::Lock { resolution_opts: _ }
         | Command::Sync {
@@ -360,6 +371,7 @@ pub fn context_needs(command: &cli::Command) -> Option<Needs<'_>> {
             consults_workspace: true,
             selector: Selector::Current,
             needs_a_member: false,
+            needs_a_project: false,
         }),
         Command::Migrate {
             path,
@@ -373,6 +385,7 @@ pub fn context_needs(command: &cli::Command) -> Option<Needs<'_>> {
             consults_workspace: false,
             selector: Selector::Current,
             needs_a_member: false,
+            needs_a_project: false,
         }),
         Command::Clone {
             locator: _,

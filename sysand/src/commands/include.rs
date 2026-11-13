@@ -5,8 +5,6 @@ use anyhow::{Result, bail};
 use camino::Utf8PathBuf;
 use sysand_core::{context::ProjectContext, include::do_include, project::utils::wrapfs};
 
-use crate::CliError;
-
 pub fn command_include(
     paths: Vec<Utf8PathBuf>,
     compute_checksum: bool,
@@ -15,7 +13,7 @@ pub fn command_include(
 ) -> Result<()> {
     let current_project = ctx
         .current_project()
-        .ok_or(CliError::MissingProjectCurrentDir)?;
+        .expect("BUG: the command needs a project, and its context has none");
 
     let mut unix_paths = Vec::with_capacity(paths.len());
     for p in paths {

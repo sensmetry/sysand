@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use crate::{
-    CliError,
-    cli::{DependenciesCli, EnvProjectLocatorArgs},
-};
+use crate::cli::{DependenciesCli, EnvProjectLocatorArgs};
 
 use anstream::println;
 use anyhow::{Context as _, Result, bail};
@@ -55,9 +52,9 @@ pub fn command_sources_project(
     dependencies: DependenciesCli,
     ctx: ProjectContext,
 ) -> Result<()> {
-    let Some(current_project) = ctx.current_project() else {
-        bail!(CliError::MissingProjectCurrentDir);
-    };
+    let current_project = ctx
+        .current_project()
+        .expect("BUG: `sources` needs a project, and its context has none");
     // TODO: Better bail early?
     let Some(definition) = ctx.current_definition() else {
         bail!("project is missing project information")

@@ -58,9 +58,6 @@ pub fn command_remove<Policy: HTTPAuthentication>(
         UsageRef::Resource(resolved_iri.borrow())
     };
 
-    if ctx.current_project().is_none() {
-        bail!(CliError::MissingProjectCurrentDir);
-    }
     if identifier.is_none() && matches!(ctx.current_definition(), Some(ProjectDefinition::Toml(_)))
     {
         bail!(

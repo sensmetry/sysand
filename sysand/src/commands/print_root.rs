@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 
 use camino::Utf8Path;
 use sysand_core::{project::utils::wrapfs, workspace::model_toml::StartRegion};
-
-use crate::CliError;
 
 /// Prints the workspace root, from the root and from a member alike. A
 /// project under an `exclude`d directory is not in the workspace and
@@ -28,14 +26,10 @@ pub fn command_print_root(
         crate::output::text(|| println!("{root}"));
         return Ok(());
     }
-    match project_root.map(wrapfs::canonicalize).transpose()? {
-        Some(root) => {
-            crate::output::document("root", root.as_str());
-            crate::output::text(|| println!("{root}"));
-            Ok(())
-        }
-        None => Err(anyhow!(CliError::InvalidDirectory(
-            "not inside a project".to_owned(),
-        ))),
-    }
+    let root = wrapfs::canonicalize(
+        project_root.expect("BUG: `print-root` needs a project, and its context has none"),
+    )?;
+    crate::output::document("root", root.as_str());
+    crate::output::text(|| println!("{root}"));
+    Ok(())
 }
