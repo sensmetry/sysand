@@ -465,162 +465,6 @@ pub(crate) fn manifest_path(ctx: &ProjectContext) -> Option<Utf8PathBuf> {
     })
 }
 
-/// The result document of a mutating command: its name and the paths it
-/// writes, by kind. A command that fills a document of its own overrides
-/// this with it.
-fn run_report(
-    command: &cli::Command,
-    lock_root: &Utf8Path,
-    project_root: Option<&Utf8Path>,
-    manifest: Option<Utf8PathBuf>,
-    cwd: &Utf8Path,
-) -> RunReport {
-    let lockfile = lock_root.join(DEFAULT_LOCKFILE_NAME);
-    let env_dir = lock_root.join(DEFAULT_ENV_NAME);
-    let manifest_or_root = || {
-        manifest
-            .clone()
-            .or_else(|| project_root.map(Utf8Path::to_path_buf))
-    };
-    match command {
-        cli::Command::Init {
-            path,
-            name: _,
-            publisher: _,
-            version: _,
-            license: _,
-            metamodel: _,
-            metamodel_release: _,
-        } => RunReport::new("init").changed(
-            path.as_deref()
-                .map_or_else(|| cwd.to_path_buf(), |p| cwd.join(p)),
-        ),
-        cli::Command::Add {
-            selector: _,
-            locator: _,
-            version_constraint: _,
-            sync: _,
-            resolution_opts: _,
-            source_opts: _,
-        } => RunReport::new("add")
-            .changed_all(manifest_or_root())
-            .changed(&lockfile)
-            .changed(&env_dir),
-        cli::Command::Remove {
-            selector: _,
-            locator: _,
-            sync: _,
-            resolution_opts: _,
-        } => RunReport::new("remove")
-            .changed_all(manifest_or_root())
-            .changed(&lockfile)
-            .changed(&env_dir),
-        cli::Command::Include {
-            selector: _,
-            paths: _,
-            compute_checksum: _,
-            no_index_symbols: _,
-        } => RunReport::new("include").changed_all(manifest_or_root()),
-        cli::Command::Exclude {
-            selector: _,
-            paths: _,
-        } => RunReport::new("exclude").changed_all(manifest_or_root()),
-        // `migrate`, `clone` and `publish` decide what they write inside
-        // themselves (a deleted json pair, an installed dependency set,
-        // the archives found); the report names the command only.
-        cli::Command::Migrate {
-            path: _,
-            publisher: _,
-            metamodel: _,
-            allow_dirty: _,
-            allow_no_vcs: _,
-            resolution_opts: _,
-        } => RunReport::new("migrate"),
-        // `info` reads (a `--get` fills the `values` document); `edit`
-        // changes the manifest.
-        cli::Command::Info {
-            selector: _,
-            locator: _,
-            get: _,
-            resolution_opts: _,
-        } => RunReport::new("info"),
-        cli::Command::Edit {
-            dir: _,
-            selector: _,
-            edits: _,
-        } => RunReport::new("edit").changed_all(manifest_or_root()),
-        cli::Command::Build {
-            selector: _,
-            path: _,
-            compression: _,
-            allow_path_usage: _,
-            keep_index: _,
-        } => RunReport::new("build")
-            .changed(lock_root.join(sysand_core::commands::build::DEFAULT_OUTPUT_NAME)),
-        cli::Command::Publish {
-            selector: _,
-            path: _,
-            index: _,
-            trusted_publishing: _,
-        } => RunReport::new("publish"),
-        cli::Command::Lock { resolution_opts: _ } => RunReport::new("lock").changed(&lockfile),
-        cli::Command::Sync {
-            resolution_opts: _,
-            no_prune: _,
-            verify: _,
-            repair: _,
-        } => RunReport::new("sync").changed(&env_dir),
-        cli::Command::Env { command } => match command {
-            None => RunReport::new("env").changed(&env_dir),
-            Some(cli::EnvCommand::List) => RunReport::new("env list"),
-            Some(cli::EnvCommand::Sources {
-                locator: _,
-                version_constraint: _,
-                sources_opts: _,
-            }) => RunReport::new("env sources"),
-        },
-        cli::Command::Index { command } => {
-            let (name, root) = match command {
-                cli::IndexCommand::Init { index_root } => ("index init", index_root),
-                cli::IndexCommand::Add {
-                    index_root,
-                    iri: _,
-                    kpar_path: _,
-                } => ("index add", index_root),
-                cli::IndexCommand::Yank {
-                    index_root,
-                    iri: _,
-                    version: _,
-                } => ("index yank", index_root),
-                cli::IndexCommand::Remove {
-                    index_root,
-                    iri: _,
-                    target: _,
-                } => ("index remove", index_root),
-            };
-            RunReport::new(name).changed(root.clone().unwrap_or_else(|| cwd.to_path_buf()))
-        }
-        cli::Command::Clone {
-            locator: _,
-            target: _,
-            version_constraint: _,
-            no_deps: _,
-            resolution_opts: _,
-        } => RunReport::new("clone"),
-        cli::Command::Sources {
-            selector: _,
-            sources_opts: _,
-        } => RunReport::new("sources"),
-        cli::Command::PrintRoot { selector: _ } => RunReport::new("print-root"),
-        cli::Command::Versions {
-            iri: _,
-            resolution_opts: _,
-        } => RunReport::new("versions"),
-        cli::Command::Auth { command: _ } => RunReport::new("auth"),
-        cli::Command::Experimental {} => RunReport::new("experimental"),
-    }
-}
-
 /// The failure document's `kind`: what a reader such as a retry loop
 /// needs to tell apart. Anything else is `error`.
 fn failure_kind(err: &anyhow::Error) -> String {
@@ -726,6 +570,7 @@ fn run_cli_with(
     }
     log::debug!("sysand v{}", env!("CARGO_PKG_VERSION"));
 
+    let traits = command_traits(&command);
     // The commands that act in the current project or workspace read it in
     // full, once; the rest need only the working directory.
     let (ctx, selected, project_root, scope) = match context_needs(&command) {
@@ -775,7 +620,7 @@ fn run_cli_with(
                     lock_wait: global_opts.lock_wait.map(Duration::from_secs),
                     cancellation: cancellation.clone(),
                 },
-                |lock_root| lock_mode(&command, lock_root),
+                |lock_root| traits.lock_mode(lock_root),
             )?;
             (Some(ctx), selected, project_root, scope)
         }
@@ -798,7 +643,7 @@ fn run_cli_with(
     } else {
         // A `sysand.toml` under the workspace but not at its root is
         // ignored with a warning, which `--no-config` silences.
-        if reads_configuration(&command) {
+        if traits.reads_configuration {
             for stray in stray_configs(&config_start, &config_root)? {
                 log::warn!(
                     "{}",
@@ -886,8 +731,7 @@ fn run_cli_with(
 
     // What a mutating command reports having changed, by kind, computed
     // before the arguments move into the arms.
-    let report = run_report(
-        &command,
+    let report = traits.report(
         &lock_root,
         project_root.as_deref(),
         ctx.as_ref().and_then(manifest_path),
@@ -1506,40 +1350,264 @@ pub fn get_or_create_env(ctx: &mut ProjectContext) -> Result<LocalDirectoryEnvir
     Ok(env)
 }
 
+/// What the dispatcher needs to know of a command before it runs it.
+struct CommandTraits {
+    /// The command's name in its result document.
+    name: &'static str,
+    /// What its result document records as changed.
+    changes: Changes,
+    /// The advisory lock it takes at its state root.
+    lock: LockNeed,
+    /// Whether it touches the overrides or the indexes, and so warns about
+    /// a `sysand.toml` elsewhere under the workspace, which is ignored as a
+    /// whole, its `[[index]]` configuration included.
+    reads_configuration: bool,
+}
+
+/// The paths a command's result document records as changed.
+enum Changes {
+    /// None, or what the command reports itself.
+    Nothing,
+    /// The current project's manifest.
+    Manifest,
+    /// The manifest, the lockfile and the environment.
+    ManifestLockfileEnv,
+    Lockfile,
+    Env,
+    /// The build `output/` at the state root.
+    Output,
+    /// A directory the command names, relative to the working directory,
+    /// or the working directory itself.
+    Dir(Option<Utf8PathBuf>),
+}
+
 /// Which advisory lock a command takes: exclusive for the commands that
 /// write `sysand-lock.toml` or `.sysand`, shared for `sync --verify`
 /// (which must not read a torn state), none for commands that write only
 /// a manifest or read. `clone` populates a directory that must be empty
 /// or absent and takes none.
-fn lock_mode(command: &cli::Command, lock_root: &Utf8Path) -> Option<LockMode> {
+enum LockNeed {
+    None,
+    Exclusive,
+    Sync { verify: bool, repair: bool },
+}
+
+impl CommandTraits {
+    fn new(name: &'static str, changes: Changes) -> Self {
+        Self {
+            name,
+            changes,
+            lock: LockNeed::None,
+            reads_configuration: false,
+        }
+    }
+
+    fn locking(self, lock: LockNeed) -> Self {
+        Self { lock, ..self }
+    }
+
+    fn reading_configuration(self) -> Self {
+        Self {
+            reads_configuration: true,
+            ..self
+        }
+    }
+
+    fn lock_mode(&self, lock_root: &Utf8Path) -> Option<LockMode> {
+        match self.lock {
+            LockNeed::None => None,
+            LockNeed::Exclusive => Some(LockMode::Exclusive),
+            LockNeed::Sync { verify, repair } => Some(sync_lock_mode(verify, repair, lock_root)),
+        }
+    }
+
+    /// The result document of a mutating command: its name and the paths
+    /// it writes, by kind. A command that fills a document of its own
+    /// overrides this with it.
+    fn report(
+        &self,
+        lock_root: &Utf8Path,
+        project_root: Option<&Utf8Path>,
+        manifest: Option<Utf8PathBuf>,
+        cwd: &Utf8Path,
+    ) -> RunReport {
+        let report = RunReport::new(self.name);
+        let manifest = manifest.or_else(|| project_root.map(Utf8Path::to_path_buf));
+        match &self.changes {
+            Changes::Nothing => report,
+            Changes::Manifest => report.changed_all(manifest),
+            Changes::ManifestLockfileEnv => report
+                .changed_all(manifest)
+                .changed(lock_root.join(DEFAULT_LOCKFILE_NAME))
+                .changed(lock_root.join(DEFAULT_ENV_NAME)),
+            Changes::Lockfile => report.changed(lock_root.join(DEFAULT_LOCKFILE_NAME)),
+            Changes::Env => report.changed(lock_root.join(DEFAULT_ENV_NAME)),
+            Changes::Output => {
+                report.changed(lock_root.join(sysand_core::commands::build::DEFAULT_OUTPUT_NAME))
+            }
+            Changes::Dir(dir) => report.changed(
+                dir.as_ref()
+                    .map_or_else(|| cwd.to_path_buf(), |dir| cwd.join(dir)),
+            ),
+        }
+    }
+}
+
+fn command_traits(command: &cli::Command) -> CommandTraits {
+    use CommandTraits as T;
     match command {
-        cli::Command::Sync {
-            verify,
-            repair,
-            resolution_opts: _,
-            no_prune: _,
-        } => Some(sync_lock_mode(*verify, *repair, lock_root)),
-        cli::Command::Lock { resolution_opts: _ }
-        | cli::Command::Add {
+        cli::Command::Init {
+            path,
+            name: _,
+            publisher: _,
+            version: _,
+            license: _,
+            metamodel: _,
+            metamodel_release: _,
+        } => T::new("init", Changes::Dir(path.clone())),
+        cli::Command::Add {
             selector: _,
             locator: _,
             version_constraint: _,
             sync: _,
             resolution_opts: _,
             source_opts: _,
-        }
-        | cli::Command::Remove {
+        } => T::new("add", Changes::ManifestLockfileEnv)
+            .locking(LockNeed::Exclusive)
+            .reading_configuration(),
+        cli::Command::Remove {
             selector: _,
             locator: _,
             sync: _,
             resolution_opts: _,
-        } => Some(LockMode::Exclusive),
+        } => T::new("remove", Changes::ManifestLockfileEnv)
+            .locking(LockNeed::Exclusive)
+            .reading_configuration(),
+        cli::Command::Include {
+            selector: _,
+            paths: _,
+            compute_checksum: _,
+            no_index_symbols: _,
+        } => T::new("include", Changes::Manifest),
+        cli::Command::Exclude {
+            selector: _,
+            paths: _,
+        } => T::new("exclude", Changes::Manifest),
+        // `migrate`, `clone` and `publish` decide what they write inside
+        // themselves (a deleted json pair, an installed dependency set,
+        // the archives found); the report names the command only.
+        //
+        // `migrate` resolves `http(s)` and `pkg:sysand` usages through an
+        // index, and a one-time conversion should not be quiet about
+        // ignored configuration.
+        cli::Command::Migrate {
+            path: _,
+            publisher: _,
+            metamodel: _,
+            allow_dirty: _,
+            allow_no_vcs: _,
+            resolution_opts: _,
+        } => T::new("migrate", Changes::Nothing).reading_configuration(),
+        // `info` reads (a `--get` fills the `values` document), and counts
+        // as reading the configuration only when it resolves: under
+        // `--iri` or a `<publisher>/<name>` identifier, which is looked up
+        // in the indexes.
+        cli::Command::Info {
+            selector: _,
+            locator,
+            get: _,
+            resolution_opts: _,
+        } => {
+            let info = T::new("info", Changes::Nothing);
+            if locator.iri.is_some() || locator.identifier.is_some() {
+                info.reading_configuration()
+            } else {
+                info
+            }
+        }
+        cli::Command::Edit {
+            dir: _,
+            selector: _,
+            edits: _,
+        } => T::new("edit", Changes::Manifest),
+        cli::Command::Build {
+            selector: _,
+            path: _,
+            compression: _,
+            allow_path_usage: _,
+            keep_index: _,
+        } => T::new("build", Changes::Output),
+        // `publish` is passed no `Config` at all and warns anyway.
+        cli::Command::Publish {
+            selector: _,
+            path: _,
+            index: _,
+            trusted_publishing: _,
+        } => T::new("publish", Changes::Nothing).reading_configuration(),
+        cli::Command::Lock { resolution_opts: _ } => T::new("lock", Changes::Lockfile)
+            .locking(LockNeed::Exclusive)
+            .reading_configuration(),
+        cli::Command::Sync {
+            resolution_opts: _,
+            no_prune: _,
+            verify,
+            repair,
+        } => T::new("sync", Changes::Env)
+            .locking(LockNeed::Sync {
+                verify: *verify,
+                repair: *repair,
+            })
+            .reading_configuration(),
         // A bare `env` creates the environment; the subcommands read it
         cli::Command::Env { command } => match command {
-            None => Some(LockMode::Exclusive),
-            Some(_) => None,
-        },
-        _ => None,
+            None => T::new("env", Changes::Env).locking(LockNeed::Exclusive),
+            Some(cli::EnvCommand::List) => T::new("env list", Changes::Nothing),
+            Some(cli::EnvCommand::Sources {
+                locator: _,
+                version_constraint: _,
+                sources_opts: _,
+            }) => T::new("env sources", Changes::Nothing),
+        }
+        .reading_configuration(),
+        cli::Command::Index { command } => {
+            let (name, root) = match command {
+                cli::IndexCommand::Init { index_root } => ("index init", index_root),
+                cli::IndexCommand::Add {
+                    index_root,
+                    iri: _,
+                    kpar_path: _,
+                } => ("index add", index_root),
+                cli::IndexCommand::Yank {
+                    index_root,
+                    iri: _,
+                    version: _,
+                } => ("index yank", index_root),
+                cli::IndexCommand::Remove {
+                    index_root,
+                    iri: _,
+                    target: _,
+                } => ("index remove", index_root),
+            };
+            T::new(name, Changes::Dir(root.clone()))
+        }
+        cli::Command::Clone {
+            locator: _,
+            target: _,
+            version_constraint: _,
+            no_deps: _,
+            resolution_opts: _,
+        } => T::new("clone", Changes::Nothing).reading_configuration(),
+        cli::Command::Sources {
+            selector: _,
+            sources_opts: _,
+        } => T::new("sources", Changes::Nothing),
+        cli::Command::PrintRoot { selector: _ } => T::new("print-root", Changes::Nothing),
+        cli::Command::Versions {
+            iri: _,
+            resolution_opts: _,
+        } => T::new("versions", Changes::Nothing).reading_configuration(),
+        cli::Command::Auth { command: _ } => T::new("auth", Changes::Nothing),
+        cli::Command::Experimental {} => T::new("experimental", Changes::Nothing),
     }
 }
 
@@ -1564,32 +1632,6 @@ fn get_log_level(verbose: bool, quiet: bool) -> log::LevelFilter {
 }
 
 pub type Overrides<Policy> = Vec<(Identifier, Vec<OverrideProject<Policy>>)>;
-
-/// Whether the command touches the overrides or the indexes, and so warns
-/// about a `sysand.toml` elsewhere under the workspace, which is ignored as
-/// a whole, its `[[index]]` configuration included.
-///
-/// `publish` is passed no `Config` at all and warns anyway. `info` counts
-/// only when it resolves: under `--iri` or a `<publisher>/<name>`
-/// identifier, which is looked up in the indexes.
-fn reads_configuration(command: &cli::Command) -> bool {
-    match command {
-        cli::Command::Lock { resolution_opts: _ }
-        | cli::Command::Sync { resolution_opts: _, no_prune: _, verify: _, repair: _ }
-        | cli::Command::Versions { iri: _, resolution_opts: _ }
-        | cli::Command::Add { selector: _, locator: _, version_constraint: _, sync: _, resolution_opts: _, source_opts: _ }
-        | cli::Command::Remove { selector: _, locator: _, sync: _, resolution_opts: _ }
-        | cli::Command::Clone { locator: _, target: _, version_constraint: _, no_deps: _, resolution_opts: _ }
-        | cli::Command::Env { command: _ }
-        | cli::Command::Publish { selector: _, path: _, index: _, trusted_publishing: _ }
-        // `migrate` resolves `http(s)` and `pkg:sysand` usages through an
-        // index, and a one-time conversion should not be quiet about
-        // ignored configuration.
-        | cli::Command::Migrate { path: _, publisher: _, metamodel: _, allow_dirty: _, allow_no_vcs: _, resolution_opts: _ } => true,
-        cli::Command::Info { locator, selector: _, get: _, resolution_opts: _ } => locator.iri.is_some() || locator.identifier.is_some(),
-        _ => false,
-    }
-}
 
 /// Every `sysand.toml` between `cwd` and the workspace root, which is
 /// none when `root` is not a workspace root above `cwd`.
