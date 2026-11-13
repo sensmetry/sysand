@@ -169,11 +169,11 @@ fn do_init_py_local_file(
     .map_err(|err| {
         let e = format_err(&err);
         match err {
-            InitError::NameParse(..)
-            | InitError::PublisherParse(..)
-            | InitError::SemVerParse(..)
+            InitError::SemVerParse(..)
             | InitError::SPDXLicenseParse(..)
-            | InitError::MalformedMetamodel(..) => PyValueError::new_err(e),
+            | InitError::MalformedMetamodel(..)
+            | InitError::Identifier(..) => PyValueError::new_err(e),
+            InitError::Write(..) => PyRuntimeError::new_err(e),
             InitError::Project(err) => match err {
                 LocalSrcError::AlreadyExists(_) => PyFileExistsError::new_err(e),
                 LocalSrcError::Io(_) | LocalSrcError::Path(_) => PyIOError::new_err(e),
@@ -1013,6 +1013,7 @@ fn do_build_py(
                 | KParBuildError::MissingInfo
                 | KParBuildError::MissingMeta
                 | KParBuildError::MissingInfoMeta
+                | KParBuildError::TomlProject
                 | KParBuildError::Serialize(..)
                 | KParBuildError::WorkspaceMetamodelConflict {
                     workspace_metamodel: _,

@@ -175,8 +175,8 @@ fn a_usage_path_the_manifest_accepts_may_still_not_validate() {
 use std::collections::{BTreeMap, HashSet};
 
 use crate::manifest::project::ProjectManifest;
+use crate::manifest::spans::Positions;
 use crate::manifest::spans::Source;
-use crate::model::{IndexName, IndexPublisher};
 
 /// A `[project]` whose body is `body`, read and resolved outside any
 /// workspace -- which is what a standalone `model.toml` project is.
@@ -637,4 +637,127 @@ fn the_view_of_a_text_records_the_fixed_created() {
     let (_, meta) = of_text("model.toml", MANIFEST, nothing_to_read).expect("no sources to read");
     assert_eq!(meta.created, crate::model::format_created(&VIEW_CREATED));
     assert_eq!(meta.created, "1970-01-01T00:00:00Z");
+}
+
+// --- reading a json usage as a manifest usage -------------------------
+
+use super::{NoManifestForm, usage_of_raw};
+use crate::model::{IndexName, IndexPublisher};
+
+fn raw_resource(resource: &str, constraint: Option<&str>) -> InterchangeProjectUsageRaw {
+    InterchangeProjectUsageRaw::Resource {
+        resource: resource.to_owned(),
+        version_constraint: constraint.map(str::to_owned),
+    }
+}
+
+#[test]
+fn a_sysand_purl_with_a_constraint_is_an_index_usage() {
+    let usage = usage_of_raw(
+        &raw_resource("pkg:sysand/acme/lib", Some("^1.2")),
+        ".project.json",
+    )
+    .expect("an index usage");
+
+    assert_eq!(
+        usage,
+        Usage::Index {
+            publisher: crate::model::IndexPublisher::parse("acme").expect("a publisher"),
+            name: crate::model::IndexName::parse("lib").expect("a name"),
+            version_constraint: semver::VersionReq::parse("^1.2").expect("a constraint"),
+        }
+    );
+}
+
+#[test]
+fn an_index_usage_needs_a_constraint() {
+    // `Usage::Index` carries a `VersionReq` and the reader refuses an
+    // entry without one. The specification resolves this from the index
+    // at migration time; this refusal asks for it instead.
+    let error = usage_of_raw(&raw_resource("pkg:sysand/acme/lib", None), ".project.json")
+        .expect_err("no constraint");
+
+    assert!(matches!(error, NoManifestForm::NoConstraint { .. }));
+    assert!(
+        error
+            .to_string()
+            .contains("sysand add acme/lib <constraint>")
+    );
+}
+
+#[test]
+fn an_iri_that_is_not_a_sysand_purl_has_no_manifest_form() {
+    let error = usage_of_raw(&raw_resource("urn:kpar:something", None), ".project.json")
+        .expect_err("untyped");
+
+    assert!(matches!(error, NoManifestForm::UntypedIri(_)));
+    assert!(
+        error
+            .to_string()
+            .contains("named by its publisher and name")
+    );
+}
+
+#[test]
+fn a_directory_usage_becomes_a_dir_entry() {
+    let usage = usage_of_raw(
+        &InterchangeProjectUsageRaw::Directory {
+            dir: "../lib".to_owned(),
+            publisher: "acme".to_owned(),
+            name: "lib".to_owned(),
+        },
+        ".project.json",
+    )
+    .expect("a dir usage");
+
+    assert!(matches!(usage, Usage::SourcePath { .. }));
+}
+
+#[test]
+fn a_kpar_path_usage_becomes_a_kpar_path_entry() {
+    let usage = usage_of_raw(
+        &InterchangeProjectUsageRaw::KparPath {
+            kpar_path: "vendor/lib.kpar".to_owned(),
+            publisher: "acme".to_owned(),
+            name: "lib".to_owned(),
+        },
+        ".project.json",
+    )
+    .expect("a kpar-path usage");
+
+    assert!(matches!(usage, Usage::KparPath { .. }));
+}
+
+#[test]
+fn a_target_whose_identifiers_the_rule_refuses_names_its_file() {
+    // A raw typed usage's publisher and name are unvalidated strings
+    // copied from the target's `.project.json`. The fix is in that
+    // file, so the message says which.
+    let error = usage_of_raw(
+        &InterchangeProjectUsageRaw::Directory {
+            dir: "../lib".to_owned(),
+            publisher: "x_y".to_owned(),
+            name: "lib".to_owned(),
+        },
+        "../lib/.project.json",
+    )
+    .expect_err("an identifier a manifest cannot hold");
+
+    assert!(matches!(error, NoManifestForm::Identifier { .. }));
+    assert!(error.to_string().contains("../lib/.project.json"));
+}
+
+#[test]
+fn the_forward_map_normalizes_and_this_one_does_not() {
+    // Not an inverse: `usage` writes the normalized PURL, so a
+    // publisher written `ACME` comes back `acme`.
+    let shouted = Usage::Index {
+        publisher: crate::model::IndexPublisher::parse("ACME").expect("a publisher"),
+        name: crate::model::IndexName::parse("Lib").expect("a name"),
+        version_constraint: semver::VersionReq::parse("^1").expect("a constraint"),
+    };
+
+    let back = usage_of_raw(&super::usage(&shouted), ".project.json").expect("an index usage");
+    assert_eq!(back.publisher().as_str(), "acme");
+    assert_eq!(back.name().as_str(), "lib");
 }

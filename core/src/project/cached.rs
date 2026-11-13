@@ -40,6 +40,13 @@ impl<Local: ProjectRead, Remote: ProjectRead> ProjectRead for CachedProject<Loca
         self.local.manifest()
     }
 
+    fn manifest_document(
+        &self,
+    ) -> Result<crate::manifest::edit::DocumentMut, crate::project::ManifestError<Self::Error>>
+    {
+        self.local.manifest_document()
+    }
+
     type Error = Local::Error;
 
     fn get_project(

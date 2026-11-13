@@ -18,12 +18,13 @@ mod browser_tests {
     use wasm_bindgen_test::wasm_bindgen_test;
 
     use regex::Regex;
+    use semver::Version;
 
     #[wasm_bindgen_test(unsupported = test)]
     fn basic_init() -> Result<(), Box<dyn Error>> {
         do_init_js_local_storage(
-            "basic_init".to_owned(),
-            "a".into(),
+            "basic-init".to_owned(),
+            "acme".into(),
             "1.2.3".to_owned(),
             "sysand_storage",
             "/",
@@ -33,22 +34,28 @@ mod browser_tests {
 
         let local_storage = web_sys::window().unwrap().local_storage().unwrap().unwrap();
 
+        // `init` writes a `model.toml` here as everywhere else; the two
+        // json documents are what a build produces and what a legacy
+        // project has.
+        assert_eq!(
+            local_storage.get_item("sysand_storage/model.toml").unwrap(),
+            Some(
+                "manifest-version = 1\n\n\
+                 [project]\n\
+                 publisher = \"acme\"\n\
+                 name = \"basic-init\"\n\
+                 version = \"1.2.3\"\n\
+                 sources = []\n\
+                 license = \"MIT OR Apache-2.0\"\n"
+                    .to_owned()
+            )
+        );
         assert_eq!(
             local_storage
                 .get_item("sysand_storage/.project.json")
                 .unwrap(),
-            Some(r#"{"name":"basic_init","publisher":"a","version":"1.2.3","license":"MIT OR Apache-2.0"}"#.to_owned())
+            None
         );
-
-        let re = Regex::new(r#"\{"index":\{\},"created":"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"}"#)
-            .unwrap();
-
-        let meta_js = local_storage
-            .get_item("sysand_storage/.meta.json")
-            .unwrap()
-            .unwrap();
-
-        assert!(re.is_match_at(&meta_js, 0), "unexpected: {meta_js}");
 
         let project = open_project_local_storage("sysand_storage", Utf8UnixPath::new("/"))?;
 
@@ -59,8 +66,8 @@ mod browser_tests {
         assert_eq!(
             info,
             InterchangeProjectInfoRaw {
-                name: "basic_init".to_owned(),
-                publisher: Some(String::from("a")),
+                name: "basic-init".to_owned(),
+                publisher: Some(String::from("acme")),
                 description: None,
                 version: "1.2.3".to_owned(),
                 license: Some("MIT OR Apache-2.0".to_owned()),

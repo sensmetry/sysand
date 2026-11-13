@@ -94,7 +94,7 @@ fn bare_auth_logout_with_multiple_env_defaults_asks_for_an_explicit_url() -> Tes
     let (_temp_dir, _cwd, out) = run_sysand_with(
         ["auth", "logout"],
         None,
-        &default_index_env("https://a.example,https://b.example"),
+        &default_index_env("https://acme.example,https://bravo.example"),
     )?;
     out.assert()
         .failure()
@@ -162,7 +162,7 @@ fn auth_status_errors_on_a_label_less_env_credential() -> TestResult {
     // credential-using command, with the identical message.
     let (_store_dir, store_path) = seam_store()?;
     let mut env = seam_env(&store_path);
-    env.insert("SYSAND_CRED".to_owned(), "https://a.org".to_owned());
+    env.insert("SYSAND_CRED".to_owned(), "https://acme.org".to_owned());
 
     let (_temp_dir, _cwd, out) = run_sysand_with(["auth", "status"], None, &env)?;
     out.assert().failure().stderr(predicate::str::contains(

@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+//! `sysand publish` builds the project first, and `sysand build`
+//! refuses a `model.toml` project outright. So every project in this
+//! file is written as a legacy `.project.json` pair by hand rather than
+//! created through `sysand init`, which writes a `model.toml`.
+
 use std::fs;
 
 use assert_cmd::prelude::*;
@@ -17,9 +22,7 @@ pub use common::*;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 fn init_project(name: &str) -> Result<(Utf8TempDir, Utf8PathBuf), Box<dyn std::error::Error>> {
-    let (temp_dir, cwd, out) =
-        cli_init_project(None, "example-pub1", Some(name), Some("1.0.0"), Some("MIT"))?;
-    out.assert().success();
+    let (temp_dir, cwd) = cli_init_json_project(None, "example-pub1", name, "1.0.0", Some("MIT"))?;
     let mut licenses = cwd.join("LICENSES");
     fs::create_dir(&licenses)?;
     licenses.push("MIT.txt");
@@ -368,7 +371,7 @@ fn env_credentials_without_a_label_get_a_labels_are_required_error() -> TestResu
     // group; the error explains the label grammar instead.
     let (_temp_dir, cwd) = setup_built_project("publish-label-less-creds")?;
     let mut env = IndexMap::new();
-    env.insert("SYSAND_CRED".to_owned(), "https://a.org".to_owned());
+    env.insert("SYSAND_CRED".to_owned(), "https://acme.org".to_owned());
     env.insert("SYSAND_CRED_BASIC_USER".to_owned(), "user-a".to_owned());
     env.insert(
         "SYSAND_CRED_BASIC_PASS".to_owned(),

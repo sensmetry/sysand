@@ -242,7 +242,6 @@ pub fn install_in_env_with_usage(
     version: &str,
     usage: &[&str],
 ) -> Result<(), Box<dyn Error>> {
-    use assert_cmd::prelude::OutputAssertExt as _;
     use sysand_core::{
         commands::env::{do_env_install_project, do_env_local_dir},
         env::{DEFAULT_ENV_NAME, local_directory::LocalDirectoryEnvironment},
@@ -250,9 +249,9 @@ pub fn install_in_env_with_usage(
     };
 
     let (_source_dir, source) = new_temp_cwd()?;
-    cli_init_project_in(&source, None, publisher, Some(name), Some(version), None)?
-        .assert()
-        .success();
+    // A legacy pair, written by hand: the usage is spliced into the
+    // `.project.json` below, and `init` writes a `model.toml`
+    write_legacy_project(&source, publisher, name, version, None)?;
     if !usage.is_empty() {
         let info_path = source.join(".project.json");
         let info = std::fs::read_to_string(&info_path)?;
@@ -280,6 +279,73 @@ pub fn install_in_env_with_usage(
         false,
         true,
     )?;
+    Ok(())
+}
+
+/// Writes a legacy `.project.json`/`.meta.json` pair by hand.
+///
+/// Not through the CLI, and that is the point: `sysand init` writes a
+/// `model.toml`, so a test that exercises the json form cannot get one
+/// from the command. This is the compatibility fixture for those tests.
+///
+/// It is deliberately *not* a drop-in for [`cli_init_project`], which
+/// returns the `Output` of the process it ran; nothing runs here.
+///
+/// The bytes have to match what a real legacy project looks like, not
+/// just the field list: `serde_json::to_writer_pretty` plus a trailing
+/// newline, camelCase keys, the optional scalars and the empty vectors
+/// omitted, and `created` as a whole-second timestamp. The bytes are
+/// pinned by `the_legacy_fixture_writes_these_exact_bytes` in
+/// `cli_info.rs`.
+pub fn cli_init_json_project(
+    path: Option<&str>,
+    publisher: &str,
+    name: &str,
+    version: &str,
+    license: Option<&str>,
+) -> Result<(Utf8TempDir, Utf8PathBuf), Box<dyn Error>> {
+    let (temp_dir, cwd) = new_temp_cwd()?;
+    let project_dir = match path {
+        Some(path) => {
+            let dir = cwd.join(path);
+            std::fs::create_dir_all(&dir)?;
+            dir
+        }
+        None => cwd.clone(),
+    };
+    write_legacy_project(&project_dir, publisher, name, version, license)?;
+    Ok((temp_dir, cwd))
+}
+
+/// The pair itself, for a directory that already exists -- the legacy
+/// counterpart of [`cli_init_project_in`].
+pub fn write_legacy_project(
+    dir: &Utf8Path,
+    publisher: &str,
+    name: &str,
+    version: &str,
+    license: Option<&str>,
+) -> Result<(), Box<dyn Error>> {
+    // `license` is a `skip_serializing_if` key, so a fixture that
+    // always wrote it -- or never did -- would not be byte-identical to
+    // a real legacy project.
+    let mut info = serde_json::Map::new();
+    info.insert("name".to_owned(), name.into());
+    info.insert("publisher".to_owned(), publisher.into());
+    info.insert("version".to_owned(), version.into());
+    if let Some(license) = license {
+        info.insert("license".to_owned(), license.into());
+    }
+    let info = serde_json::Value::Object(info);
+    let meta = serde_json::json!({
+        "index": {},
+        "created": format!("{:.0}", jiff::Timestamp::now()),
+    });
+    for (file, value) in [(".project.json", &info), (".meta.json", &meta)] {
+        let mut text = serde_json::to_string_pretty(value)?;
+        text.push('\n');
+        std::fs::write(dir.join(file), text)?;
+    }
     Ok(())
 }
 

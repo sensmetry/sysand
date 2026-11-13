@@ -31,34 +31,30 @@ fn mock_index_config_absent(server: &mut mockito::Server, expected_count: usize)
 
 #[test]
 fn info_basic_in_cwd() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, out_init) = cli_init_project_basic("a", "info_basic", "1.2.3")?;
-    out_init
-        .assert()
-        .success()
-        .stdout(predicate::str::is_empty());
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "info-basic", "1.2.3", None)?;
 
     let out = run_sysand_in(&cwd, ["info"], None)?;
 
     out.assert()
         .success()
-        .stdout(predicate::str::contains("Name: info_basic"))
+        .stdout(predicate::str::contains("Name: info-basic"))
         .stdout(predicate::str::contains("Version: 1.2.3"));
 
     Ok(())
 }
 
 #[test]
+/// Legacy json fixture: the setup uses `sysand add` or an `info` write verb.
 fn info_prints_all_usage_types() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, out_init) =
-        cli_init_project_basic("pub1", "info_all_usage_types", "1.2.3")?;
-    out_init.assert().success();
+    let (_temp_dir, cwd) =
+        cli_init_json_project(None, "pub1", "info-all-usage-types", "1.2.3", None)?;
 
     // One usage of each shape: legacy `resource` (with and without a version
     // constraint), `dir`, and `kpar_path`.
     std::fs::write(
         cwd.join(".project.json"),
         r#"{
-  "name": "info_all_usage_types",
+  "name": "info-all-usage-types",
   "version": "1.2.3",
   "usage": [
     {
@@ -103,12 +99,8 @@ fn info_prints_all_usage_types() -> Result<(), Box<dyn Error>> {
 }
 
 fn info_basic(use_iri: bool) -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, out_init) =
-        cli_init_project(Some("info_basic"), "a", None, Some("1.2.3"), None)?;
-    out_init
-        .assert()
-        .success()
-        .stdout(predicate::str::is_empty());
+    let (_temp_dir, cwd) =
+        cli_init_json_project(Some("info-basic"), "acme", "info-basic", "1.2.3", None)?;
 
     if !use_iri {
         // FIXME: Relative file IRIs are currently not supported because
@@ -125,9 +117,9 @@ fn info_basic(use_iri: bool) -> Result<(), Box<dyn Error>> {
         let out_relative = {
             let mut args = vec!["info"];
             if use_iri {
-                args.extend(["--iri", "file://info_basic"]);
+                args.extend(["--iri", "file://info-basic"]);
             } else {
-                args.extend(["--dir", "info_basic"]);
+                args.extend(["--dir", "info-basic"]);
             }
             run_sysand_in(&cwd, args, None)?
         };
@@ -135,11 +127,11 @@ fn info_basic(use_iri: bool) -> Result<(), Box<dyn Error>> {
         out_relative
             .assert()
             .success()
-            .stdout(predicate::str::contains("Name: info_basic"))
+            .stdout(predicate::str::contains("Name: info-basic"))
             .stdout(predicate::str::contains("Version: 1.2.3"));
     }
 
-    let project_path: Utf8PathBuf = cwd.join("info_basic");
+    let project_path: Utf8PathBuf = cwd.join("info-basic");
     let out_absolute = {
         let mut args = vec!["info"];
         #[expect(clippy::branches_sharing_code, reason = "does not compile otherwise")]
@@ -156,7 +148,7 @@ fn info_basic(use_iri: bool) -> Result<(), Box<dyn Error>> {
     out_absolute
         .assert()
         .success()
-        .stdout(predicate::str::contains("Name: info_basic"))
+        .stdout(predicate::str::contains("Name: info-basic"))
         .stdout(predicate::str::contains("Version: 1.2.3"));
 
     Ok(())
@@ -176,7 +168,13 @@ fn info_basic_iri_explicit() -> Result<(), Box<dyn Error>> {
 /// IRI or a path
 #[test]
 fn info_positional_is_identifier() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, _) = cli_init_project(Some("info_positional"), "acme", None, None, None)?;
+    let (_temp_dir, cwd) = cli_init_json_project(
+        Some("info-positional"),
+        "acme",
+        "info-positional",
+        "0.0.1",
+        None,
+    )?;
 
     run_sysand_in(&cwd, ["info", "acme/some-project", "--no-index"], None)?
         .assert()
@@ -195,7 +193,7 @@ fn info_positional_is_identifier() -> Result<(), Box<dyn Error>> {
     for invalid_identifier in [
         "name",
         "urn:kpar:test",
-        "info_positional",
+        "info-positional",
         "c:/foo",
         "a/b/c",
     ] {
@@ -216,8 +214,9 @@ fn info_positional_is_identifier() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn info_dir_and_kpar_path_are_not_interchangeable() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, _) = cli_init_project(Some("info_kinds"), "acme", None, None, None)?;
-    let project = cwd.join("info_kinds");
+    let (_temp_dir, cwd) =
+        cli_init_json_project(Some("info-kinds"), "acme", "info-kinds", "0.0.1", None)?;
+    let project = cwd.join("info-kinds");
     let file = project.join(".project.json");
 
     run_sysand_in(&cwd, ["info", "--kpar-path", project.as_str()], None)?
@@ -1099,18 +1098,9 @@ fn info_index_identifier_takes_the_highest_version_including_a_prerelease()
 /// environment, without any index
 #[test]
 fn info_identifier_from_local_env() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project(Some("main"), "acme", None, None, None)?;
-    out.assert().success();
-    cli_init_project_in(
-        &cwd,
-        Some("dep"),
-        "Acme Labs",
-        Some("My Dep"),
-        Some("1.2.0"),
-        None,
-    )?
-    .assert()
-    .success();
+    let (_temp_dir, cwd) = cli_init_json_project(Some("main"), "acme", "main", "0.0.1", None)?;
+    std::fs::create_dir_all(cwd.join("dep"))?;
+    write_legacy_project(&cwd.join("dep"), "Acme Labs", "My Dep", "1.2.0", None)?;
     let main = cwd.join("main");
     run_sysand_in(&main, ["add", "--dir", "../dep", "--no-index"], None)?
         .assert()
@@ -1658,9 +1648,9 @@ fn info_multi_index_url_config() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn info_get_and_edit_fields() -> Result<(), Box<dyn Error>> {
-    let (_tmp, cwd, out) = cli_init_project(Some("info_fields"), "a", None, Some("1.2.3"), None)?;
-    out.assert().success();
-    let project_path = &cwd.join("info_fields");
+    let (_tmp, cwd) =
+        cli_init_json_project(Some("info-fields"), "acme", "info-fields", "1.2.3", None)?;
+    let project_path = &cwd.join("info-fields");
 
     let get = |field: &str| -> Result<String, Box<dyn Error>> {
         let out = run_sysand_in(project_path, ["info", "--get", field], None)?;
@@ -1678,11 +1668,11 @@ fn info_get_and_edit_fields() -> Result<(), Box<dyn Error>> {
         Ok(())
     };
 
-    assert_eq!(get("name")?, "info_fields\n");
+    assert_eq!(get("name")?, "info-fields\n");
     edit(&["--name", "info_fields_alt"])?;
     assert_eq!(get("name")?, "info_fields_alt\n");
 
-    assert_eq!(get("publisher")?, "a\n");
+    assert_eq!(get("publisher")?, "acme\n");
     edit(&["--publisher", "a_alt"])?;
     assert_eq!(get("publisher")?, "a_alt\n");
 
@@ -1794,19 +1784,19 @@ fn info_get_and_edit_fields() -> Result<(), Box<dyn Error>> {
 /// `sysand edit --dir` edits the project in the given directory
 #[test]
 fn edit_dir() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project(Some("edit_dir"), "a", None, None, None)?;
-    out.assert().success();
+    let (_temp_dir, cwd) =
+        cli_init_json_project(Some("edit-dir"), "acme", "edit-dir", "0.0.1", None)?;
 
     run_sysand_in(
         &cwd,
-        ["edit", "--dir", "edit_dir", "--version", "2.0.0"],
+        ["edit", "--dir", "edit-dir", "--version", "2.0.0"],
         None,
     )?
     .assert()
     .success();
     run_sysand_in(
         &cwd,
-        ["info", "--dir", "edit_dir", "--get", "version"],
+        ["info", "--dir", "edit-dir", "--get", "version"],
         None,
     )?
     .assert()
@@ -1818,7 +1808,7 @@ fn edit_dir() -> Result<(), Box<dyn Error>> {
         [
             "edit",
             "--dir",
-            "edit_dir/.project.json",
+            "edit-dir/.project.json",
             "--version",
             "3.0.0",
         ],
@@ -1833,16 +1823,15 @@ fn edit_dir() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn edit_metamodel() -> Result<(), Box<dyn Error>> {
-    let (_tmp, cwd, out) = cli_init_project(
-        Some("info_custom_metamodel"),
-        "a",
-        None,
-        Some("1.2.3"),
+    let (_tmp, cwd) = cli_init_json_project(
+        Some("info-custom-metamodel"),
+        "acme",
+        "info-custom-metamodel",
+        "1.2.3",
         None,
     )?;
-    out.assert().success();
 
-    let project_path = &cwd.join("info_custom_metamodel");
+    let project_path = &cwd.join("info-custom-metamodel");
 
     let get_metamodel = |expected: Option<String>| -> Result<String, Box<dyn Error>> {
         let out = run_sysand_in(project_path, ["info", "--get", "metamodel"], None)?;
@@ -1976,8 +1965,7 @@ fn edit_metamodel() -> Result<(), Box<dyn Error>> {
 /// leave `.project.json` unchanged
 #[test]
 fn edit_rejects_invalid_name_and_publisher() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "info_set_invalid", "1.2.3")?;
-    out.assert().success();
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "info-set-invalid", "1.2.3", None)?;
     let original = std::fs::read_to_string(cwd.join(".project.json"))?;
 
     for (field, value_name, value, msg) in [
@@ -2027,8 +2015,7 @@ fn edit_rejects_invalid_name_and_publisher() -> Result<(), Box<dyn Error>> {
 /// spaces
 #[test]
 fn edit_accepts_spaces_in_name_and_publisher() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "info_set_spaces", "1.2.3")?;
-    out.assert().success();
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "info-set-spaces", "1.2.3", None)?;
 
     run_sysand_in(
         &cwd,
@@ -2150,5 +2137,75 @@ fn edit_metamodel_on_a_toml_project_is_not_yet_supported() -> Result<(), Box<dyn
             .and(predicate::str::contains("computed when the KPAR is built").not()),
     );
 
+    Ok(())
+}
+
+/// The compatibility fixture: a legacy pair written by hand, which is
+/// how a test exercises the json form, since `sysand init` writes a
+/// `model.toml`. Read through the CLI, so the fixture is proved to be a
+/// project Sysand actually accepts rather than merely plausible json.
+#[test]
+fn a_hand_written_legacy_project_is_read() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "widgets", "1.2.3", None)?;
+
+    let out = run_sysand_in(&cwd, ["info"], None)?;
+
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains("widgets"))
+        .stdout(predicate::str::contains("acme"))
+        .stdout(predicate::str::contains("1.2.3"));
+
+    Ok(())
+}
+
+/// The bytes a legacy project is made of, frozen.
+///
+/// `sysand init` writes a `model.toml`, so there is no command output
+/// to compare the fixture against, and many tests depend on it being
+/// what a legacy project looks like. So the bytes are pinned here. They
+/// were taken from `sysand init --publisher acme --name widgets
+/// --version 1.2.3 --license MIT` at commit `117558d`, whose `init`
+/// wrote the json pair. Changing them is a deliberate edit of a
+/// recorded value, not a drift.
+#[test]
+fn the_legacy_fixture_writes_these_exact_bytes() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "widgets", "1.2.3", Some("MIT"))?;
+
+    assert_eq!(
+        std::fs::read_to_string(cwd.join(".project.json"))?,
+        "{\n  \"name\": \"widgets\",\n  \"publisher\": \"acme\",\n  \"version\": \"1.2.3\",\n  \"license\": \"MIT\"\n}\n"
+    );
+
+    // `created` is a timestamp, so the meta document is pinned by shape.
+    let meta = std::fs::read_to_string(cwd.join(".meta.json"))?;
+    assert!(meta.starts_with("{\n  \"index\": {},\n  \"created\": \""));
+    assert!(meta.ends_with("\"\n}\n"));
+
+    // Without a license the key is absent, not empty: it is a
+    // `skip_serializing_if` field.
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "widgets", "1.2.3", None)?;
+    assert_eq!(
+        std::fs::read_to_string(cwd.join(".project.json"))?,
+        "{\n  \"name\": \"widgets\",\n  \"publisher\": \"acme\",\n  \"version\": \"1.2.3\"\n}\n"
+    );
+
+    Ok(())
+}
+
+/// The legacy counterpart of `cli_init_project_in`: a directory that
+/// already exists.
+#[test]
+fn a_legacy_project_can_be_written_into_an_existing_directory() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    let nested = cwd.join("member");
+    std::fs::create_dir_all(&nested)?;
+
+    write_legacy_project(&nested, "acme", "widgets", "1.2.3", None)?;
+
+    let out = run_sysand_in(&nested, ["info"], None)?;
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains("widgets"));
     Ok(())
 }

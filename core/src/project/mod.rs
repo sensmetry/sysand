@@ -334,6 +334,27 @@ pub trait ProjectRead {
         Err(ManifestError::NoTomlManifest)
     }
 
+    /// The project's manifest as a document, for a caller that means to
+    /// edit it.
+    ///
+    /// [`ProjectRead::manifest`] returns the *values*, with inheritance
+    /// markers followed; this returns what the file says, comments and
+    /// key order included. An editor needs the second, and a slice that
+    /// confuses them loses every comment in the file.
+    ///
+    /// **The document is validated before it is handed back.** Parsing
+    /// TOML is not reading a manifest: a file written for a
+    /// `manifest-version` this Sysand does not support parses fine and
+    /// must not be edited. So an implementation runs the same read
+    /// `manifest()` does, keeps its diagnostics, and returns the
+    /// document only when they are empty.
+    ///
+    /// The default refuses, for the same reason
+    /// [`ProjectRead::manifest`] does.
+    fn manifest_document(&self) -> Result<DocumentMut, ManifestError<Self::Error>> {
+        Err(ManifestError::NoTomlManifest)
+    }
+
     fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
         Ok(self.get_project()?.0)
     }
@@ -461,6 +482,10 @@ impl<T: ProjectRead> ProjectRead for &T {
         (**self).manifest()
     }
 
+    fn manifest_document(&self) -> Result<DocumentMut, ManifestError<Self::Error>> {
+        (**self).manifest_document()
+    }
+
     fn get_project(
         &self,
     ) -> Result<
@@ -557,6 +582,10 @@ impl<T: ProjectRead> ProjectRead for &mut T {
         &self,
     ) -> Result<crate::manifest::project::ResolvedProject, ManifestError<Self::Error>> {
         (**self).manifest()
+    }
+
+    fn manifest_document(&self) -> Result<DocumentMut, ManifestError<Self::Error>> {
+        (**self).manifest_document()
     }
 
     fn get_project(
