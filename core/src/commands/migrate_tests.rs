@@ -165,7 +165,7 @@ fn the_scalar_fields_are_carried() {
 
 #[test]
 fn a_value_that_never_had_to_satisfy_the_manifests_rules_is_an_error() {
-    // Legacy json names are unconstrained strings; a manifest name must
+    // Json names are unconstrained strings; a manifest name must
     // normalize to a valid purl part, which `ab` is too short for.
     let rendered = errors(
         &info("ab", Some("acme"), "1.0.0"),

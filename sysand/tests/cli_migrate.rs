@@ -13,8 +13,8 @@ use camino::{Utf8Path, Utf8PathBuf};
 use predicates::prelude::*;
 
 use common::{
-    file_url_from_path, git_commit_files, new_temp_cwd, run_sysand_in, write_legacy_project,
-    write_toml_project, write_workspace_root,
+    file_url_from_path, git_commit_files, new_temp_cwd, run_sysand_in,
+    write_hand_written_json_project, write_json_project, write_toml_project, write_workspace_root,
 };
 
 /// A git repository around `dir`, with everything in it committed, or
@@ -48,7 +48,7 @@ fn git_repo(dir: &Utf8Path, commit: bool) -> Result<(), Box<dyn std::error::Erro
 }
 
 fn json_project(dir: &Utf8Path) -> Result<(), Box<dyn std::error::Error>> {
-    write_legacy_project(dir, "acme", "widgets", "1.2.3", None)?;
+    write_json_project(dir, "acme", "widgets", "1.2.3", None)?;
     std::fs::write(dir.join("test.sysml"), b"package P;\n")?;
     Ok(())
 }
@@ -146,7 +146,9 @@ fn migrate_from_a_workspace_root_needs_a_path() -> Result<(), Box<dyn std::error
     write_workspace_root(&cwd, &["app"], "")?;
     let app = cwd.join("app");
     std::fs::create_dir(&app)?;
-    json_project(&app)?;
+    // By hand: `init` would append `app` to the `members` already listing it.
+    write_hand_written_json_project(&app, "acme", "widgets", "1.2.3")?;
+    std::fs::write(app.join("test.sysml"), b"package P;\n")?;
     git_repo(&cwd, true)?;
 
     run_sysand_in(&cwd, ["migrate"], None)?
@@ -255,7 +257,7 @@ fn a_failed_write_keeps_the_json_pair() -> Result<(), Box<dyn std::error::Error>
 // ----------------------------------- the manifests migrate may meet
 
 fn json_with_usages(dir: &Utf8Path, usages: &str) -> Result<(), Box<dyn std::error::Error>> {
-    // `write_legacy_project` writes no `usage` key at all.
+    // `write_json_project` writes no `usage` key at all.
     std::fs::write(
         dir.join(".project.json"),
         format!(
@@ -385,7 +387,7 @@ fn a_file_usage_migrates_end_to_end() -> Result<(), Box<dyn std::error::Error>> 
     let dep = root.join("dep");
     std::fs::create_dir_all(&app)?;
     std::fs::create_dir_all(&dep)?;
-    write_legacy_project(&dep, "acme", "dep", "1.0.0", None)?;
+    write_json_project(&dep, "acme", "dep", "1.0.0", None)?;
     json_with_file_usage(&app, &dep)?;
     git_repo(&root, true)?;
 
@@ -412,7 +414,7 @@ fn a_file_usage_to_an_archive_migrates_to_a_kpar_path() -> Result<(), Box<dyn st
     let dep = root.join("dep");
     std::fs::create_dir_all(&app)?;
     std::fs::create_dir_all(&dep)?;
-    write_legacy_project(&dep, "acme", "dep", "1.0.0", None)?;
+    write_json_project(&dep, "acme", "dep", "1.0.0", None)?;
     // Built rather than written, so the archive is a real KPAR.
     run_sysand_in(&dep, ["build", "../dep.kpar"], None)?
         .assert()
@@ -438,7 +440,7 @@ fn migrate_does_not_panic_on_a_relative_path() -> Result<(), Box<dyn std::error:
     let dep = root.join("dep");
     std::fs::create_dir_all(&app)?;
     std::fs::create_dir_all(&dep)?;
-    write_legacy_project(&dep, "acme", "dep", "1.0.0", None)?;
+    write_json_project(&dep, "acme", "dep", "1.0.0", None)?;
     json_with_file_usage(&app, &dep)?;
     git_repo(&root, true)?;
 
@@ -1127,7 +1129,7 @@ fn a_constrained_stdlib_resource_is_refused() -> Result<(), Box<dyn std::error::
 ///
 /// Offline: the fixture's `usage` is empty, so migrate needs no index
 /// and lock has nothing to resolve. It carries neither a publisher nor
-/// a metamodel, so both are supplied, as a legacy json project had neither.
+/// a metamodel, so both are supplied, as a json project had neither.
 #[test]
 fn the_test_lib_fixture_migrates_then_locks_syncs_and_builds()
 -> Result<(), Box<dyn std::error::Error>> {

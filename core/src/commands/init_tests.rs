@@ -108,7 +108,7 @@ fn init_does_not_overwrite_an_existing_root_file() {
     storage
         .files
         .insert("widgets.sysml".into(), "package Widgets { }\n".to_owned());
-    super::do_init(
+    super::do_init_toml(
         "widgets".to_owned(),
         "acme".to_owned(),
         "1.0.0".to_owned(),
@@ -141,7 +141,7 @@ fn init_with_a_marker_takes_the_layout_from_the_inherited_kind() {
         ))
     };
     let mut syside = crate::project::memory::InMemoryProject::default();
-    super::do_init_ext(
+    super::do_init_toml_ext(
         "widgets".to_owned(),
         "acme".to_owned(),
         "1.0.0".to_owned(),
@@ -161,7 +161,7 @@ fn init_with_a_marker_takes_the_layout_from_the_inherited_kind() {
     assert!(manifest.contains("root = \"widgets.sysml\""), "{manifest}");
 
     let mut unknown = crate::project::memory::InMemoryProject::default();
-    super::do_init_ext(
+    super::do_init_toml_ext(
         "widgets".to_owned(),
         "acme".to_owned(),
         "1.0.0".to_owned(),
@@ -176,4 +176,53 @@ fn init_with_a_marker_takes_the_layout_from_the_inherited_kind() {
         .to_string();
     assert!(manifest.contains("sources = []"), "{manifest}");
     assert!(!manifest.contains("root"), "{manifest}");
+}
+
+/// A `.project.json` project is the two json documents, and no `model.toml`.
+#[test]
+fn init_json_writes_the_two_documents() {
+    let mut storage = crate::project::memory::InMemoryProject::default();
+    super::do_init_json(
+        "widgets".to_owned(),
+        "acme".to_owned(),
+        "1.2.3".to_owned(),
+        Some("MIT".to_owned()),
+        MetaProperty::Provided(OMG_SYSML.to_owned()),
+        &mut storage,
+    )
+    .expect("the project is created");
+    assert!(storage.model_toml.is_none());
+    let info = storage.info.expect("`.project.json`");
+    assert_eq!(info.name, "widgets");
+    assert_eq!(info.license.as_deref(), Some("MIT"));
+    let meta = storage.meta.expect("`.meta.json`");
+    assert_eq!(meta.metamodel.as_deref(), Some(OMG_SYSML));
+}
+
+/// A `.meta.json` has nowhere to put a marker or a Syside project's `root`.
+#[test]
+fn init_json_refuses_a_marker_and_a_syside_metamodel() {
+    let init = |metamodel| {
+        super::do_init_json(
+            "widgets".to_owned(),
+            "acme".to_owned(),
+            "1.2.3".to_owned(),
+            None,
+            metamodel,
+            &mut crate::project::memory::InMemoryProject::default(),
+        )
+    };
+    assert_matches!(
+        init(MetaProperty::Inherited(Inherited {
+            from: InheritFrom::DefaultGroup,
+            at: None,
+        })),
+        Err(InitError::JsonInheritedMetamodel)
+    );
+    assert_matches!(
+        init(MetaProperty::Provided(
+            "https://www.sysand.com/spec/SysML/20250201".to_owned()
+        )),
+        Err(InitError::JsonSysideMetamodel(_))
+    );
 }

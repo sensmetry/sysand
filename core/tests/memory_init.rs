@@ -3,7 +3,7 @@
 
 use std::assert_matches;
 use sysand_core::{
-    commands::init::do_init,
+    commands::init::do_init_toml,
     init::do_init_memory,
     manifest::inherit::MetaProperty,
     project::{ManifestWriteError, ProjectDefinition, ProjectFormat, ProjectRead as _},
@@ -15,7 +15,7 @@ use sysand_core::{
 const SYSML: &str = "https://www.omg.org/spec/SysML/20250201";
 
 /// `sysand init` creates a `model.toml`, not the two json documents;
-/// those are what a build produces and what a legacy project has.
+/// those are what a build produces and what a json project has.
 #[test]
 fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
     let memory_storage = do_init_memory(
@@ -72,7 +72,7 @@ fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
 
     let original = memory_storage.model_toml.clone();
 
-    let second_result = do_init(
+    let second_result = do_init_toml(
         "init-fail-on-double-init".to_owned(),
         "acme".into(),
         "1.2.3".to_owned(),
@@ -85,7 +85,7 @@ fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
     // what `init` stores through.
     assert_matches!(
         second_result,
-        Err(sysand_core::commands::init::InitError::Write(
+        Err(sysand_core::commands::init::InitError::TomlWrite(
             ManifestWriteError::Project(
                 sysand_core::project::memory::InMemoryError::AlreadyExists(_)
             )
@@ -97,7 +97,7 @@ fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// `do_init` (and so `do_init_memory`) should reject an invalid project
+/// `do_init_toml` (and so `do_init_memory`) should reject an invalid project
 /// name, reporting the offending input
 #[test]
 fn init_rejects_invalid_name() {
@@ -115,7 +115,7 @@ fn init_rejects_invalid_name() {
     assert!(format_err(&err).contains("`a/b`"), "{err}");
 }
 
-/// `do_init` (and so `do_init_memory`) should reject an invalid project
+/// `do_init_toml` (and so `do_init_memory`) should reject an invalid project
 /// publisher, reporting the offending input
 #[test]
 fn init_rejects_invalid_publisher() {
@@ -138,7 +138,7 @@ fn init_rejects_invalid_publisher() {
 fn init_invalid_name_leaves_storage_empty() {
     let mut storage = sysand_core::project::memory::InMemoryProject::default();
 
-    let result = do_init(
+    let result = do_init_toml(
         String::new(),
         "echo".to_owned(),
         "1.2.3".to_owned(),
@@ -156,12 +156,12 @@ fn init_invalid_name_leaves_storage_empty() {
     assert!(storage.meta.is_none());
 }
 
-/// `do_init` should write the metamodel given to `model.toml`
+/// `do_init_toml` should write the metamodel given to `model.toml`
 #[test]
 fn init_metamodel() -> Result<(), Box<dyn std::error::Error>> {
     let mut storage = sysand_core::project::memory::InMemoryProject::default();
 
-    do_init(
+    do_init_toml(
         "name".to_owned(),
         "echo".to_owned(),
         "1.2.3".to_owned(),
@@ -178,13 +178,13 @@ fn init_metamodel() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// `do_init` should reject a metamodel Sysand does not recognize,
+/// `do_init_toml` should reject a metamodel Sysand does not recognize,
 /// reporting it, and leave the storage untouched
 #[test]
 fn init_rejects_invalid_metamodel() {
     let mut storage = sysand_core::project::memory::InMemoryProject::default();
 
-    let result = do_init(
+    let result = do_init_toml(
         "name".to_owned(),
         "echo".to_owned(),
         "1.2.3".to_owned(),

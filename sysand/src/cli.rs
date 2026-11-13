@@ -12,7 +12,9 @@ use fluent_uri::Iri;
 use semver::{Version, VersionReq};
 use sysand_core::{
     build::KparCompressionMethod,
-    commands::{auth::IndexKey, publish::TrustedPublishingMode, sources::Dependencies},
+    commands::{
+        auth::IndexKey, init::ProjectKind, publish::TrustedPublishingMode, sources::Dependencies,
+    },
     config::Config,
     index_location::{IndexLocation, IndexSource},
     manifest::common::root_path,
@@ -98,6 +100,15 @@ pub enum Command {
             verbatim_doc_comment
         )]
         license: Option<spdx::Expression>,
+        /// What the project is stored as: `model-toml` (a `model.toml`) or
+        /// `project-json` (a `.project.json` and a `.meta.json`)
+        #[arg(
+            long,
+            value_enum,
+            verbatim_doc_comment,
+            default_value_t = ProjectKindCli::ModelToml
+        )]
+        kind: ProjectKindCli,
         /// The metamodel the project declares: `sysml` or `kerml`, the
         /// release chosen by `--metamodel-release`, or one of the IRIs
         /// `https://www.omg.org/spec/KerML/<date>`,
@@ -241,7 +252,7 @@ pub enum Command {
         #[arg(long)]
         keep_index: bool,
     },
-    /// Convert a legacy json project into a `model.toml` one
+    /// Convert a json project into a `model.toml` one
     Migrate {
         /// The project to convert. Defaults to the current directory
         path: Option<Utf8PathBuf>,
@@ -1669,6 +1680,23 @@ impl From<SpecKind> for MetamodelKindCli {
         match kind {
             SpecKind::SysMl => Self::SysML,
             SpecKind::KerMl => Self::KerML,
+        }
+    }
+}
+
+#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProjectKindCli {
+    /// A directory described by `model.toml`
+    ModelToml,
+    /// A directory described by `.project.json` and `.meta.json`
+    ProjectJson,
+}
+
+impl From<ProjectKindCli> for ProjectKind {
+    fn from(kind: ProjectKindCli) -> Self {
+        match kind {
+            ProjectKindCli::ModelToml => Self::ModelToml,
+            ProjectKindCli::ProjectJson => Self::ProjectJson,
         }
     }
 }

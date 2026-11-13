@@ -44,7 +44,7 @@ fn info_basic_in_cwd() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-/// Legacy json fixture: the setup uses `sysand add` or an `info` write verb.
+/// Json fixture: the setup uses `sysand add` or an `info` write verb.
 fn info_prints_all_usage_types() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd) =
         cli_init_json_project(None, "pub1", "info-all-usage-types", "1.2.3", None)?;
@@ -1043,7 +1043,7 @@ fn info_index_identifier_takes_the_highest_version_including_a_prerelease()
 fn info_identifier_from_local_env() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd) = cli_init_json_project(Some("main"), "acme", "main", "0.0.1", None)?;
     std::fs::create_dir_all(cwd.join("dep"))?;
-    write_legacy_project(&cwd.join("dep"), "Acme Labs", "My Dep", "1.2.0", None)?;
+    write_json_project(&cwd.join("dep"), "Acme Labs", "My Dep", "1.2.0", None)?;
     let main = cwd.join("main");
     run_sysand_in(&main, ["add", "--dir", "../dep", "--no-index"], None)?
         .assert()
@@ -2153,11 +2153,12 @@ fn edit_refuses_an_unrecognized_metamodel_on_a_toml_project() -> Result<(), Box<
     Ok(())
 }
 
-/// The compatibility fixture: a legacy pair written by hand, read through
+/// The compatibility fixture: a json pair written by hand, read through
 /// the CLI to prove Sysand accepts it as a project.
 #[test]
-fn a_hand_written_legacy_project_is_read() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "widgets", "1.2.3", None)?;
+fn a_hand_written_json_project_is_read() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    write_hand_written_json_project(&cwd, "acme", "widgets", "1.2.3")?;
 
     let out = run_sysand_in(&cwd, ["info"], None)?;
 
@@ -2170,44 +2171,14 @@ fn a_hand_written_legacy_project_is_read() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// The bytes a legacy project is made of, frozen.
-///
-/// `sysand init` writes a `model.toml`, so there is no command output to
-/// compare the fixture against, and many tests depend on it being what a
-/// legacy project looks like.
+/// A json project written into a directory that already exists.
 #[test]
-fn the_legacy_fixture_writes_these_exact_bytes() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "widgets", "1.2.3", Some("MIT"))?;
-
-    assert_eq!(
-        std::fs::read_to_string(cwd.join(".project.json"))?,
-        "{\n  \"name\": \"widgets\",\n  \"publisher\": \"acme\",\n  \"version\": \"1.2.3\",\n  \"license\": \"MIT\"\n}\n"
-    );
-
-    // `created` is a timestamp, so the meta document is pinned by shape.
-    let meta = std::fs::read_to_string(cwd.join(".meta.json"))?;
-    assert!(meta.starts_with("{\n  \"index\": {},\n  \"created\": \""));
-    assert!(meta.ends_with("\"\n}\n"));
-
-    // Without a license the key is absent, not empty: it is a
-    // `skip_serializing_if` field.
-    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "widgets", "1.2.3", None)?;
-    assert_eq!(
-        std::fs::read_to_string(cwd.join(".project.json"))?,
-        "{\n  \"name\": \"widgets\",\n  \"publisher\": \"acme\",\n  \"version\": \"1.2.3\"\n}\n"
-    );
-
-    Ok(())
-}
-
-/// A legacy project written into a directory that already exists.
-#[test]
-fn a_legacy_project_can_be_written_into_an_existing_directory() -> Result<(), Box<dyn Error>> {
+fn a_json_project_can_be_written_into_an_existing_directory() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
     let nested = cwd.join("member");
     std::fs::create_dir_all(&nested)?;
 
-    write_legacy_project(&nested, "acme", "widgets", "1.2.3", None)?;
+    write_json_project(&nested, "acme", "widgets", "1.2.3", None)?;
 
     let out = run_sysand_in(&nested, ["info"], None)?;
     out.assert()
@@ -2347,7 +2318,8 @@ fn edit_dir_validates_a_version_too() -> Result<(), Box<dyn Error>> {
 /// comments and key order intact.
 #[test]
 fn edit_keeps_the_comments_and_key_order() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, _) = cli_init_project(None, "acme", Some("widgets"), Some("1.0.0"), None)?;
+    let (_temp_dir, cwd, _) =
+        cli_init_toml_project(None, "acme", Some("widgets"), Some("1.0.0"), None)?;
     let path = cwd.join("model.toml");
     let commented = wrapfs::read_to_string(&path)?
         .replace("[project]", "# who ships it\n[project]")

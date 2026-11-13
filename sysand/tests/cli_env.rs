@@ -395,7 +395,7 @@ fn env_install_from_local_dir_allow_overwrite() -> Result<(), Box<dyn std::error
 */
 
 #[test]
-/// Legacy json fixture: the setup uses `sysand add`/`include`.
+/// Json fixture: the setup uses `sysand add`/`include`.
 fn install_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) =
         cli_init_json_project(None, "acme", "install-nonexistent", "1.2.3", None)?;
@@ -421,7 +421,7 @@ fn install_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
 /// be installed alongside it; the same version still triggers an error.
 /// `env list` then names each installed version once.
 #[test]
-/// Legacy json fixture: the setup uses `sysand add`/`include`.
+/// Json fixture: the setup uses `sysand add`/`include`.
 fn env_install_allow_multiple() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, _) = run_sysand(["env"], None)?;
 
@@ -537,7 +537,7 @@ fn env_install_allow_multiple() -> Result<(), Box<dyn std::error::Error>> {
 /// entries in `env.toml` and physically installs each project into the env
 /// directory. All installed projects are non-editable and carry a `src_cksum`.
 #[test]
-/// Legacy json fixture: the setup uses `sysand add`/`include`.
+/// Json fixture: the setup uses `sysand add`/`include`.
 fn env_install_multiple_projects_env_toml() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, _) = run_sysand(["env"], None)?;
 
@@ -633,11 +633,11 @@ fn env_install_multiple_projects_env_toml() -> Result<(), Box<dyn std::error::Er
 #[test]
 fn env_install_via_config_override_survives() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) =
-        cli_init_project_basic("tango", "env-install-survives-app", "1.0.0")?;
+        cli_init_toml_project_basic("tango", "env-install-survives-app", "1.0.0")?;
     out.assert().success();
 
     let (_tmp_dep, cwd_dep, out) =
-        cli_init_project_basic("acme", "env-install-survives-dep", "1.0.0")?;
+        cli_init_toml_project_basic("acme", "env-install-survives-dep", "1.0.0")?;
     let relative_cwd_dep = relativize_path(&cwd_dep, &cwd).unwrap();
     out.assert().success();
 
@@ -964,7 +964,8 @@ fn env_sources_by_identifier_or_iri() -> Result<(), Box<dyn std::error::Error>> 
     // `pkg:sysand` PURL, so the env records it under a `urn:sysand` identifier
     for (dir, publisher, file) in [("dep", "Acme Labs", "A"), ("dep2", "Foo & Bar", "B")] {
         std::fs::create_dir_all(cwd.join(dir))?;
-        write_legacy_project(&cwd.join(dir), publisher, "My Dep", "0.0.1", None)?;
+        // By hand: `init` refuses a publisher such as `Foo & Bar`.
+        write_hand_written_json_project(&cwd.join(dir), publisher, "My Dep", "0.0.1")?;
         std::fs::write(
             cwd.join(dir).join(format!("{file}.sysml")),
             format!("package {file};"),

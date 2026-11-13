@@ -353,6 +353,7 @@ pub fn context_needs(command: &cli::Command) -> Option<Needs<'_>> {
             publisher: _,
             version: _,
             license: _,
+            kind: _,
             metamodel: _,
             metamodel_release: _,
         } => Some(Needs {

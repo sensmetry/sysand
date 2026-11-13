@@ -3,8 +3,8 @@
 
 //! `sysand include` and `sysand exclude`, in both manifest formats.
 //!
-//! The tests that write a legacy `.project.json` pair by hand are the
-//! coverage of the json format, and most of them assert on
+//! The tests that create a `.project.json` pair with
+//! `sysand init --kind project-json` are the coverage of the json format, and most of them assert on
 //! `.meta.json`, the checksum and symbol maps a `model.toml` project does
 //! not have.
 //!

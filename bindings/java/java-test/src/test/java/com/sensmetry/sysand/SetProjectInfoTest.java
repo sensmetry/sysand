@@ -22,7 +22,7 @@ import java.util.LinkedHashMap;
 public class SetProjectInfoTest {
 
     /**
-     * A legacy json project, written by hand.
+     * A json project, written by hand.
      *
      * <p>{@code Sysand.init} writes a {@code model.toml}, and
      * {@code setProjectInfo}/{@code setProjectMetadata}/{@code setProjectIndex}

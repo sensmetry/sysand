@@ -18,7 +18,7 @@ def migrate(
     resolution: Resolution | None = None,
     auth: AuthPolicy | None = None,
 ) -> None:
-    """Convert a legacy json project into a ``model.toml`` one.
+    """Convert a json project into a ``model.toml`` one.
 
     Writes ``model.toml`` and then removes ``.project.json`` and
     ``.meta.json``, as ``sysand migrate`` does. A project whose

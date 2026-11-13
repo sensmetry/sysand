@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-//! Every project in this file is written as a legacy `.project.json`
-//! pair by hand rather than created through `sysand init`, which
-//! writes a `model.toml`: these fixtures pin the json path. The toml
-//! end-to-end case is at the end of the file.
+//! Projects in this file are created with
+//! `sysand init --kind project-json`: these fixtures pin the json path.
+//! The toml end-to-end case is at the end of the file.
 //!
 //! `sysand publish` does *not* build: it uploads the archive
 //! `sysand build` left in `output/`.

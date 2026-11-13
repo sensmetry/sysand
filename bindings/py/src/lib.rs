@@ -34,7 +34,7 @@ use sysand_core::{
             EnvError, EnvInstallError, EnvInstallPathError, do_env_install_path_parse,
             do_env_local_dir,
         },
-        init::do_init_local_file,
+        init::{ProjectKind, do_init_local_file},
         lock::{DEFAULT_LOCKFILE_NAME, LockError, LockProjectError},
         sync::SyncOutcome,
     },
@@ -184,7 +184,7 @@ fn do_migrate_py(
 
 #[pyfunction(name = "do_init_py_local_file")]
 #[pyo3(
-    signature = (name, publisher, version, path, metamodel, license=None),
+    signature = (name, publisher, version, path, metamodel, kind, license=None),
 )]
 fn do_init_py_local_file(
     name: String,
@@ -192,8 +192,18 @@ fn do_init_py_local_file(
     version: String,
     path: String,
     metamodel: String,
+    kind: &str,
     license: Option<String>,
 ) -> PyResult<()> {
+    let kind = match kind {
+        "model-toml" => ProjectKind::ModelToml,
+        "project-json" => ProjectKind::ProjectJson,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "`{other}` is not a project kind;\nit is `model-toml` or `project-json`"
+            )));
+        }
+    };
     // Initialize logger in each function independently to avoid setting up a
     // logger before `run_cli()` is called (CLI sets up its own logger). This
     // can't be put into pymodule definition, since importing any part of the
@@ -210,16 +220,20 @@ fn do_init_py_local_file(
         version,
         license,
         Some(MetaProperty::Provided(metamodel)),
+        kind,
         Utf8PathBuf::from(path),
     )
     .map_err(|err| {
         let e = format_err(&err);
         match err {
             InitError::Identifier(..) => PyValueError::new_err(e),
-            InitError::Write(..) => PyRuntimeError::new_err(e),
+            InitError::TomlWrite(..) => PyRuntimeError::new_err(e),
             InitError::SemVerParse(..)
             | InitError::SPDXLicenseParse(..)
-            | InitError::Metamodel(..) => PyValueError::new_err(e),
+            | InitError::Metamodel(..)
+            | InitError::JsonMissingMetamodel
+            | InitError::JsonInheritedMetamodel
+            | InitError::JsonSysideMetamodel(..) => PyValueError::new_err(e),
             InitError::Project(err) => match err {
                 LocalSrcError::AlreadyExists(_) => PyFileExistsError::new_err(e),
                 LocalSrcError::Io(_) | LocalSrcError::Path(_) => PyIOError::new_err(e),

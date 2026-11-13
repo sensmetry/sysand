@@ -226,16 +226,16 @@ pub fn sysand_cmd_in<'a, I: IntoIterator<Item = &'a str>>(
 }
 
 /// Initialize a project in a temp directory
-pub fn cli_init_project_basic(
+pub fn cli_init_toml_project_basic(
     publisher: &str,
     name: &str,
     version: &str,
 ) -> Result<(Utf8TempDir, Utf8PathBuf, Output), Box<dyn Error>> {
-    cli_init_project(None, publisher, Some(name), Some(version), None)
+    cli_init_toml_project(None, publisher, Some(name), Some(version), None)
 }
 
 /// Initialize a project in a temp directory
-pub fn cli_init_project(
+pub fn cli_init_toml_project(
     path: Option<&str>,
     publisher: &str,
     name: Option<&str>,
@@ -243,12 +243,13 @@ pub fn cli_init_project(
     license: Option<&str>,
 ) -> Result<(Utf8TempDir, Utf8PathBuf, Output), Box<dyn Error>> {
     let (tempdir, cwd) = new_temp_cwd()?;
-    cli_init_project_in(&cwd, path, publisher, name, version, license).map(|o| (tempdir, cwd, o))
+    cli_init_toml_project_in(&cwd, path, publisher, name, version, license)
+        .map(|o| (tempdir, cwd, o))
 }
 
-/// Like [`cli_init_project`], but initializes the project in an already
+/// Like [`cli_init_toml_project`], but initializes the project in an already
 /// existing `cwd`
-pub fn cli_init_project_in(
+pub fn cli_init_toml_project_in(
     cwd: &Utf8Path,
     path: Option<&str>,
     publisher: &str,
@@ -304,9 +305,9 @@ pub fn install_in_env_with_usage(
     };
 
     let (_source_dir, source) = new_temp_cwd()?;
-    // A legacy pair, written by hand: the usage is spliced into the
+    // A json pair, written by hand: the usage is spliced into the
     // `.project.json` below, and `init` writes a `model.toml`
-    write_legacy_project(&source, publisher, name, version, None)?;
+    write_json_project(&source, publisher, name, version, None)?;
     if !usage.is_empty() {
         let info_path = source.join(".project.json");
         let info = std::fs::read_to_string(&info_path)?;
@@ -336,15 +337,8 @@ pub fn install_in_env_with_usage(
     Ok(())
 }
 
-/// Writes a legacy `.project.json`/`.meta.json` pair by hand.
-///
-/// Not through the CLI: `sysand init` writes a `model.toml`. Unlike
-/// [`cli_init_project`], it returns no process `Output`; nothing runs here.
-///
-/// The bytes have to match what a real legacy project looks like, not
-/// just the field list: `serde_json::to_writer_pretty` plus a trailing
-/// newline, camelCase keys, the optional scalars and the empty vectors
-/// omitted, and `created` as a whole-second timestamp.
+/// Creates a `.project.json`/`.meta.json` project with `sysand init --kind
+/// project-json`, in a fresh temporary directory (or `path` under it).
 pub fn cli_init_json_project(
     path: Option<&str>,
     publisher: &str,
@@ -361,33 +355,67 @@ pub fn cli_init_json_project(
         }
         None => cwd.clone(),
     };
-    write_legacy_project(&project_dir, publisher, name, version, license)?;
+    write_json_project(&project_dir, publisher, name, version, license)?;
     Ok((temp_dir, cwd))
 }
 
-/// The legacy pair, for a directory that already exists.
-pub fn write_legacy_project(
+/// `sysand init --kind project-json`, for a directory that already exists.
+///
+/// The project declares the OMG SysML metamodel, so it can be migrated
+/// without `--metamodel`. A test about a missing key writes its own pair.
+pub fn write_json_project(
     dir: &Utf8Path,
     publisher: &str,
     name: &str,
     version: &str,
     license: Option<&str>,
 ) -> Result<(), Box<dyn Error>> {
-    // `license` is a `skip_serializing_if` key, so a fixture that always
-    // wrote it, or never did, would not be byte-identical to a real legacy
-    // project.
-    let mut info = serde_json::Map::new();
-    info.insert("name".to_owned(), name.into());
-    info.insert("publisher".to_owned(), publisher.into());
-    info.insert("version".to_owned(), version.into());
+    let mut args = vec![
+        "init",
+        "--kind",
+        "project-json",
+        "--metamodel",
+        SYSML,
+        "--publisher",
+        publisher,
+        "--name",
+        name,
+        "--version",
+        version,
+    ];
     if let Some(license) = license {
-        info.insert("license".to_owned(), license.into());
+        args.push("--license");
+        args.push(license);
     }
-    let info = serde_json::Value::Object(info);
-    // A json project may declare no metamodel, but then it cannot be
-    // migrated without `--metamodel`, and most of
-    // these fixtures exist to be migrated. A test that is about the
-    // missing key writes its own pair.
+    args.push(".");
+    let out = run_sysand_in(dir, args, None)?;
+    if !out.status.success() {
+        return Err(format!(
+            "`sysand init` failed in `{dir}`:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        )
+        .into());
+    }
+    Ok(())
+}
+
+/// Writes a `.project.json`/`.meta.json` pair by hand, byte for byte what a
+/// other tools write: `serde_json::to_writer_pretty` plus a trailing
+/// newline, camelCase keys, the optional scalars and the empty vectors
+/// omitted, and `created` as a whole-second timestamp.
+///
+/// For tests whose subject is reading a project Sysand did not write.
+pub fn write_hand_written_json_project(
+    dir: &Utf8Path,
+    publisher: &str,
+    name: &str,
+    version: &str,
+) -> Result<(), Box<dyn Error>> {
+    let info = serde_json::json!({
+        "name": name,
+        "publisher": publisher,
+        "version": version,
+    });
     let meta = serde_json::json!({
         "index": {},
         "created": format!("{:.0}", jiff::Timestamp::now()),

@@ -27,7 +27,7 @@ public class DeployedTest {
             com.sensmetry.sysand.Sysand.init("test", "acme", "1.0.0", null, SYSML, tempDir);
 
             // `init` writes a `model.toml`; the two json documents are
-            // what a build produces and what a legacy project has.
+            // what a build produces and what a json project has.
             assertTrue(Files.exists(tempDir.resolve("model.toml")), "Manifest should exist");
             assertFalse(Files.exists(tempDir.resolve(".project.json")), "No json manifest");
             assertFalse(Files.exists(tempDir.resolve(".meta.json")), "No json metadata");

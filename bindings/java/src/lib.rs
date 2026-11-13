@@ -114,6 +114,7 @@ fn init<'local>(
         Some(sysand_core::manifest::inherit::MetaProperty::Provided(
             metamodel,
         )),
+        sysand_core::init::ProjectKind::ModelToml,
         path.into(),
     );
     match command_result {
@@ -121,11 +122,16 @@ fn init<'local>(
         Err(error) => {
             let e = format_err(&error);
             match error {
-                InitError::Metamodel(..) => env.throw_exception(ExceptionKind::InvalidValue, e),
+                InitError::Metamodel(..)
+                | InitError::JsonMissingMetamodel
+                | InitError::JsonInheritedMetamodel
+                | InitError::JsonSysideMetamodel(..) => {
+                    env.throw_exception(ExceptionKind::InvalidValue, e)
+                }
                 InitError::SemVerParse(..) => {
                     env.throw_exception(ExceptionKind::InvalidSemanticVersion, e)
                 }
-                InitError::Identifier(..) | InitError::Write(..) => {
+                InitError::Identifier(..) | InitError::TomlWrite(..) => {
                     env.throw_exception(ExceptionKind::SysandException, e);
                 }
                 InitError::SPDXLicenseParse(..) => {

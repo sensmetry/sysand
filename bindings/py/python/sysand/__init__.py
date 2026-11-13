@@ -33,6 +33,7 @@ from ._include import (
 )
 from ._info import info, info_path
 from ._init import (
+    ProjectKind,
     init,
 )
 from ._lock import lock
@@ -136,6 +137,7 @@ __all__ = [  # ruff: ignore[RUF022]
     ## sync
     "sync",
     ## Init
+    "ProjectKind",
     "init",
     "migrate",
     ## Build

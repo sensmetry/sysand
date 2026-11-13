@@ -76,7 +76,7 @@ Project (Interchange Project)
  │                   usages; what `sysand init` writes and every
  │                   command reads. `metamodel` is required, and is one
  │                   of four values (OMG or Syside, KerML or SysML)
- └─ .project.json  — the legacy pair: read too, and what a built KPAR
+ └─ .project.json  — the json pair: read too, and what a built KPAR
  └─ .meta.json       carries, in one of two shapes: `index` for an OMG
  │                   project, `root` + `exports` for a Syside one
  │                   (design/syside-metamodel.md). `sysand migrate`
@@ -245,7 +245,7 @@ system:
 
 Defines a project: its identity, the source files it contains, and the
 projects it uses. This is what `sysand init` writes, and a project has
-either this or the legacy json pair — never both.
+either this or the json pair — never both.
 
 ```toml
 manifest-version = "1.0"

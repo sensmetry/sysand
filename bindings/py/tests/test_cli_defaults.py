@@ -17,7 +17,7 @@ import json
 from pathlib import Path
 
 import pytest
-from conftest import write_legacy_project
+from conftest import write_json_project
 from mockindex import MockIndex, usage
 
 import sysand
@@ -31,7 +31,7 @@ NO_INDEX = sysand.Resolution(use_index=False)
 def project(root: Path, name: str = "proj") -> Path:
     root.mkdir(parents=True)
     Path(root).mkdir(parents=True, exist_ok=True)
-    write_legacy_project(Path(root), "acme", name, "1.0.0")
+    write_json_project(Path(root), "acme", name, "1.0.0")
     return root
 
 

@@ -3,8 +3,8 @@
 
 //! `sysand lock` and `sysand sync` both work on a `model.toml` project.
 //! The fixtures here add usages with `sysand add` and rewrite
-//! `.project.json` by hand, so the projects are written as legacy json
-//! pairs and these tests exercise the json form.
+//! `.project.json` by hand, so the projects are created with
+//! `sysand init --kind project-json` and these tests exercise the json form.
 
 use std::path::Path;
 
@@ -60,7 +60,7 @@ fn lock_local_source() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "lock-local-source", "1.2.3", None)?;
 
     std::fs::create_dir_all(cwd.join("local-dep"))?;
-    write_legacy_project(&cwd.join("local-dep"), "acme", "local-dep", "1.0.0", None)?;
+    write_json_project(&cwd.join("local-dep"), "acme", "local-dep", "1.0.0", None)?;
 
     let out = run_sysand_in(
         &cwd,
@@ -101,7 +101,7 @@ fn lock_local_source_with_a_prerelease_version() -> Result<(), Box<dyn std::erro
     let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "app", "1.2.3", None)?;
 
     std::fs::create_dir_all(cwd.join("local-dep"))?;
-    write_legacy_project(
+    write_json_project(
         &cwd.join("local-dep"),
         "acme",
         "local-dep",
@@ -154,7 +154,7 @@ fn lock_purl_local_source_override_with_a_prerelease_version()
     let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "app", "1.2.3", None)?;
 
     std::fs::create_dir_all(cwd.join("local-dep"))?;
-    write_legacy_project(
+    write_json_project(
         &cwd.join("local-dep"),
         "acme",
         "widget",
@@ -215,7 +215,7 @@ fn lock_directory_usage_with_a_prerelease_version() -> Result<(), Box<dyn std::e
 
     let widget_dir = cwd.join("deps").join("widget");
     std::fs::create_dir_all(&widget_dir)?;
-    write_legacy_project(&widget_dir, "bravo", "widget", "2.0.0-beta.3", None)?;
+    write_json_project(&widget_dir, "bravo", "widget", "2.0.0-beta.3", None)?;
 
     run_sysand_in(&cwd, ["add", "--no-lock", "--dir", "deps/widget"], None)?
         .assert()
@@ -773,11 +773,11 @@ fn lock_directory_usage_transitive() -> Result<(), Box<dyn std::error::Error>> {
 
     let widget_dir = cwd.join("deps").join("widget");
     std::fs::create_dir_all(&widget_dir)?;
-    write_legacy_project(&widget_dir, "bravo", "widget", "1.0.0", None)?;
+    write_json_project(&widget_dir, "bravo", "widget", "1.0.0", None)?;
 
     let gadget_dir = cwd.join("deps").join("gadget");
     std::fs::create_dir_all(&gadget_dir)?;
-    write_legacy_project(&gadget_dir, "charlie", "gadget", "2.0.0", None)?;
+    write_json_project(&gadget_dir, "charlie", "gadget", "2.0.0", None)?;
 
     run_sysand_in(&cwd, ["add", "--no-lock", "--dir", "deps/widget"], None)?
         .assert()
@@ -832,7 +832,7 @@ fn lock_local_src_override_deleted() -> Result<(), Box<dyn std::error::Error>> {
 
     let app_dir = cwd.join("src").join("app");
     std::fs::create_dir_all(&app_dir)?;
-    write_legacy_project(&app_dir, "acme", "app", "1.0.0", None)?;
+    write_json_project(&app_dir, "acme", "app", "1.0.0", None)?;
 
     let config_path = cwd.join("sysand.toml");
     run_sysand_in(
@@ -1065,7 +1065,7 @@ fn lock_fails_on_a_broken_index_version() -> Result<(), Box<dyn std::error::Erro
 fn lock_fails_on_a_misspelled_directory_usage() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "misspelled-dir", "1.2.3", None)?;
     std::fs::create_dir_all(cwd.join("dep"))?;
-    write_legacy_project(&cwd.join("dep"), "Acme Labs", "My Lib", "1.0.0", None)?;
+    write_json_project(&cwd.join("dep"), "Acme Labs", "My Lib", "1.0.0", None)?;
     run_sysand_in(
         &cwd,
         ["add", "--no-index", "--no-sync", "--dir", "dep"],
@@ -1094,7 +1094,7 @@ fn lock_fails_on_a_misspelled_directory_usage() -> Result<(), Box<dyn std::error
 fn lock_fails_on_a_misspelled_kpar_usage() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "misspelled-kpar", "1.2.3", None)?;
     std::fs::create_dir_all(cwd.join("dep"))?;
-    write_legacy_project(&cwd.join("dep"), "Acme Labs", "My Lib", "1.0.0", None)?;
+    write_json_project(&cwd.join("dep"), "Acme Labs", "My Lib", "1.0.0", None)?;
     let dep = cwd.join("dep");
     run_sysand_in(&dep, ["build", "../lib.kpar"], None)?
         .assert()
@@ -1132,7 +1132,7 @@ fn lock_reports_why_a_dir_usage_failed() -> Result<(), Box<dyn std::error::Error
 
     let widget_dir = cwd.join("deps").join("widget");
     std::fs::create_dir_all(&widget_dir)?;
-    write_legacy_project(&widget_dir, "bravo", "widget", "1.0.0", None)?;
+    write_json_project(&widget_dir, "bravo", "widget", "1.0.0", None)?;
 
     run_sysand_in(
         &cwd,

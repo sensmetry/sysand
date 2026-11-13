@@ -33,7 +33,7 @@ fn basic_init() -> Result<(), Box<dyn std::error::Error>> {
 
     // `init` writes a `model.toml`, through the binding as through the
     // CLI: the two json documents are what a build produces and what a
-    // legacy project has.
+    // json project has.
     assert_eq!(
         std::fs::read_to_string(proj_dir_path.join("model.toml"))?,
         "manifest-version = \"1.0\"\n\n\

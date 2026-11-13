@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-//! Every project in this file is written as a legacy `.project.json`
-//! pair by hand rather than created through `sysand init`, which
-//! writes a `model.toml`: these fixtures pin the json path.
+//! Projects in this file are created with
+//! `sysand init --kind project-json`: these fixtures pin the json path.
 //!
 //! The toml path has its own tests at the end of this file.
 
@@ -1098,7 +1097,7 @@ fn build_toml_project_with_a_dir_usage() -> Result<(), Box<dyn std::error::Error
     )?;
     std::fs::write(cwd.join("a.sysml"), b"package A;\n")?;
     std::fs::create_dir_all(cwd.join("dep"))?;
-    write_legacy_project(&cwd.join("dep"), "acme", "dep", "1.2.3", None)?;
+    write_json_project(&cwd.join("dep"), "acme", "dep", "1.2.3", None)?;
 
     run_sysand_in(&cwd, ["build"], None)?.assert().success();
     assert!(cwd.join("output/widgets-1.0.0.kpar").exists());

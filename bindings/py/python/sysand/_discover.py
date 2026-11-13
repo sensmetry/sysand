@@ -14,7 +14,7 @@ def discover(*, path: str | Path = ".") -> Discovery:
 
     This is the same lookup every CLI command performs first: walk up from
     ``path`` to the nearest directory holding a project manifest
-    (``model.toml``, or the legacy ``.project.json``/``.meta.json`` pair),
+    (``model.toml``, or the ``.project.json``/``.meta.json`` pair),
     and separately to the nearest ``model.toml`` holding a ``[workspace]``
     table. Paths are canonicalized, as :func:`sysand.root` does. A tool that
     must not operate inside a workspace checks ``workspace_root`` before

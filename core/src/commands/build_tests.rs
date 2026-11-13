@@ -363,7 +363,7 @@ fn a_non_stdlib_project_keeps_its_publisher() -> Result<(), Box<dyn std::error::
 
 // ------------------------------------ a local usage becomes an index usage
 
-/// A legacy json project at `at`, inside the fixture.
+/// A json project at `at`, inside the fixture.
 fn json_target(dir: &camino_tempfile::Utf8TempDir, at: &str, version: &str) {
     json_target_named(dir, at, "acme", "dep", version);
 }

@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 
 import pytest
-from conftest import write_legacy_project
+from conftest import write_json_project
 from mockindex import DEPENDENT, LIBRARY, MockIndex, usage
 
 import sysand
@@ -22,7 +22,7 @@ def resolution(index: MockIndex) -> sysand.Resolution:
 
 
 def project_with(tmp_path: Path, usages: list[dict]) -> Path:
-    """A legacy json project with the given usages.
+    """A json project with the given usages.
 
     Written by hand, as json: one of these tests asserts on a
     constraint-less usage, and `model.toml` has no index usage without a
@@ -32,7 +32,7 @@ def project_with(tmp_path: Path, usages: list[dict]) -> Path:
     """
     root = tmp_path / "proj"
     root.mkdir()
-    write_legacy_project(root, "acme", "proj", "1.0.0")
+    write_json_project(root, "acme", "proj", "1.0.0")
     manifest = json.loads((root / ".project.json").read_text())
     manifest["usage"] = usages
     (root / ".project.json").write_text(json.dumps(manifest, indent=2) + "\n")

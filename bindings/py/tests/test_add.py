@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 
 import pytest
-from conftest import write_legacy_project
+from conftest import write_json_project
 from mockindex import MockIndex
 
 import sysand
@@ -41,7 +41,7 @@ def _log_everything(caplog: pytest.LogCaptureFixture) -> None:
 def init(tmp_path: Path) -> Path:
     root = tmp_path / "app"
     Path(root).mkdir(parents=True, exist_ok=True)
-    write_legacy_project(Path(root), "acme", "app", "1.0.0")
+    write_json_project(Path(root), "acme", "app", "1.0.0")
     return root
 
 

@@ -3,10 +3,9 @@
 
 //! `sysand add` and `sysand remove`, in both manifest formats.
 //!
-//! Most projects in this file are written as a legacy `.project.json`
-//! pair by hand rather than created through `sysand init`, which writes
-//! a `model.toml`; they are the coverage of the json format. The
-//! `model.toml` tests are at the end of the file.
+//! Most projects in this file are created with
+//! `sysand init --kind project-json`; they are the coverage of the json
+//! format. The `model.toml` tests are at the end of the file.
 
 use std::fs;
 
@@ -1497,7 +1496,7 @@ fn add_dir_and_remove_identifier_without_lock() -> Result<(), Box<dyn std::error
 
     let dep_dir = cwd.join("dep");
     std::fs::create_dir_all(&dep_dir)?;
-    write_legacy_project(&dep_dir, "Acme Labs", "My Dep", "1.0.0", None)?;
+    write_json_project(&dep_dir, "Acme Labs", "My Dep", "1.0.0", None)?;
 
     let out = run_sysand_in(&cwd, ["add", "--no-lock", "--dir", "dep"], None)?;
 
@@ -1613,7 +1612,7 @@ fn add_dir_already_present_is_ignored() -> Result<(), Box<dyn std::error::Error>
 
     let dep_dir = cwd.join("dep");
     std::fs::create_dir_all(&dep_dir)?;
-    write_legacy_project(&dep_dir, "Acme Labs", "My Dep", "1.0.0", None)?;
+    write_json_project(&dep_dir, "Acme Labs", "My Dep", "1.0.0", None)?;
 
     run_sysand_in(&cwd, ["add", "--no-lock", "--dir", "dep"], None)?
         .assert()
@@ -1652,7 +1651,7 @@ fn remove_identifier() -> Result<(), Box<dyn std::error::Error>> {
 
     let dep_dir = cwd.join("dep");
     std::fs::create_dir_all(&dep_dir)?;
-    write_legacy_project(&dep_dir, "Acme Labs", "My Dep", "1.0.0", None)?;
+    write_json_project(&dep_dir, "Acme Labs", "My Dep", "1.0.0", None)?;
 
     run_sysand_in(&cwd, ["add", "--no-lock", "--dir", "dep"], None)?
         .assert()
@@ -1903,7 +1902,7 @@ fn remove_identifier_keeps_lockfile_valid_and_syncs() -> Result<(), Box<dyn std:
 
     let dep_dir = cwd.join("dep");
     fs::create_dir_all(&dep_dir)?;
-    write_legacy_project(&dep_dir, "Acme Labs", "Remove Lock Dep", "1.0.0", None)?;
+    write_json_project(&dep_dir, "Acme Labs", "Remove Lock Dep", "1.0.0", None)?;
 
     run_sysand_in(&cwd, ["add", "--no-lock", "--dir", "dep"], None)?
         .assert()
@@ -1982,7 +1981,7 @@ fn remove_identifier_matches_a_typed_usage_by_the_normalized_form()
 
     let dep_dir = cwd.join("dep");
     std::fs::create_dir_all(&dep_dir)?;
-    write_legacy_project(&dep_dir, "Acme Labs", "My Dep", "1.0.0", None)?;
+    write_json_project(&dep_dir, "Acme Labs", "My Dep", "1.0.0", None)?;
 
     run_sysand_in(&cwd, ["add", "--no-lock", "--dir", "dep"], None)?
         .assert()
@@ -2016,7 +2015,7 @@ fn remove_iri_of_a_typed_usage_suggests_identifier() -> Result<(), Box<dyn std::
     let dep_dir = cwd.join("dep");
     std::fs::create_dir_all(&dep_dir)?;
     // A valid `pkg:sysand` publisher, so the typed usage has a PURL identifier
-    write_legacy_project(&dep_dir, "acme-labs", "my-dep", "1.0.0", None)?;
+    write_json_project(&dep_dir, "acme-labs", "my-dep", "1.0.0", None)?;
 
     run_sysand_in(&cwd, ["add", "--no-lock", "--dir", "dep"], None)?
         .assert()
@@ -2049,7 +2048,7 @@ fn remove_typed_by_normalized_spelling_updates_lockfile() -> Result<(), Box<dyn 
     std::fs::create_dir_all(&dep_dir)?;
     // Written by hand: the spelling is one a json project may carry but
     // no `model.toml` can, which is what the test is about
-    common::write_legacy_project(&dep_dir, "ACME Inc.", "Foo", "1.0.0", None)?;
+    common::write_hand_written_json_project(&dep_dir, "ACME Inc.", "Foo", "1.0.0")?;
 
     run_sysand_in(&cwd, ["add", "--no-index", "--dir", "dep"], None)?
         .assert()
@@ -2210,7 +2209,7 @@ fn remove_still_needed_dependency_updates_root_usages_in_lockfile()
     for name in ["dep-a", "dep-b"] {
         let dir = cwd.join(name);
         std::fs::create_dir_all(&dir)?;
-        write_legacy_project(&dir, "acme", name, "1.0.0", None)?;
+        write_json_project(&dir, "acme", name, "1.0.0", None)?;
     }
     run_sysand_in(
         &cwd.join("dep-a"),
@@ -2704,7 +2703,7 @@ fn source_override_does_not_apply_to_an_index_usage() -> Result<(), Box<dyn std:
         cli_init_json_project(None, "main", "override-not-index", "1.2.3", None)?;
     install_in_env(&cwd, "Acme Labs", "My Lib", "1.0.0")?;
     std::fs::create_dir_all(cwd.join("dep"))?;
-    write_legacy_project(&cwd.join("dep"), "Acme Labs", "My Lib", "9.0.0", None)?;
+    write_json_project(&cwd.join("dep"), "Acme Labs", "My Lib", "9.0.0", None)?;
     let config_path = cwd.join("sysand.toml");
     std::fs::write(
         &config_path,
@@ -2742,9 +2741,9 @@ fn source_override_reaches_an_index_usage_of_the_same_project_through_coalescing
         cli_init_json_project(None, "main", "override-coalesced", "1.2.3", None)?;
     install_in_env(&cwd, "Acme Labs", "My Lib", "1.0.0")?;
     std::fs::create_dir_all(cwd.join("dep"))?;
-    write_legacy_project(&cwd.join("dep"), "Acme Labs", "My Lib", "9.0.0", None)?;
+    write_json_project(&cwd.join("dep"), "Acme Labs", "My Lib", "9.0.0", None)?;
     std::fs::create_dir_all(cwd.join("mid"))?;
-    write_legacy_project(&cwd.join("mid"), "Acme Labs", "Mid", "1.0.0", None)?;
+    write_json_project(&cwd.join("mid"), "Acme Labs", "Mid", "1.0.0", None)?;
     let mid = cwd.join("mid");
     // `^9` is satisfied only by the override
     let mid_info = std::fs::read_to_string(mid.join(".project.json"))?;
@@ -2963,7 +2962,7 @@ fn add_index_usage_without_lock_takes_the_installed_spelling_whatever_the_constr
 fn add_already_present_usage_still_syncs() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = cli_init_json_project(None, "main", "add-present-syncs", "1.2.3", None)?;
     std::fs::create_dir_all(cwd.join("dep"))?;
-    write_legacy_project(&cwd.join("dep"), "Acme", "Dep", "1.0.0", None)?;
+    write_json_project(&cwd.join("dep"), "Acme", "Dep", "1.0.0", None)?;
     let config_path = cwd.join("sysand.toml");
     run_sysand_in(
         &cwd,
@@ -3295,7 +3294,8 @@ fn a_stdlib_usage_is_removed_by_its_omg_identity() -> Result<(), Box<dyn std::er
 /// comments and key order intact, end to end.
 #[test]
 fn add_and_remove_keep_the_comments_and_key_order() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, _) = cli_init_project(None, "acme", Some("widgets"), Some("1.0.0"), None)?;
+    let (_temp_dir, cwd, _) =
+        cli_init_toml_project(None, "acme", Some("widgets"), Some("1.0.0"), None)?;
     // Without locking, an index usage's spelling is checked against what
     // is installed, so the project is installed first.
     install_in_env(&cwd, "acme", "other", "1.0.0")?;

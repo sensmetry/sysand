@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 
 import pytest
-from conftest import write_legacy_project
+from conftest import write_json_project
 from mockindex import MockIndex, usage
 
 import sysand
@@ -27,7 +27,7 @@ def resolution(index: MockIndex) -> sysand.Resolution:
 def project_with(tmp_path: Path, usages: list[dict]) -> Path:
     root = tmp_path / "proj"
     root.mkdir()
-    write_legacy_project(root, "acme", "proj", "1.0.0")
+    write_json_project(root, "acme", "proj", "1.0.0")
     manifest = json.loads((root / ".project.json").read_text())
     manifest["usage"] = usages
     (root / ".project.json").write_text(json.dumps(manifest, indent=2) + "\n")
@@ -93,7 +93,7 @@ def test_sync_prunes_projects_not_in_lockfile(
     extra = tmp_path / "extra"
     extra.mkdir()
     Path(extra).mkdir(parents=True, exist_ok=True)
-    write_legacy_project(Path(extra), "acme", "extra", "0.1.0")
+    write_json_project(Path(extra), "acme", "extra", "0.1.0")
     sysand.env.install_path(env_path=env_dir, iri="urn:kpar:extra", location=extra)
 
     assert any(

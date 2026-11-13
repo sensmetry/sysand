@@ -15,7 +15,10 @@ use crate::{
         inherit::MetaProperty,
         project::{ProjectManifest, ProjectTable},
     },
-    model::{IdentifierError, IndexName, IndexPublisher, KnownMetamodel, MetamodelFamily},
+    model::{
+        IdentifierError, IndexName, IndexPublisher, InterchangeProjectInfoRaw,
+        InterchangeProjectMetadata, KnownMetamodel, Metamodel, MetamodelFamily,
+    },
     project::{ManifestWriteError, ProjectMut, ProjectRead as _, memory::InMemoryProject},
 };
 use typed_path::Utf8UnixPathBuf;
@@ -37,10 +40,28 @@ pub enum InitError<ProjectError: ErrorBound> {
     #[error("invalid project identifier `{}`", .0.value)]
     Identifier(#[source] IdentifierError),
     #[error(transparent)]
-    Write(ManifestWriteError<ProjectError>),
+    TomlWrite(ManifestWriteError<ProjectError>),
     /// The metamodel is not one of the recognized values.
     #[error("`{0}` is not a metamodel Sysand recognizes;\nit is one of {list}", list = KnownMetamodel::RECOGNIZED)]
     Metamodel(Box<str>),
+    /// A `.meta.json` project declares a metamodel.
+    #[error("a `.project.json` project requires a metamodel")]
+    JsonMissingMetamodel,
+    /// A `.meta.json` has no field to hold a marker.
+    #[error("a `.project.json` project cannot inherit its metamodel from a workspace")]
+    JsonInheritedMetamodel,
+    /// A `.meta.json` has no field to hold a Syside project's `root`.
+    #[error("a `.project.json` project cannot use the Syside metamodel `{0}`")]
+    JsonSysideMetamodel(Box<str>),
+}
+
+/// What a new project is stored as.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProjectKind {
+    /// A `model.toml`.
+    ModelToml,
+    /// A `.project.json` and a `.meta.json`.
+    ProjectJson,
 }
 
 /// Create a project.
@@ -50,7 +71,7 @@ pub enum InitError<ProjectError: ErrorBound> {
 /// Errors if the publisher or name is refused ([`InitError::Identifier`]) or
 /// the metamodel, when given, is not one a `model.toml` recognizes
 /// ([`InitError::Metamodel`]).
-pub fn do_init<P: ProjectMut>(
+pub fn do_init_toml<P: ProjectMut>(
     name: String,
     publisher: String,
     version: String,
@@ -58,10 +79,10 @@ pub fn do_init<P: ProjectMut>(
     metamodel: Option<MetaProperty<String>>,
     storage: &mut P,
 ) -> Result<(), InitError<P::Error>> {
-    do_init_ext(name, publisher, version, license, metamodel, None, storage)
+    do_init_toml_ext(name, publisher, version, license, metamodel, None, storage)
 }
 
-/// [`do_init`], told which metamodel an inherited marker resolves to.
+/// [`do_init_toml`], told which metamodel an inherited marker resolves to.
 ///
 /// A project created with a Syside metamodel gets `sources` listing one
 /// file, `root` naming it, and the file itself, created with a package
@@ -71,7 +92,7 @@ pub fn do_init<P: ProjectMut>(
 ///
 /// The file's existence is checked first, then the manifest is written
 /// (refused when one exists), then the file.
-pub fn do_init_ext<P: ProjectMut>(
+pub fn do_init_toml_ext<P: ProjectMut>(
     name: String,
     publisher: String,
     version: String,
@@ -135,7 +156,7 @@ pub fn do_init_ext<P: ProjectMut>(
 
     storage
         .put_manifest_document(&render_new(&manifest), false)
-        .map_err(InitError::Write)?;
+        .map_err(InitError::TomlWrite)?;
 
     if let Some(root) = syside_root
         && !root_exists
@@ -146,6 +167,70 @@ pub fn do_init_ext<P: ProjectMut>(
             .map_err(InitError::Project)?;
     }
     Ok(())
+}
+
+/// Create a project stored as `.project.json` and `.meta.json`.
+///
+/// The metamodel is required and must be a recognized OMG one.
+pub fn do_init_json<P: ProjectMut>(
+    name: String,
+    publisher: String,
+    version: String,
+    license: Option<String>,
+    metamodel: MetaProperty<String>,
+    storage: &mut P,
+) -> Result<(), InitError<P::Error>> {
+    let version =
+        Version::parse(&version).map_err(|e| InitError::SemVerParse(version.as_str().into(), e))?;
+    let publisher = IndexPublisher::parse(publisher).map_err(InitError::Identifier)?;
+    let name = IndexName::parse(name).map_err(InitError::Identifier)?;
+    let license = license
+        .map(|raw| {
+            spdx::Expression::parse(&raw)
+                .map_err(|e| InitError::SPDXLicenseParse(raw.as_str().into(), e))
+        })
+        .transpose()?;
+    let metamodel = match metamodel {
+        MetaProperty::Provided(value) => {
+            KnownMetamodel::recognize(&value).ok_or_else(|| InitError::Metamodel(value.into()))?
+        }
+        MetaProperty::Inherited(_) => return Err(InitError::JsonInheritedMetamodel),
+    };
+    if metamodel.family == MetamodelFamily::Syside {
+        return Err(InitError::JsonSysideMetamodel(metamodel.to_string().into()));
+    }
+
+    let creating = "Creating";
+    let header = crate::style::get_style_config().header;
+    log::info!("{header}{creating:>12}{header:#} interchange project `{name}`");
+
+    storage
+        .put_project(
+            &InterchangeProjectInfoRaw {
+                name: name.into_string(),
+                publisher: Some(publisher.into_string()),
+                description: None,
+                version: version.to_string(),
+                license: license.map(|l| l.to_string()),
+                maintainer: vec![],
+                topic: vec![],
+                usage: vec![],
+                website: None,
+            },
+            &InterchangeProjectMetadata {
+                index: Some(indexmap::IndexMap::new()),
+                root: None,
+                exports: None,
+                created: jiff::Timestamp::now(),
+                metamodel: Some(Metamodel::Known(metamodel)),
+                includes_derived: None,
+                includes_implied: None,
+                checksum: None,
+            }
+            .into(),
+            false,
+        )
+        .map_err(InitError::Project)
 }
 
 /// The name as a KerML/SysML package declaration writes it: bare when it
@@ -173,7 +258,7 @@ pub fn do_init_memory<N: AsRef<str>, P: AsRef<str>, V: AsRef<str>>(
 ) -> Result<InMemoryProject, InitError<crate::project::memory::InMemoryError>> {
     let mut storage = InMemoryProject::default();
 
-    do_init(
+    do_init_toml(
         name.as_ref().to_owned(),
         publisher.as_ref().to_owned(),
         version.as_ref().to_owned(),
@@ -192,10 +277,19 @@ pub fn do_init_local_file(
     version: String,
     license: Option<String>,
     metamodel: Option<MetaProperty<String>>,
+    kind: ProjectKind,
     path: Utf8PathBuf,
 ) -> Result<LocalSrcProject, InitError<LocalSrcError>> {
     let mut storage = LocalSrcProject::new_access(path, None);
-    do_init(name, publisher, version, license, metamodel, &mut storage)?;
+    match kind {
+        ProjectKind::ModelToml => {
+            do_init_toml(name, publisher, version, license, metamodel, &mut storage)?;
+        }
+        ProjectKind::ProjectJson => {
+            let metamodel = metamodel.ok_or(InitError::JsonMissingMetamodel)?;
+            do_init_json(name, publisher, version, license, metamodel, &mut storage)?;
+        }
+    }
 
     Ok(storage)
 }

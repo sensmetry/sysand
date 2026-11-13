@@ -745,6 +745,7 @@ fn run_cli_with(
             publisher,
             version,
             license,
+            kind,
             metamodel,
             metamodel_release,
         } => {
@@ -756,6 +757,7 @@ fn run_cli_with(
                 publisher,
                 version,
                 license,
+                kind.into(),
                 metamodel,
                 path,
                 required(ctx),
@@ -1462,6 +1464,7 @@ fn command_traits(command: &cli::Command) -> CommandTraits {
             publisher: _,
             version: _,
             license: _,
+            kind: _,
             metamodel: _,
             metamodel_release: _,
         } => T::new("init", Changes::Dir(path.clone())),

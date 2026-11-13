@@ -11,7 +11,7 @@ pub use common::*;
 /// What `sysand init` writes, byte for byte.
 ///
 /// A new project is a `model.toml` in a fixed layout. The two json
-/// documents are what a build produces and what a legacy project has.
+/// documents are what a build produces and what a json project has.
 #[test]
 fn sysand_init_writes_a_model_toml() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
@@ -237,6 +237,123 @@ fn sysand_new_is_sysand_init() -> Result<(), Box<dyn std::error::Error>> {
     out.assert().success();
 
     assert!(cwd.join("project").join("model.toml").exists());
+    Ok(())
+}
+
+/// `--kind project-json` writes `.project.json` and `.meta.json`, and no `model.toml`.
+#[test]
+fn init_project_json_writes_the_json_documents() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--kind",
+            "project-json",
+            "--metamodel",
+            "kerml",
+            "--publisher",
+            "acme",
+            "--name",
+            "widgets",
+            "project",
+        ],
+        None,
+    )?;
+    out.assert().success();
+
+    let project = cwd.join("project");
+    assert!(!project.join("model.toml").exists());
+    assert_eq!(
+        std::fs::read_to_string(project.join(".project.json"))?,
+        "{\n  \"name\": \"widgets\",\n  \"publisher\": \"acme\",\n  \"version\": \"0.0.1\"\n}\n"
+    );
+    let info: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(project.join(".project.json"))?)?;
+    assert_eq!(info["name"], "widgets");
+    assert_eq!(info["publisher"], "acme");
+    let meta: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(project.join(".meta.json"))?)?;
+    assert_eq!(meta["metamodel"], "https://www.omg.org/spec/KerML/20250201");
+    Ok(())
+}
+
+/// `--kind` defaults to `model-toml`, and only the two kinds are accepted.
+#[test]
+fn init_kind_defaults_to_model_toml_and_refuses_unknown_kinds()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--metamodel",
+            SYSML,
+            "--publisher",
+            "acme",
+            "project",
+        ],
+        None,
+    )?;
+    out.assert().success();
+    assert!(cwd.join("project").join("model.toml").exists());
+    assert!(!cwd.join("project").join(".project.json").exists());
+
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--kind",
+            "kpar",
+            "--metamodel",
+            SYSML,
+            "--publisher",
+            "acme",
+            "project",
+        ],
+        None,
+    )?;
+    out.assert()
+        .failure()
+        .code(2)
+        .stderr(predicates::str::contains(
+            "invalid value 'kpar' for '--kind <KIND>'",
+        ));
+    assert!(!cwd.join("project").exists());
+    Ok(())
+}
+
+/// A `.meta.json` project names its metamodel and cannot use a Syside one.
+#[test]
+fn init_project_json_refuses_what_a_meta_json_cannot_hold() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_temp_dir, _cwd, out) = run_sysand(
+        [
+            "init",
+            "--kind",
+            "project-json",
+            "--publisher",
+            "acme",
+            "project",
+        ],
+        None,
+    )?;
+    out.assert().failure().stderr(predicates::str::contains(
+        "`--metamodel <url>` is required for `--kind project-json`",
+    ));
+
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--kind",
+            "project-json",
+            "--metamodel",
+            "https://www.sysand.com/spec/SysML/20250201",
+            "--publisher",
+            "acme",
+            "project",
+        ],
+        None,
+    )?;
+    out.assert()
+        .failure()
+        .stderr(predicates::str::contains("cannot use the Syside metamodel"));
+    assert!(!cwd.join("project").join(".project.json").exists());
     Ok(())
 }
 
@@ -516,7 +633,7 @@ fn init_ok(
 /// manifest rule accepts.
 ///
 /// `init` itself refuses such an identifier, but a `.project.json` is
-/// never validated on write, so a hand-written legacy fixture can pass
+/// never validated on write, so a hand-written json fixture can pass
 /// while describing a project no manifest could. This checks every call
 /// site without running the whole suite.
 #[test]
@@ -542,7 +659,7 @@ fn every_identifier_the_suite_inits_with_is_valid() -> Result<(), Box<dyn std::e
             let args = arguments(&text[at..]);
             // `_basic(publisher, name, version)`; the others take a
             // leading `&cwd` and/or a `path`, then publisher and name.
-            let args: Vec<&str> = if call == "cli_init_project_basic" {
+            let args: Vec<&str> = if call == "cli_init_toml_project_basic" {
                 args
             } else {
                 args.into_iter()
@@ -550,14 +667,14 @@ fn every_identifier_the_suite_inits_with_is_valid() -> Result<(), Box<dyn std::e
                     .collect()
             };
             let (publisher, name) =
-                if call == "cli_init_project_basic" || call == "write_legacy_project" {
+                if call == "cli_init_toml_project_basic" || call == "write_json_project" {
                     // The directory argument is an expression, and
                     // `skip_while` above drops it only when it is a
                     // reference.
                     let args: Vec<&str> = args
                         .iter()
                         .copied()
-                        .skip(usize::from(call == "write_legacy_project"))
+                        .skip(usize::from(call == "write_json_project"))
                         .collect();
                     (arg(args.first()), arg(args.get(1)))
                 } else {
@@ -587,20 +704,20 @@ fn every_identifier_the_suite_inits_with_is_valid() -> Result<(), Box<dyn std::e
     Ok(())
 }
 
-/// Where each `cli_init_project*` call's argument list begins.
+/// Where each `cli_init_toml_project*` call's argument list begins.
 fn call_sites(text: &str) -> Vec<(&'static str, usize)> {
     let mut found = vec![];
     for call in [
-        "cli_init_project_basic",
-        "cli_init_project_in",
-        "cli_init_project",
+        "cli_init_toml_project_basic",
+        "cli_init_toml_project_in",
+        "cli_init_toml_project",
         "cli_init_json_project",
-        "write_legacy_project",
+        "write_json_project",
     ] {
         let mut from = 0;
         while let Some(at) = text[from..].find(&format!("{call}(")) {
             let open = from + at + call.len() + 1;
-            // `cli_init_project` is a prefix of the other two.
+            // `cli_init_toml_project` is a prefix of the other two.
             if !found.iter().any(|(_, other)| *other == open) {
                 found.push((call, open));
             }

@@ -177,7 +177,7 @@ fn clone_not_found() -> Result<(), Box<dyn std::error::Error>> {
 
 // note if deps of cloned project include std libs
 #[test]
-/// Legacy json fixture: the setup adds a usage with `sysand add`.
+/// Json fixture: the setup adds a usage with `sysand add`.
 fn clone_std_deps_note() -> Result<(), Box<dyn std::error::Error>> {
     let (_dep_temp_dir, cwd_dep) =
         cli_init_json_project(None, "acme", "clone-std-note-dep", "1.2.3", None)?;

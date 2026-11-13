@@ -13,7 +13,7 @@ use semver::Version;
 use sysand_core::paths::relativize_path;
 use sysand_core::{
     context::ProjectContext,
-    init::InitError,
+    init::{InitError, ProjectKind, do_init_json},
     manifest::{
         MODEL_TOML_FILE,
         common::InheritFrom,
@@ -32,6 +32,7 @@ pub fn command_init(
     publisher: ProjectPublisher,
     version: Option<Version>,
     license: Option<spdx::Expression>,
+    kind: ProjectKind,
     metamodel: Option<KnownMetamodel>,
     path: Option<Utf8PathBuf>,
     ctx: ProjectContext,
@@ -40,13 +41,26 @@ pub fn command_init(
     if let Some(existing_project) = ctx.current_project() {
         warn_found_project(existing_project);
     }
-    // Before `do_init`: a refusal should be about the workspace, not a file
+    // Before `do_init_toml`: a refusal should be about the workspace, not a file
     // collision the workspace explains.
     let member = workspace_member(&target, &ctx)?;
     // The metamodel is mandatory and must be known before anything is
     // written, unless the project is created inside a workspace whose
-    // default group defines one.
-    let metamodel = metamodel_for(metamodel, member.as_ref())?;
+    // default group defines one. A `.meta.json` cannot hold the marker
+    // that inherits it.
+    let metamodel = match kind {
+        ProjectKind::ModelToml => metamodel_for(metamodel, member.as_ref())?,
+        ProjectKind::ProjectJson => match metamodel {
+            Some(metamodel) => MetaProperty::Provided(metamodel.to_string()),
+            None => bail!(
+                "`--metamodel <url>` is required for `--kind project-json`: a project\n\
+                {SP:>8} declares its metamodel, and a `.meta.json` cannot inherit it.\n\
+                {SP:>8} It is one of {list}",
+                SP = ' ',
+                list = KnownMetamodel::RECOGNIZED,
+            ),
+        },
+    };
 
     let version = version.unwrap_or_else(|| Version::parse(DEFAULT_VERSION).unwrap());
     // Whether the name was chosen or inherited decides whether there is
@@ -61,15 +75,27 @@ pub fn command_init(
     let inherited_kind = member
         .as_ref()
         .and_then(|member| member.group_metamodel.clone());
-    sysand_core::init::do_init_ext(
+    let mut storage = LocalSrcProject::new_access(target, None);
+    let (name, publisher, version, license) = (
         name.into_string(),
         publisher.into_string(),
         version.to_string(),
         license.map(|l| l.to_string()),
-        Some(metamodel),
-        inherited_kind,
-        &mut LocalSrcProject::new_access(target, None),
-    )
+    );
+    match kind {
+        ProjectKind::ModelToml => sysand_core::init::do_init_toml_ext(
+            name,
+            publisher,
+            version,
+            license,
+            Some(metamodel),
+            inherited_kind,
+            &mut storage,
+        ),
+        ProjectKind::ProjectJson => {
+            do_init_json(name, publisher, version, license, metamodel, &mut storage)
+        }
+    }
     .map_err(|error| match error {
         // The name came from the directory, so the fix is not where the
         // message points. A publisher never comes from a directory.
@@ -152,7 +178,7 @@ fn workspace_member(target: &Utf8Path, ctx: &ProjectContext) -> Result<Option<Me
     // is a raw command-line argument.
     let target = wrapfs::canonicalize(target)?;
 
-    // `do_init` would refuse this anyway as the root holds a `model.toml`;
+    // `do_init_toml` would refuse this anyway as the root holds a `model.toml`;
     // this gives the reason.
     if target == root {
         bail!(

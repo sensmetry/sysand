@@ -437,7 +437,7 @@ all of them are sources -- would list `README.md` as a source.
   default group declares a Syside metamodel, the marker is written and
   the layout still follows the group's value. Because the file is
   created, a generated project's `root` names a file that is there.
-- **`sysand migrate`** converts a legacy json project to the schema its
+- **`sysand migrate`** converts a json project to the schema its
   `.meta.json` declares -- the OMG one as model-toml.md says, the
   Syside one as JSON to TOML above says. It does not convert _between_
   metamodels: a project changes family with `sysand info metamodel`,

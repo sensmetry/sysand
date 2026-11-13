@@ -17,13 +17,13 @@ public class BasicTest {
     private static final String SYSML = "https://www.omg.org/spec/SysML/20250201";
 
     /**
-     * A legacy json project, written by hand.
+     * A json project, written by hand.
      *
      * <p>{@code Sysand.init} writes a {@code model.toml}; the tests that
      * call this exercise {@code setIndex}, {@code setProjectMetadata} and
      * {@code buildProject} on the json form.
      */
-    private static void writeLegacyProject(java.nio.file.Path dir, String publisher, String name,
+    private static void writeJsonProject(java.nio.file.Path dir, String publisher, String name,
             String version, String license) throws java.io.IOException {
         String licenseKey = license == null ? "" : ",\n  \"license\": \"" + license + "\"";
         Files.write(dir.resolve(".project.json"),
@@ -42,7 +42,7 @@ public class BasicTest {
             com.sensmetry.sysand.Sysand.init("test", "acme", "1.0.0", null, SYSML, tempDir);
 
             // `init` writes a `model.toml`; the two json documents are
-            // what a build produces and what a legacy project has.
+            // what a build produces and what a json project has.
             assertTrue(Files.exists(tempDir.resolve("model.toml")), "Manifest should exist");
             assertFalse(Files.exists(tempDir.resolve(".project.json")), "No json manifest");
 
@@ -138,7 +138,7 @@ public class BasicTest {
     public void testProjectBuild() {
         try {
             java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-build");
-            writeLegacyProject(tempDir, "acme", "test-basic-info", "1.2.3", "MIT");
+            writeJsonProject(tempDir, "acme", "test-basic-info", "1.2.3", "MIT");
 
             com.sensmetry.sysand.model.InterchangeProject project = com.sensmetry.sysand.Sysand.infoPath(tempDir);
             assertExpectedProject(project);
@@ -164,7 +164,7 @@ public class BasicTest {
     public void testSetProjectIndex() {
         try {
             java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-update-index");
-            writeLegacyProject(tempDir, "acme", "test-index", "1.0.0", null);
+            writeJsonProject(tempDir, "acme", "test-index", "1.0.0", null);
 
             java.util.LinkedHashMap<String, String> index = new java.util.LinkedHashMap<>();
             index.put("Foo", "src/Foo.sysml");
@@ -313,8 +313,8 @@ public class BasicTest {
             java.nio.file.Path projB = tempDir.resolve("projB");
             Files.createDirectories(projA);
             Files.createDirectories(projB);
-            writeLegacyProject(projA, "acme", "projA", "1.0.0", null);
-            writeLegacyProject(projB, "acme", "projB", "1.0.0", null);
+            writeJsonProject(projA, "acme", "projA", "1.0.0", null);
+            writeJsonProject(projB, "acme", "projB", "1.0.0", null);
 
             String[] paths = new String[] { projA.toString(), projB.toString() };
             assertEquals(2, paths.length);

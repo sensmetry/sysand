@@ -69,6 +69,7 @@ project.init(
     version="1.0.0",
     project_dir=sys.argv[1],
     metamodel="https://www.omg.org/spec/SysML/20250201",
+    kind=project.ProjectKind.MODEL_TOML,
 )
 assert (
     pathlib.Path(sys.argv[1]) / "model.toml"

@@ -14,7 +14,7 @@ pub use common::*;
 #[test]
 fn discover_basic() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, _) =
-        cli_init_project(Some("discover-basic"), "acme", None, Some("1.2.3"), None)?;
+        cli_init_toml_project(Some("discover-basic"), "acme", None, Some("1.2.3"), None)?;
 
     let project_path = cwd.join("discover-basic").join("path");
 

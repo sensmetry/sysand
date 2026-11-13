@@ -28,7 +28,7 @@ fn run_cli_expands_glob_pattern() -> Result<(), Box<dyn std::error::Error>> {
     // `_run_cli` glob-expands relative to CWD.
     std::env::set_current_dir(proj_dir_path)?;
 
-    // A legacy json project written by hand: `init` writes a
+    // A json project written by hand: `init` writes a
     // `model.toml`, and this test exercises `include` on the json form.
     std::fs::write(
         proj_dir_path.join(".project.json"),

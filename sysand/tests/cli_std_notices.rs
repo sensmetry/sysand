@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 //! These tests add a usage with `sysand add`, and every project in this
-//! file is written as a legacy `.project.json` pair by hand rather than
+//! file is written as a `.project.json` pair by hand rather than
 //! created through `sysand init`, which writes a `model.toml`. They
 //! exercise the json form.
 

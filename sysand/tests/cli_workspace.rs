@@ -83,13 +83,13 @@ fn write_config_for(
 
 /// A project the override can resolve to.
 ///
-/// Written directly rather than through `sysand init`, which inside a
+/// Written by hand rather than through `sysand init`, which inside a
 /// workspace appends it to `members`, which would rewrite the fixture
 /// under the test.
 fn dependency(dir: &Utf8Path, at: &str) -> Result<(), Box<dyn std::error::Error>> {
     let path = dir.join(at);
     std::fs::create_dir_all(&path)?;
-    write_legacy_project(&path, "acme", "local-dep", "1.0.0", None)?;
+    write_hand_written_json_project(&path, "acme", "local-dep", "1.0.0")?;
     Ok(())
 }
 

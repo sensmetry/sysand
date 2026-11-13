@@ -22,26 +22,28 @@ from pytest_httpserver import HTTPServer
 import sysand
 
 
-def write_legacy_meta(root: Path) -> None:
-    """Write the `.meta.json` half of a legacy project.
+def write_json_meta(root: Path) -> None:
+    """Write the `.meta.json` half of a json project.
 
-    `sysand init` writes a `model.toml`, so a test that needs a json
-    project writes one by hand. The timestamp is fixed: nothing here
-    reads it, and a real clock would make the fixture non-reproducible.
+    For a test that writes the `.project.json` half itself. The timestamp
+    is fixed: nothing here reads it, and a real clock would make the
+    fixture non-reproducible.
     """
     (root / ".meta.json").write_text(
         '{\n  "index": {},\n  "created": "2026-01-01T00:00:00Z"\n}\n'
     )
 
 
-def write_legacy_project(root: Path, publisher: str, name: str, version: str) -> None:
-    """A whole legacy json project, for tests whose subject is the json
-    form."""
-    (root / ".project.json").write_text(
-        json.dumps({"name": name, "publisher": publisher, "version": version}, indent=2)
-        + "\n"
+def write_json_project(root: Path, publisher: str, name: str, version: str) -> None:
+    """A whole json project, for tests whose subject is the json form."""
+    sysand.init(
+        project_dir=root,
+        name=name,
+        publisher=publisher,
+        version=version,
+        metamodel="https://www.omg.org/spec/SysML/20250201",
+        kind=sysand.ProjectKind.PROJECT_JSON,
     )
-    write_legacy_meta(root)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -187,7 +189,7 @@ def make_baseline(tmp_path: Path, mock_index: MockIndex) -> MakeBaseline:
             "x-consumer-extension": {"migrated": False},
             "usage": usages,
         }
-        # A legacy json project, written by hand rather than through
+        # A json project, written by hand rather than through
         # `sysand.init`, which writes a `model.toml`. Initialising and then
         # overwriting would leave the directory holding both manifests, which
         # nothing can read.
@@ -196,7 +198,7 @@ def make_baseline(tmp_path: Path, mock_index: MockIndex) -> MakeBaseline:
         # `set_usage_constraint` only guarantees a one-line diff for manifests
         # last written by sysand.
         (root / ".project.json").write_text(json.dumps(manifest, indent=2) + "\n")
-        write_legacy_meta(root)
+        write_json_meta(root)
 
         baseline = Baseline(root=root, index=mock_index)
         assert baseline.cli("lock"), "baseline `sysand lock` failed"
