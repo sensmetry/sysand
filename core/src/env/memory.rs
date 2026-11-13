@@ -245,12 +245,8 @@ impl<Project: ProjectRead + Clone> From<Vec<(String, String, Project)>>
     }
 }
 
-// Placeholder for now
-#[derive(Error, Debug)]
-pub enum MemoryWriteError {}
-
 impl<Project: ProjectMut + Clone + Default> WriteEnvironment for MemoryStorageEnvironment<Project> {
-    type WriteError = MemoryWriteError;
+    type WriteError = !;
 
     type InterchangeProjectMut = Project;
 

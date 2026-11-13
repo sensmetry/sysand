@@ -286,8 +286,7 @@ fn lock_projects<
             version: info.version,
             exports: meta.index.into_keys().collect(),
             identifiers: identifiers
-                .map(|ids| ids.into_iter().map(Into::into).collect())
-                .unwrap_or_default(),
+                .map_or_default(|ids| ids.into_iter().map(Into::into).collect()),
             sources,
             usages: validated_info.usage.iter().map(Usage::from).collect(),
         });
@@ -441,7 +440,7 @@ fn lock_extend<
         let lock_project = Project {
             name: info.name,
             publisher: info.publisher,
-            version: info.version.clone(),
+            version: info.version,
             exports: meta.index.into_keys().collect(),
             identifiers: vec![identifier.to_string()],
             sources,

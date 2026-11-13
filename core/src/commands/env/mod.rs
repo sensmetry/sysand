@@ -7,10 +7,7 @@ use crate::{
     project::utils::{ToPathBuf as _, wrapfs},
 };
 use crate::{
-    env::{
-        memory::{MemoryStorageEnvironment, MemoryWriteError},
-        utils::ErrorBound,
-    },
+    env::{memory::MemoryStorageEnvironment, utils::ErrorBound},
     project::memory::InMemoryProject,
 };
 
@@ -38,8 +35,7 @@ pub enum EnvError<WriteError: ErrorBound> {
     Write(#[from] WriteError),
 }
 
-pub fn do_env_memory()
--> Result<MemoryStorageEnvironment<InMemoryProject>, EnvError<MemoryWriteError>> {
+pub fn do_env_memory() -> Result<MemoryStorageEnvironment<InMemoryProject>, EnvError<!>> {
     Ok(MemoryStorageEnvironment::default())
 }
 

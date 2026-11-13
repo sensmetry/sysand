@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{collections::HashMap, convert::Infallible};
+use std::collections::HashMap;
 
 use fluent_uri::component::Scheme;
 
@@ -119,7 +119,7 @@ impl IRIPredicate for AcceptScheme<'_> {
 impl<Predicate: IRIPredicate, ProjectStorage: ProjectRead + Clone> ResolveRead
     for MemoryResolver<Predicate, ProjectStorage>
 {
-    type Error = Infallible;
+    type Error = !;
 
     type ProjectStorage = ProjectStorage;
 

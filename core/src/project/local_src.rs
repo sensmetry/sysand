@@ -180,7 +180,7 @@ impl LocalSrcProject {
     ) -> Result<Utf8PathBuf, PathError> {
         let path = path.as_ref();
         let utf_path = if path.is_absolute() {
-            if !cfg!(feature = "lenient_checks") {
+            if !cfg!(feature = "lenient-checks") {
                 return Err(PathError::AbsolutePath(path.to_owned()));
             }
             // This should never fail, as the only way for a Unix path to be absolute is to begin

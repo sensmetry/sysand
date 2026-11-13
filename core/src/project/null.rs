@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 use std::{
-    convert::Infallible,
     io::{self, Read},
     pin::Pin,
 };
@@ -21,7 +20,7 @@ use super::ProjectChecksum;
 
 #[derive(Debug)]
 pub struct NullProject {
-    nothing: Infallible,
+    nothing: !,
 }
 
 #[derive(Error, Debug)]
@@ -31,7 +30,7 @@ pub enum NotARealProjectError {
 }
 
 pub struct ImpossibleReader {
-    nothing: Infallible,
+    nothing: !,
 }
 
 impl Read for ImpossibleReader {

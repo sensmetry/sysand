@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{assert_matches, collections::HashMap, convert::Infallible, path::Path, sync::Arc};
+use std::{assert_matches, collections::HashMap, path::Path, sync::Arc};
 
 use anyhow::{Result, anyhow, bail};
 use camino::{Utf8Path, Utf8PathBuf};
@@ -95,12 +95,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
             };
             // Refused, already present or settled by what is declared, before
             // anything is resolved or looked up
-            match index_usage_to_add::<Infallible>(
-                &info.usage,
-                publisher,
-                name,
-                version_constraint,
-            )? {
+            match index_usage_to_add::<!>(&info.usage, publisher, name, version_constraint)? {
                 IndexUsageToAdd::AlreadyPresent => UsageToAdd::AlreadyPresent,
                 IndexUsageToAdd::Ready(usage) => UsageToAdd::Ready(usage),
                 IndexUsageToAdd::New {

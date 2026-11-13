@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{convert::Infallible, io, pin::Pin, sync::Arc};
+use std::{io, pin::Pin, sync::Arc};
 
 use futures::AsyncRead;
 use thiserror::Error;
@@ -323,7 +323,7 @@ impl<Policy: HTTPAuthentication> HTTPProjects<Policy> {
 }
 
 impl<Policy: HTTPAuthentication> Iterator for HTTPProjects<Policy> {
-    type Item = Result<HTTPProjectAsync<Policy>, Infallible>;
+    type Item = Result<HTTPProjectAsync<Policy>, !>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if !self.src_done {
@@ -354,7 +354,7 @@ impl<Policy: HTTPAuthentication> Iterator for HTTPProjects<Policy> {
 /// instead of `HTTPKparProjectDownloaded`. In case of *any* failure, or if `prefer_ranged`
 /// is false, `HTTPKparProjectDownloaded` is used instead.
 impl<Policy: HTTPAuthentication> ResolveReadAsync for HTTPResolverAsync<Policy> {
-    type Error = Infallible;
+    type Error = !;
 
     type ProjectStorage = HTTPProjectAsync<Policy>;
 
