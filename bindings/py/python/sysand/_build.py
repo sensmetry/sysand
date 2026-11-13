@@ -34,7 +34,6 @@ def build(
     if project_dir is not None:
         project_dir = str(project_dir)
 
-    # comp = None if compression is None else _convert_compression(compression)
     comp = None if compression is None else compression.name
     sysand_rs.do_build_py(str(output_path), project_dir, comp, allow_path_usage)
 

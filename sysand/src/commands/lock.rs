@@ -1,37 +1,34 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
-use anyhow::Result;
-use camino::Utf8Path;
+use anyhow::{Result, bail};
 
+use crate::{cli::ResolutionOptions, context::NotInProject, get_overrides};
 use sysand_core::{
     auth::HTTPAuthentication,
     commands::lock::{
-        EditableLocalSrcProject, LockOutcome, LockProjectError, do_lock_local_editable,
+        EditableLocalSrcProject, LockProjectError, do_lock_local_editable, do_lock_workspace,
     },
     config::Config,
     context::ProjectContext,
-    lock::Lockfile,
-    project::{any::AnyProject, memory::InMemoryProject, reference::ProjectReference},
+    lock::{Lock, Lockfile},
+    project::{
+        any::AnyProject, memory::InMemoryProject, reference::ProjectReference, utils::Identifier,
+    },
     resolve::{
         ResolveRead,
         memory::{AcceptAll, AcceptResource, MemoryResolver},
         priority::PriorityResolver,
         standard::{StandardResolver, standard_resolver},
     },
-    stdlib::known_std_libs,
     utils::ProvidedProjects,
 };
-use typed_path::Utf8UnixPath;
-
-use crate::{cli::ResolutionOptions, default_index_location, get_overrides};
 
 /// The resolver [`create_resolver`] builds: overrides, then provided
-/// projects, then the standard file/env/index stack. Named so that callers
-/// (the language bindings) can match the errors it produces.
+/// projects, then the standard file/env/index stack. Named so the language
+/// bindings can match its errors.
 pub type CliResolver<Policy> = PriorityResolver<
     PriorityResolver<
         MemoryResolver<AcceptResource, ProjectReference<AnyProject<Policy>>>,
@@ -40,41 +37,70 @@ pub type CliResolver<Policy> = PriorityResolver<
     StandardResolver<Policy>,
 >;
 
-/// The error `resolve_lock`/`command_lock` fail with when the lock itself
-/// fails (as opposed to configuration or context errors); reachable from
-/// the returned `anyhow::Error` through `downcast_ref`.
+/// The error [`lock_scope`] and the functions built on it fail with when
+/// the lock itself fails (as opposed to configuration or context errors);
+/// reachable from the returned `anyhow::Error` through `downcast_ref`.
 pub type CliLockError<Policy> = LockProjectError<
     EditableLocalSrcProject,
     <CliResolver<Policy> as ResolveRead>::ProjectStorage,
     CliResolver<Policy>,
 >;
 
-/// Solve for a lockfile without writing it.
+/// Solve for the lockfile of `ctx`'s scope with `resolver`, without
+/// writing it: the whole workspace in one solve when `ctx` is in one, and
+/// the current project otherwise. The returned lock is canonical.
+///
+/// The spelling of the typed usage of `respelled` is not checked: it is
+/// taken from the project the usage resolved to.
+///
+/// Fails with [`NotInProject`] outside both a workspace and a project.
+pub fn lock_scope<Policy: HTTPAuthentication>(
+    resolver: CliResolver<Policy>,
+    provided_iris: &ProvidedProjects,
+    ctx: &ProjectContext,
+    respelled: Option<&Identifier>,
+) -> Result<Lock> {
+    // A single-member solve written over a workspace's shared lockfile
+    // would drop every other member.
+    if let Some(workspace) = ctx.workspace() {
+        let lock = do_lock_workspace(workspace, resolver, provided_iris, ctx, respelled)?;
+        return Ok(lock.canonicalize());
+    }
+    let Some(project_root) = ctx.project_root() else {
+        bail!(NotInProject {
+            dir: ctx.current_directory.clone()
+        });
+    };
+    // No alias IRIs: `model.toml` has no such key.
+    let lock = do_lock_local_editable(
+        ".",
+        &project_root,
+        None,
+        provided_iris,
+        resolver,
+        ctx,
+        respelled,
+    )?;
+    Ok(lock.canonicalize())
+}
+
+/// [`lock_scope`] with the resolver [`create_resolver`] builds.
 ///
 /// `extra_provided` are projects the caller itself provides (satisfied
-/// without installing), merged with the standard libraries unless
-/// `include_std` is set. The returned lock is canonical.
-pub fn resolve_lock<P: AsRef<Utf8UnixPath>, Policy: HTTPAuthentication, R: AsRef<Utf8Path>>(
-    path: P,
+/// without installing), added to [`ResolutionOptions::provided_iris`].
+pub fn resolve_lock<Policy: HTTPAuthentication>(
     resolution_opts: ResolutionOptions,
     config: &Config,
-    project_root: R,
     extra_provided: ProvidedProjects,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
     ctx: &ProjectContext,
-) -> Result<sysand_core::lock::Lock> {
-    let mut provided_iris = if resolution_opts.include_std {
-        HashMap::default()
-    } else {
-        known_std_libs()
-    };
-    provided_iris.extend(extra_provided);
-    let wrapped_resolver = create_resolver(
+) -> Result<Lock> {
+    let provided_iris = resolution_opts.provided_iris(extra_provided);
+    let resolver = create_resolver(
         resolution_opts,
         config,
-        &project_root,
         ctx,
         // TODO: avoid expensive clone here
         provided_iris.clone(),
@@ -82,100 +108,47 @@ pub fn resolve_lock<P: AsRef<Utf8UnixPath>, Policy: HTTPAuthentication, R: AsRef
         runtime,
         auth_policy,
     )?;
-
-    let alias_iris = if let Some(w) = &ctx.current_workspace
-        && let Some(project) = &ctx.current_project
-    {
-        w.projects()
-            .iter()
-            .find(|p| p.path == project.nominal_path().unwrap())
-            .map(|p| p.iris.clone())
-    } else {
-        None
-    };
-    let LockOutcome {
-        lock,
-        dependencies: _dependencies,
-    } = do_lock_local_editable(
-        &path,
-        &project_root,
-        alias_iris,
-        &provided_iris,
-        wrapped_resolver,
-        ctx,
-    )?;
-
-    Ok(lock.canonicalize())
+    lock_scope(resolver, &provided_iris, ctx, None)
 }
 
-/// Generate a lockfile for `current_project` and write it.
-pub fn command_lock<P: AsRef<Utf8UnixPath>, Policy: HTTPAuthentication, R: AsRef<Utf8Path>>(
-    path: P,
+/// [`resolve_lock`], written to the lockfile at `ctx`'s state root.
+pub fn command_lock<Policy: HTTPAuthentication>(
     resolution_opts: ResolutionOptions,
     config: &Config,
-    project_root: R,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
     ctx: &ProjectContext,
-) -> Result<sysand_core::lock::Lock> {
-    let canonical = resolve_lock(
-        &path,
+) -> Result<Lock> {
+    let lock = resolve_lock(
         resolution_opts,
         config,
-        project_root,
         ProvidedProjects::default(),
         client,
         runtime,
         auth_policy,
         ctx,
     )?;
-    let lockfile = Lockfile::new(Utf8Path::new(path.as_ref().as_str()), canonical);
+    let lockfile = Lockfile::new(ctx.state_root(), lock);
     lockfile.write()?;
-
     Ok(lockfile.into_lock())
 }
 
-pub fn create_resolver<R: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
+/// A relative override path resolves against `ctx.config_root`.
+pub fn create_resolver<Policy: HTTPAuthentication>(
     resolution_opts: ResolutionOptions,
     config: &Config,
-    project_root: R,
     ctx: &ProjectContext,
     provided_usages: ProvidedProjects,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
-) -> Result<
-    PriorityResolver<
-        PriorityResolver<
-            MemoryResolver<
-                AcceptResource,
-                sysand_core::project::reference::ProjectReference<
-                    sysand_core::project::any::AnyProject<Policy>,
-                >,
-            >,
-            MemoryResolver<AcceptAll, InMemoryProject>,
-        >,
-        StandardResolver<Policy>,
-    >,
-    anyhow::Error,
-> {
-    let ResolutionOptions {
-        index,
-        default_index,
-        no_index,
-        include_std: _,
-    } = resolution_opts;
-
-    let index_urls = if no_index {
-        None
-    } else {
-        Some(config.index_urls(index, vec![default_index_location()], default_index))
-    };
+) -> Result<CliResolver<Policy>> {
+    let index_urls = resolution_opts.index_urls(config);
 
     let overrides = get_overrides(
         config,
-        &project_root,
+        &ctx.config_root,
         &client,
         runtime.clone(),
         auth_policy.clone(),
@@ -197,6 +170,7 @@ pub fn create_resolver<R: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
             index_urls,
             runtime,
             auth_policy,
+            ctx.cancellation.clone(),
         )?,
     );
 

@@ -5,33 +5,31 @@
 //! `.meta.json` pair a reader is handed when it asks such a project for
 //! its manifest.
 //!
-//! model-toml.md "TOML to KPAR" specifies the pair a *build* writes into
-//! an archive, and the view follows it wherever it can. Three rules are
-//! the archive's alone, and each is marked "the archive" below:
+//! A *build* writes the same pair into an archive, and the view follows
+//! it wherever it can. Three rules are the archive's alone:
 //!
 //! 1. `publisher` is omitted from a `stdlib` project's `.project.json`;
-//! 2. `dir` and `kpar-path` usages become PURLs constrained to
-//!    `^<target version>`;
+//! 2. `dir` and `kpar-path` usages become typed index usages constrained
+//!    to `^<target version>`;
 //! 3. a usage whose target carries `stdlib` becomes an OMG IRI.
 //!
-//! All three need something this module does not have -- the project's
-//! targets -- so all three belong to the build. What is left is a
-//! function of one manifest, which is what a read-only consumer of a
-//! project needs, and it is free of Cargo features so that the bindings
-//! without a filesystem can produce it too.
+//! All three need the project's targets, so all three belong to the build.
+//! What is left is a function of one manifest, free of Cargo features so
+//! that bindings without a filesystem can produce it too.
 
 use indexmap::IndexMap;
 use thiserror::Error;
 use typed_path::Utf8UnixPath;
 
+use crate::manifest::ModelToml;
 use crate::manifest::common::Sources;
-use crate::manifest::diagnostics::Report;
-use crate::manifest::project::{ProjectManifest, ResolvedProject};
+use crate::manifest::diagnostics::{Diagnostics, Validated};
+use crate::manifest::project::{ProjectManifest, ResolvedProject, UnlistedFiles};
 use crate::manifest::usage::Usage;
-use crate::manifest::{MODEL_TOML_FILE, ModelToml};
+use crate::manifest::workspace_table::WorkspaceTable;
 use crate::model::{
-    InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
-    InterchangeProjectUsageRaw, KerMlChecksumAlg, format_created,
+    IndexName, IndexPublisher, InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw,
+    InterchangeProjectMetadataRaw, InterchangeProjectUsageRaw, KerMlChecksumAlg, format_created,
 };
 use crate::project::utils::{ProjectDeserializationError, validate_manifest};
 use crate::symbols::{SymbolsError, top_level_symbols};
@@ -44,73 +42,168 @@ pub type SymbolIndex = IndexMap<String, String>;
 /// `checksum`, as a `.meta.json` carries it: one entry per source file.
 pub type ChecksumMap = IndexMap<String, InterchangeProjectChecksumRaw>;
 
-/// What a view records as `created`.
-///
-/// A build records the instant it ran, so that two builds of identical
-/// sources are not byte-identical. A *view* must not: the project
-/// checksum covers the whole `.meta.json`, and that checksum is written
-/// into the lockfile and recomputed and compared by `sysand sync`. A
-/// view is a function of the manifest and the source files; the clock is
-/// not one of its inputs.
-pub const VIEW_CREATED: jiff::Timestamp = jiff::Timestamp::UNIX_EPOCH;
-
 /// Why a view could not be built.
 #[derive(Debug, Error)]
 pub enum ViewError<E> {
-    /// The `model.toml` is not one, or does not define a project, or
-    /// does not validate.
-    #[error(transparent)]
-    Manifest(#[from] ProjectDeserializationError),
     /// The caller could not hand over a source file's contents. Passed
-    /// through rather than wrapped: the caller's error already names the
-    /// file it failed on, and a second sentence would print the path
-    /// twice.
+    /// through: the caller's error already names the file.
     #[error(transparent)]
     Read(E),
     #[error(transparent)]
     Symbols(#[from] SymbolsError),
+    #[error(transparent)]
+    Unlisted(UnlistedFiles),
+}
+
+/// Why a json usage has no `model.toml` form.
+///
+/// Two refusals: a resource usage has no manifest kind, and an
+/// identifier is fixed by editing the target's `.project.json`.
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
+pub enum NoManifestForm {
+    /// A resource usage: a manifest has no such kind.
+    #[error(
+        "a `model.toml` project cannot declare a resource usage (`{0}`):\n\
+        {SP:>8} use an index usage, `dir` or `kpar-path`",
+        SP = ' '
+    )]
+    Resource(String),
+    /// The target declares a publisher or name a manifest cannot hold.
+    #[error(
+        "`{file}` declares {problem};\n\
+        {SP:>8} a `model.toml` usage cannot name it",
+        SP = ' '
+    )]
+    Identifier { file: String, problem: String },
+}
+
+/// Read a json usage as a manifest usage.
+///
+/// The inverse of [`usage`].
+///
+/// `file` names the document the raw usage came from, for the one
+/// refusal whose fix is in another project's manifest.
+pub fn usage_of_raw(raw: &InterchangeProjectUsageRaw, file: &str) -> Result<Usage, NoManifestForm> {
+    let identity =
+        |publisher: &str, name: &str| -> Result<(IndexPublisher, IndexName), NoManifestForm> {
+            let publisher =
+                IndexPublisher::parse(publisher).map_err(|e| NoManifestForm::Identifier {
+                    file: file.to_owned(),
+                    problem: format!("`{}`: {e}", e.value),
+                })?;
+            let name = IndexName::parse(name).map_err(|e| NoManifestForm::Identifier {
+                file: file.to_owned(),
+                problem: format!("`{}`: {e}", e.value),
+            })?;
+            Ok((publisher, name))
+        };
+
+    match raw {
+        InterchangeProjectUsageRaw::Resource {
+            resource,
+            version_constraint: _,
+        } => Err(NoManifestForm::Resource(resource.clone())),
+        InterchangeProjectUsageRaw::Directory {
+            dir,
+            publisher,
+            name,
+        } => {
+            let (publisher, name) = identity(publisher, name)?;
+            Ok(Usage::SourcePath {
+                publisher,
+                name,
+                dir: dir.as_str().into(),
+            })
+        }
+        InterchangeProjectUsageRaw::KparPath {
+            kpar_path,
+            publisher,
+            name,
+        } => {
+            let (publisher, name) = identity(publisher, name)?;
+            Ok(Usage::KparPath {
+                publisher,
+                name,
+                kpar_path: kpar_path.as_str().into(),
+            })
+        }
+        InterchangeProjectUsageRaw::RemoteKpar {
+            kpar_url,
+            publisher,
+            name,
+        } => {
+            let invalid = |problem: String| NoManifestForm::Identifier {
+                file: file.to_owned(),
+                problem,
+            };
+            let publisher = publisher
+                .as_deref()
+                .map(IndexPublisher::parse)
+                .transpose()
+                .map_err(|e| invalid(format!("`{}`: {e}", e.value)))?;
+            let name =
+                IndexName::parse(name).map_err(|e| invalid(format!("`{}`: {e}", e.value)))?;
+            let url = fluent_uri::Iri::parse(kpar_url.clone())
+                .map_err(|(e, _)| invalid(format!("KPAR URL `{kpar_url}`: {e}")))?;
+            Ok(Usage::RemoteKpar {
+                publisher,
+                name,
+                url,
+            })
+        }
+        // Already carries everything a manifest entry needs.
+        InterchangeProjectUsageRaw::Index {
+            publisher,
+            name,
+            version_constraint,
+        } => {
+            let (publisher, name) = identity(publisher, name)?;
+            let version_constraint =
+                semver::VersionReq::parse(version_constraint).map_err(|e| {
+                    NoManifestForm::Identifier {
+                        file: file.to_owned(),
+                        problem: format!("version constraint `{version_constraint}`: {e}"),
+                    }
+                })?;
+            Ok(Usage::Index {
+                publisher,
+                name,
+                version_constraint,
+            })
+        }
+    }
 }
 
 /// One usage as a `.project.json` carries it.
 ///
-/// model-toml.md "TOML to KPAR": an index usage becomes a PURL with the
-/// constraint as declared, and a remote-kpar usage its URL as-is. The
-/// two local kinds become *typed* usages here, which is where the view
-/// and the archive part company: the archive rewrites them into PURLs
-/// constrained to the target's version at build time, which needs the
-/// target's manifest, and the resolver needs the path in any case (a
-/// `model.toml` `dir` usage always resolves to an editable project).
+/// An index usage becomes a typed index usage with the constraint as
+/// declared, and a remote-kpar usage a typed remote KPAR usage. The two local kinds
+/// become typed *path* usages here, which is where the view and the
+/// archive part company: the archive rewrites them into typed index
+/// usages constrained to the target's version, which needs the target's
+/// manifest, whereas a view keeps the path.
 ///
-/// A typed usage "carries `publisher` and `name` exactly as the manifest
-/// spells them, without normalization, because Sysand requires them to
-/// match the values found at the target". That is about what is
-/// *written*; the identity check when the usage resolves normalizes
-/// both sides, as model-toml.md "Normalization" requires. A PURL is built from the
-/// normalized pair instead, and cannot fail: `Publisher` and `Name`
-/// accept only values that are valid PURL segments once normalized (see
-/// `purl::is_valid_unnormalized_publisher`), so the identity a usage
-/// holds is always encodable. It is spelled by the same function the
-/// lockfile uses, so the two cannot drift apart.
+/// A typed usage carries `publisher` and `name` exactly as the manifest
+/// spells them, without normalization.
 pub fn usage(usage: &Usage) -> InterchangeProjectUsageRaw {
     match usage {
         Usage::Index {
             publisher,
             name,
             version_constraint,
-        } => InterchangeProjectUsageRaw::Resource {
-            resource: crate::manifest::common::normalized_identity(publisher, name)
-                .lock_identifier(),
-            version_constraint: Some(version_constraint.to_string()),
+        } => InterchangeProjectUsageRaw::Index {
+            publisher: publisher.as_str().to_owned(),
+            name: name.as_str().to_owned(),
+            version_constraint: version_constraint.to_string(),
         },
-        // "remote-kpar: use the URL as-is"; the kind takes no version
-        // constraint.
         Usage::RemoteKpar {
             url,
-            publisher: _,
-            name: _,
-        } => InterchangeProjectUsageRaw::Resource {
-            resource: url.as_str().to_owned(),
-            version_constraint: None,
+            publisher,
+            name,
+        } => InterchangeProjectUsageRaw::RemoteKpar {
+            kpar_url: url.as_str().to_owned(),
+            publisher: publisher.as_ref().map(|p| p.as_str().to_owned()),
+            name: name.as_str().to_owned(),
         },
         Usage::SourcePath {
             publisher,
@@ -135,22 +228,18 @@ pub fn usage(usage: &Usage) -> InterchangeProjectUsageRaw {
 
 /// The project as a `.project.json`.
 ///
-/// model-toml.md "TOML to KPAR": "the remaining `[project]` keys map onto
-/// their counterparts: `name`, `version`, `description`, `license` as-is,
-/// `topics` into `topic`, `maintainers` into `maintainer`, `urls.website`
-/// into `website`. `urls.repository` and `urls.documentation` have no
-/// counterpart in `.project.json` and are dropped". `sources` is not
-/// written either: "the paths it lists are recoverable from these two
-/// maps" of the `.meta.json`.
+/// The remaining `[project]` keys map onto their counterparts: `name`,
+/// `version`, `description`, `license` as-is, `topics` into `topic`,
+/// `maintainers` into `maintainer`, `urls.website` into `website`.
+/// `urls.repository` and `urls.documentation` have no counterpart in
+/// `.project.json` and are dropped. `sources` is not written either: the
+/// paths it lists are recoverable from the `.meta.json` maps.
 ///
-/// `publisher` is always written, which is the second place the view and
-/// the archive part company: the archive omits it for a project carrying
+/// `publisher` is always written; the archive omits it for a project carrying
 /// `stdlib`, so that a locally built standard-library KPAR matches the
-/// published one. A view that omitted it would be worse than wrong, it
-/// would be circular -- the standard library's own projects use each
-/// other by `dir`, and a `dir` target must declare the publisher its
-/// usage names, so the standard library could not build itself. Lock
-/// entries would lose it too.
+/// published one. A view that omitted it would be circular: the standard
+/// library's own projects use each other by `dir`, and a `dir` target must
+/// declare the publisher its usage names.
 pub fn info(project: &ResolvedProject) -> InterchangeProjectInfoRaw {
     InterchangeProjectInfoRaw {
         name: project.name.as_str().to_owned(),
@@ -169,6 +258,10 @@ pub fn info(project: &ResolvedProject) -> InterchangeProjectInfoRaw {
             .as_ref()
             .map(|website| website.as_str().to_owned()),
         topic: project.topics.clone(),
+        // TODO: `located.base` is discarded. For a member that inherits
+        // a *group* `dir` usage the base is the workspace root, not the
+        // member, and a caller that reads its input usages from here
+        // would join the path onto the wrong directory.
         usage: project
             .usages
             .iter()
@@ -180,71 +273,86 @@ pub fn info(project: &ResolvedProject) -> InterchangeProjectInfoRaw {
 /// The project as a `.meta.json`, given the instant to record and the two
 /// maps [`source_maps`] computes.
 ///
-/// `created` is an instant rather than a string so that it is written the
-/// one way `InterchangeProjectMetadataRaw` is documented to be written,
-/// and a parameter rather than the current time so that what a view says
-/// can be asserted.
-///
-/// model-toml.md "TOML to KPAR": `includesDerived` and `includesImplied`
-/// "are optional and omitted" -- Sysand does not know either.
+/// `includesDerived` and `includesImplied` are omitted: Sysand does not
+/// know either.
 pub fn meta(
     project: &ResolvedProject,
     created: &jiff::Timestamp,
     index: SymbolIndex,
     checksum: ChecksumMap,
 ) -> InterchangeProjectMetadataRaw {
+    // A project with a `root` writes the Syside shape: `root` and a flat
+    // `exports` array (the map's keys, sorted), no `index`.
+    let (index, root, exports) = match project.root() {
+        Some(root) => {
+            let mut exports: Vec<String> = index.into_keys().collect();
+            exports.sort();
+            (None, Some(root.as_str().to_owned()), Some(exports))
+        }
+        None => (Some(index), None, None),
+    };
     InterchangeProjectMetadataRaw {
         index,
+        root,
+        exports,
         created: format_created(created),
-        metamodel: project.metamodel.clone(),
+        // Always written: a resolved project declares one of the four.
+        metamodel: Some(project.metamodel.to_string()),
         includes_derived: None,
         includes_implied: None,
         checksum: Some(checksum),
     }
 }
 
-/// The two `.meta.json` maps model-toml.md says have "no counterpart in
-/// `model.toml`, both computed at build time from the file contents and
-/// keyed by the normalized `sources` entries":
+/// The two `.meta.json` maps that have no counterpart in `model.toml`,
+/// both computed from the file contents and keyed by the `sources`
+/// entries:
 ///
-/// - `checksum`, "an entry per source file, keyed by its path, holding
-///   the file's hash (SHA256, as `sysand include` already produces)";
-/// - `index`, "the top level symbols extracted from each source file,
-///   each mapped to that file's path; the language is taken from the file
+/// - `checksum`, an entry per source file, keyed by its path, holding the
+///   file's SHA256 hash;
+/// - `index`, the top level symbols extracted from each source file, each
+///   mapped to that file's path; the language is taken from the file
 ///   extension (KerML or SysML), which `sources` guarantees to be one of
-///   the two".
+///   the two.
 ///
-/// `read` hands over one source file's contents. Nothing here opens a
-/// file, which is what keeps this module free of Cargo features and lets
-/// a binding with no filesystem produce the same view.
-///
-/// Both maps are built in `sources` order, so that a `.meta.json` is a
-/// deterministic function of the manifest and the file contents.
+/// `read` hands over one source file's contents; nothing here opens a
+/// file.
 ///
 /// A symbol declared in two sources maps to the later one; `index` has
 /// no room for both.
 pub fn source_maps<E>(
     sources: &Sources,
-    mut read: impl FnMut(&Utf8UnixPath) -> Result<String, E>,
+    read: impl FnMut(&Utf8UnixPath) -> Result<String, E>,
 ) -> Result<(SymbolIndex, ChecksumMap), ViewError<E>> {
-    let mut index = SymbolIndex::new();
     let mut checksum = ChecksumMap::new();
-
-    for source in sources.iter() {
-        let contents = read(source).map_err(ViewError::Read)?;
+    let index = symbol_index(sources, read, |source, contents| {
         checksum.insert(
             source.as_str().to_owned(),
             InterchangeProjectChecksumRaw {
-                value: sha256_lowercase_hex(&contents),
+                value: sha256_lowercase_hex(contents),
                 algorithm: KerMlChecksumAlg::Sha256.into(),
             },
         );
+    })?;
+    Ok((index, checksum))
+}
+
+/// The `index` map of [`source_maps`] alone. `each` sees every source
+/// file's contents after `read` hands them over.
+pub fn symbol_index<E>(
+    sources: &Sources,
+    mut read: impl FnMut(&Utf8UnixPath) -> Result<String, E>,
+    mut each: impl FnMut(&Utf8UnixPath, &str),
+) -> Result<SymbolIndex, ViewError<E>> {
+    let mut index = SymbolIndex::new();
+    for source in sources.iter() {
+        let contents = read(source).map_err(ViewError::Read)?;
+        each(source, &contents);
         for symbol in top_level_symbols(&source, &contents, None)? {
             index.insert(symbol, source.as_str().to_owned());
         }
     }
-
-    Ok((index, checksum))
+    Ok(index)
 }
 
 /// The whole view: [`info`] and [`meta`] over one run of [`source_maps`].
@@ -253,54 +361,45 @@ pub fn view<E>(
     created: &jiff::Timestamp,
     read: impl FnMut(&Utf8UnixPath) -> Result<String, E>,
 ) -> Result<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw), ViewError<E>> {
-    let (index, checksum) = source_maps(&project.sources, read)?;
+    let sources = project.sources().map_err(ViewError::Unlisted)?;
+    let (index, checksum) = source_maps(sources, read)?;
     Ok((info(project), meta(project, created, index, checksum)))
 }
 
 /// Read a `model.toml` into the manifest model.
 ///
 /// `file` names the document in messages; nothing here opens one. The
-/// project is resolved *standalone*: a caller that knows the project is
-/// a workspace member has to resolve it itself, against the table it
-/// belongs to.
-///
-/// Warnings are logged rather than returned, which is what the json
-/// readers do with theirs, so that a manifest warns the same way
-/// whichever format it is written in.
+/// project is resolved standalone, as a member of no workspace. Warnings
+/// are logged.
 pub fn resolved_of_text(
     file: &str,
     text: &str,
 ) -> Result<ResolvedProject, ProjectDeserializationError> {
-    let manifest: ProjectManifest = validate_manifest(file, ModelToml::parse(file, text))?
-        .into_project(file)
-        .map_err(|problem| {
-            ProjectDeserializationError::invalid(file, Report::from_iter([problem]))
-        })?;
-    validate_manifest(file, manifest.resolve(None))
+    resolved_of_text_in(file, text, None)
 }
 
-/// The KPAR view of a `model.toml`, from its text.
+/// [`resolved_of_text`], resolved against the workspace the project is a
+/// member of.
 ///
-/// This is the whole of what a toml-backed project answers with, and it
-/// is free of Cargo features so that a store without a filesystem
-/// produces the same answer: `read` hands over one source file's
-/// contents and nothing here opens anything.
-pub fn of_text<E>(
+/// With `table` of `None`, every inheritance marker is refused.
+pub fn resolved_of_text_in(
     file: &str,
     text: &str,
-    read: impl FnMut(&Utf8UnixPath) -> Result<String, E>,
-) -> Result<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw), ViewError<E>> {
-    let project = resolved_of_text(file, text)?;
-    view(&project, &VIEW_CREATED, read)
+    table: Option<&WorkspaceTable>,
+) -> Result<ResolvedProject, ProjectDeserializationError> {
+    resolved_of_parsed(file, ModelToml::parse(file, text), table)
 }
 
-/// [`of_text`] for a document named `model.toml`, which every source
-/// project's is.
-pub fn of_model_toml<E>(
-    text: &str,
-    read: impl FnMut(&Utf8UnixPath) -> Result<String, E>,
-) -> Result<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw), ViewError<E>> {
-    of_text(MODEL_TOML_FILE, text, read)
+/// [`resolved_of_text_in`] for a `model.toml` that was already parsed.
+pub fn resolved_of_parsed(
+    file: &str,
+    parsed: Result<Validated<ModelToml>, Diagnostics>,
+    table: Option<&WorkspaceTable>,
+) -> Result<ResolvedProject, ProjectDeserializationError> {
+    let manifest: ProjectManifest = validate_manifest(file, parsed)?
+        .into_project(file)
+        .map_err(|problem| ProjectDeserializationError::invalid(file, problem))?;
+    validate_manifest(file, manifest.resolve(table))
 }
 
 #[cfg(test)]

@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-//! Which version [`get_project_version`] picks. It is used in
-//! `sysand clone <iri>` and `sysand env install --no-deps`.
+//! Which version [`get_project_version`] picks.
 
 use std::collections::HashMap;
 
@@ -36,13 +35,17 @@ fn project(version: &str) -> InMemoryProject {
             usage: vec![],
         }),
         meta: Some(InterchangeProjectMetadataRaw {
-            index: IndexMap::new(),
+            index: Some(IndexMap::new()),
+            root: None,
+            exports: None,
             created: "2026-01-01T00:00:00Z".to_owned(),
             metamodel: None,
             includes_derived: None,
             includes_implied: None,
             checksum: None,
         }),
+        // A `.project.json`/`.meta.json` project: these fixtures stand in
+        // for what an index serves.
         model_toml: None,
         files: HashMap::new(),
         nominal_sources: vec![],
@@ -52,8 +55,8 @@ fn project(version: &str) -> InMemoryProject {
     }
 }
 
-/// The same project as a source that names it outright would offer it -- a
-/// path or a source override, where there is no version to choose between.
+/// The same project as a source that names it outright would offer it (a
+/// path or a source override), where there is no version to choose between.
 fn single_project_source(version: &str) -> InMemoryProject {
     InMemoryProject {
         source_may_offer_multiple_versions: false,
@@ -121,9 +124,8 @@ fn purl_without_a_version_ignores_prereleases() {
 }
 
 /// The default follows the source, not the IRI: a `pkg:sysand` IRI pinned to a
-/// source that names one project takes what is there, prerelease and all. The
-/// solver agrees
-/// (`unconstrained_usage_of_a_single_project_source_admits_a_prerelease`).
+/// source that names one project takes what is there, prerelease and all, as
+/// in the solver.
 #[test]
 fn purl_pinned_to_a_single_project_source_admits_a_prerelease() {
     let resolve = ResolutionInfo::iri(fluent_uri::Iri::parse(PURL.to_owned()).unwrap());
@@ -137,8 +139,7 @@ fn purl_pinned_to_a_single_project_source_admits_a_prerelease() {
     assert_eq!(version.to_string(), "1.0.0-alpha.1");
 }
 
-/// Naming the prerelease is the opt-in, as `--version` is for `cargo
-/// install`.
+/// Naming the prerelease is the opt-in.
 #[test]
 fn purl_with_a_named_prerelease_picks_it() {
     assert_eq!(
@@ -147,10 +148,9 @@ fn purl_with_a_named_prerelease_picks_it() {
     );
 }
 
-/// A PURL project that has only ever published prereleases fails rather than
-/// installing one behind the user's back — the solver fails here too
-/// (`unconstrained_purl_usage_of_a_prerelease_only_project_is_a_no_versions_failure`).
-/// The versions found are named, highest first, so the user can pass one.
+/// A PURL project that has only ever published prereleases fails, as the
+/// solver does. The versions found are named, highest first, so the user can
+/// pass one.
 #[test]
 fn purl_with_only_prereleases_is_an_error_naming_them() {
     let err = picked(PURL, None, &["1.0.0-alpha.1", "1.0.0-beta.1"]).unwrap_err();
@@ -166,8 +166,7 @@ fn purl_with_only_prereleases_is_an_error_naming_them() {
 }
 
 /// A source that names one project carries no default, so the highest version
-/// wins whether or not it is a prerelease — as it does in the solver
-/// (`unconstrained_usage_of_a_single_project_source_takes_the_highest_version`).
+/// wins whether or not it is a prerelease, as in the solver.
 #[test]
 fn single_project_source_takes_the_highest_version_including_a_prerelease() {
     assert_eq!(
@@ -176,8 +175,8 @@ fn single_project_source_takes_the_highest_version_including_a_prerelease() {
     );
 }
 
-/// Which is what makes cloning a prerelease-only project by location work:
-/// no constraint to fail against.
+/// A prerelease-only project can be cloned by location: there is no
+/// constraint to fail against.
 #[test]
 fn prerelease_only_project_is_picked_from_a_single_project_source() {
     assert_eq!(
@@ -187,7 +186,7 @@ fn prerelease_only_project_is_picked_from_a_single_project_source() {
 }
 
 /// An opaque `urn:kpar:` IRI an index advertises takes the default like any
-/// other index usage — the IRI form says nothing about whether there was a
+/// other index usage; the IRI form says nothing about whether there was a
 /// choice to make.
 #[test]
 fn non_purl_iri_from_a_multi_version_source_ignores_prereleases() {

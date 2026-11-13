@@ -1,23 +1,33 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{ffi::OsStr, fmt::Display, str::FromStr as _};
+// Doc comments on the clap items are the `--help` text, so URLs stay bare.
+#![allow(rustdoc::bare_urls)]
+
+use std::{ffi::OsStr, str::FromStr as _};
 
 use camino::Utf8PathBuf;
-use clap::{ValueEnum, builder::PossibleValue, crate_authors, parser::ValueSource};
+use clap::{crate_authors, parser::ValueSource};
 use fluent_uri::Iri;
 use semver::{Version, VersionReq};
 use sysand_core::{
     build::KparCompressionMethod,
-    commands::{auth::IndexKey, sources::Dependencies as CoreDependencies},
-    index_location::IndexLocation,
-    model::{
-        IndexName, IndexPublisher, KERML_SPEC_PREFIX, KnownMetamodel, LICENSE_EXPRESSION_HELP,
-        MetamodelFamily, MetamodelRelease, ProjectFieldError, ProjectName, ProjectPublisher,
-        SYSML_SPEC_PREFIX, SpecKind,
+    commands::{
+        auth::IndexKey, init::ProjectKind, publish::TrustedPublishingMode, sources::Dependencies,
     },
-    utils::format_err,
+    config::Config,
+    index_location::{IndexLocation, IndexSource},
+    manifest::common::root_path,
+    model::{
+        IndexName, IndexPublisher, LICENSE_EXPRESSION_HELP, MetamodelRelease, ProjectFieldError,
+        ProjectName, ProjectPublisher, SpecKind,
+    },
+    stdlib::known_std_libs,
+    utils::{ProvidedProjects, format_err},
+    workspace::model_toml::Selector,
 };
+
+use typed_path::Utf8UnixPathBuf;
 
 use crate::{env_vars, style::USAGE};
 
@@ -64,6 +74,7 @@ pub struct Args {
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum Command {
     /// Create a new project
+    #[command(visible_alias = "new")]
     Init {
         /// The path to use for the project. Defaults to current directory
         path: Option<Utf8PathBuf>,
@@ -89,30 +100,43 @@ pub enum Command {
             verbatim_doc_comment
         )]
         license: Option<spdx::Expression>,
-        /// Set a SysML v2 or KerML metamodel. Defaults to omitting the
-        /// metamodel field
-        #[arg(long, value_name = "KIND", value_enum, verbatim_doc_comment)]
-        metamodel: Option<MetamodelKind>,
-        /// Choose the release of the SysML v2 or KerML metamodel.
-        /// SysML 2.0 and KerML 1.0 have the same release dates
+        /// What the project is stored as: `model-toml` (a `model.toml`) or
+        /// `project-json` (a `.project.json` and a `.meta.json`)
+        #[arg(
+            long,
+            value_enum,
+            verbatim_doc_comment,
+            default_value_t = ProjectKindCli::ModelToml
+        )]
+        kind: ProjectKindCli,
+        /// The metamodel the project declares: `sysml` or `kerml`, the
+        /// release chosen by `--metamodel-release`, or one of the IRIs
+        /// `https://www.omg.org/spec/KerML/<date>`,
+        /// `https://www.omg.org/spec/SysML/<date>`,
+        /// `https://www.sysand.com/spec/KerML/<date>` or
+        /// `https://www.sysand.com/spec/SysML/<date>`.
+        /// Required, except inside a workspace whose default group
+        /// declares one: there the project inherits it
+        #[arg(long, value_name = "KIND|URL", verbatim_doc_comment)]
+        metamodel: Option<String>,
+        /// Choose the release of the SysML v2 or KerML metamodel given as
+        /// `sysml` or `kerml`. SysML 2.0 and KerML 1.0 have the same
+        /// release dates
         #[arg(
             long,
             value_name = "YYYYMMXX",
             requires = "metamodel",
             value_enum,
             verbatim_doc_comment,
-            default_value = MetamodelVersion::RELEASE
+            default_value_t = MetamodelVersionCli::Release20250201
         )]
-        metamodel_release: MetamodelVersion,
-    },
-    // Only for better error messages
-    #[command(hide = true)]
-    New {
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<String>,
+        metamodel_release: MetamodelVersionCli,
     },
     /// Add usage to project information
     Add {
+        #[command(flatten)]
+        selector: MemberOnlySelector,
+
         #[clap(flatten)]
         locator: AddProjectLocatorArgs,
         /// A constraint on the allowed versions of a used project.
@@ -133,6 +157,9 @@ pub enum Command {
     /// Remove usage from project information
     #[clap(alias = "rm")]
     Remove {
+        #[command(flatten)]
+        selector: MemberOnlySelector,
+
         #[clap(flatten)]
         locator: RemoveProjectLocatorArgs,
 
@@ -171,6 +198,9 @@ pub enum Command {
     /// as the metadata will not be updated automatically
     #[clap(verbatim_doc_comment)]
     Include {
+        #[command(flatten)]
+        selector: MemberOnlySelector,
+
         /// File(s) to include in the project.
         #[arg(num_args = 1..)]
         paths: Vec<Utf8PathBuf>,
@@ -185,6 +215,9 @@ pub enum Command {
     },
     /// Exclude model interchange file from project metadata
     Exclude {
+        #[command(flatten)]
+        selector: MemberOnlySelector,
+
         /// File(s) to exclude from the project
         #[arg(num_args = 1..)]
         paths: Vec<Utf8PathBuf>,
@@ -193,6 +226,8 @@ pub enum Command {
     /// outside of a project, builds all projects in the workspace.
     #[clap(verbatim_doc_comment)]
     Build {
+        #[command(flatten)]
+        selector: MemberSelector,
         /// Path for the finished KPAR or KPARs. When building a
         /// workspace, it is a path to the folder to write the KPARs to
         /// (default: `<current-workspace>/output`). When building a single
@@ -205,9 +240,11 @@ pub enum Command {
         /// Method to compress the files in the KPAR
         #[arg(long, default_value_t, value_enum)]
         compression: KparCompressionMethodCli,
-        /// Allow usages of local paths (`file://`).
-        /// Warning: using this makes the project not portable between different
-        /// computers, as `file://` URL always contains an absolute path.
+        /// Allow usages that name a local path: a `model.toml` `dir` or
+        /// `kpar-path` usage, or a `file://` URL.
+        /// Warning: using this makes the project not portable. A `file://`
+        /// URL always contains an absolute path, and a relative `dir` or
+        /// `kpar-path` only resolves from a checkout laid out as yours is.
         /// For multiple related projects, consider using a workspace instead
         #[arg(long, verbatim_doc_comment)]
         allow_path_usage: bool,
@@ -215,19 +252,46 @@ pub enum Command {
         #[arg(long)]
         keep_index: bool,
     },
+    /// Convert a json project into a `model.toml` one
+    Migrate {
+        /// The project to convert. Defaults to the current directory
+        path: Option<Utf8PathBuf>,
+        /// The publisher to record, when the project declares none
+        #[arg(long)]
+        publisher: Option<String>,
+        /// The metamodel to record, when the project declares none or
+        /// one Sysand does not recognize. A `model.toml` holds one of
+        /// the four recognized values and nothing else
+        #[arg(long, verbatim_doc_comment)]
+        metamodel: Option<String>,
+        /// Migrate even though the working tree has uncommitted changes
+        #[arg(long)]
+        allow_dirty: bool,
+        /// Migrate even though the project is not inside a git work tree
+        #[arg(long)]
+        allow_no_vcs: bool,
+        /// `migrate` resolves `http(s)` and unconstrained `pkg:sysand`
+        /// usages, so the index it reaches is configurable
+        #[command(flatten)]
+        resolution_opts: ResolutionOptions,
+    },
     /// Publish a KPAR to a sysand package index
     Publish {
+        #[command(flatten)]
+        selector: MemberSelector,
         /// Path to the KPAR file to publish. If not provided, will look
         /// for a KPAR in the output directory with the current project's
-        /// name and version
+        /// name and version; from a workspace root, every member's, in
+        /// dependency order
         #[clap(verbatim_doc_comment)]
         path: Option<Utf8PathBuf>,
 
         /// Configured index URL to publish to (e.g. https://sysand.com)
         /// The index must advertise a publish endpoint: its
-        /// sysand-index-config.json must set `api_root`
-        #[arg(long, value_name = "URL", verbatim_doc_comment, value_parser = IndexLocationParser)]
-        index: IndexLocation,
+        /// sysand-index-config.json must set `api_root`. A filesystem
+        /// index takes archives through `sysand index add` instead
+        #[arg(long, value_name = "URL", verbatim_doc_comment)]
+        index: IndexSource,
 
         /// How to use CI trusted publishing for acquiring publish credentials
         #[arg(
@@ -237,7 +301,7 @@ pub enum Command {
             default_value = "auto",
             verbatim_doc_comment
         )]
-        trusted_publishing: TrustedPublishingMode,
+        trusted_publishing: TrustedPublishingModeCli,
     },
     /// Manage stored credentials for package indexes
     Auth {
@@ -266,12 +330,29 @@ pub enum Command {
         /// Don't remove projects that are no longer needed from `.sysand`
         #[arg(long)]
         no_prune: bool,
+        /// Check `.sysand` against the lockfile by reading what is
+        /// installed (not what `env.toml` records) and the lockfile
+        /// against the manifests; report every mismatch, change
+        /// nothing, and exit non-zero if there is one
+        #[arg(long, verbatim_doc_comment)]
+        verify: bool,
+        /// Verify, then reinstall what does not match and remove what
+        /// `env.toml` does not record; a lockfile that no longer matches
+        /// the manifests is reported, not re-solved (run `sysand lock`)
+        #[arg(long, verbatim_doc_comment)]
+        repair: bool,
     },
     /// Describe a local project (either the current one or one at a
     /// given path) or resolve and describe a project at a specified
     /// IRI/URL. Use `sysand edit` to modify a local project
     #[clap(verbatim_doc_comment)]
     Info {
+        // From a workspace root, or with `--workspace`, `info` reads
+        // every member. `--dir`, `--kpar-path`
+        // and `--iri` name their own target, so a selector beside one
+        // is refused.
+        #[command(flatten)]
+        selector: MemberSelector,
         #[clap(flatten)]
         locator: InfoProjectLocatorArgs,
         /// Print only the value of the given field (a list field one entry
@@ -296,6 +377,11 @@ pub enum Command {
         /// project
         #[arg(long, verbatim_doc_comment)]
         dir: Option<Utf8PathBuf>,
+        // `edit` writes, so from a workspace root it needs a member like
+        // `add` and `remove` do; `--dir` names a project directly and is
+        // left alone.
+        #[command(flatten)]
+        selector: MemberOnlySelector,
         #[command(flatten)]
         edits: Box<EditArgs>,
     },
@@ -306,10 +392,23 @@ pub enum Command {
     #[clap(verbatim_doc_comment)]
     Sources {
         #[command(flatten)]
+        selector: MemberSelector,
+        #[command(flatten)]
         sources_opts: SourcesOptions,
     },
+    /// List the versions of a project an index (or another source) offers,
+    /// highest first
+    Versions {
+        /// Project IRI, e.g. `pkg:sysand/<publisher>/<name>`
+        iri: fluent_uri::Iri<String>,
+        #[command(flatten)]
+        resolution_opts: ResolutionOptions,
+    },
     /// Prints the root directory of the current project
-    PrintRoot,
+    PrintRoot {
+        #[command(flatten)]
+        selector: MemberOnlySelector,
+    },
     /// Experimental commands. Likely to change in incompatible ways or be
     /// removed in the future. Currently no experimental commands are included
     #[clap(hide = true, verbatim_doc_comment)]
@@ -374,7 +473,10 @@ pub struct AddProjectLocatorArgs {
     /// for paths.
     /// Where possible, consider using `--dir` or `--kpar-path`. They
     /// explicitly identify the project separately from how it is
-    /// obtained
+    /// obtained.
+    /// Only for projects with `.project.json`: a `model.toml` project
+    /// refuses it. The source options (`--from-path`, `--as-local-src`,
+    /// ...) apply to this usage only
     #[clap(
         long,
         default_value = None,
@@ -392,6 +494,7 @@ pub struct AddProjectLocatorArgs {
     /// between different computers, as `file://` URL always contains an
     /// absolute path. Use `--dir` or `--kpar-path` to record a relative
     /// path instead.
+    /// Only for projects with `.project.json`, like `--iri`.
     /// Currently, this flag is still necessary when the usage is on another
     /// drive (on Windows only) because this flag allows pointing to it, unlike
     /// `--dir`/`--kpar-path`, which currently forbid absolute paths
@@ -423,7 +526,8 @@ pub struct RemoveProjectLocatorArgs {
     )]
     pub identifier: Option<(ProjectPublisher, ProjectName)>,
     /// IRI identifying the project usage to be removed. Use `--iri-path`
-    /// for paths
+    /// for paths. Only for projects with `.project.json`; a `model.toml`
+    /// project refuses it
     #[clap(
         long,
         default_value = None,
@@ -436,7 +540,7 @@ pub struct RemoveProjectLocatorArgs {
     )]
     pub iri: Option<Iri<String>>,
     /// Path to the project to be removed from usages after conversion to a
-    /// `file://` IRI
+    /// `file://` IRI. Only for projects with `.project.json`
     #[arg(
         long,
         default_value = None,
@@ -545,6 +649,17 @@ pub struct EnvProjectLocatorArgs {
     pub iri: Option<Iri<String>>,
 }
 
+/// How a run reports.
+#[derive(clap::ValueEnum, Default, Copy, Clone, Debug, PartialEq, Eq)]
+#[clap(rename_all = "lowercase")]
+pub enum OutputFormat {
+    /// Human-readable text
+    #[default]
+    Text,
+    /// One JSON document on stdout
+    Json,
+}
+
 #[derive(clap::ValueEnum, Default, Copy, Clone, Debug)]
 #[clap(rename_all = "lowercase")]
 pub enum KparCompressionMethodCli {
@@ -584,30 +699,8 @@ impl From<KparCompressionMethodCli> for KparCompressionMethod {
     }
 }
 
-#[derive(clap::ValueEnum, Copy, Clone, Debug, PartialEq, Eq)]
-#[clap(rename_all = "lowercase")]
-pub enum TrustedPublishingMode {
-    /// Use trusted publishing in supported CI environments
-    Auto,
-    /// Require trusted publishing and fail outside supported CI environments
-    Always,
-    /// Disable trusted publishing and require explicitly configured publish credentials
-    #[value(alias = "false")]
-    Never,
-}
-
-impl From<TrustedPublishingMode> for sysand_core::commands::publish::TrustedPublishingMode {
-    fn from(value: TrustedPublishingMode) -> Self {
-        match value {
-            TrustedPublishingMode::Auto => Self::Auto,
-            TrustedPublishingMode::Always => Self::Always,
-            TrustedPublishingMode::Never => Self::Never,
-        }
-    }
-}
-
-// This is implemented mainly so that if KparCompressionMethod gets a new member
-// and KparCompressionMethodCli isn't updated it would give a compilation error
+// Never called: a variant added to core fails to compile here until the
+// CLI offers it.
 impl From<KparCompressionMethod> for KparCompressionMethodCli {
     fn from(value: KparCompressionMethod) -> Self {
         match value {
@@ -621,6 +714,40 @@ impl From<KparCompressionMethod> for KparCompressionMethodCli {
             KparCompressionMethod::Xz => Self::Xz,
             #[cfg(feature = "kpar-ppmd")]
             KparCompressionMethod::Ppmd => Self::Ppmd,
+        }
+    }
+}
+
+#[derive(clap::ValueEnum, Copy, Clone, Debug, PartialEq, Eq)]
+#[clap(rename_all = "lowercase")]
+pub enum TrustedPublishingModeCli {
+    /// Use trusted publishing in supported CI environments
+    Auto,
+    /// Require trusted publishing and fail outside supported CI environments
+    Always,
+    /// Disable trusted publishing and require explicitly configured publish credentials
+    #[value(alias = "false")]
+    Never,
+}
+
+impl From<TrustedPublishingModeCli> for TrustedPublishingMode {
+    fn from(value: TrustedPublishingModeCli) -> Self {
+        match value {
+            TrustedPublishingModeCli::Auto => Self::Auto,
+            TrustedPublishingModeCli::Always => Self::Always,
+            TrustedPublishingModeCli::Never => Self::Never,
+        }
+    }
+}
+
+// Never called: a variant added to core fails to compile here until the
+// CLI offers it.
+impl From<TrustedPublishingMode> for TrustedPublishingModeCli {
+    fn from(value: TrustedPublishingMode) -> Self {
+        match value {
+            TrustedPublishingMode::Auto => Self::Auto,
+            TrustedPublishingMode::Always => Self::Always,
+            TrustedPublishingMode::Never => Self::Never,
         }
     }
 }
@@ -705,6 +832,33 @@ impl clap::builder::TypedValueParser for IndexLocationParser {
         source: ValueSource,
     ) -> Result<Self::Value, clap::Error> {
         parse_index_value(cmd, arg, value, source, IndexLocation::parse)
+    }
+}
+
+/// Parses an [`IndexSource`], see [`parse_index_value`].
+#[derive(Clone, Debug)]
+pub struct IndexSourceParser;
+
+impl clap::builder::TypedValueParser for IndexSourceParser {
+    type Value = IndexSource;
+
+    fn parse_ref(
+        &self,
+        cmd: &clap::Command,
+        arg: Option<&clap::Arg>,
+        value: &OsStr,
+    ) -> Result<Self::Value, clap::Error> {
+        self.parse_ref_(cmd, arg, value, ValueSource::CommandLine)
+    }
+
+    fn parse_ref_(
+        &self,
+        cmd: &clap::Command,
+        arg: Option<&clap::Arg>,
+        value: &OsStr,
+        source: ValueSource,
+    ) -> Result<Self::Value, clap::Error> {
+        parse_index_value(cmd, arg, value, source, IndexSource::parse)
     }
 }
 
@@ -803,6 +957,10 @@ pub enum InfoField {
     IncludesImplied,
     /// Checksums of the project source files, one per line
     Checksum,
+    /// Entry point of a Syside project: one of its sources
+    Root,
+    /// Names a Syside project's KPAR exports, one per line
+    Exports,
 }
 
 /// Edits of a local project. Edits of different fields can be combined;
@@ -891,8 +1049,8 @@ pub struct EditArgs {
         help_heading = "Project information"
     )]
     pub clear_topics: bool,
-    // It would be nicer to have Option<Metamodel> here,
-    // but that would introduce an additional level of
+    // It would be nicer to have one optional group of the kind and the
+    // release here, but that would introduce an additional level of
     // nesting, as clap does not support flatten with Option
     /// Set a SysML v2 or KerML metamodel. To set a custom metamodel, use
     /// `--custom-metamodel`
@@ -903,7 +1061,7 @@ pub struct EditArgs {
         verbatim_doc_comment,
         help_heading = "Project metadata"
     )]
-    pub metamodel: Option<MetamodelKind>,
+    pub metamodel: Option<MetamodelKindCli>,
     /// Choose the release of the SysML v2 or KerML metamodel.
     /// SysML 2.0 and KerML 1.0 have the same release dates
     #[arg(
@@ -912,19 +1070,20 @@ pub struct EditArgs {
         requires = "metamodel",
         value_enum,
         verbatim_doc_comment,
-        default_value = MetamodelVersion::RELEASE,
+        default_value_t = MetamodelVersionCli::Release20250201,
         help_heading = "Project metadata"
     )]
-    pub metamodel_release: MetamodelVersion,
+    pub metamodel_release: MetamodelVersionCli,
     /// Choose a custom release of the SysML v2 or KerML metamodel
     #[arg(
         long,
         value_name = "YYYYMMXX",
         requires = "metamodel",
         conflicts_with = "metamodel_release",
+        value_parser = parse_metamodel_release,
         help_heading = "Project metadata"
     )]
-    pub metamodel_release_custom: Option<u32>,
+    pub metamodel_release_custom: Option<MetamodelRelease>,
     /// Set a custom metamodel. To set a SysML v2 or KerML metamodel, use
     /// `--metamodel`
     #[arg(
@@ -942,6 +1101,20 @@ pub struct EditArgs {
         help_heading = "Project metadata"
     )]
     pub clear_metamodel: bool,
+    /// Set `root`, the Syside metamodel's entry point, to one of the
+    /// project's sources
+    #[arg(
+        long,
+        value_name = "PATH",
+        conflicts_with = "clear_root",
+        value_parser = root_path,
+        verbatim_doc_comment,
+        help_heading = "Project metadata"
+    )]
+    pub root: Option<Utf8UnixPathBuf>,
+    /// Remove `root`
+    #[arg(long, help_heading = "Project metadata")]
+    pub clear_root: bool,
     /// Set whether the project includes derived properties
     #[arg(
         long,
@@ -1077,8 +1250,6 @@ pub enum IndexCommand {
     /// Add a KPAR to a local sysand index
     #[clap(verbatim_doc_comment)]
     Add {
-        // The type is String, not Iri so that a better error can be reported in some cases
-        // for example when the publisher contains a space
         /// IRI identifying the project. Default is `pkg:sysand/<publisher>/<name>`, if
         /// publisher is specified in .project.json. Omitting both publisher and IRI is an error
         #[arg(long, verbatim_doc_comment)]
@@ -1098,8 +1269,6 @@ pub enum IndexCommand {
         /// IRI identifying the project
         #[arg(long)]
         iri: String,
-        // It's String and not semver::Version because it's good to allow yanking a non-semantic
-        // version
         /// Version to yank
         #[arg(long)]
         version: String,
@@ -1127,8 +1296,6 @@ pub enum IndexCommand {
 #[derive(clap::Args, Debug, Clone)]
 #[group(required = true, multiple = false)]
 pub struct IndexRemoveTarget {
-    // It's String and not semver::Version because it's good to allow removing a non-semantic
-    // version
     /// Version to remove
     #[arg(long)]
     pub version: Option<String>,
@@ -1173,10 +1340,10 @@ pub struct ResolutionOptions {
         help_heading = "Resolution options",
         env = env_vars::SYSAND_INDEX,
         value_delimiter = ',',
-        value_parser = IndexLocationParser,
+        value_parser = IndexSourceParser,
         verbatim_doc_comment
     )]
-    pub index: Vec<IndexLocation>,
+    pub index: Vec<IndexSource>,
     /// Comma-delimited list of URLs to use as default index
     /// URLs. Default indexes are tried after other indexes
     /// (default `https://sysand.com`). Accepts URL templates like --index.
@@ -1187,10 +1354,10 @@ pub struct ResolutionOptions {
         help_heading = "Resolution options",
         env = env_vars::SYSAND_DEFAULT_INDEX,
         value_delimiter = ',',
-        value_parser = IndexLocationParser,
+        value_parser = IndexSourceParser,
         verbatim_doc_comment
     )]
-    pub default_index: Vec<IndexLocation>,
+    pub default_index: Vec<IndexSource>,
     /// Do not use any index when resolving project(s) and/or their dependencies
     // TODO: document somewhere which sources are supported:
     // - file:// (sometimes also regular paths)
@@ -1207,6 +1374,89 @@ pub struct ResolutionOptions {
     /// Don't ignore KerML/SysML v2 standard libraries if specified as dependencies
     #[arg(long, global = true, help_heading = "Resolution options")]
     pub include_std: bool,
+}
+
+impl ResolutionOptions {
+    /// The indexes to resolve against, in order, or `None` with
+    /// `--no-index`.
+    pub fn index_urls(&self, config: &Config) -> Option<Vec<IndexSource>> {
+        (!self.no_index).then(|| {
+            config.index_urls(
+                self.index.clone(),
+                vec![crate::default_index_location()],
+                self.default_index.clone(),
+            )
+        })
+    }
+
+    /// The projects a solve treats as already provided: the standard
+    /// libraries unless `--include-std`, then `extra`.
+    pub fn provided_iris(&self, extra: ProvidedProjects) -> ProvidedProjects {
+        let mut provided = if self.include_std {
+            ProvidedProjects::default()
+        } else {
+            known_std_libs()
+        };
+        provided.extend(extra);
+        provided
+    }
+}
+
+/// Which member of a workspace a command acts on.
+///
+/// `build`, `sources`, `info` and `publish` take all members from the
+/// root and that member from a member directory; `--workspace` forces
+/// all members, `--member <path-or-name>` picks one. Outside a
+/// workspace `--workspace` is inert and `--member` is an error.
+#[derive(clap::Args, Debug, Clone, Default)]
+pub struct MemberSelector {
+    /// Act on every member of the workspace, rather than on the member
+    /// the working directory is in
+    #[arg(long, conflicts_with = "member", help_heading = "Workspace selection")]
+    pub workspace: bool,
+    /// Act on one member, named by its `members` entry as written or by
+    /// its project name
+    #[arg(
+        long,
+        value_name = "PATH-OR-NAME",
+        help_heading = "Workspace selection"
+    )]
+    pub member: Option<String>,
+}
+
+impl MemberSelector {
+    pub fn selector(&self) -> Selector<'_> {
+        match (&self.member, self.workspace) {
+            (Some(member), _) => Selector::Member(member),
+            (None, true) => Selector::Workspace,
+            (None, false) => Selector::Current,
+        }
+    }
+}
+
+/// Which member a command that *needs a project* acts on.
+///
+/// `add`, `remove`, `include`, `exclude` and the writing `info` verbs
+/// cannot act on a whole workspace, so they take no `--workspace`, and
+/// from the root with no `--member` they are refused.
+#[derive(clap::Args, Debug, Clone, Default)]
+pub struct MemberOnlySelector {
+    /// Act on one member, named by its `members` entry as written or by
+    /// its project name
+    #[arg(
+        long,
+        value_name = "PATH-OR-NAME",
+        help_heading = "Workspace selection"
+    )]
+    pub member: Option<String>,
+}
+
+impl MemberOnlySelector {
+    pub fn selector(&self) -> Selector<'_> {
+        self.member
+            .as_deref()
+            .map_or(Selector::Current, Selector::Member)
+    }
 }
 
 #[derive(clap::Args, Debug, Clone, Default)]
@@ -1275,7 +1525,7 @@ impl ProjectSourceOptions {
 pub struct SourcesOptions {
     /// Do not include sources for dependencies
     #[arg(long, default_value = "deps")]
-    pub deps: Dependencies,
+    pub deps: DependenciesCli,
     /// Do not include the project's own sources
     #[arg(long)]
     pub no_own: bool,
@@ -1284,7 +1534,7 @@ pub struct SourcesOptions {
 /// Selects which dependency sources a sources enumeration should yield. Whether
 /// the project's own sources are listed is controlled separately.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
-pub enum Dependencies {
+pub enum DependenciesCli {
     /// No dependency sources.
     None,
     /// Dependency sources, excluding SysML v2/KerML standard libraries.
@@ -1295,7 +1545,20 @@ pub enum Dependencies {
     Std,
 }
 
-impl From<Dependencies> for CoreDependencies {
+impl From<DependenciesCli> for Dependencies {
+    fn from(val: DependenciesCli) -> Self {
+        match val {
+            DependenciesCli::None => Self::None,
+            DependenciesCli::Deps => Self::Deps,
+            DependenciesCli::DepsStd => Self::DepsStd,
+            DependenciesCli::Std => Self::Std,
+        }
+    }
+}
+
+// Never called: a variant added to core fails to compile here until the
+// CLI offers it.
+impl From<Dependencies> for DependenciesCli {
     fn from(val: Dependencies) -> Self {
         match val {
             Dependencies::None => Self::None,
@@ -1330,6 +1593,33 @@ pub struct GlobalOptions {
     /// Give path to `sysand.toml` to use for configuration
     #[arg(long, global = true, help_heading = "Global options", env = env_vars::SYSAND_CONFIG_FILE)]
     pub config_file: Option<Utf8PathBuf>,
+    /// Seconds to wait for another process to release the workspace
+    /// (`lock`, `sync`, `add`, `remove` and `env` hold `.sysand/.lock`
+    /// at the workspace root while they write). By default a held lock
+    /// fails at once
+    #[arg(
+        long,
+        global = true,
+        value_name = "SECS",
+        help_heading = "Global options",
+        env = env_vars::SYSAND_LOCK_WAIT,
+        verbatim_doc_comment
+    )]
+    pub lock_wait: Option<u64>,
+    /// Output format: `text` (the default) or `json`, one document on
+    /// stdout carrying `schemaVersion`, `complete`, `skipped` and
+    /// `escapeHatch`; warnings and progress stay on stderr
+    #[arg(
+        long,
+        global = true,
+        value_enum,
+        default_value_t = OutputFormat::Text,
+        value_name = "FORMAT",
+        help_heading = "Global options",
+        env = env_vars::SYSAND_FORMAT,
+        verbatim_doc_comment
+    )]
+    pub format: OutputFormat,
     /// Print help
     #[arg(long, global = true, action = clap::ArgAction::HelpLong, help_heading = "Global options")]
     pub help: Option<bool>,
@@ -1367,121 +1657,75 @@ pub fn parse_spdx_expression(s: &str) -> Result<spdx::Expression, String> {
 // Therefore, we don't provide a default here.
 #[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
 #[clap(rename_all = "lowercase")]
-pub enum MetamodelKind {
+pub enum MetamodelKindCli {
     /// SysML v2 metamodel. Identifier: `https://www.omg.org/spec/SysML/<release>`
     SysML,
     /// KerML metamodel. Identifier: `https://www.omg.org/spec/KerML/<release>`
     KerML,
 }
 
-impl From<&MetamodelKind> for &'static str {
-    fn from(value: &MetamodelKind) -> Self {
-        match value {
-            MetamodelKind::SysML => SYSML_SPEC_PREFIX,
-            MetamodelKind::KerML => KERML_SPEC_PREFIX,
+impl From<MetamodelKindCli> for SpecKind {
+    fn from(kind: MetamodelKindCli) -> Self {
+        match kind {
+            MetamodelKindCli::SysML => Self::SysMl,
+            MetamodelKindCli::KerML => Self::KerMl,
         }
     }
 }
 
-impl From<MetamodelKind> for &'static str {
-    fn from(value: MetamodelKind) -> Self {
-        Self::from(&value)
-    }
-}
-
-impl From<MetamodelKind> for SpecKind {
-    fn from(value: MetamodelKind) -> Self {
-        match value {
-            MetamodelKind::SysML => Self::SysMl,
-            MetamodelKind::KerML => Self::KerMl,
+// Never called: a variant added to core fails to compile here until the
+// CLI offers it.
+impl From<SpecKind> for MetamodelKindCli {
+    fn from(kind: SpecKind) -> Self {
+        match kind {
+            SpecKind::SysMl => Self::SysML,
+            SpecKind::KerMl => Self::KerML,
         }
     }
 }
 
-impl Display for MetamodelKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.into())
-    }
+#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProjectKindCli {
+    /// A directory described by `model.toml`
+    ModelToml,
+    /// A directory described by `.project.json` and `.meta.json`
+    ProjectJson,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Metamodel(pub MetamodelKind, pub MetamodelVersion);
-
-impl From<&Metamodel> for String {
-    fn from(value: &Metamodel) -> Self {
-        let mut s = Self::new();
-        s.push_str(value.0.into());
-        s.push_str(value.1.into());
-        s
-    }
-}
-
-impl Display for Metamodel {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.0.into())?;
-        f.write_str(self.1.into())
-    }
-}
-
-impl From<Metamodel> for sysand_core::model::Metamodel {
-    fn from(value: Metamodel) -> Self {
-        Self::Known(KnownMetamodel {
-            family: MetamodelFamily::Omg,
-            spec: value.0.into(),
-            release: value.1.into(),
-        })
-    }
-}
-
-impl From<Metamodel> for String {
-    fn from(value: Metamodel) -> Self {
-        Self::from(&value)
-    }
-}
-
-#[expect(non_camel_case_types)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MetamodelVersion {
-    Release_20250201 = 20250201,
-}
-
-impl From<&MetamodelVersion> for &'static str {
-    fn from(value: &MetamodelVersion) -> Self {
-        match value {
-            MetamodelVersion::Release_20250201 => MetamodelVersion::RELEASE,
+impl From<ProjectKindCli> for ProjectKind {
+    fn from(kind: ProjectKindCli) -> Self {
+        match kind {
+            ProjectKindCli::ModelToml => Self::ModelToml,
+            ProjectKindCli::ProjectJson => Self::ProjectJson,
         }
     }
 }
 
-impl From<MetamodelVersion> for &'static str {
-    fn from(value: MetamodelVersion) -> Self {
-        Self::from(&value)
-    }
+#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MetamodelVersionCli {
+    /// SysMLv2/KerML Release or Beta4
+    #[value(name = "20250201")]
+    Release20250201,
 }
 
-impl From<MetamodelVersion> for MetamodelRelease {
-    fn from(value: MetamodelVersion) -> Self {
-        match value {
-            MetamodelVersion::Release_20250201 => Self::Release20250201,
+impl From<MetamodelVersionCli> for MetamodelRelease {
+    fn from(version: MetamodelVersionCli) -> Self {
+        match version {
+            MetamodelVersionCli::Release20250201 => Self::Release20250201,
         }
     }
 }
 
-impl MetamodelVersion {
-    pub const RELEASE: &str = "20250201";
-}
+// Never called: a release added to core fails to compile here until the
+// CLI offers it. A release core does not know is handed back.
+impl TryFrom<MetamodelRelease> for MetamodelVersionCli {
+    type Error = MetamodelRelease;
 
-impl ValueEnum for MetamodelVersion {
-    fn value_variants<'a>() -> &'a [Self] {
-        &[Self::Release_20250201]
-    }
-
-    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
-        Some(match self {
-            Self::Release_20250201 => {
-                PossibleValue::new(Self::RELEASE).help("SysMLv2/KerML Release or Beta4")
-            }
-        })
+    fn try_from(release: MetamodelRelease) -> Result<Self, Self::Error> {
+        match release {
+            MetamodelRelease::Release20250201 => Ok(Self::Release20250201),
+            MetamodelRelease::Other(_) => Err(release),
+        }
     }
 }
 
@@ -1515,4 +1759,11 @@ pub fn parse_project_publisher(s: &str) -> Result<ProjectPublisher, ProjectField
 /// Parse a project name
 pub fn parse_project_name(s: &str) -> Result<ProjectName, ProjectFieldError> {
     ProjectName::parse(s.to_owned()).map_err(|(_, e)| e)
+}
+
+/// Parse a metamodel release
+pub fn parse_metamodel_release(s: &str) -> Result<MetamodelRelease, String> {
+    MetamodelRelease::parse(s).ok_or_else(|| {
+        "a release is eight digits `20YYMMNN`, with month `MM` between `01` and `12`".to_owned()
+    })
 }

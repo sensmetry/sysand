@@ -3,6 +3,7 @@
 
 // Resolver for file:// URLs
 
+use crate::paths::{RelativizePathError, relativize_path};
 use std::{
     io::{self, ErrorKind, Read},
     path::PathBuf,
@@ -14,27 +15,91 @@ use thiserror::Error;
 use crate::{
     context::ProjectContext,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsage},
+    manifest::workspace_table::WorkspaceTable,
+    model::{InterchangeProjectUsage, InterchangeProjectUsageRaw},
     project::{
-        self, ProjectFormat, ProjectRead,
+        self, ProjectDefinition, ProjectFormat, ProjectRead,
         local_kpar::{KparInnerPath, LocalKParError, LocalKParProject},
         local_src::{LocalSrcError, LocalSrcProject},
-        utils::{FsIoError, ProjectDeserializationError, RelativizePathError, wrapfs},
+        utils::{FsIoError, ProjectDeserializationError, wrapfs},
     },
     resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead},
     utils::scheme::SCHEME_FILE,
+    workspace::model_toml::PathRegion,
 };
 
 /// Resolver for resolving `file://` URIs.
-#[derive(Debug)]
+///
+/// `Default` is the plain one: no sandbox, no workspace.
+#[derive(Debug, Default)]
 pub struct FileResolver {
     /// This field enables sandboxing the resolved path. If field is not `None`,
     /// the resolved path must be inside at least one of these directories.
     pub sandbox_roots: Option<Vec<Utf8PathBuf>>,
+    /// The workspace a resolved target may be a member of: its root and
+    /// the table its members are read against. A target under the root is
+    /// read as a member. Set by
+    /// [`crate::resolve::ResolveRead::within_workspace`].
+    pub workspace: Option<(Utf8PathBuf, std::sync::Arc<WorkspaceTable>)>,
+}
+
+impl FileResolver {
+    /// The same project, read as a member when it sits inside the workspace
+    /// this resolver was given.
+    fn as_member(&self, project: LocalSrcProject) -> Result<LocalSrcProject, FileResolverError> {
+        let Some((root, table)) = &self.workspace else {
+            return Ok(project);
+        };
+        match crate::workspace::model_toml::region_of(root, table, project.path()) {
+            PathRegion::Member(_) => Ok(project.in_workspace(table.clone())),
+            PathRegion::Excluded | PathRegion::Outside => Ok(project),
+            // A project under the root that is neither a member nor in
+            // `exclude` is an error: it would be recorded in the lockfile
+            // like an excluded project, so nothing downstream could tell
+            // which workspace owned it.
+            PathRegion::Unlisted => Err(FileResolverError::Workspace(
+                crate::workspace::model_toml::DiscoverError::Unlisted {
+                    project: project.path().to_owned(),
+                    root: root.clone(),
+                },
+            )),
+        }
+    }
+
+    /// The same rule for the path a `file:` resource names.
+    ///
+    /// A `file:` resource is two candidates at once (an unpacked directory
+    /// and an archive), and only a directory is a project the rule is
+    /// about. An archive *file* under the root must keep resolving:
+    /// `output/<name>.kpar` is where this workspace's own builds land.
+    fn check_resource_listed(&self, path: &Utf8Path) -> Result<(), FileResolverError> {
+        let Some((root, table)) = &self.workspace else {
+            return Ok(());
+        };
+        if !crate::project::utils::wrapfs::is_dir(path)? {
+            return Ok(());
+        }
+        // `region_of` compares against the canonical root, while a URL's
+        // path is as written (e.g. `/var` for `/private/var` on macOS)
+        let canonical = wrapfs::canonicalize(path)?;
+        match crate::workspace::model_toml::region_of(root, table, &canonical) {
+            PathRegion::Unlisted => Err(FileResolverError::Workspace(
+                crate::workspace::model_toml::DiscoverError::Unlisted {
+                    project: path.to_owned(),
+                    root: root.clone(),
+                },
+            )),
+            PathRegion::Member(_) | PathRegion::Excluded | PathRegion::Outside => Ok(()),
+        }
+    }
 }
 
 #[derive(Error, Debug)]
 pub enum FileResolverError {
+    /// A target that lies under the workspace root without being a
+    /// member. Carries [`crate::workspace::model_toml::DiscoverError`].
+    #[error(transparent)]
+    Workspace(crate::workspace::model_toml::DiscoverError),
     #[error("failed to encode path `{0}` in UTF-8")]
     InvalidPath(PathBuf),
     #[error("IRI `{0}` is not a valid URL")]
@@ -221,6 +286,10 @@ impl From<LocalKParError> for FileResolverProjectError {
                 actual,
             },
             LocalKParError::EmptyKpar { path } => Self::EmptyKpar { path },
+            error @ LocalKParError::Format {
+                path: _,
+                problem: _,
+            } => Self::Other(error.to_string()),
         }
     }
 }
@@ -249,31 +318,22 @@ impl ProjectRead for FileResolverProject {
     }
 
     /// Forwarded for the same reason as [`Self::format`].
-    fn manifest(
+    fn manifest_document(
         &self,
-    ) -> Result<sysand_core::manifest::project::ResolvedProject, project::ManifestError<Self::Error>>
-    {
+    ) -> Result<sysand_core::manifest::edit::DocumentMut, project::ManifestError<Self::Error>> {
         match self {
             Self::LocalSrcProject(project) => project
-                .manifest()
+                .manifest_document()
                 .map_err(|e| e.map_project_read(Into::into)),
             Self::LocalKParProject(project) => project
-                .manifest()
+                .manifest_document()
                 .map_err(|e| e.map_project_read(Into::into)),
         }
     }
 
     type Error = FileResolverProjectError;
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         match self {
             Self::LocalSrcProject(local_src_project) => Ok(local_src_project.get_project()?),
             Self::LocalKParProject(local_kpar_project) => Ok(local_kpar_project.get_project()?),
@@ -306,12 +366,35 @@ impl ProjectRead for FileResolverProject {
         }
     }
 
+    /// A local directory is locked as an editable project, whatever its
+    /// manifest; a KPAR by its path and digest.
     fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         match self {
-            Self::LocalSrcProject(proj) => proj
-                .sources(ctx)
-                .map_err(FileResolverProjectError::LocalSrc),
+            Self::LocalSrcProject(proj) => {
+                let editable = if let Some(nominal) = proj.nominal_path() {
+                    nominal.as_str().into()
+                } else if let Some(root) = ctx.sources_root() {
+                    relativize_path(proj.path(), &root)?.into_string().into()
+                } else {
+                    panic!("a directory without `nominal_path` has no lockfile source");
+                };
+                Ok(vec![Source::Editable { editable }])
+            }
             Self::LocalKParProject(proj) => Ok(proj.sources(ctx)?),
+        }
+    }
+
+    fn version(&self) -> Result<Option<String>, Self::Error> {
+        match self {
+            Self::LocalSrcProject(proj) => Ok(proj.version()?),
+            Self::LocalKParProject(proj) => Ok(proj.version()?),
+        }
+    }
+
+    fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
+        match self {
+            Self::LocalSrcProject(proj) => Ok(proj.usage()?),
+            Self::LocalKParProject(proj) => Ok(proj.usage()?),
         }
     }
 
@@ -340,6 +423,15 @@ impl ProjectRead for FileResolverProject {
 }
 
 impl ResolveRead for FileResolver {
+    fn within_workspace(
+        mut self,
+        root: Utf8PathBuf,
+        table: std::sync::Arc<WorkspaceTable>,
+    ) -> Self {
+        self.workspace = Some((root, table));
+        self
+    }
+
     type Error = FileResolverError;
 
     type ProjectStorage = FileResolverProject;
@@ -356,19 +448,17 @@ impl ResolveRead for FileResolver {
                 // TODO: check that the project version satisfies this
                 version_constraint: _,
             } => match try_file_uri_to_path(url)? {
-                Some(path) => {
-                    let res = self.check_sandbox(path)?;
-                    Ok(res.map(|path| {
-                        vec![
-                            Ok(FileResolverProject::LocalSrcProject(
-                                LocalSrcProject::new_access(path.clone(), None),
-                            )),
-                            Ok(FileResolverProject::LocalKParProject(
-                                LocalKParProject::new_access(path, KparInnerPath::Guess, None),
-                            )),
-                        ]
-                    }))
-                }
+                Some(path) => self.check_sandbox(path)?.try_map(|path| {
+                    self.check_resource_listed(&path)?;
+                    Ok(vec![
+                        Ok(FileResolverProject::LocalSrcProject(
+                            LocalSrcProject::new_access(path.clone(), None),
+                        )),
+                        Ok(FileResolverProject::LocalKParProject(
+                            LocalKParProject::new_access(path, KparInnerPath::Guess, None),
+                        )),
+                    ])
+                }),
                 None => Ok(ResolutionOutcome::UnsupportedUsageType {
                     reason: String::from("resource is not a file URL"),
                 }),
@@ -381,19 +471,18 @@ impl ResolveRead for FileResolver {
                 // TODO: should absolute paths be supported here? Cargo does.
                 if let Some(base) = resolve.base_path() {
                     let res = self.resolve_relative_path(base, dir.as_str())?;
-                    Ok(res.map(|path| {
-                        vec![Ok(FileResolverProject::LocalSrcProject(
-                            // The lock checks that the project is
-                            // `publisher`/`name`, as for every typed usage
-                            LocalSrcProject::new_access(
-                                path,
-                                // Can't use `dir` here, since `FileResolver` is used for env projects,
-                                // and in that case using `dir` would resolve relative to the project
-                                // inside `.sysand`, and the dependency would not be found
-                                None,
-                            ),
-                        ))]
-                    }))
+                    res.try_map(|path| {
+                        // The lock checks that the project is
+                        // `publisher`/`name`, as for every typed usage
+                        let project = self.as_member(LocalSrcProject::new_access(
+                            path,
+                            // Can't use `dir` here, since `FileResolver` is used for env projects,
+                            // and in that case using `dir` would resolve relative to the project
+                            // inside `.sysand`, and the dependency would not be found
+                            None,
+                        ))?;
+                        Ok(vec![Ok(FileResolverProject::LocalSrcProject(project))])
+                    })
                 } else {
                     // TODO: return Err?
                     Ok(ResolutionOutcome::Unresolvable {
@@ -426,7 +515,12 @@ impl ResolveRead for FileResolver {
                     })
                 }
             }
-            InterchangeProjectUsage::Index {
+            InterchangeProjectUsage::RemoteKpar {
+                kpar_url: _,
+                publisher: _,
+                name: _,
+            }
+            | InterchangeProjectUsage::Index {
                 publisher: _,
                 name: _,
                 version_constraint: _,

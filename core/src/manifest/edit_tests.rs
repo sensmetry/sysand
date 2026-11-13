@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use std::assert_matches;
+
 use fluent_uri::Iri;
 use semver::{Version, VersionReq};
 use spdx::Expression;
@@ -8,21 +10,21 @@ use toml_edit::{DocumentMut, Value};
 use typed_path::Utf8UnixPathBuf;
 
 use crate::manifest::common::{
-    InheritFrom, Maintainer, NormalizedIdentity, ResolvedUrls, Sources, SourcesError, StdlibStem,
-    normalized_identity,
+    InheritFrom, Maintainer, NormalizedIdentity, PathError, PathKey, PathProblem, ResolvedUrls,
+    Sources, SourcesError, StdlibStem, normalized_identity,
 };
 use crate::manifest::diagnostics::Position;
 use crate::manifest::edit::{
-    EditError, INHERITABLE_KEYS, ProjectKey, clear_project_key, clear_url_key, exclude_source,
-    include_source, open, push_member, push_usage, remove_usage, render_new, set_inherit_marker,
-    set_project_key, set_url_key, set_usage_version,
+    EditError, ListKey, ProjectKey, clear_project_key, clear_url_key, exclude_source,
+    include_source, open, push_list_entry, push_member, push_usage, remove_list_entry,
+    remove_usage, render_new, set_project_key, set_url_key, set_usage_version,
 };
 use crate::manifest::inherit::{Inherited, MetaProperty};
 use crate::manifest::project::{PROJECT_KEYS, ProjectManifest, ProjectTable, Urls};
 use crate::manifest::usage::{MemberUsage, Usage};
 use crate::manifest::workspace_table::{GroupProperties, MemberPath, WorkspaceTable};
 use crate::manifest::{ModelToml, SUPPORTED_MANIFEST_VERSION};
-use crate::model::{IndexName, IndexPublisher};
+use crate::model::{IndexName, IndexPublisher, KnownMetamodel};
 
 const METAMODEL: &str = "https://www.omg.org/spec/SysML/20250201";
 
@@ -73,7 +75,7 @@ fn with_usages(table: ProjectTable, inline_usages: Vec<MemberUsage>) -> ModelTom
 
 /// Every key of `[project]`, so that the layout of each can be read off
 /// one file. `publisher` normalizes to `omg` and the metamodel is an OMG
-/// one, which is what `stdlib` requires of a project that resolves.
+/// one, as `stdlib` requires.
 fn maximal() -> ModelToml {
     let mut table = ProjectTable::new(publisher("OMG"), name("widgets"), Version::new(1, 0, 0));
     table.sources = Some(sources(&["Base.kerml", "Parts.sysml"]));
@@ -85,12 +87,12 @@ fn maximal() -> ModelToml {
         "widgets".to_owned(),
         "parts".to_owned(),
     ]));
-    table.metamodel = Some(MetaProperty::Provided(METAMODEL.to_owned()));
+    table.metamodel = Some(MetaProperty::Provided(metamodel(METAMODEL)));
     table.maintainers = Some(MetaProperty::Provided(vec![
         Maintainer::parse("Ada Lovelace <ada@example.com>").expect("a valid maintainer"),
     ]));
     table.stdlib = Some(StdlibStem::parse("KerML").expect("a valid stdlib stem"));
-    table.root = true;
+    table.root = Some(toml::Value::from("Base.kerml"));
     table.urls = Some(MetaProperty::Provided(Urls {
         website: Some(MetaProperty::Provided(iri("https://example.com"))),
         documentation: Some(MetaProperty::Provided(iri("https://example.com/docs"))),
@@ -116,12 +118,12 @@ fn maximal() -> ModelToml {
                 kpar_path: "vendor/packed.kpar".into(),
             }),
             MemberUsage::Declared(Usage::RemoteKpar {
-                publisher: publisher("acme"),
+                publisher: Some(publisher("acme")),
                 name: name("remote"),
                 url: iri("https://example.com/remote.kpar"),
             }),
             MemberUsage::Inherited {
-                publisher: publisher("acme"),
+                publisher: Some(publisher("acme")),
                 name: name("common"),
                 from: InheritFrom::DefaultGroup,
                 at: None::<Position>,
@@ -130,7 +132,7 @@ fn maximal() -> ModelToml {
     )
 }
 
-const MAXIMAL: &str = r#"manifest-version = 1
+const MAXIMAL: &str = r#"manifest-version = "1.0"
 
 [project]
 publisher = "OMG"
@@ -146,7 +148,7 @@ topics = ["widgets", "parts"]
 metamodel = "https://www.omg.org/spec/SysML/20250201"
 maintainers = ["Ada Lovelace <ada@example.com>"]
 stdlib = "KerML"
-root = true
+root = "Base.kerml"
 
 [project.urls]
 website = "https://example.com"
@@ -171,7 +173,7 @@ kpar-path = "vendor/packed.kpar"
 [[inline-usages]]
 publisher = "acme"
 name = "remote"
-url = "https://example.com/remote.kpar"
+kpar-url = "https://example.com/remote.kpar"
 
 [[inline-usages]]
 publisher = "acme"
@@ -187,11 +189,10 @@ fn a_generated_project_file_has_the_documented_layout() {
 #[test]
 fn only_the_keys_a_manifest_has_are_written() {
     // A table that has not been given its `sources`: renderable, and not
-    // a manifest that resolves, since the OMG metamodel requires the
-    // key even when the list is empty.
+    // a manifest that resolves.
     assert_eq!(
         render(&project(built())),
-        r#"manifest-version = 1
+        r#"manifest-version = "1.0"
 
 [project]
 publisher = "acme"
@@ -222,10 +223,9 @@ fn urls_is_a_table_after_the_scalar_keys() {
 
     let text = render(&project(table));
 
-    // The failure mode is the inline form `urls = { website = ... }`,
-    // which is what serializing produces: `toml_edit` writes a table's
-    // values before its sub-table headers whatever order they went in,
-    // so no insertion order can put `[project.urls]` in the wrong place.
+    // The failure mode is the inline form `urls = { website = ... }`;
+    // `toml_edit` writes a table's values before its sub-table headers
+    // whatever order they went in.
     assert!(text.contains("\n[project.urls]\nwebsite = \"https://example.com\"\n"));
     assert!(!text.contains("urls = {"));
 }
@@ -240,7 +240,7 @@ fn every_usage_kind_is_written_as_it_is_read() {
     assert!(entries[0].contains("version = \"^1.2\""));
     assert!(entries[1].contains("dir = \"../local\""));
     assert!(entries[2].contains("kpar-path = \"vendor/packed.kpar\""));
-    assert!(entries[3].contains("url = \"https://example.com/remote.kpar\""));
+    assert!(entries[3].contains("kpar-url = \"https://example.com/remote.kpar\""));
     assert!(entries[4].contains("workspace = true"));
     // An index usage carries no kind key at all.
     for absent in ["dir =", "kpar-path =", "url ="] {
@@ -294,12 +294,68 @@ fn an_inherited_url_key_is_dotted_inside_the_urls_table() {
 }
 
 #[test]
-fn root_is_written_when_it_is_set() {
+fn root_is_written_as_the_path_it_holds() {
     let mut table = built();
-    table.root = true;
-    assert!(render(&project(table)).contains("\nroot = true\n"));
+    table.root = Some(toml::Value::from("main.sysml"));
+    assert!(render(&project(table)).contains("\nroot = \"main.sysml\"\n"));
 
     assert!(!render(&project(built())).contains("root"));
+}
+
+/// The `render_new` golden for a Syside project:
+/// every key such a project writes, byte for byte, and the text reads
+/// back and resolves to what was rendered.
+#[test]
+fn a_syside_manifest_renders_and_reads_back() {
+    let mut table = built();
+    table.metamodel = Some(MetaProperty::Provided(metamodel(
+        "https://www.sysand.com/spec/SysML/20250201",
+    )));
+    table.root = Some(toml::Value::from("main.sysml"));
+    let text = render(&project(table));
+    assert_eq!(
+        text,
+        format!(
+            "manifest-version = \"{SUPPORTED_MANIFEST_VERSION}\"\n\n[project]\n\
+             publisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\n\
+             metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\n\
+             root = \"main.sysml\"\n"
+        )
+    );
+
+    let read = ModelToml::parse("model.toml", &text)
+        .expect("what was rendered reads")
+        .into_parts()
+        .0
+        .into_project("model.toml")
+        .expect("a project")
+        .resolve(None)
+        .expect("and resolves")
+        .into_parts()
+        .0;
+    assert_eq!(read.root().map(|root| root.as_str()), Some("main.sysml"));
+}
+
+/// A `root` that was read is written back exactly as it was written,
+/// whatever it was.
+#[test]
+fn a_read_root_survives_a_rewrite_as_written() {
+    for written in ["root = \"main.sysml\"", "root = true"] {
+        let text = format!(
+            "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
+             version = \"1.0.0\"\nsources = []\n\
+             metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n{written}\n"
+        );
+        let model = ModelToml::parse("model.toml", &text)
+            .expect("the fixture reads")
+            .into_parts()
+            .0;
+        assert!(
+            render(&model).contains(&format!("\n{written}\n")),
+            "{written}: {}",
+            render(&model)
+        );
+    }
 }
 
 #[test]
@@ -310,7 +366,7 @@ fn a_generated_file_carries_no_comments() {
 #[test]
 fn a_generated_file_states_the_supported_manifest_version() {
     assert!(render(&maximal()).starts_with(&format!(
-        "manifest-version = {SUPPORTED_MANIFEST_VERSION}\n"
+        "manifest-version = \"{SUPPORTED_MANIFEST_VERSION}\"\n"
     )));
 }
 
@@ -344,9 +400,8 @@ fn a_generated_project_file_parses_back_into_itself() {
     let read = read_back(&text);
     let table = &read.project;
 
-    // Every key of `PROJECT_KEYS`, read back off the reparsed manifest:
-    // the fixed point below cannot see a key the renderer drops, since a
-    // dropped key is absent from both sides of it.
+    // Every key of `PROJECT_KEYS`, read back off the reparsed manifest: a
+    // dropped key is absent from both sides of the fixed point below.
     assert_eq!(
         table.publisher.provided().map(IndexPublisher::as_str),
         Some("OMG")
@@ -371,12 +426,8 @@ fn a_generated_project_file_parses_back_into_itself() {
         Some(&vec!["widgets".to_owned(), "parts".to_owned()])
     );
     assert_eq!(
-        table
-            .metamodel
-            .as_ref()
-            .and_then(MetaProperty::provided)
-            .map(String::as_str),
-        Some(METAMODEL)
+        table.metamodel.as_ref().and_then(MetaProperty::provided),
+        Some(&metamodel(METAMODEL))
     );
     assert_eq!(
         table
@@ -390,7 +441,7 @@ fn a_generated_project_file_parses_back_into_itself() {
         table.stdlib.as_ref().map(ToString::to_string),
         Some("KerML".to_owned())
     );
-    assert!(table.root);
+    assert_eq!(table.root, Some(toml::Value::from("Base.kerml")));
     assert!(
         table
             .urls
@@ -409,7 +460,8 @@ const KERML: &str = "https://www.omg.org/spec/KerML/20250201";
 fn member(raw: &str) -> MemberPath {
     MemberPath {
         raw: raw.to_owned(),
-        path: crate::utils::normalize_relative(raw).expect("a valid member path"),
+        path: crate::paths::normalize_relative(raw).expect("a valid member path"),
+        at: None,
     }
 }
 
@@ -428,7 +480,7 @@ fn workspace() -> ModelToml {
         version: Some(Version::new(1, 0, 0)),
         license: Some(Expression::parse("MIT").expect("a valid SPDX expression")),
         topics: Some(vec!["widgets".to_owned()]),
-        metamodel: Some(METAMODEL.to_owned()),
+        metamodel: Some(metamodel(METAMODEL)),
         maintainers: Some(vec![
             Maintainer::parse("Ada Lovelace <ada@example.com>").expect("a valid maintainer"),
         ]),
@@ -439,7 +491,7 @@ fn workspace() -> ModelToml {
         inline_usages: vec![index_usage("dep", "^1.2")],
     };
     let kerml = GroupProperties {
-        metamodel: Some(KERML.to_owned()),
+        metamodel: Some(metamodel(KERML)),
         inline_usages: vec![index_usage("other", "^2")],
         ..GroupProperties::default()
     };
@@ -452,7 +504,7 @@ fn workspace() -> ModelToml {
     }))
 }
 
-const WORKSPACE: &str = r#"manifest-version = 1
+const WORKSPACE: &str = r#"manifest-version = "1.0"
 
 [workspace]
 members = ["app", "lib"]
@@ -483,11 +535,8 @@ version = "^2"
 
 #[test]
 fn a_generated_workspace_file_has_the_documented_layout() {
-    // model-toml.md fixes the project layout in detail and says of this
-    // one only that a workspace file "has `manifest-version` and then
-    // `[workspace]`". The order below is Sysand's own: the membership
-    // lists, then the default group's keys in the order the reader
-    // recognizes them.
+    // The membership lists, then the default group's keys in the order
+    // the reader recognizes them.
     assert_eq!(render(&workspace()), WORKSPACE);
 }
 
@@ -548,14 +597,13 @@ fn a_generated_workspace_file_parses_back_into_itself() {
 }
 
 // ---------------------------------------------------------------------
-// In-place editing. model-toml.md "Editing the manifest": every command
-// that writes a `model.toml` "edits the existing document in place,
-// preserving comments, key order and formatting; comments are the
-// reason a TOML manifest exists, so no writer may drop them."
+// In-place editing. Every command that writes an existing `model.toml`
+// edits the document in place, preserving comments, key order and
+// formatting.
 // ---------------------------------------------------------------------
 
 /// A manifest with a comment in every place a comment can be.
-const COMMENTED: &str = r#"manifest-version = 1
+const COMMENTED: &str = r#"manifest-version = "1.0"
 
 # what this project is
 [project]
@@ -591,7 +639,7 @@ fn opened(text: &str) -> DocumentMut {
 
 #[test]
 fn a_file_that_is_not_toml_is_refused_the_way_reading_refuses_it() {
-    let broken = "manifest-version = 1\n[project\n";
+    let broken = "manifest-version = \"1.0\"\n[project\n";
 
     let editing = open("model.toml", broken).expect_err("not valid TOML");
     let reading = ModelToml::parse("model.toml", broken).expect_err("not valid TOML");
@@ -626,9 +674,8 @@ fn setting_a_key_changes_one_line_and_nothing_else() {
     // order and whitespace of every line it does not touch.
     set_project_key(&mut doc, ProjectKey::Publisher, Value::from("other")).expect("settable");
 
-    // "comments, key order and formatting" is a property of the file,
-    // not of one line: every other byte is unchanged. `replacen`
-    // because the usage entry names a publisher too.
+    // Every other byte is unchanged. `replacen` because the usage entry
+    // names a publisher too.
     assert_eq!(
         doc.to_string(),
         COMMENTED.replacen("publisher = \"acme\"", "publisher = \"other\"", 1)
@@ -648,7 +695,7 @@ fn setting_a_key_that_is_not_there_appends_it_inside_the_table() {
 
 #[test]
 fn an_edit_keeps_keys_in_the_order_the_file_wrote_them() {
-    let scrambled = "manifest-version = 1\n\n[project]\nversion = \"1.0.0\"\nname = \"widgets\"\npublisher = \"acme\"\n";
+    let scrambled = "manifest-version = \"1.0\"\n\n[project]\nversion = \"1.0.0\"\nname = \"widgets\"\npublisher = \"acme\"\n";
     let mut doc = opened(scrambled);
     set_project_key(&mut doc, ProjectKey::Name, Value::from("gadgets")).expect("settable");
 
@@ -668,6 +715,19 @@ fn setting_a_key_twice_is_the_same_as_setting_it_once() {
     set_project_key(&mut twice, ProjectKey::Publisher, Value::from("other")).expect("settable");
 
     assert_eq!(twice.to_string(), once.to_string());
+}
+
+/// `root` is author-written, so it is settable like `version`.
+#[test]
+fn root_can_be_set_and_cleared_like_version() {
+    let mut doc = open_commented();
+
+    set_project_key(&mut doc, ProjectKey::Root, Value::from("main.sysml"))
+        .expect("`root` is settable");
+    assert!(doc.to_string().contains("root = \"main.sysml\""));
+    assert_eq!(clear_project_key(&mut doc, ProjectKey::Root), Ok(true));
+    assert_eq!(clear_project_key(&mut doc, ProjectKey::Root), Ok(false));
+    assert!(!doc.to_string().contains("root"));
 }
 
 #[test]
@@ -704,7 +764,7 @@ fn a_url_key_is_set_inside_a_project_urls_table() {
 #[test]
 fn a_url_key_is_set_inside_an_inline_urls_table() {
     // `urls` may be an inline or a standard table; users write both.
-    let inline = "manifest-version = 1\n\n[project]\nname = \"w\"\nurls = { website = \"https://a\" }  # links\n";
+    let inline = "manifest-version = \"1.0\"\n\n[project]\nname = \"w\"\nurls = { website = \"https://a\" }  # links\n";
     let mut doc = opened(inline);
     set_url_key(&mut doc, "documentation", "https://d").expect("a url key");
 
@@ -716,7 +776,7 @@ fn a_url_key_is_set_inside_an_inline_urls_table() {
 
 #[test]
 fn a_url_key_is_set_beside_a_dotted_urls_key() {
-    let dotted = "manifest-version = 1\n\n[project]\nname = \"w\"\nurls.website = \"https://a\"  # the site\n";
+    let dotted = "manifest-version = \"1.0\"\n\n[project]\nname = \"w\"\nurls.website = \"https://a\"  # the site\n";
     let mut doc = opened(dotted);
     set_url_key(&mut doc, "repository", "https://r").expect("a url key");
 
@@ -727,7 +787,7 @@ fn a_url_key_is_set_beside_a_dotted_urls_key() {
 
 #[test]
 fn setting_a_url_key_creates_a_header_table_not_an_inline_one() {
-    let bare = "manifest-version = 1\n\n[project]\nname = \"w\"\n";
+    let bare = "manifest-version = \"1.0\"\n\n[project]\nname = \"w\"\n";
     let mut doc = opened(bare);
     set_url_key(&mut doc, "website", "https://a").expect("a url key");
 
@@ -749,82 +809,20 @@ fn clearing_the_last_url_key_leaves_the_container() {
 }
 
 #[test]
-fn a_marker_replaces_a_value_and_keeps_both_its_comments() {
-    let commented = "manifest-version = 1\n\n[project]\n# which version\nversion = \"1.0.0\"  # pinned\nname = \"w\"\n";
-    let mut doc = opened(commented);
-    set_inherit_marker(&mut doc, "version", &InheritFrom::DefaultGroup).expect("inheritable");
-
-    assert_eq!(
-        doc.to_string(),
-        "manifest-version = 1\n\n[project]\n# which version\nversion.workspace = true  # pinned\nname = \"w\"\n"
-    );
-}
-
-#[test]
 fn a_value_replaces_a_marker_and_keeps_both_its_comments() {
-    let inherited = "manifest-version = 1\n\n[project]\n# which version\nversion.workspace = true  # inherited\nname = \"w\"\n";
+    let inherited = "manifest-version = \"1.0\"\n\n[project]\n# which version\nversion.workspace = true  # inherited\nname = \"w\"\n";
     let mut doc = opened(inherited);
     set_project_key(&mut doc, ProjectKey::Version, Value::from("2.0.0")).expect("settable");
 
     assert_eq!(
         doc.to_string(),
-        "manifest-version = 1\n\n[project]\n# which version\nversion = \"2.0.0\"  # inherited\nname = \"w\"\n"
-    );
-}
-
-#[test]
-fn inheriting_a_whole_urls_table_loses_the_comments_inside_it() {
-    // Inherent: the table those comments annotate no longer exists.
-    let mut doc = open_commented();
-    set_inherit_marker(&mut doc, "urls", &InheritFrom::DefaultGroup).expect("inheritable");
-
-    let text = doc.to_string();
-    assert!(text.contains("urls.workspace = true"));
-    assert!(!text.contains("[project.urls]"));
-    assert!(!text.contains("# the site"));
-}
-
-#[test]
-fn the_inheritable_keys_are_the_ones_the_reader_accepts_a_marker_for() {
-    // `edit.rs` has to name the inheritable keys, and `project.rs`
-    // decides them one `inheritable(..)` call at a time. This is what
-    // keeps the two from drifting.
-    for key in PROJECT_KEYS {
-        // The marker takes the place of the key's own value: writing
-        // both is a duplicate key, which is a different refusal.
-        let required: String = [
-            ("publisher", "publisher = \"acme\"\n"),
-            ("name", "name = \"widgets\"\n"),
-            ("version", "version = \"1.0.0\"\n"),
-            ("sources", "sources = []\n"),
-        ]
-        .into_iter()
-        .filter(|(name, _)| name != key)
-        .map(|(_, line)| line)
-        .collect();
-        let text = format!("manifest-version = 1\n\n[project]\n{required}{key}.workspace = true\n");
-        let accepted = ModelToml::parse("model.toml", &text).is_ok();
-        assert_eq!(
-            accepted,
-            INHERITABLE_KEYS.contains(key),
-            "`{key}`: the reader and `INHERITABLE_KEYS` disagree"
-        );
-    }
-}
-
-#[test]
-fn a_key_that_cannot_be_inherited_is_refused_a_marker() {
-    let mut doc = open_commented();
-
-    assert_eq!(
-        set_inherit_marker(&mut doc, "name", &InheritFrom::DefaultGroup),
-        Err(EditError::NotInheritable("name".to_owned()))
+        "manifest-version = \"1.0\"\n\n[project]\n# which version\nversion = \"2.0.0\"  # inherited\nname = \"w\"\n"
     );
 }
 
 #[test]
 fn editing_a_workspace_file_as_a_project_is_refused() {
-    let workspace = "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\n";
+    let workspace = "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"app\"]\n";
     let mut doc = opened(workspace);
 
     assert_eq!(
@@ -848,7 +846,7 @@ fn sources_of(doc: &DocumentMut) -> String {
 /// test, so that an edited one can be read back.
 fn with_sources(array: &str) -> String {
     format!(
-        "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = {array}\n"
+        "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = {array}\n"
     )
 }
 
@@ -864,8 +862,11 @@ fn including_a_path_appends_it_to_sources() {
     );
 }
 
+/// The commands that write `sources` write the strict form, converting
+/// into it what they are given. Reading does not normalize; writing
+/// converts.
 #[test]
-fn including_normalizes_the_path_as_reading_does() {
+fn including_converts_what_it_is_given() {
     let mut doc = opened(&with_sources("[]"));
     let added = include_source(&mut doc, "./src/../Parts.sysml").expect("a new source");
 
@@ -879,13 +880,7 @@ fn including_a_path_that_is_already_listed_is_refused() {
 
     // Normalized, so `./Base.kerml` is the same entry.
     let error = include_source(&mut doc, "./Base.kerml").expect_err("a duplicate");
-    assert!(matches!(
-        error,
-        EditError::Sources(SourcesError::Duplicate {
-            first: _,
-            second: _
-        })
-    ));
+    assert_matches!(error, EditError::Sources(SourcesError::Duplicate(_)));
 }
 
 #[test]
@@ -986,7 +981,7 @@ fn excluding_removes_the_entry_and_the_comment_on_its_line() {
 fn excluding_keeps_the_comment_that_belongs_to_the_previous_entry() {
     // A TOML comment binds forward: `# first` is written on Base's line
     // but stored at the front of Parts's prefix. Removing Parts must
-    // not take it -- it describes a file that is still listed.
+    // not take it: it describes a file that is still listed.
     let mut doc = opened(&with_sources(
         "[\n    \"Base.kerml\",  # first\n    \"Parts.sysml\",\n]",
     ));
@@ -1069,7 +1064,7 @@ fn excluding_a_path_that_is_not_listed_is_refused() {
 
 #[test]
 fn including_and_excluding_a_manifest_with_no_sources_is_refused() {
-    let bare = "manifest-version = 1\n\n[project]\nname = \"widgets\"\n";
+    let bare = "manifest-version = \"1.0\"\n\n[project]\nname = \"widgets\"\n";
 
     assert_eq!(
         include_source(&mut opened(bare), "Base.kerml"),
@@ -1084,14 +1079,13 @@ fn including_and_excluding_a_manifest_with_no_sources_is_refused() {
 #[test]
 fn including_into_a_sources_that_is_already_invalid_says_which_entry() {
     // `Sources::new` judges the whole array, so an entry the user did
-    // not touch is what the message names. One reading of the rule,
-    // not two.
+    // not touch is what the message names.
     let mut doc = opened(&with_sources("[\"README.md\"]"));
 
     let error = include_source(&mut doc, "Base.kerml").expect_err("the array is invalid");
     assert_eq!(
         error,
-        EditError::Sources(SourcesError::NotModelFile("README.md".to_owned()))
+        EditError::Sources(SourcesError::path(PathProblem::NotModelFile, "README.md"))
     );
 }
 
@@ -1105,7 +1099,7 @@ fn declared(project: &str, constraint: &str) -> MemberUsage {
     MemberUsage::Declared(index_usage(project, constraint))
 }
 
-const WITH_USAGES: &str = r#"manifest-version = 1
+const WITH_USAGES: &str = r#"manifest-version = "1.0"
 
 [project]
 publisher = "acme"
@@ -1168,7 +1162,7 @@ fn pushing_a_usage_that_is_already_declared_is_refused() {
 fn an_entry_too_broken_to_name_a_project_is_not_matched() {
     // The broken entry comes *first*, so an implementation that matched
     // it would remove the wrong one.
-    let broken = "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n\n[[inline-usages]]\npublisher = \"acme\"\nname = 3\n\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\nversion = \"^1\"\n";
+    let broken = "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n\n[[inline-usages]]\npublisher = \"acme\"\nname = 3\n\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\nversion = \"^1\"\n";
     let mut doc = opened(broken);
 
     // The entry yields no identity, so it is neither matched nor in the
@@ -1182,8 +1176,7 @@ fn an_entry_too_broken_to_name_a_project_is_not_matched() {
 
 #[test]
 fn a_usage_is_matched_by_its_normalized_identity() {
-    // model-toml.md "Normalization": a usage is addressed by the
-    // normalized pair, whatever spelling the entry uses.
+    // A usage is addressed by the normalized pair, whatever spelling the entry uses.
     let shouted = WITH_USAGES.replace("name = \"dep\"", "name = \"DEP\"");
     let mut doc = opened(&shouted);
 
@@ -1272,20 +1265,20 @@ fn setting_the_version_of_an_inherited_usage_is_refused() {
 #[test]
 fn pushing_a_member_appends_it_to_members_normalized() {
     let workspace =
-        "manifest-version = 1\n\n[workspace]\nmembers = [\n    \"app\",  # the app\n]\n";
+        "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\n    \"app\",  # the app\n]\n";
     let mut doc = opened(workspace);
     push_member(&mut doc, "./lib").expect("a new member");
 
     // Normalized: a manifest admits a `members` entry in that form only.
     assert_eq!(
         doc.to_string(),
-        "manifest-version = 1\n\n[workspace]\nmembers = [\n    \"app\",  # the app\n    \"lib\",\n]\n"
+        "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\n    \"app\",  # the app\n    \"lib\",\n]\n"
     );
 }
 
 #[test]
 fn pushing_a_member_that_is_already_listed_is_refused() {
-    let workspace = "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\n";
+    let workspace = "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"app\"]\n";
     let mut doc = opened(workspace);
 
     // Normalized: `./app` is the same directory as `app`.
@@ -1304,9 +1297,234 @@ fn pushing_a_member_to_a_project_file_is_refused() {
 
 #[test]
 fn a_workspace_with_no_members_yet_gains_the_array() {
-    let workspace = "manifest-version = 1\n\n[workspace]\n";
+    let workspace = "manifest-version = \"1.0\"\n\n[workspace]\n";
     let mut doc = opened(workspace);
     push_member(&mut doc, "app").expect("a new member");
 
     assert!(doc.to_string().contains("members = [\"app\"]"));
+}
+
+// --- list-valued `[project]` keys -------------------------------------
+
+const WITH_LIST: &str = "manifest-version = \"1.0\"\n\n\
+                         [project]\n\
+                         publisher = \"acme\"\n\
+                         name = \"widgets\"\n\
+                         version = \"1.0.0\"\n\
+                         sources = []\n\
+                         # who to blame\n\
+                         maintainers = [\n    \"Ada <ada@example.com>\",  # the first\n    \"Bob <bob@example.com>\",\n]\n";
+
+#[test]
+fn appending_to_a_list_key_keeps_the_comments_in_it() {
+    let mut doc = opened(WITH_LIST);
+    push_list_entry(&mut doc, ListKey::Maintainers, "Cy <cy@example.com>").expect("a list key");
+
+    let text = doc.to_string();
+    assert!(text.contains("# who to blame"));
+    assert!(text.contains("\"Ada <ada@example.com>\",  # the first\n"));
+    assert!(text.contains("    \"Cy <cy@example.com>\",\n"));
+}
+
+#[test]
+fn removing_from_a_list_key_keeps_a_neighbours_comment() {
+    let mut doc = opened(WITH_LIST);
+    remove_list_entry(&mut doc, ListKey::Maintainers, 1).expect("a list key");
+
+    // `# the first` is written on Ada's line and stored at the front of
+    // Bob's prefix; removing Bob must not take it.
+    assert!(
+        doc.to_string()
+            .contains("\"Ada <ada@example.com>\",  # the first\n")
+    );
+}
+
+#[test]
+fn removing_an_index_that_is_not_there_is_refused() {
+    let mut doc = opened(WITH_LIST);
+
+    let error = remove_list_entry(&mut doc, ListKey::Maintainers, 7).expect_err("out of range");
+    assert_eq!(
+        error,
+        EditError::NoSuchEntry {
+            key: "maintainers".to_owned(),
+            index: 7,
+            len: 2,
+        }
+    );
+}
+
+#[test]
+fn a_list_key_that_is_not_there_is_created() {
+    let mut doc = opened(&with_sources("[]"));
+    push_list_entry(&mut doc, ListKey::Topics, "widgets").expect("a list key");
+
+    assert!(doc.to_string().contains("topics = [\"widgets\"]"));
+}
+
+/// No conversion brings a path outside the project into `sources`, and
+/// the message is in `sources`' words.
+#[test]
+fn including_a_path_outside_the_project_is_refused() {
+    let mut doc = opened(&with_sources("[]"));
+    let error = include_source(&mut doc, "../Parts.sysml").expect_err("outside the project");
+    assert_matches!(&error, EditError::SourceOutsideProject(path) if path == "../Parts.sysml", "unexpected error: {error}");
+    assert!(sources_of(&doc).contains("[]"), "nothing was written");
+}
+
+/// `exclude` converts its argument the same way `include` does, so two
+/// spellings of one entry meet.
+#[test]
+fn excluding_converts_what_it_is_given() {
+    let mut doc = opened(&with_sources("[\n    \"src/Parts.sysml\",\n]"));
+    let removed = exclude_source(&mut doc, "./src/Parts.sysml").expect("the entry is listed");
+    assert_eq!(removed, Utf8UnixPathBuf::from("src/Parts.sysml"));
+    assert!(!sources_of(&doc).contains("Parts.sysml"));
+}
+
+/// And a non-model argument still says what is wrong with it.
+#[test]
+fn excluding_a_file_that_is_no_source_says_so() {
+    let mut doc = opened(&with_sources("[]"));
+    let error = exclude_source(&mut doc, "README.md").expect_err("not a model file");
+    assert_matches!(&error,
+    EditError::Sources(SourcesError::Path(PathError {
+        key: PathKey::Sources,
+        path,
+        problem: PathProblem::NotModelFile,
+    })) if path == "README.md", "unexpected error: {error}");
+}
+
+// ------------------- the standard-library entry
+
+const STD_IRI: &str = "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar";
+
+fn stdlib_usage() -> MemberUsage {
+    MemberUsage::Declared(Usage::RemoteKpar {
+        publisher: None,
+        // The name the KPAR declares.
+        name: name("Kernel Semantic Library"),
+        url: iri(STD_IRI),
+    })
+}
+
+/// A standard-library usage declares no `publisher`, so the entry the
+/// editors write has no `publisher` key and still reads back as a
+/// manifest.
+#[test]
+fn a_stdlib_usage_is_written_without_a_publisher_key() {
+    let mut doc = opened(&with_sources("[]"));
+    push_usage(&mut doc, &stdlib_usage()).expect("a new usage");
+
+    let text = doc.to_string();
+    assert!(
+        text.contains(&format!(
+            "[[inline-usages]]\nname = \"Kernel Semantic Library\"\n\
+             kpar-url = \"{STD_IRI}\"\n"
+        )),
+        "{text}"
+    );
+    assert!(!text.contains("publisher = \"omg\""), "{text}");
+    ModelToml::parse("model.toml", &text).expect("still a manifest");
+}
+
+/// Such a usage has the identity `(omg, <name>)`, which is how the
+/// editors reach it.
+#[test]
+fn a_stdlib_usage_is_reached_by_its_omg_identity() {
+    let mut doc = opened(&with_sources("[]"));
+    push_usage(&mut doc, &stdlib_usage()).expect("a new usage");
+
+    remove_usage(&mut doc, &identity("omg", "Kernel Semantic Library"))
+        .expect("the entry is there");
+    assert!(!doc.to_string().contains("inline-usages"), "{doc}");
+}
+
+/// And how the duplicate guard sees it: a second entry for the same
+/// library is refused.
+#[test]
+fn a_second_stdlib_usage_for_the_same_library_is_refused() {
+    let mut doc = opened(&with_sources("[]"));
+    push_usage(&mut doc, &stdlib_usage()).expect("a new usage");
+
+    assert_eq!(
+        push_usage(&mut doc, &stdlib_usage()),
+        Err(EditError::DuplicateUsage(identity(
+            "omg",
+            "Kernel Semantic Library"
+        )))
+    );
+    // And by the spelling `sysand add omg/Semantic-Library` would give.
+    assert_eq!(
+        push_usage(
+            &mut doc,
+            &MemberUsage::Declared(Usage::Index {
+                publisher: publisher("OMG"),
+                name: name("kernel semantic library"),
+                version_constraint: VersionReq::parse("^1").expect("a constraint"),
+            })
+        ),
+        Err(EditError::DuplicateUsage(identity(
+            "omg",
+            "Kernel Semantic Library"
+        )))
+    );
+}
+
+/// A publisher-less entry whose `kpar-url` is *not* a standard-library
+/// IRI declares no project the editors can name: it is not a valid usage
+/// either, and a manifest never holds one.
+#[test]
+fn a_publisher_less_entry_elsewhere_is_not_matched() {
+    let mut doc = opened(&format!(
+        "{}\n[[inline-usages]]\nname = \"lib\"\nkpar-url = \"https://example.com/lib.kpar\"\n",
+        with_sources("[]")
+    ));
+    assert_eq!(
+        remove_usage(&mut doc, &identity("omg", "lib")),
+        Err(EditError::UsageNotFound(identity("omg", "lib")))
+    );
+}
+
+/// An opt-in to a standard-library group entry declares no publisher
+/// either, and resolves under `omg` like the entry it names, so the
+/// editors reach it by `(omg, <name>)`.
+#[test]
+fn a_stdlib_opt_in_is_reached_by_its_omg_identity() {
+    let text = format!(
+        "{}\n[[inline-usages]]\nname = \"Kernel Semantic Library\"\nworkspace = true\n",
+        with_sources("[]")
+    );
+    let mut doc = opened(&text);
+
+    assert_eq!(
+        push_usage(&mut doc, &stdlib_usage()),
+        Err(EditError::DuplicateUsage(identity(
+            "omg",
+            "Kernel Semantic Library"
+        )))
+    );
+    remove_usage(&mut doc, &identity("omg", "kernel semantic library"))
+        .expect("the opt-in is there");
+    assert!(!doc.to_string().contains("workspace = true"), "{doc}");
+}
+
+/// An opt-in whose marker is invalid still declares that project, and
+/// is still in the way of a second entry for it: the marker's value is
+/// the reader's problem, not the editor's.
+#[test]
+fn an_opt_in_with_a_broken_marker_still_holds_its_place() {
+    let text = format!(
+        "{}\n[[inline-usages]]\nname = \"Kernel Semantic Library\"\nworkspace = 3\n",
+        with_sources("[]")
+    );
+    let mut doc = opened(&text);
+    assert_matches!(
+        push_usage(&mut doc, &stdlib_usage()),
+        Err(EditError::DuplicateUsage(_))
+    );
+}
+
+fn metamodel(value: &str) -> KnownMetamodel {
+    KnownMetamodel::recognize(value).expect("one of the four")
 }

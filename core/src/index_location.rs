@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 //! User-configurable index locations: either a plain base URL that relative
-//! index paths are appended to (the historical behavior), or a URL template
+//! index paths are appended to, or a URL template
 //! containing a `{path}` placeholder that the relative index path is
 //! substituted into, percent-encoded as a single path segment. Templates
 //! make it possible to reach indexes served through file-access APIs whose
@@ -13,21 +13,20 @@
 //! treated when the relative index path (for example
 //! `some-publisher/some-project/1.0.0/project.kpar`) is substituted:
 //!
-//! - `{path}` — every byte outside RFC 3986 *unreserved* is
+//! - `{path}`: every byte outside RFC 3986 *unreserved* is
 //!   percent-encoded, including `/` as `%2F`. This is what the GitLab
 //!   repository files API expects.
-//! - `{path_raw}` — `/` stays literal; each path segment is
+//! - `{path_raw}`: `/` stays literal; each path segment is
 //!   percent-encoded individually. For hosts that take the file path as
 //!   ordinary URL path segments but need a suffix after it (for example
 //!   Gitea's `.../raw/<path>?ref=<branch>`).
 //!
-//! The syntax is a deliberately restricted subset of [RFC 6570] URI
-//! Templates: `{path}` behaves like RFC 6570 simple string expansion of
-//! a single value and `{path_raw}` like reserved expansion (`{+path}`),
-//! but only these two fixed names are accepted so that typos fail at
-//! parse time instead of producing wrong URLs. Fixed custom markers in a
-//! package-index template follow crates.io's `config.json` `dl` field
-//! (`{crate}`, `{version}`).
+//! The syntax is a restricted subset of [RFC 6570] URI Templates:
+//! `{path}` behaves like RFC 6570 simple string expansion of a single
+//! value and `{path_raw}` like reserved expansion (`{+path}`); only these
+//! two fixed names are accepted. Fixed custom markers in a package-index
+//! template follow crates.io's `config.json` `dl` field (`{crate}`,
+//! `{version}`).
 //!
 //! [RFC 6570]: https://www.rfc-editor.org/rfc/rfc6570
 
@@ -49,9 +48,8 @@ const PATH_PLACEHOLDER: &str = "{path}";
 const PATH_RAW_PLACEHOLDER: &str = "{path_raw}";
 
 /// Percent-encode everything outside RFC 3986 unreserved
-/// (`A-Z a-z 0-9 - . _ ~`). Notably `/` becomes `%2F`, which is what
-/// file-access APIs like GitLab's expect for a path used as one URL
-/// segment.
+/// (`A-Z a-z 0-9 - . _ ~`). `/` becomes `%2F`, which is what file-access
+/// APIs like GitLab's expect for a path used as one URL segment.
 const PATH_ENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'-')
     .remove(b'.')
@@ -69,9 +67,15 @@ pub enum IndexLocationError {
     },
     #[error(
         "index URL `{url}` is relative;\n\
-         index locations must be absolute HTTP(S) URLs"
+         index locations must be absolute HTTP(S) URLs,\n\
+         or a filesystem index spelled `./<dir>`, `/<dir>` or `file:///<dir>`"
     )]
     RelativeUrl { url: Box<str> },
+    #[error(
+        "index URL `{url}` does not name a local path;\n\
+         a `file://` index must be a local absolute path such as `file:///<dir>`"
+    )]
+    FileUrlNotPath { url: Box<str> },
     #[error(
         "index URL `{url}` contains `%7B`/`%7D` (percent-encoded braces);\n\
          did you mean a `{{path}}` template? Placeholders must be written\n\
@@ -160,8 +164,7 @@ impl PathEncoding {
 
 /// A URL template with exactly one `{path}` or `{path_raw}` placeholder,
 /// validated at construction. Stored as the text on either side of the
-/// placeholder rather than as a `url::Url` because `url::Url` percent-encodes
-/// `{` or `}` on parse, which would corrupt the placeholder. The prefix is
+/// placeholder, not as a `url::Url` (which percent-encodes `{` and `}`). The prefix is
 /// normalized at parse to the text `url::Url` serializes it as (lowercase
 /// scheme and host, punycode, default port dropped, explicit root `/`), so
 /// different spellings of one template `Display` identically; the suffix
@@ -202,9 +205,8 @@ impl IndexUrlTemplate {
             encoding,
         };
 
-        // Expand a probe that encodes to a percent-escape: hosts and
-        // ports cannot contain `%`, so a placeholder in the authority
-        // component fails to parse rather than validating silently.
+        // The probe encodes to a percent-escape, which hosts and ports
+        // cannot contain, so a placeholder in the authority fails to parse.
         let expanded = match url::Url::parse(&template.build(["pr obe", "probe"])) {
             Ok(expanded) => expanded,
             Err(url::ParseError::RelativeUrlWithoutBase) => {
@@ -259,10 +261,8 @@ impl IndexUrlTemplate {
     }
 
     /// The literal template text before the placeholder, in normalized
-    /// form. Support for credential glob derivation (`commands::auth`),
-    /// not general API: the prefix is normalized URL text but not a
-    /// complete URL on its own (it can end mid-segment or mid-query).
-    /// Gated like its only consumer so feature subsets stay dead-code-free.
+    /// form. The prefix is normalized URL text but not a complete URL on
+    /// its own (it can end mid-segment or mid-query).
     #[cfg(all(feature = "filesystem", feature = "networking"))]
     pub(crate) fn prefix(&self) -> &str {
         &self.prefix
@@ -291,7 +291,7 @@ impl fmt::Display for IndexUrlTemplate {
 }
 
 /// Where an index lives: a plain base URL (relative index paths are
-/// RFC 3986-joined onto it, the historical behavior) or a URL template
+/// RFC 3986-joined onto it) or a URL template
 /// (relative index paths are percent-encoded into its `{path}`
 /// placeholder).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -308,10 +308,9 @@ impl IndexLocation {
     /// Parse a user-supplied index location string. Strings containing `{`
     /// or `}` are treated as URL templates; anything else is parsed as a
     /// plain base URL. Braces are outside the URI character set
-    /// ([RFC 3986 §2]), so no conformant URL is misclassified. (The `url`
-    /// crate previously tolerated literal braces by percent-encoding them
-    /// in paths and keeping them in queries; such non-conformant index
-    /// URLs are now template-syntax errors.)
+    /// ([RFC 3986 §2]), so no conformant URL is misclassified. A
+    /// non-conformant URL containing a literal brace is a template-syntax
+    /// error.
     ///
     /// Both variants enforce the same validity invariants at construction:
     /// an absolute HTTP(S) URL without userinfo or fragment. Later
@@ -329,7 +328,7 @@ impl IndexLocation {
         }
         // A pre-encoded `%7Bpath%7D` would silently behave as a plain
         // append-mode URL and 404 on every fetch; catch the paste
-        // accident early instead. Only the exact placeholder spellings
+        // accident early. Only the exact placeholder spellings
         // are rejected, so URLs that legitimately contain encoded braces
         // elsewhere keep working. Gated on `%` so the common case does
         // not allocate.
@@ -364,19 +363,15 @@ impl IndexLocation {
 
     /// Construct the URL for the index file whose relative path is
     /// `segments` (for example `["index.json"]` or `["<publisher>",
-    /// "<name>", "versions.json"]`). The segments are trusted: callers pass
-    /// components validated upstream (charset-checked publisher/name,
-    /// `_iri`/`<sha256hex>`, parsed semver versions, fixed file names — see
-    /// `design/index-protocol.md` §5), so they cannot smuggle `..` or URL
-    /// syntax into the result. Infallible, since both variants were
-    /// shape-validated at construction.
+    /// "<name>", "versions.json"]`). The segments are trusted and not
+    /// validated here: they must not contain `..` or URL syntax.
+    /// Infallible, since both variants were shape-validated at
+    /// construction.
     pub fn resolve<'a>(&self, segments: impl IntoIterator<Item = &'a str>) -> url::Url {
         match self {
             Self::Root(root) => {
-                // Append each segment to a clone of the base rather than
-                // building a `/`-joined string and reparsing it in
-                // `join()`. The root ends with `/` (its invariant), so drop
-                // that trailing empty segment first to avoid a doubled slash.
+                // The root ends with `/` (its invariant), so drop that
+                // trailing empty segment first to avoid a doubled slash.
                 let mut url = root.clone();
                 url.path_segments_mut()
                     .expect("BUG: an HTTP(S) base URL can have path segments")
@@ -385,14 +380,6 @@ impl IndexLocation {
                 url
             }
             Self::Template(template) => template.expand(segments),
-        }
-    }
-
-    /// The plain base URL, if this location is not a template.
-    pub fn as_root(&self) -> Option<&url::Url> {
-        match self {
-            Self::Root(url) => Some(url),
-            Self::Template(_) => None,
         }
     }
 }
@@ -425,6 +412,127 @@ impl<'de> serde::Deserialize<'de> for IndexLocation {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let s = Cow::deserialize(deserializer)?;
         Self::parse(&s).map_err(serde::de::Error::custom)
+    }
+}
+
+/// Serialized as its `Display` text, like [`IndexLocation`]
+impl serde::Serialize for IndexSource {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(self)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for IndexSource {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = Cow::deserialize(deserializer)?;
+        Self::parse(&s).map_err(serde::de::Error::custom)
+    }
+}
+
+/// Where an index is read from: an HTTP(S) [`IndexLocation`], or a
+/// directory on this machine. Both modes of a filesystem index (a
+/// structured mirror written by `sysand index`, or a bare folder of
+/// `.kpar` files) share the one spelling; the environment tells them
+/// apart when it first reads the directory.
+///
+/// The filesystem spelling is a path (`./<dir>`, `/<dir>`, `C:\<dir>`,
+/// `\\server\share`) or a `file://` URL naming a local path. A URL
+/// template never names a path. A relative path is kept as written and
+/// resolved against the current directory when the environment is built,
+/// so `Display` round-trips the user's spelling.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IndexSource {
+    Remote(IndexLocation),
+    Filesystem(camino::Utf8PathBuf),
+}
+
+impl IndexSource {
+    /// Parse a user-supplied index spelling. Template syntax and `http(s)`
+    /// URLs go to [`IndexLocation::parse`]; `file:` URLs and path syntax
+    /// become [`Self::Filesystem`]. Anything else is judged by
+    /// `IndexLocation::parse`, whose relative-URL refusal names the path
+    /// spellings.
+    pub fn parse(s: &str) -> Result<Self, IndexLocationError> {
+        // A path may legitimately contain braces, so path syntax is judged
+        // before template syntax; a template never has path syntax.
+        if is_path_syntax(s) {
+            return Ok(Self::Filesystem(camino::Utf8PathBuf::from(s)));
+        }
+        if has_file_scheme(s) {
+            let url = url::Url::parse(s).map_err(|source| IndexLocationError::InvalidUrl {
+                url: redact_userinfo(s),
+                source,
+            })?;
+            let path =
+                file_url_to_path(&url).ok_or_else(|| IndexLocationError::FileUrlNotPath {
+                    url: redact_userinfo(s),
+                })?;
+            return Ok(Self::Filesystem(path));
+        }
+        Ok(Self::Remote(IndexLocation::parse(s)?))
+    }
+
+    /// The HTTP(S) location, if this is not a filesystem index.
+    pub fn as_remote(&self) -> Option<&IndexLocation> {
+        match self {
+            Self::Remote(location) => Some(location),
+            Self::Filesystem(_) => None,
+        }
+    }
+}
+
+impl fmt::Display for IndexSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Remote(location) => write!(f, "{location}"),
+            Self::Filesystem(path) => f.write_str(path.as_str()),
+        }
+    }
+}
+
+impl FromStr for IndexSource {
+    type Err = IndexLocationError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s)
+    }
+}
+
+/// The local path a `file:` URL names, when it names one. `url`'s own
+/// conversion exists only on hosts with a filesystem, and the crate also
+/// builds for wasm, where no `file:` index can be read anyway.
+#[cfg(any(unix, windows))]
+fn file_url_to_path(url: &url::Url) -> Option<camino::Utf8PathBuf> {
+    let path = url.to_file_path().ok()?;
+    camino::Utf8PathBuf::from_path_buf(path).ok()
+}
+
+#[cfg(not(any(unix, windows)))]
+fn file_url_to_path(_url: &url::Url) -> Option<camino::Utf8PathBuf> {
+    None
+}
+
+/// `file:` scheme, matched case-insensitively as RFC 3986 requires.
+fn has_file_scheme(s: &str) -> bool {
+    s.len() > 5 && s.as_bytes()[4] == b':' && s[..4].eq_ignore_ascii_case("file")
+}
+
+/// Path syntax: a rooted path (`/`, `\`), a dot-relative path (`.`,
+/// `..`, `./`, `.\`, `../`, `..\`) or a Windows drive (`C:`, `C:\`,
+/// `C:/`). Anything else (a bare name, a URL) is not a path spelling,
+/// so `example.org/index` is refused as a relative URL.
+fn is_path_syntax(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    let is_sep = |b: u8| b == b'/' || b == b'\\';
+    match bytes {
+        [] => false,
+        [b'.'] | [b'.', b'.'] => true,
+        [first, ..] if is_sep(*first) => true,
+        [b'.', second, ..] if is_sep(*second) => true,
+        [b'.', b'.', third, ..] if is_sep(*third) => true,
+        [drive, b':'] if drive.is_ascii_alphabetic() => true,
+        [drive, b':', third, ..] if drive.is_ascii_alphabetic() && is_sep(*third) => true,
+        _ => false,
     }
 }
 
@@ -509,9 +617,8 @@ fn is_template_syntax(s: &str) -> bool {
 }
 
 /// Return `url` with a guaranteed trailing slash on its path so that
-/// `Url::join` treats it as a directory. Operates via `path_segments_mut`
-/// rather than touching the serialized path string, so percent-encoded
-/// segments survive the round-trip unchanged.
+/// `Url::join` treats it as a directory. Percent-encoded segments survive
+/// unchanged.
 ///
 /// Callers must pass an HTTP(S) URL. Such URLs can be a base, so the
 /// `path_segments_mut` call should not fail after endpoint-shape

@@ -690,6 +690,24 @@ mod login {
     // Template targets: templated login targets are supported, anchored
     // on their literal URL prefix.
 
+    /// A filesystem index has nothing to authenticate to; both spellings
+    /// are refused.
+    #[test]
+    fn auth_refuses_filesystem_index() {
+        assert_matches!(
+            IndexKey::validate("file:///srv/mirror"),
+            Err(AuthCommandError::NotHttpIndex { url: _ })
+        );
+        assert_matches!(
+            IndexKey::validate("./mirror"),
+            Err(AuthCommandError::InvalidIndexUrl(_))
+        );
+        assert_matches!(
+            IndexKey::validate("/srv/mirror"),
+            Err(AuthCommandError::InvalidIndexUrl(_))
+        );
+    }
+
     /// The motivating GitLab-shaped target: the key is the template's
     /// canonical `Display` text, with the literal prefix normalized at
     /// parse time.
@@ -748,7 +766,7 @@ mod login {
         assert_eq!(key, template);
         assert!(notices.is_empty(), "unexpected notices: {notices:?}");
         assert_eq!(globs, vec![format!("{}**", globset::escape(&anchor))]);
-        // Section 8 coverage for a template without an api_root: the
+        // Coverage for a template without an api_root: the
         // template-resolved discovery URL, `index.json` URL, and an
         // encoded-`{path}` project-file URL all match the derived set.
         let location = IndexLocation::parse(&template).unwrap();
@@ -1672,10 +1690,8 @@ mod login {
 
     #[test]
     fn validated_login_stores_when_the_forced_retry_is_rate_limited() {
-        // Formerly false-refusing sequence: baseline 401, forced 429
-        // counted as rejected and refused a possibly valid token. Now the
-        // surface is not tested and the credential is stored with a
-        // rate-limited warning.
+        // Baseline 401, forced 429: the surface is not tested and the
+        // credential is stored with a rate-limited warning, not refused.
         let mut server = mockito::Server::new();
         let _config = no_discovery_mock(&mut server);
         let (unauth, forced) = private_index_json(&mut server, "tok", 429);

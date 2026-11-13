@@ -31,7 +31,7 @@ use sysand_core::{
     },
     resolve::{net_utils::create_reqwest_client, standard::standard_resolver},
     utils::format_err,
-    workspace::Workspace,
+    workspace::model_toml::{MemberChecks, Workspace},
 };
 
 use crate::{
@@ -62,7 +62,7 @@ macro_rules! ret_null {
 // lose all error context. So the return type matches what is required, but we never
 // actually return `Err()`
 const SYSAND_INIT: NativeMethod = native_method!(
-    static fn init(name: JString, publisher: JString, version: JString, license: JString, path: JString)
+    static fn init(name: JString, publisher: JString, version: JString, license: JString, metamodel: JString, path: JString)
 );
 fn init<'local>(
     env: &mut Env<'local>,
@@ -71,6 +71,7 @@ fn init<'local>(
     publisher: JString<'local>,
     version: JString<'local>,
     license: JString<'local>,
+    metamodel: JString<'local>,
     path: JString<'local>,
 ) -> JniResult<()> {
     let Some(name) = env.get_str(&name, "name") else {
@@ -80,6 +81,9 @@ fn init<'local>(
         ret!()
     };
     let Some(version) = env.get_str(&version, "version") else {
+        ret!()
+    };
+    let Some(metamodel) = env.get_str(&metamodel, "metamodel") else {
         ret!()
     };
     let Some(path) = env.get_str(&path, "path") else {
@@ -102,20 +106,33 @@ fn init<'local>(
         }
     };
 
-    let command_result =
-        commands::init::do_init_local_file(name, publisher, version, license, None, path.into());
+    let command_result = commands::init::do_init_local_file(
+        name,
+        publisher,
+        version,
+        license,
+        Some(sysand_core::manifest::inherit::MetaProperty::Provided(
+            metamodel,
+        )),
+        sysand_core::init::ProjectKind::ModelToml,
+        path.into(),
+    );
     match command_result {
         Ok(_) => Ok(()),
         Err(error) => {
             let e = format_err(&error);
             match error {
-                InitError::NameParse(..)
-                | InitError::PublisherParse(..)
-                | InitError::MalformedMetamodel(..) => {
+                InitError::Metamodel(..)
+                | InitError::JsonMissingMetamodel
+                | InitError::JsonInheritedMetamodel
+                | InitError::JsonSysideMetamodel(..) => {
                     env.throw_exception(ExceptionKind::InvalidValue, e)
                 }
                 InitError::SemVerParse(..) => {
                     env.throw_exception(ExceptionKind::InvalidSemanticVersion, e)
+                }
+                InitError::Identifier(..) | InitError::TomlWrite(..) => {
+                    env.throw_exception(ExceptionKind::SysandException, e);
                 }
                 InitError::SPDXLicenseParse(..) => {
                     env.throw_exception(ExceptionKind::InvalidSPDXLicense, e)
@@ -125,10 +142,7 @@ fn init<'local>(
                         env.throw_exception(ExceptionKind::ProjectAlreadyExists, e)
                     }
                     LocalSrcError::Deserialize(_)
-                    | LocalSrcError::AmbiguousFormat { dir: _, json: _ }
-                    | LocalSrcError::Symbols(_)
-                    | LocalSrcError::JsonWriteToTomlProject { dir: _, file: _ }
-                    | LocalSrcError::TomlWriteToJsonProject { dir: _ } => {
+                    | LocalSrcError::Format { dir: _, problem: _ } => {
                         env.throw_exception(ExceptionKind::InvalidValue, e)
                     }
                     LocalSrcError::Io(_) => env.throw_exception(ExceptionKind::IOError, e),
@@ -212,6 +226,11 @@ fn create_env<'local>(
                         identifier: _,
                         version: _,
                         kind: _,
+                    }
+                    | LocalWriteError::RemoveNotInstalled {
+                        identifier: _,
+                        version: _,
+                        kind: _,
                     } => env.throw_exception(ExceptionKind::SysandException, e),
                 },
             }
@@ -231,15 +250,27 @@ fn info_path<'local>(
     let Some(path) = env.get_str(&path, "path") else {
         ret_null!()
     };
-    let project = LocalSrcProject::new_access(Utf8PathBuf::from(&path), None);
+    let project =
+        match sysand_core::workspace::model_toml::project_at_path(Utf8PathBuf::from(&path), None) {
+            Ok(project) => project,
+            Err(e) => {
+                env.throw_exception(ExceptionKind::SysandException, format_err(e));
+                ret_null!()
+            }
+        };
 
     let command_result = commands::info::do_info_project(&project);
     match command_result {
-        Ok(info_metadata) => {
-            if let Some(project) = info_metadata.to_jobject(env) {
-                return Ok(project);
+        Ok(definition) => match definition.into_json_documents() {
+            Ok(info_metadata) => {
+                if let Some(project) = info_metadata.to_jobject(env) {
+                    return Ok(project);
+                }
             }
-        }
+            Err(e) => {
+                env.throw_exception(ExceptionKind::SysandException, format_err(e));
+            }
+        },
         Err(e) => {
             env.throw_exception(ExceptionKind::SysandException, format_err(e));
         }
@@ -268,10 +299,7 @@ fn info<'local>(
     };
 
     let runtime = {
-        let r = match tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-        {
+        let r = match sysand_core::cancel::current_thread_runtime() {
             Ok(r) => r,
             Err(e) => {
                 env.throw_exception(
@@ -290,7 +318,7 @@ fn info<'local>(
         let Some(index_url) = env.get_str(&index_url, "indexUrl") else {
             ret_null!()
         };
-        match sysand_core::index_location::IndexLocation::parse(&index_url) {
+        match sysand_core::index_location::IndexSource::parse(&index_url) {
             Ok(location) => Some(location),
             Err(error) => {
                 env.throw_stdlib_exception(
@@ -312,6 +340,7 @@ fn info<'local>(
         runtime,
         // FIXME: Add Java support for authentication
         Arc::new(Unauthenticated {}),
+        sysand_core::cancel::CancellationToken::new(),
     ) {
         Ok(resolver) => resolver,
         Err(error) => {
@@ -333,10 +362,17 @@ fn info<'local>(
             ret_null!()
         }
     };
-    let info_meta = match commands::info::do_info(&uri, &combined_resolver) {
-        Ok(info_meta) => info_meta,
+    let definition = match commands::info::do_info(&uri, &combined_resolver) {
+        Ok(definition) => definition,
         Err(e) => {
             env.throw_exception(ExceptionKind::ResolutionError, format_err(e));
+            ret_null!()
+        }
+    };
+    let info_meta = match definition.into_json_documents() {
+        Ok(documents) => documents,
+        Err(e) => {
+            env.throw_exception(ExceptionKind::SysandException, format_err(e));
             ret_null!()
         }
     };
@@ -355,17 +391,20 @@ fn workspace_project_paths<'local>(
     let Some(workspace_path) = env.get_str(&workspace_path, "workspacePath") else {
         ret_null!()
     };
-    let workspace = match Workspace::new(workspace_path.into()) {
+    let workspace = match Workspace::load_with(Utf8PathBuf::from(workspace_path), MemberChecks::All)
+    {
         Ok(w) => w,
         Err(e) => {
             env.throw_exception(ExceptionKind::InvalidWorkspace, format_err(e));
             ret_null!()
         }
     };
+    // Absolute and canonical, because the loader canonicalizes the root
+    // that every member directory hangs off.
     let paths: Vec<String> = workspace
-        .absolute_project_paths()
-        .into_iter()
-        .map(Utf8PathBuf::into_string)
+        .members()
+        .iter()
+        .map(|member| member.dir.clone().into_string())
         .collect();
     Ok(paths.to_jstring_array(env).unwrap_or_default())
 }
@@ -379,17 +418,12 @@ fn set_project_index<'local>(
     project_path: JString<'local>,
     index: JObject<'local>,
 ) -> JniResult<()> {
-    let Some(project_path) = env.get_str(&project_path, "projectPath") else {
-        ret!()
-    };
-    let Some(rust_index) = java_map_to_index_map(env, index) else {
-        ret!()
-    };
-    let mut project = LocalSrcProject::new_access(Utf8PathBuf::from(project_path), None);
-    if let Err(e) = project.set_index(rust_index) {
-        env.throw_exception(ExceptionKind::SysandException, format_err(e));
-    }
-    Ok(())
+    write_project(
+        env,
+        &project_path,
+        |env| java_map_to_index_map(env, index),
+        LocalSrcProject::set_index,
+    )
 }
 
 const SYSAND_SET_PROJECT_INFO: NativeMethod = native_method!(
@@ -401,17 +435,12 @@ fn set_project_info<'local>(
     project_path: JString<'local>,
     info: JObject<'local>,
 ) -> JniResult<()> {
-    let Some(project_path) = env.get_str(&project_path, "projectPath") else {
-        ret!()
-    };
-    let Some(info_raw) = java_info_to_raw(env, &info) else {
-        ret!()
-    };
-    let mut project = LocalSrcProject::new_access(Utf8PathBuf::from(project_path), None);
-    if let Err(e) = project.put_info(&info_raw, true) {
-        env.throw_exception(ExceptionKind::SysandException, format_err(e));
-    }
-    Ok(())
+    write_project(
+        env,
+        &project_path,
+        |env| java_info_to_raw(env, &info),
+        |project, value| project.put_info(&value, true),
+    )
 }
 
 const SYSAND_SET_PROJECT_METADATA: NativeMethod = native_method!(
@@ -423,17 +452,12 @@ fn set_project_metadata<'local>(
     project_path: JString<'local>,
     metadata: JObject<'local>,
 ) -> JniResult<()> {
-    let Some(project_path) = env.get_str(&project_path, "projectPath") else {
-        ret!()
-    };
-    let Some(metadata_raw) = java_metadata_to_raw(env, &metadata) else {
-        ret!()
-    };
-    let mut project = LocalSrcProject::new_access(Utf8PathBuf::from(project_path), None);
-    if let Err(e) = project.put_meta(&metadata_raw, true) {
-        env.throw_exception(ExceptionKind::SysandException, format_err(e));
-    }
-    Ok(())
+    write_project(
+        env,
+        &project_path,
+        |env| java_metadata_to_raw(env, &metadata),
+        |project, value| project.put_meta(&value, true),
+    )
 }
 
 const SYSAND_BUILD_PROJECT: NativeMethod = native_method!(
@@ -452,7 +476,16 @@ fn build_project<'local>(
     let Some(project_path) = env.get_str(&project_path, "projectPath") else {
         ret!()
     };
-    let project = LocalSrcProject::new_access(Utf8PathBuf::from(project_path), None);
+    let project = match sysand_core::workspace::model_toml::project_at_path(
+        Utf8PathBuf::from(project_path),
+        None,
+    ) {
+        Ok(project) => project,
+        Err(e) => {
+            env.throw_exception(ExceptionKind::SysandException, format_err(e));
+            ret!()
+        }
+    };
     let Some(compression) = env.get_str(&compression, "compression") else {
         ret!()
     };
@@ -492,7 +525,8 @@ fn build_workspace<'local>(
     let Some(workspace_path) = env.get_str(&workspace_path, "workspacePath") else {
         ret!()
     };
-    let workspace = match Workspace::new(workspace_path.into()) {
+    let workspace = match Workspace::load_with(Utf8PathBuf::from(workspace_path), MemberChecks::All)
+    {
         Ok(w) => w,
         Err(e) => {
             env.throw_exception(ExceptionKind::InvalidWorkspace, format_err(e));
@@ -510,7 +544,7 @@ fn build_workspace<'local>(
         ret!()
     }
 
-    let command_result = sysand_core::commands::build::do_build_workspace_kpars(
+    let result = sysand_core::commands::build::do_build_workspace_kpars(
         &workspace,
         &output_path,
         compression,
@@ -520,8 +554,13 @@ fn build_workspace<'local>(
         false,
         true,
     );
-    if let Err(e) = command_result {
-        handle_build_error(env, &e);
+    // A member's failure, the first one: this binding has no channel for
+    // a partial result. The other members' archives have been written by
+    // then.
+    if let Err(failure) = result
+        && let Some(first) = failure.failed.first()
+    {
+        handle_build_error(env, &first.error);
     }
     Ok(())
 }
@@ -606,4 +645,23 @@ pub unsafe extern "system" fn JNI_OnLoad(
             JNI_ERR
         }
     }
+}
+
+/// Writes the value `convert` reads from Java into the project at
+/// `project_path`, throwing a `SysandException` if writing fails.
+fn write_project<'local, T, E: std::error::Error>(
+    env: &mut Env<'local>,
+    project_path: &JString<'local>,
+    convert: impl FnOnce(&mut Env<'local>) -> Option<T>,
+    write: impl FnOnce(&mut LocalSrcProject, T) -> Result<(), E>,
+) -> JniResult<()> {
+    let Some(project_path) = env.get_str(project_path, "projectPath") else {
+        ret!()
+    };
+    let Some(value) = convert(env) else { ret!() };
+    let mut project = LocalSrcProject::new_access(Utf8PathBuf::from(project_path), None);
+    if let Err(e) = write(&mut project, value) {
+        env.throw_exception(ExceptionKind::SysandException, format_err(e));
+    }
+    Ok(())
 }

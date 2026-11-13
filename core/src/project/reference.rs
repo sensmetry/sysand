@@ -6,12 +6,11 @@ use std::sync::Arc;
 use crate::{
     context::ProjectContext,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{ProjectFormat, ProjectRead},
+    model::InterchangeProjectUsageRaw,
+    project::{ProjectDefinition, ProjectFormat, ProjectRead},
 };
 
-// Arc wrapper around project to make cloning possible
-// (necessary for compatibility with `MemoryResolver`)
+// `Arc` wrapper that makes a project cloneable
 #[derive(Debug)]
 pub struct ProjectReference<Project: ProjectRead> {
     project: Arc<Project>,
@@ -40,25 +39,16 @@ impl<Project: ProjectRead> ProjectRead for ProjectReference<Project> {
         self.project.format()
     }
 
-    /// Forwarded for the same reason as [`Self::format`].
-    fn manifest(
+    fn manifest_document(
         &self,
-    ) -> Result<crate::manifest::project::ResolvedProject, crate::project::ManifestError<Self::Error>>
+    ) -> Result<crate::manifest::edit::DocumentMut, crate::project::ManifestError<Self::Error>>
     {
-        self.project.manifest()
+        self.project.manifest_document()
     }
 
     type Error = Project::Error;
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         self.project.get_project()
     }
 
@@ -80,6 +70,14 @@ impl<Project: ProjectRead> ProjectRead for ProjectReference<Project> {
 
     fn source_may_offer_multiple_versions(&self) -> bool {
         self.project.source_may_offer_multiple_versions()
+    }
+
+    fn version(&self) -> Result<Option<String>, Self::Error> {
+        self.project.version()
+    }
+
+    fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
+        self.project.usage()
     }
 
     fn checksum_canonical_variant(&self) -> Result<super::ProjectChecksum, Self::Error> {

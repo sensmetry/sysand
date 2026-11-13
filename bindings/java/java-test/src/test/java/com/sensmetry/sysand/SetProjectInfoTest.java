@@ -21,10 +21,58 @@ import java.util.LinkedHashMap;
 
 public class SetProjectInfoTest {
 
+    /**
+     * A json project, written by hand.
+     *
+     * <p>{@code Sysand.init} writes a {@code model.toml}, and
+     * {@code setProjectInfo}/{@code setProjectMetadata}/{@code setProjectIndex}
+     * write {@code .project.json}/{@code .meta.json}, so the two do not
+     * compose.
+     *
+     * <p>Those three verbs are json-only: they refuse a {@code model.toml}
+     * project outright. A json fixture is the only fixture they have.
+     */
     private Path initProject() throws Exception {
         Path tempDir = Files.createTempDirectory("sysand-test-set-info");
-        Sysand.init("original", "pub", "1.0.0", null, tempDir);
+        Files.write(tempDir.resolve(".project.json"),
+                ("{\n  \"name\": \"original\",\n  \"publisher\": \"publisher-co\",\n"
+                        + "  \"version\": \"1.0.0\"\n}\n").getBytes());
+        Files.write(tempDir.resolve(".meta.json"),
+                "{\n  \"index\": {},\n  \"created\": \"2026-01-01T00:00:00Z\"\n}\n".getBytes());
         return tempDir;
+    }
+
+    /**
+     * The three write verbs refuse a {@code model.toml} project.
+     *
+     * <p>{@code setProjectIndex} reaches the same refusal by a longer
+     * route: it reads the metadata the toml view synthesises and then
+     * tries to write it back.
+     *
+     * <p>The manifest declares a {@code metamodel} because the key is
+     * mandatory. Without one the test would pass on the wrong refusal, the
+     * manifest not resolving.
+     */
+    @Test
+    public void testSetProjectVerbsRefuseATomlProject() throws Exception {
+        java.nio.file.Path tempDir = Files.createTempDirectory("sysand-test-set-info-toml");
+        Files.write(tempDir.resolve("model.toml"),
+                ("manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\n"
+                        + "name = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n"
+                        + "metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n")
+                        .getBytes());
+
+        com.sensmetry.sysand.model.InterchangeProjectInfo info =
+                new com.sensmetry.sysand.model.InterchangeProjectInfo(
+                        "widgets", "acme", null, "2.0.0", null, new String[0], null,
+                        new String[0], new com.sensmetry.sysand.model.InterchangeProjectUsage[0]);
+        assertThrows(com.sensmetry.sysand.exceptions.SysandException.class,
+                () -> com.sensmetry.sysand.Sysand.setProjectInfo(tempDir, info));
+
+        java.util.LinkedHashMap<String, String> index = new java.util.LinkedHashMap<>();
+        index.put("Alpha", "src/Alpha.sysml");
+        assertThrows(com.sensmetry.sysand.exceptions.SysandException.class,
+                () -> com.sensmetry.sysand.Sysand.setProjectIndex(tempDir, index));
     }
 
     // --- setProjectInfo ---
@@ -34,7 +82,7 @@ public class SetProjectInfoTest {
         Path dir = initProject();
 
         InterchangeProjectInfo updated = new InterchangeProjectInfo(
-                "original", "pub", null, "2.0.0", null,
+                "original", "publisher-co", null, "2.0.0", null,
                 new String[]{}, null, new String[]{},
                 new InterchangeProjectUsage[]{});
         Sysand.setProjectInfo(dir, updated);
@@ -48,7 +96,7 @@ public class SetProjectInfoTest {
         Path dir = initProject();
 
         InterchangeProjectInfo updated = new InterchangeProjectInfo(
-                "renamed", "pub", null, "1.0.0", null,
+                "renamed", "publisher-co", null, "1.0.0", null,
                 new String[]{}, null, new String[]{},
                 new InterchangeProjectUsage[]{});
         Sysand.setProjectInfo(dir, updated);
@@ -87,7 +135,7 @@ public class SetProjectInfoTest {
                 new InterchangeProjectUsageResource("urn:example:dep-b", null),
         };
         InterchangeProjectInfo updated = new InterchangeProjectInfo(
-                "original", "pub", null, "1.0.0", null,
+                "original", "publisher-co", null, "1.0.0", null,
                 new String[]{}, null, new String[]{}, usages);
         Sysand.setProjectInfo(dir, updated);
 
@@ -107,14 +155,14 @@ public class SetProjectInfoTest {
 
         // First update
         InterchangeProjectInfo first = new InterchangeProjectInfo(
-                "first", "pub", null, "1.0.0", null,
+                "first", "publisher-co", null, "1.0.0", null,
                 new String[]{}, null, new String[]{},
                 new InterchangeProjectUsage[]{});
         Sysand.setProjectInfo(dir, first);
 
         // Second update overwrites
         InterchangeProjectInfo second = new InterchangeProjectInfo(
-                "second", "pub", null, "2.0.0", null,
+                "second", "publisher-co", null, "2.0.0", null,
                 new String[]{}, null, new String[]{},
                 new InterchangeProjectUsage[]{});
         Sysand.setProjectInfo(dir, second);
@@ -129,7 +177,7 @@ public class SetProjectInfoTest {
         Path dir = initProject();
 
         InterchangeProjectInfo updated = new InterchangeProjectInfo(
-                "persisted", "pub", null, "3.0.0", "Apache-2.0",
+                "persisted", "publisher-co", null, "3.0.0", "Apache-2.0",
                 new String[]{}, null, new String[]{},
                 new InterchangeProjectUsage[]{});
         Sysand.setProjectInfo(dir, updated);
@@ -150,7 +198,7 @@ public class SetProjectInfoTest {
         Sysand.setProjectIndex(dir, index);
 
         InterchangeProjectInfo updated = new InterchangeProjectInfo(
-                "original", "pub", null, "9.9.9", null,
+                "original", "publisher-co", null, "9.9.9", null,
                 new String[]{}, null, new String[]{},
                 new InterchangeProjectUsage[]{});
         Sysand.setProjectInfo(dir, updated);
@@ -168,7 +216,7 @@ public class SetProjectInfoTest {
         InterchangeProjectUsageDirectory usage = new InterchangeProjectUsageDirectory(
                 "../some-dep", "acme", "lib");
         InterchangeProjectInfo updated = new InterchangeProjectInfo(
-                "original", "pub", null, "1.0.0", null,
+                "original", "publisher-co", null, "1.0.0", null,
                 new String[]{}, null, new String[]{},
                 new InterchangeProjectUsage[]{usage});
 
@@ -191,7 +239,7 @@ public class SetProjectInfoTest {
         InterchangeProjectUsageKparPath usage = new InterchangeProjectUsageKparPath(
                 "deps/lib.kpar", "acme", "lib");
         InterchangeProjectInfo updated = new InterchangeProjectInfo(
-                "original", "pub", null, "1.0.0", null,
+                "original", "publisher-co", null, "1.0.0", null,
                 new String[]{}, null, new String[]{},
                 new InterchangeProjectUsage[]{usage});
 

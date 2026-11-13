@@ -61,12 +61,12 @@ def add(
     ``iri``
         The project's IRI, taken as given: ``publisher/name`` is not an IRI
         and is refused. This declares a resource usage, the untyped kind that
-        KerML specifies, even for a ``pkg:sysand`` IRI.
+        KerML specifies, even for a ``pkg:sysand`` IRI. A ``model.toml``
+        project has no such usage, so it refuses ``iri``.
 
     ``publisher`` and ``name``
         The project with that publisher and name, resolved from the index.
-        This declares an index usage, which :func:`info_path` returns as
-        :class:`InterchangeProjectUsageIndex`. Spell both exactly as the
+        This declares an index usage. Spell both exactly as the
         project does, or fully normalized (``acme-labs``/``my-lib``) to take
         the project's own spelling. With ``lock=False``, the spelling is
         checked against, or taken from, the versions installed in the

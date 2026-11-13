@@ -4,40 +4,38 @@
 //! The `[workspace]` table of a `model.toml`: which projects the
 //! workspace includes, and the values its members may inherit.
 //!
-//! workspaces.md "Included projects": the table "lists the members and
-//! doubles as the implicit default group", whose "keys are written
-//! directly in `[workspace]`, alongside `members` and `exclude`"; named
-//! groups are `[workspace.group.<group-name>]`.
+//! The table lists the members and doubles as the implicit default
+//! group, whose keys are written directly in `[workspace]`, alongside
+//! `members` and `exclude`; named groups are
+//! `[workspace.group.<group-name>]`.
 //!
 //! A workspace never inherits: there is nothing above it, so every value
-//! here is given directly. That is what makes this the simpler of the two
-//! tables, and why it comes before `[project]`, which
-//! [`WorkspaceTable::group_properties`] serves once markers are resolved.
+//! here is given directly. [`WorkspaceTable::group_properties`] serves the
+//! groups to `[project]` once markers are resolved.
 
+use crate::paths::{NormalizeError, normalize_relative};
 use std::collections::BTreeMap;
 
-use fluent_uri::Iri;
 use semver::Version;
 use spdx::Expression;
-use typed_path::Utf8UnixPathBuf;
+use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
-use crate::manifest::common::{InheritFrom, Maintainer, ResolvedUrls, is_valid_group_name};
-use crate::manifest::diagnostics::{Diagnostic, KeyLocation, ReadWarning, Report, Validated};
-use crate::manifest::reader::{TableReader, checked, maintainers, parsed};
-use crate::manifest::spans::Positions;
-use crate::manifest::usage::{Usage, UsageRaw, UsageSite, check_duplicates};
-use crate::model::{IndexPublisher, Metamodel};
-use crate::utils::{NormalizeRelativeError, normalize_relative};
+use crate::manifest::common::{
+    InheritFrom, Maintainer, PathProblem, ResolvedUrls, is_valid_group_name,
+};
+use crate::manifest::diagnostics::{Diagnostic, Diagnostics, Position, Validated};
+use crate::manifest::reader::{self, TableReader};
+use crate::manifest::usage::{Usage, UsageRaw, read_usages};
+use crate::model::{IndexPublisher, KnownMetamodel};
 
 /// The keys a group gives, the default group and a named one alike.
 ///
-/// `sources` is here although a group may not carry it: workspaces.md
-/// makes it "an error that says so, rather than an unknown-key warning",
-/// which it can only be if the reader recognizes the key.
+/// `sources` is here although a group may not carry it: the reader has to
+/// recognize the key to report the error.
 ///
-/// `stdlib` and `manifest-version` are deliberately absent -- in a
-/// workspace they are "an unknown key like any other (a warning)" -- and
-/// so are `name`, `description` and `root`, which identify one project.
+/// `stdlib`, `manifest-version`, `name`, `description` and `root` are
+/// absent: they belong to one project, and in a workspace are unknown
+/// keys like any other (a warning).
 pub(crate) const GROUP_KEYS: &[&str] = &[
     "publisher",
     "version",
@@ -54,47 +52,50 @@ pub(crate) const GROUP_KEYS: &[&str] = &[
 /// membership lists and the named groups.
 const WORKSPACE_KEYS: &[&str] = &["members", "exclude", "group"];
 
-/// model-toml.md `urls`: "currently allowed keys: website, repository,
-/// documentation".
-const URL_KEYS: &[&str] = &["website", "documentation", "repository"];
-
-/// workspaces.md "Common metadata" and "Common usages": the values a
-/// group provides for members to inherit.
+/// The values a group provides for members to inherit.
 ///
-/// Every field is an `Option` because "the group does not give this key"
-/// is what a marker pointing at it has to report, and is not the same as
-/// a default: a group that gives `topics = []` satisfies a
-/// `topics.workspace = true`, and a group that gives no `topics` does
-/// not.
+/// Every field is an `Option`: a group that gives `topics = []` satisfies
+/// `topics.workspace = true`, and a group that gives no `topics` does not.
 #[derive(Clone, Debug, Default)]
 pub struct GroupProperties {
     pub publisher: Option<IndexPublisher>,
     pub version: Option<Version>,
     pub license: Option<Expression>,
     pub topics: Option<Vec<String>>,
-    /// Kept as written: model-toml.md warns about a value it does not
-    /// recognize rather than refusing it, so this is not an `Iri`.
-    pub metamodel: Option<String>,
+    pub metamodel: Option<KnownMetamodel>,
     pub maintainers: Option<Vec<Maintainer>>,
     pub urls: Option<ResolvedUrls>,
     /// `[[workspace.inline-usages]]` for the default group,
     /// `[[workspace.group.<group-name>.inline-usages]]` for a named one.
-    /// A group entry is a plain [`Usage`]: there is nothing above a
-    /// workspace to inherit from. Which directory its `dir`/`kpar-path`
-    /// is relative to belongs to whoever reads the group, not to the
-    /// usage, so these are not [`crate::manifest::usage::LocatedUsage`]s.
+    /// Entries are plain [`Usage`]s: the directory their `dir`/`kpar-path`
+    /// is relative to is not recorded here.
     pub inline_usages: Vec<Usage>,
 }
 
 /// One entry of `members` or `exclude`.
 ///
-/// Both spellings are kept: every path comparison uses the normalized
-/// one, while `--member <path>` matches a `members` entry "literally"
-/// (workspaces.md "Command scopes").
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// An entry is admitted only in its normalized form, so the two
+/// spellings are always equal. Both are kept because they answer
+/// different questions: every path comparison uses the typed one, while
+/// `--member <path>` matches a `members` entry literally.
+#[derive(Clone, Debug, Eq)]
 pub struct MemberPath {
     pub raw: String,
     pub path: Utf8UnixPathBuf,
+    /// Where the entry was written, for diagnostics about the directory
+    /// raised after this table was read.
+    ///
+    /// `None` for an entry that was not read from a file, which is what a
+    /// hand-built table has.
+    pub at: Option<Position>,
+}
+
+/// A path is where it points and how it was spelled. Where it was
+/// *written* is not part of equality.
+impl PartialEq for MemberPath {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw == other.raw && self.path == other.path
+    }
 }
 
 /// The `[workspace]` table, validated.
@@ -109,38 +110,75 @@ pub struct WorkspaceTable {
     pub groups: BTreeMap<String, GroupProperties>,
 }
 
+/// Where a directory sits with respect to a workspace, as far as the
+/// table alone can tell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Region<'a> {
+    /// The index of the `members` entry, and the entry. A load that
+    /// succeeded produced one member per entry, in order.
+    Member(usize, &'a MemberPath),
+    Excluded(&'a MemberPath),
+    Unlisted,
+}
+
 impl WorkspaceTable {
+    /// Which of the workspace's three regions `relative` falls in.
+    ///
+    /// `relative` must be relative to the workspace root and free of `.`
+    /// and `..` components, as [`normalize_relative`] produces; this is
+    /// not checked.
+    ///
+    /// The most specific entry answers, and an exact tie between the two
+    /// lists goes to `members`.
+    pub fn region(&self, relative: &Utf8UnixPath) -> Region<'_> {
+        // At most one member can match: nested members are refused.
+        let member = self.members.iter().enumerate().find_map(|(index, member)| {
+            prefix_depth(relative, &member.path).map(|at| (at, index, member))
+        });
+        let excluded = self.excluding(relative);
+
+        match (member, excluded) {
+            (Some((member_at, index, member)), Some((excluded_at, _)))
+                if member_at >= excluded_at =>
+            {
+                Region::Member(index, member)
+            }
+            (_, Some((_, excluded))) => Region::Excluded(excluded),
+            (Some((_, index, member)), None) => Region::Member(index, member),
+            (None, None) => Region::Unlisted,
+        }
+    }
+
+    /// The `exclude` entry that covers `relative`, and how many of its
+    /// segments matched.
+    ///
+    /// Anything under an `exclude` entry is outside the workspace.
+    /// Entries may nest, so the most specific one answers.
+    pub fn excluding(&self, relative: &Utf8UnixPath) -> Option<(usize, &MemberPath)> {
+        self.exclude
+            .iter()
+            .filter_map(|excluded| prefix_depth(relative, &excluded.path).map(|at| (at, excluded)))
+            .max_by_key(|(at, _)| *at)
+    }
+
     /// Read and check the contents of a `[workspace]` table.
     ///
-    /// Finding the table in the document, and refusing a file that also
-    /// carries a `[project]`, belong to the reader of the file as a
-    /// whole; what is fixed here is where the table sits, which is what
-    /// addresses its keys in the span index.
-    pub fn validate(
-        table: &toml::Table,
-        positions: &Positions<'_>,
-    ) -> Result<Validated<Self>, Report> {
-        let reader = TableReader::new(
-            table,
-            vec!["workspace".to_owned()],
-            KeyLocation::Table("workspace".to_owned()),
-            positions,
-        );
-        let mut report = Report::new();
+    /// The caller has already found the table in the file.
+    pub fn validate(reader: &TableReader<'_>) -> Result<Validated<Self>, Diagnostics> {
+        let mut report = Diagnostics::new();
 
-        let members = member_paths(&reader, "members", true, &mut report);
-        let exclude = member_paths(&reader, "exclude", false, &mut report);
+        let members = member_paths(reader, "members", true, &mut report);
+        let exclude = member_paths(reader, "exclude", false, &mut report);
+        let members = cross_list_conflicts(members, &exclude, &mut report);
 
         let mut known: Vec<&str> = GROUP_KEYS.to_vec();
         known.extend_from_slice(WORKSPACE_KEYS);
-        let default_group = read_group(&reader, "workspace", &known, &mut report);
+        let default_group = read_group(reader, "workspace", &known, &mut report);
 
         let mut groups = BTreeMap::new();
         for (name, group) in reader.named_tables("group", &mut report) {
             if !is_valid_group_name(name) {
-                // Not read further: a name a marker could never spell
-                // cannot be reached, and a name holding a `.` would
-                // address the wrong keys in the span index.
+                // Not read further: no marker can name it.
                 report.push(
                     Diagnostic::error(format!(
                         "`{name}` is not a valid workspace group name (a bare TOML key: \
@@ -175,17 +213,15 @@ impl WorkspaceTable {
 }
 
 /// Read one group: the default group out of `[workspace]` itself, or a
-/// named one out of its own table. `table` is the dotted name the span
-/// index and the messages use; `known` is what is not an unknown key
-/// here.
+/// named one out of its own table. `table` is the dotted name used in
+/// messages; `known` is the set of keys that are not unknown here.
 fn read_group(
     reader: &TableReader<'_>,
     table: &str,
     known: &[&str],
-    report: &mut Report,
+    report: &mut Diagnostics,
 ) -> GroupProperties {
-    // workspaces.md "Common metadata": `sources` "cannot appear in
-    // `[workspace]` (neither in the default group nor in a named one)".
+    // Recognized only to be refused, in the default group and named ones.
     if reader.has("sources") {
         report.push(
             Diagnostic::error(
@@ -195,60 +231,19 @@ fn read_group(
         );
     }
 
-    let publisher = reader
-        .string("publisher", report)
-        .and_then(|raw| parsed(IndexPublisher::parse(raw), reader, "publisher", report));
-    let version = reader.string("version", report).and_then(|raw| {
-        checked(
-            Version::parse(raw),
-            reader,
-            "version",
-            raw,
-            "a valid version",
-            report,
-        )
-    });
-    let license = reader.string("license", report).and_then(|raw| {
-        checked(
-            Expression::parse(raw),
-            reader,
-            "license",
-            raw,
-            "a valid SPDX expression",
-            report,
-        )
-    });
-    let topics = reader
-        .strings("topics", report)
-        .map(|values| values.into_iter().map(ToOwned::to_owned).collect());
-    let metamodel = reader.string("metamodel", report).and_then(|raw| {
-        // model-toml.md "Metamodel" opens with "`metamodel` is a URL",
-        // and only then says "Any other value is a warning, not an
-        // error": the other values are the other URLs. See
-        // `ProjectTable::validate`, which refuses a non-URL for the same
-        // reasons.
-        let metamodel = checked(
-            Metamodel::parse(raw),
-            reader,
-            "metamodel",
-            raw,
-            "a metamodel",
-            report,
-        )?;
-        if let Metamodel::Other(_) = metamodel {
-            report.push(
-                Diagnostic::from(ReadWarning::UnknownMetamodel {
-                    location: reader.location().clone(),
-                    value: raw.to_owned(),
-                })
-                .at_opt(reader.at("metamodel")),
-            );
-        }
-        Some(raw.to_owned())
-    });
-    let maintainers = maintainers(reader, report);
-    let urls = urls(reader, report);
-    let inline_usages = group_usages(reader, table, report);
+    let publisher = reader::publisher(reader, report);
+    let version = reader::version(reader, report);
+    let license = reader::license(reader, report);
+    let topics = reader::topics(reader, report);
+    let metamodel = reader::metamodel(reader, report);
+    let maintainers = reader::maintainers(reader, report);
+    let urls = reader::urls(reader, report, reader::url);
+    let inline_usages = read_usages(
+        reader,
+        &format!("{table}.inline-usages"),
+        report,
+        UsageRaw::validate_declared,
+    );
 
     report.extend(reader.unknown_keys(known, None));
 
@@ -264,70 +259,23 @@ fn read_group(
     }
 }
 
-fn urls(reader: &TableReader<'_>, report: &mut Report) -> Option<ResolvedUrls> {
-    let urls = reader.table("urls", report)?;
-    let url = |key: &str, report: &mut Report| {
-        let raw = urls.string(key, report)?;
-        checked(
-            Iri::parse(raw.to_owned()).map_err(|(error, _)| error),
-            &urls,
-            key,
-            raw,
-            "a valid URL",
-            report,
-        )
-    };
-    let website = url("website", report);
-    let documentation = url("documentation", report);
-    let repository = url("repository", report);
-    report.extend(urls.unknown_keys(URL_KEYS, None));
-    Some(ResolvedUrls {
-        website,
-        documentation,
-        repository,
-    })
-}
-
-/// workspaces.md "Common usages": a group's own entries, which have
-/// nothing above them to inherit from.
-fn group_usages(reader: &TableReader<'_>, table: &str, report: &mut Report) -> Vec<Usage> {
-    let array = format!("{table}.inline-usages");
-    let mut entries = Vec::new();
-    for (index, entry) in reader.tables("inline-usages", report).iter().enumerate() {
-        let site = UsageSite {
-            array: &array,
-            index,
-        };
-        match UsageRaw::from_table(entry.raw()).validate_declared(&site, reader.positions()) {
-            Ok(usage) => entries.push((site, usage)),
-            Err(problems) => report.extend(problems.into_diagnostics()),
-        }
-    }
-    // model-toml.md "Normalization": duplicates are counted per array,
-    // and only the entries that validated can be compared.
-    report.extend(check_duplicates(&entries, reader.positions()));
-    entries.into_iter().map(|(_, usage)| usage).collect()
-}
-
-/// workspaces.md "Included projects": the `members` (or `exclude`)
-/// entries, as paths relative to the workspace root.
+/// The `members` (or `exclude`) entries, as paths relative to the
+/// workspace root.
 ///
 /// An entry is taken exactly as written, as a `sources` entry is: it is
 /// refused unless it already is the one form [`normalize_relative`]
-/// would produce, rather than normalized into it. A path that leaves the
-/// root or is the root still gets the message that says so, which is
-/// more use than "not in normal form" for `..` or `.`.
+/// would produce. A path that leaves the root or is the root still gets
+/// the message that says so.
 ///
-/// `cross_entry` is the rules that hold between entries -- no entry
-/// inside another, no entry listed twice -- which workspaces.md states
-/// for `members` only: `exclude` gets "the same path rules ... (relative,
-/// below the root, and never the root itself)", and two excluded
-/// directories where one contains the other exclude the same tree.
+/// `cross_entry` enables the rules between entries (no entry inside
+/// another, none listed twice). They apply to `members` only: nested
+/// `exclude` entries are harmless, as the inner one excludes a subtree
+/// of the outer.
 fn member_paths(
     reader: &TableReader<'_>,
     key: &str,
     cross_entry: bool,
-    report: &mut Report,
+    report: &mut Diagnostics,
 ) -> Vec<MemberPath> {
     let Some(raw) = reader.strings(key, report) else {
         return Vec::new();
@@ -383,31 +331,77 @@ fn member_paths(
         paths.push(MemberPath {
             raw: (*entry).to_owned(),
             path,
+            at: at(),
         });
     }
     paths
 }
 
-/// The three conditions that are about how a path is
-/// written, rather than where it points, read as `sources` reads them.
-fn path_message(key: &str, raw: &str, error: &NormalizeRelativeError) -> String {
+/// A `members` entry at or under an `exclude` entry is refused.
+///
+/// The two lists say opposite things about the same directory and neither
+/// takes precedence, so the combination is reported as a conflict.
+///
+/// The offending entries are dropped from `members`; the report is what
+/// stops the table being used.
+fn cross_list_conflicts(
+    members: Vec<MemberPath>,
+    exclude: &[MemberPath],
+    report: &mut Diagnostics,
+) -> Vec<MemberPath> {
+    members
+        .into_iter()
+        .filter(|member| {
+            let Some(excluded) = exclude
+                .iter()
+                .find(|excluded| member.path.starts_with(&excluded.path))
+            else {
+                return true;
+            };
+            let message = if member.path == excluded.path {
+                format!(
+                    "`members` path `{}` is also in `exclude`; a directory is either a member \
+                     or outside the workspace",
+                    member.raw
+                )
+            } else {
+                format!(
+                    "`members` path `{}` lies under `exclude` path `{}`; everything under an \
+                     excluded directory is outside the workspace",
+                    member.raw, excluded.raw
+                )
+            };
+            report.push(Diagnostic::error(message).at_opt(member.at.clone()));
+            false
+        })
+        .collect()
+}
+
+/// How many segments of `entry` `path` is under, or `None` if it is not.
+///
+/// The workspace root itself is never an entry, so a depth of zero cannot
+/// arise.
+pub(crate) fn prefix_depth(path: &Utf8UnixPath, entry: &Utf8UnixPath) -> Option<usize> {
+    path.starts_with(entry).then(|| entry.components().count())
+}
+
+/// The message for a path that is not in normalizable form.
+fn path_message(key: &str, raw: &str, error: &NormalizeError) -> String {
     match error {
-        NormalizeRelativeError::Absolute { path: _ } => format!(
+        NormalizeError::Absolute { path: _ } => format!(
             "`{key}` path `{raw}` is absolute; `members` and `exclude` are relative to the \
              workspace root"
         ),
-        NormalizeRelativeError::ContainsBackslash { path: _ } => format!(
-            "`{key}` path `{raw}` contains a backslash `\\`;\n\
-             entries are `/`-separated, so that a manifest reads the same way\n\
-             on every operating system"
-        ),
-        NormalizeRelativeError::ContainsNull { path: _ } => {
-            format!("`{key}` path `{raw}` contains a NULL character")
+        NormalizeError::ContainsBackslash { path: _ } => {
+            format!("`{key}` path `{raw}` {}", PathProblem::Backslash)
         }
-        NormalizeRelativeError::EscapesRoot { path: _ } => {
+        NormalizeError::ContainsNull { path: _ } => {
+            format!("`{key}` path `{raw}` {}", PathProblem::Null)
+        }
+        NormalizeError::EscapesRoot { path: _ } => {
             format!("`{key}` path `{raw}` escapes the workspace root")
         }
-        NormalizeRelativeError::IsRoot { path: _ } => {
+        NormalizeError::IsRoot { path: _ } => {
             format!("`{key}` path `{raw}` is the workspace root, which must not contain a project")
         }
     }

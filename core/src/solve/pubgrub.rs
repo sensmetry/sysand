@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use camino::Utf8PathBuf;
+use crate::paths::join_lexical;
+use camino::{Utf8Path, Utf8PathBuf};
 use pubgrub::{
     DefaultStringReporter, DependencyConstraints, DependencyProvider, DerivationTree, External,
     Reporter as _, VersionSet,
@@ -18,9 +19,10 @@ use std::{
 use thiserror::Error;
 
 use crate::{
+    cancel::CancellationToken,
     model::{InterchangeProjectUsage, InterchangeProjectValidationError},
     project::{ProjectRead, utils::Identifier},
-    resolve::{CoalescingUsage, ResolutionInfo, ResolutionOutcome, ResolveRead, UsageOrigin},
+    resolve::{CoalescingUsage, ResolutionInfo, ResolutionOutcome, ResolveRead},
     utils::format_err,
 };
 
@@ -30,7 +32,7 @@ pub enum DependencyIdentifier {
     Requested(Vec<CoalescingUsage>),
     /// Found dependencies. Note that this does not mean that the
     /// required version was found, just that the usage was resolved.
-    Remote(CoalescingUsage),
+    Remote(Box<CoalescingUsage>),
 }
 
 impl Display for DependencyIdentifier {
@@ -38,32 +40,6 @@ impl Display for DependencyIdentifier {
         match self {
             Self::Requested(_requested) => {
                 write!(f, "requested project(s)")
-                // if requested.len() == 1 {
-                //     let req = &requested[0];
-
-                //     write!(f, "requested project {}", req.resource)?;
-
-                //     if let Some(vr) = &req.version_constraint {
-                //         write!(f, " ({})", vr)?;
-                //     }
-
-                //     return write!(f, "");
-                // }
-
-                // write!(f, "requested projects [")?;
-                // for (i, req) in requested.iter().enumerate() {
-                //     if i > 0 {
-                //         write!(f, ", ")?;
-                //     }
-
-                //     write!(f, "{}", req.resource)?;
-
-                //     if let Some(vr) = &req.version_constraint {
-                //         write!(f, " ({})", vr)?;
-                //     }
-                // }
-
-                // write!(f, "]")
             }
             Self::Remote(iri) => write!(f, "{iri}"),
         }
@@ -127,9 +103,7 @@ impl Display for DiscreteHashSet {
 /// pubgrub's "version" of a project: the position of a candidate in the
 /// list `resolve_candidates` returns for its identifier. The list is
 /// cached per identifier for the whole solve, so a position names the same
-/// candidate every time it is seen. Positions are only ever assigned by
-/// `numbered`; everything that turns a `DiscreteHashSet` back into
-/// candidates goes through that numbering.
+/// candidate every time it is seen. Positions are assigned by `numbered`.
 pub type ProjectIndex = usize;
 
 /// Numbers `candidates` the way pubgrub refers to them.
@@ -257,16 +231,21 @@ impl VersionSet for DiscreteHashSet {
 
 type CandidateMap<R> = HashMap<Identifier, CandidateEntry<R>>;
 
-/// The candidates resolved for one identifier, and those that were skipped as
-/// broken while resolving them.
+/// The candidates resolved for one identifier, those that were skipped as
+/// broken while resolving them, and the local place they came from.
 ///
-/// The faults are kept because the entry is shared by every usage with that
-/// identifier, but not every usage may skip the same broken candidates (see
-/// [`OnBrokenCandidate`]): a usage fails with the first one it may not skip
-/// when it reads the entry, whichever usage happened to fill the entry first.
+/// Not every usage may skip the same broken candidates (see
+/// [`OnBrokenCandidate`]): a usage fails with the first fault it may not
+/// skip when it reads the entry, whichever usage filled the entry first.
+///
+/// `where_from` is `Some` only for a usage that names a location on
+/// this filesystem (`dir` or `kpar-path`). A *second* usage of the same
+/// identity is compared against it: the two must name one place, as the
+/// lockfile holds one source per identity.
 struct CandidateEntry<R: ResolveRead> {
     candidates: Vec<Candidate<R::ProjectStorage>>,
     skipped: Vec<CandidateError<R>>,
+    where_from: Option<Utf8PathBuf>,
 }
 
 /// One resolved alternative for a given IRI: the summary the solver scores
@@ -289,10 +268,13 @@ struct CandidateSummary {
 }
 
 pub struct ProjectSolver<R: ResolveRead> {
-    // Internal RefCell, used in order to lazily populate the cache during resolution
+    // Lazily populated during resolution.
     resolved_candidates: RefCell<CandidateMap<R>>,
-    // dependency_provider: OfflineDependencyProvider<DependencyIdentifier, DiscreteHashSet>,
     resolver: R,
+    /// Observed between candidates: a cancelled
+    /// token stops the solve at the next version choice or dependency
+    /// lookup with [`InternalSolverError::Cancelled`].
+    token: CancellationToken,
 }
 
 /// What resolving a usage does with a candidate that is not a valid project
@@ -309,16 +291,17 @@ enum OnBrokenCandidate<'a> {
 }
 
 impl<'a> OnBrokenCandidate<'a> {
-    fn of(usage: &'a InterchangeProjectUsage) -> Self {
+    fn of(info: &'a ResolutionInfo) -> Self {
         // Candidates from env don't change the logic here
-        match usage {
+        match info.usage() {
             // Resource usages may produce invalid candidates that should not fail
             // the whole resolution (e.g. both src and kpar variants for paths and http)
             InterchangeProjectUsage::Resource {
                 resource: _,
                 version_constraint: _,
             } => Self::Skip,
-            // Path usages name one project outright, so it must be a valid one
+            // Path and remote KPAR usages name one project outright, so it must
+            // be a valid one
             InterchangeProjectUsage::Directory {
                 dir: _,
                 publisher: _,
@@ -328,10 +311,14 @@ impl<'a> OnBrokenCandidate<'a> {
                 kpar_path: _,
                 publisher: _,
                 name: _,
+            }
+            | InterchangeProjectUsage::RemoteKpar {
+                kpar_url: _,
+                publisher: _,
+                name: _,
             } => Self::Fail,
             // A version an index offers is one its publisher published, so a
-            // broken one is a fault of the index to report, not to paper over
-            // by quietly picking another version
+            // broken one is a fault of the index to report
             InterchangeProjectUsage::Index {
                 version_constraint,
                 publisher: _,
@@ -383,12 +370,6 @@ pub enum CandidateError<R: ResolveRead> {
         #[source]
         source: StorageError<R>,
     },
-    #[error("its manifest format cannot be read")]
-    FormatObtain {
-        version: Version,
-        #[source]
-        source: StorageError<R>,
-    },
 }
 
 impl<R: ResolveRead> CandidateError<R> {
@@ -397,8 +378,7 @@ impl<R: ResolveRead> CandidateError<R> {
         match self {
             Self::InvalidProject { version, source: _ }
             | Self::MissingUsage { version }
-            | Self::UsageObtain { version, source: _ }
-            | Self::FormatObtain { version, source: _ } => Some(version),
+            | Self::UsageObtain { version, source: _ } => Some(version),
             Self::Resolved(_)
             | Self::InvalidVersion {
                 version: _,
@@ -429,8 +409,12 @@ impl<R: ResolveRead> CandidateError<R> {
         }
         match self {
             Self::Resolved(source) => InternalSolverError::ResolvedError { usage, source },
-            Self::InvalidVersion { source, version: _ } => {
-                InternalSolverError::InvalidResolvedVersion { usage, source }
+            Self::InvalidVersion { source, version } => {
+                InternalSolverError::InvalidResolvedVersion {
+                    usage,
+                    version,
+                    source,
+                }
             }
             Self::MissingVersion => InternalSolverError::MissingVersion { usage },
             Self::VersionObtain(source) => InternalSolverError::VersionObtain { usage, source },
@@ -442,9 +426,6 @@ impl<R: ResolveRead> CandidateError<R> {
             Self::MissingUsage { version: _ } => InternalSolverError::MissingUsage { usage },
             Self::UsageObtain { source, version: _ } => {
                 InternalSolverError::UsageObtain { usage, source }
-            }
-            Self::FormatObtain { source, version: _ } => {
-                InternalSolverError::FormatObtain { usage, source }
             }
         }
     }
@@ -476,15 +457,10 @@ fn read_candidate<R: ResolveRead>(
         Ok(None) => return Err(CandidateError::MissingUsage { version }),
         Err(source) => return Err(CandidateError::UsageObtain { version, source }),
     };
-    // The usages a candidate declares were written in its manifest
-    let origin = match project.format() {
-        Ok(format) => UsageOrigin::of_format(format),
-        Err(source) => return Err(CandidateError::FormatObtain { version, source }),
-    };
     let relative_root = project.project_root().map(camino::Utf8Path::to_path_buf);
     let usage = usage
         .into_iter()
-        .map(|u| CoalescingUsage::new_usage(u, relative_root.clone(), origin))
+        .map(|u| CoalescingUsage::new_usage(u, relative_root.clone()))
         .collect();
 
     Ok(Candidate {
@@ -504,19 +480,31 @@ fn resolve_candidates<R: ResolveRead + fmt::Debug>(
     resolve: &CoalescingUsage,
     cache: &mut CandidateMap<R>,
 ) -> Result<Vec<CandidateSummary>, InternalSolverError<R>> {
-    let on_broken = OnBrokenCandidate::of(resolve.usage().usage());
+    let on_broken = OnBrokenCandidate::of(resolve.usage());
     let entry = cache.entry(resolve.to_id());
 
-    // TODO: decide on a resolution policy. Currently the cache is keyed by Identifier,
-    // which may be encountered multiple times with different sources in the dependency
-    // graph; only the first such encounter will be cached, all others will reuse the cached
-    // one. SysML spec does not allow multiple instances of the same project to be present
-    // in the dependency graph (AFAIK), so they should be coalesced to a single one (like is
-    // currently done), but how exactly? Most specific (Directory > Resource)? Priority to
-    // direct dependencies of the root project? Either way, the policy has to be explicitly
-    // documented
+    // The cache is keyed by identity, so one identity reached twice
+    // from different sources keeps whichever resolved first. Which
+    // source should win when a *local* usage meets a non-local one is
+    // an open policy question; that case is the deliberate "use my
+    // checkout instead of the index" override and stays first-wins.
+    //
+    // Two **local** usages naming two different places are refused:
+    // the lockfile, the `.sysand` environment and the symbol namespace
+    // all hold one version per identity, so the loser would be silently
+    // dropped.
     match entry {
         Entry::Occupied(mut occupied_entry) => {
+            if let (Some(first), Some(second)) =
+                (&occupied_entry.get().where_from, local_target(resolve))
+                && first != &second
+            {
+                return Err(InternalSolverError::ConflictingLocalSources {
+                    usage: resolve.to_usage(),
+                    first: first.clone(),
+                    second,
+                });
+            }
             // The strictest usage decides, whichever came first
             let skipped = &mut occupied_entry.get_mut().skipped;
             if let Some(position) = skipped.iter().position(|fault| !on_broken.may_skip(fault)) {
@@ -577,11 +565,59 @@ fn resolve_candidates<R: ResolveRead + fmt::Debug>(
             vacant_entry.insert(CandidateEntry {
                 candidates: found,
                 skipped,
+                where_from: local_target(resolve),
             });
 
             Ok(result)
         }
     }
+}
+
+/// The place on this filesystem a usage names, if it names one.
+///
+/// `dir` and `kpar-path` are relative to the declaring project, so the
+/// base is needed to compare two of them; a `file:` resource carries an
+/// absolute path already. An index or `http(s)` usage names no local
+/// place and answers `None`: only two *local* usages are compared.
+///
+/// Lexical, not canonicalized (no filesystem access per cache hit).
+fn local_target(resolve: &CoalescingUsage) -> Option<Utf8PathBuf> {
+    let info = resolve.usage();
+    let relative = match info.usage() {
+        InterchangeProjectUsage::Directory {
+            dir,
+            publisher: _,
+            name: _,
+        } => dir.as_str(),
+        InterchangeProjectUsage::KparPath {
+            kpar_path,
+            publisher: _,
+            name: _,
+        } => kpar_path.as_str(),
+        // A `file:` resource names a place too, but comparing one against
+        // a path usage needs a URL-to-path conversion, so it is not
+        // compared. A remote KPAR or index usage names no local place.
+        InterchangeProjectUsage::Resource {
+            resource: _,
+            version_constraint: _,
+        }
+        | InterchangeProjectUsage::RemoteKpar {
+            kpar_url: _,
+            publisher: _,
+            name: _,
+        }
+        | InterchangeProjectUsage::Index {
+            publisher: _,
+            name: _,
+            version_constraint: _,
+        } => {
+            return None;
+        }
+    };
+    // Lexical: `..` is the only thing that makes two spellings of one
+    // directory differ in practice (`dir = "../v1"` from two members at
+    // different depths must not be reported).
+    Some(join_lexical(info.base_path()?, Utf8Path::new(relative)))
 }
 
 #[expect(clippy::result_large_err)]
@@ -609,18 +645,23 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
                 version_constraint,
                 resource: _,
             } => {
-                // A constraint that selects nothing is neither an error nor a
-                // `Dependencies::Unavailable`, since the dependencies are known.
-                // Handing pubgrub the empty set states exactly that -- this
-                // candidate requires something no published version provides
-                // -- so this candidate is ruled out, but the solve is not aborted
-                let selected = selected_by(
-                    numbered(&candidates).map(|(index, c)| (index, &c.version)),
-                    version_constraint.as_ref(),
-                    default_constraint(&candidates).as_ref(),
-                );
-
-                deps.push((DependencyIdentifier::Remote(usage.to_owned()), selected));
+                deps.push((
+                    DependencyIdentifier::Remote(Box::new(usage.to_owned())),
+                    resource_selection(&candidates, version_constraint.as_ref()),
+                ));
+            }
+            // A source override can make any IRI resolve to a source offering
+            // several versions, so it is selected as an unconstrained
+            // resource usage.
+            InterchangeProjectUsage::RemoteKpar {
+                kpar_url: _,
+                publisher: _,
+                name: _,
+            } => {
+                deps.push((
+                    DependencyIdentifier::Remote(Box::new(usage.to_owned())),
+                    resource_selection(&candidates, None),
+                ));
             }
             InterchangeProjectUsage::Index {
                 version_constraint,
@@ -633,7 +674,10 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
                     None,
                 );
 
-                deps.push((DependencyIdentifier::Remote(usage.to_owned()), selected));
+                deps.push((
+                    DependencyIdentifier::Remote(Box::new(usage.to_owned())),
+                    selected,
+                ));
             }
             InterchangeProjectUsage::Directory {
                 dir: _,
@@ -649,7 +693,7 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
                 // but e.g. environment may have multiple project versions, and will
                 // return all of them based on the identifier
                 deps.push((
-                    DependencyIdentifier::Remote(usage.to_owned()),
+                    DependencyIdentifier::Remote(Box::new(usage.to_owned())),
                     DiscreteHashSet::empty().complement(),
                 ));
             }
@@ -658,6 +702,23 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
 
     let constraints = DependencyConstraints::from_iter(deps);
     Ok(pubgrub::Dependencies::Available(constraints))
+}
+
+/// The candidates a resource usage with `constraint` selects.
+///
+/// A constraint that selects nothing yields known dependencies, so it is
+/// not `Dependencies::Unavailable`. Handing pubgrub the empty set states
+/// exactly that: this candidate requires something no published version
+/// provides, so it is ruled out, but the solve is not aborted.
+fn resource_selection(
+    candidates: &[CandidateSummary],
+    constraint: Option<&VersionReq>,
+) -> DiscreteHashSet {
+    selected_by(
+        numbered(candidates).map(|(index, c)| (index, &c.version)),
+        constraint,
+        default_constraint(candidates).as_ref(),
+    )
 }
 
 /// The versions a `NoVersions` conflict lists: ascending, each once.
@@ -671,7 +732,7 @@ fn version_strings<'a>(versions: impl IntoIterator<Item = &'a Version>) -> Vec<S
     versions.into_iter().map(ToString::to_string).collect()
 }
 
-/// Render `found` as `` `v1`, `v2` `` — the shape the CLI has always shown.
+/// Render `found` as `` `v1`, `v2` ``.
 fn format_found_versions(found: &[String]) -> String {
     let mut versions = String::new();
     for (i, v) in found.iter().enumerate() {
@@ -755,8 +816,8 @@ impl<R: ResolveRead + fmt::Debug + 'static> From<pubgrub::PubGrubError<ProjectSo
     }
 }
 
-/// The version constraint a usage puts on its resource, `*` when none (or
-/// when the usage is not a `Resource` usage).
+/// The version constraint a usage puts on its target, `*` when none (a
+/// `Directory` or `KparPath` usage carries none).
 fn constraint_of(usage: &CoalescingUsage) -> String {
     match usage.usage().usage() {
         InterchangeProjectUsage::Resource {
@@ -784,7 +845,7 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
     /// Which way the solve failed: `no_solution` (no set of versions
     /// satisfies the usages, a constraint no published version matches
     /// included), `retrieval` (a project could not be obtained at all), or
-    /// `choosing_version`.
+    /// `choosing_version`; or `cancelled`.
     pub fn kind(&self) -> &'static str {
         match self.inner.as_ref() {
             pubgrub::PubGrubError::NoSolution(_) => "no_solution",
@@ -796,8 +857,8 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
             pubgrub::PubGrubError::ErrorChoosingVersion {
                 package: _,
                 source: _,
-            }
-            | pubgrub::PubGrubError::ErrorInShouldCancel(_) => "choosing_version",
+            } => "choosing_version",
+            pubgrub::PubGrubError::ErrorInShouldCancel(_) => "cancelled",
         }
     }
 
@@ -838,7 +899,8 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
                 | InternalSolverError::ResolvedError {
                     usage: _,
                     source: _,
-                } => {}
+                }
+                | InternalSolverError::Cancelled(_) => {}
                 InternalSolverError::NotFound(usage, _)
                 | InternalSolverError::NoValidCandidates(usage)
                 | InternalSolverError::UnsupportedUsageType { usage, reason: _ }
@@ -855,10 +917,13 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
                 }
                 | InternalSolverError::MissingVersion { usage }
                 | InternalSolverError::MissingUsage { usage }
-                | InternalSolverError::InvalidResolvedVersion { usage, source: _ }
+                | InternalSolverError::InvalidResolvedVersion { usage, version: _, source: _ }
                 | InternalSolverError::VersionObtain { usage, source: _ }
                 | InternalSolverError::UsageObtain { usage, source: _ }
-                | InternalSolverError::FormatObtain { usage, source: _ } => {
+                // Two local sources for one identity: the usage is
+                // what the reader has to look at, and the message
+                // carries both paths.
+                | InternalSolverError::ConflictingLocalSources { usage, first: _, second: _ } => {
                     conflicts.push(SolveConflict::NotFound {
                         iri: usage.id().to_string(),
                         reason: format_err(source),
@@ -872,6 +937,77 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
             | pubgrub::PubGrubError::ErrorInShouldCancel(_) => {}
         }
         conflicts
+    }
+
+    /// One sentence per dependency that two requirers disagree about,
+    /// naming each requirer and what it asked for.
+    ///
+    /// pubgrub's own report interns a package once by identifier, so both
+    /// sides of a constraint conflict come out rendered with whichever
+    /// usage was seen first ("depends on IRI `x` (=1.0.0) ... and
+    /// (=1.0.0)"). `conflicts` reconstructs each side's real constraint.
+    fn contradictions(&self) -> Vec<String> {
+        // Bound here: the borrows below outlive it.
+        let conflicts = self.conflicts();
+        let mut order: Vec<&str> = Vec::new();
+        let mut by_iri: HashMap<&str, Vec<(Option<&str>, &str)>> = HashMap::new();
+        for conflict in &conflicts {
+            let SolveConflict::Constraint {
+                iri,
+                constraint,
+                required_by,
+            } = conflict
+            else {
+                continue;
+            };
+            let entries = match by_iri.entry(iri.as_str()) {
+                Entry::Occupied(e) => e.into_mut(),
+                Entry::Vacant(e) => {
+                    order.push(iri.as_str());
+                    e.insert(Vec::new())
+                }
+            };
+            entries.push((required_by.as_deref(), constraint.as_str()));
+        }
+
+        order
+            .into_iter()
+            .filter_map(|iri| {
+                let mut entries = by_iri.remove(iri)?;
+                // Two requirers asking for the same thing are not in
+                // conflict; only differing constraints are worth a word.
+                if entries
+                    .iter()
+                    .map(|(_, c)| *c)
+                    .collect::<HashSet<_>>()
+                    .len()
+                    < 2
+                {
+                    return None;
+                }
+                // Sorted, so the sentence cannot vary between runs.
+                entries.sort_unstable();
+                entries.dedup();
+                let parts: Vec<String> = entries
+                    .into_iter()
+                    .map(|(who, constraint)| {
+                        let who = who.map_or_else(
+                            || "the request".to_owned(),
+                            |declarer| format!("`{declarer}`"),
+                        );
+                        format!("{who} requires `{iri}` at `{constraint}`")
+                    })
+                    .collect();
+                let joined = match parts.split_last() {
+                    Some((last, [])) => last.clone(),
+                    Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+                    None => return None,
+                };
+                Some(format!(
+                    "{joined}; only one version of each dependency can be used."
+                ))
+            })
+            .collect()
     }
 
     fn walk(
@@ -899,20 +1035,24 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
                         // Because `dependency_set` is currently
                         // `DiscreteHashSet` which does not include version
                         // constraints in a user-readable form, version
-                        // constraints are instead extracted from the usage list
+                        // constraints are extracted from the usage list
                         // of `dependent`.
                         // FIXME: make `dependency_set` usable directly
                         id_of(dependency).map(|dependency| {
                             let iri = dependency.id().to_string();
                             let (required_by, constraint) = match dependent {
-                                DependencyIdentifier::Requested(usages) => (
-                                    None,
-                                    self.select_usage(
+                                // The root request has no identifier of its
+                                // own, so the requirer is whichever project
+                                // declared the usage -- known for a
+                                // workspace member, `None` otherwise.
+                                DependencyIdentifier::Requested(usages) => {
+                                    let (constraint, declarer) = self.select_usage(
                                         usages.iter().filter(|u| u.id() == dependency.id()),
                                         dependency.id(),
                                         dependency_set,
-                                    ),
-                                ),
+                                    );
+                                    (declarer, constraint)
+                                }
                                 DependencyIdentifier::Remote(usage) => (
                                     Some(usage.id().to_string()),
                                     self.select_usage(
@@ -922,7 +1062,8 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
                                             .filter(|u| u.id() == dependency.id()),
                                         dependency.id(),
                                         dependency_set,
-                                    ),
+                                    )
+                                    .0,
                                 ),
                             };
                             let usage = constraint.unwrap_or(dependency);
@@ -975,18 +1116,19 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
     }
 
     /// Whether the version of `usage` was left to
-    /// [`DEFAULT_INDEX_CONSTRAINT`]. Usage shape alone does not say: a usage
-    /// that states no constraint takes the default only where the source
-    /// posed a version choice, so this repeats the test
-    /// [`default_constraint`] made when the set was built. Against a source
-    /// that names one project outright there is no default and no constraint
-    /// at all.
+    /// [`DEFAULT_INDEX_CONSTRAINT`]. A usage that states no constraint takes
+    /// the default only where the source posed a version choice, so this
+    /// repeats the test [`default_constraint`] made when the set was built.
     fn is_defaulted(&self, usage: &CoalescingUsage) -> bool {
         matches!(
             usage.usage().usage(),
             InterchangeProjectUsage::Resource {
                 version_constraint: None,
                 resource: _
+            } | InterchangeProjectUsage::RemoteKpar {
+                kpar_url: _,
+                publisher: _,
+                name: _
             }
         ) && self.candidates.get(usage.id()).is_some_and(|candidates| {
             candidates
@@ -1006,16 +1148,25 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
     }
 
     /// Among several usages of `dependency` declared by one dependent (a
-    /// project may list the same resource twice), the one whose constraint
-    /// selects exactly the candidates in `dependency_set`; otherwise the
-    /// first.
+    /// project may list the same resource twice), the usage to read this
+    /// node's constraint from (the first whose own constraint selects
+    /// exactly the candidates the node is about, else the first of them),
+    /// and, separately, the project that declared it.
+    ///
+    /// The declarer is returned only when exactly one usage accounts for
+    /// the node, because a wrong name is worse than no name. The fallback
+    /// can return a usage that does not account for the node at all (every
+    /// usage without a version constraint, and every `dir` usage, fails the
+    /// test), and two *different* constraints can select the same
+    /// candidates (`=1.0.0` and `>=1.0.0, <2.0.0` over a single matching
+    /// candidate), so which one is reported depends on declaration order.
     fn select_usage<'a>(
         &self,
-        mut usages: impl Iterator<Item = &'a CoalescingUsage>,
+        usages: impl Iterator<Item = &'a CoalescingUsage>,
         dependency: &Identifier,
         dependency_set: &DiscreteHashSet,
-    ) -> Option<&'a CoalescingUsage> {
-        let first = usages.next()?;
+    ) -> (Option<&'a CoalescingUsage>, Option<String>) {
+        let usages: Vec<&CoalescingUsage> = usages.collect();
         let candidates: &[CandidateSnapshot] =
             self.candidates.get(dependency).map_or(&[], Vec::as_slice);
         let selects_set = |usage: &CoalescingUsage| match usage.usage().usage() {
@@ -1036,10 +1187,19 @@ impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
             .selects_same(dependency_set, candidates.iter().map(|c| c.index)),
             _ => false,
         };
-        if selects_set(first) {
-            return Some(first);
-        }
-        Some(usages.find(|u| selects_set(u)).unwrap_or(first))
+        let selecting: Vec<&CoalescingUsage> =
+            usages.iter().copied().filter(|u| selects_set(u)).collect();
+        let declarer = match selecting.as_slice() {
+            [only] => only.usage().declarer().map(ToOwned::to_owned),
+            _ => None,
+        };
+        (
+            selecting
+                .first()
+                .copied()
+                .or_else(|| usages.first().copied()),
+            declarer,
+        )
     }
 
     /// Every version of `id` the resolver offered, whether or not anything
@@ -1099,7 +1259,11 @@ impl<R: ResolveRead + fmt::Debug + 'static> Display for SolverError<R> {
                     f,
                     "failed to satisfy usage constraints:\n{}",
                     DefaultStringReporter::report(derivation_tree)
-                )
+                )?;
+                for sentence in self.contradictions() {
+                    writeln!(f, "{sentence}")?;
+                }
+                Ok(())
             }
             pubgrub::PubGrubError::ErrorRetrievingDependencies {
                 package,
@@ -1109,8 +1273,7 @@ impl<R: ResolveRead + fmt::Debug + 'static> Display for SolverError<R> {
                 // A dependency's usage, which the user cannot edit: name the
                 // dependency, in the version whose usages were being read.
                 // `Requested` holds the usages of the projects being locked,
-                // which are always read first, so a `Remote` package is never
-                // one of those projects
+                // so a `Remote` package is never one of those projects
                 DependencyIdentifier::Remote(dependent)
                     if let InternalSolverError::BrokenIndexVersion {
                         usage,
@@ -1139,8 +1302,7 @@ impl<R: ResolveRead + fmt::Debug + 'static> Display for SolverError<R> {
                         f,
                         "{} offered for index usage {usage},\n\
                          which dependency `{dependent_id}` {dependent_version} declares, \
-                         is not a valid project,\n\
-                         {BROKEN_NOT_SKIPPED};\n\
+                         is not a valid project;\n\
                          the usage is not yours to edit: it has to be fixed by that \
                          dependency's publisher, or the version where it comes from:\n\
                          {FIXED_WHERE_IT_COMES_FROM}",
@@ -1161,23 +1323,25 @@ impl<R: ResolveRead + fmt::Debug + 'static> Display for SolverError<R> {
                     write!(f, "{source}")
                 }
                 DependencyIdentifier::Requested(_) => write!(f, "failed to retrieve project(s)"),
+                // No backticks around `{iri}`: its `Display` already
+                // brackets whatever it names, so a pair here nests them.
                 DependencyIdentifier::Remote(iri) => {
-                    write!(f, "failed to retrieve usages of `{iri}`")
+                    write!(f, "failed to retrieve usages of {iri}")
                 }
             },
-            pubgrub::PubGrubError::ErrorChoosingVersion { package, source: _ } => match package {
+            pubgrub::PubGrubError::ErrorChoosingVersion { package, source } => match package {
                 DependencyIdentifier::Requested(_) => {
-                    // `fn choose_version()` is infallible in this path
-                    unreachable!();
+                    write!(
+                        f,
+                        "unable to select versions for the requested projects: {source}"
+                    )
                 }
                 DependencyIdentifier::Remote(iri) => {
                     write!(f, "unable to select version of `{iri}`")
                 }
             },
-            pubgrub::PubGrubError::ErrorInShouldCancel(_) => {
-                // ProjectSolver doesn't implement this and default impl does nothing
-                unreachable!();
-            }
+            // `should_cancel` fails only with `Cancelled`.
+            pubgrub::PubGrubError::ErrorInShouldCancel(source) => write!(f, "{source}"),
         }
     }
 }
@@ -1211,9 +1375,6 @@ impl<R: ResolveRead + fmt::Debug + 'static> std::error::Error for SolverError<R>
     }
 }
 
-/// Why a broken version of an index usage fails the solve, for messages
-const BROKEN_NOT_SKIPPED: &str = "and a broken version fails the solve instead of being skipped";
-
 /// Where a broken version of an index usage can be fixed, for messages. The
 /// solver cannot tell whether an index offered it, or the local environment
 /// holds a broken copy of it
@@ -1237,10 +1398,29 @@ type StorageError<R> = <<R as ResolveRead>::ProjectStorage as ProjectRead>::Erro
 pub enum InternalSolverError<R: ResolveRead> {
     #[error("resolution error")]
     Resolution(#[source] R::Error),
+    /// The solve was cancelled between candidates.
+    #[error(transparent)]
+    Cancelled(crate::cancel::Cancelled),
     /// Project not found by current resolver
     /// Value is the formatted error message
     #[error("project {0} not found: {1}")]
     NotFound(ResolutionInfo, String),
+    /// One identity named at two different places on this filesystem.
+    ///
+    /// The lockfile holds one source per identity, so the second would
+    /// be dropped along with its version, its sources and its exported
+    /// symbols -- silently, and decided by whichever usage the solver
+    /// reached first.
+    #[error(
+        "{usage} is named at two places: `{first}` and `{second}`;\n\
+         {SP:>8} one project has one source, so the two cannot both be used",
+        SP = ' '
+    )]
+    ConflictingLocalSources {
+        usage: ResolutionInfo,
+        first: Utf8PathBuf,
+        second: Utf8PathBuf,
+    },
     /// Project candidates were found, but none of them were
     /// valid.
     /// Value is the formatted error message
@@ -1266,8 +1446,7 @@ pub enum InternalSolverError<R: ResolveRead> {
     /// Displayed for a usage the user declares; [`SolverError`] says who
     /// declares a dependency's usage instead.
     #[error(
-        "{} offered for index usage {usage} is not a valid project,\n\
-         {BROKEN_NOT_SKIPPED};\n\
+        "{} offered for index usage {usage} is not a valid project;\n\
          exclude it with a version constraint, or have the version fixed where it comes from:\n\
          {FIXED_WHERE_IT_COMES_FROM}",
         broken_version_label(version.as_deref())
@@ -1292,9 +1471,12 @@ pub enum InternalSolverError<R: ResolveRead> {
     MissingVersion { usage: ResolutionInfo },
     #[error("usage {usage} resolved to a project that does not expose its usages")]
     MissingUsage { usage: ResolutionInfo },
-    #[error("usage {usage} resolved to a project that has an invalid version")]
+    /// `version` is the string as the project declared it
+    /// (`semver::Error` does not echo its input).
+    #[error("usage {usage} declares version `{version}`, which is not semver")]
     InvalidResolvedVersion {
         usage: ResolutionInfo,
+        version: String,
         source: semver::Error,
     },
     #[error("failed to obtain version of resolved usage {usage}")]
@@ -1307,23 +1489,32 @@ pub enum InternalSolverError<R: ResolveRead> {
         usage: ResolutionInfo,
         source: StorageError<R>,
     },
-    #[error("failed to obtain manifest format of resolved usage {usage}")]
-    FormatObtain {
-        usage: ResolutionInfo,
-        source: StorageError<R>,
-    },
 }
 
 impl<R: ResolveRead> ProjectSolver<R> {
     pub fn new(resolver: R) -> Self {
         Self {
             resolved_candidates: RefCell::new(HashMap::new()),
-            //dependency_provider: OfflineDependencyProvider::<DependencyIdentifier, DiscreteHashSet>::new(),
             resolver,
+            token: CancellationToken::new(),
         }
     }
 
-    //let mut map: RefMut<'_, _> = self.resolved_candidates.borrow_mut();
+    /// Observe `token` between candidates.
+    #[must_use]
+    pub fn with_cancellation(mut self, token: CancellationToken) -> Self {
+        self.token = token;
+        self
+    }
+
+    #[expect(clippy::result_large_err)]
+    fn checkpoint(&self) -> Result<(), InternalSolverError<R>> {
+        if self.token.is_cancelled() {
+            Err(InternalSolverError::Cancelled(crate::cancel::Cancelled))
+        } else {
+            Ok(())
+        }
+    }
 }
 
 impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver<R> {
@@ -1338,6 +1529,11 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
     type M = String;
 
     type Err = InternalSolverError<R>;
+
+    /// pubgrub asks at the top of every iteration, i.e. between candidates.
+    fn should_cancel(&self) -> Result<(), Self::Err> {
+        self.checkpoint()
+    }
 
     fn prioritize(
         &self,
@@ -1440,18 +1636,49 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
 
 type Solution<ProjectStorage> = HashMap<Identifier, ProjectStorage>;
 
-/// `requested` pairs each usage with the manifest it was declared in;
-/// a caller that did not read one passes [`UsageOrigin::Json`].
+/// Every usage resolves its relative paths against the same `base_path`;
+/// see [`solve_with_bases`] for when they do not share one.
 pub fn solve<R: ResolveRead + fmt::Debug + 'static>(
-    requested: Vec<(InterchangeProjectUsage, UsageOrigin)>,
+    requested: Vec<InterchangeProjectUsage>,
     base_path: Option<Utf8PathBuf>,
     resolver: R,
 ) -> Result<Solution<R::ProjectStorage>, SolverError<R>> {
-    let solver = ProjectSolver::new(resolver);
+    solve_with_bases(
+        requested
+            .into_iter()
+            .map(|usage| ResolutionInfo::new(usage, base_path.clone()))
+            .collect(),
+        resolver,
+    )
+}
+
+/// Each usage with the directory its relative paths resolve against.
+///
+/// A workspace is solved as one unit, and its members do not share a
+/// base: a member's `dir` is relative to the member, a group entry to
+/// the root. [`solve`] is this function with one base for everything.
+///
+/// Resolution is cached by identity, so two usages naming the same
+/// publisher and name from different bases collapse onto whichever
+/// resolved first.
+pub fn solve_with_bases<R: ResolveRead + fmt::Debug + 'static>(
+    requested: Vec<ResolutionInfo>,
+    resolver: R,
+) -> Result<Solution<R::ProjectStorage>, SolverError<R>> {
+    solve_with_bases_cancellable(requested, resolver, CancellationToken::new())
+}
+
+/// [`solve_with_bases`] observing `token` between candidates.
+pub fn solve_with_bases_cancellable<R: ResolveRead + fmt::Debug + 'static>(
+    requested: Vec<ResolutionInfo>,
+    resolver: R,
+    token: CancellationToken,
+) -> Result<Solution<R::ProjectStorage>, SolverError<R>> {
+    let solver = ProjectSolver::new(resolver).with_cancellation(token);
 
     let requested = requested
         .into_iter()
-        .map(|(u, origin)| CoalescingUsage::new_usage(u, base_path.clone(), origin))
+        .map(CoalescingUsage::from_info)
         .collect();
     let package = DependencyIdentifier::Requested(requested);
 

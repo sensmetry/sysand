@@ -17,6 +17,7 @@ from ._errors import (
     AuthError,
     EnvError,
     IndexProtocolError,
+    LockHeldError,
     NotFoundError,
     ProjectError,
     ResolutionError,
@@ -32,9 +33,13 @@ from ._include import (
 )
 from ._info import info, info_path
 from ._init import (
+    ProjectKind,
     init,
 )
 from ._lock import lock
+from ._migrate import (
+    migrate,
+)
 from ._model import (
     CompressionMethod,
     Dependencies,
@@ -50,6 +55,7 @@ from ._model import (
     InterchangeProjectUsageDirectory,
     InterchangeProjectUsageIndex,
     InterchangeProjectUsageKparPath,
+    InterchangeProjectUsageRemoteKpar,
     InterchangeProjectUsageResource,
     LockedProject,
     LockResult,
@@ -79,6 +85,7 @@ __all__ = [  # ruff: ignore[RUF022]
     "InterchangeProjectUsageResource",
     "InterchangeProjectUsageDirectory",
     "InterchangeProjectUsageKparPath",
+    "InterchangeProjectUsageRemoteKpar",
     "InterchangeProjectUsageIndex",
     "InterchangeProjectUsage",
     "InterchangeProjectInfo",
@@ -108,6 +115,7 @@ __all__ = [  # ruff: ignore[RUF022]
     "IndexProtocolError",
     "SyncError",
     "EnvError",
+    "LockHeldError",
     ## Auth and index configuration
     "AuthPolicy",
     "Resolution",
@@ -129,7 +137,9 @@ __all__ = [  # ruff: ignore[RUF022]
     ## sync
     "sync",
     ## Init
+    "ProjectKind",
     "init",
+    "migrate",
     ## Build
     "build",
     ## Include

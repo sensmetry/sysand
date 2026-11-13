@@ -5,19 +5,19 @@ use std::io::{Cursor, Read};
 use sysand_core::context::ProjectContext;
 
 use sysand_core::lock::Source;
-use sysand_core::project::{CanonicalizationError, ProjectChecksum};
+use sysand_core::project::{CanonicalizationError, FormatError, ProjectChecksum};
 use sysand_core::{
-    manifest::{
-        MODEL_TOML_FILE,
-        diagnostics::Report,
-        kpar_view::{self, ViewError},
-    },
+    manifest::{MODEL_TOML_FILE, edit::DocumentMut, kpar_view, project::ResolvedProject},
     model::{
         InterchangeProjectInfoPartial, InterchangeProjectInfoRaw,
         InterchangeProjectMetadataPartial, InterchangeProjectMetadataRaw, META_JSON_FILE,
         PROJECT_JSON_FILE, PartialManifest,
     },
-    project::{ProjectFormat, ProjectMut, ProjectRead, utils::FsIoError},
+    project::{
+        ManifestError, ManifestWriteError, ProjectDefinition, ProjectFormat, ProjectMut,
+        ProjectRead,
+        utils::{FsIoError, ProjectDeserializationError, read_json_manifest},
+    },
 };
 
 use thiserror::Error;
@@ -58,33 +58,19 @@ pub enum Error {
     Js(String),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
-    #[error("failed to serialize information to write it to `{0}`")]
-    Serialize(&'static str, #[source] serde_json::Error),
     #[error("failed to serialize")]
     SerializeHandle(#[from] serde_json::Error),
     #[error("key `{0}` not found in local storage")]
     KeyNotFound(String),
     #[error("project is missing `model.toml`, or `.project.json` and/or `.meta.json`")]
     MissingInfoMeta,
-    /// model-toml.md "Mixed manifests": a project that holds both kinds
-    /// of manifest is neither a non-zipped KPAR nor a development
-    /// project, and there is no way to tell which was meant.
-    #[error(
-        "`{0}` has both `model.toml` and a json manifest;\n\
-        {SP:>8} it is unclear whether it is a non-zipped KPAR or a development project",
-        SP = ' '
-    )]
-    AmbiguousFormat(Utf8UnixPathBuf),
-    /// A source file listed in `sources` could not be indexed.
+    #[error("`{root}` {problem}")]
+    Format {
+        root: Utf8UnixPathBuf,
+        problem: FormatError,
+    },
     #[error(transparent)]
-    Symbols(#[from] sysand_core::symbols::SymbolsError),
-    #[error("`{0}` is not a valid manifest:\n{1}")]
-    InvalidManifest(&'static str, Report),
-    /// A `model.toml` that is not one, or does not define a project, or
-    /// does not validate. Carried whole, as the filesystem store carries
-    /// it.
-    #[error(transparent)]
-    InvalidModelToml(sysand_core::project::utils::ProjectDeserializationError),
+    Deserialize(#[from] ProjectDeserializationError),
 }
 
 impl From<wasm_bindgen::JsValue> for Error {
@@ -114,86 +100,115 @@ impl From<LocalStorageError> for Error {
 
 impl ProjectLocalBrowserStorage {
     /// The KPAR view of the `model.toml` under `root_path`.
-    ///
-    /// Everything but the storage is `kpar_view`'s, which is free of
-    /// Cargo features exactly so that this store answers with the pair a
-    /// directory would.
-    fn read_model_toml(
-        &self,
-    ) -> Result<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw), Error> {
+    fn read_model_toml(&self) -> Result<ResolvedProject, Error> {
         let text = self.vfs.read_string(self.root_path.join(MODEL_TOML_FILE))?;
-        kpar_view::of_model_toml(&text, |source| {
-            self.vfs.read_string(self.root_path.join(source))
-        })
-        .map_err(|error| match error {
-            ViewError::Manifest(error) => Error::InvalidModelToml(error),
-            ViewError::Read(error) => error.into(),
-            ViewError::Symbols(error) => Error::Symbols(error),
-        })
+        Ok(kpar_view::resolved_of_text(MODEL_TOML_FILE, &text)?)
+    }
+
+    /// The json manifest document `T`, `None` when the store has no such
+    /// key.
+    fn read_json<T: PartialManifest>(
+        &self,
+        metamodel: Option<&str>,
+    ) -> Result<Option<T::Validated>, Error> {
+        match self.vfs.read_string(self.root_path.join(T::FILE)) {
+            Ok(text) => Ok(Some(read_json_manifest::<T>(text.as_bytes(), metamodel)?)),
+            Err(LocalStorageError::KeyNotFound(_)) => Ok(None),
+            Err(err) => Err(err.into()),
+        }
+    }
+
+    /// Write `value` as the json manifest `file`.
+    fn write_json(
+        &self,
+        file: &'static str,
+        value: &impl serde::Serialize,
+        overwrite: bool,
+    ) -> Result<(), Error> {
+        self.format()?
+            .check_json_write(file)
+            .map_err(|problem| self.format_error(problem))?;
+        let path = self.root_path.join(file);
+        if !overwrite && self.vfs.exists(&path)? {
+            return Err(Error::AlreadyExists(file.into()));
+        }
+        self.vfs.write_serialisable(&path, value)?;
+        Ok(())
+    }
+
+    /// The error of this project breaking the format rules.
+    fn format_error(&self, problem: FormatError) -> Error {
+        Error::Format {
+            root: self.root_path.clone(),
+            problem,
+        }
+    }
+
+    /// The project's hash, which only a json project has.
+    fn project_checksum(&self) -> Result<String, Error> {
+        if let Some(checksum) = &self.expected_checksum {
+            return Ok(checksum.clone());
+        }
+        if self.format()? == ProjectFormat::Toml {
+            return Err(self.format_error(FormatError::TomlHasNoChecksum));
+        }
+        self.checksum_canonical_hex()
+            .map_err(|e| match e {
+                CanonicalizationError::ProjectRead(e) => e,
+                CanonicalizationError::FileRead(path, error) => {
+                    Error::Io(FsIoError::ReadFile(String::from(path).into(), error).into())
+                }
+            })?
+            .ok_or(Error::MissingInfoMeta)
     }
 }
 
 impl ProjectRead for ProjectLocalBrowserStorage {
     type Error = Error;
 
+    fn manifest_document(&self) -> Result<DocumentMut, ManifestError<Self::Error>> {
+        if self.format()? != ProjectFormat::Toml {
+            return Err(ManifestError::NoTomlManifest);
+        }
+        let text = self
+            .vfs
+            .read_string(self.root_path.join(MODEL_TOML_FILE))
+            .map_err(Error::from)?;
+        Ok(sysand_core::manifest::edit::validated(MODEL_TOML_FILE, &text).map_err(Error::from)?)
+    }
+
     fn format(&self) -> Result<ProjectFormat, Self::Error> {
         let toml = self.vfs.exists(self.root_path.join(MODEL_TOML_FILE))?;
         let json = self.vfs.exists(self.root_path.join(PROJECT_JSON_FILE))?
             || self.vfs.exists(self.root_path.join(META_JSON_FILE))?;
-        Ok(match (toml, json) {
-            (true, true) => ProjectFormat::Both,
-            (true, false) => ProjectFormat::Toml,
-            (false, true) => ProjectFormat::Json,
-            (false, false) => ProjectFormat::Neither,
-        })
+        Ok(ProjectFormat::from_presence(toml, json))
     }
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         match self.format()? {
             ProjectFormat::Both => {
-                return Err(Error::AmbiguousFormat(self.root_path.clone()));
+                let json = if self.vfs.exists(self.root_path.join(PROJECT_JSON_FILE))? {
+                    PROJECT_JSON_FILE
+                } else {
+                    META_JSON_FILE
+                };
+                return Err(self.format_error(FormatError::Ambiguous { json }));
             }
             ProjectFormat::Toml => {
-                let (info, meta) = self.read_model_toml()?;
-                return Ok((Some(info), Some(meta)));
+                return Ok(Some(ProjectDefinition::Toml(Box::new(
+                    self.read_model_toml()?,
+                ))));
             }
             ProjectFormat::Json | ProjectFormat::Neither => {}
         }
 
         // The metadata is read first because it carries the metamodel,
         // which a message about the other document may need to name.
-        let meta_path = self.root_path.join(META_JSON_FILE);
-        let meta: Option<InterchangeProjectMetadataRaw> = match self.vfs.read_string(meta_path) {
-            Ok(str) => Some(parse_manifest::<InterchangeProjectMetadataPartial>(
-                &str, None,
-            )?),
-            Err(LocalStorageError::KeyNotFound(_)) => None,
-            Err(err) => {
-                return Err(err.into());
-            }
-        };
-
-        let info_path = self.root_path.join(PROJECT_JSON_FILE);
-        let info = match self.vfs.read_string(info_path) {
-            Ok(str) => Some(parse_manifest::<InterchangeProjectInfoPartial>(
-                &str,
-                meta.as_ref().and_then(|meta| meta.metamodel.as_deref()),
-            )?),
-            Err(LocalStorageError::KeyNotFound(_)) => None,
-            Err(err) => {
-                return Err(err.into());
-            }
-        };
-
-        Ok((info, meta))
+        let meta = self.read_json::<InterchangeProjectMetadataPartial>(None)?;
+        let info = self.read_json::<InterchangeProjectInfoPartial>(
+            meta.as_ref().and_then(|meta| meta.metamodel.as_deref()),
+        )?;
+        ProjectDefinition::from_json(info, meta).map_err(|problem| self.format_error(problem))
     }
 
     type SourceReader<'a> = Cursor<String>;
@@ -208,18 +223,7 @@ impl ProjectRead for ProjectLocalBrowserStorage {
     }
 
     fn sources(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
-        let checksum = match &self.expected_checksum {
-            Some(c) => c.clone(),
-            None => self
-                .checksum_canonical_hex()
-                .map_err(|e| match e {
-                    CanonicalizationError::ProjectRead(e) => e,
-                    CanonicalizationError::FileRead(path, error) => {
-                        Error::Io(FsIoError::ReadFile(String::from(path).into(), error).into())
-                    }
-                })?
-                .ok_or(Error::MissingInfoMeta)?,
-        };
+        let checksum = self.project_checksum()?;
         Ok(vec![sysand_core::lock::Source::LocalSrc {
             src_path: self.root_path.as_str().into(),
             checksum,
@@ -234,18 +238,7 @@ impl ProjectRead for ProjectLocalBrowserStorage {
     }
 
     fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
-        match self.checksum_canonical_hex() {
-            Ok(c) => match c {
-                Some(c) => Ok(ProjectChecksum::Project(c)),
-                None => Err(Error::MissingInfoMeta),
-            },
-            Err(e) => match e {
-                CanonicalizationError::ProjectRead(e) => Err(e),
-                CanonicalizationError::FileRead(path, error) => Err(Error::Io(
-                    FsIoError::ReadFile(String::from(path).into(), error).into(),
-                )),
-            },
-        }
+        Ok(ProjectChecksum::Project(self.project_checksum()?))
     }
 
     fn project_root(&self) -> Option<&camino::Utf8Path> {
@@ -260,14 +253,7 @@ impl ProjectMut for ProjectLocalBrowserStorage {
         info: &InterchangeProjectInfoRaw,
         overwrite: bool,
     ) -> Result<(), Self::Error> {
-        let info_path = self.root_path.join(".project.json");
-        if !overwrite && self.vfs.exists(&info_path)? {
-            return Err(Error::AlreadyExists(".project.json".into()));
-        }
-
-        self.vfs.write_serialisable(&info_path, info)?;
-
-        Ok(())
+        self.write_json(PROJECT_JSON_FILE, info, overwrite)
     }
 
     fn put_meta(
@@ -275,16 +261,27 @@ impl ProjectMut for ProjectLocalBrowserStorage {
         meta: &InterchangeProjectMetadataRaw,
         overwrite: bool,
     ) -> Result<(), Self::Error> {
-        let meta_path = self.root_path.join(".meta.json");
-        if !overwrite && self.vfs.exists(&meta_path)? {
-            return Err(Error::AlreadyExists(".meta.json".into()));
+        self.write_json(META_JSON_FILE, meta, overwrite)
+    }
+
+    fn put_manifest_document(
+        &mut self,
+        document: &DocumentMut,
+        overwrite: bool,
+    ) -> Result<(), ManifestWriteError<Self::Error>> {
+        self.format()?
+            .check_toml_write()
+            .map_err(|problem| self.format_error(problem))?;
+
+        let manifest_path = self.root_path.join(MODEL_TOML_FILE);
+        if !overwrite && self.vfs.exists(&manifest_path).map_err(Error::from)? {
+            return Err(Error::AlreadyExists(MODEL_TOML_FILE.into()).into());
         }
 
-        self.vfs.write_serialisable(
-            &meta_path,
-            Into::<InterchangeProjectMetadataRaw>::into(meta.to_owned()),
-        )?;
-
+        let text = sysand_core::manifest::edit::checked_text(document).map_err(Error::from)?;
+        self.vfs
+            .write_string(&manifest_path, text)
+            .map_err(Error::from)?;
         Ok(())
     }
 
@@ -303,23 +300,5 @@ impl ProjectMut for ProjectLocalBrowserStorage {
         self.vfs.write_reader(&file_path, source)?;
 
         Ok(())
-    }
-}
-
-/// One manifest document from local storage, parsed and validated; its
-/// warnings are logged against the document they came from.
-fn parse_manifest<T: PartialManifest>(
-    text: &str,
-    metamodel: Option<&str>,
-) -> Result<T::Validated, Error> {
-    let partial: T = serde_json::from_str(text).map_err(|e| Error::Serialize(T::FILE, e))?;
-    match partial.validate_manifest(metamodel) {
-        Ok(validated) => {
-            for warning in &validated.warnings {
-                log::warn!("`{}`: {warning}", T::FILE);
-            }
-            Ok(validated.value)
-        }
-        Err(report) => Err(Error::InvalidManifest(T::FILE, report)),
     }
 }

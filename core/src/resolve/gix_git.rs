@@ -13,8 +13,11 @@ use crate::{
     },
 };
 
-#[derive(Debug)]
-pub struct GitResolver;
+#[derive(Debug, Default)]
+pub struct GitResolver {
+    /// Observed by every clone this resolver starts.
+    pub token: crate::cancel::CancellationToken,
+}
 
 #[derive(Error, Debug)]
 pub enum GitResolverError {
@@ -67,6 +70,7 @@ impl ResolveRead for GitResolver {
                             .strip_prefix("git+")
                             .unwrap_or(resource.as_str()),
                     )
+                    .map(|project| project.with_cancellation(self.token.clone()))
                     .map_err(std::convert::Into::into),
                 )))
             }
@@ -77,6 +81,11 @@ impl ResolveRead for GitResolver {
             }
             | InterchangeProjectUsage::KparPath {
                 kpar_path: _,
+                publisher: _,
+                name: _,
+            }
+            | InterchangeProjectUsage::RemoteKpar {
+                kpar_url: _,
                 publisher: _,
                 name: _,
             }

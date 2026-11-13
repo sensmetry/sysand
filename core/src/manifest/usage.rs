@@ -3,50 +3,48 @@
 
 //! One entry of `inline-usages`: a project this project uses.
 //!
-//! model-toml.md "Usages": "what a manifest declares is a *usage*
-//! (`dependency` clashes with SysML)". An entry appears in a project's own
-//! array, where it may instead be an opt-in to a usage the workspace
-//! declares ([`MemberUsage`]), or in a workspace group's array, where it
-//! is always declared ([`Usage`]).
+//! What a manifest declares is a *usage* (`dependency` clashes with
+//! SysML). An entry appears in a project's own array, where it may
+//! instead be an opt-in to a usage the workspace declares
+//! ([`MemberUsage`]), or in a workspace group's array, where it is always
+//! declared ([`Usage`]).
 
-use std::collections::{BTreeMap, BTreeSet};
+use crate::paths::parse_local_path;
+use std::collections::{BTreeMap, BTreeSet, HashMap, hash_map::Entry};
 use std::fmt::Display;
+use std::hash::Hash;
 
 use fluent_uri::Iri;
 use serde::Serialize;
+use toml::de::{DeTable, DeValue};
 use typed_path::Utf8UnixPathBuf;
 
 use crate::manifest::common::InheritMarker;
-use crate::manifest::common::{InheritFrom, NormalizedIdentity, normalized_identity};
-use crate::manifest::diagnostics::{
-    Diagnostic, KeyLocation, Position, Report, UnknownKeys, missing_key,
+use crate::manifest::common::{
+    InheritFrom, NormalizedIdentity, OMG_PUBLISHER, normalized_identity,
 };
-use crate::manifest::reader::describe;
-use crate::manifest::spans::Positions;
-use crate::model::{IndexName, IndexPublisher};
+use crate::manifest::diagnostics::{
+    Diagnostic, Diagnostics, KeyLocation, Position, UnknownKeys, missing_key,
+};
+use crate::manifest::reader::{TableReader, describe};
+use crate::model::{IndexName, IndexPublisher, is_http_url, is_omg_stdlib_iri};
 
-/// The keys a usage entry accepts, quoted as the
-/// message lists them. One constant, so that the message and the fields
-/// of [`UsageRaw`] cannot drift apart.
+/// The keys a usage entry accepts, quoted as the message lists them.
 const ACCEPTED_KEYS: &str =
-    "`publisher`, `name`, `version`, `dir`, `kpar-path`, `url`, `workspace`";
+    "`publisher`, `name`, `version`, `dir`, `kpar-path`, `kpar-url`, `workspace`";
 
-/// How a missing half of an identity is spelled, as the publisher
-/// mismatch of a json target already spells it.
+/// How a missing half of an identity is spelled in messages.
 const MISSING: &str = "<none>";
 
 /// One project a manifest uses, with the kind it is resolved by.
 ///
-/// model-toml.md: "Which kind an entry declares is decided by its kind key
-/// -- `dir`, `kpar-path`, `git`, `url` -- of which at most one may be
-/// present; an index usage is the entry that carries none." The `git`
-/// kind is "postponed to after v1: not declarable in v1" and so has no
-/// variant here; `resource`, the KerML usage type json projects carry,
-/// "cannot be declared in `model.toml`" either and only exists on the
-/// KPAR side.
+/// The kind an entry declares is decided by its kind key (`dir`,
+/// `kpar-path`, `kpar-url`), of which at most one may be present; an
+/// index usage is the entry that carries none. The `git` kind is not
+/// declarable and has no variant here, and neither has `resource`.
 ///
-/// Every variant carries `publisher` and `name` as written: "that pair is
-/// the identity a usage is resolved by", and it is not normalized here.
+/// Every variant carries `publisher` and `name` as written, not
+/// normalized.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Usage {
     /// `source path: dir, publisher, name`.
@@ -61,25 +59,30 @@ pub enum Usage {
         name: IndexName,
         kpar_path: Utf8UnixPathBuf,
     },
-    /// `index: publisher, name, version constraint` -- the entry that
-    /// carries no kind key at all. "Index usages are implicit in v1: the
-    /// entry names no index."
+    /// `index: publisher, name, version constraint`: the entry that
+    /// carries no kind key at all. It names no index.
     Index {
         publisher: IndexPublisher,
         name: IndexName,
         version_constraint: semver::VersionReq,
     },
-    /// `remote-kpar: url, publisher, name`; "version constraint not
-    /// supported".
+    /// `remote-kpar: kpar-url, publisher, name`; no version constraint.
+    ///
+    /// The publisher is absent exactly for a standard-library usage,
+    /// whose identity is `(omg, <name>)`.
     RemoteKpar {
-        publisher: IndexPublisher,
+        publisher: Option<IndexPublisher>,
         name: IndexName,
         url: Iri<String>,
     },
 }
 
 impl Usage {
-    pub fn publisher(&self) -> &IndexPublisher {
+    /// The publisher as *written*, which a standard-library usage does
+    /// not write.
+    ///
+    /// The fallback to `omg` is applied by [`Self::identity`].
+    pub fn publisher(&self) -> Option<&IndexPublisher> {
         match self {
             Self::SourcePath {
                 publisher,
@@ -95,12 +98,12 @@ impl Usage {
                 publisher,
                 name: _,
                 version_constraint: _,
-            }
-            | Self::RemoteKpar {
+            } => Some(publisher),
+            Self::RemoteKpar {
                 publisher,
                 name: _,
                 url: _,
-            } => publisher,
+            } => publisher.as_ref(),
         }
     }
 
@@ -129,10 +132,10 @@ impl Usage {
         }
     }
 
-    /// model-toml.md "Normalization": "All projects are resolved by their
-    /// *normalized* identity, regardless of how the usage is declared."
+    /// The normalized identity; a usage that declares no publisher has the
+    /// identity `(omg, <name>)`.
     pub fn identity(&self) -> NormalizedIdentity {
-        normalized_identity(self.publisher(), self.name())
+        normalized_identity(self.publisher().unwrap_or(&OMG_PUBLISHER), self.name())
     }
 
     /// The `dir`/`kpar-path` of a local usage, as written.
@@ -164,11 +167,9 @@ impl Usage {
 
 /// Which directory a usage's relative paths are joined onto.
 ///
-/// workspaces.md "Common usages": a group entry's `dir`/`kpar-path` "is
-/// relative to the directory of the `model.toml` that defines the
-/// workspace, i.e. the workspace root, whichever member opts into it. A
-/// member's own `[[inline-usages]]` stay relative to the member." The base
-/// is therefore a property of where the usage came from, not of the usage.
+/// A group entry's `dir`/`kpar-path` is relative to the workspace root,
+/// whichever member opts into it. A member's own `[[inline-usages]]` stay
+/// relative to the member.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UsageBase {
     /// The project's own directory.
@@ -177,9 +178,7 @@ pub enum UsageBase {
     WorkspaceRoot,
 }
 
-/// A usage together with the directory its paths are relative to. This is
-/// what a resolved project's usages are, and what a resolver joins the
-/// paths onto.
+/// A usage together with the directory its paths are relative to.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LocatedUsage {
     pub usage: Usage,
@@ -200,55 +199,25 @@ impl LocatedUsage {
             base: UsageBase::WorkspaceRoot,
         }
     }
-
-    /// The path a resolver opens for a local usage, given the project's
-    /// and the workspace root's directories.
-    ///
-    /// Both of those are filesystem paths (hence `camino`) and the usage's
-    /// own is a manifest path (`Utf8UnixPathBuf`); this join is the one
-    /// boundary between the two.
-    ///
-    /// # Panics
-    ///
-    /// If an inherited usage is resolved without a workspace root, which
-    /// cannot happen: a usage is only inherited by resolving it against
-    /// the workspace it came from.
-    pub fn resolve_local_path(
-        &self,
-        project_dir: &camino::Utf8Path,
-        workspace_root: Option<&camino::Utf8Path>,
-    ) -> Option<camino::Utf8PathBuf> {
-        let relative = self.usage.local_path()?;
-        let base = match self.base {
-            UsageBase::Project => project_dir,
-            UsageBase::WorkspaceRoot => {
-                workspace_root.expect("an inherited usage comes from a workspace")
-            }
-        };
-        Some(base.join(relative.as_str()))
-    }
 }
 
 /// One `[[inline-usages]]` entry of a *project*.
 ///
-/// workspaces.md "Common usages": "Members opt in per usage, not for the
-/// array as a whole: an entry that gives only the identity plus a
-/// `workspace` marker takes the matching group entry whole." A member may
-/// declare its own usages alongside inherited ones, so an entry is either.
+/// Members opt in per usage: an entry that
+/// gives only the identity plus a `workspace` marker takes the matching
+/// group entry whole.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MemberUsage {
     Declared(Usage),
     Inherited {
-        publisher: IndexPublisher,
+        /// Absent exactly when the entry opts into a *standard-library*
+        /// group entry, which carries no publisher; the opt-in likewise
+        /// gives only `name` and the marker.
+        publisher: Option<IndexPublisher>,
         name: IndexName,
         from: InheritFrom,
-        /// Where the `workspace` key that made this an opt-in is.
-        ///
-        /// Kept for the same reason
-        /// [`crate::manifest::inherit::Inherited`] keeps one: the
-        /// diagnostics an opt-in can produce are raised once the
-        /// workspace is known, by which time the positions of this
-        /// file are no longer at hand.
+        /// Where the `workspace` key that made this an opt-in is, kept for
+        /// diagnostics raised once the workspace is known.
         at: Option<Position>,
     },
 }
@@ -257,20 +226,20 @@ impl MemberUsage {
     pub fn identity(&self) -> NormalizedIdentity {
         match self {
             Self::Declared(usage) => usage.identity(),
+            // An opt-in that omits its publisher opts into the standard library.
             Self::Inherited {
                 publisher,
                 name,
                 from: _,
                 at: _,
-            } => normalized_identity(publisher, name),
+            } => normalized_identity(publisher.as_ref().unwrap_or(&OMG_PUBLISHER), name),
         }
     }
 }
 
 /// What a duplicate check needs of an entry, whichever array it came from.
 pub trait UsageEntry {
-    /// model-toml.md "Normalization": duplicates are the one comparison
-    /// that normalizes before resolution.
+    /// Duplicates are compared after normalization.
     fn normalized_identity(&self) -> NormalizedIdentity;
     /// The entry as written, for the message.
     fn label(&self) -> String;
@@ -282,7 +251,7 @@ impl UsageEntry for Usage {
     }
 
     fn label(&self) -> String {
-        format!("{}/{}", self.publisher(), self.name())
+        self.to_string()
     }
 }
 
@@ -294,80 +263,56 @@ impl UsageEntry for MemberUsage {
     fn label(&self) -> String {
         match self {
             Self::Declared(usage) => usage.label(),
+            // Spelled as written.
             Self::Inherited {
-                publisher,
+                publisher: Some(publisher),
                 name,
                 from: _,
                 at: _,
             } => format!("{publisher}/{name}"),
+            Self::Inherited {
+                publisher: None,
+                name,
+                from: _,
+                at: _,
+            } => name.to_string(),
         }
     }
 }
 
 /// Where one entry sits in the document: which array of tables holds it,
 /// named by its dotted path (`inline-usages`,
-/// `workspace.group.legacy.inline-usages`), and its index in that array.
-///
-/// Carried per entry rather than derived from a position in a list,
-/// because what reaches a duplicate check is the entries that *validated*
-/// and one rejected entry would shift every later index.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// `workspace.group.legacy.inline-usages`), its index in that array, and
+/// the entry itself, which positions what is said about it.
+#[derive(Clone, Copy, Debug)]
 pub struct UsageSite<'a> {
     pub array: &'a str,
     pub index: usize,
+    pub entry: &'a TableReader<'a>,
 }
 
 impl UsageSite<'_> {
-    fn segments(&self) -> Vec<String> {
-        let mut segments: Vec<String> = self.array.split('.').map(ToOwned::to_owned).collect();
-        segments.push(self.index.to_string());
-        segments
-    }
-
     /// Where the entry as a whole is: its `[[...]]` header.
-    fn position(
-        &self,
-        positions: &Positions<'_>,
-    ) -> Option<crate::manifest::diagnostics::Position> {
-        let segments = self.segments();
-        positions.near(&borrowed(&segments))
+    fn position(&self) -> Option<Position> {
+        self.entry.here()
     }
 
     /// Where one of the entry's keys is, or the entry itself when the key
     /// is not there.
-    fn key(
-        &self,
-        key: &str,
-        positions: &Positions<'_>,
-    ) -> Option<crate::manifest::diagnostics::Position> {
-        let mut segments = self.segments();
-        segments.push(key.to_owned());
-        positions.near(&borrowed(&segments))
+    fn key(&self, key: &str) -> Option<Position> {
+        self.entry.at(key)
     }
-}
-
-fn borrowed(segments: &[String]) -> Vec<&str> {
-    segments.iter().map(String::as_str).collect()
 }
 
 /// The `serde`-facing shape of one entry.
 ///
-/// model-toml.md "Reading and validating": "every field of every manifest
-/// ... is optional at parse time", and "whether its value has the right
-/// shape" is Sysand's to check, not serde's -- so every field is a plain
-/// `String` and every value is parsed in [`UsageRaw::validate_member`].
-/// The alternative, validating inside `Deserialize`, makes one bad value
-/// anywhere abort the read of the whole file.
+/// Every value is a plain `String`, parsed during validation.
 ///
-/// `git`, `rev`, `tag` and `branch` are fields rather than unknown keys
-/// because model-toml.md names the git kind and postpones it; a reader
-/// that called them unknown would say they will never exist.
+/// `git`, `rev`, `tag` and `branch` are recognized fields because the git
+/// kind is reserved.
 ///
-/// Read from a [`toml::Table`] rather than through `Deserialize`
-/// ([`UsageRaw::from_table`]): a derive fails the whole file on the first
-/// value of the wrong TOML type, which is the one thing "reports every
-/// problem it finds in one report" does not allow. `Serialize` stays,
-/// for writing a usage back out through `From<Usage>`.
+/// Read from a [`DeTable`] by [`UsageRaw::from_table`]. `Serialize`
+/// writes a usage back out through `From<Usage>`.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct UsageRaw {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -380,7 +325,8 @@ pub struct UsageRaw {
     pub dir: Option<String>,
     #[serde(rename = "kpar-path", skip_serializing_if = "Option::is_none")]
     pub kpar_path: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Spelled `kpar-url` in a file.
+    #[serde(rename = "kpar-url", skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub git: Option<String>,
@@ -390,23 +336,21 @@ pub struct UsageRaw {
     pub tag: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub branch: Option<String>,
-    /// workspaces.md "Common usages": the per-entry opt-in marker, written
-    /// directly among the entry's keys (`workspace = true`), not as the
-    /// `<key>.workspace` table a metadata key uses.
+    /// The per-entry opt-in marker, written directly among the entry's
+    /// keys (`workspace = true`), unlike the `<key>.workspace` table a
+    /// metadata key uses.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace: Option<InheritMarker>,
-    /// workspaces.md "Unknown keys": inside a usage entry an unknown key
-    /// is an error, so this set must be empty for the entry to be
-    /// accepted.
+    /// An unknown key in a usage entry is an error, so this must be empty
+    /// for the entry to be accepted.
     #[serde(flatten)]
     pub unknown: UnknownKeys,
     /// The keys that were written with a value of the wrong TOML type,
     /// each with the type that was found there.
     ///
-    /// The value itself is gone, so what such an entry declares cannot be
-    /// decided from what is left: an entry with one of these is refused
-    /// without asking it for a kind, which would otherwise report a
-    /// wrong-typed `dir` as an index usage that is missing its `version`.
+    /// The value itself is gone, so an entry with one of these is refused
+    /// without asking it for a kind, which would report a wrong-typed `dir`
+    /// as an index usage that is missing its `version`.
     #[serde(skip)]
     pub wrong_typed: BTreeMap<String, &'static str>,
 }
@@ -414,55 +358,57 @@ pub struct UsageRaw {
 impl UsageRaw {
     /// Read one entry out of the values a `model.toml` parsed into.
     ///
-    /// Nothing is judged here and nothing is reported: this takes what
-    /// has the right shape, remembers what does not, and leaves every
-    /// diagnostic to [`UsageRaw::validate_member`], which is the one
-    /// place that decides what an entry means.
-    pub fn from_table(table: &toml::Table) -> Self {
+    /// Nothing is judged or reported here: what has the right shape is
+    /// taken, and what does not is remembered for validation.
+    pub fn from_table(table: &DeTable<'_>) -> Self {
         let mut raw = Self::default();
-        let mut strings: BTreeMap<&str, String> = BTreeMap::new();
         let mut unknown: BTreeSet<String> = BTreeSet::new();
 
         for (key, value) in table {
-            match key.as_str() {
-                "publisher" | "name" | "version" | "dir" | "kpar-path" | "url" | "git" | "rev"
-                | "tag" | "branch" => match value.as_str() {
-                    Some(text) => {
-                        strings.insert(key.as_str(), text.to_owned());
-                    }
-                    None => {
-                        raw.wrong_typed.insert(key.clone(), describe(value));
-                    }
-                },
+            let key: &str = key.get_ref();
+            let value = value.get_ref();
+            let field = match key {
+                "publisher" => &mut raw.publisher,
+                "name" => &mut raw.name,
+                "version" => &mut raw.version,
+                "dir" => &mut raw.dir,
+                "kpar-path" => &mut raw.kpar_path,
+                "kpar-url" => &mut raw.url,
+                "git" => &mut raw.git,
+                "rev" => &mut raw.rev,
+                "tag" => &mut raw.tag,
+                "branch" => &mut raw.branch,
                 // The one key of an entry that is neither a string nor a
                 // table: a marker is a bool or a group name.
-                "workspace" => match value {
-                    toml::Value::Boolean(flag) => {
-                        raw.workspace = Some(InheritMarker::Flag(*flag));
+                "workspace" => {
+                    match value {
+                        DeValue::Boolean(flag) => {
+                            raw.workspace = Some(InheritMarker::Flag(*flag));
+                        }
+                        DeValue::String(group) => {
+                            raw.workspace = Some(InheritMarker::Group(group.clone().into_owned()));
+                        }
+                        _ => {
+                            raw.wrong_typed
+                                .insert(key.to_owned(), describe(value.type_str()));
+                        }
                     }
-                    toml::Value::String(group) => {
-                        raw.workspace = Some(InheritMarker::Group(group.clone()));
-                    }
-                    _ => {
-                        raw.wrong_typed.insert(key.clone(), describe(value));
-                    }
-                },
+                    continue;
+                }
                 _ => {
-                    unknown.insert(key.clone());
+                    unknown.insert(key.to_owned());
+                    continue;
+                }
+            };
+            match value {
+                DeValue::String(text) => *field = Some(text.clone().into_owned()),
+                _ => {
+                    raw.wrong_typed
+                        .insert(key.to_owned(), describe(value.type_str()));
                 }
             }
         }
 
-        raw.publisher = strings.remove("publisher");
-        raw.name = strings.remove("name");
-        raw.version = strings.remove("version");
-        raw.dir = strings.remove("dir");
-        raw.kpar_path = strings.remove("kpar-path");
-        raw.url = strings.remove("url");
-        raw.git = strings.remove("git");
-        raw.rev = strings.remove("rev");
-        raw.tag = strings.remove("tag");
-        raw.branch = strings.remove("branch");
         raw.unknown = unknown.into_iter().collect();
         raw
     }
@@ -470,24 +416,20 @@ impl UsageRaw {
     /// The entry as the messages name it: `<publisher>/<name>` as
     /// written, with `<none>` for a half that is missing.
     pub fn label(&self) -> String {
-        format!(
-            "{}/{}",
-            self.publisher.as_deref().unwrap_or(MISSING),
-            self.name.as_deref().unwrap_or(MISSING)
-        )
+        let name = self.name.as_deref().unwrap_or(MISSING);
+        match self.publisher.as_deref() {
+            Some(publisher) => format!("{publisher}/{name}"),
+            // A standard-library usage is spelled by its name alone.
+            None => name.to_owned(),
+        }
     }
 
     /// Validate one entry of a *workspace group's* array, which has
     /// nothing above it to inherit from.
-    pub fn validate_declared(
-        self,
-        site: &UsageSite<'_>,
-        positions: &Positions<'_>,
-    ) -> Result<Usage, Report> {
-        match self.validate(site, positions, false)? {
+    pub fn validate_declared(self, site: &UsageSite<'_>) -> Result<Usage, Diagnostics> {
+        match self.validate(site, false)? {
             MemberUsage::Declared(usage) => Ok(usage),
-            // A marker is refused while validating, so an entry of a
-            // group's array never comes back inherited.
+            // Markers are refused by `validate` here, so this is unreachable.
             MemberUsage::Inherited {
                 publisher: _,
                 name: _,
@@ -499,21 +441,16 @@ impl UsageRaw {
 
     /// Validate one entry of a *project's* array, where a `workspace`
     /// marker is an opt-in.
-    pub fn validate_member(
-        self,
-        site: &UsageSite<'_>,
-        positions: &Positions<'_>,
-    ) -> Result<MemberUsage, Report> {
-        self.validate(site, positions, true)
+    pub fn validate_member(self, site: &UsageSite<'_>) -> Result<MemberUsage, Diagnostics> {
+        self.validate(site, true)
     }
 
     fn validate(
         self,
         site: &UsageSite<'_>,
-        positions: &Positions<'_>,
         marker_allowed: bool,
-    ) -> Result<MemberUsage, Report> {
-        let mut report = Report::new();
+    ) -> Result<MemberUsage, Diagnostics> {
+        let mut report = Diagnostics::new();
         let label = self.label();
 
         for key in self.unknown.iter() {
@@ -522,7 +459,7 @@ impl UsageRaw {
                     "unknown key `{key}` in usage `{label}`; a usage entry accepts only \
                      {ACCEPTED_KEYS}"
                 ))
-                .at_opt(site.key(key, positions)),
+                .at_opt(site.key(key)),
             );
         }
 
@@ -546,7 +483,7 @@ impl UsageRaw {
                     "usage `{label}` declares {keys}; git usages are postponed to after v1 and \
                      cannot be declared in `model.toml`"
                 ))
-                .at_opt(site.key(first, positions)),
+                .at_opt(site.key(first)),
             );
         }
 
@@ -560,40 +497,56 @@ impl UsageRaw {
                 Diagnostic::error(format!(
                     "`{key}` in usage `{label}` must be {expected}, but it is {found}"
                 ))
-                .at_opt(site.key(key, positions)),
+                .at_opt(site.key(key)),
             );
         }
 
-        let name = self.checked_name(site, positions, &mut report);
-        let publisher = self.checked_publisher(site, positions, &mut report, name.as_ref());
+        let name = self.checked_name(site, &mut report);
 
-        // What an entry *is* decides which further checks apply. An entry
-        // carrying a `workspace` key is an opt-in even when the marker
-        // itself turns out to be invalid, and one declaring the postponed
-        // git kind is not an index usage -- so neither is then asked for
-        // the `version` an index usage needs.
+        // The kind is settled before the publisher, because it decides
+        // whether an absent `publisher` is allowed.
+        let declared_kind =
+            if self.wrong_typed.is_empty() && self.workspace.is_none() && git_keys.is_empty() {
+                self.checked_kind(site, &mut report, &label)
+            } else {
+                None
+            };
+        // Two exemptions: a `kpar-url` at an OMG standard-library IRI, and
+        // an opt-in, which takes its publisher (or its absence) from the
+        // group entry it names. Keyed on the raw `workspace` key, as the
+        // marker is checked later.
+        let exempt = self.workspace.is_some()
+            || matches!(
+                &declared_kind,
+                Some(Kind::RemoteKpar(url)) if is_omg_stdlib_iri(url.as_str())
+            );
+        let publisher = self.checked_publisher(site, &mut report, name.as_ref(), exempt);
+
+        // An entry carrying a `workspace` key is an opt-in even when the
+        // marker is invalid, and one declaring the postponed git kind is
+        // not an index usage, so neither is asked for the `version` an
+        // index usage needs.
         let member = if !self.wrong_typed.is_empty() {
-            // The values are gone, so there is nothing left to decide a
-            // shape from.
+            // The values are gone, so no shape can be decided.
             None
         } else if self.workspace.is_some() {
-            let from = self.checked_marker(site, positions, &mut report, marker_allowed, &label);
+            let from = self.checked_marker(site, &mut report, marker_allowed, &label);
             from.and_then(|from| {
-                self.check_opt_in_is_bare(site, positions, &mut report, &label, &from);
+                self.check_opt_in_is_bare(site, &mut report, &label, &from);
                 publisher
                     .zip(name)
                     .map(|(publisher, name)| MemberUsage::Inherited {
                         publisher,
                         name,
                         from,
-                        at: site.key("workspace", positions),
+                        at: site.key("workspace"),
                     })
             })
         } else if git_keys.is_empty() {
-            self.checked_kind(site, positions, &mut report, &label)
+            declared_kind
                 .zip(publisher.zip(name))
-                .map(|(kind, (publisher, name))| {
-                    MemberUsage::Declared(kind.into_usage(publisher, name))
+                .and_then(|(kind, (publisher, name))| {
+                    kind.into_usage(publisher, name).map(MemberUsage::Declared)
                 })
         } else {
             None
@@ -608,12 +561,7 @@ impl UsageRaw {
         }
     }
 
-    fn checked_name(
-        &self,
-        site: &UsageSite<'_>,
-        positions: &Positions<'_>,
-        report: &mut Report,
-    ) -> Option<IndexName> {
+    fn checked_name(&self, site: &UsageSite<'_>, report: &mut Diagnostics) -> Option<IndexName> {
         let Some(raw) = self.name.as_deref() else {
             if self.wrong_typed.contains_key("name") {
                 return None;
@@ -624,53 +572,57 @@ impl UsageRaw {
                     &KeyLocation::ArrayTable(site.array.to_owned()),
                     None,
                 )
-                .at_opt(site.position(positions)),
+                .at_opt(site.position()),
             );
             return None;
         };
         match IndexName::parse(raw) {
             Ok(name) => Some(name),
             Err(error) => {
-                report
-                    .push(Diagnostic::error(error.to_string()).at_opt(site.key("name", positions)));
+                report.push(Diagnostic::error(error.to_string()).at_opt(site.key("name")));
                 None
             }
         }
     }
 
+    /// The publisher an entry declares.
+    ///
+    /// `None` is an error already reported; `Some(None)` is an `exempt`
+    /// entry that declares none.
     fn checked_publisher(
         &self,
         site: &UsageSite<'_>,
-        positions: &Positions<'_>,
-        report: &mut Report,
+        report: &mut Diagnostics,
         name: Option<&IndexName>,
-    ) -> Option<IndexPublisher> {
+        exempt: bool,
+    ) -> Option<Option<IndexPublisher>> {
         let Some(raw) = self.publisher.as_deref() else {
             if self.wrong_typed.contains_key("publisher") {
                 return None;
             }
-            // The message names the usage by its name, so with no
-            // name there is nothing to say but that the key is missing.
+            if exempt {
+                return Some(None);
+            }
+            // Without a name the message can only say the key is missing.
             report.push(match name {
                 Some(name) => Diagnostic::error(format!(
-                    "usage `{name}` has no `publisher`; every usage names its publisher"
+                    "usage `{name}` has no `publisher`; only a standard-library usage, whose \
+                     `kpar-url` is an OMG standard-library IRI, may omit it"
                 ))
-                .at_opt(site.position(positions)),
+                .at_opt(site.position()),
                 None => missing_key(
                     "publisher",
                     &KeyLocation::ArrayTable(site.array.to_owned()),
                     None,
                 )
-                .at_opt(site.position(positions)),
+                .at_opt(site.position()),
             });
             return None;
         };
         match IndexPublisher::parse(raw) {
-            Ok(publisher) => Some(publisher),
+            Ok(publisher) => Some(Some(publisher)),
             Err(error) => {
-                report.push(
-                    Diagnostic::error(error.to_string()).at_opt(site.key("publisher", positions)),
-                );
+                report.push(Diagnostic::error(error.to_string()).at_opt(site.key("publisher")));
                 None
             }
         }
@@ -679,43 +631,37 @@ impl UsageRaw {
     fn checked_marker(
         &self,
         site: &UsageSite<'_>,
-        positions: &Positions<'_>,
-        report: &mut Report,
+        report: &mut Diagnostics,
         allowed: bool,
         label: &str,
     ) -> Option<InheritFrom> {
         let marker = self.workspace.clone()?;
         if !allowed {
-            // A workspace group's own entries have nothing above them to
-            // inherit from.
+            // A group's own entries have nothing to inherit from.
             report.push(
                 Diagnostic::error(format!(
                     "usage `{label}` sets a `workspace` marker, which only a project's \
                      `inline-usages` may do"
                 ))
-                .at_opt(site.key("workspace", positions)),
+                .at_opt(site.key("workspace")),
             );
             return None;
         }
         match InheritFrom::try_from(marker) {
             Ok(from) => Some(from),
             Err(error) => {
-                report.push(
-                    Diagnostic::error(error.to_string()).at_opt(site.key("workspace", positions)),
-                );
+                report.push(Diagnostic::error(error.to_string()).at_opt(site.key("workspace")));
                 None
             }
         }
     }
 
-    /// workspaces.md "Common usages": "The group entry is used as-is; the
-    /// member cannot change any of its fields", so an entry carrying a
-    /// marker may give nothing but the identity.
+    /// The group entry is used as-is, so an entry carrying a marker may
+    /// give nothing but the identity.
     fn check_opt_in_is_bare(
         &self,
         site: &UsageSite<'_>,
-        positions: &Positions<'_>,
-        report: &mut Report,
+        report: &mut Diagnostics,
         label: &str,
         from: &InheritFrom,
     ) {
@@ -723,7 +669,7 @@ impl UsageRaw {
             ("version", self.version.is_some()),
             ("dir", self.dir.is_some()),
             ("kpar-path", self.kpar_path.is_some()),
-            ("url", self.url.is_some()),
+            ("kpar-url", self.url.is_some()),
         ]
         .into_iter()
         .find_map(|(key, present)| present.then_some(key));
@@ -733,7 +679,7 @@ impl UsageRaw {
                     "usage `{label}` inherits from {from}, so it may set only `publisher`, \
                      `name` and `workspace`"
                 ))
-                .at_opt(site.key(key, positions)),
+                .at_opt(site.key(key)),
             );
         }
     }
@@ -741,8 +687,7 @@ impl UsageRaw {
     fn checked_kind(
         &self,
         site: &UsageSite<'_>,
-        positions: &Positions<'_>,
-        report: &mut Report,
+        report: &mut Diagnostics,
         label: &str,
     ) -> Option<Kind> {
         let kinds = [
@@ -756,69 +701,85 @@ impl UsageRaw {
         if kinds > 1 {
             report.push(
                 Diagnostic::error(format!(
-                    "usage `{label}` carries more than one of `dir`, `kpar-path`, `url`"
+                    "usage `{label}` carries more than one of `dir`, `kpar-path`, `kpar-url`"
                 ))
-                .at_opt(site.position(positions)),
+                .at_opt(site.position()),
             );
             return None;
         }
 
-        // Only the index kind's field set carries a version requirement.
-        let reject_version = |report: &mut Report| {
+        // Only the index kind carries a version requirement. The `kpar-url`
+        // message says why: the IRI names one release.
+        let reject_version = |report: &mut Diagnostics, kind: &str| {
             if self.version.is_some() {
-                report.push(
-                    Diagnostic::error(format!(
-                        "usage `{label}` sets `version`, which only an index usage takes"
-                    ))
-                    .at_opt(site.key("version", positions)),
-                );
+                let message = if kind == "kpar-url" {
+                    format!(
+                        "usage `{label}` carries `version`, which a `kpar-url` usage does not \
+                         take; the IRI names one release"
+                    )
+                } else {
+                    format!(
+                        "usage `{label}` carries `version`, which a `{kind}` usage does not take"
+                    )
+                };
+                report.push(Diagnostic::error(message).at_opt(site.key("version")));
             }
         };
 
-        let local_path = |report: &mut Report, key: &str, raw: &str| {
-            if is_normal_local_path(raw) {
-                return Some(Utf8UnixPathBuf::from(raw));
-            }
-            report.push(
-                Diagnostic::error(format!(
-                    "usage `{label}` sets `{key} = \"{raw}\"`, which is not in the form a \
-                     local path takes:\n`/`-separated, with `..` only as leading components, \
-                     no `.` component, no repeated or trailing slash and no backslash"
-                ))
-                .at_opt(site.key(key, positions)),
-            );
-            None
-        };
+        let local_path =
+            |report: &mut Diagnostics, key: &str, raw: &str| match parse_local_path(raw) {
+                Ok(path) => Some(path.to_owned()),
+                Err(error) => {
+                    report.push(
+                        Diagnostic::error(format!(
+                            "usage `{label}` sets `{key} = \"{raw}\"`, which is not a valid local \
+                         path:\n{error}"
+                        ))
+                        .at_opt(site.key(key)),
+                    );
+                    None
+                }
+            };
 
         if let Some(dir) = self.dir.as_deref() {
-            reject_version(report);
+            reject_version(report, "dir");
             return local_path(report, "dir", dir).map(Kind::SourcePath);
         }
         if let Some(kpar_path) = self.kpar_path.as_deref() {
-            reject_version(report);
+            reject_version(report, "kpar-path");
             return local_path(report, "kpar-path", kpar_path).map(Kind::KparPath);
         }
         if let Some(url) = self.url.as_deref() {
-            reject_version(report);
+            reject_version(report, "kpar-url");
             let Ok(parsed) = Iri::parse(url.to_owned()) else {
                 report.push(
                     Diagnostic::error(format!(
-                        "usage `{label}` sets `url = \"{url}\"`, which is not a valid IRI"
+                        "usage `{label}` sets `kpar-url = \"{url}\"`, which is not a valid IRI"
                     ))
-                    .at_opt(site.key("url", positions)),
+                    .at_opt(site.key("kpar-url")),
                 );
                 return None;
             };
+            if !is_http_url(&parsed) {
+                report.push(
+                    Diagnostic::error(format!(
+                        "usage `{label}` sets `kpar-url = \"{url}\"`, which is not an `http` or \
+                         `https` URL"
+                    ))
+                    .at_opt(site.key("kpar-url")),
+                );
+                return None;
+            }
             return Some(Kind::RemoteKpar(parsed));
         }
 
         let Some(version) = self.version.as_deref() else {
             report.push(
                 Diagnostic::error(format!(
-                    "usage `{label}` names no `dir`, `kpar-path` or `url`, so it is an index \
+                    "usage `{label}` names no `dir`, `kpar-path` or `kpar-url`, so it is an index \
                      usage; an index usage requires a `version` constraint"
                 ))
-                .at_opt(site.position(positions)),
+                .at_opt(site.position()),
             );
             return None;
         };
@@ -828,7 +789,7 @@ impl UsageRaw {
                     "usage `{label}` sets `version = \"{version}\"`, which is not a version \
                      requirement"
                 ))
-                .at_opt(site.key("version", positions)),
+                .at_opt(site.key("version")),
             );
             return None;
         };
@@ -845,71 +806,112 @@ enum Kind {
 }
 
 impl Kind {
-    fn into_usage(self, publisher: IndexPublisher, name: IndexName) -> Usage {
-        match self {
-            Self::SourcePath(dir) => Usage::SourcePath {
-                publisher,
-                name,
-                dir,
-            },
-            Self::KparPath(kpar_path) => Usage::KparPath {
-                publisher,
-                name,
-                kpar_path,
-            },
-            Self::Index(version_constraint) => Usage::Index {
-                publisher,
-                name,
-                version_constraint,
-            },
+    /// `None` only if a kind that requires a publisher has none, which
+    /// validation rules out.
+    fn into_usage(self, publisher: Option<IndexPublisher>, name: IndexName) -> Option<Usage> {
+        Some(match self {
             Self::RemoteKpar(url) => Usage::RemoteKpar {
                 publisher,
                 name,
                 url,
             },
-        }
+            Self::SourcePath(dir) => Usage::SourcePath {
+                publisher: publisher?,
+                name,
+                dir,
+            },
+            Self::KparPath(kpar_path) => Usage::KparPath {
+                publisher: publisher?,
+                name,
+                kpar_path,
+            },
+            Self::Index(version_constraint) => Usage::Index {
+                publisher: publisher?,
+                name,
+                version_constraint,
+            },
+        })
     }
 }
 
-/// model-toml.md "Normalization": "two entries whose identities normalize
-/// to the same value are the same project declared twice and are
-/// rejected, whether or not the two entries agree on kind or constraint.
-/// The arrays are counted separately, since a workspace config holds
-/// several."
+/// Read the `inline-usages` array of tables of `reader`, each entry
+/// checked by `validate`. `array` is the dotted name used in messages.
 ///
-/// Every colliding pair is reported, not just the first, so that one edit
-/// round fixes the file; each diagnostic points at the later of the two,
-/// which is the entry the reader would delete.
-pub fn check_duplicates<E: UsageEntry>(
-    entries: &[(UsageSite<'_>, E)],
-    positions: &Positions<'_>,
-) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
-    for (index, (site, entry)) in entries.iter().enumerate() {
-        let identity = entry.normalized_identity();
-        let Some((_, first)) = entries[..index]
-            .iter()
-            .find(|(_, earlier)| earlier.normalized_identity() == identity)
-        else {
-            continue;
+/// Duplicates are counted per array; only validated entries are compared.
+pub fn read_usages<E: UsageEntry>(
+    reader: &TableReader<'_>,
+    array: &str,
+    report: &mut Diagnostics,
+    validate: impl Fn(UsageRaw, &UsageSite<'_>) -> Result<E, Diagnostics>,
+) -> Vec<E> {
+    let tables = reader.tables("inline-usages", report);
+    let mut entries = Vec::with_capacity(tables.len());
+    for (index, entry) in tables.iter().enumerate() {
+        let site = UsageSite {
+            array,
+            index,
+            entry,
         };
-        diagnostics.push(
-            Diagnostic::error(format!(
-                "usages `{}` and `{}` name the same project; two entries whose publisher and \
-                 name normalize to the same value are a duplicate",
-                first.label(),
-                entry.label()
-            ))
-            .at_opt(site.position(positions)),
-        );
+        match validate(UsageRaw::from_table(entry.raw()), &site) {
+            Ok(usage) => entries.push((site, usage)),
+            Err(problems) => report.extend(problems.into_diagnostics()),
+        }
     }
-    diagnostics
+    report.extend(check_duplicates(&entries));
+    entries.into_iter().map(|(_, usage)| usage).collect()
+}
+
+/// Two entries whose identities normalize to the same value are the same
+/// project declared twice and are rejected, whether or not they agree on
+/// kind or constraint. Each array is counted separately.
+///
+/// Every colliding pair is reported, at the later of the two.
+pub fn check_duplicates<E: UsageEntry>(entries: &[(UsageSite<'_>, E)]) -> Vec<Diagnostic> {
+    duplicate_pairs(entries, |(_, entry)| entry.normalized_identity())
+        .into_iter()
+        .map(|(first, later)| {
+            let (site, entry) = &entries[later];
+            Diagnostic::error(duplicate_message(&entries[first].1.label(), &entry.label()))
+                .at_opt(site.position())
+        })
+        .collect()
+}
+
+/// The wording of the duplicate rule.
+pub fn duplicate_message(first: &str, later: &str) -> String {
+    format!(
+        "usages `{first}` and `{later}` name the same project; two entries whose publisher and \
+         name normalize to the same value are a duplicate"
+    )
+}
+
+/// Each entry whose identity an earlier entry already has, as
+/// `(first, later)` indices, `first` being the first entry with that
+/// identity.
+///
+/// Positions are the caller's business.
+pub fn duplicate_pairs<T, I: Eq + Hash>(
+    items: &[T],
+    identity: impl Fn(&T) -> I,
+) -> Vec<(usize, usize)> {
+    let mut first_of = HashMap::new();
+    let mut pairs = Vec::new();
+    for (index, item) in items.iter().enumerate() {
+        match first_of.entry(identity(item)) {
+            Entry::Occupied(first) => pairs.push((*first.get(), index)),
+            Entry::Vacant(vacant) => {
+                vacant.insert(index);
+            }
+        }
+    }
+    pairs
 }
 
 impl From<Usage> for UsageRaw {
     fn from(usage: Usage) -> Self {
         let mut raw = Self {
-            publisher: Some(usage.publisher().to_string()),
+            // A standard-library usage has none to write.
+            publisher: usage.publisher().map(ToString::to_string),
             name: Some(usage.name().to_string()),
             ..Self::default()
         };
@@ -949,7 +951,8 @@ impl From<MemberUsage> for UsageRaw {
                 from,
                 at: _,
             } => Self {
-                publisher: Some(publisher.to_string()),
+                // None for an opt-in to a standard-library entry.
+                publisher: publisher.map(|publisher| publisher.to_string()),
                 name: Some(name.to_string()),
                 workspace: Some(InheritMarker::from(from)),
                 ..Self::default()
@@ -959,59 +962,14 @@ impl From<MemberUsage> for UsageRaw {
 }
 
 impl Display for Usage {
+    /// A standard-library usage writes no publisher, so it is spelled by
+    /// its name alone.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}/{}", self.publisher(), self.name())
-    }
-}
-
-/// model-toml.md "Usages": a `dir` or `kpar-path` is taken exactly as
-/// written, and admitted only in the one form Sysand writes:
-/// `/`-separated, with no backslash or NUL, no `.` component, `..` only
-/// as the leading components of a relative path, and no empty component
-/// -- so no repeated or trailing slash. Unlike `sources` and `members`,
-/// such a path may leave the directory it is relative to, which is what
-/// the leading `..` are for. An absolute path is admitted as before, and
-/// held to the same rules past its root.
-fn is_normal_local_path(raw: &str) -> bool {
-    if raw.contains(['\\', '\0']) {
-        return false;
-    }
-    let (absolute, rest) = match raw.strip_prefix('/') {
-        Some(rest) => (true, rest),
-        None => (typed_path::Utf8WindowsPath::new(raw).is_absolute(), raw),
-    };
-    let mut leading = !absolute;
-    rest.split('/').all(|part| match part {
-        "" | "." => false,
-        ".." => leading,
-        _ => {
-            leading = false;
-            true
-        }
-    })
-}
-
-/// Convert a relative `dir` or `kpar-path` into the form
-/// [`is_normal_local_path`] admits, for a command that writes one from a
-/// path it was given: `.` components and empty ones are dropped, and a
-/// `..` cancels the component before it unless that is a `..` too. `None`
-/// when nothing is left, which names the directory the path is relative
-/// to -- a project using itself.
-///
-/// The caller has already refused an absolute path, a backslash and a
-/// NUL; this only rearranges components.
-pub fn normalize_local_path(raw: &str) -> Option<Utf8UnixPathBuf> {
-    let mut parts: Vec<&str> = Vec::new();
-    for part in raw.split('/') {
-        match part {
-            "" | "." => {}
-            ".." if parts.last().is_some_and(|last| *last != "..") => {
-                parts.pop();
-            }
-            part => parts.push(part),
+        match self.publisher() {
+            Some(publisher) => write!(f, "{}/{}", publisher, self.name()),
+            None => write!(f, "{}", self.name()),
         }
     }
-    (!parts.is_empty()).then(|| Utf8UnixPathBuf::from(parts.join("/")))
 }
 
 #[cfg(test)]

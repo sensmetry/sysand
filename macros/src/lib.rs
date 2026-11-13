@@ -10,73 +10,29 @@ use syn::{Data, DataEnum, DeriveInput, parse_macro_input};
 /// Derives `ProjectRead` for an enum by delegating to its variants and
 /// synthesizing unified associated types.
 ///
-/// This macro implements `ProjectRead` for an enum whose variants each
-/// contain a type that already implements `ProjectRead`. The derived
-/// implementation delegates the methods listed below to the active
-/// variant; methods not listed keep their `ProjectRead` defaults.
-///
-/// In addition, the macro generates two new enums to unify associated types
-/// across variants:
-///
-/// - `<EnumName>Error`
-/// - `<EnumName>SourceReader<'a>`
-///
-/// These enums contain one variant per original enum variant and wrap the
-/// corresponding associated types from each inner `ProjectRead` implementation.
+/// Each variant must contain exactly one value whose type implements
+/// `ProjectRead`, with no additional fields. The enum may be generic,
+/// provided the generics are compatible with the synthesized types.
 ///
 /// # Generated Associated Types
 ///
-/// The derived implementation defines:
+/// Two enums are generated, with one variant per original variant, and used
+/// as the associated types of the derived implementation:
 ///
-/// - `type Error = <EnumName>Error`
-/// - `type SourceReader<'a> = <EnumName>SourceReader<'a>`
-///
-/// where:
-///
-/// - `<EnumName>Error` is an enum with one variant per original enum variant,
-///   wrapping that variant’s `ProjectRead::Error` type.
-/// - `<EnumName>SourceReader<'a>` is an enum with one variant per original
-///   enum variant, wrapping that variant’s `ProjectRead::SourceReader<'a>`
-///   type.
-///
-/// This allows each variant to use its own concrete error and reader types,
-/// while presenting a single unified `ProjectRead` implementation for the
-/// outer enum.
+/// - `<EnumName>Error`, wrapping that variant's `ProjectRead::Error`, is
+///   `type Error`.
+/// - `<EnumName>SourceReader<'a>`, wrapping that variant's
+///   `ProjectRead::SourceReader<'a>`, is `type SourceReader<'a>`.
 ///
 /// # Method Delegation
 ///
-/// - [`ProjectRead::get_project`] delegates to the active variant, mapping
-///   errors into `<EnumName>Error`.
-/// - [`ProjectRead::read_source`] delegates to the active variant and wraps
-///   the returned reader in `<EnumName>SourceReader<'_>`.
-/// - [`ProjectRead::sources`] delegates directly to the active variant.
-/// - [`ProjectRead::get_info`], [`ProjectRead::get_meta`],
-///   [`ProjectRead::version`], and [`ProjectRead::usage`] delegate directly to
-///   the active variant so leaf overrides survive wrapper enums.
-/// - [`ProjectRead::checksum_canonical_hex`] delegates to the active variant.
-///
-/// All other methods are handled by the default implementation of the
-/// `ProjectRead` trait.
-///
-/// All delegation is performed via a `match` on `self`. No dynamic dispatch
-/// is introduced.
-///
-/// # Requirements
-///
-/// - Each variant must contain exactly one value whose type implements
-///   `ProjectRead`.
-/// - No additional fields are permitted in a variant.
-/// - The enum may be generic, provided the generics are compatible with the
-///   synthesized associated types.
-///
-/// # Design Rationale
-///
-/// This derive is useful when modeling multiple project backends behind a
-/// single enum type while preserving static dispatch and allowing each
-/// backend to retain its own concrete error and reader types.
-///
-/// The generated implementation is zero-cost beyond the enum match required
-/// for delegation and wrapping.
+/// `get_project`, `read_source`, `sources`, `project_root`,
+/// `source_may_offer_multiple_versions`, `format`, `manifest_document`,
+/// `version`, `usage`,
+/// `checksum_canonical_hex` and `checksum_canonical_variant` are delegated to
+/// the active variant by a `match` on `self`, wrapping errors and readers in
+/// the generated enums. Delegating the leaf accessors lets their overrides
+/// survive wrapper enums. All other methods keep the `ProjectRead` defaults.
 #[proc_macro_derive(ProjectRead)]
 pub fn project_read_derive(input: TokenStream) -> TokenStream {
     #[derive(Clone)]
@@ -94,9 +50,7 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
         project_root_match_part: TokenStream2,
         source_may_offer_multiple_versions_match_part: TokenStream2,
         format_match_part: TokenStream2,
-        manifest_match_part: TokenStream2,
-        get_info_match_part: TokenStream2,
-        get_meta_match_part: TokenStream2,
+        manifest_document_match_part: TokenStream2,
         version_match_part: TokenStream2,
         usage_match_part: TokenStream2,
         checksum_canonical_hex_match_part: TokenStream2,
@@ -192,20 +146,10 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
                         .format()
                         .map_err(#error_ident::#variant_ident)
                 },
-                manifest_match_part: quote! {
+                manifest_document_match_part: quote! {
                     #enum_ident::#variant_ident(project) => project
-                        .manifest()
+                        .manifest_document()
                         .map_err(|e| e.map_project_read(#error_ident::#variant_ident))
-                },
-                get_info_match_part: quote! {
-                    #enum_ident::#variant_ident(project) => project
-                        .get_info()
-                        .map_err(#error_ident::#variant_ident)
-                },
-                get_meta_match_part: quote! {
-                    #enum_ident::#variant_ident(project) => project
-                        .get_meta()
-                        .map_err(#error_ident::#variant_ident)
                 },
                 version_match_part: quote! {
                     #enum_ident::#variant_ident(project) => project
@@ -252,9 +196,7 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
     let mut read_source_match = vec![];
     let mut sources_match = vec![];
     let mut format_match = vec![];
-    let mut manifest_match = vec![];
-    let mut get_info_match = vec![];
-    let mut get_meta_match = vec![];
+    let mut manifest_document_match = vec![];
     let mut version_match = vec![];
     let mut usage_match = vec![];
     let mut checksum_canonical_hex_match = vec![];
@@ -274,9 +216,7 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
         project_root_match_part,
         source_may_offer_multiple_versions_match_part,
         format_match_part,
-        manifest_match_part,
-        get_info_match_part,
-        get_meta_match_part,
+        manifest_document_match_part,
         version_match_part,
         usage_match_part,
         checksum_canonical_hex_match_part,
@@ -297,9 +237,7 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
         read_source_match.push(read_source_match_part);
         sources_match.push(sources_match_part);
         format_match.push(format_match_part);
-        manifest_match.push(manifest_match_part);
-        get_info_match.push(get_info_match_part);
-        get_meta_match.push(get_meta_match_part);
+        manifest_document_match.push(manifest_document_match_part);
         version_match.push(version_match_part);
         usage_match.push(usage_match_part);
         checksum_canonical_hex_match.push(checksum_canonical_hex_match_part);
@@ -341,10 +279,7 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
             fn get_project(
                 &self,
             ) -> ::std::result::Result<
-                (
-                    ::std::option::Option<InterchangeProjectInfoRaw>,
-                    ::std::option::Option<InterchangeProjectMetadataRaw>,
-                ),
+                ::std::option::Option<::sysand_core::project::ProjectDefinition>,
                 Self::Error,
             > {
                 match self {
@@ -394,30 +329,14 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
                 }
             }
 
-            fn manifest(
+            fn manifest_document(
                 &self,
             ) -> ::std::result::Result<
-                ::sysand_core::manifest::project::ResolvedProject,
+                ::sysand_core::manifest::edit::DocumentMut,
                 ::sysand_core::project::ManifestError<Self::Error>,
             > {
                 match self {
-                    #( #manifest_match ),*
-                }
-            }
-
-            fn get_info(
-                &self,
-            ) -> ::std::result::Result<::std::option::Option<InterchangeProjectInfoRaw>, Self::Error> {
-                match self {
-                    #( #get_info_match ),*
-                }
-            }
-
-            fn get_meta(
-                &self,
-            ) -> ::std::result::Result<::std::option::Option<InterchangeProjectMetadataRaw>, Self::Error> {
-                match self {
-                    #( #get_meta_match ),*
+                    #( #manifest_document_match ),*
                 }
             }
 
@@ -471,52 +390,16 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
 
 /// Derives `ProjectMut` for an enum by delegating to its variants.
 ///
-/// This macro implements `ProjectMut` for an enum whose variants each
-/// contain a type that already implements `ProjectMut`. All trait methods
-/// are delegated to the active variant.
+/// Each variant must contain exactly one value whose type implements
+/// `ProjectMut`, with no additional fields. The enum must also implement
+/// `ProjectRead`, typically via the [`ProjectRead`] derive: `ProjectMut`
+/// reuses that implementation's `Error` type and introduces no associated
+/// types.
 ///
-/// Because `ProjectMut` extends `ProjectRead`, this derive requires
-/// that the enum also implement `ProjectRead`. In typical usage, this is
-/// provided by the corresponding [`ProjectRead`] derive macro.
-///
-/// # Associated Types
-///
-/// This derive does **not** introduce new associated types.
-///
-/// Instead, it reuses the `Error` type defined by the enum’s
-/// `ProjectRead` implementation (typically the synthesized
-/// `<EnumName>Error` type generated by the [`ProjectRead`] derive).
-///
-/// All errors produced by delegated methods are forwarded unchanged.
-///
-/// # Method Delegation
-///
-/// - [`ProjectMut::put_info`] delegates to the active variant.
-/// - [`ProjectMut::put_meta`] delegates to the active variant.
-/// - [`ProjectMut::write_source`] delegates to the active variant.
-///
-/// All other methods are handled by the default implementation of the
-/// `ProjectMut` trait.
-///
-/// Delegation is implemented via a `match` on `self`. No dynamic dispatch
-/// is introduced.
-///
-/// # Requirements
-///
-/// - Each variant must contain exactly one value whose type implements
-///   `ProjectMut`.
-/// - The enum must also implement `ProjectRead` (typically via the
-///   corresponding derive macro).
-/// - No additional fields are permitted in a variant.
-///
-/// # Design Rationale
-///
-/// This derive enables modeling multiple mutable project backends behind
-/// a single enum while preserving static dispatch and maintaining a unified
-/// error type.
-///
-/// The generated implementation is zero-cost beyond the enum match required
-/// for delegation.
+/// `put_info`, `put_meta`, `write_source` and `put_manifest_document` are
+/// delegated to the active variant by a `match` on `self`, with errors
+/// forwarded into the enum's error type. All other methods keep the
+/// `ProjectMut` defaults.
 #[proc_macro_derive(ProjectMut)]
 pub fn project_mut_derive(input: TokenStream) -> TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);

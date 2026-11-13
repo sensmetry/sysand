@@ -28,7 +28,7 @@ use crate::{
         IndexName, IndexPublisher, InterchangeProjectInfoRaw, InterchangeProjectValidationError,
     },
     project::{
-        CanonicalizationError, ProjectRead as _,
+        CanonicalizationError, ProjectDefinition, ProjectRead as _,
         local_kpar::{LocalKParError, LocalKParProjectRaw},
         utils::{FsIoError, wrapfs},
     },
@@ -64,8 +64,6 @@ pub enum IndexAddError {
     },
     #[error("{INFO_FILE_NAME} file is missing from KPAR `{0}`")]
     MissingInfo(Utf8PathBuf),
-    #[error("{META_FILE_NAME} file is missing from the KPAR `{0}`")]
-    MissingMeta(Utf8PathBuf),
     #[error("failed to compute project digest")]
     ProjectDigest(#[from] CanonicalizationError<LocalKParError>),
     #[error(transparent)]
@@ -208,11 +206,11 @@ pub fn do_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
             root_in_kpar: p.as_str().into(),
         });
     }
-    let Some(info) = local_project.get_info()? else {
+    let Some((info, meta)) = local_project
+        .get_project()?
+        .and_then(ProjectDefinition::into_json)
+    else {
         return Err(IndexAddError::MissingInfo(kpar_path_abs));
-    };
-    let Some(meta) = local_project.get_meta()? else {
-        return Err(IndexAddError::MissingMeta(kpar_path_abs));
     };
 
     let map_invalid_project_err = |e| IndexAddError::InvalidProject {
@@ -337,16 +335,13 @@ pub fn do_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
             }),
         })
         .collect::<Result<_, _>>()?;
-    // This is only used for `versions_values`, which contains
-    // all the same items
+    // Only sorts `versions_value`, which contains all the same items
     let version_key = |v: &VersionEntry| &str_to_semver[&v.version];
 
     versions_value.versions.sort_by_key(version_key);
 
     for [ver_entry1, ver_entry2] in versions_value.versions.array_windows() {
         if ver_entry1.version == ver_entry2.version {
-            // Strictly speaking this is unnecessary for adding the new project
-            // but still good to check
             return Err(IndexAddError::DuplicateVersion {
                 version: ver_entry1.version.clone(),
                 path: versions_path,

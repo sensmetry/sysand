@@ -3,16 +3,26 @@
 
 use std::{num::NonZeroU64, sync::Arc};
 
-use camino::Utf8Path;
+use camino::{Utf8Path, Utf8PathBuf};
 use thiserror::Error;
 use typed_path::Utf8UnixPathBuf;
 use url::ParseError;
 
 use sysand_core::{
     auth::HTTPAuthentication,
-    commands::sync::{SyncError, SyncOutcome},
-    env::local_directory::LocalDirectoryEnvironment,
-    lock::Lock,
+    cancel::CancellationToken,
+    commands::{
+        sync::{MismatchKind, SyncError, SyncOutcome},
+        verify::{ManifestUsages, VerifyError, do_verify},
+    },
+    config::Config,
+    context::ProjectContext,
+    env::{
+        DEFAULT_ENV_NAME, WriteEnvironment as _,
+        local_directory::{LocalDirectoryEnvironment, LocalWriteError},
+    },
+    lock::{Lock, Lockfile},
+    manifest::workspace_table::WorkspaceTable,
     project::{
         AsSyncProjectTokio, KparMeta, ProjectReadAsync as _,
         gix_git_download::{GixDownloadedError, GixDownloadedProject},
@@ -22,11 +32,12 @@ use sysand_core::{
             ReqwestIndexKparDownloadedProject, ReqwestRemoteKparDownloadedProject,
         },
         reqwest_src::ReqwestSrcProjectAsync,
-        utils::FsIoError,
+        utils::{FsIoError, wrapfs},
     },
     utils::ProvidedProjects,
-    workspace::Workspace,
 };
+
+use crate::{cli::ResolutionOptions, commands::lock::resolve_lock, get_or_create_env};
 
 /// The `SyncError` instantiation `command_sync` fails with when the sync
 /// itself fails.
@@ -38,9 +49,296 @@ pub enum CommandSyncError {
     /// The sync itself, see `SyncError`.
     #[error(transparent)]
     Sync(#[from] CliSyncError),
+    /// The sync itself, where the remedy names a flag only the CLI has.
+    #[error(
+        "{0}\n{SP:>8} (hint: pass `--include-std` to fetch it from its IRI)",
+        SP = ' '
+    )]
+    IncludeStd(CliSyncError),
+    /// An editable project no longer matches the lockfile.
+    #[error("{0}\n       (hint: run `sysand lock` to update the lockfile)")]
+    Relock(CliSyncError),
     /// Writing the environment metadata after a completed sync.
     #[error(transparent)]
     WriteMetadata(#[from] Box<FsIoError>),
+    /// `--verify` could not read the environment or the manifests.
+    #[error(transparent)]
+    Verify(#[from] VerifyError),
+    /// `--repair` could not remove a mismatched installation.
+    #[error("removing `{path}` from the environment")]
+    Remove {
+        path: Utf8PathBuf,
+        #[source]
+        source: LocalWriteError,
+    },
+    /// `--repair` could not remove an unrecorded installation.
+    #[error(transparent)]
+    RemoveUnrecorded(Box<FsIoError>),
+}
+
+/// Why [`sync_context`] failed.
+#[derive(Debug, Error)]
+pub enum SyncContextError {
+    /// The manifests `--verify` checks the lockfile against could not be
+    /// read.
+    #[error(transparent)]
+    Manifests(VerifyError),
+    /// The environment to install into could not be created.
+    #[error(transparent)]
+    Env(anyhow::Error),
+    #[error(transparent)]
+    Sync(#[from] CommandSyncError),
+}
+
+/// The lock `sync` installs: the lockfile at `ctx`'s state root, or, when
+/// there is none, a fresh lock of `ctx`'s scope (see [`resolve_lock`]).
+/// The flag says the lock is fresh, so the caller still has to write it.
+pub fn lock_for_sync<Policy: HTTPAuthentication>(
+    resolution_opts: ResolutionOptions,
+    config: &Config,
+    extra_provided: ProvidedProjects,
+    client: reqwest_middleware::ClientWithMiddleware,
+    runtime: Arc<tokio::runtime::Runtime>,
+    auth_policy: Arc<Policy>,
+    ctx: &ProjectContext,
+) -> anyhow::Result<(Lockfile, bool)> {
+    let root = ctx.state_root();
+    if let Some(lockfile) = Lockfile::try_read(&root)? {
+        lockfile.lock().warn_release_mismatches();
+        return Ok((lockfile, false));
+    }
+    let lock = resolve_lock(
+        resolution_opts,
+        config,
+        extra_provided,
+        client,
+        runtime,
+        auth_policy,
+        ctx,
+    )?;
+    Ok((Lockfile::new(root, lock), true))
+}
+
+/// Install `lock` into `ctx`'s environment, creating it when missing, or,
+/// with `verify` or `repair`, check the environment against `lock` and
+/// `lock` against `ctx`'s manifests (see [`command_sync_verify`]).
+///
+/// `--verify` reads: it does not create a `.sysand` that was not there.
+/// Returns the verification's status, `None` for a plain sync. `outcome`
+/// is filled in progressively, as `command_sync` fills it.
+#[expect(clippy::too_many_arguments)]
+pub fn sync_context<Policy: HTTPAuthentication>(
+    lock: &Lock,
+    ctx: &mut ProjectContext,
+    verify: bool,
+    repair: bool,
+    no_prune: bool,
+    client: reqwest_middleware::ClientWithMiddleware,
+    provided_usages: &ProvidedProjects,
+    runtime: Arc<tokio::runtime::Runtime>,
+    auth_policy: Arc<Policy>,
+    outcome: &mut SyncOutcome,
+) -> Result<Option<VerifyStatus>, SyncContextError> {
+    let root = ctx.state_root();
+    let table = ctx.workspace().map(|workspace| workspace.table().clone());
+    if verify || repair {
+        let manifests = ManifestUsages::for_context(ctx).map_err(SyncContextError::Manifests)?;
+        let status = command_sync_verify(
+            lock,
+            &root,
+            &mut ctx.env,
+            &root.join(DEFAULT_ENV_NAME),
+            table.as_ref(),
+            &manifests,
+            client,
+            provided_usages,
+            runtime,
+            auth_policy,
+            no_prune,
+            repair,
+            ctx.cancellation.clone(),
+            outcome,
+        )?;
+        return Ok(Some(status));
+    }
+    let mut env = get_or_create_env(ctx).map_err(SyncContextError::Env)?;
+    command_sync(
+        lock,
+        &root,
+        table.as_ref(),
+        &mut env,
+        client,
+        provided_usages,
+        runtime,
+        auth_policy,
+        no_prune,
+        ctx.cancellation.clone(),
+        outcome,
+    )?;
+    ctx.env = Some(env);
+    Ok(None)
+}
+
+/// What `command_sync_verify` found, for the caller's exit code. The
+/// findings themselves are in the `SyncOutcome` and were printed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VerifyStatus {
+    Clean { verified: usize, repaired: usize },
+    Problems { count: usize, repaired: usize },
+}
+
+/// The CLI's hint for a finding whose remedy is a command core does not
+/// name.
+fn hint_for(finding: &str, kind: Option<&MismatchKind>, stale: bool) -> String {
+    match (kind, stale) {
+        (Some(MismatchKind::NotRecorded), _) => format!("{finding}; run `sysand sync`"),
+        (_, true) => format!("{finding}; run `sysand lock`"),
+        _ => finding.to_owned(),
+    }
+}
+
+/// Print every finding of `report` as an error line, with hints.
+fn print_findings(report: &SyncOutcome) {
+    for mismatch in &report.mismatched {
+        log::error!(
+            "{}",
+            hint_for(&mismatch.to_string(), Some(&mismatch.kind), false)
+        );
+    }
+    for path in &report.unrecorded {
+        log::error!("{}", SyncOutcome::unrecorded_message(path));
+    }
+    for stale in &report.stale {
+        log::error!("{}", hint_for(&stale.to_string(), None, true));
+    }
+}
+
+fn record(outcome: &mut SyncOutcome, report: &SyncOutcome) {
+    outcome.verified = report.verified.clone();
+    outcome.mismatched = report.mismatched.clone();
+    outcome.unrecorded = report.unrecorded.clone();
+    outcome.stale = report.stale.clone();
+}
+
+/// `sysand sync --verify` / `--repair`.
+///
+/// Verifies `env` (or, with `None`, the absence of one) against `lock`
+/// and `lock` against `manifests`, prints every finding, and with
+/// `repair` reinstalls what mismatches and removes what `env.toml` does
+/// not record, then verifies again. Stale usages are never repaired: the
+/// lockfile is `lock`'s to rewrite. Returns the final status; the caller
+/// decides the exit code.
+#[expect(clippy::too_many_arguments)]
+pub fn command_sync_verify<Policy: HTTPAuthentication>(
+    lock: &Lock,
+    project_root: &Utf8Path,
+    env: &mut Option<LocalDirectoryEnvironment>,
+    env_dir: &Utf8Path,
+    workspace: Option<&Arc<WorkspaceTable>>,
+    manifests: &[ManifestUsages],
+    client: reqwest_middleware::ClientWithMiddleware,
+    provided_usages: &ProvidedProjects,
+    runtime: Arc<tokio::runtime::Runtime>,
+    auth_policy: Arc<Policy>,
+    no_prune: bool,
+    repair: bool,
+    token: CancellationToken,
+    outcome: &mut SyncOutcome,
+) -> Result<VerifyStatus, CommandSyncError> {
+    let report = do_verify(lock, env.as_ref(), manifests, provided_usages)?;
+    record(outcome, &report);
+    if !repair {
+        print_findings(&report);
+        return Ok(if report.is_clean() {
+            log::info!(
+                "{:>12} `.sysand` matches `sysand-lock.toml`: {} project(s) verified",
+                ' ',
+                report.verified.len()
+            );
+            VerifyStatus::Clean {
+                verified: report.verified.len(),
+                repaired: 0,
+            }
+        } else {
+            VerifyStatus::Problems {
+                count: report.problems(),
+                repaired: 0,
+            }
+        });
+    }
+
+    // Repair: an environment to repair into, created directly when it
+    // is missing (the directory may survive without its `env.toml`).
+    let env = if let Some(env) = env {
+        env
+    } else {
+        sysand_core::project::utils::wrapfs::create_dir_all(env_dir)?;
+        env.insert(LocalDirectoryEnvironment::create(env_dir)?)
+    };
+    let repairing = "Repairing";
+    let header = sysand_core::style::get_style_config().header;
+    for mismatch in &report.mismatched {
+        match mismatch.kind {
+            MismatchKind::Checksum { file: _ } | MismatchKind::MissingFromDisk => {
+                log::info!(
+                    "{header}{repairing:>12}{header:#} `{}` {}: {}",
+                    mismatch.iri,
+                    mismatch.version,
+                    mismatch
+                );
+                env.del_project_version(&mismatch.iri, &mismatch.version)
+                    .map_err(|source| CommandSyncError::Remove {
+                        path: env_dir.to_path_buf(),
+                        source,
+                    })?;
+            }
+            MismatchKind::NotRecorded => {}
+        }
+    }
+    for path in &report.unrecorded {
+        let absolute = env.root_path().join(path.as_str());
+        log::info!("{header}{repairing:>12}{header:#} removing unrecorded `{path}`");
+        wrapfs::remove_dir_all(&absolute).map_err(CommandSyncError::RemoveUnrecorded)?;
+    }
+    // A plain sync then installs everything `env.toml` lacks and prunes
+    // the rest.
+    let mut sync_outcome = SyncOutcome::default();
+    command_sync(
+        lock,
+        project_root,
+        workspace,
+        env,
+        client,
+        provided_usages,
+        runtime,
+        auth_policy,
+        no_prune,
+        token,
+        &mut sync_outcome,
+    )?;
+    outcome.repaired = sync_outcome.installed;
+    outcome.pruned = sync_outcome.pruned;
+
+    let again = do_verify(lock, Some(env), manifests, provided_usages)?;
+    record(outcome, &again);
+    print_findings(&again);
+    let repaired = outcome.repaired.len();
+    Ok(if again.is_clean() {
+        log::info!(
+            "{:>12} repaired {repaired} project(s); `.sysand` matches `sysand-lock.toml`: {} project(s) verified",
+            ' ',
+            again.verified.len()
+        );
+        VerifyStatus::Clean {
+            verified: again.verified.len(),
+            repaired,
+        }
+    } else {
+        VerifyStatus::Problems {
+            count: again.problems(),
+            repaired,
+        }
+    })
 }
 
 /// Install the lockfile into `env`. `outcome` is filled in progressively,
@@ -48,20 +346,39 @@ pub enum CommandSyncError {
 pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     lock: &Lock,
     project_root: P,
+    workspace: Option<&Arc<WorkspaceTable>>,
     env: &mut LocalDirectoryEnvironment,
     client: reqwest_middleware::ClientWithMiddleware,
     provided_usages: &ProvidedProjects,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
-    ws: Option<&Workspace>,
     no_prune: bool,
+    token: CancellationToken,
     outcome: &mut SyncOutcome,
 ) -> Result<(), CommandSyncError> {
-    #[expect(clippy::or_fun_call, reason = "cheap")]
-    let relative_root = ws.map_or(project_root.as_ref(), Workspace::root_path);
+    // `project_root` is the root the lockfile's `src_path`s are relative
+    // to: the workspace root for a workspace's lockfile.
+    let relative_root = project_root.as_ref();
+    let members: Vec<Utf8UnixPathBuf> = workspace.map_or_else(Vec::new, |table| {
+        table
+            .members
+            .iter()
+            .map(|member| member.path.clone())
+            .collect()
+    });
     sysand_core::commands::sync::do_sync(
         lock,
         env,
+        // A workspace member resolves its manifest against the table.
+        Some(|editable: Utf8UnixPathBuf| {
+            let path = relative_root.join(editable.as_str());
+            Ok::<_, !>(match workspace {
+                Some(table) if members.contains(&editable) => {
+                    LocalSrcProject::new_member(path, Some(editable), table.clone())
+                }
+                _ => LocalSrcProject::new_access(path, Some(editable)),
+            })
+        }),
         Some(
             |src_path: Utf8UnixPathBuf, checksum: String| -> LocalSrcProject {
                 LocalSrcProject::new_access_with_checksum(
@@ -81,7 +398,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
                     auth_policy: auth_policy.clone(),
                     expected_checksum: Some(checksum),
                 }
-                .to_tokio_sync(runtime.clone()))
+                .to_tokio_sync(runtime.clone(), token.clone()))
             },
         ),
         Some(
@@ -119,7 +436,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
                     }),
                 )
                 .unwrap();
-                Ok(project.to_tokio_sync(runtime.clone()))
+                Ok(project.to_tokio_sync(runtime.clone(), token.clone()))
             },
         ),
         Some(
@@ -138,20 +455,38 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
                     index_kpar_digest,
                 )
                 .unwrap();
-                Ok(project.to_tokio_sync(runtime.clone()))
+                Ok(project.to_tokio_sync(runtime.clone(), token.clone()))
             },
         ),
         Some(
             |remote_git: String| -> Result<GixDownloadedProject, GixDownloadedError> {
                 GixDownloadedProject::new(remote_git)
+                    .map(|project| project.with_cancellation(token.clone()))
             },
         ),
         provided_usages,
         no_prune,
         outcome,
-    )?;
+    )
+    // A hint that names a command is appended by the CLI: the bindings
+    // reach the same error and have no `--include-std` to pass.
+    .map_err(|error| match &error {
+        SyncError::UnknownStdLib {
+            name: _,
+            version: _,
+        }
+        | SyncError::InvalidProvidedVersion {
+            iri: _,
+            version: _,
+            provided_versions: _,
+        } => CommandSyncError::IncludeStd(error),
+        SyncError::ProjectMismatch(mismatch) if mismatch.source_kind == "editable" => {
+            CommandSyncError::Relock(error)
+        }
+        _ => CommandSyncError::Sync(error),
+    })?;
 
-    env.merge_lock(lock, ws);
+    env.merge_lock(lock, &members);
     env.write()?;
 
     Ok(())

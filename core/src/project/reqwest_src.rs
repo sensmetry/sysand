@@ -17,25 +17,26 @@ use crate::{
     manifest::diagnostics::Report,
     model::{
         InterchangeProjectInfoPartial, InterchangeProjectInfoRaw,
-        InterchangeProjectMetadataPartial, InterchangeProjectMetadataRaw, PartialManifest,
+        InterchangeProjectMetadataPartial, InterchangeProjectMetadataRaw,
+        InterchangeProjectUsageRaw, PartialManifest,
     },
-    project::{CanonicalizationError, ProjectReadAsync, utils::FsIoError},
-    redact::{HttpError, RedactedUrl, ResponseUrl},
+    project::{CanonicalizationError, ProjectDefinition, ProjectReadAsync, utils::FsIoError},
+    redact::{HttpFailure, RedactedUrl, ResponseUrl},
     resolve::net_utils::{json_get_request, json_head_request, text_get_request},
 };
 
 use super::ProjectChecksum;
 
-/// Project stored at a remote base-URL such as https://www.example.com/project/
+/// Project stored at a remote base-URL such as <https://www.example.com/project/>
 /// (note that the final slash is semantically important!)
 /// with info/meta accessible by HTTP GET-requests sent to
-/// https://www.example.com/project/.project.json and
-/// https://www.example.com/project/.meta.json.
+/// <https://www.example.com/project/.project.json> and
+/// <https://www.example.com/project/.meta.json>.
 /// Source file paths are expected to be accessible by GET request relative to the
 /// base-path after (minimal) URL-encoding each path component. For example:
 /// /Mëkanïk/Kömmandöh.sysml
 /// is accessed by
-/// GET https://www.example.com/project/M%C3%ABkan%C3%AFk/K%C3%B6mmand%C3%B6h.sysml
+/// GET <https://www.example.com/project/M%C3%ABkan%C3%AFk/K%C3%B6mmand%C3%B6h.sysml>
 #[derive(Clone, Debug)]
 pub struct ReqwestSrcProjectAsync<Policy> {
     /// (reqwest) HTTP client to use for GET requests
@@ -64,33 +65,36 @@ impl<Policy> ReqwestSrcProjectAsync<Policy> {
 
 #[derive(Error, Debug)]
 pub enum ReqwestSrcError {
-    #[error("HTTP request to `{url}` failed")]
-    Request {
-        url: RedactedUrl,
-        #[source]
-        source: HttpError,
-    },
-    #[error("failed to read HTTP response body from {url}")]
-    Body {
-        url: ResponseUrl,
-        #[source]
-        source: HttpError,
-    },
+    #[error(transparent)]
+    Http(#[from] HttpFailure),
     #[error("HTTP request to\n  {0}\n  returned malformed data")]
     Deserialize(ResponseUrl, #[source] serde_json::Error),
-    #[error("HTTP request to\n  {0}\n  returned a document that is not a valid manifest:\n{1}")]
-    InvalidManifest(ResponseUrl, Report),
-    #[error("HTTP request to {0} returned unexpected status code {1}")]
-    BadStatus(ResponseUrl, reqwest::StatusCode),
+    #[error(
+        "HTTP request to\n  `{}`\n  returned a document that is not a valid manifest:\n{report}",
+        .report.file()
+    )]
+    InvalidManifest { report: Report },
     #[error("project is missing `.project.json` and/or `.meta.json` files")]
     MissingInfoMeta,
-    // This is only needed because `checksum_canonical_hex` can return
-    // `io:Error`, which in this case is actually a network/HTTP error
+    /// One of a json project's two documents is not there.
+    #[error("`{0}` does not exist; a project needs both `.project.json` and `.meta.json`")]
+    MissingDocument(RedactedUrl),
+    // `checksum_canonical_hex` reports network/HTTP failures as `io::Error`
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
 }
 
 impl<Policy: HTTPAuthentication> ReqwestSrcProjectAsync<Policy> {
+    /// `.project.json` alone, for the reads that need nothing else.
+    async fn fetch_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, ReqwestSrcError> {
+        // No metamodel is passed: fetching the metadata just for an error
+        // message is not worth a second request.
+        self.fetch(self.info_url())
+            .await?
+            .map(|(url, body)| Self::validate::<InterchangeProjectInfoPartial>(url, body, None))
+            .transpose()
+    }
+
     /// The body of one manifest document and where it came from, or
     /// `None` when the server does not have it.
     async fn fetch(
@@ -101,7 +105,7 @@ impl<Policy: HTTPAuthentication> ReqwestSrcProjectAsync<Policy> {
             .auth_policy
             .with_authentication(&self.client, &json_get_request(url.clone()))
             .await
-            .map_err(|source| ReqwestSrcError::Request {
+            .map_err(|source| HttpFailure::Request {
                 url: (&url).into(),
                 source: source.into(),
             })?;
@@ -112,10 +116,11 @@ impl<Policy: HTTPAuthentication> ReqwestSrcProjectAsync<Policy> {
         let response_url = ResponseUrl::new(&url, response.url());
         match response.text().await {
             Ok(body) => Ok(Some((response_url, body))),
-            Err(source) => Err(ReqwestSrcError::Body {
+            Err(source) => Err(HttpFailure::Body {
                 url: response_url,
                 source: source.into(),
-            }),
+            }
+            .into()),
         }
     }
 
@@ -128,34 +133,22 @@ impl<Policy: HTTPAuthentication> ReqwestSrcProjectAsync<Policy> {
     ) -> Result<T::Validated, ReqwestSrcError> {
         let partial: T = serde_json::from_str(&body)
             .map_err(|e| ReqwestSrcError::Deserialize(url.clone(), e))?;
-        match partial.validate_manifest(metamodel) {
-            Ok(validated) => {
-                for warning in &validated.warnings {
-                    log::warn!("{url}: {warning}");
-                }
-                Ok(validated.value)
-            }
-            Err(report) => Err(ReqwestSrcError::InvalidManifest(url, report)),
-        }
+        crate::manifest::diagnostics::take_logged(
+            partial.validate_manifest(metamodel),
+            &url.to_string(),
+        )
+        .map_err(|report| ReqwestSrcError::InvalidManifest { report })
     }
 }
 
 impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Policy> {
     type Error = ReqwestSrcError;
 
-    async fn get_project_async(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
-        // Both documents are fetched at once, as before, and validated
-        // afterwards: the metadata carries the metamodel a message about
-        // the other document may need to name.
-        let (info, meta) = join!(self.fetch(self.info_url()), self.fetch(self.meta_url()));
+    async fn get_project_async(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
+        // Fetched concurrently, validated afterwards: the metadata carries
+        // the metamodel that errors about the info document may name.
+        let (info_url, meta_url) = (self.info_url(), self.meta_url());
+        let (info, meta) = join!(self.fetch(info_url.clone()), self.fetch(meta_url.clone()));
         let (info, meta) = (info?, meta?);
 
         let meta = meta
@@ -170,24 +163,20 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Pol
             })
             .transpose()?;
 
-        Ok((info, meta))
+        match (info, meta) {
+            (Some(info), Some(meta)) => Ok(Some(ProjectDefinition::Json { info, meta })),
+            (None, None) => Ok(None),
+            (Some(_), None) => Err(ReqwestSrcError::MissingDocument((&meta_url).into())),
+            (None, Some(_)) => Err(ReqwestSrcError::MissingDocument((&info_url).into())),
+        }
     }
 
-    async fn get_info_async(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
-        // On its own, the information document has no sibling to take a
-        // metamodel from, and fetching one for a message is not worth a
-        // second request.
-        self.fetch(self.info_url())
-            .await?
-            .map(|(url, body)| Self::validate::<InterchangeProjectInfoPartial>(url, body, None))
-            .transpose()
+    async fn version_async(&self) -> Result<Option<String>, Self::Error> {
+        Ok(self.fetch_info().await?.map(|info| info.version))
     }
 
-    async fn get_meta_async(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
-        self.fetch(self.meta_url())
-            .await?
-            .map(|(url, body)| Self::validate::<InterchangeProjectMetadataPartial>(url, body, None))
-            .transpose()
+    async fn usage_async(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
+        Ok(self.fetch_info().await?.map(|info| info.usage))
     }
 
     type SourceReader<'a>
@@ -208,7 +197,7 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Pol
             .auth_policy
             .with_authentication(&self.client, &text_get_request(url.clone()))
             .await
-            .map_err(|source| ReqwestSrcError::Request {
+            .map_err(|source| HttpFailure::Request {
                 url: (&url).into(),
                 source: source.into(),
             })?;
@@ -218,15 +207,19 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Pol
             Ok(resp
                 .bytes_stream()
                 .map_err(move |source| {
-                    io::Error::other(ReqwestSrcError::Body {
+                    io::Error::other(ReqwestSrcError::from(HttpFailure::Body {
                         url: response_url.clone(),
                         source: source.into(),
-                    })
+                    }))
                 })
                 .boxed()
                 .into_async_read())
         } else {
-            Err(ReqwestSrcError::BadStatus(response_url, resp.status()))
+            Err(HttpFailure::BadHttpStatus {
+                url: response_url,
+                status: resp.status(),
+            }
+            .into())
         }
     }
 
@@ -264,8 +257,7 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Pol
                 .ok_or(ReqwestSrcError::MissingInfoMeta)?,
         };
         Ok(vec![Source::RemoteSrc {
-            // Panic here should be impossible, as the URL should have
-            // been created from IRI
+            // Cannot panic: the URL was created from an IRI
             remote_src: Iri::parse(self.url.to_string()).unwrap(),
             checksum,
         }])

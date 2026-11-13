@@ -1,19 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-//! The CLI's credential store construction, including a deliberate test
-//! seam: CLI integration tests must never touch the real OS keyring
-//! (macOS prompts per test; CI runners have no Secret Service), so in
-//! debug builds the [`TEST_STORE_ENV_VAR`] environment variable can swap
-//! the OS keyring for a plain-file blob backend.
+//! The CLI's credential store construction, including a test seam: CLI
+//! integration tests must not touch the real OS keyring (macOS prompts per
+//! test; CI runners have no Secret Service), so in debug builds the
+//! [`TEST_STORE_ENV_VAR`] environment variable swaps the OS keyring for a
+//! plain-file blob backend.
 //!
-//! The test seam is exactly that: a test seam. The file backend stores
-//! the blob (including secrets) in plaintext, which the design forbids for
-//! real use (design/credential-storage.md: "no plaintext credentials
-//! file, ever"). It is compiled into release builds only as a
-//! hard refusal: a release binary that sees the variable errors rather
-//! than silently using the real keyring (which would let a forgotten
-//! variable make tests scribble on a developer's keychain).
+//! The file backend stores secrets in plaintext, so release builds only
+//! refuse the variable.
 
 #[cfg(debug_assertions)]
 use std::io;
@@ -43,7 +38,7 @@ pub const TEST_STORE_ABSENT: &str = ":absent:";
 /// real use, a plain file or a simulated-absent backend under the test
 /// seam. The plaintext-writing test variants are compiled only in debug
 /// builds, so the cleartext path is physically absent from release
-/// binaries (not merely refused at runtime).
+/// binaries.
 #[derive(Debug)]
 pub enum CliBlobBackend {
     Keyring(OsKeyringBackend),
@@ -111,13 +106,10 @@ pub type CliCredentialStore = LockedBlobStore<CliBlobBackend>;
 /// test seam ([`TEST_STORE_ENV_VAR`]) selects a file-backed or
 /// simulated-absent store.
 pub fn open_cli_credential_store() -> Result<CliCredentialStore, CredentialStoreError> {
-    // Debug builds honor the test seam; the file/absent backends only
-    // exist here (they are `#[cfg(debug_assertions)]`).
     #[cfg(debug_assertions)]
     if let Ok(value) = std::env::var(TEST_STORE_ENV_VAR) {
         if value == TEST_STORE_ABSENT {
-            // The lock file must not land on the real per-user path
-            // either; keep everything test-scoped.
+            // Keep the lock file off the real per-user path.
             let lock_path = Utf8PathBuf::from_path_buf(std::env::temp_dir())
                 .unwrap_or_else(|p| Utf8PathBuf::from(p.display().to_string()))
                 .join(format!("sysand-test-absent-{}.lock", std::process::id()));
@@ -129,10 +121,8 @@ pub fn open_cli_credential_store() -> Result<CliCredentialStore, CredentialStore
             lock_path,
         ));
     }
-    // Release builds have no test backend at all, so seeing the variable
-    // must fail loudly rather than silently use the real keyring (which
-    // would let a forgotten variable make tests scribble on a developer's
-    // keychain).
+    // Release builds have no test backend: fail rather than silently use
+    // the real keyring.
     #[cfg(not(debug_assertions))]
     if std::env::var_os(TEST_STORE_ENV_VAR).is_some() {
         return Err(CredentialStoreError::BackendDenied {

@@ -126,6 +126,13 @@ fn file_state_test() {
     );
     let index_root = cwd.join("index");
     do_index_init(&index_root).unwrap();
+    // The discovery document is `{}`: every field defaults, so the
+    // directory served over HTTP later is discovered as the index it
+    // already is on disk (design/index-protocol.md "Filesystem indexes").
+    assert_eq!(
+        read_json(index_root.join("sysand-index-config.json")),
+        json!({})
+    );
     do_index_add::<&str, _, _>(None, &kpar1v1_path, &index_root).unwrap();
     do_index_add::<&str, _, _>(None, &kpar1v2_path, &index_root).unwrap();
     do_index_add::<&str, _, _>(None, &kpar2v1_path, &index_root).unwrap();

@@ -93,12 +93,7 @@ fn clone_local_kpar_project_default_target() -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-// clone remote project
-// #[test]
-// fn clone_remote_project() -> Result<(), Box<dyn std::error::Error>> {
-//     // needs mock index
-//     todo!()
-// }
+// TODO: test cloning a remote project (needs a mock index)
 
 // clone fail when wrong version given for local project
 #[test]
@@ -177,18 +172,15 @@ fn clone_not_found() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-// clone chooses latest version if none given
-// #[test]
-// fn clone_choose_latest_version() -> Result<(), Box<dyn std::error::Error>> {
-//     // will need mock index server here
-//     todo!()
-// }
+// TODO: test that clone chooses the latest version if none is given (needs a
+// mock index)
 
 // note if deps of cloned project include std libs
 #[test]
+/// Json fixture: the setup adds a usage with `sysand add`.
 fn clone_std_deps_note() -> Result<(), Box<dyn std::error::Error>> {
-    let (_dep_temp_dir, cwd_dep, out) = cli_init_project_basic("a", "clone_std_note_dep", "1.2.3")?;
-    out.assert().success();
+    let (_dep_temp_dir, cwd_dep) =
+        cli_init_json_project(None, "acme", "clone-std-note-dep", "1.2.3", None)?;
 
     std::fs::write(
         cwd_dep.join("CloneStdNoteDep.sysml"),
@@ -227,12 +219,8 @@ fn clone_std_deps_note() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-// do not warn about std deps if `--include-std` is given
-// TODO: should also check that they are installed (mock them)
-// #[test]
-// fn clone_include_std() -> Result<(), Box<dyn std::error::Error>> {
-//     todo!()
-// }
+// TODO: test that std deps do not warn if `--include-std` is given, and that
+// they are installed (mock them)
 
 // if `--no-deps` is given, lockfile and env won't be created
 #[test]
@@ -259,11 +247,7 @@ fn clone_no_deps() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-// clone cleans up on fail when cloning corrupt project
-// #[test]
-// fn clone_cleanup() -> Result<(), Box<dyn std::error::Error>> {
-//     todo!()
-// }
+// TODO: test that clone cleans up on failure when cloning a corrupt project
 
 // clone fails when target is not empty
 // target contents are untouched
@@ -459,5 +443,37 @@ fn clone_identifier_errors() -> Result<(), Box<dyn std::error::Error>> {
     .failure()
     .stderr(predicate::str::contains("`acme/nope` (*) was not found"));
 
+    Ok(())
+}
+
+/// A `model.toml` project is not cloned yet.
+///
+/// The project is a member that inherits its `metamodel`, so the read
+/// must see the workspace table: without it, it is refused as "the
+/// project is not a member of any workspace", though it is listed in
+/// `members`.
+#[test]
+fn cloning_a_model_toml_member_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let (_source_dir, source) = new_temp_cwd()?;
+    write_workspace_root(
+        &source,
+        &["app"],
+        "\n[workspace.group.sysml]\n\
+            metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    )?;
+    std::fs::create_dir_all(source.join("app"))?;
+    write_toml_project(
+        source.join("app"),
+        "member",
+        "1.0.0",
+        "sources = [\"m.sysml\"]\nmetamodel.workspace = \"sysml\"\n",
+    )?;
+    std::fs::write(source.join("app/m.sysml"), b"package M;\n")?;
+
+    // The member reads, so what refuses it is the copy, not the read.
+    let (_temp_dir, _cwd, out) = run_sysand(["clone", "--dir", source.join("app").as_str()], None)?;
+    out.assert().failure().stderr(predicate::str::contains(
+        "`member` is a `model.toml` project, which cannot be copied yet",
+    ));
     Ok(())
 }

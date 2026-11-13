@@ -14,15 +14,11 @@
 //!   `index.json` and per-version 404s remain hard errors.
 //! - Retired versions are filtered at candidate enumeration, and `removed`
 //!   entries are rejected before per-version files are fetched.
-//! - The wire contract is kept in `design/index-protocol.md`; the code
-//!   does not use `#[serde(deny_unknown_fields)]` so new optional fields are
-//!   ignored by default.
-
-#![expect(clippy::field_scoped_visibility_modifiers)]
+//! - Wire types do not use `#[serde(deny_unknown_fields)]`, so new optional
+//!   fields are ignored.
 
 use std::{
     collections::{HashMap, hash_map::Entry},
-    num::NonZeroU64,
     rc::Rc,
     sync::Arc,
 };
@@ -40,15 +36,11 @@ use crate::{
     },
     index::{
         iri::ParseIriError,
-        model::{IndexJson, ProjectStatus, VersionStatus, VersionsJson},
+        model::{IndexJson, ProjectStatus, VersionStatus, VersionsJson, VersionsJsonError},
     },
     index_location::IndexLocation,
-    model::InterchangeProjectUsageRaw,
-    project::{
-        index_entry::{IndexEntryProject, IndexEntryProjectError},
-        utils::ExpectedIdentity,
-    },
-    redact::{HttpError, RedactedUrl, ResponseUrl},
+    project::index_entry::{IndexEntryProject, IndexEntryProjectError},
+    redact::{HttpFailure, RedactedUrl, ResponseUrl},
     resolve::net_utils::json_get_request,
 };
 
@@ -57,19 +49,16 @@ use super::ProjectChecksumResult;
 /// Async HTTP client for the sysand index protocol.
 ///
 /// `index_root` is resolved lazily via `sysand-index-config.json` on
-/// first use. The `discovery_root` the caller supplies is the URL the
-/// user configured; an optional discovery document remaps it to the
-/// actual `index_root` (and, independently, to the `api_root` used by
-/// `publish`).
+/// first use. An optional discovery document remaps the user-configured
+/// `discovery_root` to the actual `index_root` and, independently, to the
+/// `api_root` used by `publish`.
 ///
 /// A per-IRI `versions.json` document holds the advertised versions plus
-/// the per-entry fields (`version`, `usage`,
-/// `kpar_size`, `kpar_digest`) needed to enumerate candidates and verify
-/// later-fetched project metadata and archives.
-/// The optional `status` field controls retirement filtering. Fetched
-/// documents are validated (semver + digest shape + ordering) and cached
-/// in `versions_cache` so later reads in the same run reuse the parsed
-/// result.
+/// the per-entry fields (`version`, `usage`, `kpar_size`, `kpar_digest`)
+/// needed to enumerate candidates and verify later-fetched project
+/// metadata and archives. The optional `status` field controls retirement
+/// filtering. Fetched documents are validated and cached in
+/// `versions_cache`.
 #[derive(Debug)]
 pub struct IndexEnvironmentAsync<Policy> {
     client: reqwest_middleware::ClientWithMiddleware,
@@ -78,33 +67,23 @@ pub struct IndexEnvironmentAsync<Policy> {
     /// populated lazily from `<discovery_root>/sysand-index-config.json`
     /// on first actual index access.
     discovery_root: Option<IndexLocation>,
-    /// Resolved `(index_root, api_root)` pair. Test callers may seed this
-    /// at construction; production index resolvers leave it empty until
-    /// the index is actually queried.
+    /// Resolved `(index_root, api_root)` pair. Seeded at construction by
+    /// [`Self::new`], otherwise filled on first index access.
     endpoints: tokio::sync::OnceCell<ResolvedEndpoints>,
-    /// Intra-run cache of parsed `versions.json` documents, keyed by IRI.
-    /// Avoids the duplicate fetches that otherwise occur because
-    /// `versions_async` and `get_project_async` each independently hit the
-    /// endpoint (and `get_project_async` is called once per candidate
-    /// during solving).
+    /// Cache of parsed `versions.json` documents, keyed by IRI.
     ///
-    /// Scoped to one env lifetime; never invalidates. There is no
-    /// freshness signal in the protocol, so successful `versions.json`
-    /// fetches are reused for a stable view of each fetched project.
-    /// Cached values are already validated (see [`validate_versions`]);
-    /// the raw wire form is not retained. Transport, validation, and
-    /// not-found outcomes are not cached — retries re-fetch.
+    /// Scoped to one env lifetime and never invalidated: the protocol has no
+    /// freshness signal. Cached values are already validated (see
+    /// [`validate_versions`]). Transport, validation, and not-found outcomes
+    /// are not cached, so retries re-fetch.
     ///
-    // This is a Mutex to enable caching in &self methods of ReadEnvironment
-    // trait.
+    // A Mutex so `&self` methods can fill the cache.
     versions_cache: tokio::sync::Mutex<HashMap<String, VersionsCacheEntry>>,
 }
 
 impl<Policy> IndexEnvironmentAsync<Policy> {
-    /// Build an env from already-resolved `endpoints`. Tests construct
-    /// `ResolvedEndpoints` directly when they don't need to exercise the
-    /// discovery flow; production resolver construction should prefer
-    /// [`Self::from_discovery_root`] so network discovery stays lazy.
+    /// Build an env from already-resolved `endpoints`, skipping discovery.
+    /// Prefer [`Self::from_discovery_root`] outside tests.
     pub fn new(
         client: reqwest_middleware::ClientWithMiddleware,
         auth_policy: Arc<Policy>,
@@ -124,9 +103,8 @@ impl<Policy> IndexEnvironmentAsync<Policy> {
     }
 
     /// Build an env from a user-configured discovery root without
-    /// contacting the network. The discovery document is fetched once,
-    /// lazily, when a caller first enumerates or materializes projects
-    /// from this index.
+    /// contacting the network. The discovery document is fetched once, on
+    /// first enumeration or materialization.
     pub fn from_discovery_root(
         client: reqwest_middleware::ClientWithMiddleware,
         auth_policy: Arc<Policy>,
@@ -142,58 +120,10 @@ impl<Policy> IndexEnvironmentAsync<Policy> {
     }
 }
 
-/// Per-IRI cache slot: validated `versions.json` entries, shared across
-/// callers by `Rc`. The slot is only populated on a successful fetch
-/// (see `fetch_versions_json`); validation errors propagate, and the
-/// "project not in this index" 404 outcome (§8) is not currently
-/// cached.
+/// Validated `versions.json` entries of one IRI, shared by `Rc`.
 pub(crate) type VersionsCacheEntry = Rc<[AdvertisedVersion]>;
 
-/// A validated sha256 hex digest — 64 lowercase hex characters, with the
-/// `"sha256:"` prefix already stripped. Constructed via `TryFrom<&str>`
-/// which performs the only digest validation pass in this module: both
-/// ingest (`validate_versions`) and every downstream site use the
-/// result of that parse, so there is no second "is this hex?" check hiding
-/// at the point of use. Uppercase hex is rejected rather than normalized —
-/// the wire format is lowercase-only.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Sha256HexDigest(String);
-
-impl Sha256HexDigest {
-    pub(crate) fn as_hex(&self) -> &str {
-        &self.0
-    }
-}
-
-impl TryFrom<&str> for Sha256HexDigest {
-    type Error = ();
-
-    fn try_from(raw: &str) -> Result<Self, Self::Error> {
-        let hex = raw.strip_prefix("sha256:").ok_or(())?;
-        if hex.len() != 64
-            || !hex
-                .bytes()
-                .all(|c| c.is_ascii_digit() || matches!(c, b'a'..=b'f'))
-        {
-            return Err(());
-        }
-        Ok(Self(hex.to_owned()))
-    }
-}
-
-/// A `versions.json` entry after ingest-time validation: `version` is parsed
-/// into `semver::Version`, digests are validated lowercase hex without the
-/// wire prefix, and `usage`/non-zero `kpar_size` are carried through. This
-/// is the representation the cache stores and the rest of the crate sees —
-/// the raw [`VersionEntry`] is only alive briefly during deserialization.
-#[derive(Debug, Clone)]
-pub(crate) struct AdvertisedVersion {
-    pub(crate) version: semver::Version,
-    pub(crate) usage: Vec<InterchangeProjectUsageRaw>,
-    pub(crate) kpar_size: NonZeroU64,
-    pub(crate) kpar_digest: Sha256HexDigest,
-    pub(crate) status: VersionStatus,
-}
+pub(crate) use crate::index::model::AdvertisedVersion;
 
 #[derive(Error, Debug)]
 pub enum IndexEnvironmentError {
@@ -201,37 +131,9 @@ pub enum IndexEnvironmentError {
     Discovery(#[from] DiscoveryError),
     #[error(transparent)]
     Fetch(#[from] HttpFetchError),
-    #[error(
-        "versions.json at `{url}` has entry for version `{version}` with \
-         malformed `{field}` = `{value}` (expected `sha256:<64-hex>`)"
-    )]
-    InvalidVersionEntry {
-        url: RedactedUrl,
-        version: String,
-        field: &'static str,
-        value: String,
-    },
-    #[error("versions.json at `{url}` has entry with non-semver version `{value}`")]
-    InvalidSemverVersion {
-        url: RedactedUrl,
-        value: String,
-        #[source]
-        source: semver::Error,
-    },
-    #[error(
-        "versions.json at `{url}` has entry with version `{value}` carrying build metadata; \
-         build metadata is not permitted in index-advertised versions"
-    )]
-    VersionHasBuildMetadata { url: RedactedUrl, value: String },
-    #[error(
-        "versions.json at `{url}` is not in descending semver precedence: \
-         `{prev}` precedes `{curr}` in wire order"
-    )]
-    VersionsOutOfOrder {
-        url: RedactedUrl,
-        prev: String,
-        curr: String,
-    },
+    /// The `versions.json` shape rules, shared with the filesystem index.
+    #[error(transparent)]
+    Versions(#[from] VersionsJsonError),
     #[error("versions.json at `{url}` does not list version `{version}`")]
     VersionNotInIndex { url: RedactedUrl, version: String },
     #[error("project `{iri}` is not in this index (versions.json at `{url}` returned 404)")]
@@ -244,38 +146,18 @@ pub enum IndexEnvironmentError {
         iri: String,
         version: String,
     },
-    #[error("versions.json at `{url}` lists version `{version}` more than once")]
-    DuplicateVersion { url: RedactedUrl, version: String },
     #[error(transparent)]
     MalformedIri(#[from] ParseIriError),
     #[error(transparent)]
     Project(#[from] Box<IndexEntryProjectError>),
 }
 
-/// Shared error surface for both env-level and project-level JSON fetches.
-/// One `HttpFetchError` represents "something went wrong fetching a JSON
-/// doc over HTTP" regardless of which caller issued the request, with
-/// variants covering request dispatch, non-2xx status, body read, and
-/// JSON parse failures.
+/// Failure to fetch a JSON document over HTTP: request dispatch, non-2xx
+/// status, body read, or JSON parse.
 #[derive(Error, Debug)]
 pub enum HttpFetchError {
-    #[error("HTTP request to `{url}` failed")]
-    Request {
-        url: RedactedUrl,
-        #[source]
-        source: HttpError,
-    },
-    #[error("HTTP request to {url} returned status {status}")]
-    BadHttpStatus {
-        url: ResponseUrl,
-        status: reqwest::StatusCode,
-    },
-    #[error("failed to read HTTP response body from {url}")]
-    Body {
-        url: ResponseUrl,
-        #[source]
-        source: HttpError,
-    },
+    #[error(transparent)]
+    Http(#[from] HttpFailure),
     #[error("failed to parse JSON from {url}")]
     JsonParse {
         url: ResponseUrl,
@@ -285,11 +167,9 @@ pub enum HttpFetchError {
 }
 
 /// Whether a 404 on the requested URL is a successful "no such document"
-/// signal (`AllowNotFound` — e.g. `versions.json`, where 404 means the
-/// project is not in this index per §8) or a hard error
-/// (`RequirePresent` — e.g. the per-version `.project.json` that must
-/// exist once a version has been selected). This is the only policy
-/// difference between callers of [`fetch_json`].
+/// signal (`AllowNotFound`, e.g. a missing project in the index) or a hard
+/// error (`RequirePresent`, e.g. a document that must exist once a version
+/// has been selected).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MissingPolicy {
     AllowNotFound,
@@ -298,7 +178,7 @@ pub(crate) enum MissingPolicy {
 
 /// Fetch and JSON-parse one document from `url` through `client`+`auth`. A
 /// 404 returns `Ok(None)` under [`MissingPolicy::AllowNotFound`] and a
-/// [`HttpFetchError::BadHttpStatus`] under [`MissingPolicy::RequirePresent`];
+/// [`HttpFailure::BadHttpStatus`] under [`MissingPolicy::RequirePresent`];
 /// any other non-success status is always an error.
 pub(crate) async fn fetch_json<T: DeserializeOwned, P: HTTPAuthentication>(
     client: &reqwest_middleware::ClientWithMiddleware,
@@ -309,7 +189,7 @@ pub(crate) async fn fetch_json<T: DeserializeOwned, P: HTTPAuthentication>(
     let response = auth
         .with_authentication(client, &json_get_request(url.clone()))
         .await
-        .map_err(|source| HttpFetchError::Request {
+        .map_err(|source| HttpFailure::Request {
             url: url.clone().into(),
             source: source.into(),
         })?;
@@ -322,19 +202,17 @@ pub(crate) async fn fetch_json<T: DeserializeOwned, P: HTTPAuthentication>(
 
     let response_url = ResponseUrl::new(url, response.url());
     if !status.is_success() {
-        return Err(HttpFetchError::BadHttpStatus {
+        return Err(HttpFailure::BadHttpStatus {
             url: response_url,
             status,
-        });
+        }
+        .into());
     }
 
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|source| HttpFetchError::Body {
-            url: response_url.clone(),
-            source: source.into(),
-        })?;
+    let bytes = response.bytes().await.map_err(|source| HttpFailure::Body {
+        url: response_url.clone(),
+        source: source.into(),
+    })?;
 
     match serde_json::from_slice::<T>(&bytes) {
         Ok(v) => Ok(Some(v)),
@@ -364,9 +242,8 @@ impl<Policy: HTTPAuthentication> IndexEnvironmentAsync<Policy> {
     }
 
     async fn fetch_index(&self) -> Result<IndexJson, IndexEnvironmentError> {
-        // Propagate a 404 as a hard error for list-all operations:
-        // empty-but-live indices serve `{"projects": []}` with 200 OK, so
-        // 404 really means "this URL is not a sysand index".
+        // A 404 is a hard error: an empty index serves `{"projects": []}`
+        // with 200, so 404 means "this URL is not a sysand index".
         let url = self.endpoints().await?.index_url();
 
         match fetch_json(
@@ -382,12 +259,8 @@ impl<Policy: HTTPAuthentication> IndexEnvironmentAsync<Policy> {
         }
     }
 
-    /// Fetch, validate, and cache `versions.json` for `iri`. See
-    /// [`validate_versions`] for the ingest checks. Returns `Ok(None)`
-    /// when the server returns 404 — per §8 that means the project is
-    /// not in this index, which the callers (`versions_async`,
-    /// `get_project_async`) translate into their respective absence
-    /// signals. The absence outcome is currently not cached.
+    /// Fetch, validate, and cache `versions.json` for `iri`. Returns
+    /// `Ok(None)` on a 404 (the project is not in this index).
     async fn fetch_versions_json<S: AsRef<str>>(
         &self,
         iri: S,
@@ -421,84 +294,16 @@ impl<Policy: HTTPAuthentication> IndexEnvironmentAsync<Policy> {
 }
 
 /// Validate every entry's required fields (semver parse, no build
-/// metadata, digest shape, uniqueness) and emit the
-/// `AdvertisedVersion`s the rest of the crate consumes. The check
-/// runs at fetch/cache time rather than per-materialization: the
-/// cache is shared across candidate enumeration and lockfile
-/// assembly, so catching a protocol violation up front avoids a
-/// delayed surprise downstream.
+/// metadata, digest shape, uniqueness) and emit the `AdvertisedVersion`s.
 ///
-/// Ordering is checked at ingest on the parsed `semver::Version`, not
-/// lexically — violations surface as
-/// [`IndexEnvironmentError::VersionsOutOfOrder`]. pubgrub's internal
-/// sorting during solving does not mask the bug at the protocol
-/// boundary.
+/// Ordering is checked on the parsed `semver::Version`, not lexically;
+/// violations surface as [`VersionsJsonError::VersionsOutOfOrder`].
 fn validate_versions(
     url: &url::Url,
     vs: VersionsJson,
 ) -> Result<Rc<[AdvertisedVersion]>, IndexEnvironmentError> {
-    let validated: Rc<[AdvertisedVersion]> = vs
-        .versions
-        .into_iter()
-        .map(|entry| {
-            let version = Version::parse(&entry.version).map_err(|source| {
-                IndexEnvironmentError::InvalidSemverVersion {
-                    url: url.clone().into(),
-                    value: entry.version.clone(),
-                    source,
-                }
-            })?;
-            // `semver::Version::parse` is lenient on the `+build…`
-            // suffix; the wire-format rejection lives here.
-            if !version.build.is_empty() {
-                return Err(IndexEnvironmentError::VersionHasBuildMetadata {
-                    url: url.clone().into(),
-                    value: entry.version,
-                });
-            }
-            let kpar_digest =
-                Sha256HexDigest::try_from(entry.kpar_digest.as_str()).map_err(|()| {
-                    IndexEnvironmentError::InvalidVersionEntry {
-                        url: url.clone().into(),
-                        version: entry.version.clone(),
-                        field: "kpar_digest",
-                        value: entry.kpar_digest.clone(),
-                    }
-                })?;
-            Ok::<_, IndexEnvironmentError>(AdvertisedVersion {
-                version,
-                usage: entry.usage,
-                kpar_size: entry.kpar_size,
-                kpar_digest,
-                status: entry.status,
-            })
-        })
-        .collect::<Result<_, _>>()?;
-    // "Pick the best duplicate" has no principled answer — two entries
-    // with the same semver may carry different digests. Letting them
-    // reach `resolve_candidates` would leak non-determinism into
-    // pubgrub, so reject here.
-    let mut seen = std::collections::HashSet::new();
-    for v in validated.iter() {
-        if !seen.insert(v.version.clone()) {
-            return Err(IndexEnvironmentError::DuplicateVersion {
-                url: url.clone().into(),
-                version: v.version.to_string(),
-            });
-        }
-    }
-    // Parsed-semver ordering check — catches `10.0.0-beta.1` before
-    // `10.0.0`, which lexical order would miss.
-    for [v1, v2] in validated.array_windows() {
-        if v1.version <= v2.version {
-            return Err(IndexEnvironmentError::VersionsOutOfOrder {
-                url: url.clone().into(),
-                prev: v1.version.to_string(),
-                curr: v2.version.to_string(),
-            });
-        }
-    }
-    Ok(validated)
+    // The location is shown in error messages, so it is the redacted one.
+    Ok(crate::index::model::validate_versions(&RedactedUrl::from(url).to_string(), vs)?.into())
 }
 
 type ResultStream<T> = futures::stream::Iter<std::vec::IntoIter<Result<T, IndexEnvironmentError>>>;
@@ -527,10 +332,9 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
         &self,
         uri: S,
     ) -> Result<Self::VersionStream, Self::ReadError> {
-        // §8 — a 404 on `versions.json` means the project is not in
-        // this index. Yield an empty stream so `SequentialResolver` /
-        // `CombinedResolver` cleanly fall through to the next source;
-        // non-404 errors still propagate.
+        // A 404 on `versions.json` means the project is not in this index:
+        // yield an empty stream so resolution falls through to the next
+        // source. Other errors propagate.
         let Some(vs) = self.fetch_versions_json(uri.as_ref()).await? else {
             log::debug!(
                 "versions.json 404 for `{iri}`: project not in this index, \
@@ -539,12 +343,8 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
             );
             return Ok(futures::stream::iter(vec![]));
         };
-        // §12 — resolver-visible stream MUST exclude retired entries
-        // (`yanked` / `removed`) so solve/lock can't select them for a
-        // new resolution. Replaying a pinned lockfile uses
-        // `get_project_async` directly, which allows `yanked` (files
-        // still served) and hard-fails `removed` — see §13 and the §9
-        // file-presence rule.
+        // Retired entries (`yanked` / `removed`) are not offered to new
+        // resolutions.
         let versions: Vec<Result<String, IndexEnvironmentError>> = vs
             .iter()
             .filter(|e| {
@@ -574,16 +374,12 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
         version: T,
     ) -> Result<Self::InterchangeProjectRead, Self::ReadError> {
         let version = version.as_ref();
-        // Validate the requested version against the advertised set
-        // before constructing per-version leaf URLs. We only fetch
-        // versions the index has explicitly listed in `versions.json`.
+        // Only versions listed in `versions.json` are fetched.
         let endpoints = self.endpoints().await?;
         let versions_url = endpoints.versions_url(uri.as_ref())?;
-        // §8 — a `versions.json` 404 means the project is not in this
-        // index. Surface it as a distinct `ProjectNotInIndex` error so
-        // direct callers can tell "not here" apart from "the index
-        // spoke but doesn't list this version" (`VersionNotInIndex`)
-        // or any other transport failure.
+        // A `versions.json` 404 is `ProjectNotInIndex`, distinct from
+        // `VersionNotInIndex` (the index lists the project but not this
+        // version).
         let versions = self
             .fetch_versions_json(uri.as_ref())
             .await?
@@ -591,10 +387,8 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
                 url: versions_url.clone().into(),
                 iri: uri.as_ref().to_owned(),
             })?;
-        // Compare parsed `semver::Version` values rather than raw strings.
-        // Invalid SemVer input surfaces as `VersionNotInIndex`; validated
-        // `versions.json` entries cannot contain non-SemVer versions by
-        // construction.
+        // Invalid SemVer input is `VersionNotInIndex`: validated entries
+        // are always SemVer.
         let requested = Version::parse(version).map_err(|e| {
             log::debug!(
                 "index: failed to parse version `{version}`:\n{e};\n\
@@ -614,9 +408,8 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
                 version: version.to_owned(),
             })?;
 
-        // A `removed` entry's per-version files are intentionally absent.
-        // Refuse before issuing the fetch. `yanked` entries stay reachable
-        // here; they are excluded from new resolutions at `versions_async`.
+        // A `removed` entry's per-version files are absent, so refuse before
+        // fetching. `yanked` entries stay reachable.
         if advertised.status == VersionStatus::Removed {
             return Err(IndexEnvironmentError::VersionRemoved {
                 url: versions_url.clone().into(),
@@ -625,33 +418,11 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
             });
         }
 
-        // Build leaf URLs from the validated version (i.e. the `Display` of
-        // the parsed `semver::Version`), not the caller-supplied string.
+        // Leaf URLs use the `Display` of the parsed version.
         let advertised_version = advertised.version.to_string();
         let kpar_url = endpoints.kpar_url(&uri, &advertised_version)?;
         let project_json_url = endpoints.project_json_url(&uri, &advertised_version)?;
         let meta_json_url = endpoints.meta_json_url(&uri, &advertised_version)?;
-
-        // An index usage's identity is its PURL, so the expectation is
-        // derived here rather than threaded through the resolver. A
-        // non-PURL identifier -- an OMG standard-library IRI, say --
-        // names no pair, and nothing is expected of the entry.
-        let expected = match crate::purl::parse_sysand_purl(uri.as_ref()) {
-            Ok(Some((publisher, name))) => Some(ExpectedIdentity::resolving(
-                Some(publisher.to_owned()),
-                name.to_owned(),
-            )),
-            Ok(None) => None,
-            Err(e) => {
-                log::debug!(
-                    "index: `{}` is not a `pkg:sysand` PURL, so the entry it finds\n\
-                    {SP:>8} is not checked against one: {e}",
-                    uri.as_ref(),
-                    SP = ' '
-                );
-                None
-            }
-        };
 
         let project = IndexEntryProject::new(
             kpar_url,
@@ -660,7 +431,6 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
             advertised,
             self.client.clone(),
             self.auth_policy.clone(),
-            expected,
         )
         .map_err(Box::new)?;
 

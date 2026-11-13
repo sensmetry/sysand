@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-//! Persistent credential storage; the full design is in
-//! design/credential-storage.md.
+//! Persistent credential storage.
 //!
 //! This module holds the unconditional pieces: the record types, the
 //! versioned JSON blob codec, and the index-URL key normalization helper.
@@ -23,13 +22,11 @@ pub const BLOB_VERSION: u32 = 1;
 ///
 /// The taxonomy distinguishes an *absent* keyring backend (callers may fall
 /// back to `SYSAND_CRED_*` environment variables) from a
-/// *present-but-locked/denied* backend (callers must surface the error and
-/// never silently degrade).
+/// *present-but-locked/denied* backend (callers must surface the error).
 #[derive(Debug, Error)]
 pub enum CredentialStoreError {
-    /// The stored blob failed to parse. This fails closed: a corrupt
-    /// blob is never treated as empty, which would clobber all stored
-    /// credentials on the next write.
+    /// The stored blob failed to parse. This fails closed: treating a corrupt
+    /// blob as empty would clobber all stored credentials on the next write.
     #[error("credential store unreadable; remove the `sysand` keyring entry to reset")]
     Unreadable,
     /// The stored blob parsed but declares a format version this build
@@ -259,8 +256,7 @@ impl Default for CredentialBlob {
     }
 }
 
-/// Parse a credential blob. Both failure modes fail closed (the blob is
-/// never silently treated as empty): a parse failure as
+/// Parse a credential blob. Both failure modes fail closed: a parse failure as
 /// [`CredentialStoreError::Unreadable`], an unknown `version` as
 /// [`CredentialStoreError::UnsupportedBlobVersion`].
 pub fn parse_blob(raw: &str) -> Result<CredentialBlob, CredentialStoreError> {
@@ -281,9 +277,7 @@ pub fn serialize_blob(blob: &CredentialBlob) -> String {
     serde_json::to_string(blob).unwrap()
 }
 
-/// Test doubles shared by several core test modules (auth, commands::auth,
-/// keyring_store), which is why they live here rather than in one test
-/// file. Test-only so they never reach the library's public API.
+/// Test doubles shared by several core test modules.
 #[cfg(test)]
 pub(crate) mod test_support {
     #[cfg(feature = "networking")]
@@ -350,8 +344,6 @@ pub(crate) mod test_support {
         LockedBlobStore::new(InMemoryBlobBackend::default(), unique_lock_path())
     }
 }
-
-// Private tests
 
 #[cfg(test)]
 #[path = "./mod_tests.rs"]

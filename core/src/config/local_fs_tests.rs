@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use std::assert_matches;
 use std::{error::Error, io::Write as _};
 
 use camino_tempfile::tempdir;
@@ -8,7 +9,7 @@ use fluent_uri::Iri;
 
 use crate::{
     config::{Config, ConfigProject, Index, OverrideSource, local_fs},
-    index_location::IndexLocation,
+    index_location::IndexSource,
     project::utils::wrapfs,
 };
 
@@ -23,10 +24,9 @@ fn load_configs() -> Result<(), Box<dyn Error>> {
     let mut config_file = wrapfs::File::create(config_path)?;
     let config = Config {
         indexes: vec![Index::new_url(
-            IndexLocation::parse("http://www.example.com").unwrap(),
+            IndexSource::parse("http://www.example.com").unwrap(),
         )],
         projects: vec![],
-        // auth: None,
     };
     config_file.write_all(toml::to_string_pretty(&config)?.as_bytes())?;
 
@@ -46,7 +46,7 @@ fn load_configs_merges_user_config_before_working_dir() -> Result<(), Box<dyn Er
     let user_path = user_dir.path().join(local_fs::CONFIG_FILE);
     let user_config = Config {
         indexes: vec![Index::new_url(
-            IndexLocation::parse("http://user.example.com").unwrap(),
+            IndexSource::parse("http://user.example.com").unwrap(),
         )],
         projects: vec![],
     };
@@ -55,7 +55,7 @@ fn load_configs_merges_user_config_before_working_dir() -> Result<(), Box<dyn Er
     let working_dir = tempdir()?;
     let working_config = Config {
         indexes: vec![Index::new_url(
-            IndexLocation::parse("http://working.example.com").unwrap(),
+            IndexSource::parse("http://working.example.com").unwrap(),
         )],
         projects: vec![],
     };
@@ -82,10 +82,7 @@ fn get_config_defaults_where_read_config_fails() -> Result<(), Box<dyn Error>> {
     for path in [missing.as_path(), dir.path()] {
         assert_eq!(local_fs::get_config(path)?, Config::default());
         let err = local_fs::read_config(path).unwrap_err();
-        assert!(
-            matches!(err, local_fs::ConfigReadError::Io(_)),
-            "{path}: {err:?}"
-        );
+        assert_matches!(err, local_fs::ConfigReadError::Io(_), "{path}: {err:?}");
         assert!(err.to_string().contains(path.as_str()), "{err}");
     }
 
@@ -141,5 +138,28 @@ fn remove_project_source_from_config() -> Result<(), Box<dyn Error>> {
 
     assert!(!config_path.is_file());
 
+    Ok(())
+}
+
+#[test]
+fn adding_a_project_source_refuses_an_invalid_config() -> Result<(), Box<dyn Error>> {
+    let dir = tempdir()?;
+    let path = dir.path().join(local_fs::CONFIG_FILE);
+    let invalid = "[[project]]\nidentifiers = 5\n";
+    wrapfs::write(&path, invalid)?;
+
+    let source = OverrideSource::Editable {
+        editable: ".".into(),
+    };
+    let result =
+        local_fs::add_project_source_to_config(&path, Iri::parse("urn:kpar:b").unwrap(), &source);
+
+    assert_matches!(result, Err(local_fs::ConfigProjectSourceError::Invalid(_)));
+    assert_eq!(wrapfs::read_to_string(&path)?, invalid);
+    assert_matches!(
+        local_fs::remove_project_source_from_config(&path, Iri::parse("urn:kpar:a").unwrap()),
+        Err(local_fs::ConfigProjectSourceError::Invalid(_))
+    );
+    assert_eq!(wrapfs::read_to_string(&path)?, invalid);
     Ok(())
 }

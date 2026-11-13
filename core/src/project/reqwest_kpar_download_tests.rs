@@ -11,6 +11,7 @@ use url::Url;
 
 use crate::{
     auth::Unauthenticated,
+    cancel::CancellationToken,
     context::ProjectContext,
     lock::Source,
     project::{
@@ -49,7 +50,6 @@ fn basic_download_request() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut server = mockito::Server::new();
 
-    //let host = server.host_with_port();
     let url = reqwest::Url::parse(&server.url()).unwrap();
 
     let get_kpar = server
@@ -66,14 +66,21 @@ fn basic_download_request() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(Unauthenticated {}),
         None,
     )?
-    .to_tokio_sync(Arc::new(
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap(),
-    ));
+    .to_tokio_sync(
+        Arc::new(
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap(),
+        ),
+        CancellationToken::new(),
+    );
 
-    let (Some(info), Some(meta)) = project.get_project()? else {
+    let (Some(info), Some(meta)) = project
+        .get_project()?
+        .and_then(crate::project::ProjectDefinition::into_json)
+        .unzip()
+    else {
         panic!()
     };
 
@@ -92,20 +99,12 @@ fn basic_download_request() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Two concurrent `ensure_downloaded_verified` calls on the same
-/// project must fan in to a single download. Without the per-project
-/// download lock, both tasks open the destination archive path (which
-/// `wrapfs::File::create` truncates), and interleave writes — each
-/// task's hasher passes against its own stream but the file on disk is
-/// corrupt.
+/// Two concurrent `ensure_downloaded_verified` calls on the same project must
+/// fan in to a single download.
 ///
-/// This test serializes through a real `reqwest`/`mockito` round-trip, so
-/// both futures race through the same code paths a real caller would hit.
-/// We assert:
-///   - both futures resolve `Ok(())`,
-///   - the server observed exactly one kpar fetch (`expect(1)`),
-///   - the archive on disk parses and exposes the expected project —
-///     i.e. the bytes weren't interleaved.
+/// Asserts that both futures resolve `Ok(())`, the server saw exactly one
+/// kpar fetch, and the downloaded archive parses and exposes the expected
+/// project.
 #[test]
 fn concurrent_downloads_fan_in_to_single_fetch() -> Result<(), Box<dyn std::error::Error>> {
     let kpar_bytes = {
@@ -151,9 +150,8 @@ fn concurrent_downloads_fan_in_to_single_fetch() -> Result<(), Box<dyn std::erro
         .enable_all()
         .build()?;
 
-    // Two futures on the same runtime enter `ensure_downloaded_verified`
-    // together. `OnceCell` must fan them into one download; without that,
-    // both would proceed into the direct-to-destination write path.
+    // Two futures enter `ensure_downloaded_verified` together; the `OnceCell`
+    // must fan them into one download.
     let p1 = Arc::clone(&project);
     let p2 = Arc::clone(&project);
     let (r1, r2) = runtime.block_on(futures::future::join(
@@ -165,12 +163,11 @@ fn concurrent_downloads_fan_in_to_single_fetch() -> Result<(), Box<dyn std::erro
 
     get_kpar.assert();
 
-    // The installed archive must parse — a corrupted interleaved write
-    // would fail here or return garbage.
-    let (Some(info), Some(_meta)) = runtime.block_on(project.get_project_async())? else {
+    // The downloaded archive must parse.
+    let Some(definition) = runtime.block_on(project.get_project_async())? else {
         panic!("installed archive failed to expose project");
     };
-    assert_eq!(info.name, "concurrent");
+    assert_eq!(definition.name(), "concurrent");
 
     Ok(())
 }
@@ -274,9 +271,8 @@ fn index_kpar_source_roundtrips_digest_and_size() -> Result<(), Box<dyn std::err
 }
 
 /// Userinfo in a remote kpar URL is kept verbatim in the lockfile source.
-/// Intended: the URL (password included) is exactly what the user wrote in
-/// `.project.json` or `sysand.toml`, which are not secret, and sysand's own
-/// credentials are sent as headers, never put into URLs.
+/// Intended: the URL (password included) is what the user wrote in
+/// `.project.json` or `sysand.toml`, which are not secret.
 #[test]
 fn remote_kpar_sources_keep_userinfo_verbatim() -> Result<(), Box<dyn std::error::Error>> {
     let remote_kpar = "https://user:pass@example.com/project.kpar";

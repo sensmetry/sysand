@@ -19,9 +19,8 @@ class InterchangeProjectUsageResource(
     _InterchangeProjectUsageResourceRequired, total=False
 ):
     """The untyped usage KerML specifies: a project named by an IRI,
-    optionally constrained to a range of versions.
-
-    Legacy: typed usages will replace it.
+    optionally constrained to a range of versions. It exists in
+    ``.project.json`` projects only: a ``model.toml`` has no such usage.
     """
 
     version_constraint: str | None
@@ -30,7 +29,7 @@ class InterchangeProjectUsageResource(
 class InterchangeProjectUsageDirectory(typing.TypedDict):
     """A typed usage: the project in the directory ``dir``, relative to the
     root of the project declaring the usage. It carries no version
-    constraint -- the directory holds a single version."""
+    constraint: the directory holds a single version."""
 
     dir: str
     publisher: str
@@ -40,11 +39,28 @@ class InterchangeProjectUsageDirectory(typing.TypedDict):
 class InterchangeProjectUsageKparPath(typing.TypedDict):
     """A typed usage: the project in the KPAR at ``kpar_path``, relative to
     the root of the project declaring the usage. It carries no version
-    constraint -- the archive holds a single version."""
+    constraint: the archive holds a single version."""
 
     kpar_path: str
     publisher: str
     name: str
+
+
+class _InterchangeProjectUsageRemoteKparRequired(typing.TypedDict):
+    kpar_url: str
+    name: str
+
+
+class InterchangeProjectUsageRemoteKpar(
+    _InterchangeProjectUsageRemoteKparRequired, total=False
+):
+    """A typed usage: the project in the KPAR at the IRI ``kpar_url``. It
+    carries no version constraint: the IRI names a single archive.
+
+    ``publisher`` is absent exactly for an OMG standard-library IRI, whose
+    KPARs declare no publisher."""
+
+    publisher: str | None
 
 
 class InterchangeProjectUsageIndex(typing.TypedDict):
@@ -64,6 +80,7 @@ InterchangeProjectUsage = (
     InterchangeProjectUsageResource
     | InterchangeProjectUsageDirectory
     | InterchangeProjectUsageKparPath
+    | InterchangeProjectUsageRemoteKpar
     | InterchangeProjectUsageIndex
 )
 
@@ -75,7 +92,7 @@ class UsageConstraintChange(typing.TypedDict):
     changed: bool
     old_version_constraint: str | None
     new_version_constraint: str | None
-    """The constraint now declared; ``None`` only when nothing was found."""
+    """The constraint declared after the change; ``None`` only when nothing was found."""
 
 
 class EnvProjectChecksumKpar(typing.TypedDict):
@@ -117,10 +134,10 @@ class Discovery(typing.TypedDict):
 
     project_root: str | None
     """Canonical path of the enclosing project (the directory holding
-    ``.project.json`` or ``.meta.json``), or ``None``."""
+    ``model.toml``, ``.project.json`` or ``.meta.json``), or ``None``."""
     workspace_root: str | None
-    """Canonical path of the enclosing workspace (the directory holding
-    ``.workspace.json``), or ``None``."""
+    """Canonical path of the enclosing workspace (the directory whose
+    ``model.toml`` holds a ``[workspace]`` table), or ``None``."""
 
 
 class VersionListing(typing.TypedDict):
@@ -145,6 +162,34 @@ class SyncedProject(typing.TypedDict):
     once the project has been pruned."""
 
 
+class Mismatch(typing.TypedDict):
+    """One installed project ``sync(verify=True)`` found not to match the
+    lockfile."""
+
+    iri: str
+    version: str
+    kind: str
+    """``"checksum"`` (files or manifests differ), ``"missing"`` (recorded
+    in ``env.toml`` but not on disk) or ``"not-recorded"`` (in the lockfile
+    but not in ``env.toml``)."""
+    file: str | None
+    """The first file whose digest differs, when the kind is ``checksum``
+    and a file is known."""
+    message: str
+    """The finding as the CLI prints it."""
+
+
+class StaleUsage(typing.TypedDict):
+    """A manifest usage the lockfile does not reflect; the repair is
+    :func:`sysand.lock`."""
+
+    manifest: str
+    usage: str
+    kind: str
+    """``"constraint"``, ``"added"``, ``"removed"`` or ``"manifest-missing"``."""
+    message: str
+
+
 class SyncOutcome(typing.TypedDict):
     """Result of :func:`sysand.sync`: every change it made, and what it left
     alone. Also carried by :class:`SyncError` as ``partial`` when a sync
@@ -154,6 +199,17 @@ class SyncOutcome(typing.TypedDict):
     pruned: list[SyncedProject]
     kept: list[SyncedProject]
     """Lockfile entries that were already installed and verified."""
+    verified: list[SyncedProject]
+    """``verify``: entries read back from disk that match."""
+    mismatched: list[Mismatch]
+    """``verify``: entries that do not."""
+    unrecorded: list[str]
+    """``verify``: directories under ``lib/`` that ``env.toml`` does not
+    record, relative to the environment."""
+    repaired: list[SyncedProject]
+    """``repair``: entries reinstalled."""
+    stale: list[StaleUsage]
+    """``verify``: manifest usages the lockfile does not reflect."""
 
 
 class LockedProject(typing.TypedDict):
@@ -162,10 +218,13 @@ class LockedProject(typing.TypedDict):
     publisher: str | None
     name: str
     version: str
+    metamodel: str | None
+    """The metamodel the project declares, or ``None``. Recorded so the
+    lockfile's own edge checks have something to read."""
     identifiers: list[str]
     exports: list[str]
     usages: list[str]
-    """The usages this project declares, as lockfile usage strings — names
+    """The usages this project declares, as lockfile usage strings, naming
     who pins what."""
     sources: list[str]
     """Where the project can be obtained from, as the lockfile renders each
@@ -200,7 +259,15 @@ class InterchangeProjectChecksum(typing.TypedDict):
 
 
 class InterchangeProjectMetadata(typing.TypedDict):
-    index: dict[str, str]
+    """A ``.meta.json``, in one of two shapes. An OMG-metamodel project
+    carries ``index`` (symbol to file); a Syside-metamodel project carries
+    ``root`` and ``exports`` instead and no ``index``. A dict read from
+    Sysand has all three keys, the absent shape's as ``None``; a dict
+    passed to Sysand may leave them out."""
+
+    index: dict[str, str] | None
+    root: str | None
+    exports: list[str] | None
     created: str
     metamodel: str | None
     includes_derived: bool | None
@@ -244,6 +311,7 @@ __all__ = [
     "InterchangeProjectUsageDirectory",
     "InterchangeProjectUsageIndex",
     "InterchangeProjectUsageKparPath",
+    "InterchangeProjectUsageRemoteKpar",
     "InterchangeProjectUsageResource",
 ]
 

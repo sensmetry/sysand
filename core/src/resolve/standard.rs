@@ -7,11 +7,12 @@ use reqwest_middleware::ClientWithMiddleware;
 
 use crate::{
     auth::HTTPAuthentication,
+    cancel::CancellationToken,
     env::{
-        discovery::DiscoveryError, index::IndexEnvironmentAsync,
-        local_directory::LocalDirectoryEnvironment,
+        any_index::AnyIndexEnvironment, discovery::DiscoveryError, index::IndexEnvironmentAsync,
+        local_directory::LocalDirectoryEnvironment, local_index::LocalIndexEnvironment,
     },
-    index_location::IndexLocation,
+    index_location::IndexSource,
     resolve::{
         AsSyncResolveTokio, ResolutionInfo, ResolveRead, ResolveReadAsync as _,
         combined::CombinedResolver,
@@ -26,14 +27,14 @@ use crate::{
 
 pub type LocalEnvResolver = EnvResolver<LocalDirectoryEnvironment>;
 
-pub type RemoteIndexResolver<Policy> =
-    SequentialResolver<EnvResolver<IndexEnvironmentAsync<Policy>>>;
+/// The configured indexes in order, HTTP and filesystem alike.
+pub type IndexResolver<Policy> = SequentialResolver<EnvResolver<AnyIndexEnvironment<Policy>>>;
 
 type StandardResolverInner<Policy> = CombinedResolver<
     FileResolver,
     LocalEnvResolver,
     RemoteResolver<AsSyncResolveTokio<HTTPResolverAsync<Policy>>, GitResolver>,
-    AsSyncResolveTokio<RemoteIndexResolver<Policy>>,
+    AsSyncResolveTokio<IndexResolver<Policy>>,
 >;
 
 pub struct StandardResolver<Policy: HTTPAuthentication>(StandardResolverInner<Policy>);
@@ -57,11 +58,20 @@ impl<Policy: HTTPAuthentication> ResolveRead for StandardResolver<Policy> {
     ) -> Result<crate::resolve::ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         self.0.resolve_read(resolve)
     }
+
+    fn within_workspace(
+        self,
+        root: camino::Utf8PathBuf,
+        table: std::sync::Arc<crate::manifest::workspace_table::WorkspaceTable>,
+    ) -> Self {
+        Self(self.0.within_workspace(root, table))
+    }
 }
 
 pub fn standard_file_resolver() -> FileResolver {
     FileResolver {
         sandbox_roots: None,
+        workspace: None,
     }
 }
 
@@ -69,6 +79,7 @@ pub fn standard_remote_resolver<Policy: HTTPAuthentication>(
     client: ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
+    token: CancellationToken,
 ) -> RemoteResolver<AsSyncResolveTokio<HTTPResolverAsync<Policy>>, GitResolver> {
     RemoteResolver {
         http_resolver: Some(
@@ -77,9 +88,9 @@ pub fn standard_remote_resolver<Policy: HTTPAuthentication>(
                 lax: true,
                 auth_policy, //prefer_ranged: true,
             }
-            .to_tokio_sync(runtime),
+            .to_tokio_sync(runtime, token.clone()),
         ),
-        git_resolver: Some(GitResolver {}),
+        git_resolver: Some(GitResolver { token }),
         priority: RemotePriority::PreferHTTP,
     }
 }
@@ -90,44 +101,53 @@ pub fn standard_local_resolver(local_env: LocalDirectoryEnvironment) -> LocalEnv
 
 pub fn standard_index_resolver<Policy: HTTPAuthentication>(
     client: ClientWithMiddleware,
-    urls: Vec<IndexLocation>,
+    sources: Vec<IndexSource>,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
-) -> Result<AsSyncResolveTokio<RemoteIndexResolver<Policy>>, DiscoveryError> {
-    // Each user-configured URL is a discovery root. Do not fetch
-    // `sysand-index-config.json` here: resolver construction happens for
-    // commands and bindings before we know whether an index dependency is
-    // needed at all. The env resolves discovery lazily on first index use.
-    let envs: Vec<EnvResolver<IndexEnvironmentAsync<Policy>>> = urls
+    token: CancellationToken,
+) -> Result<AsSyncResolveTokio<IndexResolver<Policy>>, DiscoveryError> {
+    // Each configured URL is a discovery root, resolved lazily on first
+    // index use, since construction happens before it is known whether an
+    // index is needed. A filesystem index has no discovery and is also read
+    // on first use.
+    let envs: Vec<EnvResolver<AnyIndexEnvironment<Policy>>> = sources
         .into_iter()
-        .map(|discovery_root| {
-            let env = IndexEnvironmentAsync::from_discovery_root(
-                client.clone(),
-                auth_policy.clone(),
-                discovery_root,
-            );
+        .map(|source| {
+            let env = match source {
+                IndexSource::Remote(discovery_root) => {
+                    AnyIndexEnvironment::Remote(IndexEnvironmentAsync::from_discovery_root(
+                        client.clone(),
+                        auth_policy.clone(),
+                        discovery_root,
+                    ))
+                }
+                IndexSource::Filesystem(path) => {
+                    AnyIndexEnvironment::Filesystem(LocalIndexEnvironment::new(path))
+                }
+            };
             EnvResolver { env }
         })
         .collect();
-    Ok(SequentialResolver::new(envs).to_tokio_sync(runtime))
+    Ok(SequentialResolver::new(envs).to_tokio_sync(runtime, token))
 }
 
 // TODO: Replace most of these arguments by some general CLIOptions object
 pub fn standard_resolver<Policy: HTTPAuthentication>(
     local_env: Option<LocalDirectoryEnvironment>,
     client: Option<ClientWithMiddleware>,
-    index_urls: Option<Vec<IndexLocation>>,
+    index_urls: Option<Vec<IndexSource>>,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
+    token: CancellationToken,
 ) -> Result<StandardResolver<Policy>, DiscoveryError> {
     let file_resolver = standard_file_resolver();
     let local_resolver = local_env.map(standard_local_resolver);
     let remote_resolver = client
         .clone()
-        .map(|x| standard_remote_resolver(x, runtime.clone(), auth_policy.clone()));
+        .map(|x| standard_remote_resolver(x, runtime.clone(), auth_policy.clone(), token.clone()));
     let index_resolver = client
         .zip(index_urls)
-        .map(|(client, urls)| standard_index_resolver(client, urls, runtime, auth_policy))
+        .map(|(client, urls)| standard_index_resolver(client, urls, runtime, auth_policy, token))
         .transpose()?;
 
     Ok(StandardResolver(CombinedResolver {
@@ -137,3 +157,7 @@ pub fn standard_resolver<Policy: HTTPAuthentication>(
         index_resolver,
     }))
 }
+
+#[cfg(test)]
+#[path = "./standard_tests.rs"]
+mod tests;

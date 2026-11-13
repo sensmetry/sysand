@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use std::assert_matches;
 use std::collections::HashMap;
 
 use indexmap::IndexMap;
@@ -12,10 +13,11 @@ use crate::{
     manifest::edit::DocumentMut,
     model::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
-        KerMlChecksumAlg,
+        InterchangeProjectUsageRaw, KerMlChecksumAlg,
     },
     project::{
-        ManifestWriteError, ProjectChecksum, ProjectFormat, ProjectMut, ProjectRead, hash_reader,
+        ManifestError, ManifestWriteError, ProjectChecksum, ProjectDefinition, ProjectFormat,
+        ProjectMut, ProjectRead, hash_reader,
         memory::{InMemoryError, InMemoryProject},
         reference::ProjectReference,
     },
@@ -50,7 +52,9 @@ fn canonicalization_no_checksums() -> Result<(), Box<dyn std::error::Error>> {
             usage: vec![],
         }),
         meta: Some(InterchangeProjectMetadataRaw {
-            index: IndexMap::default(),
+            index: Some(IndexMap::default()),
+            root: None,
+            exports: None,
             created: "123".to_owned(),
             metamodel: None,
             includes_derived: None,
@@ -72,9 +76,7 @@ fn canonicalization_no_checksums() -> Result<(), Box<dyn std::error::Error>> {
         source_may_offer_multiple_versions: false,
     };
 
-    let Some(canonical_info) = project.canonical_meta()? else {
-        panic!()
-    };
+    let canonical_info = super::canonicalize_meta(&project, project.meta.clone().unwrap())?;
 
     let Some(checksums) = canonical_info.checksum else {
         panic!()
@@ -92,12 +94,8 @@ fn canonicalization_no_checksums() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// A project that keeps the default `format` answers json without
-/// saying anything.
-///
-/// The vehicle has to be a project that says nothing. `InMemoryProject`
-/// is not one: it can hold a `model.toml`, so it answers from what it
-/// holds -- and an empty one holds neither manifest.
+/// A project that keeps the default `format` answers json without saying
+/// anything.
 #[test]
 fn a_project_that_does_not_say_is_json() {
     assert_eq!(Silent.format().expect("infallible"), ProjectFormat::Json);
@@ -111,20 +109,21 @@ struct Silent;
 impl ProjectRead for Silent {
     type Error = InMemoryError;
 
+    /// These stubs stand in for a single project, not an index listing.
     fn source_may_offer_multiple_versions(&self) -> bool {
         false
     }
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
-        Ok((None, None))
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
+        Ok(None)
+    }
+
+    fn version(&self) -> Result<Option<String>, Self::Error> {
+        Ok(None)
+    }
+
+    fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
+        Ok(None)
     }
 
     type SourceReader<'a> = &'a [u8];
@@ -149,9 +148,7 @@ impl ProjectRead for Silent {
     }
 }
 
-/// A wrapper must forward rather than take the default, or it claims
-/// json for whatever it is holding. `ProjectReference` is the `Arc`
-/// wrapper, so the claim would survive being shared.
+/// A wrapper must forward `format`.
 #[test]
 fn a_reference_reports_the_format_of_what_it_wraps() {
     let wrapped = ProjectReference::new(Toml);
@@ -159,13 +156,13 @@ fn a_reference_reports_the_format_of_what_it_wraps() {
 }
 
 /// A project that says it is toml, with nothing else in it. The point of
-/// the tests below is the forwarding, not the reading.
 #[derive(Debug)]
 struct Toml;
 
 impl ProjectRead for Toml {
     type Error = InMemoryError;
 
+    /// These stubs stand in for a single project, not an index listing.
     fn source_may_offer_multiple_versions(&self) -> bool {
         false
     }
@@ -174,16 +171,16 @@ impl ProjectRead for Toml {
         Ok(ProjectFormat::Toml)
     }
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
-        Ok((None, None))
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
+        Ok(None)
+    }
+
+    fn version(&self) -> Result<Option<String>, Self::Error> {
+        Ok(None)
+    }
+
+    fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
+        Ok(None)
     }
 
     type SourceReader<'a> = std::io::Cursor<String>;
@@ -208,9 +205,8 @@ impl ProjectRead for Toml {
     }
 }
 
-/// The json side is behind a `ProjectReference` so that the two variants
-/// are a similar size; it also means the derive forwards through a
-/// wrapper.
+/// The json side is behind a `ProjectReference`, so the derive forwards
+/// through a wrapper.
 #[derive(crate::project::ProjectRead)]
 enum Either {
     Json(ProjectReference<Silent>),
@@ -233,14 +229,13 @@ fn a_derived_enum_reports_the_format_of_its_variant() {
 }
 
 fn a_manifest() -> DocumentMut {
-    "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n"
+    "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n"
         .parse()
         .expect("a valid manifest document")
 }
 
-/// Stores a manifest through the trait, so that `P = &mut T` picks the
-/// blanket implementation rather than resolving to the inner type by
-/// auto-deref.
+/// Stores a manifest through the trait, so `P = &mut T` picks the blanket
+/// implementation.
 fn store<P: ProjectMut>(
     mut project: P,
     document: &DocumentMut,
@@ -258,4 +253,57 @@ fn a_mutable_reference_forwards_a_manifest_write() {
     store(&mut project, &a_manifest()).expect("an in-memory project stores a manifest");
 
     assert_eq!(project.format().expect("a format"), ProjectFormat::Toml);
+}
+
+#[test]
+fn a_project_without_a_manifest_has_no_document() {
+    assert_matches!(
+        Silent.manifest_document(),
+        Err(ManifestError::NoTomlManifest)
+    );
+}
+
+#[test]
+fn a_memory_project_hands_back_its_manifest_document() {
+    // Comments included: what an editor needs is what the file says,
+    // not the values `manifest()` resolves out of it.
+    let commented = "manifest-version = \"1.0\"\n\n[project]\n# who publishes it\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n";
+    let mut project = InMemoryProject::default();
+    project
+        .put_manifest_document(&commented.parse().expect("a manifest"), false)
+        .expect("stores a manifest");
+
+    let document = project.manifest_document().expect("a document");
+    assert!(document.to_string().contains("# who publishes it"));
+}
+
+#[test]
+fn a_manifest_this_sysand_cannot_read_is_refused_before_it_is_edited() {
+    // Parsing TOML is not reading a manifest. A file written for a
+    // version this Sysand does not support parses perfectly well and
+    // must not be edited.
+    let newer = "manifest-version = \"2.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n";
+    let project = InMemoryProject {
+        model_toml: Some(newer.to_owned()),
+        ..InMemoryProject::default()
+    };
+
+    let error = project
+        .manifest_document()
+        .expect_err("a manifest from the future is not editable");
+    assert!(error.to_string().contains("manifest-version 2"));
+}
+
+#[test]
+fn a_mutable_reference_forwards_the_manifest_document() {
+    fn document<P: ProjectRead>(project: P) -> Result<DocumentMut, ManifestError<P::Error>> {
+        project.manifest_document()
+    }
+
+    let mut project = InMemoryProject::default();
+    project
+        .put_manifest_document(&a_manifest(), false)
+        .expect("stores a manifest");
+
+    document(&project).expect("a reference forwards the manifest document");
 }

@@ -21,18 +21,19 @@ pub use sysand_macros::ProjectRead;
 pub use typed_path::Utf8UnixPath;
 
 use crate::{
+    cancel::{Bridge, Cancellable, CancellationToken},
     context::ProjectContext,
     env::utils::ErrorBound,
     lock::Source,
-    manifest::edit::DocumentMut,
+    manifest::{MODEL_TOML_FILE, edit::DocumentMut, project::ResolvedProject},
     model::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
-        InterchangeProjectUsageRaw, KerMlChecksumAlg, ProjectHash, project_hash_hex,
+        InterchangeProjectUsage, InterchangeProjectUsageRaw, InterchangeProjectValidationError,
+        KerMlChecksumAlg, META_JSON_FILE, PROJECT_JSON_FILE, ProjectHash, project_hash_hex,
     },
-    utils::lowercase_hex,
+    utils::{SP, lowercase_hex},
 };
 
-// Implementations
 #[cfg(all(feature = "filesystem", feature = "networking"))]
 pub mod any;
 pub mod editable;
@@ -48,19 +49,16 @@ pub mod memory;
 pub mod null;
 #[cfg(all(feature = "filesystem", feature = "networking"))]
 pub mod reqwest_kpar_download;
-// TODO: Reintroduce this module
-// #[cfg(all(feature = "filesystem", feature = "networking"))]
-// pub mod reqwest_kpar_ranged;
+// TODO: reintroduce `reqwest_kpar_ranged`
 #[cfg(feature = "networking")]
 pub mod reqwest_src;
 
-// Generic implementations
 pub mod cached;
 pub mod reference;
 
 pub mod utils;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct KparMeta {
     pub size_bytes: NonZeroU64,
     pub sha256_hex: String,
@@ -116,9 +114,7 @@ pub enum CanonicalizationError<ReadError: ErrorBound> {
 }
 
 impl<E: ErrorBound> CanonicalizationError<E> {
-    /// Map the inner `ProjectRead` error type while leaving the `FileRead`
-    /// variant untouched. Convenient when forwarding a canonicalization
-    /// result across a wrapper type that rewraps the underlying read error.
+    /// Map the inner `ProjectRead` error type, leaving `FileRead` untouched.
     pub fn map_project_read<F, E2>(self, f: F) -> CanonicalizationError<E2>
     where
         F: FnOnce(E) -> E2,
@@ -133,37 +129,33 @@ impl<E: ErrorBound> CanonicalizationError<E> {
 
 /// Why a project's manifest could not be had.
 #[derive(Debug, Error)]
-pub enum ManifestError<ReadError: ErrorBound> {
+pub enum ManifestError<ReadError> {
     #[error(transparent)]
-    Project(ReadError),
-    /// The project is not written as a `model.toml`. A json project's
-    /// documents can be converted into the manifest model, but the
-    /// conversion has failures of its own and belongs with the command
-    /// that reports them.
+    Project(#[from] ReadError),
+    /// The project is not written as a `model.toml`. Converting a json
+    /// project's documents can fail, so it is left to the command that
+    /// reports those failures.
     #[error("this project has no `model.toml` manifest")]
     NoTomlManifest,
 }
 
 /// Why a manifest could not be stored.
 ///
-/// The same shape as [`ManifestError`], and for the same reason: a
-/// default trait body cannot produce a `Self::Error`, which belongs to
-/// the implementation.
+/// The same shape as [`ManifestError`]: a default trait body cannot produce
+/// a `Self::Error`, which belongs to the implementation.
 #[derive(Error, Debug)]
-pub enum ManifestWriteError<WriteError: ErrorBound> {
+pub enum ManifestWriteError<WriteError> {
     #[error(transparent)]
-    Project(WriteError),
-    /// The project has nowhere to put one. A KPAR, a remote source
-    /// project, an index entry: their contents are not this Sysand's to
-    /// write.
+    Project(#[from] WriteError),
+    /// The project has nowhere to put one (a KPAR, a remote source project,
+    /// an index entry).
     #[error("this project cannot store a `model.toml` manifest")]
     Unsupported,
 }
 
 impl<E: ErrorBound> ManifestWriteError<E> {
-    /// Map the inner write error while leaving the rest alone, as
-    /// [`ManifestError::map_project_read`] does. The `ProjectMut` derive
-    /// needs it to rewrap a variant's error.
+    /// Map the inner write error, leaving the rest alone. Used by the
+    /// `ProjectMut` derive to rewrap a variant's error.
     pub fn map_project_write<F, E2>(self, f: F) -> ManifestWriteError<E2>
     where
         F: FnOnce(E) -> E2,
@@ -177,9 +169,8 @@ impl<E: ErrorBound> ManifestWriteError<E> {
 }
 
 impl<E: ErrorBound> ManifestError<E> {
-    /// Map the inner read error while leaving the rest alone, as
-    /// [`CanonicalizationError::map_project_read`] does. The
-    /// `ProjectRead` derive needs it to rewrap a variant's error.
+    /// Map the inner read error, leaving the rest alone. Used by the
+    /// `ProjectRead` derive to rewrap a variant's error.
     pub fn map_project_read<F, E2>(self, f: F) -> ManifestError<E2>
     where
         F: FnOnce(E) -> E2,
@@ -190,18 +181,6 @@ impl<E: ErrorBound> ManifestError<E> {
             Self::NoTomlManifest => ManifestError::NoTomlManifest,
         }
     }
-}
-
-#[derive(Debug, Error)]
-pub enum IntoProjectError<ReadError: ErrorBound, W: ProjectMut> {
-    #[error(transparent)]
-    ProjectRead(ReadError),
-    #[error(transparent)]
-    ProjectWrite(W::Error),
-    #[error("missing project information file `.project.json`")]
-    MissingInfo,
-    #[error("missing project metadata file `.meta.json`")]
-    MissingMeta,
 }
 
 // TODO: serialize this as "kpar:<hex>" or "meta:<hex>" to avoid having two fields,
@@ -225,20 +204,405 @@ impl Display for ProjectChecksum {
 
 /// Which manifest a directory holds, and so which kind of project it is.
 ///
-/// model-toml.md "Mixed manifests": a directory with only json config or
-/// only toml config is supported without warnings, and one with both is
-/// an error -- "it's unclear if the project is meant to be a non-zipped
-/// KPAR, or dev project".
+/// A directory with only json config or only toml config is a project of
+/// that kind; one with both is an error, as it is unclear whether it is
+/// a non-zipped KPAR or a development project.
 ///
-/// The json side is *either* of the two json manifests, not both: a
-/// directory holding only a `.meta.json` is a broken json project rather
-/// than a directory without one.
+/// The json side is *either* of the two json manifests: a directory
+/// holding only a `.meta.json` is a broken json project.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProjectFormat {
     Json,
     Toml,
     Both,
     Neither,
+}
+
+impl ProjectFormat {
+    /// The format of a project that has a `model.toml` (`toml`) and a
+    /// json manifest (`json`), or neither.
+    pub fn from_presence(toml: bool, json: bool) -> Self {
+        match (toml, json) {
+            (true, true) => Self::Both,
+            (true, false) => Self::Toml,
+            (false, true) => Self::Json,
+            (false, false) => Self::Neither,
+        }
+    }
+
+    /// Refuse to write the json manifest `file` into a `model.toml`
+    /// project, which would then hold both.
+    pub fn check_json_write(self, file: &'static str) -> Result<(), FormatError> {
+        match self {
+            Self::Toml => Err(FormatError::JsonWriteToToml(file)),
+            Self::Json | Self::Both | Self::Neither => Ok(()),
+        }
+    }
+
+    /// Refuse to write a `model.toml` into a json project, which would
+    /// then hold both. A project already holding both is unreadable
+    /// either way.
+    pub fn check_toml_write(self) -> Result<(), FormatError> {
+        match self {
+            Self::Json => Err(FormatError::TomlWriteToJson),
+            Self::Toml | Self::Both | Self::Neither => Ok(()),
+        }
+    }
+}
+
+/// A project's manifests break the format rules: a project is written in
+/// one format, with every document that format needs.
+///
+/// The message is a predicate: the error carrying this one names the
+/// project before it.
+#[derive(Debug, Error)]
+pub enum FormatError {
+    /// The project holds a `model.toml` and the json manifest `json`.
+    #[error(
+        "has both `{MODEL_TOML_FILE}` and `{json}`;\n\
+        {SP:>8} it is unclear whether it is a non-zipped KPAR or a development project"
+    )]
+    Ambiguous { json: &'static str },
+    /// A json project lacks one of its two documents.
+    #[error("is missing `{0}`")]
+    MissingDocument(&'static str),
+    #[error(
+        "is a `{MODEL_TOML_FILE}` project;\n\
+        {SP:>8} `{0}` cannot be written into one"
+    )]
+    JsonWriteToToml(&'static str),
+    #[error(
+        "is a `{PROJECT_JSON_FILE}` project;\n\
+        {SP:>8} `{MODEL_TOML_FILE}` cannot be written into one (see `sysand migrate`)"
+    )]
+    TomlWriteToJson,
+    /// A source pinned by project checksum is a `model.toml` project.
+    #[error(
+        "is a `{MODEL_TOML_FILE}` project, which has no project checksum;\n\
+        {SP:>8} it can only be used as an editable project"
+    )]
+    TomlHasNoChecksum,
+}
+
+/// A project's manifest, as written: a `model.toml`, or the
+/// `.project.json` and `.meta.json` pair.
+///
+/// A json project has both documents; one missing either is an error of
+/// the project that read it.
+#[derive(Clone, Debug)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "one value per read, matched by every caller; boxing the json documents \
+              would only add indirection there"
+)]
+pub enum ProjectDefinition {
+    /// The `model.toml`, resolved against the workspace the project is a
+    /// member of.
+    Toml(Box<ResolvedProject>),
+    Json {
+        info: InterchangeProjectInfoRaw,
+        meta: InterchangeProjectMetadataRaw,
+    },
+}
+
+impl ProjectDefinition {
+    /// The json project of the documents a store holds, each `None` when
+    /// absent. A store holding neither has no project.
+    pub fn from_json(
+        info: Option<InterchangeProjectInfoRaw>,
+        meta: Option<InterchangeProjectMetadataRaw>,
+    ) -> Result<Option<Self>, FormatError> {
+        match (info, meta) {
+            (Some(info), Some(meta)) => Ok(Some(Self::Json { info, meta })),
+            (None, None) => Ok(None),
+            (Some(_), None) => Err(FormatError::MissingDocument(META_JSON_FILE)),
+            (None, Some(_)) => Err(FormatError::MissingDocument(PROJECT_JSON_FILE)),
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        match self {
+            Self::Toml(project) => project.name.as_str(),
+            Self::Json { info, meta: _ } => &info.name,
+        }
+    }
+
+    pub fn publisher(&self) -> Option<&str> {
+        match self {
+            Self::Toml(project) => Some(project.publisher.as_str()),
+            Self::Json { info, meta: _ } => info.publisher.as_deref(),
+        }
+    }
+
+    pub fn version(&self) -> String {
+        match self {
+            Self::Toml(project) => project.version.to_string(),
+            Self::Json { info, meta: _ } => info.version.clone(),
+        }
+    }
+
+    pub fn license(&self) -> Option<String> {
+        match self {
+            Self::Toml(project) => project.license.as_ref().map(ToString::to_string),
+            Self::Json { info, meta: _ } => info.license.clone(),
+        }
+    }
+
+    pub fn description(&self) -> Option<&str> {
+        match self {
+            Self::Toml(project) => project.description.as_deref(),
+            Self::Json { info, meta: _ } => info.description.as_deref(),
+        }
+    }
+
+    pub fn website(&self) -> Option<&str> {
+        match self {
+            Self::Toml(project) => project.urls.website.as_ref().map(fluent_uri::Iri::as_str),
+            Self::Json { info, meta: _ } => info.website.as_deref(),
+        }
+    }
+
+    pub fn maintainers(&self) -> Vec<String> {
+        match self {
+            Self::Toml(project) => project
+                .maintainers
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+            Self::Json { info, meta: _ } => info.maintainer.clone(),
+        }
+    }
+
+    pub fn topics(&self) -> &[String] {
+        match self {
+            Self::Toml(project) => &project.topics,
+            Self::Json { info, meta: _ } => &info.topic,
+        }
+    }
+
+    /// The usages as a `.project.json` carries them; a `model.toml` usage
+    /// is mapped by [`crate::manifest::kpar_view::usage`].
+    pub fn usages(&self) -> Vec<InterchangeProjectUsageRaw> {
+        match self {
+            Self::Toml(project) => project
+                .usages
+                .iter()
+                .map(|located| crate::manifest::kpar_view::usage(&located.usage))
+                .collect(),
+            Self::Json { info, meta: _ } => info.usage.clone(),
+        }
+    }
+
+    pub fn metamodel(&self) -> Option<String> {
+        match self {
+            Self::Toml(project) => Some(project.metamodel.to_string()),
+            Self::Json { info: _, meta } => meta.metamodel.clone(),
+        }
+    }
+
+    /// The usages, validated. A json project's whole `.project.json` is
+    /// validated; a `model.toml` was when it was read.
+    pub fn validated_usages(
+        &self,
+    ) -> Result<Vec<InterchangeProjectUsage>, InterchangeProjectValidationError> {
+        match self {
+            Self::Toml(_) => self
+                .usages()
+                .iter()
+                .map(InterchangeProjectUsageRaw::validate)
+                .collect(),
+            Self::Json { info, meta: _ } => Ok(info.validate()?.usage),
+        }
+    }
+
+    pub fn format(&self) -> ProjectFormat {
+        match self {
+            Self::Toml(_) => ProjectFormat::Toml,
+            Self::Json { info: _, meta: _ } => ProjectFormat::Json,
+        }
+    }
+
+    /// The json documents, or `None` for a `model.toml` project.
+    pub fn json(&self) -> Option<(&InterchangeProjectInfoRaw, &InterchangeProjectMetadataRaw)> {
+        match self {
+            Self::Toml(_) => None,
+            Self::Json { info, meta } => Some((info, meta)),
+        }
+    }
+
+    /// The json documents, or `None` for a `model.toml` project.
+    pub fn into_json(self) -> Option<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)> {
+        match self {
+            Self::Toml(_) => None,
+            Self::Json { info, meta } => Some((info, meta)),
+        }
+    }
+
+    /// The json documents, or the error naming a `model.toml` project that
+    /// has none to report.
+    pub fn into_json_documents(
+        self,
+    ) -> Result<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw), NotJsonProject> {
+        let name = self.name().to_owned();
+        self.into_json().ok_or(NotJsonProject { name })
+    }
+}
+
+/// A `model.toml` project where a json project's documents were wanted.
+// TODO: report a `model.toml` project's manifest.
+#[derive(Debug, Error)]
+#[error("`{name}` is a `model.toml` project, which `info` cannot report yet")]
+pub struct NotJsonProject {
+    name: String,
+}
+
+/// Why a `model.toml` project's symbols could not be extracted.
+#[derive(Debug, Error)]
+pub enum SymbolIndexError<ReadError> {
+    #[error(transparent)]
+    Project(ReadError),
+    #[error(transparent)]
+    Source(#[from] SourceSymbolsError),
+}
+
+/// Why one source file's symbols could not be extracted.
+#[derive(Debug, Error)]
+pub enum SourceSymbolsError {
+    #[error("failed to read source file `{0}`")]
+    Read(Box<str>, #[source] io::Error),
+    #[error(transparent)]
+    Symbols(#[from] crate::symbols::SymbolsError),
+    #[error(transparent)]
+    Unlisted(#[from] crate::manifest::project::UnlistedFiles),
+}
+
+/// Every top-level symbol a `model.toml` project's sources declare,
+/// mapped to the source that declares it, read through `project`.
+///
+/// A symbol declared in two sources maps to the later one.
+pub fn symbol_index<P: ProjectRead + ?Sized>(
+    project: &P,
+    manifest: &ResolvedProject,
+) -> Result<IndexMap<String, String>, SymbolIndexError<P::Error>> {
+    let sources = manifest
+        .sources()
+        .map_err(|e| SymbolIndexError::Source(e.into()))?;
+    crate::manifest::kpar_view::symbol_index(
+        sources,
+        |source| {
+            let mut contents = String::new();
+            project
+                .read_source(source)
+                .map_err(SymbolIndexError::Project)?
+                .read_to_string(&mut contents)
+                .map_err(|e| SourceSymbolsError::Read(source.as_str().into(), e))?;
+            Ok(contents)
+        },
+        |_, _| {},
+    )
+    .map_err(|e| match e {
+        crate::manifest::kpar_view::ViewError::Read(e) => e,
+        crate::manifest::kpar_view::ViewError::Symbols(e) => SourceSymbolsError::from(e).into(),
+        crate::manifest::kpar_view::ViewError::Unlisted(e) => SourceSymbolsError::from(e).into(),
+    })
+}
+
+/// The top-level symbols `project` exports: what its `.meta.json` lists,
+/// or what a `model.toml` project's sources declare.
+pub fn exported_symbols<P: ProjectRead + ?Sized>(
+    project: &P,
+    definition: &ProjectDefinition,
+) -> Result<Vec<String>, SymbolIndexError<P::Error>> {
+    match definition {
+        ProjectDefinition::Json { info: _, meta } => Ok(meta.exported_symbols().cloned().collect()),
+        ProjectDefinition::Toml(manifest) => {
+            Ok(symbol_index(project, manifest)?.into_keys().collect())
+        }
+    }
+}
+
+#[expect(
+    clippy::panic,
+    reason = "a project hash is defined only for json projects; hashing a \
+              `model.toml` project is a programming error"
+)]
+fn hashable_json(
+    definition: ProjectDefinition,
+) -> (InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw) {
+    match definition {
+        ProjectDefinition::Json { info, meta } => (info, meta),
+        ProjectDefinition::Toml(project) => panic!(
+            "`{}` is a `model.toml` project, which has no project hash",
+            project.name.as_str()
+        ),
+    }
+}
+
+/// `meta` with every source file hash replaced by its SHA256.
+fn canonicalize_meta<P: ProjectRead + ?Sized>(
+    project: &P,
+    mut meta: InterchangeProjectMetadataRaw,
+) -> Result<InterchangeProjectMetadataRaw, CanonicalizationError<P::Error>> {
+    for (path, checksum) in meta
+        .checksum
+        .as_mut()
+        .into_iter()
+        .flat_map(|index| index.iter_mut())
+    {
+        let sha256: &str = KerMlChecksumAlg::Sha256.into();
+        if checksum.algorithm == sha256 {
+            checksum.value = checksum.value.to_lowercase();
+        } else {
+            checksum.algorithm = sha256.to_owned();
+
+            let mut src = project
+                .read_source(path)
+                .map_err(CanonicalizationError::ProjectRead)?;
+            checksum.value = lowercase_hex(
+                hash_reader(&mut src)
+                    .map_err(|e| CanonicalizationError::FileRead(path.as_str().into(), e))?,
+            );
+        }
+    }
+    Ok(meta)
+}
+
+/// [`canonicalize_meta`] for an async project, hashing the files concurrently.
+async fn canonicalize_meta_async<P: ProjectReadAsync + ?Sized>(
+    project: &P,
+    mut meta: InterchangeProjectMetadataRaw,
+) -> Result<InterchangeProjectMetadataRaw, CanonicalizationError<P::Error>> {
+    if let Some(mut checksums) = meta.checksum {
+        let future_checksums = checksums.drain(..).map(|(path, mut checksum)| async move {
+            let sha256: &str = KerMlChecksumAlg::Sha256.into();
+            if checksum.algorithm == sha256 {
+                checksum.value = checksum.value.to_lowercase();
+            } else {
+                checksum.algorithm = sha256.to_owned();
+
+                let mut src = project
+                    .read_source_async(&path)
+                    .await
+                    .map_err(CanonicalizationError::ProjectRead)?;
+                checksum.value = lowercase_hex(
+                    hash_reader_async(&mut src)
+                        .await
+                        .map_err(|e| CanonicalizationError::FileRead(path.clone().into(), e))?,
+                );
+            }
+
+            Ok((path, checksum))
+        });
+
+        let collected_checksums: Result<Vec<(String, InterchangeProjectChecksumRaw)>, _> =
+            futures::future::join_all(future_checksums)
+                .await
+                .into_iter()
+                .collect();
+
+        meta.checksum = Some(IndexMap::from_iter(collected_checksums?));
+    }
+    Ok(meta)
 }
 
 /// Anything implementing `ProjectRead` can be treated as a method for accessing (one
@@ -248,17 +612,9 @@ pub trait ProjectRead {
 
     type Error: ErrorBound;
 
-    /// Fetch project information and metadata (if they exist).
+    /// Read the project's manifest. `Ok(None)` means there is none.
     // TODO: cache project info
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    >;
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error>;
 
     type SourceReader<'a>: Read
     where
@@ -289,11 +645,10 @@ pub trait ProjectRead {
     /// it holds. False for a source that names one project outright: a path,
     /// a URL, a git checkout, a source override.
     ///
-    /// This is what an unconstrained usage defaults a version constraint on.
-    /// Where there is a choice to make, `*` is how it is made -- like cargo,
-    /// it selects every release but no prerelease, so a prerelease is only
-    /// ever selected by a constraint that names one. Where there is no choice,
-    /// defaulting a constraint could only reject the one project on offer.
+    /// An unconstrained usage defaults its version constraint to `*` when
+    /// this is true: like cargo, that selects every release but no
+    /// prerelease. When false, defaulting could only reject the one project
+    /// on offer.
     fn source_may_offer_multiple_versions(&self) -> bool;
 
     // Optional and helpers
@@ -305,50 +660,34 @@ pub trait ProjectRead {
 
     /// Which manifest this project is written in.
     ///
-    /// The default is [`ProjectFormat::Json`], which is right for every
-    /// project that has only ever had the two json documents -- a KPAR,
-    /// a remote source project, an index entry, one held in memory.
-    ///
-    /// It is *not* right for a wrapper: a type that forwards the rest of
-    /// this trait to another project must forward this too, or it will
-    /// claim json for a `model.toml` project it is holding.
+    /// The default is [`ProjectFormat::Json`], right for a project that has
+    /// just the two json documents, such as a KPAR or an index entry. A
+    /// wrapper must forward this to the project it holds, or it claims json
+    /// for a `model.toml` project.
     fn format(&self) -> Result<ProjectFormat, Self::Error> {
         Ok(ProjectFormat::Json)
     }
 
-    /// The project's own manifest, rather than the KPAR view of it.
+    /// The project's manifest as a document.
     ///
-    /// Only a `model.toml` project has one. The view drops what a
-    /// `.project.json` has no room for -- a usage's declared kind and
-    /// constraint, the documentation and repository urls, `stdlib` --
-    /// so a caller that needs any of those comes here.
+    /// [`ProjectDefinition::Toml`] holds the *values*, with inheritance
+    /// markers followed; this returns what the file says, comments and key
+    /// order included, which is what an editor needs.
     ///
-    /// The default refuses. Converting a json project's documents into
-    /// the manifest model is a command of its own: it fails for a
-    /// `resource` usage that is no `pkg:sysand` PURL, for a `checksum`
-    /// listing files `sources` cannot hold, and for values that never
-    /// had to satisfy the manifest's rules.
-    fn manifest(
-        &self,
-    ) -> Result<crate::manifest::project::ResolvedProject, ManifestError<Self::Error>> {
+    /// **The document is validated before it is handed back.** Parsing
+    /// TOML is not reading a manifest: a file written for a
+    /// `manifest-version` this Sysand does not support parses fine and
+    /// must not be edited. So an implementation runs the same read
+    /// `get_project()` does, keeps its diagnostics, and returns the
+    /// document only when they are empty.
+    ///
+    /// The default refuses: only a `model.toml` project has one.
+    fn manifest_document(&self) -> Result<DocumentMut, ManifestError<Self::Error>> {
         Err(ManifestError::NoTomlManifest)
     }
 
-    fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
-        Ok(self.get_project()?.0)
-    }
-
-    fn get_meta(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
-        Ok(self.get_project()?.1)
-    }
-
-    fn name(&self) -> Result<Option<String>, Self::Error> {
-        Ok(self.get_info()?.map(|info| info.name))
-    }
-
-    /// `is_definitely_invalid` will return `true` only if get_project() would definitely
-    /// produce an error or return `Some((info, meta))` where either `info` or `meta`
-    /// are `None`. If it returns `false` nothing definite can be said.
+    /// `is_definitely_invalid` will return `true` only if `get_project()` would definitely
+    /// produce an error or `Ok(None)`. If it returns `false` nothing definite can be said.
     ///
     /// Implementations may use this to give shortcuts for eliminating potential interchange
     /// projects. *Should* be significantly faster than running `get_project`.
@@ -356,80 +695,52 @@ pub trait ProjectRead {
         false
     }
 
+    /// The project's version, as the solver reads it: what
+    /// [`ProjectDefinition::version`] gives, or what a source knows
+    /// without reading the manifest (an index entry answers from
+    /// `versions.json`).
+    ///
+    /// A wrapper forwards the wrapped project's answer.
     fn version(&self) -> Result<Option<String>, Self::Error> {
-        Ok(self.get_info()?.map(|info| info.version))
+        Ok(self.get_project()?.map(|project| project.version()))
     }
 
+    /// The project's usages, as the solver reads them. See
+    /// [`ProjectRead::version`].
     fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
-        Ok(self.get_info()?.map(|info| info.usage))
+        Ok(self.get_project()?.map(|project| project.usages()))
     }
 
-    fn checksum(
-        &self,
-    ) -> Result<Option<IndexMap<String, InterchangeProjectChecksumRaw>>, Self::Error> {
-        Ok(self.get_meta()?.and_then(|meta| meta.checksum))
+    /// Produces a project hash based on project information and the *non-canonicalized* metadata.
+    ///
+    /// # Panics
+    ///
+    /// On a `model.toml` project, which has no project hash.
+    fn checksum_non_canonical_hex(&self) -> Result<Option<String>, Self::Error> {
+        Ok(self.get_project()?.map(|definition| {
+            let (info, meta) = hashable_json(definition);
+            project_hash_hex(&info, &meta)
+        }))
     }
 
-    /// Produces canonicalized project metadata, replacing all source file hashes by SHA256.
-    fn canonical_meta(
-        &self,
-    ) -> Result<Option<InterchangeProjectMetadataRaw>, CanonicalizationError<Self::Error>> {
-        let Some(mut meta) = self
-            .get_meta()
+    /// Produces a project hash based on project information and the
+    /// *canonicalized* metadata, in which every source file hash is SHA256.
+    ///
+    /// `Ok(None)` means the project has no manifest.
+    ///
+    /// # Panics
+    ///
+    /// On a `model.toml` project, which has no project hash.
+    fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
+        let Some(definition) = self
+            .get_project()
             .map_err(CanonicalizationError::ProjectRead)?
         else {
             return Ok(None);
         };
-
-        for (path, checksum) in meta
-            .checksum
-            .as_mut()
-            .into_iter()
-            .flat_map(|index| index.iter_mut())
-        {
-            let sha256: &str = KerMlChecksumAlg::Sha256.into();
-            if checksum.algorithm == sha256 {
-                checksum.value = checksum.value.to_lowercase();
-            } else {
-                checksum.algorithm = sha256.to_owned();
-
-                let mut src = self
-                    .read_source(path)
-                    .map_err(CanonicalizationError::ProjectRead)?;
-                checksum.value = lowercase_hex(
-                    hash_reader(&mut src)
-                        .map_err(|e| CanonicalizationError::FileRead(path.as_str().into(), e))?,
-                );
-            }
-        }
-
-        Ok(Some(meta))
-    }
-
-    /// Produces a project hash based on project information and the *non-canonicalized* metadata.
-    fn checksum_non_canonical_hex(&self) -> Result<Option<String>, Self::Error> {
-        Ok(self
-            .get_project()
-            .map(|(info, meta)| info.zip(meta))?
-            .map(|(info, meta)| project_hash_hex(&info, &meta)))
-    }
-
-    /// Produces a project hash based on project information and the
-    /// *canonicalized* metadata.
-    ///
-    /// `Ok(None)` means the project has no `.project.json` or no
-    /// `.meta.json` — one of the two required inputs is absent — and
-    /// callers can rely on that meaning rather than treating `None` as
-    /// an unspecified failure mode.
-    fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
-        let info = self
-            .get_info()
-            .map_err(CanonicalizationError::ProjectRead)?;
-        let meta = self.canonical_meta()?;
-
-        Ok(info
-            .zip(meta)
-            .map(|(info, meta)| project_hash_hex(&info, &meta)))
+        let (info, meta) = hashable_json(definition);
+        let meta = canonicalize_meta(self, meta)?;
+        Ok(Some(project_hash_hex(&info, &meta)))
     }
 
     fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error>;
@@ -455,21 +766,11 @@ impl<T: ProjectRead> ProjectRead for &T {
         (**self).format()
     }
 
-    fn manifest(
-        &self,
-    ) -> Result<crate::manifest::project::ResolvedProject, ManifestError<Self::Error>> {
-        (**self).manifest()
+    fn manifest_document(&self) -> Result<DocumentMut, ManifestError<Self::Error>> {
+        (**self).manifest_document()
     }
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         (*self).get_project()
     }
 
@@ -489,18 +790,6 @@ impl<T: ProjectRead> ProjectRead for &T {
         (*self).sources(ctx)
     }
 
-    fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
-        (*self).get_info()
-    }
-
-    fn get_meta(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
-        (*self).get_meta()
-    }
-
-    fn name(&self) -> Result<Option<String>, Self::Error> {
-        (*self).name()
-    }
-
     fn is_definitely_invalid(&self) -> bool {
         (*self).is_definitely_invalid()
     }
@@ -511,18 +800,6 @@ impl<T: ProjectRead> ProjectRead for &T {
 
     fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
         (*self).usage()
-    }
-
-    fn checksum(
-        &self,
-    ) -> Result<Option<IndexMap<String, InterchangeProjectChecksumRaw>>, Self::Error> {
-        (*self).checksum()
-    }
-
-    fn canonical_meta(
-        &self,
-    ) -> Result<Option<InterchangeProjectMetadataRaw>, CanonicalizationError<Self::Error>> {
-        (*self).canonical_meta()
     }
 
     fn checksum_non_canonical_hex(&self) -> Result<Option<String>, Self::Error> {
@@ -553,21 +830,11 @@ impl<T: ProjectRead> ProjectRead for &mut T {
         (**self).format()
     }
 
-    fn manifest(
-        &self,
-    ) -> Result<crate::manifest::project::ResolvedProject, ManifestError<Self::Error>> {
-        (**self).manifest()
+    fn manifest_document(&self) -> Result<DocumentMut, ManifestError<Self::Error>> {
+        (**self).manifest_document()
     }
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         (**self).get_project()
     }
 
@@ -587,18 +854,6 @@ impl<T: ProjectRead> ProjectRead for &mut T {
         (**self).sources(ctx)
     }
 
-    fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
-        (**self).get_info()
-    }
-
-    fn get_meta(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
-        (**self).get_meta()
-    }
-
-    fn name(&self) -> Result<Option<String>, Self::Error> {
-        (**self).name()
-    }
-
     fn is_definitely_invalid(&self) -> bool {
         (**self).is_definitely_invalid()
     }
@@ -609,18 +864,6 @@ impl<T: ProjectRead> ProjectRead for &mut T {
 
     fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
         (**self).usage()
-    }
-
-    fn checksum(
-        &self,
-    ) -> Result<Option<IndexMap<String, InterchangeProjectChecksumRaw>>, Self::Error> {
-        (**self).checksum()
-    }
-
-    fn canonical_meta(
-        &self,
-    ) -> Result<Option<InterchangeProjectMetadataRaw>, CanonicalizationError<Self::Error>> {
-        (**self).canonical_meta()
     }
 
     fn checksum_non_canonical_hex(&self) -> Result<Option<String>, Self::Error> {
@@ -645,18 +888,10 @@ pub trait ProjectReadAsync {
 
     type Error: ErrorBound;
 
-    /// Fetch project information and metadata (if they exist).
+    /// See [`ProjectRead::get_project`].
     fn get_project_async(
         &self,
-    ) -> impl Future<
-        Output = Result<
-            (
-                Option<InterchangeProjectInfoRaw>,
-                Option<InterchangeProjectMetadataRaw>,
-            ),
-            Self::Error,
-        >,
-    >;
+    ) -> impl Future<Output = Result<Option<ProjectDefinition>, Self::Error>>;
 
     type SourceReader<'a>: AsyncRead + Unpin
     where
@@ -674,7 +909,7 @@ pub trait ProjectReadAsync {
     /// multiple ones are listed they should aim to be in
     /// some typical order of preference.
     ///
-    /// May be empty if no valid sources are known.
+    /// See [`ProjectRead::sources`].
     // TODO: should we require the checksum to be verified (i.e. actual, instead of
     // expected)
     fn sources_async(
@@ -689,135 +924,76 @@ pub trait ProjectReadAsync {
     /// it holds. False for a source that names one project outright: a path,
     /// a URL, a git checkout, a source override.
     ///
-    /// This is what an unconstrained usage defaults a version constraint on.
-    /// Where there is a choice to make, `*` is how it is made -- like cargo,
-    /// it selects every release but no prerelease, so a prerelease is only
-    /// ever selected by a constraint that names one. Where there is no choice,
-    /// defaulting a constraint could only reject the one project on offer.
+    /// An unconstrained usage defaults its version constraint to `*` when
+    /// this is true: like cargo, that selects every release but no
+    /// prerelease. When false, defaulting could only reject the one project
+    /// on offer.
     fn source_may_offer_multiple_versions(&self) -> bool;
 
     // Optional and helpers
 
-    fn get_info_async(
-        &self,
-    ) -> impl Future<Output = Result<Option<InterchangeProjectInfoRaw>, Self::Error>> {
-        async { Ok(self.get_project_async().await?.0) }
-    }
-
-    fn get_meta_async(
-        &self,
-    ) -> impl Future<Output = Result<Option<InterchangeProjectMetadataRaw>, Self::Error>> {
-        async { Ok(self.get_project_async().await?.1) }
-    }
-
-    fn name_async(&self) -> impl Future<Output = Result<Option<String>, Self::Error>> {
-        async { Ok(self.get_info_async().await?.map(|info| info.name)) }
-    }
-
-    /// `is_definitely_invalid` will return `true` only if `get_project()` would definitely
-    /// produce an error or return `Some((info, meta))` where either `info` or `meta`
-    /// are `None`. If it returns `false` nothing definite can be said.
-    ///
-    /// Implementations may use this to give shortcuts for eliminating potential interchange
-    /// projects. *Should* be significantly faster than running `get_project`.
+    /// See [`ProjectRead::is_definitely_invalid`].
     fn is_definitely_invalid_async(&self) -> impl Future<Output = bool> {
         async { false }
     }
 
+    /// See [`ProjectRead::version`].
     fn version_async(&self) -> impl Future<Output = Result<Option<String>, Self::Error>> {
-        async { Ok(self.get_info_async().await?.map(|info| info.version)) }
+        async {
+            Ok(self
+                .get_project_async()
+                .await?
+                .map(|project| project.version()))
+        }
     }
 
+    /// See [`ProjectRead::usage`].
     fn usage_async(
         &self,
     ) -> impl Future<Output = Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error>> {
-        async { Ok(self.get_info_async().await?.map(|info| info.usage)) }
+        async {
+            Ok(self
+                .get_project_async()
+                .await?
+                .map(|project| project.usages()))
+        }
     }
 
-    fn checksum_async(
+    /// See [`ProjectRead::checksum_non_canonical_hex`].
+    ///
+    /// # Panics
+    ///
+    /// On a `model.toml` project, which has no project hash.
+    fn checksum_non_canonical_hex_async(
         &self,
-    ) -> impl Future<Output = Result<Option<IndexMap<String, InterchangeProjectChecksumRaw>>, Self::Error>>
-    {
-        async { Ok(self.get_meta_async().await?.and_then(|meta| meta.checksum)) }
+    ) -> impl Future<Output = Result<Option<String>, Self::Error>> {
+        async {
+            Ok(self.get_project_async().await?.map(|definition| {
+                let (info, meta) = hashable_json(definition);
+                project_hash_hex(&info, &meta)
+            }))
+        }
     }
 
-    /// Produces canonicalized project metadata, replacing all source file hashes by SHA256.
-    fn canonical_meta_async(
+    /// See [`ProjectRead::checksum_canonical_hex`].
+    ///
+    /// # Panics
+    ///
+    /// On a `model.toml` project, which has no project hash.
+    fn checksum_canonical_hex_async(
         &self,
-    ) -> impl Future<
-        Output = Result<Option<InterchangeProjectMetadataRaw>, CanonicalizationError<Self::Error>>,
-    > {
-        async move {
-            let Some(mut meta) = self
-                .get_meta_async()
+    ) -> impl Future<Output = Result<Option<String>, CanonicalizationError<Self::Error>>> {
+        async {
+            let Some(definition) = self
+                .get_project_async()
                 .await
                 .map_err(CanonicalizationError::ProjectRead)?
             else {
                 return Ok(None);
             };
-
-            if let Some(mut checksums) = meta.checksum {
-                let future_checksums = checksums.drain(..).map(|(path, mut checksum)| async move {
-                    let sha256: &str = KerMlChecksumAlg::Sha256.into();
-                    if checksum.algorithm == sha256 {
-                        checksum.value = checksum.value.to_lowercase();
-                    } else {
-                        checksum.algorithm = sha256.to_owned();
-
-                        let mut src = self
-                            .read_source_async(&path)
-                            .await
-                            .map_err(CanonicalizationError::ProjectRead)?;
-                        checksum.value =
-                            lowercase_hex(hash_reader_async(&mut src).await.map_err(|e| {
-                                CanonicalizationError::FileRead(path.clone().into(), e)
-                            })?);
-                    }
-
-                    Ok((path, checksum))
-                });
-
-                let collected_checksums: Result<Vec<(String, InterchangeProjectChecksumRaw)>, _> =
-                    futures::future::join_all(future_checksums)
-                        .await
-                        .into_iter()
-                        .collect();
-
-                meta.checksum = Some(indexmap::IndexMap::from_iter(collected_checksums?));
-            }
-
-            Ok(Some(meta))
-        }
-    }
-
-    /// Produces a project hash based on project information and the *non-canonicalized* metadata.
-    fn checksum_non_canonical_hex_async(
-        &self,
-    ) -> impl Future<Output = Result<Option<String>, Self::Error>> {
-        async {
-            Ok(self
-                .get_project_async()
-                .await
-                .map(|(info, meta)| info.zip(meta))?
-                .map(|(info, meta)| project_hash_hex(&info, &meta)))
-        }
-    }
-
-    /// Produces a project hash based on project information and the
-    /// *canonicalized* metadata.
-    fn checksum_canonical_hex_async(
-        &self,
-    ) -> impl Future<Output = Result<Option<String>, CanonicalizationError<Self::Error>>> {
-        async {
-            let info = self
-                .get_info_async()
-                .await
-                .map_err(CanonicalizationError::ProjectRead)?;
-            let meta = self.canonical_meta_async().await?;
-
-            Ok(info
-                .zip(meta)
-                .map(|(info, meta)| project_hash_hex(&info, &meta)))
+            let (info, meta) = hashable_json(definition);
+            let meta = canonicalize_meta_async(self, meta).await?;
+            Ok(Some(project_hash_hex(&info, &meta)))
         }
     }
 
@@ -828,21 +1004,23 @@ pub trait ProjectReadAsync {
     // Async doesn't make sense for this
     fn project_root(&self) -> Option<&Utf8Path>;
 
-    /// Treat this `ProjectReadAsync` as a `ProjectRead` using the provided tokio runtime.
     /// See [`ProjectRead::format`]. Deciding the format never waits on
-    /// anything, so the async side asks the same question the same way.
+    /// anything.
     fn format(&self) -> Result<ProjectFormat, Self::Error> {
         Ok(ProjectFormat::Json)
     }
 
-    fn to_tokio_sync(self, runtime: Arc<tokio::runtime::Runtime>) -> AsSyncProjectTokio<Self>
+    /// Treat this `ProjectReadAsync` as a `ProjectRead` run on `runtime`,
+    /// observing `token` at every bridge.
+    fn to_tokio_sync(
+        self,
+        runtime: Arc<tokio::runtime::Runtime>,
+        token: CancellationToken,
+    ) -> AsSyncProjectTokio<Self>
     where
         Self: Sized,
     {
-        AsSyncProjectTokio {
-            runtime,
-            inner: self,
-        }
+        AsSyncProjectTokio::new(Bridge::new(runtime, token), self)
     }
 }
 
@@ -859,15 +1037,7 @@ impl<T: ProjectReadAsync> ProjectReadAsync for &T {
 
     fn get_project_async(
         &self,
-    ) -> impl Future<
-        Output = Result<
-            (
-                Option<InterchangeProjectInfoRaw>,
-                Option<InterchangeProjectMetadataRaw>,
-            ),
-            Self::Error,
-        >,
-    > {
+    ) -> impl Future<Output = Result<Option<ProjectDefinition>, Self::Error>> {
         (**self).get_project_async()
     }
 
@@ -890,22 +1060,6 @@ impl<T: ProjectReadAsync> ProjectReadAsync for &T {
         (**self).sources_async(ctx)
     }
 
-    fn get_info_async(
-        &self,
-    ) -> impl Future<Output = Result<Option<InterchangeProjectInfoRaw>, Self::Error>> {
-        (**self).get_info_async()
-    }
-
-    fn get_meta_async(
-        &self,
-    ) -> impl Future<Output = Result<Option<InterchangeProjectMetadataRaw>, Self::Error>> {
-        (**self).get_meta_async()
-    }
-
-    fn name_async(&self) -> impl Future<Output = Result<Option<String>, Self::Error>> {
-        (**self).name_async()
-    }
-
     fn is_definitely_invalid_async(&self) -> impl Future<Output = bool> {
         (**self).is_definitely_invalid_async()
     }
@@ -918,21 +1072,6 @@ impl<T: ProjectReadAsync> ProjectReadAsync for &T {
         &self,
     ) -> impl Future<Output = Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error>> {
         (**self).usage_async()
-    }
-
-    fn checksum_async(
-        &self,
-    ) -> impl Future<Output = Result<Option<IndexMap<String, InterchangeProjectChecksumRaw>>, Self::Error>>
-    {
-        (**self).checksum_async()
-    }
-
-    fn canonical_meta_async(
-        &self,
-    ) -> impl Future<
-        Output = Result<Option<InterchangeProjectMetadataRaw>, CanonicalizationError<Self::Error>>,
-    > {
-        (**self).canonical_meta_async()
     }
 
     fn checksum_non_canonical_hex_async(
@@ -971,15 +1110,7 @@ impl<T: ProjectReadAsync> ProjectReadAsync for &mut T {
 
     fn get_project_async(
         &self,
-    ) -> impl Future<
-        Output = Result<
-            (
-                Option<InterchangeProjectInfoRaw>,
-                Option<InterchangeProjectMetadataRaw>,
-            ),
-            Self::Error,
-        >,
-    > {
+    ) -> impl Future<Output = Result<Option<ProjectDefinition>, Self::Error>> {
         (**self).get_project_async()
     }
 
@@ -1002,22 +1133,6 @@ impl<T: ProjectReadAsync> ProjectReadAsync for &mut T {
         (**self).sources_async(ctx)
     }
 
-    fn get_info_async(
-        &self,
-    ) -> impl Future<Output = Result<Option<InterchangeProjectInfoRaw>, Self::Error>> {
-        (**self).get_info_async()
-    }
-
-    fn get_meta_async(
-        &self,
-    ) -> impl Future<Output = Result<Option<InterchangeProjectMetadataRaw>, Self::Error>> {
-        (**self).get_meta_async()
-    }
-
-    fn name_async(&self) -> impl Future<Output = Result<Option<String>, Self::Error>> {
-        (**self).name_async()
-    }
-
     fn is_definitely_invalid_async(&self) -> impl Future<Output = bool> {
         (**self).is_definitely_invalid_async()
     }
@@ -1030,21 +1145,6 @@ impl<T: ProjectReadAsync> ProjectReadAsync for &mut T {
         &self,
     ) -> impl Future<Output = Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error>> {
         (**self).usage_async()
-    }
-
-    fn checksum_async(
-        &self,
-    ) -> impl Future<Output = Result<Option<IndexMap<String, InterchangeProjectChecksumRaw>>, Self::Error>>
-    {
-        (**self).checksum_async()
-    }
-
-    fn canonical_meta_async(
-        &self,
-    ) -> impl Future<
-        Output = Result<Option<InterchangeProjectMetadataRaw>, CanonicalizationError<Self::Error>>,
-    > {
-        (**self).canonical_meta_async()
     }
 
     fn checksum_non_canonical_hex_async(
@@ -1085,6 +1185,25 @@ impl<ProjectError> From<FsIoError> for ProjectOrIOError<ProjectError> {
     }
 }
 
+/// Read the `model.toml` document of `project`, let `edit` change it, and
+/// write it back if its text changed. `edit` also sees the project.
+pub fn edit_manifest_document<P, T, E>(
+    project: &mut P,
+    edit: impl FnOnce(&P, &mut DocumentMut) -> Result<T, E>,
+) -> Result<T, E>
+where
+    P: ProjectMut + ?Sized,
+    E: From<ManifestError<P::Error>> + From<ManifestWriteError<P::Error>>,
+{
+    let mut document = project.manifest_document()?;
+    let before = document.to_string();
+    let value = edit(project, &mut document)?;
+    if document.to_string() != before {
+        project.put_manifest_document(&document, true)?;
+    }
+    Ok(value)
+}
+
 pub trait ProjectMut: ProjectRead {
     fn put_info(
         &mut self,
@@ -1117,20 +1236,15 @@ pub trait ProjectMut: ProjectRead {
 
     /// Store a `model.toml` manifest.
     ///
-    /// The document is what [`crate::manifest::edit::render_new`] built
-    /// or [`crate::manifest::edit::open`] parsed: one document type
-    /// serves generated and edited files, so a writer takes the type
-    /// rather than the text.
+    /// The document is what [`crate::manifest::edit::render_new`] built or
+    /// [`crate::manifest::edit::open`] parsed.
     ///
-    /// The default refuses, because most projects have nowhere to put
-    /// one -- and so that an implementation outside this crate compiles
-    /// without writing it.
+    /// The default refuses.
     ///
-    /// `overwrite` governs a manifest that is already there, as it does
-    /// for the two json documents. Whether a project that holds json
-    /// documents accepts a manifest beside them is the implementation's
-    /// to decide: for a directory it is the ambiguity every reader
-    /// refuses, so the filesystem implementation says no.
+    /// `overwrite` governs a manifest that is already there, as for the two
+    /// json documents. Whether a project that holds json documents accepts a
+    /// manifest beside them is up to the implementation; a directory refuses,
+    /// as it would be ambiguous.
     fn put_manifest_document(
         &mut self,
         document: &DocumentMut,
@@ -1140,8 +1254,6 @@ pub trait ProjectMut: ProjectRead {
         Err(ManifestWriteError::Unsupported)
     }
 }
-
-// ----- Blanket trait impls -----
 
 impl<T: ProjectMut> ProjectMut for &mut T {
     fn put_info(
@@ -1178,9 +1290,7 @@ impl<T: ProjectMut> ProjectMut for &mut T {
         (**self).put_project(info, meta, overwrite)
     }
 
-    // Without this the call would fall through to the trait's default
-    // and answer `Unsupported` for a project that can store one --
-    // silently, since it is not a compile failure.
+    // Must be forwarded: the trait default answers `Unsupported`.
     fn put_manifest_document(
         &mut self,
         document: &DocumentMut,
@@ -1200,6 +1310,12 @@ pub struct AsAsyncProject<T> {
 #[derive(Debug)]
 pub struct AsAsyncReader<T> {
     inner: T,
+}
+
+impl<T> AsAsyncReader<T> {
+    pub const fn new(inner: T) -> Self {
+        Self { inner }
+    }
 }
 
 impl<T: Read + Unpin> AsyncRead for AsAsyncReader<T> {
@@ -1226,15 +1342,7 @@ where
         self.inner.format()
     }
 
-    async fn get_project_async(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    async fn get_project_async(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         self.inner.get_project()
     }
 
@@ -1256,20 +1364,9 @@ where
         self.inner.sources(ctx)
     }
 
-    // Forward selected `ProjectRead` methods explicitly so that important
-    // sync-side overrides on the wrapped `T` are honoured on the async side
-    // too. See `ProjectRead::checksum_canonical_hex`'s contract docstring —
-    // without that forward, wrapping a `T` that exposes a prefetched digest
-    // (e.g. `CachedProject`) would silently fall back to a full download on
-    // the async side.
-    async fn get_info_async(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
-        self.inner.get_info()
-    }
-
-    async fn get_meta_async(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
-        self.inner.get_meta()
-    }
-
+    // Forward selected `ProjectRead` methods explicitly so that sync-side
+    // overrides on `T` (e.g. a prefetched digest) are honoured on the async
+    // side too.
     async fn version_async(&self) -> Result<Option<String>, Self::Error> {
         self.inner.version()
     }
@@ -1298,23 +1395,51 @@ where
 }
 
 /// Wrapper intended to wrap a `ProjectReadAsync`, indicating that it be treated as
-/// a `ProjectRead`, using a provided tokio runtime.
+/// a `ProjectRead`, using a provided tokio runtime. Every bridge observes
+/// the cancellation token (`crate::cancel`), so an operation that was
+/// cancelled returns [`Cancellable::Cancelled`] at its next call.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct AsSyncProjectTokio<T> {
-    pub runtime: Arc<tokio::runtime::Runtime>,
-    pub inner: T,
+    bridge: Bridge,
+    inner: T,
+}
+
+impl<T> AsSyncProjectTokio<T> {
+    pub fn new(bridge: Bridge, inner: T) -> Self {
+        Self { bridge, inner }
+    }
+
+    /// The bridged project.
+    pub fn inner(&self) -> &T {
+        &self.inner
+    }
+
+    /// The bridged project, unwrapped.
+    pub fn into_inner(self) -> T {
+        self.inner
+    }
 }
 
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct AsSyncReaderTokio<T> {
-    runtime: Arc<tokio::runtime::Runtime>,
+    bridge: Bridge,
     inner: T,
+}
+
+impl<T> AsSyncReaderTokio<T> {
+    pub fn new(bridge: Bridge, inner: T) -> Self {
+        Self { bridge, inner }
+    }
 }
 
 impl<T: AsyncRead + Unpin> Read for AsSyncReaderTokio<T> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         use futures::AsyncReadExt as _;
-        self.runtime.block_on(async { self.inner.read(buf).await })
+        self.bridge
+            .run_value(self.inner.read(buf))
+            .unwrap_or_else(|| Err(crate::cancel::cancelled_io_error()))
     }
 }
 
@@ -1323,22 +1448,14 @@ impl<T: ProjectReadAsync> ProjectRead for AsSyncProjectTokio<T> {
         self.inner.source_may_offer_multiple_versions()
     }
 
-    type Error = <T as ProjectReadAsync>::Error;
+    type Error = Cancellable<<T as ProjectReadAsync>::Error>;
 
     fn format(&self) -> Result<ProjectFormat, Self::Error> {
-        self.inner.format()
+        self.inner.format().map_err(Cancellable::Inner)
     }
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
-        self.runtime.block_on(self.inner.get_project_async())
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
+        self.bridge.run(self.inner.get_project_async())
     }
 
     type SourceReader<'a>
@@ -1350,49 +1467,51 @@ impl<T: ProjectReadAsync> ProjectRead for AsSyncProjectTokio<T> {
         &self,
         path: P,
     ) -> Result<Self::SourceReader<'_>, Self::Error> {
-        let cloned_runtime = self.runtime.clone();
-
-        self.runtime.block_on(async move {
-            Ok(AsSyncReaderTokio {
-                runtime: cloned_runtime,
-                inner: self.inner.read_source_async(path).await?,
-            })
-        })
+        let reader = self.bridge.run(self.inner.read_source_async(path))?;
+        Ok(AsSyncReaderTokio::new(self.bridge.clone(), reader))
     }
 
     fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
-        self.runtime.block_on(self.inner.sources_async(ctx))
-    }
-
-    fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
-        self.runtime.block_on(self.inner.get_info_async())
-    }
-
-    fn get_meta(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
-        self.runtime.block_on(self.inner.get_meta_async())
+        self.bridge.run(self.inner.sources_async(ctx))
     }
 
     fn version(&self) -> Result<Option<String>, Self::Error> {
-        self.runtime.block_on(self.inner.version_async())
+        self.bridge.run(self.inner.version_async())
     }
 
     fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
-        self.runtime.block_on(self.inner.usage_async())
+        self.bridge.run(self.inner.usage_async())
     }
 
     fn is_definitely_invalid(&self) -> bool {
-        self.runtime
-            .block_on(self.inner.is_definitely_invalid_async())
+        // A cancelled probe says nothing; the next `Result` checkpoint
+        // reports the cancellation.
+        self.bridge
+            .run_value(self.inner.is_definitely_invalid_async())
+            .unwrap_or(false)
     }
 
     fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
-        self.runtime
-            .block_on(self.inner.checksum_canonical_hex_async())
+        match self
+            .bridge
+            .run_value(self.inner.checksum_canonical_hex_async())
+        {
+            Some(Ok(hex)) => Ok(hex),
+            Some(Err(CanonicalizationError::ProjectRead(error))) => Err(
+                CanonicalizationError::ProjectRead(Cancellable::Inner(error)),
+            ),
+            Some(Err(CanonicalizationError::FileRead(path, error))) => {
+                Err(CanonicalizationError::FileRead(path, error))
+            }
+            None => Err(CanonicalizationError::ProjectRead(Cancellable::Cancelled(
+                crate::cancel::Cancelled,
+            ))),
+        }
     }
 
     fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
-        self.runtime
-            .block_on(self.inner.checksum_canonical_variant_async())
+        self.bridge
+            .run(self.inner.checksum_canonical_variant_async())
     }
 
     fn project_root(&self) -> Option<&Utf8Path> {

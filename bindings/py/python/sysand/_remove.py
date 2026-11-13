@@ -41,8 +41,7 @@ def remove(
 
     When no usage matches, but the project is declared anyway (as a usage
     that ``iri`` does not name, or spelled differently), that raises
-    :class:`ProjectError` saying how it is declared, rather than reporting it
-    missing.
+    :class:`ProjectError` saying how it is declared.
 
     Args:
         project_dir: The project directory, the one holding ``.project.json``.
@@ -51,10 +50,9 @@ def remove(
         name: The dependency's name, given together with ``publisher``.
 
     Returns:
-        The usages that were removed, in declaration order, in the shape
-        :func:`info_path` returns them. Normally one: sysand never adds the
-        same project twice, but it tolerates a manifest that declares it
-        more than once.
+        The usages that were removed, in declaration order. Normally one:
+        sysand never adds the same project twice, but it tolerates a
+        manifest that declares it more than once.
 
     Raises:
         TypeError: neither form was given, both were, or only one of

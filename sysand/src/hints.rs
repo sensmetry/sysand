@@ -23,17 +23,26 @@ use sysand_core::{
 
 use crate::CliError;
 
-/// The way out of `err`, if this frontend knows one.
-pub(crate) fn for_error(err: &CliError, program: &str) -> Option<String> {
-    match err {
-        CliError::InvalidLockfile(LockfileError::Parse(
-            _,
-            LockParseError::Version(VersionError::Newer(_)),
-        )) => Some(newer_lockfile(program)),
-        CliError::InvalidEnvironment(EnvMetadataError::Parse(
-            _,
-            EnvParseError::NewerVersion(_),
-        )) => Some(newer_environment(program)),
+/// The way out of `err`, if this frontend knows one. The lockfile and
+/// environment errors are found whether they come bare or wrapped in a
+/// [`CliError`].
+pub(crate) fn for_error(err: &anyhow::Error, program: &str) -> Option<String> {
+    let cli = err.downcast_ref::<CliError>();
+    let lockfile = err.downcast_ref::<LockfileError>().or(match cli {
+        Some(CliError::InvalidLockfile(e)) => Some(e),
+        _ => None,
+    });
+    let environment = err.downcast_ref::<EnvMetadataError>().or(match cli {
+        Some(CliError::InvalidEnvironment(e)) => Some(e),
+        _ => None,
+    });
+    match (lockfile, environment) {
+        (Some(LockfileError::Parse(_, LockParseError::Version(VersionError::Newer(_)))), _) => {
+            Some(newer_lockfile(program))
+        }
+        (_, Some(EnvMetadataError::Parse(_, EnvParseError::NewerVersion(_)))) => {
+            Some(newer_environment(program))
+        }
         _ => None,
     }
 }

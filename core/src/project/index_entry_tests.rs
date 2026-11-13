@@ -3,24 +3,16 @@
 
 //! Sibling unit tests for `index_entry.rs`.
 //!
-//! Network-dependent paths (pre-expose `kpar_digest` check,
-//! post-download digest drift, `.project.json`/`.meta.json` fetch error
-//! mapping) live in `core/src/env/index_tests.rs` because they need
-//! mockito to drive the HTTP side. These tests pin the network-free
-//! contracts on the advertised tier — the module docs promise that
-//! `version_async`/`usage_async` and, before any download,
-//! `checksum_canonical_hex_async` return advertised fields without
-//! I/O, and the only way to regress that silently is to add an
-//! `fetched_project_async` call into one of those methods. A sibling
-//! test is the natural place to lock that contract in.
+//! These tests pin the network-free contracts on the advertised tier:
+//! advertised fields are returned without I/O, and before any download the
+//! checksum is too.
 
 use std::sync::Arc;
 
 use crate::{
     auth::Unauthenticated,
     context::ProjectContext,
-    env::index::{AdvertisedVersion, Sha256HexDigest},
-    index::model::VersionStatus,
+    index::model::{AdvertisedVersion, Sha256HexDigest, VersionStatus},
     index_location::IndexLocation,
     model::InterchangeProjectUsageRaw,
     project::{ProjectChecksum, ProjectReadAsync as _, index_entry::IndexEntryProject},
@@ -28,12 +20,9 @@ use crate::{
     resolve::net_utils::create_reqwest_client,
 };
 
-/// Construct an `IndexEntryProject` whose advertised tier has known
-/// values and whose archive is never downloaded. The returned project
-/// exposes `archive.is_downloaded_and_verified() == false`, so
-/// advertised-tier reads that honour the "no I/O before download"
-/// contract must succeed without touching the network (which the
-/// unreachable mock URL would otherwise error on).
+/// Construct an `IndexEntryProject` whose advertised tier has known values and
+/// whose archive is never downloaded, so advertised-tier reads must succeed
+/// without touching the (unreachable) mock URL.
 fn make_fixture() -> IndexEntryProject<Unauthenticated> {
     // `test.invalid` is reserved by RFC 2606; any accidental fetch
     // fails DNS resolution rather than hitting a live host.
@@ -69,7 +58,6 @@ fn make_fixture_with_kpar_url(kpar_url: reqwest::Url) -> IndexEntryProject<Unaut
         advertised,
         create_reqwest_client().expect("reqwest client builder succeeds"),
         Arc::new(Unauthenticated {}),
-        None,
     )
     .expect("IndexEntryProject::new has no fallible steps given a temp dir")
 }
@@ -128,8 +116,7 @@ fn checksum_canonical_variant_async_returns_advertised_before_download() {
     );
 }
 
-/// `sources_async` for a kpar under the index root `root`, built the way
-/// `IndexEnvironment` builds it (`ResolvedEndpoints::kpar_url`).
+/// `sources_async` for a kpar under the index root `root`.
 fn index_kpar_sources(root: &str) {
     let kpar_url = IndexLocation::parse(root)
         .expect("index root is a valid URL")

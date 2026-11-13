@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use std::assert_matches;
+
 use fluent_uri::Iri;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
 use super::*;
 
+use crate::manifest::MODEL_TOML_FILE;
 use crate::manifest::usage::LocatedUsage;
 
 fn publisher(raw: &str) -> IndexPublisher {
@@ -42,57 +45,83 @@ fn kpar_path(raw_publisher: &str, raw_name: &str, path: &str) -> Usage {
 
 fn url(raw_publisher: &str, raw_name: &str, iri: &str) -> Usage {
     Usage::RemoteKpar {
-        publisher: publisher(raw_publisher),
+        publisher: Some(publisher(raw_publisher)),
         name: name(raw_name),
         url: Iri::parse(iri.to_owned()).expect("a valid IRI"),
     }
 }
 
-/// model-toml.md "TOML to KPAR": "index: turn into a PURL
-/// (`pkg:sysand/<publisher>/<name>`) with the version constraint as
-/// declared".
+/// An index usage becomes a typed index usage with the version
+/// constraint as declared.
 #[test]
-fn an_index_usage_becomes_a_purl_resource() {
+fn an_index_usage_becomes_a_typed_index_usage() {
     assert_eq!(
         usage(&index("acme", "widgets", "^1.2.3")),
-        InterchangeProjectUsageRaw::Resource {
-            resource: "pkg:sysand/acme/widgets".to_owned(),
-            version_constraint: Some("^1.2.3".to_owned()),
+        InterchangeProjectUsageRaw::Index {
+            publisher: "acme".to_owned(),
+            name: "widgets".to_owned(),
+            version_constraint: "^1.2.3".to_owned(),
         }
     );
 }
 
-/// A PURL is built from the *normalized* pair: model-toml.md
-/// "Normalization", "All projects are resolved by their normalized
-/// identity, regardless of how the usage is declared."
+/// A typed usage carries `publisher` and `name` as the manifest spells
+/// them: a normalized value is used only where a non-normalized one does
+/// not exist.
 #[test]
-fn a_purl_resource_is_built_from_the_normalized_pair() {
+fn a_typed_index_usage_keeps_the_manifest_spelling() {
     assert_eq!(
         usage(&index("Acme Corp", "Wid Get", "^1")),
-        InterchangeProjectUsageRaw::Resource {
-            resource: "pkg:sysand/acme-corp/wid-get".to_owned(),
-            version_constraint: Some("^1".to_owned()),
+        InterchangeProjectUsageRaw::Index {
+            publisher: "Acme Corp".to_owned(),
+            name: "Wid Get".to_owned(),
+            version_constraint: "^1".to_owned(),
         }
     );
 }
 
-/// model-toml.md "TOML to KPAR": "remote-kpar: use the URL as-is"; the
-/// kind takes no version constraint (Usages).
+/// A remote-kpar usage becomes a typed remote KPAR usage with the URL as-is.
 #[test]
-fn a_url_usage_becomes_a_resource_with_no_constraint() {
+fn a_kpar_url_usage_becomes_a_typed_kpar_url_usage() {
     let target = "https://example.com/a/b.kpar?v=2#frag";
     assert_eq!(
         usage(&url("acme", "widgets", target)),
-        InterchangeProjectUsageRaw::Resource {
-            resource: target.to_owned(),
-            version_constraint: None,
+        InterchangeProjectUsageRaw::RemoteKpar {
+            kpar_url: target.to_owned(),
+            publisher: Some("acme".to_owned()),
+            name: "widgets".to_owned(),
         }
     );
 }
 
-/// The view keeps a local usage typed, where the archive would rewrite
-/// it into a PURL constrained to the target's version -- which needs the
-/// target, and the resolver needs the path.
+/// A standard-library usage declares no publisher, and the typed usage
+/// carries none.
+#[test]
+fn a_stdlib_kpar_url_usage_has_no_publisher() {
+    let target = "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar";
+    let stdlib = Usage::RemoteKpar {
+        publisher: None,
+        name: name("Kernel Semantic Library"),
+        url: Iri::parse(target.to_owned()).expect("a valid IRI"),
+    };
+    let raw = usage(&stdlib);
+    assert_eq!(
+        raw,
+        InterchangeProjectUsageRaw::RemoteKpar {
+            kpar_url: target.to_owned(),
+            publisher: None,
+            name: "Kernel Semantic Library".to_owned(),
+        }
+    );
+    assert_eq!(
+        usage_of_raw(&raw, ".project.json").expect("a manifest usage"),
+        stdlib
+    );
+}
+
+/// The view keeps a local usage typed as a path usage, where the archive
+/// rewrites it into a typed index usage constrained to the target's
+/// version.
 #[test]
 fn a_dir_usage_becomes_a_typed_directory_usage() {
     assert_eq!(
@@ -117,10 +146,8 @@ fn a_kpar_path_usage_becomes_a_typed_kpar_usage() {
     );
 }
 
-/// model-toml.md "TOML to KPAR": "A typed usage carries `publisher` and
-/// `name` exactly as the manifest spells them, without normalization,
-/// because Sysand requires them to match the values found at the
-/// target." The opposite of the PURL above.
+/// A typed usage carries `publisher` and `name` exactly as the manifest
+/// spells them, without normalization.
 #[test]
 fn a_typed_usage_keeps_the_pair_unnormalized() {
     assert_eq!(
@@ -134,9 +161,7 @@ fn a_typed_usage_keeps_the_pair_unnormalized() {
 }
 
 /// A view is consumed by the same code that reads a real KPAR, so every
-/// usage it writes has to be one that code accepts. For the index kind
-/// this is what pins the normalization above: `validate` refuses a
-/// `pkg:sysand` IRI that is not in normalized form.
+/// usage it writes has to be one that code accepts.
 #[test]
 fn a_view_usage_is_one_sysand_accepts() {
     for declared in [
@@ -151,57 +176,66 @@ fn a_view_usage_is_one_sysand_accepts() {
     }
 }
 
-/// The identity of a usage is guaranteed encodable, but its *path* is
-/// not checked at all when the manifest is read, unlike `sources`. So a
-/// manifest the reader accepts can still produce a view that no consumer
-/// validates -- with a message that names neither the key nor the file.
-///
-/// Pinned rather than fixed: the fix belongs to the manifest reader,
-/// which would apply `parse_relative_unix_path` with the same two path
-/// kinds `validate` uses here.
+/// A manifest admits an absolute `dir` or `kpar-path`, but a
+/// `.project.json` usage path must be relative, so a view carrying one
+/// does not validate. The error names the usage and chains the cause.
 #[test]
-fn a_usage_path_the_manifest_accepts_may_still_not_validate() {
-    let error = usage(&dir("acme", "widgets", ""))
-        .validate()
-        .expect_err("an empty path");
-    assert!(
-        error.to_string().contains("references an invalid path"),
-        "unexpected message: {error}"
-    );
+fn an_absolute_usage_path_does_not_validate_in_a_view() {
+    for declared in [
+        dir("acme", "widgets", "/opt/libs/widgets"),
+        kpar_path("acme", "widgets", "/opt/libs/widgets.kpar"),
+    ] {
+        let error = usage(&declared).validate().expect_err("an absolute path");
+        assert!(
+            error.to_string().contains("references an invalid path"),
+            "unexpected message: {error}"
+        );
+        assert!(
+            std::error::Error::source(&error)
+                .is_some_and(|cause| cause.to_string().contains("is absolute")),
+            "unexpected cause: {error:?}"
+        );
+    }
 }
 
 // ----- the pair -----
 
 use std::collections::{BTreeMap, HashSet};
 
+use crate::manifest::diagnostics::KeyLocation;
 use crate::manifest::project::ProjectManifest;
+use crate::manifest::reader::TableReader;
 use crate::manifest::spans::Source;
-use crate::model::{IndexName, IndexPublisher};
 
 /// A `[project]` whose body is `body`, read and resolved outside any
-/// workspace -- which is what a standalone `model.toml` project is.
+/// workspace, as a standalone `model.toml` project is.
 fn resolved(body: &str) -> ResolvedProject {
     let text = format!("[project]\n{body}");
-    let (table, positions) = Source::new("model.toml", &text)
-        .read()
-        .expect("the test document parses");
-    ProjectManifest::validate(&table, &positions)
-        .expect("the manifest validates")
-        .into_parts()
-        .0
-        .resolve(None)
-        .expect("the manifest resolves")
-        .into_parts()
-        .0
+    let source = Source::new("model.toml", text.as_str());
+    let table = source.read().expect("the test document parses");
+    ProjectManifest::validate(&TableReader::new(
+        table.get_ref(),
+        None,
+        KeyLocation::TopLevel,
+        &source,
+    ))
+    .expect("the manifest validates")
+    .into_parts()
+    .0
+    .resolve(None)
+    .expect("the manifest resolves")
+    .into_parts()
+    .0
 }
 
-/// The three keys `[project]` requires plus the `sources` an
-/// OMG-metamodel project needs.
+/// The keys `[project]` requires: the three every metamodel needs, the
+/// `metamodel` itself, and the `sources` an OMG-metamodel project needs.
 const REQUIRED: &str = "\
 publisher = \"acme\"
 name = \"widgets\"
 version = \"1.2.3\"
 sources = []
+metamodel = \"https://www.omg.org/spec/SysML/20250201\"
 ";
 
 /// A reader over a fixed set of files, standing in for a directory.
@@ -221,10 +255,15 @@ fn reader(files: &BTreeMap<String, String>) -> impl FnMut(&Utf8UnixPath) -> Resu
     }
 }
 
+/// The `sources` of a project the test knows is an OMG one.
+fn omg_sources(project: &ResolvedProject) -> &Sources {
+    project.sources().expect("an OMG-metamodel project")
+}
+
 fn maps(body: &str, entries: &[(&str, &str)]) -> (SymbolIndex, ChecksumMap) {
     let project = resolved(body);
     let files = files(entries);
-    source_maps(&project.sources, reader(&files)).expect("the sources are readable")
+    source_maps(omg_sources(&project), reader(&files)).expect("the sources are readable")
 }
 
 const FULL: &str = "\
@@ -294,11 +333,9 @@ fn a_minimal_project_writes_only_what_it_has() {
     );
 }
 
-/// model-toml.md "Standard library" omits `publisher` from the
-/// `.project.json` of a project carrying `stdlib` -- from the *archive*.
-/// The view keeps it, or the standard library's own `dir` usages, which
-/// require the target to declare the publisher they name, could never
-/// resolve.
+/// The archive omits `publisher` from the `.project.json` of a project
+/// carrying `stdlib`. The view keeps it: the standard library's own `dir`
+/// usages require the target to declare the publisher they name.
 #[test]
 fn a_stdlib_project_keeps_its_publisher_in_the_view() {
     let info = info(&resolved(
@@ -312,8 +349,8 @@ fn a_stdlib_project_keeps_its_publisher_in_the_view() {
     assert_eq!(info.publisher.as_deref(), Some("OMG"));
 }
 
-/// "`urls.repository` and `urls.documentation` have no counterpart in
-/// `.project.json` and are dropped."
+/// `urls.repository` and `urls.documentation` have no counterpart in
+/// `.project.json` and are dropped.
 #[test]
 fn documentation_and_repository_urls_are_dropped() {
     let info = info(&resolved(FULL));
@@ -338,33 +375,33 @@ fn usages_are_mapped_in_manifest_order() {
          [[inline-usages]]\n\
          publisher = \"acme\"\n\
          name = \"third\"\n\
-         url = \"https://example.com/third.kpar\"\n"
+         kpar-url = \"https://example.com/third.kpar\"\n"
     )));
     assert_eq!(
         info.usage,
         [
-            InterchangeProjectUsageRaw::Resource {
-                resource: "pkg:sysand/acme/first".to_owned(),
-                version_constraint: Some("^1".to_owned()),
+            InterchangeProjectUsageRaw::Index {
+                publisher: "acme".to_owned(),
+                name: "first".to_owned(),
+                version_constraint: "^1".to_owned(),
             },
             InterchangeProjectUsageRaw::Directory {
                 dir: "../second".to_owned(),
                 publisher: "acme".to_owned(),
                 name: "second".to_owned(),
             },
-            InterchangeProjectUsageRaw::Resource {
-                resource: "https://example.com/third.kpar".to_owned(),
-                version_constraint: None,
+            InterchangeProjectUsageRaw::RemoteKpar {
+                kpar_url: "https://example.com/third.kpar".to_owned(),
+                publisher: Some("acme".to_owned()),
+                name: "third".to_owned(),
             },
         ]
     );
 }
 
 /// A `LocatedUsage` also records which directory its paths are relative
-/// to -- the project's own for a declared usage, the workspace root for
-/// an inherited one -- and a `.project.json` has no way to say which. So
-/// the two are indistinguishable in a view, and anything that needs the
-/// base has to ask the manifest instead.
+/// to, which a `.project.json` has no way to say, so anything that needs
+/// the base has to ask the manifest instead.
 #[test]
 fn an_inherited_usage_is_written_like_a_declared_one() {
     let mut project = resolved(REQUIRED);
@@ -400,8 +437,7 @@ fn the_metamodel_is_copied_into_meta_json() {
 }
 
 /// `created` is written the one way `InterchangeProjectMetadataRaw` is
-/// documented to be written, so that two documents recording the same
-/// instant are byte-identical.
+/// documented to be written.
 #[test]
 fn created_is_formatted_as_the_metadata_helper_formats_it() {
     let instant: jiff::Timestamp = "2026-09-14T12:34:56Z".parse().expect("an instant");
@@ -496,15 +532,14 @@ fn a_source_with_no_symbols_still_gets_a_checksum() {
     assert!(checksum.contains_key("empty.sysml"));
 }
 
-/// model-toml.md's reason for not writing `sources` into a KPAR: "the
-/// paths it lists are recoverable from these two maps, which is exactly
-/// the union the reverse direction takes".
+/// `sources` is not written into a KPAR because the paths it lists are
+/// recoverable from these two maps.
 #[test]
 fn the_two_maps_recover_the_source_list() {
     let body = REQUIRED.replace("sources = []", "sources = [\"a.sysml\", \"empty.sysml\"]");
     let project = resolved(&body);
     let files = files(&[("a.sysml", "part def A;"), ("empty.sysml", "")]);
-    let (index, checksum) = source_maps(&project.sources, reader(&files)).expect("readable");
+    let (index, checksum) = source_maps(omg_sources(&project), reader(&files)).expect("readable");
     let meta = meta(
         &project,
         &jiff::Timestamp::UNIX_EPOCH,
@@ -512,8 +547,7 @@ fn the_two_maps_recover_the_source_list() {
         checksum,
     );
 
-    let sources: HashSet<String> = project
-        .sources
+    let sources: HashSet<String> = omg_sources(&project)
         .iter()
         .map(|path| path.as_str().to_owned())
         .collect();
@@ -536,29 +570,38 @@ fn meta_json_from_the_view_validates() {
     let project = resolved(FULL);
     let files = files(&[("a.sysml", "part def A;")]);
     let (_, meta) = view(&project, &jiff::Timestamp::now(), reader(&files)).expect("readable");
-    // The strict validator -- not the partial one, which accepts a
+    // The strict validator, not the partial one, which accepts a
     // `metamodel` that is no URL and a `created` that is no timestamp.
     meta.validate().expect("a valid `.meta.json`");
 }
 
-/// The guard on the test above: a `metamodel` that is not a URL cannot
-/// reach a view, because the manifest carrying one does not read. Were
-/// that to change, `meta_json_from_the_view_validates` would start
-/// passing for the wrong reason.
+/// The guard on the test above: a `metamodel` outside the four cannot
+/// reach a view, because the manifest carrying one does not read.
 #[test]
-fn a_metamodel_that_is_not_a_url_never_reaches_the_view() {
-    let text = format!("[project]\n{REQUIRED}metamodel = \"not a url at all\"\n");
-    let (table, positions) = Source::new("model.toml", &text)
-        .read()
-        .expect("the document parses");
-    ProjectManifest::validate(&table, &positions).expect_err("the manifest is rejected");
+fn an_unrecognized_metamodel_never_reaches_the_view() {
+    let text = format!(
+        "[project]\n{}metamodel = \"not a url at all\"\n",
+        REQUIRED.replace(
+            "metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+            ""
+        )
+    );
+    let source = Source::new("model.toml", text.as_str());
+    let table = source.read().expect("the document parses");
+    ProjectManifest::validate(&TableReader::new(
+        table.get_ref(),
+        None,
+        KeyLocation::TopLevel,
+        &source,
+    ))
+    .expect_err("the manifest is rejected");
 }
 
 #[test]
 fn a_source_that_cannot_be_read_reports_the_readers_error() {
     let project = resolved(&REQUIRED.replace("sources = []", "sources = [\"a.sysml\"]"));
     let files = files(&[]);
-    let error = source_maps(&project.sources, reader(&files)).expect_err("nothing to read");
+    let error = source_maps(omg_sources(&project), reader(&files)).expect_err("nothing to read");
     assert_eq!(error.to_string(), "no such file `a.sysml`");
 }
 
@@ -566,24 +609,29 @@ fn a_source_that_cannot_be_read_reports_the_readers_error() {
 fn a_source_that_does_not_parse_stops_the_view() {
     let project = resolved(&REQUIRED.replace("sources = []", "sources = [\"a.sysml\"]"));
     let files = files(&[("a.sysml", "package Foo { /*")]);
-    let error = source_maps(&project.sources, reader(&files)).expect_err("an unterminated comment");
+    let error =
+        source_maps(omg_sources(&project), reader(&files)).expect_err("an unterminated comment");
+    assert_eq!(
+        error.to_string(),
+        "failed to extract symbol names from `a.sysml`"
+    );
+    let ViewError::Symbols(symbols) = &error else {
+        panic!("a symbols error: {error:?}");
+    };
     assert!(
-        error
-            .to_string()
-            .starts_with("failed to extract symbol names from `a.sysml`: "),
-        "unexpected message: {error}"
+        std::error::Error::source(symbols).is_some(),
+        "the parse error is the source: {symbols:?}"
     );
 }
 
 /// Unlike a manifest report, a view does not accumulate: the caller's
-/// error is one value, and a build that cannot read one of its sources
-/// has nothing to go on.
+/// error is one value.
 #[test]
 fn reading_stops_at_the_first_failure() {
     let project =
         resolved(&REQUIRED.replace("sources = []", "sources = [\"a.sysml\", \"b.sysml\"]"));
     let files = files(&[]);
-    let error = source_maps(&project.sources, reader(&files)).expect_err("nothing to read");
+    let error = source_maps(omg_sources(&project), reader(&files)).expect_err("nothing to read");
     assert_eq!(error.to_string(), "no such file `a.sysml`");
 }
 
@@ -595,46 +643,187 @@ fn the_view_is_the_two_halves() {
     let created = jiff::Timestamp::UNIX_EPOCH;
 
     let (whole_info, whole_meta) = view(&project, &created, reader(&files)).expect("readable");
-    let (index, checksum) = source_maps(&project.sources, reader(&files)).expect("readable");
+    let (index, checksum) = source_maps(omg_sources(&project), reader(&files)).expect("readable");
     assert_eq!(whole_info, info(&project));
     assert_eq!(whole_meta, meta(&project, &created, index, checksum));
 }
 
-// ----- the view of a manifest text -----
+// --- reading a json usage as a manifest usage -------------------------
 
-const MANIFEST: &str = "\
-manifest-version = 1
+use super::{NoManifestForm, usage_of_raw};
+use crate::model::{IndexName, IndexPublisher};
 
-[project]
-publisher = \"acme\"
-name = \"widgets\"
-version = \"1.2.3\"
-sources = []
-";
-
-fn nothing_to_read(path: &Utf8UnixPath) -> Result<String, String> {
-    Err(format!("no such file `{path}`"))
+fn raw_resource(resource: &str, constraint: Option<&str>) -> InterchangeProjectUsageRaw {
+    InterchangeProjectUsageRaw::Resource {
+        resource: resource.to_owned(),
+        version_constraint: constraint.map(str::to_owned),
+    }
 }
 
 #[test]
-fn a_manifest_that_does_not_parse_is_reported_as_a_deserialization_error() {
-    let error =
-        of_text("model.toml", "this is not toml\n", nothing_to_read).expect_err("not a manifest");
-    assert!(
-        matches!(error, ViewError::Manifest(_)),
-        "unexpected error: {error}"
-    );
-    assert!(
-        error.to_string().contains("`model.toml` is not valid TOML"),
-        "unexpected message: {error}"
+fn a_resource_usage_has_no_manifest_form() {
+    for resource in [
+        "pkg:sysand/acme/lib",
+        "urn:kpar:something",
+        "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar",
+    ] {
+        let error = usage_of_raw(&raw_resource(resource, Some("^1")), ".project.json")
+            .expect_err("a resource usage");
+
+        assert_matches!(&error, NoManifestForm::Resource(r) if r == resource);
+        assert!(
+            error
+                .to_string()
+                .contains("cannot declare a resource usage")
+        );
+    }
+}
+
+#[test]
+fn a_directory_usage_becomes_a_dir_entry() {
+    let usage = usage_of_raw(
+        &InterchangeProjectUsageRaw::Directory {
+            dir: "../lib".to_owned(),
+            publisher: "acme".to_owned(),
+            name: "lib".to_owned(),
+        },
+        ".project.json",
+    )
+    .expect("a dir usage");
+
+    assert_matches!(
+        usage,
+        Usage::SourcePath {
+            publisher: _,
+            name: _,
+            dir: _
+        }
     );
 }
 
-/// A view's `created` is not the instant it was taken, because the
-/// project checksum covers it and that checksum reaches the lockfile.
 #[test]
-fn the_view_of_a_text_records_the_fixed_created() {
-    let (_, meta) = of_text("model.toml", MANIFEST, nothing_to_read).expect("no sources to read");
-    assert_eq!(meta.created, crate::model::format_created(&VIEW_CREATED));
-    assert_eq!(meta.created, "1970-01-01T00:00:00Z");
+fn a_kpar_path_usage_becomes_a_kpar_path_entry() {
+    let usage = usage_of_raw(
+        &InterchangeProjectUsageRaw::KparPath {
+            kpar_path: "vendor/lib.kpar".to_owned(),
+            publisher: "acme".to_owned(),
+            name: "lib".to_owned(),
+        },
+        ".project.json",
+    )
+    .expect("a kpar-path usage");
+
+    assert_matches!(
+        usage,
+        Usage::KparPath {
+            publisher: _,
+            name: _,
+            kpar_path: _
+        }
+    );
+}
+
+#[test]
+fn a_target_whose_identifiers_the_rule_refuses_names_its_file() {
+    // A raw typed usage's publisher and name are unvalidated strings
+    // copied from the target's `.project.json`. The fix is in that
+    // file, so the message says which.
+    let error = usage_of_raw(
+        &InterchangeProjectUsageRaw::Directory {
+            dir: "../lib".to_owned(),
+            publisher: "x_y".to_owned(),
+            name: "lib".to_owned(),
+        },
+        "../lib/.project.json",
+    )
+    .expect_err("an identifier a manifest cannot hold");
+
+    assert_matches!(
+        error,
+        NoManifestForm::Identifier {
+            file: _,
+            problem: _
+        }
+    );
+    assert!(error.to_string().contains("../lib/.project.json"));
+}
+
+#[test]
+fn the_forward_map_keeps_the_manifest_spelling() {
+    // A publisher written `ACME` comes back `ACME`.
+    let shouted = Usage::Index {
+        publisher: crate::model::IndexPublisher::parse("ACME").expect("a publisher"),
+        name: crate::model::IndexName::parse("Lib").expect("a name"),
+        version_constraint: semver::VersionReq::parse("^1").expect("a constraint"),
+    };
+
+    let back = usage_of_raw(&super::usage(&shouted), ".project.json").expect("an index usage");
+    assert_eq!(back.publisher().expect("a publisher").as_str(), "ACME");
+    assert_eq!(back.name().as_str(), "Lib");
+}
+
+// ------------------- resolving against a workspace table
+
+const INHERITS_VERSION: &str = "manifest-version = \"1.0\"\n\n\
+     [project]\n\
+     publisher = \"acme\"\n\
+     name = \"widgets\"\n\
+     version.workspace = true\n\
+     sources = []\n\
+     metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n";
+
+#[test]
+fn resolved_of_text_in_follows_the_table() {
+    let table = crate::manifest::workspace_table::WorkspaceTable {
+        default_group: crate::manifest::workspace_table::GroupProperties {
+            version: Some("9.9.9".parse().expect("a version")),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let project = super::resolved_of_text_in(MODEL_TOML_FILE, INHERITS_VERSION, Some(&table))
+        .expect("the marker follows the table");
+    assert_eq!(project.version.to_string(), "9.9.9");
+}
+
+/// The wrapper without a table refuses, and the *message* says why: a
+/// default table would not refuse, it would say the group does not give
+/// the key, so `is_err` alone would not tell the two apart.
+#[test]
+fn resolved_of_text_still_refuses_without_a_table() {
+    let error = super::resolved_of_text(MODEL_TOML_FILE, INHERITS_VERSION)
+        .expect_err("no table, no inheritance");
+    assert!(
+        error.to_string().contains("not a member of any workspace"),
+        "{error}"
+    );
+}
+
+/// The view's `checksum` is `Some(map)`, never `None`: a project with no
+/// sources gets an empty map.
+///
+/// A `model.toml` project always knows which files it lists, so "no
+/// checksums recorded" and "no sources" are the same statement, where a
+/// json project's absent `checksum` means neither.
+///
+/// Pinned because the distinction is visible from the bindings, where
+/// `Some(empty)` becomes an empty map and `None` becomes null.
+#[test]
+fn a_source_project_view_carries_an_empty_checksum_map() {
+    let text = "manifest-version = \"1.0\"\n\n\
+                [project]\n\
+                publisher = \"acme\"\n\
+                name = \"widgets\"\n\
+                version = \"1.0.0\"\n\
+                sources = []\n\
+                metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n";
+    let project = super::resolved_of_text(MODEL_TOML_FILE, text).expect("a project");
+    let (_info, meta) = view(&project, &jiff::Timestamp::UNIX_EPOCH, |_path| {
+        Err::<String, _>("no source is read: the project lists none")
+    })
+    .expect("the view is built");
+
+    let checksum = meta.checksum.expect("a view always records a checksum map");
+    assert!(checksum.is_empty(), "{checksum:?}");
+    assert_eq!(meta.index, Some(indexmap::IndexMap::new()));
 }

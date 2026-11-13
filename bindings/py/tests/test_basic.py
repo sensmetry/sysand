@@ -10,6 +10,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from conftest import write_json_project
 from mockindex import MockIndex, run_cli_in
 from pytest_httpserver import HTTPServer
 
@@ -29,13 +30,19 @@ def _install_in_env(
     if not env_path.is_dir():
         sysand.env.env(path=env_path)
     with tempfile.TemporaryDirectory() as source:
-        sysand.init(project_dir=source, name=name, publisher=publisher, version=version)
+        # A json pair, written by hand: `init` writes a `model.toml`
+        write_json_project(Path(source), publisher, name, version)
         normalized = [part.lower().replace(" ", "-") for part in (publisher, name)]
         sysand.env.install_path(
             env_path=env_path,
             iri="pkg:sysand/" + "/".join(normalized),
             location=source,
         )
+
+
+# `sysand.init` takes a metamodel: a project declares one and it
+# cannot be guessed.
+SYSML = "https://www.omg.org/spec/SysML/20250201"
 
 
 def test_basic_init(caplog: pytest.LogCaptureFixture) -> None:
@@ -46,80 +53,146 @@ def test_basic_init(caplog: pytest.LogCaptureFixture) -> None:
     with tempfile.TemporaryDirectory() as tmpdirname:
         sysand.init(
             project_dir=tmpdirname,
-            name="test_basic_init",
-            publisher="a",
+            name="test-basic-init",
+            publisher="acme",
             version="1.2.3",
+            metamodel=SYSML,
+            kind=sysand.ProjectKind.MODEL_TOML,
         )
 
         assert caplog.record_tuples == [
             (
                 "sysand_core.commands.init",
                 logging.INFO,
-                "    Creating interchange project `test_basic_init`",
+                "    Creating interchange project `test-basic-init`",
             )
         ]
-        with open(Path(tmpdirname) / ".project.json", "r") as f:
-            assert (
-                f.read()
-                == '{\n  "name": "test_basic_init",\n  "publisher": "a",\n  "version": "1.2.3"\n}\n'
+        # `init` writes a `model.toml`, through the binding as through
+        # the CLI. The two json documents are what a build produces and
+        # what a json project has.
+        with open(Path(tmpdirname) / "model.toml", "r") as f:
+            assert f.read() == (
+                'manifest-version = "1.0"\n'
+                "\n"
+                "[project]\n"
+                'publisher = "acme"\n'
+                'name = "test-basic-init"\n'
+                'version = "1.2.3"\n'
+                "sources = []\n"
+                f'metamodel = "{SYSML}"\n'
             )
-        with open(Path(tmpdirname) / ".meta.json", "r") as f:
-            assert re.match(
-                r'\{\n  "index": \{\},\n  "created": "\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"\n}\n',
-                f.read(),
-            )
+        assert not (Path(tmpdirname) / ".project.json").exists()
 
 
 def test_init_license(tmp_path: Path) -> None:
     sysand.init(
         project_dir=tmp_path,
-        name="test_init_license",
-        publisher="a",
+        name="test-init-license",
+        publisher="acme",
         version="1.2.3",
         license="MIT OR Apache-2.0",
+        metamodel=SYSML,
+        kind=sysand.ProjectKind.MODEL_TOML,
     )
 
-    info = json.loads((tmp_path / ".project.json").read_text())
-    assert info["license"] == "MIT OR Apache-2.0"
+    manifest = (tmp_path / "model.toml").read_text()
+    assert 'license = "MIT OR Apache-2.0"' in manifest
 
 
 def test_init_invalid_license(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         sysand.init(
             project_dir=tmp_path,
-            name="test_init_invalid_license",
-            publisher="a",
+            name="test-init-invalid-license",
+            publisher="acme",
             version="1.2.3",
             license="not a license",
+            metamodel=SYSML,
+            kind=sysand.ProjectKind.MODEL_TOML,
         )
 
-    assert not (tmp_path / ".project.json").exists()
+    assert not (tmp_path / "model.toml").exists()
 
 
 def test_init_metamodel(tmp_path: Path) -> None:
     sysand.init(
         project_dir=tmp_path,
-        name="test_init_metamodel",
-        publisher="a",
+        name="test-init-metamodel",
+        publisher="acme",
         version="1.2.3",
         metamodel="https://www.omg.org/spec/KerML/20250201",
+        kind=sysand.ProjectKind.MODEL_TOML,
     )
 
-    meta = json.loads((tmp_path / ".meta.json").read_text())
-    assert meta["metamodel"] == "https://www.omg.org/spec/KerML/20250201"
+    manifest = (tmp_path / "model.toml").read_text()
+    assert 'metamodel = "https://www.omg.org/spec/KerML/20250201"' in manifest
 
 
 def test_init_invalid_metamodel(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="invalid metamodel"):
+    with pytest.raises(ValueError, match="is not a metamodel Sysand recognizes"):
         sysand.init(
             project_dir=tmp_path,
-            name="test_init_invalid_metamodel",
-            publisher="a",
+            name="test-init-invalid-metamodel",
+            publisher="acme",
             version="1.2.3",
             metamodel="not an iri",
+            kind=sysand.ProjectKind.MODEL_TOML,
         )
 
     assert not (tmp_path / ".project.json").exists()
+
+
+def test_init_project_json(tmp_path: Path) -> None:
+    sysand.init(
+        project_dir=tmp_path,
+        name="test-init-project-json",
+        publisher="acme",
+        version="1.2.3",
+        metamodel="https://www.omg.org/spec/KerML/20250201",
+        kind=sysand.ProjectKind.PROJECT_JSON,
+        license="MIT",
+    )
+
+    info = json.loads((tmp_path / ".project.json").read_text())
+    assert info == {
+        "name": "test-init-project-json",
+        "publisher": "acme",
+        "version": "1.2.3",
+        "license": "MIT",
+    }
+    meta = json.loads((tmp_path / ".meta.json").read_text())
+    assert meta["metamodel"] == "https://www.omg.org/spec/KerML/20250201"
+    assert not (tmp_path / "model.toml").exists()
+
+
+def test_init_project_json_refuses_a_syside_metamodel(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="cannot use the Syside metamodel"):
+        sysand.init(
+            project_dir=tmp_path,
+            name="test-init-syside-json",
+            publisher="acme",
+            version="1.2.3",
+            metamodel="https://www.sysand.com/spec/SysML/20250201",
+            kind=sysand.ProjectKind.PROJECT_JSON,
+        )
+
+    assert not (tmp_path / ".project.json").exists()
+
+
+@pytest.mark.parametrize("kind", ["model-toml", "project-json", "kpar"])
+def test_init_takes_only_a_project_kind(tmp_path: Path, kind: str) -> None:
+    message = f"`kind` is {kind!r}, not a `ProjectKind`"
+    with pytest.raises(TypeError, match=re.escape(message)):
+        sysand.init(
+            project_dir=tmp_path / "model",
+            name="test-init-kind",
+            publisher="acme",
+            version="1.2.3",
+            metamodel=SYSML,
+            kind=kind,  # type: ignore[arg-type]
+        )
+
+    assert not (tmp_path / "model").exists()
 
 
 def test_basic_env() -> None:
@@ -136,11 +209,8 @@ def test_basic_env() -> None:
 
 def test_add_by_publisher_and_name() -> None:
     with tempfile.TemporaryDirectory() as tmpdirname:
-        sysand.init(
-            project_dir=tmpdirname,
-            name="test_add_by_publisher_and_name",
-            publisher="a",
-            version="1.2.3",
+        write_json_project(
+            Path(tmpdirname), "acme", "test-add-by-publisher-and-name", "1.2.3"
         )
 
         _install_in_env(tmpdirname, "Acme Labs", "My.Project")
@@ -166,17 +236,14 @@ def test_add_by_publisher_and_name() -> None:
 
         assert (
             (Path(tmpdirname) / ".project.json").read_text()
-            == '{\n  "name": "test_add_by_publisher_and_name",\n  "publisher": "a",\n  "version": "1.2.3",\n  "usage": [\n    {\n      "publisher": "Acme Labs",\n      "name": "My.Project",\n      "versionConstraint": "*"\n    },\n    {\n      "publisher": "Acme Labs",\n      "name": "My.Project2",\n      "versionConstraint": "*"\n    }\n  ]\n}\n'
+            == '{\n  "name": "test-add-by-publisher-and-name",\n  "publisher": "acme",\n  "version": "1.2.3",\n  "usage": [\n    {\n      "publisher": "Acme Labs",\n      "name": "My.Project",\n      "versionConstraint": "*"\n    },\n    {\n      "publisher": "Acme Labs",\n      "name": "My.Project2",\n      "versionConstraint": "*"\n    }\n  ]\n}\n'
         )
 
 
 def test_remove_by_publisher_and_name() -> None:
     with tempfile.TemporaryDirectory() as tmpdirname:
-        sysand.init(
-            project_dir=tmpdirname,
-            name="test_remove_by_publisher_and_name",
-            publisher="a",
-            version="1.2.3",
+        write_json_project(
+            Path(tmpdirname), "acme", "test-remove-by-publisher-and-name", "1.2.3"
         )
         _install_in_env(tmpdirname, "acme-labs", "my.project")
 
@@ -191,13 +258,13 @@ def test_remove_by_publisher_and_name() -> None:
 
         assert (
             (Path(tmpdirname) / ".project.json").read_text()
-            == '{\n  "name": "test_remove_by_publisher_and_name",\n  "publisher": "a",\n  "version": "1.2.3"\n}\n'
+            == '{\n  "name": "test-remove-by-publisher-and-name",\n  "publisher": "acme",\n  "version": "1.2.3"\n}\n'
         )
 
 
 def test_the_shorthand_is_not_an_iri(tmp_path: Path) -> None:
-    # `publisher/name` used to be expanded; now it is refused as the relative
-    # reference it is, rather than silently written, or reported "not found".
+    # `publisher/name` is refused as the relative reference it is, rather
+    # than silently written, or reported "not found".
     manifest = tmp_path / ".project.json"
     manifest.write_text(SYSAND_FORMATTED_MANIFEST)
 
@@ -447,9 +514,7 @@ def test_set_usage_constraint_normalizes_hand_formatted_whitespace(
 
 
 def test_add_returns_whether_a_usage_was_added(tmp_path: Path) -> None:
-    sysand.init(
-        project_dir=tmp_path, name="test_add_returns", publisher="a", version="1.2.3"
-    )
+    write_json_project(Path(tmp_path), "acme", "test-add-returns", "1.2.3")
     _install_in_env(tmp_path, "acme-labs", "my.project")
 
     def add_mine() -> bool:
@@ -507,9 +572,7 @@ def test_set_usage_constraint_refuses_a_usage_that_cannot_hold_one(
 
 
 def test_remove_returns_the_removed_usages(tmp_path: Path) -> None:
-    sysand.init(
-        project_dir=tmp_path, name="test_remove_returns", publisher="a", version="1.2.3"
-    )
+    write_json_project(Path(tmp_path), "acme", "test-remove-returns", "1.2.3")
     _install_in_env(tmp_path, "acme-labs", "my.project")
     sysand.add(
         project_dir=tmp_path,
@@ -533,7 +596,7 @@ def test_remove_returns_the_removed_usages(tmp_path: Path) -> None:
 
 
 def test_usages_read_back_by_how_they_are_found(tmp_path: Path) -> None:
-    sysand.init(project_dir=tmp_path, name="proj", publisher="acme", version="1.0.0")
+    write_json_project(Path(tmp_path), "acme", "proj", "1.0.0")
     _install_in_env(tmp_path, "acme-labs", "by.index")
     sysand.add(
         project_dir=tmp_path,
@@ -586,7 +649,8 @@ def test_remove_by_publisher_and_name_removes_a_directory_usage(
     tmp_path: Path,
 ) -> None:
     root = tmp_path / "proj"
-    sysand.init(project_dir=root, name="proj", publisher="acme", version="1.0.0")
+    Path(root).mkdir(parents=True, exist_ok=True)
+    write_json_project(Path(root), "acme", "proj", "1.0.0")
     _declare_dir_usage(root)
 
     removed = sysand.remove(project_dir=root, publisher="acme-labs", name="my.project")
@@ -602,7 +666,8 @@ def test_remove_by_publisher_and_name_needs_no_index_usage_spelling(
     # `ab` is too short for an index usage, but a directory usage may declare
     # it: `remove` names what is declared, as `sysand remove ab/my.project`
     root = tmp_path / "proj"
-    sysand.init(project_dir=root, name="proj", publisher="acme", version="1.0.0")
+    Path(root).mkdir(parents=True, exist_ok=True)
+    write_json_project(Path(root), "acme", "proj", "1.0.0")
     manifest_path = root / ".project.json"
     manifest = json.loads(manifest_path.read_text())
     manifest["usage"] = [{"dir": "../dep", "publisher": "ab", "name": "my.project"}]
@@ -616,7 +681,14 @@ def test_remove_by_publisher_and_name_needs_no_index_usage_spelling(
 
 
 def test_remove_refuses_what_no_usage_can_declare(tmp_path: Path) -> None:
-    sysand.init(project_dir=tmp_path, name="proj", publisher="acme", version="1.0.0")
+    sysand.init(
+        project_dir=tmp_path,
+        name="proj",
+        publisher="acme",
+        version="1.0.0",
+        metamodel=SYSML,
+        kind=sysand.ProjectKind.MODEL_TOML,
+    )
 
     for publisher, name, message in [
         ("acme/labs", "lib", "`acme/labs` is invalid: publisher cannot contain `/`"),
@@ -628,7 +700,14 @@ def test_remove_refuses_what_no_usage_can_declare(tmp_path: Path) -> None:
 
 
 def test_remove_still_reports_an_absent_usage(tmp_path: Path) -> None:
-    sysand.init(project_dir=tmp_path, name="proj", publisher="acme", version="1.0.0")
+    sysand.init(
+        project_dir=tmp_path,
+        name="proj",
+        publisher="acme",
+        version="1.0.0",
+        metamodel=SYSML,
+        kind=sysand.ProjectKind.MODEL_TOML,
+    )
 
     with pytest.raises(sysand.ProjectError) as excinfo:
         sysand.remove(project_dir=tmp_path, publisher="acme-labs", name="absent")
@@ -639,7 +718,8 @@ def test_add_refuses_a_project_already_declared_as_another_kind(
     tmp_path: Path,
 ) -> None:
     root = tmp_path / "proj"
-    sysand.init(project_dir=root, name="proj", publisher="acme", version="1.0.0")
+    Path(root).mkdir(parents=True, exist_ok=True)
+    write_json_project(Path(root), "acme", "proj", "1.0.0")
     _declare_dir_usage(root)
 
     with pytest.raises(sysand.ProjectError) as excinfo:
@@ -659,7 +739,7 @@ def test_add_refuses_a_project_already_declared_as_another_kind(
 
 
 def test_publisher_and_name_are_kept_as_spelled(tmp_path: Path) -> None:
-    sysand.init(project_dir=tmp_path, name="proj", publisher="acme", version="1.0.0")
+    write_json_project(Path(tmp_path), "acme", "proj", "1.0.0")
     manifest = tmp_path / ".project.json"
     _install_in_env(tmp_path, "Acme Labs", "My.Project")
 
@@ -737,7 +817,7 @@ def test_publisher_and_name_are_kept_as_spelled(tmp_path: Path) -> None:
 
 
 def test_a_legacy_purl_is_removed_by_publisher_and_name(tmp_path: Path) -> None:
-    sysand.init(project_dir=tmp_path, name="proj", publisher="acme", version="1.0.0")
+    write_json_project(Path(tmp_path), "acme", "proj", "1.0.0")
     sysand.add(
         project_dir=tmp_path,
         iri="pkg:sysand/acme-labs/lib",
@@ -769,7 +849,15 @@ def test_a_legacy_purl_is_removed_by_publisher_and_name(tmp_path: Path) -> None:
 
 
 def test_add_refuses_an_invalid_publisher_or_name(tmp_path: Path) -> None:
-    sysand.init(project_dir=tmp_path, name="proj", publisher="acme", version="1.0.0")
+    sysand.init(
+        project_dir=tmp_path,
+        name="proj",
+        publisher="acme",
+        version="1.0.0",
+        metamodel=SYSML,
+        kind=sysand.ProjectKind.MODEL_TOML,
+    )
+    manifest = (tmp_path / "model.toml").read_text()
 
     # With the messages `sysand add <publisher>/<name>` gives
     for publisher, name, message in [
@@ -788,8 +876,7 @@ def test_add_refuses_an_invalid_publisher_or_name(tmp_path: Path) -> None:
                 version_constraint="*",
             )
 
-    info, _ = sysand.info_path(project_dir=tmp_path)
-    assert info["usage"] == []
+    assert (tmp_path / "model.toml").read_text() == manifest
 
 
 @pytest.mark.parametrize(
@@ -827,7 +914,7 @@ def test_the_dependency_is_named_exactly_once(
 ) -> None:
     # Overloads make each of these a type error too; this pins the runtime
     # behaviour for callers who are not type-checked.
-    sysand.init(project_dir=tmp_path, name="proj", publisher="acme", version="1.0.0")
+    write_json_project(Path(tmp_path), "acme", "proj", "1.0.0")
     before = (tmp_path / ".project.json").read_text()
 
     with pytest.raises(TypeError):
@@ -837,7 +924,15 @@ def test_the_dependency_is_named_exactly_once(
 
 
 def test_add_needs_a_version_constraint(tmp_path: Path) -> None:
-    sysand.init(project_dir=tmp_path, name="proj", publisher="acme", version="1.0.0")
+    sysand.init(
+        project_dir=tmp_path,
+        name="proj",
+        publisher="acme",
+        version="1.0.0",
+        metamodel=SYSML,
+        kind=sysand.ProjectKind.MODEL_TOML,
+    )
+    manifest = (tmp_path / "model.toml").read_text()
 
     for kwargs in [
         {"publisher": "acme", "name": "lib"},
@@ -855,8 +950,7 @@ def test_add_needs_a_version_constraint(tmp_path: Path) -> None:
             usage={"dir": "../dep", "publisher": "acme", "name": "dep"},
         )
 
-    info, _ = sysand.info_path(project_dir=tmp_path)
-    assert info["usage"] == []
+    assert (tmp_path / "model.toml").read_text() == manifest
 
 
 def _project_with_dir_usage(tmp_path: Path) -> tuple[Path, Path]:
@@ -867,7 +961,7 @@ def _project_with_dir_usage(tmp_path: Path) -> tuple[Path, Path]:
     kpar_dep = tmp_path / "kpar-dep"
     for name, path in [("proj", root), ("dir-dep", dep), ("kpar-dep", kpar_dep)]:
         path.mkdir()
-        sysand.init(project_dir=path, name=name, publisher="acme", version="1.0.0")
+        write_json_project(Path(path), "acme", name, "1.0.0")
         (path / f"{name}.sysml").write_text(f"package P_{name.replace('-', '_')};")
         sysand.include(project_dir=path, src_path=f"{name}.sysml")
     manifest = json.loads((root / ".project.json").read_text())
@@ -901,15 +995,15 @@ def test_env_projects_lists_installed_and_editable(tmp_path: Path) -> None:
     assert own["usages"] == ["pkg:sysand/acme/dir-dep"]
     assert own["checksum"] is None
 
-    # A directory usage is installed as a copy, relative to the env dir.
+    # A directory usage is used in place: an editable entry, relative to
+    # the project root, with no checksum.
     dir_dep = projects["dir-dep"]
-    assert dir_dep["editable"] is False
+    assert dir_dep["editable"] is True
+    assert dir_dep["workspace"] is False
     assert dir_dep["identifiers"][0] == "pkg:sysand/acme/dir-dep"
-    assert (env_dir / dir_dep["path"] / "dir-dep.sysml").is_file()
+    assert (root / dir_dep["path"] / "dir-dep.sysml").is_file()
     assert dir_dep["usages"] == []
-    # Installed from a source directory, so `env.toml` records `src_cksum`.
-    assert set(dir_dep["checksum"]) == {"src_cksum"}
-    assert re.fullmatch(r"[0-9a-f]{64}", dir_dep["checksum"]["src_cksum"])
+    assert dir_dep["checksum"] is None
 
     kpar_dep = projects["kpar-dep"]
     assert kpar_dep["editable"] is False
@@ -934,7 +1028,7 @@ def test_env_functions_reject_non_iri(tmp_path: Path) -> None:
     _root, env_dir = _project_with_dir_usage(tmp_path)
     before = sysand.env.projects(env_path=env_dir)
 
-    # `publisher/name` is not an IRI: refused, not looked up or stored as one
+    # `publisher/name` is not an IRI: refused
     with pytest.raises(ValueError, match="invalid IRI `acme/kpar-dep`"):
         sysand.env.sources(env_path=env_dir, iri="acme/kpar-dep")
     with pytest.raises(ValueError, match="invalid IRI `acme/kpar-dep`"):
@@ -987,7 +1081,14 @@ def test_discover(tmp_path: Path) -> None:
 
     root = tmp_path / "ws" / "proj"
     root.mkdir(parents=True)
-    sysand.init(project_dir=root, name="discover", publisher="acme", version="1.0.0")
+    sysand.init(
+        project_dir=root,
+        name="discover",
+        publisher="acme",
+        version="1.0.0",
+        metamodel=SYSML,
+        kind=sysand.ProjectKind.MODEL_TOML,
+    )
     nested = root / "src" / "deep"
     nested.mkdir(parents=True)
 
@@ -998,18 +1099,50 @@ def test_discover(tmp_path: Path) -> None:
         assert found["workspace_root"] is None
     assert sysand.discover(path=root)["project_root"] == str(sysand.root(path=root))
 
-    (tmp_path / "ws" / ".workspace.json").write_text('{"projects": []}\n')
+    (tmp_path / "ws" / "model.toml").write_text(
+        'manifest-version = "1.0"\n\n[workspace]\nmembers = ["proj"]\n'
+    )
     found = sysand.discover(path=nested)
     assert found["workspace_root"] is not None
     assert os.path.samefile(found["workspace_root"], tmp_path / "ws")
     assert found["project_root"] is not None
     assert os.path.samefile(found["project_root"], root)
+    # A workspace root defines no project.
     assert sysand.discover(path=tmp_path / "ws")["project_root"] is None
 
-    (tmp_path / "ws" / ".workspace.json").write_text("not json")
+    (tmp_path / "ws" / "model.toml").write_text("not toml = = =")
     with pytest.raises(sysand.ProjectError) as excinfo:
         sysand.discover(path=root)
     assert excinfo.value.wrote is False
+
+
+def test_discover_rejects_a_nested_workspace(tmp_path: Path) -> None:
+    """Nested workspaces are not supported, and `discover` says so rather
+    than picking one: every command rejects the tree, so reporting a
+    location for it would be a lie."""
+    inner = tmp_path / "outer" / "inner"
+    proj = inner / "proj"
+    proj.mkdir(parents=True)
+    sysand.init(
+        project_dir=proj,
+        name="nested",
+        publisher="acme",
+        version="1.0.0",
+        metamodel=SYSML,
+        kind=sysand.ProjectKind.MODEL_TOML,
+    )
+    for at, members in ((tmp_path / "outer", "inner"), (inner, "proj")):
+        (at / "model.toml").write_text(
+            f'manifest-version = "1.0"\n\n[workspace]\nmembers = ["{members}"]\n'
+        )
+
+    with pytest.raises(sysand.ProjectError):
+        sysand.discover(path=proj)
+
+
+def test_discover_on_a_missing_path_is_an_error(tmp_path: Path) -> None:
+    with pytest.raises(sysand.ProjectError):
+        sysand.discover(path=tmp_path / "nope" / "deeper")
 
 
 def test_basic_info(caplog: pytest.LogCaptureFixture) -> None:
@@ -1018,12 +1151,7 @@ def test_basic_info(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(level)
 
     with tempfile.TemporaryDirectory() as tmpdirname:
-        sysand.init(
-            project_dir=tmpdirname,
-            name="test_basic_info",
-            publisher="a",
-            version="1.2.3",
-        )
+        write_json_project(Path(tmpdirname), "acme", "test-basic-info", "1.2.3")
 
         info_meta = sysand.info_path(project_dir=tmpdirname)
         assert info_meta is not None
@@ -1031,8 +1159,8 @@ def test_basic_info(caplog: pytest.LogCaptureFixture) -> None:
         info, meta = info_meta
 
         assert info == {
-            "name": "test_basic_info",
-            "publisher": "a",
+            "name": "test-basic-info",
+            "publisher": "acme",
             "description": None,
             "version": "1.2.3",
             "license": None,
@@ -1041,19 +1169,26 @@ def test_basic_info(caplog: pytest.LogCaptureFixture) -> None:
             "topic": [],
             "usage": [],
         }
-
         assert meta["index"] == {}
-        assert isinstance(meta["created"], str)
-        assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", meta["created"])
-        assert meta["metamodel"] is None
-        assert meta["includes_derived"] is None
-        assert meta["includes_implied"] is None
-        assert meta["checksum"] is None
 
         file_uri = Path(tmpdirname).resolve().as_uri()
 
         info_meta2 = sysand.info(iri=file_uri, resolution=NO_INDEX)
         assert info_meta2 == info_meta
+
+
+def test_info_refuses_a_model_toml_project(tmp_path: Path) -> None:
+    sysand.init(
+        project_dir=tmp_path,
+        name="test-info-toml",
+        publisher="acme",
+        version="1.2.3",
+        metamodel=SYSML,
+        kind=sysand.ProjectKind.MODEL_TOML,
+    )
+
+    with pytest.raises(RuntimeError, match="is a `model.toml` project"):
+        sysand.info_path(project_dir=tmp_path)
 
 
 def test_http_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) -> None:
@@ -1062,7 +1197,7 @@ def test_http_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) -> 
     caplog.set_level(level)
 
     httpserver.expect_request("/.project.json").respond_with_json(
-        {"name": "test_http_info", "publisher": "a", "version": "1.2.3"}
+        {"name": "test_http_info", "publisher": "acme", "version": "1.2.3"}
     )
     httpserver.expect_request("/.meta.json").respond_with_json(
         {"index": {}, "created": "0000-00-00T00:00:00.123456789Z"}
@@ -1072,7 +1207,7 @@ def test_http_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) -> 
 
     assert info == {
         "name": "test_http_info",
-        "publisher": "a",
+        "publisher": "acme",
         "description": None,
         "version": "1.2.3",
         "license": None,
@@ -1083,7 +1218,6 @@ def test_http_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) -> 
     }
 
     assert meta["index"] == {}
-    # meta['created'] utc time
     assert meta["metamodel"] is None
     assert meta["includes_derived"] is None
     assert meta["includes_implied"] is None
@@ -1154,6 +1288,16 @@ def test_model_roundtrip() -> None:
                 publisher="archive-pub",
                 name="archive-lib",
             ),
+            sysand.InterchangeProjectUsageRemoteKpar(
+                kpar_url="https://example.com/remote-archive.kpar",
+                publisher="remote-pub",
+                name="remote-archive",
+            ),
+            sysand.InterchangeProjectUsageRemoteKpar(
+                kpar_url="https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar",
+                publisher=None,
+                name="Kernel Semantic Library",
+            ),
         ],
     }
 
@@ -1163,6 +1307,10 @@ def test_model_roundtrip() -> None:
         "metamodel": "https://www.omg.org/spec/SysML/20250201",
         "includes_derived": True,
         "includes_implied": False,
+        # The OMG shape: no `root`, no `exports`. A dict read from Sysand
+        # carries the keys as None.
+        "root": None,
+        "exports": None,
         "checksum": {
             "src/Alpha.sysml": sysand.InterchangeProjectChecksum(
                 value="0123456789abcdef", algorithm="MD5"
@@ -1243,8 +1391,7 @@ def compare_sources(
 
 def test_end_to_end_install_sources() -> None:
     # A standard library is identified by its hard-coded IRI; the version must
-    # match the embedded standard library metadata so that every `Dependencies`
-    # mode resolves the same usage.
+    # match the embedded standard library metadata.
     std_iri = "https://www.omg.org/spec/KerML/20250201/Function-Library.kpar"
     std_version = "1.0.0"
 
@@ -1256,23 +1403,14 @@ def test_end_to_end_install_sources() -> None:
         tmp_main = Path(tmp_main).resolve()
         tmp_dep = Path(tmp_dep).resolve()
         tmp_std = Path(tmp_std).resolve()
-        sysand.init(
-            project_dir=tmp_main,
-            name="test_end_to_end_install_sources",
-            publisher="a",
-            version="1.2.3",
+        write_json_project(
+            Path(tmp_main), "acme", "test-end-to-end-install-sources", "1.2.3"
         )
-        sysand.init(
-            project_dir=tmp_dep,
-            name="test_end_to_end_install_sources_dep",
-            publisher="a",
-            version="1.2.3",
+        write_json_project(
+            Path(tmp_dep), "acme", "test-end-to-end-install-sources-dep", "1.2.3"
         )
-        sysand.init(
-            project_dir=tmp_std,
-            name="Kernel Function Library",
-            publisher="a",
-            version=std_version,
+        write_json_project(
+            Path(tmp_std), "acme", "Kernel Function Library", std_version
         )
 
         with open(Path(tmp_main) / "src.sysml", "w") as f:
@@ -1296,14 +1434,14 @@ def test_end_to_end_install_sources() -> None:
 
         sysand.env.install_path(
             env_path=env_path,
-            iri="urn:kpar:test_end_to_end_install_sources_dep",
+            iri="urn:kpar:test-end-to-end-install-sources-dep",
             location=tmp_dep,
         )
         sysand.env.install_path(env_path=env_path, iri=std_iri, location=tmp_std)
 
         sysand.add(
             project_dir=tmp_main,
-            iri="urn:kpar:test_end_to_end_install_sources_dep",
+            iri="urn:kpar:test-end-to-end-install-sources-dep",
             version_constraint="1.2.3",
             lock=False,
         )
@@ -1317,7 +1455,7 @@ def test_end_to_end_install_sources() -> None:
         dep_src = (
             env_path
             / "lib"
-            / "kpar.test_end_to_end_install_sources_dep_1.2.3"
+            / "kpar.test-end-to-end-install-sources-dep_1.2.3"
             / "src_dep.sysml"
         )
 
@@ -1418,7 +1556,12 @@ def test_root() -> None:
     with tempfile.TemporaryDirectory() as tmpdirname:
         tmpdirname = Path(tmpdirname).resolve()
         sysand.init(
-            project_dir=tmpdirname, name="test_root", publisher="a", version="1.2.3"
+            project_dir=tmpdirname,
+            name="test-root",
+            publisher="acme",
+            version="1.2.3",
+            metamodel=SYSML,
+            kind=sysand.ProjectKind.MODEL_TOML,
         )
 
         subdir = tmpdirname / "sub" / "nested"
@@ -1445,9 +1588,7 @@ def test_root_not_in_project() -> None:
 def test_build(compression: sysand.CompressionMethod | None) -> None:
     with tempfile.TemporaryDirectory() as tmp_main:
         tmp_main = Path(tmp_main).resolve()
-        sysand.init(
-            project_dir=tmp_main, name="test_build", publisher="a", version="1.2.3"
-        )
+        write_json_project(Path(tmp_main), "acme", "test-build", "1.2.3")
 
         with open(tmp_main / "src.sysml", "w") as f:
             f.write("package Src;")
@@ -1455,7 +1596,153 @@ def test_build(compression: sysand.CompressionMethod | None) -> None:
         sysand.include(project_dir=tmp_main, src_path="src.sysml")
 
         sysand.build(
-            output_path=tmp_main / "test_build.kpar",
+            output_path=tmp_main / "test-build.kpar",
             project_dir=tmp_main,
             compression=compression,
         )
+
+
+def test_syside_metadata_shapes() -> None:
+    """A Syside-metamodel ``.meta.json`` carries ``root`` and
+    ``exports`` and no ``index``. Its format is not final, so reading one
+    from disk is refused; the dict a caller passes in may leave the three
+    keys out."""
+    from sysand._sysand_core import _do_model_roundtrip_py  # type: ignore
+
+    syside = "https://www.sysand.com/spec/SysML/20250201"
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        root = Path(tmpdirname)
+        (root / ".project.json").write_text(
+            json.dumps(
+                {
+                    "name": "widgets",
+                    "publisher": "acme",
+                    "version": "1.0.0",
+                    "usage": [],
+                }
+            )
+        )
+        (root / ".meta.json").write_text(
+            json.dumps(
+                {
+                    "root": "main.sysml",
+                    "exports": ["Widgets"],
+                    "created": "2026-01-01T00:00:00Z",
+                    "metamodel": syside,
+                    "checksum": {
+                        "main.sysml": {"value": "0" * 64, "algorithm": "SHA256"}
+                    },
+                }
+            )
+        )
+        (root / "main.sysml").write_text("package Widgets;\n")
+
+        with pytest.raises(sysand.ResolutionError, match="not accepted yet"):
+            sysand.info(iri=root.resolve().as_uri())
+
+    # A dict without the three keys is accepted, and comes back with them.
+    info: sysand.InterchangeProjectInfo = {
+        "name": "widgets",
+        "publisher": "acme",
+        "description": None,
+        "version": "1.0.0",
+        "license": None,
+        "maintainer": [],
+        "website": None,
+        "topic": [],
+        "usage": [],
+    }
+    metadata = {
+        "created": "2026-01-02T03:04:05Z",
+        "metamodel": None,
+        "includes_derived": None,
+        "includes_implied": None,
+        "checksum": None,
+    }
+    _, roundtripped = _do_model_roundtrip_py(info, metadata)
+    assert roundtripped["index"] is None
+    assert roundtripped["root"] is None
+    assert roundtripped["exports"] is None
+
+    # And the Syside shape round-trips.
+    metadata = {
+        "root": "main.sysml",
+        "exports": ["Widgets", "Parts"],
+        "created": "2026-01-02T03:04:05Z",
+        "metamodel": syside,
+        "includes_derived": None,
+        "includes_implied": None,
+        "checksum": None,
+    }
+    _, roundtripped = _do_model_roundtrip_py(info, metadata)
+    assert roundtripped["index"] is None
+    assert roundtripped["root"] == "main.sysml"
+    assert roundtripped["exports"] == ["Widgets", "Parts"]
+
+
+def test_set_usage_constraint_on_a_toml_project() -> None:
+    """The verb has a `model.toml` arm. One line changes; a missing usage
+    is reported or refused as on a json project, naming `model.toml`; a
+    usage that is not an index usage has no constraint to set."""
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        root = Path(tmpdirname)
+        manifest = root / "model.toml"
+        manifest.write_text(
+            'manifest-version = "1.0"\n\n[project]\npublisher = "acme"\nname = "app"\n'
+            'version = "1.0.0"\nsources = []\n'
+            'metamodel = "https://www.omg.org/spec/SysML/20250201"\n\n'
+            '[[inline-usages]]\npublisher = "acme"\nname = "lib"\nversion = "^1"\n\n'
+            '[[inline-usages]]\npublisher = "acme"\nname = "local"\ndir = "../local"\n'
+        )
+        before = manifest.read_text().splitlines()
+
+        change = sysand.set_usage_constraint(
+            project_dir=root, publisher="acme", name="lib", version_constraint="^2"
+        )
+        assert change["found"] is True
+        assert change["changed"] is True
+        assert change["old_version_constraint"] == "^1"
+        assert change["new_version_constraint"] == "^2"
+        after = manifest.read_text().splitlines()
+        assert len(before) == len(after)
+        assert sum(1 for b, a in zip(before, after) if b != a) == 1
+        assert 'version = "^2"' in after
+
+        # The PURL names the same entry.
+        change = sysand.set_usage_constraint(
+            project_dir=root, iri="pkg:sysand/acme/lib", version_constraint="^2"
+        )
+        assert change["found"] is True
+        assert change["changed"] is False
+
+        change = sysand.set_usage_constraint(
+            project_dir=root,
+            publisher="acme",
+            name="missing",
+            version_constraint="^1",
+            must_exist=False,
+        )
+        assert change["found"] is False
+        with pytest.raises(sysand.ProjectError) as excinfo:
+            sysand.set_usage_constraint(
+                project_dir=root,
+                publisher="acme",
+                name="missing",
+                version_constraint="^1",
+            )
+        assert "model.toml" in str(excinfo.value)
+
+        with pytest.raises(sysand.ProjectError) as excinfo:
+            sysand.set_usage_constraint(
+                project_dir=root,
+                publisher="acme",
+                name="local",
+                version_constraint="^1",
+            )
+        assert "not an index usage" in str(excinfo.value)
+        # A `model.toml` usage is addressed by identity, not by an IRI.
+        with pytest.raises(sysand.ProjectError) as excinfo:
+            sysand.set_usage_constraint(
+                project_dir=root, iri="urn:kpar:lib", version_constraint="^1"
+            )
+        assert "pkg:sysand" in str(excinfo.value)

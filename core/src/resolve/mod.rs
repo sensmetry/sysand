@@ -7,10 +7,11 @@ use std::{
 };
 
 use crate::{
+    cancel::{Bridge, Cancellable, CancellationToken},
     env::{SyncStreamIter, utils::ErrorBound},
     model::InterchangeProjectUsage,
     project::{
-        AsAsyncProject, AsSyncProjectTokio, ProjectFormat, ProjectRead, ProjectReadAsync,
+        AsAsyncProject, AsSyncProjectTokio, ProjectRead, ProjectReadAsync,
         utils::{Identifier, wrapfs},
     },
 };
@@ -61,36 +62,24 @@ impl<T> ResolutionOutcome<T> {
             Self::Unresolvable { reason } => ResolutionOutcome::Unresolvable { reason },
         }
     }
-}
 
-/// The manifest a usage was written in.
-///
-/// A usage reaches resolution stripped of the format it was declared
-/// in: the KPAR view maps a `model.toml` usage onto the same
-/// `InterchangeProjectUsageRaw` a `.project.json` would carry, which is
-/// what keeps a read-only consumer format-blind. Some rules, though,
-/// are about the manifest rather than the usage -- a target that
-/// declares no publisher is refused as such only under a usage written
-/// in a `model.toml` -- so the format travels beside the usage rather
-/// than in it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UsageOrigin {
-    Json,
-    Toml,
-}
-
-impl UsageOrigin {
-    /// The origin of a usage declared by a project of this format.
+    /// [`Self::map`] where deciding what was resolved can fail.
     ///
-    /// Written out rather than derived, because only two of the four
-    /// formats can have declared anything: `Both` is the ambiguity
-    /// error and `Neither` the project with no manifest at all, and
-    /// neither of them is a project a usage was read from.
-    pub fn of_format(format: ProjectFormat) -> Self {
-        match format {
-            ProjectFormat::Toml => Self::Toml,
-            ProjectFormat::Json | ProjectFormat::Both | ProjectFormat::Neither => Self::Json,
-        }
+    /// A resolver that refuses a target (e.g. one under a workspace root
+    /// that is in neither of its lists) reports an error: `Unresolvable`
+    /// would let the solve continue and report something else later.
+    pub fn try_map<U, E, F: FnOnce(T) -> Result<U, E>>(
+        self,
+        op: F,
+    ) -> Result<ResolutionOutcome<U>, E> {
+        Ok(match self {
+            Self::Resolved(t) => ResolutionOutcome::Resolved(op(t)?),
+            Self::UnsupportedUsageType { reason } => {
+                ResolutionOutcome::UnsupportedUsageType { reason }
+            }
+            Self::NotFound { reason } => ResolutionOutcome::NotFound { reason },
+            Self::Unresolvable { reason } => ResolutionOutcome::Unresolvable { reason },
+        })
     }
 }
 
@@ -101,8 +90,12 @@ pub struct ResolutionInfo {
     /// Base path to resolve this usage against. Not relevant for
     /// usages that do not involve filesystem paths
     base_path: Option<Utf8PathBuf>,
-    /// The manifest this usage was declared in.
-    origin: UsageOrigin,
+    /// The identifier of the project that declared this usage, set when
+    /// there is more than one declaring project (a workspace lock, where it
+    /// is the member) and `None` for a single-project lock. It reaches the
+    /// user as `SolveConflict::required_by`, so it is an `Identifier`
+    /// string.
+    declared_by: Option<String>,
 }
 
 /// Information needed to resolve a usage, which determines equivalency
@@ -114,12 +107,17 @@ pub struct CoalescingUsage {
 }
 
 impl CoalescingUsage {
-    pub fn new_usage(
-        usage: InterchangeProjectUsage,
-        base_path: Option<Utf8PathBuf>,
-        origin: UsageOrigin,
-    ) -> Self {
-        let usage = ResolutionInfo::new_declared_in(usage, base_path, origin);
+    pub fn new_usage(usage: InterchangeProjectUsage, base_path: Option<Utf8PathBuf>) -> Self {
+        let usage = ResolutionInfo::new(usage, base_path);
+        Self {
+            id: usage.id(),
+            usage,
+        }
+    }
+
+    /// The same as [`Self::new_usage`], for a usage whose
+    /// [`ResolutionInfo`] the caller has already built.
+    pub fn from_info(usage: ResolutionInfo) -> Self {
         Self {
             id: usage.id(),
             usage,
@@ -147,14 +145,11 @@ impl CoalescingUsage {
     }
 }
 
-// It is incorrect to use the derived `Hash` impl of `ResolutionInfo`
-// for resolution, since pubgrub
-// seemingly identifies packages by their hash, so e.g. usages of the same
-// package that have different version requirements will be treated as
-// referring to two distinct packages, and they will all be included in the
-// solution
-// Note that `PartialEq` effectively must match the behaviour of this due
-// to the way we implement dependency solving
+// The derived `Hash` of `ResolutionInfo` must not be used for resolution:
+// pubgrub seemingly identifies packages by their hash, so usages of the same
+// package with different version requirements would be treated as distinct
+// packages and all be included in the solution. `PartialEq` must match this
+// impl because of how dependency solving is implemented.
 impl std::hash::Hash for CoalescingUsage {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         // Mention all fields here to remember to update whenever
@@ -183,23 +178,19 @@ impl PartialEq for CoalescingUsage {
 impl Eq for CoalescingUsage {}
 
 impl ResolutionInfo {
-    /// A usage of unrecorded origin, which is json: a usage without one
-    /// is taken to come from a `.project.json`, or from a caller that
-    /// does not read a manifest at all.
     pub fn new(usage: InterchangeProjectUsage, base_path: Option<Utf8PathBuf>) -> Self {
-        Self::new_declared_in(usage, base_path, UsageOrigin::Json)
-    }
-
-    pub fn new_declared_in(
-        usage: InterchangeProjectUsage,
-        base_path: Option<Utf8PathBuf>,
-        origin: UsageOrigin,
-    ) -> Self {
         Self {
             usage,
             base_path,
-            origin,
+            declared_by: None,
         }
+    }
+
+    /// Records the project that declared this usage; see `declared_by`.
+    #[must_use]
+    pub fn declared_by(mut self, declarer: Option<String>) -> Self {
+        self.declared_by = declarer;
+        self
     }
 
     pub fn iri(iri: Iri<String>) -> Self {
@@ -220,9 +211,10 @@ impl ResolutionInfo {
         self.base_path.as_deref()
     }
 
-    /// The manifest this usage was declared in.
-    pub fn origin(&self) -> UsageOrigin {
-        self.origin
+    /// The project that declared this usage, if it is worth reporting;
+    /// see the field.
+    pub fn declarer(&self) -> Option<&str> {
+        self.declared_by.as_deref()
     }
 
     /// Identifier of this usage, to be used in lock/env.
@@ -262,7 +254,12 @@ impl Display for ResolutionInfo {
                     write!(f, "`{publisher}/{name}` from `{path}` (base path unknown)")?;
                 }
             }
-            InterchangeProjectUsage::Index {
+            InterchangeProjectUsage::RemoteKpar {
+                kpar_url: _,
+                publisher: _,
+                name: _,
+            }
+            | InterchangeProjectUsage::Index {
                 publisher: _,
                 name: _,
                 version_constraint: _,
@@ -296,6 +293,28 @@ pub trait ResolveRead {
     {
         AsAsyncResolve { inner: self }
     }
+
+    /// Read local targets under `root` as members of the workspace whose
+    /// table this is.
+    ///
+    /// A member that inherits a key resolves its manifest only against the
+    /// table, so a target read without one fails with "not a member of any
+    /// workspace". The table has to travel with the resolver because a solve
+    /// reaches the target through it.
+    ///
+    /// The default returns `self` unchanged.
+    #[cfg(feature = "filesystem")]
+    #[must_use]
+    fn within_workspace(
+        self,
+        _root: Utf8PathBuf,
+        _table: std::sync::Arc<crate::manifest::workspace_table::WorkspaceTable>,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        self
+    }
 }
 
 pub trait ResolveReadAsync {
@@ -311,19 +330,21 @@ pub trait ResolveReadAsync {
 
     // Maybe make this return an associated type instead? Would, for example, allow
     // .as_async.as_tokio_sync == .as_tokio_sync.as_async == id
-    /// Treat this `ResolveReadAsync` as a `ResolveRead` using the provided tokio runtime.
-    fn to_tokio_sync(self, runtime: Arc<tokio::runtime::Runtime>) -> AsSyncResolveTokio<Self>
+    /// Treat this `ResolveReadAsync` as a `ResolveRead` run on `runtime`,
+    /// observing `token` at every bridge.
+    fn to_tokio_sync(
+        self,
+        runtime: Arc<tokio::runtime::Runtime>,
+        token: CancellationToken,
+    ) -> AsSyncResolveTokio<Self>
     where
         Self: Sized,
     {
-        AsSyncResolveTokio {
-            runtime,
-            inner: self,
-        }
+        AsSyncResolveTokio::new(Bridge::new(runtime, token), self)
     }
 }
 
-/// Wrapper intended to warp an `ResolveRead`, indicating that it should
+/// Wrapper intended to wrap a `ResolveRead`, indicating that it should
 /// be treated as a (trivial) `ResolveReadAsync`.
 #[repr(transparent)]
 #[derive(Debug)]
@@ -350,7 +371,6 @@ where
             >,
         >,
     >;
-    //futures::stream::Iter<<<T as ResolveRead>::ResolvedStorages as IntoIterator>::IntoIter>;
 
     async fn resolve_read_async(
         &self,
@@ -376,18 +396,26 @@ where
 }
 
 /// Wrapper intended to wrap `ResolveReadAsync`, indicating that it should be treated as a
-/// `ResolveRead`, using a provided tokio runtime.
+/// `ResolveRead`, using a provided tokio runtime; every bridge observes
+/// the cancellation token (`crate::cancel`).
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct AsSyncResolveTokio<T> {
-    runtime: Arc<tokio::runtime::Runtime>,
+    bridge: Bridge,
     inner: T,
+}
+
+impl<T> AsSyncResolveTokio<T> {
+    pub fn new(bridge: Bridge, inner: T) -> Self {
+        Self { bridge, inner }
+    }
 }
 
 impl<T: ResolveReadAsync> ResolveRead for AsSyncResolveTokio<T>
 where
     <T as ResolveReadAsync>::ResolvedStorages: Unpin,
 {
-    type Error = <T as ResolveReadAsync>::Error;
+    type Error = Cancellable<<T as ResolveReadAsync>::Error>;
 
     type ProjectStorage = AsSyncProjectTokio<<T as ResolveReadAsync>::ProjectStorage>;
 
@@ -411,25 +439,15 @@ where
         resolve: &ResolutionInfo,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         Ok(
-            match self
-                .runtime
-                .block_on(self.inner.resolve_read_async(resolve))?
-            {
+            match self.bridge.run(self.inner.resolve_read_async(resolve))? {
                 ResolutionOutcome::Resolved(storages) => {
-                    let runtime_clone = self.runtime.clone();
-
+                    let bridge = self.bridge.clone();
                     let inner: futures::stream::Map<_, Box<dyn Fn(_) -> _>> =
                         storages.map(Box::new(move |project| {
-                            Ok(AsSyncProjectTokio {
-                                runtime: runtime_clone.clone(),
-                                inner: project?,
-                            })
+                            Ok(AsSyncProjectTokio::new(bridge.clone(), project?))
                         }));
 
-                    ResolutionOutcome::Resolved(SyncStreamIter {
-                        runtime: self.runtime.clone(),
-                        inner,
-                    })
+                    ResolutionOutcome::Resolved(SyncStreamIter::new(self.bridge.clone(), inner))
                 }
                 ResolutionOutcome::UnsupportedUsageType { reason } => {
                     ResolutionOutcome::UnsupportedUsageType { reason }
@@ -442,7 +460,3 @@ where
         )
     }
 }
-
-#[cfg(test)]
-#[path = "./mod_tests.rs"]
-mod tests;

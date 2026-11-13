@@ -1,23 +1,35 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use crate::manifest::diagnostics::{Diagnostic, Report, Severity, Validated};
+use std::assert_matches;
+
+use toml::de::DeTable;
+
+use crate::manifest::diagnostics::{Diagnostic, Diagnostics, KeyLocation, Validated};
+use crate::manifest::reader::TableReader;
 use crate::manifest::spans::Source;
 use crate::manifest::usage::Usage;
 use crate::manifest::workspace_table::WorkspaceTable;
+use crate::model::KnownMetamodel;
 
 /// The whole `[workspace]` of a document, read the way `ModelToml::parse`
 /// will read it.
-fn read(text: &str) -> Result<Validated<WorkspaceTable>, Report> {
-    let (table, positions) = Source::new("model.toml", text)
-        .read()
-        .expect("the test document parses");
-    let workspace = table
-        .get("workspace")
-        .and_then(toml::Value::as_table)
-        .cloned()
-        .unwrap_or_default();
-    WorkspaceTable::validate(&workspace, &positions)
+fn read(text: &str) -> Result<Validated<WorkspaceTable>, Diagnostics> {
+    let source = Source::new("model.toml", text);
+    let table = source.read().expect("the test document parses");
+    let top = TableReader::new(table.get_ref(), None, KeyLocation::TopLevel, &source);
+    let empty = DeTable::new();
+    let workspace = top
+        .table("workspace", &mut Diagnostics::new())
+        .unwrap_or_else(|| {
+            TableReader::new(
+                &empty,
+                None,
+                KeyLocation::Table("workspace".to_owned()),
+                &source,
+            )
+        });
+    WorkspaceTable::validate(&workspace)
 }
 
 /// A `[workspace]` whose body is `body`, so that its keys start on line 2.
@@ -33,7 +45,7 @@ fn table(body: &str) -> WorkspaceTable {
     accepted(body).into_parts().0
 }
 
-fn rejected(body: &str) -> Report {
+fn rejected(body: &str) -> Diagnostics {
     read(&one(body)).expect_err("the table is rejected")
 }
 
@@ -44,7 +56,7 @@ fn messages(diagnostics: &[Diagnostic]) -> Vec<&str> {
         .collect()
 }
 
-fn texts(report: &Report) -> Vec<&str> {
+fn texts(report: &Diagnostics) -> Vec<&str> {
     messages(report.diagnostics())
 }
 
@@ -57,7 +69,7 @@ fn is_ascending(places: &[(usize, usize)]) -> bool {
     })
 }
 
-fn places(report: &Report) -> Vec<(usize, usize)> {
+fn places(report: &Diagnostics) -> Vec<(usize, usize)> {
     report
         .diagnostics()
         .iter()
@@ -68,10 +80,9 @@ fn places(report: &Report) -> Vec<(usize, usize)> {
         .collect()
 }
 
-/// Every key workspaces.md "Common metadata" lists, as the specification
-/// writes them. Ported from the prototype's `FULL_WORKSPACE_TOML`.
+/// Every key a workspace may carry.
 const FULL: &str = "\
-manifest-version = 1
+manifest-version = \"1.0\"
 
 [workspace]
 members = [\"projects/a\", \"projects/b/subfolder1\"]
@@ -127,7 +138,7 @@ fn a_group_reads_every_documented_key() {
     );
     assert_eq!(root.license.as_ref().expect("license").to_string(), "MIT");
     assert_eq!(
-        root.metamodel.as_deref(),
+        root.metamodel.as_ref().map(ToString::to_string).as_deref(),
         Some("https://www.omg.org/spec/SysML/20250201")
     );
     assert_eq!(
@@ -199,8 +210,7 @@ fn an_unparseable_license_is_positioned_at_the_key() {
     assert_eq!(places(&report), [(2, 1)]);
 }
 
-/// model-toml.md calls `urls` a "table of URLs" and gives it no
-/// warning clause, unlike `metamodel`: a value that is not one has
+/// `urls` has no warning clause, unlike `metamodel`: a value that is not one has
 /// nowhere to go, since `website` reaches a built KPAR as an IRI.
 #[test]
 fn an_unparseable_url_is_an_error() {
@@ -214,71 +224,40 @@ fn an_unparseable_url_is_an_error() {
     );
 }
 
-/// model-toml.md "Metamodel": "Any other value is a warning, not an
-/// error." The values that sentence ranges over are the other *URLs*,
-/// the section having opened with "`metamodel` is a URL", so the read
-/// succeeds and the value is kept as written.
+/// A metamodel value matching none of the four shapes is an error naming
+/// the key and listing them, a group's value included.
 #[test]
-fn an_unrecognized_metamodel_is_a_warning_not_an_error() {
+fn a_metamodel_that_is_not_one_of_the_four_is_refused() {
     for value in [
         "https://example.com/spec/SysML/20250201",
         "urn:example:sysml",
+        "https://www.omg.org/spec/SysML/nineteen",
+        "not a url at all",
     ] {
-        let validated = accepted(&format!("metamodel = \"{value}\"\n"));
-        let (table, warnings) = validated.into_parts();
-        assert_eq!(table.default_group.metamodel.as_deref(), Some(value));
+        let report = rejected(&format!("metamodel = \"{value}\"\n"));
         assert_eq!(
-            messages(&warnings),
+            texts(&report),
             [format!(
-                "`[workspace]` declares metamodel `{value}`, which this version of Sysand \
-                 does not recognize"
+                "`metamodel` in `[workspace]` is `{value}`, which is not one of the four values \
+                 a `model.toml` recognizes;\nthey are {}",
+                KnownMetamodel::RECOGNIZED
             )
             .as_str()],
+            "{value}"
         );
-        assert!(warnings.iter().all(|w| w.severity == Severity::Warning));
+        assert_eq!(places(&report), [(2, 1)], "{value}");
     }
-}
-
-/// A recognized metamodel with a malformed release is not some other
-/// metamodel: it is an error.
-#[test]
-fn a_malformed_release_of_a_recognized_metamodel_is_an_error() {
-    let report = rejected("metamodel = \"https://www.omg.org/spec/SysML/nineteen\"\n");
-    assert_eq!(
-        texts(&report),
-        [
-            "`[workspace]` sets `metamodel = \"https://www.omg.org/spec/SysML/nineteen\"`, which \
-          is not a metamodel: metamodel `https://www.omg.org/spec/SysML/nineteen` has an \
-          invalid release `nineteen`; a release is eight digits `20YYMMNN`, with month `MM` \
-          between `01` and `12`"
-        ]
-    );
-}
-
-/// The other half of the rule above: a value that is not a URL at all
-/// is an error, as it is in `[project]` and in a `.meta.json`.
-#[test]
-fn a_metamodel_that_is_not_a_url_is_refused() {
-    let report = rejected("metamodel = \"not a url at all\"\n");
-    assert!(
-        texts(&report)[0].starts_with(
-            "`[workspace]` sets `metamodel = \"not a url at all\"`, which is not a metamodel: \
-             `not a url at all` is not a URL"
-        ),
-        "unexpected message: {:?}",
-        texts(&report)
-    );
 }
 
 /// A group reads its `metamodel` through the same code, and names
 /// itself.
 #[test]
-fn a_group_metamodel_that_is_not_a_url_is_refused() {
+fn a_group_metamodel_that_is_not_one_of_the_four_is_refused() {
     let report = rejected("[workspace.group.kerml]\nmetamodel = \"not a url at all\"\n");
     assert!(
         texts(&report)[0].starts_with(
-            "`[workspace.group.kerml]` sets `metamodel = \"not a url at all\"`, \
-             which is not a metamodel: `not a url at all` is not a URL"
+            "`metamodel` in `[workspace.group.kerml]` is `not a url at all`, which is not one \
+             of the four values"
         ),
         "unexpected message: {:?}",
         texts(&report)
@@ -298,8 +277,8 @@ fn a_maintainer_that_is_not_name_email_is_positioned_at_its_entry() {
     assert_eq!(places(&report), [(2, 50)]);
 }
 
-/// workspaces.md "Unknown keys": the warning holds "for the `urls`
-/// tables" too, in a named group as much as in the default one.
+/// The unknown-key warning holds for the `urls` tables too, in a named
+/// group as much as in the default one.
 #[test]
 fn unknown_keys_in_urls_warn() {
     let validated = accepted(concat!(
@@ -352,8 +331,7 @@ fn member_paths_are_taken_as_written() {
     assert_eq!(raw, paths);
 }
 
-/// workspaces.md "Included projects": an entry is admitted only in its
-/// normalized form, rather than normalized into it.
+/// An entry is admitted only in its normalized form.
 #[test]
 fn a_member_path_not_in_normal_form_is_refused() {
     let report = rejected(
@@ -379,8 +357,8 @@ fn a_member_path_not_in_normal_form_is_refused() {
     );
 }
 
-/// workspaces.md: "any `members` entry that resolves to the workspace
-/// root itself (`"."`, `""`, `"./"`, `"folder1/.."`, ...) is rejected".
+/// Any `members` entry that resolves to the workspace root itself (`"."`,
+/// `""`, `"./"`, `"folder1/.."`, ...) is rejected.
 #[test]
 fn a_member_path_that_is_the_root_is_refused() {
     let report = rejected("members = [\".\", \"\", \"./\", \"folder1/..\"]\n");
@@ -425,8 +403,8 @@ fn a_member_path_that_is_not_relative_is_refused() {
     );
 }
 
-/// workspaces.md: "no entry may lie inside another entry's directory:
-/// nested members are forbidden for now".
+/// No entry may lie inside another entry's directory: nested members are
+/// forbidden.
 #[test]
 fn nested_members_are_refused() {
     for body in [
@@ -469,9 +447,8 @@ fn exclude_follows_the_same_per_entry_rules() {
     );
 }
 
-/// workspaces.md gives `exclude` "the same path rules as `members`
-/// (relative, below the root, and never the root itself)" -- that
-/// parenthesis is the whole list. Two excluded directories where one
+/// `exclude` gets the same path rules as `members` (relative, below the
+/// root, and never the root itself). Two excluded directories where one
 /// contains the other exclude the same tree, and so does the same
 /// directory twice.
 #[test]
@@ -536,9 +513,8 @@ fn named_groups_are_read_under_their_names() {
     );
 }
 
-/// A group whose name is not a bare TOML key could never be named by a
-/// marker, so it is refused where it is defined -- once, rather than
-/// once per member that tries to use it -- and its body is not read.
+/// A group whose name is not a bare TOML key is refused where it is
+/// defined, once, and its body is not read.
 #[test]
 fn a_group_name_that_is_not_a_bare_key_is_refused() {
     let report = rejected(concat!(
@@ -555,9 +531,8 @@ fn a_group_name_that_is_not_a_bare_key_is_refused() {
     );
 }
 
-/// workspaces.md "Common metadata": `sources` "is the key people are
-/// most likely to try", so it is an error that says so rather than an
-/// unknown-key warning.
+/// `sources` in `[workspace]` is an error that says a workspace may not
+/// carry it.
 #[test]
 fn sources_in_the_default_group_is_an_error() {
     let report = rejected("sources = [\"src/main.sysml\"]\n");
@@ -580,8 +555,8 @@ fn sources_in_a_named_group_is_an_error() {
     );
 }
 
-/// workspaces.md: `stdlib` "in `[workspace]` or a group ... is an
-/// unknown key like any other (a warning)".
+/// `stdlib` in `[workspace]` or a group is an unknown key like any other
+/// (a warning).
 #[test]
 fn stdlib_in_a_group_is_an_unknown_key() {
     let validated = accepted("stdlib = \"KerML\"\n");
@@ -592,11 +567,10 @@ fn stdlib_in_a_group_is_an_unknown_key() {
     );
 }
 
-/// "`manifest-version` is not a `[project]` key at all: every file
-/// carries its own", and it is not a workspace key either.
+/// `manifest-version` is not a workspace key either.
 #[test]
 fn manifest_version_in_a_workspace_is_an_unknown_key() {
-    let validated = accepted("manifest-version = 1\n");
+    let validated = accepted("manifest-version = \"1.0\"\n");
     let (_, warnings) = validated.into_parts();
     assert_eq!(
         messages(&warnings),
@@ -635,8 +609,8 @@ fn a_group_that_is_not_a_table_is_one_diagnostic() {
     );
 }
 
-/// Nothing in workspaces.md requires `members`, and a workspace whose
-/// members have yet to be listed must not fail to read.
+/// `members` is not required, and a workspace whose members have yet to
+/// be listed must not fail to read.
 #[test]
 fn a_workspace_with_no_members_is_legal() {
     let table = table("publisher = \"acme\"\n");
@@ -659,36 +633,26 @@ fn a_default_group_usage_is_declared() {
     let table = validated.into_parts().0;
     let usages = &table.default_group.inline_usages;
     assert_eq!(usages.len(), 1);
-    assert!(
-        matches!(&usages[0], Usage::Index { name, publisher: _, version_constraint: _ } if name.as_str() == "shared-dep"),
-        "unexpected usage: {:?}",
-        usages[0]
-    );
+    assert_matches!(&usages[0], Usage::Index { name, publisher: _, version_constraint: _ } if name.as_str() == "shared-dep", "unexpected usage: {:?}",
+    usages[0]);
 }
 
-/// workspaces.md "Common usages": a group entry's `dir` "is relative to
-/// ... the workspace root", so it is kept exactly as written.
+/// A group entry's `dir` is relative to the workspace root, so it is kept
+/// exactly as written.
 #[test]
 fn a_named_group_usage_is_declared() {
     let validated = read(FULL).expect("validates");
     let table = validated.into_parts().0;
     let usages = &table.groups["legacy"].inline_usages;
     assert_eq!(usages.len(), 1);
-    assert!(
-        matches!(
-            &usages[0],
-            Usage::SourcePath { name, dir, publisher: _ }
-                if name.as_str() == "legacy-dep" && dir.as_str() == "legacy/dep"
-        ),
-        "unexpected usage: {:?}",
-        usages[0]
-    );
+    assert_matches!(&usages[0],
+    Usage::SourcePath { name, dir, publisher: _ }
+        if name.as_str() == "legacy-dep" && dir.as_str() == "legacy/dep", "unexpected usage: {:?}",
+    usages[0]);
 }
 
-/// model-toml.md "Normalization": duplicates are counted per array, and
-/// "The arrays are counted separately, since a workspace config holds
-/// several"; workspaces.md: "Across groups the same identity is
-/// expected: that is what groups are for."
+/// Duplicates are counted per array, and the arrays are counted
+/// separately. Across groups the same identity is expected.
 #[test]
 fn duplicate_usages_are_refused_per_array() {
     let report = rejected(concat!(

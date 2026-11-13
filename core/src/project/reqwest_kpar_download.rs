@@ -1,16 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{
-    io::{self, Write as _},
-    num::NonZeroU64,
-    pin::Pin,
-    sync::Arc,
-};
+use std::{io::Write as _, num::NonZeroU64, sync::Arc};
 
 use camino_tempfile::tempdir;
 use fluent_uri::Iri;
-use futures::AsyncRead;
 use sha2::{Digest as _, Sha256};
 use thiserror::Error;
 
@@ -18,12 +12,11 @@ use crate::{
     auth::HTTPAuthentication,
     context::ProjectContext,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
-        KparMeta, ProjectRead, ProjectReadAsync,
+        AsAsyncReader, KparMeta, ProjectDefinition, ProjectRead, ProjectReadAsync,
         local_kpar::{LocalKParError, LocalKParProject, LocalKParProjectRaw},
     },
-    redact::{HttpError, RedactedUrl, ResponseUrl, redact_userinfo},
+    redact::{HttpFailure, ResponseUrl, redact_userinfo},
     resolve::net_utils::kpar_get_request,
     utils::{format_err, lowercase_hex},
 };
@@ -34,7 +27,7 @@ use super::{
     utils::{FsIoError, wrapfs},
 };
 
-/// Project stored at a remote URL such as https://www.example.com/project.kpar.
+/// Project stored at a remote URL such as <https://www.example.com/project.kpar>.
 /// The URL is expected to resolve to a kpar-archive (ZIP-file) (at least) if
 /// requested with CONTENT-TYPE(s) application/zip, application/x-zip-compressed.
 ///
@@ -44,81 +37,45 @@ use super::{
 /// `LocalKParProject`.
 #[derive(Debug)]
 pub struct ReqwestRemoteKparDownloadedProject<Policy> {
-    // inner: LocalKParProjectRaw,
-    // tmp_dir: Utf8TempDir,
-    // archive_path: Utf8PathBuf,
     url: reqwest::Url,
     pub client: reqwest_middleware::ClientWithMiddleware,
     pub auth_policy: Arc<Policy>,
-    /// Optionally contains:
-    ///
-    /// - expected sha256 hex digest for callers that need this
-    ///   instance to enforce archive verification before exposing project
-    ///   contents (e.g. lockfile-driven `sync`).
-    /// - expected archive byte length. Index-backed kpars carry this
-    ///   in the lockfile / versions index; enforce it while streaming so a
-    ///   malicious server cannot exhaust disk before the digest check fails.
+    /// Expected size and sha256 digest, for callers that need archive
+    /// verification before project contents are exposed (e.g.
+    /// lockfile-driven `sync`). The size is enforced while streaming so a
+    /// malicious server cannot exhaust disk before the digest check fails.
     expected: Option<KparMeta>,
-    /// Fans concurrent `ensure_downloaded*` calls on the same instance
-    /// into a single download — without this, racing tasks would both
-    /// truncate the destination archive and interleave writes.
+    /// Fans concurrent `ensure_downloaded*` calls into a single download.
+    /// Errors are not cached, so a transient failure is retryable.
     ///
-    /// The kpar is downloaded directly to the destination path, so
-    /// `is_downloaded_and_verified` must be checked before reading it.
-    /// Errors aren't cached, so a transient failure is retryable.
-    ///
-    /// If this is initialized, the archive has been downloaded and verified
-    /// against `expected` if present (then this will be empty), and
-    /// otherwise contains actual downloaded KPAR metadata.
+    /// Initialized only once the archive has been downloaded and verified
+    /// against `expected`, if present. The metadata is `None` in that case
+    /// and otherwise describes the downloaded archive.
     downloaded_verified: tokio::sync::OnceCell<(LocalKParProjectRaw, Option<KparMeta>)>,
 }
 
 #[derive(Debug)]
 pub struct ReqwestIndexKparDownloadedProject<Policy> {
-    // inner: LocalKParProjectRaw,
     url: reqwest::Url,
     pub client: reqwest_middleware::ClientWithMiddleware,
     pub auth_policy: Arc<Policy>,
-    /// Expected sha256 hex digest for callers that need this
-    /// instance to enforce archive verification before exposing project
-    /// contents (e.g. lockfile-driven `sync`).
-    expected_kpar_sha256: String,
-    /// Expected archive byte length. Index-backed kpars carry this
-    /// in the lockfile / versions index; enforce it while streaming so a
-    /// malicious server cannot exhaust disk before the digest check fails.
-    expected_size: NonZeroU64,
-    /// Fans concurrent `ensure_downloaded*` calls on the same instance
-    /// into a single download — without this, racing tasks would both
-    /// truncate the destination archive and interleave writes.
+    /// Expected size and sha256 digest, verified before project contents
+    /// are exposed. The size is enforced while streaming so a malicious
+    /// server cannot exhaust disk before the digest check fails.
+    expected: KparMeta,
+    /// Fans concurrent `ensure_downloaded*` calls into a single download.
+    /// Errors are not cached, so a transient failure is retryable.
     ///
-    /// The kpar is downloaded directly to the destination path, so
-    /// `is_downloaded_and_verified` must be checked before reading it.
-    /// Errors aren't cached, so a transient failure is retryable.
-    /// If this is initialized, the archive has been downloaded and verified
-    /// against `expected_sha256_hex`/`expected_size` if present.
+    /// Initialized only once the archive has been downloaded and verified
+    /// against `expected`.
     downloaded_verified: tokio::sync::OnceCell<LocalKParProjectRaw>,
 }
 
 // TODO: reduce size of errors here and elsewhere
 #[derive(Error, Debug)]
 pub enum ReqwestKparDownloadedError {
-    #[error("HTTP request to `{url}` failed")]
-    Request {
-        url: RedactedUrl,
-        #[source]
-        source: HttpError,
-    },
-    #[error("HTTP request to {url} returned status {status}")]
-    BadHttpStatus {
-        url: ResponseUrl,
-        status: reqwest::StatusCode,
-    },
-    #[error("failed to read HTTP response body from {url}")]
-    Body {
-        url: ResponseUrl,
-        #[source]
-        source: HttpError,
-    },
+    #[error(transparent)]
+    Http(#[from] HttpFailure),
     #[error("failed to parse URL `{0}`")]
     ParseUrl(Box<str>, #[source] url::ParseError),
     #[error(transparent)]
@@ -168,14 +125,14 @@ impl<Policy: HTTPAuthentication> ReqwestRemoteKparDownloadedProject<Policy> {
         })
     }
 
-    /// True iff the archive is on disk and has been successfully
-    /// verified against expected hex and length (if present)
+    /// True iff the archive has been downloaded and verified against the
+    /// expected digest and size (if present).
     pub fn is_downloaded_and_verified(&self) -> bool {
         self.downloaded_verified.initialized()
     }
 
-    /// Ensure the archive is on disk and verify the digest if known.
-    /// THe digest is returned iff it's not known.
+    /// Ensure the archive is on disk and verify the digest if known. The
+    /// archive's metadata is returned iff the digest was not known.
     pub async fn ensure_downloaded_verified(
         &self,
     ) -> Result<&(LocalKParProjectRaw, Option<KparMeta>), ReqwestKparDownloadedError> {
@@ -188,170 +145,35 @@ impl<Policy: HTTPAuthentication> ReqwestRemoteKparDownloadedProject<Policy> {
         &self.url
     }
 
-    /// Download the archive. Invoked through
+    /// Download the archive into a fresh temp dir. Invoked through
     /// [`tokio::sync::OnceCell::get_or_try_init`], so concurrent callers
-    /// share the single in-flight attempt and a returned `Err` leaves
-    /// the cell uninitialized (retries succeed).
-    ///
-    /// Downloads directly to the final path. Callers must go through
-    /// `ensure_downloaded_verified` before reading so the `OnceCell` has
-    /// observed a successful download and any configured verification.
+    /// share one attempt and an `Err` leaves the cell uninitialized.
     async fn perform_download(
         &self,
     ) -> Result<(LocalKParProjectRaw, Option<KparMeta>), ReqwestKparDownloadedError> {
-        use futures::StreamExt as _;
-
-        let resp = self
-            .auth_policy
-            .with_authentication(&self.client, &kpar_get_request(self.url.clone()))
-            .await
-            .map_err(|source| ReqwestKparDownloadedError::Request {
-                url: (&self.url).into(),
-                source: source.into(),
-            })?;
-        let response_url = ResponseUrl::new(&self.url, resp.url());
-
-        if !resp.status().is_success() {
-            return Err(ReqwestKparDownloadedError::BadHttpStatus {
-                url: response_url.clone(),
-                status: resp.status(),
-            });
-        }
-
-        if let (Some(actual), Some(expected)) = (resp.content_length(), &self.expected)
-            && actual != expected.size_bytes.get()
-        {
-            return Err(ReqwestKparDownloadedError::SizeMismatch {
-                url: response_url.clone(),
-                expected: expected.size_bytes.get(),
-                actual,
-            });
-        }
-
-        let tmp_dir = tempdir().map_err(FsIoError::MkTempDir)?;
-        let archive_path = tmp_dir.path().join("project.kpar");
-        let mut file = wrapfs::File::create(&archive_path)?;
-        let mut bytes_stream = resp.bytes_stream();
-        let mut hasher = Sha256::new();
-        let mut written = 0u64;
-
-        while let Some(bytes) = bytes_stream.next().await {
-            let bytes = bytes.map_err(|source| ReqwestKparDownloadedError::Body {
-                url: response_url.clone(),
-                source: source.into(),
-            })?;
-            written += bytes.len() as u64;
-            if let Some(expected) = &self.expected
-                && written > expected.size_bytes.get()
-            {
-                return Err(ReqwestKparDownloadedError::SizeMismatch {
-                    url: response_url.clone(),
-                    expected: expected.size_bytes.get(),
-                    actual: written,
-                });
-            }
-            hasher.update(&bytes);
-            file.write_all(&bytes)
-                .map_err(|e| FsIoError::WriteFile(archive_path.clone(), e))?;
-        }
-        let Some(written) = NonZeroU64::new(written) else {
-            return Err(ReqwestKparDownloadedError::EmptyKpar {
-                url: response_url.clone(),
-            });
-        };
-
-        if let Some(expected) = &self.expected
-            && written != expected.size_bytes
-        {
-            return Err(ReqwestKparDownloadedError::SizeMismatch {
-                url: response_url.clone(),
-                expected: expected.size_bytes.get(),
-                actual: written.get(),
-            });
-        }
-
-        file.sync_all()
-            .map_err(|e| FsIoError::WriteFile(archive_path.clone(), e))?;
-
-        let computed_hash = lowercase_hex(hasher.finalize());
-        if let Some(expected) = &self.expected {
-            debug_assert_eq!(
-                expected.size_bytes.get(),
-                wrapfs::metadata(&archive_path).unwrap().len()
-            );
-
-            if computed_hash == expected.sha256_hex {
-                let inner =
-                    LocalKParProjectRaw::new_tempdir(tmp_dir, archive_path, KparInnerPath::Guess)?;
-                Ok((inner, None))
-            } else {
-                Err(ReqwestKparDownloadedError::DigestMismatch {
-                    url: response_url.clone(),
-                    expected: expected.sha256_hex.clone(),
-                    computed: computed_hash,
-                })
-            }
-        } else {
-            let inner =
-                LocalKParProjectRaw::new_tempdir(tmp_dir, archive_path, KparInnerPath::Guess)?;
-            let meta = KparMeta {
-                size_bytes: written,
-                sha256_hex: computed_hash,
-            };
-            Ok((inner, Some(meta)))
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct AsAsyncRead<T> {
-    pub inner: T,
-}
-
-impl<T: io::Read + Unpin> AsyncRead for AsAsyncRead<T> {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        _cx: &mut std::task::Context<'_>,
-        buf: &mut [u8],
-    ) -> std::task::Poll<io::Result<usize>> {
-        std::task::Poll::Ready(self.get_mut().inner.read(buf))
+        let (inner, meta) = download(
+            &self.url,
+            &self.client,
+            &*self.auth_policy,
+            self.expected.as_ref(),
+        )
+        .await?;
+        Ok((inner, self.expected.is_none().then_some(meta)))
     }
 }
 
 impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestRemoteKparDownloadedProject<Policy> {
     type Error = ReqwestKparDownloadedError;
 
-    async fn get_project_async(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    async fn get_project_async(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         match self.ensure_downloaded_verified().await {
             Ok((inner, _)) => Ok(inner.get_project()?),
             Err(e) => Err(e),
         }
     }
 
-    async fn get_info_async(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
-        match self.ensure_downloaded_verified().await {
-            Ok((inner, _)) => Ok(inner.get_info()?),
-            Err(e) => Err(e),
-        }
-    }
-
-    async fn get_meta_async(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
-        match self.ensure_downloaded_verified().await {
-            Ok((inner, _)) => Ok(inner.get_meta()?),
-            Err(e) => Err(e),
-        }
-    }
-
     type SourceReader<'a>
-        = AsAsyncRead<<LocalKParProject as ProjectRead>::SourceReader<'a>>
+        = AsAsyncReader<<LocalKParProject as ProjectRead>::SourceReader<'a>>
     where
         Self: 'a;
 
@@ -360,9 +182,7 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestRemoteKparDownloade
         path: P,
     ) -> Result<Self::SourceReader<'_>, Self::Error> {
         match self.ensure_downloaded_verified().await {
-            Ok((inner, _)) => Ok(AsAsyncRead {
-                inner: inner.read_source(path)?,
-            }),
+            Ok((inner, _)) => Ok(AsAsyncReader::new(inner.read_source(path)?)),
             Err(e) => Err(e),
         }
     }
@@ -371,14 +191,13 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestRemoteKparDownloade
         let (kpar_size, kpar_digest) = if let Some(expected) = &self.expected {
             (expected.size_bytes, expected.sha256_hex.clone())
         } else {
-            // If expected is not present, download populates the cell with actual
+            // Without `expected`, the download fills in the actual metadata
             let (_, maybe_meta) = self.ensure_downloaded_verified().await?;
             let actual_meta = maybe_meta.as_ref().unwrap();
             (actual_meta.size_bytes, actual_meta.sha256_hex.clone())
         };
         Ok(vec![Source::RemoteKpar {
-            // Panic here should be impossible, as the URL should have
-            // been created from IRI
+            // Cannot panic: the URL was created from an IRI
             remote_kpar: Iri::parse(self.url.to_string()).unwrap(),
             kpar_size,
             kpar_digest,
@@ -433,19 +252,21 @@ impl<Policy: HTTPAuthentication> ReqwestIndexKparDownloadedProject<Policy> {
             url,
             client,
             auth_policy,
-            expected_kpar_sha256,
-            expected_size,
+            expected: KparMeta {
+                size_bytes: expected_size,
+                sha256_hex: expected_kpar_sha256,
+            },
             downloaded_verified: tokio::sync::OnceCell::new(),
         })
     }
 
-    /// True iff the archive is on disk and has been successfully
-    /// verified against expected hex and length (if present)
+    /// True iff the archive has been downloaded and verified against the
+    /// expected digest and size (if present).
     pub fn is_downloaded_and_verified(&self) -> bool {
         self.downloaded_verified.initialized()
     }
 
-    /// Ensure the archive is on disk and verify the digest if known
+    /// Ensure the archive is on disk and verified
     pub async fn ensure_downloaded_verified(
         &self,
     ) -> Result<&LocalKParProjectRaw, ReqwestKparDownloadedError> {
@@ -458,135 +279,30 @@ impl<Policy: HTTPAuthentication> ReqwestIndexKparDownloadedProject<Policy> {
         &self.url
     }
 
-    /// Download the archive. Invoked through
+    /// Download the archive into a fresh temp dir. Invoked through
     /// [`tokio::sync::OnceCell::get_or_try_init`], so concurrent callers
-    /// share the single in-flight attempt and a returned `Err` leaves
-    /// the cell uninitialized (retries succeed).
-    ///
-    /// Downloads directly to the final path. Callers must go through
-    /// `ensure_downloaded_verified` before reading so the `OnceCell` has
-    /// observed a successful download and verification.
+    /// share one attempt and an `Err` leaves the cell uninitialized.
     async fn perform_download(&self) -> Result<LocalKParProjectRaw, ReqwestKparDownloadedError> {
-        use futures::StreamExt as _;
-
-        let resp = self
-            .auth_policy
-            .with_authentication(&self.client, &kpar_get_request(self.url.clone()))
-            .await
-            .map_err(|source| ReqwestKparDownloadedError::Request {
-                url: (&self.url).into(),
-                source: source.into(),
-            })?;
-        let response_url = ResponseUrl::new(&self.url, resp.url());
-
-        if !resp.status().is_success() {
-            return Err(ReqwestKparDownloadedError::BadHttpStatus {
-                url: response_url.clone(),
-                status: resp.status(),
-            });
-        }
-
-        if let Some(actual) = resp.content_length()
-            && actual != self.expected_size.get()
-        {
-            return Err(ReqwestKparDownloadedError::SizeMismatch {
-                url: response_url.clone(),
-                expected: self.expected_size.get(),
-                actual,
-            });
-        }
-
-        let tmp_dir = tempdir().map_err(FsIoError::MkTempDir)?;
-        let archive_path = tmp_dir.path().join("project.kpar");
-        let mut file = wrapfs::File::create(&archive_path)?;
-        let mut bytes_stream = resp.bytes_stream();
-        let mut hasher = Sha256::new();
-        let mut written = 0u64;
-
-        while let Some(bytes) = bytes_stream.next().await {
-            let bytes = bytes.map_err(|source| ReqwestKparDownloadedError::Body {
-                url: response_url.clone(),
-                source: source.into(),
-            })?;
-            written += bytes.len() as u64;
-            if written > self.expected_size.get() {
-                return Err(ReqwestKparDownloadedError::SizeMismatch {
-                    url: response_url.clone(),
-                    expected: self.expected_size.get(),
-                    actual: written,
-                });
-            }
-            hasher.update(&bytes);
-            file.write_all(&bytes)
-                .map_err(|e| FsIoError::WriteFile(archive_path.clone(), e))?;
-        }
-        let Some(written) = NonZeroU64::new(written) else {
-            return Err(ReqwestKparDownloadedError::EmptyKpar {
-                url: response_url.clone(),
-            });
-        };
-
-        if written != self.expected_size {
-            return Err(ReqwestKparDownloadedError::SizeMismatch {
-                url: response_url.clone(),
-                expected: self.expected_size.get(),
-                actual: written.get(),
-            });
-        }
-
-        file.sync_all()
-            .map_err(|e| FsIoError::WriteFile(archive_path.clone(), e))?;
-
-        let computed_hash = lowercase_hex(hasher.finalize());
-        debug_assert_eq!(
-            self.expected_size.get(),
-            wrapfs::metadata(&archive_path).unwrap().len()
-        );
-
-        debug_assert_eq!(
-            self.expected_size.get(),
-            wrapfs::metadata(&archive_path).unwrap().len()
-        );
-
-        if computed_hash == self.expected_kpar_sha256 {
-            let inner =
-                LocalKParProjectRaw::new_tempdir(tmp_dir, archive_path, KparInnerPath::Guess)?;
-            Ok(inner)
-        } else {
-            Err(ReqwestKparDownloadedError::DigestMismatch {
-                url: response_url.clone(),
-                expected: self.expected_kpar_sha256.clone(),
-                computed: computed_hash,
-            })
-        }
+        let (inner, _) = download(
+            &self.url,
+            &self.client,
+            &*self.auth_policy,
+            Some(&self.expected),
+        )
+        .await?;
+        Ok(inner)
     }
 }
 
 impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestIndexKparDownloadedProject<Policy> {
     type Error = ReqwestKparDownloadedError;
 
-    async fn get_project_async(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    async fn get_project_async(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         Ok(self.ensure_downloaded_verified().await?.get_project()?)
     }
 
-    async fn get_info_async(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
-        Ok(self.ensure_downloaded_verified().await?.get_info()?)
-    }
-
-    async fn get_meta_async(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
-        Ok(self.ensure_downloaded_verified().await?.get_meta()?)
-    }
-
     type SourceReader<'a>
-        = AsAsyncRead<<LocalKParProject as ProjectRead>::SourceReader<'a>>
+        = AsAsyncReader<<LocalKParProject as ProjectRead>::SourceReader<'a>>
     where
         Self: 'a;
 
@@ -595,20 +311,17 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestIndexKparDownloaded
         path: P,
     ) -> Result<Self::SourceReader<'_>, Self::Error> {
         match self.ensure_downloaded_verified().await {
-            Ok(inner) => Ok(AsAsyncRead {
-                inner: inner.read_source(path)?,
-            }),
+            Ok(inner) => Ok(AsAsyncReader::new(inner.read_source(path)?)),
             Err(e) => Err(e),
         }
     }
 
     async fn sources_async(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         Ok(vec![Source::IndexKpar {
-            // Panic here should be impossible, as the URL should have
-            // been created from IRI
+            // Cannot panic: the URL was created from an IRI
             index_kpar: Iri::parse(self.url.to_string()).unwrap(),
-            kpar_size: self.expected_size,
-            kpar_digest: self.expected_kpar_sha256.clone(),
+            kpar_size: self.expected.size_bytes,
+            kpar_digest: self.expected.sha256_hex.clone(),
         }])
     }
 
@@ -631,7 +344,7 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestIndexKparDownloaded
 
     async fn checksum_canonical_variant_async(&self) -> Result<ProjectChecksum, Self::Error> {
         match self.ensure_downloaded_verified().await {
-            Ok(_) => Ok(ProjectChecksum::Kpar(self.expected_kpar_sha256.clone())),
+            Ok(_) => Ok(ProjectChecksum::Kpar(self.expected.sha256_hex.clone())),
             Err(e) => Err(e),
         }
     }
@@ -639,6 +352,98 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestIndexKparDownloaded
     fn project_root(&self) -> Option<&camino::Utf8Path> {
         None
     }
+}
+
+/// Download the archive at `url` into a fresh temp dir, enforcing the
+/// `expected` size while streaming and checking its digest at the end.
+/// Returns the archive with its actual size and digest.
+async fn download<Policy: HTTPAuthentication>(
+    url: &reqwest::Url,
+    client: &reqwest_middleware::ClientWithMiddleware,
+    auth_policy: &Policy,
+    expected: Option<&KparMeta>,
+) -> Result<(LocalKParProjectRaw, KparMeta), ReqwestKparDownloadedError> {
+    use futures::StreamExt as _;
+
+    let resp = auth_policy
+        .with_authentication(client, &kpar_get_request(url.clone()))
+        .await
+        .map_err(|source| HttpFailure::Request {
+            url: url.into(),
+            source: source.into(),
+        })?;
+    let response_url = ResponseUrl::new(url, resp.url());
+
+    if !resp.status().is_success() {
+        return Err(HttpFailure::BadHttpStatus {
+            url: response_url,
+            status: resp.status(),
+        }
+        .into());
+    }
+
+    let size_mismatch = |actual| ReqwestKparDownloadedError::SizeMismatch {
+        url: response_url.clone(),
+        expected: expected.map_or(0, |expected| expected.size_bytes.get()),
+        actual,
+    };
+    let too_big = |actual| expected.is_some_and(|expected| actual > expected.size_bytes.get());
+    let differs = |actual| expected.is_some_and(|expected| actual != expected.size_bytes.get());
+
+    if let Some(actual) = resp.content_length()
+        && differs(actual)
+    {
+        return Err(size_mismatch(actual));
+    }
+
+    let tmp_dir = tempdir().map_err(FsIoError::MkTempDir)?;
+    let archive_path = tmp_dir.path().join("project.kpar");
+    let mut file = wrapfs::File::create(&archive_path)?;
+    let mut bytes_stream = resp.bytes_stream();
+    let mut hasher = Sha256::new();
+    let mut written = 0u64;
+
+    while let Some(bytes) = bytes_stream.next().await {
+        let bytes = bytes.map_err(|source| HttpFailure::Body {
+            url: response_url.clone(),
+            source: source.into(),
+        })?;
+        written += bytes.len() as u64;
+        if too_big(written) {
+            return Err(size_mismatch(written));
+        }
+        hasher.update(&bytes);
+        file.write_all(&bytes)
+            .map_err(|e| FsIoError::WriteFile(archive_path.clone(), e))?;
+    }
+    let Some(written) = NonZeroU64::new(written) else {
+        return Err(ReqwestKparDownloadedError::EmptyKpar { url: response_url });
+    };
+    if differs(written.get()) {
+        return Err(size_mismatch(written.get()));
+    }
+
+    file.sync_all()
+        .map_err(|e| FsIoError::WriteFile(archive_path.clone(), e))?;
+
+    let computed_hash = lowercase_hex(hasher.finalize());
+    if let Some(expected) = expected
+        && computed_hash != expected.sha256_hex
+    {
+        return Err(ReqwestKparDownloadedError::DigestMismatch {
+            url: response_url,
+            expected: expected.sha256_hex.clone(),
+            computed: computed_hash,
+        });
+    }
+    let inner = LocalKParProjectRaw::new_tempdir(tmp_dir, archive_path, KparInnerPath::Guess)?;
+    Ok((
+        inner,
+        KparMeta {
+            size_bytes: written,
+            sha256_hex: computed_hash,
+        },
+    ))
 }
 
 #[cfg(test)]

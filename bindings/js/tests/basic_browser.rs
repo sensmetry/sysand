@@ -7,7 +7,7 @@
 mod browser_tests {
     use std::error::Error;
 
-    use sysand_core::{model::InterchangeProjectInfoRaw, project::ProjectRead as _};
+    use sysand_core::project::{ProjectDefinition, ProjectRead as _};
 
     use sysand_js::{
         do_env_js_local_storage, do_init_js_local_storage,
@@ -17,65 +17,63 @@ mod browser_tests {
     use typed_path::Utf8UnixPath;
     use wasm_bindgen_test::wasm_bindgen_test;
 
-    use regex::Regex;
-
     #[wasm_bindgen_test(unsupported = test)]
     fn basic_init() -> Result<(), Box<dyn Error>> {
         do_init_js_local_storage(
-            "basic_init".to_owned(),
-            "a".into(),
+            "basic-init".to_owned(),
+            "acme".into(),
             "1.2.3".to_owned(),
             "sysand_storage",
             "/",
             Some("MIT OR Apache-2.0".to_owned()),
+            "https://www.omg.org/spec/SysML/20250201".to_owned(),
         )
         .unwrap();
 
         let local_storage = web_sys::window().unwrap().local_storage().unwrap().unwrap();
 
+        // `init` writes a `model.toml` here as everywhere else; the two
+        // json documents are what a build produces and what a legacy
+        // project has.
+        assert_eq!(
+            local_storage.get_item("sysand_storage/model.toml").unwrap(),
+            Some(
+                "manifest-version = \"1.0\"\n\n\
+                 [project]\n\
+                 publisher = \"acme\"\n\
+                 name = \"basic-init\"\n\
+                 version = \"1.2.3\"\n\
+                 sources = []\n\
+                 license = \"MIT OR Apache-2.0\"\n\
+                 metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n"
+                    .to_owned()
+            )
+        );
         assert_eq!(
             local_storage
                 .get_item("sysand_storage/.project.json")
                 .unwrap(),
-            Some(r#"{"name":"basic_init","publisher":"a","version":"1.2.3","license":"MIT OR Apache-2.0"}"#.to_owned())
+            None
         );
-
-        let re = Regex::new(r#"\{"index":\{\},"created":"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"}"#)
-            .unwrap();
-
-        let meta_js = local_storage
-            .get_item("sysand_storage/.meta.json")
-            .unwrap()
-            .unwrap();
-
-        assert!(re.is_match_at(&meta_js, 0), "unexpected: {meta_js}");
 
         let project = open_project_local_storage("sysand_storage", Utf8UnixPath::new("/"))?;
 
-        let (Some(info), Some(meta)) = project.get_project()? else {
+        let Some(ProjectDefinition::Toml(manifest)) = project.get_project()? else {
             return Err("Failed".into());
         };
 
+        assert_eq!(manifest.name.as_str(), "basic-init");
+        assert_eq!(manifest.publisher.as_str(), "acme");
+        assert_eq!(manifest.version.to_string(), "1.2.3");
         assert_eq!(
-            info,
-            InterchangeProjectInfoRaw {
-                name: "basic_init".to_owned(),
-                publisher: Some(String::from("a")),
-                description: None,
-                version: "1.2.3".to_owned(),
-                license: Some("MIT OR Apache-2.0".to_owned()),
-                maintainer: vec![],
-                website: None,
-                topic: vec![],
-                usage: vec![],
-            }
+            manifest.license.as_ref().map(ToString::to_string),
+            Some("MIT OR Apache-2.0".to_owned())
         );
-
-        assert!(meta.checksum.is_none());
-        assert!(meta.includes_derived.is_none());
-        assert!(meta.includes_implied.is_none());
-        assert!(meta.index.is_empty());
-        assert!(meta.metamodel.is_none());
+        assert!(manifest.sources().expect("an OMG project").is_empty());
+        assert_eq!(
+            manifest.usages,
+            [] as [sysand_core::manifest::usage::LocatedUsage; 0]
+        );
 
         // Local storage is not automatically cleared between tests.
         local_storage.clear().unwrap();

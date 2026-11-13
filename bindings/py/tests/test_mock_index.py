@@ -2,8 +2,7 @@
 # SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 """The `mock_index` fixture's own tests: the index layout it serves, and the
-shipped CLI driving `lock` + `sync` against it (the Python twin of
-`sysand/tests/cli_lock.rs::lock_and_sync_against_mock_index`)."""
+shipped CLI driving `lock` + `sync` against it."""
 
 from __future__ import annotations
 
@@ -38,7 +37,7 @@ def test_isolation_env() -> None:
 
 def test_isolation_sweeps_ambient_vars(monkeypatch: pytest.MonkeyPatch) -> None:
     # Any `SYSAND_*` variable, including ones sysand does not know yet, is
-    # removed rather than only a fixed list of today's names.
+    # removed.
     monkeypatch.setenv("SYSAND_FUTURE_KNOB", "1")
     monkeypatch.setenv("SYSAND_CRED_AMBIENT", "https://example.invalid/*")
     with pytest.MonkeyPatch.context() as inner:
@@ -128,7 +127,7 @@ def test_cli_lock_and_sync_against_mock_index(baseline: Baseline) -> None:
         b"package Library;\n"
     )
 
-    # The whole 0.10.3 state came from the index, not from anywhere else.
+    # The whole 0.10.3 state came from the index.
     assert baseline.index.requests("*/project.kpar") == [
         "/mock/library/0.10.3/project.kpar"
     ]

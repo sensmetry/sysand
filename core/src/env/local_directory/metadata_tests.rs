@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use super::*;
+use crate::paths::RelativeUnixPathError;
 use std::assert_matches;
 
 fn minimal_toml(path: &str, editable: bool) -> String {
@@ -23,7 +24,10 @@ fn non_editable_parent_dir_component_is_rejected() {
     let err = EnvMetadata::from_str(&toml).unwrap_err();
     assert_matches!(
         err,
-        ParseError::NonNormalizedProjectPath(_),
+        ParseError::InvalidProjectPath {
+            source: RelativeUnixPathError::ContainsParent { path: _ },
+            path: _
+        },
         "unexpected error: {err}"
     );
 }
@@ -34,7 +38,10 @@ fn non_editable_cur_dir_component_is_rejected() {
     let err = EnvMetadata::from_str(&toml).unwrap_err();
     assert_matches!(
         err,
-        ParseError::NonNormalizedProjectPath(_),
+        ParseError::InvalidProjectPath {
+            source: RelativeUnixPathError::ContainsCurrent { path: _ },
+            path: _
+        },
         "unexpected error: {err}"
     );
 }
@@ -45,9 +52,25 @@ fn non_editable_absolute_path_is_rejected() {
     let err = EnvMetadata::from_str(&toml).unwrap_err();
     assert_matches!(
         err,
-        ParseError::AbsoluteProjectPath(_),
+        ParseError::InvalidProjectPath {
+            source: RelativeUnixPathError::Absolute { path: _ },
+            path: _
+        },
         "unexpected error: {err}"
     );
+}
+
+#[test]
+fn non_editable_unnormalized_paths_are_rejected() {
+    for path in ["a//b", "a/./b", "a\\\\b", "."] {
+        let toml = minimal_toml(path, false);
+        let err = EnvMetadata::from_str(&toml).unwrap_err();
+        assert_matches!(
+            err,
+            ParseError::InvalidProjectPath { path: _, source: _ },
+            "`{path}`: {err}"
+        );
+    }
 }
 
 #[test]
@@ -60,6 +83,23 @@ fn non_editable_normal_relative_path_is_accepted() {
 fn editable_project_with_parent_dir_is_accepted() {
     let toml = minimal_toml("../workspace-project", true);
     EnvMetadata::from_str(&toml).unwrap();
+}
+
+#[test]
+fn editable_project_in_env_parent_is_accepted() {
+    EnvMetadata::from_str(&minimal_toml(".", true)).unwrap();
+}
+
+#[test]
+fn editable_unnormalized_paths_are_rejected() {
+    for path in ["a/../b", "../a/./b", "a/..", "a/", "../a/../b"] {
+        let err = EnvMetadata::from_str(&minimal_toml(path, true)).unwrap_err();
+        assert_matches!(
+            err,
+            ParseError::InvalidProjectPath { path: _, source: _ },
+            "`{path}`: unexpected error: {err}"
+        );
+    }
 }
 
 #[test]
@@ -220,8 +260,6 @@ fn version_0_1_is_migrated_to_current_version() {
     );
     assert!(!text.contains("ACME%20Inc."), "{text}");
 }
-
-// --- Env identifiers ---
 
 #[test]
 fn env_project_with_urn_kpar_identifier_is_found() {

@@ -46,8 +46,7 @@ pub enum IndexRemoveError {
 }
 
 pub enum RemoveTarget {
-    // It's String and not semver::Version because it's good to allow removing a non-semantic
-    // version
+    // A String, so a non-semantic version can be removed
     Version(String),
     Project,
 }
@@ -92,9 +91,8 @@ pub fn do_index_remove<I: AsRef<str>, R: AsRef<Utf8Path>>(
     let header = crate::style::get_style_config().header;
     match target {
         RemoveTarget::Version(version) => {
-            // Specifically don't report any errors if the version is not a valid semver,
-            // since if the project with invalid semver got in there somehow, it should
-            // be possible to remove
+            // The version is not required to be valid semver, so that an entry
+            // with an invalid version can still be removed.
             log::info!("{header}{removing:>12}{header:#} {iri} version {version}");
             let mut version_found = false;
             remove_versions(
@@ -159,7 +157,7 @@ fn remove_versions<F: FnMut(&VersionEntry) -> bool>(
     versions_value: &mut VersionsJson,
     mut if_remove_version: F,
 ) -> Result<(), IndexRemoveError> {
-    // This instead .iter_mut() to appease the borrow checker
+    // Indexed to appease the borrow checker
     for i in 0..versions_value.versions.len() {
         let version_entry = &mut versions_value.versions[i];
         if if_remove_version(version_entry) {

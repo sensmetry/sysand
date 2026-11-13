@@ -6,13 +6,14 @@ use camino::{Utf8Path, Utf8PathBuf};
 use fluent_uri::Iri;
 use semver::{Version, VersionReq};
 
-use std::{collections::HashMap, fs, io::ErrorKind, sync::Arc};
+use std::{fs, io::ErrorKind, sync::Arc};
 
 use sysand_core::{
     auth::HTTPAuthentication,
-    commands::{lock::LockOutcome, sync::SyncOutcome},
+    cancel::CancellationToken,
+    commands::sync::SyncOutcome,
     config::Config,
-    context::ProjectContext,
+    discover::{Ancestry, Seek},
     env::{local_directory::utils::clean_dir, utils::clone_project},
     lock::Lockfile,
     model::InterchangeProjectUsage,
@@ -27,14 +28,15 @@ use sysand_core::{
         standard::{StandardResolver, standard_resolver},
     },
     solve::pubgrub::DEFAULT_INDEX_CONSTRAINT,
-    utils::{SP, format_err},
+    utils::{ProvidedProjects, SP, format_err},
+    workspace::model_toml::Selector,
 };
 
 use crate::{
     CliError,
     cli::{CloneProjectLocatorArgs, ResolutionOptions},
-    commands::{init::warn_parent_project_workspace, sync::command_sync},
-    default_index_location, get_or_create_env,
+    commands::sync::sync_context,
+    context::{ContextOptions, discover_context},
     style::{GOOD, USAGE},
 };
 
@@ -54,7 +56,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
     locator: CloneProjectLocatorArgs,
     version_constraint: Option<VersionReq>,
     target: Option<Utf8PathBuf>,
-    ctx: ProjectContext,
+    cancellation: CancellationToken,
     no_deps: bool,
     resolution_opts: ResolutionOptions,
     config: &Config,
@@ -86,9 +88,16 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         }
         canonical
     };
-    warn_parent_project_workspace(target, &ctx)?;
+    if let Some(existing_project) = Ancestry::walk(target, Seek::ProjectToo)?.project() {
+        log::warn!(
+            "found an existing project in one of target path's parent\n\
+            {:>8} directories `{}`",
+            ' ',
+            existing_project
+        );
+    }
 
-    let (include_std, locator, local_project, std_resolver) = match obtain_project(
+    let (provided_usages, locator, local_project, std_resolver) = match obtain_project(
         locator,
         version_constraint,
         resolution_opts,
@@ -96,35 +105,35 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         &client,
         &runtime,
         auth_policy.clone(),
-        project_path,
+        project_path.clone(),
+        cancellation.clone(),
     ) {
         Ok(ret) => ret,
         Err(e) => {
-            // Clean up the target dir. This is safe, since we ensured
-            // that the dir was initially empty, so no unrelated files
-            // will be affected
+            // Safe: the dir was checked to be initially empty, so no
+            // unrelated files are affected.
             clean_dir(target);
             return Err(e);
         }
     };
 
-    // Update project context with the new cloned project
-    // TODO: Consider under which circumstances (if any)
-    //       the workspace should carry over.
-    let ctx = ProjectContext {
-        current_workspace: None,
-        current_project: Some(local_project.clone()),
-        current_directory: ctx.current_directory,
-        env: None,
-    };
+    // The context of the cloned project. A clone creates a project outside
+    // any scope, so no workspace is consulted and no lock is taken.
+    let mut ctx = discover_context(
+        project_path,
+        ContextOptions {
+            consults_workspace: false,
+            selector: Selector::Current,
+            needs_a_member: false,
+            needs_a_project: true,
+            lock_wait: None,
+            cancellation,
+        },
+        |_| None,
+    )?
+    .ctx;
 
     if !no_deps {
-        let provided_usages = if include_std {
-            HashMap::default()
-        } else {
-            crate::known_std_libs()
-        };
-
         let resolver = PriorityResolver::new(
             MemoryResolver {
                 iri_predicate: AcceptAll {},
@@ -144,10 +153,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
             ]),
             ProjectLocator::Dir(_) | ProjectLocator::KparPath(_) => None,
         };
-        let LockOutcome {
-            lock,
-            dependencies: _dependencies,
-        } = sysand_core::commands::lock::do_lock_projects(
+        let lock = sysand_core::commands::lock::do_lock_projects(
             [(identifiers, &project)],
             resolver,
             &provided_usages,
@@ -170,22 +176,16 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         let lockfile = Lockfile::new(project.inner().root_path(), lock.canonicalize());
         lockfile.write()?;
 
-        let mut env = get_or_create_env(
-            ctx.env,
-            ctx.current_workspace.as_ref(),
-            ctx.current_project.as_ref(),
-            ctx.current_directory,
-        )?;
-        command_sync(
+        sync_context(
             lockfile.lock(),
-            project.inner().root_path(),
-            &mut env,
+            &mut ctx,
+            false,
+            false,
+            false,
             client,
             &provided_usages,
             runtime,
             auth_policy,
-            ctx.current_workspace.as_ref(),
-            false,
             &mut SyncOutcome::default(),
         )?;
     }
@@ -202,26 +202,18 @@ fn obtain_project<Policy: HTTPAuthentication>(
     runtime: &Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
     project_path: Utf8PathBuf,
+    cancellation: CancellationToken,
 ) -> Result<
     (
-        bool,
+        ProvidedProjects,
         ProjectLocator,
         LocalSrcProject,
         StandardResolver<Policy>,
     ),
     anyhow::Error,
 > {
-    let ResolutionOptions {
-        index,
-        default_index,
-        no_index,
-        include_std,
-    } = resolution_opts;
-    let index_urls = if no_index {
-        None
-    } else {
-        Some(config.index_urls(index, vec![default_index_location()], default_index))
-    };
+    let index_urls = resolution_opts.index_urls(config);
+    let provided_usages = resolution_opts.provided_iris(ProvidedProjects::default());
     let locator = match locator {
         CloneProjectLocatorArgs {
             identifier: Some((publisher, name)),
@@ -268,6 +260,8 @@ fn obtain_project<Policy: HTTPAuthentication>(
     let cloned = "Cloned";
     let header = sysand_core::style::get_style_config().header;
 
+    // The destination is created, not read, so it is not classified: a
+    // clone into a directory under a workspace root is allowed.
     let mut local_project = LocalSrcProject::new_access(project_path, None);
 
     let std_resolver = standard_resolver(
@@ -276,6 +270,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
         index_urls,
         runtime.clone(),
         auth_policy,
+        cancellation,
     )?;
     match &locator {
         ProjectLocator::Iri(iri) => {
@@ -322,7 +317,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
                     {USAGE}hint:{USAGE:#} to clone from a KPAR, use `--kpar-path`"
                 );
             }
-            let remote_project = LocalSrcProject::new_access(path, None);
+            let remote_project = sysand_core::workspace::model_toml::project_at_path(path, None)?;
             clone_local(
                 version_constraint,
                 cloning,
@@ -353,7 +348,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
         }
     }
 
-    Ok((include_std, locator, local_project, std_resolver))
+    Ok((provided_usages, locator, local_project, std_resolver))
 }
 
 fn clone_local<P: ProjectRead>(
@@ -366,12 +361,12 @@ fn clone_local<P: ProjectRead>(
     remote_project: P,
 ) -> Result<(), anyhow::Error> {
     if let Some(vc) = version_constraint {
-        let project_version = remote_project
-            .get_info()?
+        let version = remote_project
+            .get_project()?
             .ok_or_else(|| anyhow!("missing project info"))?
-            .validate()
-            .with_context(|| format!("project at `{path}` has invalid metadata"))?
-            .version;
+            .version();
+        let project_version = Version::parse(&version)
+            .with_context(|| format!("project at `{path}` has invalid version `{version}`"))?;
         if !vc.matches(&project_version) {
             bail!(
                 "project version {project_version} does not match the given version constraint `{vc}`"
@@ -405,8 +400,6 @@ pub fn get_project_version<R: ResolveRead>(
 ) -> Result<(Version, R::ProjectStorage), anyhow::Error> {
     match resolver.resolve_read(resolve)? {
         ResolutionOutcome::Resolved(alternatives) => {
-            // If no version is supplied, choose the highest
-            // Else, choose version that is supplied
             // Match what the solver does: an unconstrained usage defaults to
             // `*`, but only for candidates whose source poses a version choice
             // in the first place
@@ -439,6 +432,11 @@ pub fn get_project_version<R: ResolveRead>(
                     InterchangeProjectUsage::Resource {
                         version_constraint: None,
                         resource: _,
+                    }
+                    | InterchangeProjectUsage::RemoteKpar {
+                        kpar_url: _,
+                        publisher: _,
+                        name: _,
                     },
                 ) => true,
             };
@@ -456,7 +454,7 @@ pub fn get_project_version<R: ResolveRead>(
                         continue;
                     }
                 };
-                let maybe_info = match candidate_project.get_info() {
+                let maybe_definition = match candidate_project.get_project() {
                     Ok(mi) => mi,
                     Err(e) => {
                         log::debug!(
@@ -466,16 +464,16 @@ pub fn get_project_version<R: ResolveRead>(
                         continue;
                     }
                 };
-                let Some(info) = maybe_info else {
+                let Some(definition) = maybe_definition else {
                     log::debug!("skipping candidate project with missing info");
                     continue;
                 };
-                let candidate_version = match Version::parse(&info.version) {
+                let candidate_version = match Version::parse(&definition.version()) {
                     Ok(v) => v,
                     Err(e) => {
                         log::warn!(
                             "skipping candidate project with invalid SemVer version {}: {e}",
-                            info.version
+                            definition.version()
                         );
                         continue;
                     }
@@ -516,10 +514,7 @@ pub fn get_project_version<R: ResolveRead>(
                     }
                     None => bail!(CliError::MissingProject(resolve.to_string())),
                 },
-                1 => {
-                    // Can't move out values with match
-                    Ok(candidates.pop().unwrap())
-                }
+                1 => Ok(candidates.pop().unwrap()),
                 _ => {
                     let max_v = candidates
                         .into_iter()

@@ -1,0 +1,866 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
+
+//! `sysand migrate`: a json project's two documents become a
+//! `model.toml`.
+//!
+//! This module is the conversion alone: no filesystem, no network, no
+//! working-tree check. What it cannot decide from the two documents is
+//! reported as an error, except for the `resource` usage shapes that need
+//! the target read: those go to the caller's [`TargetLookup`].
+
+use crate::paths::{
+    RelativePathKind, normalize_relative, parse_relative_unix_path, resolve_dot_components,
+};
+use indexmap::IndexSet;
+use semver::{Version, VersionReq};
+use typed_path::Utf8UnixPathBuf;
+
+use crate::model::MetamodelFamily;
+use crate::{
+    manifest::{
+        ModelToml,
+        common::{Maintainer, PathKey, Sources, admitted_source},
+        diagnostics::{Diagnostic, Diagnostics, ReadWarning, Validated},
+        inherit::MetaProperty,
+        project::{ProjectManifest, ProjectTable, Urls},
+        usage::{MemberUsage, Usage, UsageEntry as _, duplicate_message, duplicate_pairs},
+    },
+    model::{
+        IndexName, IndexPublisher, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
+        InterchangeProjectUsageRaw, KnownMetamodel,
+    },
+    purl::parse_sysand_purl,
+    symbols::Language,
+};
+
+/// How a `resource` usage that names its target by location is turned
+/// into a usage.
+///
+/// A callback that returns the finished usage: for `file:` which of its two
+/// project kinds the target is and what the path looks like relative to the
+/// project being migrated, and for every kind the target's publisher and
+/// name. `url::Url::to_file_path` is `cfg`'d off on the wasm target.
+pub type TargetLookup<'a> = &'a dyn Fn(&str) -> Result<Usage, String>;
+
+/// What the caller supplies that the documents do not.
+#[derive(Clone, Debug, Default)]
+pub struct MigrateOptions {
+    /// `--publisher`. Used when the json project declares none; a
+    /// declared publisher is migrated, as `name` is, rather than
+    /// overridden.
+    pub publisher: Option<String>,
+    /// `--metamodel`. Used when the json side has none or one this Sysand
+    /// does not recognize, so unlike `--publisher` it can replace a
+    /// declared value.
+    pub metamodel: Option<String>,
+}
+
+/// Convert a json project's documents into a `model.toml` manifest.
+///
+/// All-or-nothing: every problem is collected, so a project with three
+/// mistakes is reported once.
+pub fn migrate_project(
+    info: &InterchangeProjectInfoRaw,
+    meta: &InterchangeProjectMetadataRaw,
+    options: &MigrateOptions,
+    target: TargetLookup<'_>,
+) -> Result<Validated<ModelToml>, Diagnostics> {
+    let mut report = Diagnostics::new();
+
+    let name = parse_or_report(IndexName::parse(info.name.clone()), "name", &mut report);
+    let publisher = migrate_publisher(info, options, &mut report);
+    let version = match Version::parse(&info.version) {
+        Ok(version) => Some(version),
+        Err(error) => {
+            report.push(Diagnostic::error(format!(
+                "`version` is `{}`, which is not a semantic version: {error}",
+                info.version
+            )));
+            None
+        }
+    };
+
+    // The metamodel decides whether the project lists `sources` and which
+    // file types they may be, so it is settled before those run. A Syside
+    // project names `root` and lists no `sources`.
+    let metamodel = migrate_metamodel(meta, options, &mut report);
+    let syside = metamodel
+        .as_ref()
+        .is_some_and(|kind| kind.family == MetamodelFamily::Syside);
+    let sources = if syside {
+        None
+    } else {
+        migrate_sources(meta, metamodel.as_ref(), &mut report)
+    };
+    let usages = migrate_usages(info, target, &mut report);
+    check_duplicate_usages(&usages, &mut report);
+    let license = info
+        .license
+        .as_ref()
+        .and_then(|raw| match spdx::Expression::parse(raw) {
+            Ok(expression) => Some(expression),
+            Err(error) => {
+                report.push(Diagnostic::error(format!(
+                    "`license` is `{raw}`, which is not a valid SPDX expression: {error}"
+                )));
+                None
+            }
+        });
+    let maintainers: Vec<Maintainer> = info
+        .maintainer
+        .iter()
+        .filter_map(|raw| match Maintainer::parse(raw) {
+            Ok(maintainer) => Some(maintainer),
+            Err(error) => {
+                report.push(Diagnostic::error(format!(
+                    "`maintainer` entry `{raw}` is not a valid maintainer: {error}"
+                )));
+                None
+            }
+        })
+        .collect();
+    let website = info
+        .website
+        .as_ref()
+        .and_then(|raw| match fluent_uri::Iri::parse(raw.clone()) {
+            Ok(iri) => Some(iri),
+            Err((error, _)) => {
+                report.push(Diagnostic::error(format!(
+                    "`website` is `{raw}`, which is not a valid IRI: {error}"
+                )));
+                None
+            }
+        });
+    warn_discarded(meta, syside, &mut report);
+
+    // Every value is built before this point, so the report holds every
+    // problem.
+    let (Some(name), Some(publisher), Some(version)) = (name, publisher, version) else {
+        return Err(report);
+    };
+
+    // A Syside project is its `root`; without one there is nothing to
+    // migrate the files to.
+    if syside && meta.root.is_none() {
+        report.push(Diagnostic::error(
+            "missing key `root` in `.meta.json`; the Syside metamodel requires it",
+        ));
+    }
+
+    let mut project = ProjectTable::new(publisher, name, version);
+    if let Some(root) = &meta.root {
+        project.root = Some(toml::Value::from(root.as_str()));
+    }
+    if !syside {
+        project.sources = Some(sources.unwrap_or_default());
+    }
+    project.description = info.description.clone();
+    project.license = license.map(MetaProperty::Provided);
+    if !maintainers.is_empty() {
+        project.maintainers = Some(MetaProperty::Provided(maintainers));
+    }
+    if !info.topic.is_empty() {
+        project.topics = Some(MetaProperty::Provided(info.topic.clone()));
+    }
+    if let Some(website) = website {
+        project.urls = Some(MetaProperty::Provided(Urls {
+            website: Some(MetaProperty::Provided(website)),
+            documentation: None,
+            repository: None,
+        }));
+    }
+    project.metamodel = metamodel.map(MetaProperty::Provided);
+
+    report.into_result(ModelToml::Project(Box::new(ProjectManifest {
+        project,
+        inline_usages: usages,
+    })))
+}
+
+/// The declared `publisher`, else the one in `options`; `[project]`
+/// requires one.
+fn migrate_publisher(
+    info: &InterchangeProjectInfoRaw,
+    options: &MigrateOptions,
+    report: &mut Diagnostics,
+) -> Option<IndexPublisher> {
+    let raw = info.publisher.as_ref().or(options.publisher.as_ref());
+    let Some(raw) = raw else {
+        report.push(Diagnostic::error(
+            "the project declares no `publisher` and none was given; `[project]` requires one",
+        ));
+        return None;
+    };
+    parse_or_report(IndexPublisher::parse(raw.clone()), "publisher", report)
+}
+
+/// The union of `index`'s values and `checksum`'s keys.
+///
+/// Not one call to [`Sources::new`]: it stops at the first bad entry and
+/// refuses duplicates, and this union duplicates by construction --
+/// `index` maps *symbol* to path, so a file exporting ten symbols
+/// appears ten times.
+pub fn migrate_sources(
+    meta: &InterchangeProjectMetadataRaw,
+    metamodel: Option<&KnownMetamodel>,
+    report: &mut Diagnostics,
+) -> Option<Sources> {
+    let mut paths: IndexSet<Utf8UnixPathBuf> = IndexSet::new();
+    let mut bad_checksum_keys: Vec<String> = Vec::new();
+    let mut unadmitted_checksum_keys: Vec<String> = Vec::new();
+
+    let mut add = |raw: &str, from_checksum: bool, report: &mut Diagnostics| {
+        let path = match normalize_relative(raw) {
+            Ok(path) => path,
+            Err(error) => {
+                report.push(Diagnostic::error(format!(
+                    "`{raw}` cannot be listed in `sources`: {error}"
+                )));
+                return;
+            }
+        };
+        if Language::guess_from_path(&path).is_none() {
+            if from_checksum {
+                bad_checksum_keys.push(raw.to_owned());
+            } else {
+                // One diagnostic per entry: `index` has no plural rule
+                // of its own.
+                report.push(Diagnostic::error(format!(
+                    "`sources` entry `{raw}` is not a KerML (`.kerml`) or SysML (`.sysml`) \
+                     file; `sources` lists model files only"
+                )));
+            }
+            return;
+        }
+        // A model file of the language the metamodel does not admit.
+        // Skipped when the metamodel did not resolve, which has already
+        // been reported.
+        if let Some(kind) = metamodel
+            && admitted_source(PathKey::Sources, &path, kind).is_err()
+        {
+            if from_checksum {
+                unadmitted_checksum_keys.push(raw.to_owned());
+            } else if let Err(problem) = admitted_source(PathKey::Sources, &path, kind) {
+                report.push(problem);
+            }
+            return;
+        }
+        paths.insert(path);
+    };
+
+    for value in meta.index.iter().flat_map(indexmap::IndexMap::values) {
+        add(value, false, report);
+    }
+    for key in meta.checksum.iter().flat_map(indexmap::IndexMap::keys) {
+        add(key, true, report);
+    }
+
+    // One diagnostic naming every offending key, so a project with five
+    // of them is told about five.
+    if !bad_checksum_keys.is_empty() {
+        report.push(Diagnostic::error(format!(
+            "`checksum` lists {}, which are not KerML or SysML files and cannot be \
+             listed in `sources`; run `sysand exclude` on them before migrating",
+            listed(&bad_checksum_keys)
+        )));
+    }
+    // The same shape for the keys that *are* model files, of the
+    // language this project's metamodel does not admit.
+    // Two messages, because the first has no metamodel to name.
+    if let Some(kind) = metamodel
+        && !unadmitted_checksum_keys.is_empty()
+    {
+        report.push(Diagnostic::error(format!(
+            "`checksum` lists {}, whose type the metamodel `{}` does not admit; run \
+             `sysand exclude` on them before migrating",
+            listed(&unadmitted_checksum_keys),
+            kind
+        )));
+    }
+
+    match Sources::new(paths.into_iter().collect()) {
+        Ok(sources) => Some(sources),
+        Err(error) => {
+            report.push(Diagnostic::error(error.to_string()));
+            None
+        }
+    }
+}
+
+/// The keys of one aggregated `checksum` complaint, in the order the
+/// json manifest wrote them.
+fn listed(keys: &[String]) -> String {
+    keys.iter()
+        .map(|key| format!("`{key}`"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The metamodel is used as-is when it is a recognized value. A json
+/// project may carry none, or one this Sysand does not recognize, and
+/// `model.toml` admits neither: the command then errors before writing,
+/// unless `--metamodel <url>` supplies a recognized value.
+fn migrate_metamodel(
+    meta: &InterchangeProjectMetadataRaw,
+    options: &MigrateOptions,
+    report: &mut Diagnostics,
+) -> Option<KnownMetamodel> {
+    let declared = meta.metamodel.as_ref();
+    if let Some(metamodel) = declared.and_then(|raw| KnownMetamodel::recognize(raw)) {
+        return Some(metamodel);
+    }
+    let Some(supplied) = options.metamodel.as_ref() else {
+        report.push(Diagnostic::error(match declared {
+            Some(raw) => format!(
+                "the project's `.meta.json` declares `{raw}`, which is not a metamodel \
+                 `model.toml` recognizes;\npass `--metamodel <url>`, one of {list}",
+                list = KnownMetamodel::RECOGNIZED
+            ),
+            None => format!(
+                "the project's `.meta.json` declares no `metamodel`, which `model.toml` \
+                 requires;\npass `--metamodel <url>`, one of {list}",
+                list = KnownMetamodel::RECOGNIZED
+            ),
+        }));
+        return None;
+    };
+    let Some(metamodel) = KnownMetamodel::recognize(supplied) else {
+        report.push(Diagnostic::error(format!(
+            "`{supplied}` is not a metamodel Sysand recognizes;\nit is one of {list}",
+            list = KnownMetamodel::RECOGNIZED
+        )));
+        return None;
+    };
+    // What is being dropped is worth saying, even though the fix is
+    // already in hand.
+    if let Some(raw) = declared {
+        report.push(Diagnostic::warning(
+            ReadWarning::UnknownMetamodel {
+                location: crate::manifest::diagnostics::KeyLocation::File(
+                    crate::model::META_JSON_FILE.to_owned(),
+                ),
+                value: raw.clone(),
+            }
+            .to_string(),
+        ));
+    }
+    Some(metamodel)
+}
+
+/// The metadata keys that do not survive.
+/// `index` and `checksum` are named apart from their paths, which become
+/// `sources`.
+fn warn_discarded(meta: &InterchangeProjectMetadataRaw, syside: bool, report: &mut Diagnostics) {
+    report.push(Diagnostic::warning(format!(
+        "`created` (`{}`) is not migrated: a `model.toml` project has no creation time, and \
+         `sysand build` records the build's own",
+        meta.created
+    )));
+    if meta.index.as_ref().is_some_and(|index| !index.is_empty()) {
+        report.push(Diagnostic::warning(
+            "`index` is not migrated apart from its paths, which become `sources`: the symbol \
+             index is computed when the project is built",
+        ));
+    }
+    if meta.checksum.as_ref().is_some_and(|c| !c.is_empty()) {
+        report.push(Diagnostic::warning(if syside {
+            "`checksum` is not migrated: a Syside project's files are reached from its `root`, \
+             and checksums are computed when the project is built"
+        } else {
+            "`checksum` is not migrated apart from its paths, which become `sources`: \
+             checksums are computed when the project is built"
+        }));
+    }
+    if meta
+        .exports
+        .as_ref()
+        .is_some_and(|exports| !exports.is_empty())
+    {
+        report.push(Diagnostic::warning(
+            "`exports` is not migrated: the exported names are computed when the project is \
+             built",
+        ));
+    }
+    if meta.includes_derived.is_some() {
+        report.push(Diagnostic::warning(
+            "`includesDerived` is not migrated: `model.toml` does not carry it",
+        ));
+    }
+    if meta.includes_implied.is_some() {
+        report.push(Diagnostic::warning(
+            "`includesImplied` is not migrated: `model.toml` does not carry it",
+        ));
+    }
+}
+
+/// Reports duplicate usages with the same scan and wording as reading a
+/// `model.toml`.
+///
+/// Pairwise: three colliding entries produce two diagnostics.
+fn check_duplicate_usages(usages: &[MemberUsage], report: &mut Diagnostics) {
+    for (first, later) in duplicate_pairs(usages, MemberUsage::identity) {
+        report.push(Diagnostic::error(duplicate_message(
+            &usages[first].label(),
+            &usages[later].label(),
+        )));
+    }
+}
+
+fn migrate_usages(
+    info: &InterchangeProjectInfoRaw,
+    target: TargetLookup<'_>,
+    report: &mut Diagnostics,
+) -> Vec<MemberUsage> {
+    let mut usages = Vec::new();
+    for usage in &info.usage {
+        if let Some(converted) = migrate_usage(usage, target, report) {
+            usages.push(MemberUsage::Declared(converted));
+        }
+    }
+    usages
+}
+
+fn migrate_usage(
+    usage: &InterchangeProjectUsageRaw,
+    target: TargetLookup<'_>,
+    report: &mut Diagnostics,
+) -> Option<Usage> {
+    match usage {
+        InterchangeProjectUsageRaw::Directory {
+            dir,
+            publisher,
+            name,
+        } => Some(Usage::SourcePath {
+            publisher: parse_or_report(
+                IndexPublisher::parse(publisher.clone()),
+                "publisher",
+                report,
+            )?,
+            name: parse_or_report(IndexName::parse(name.clone()), "name", report)?,
+            dir: local_path(dir, RelativePathKind::Directory, report)?,
+        }),
+        InterchangeProjectUsageRaw::KparPath {
+            kpar_path,
+            publisher,
+            name,
+        } => Some(Usage::KparPath {
+            publisher: parse_or_report(
+                IndexPublisher::parse(publisher.clone()),
+                "publisher",
+                report,
+            )?,
+            name: parse_or_report(IndexName::parse(name.clone()), "name", report)?,
+            kpar_path: local_path(kpar_path, RelativePathKind::File, report)?,
+        }),
+        InterchangeProjectUsageRaw::RemoteKpar {
+            kpar_url,
+            publisher,
+            name,
+        } => {
+            let publisher = match publisher {
+                Some(publisher) => Some(parse_or_report(
+                    IndexPublisher::parse(publisher.clone()),
+                    "publisher",
+                    report,
+                )?),
+                None => None,
+            };
+            Some(Usage::RemoteKpar {
+                publisher,
+                name: parse_or_report(IndexName::parse(name.clone()), "name", report)?,
+                url: parse_or_report(
+                    fluent_uri::Iri::parse(kpar_url.clone()).map_err(|(error, _)| error),
+                    "kparUrl",
+                    report,
+                )?,
+            })
+        }
+        InterchangeProjectUsageRaw::Resource {
+            resource,
+            version_constraint,
+        } => migrate_resource(resource, version_constraint.as_deref(), target, report),
+        // A typed index usage already carries everything a manifest
+        // entry needs
+        InterchangeProjectUsageRaw::Index {
+            publisher,
+            name,
+            version_constraint,
+        } => {
+            let constraint = match VersionReq::parse(version_constraint) {
+                Ok(constraint) => constraint,
+                Err(error) => {
+                    report.push(Diagnostic::error(format!(
+                        "usage `{publisher}/{name}` has version constraint `{version_constraint}`, \
+                         which is not a valid requirement: {error}"
+                    )));
+                    return None;
+                }
+            };
+            Some(Usage::Index {
+                publisher: parse_or_report(
+                    IndexPublisher::parse(publisher.clone()),
+                    "publisher",
+                    report,
+                )?,
+                name: parse_or_report(IndexName::parse(name.clone()), "name", report)?,
+                version_constraint: constraint,
+            })
+        }
+    }
+}
+
+/// A `resource` usage, by scheme.
+///
+/// The scheme is matched as a string: `utils::scheme`'s constants are
+/// behind the `filesystem` and `networking` features and this module has
+/// neither.
+fn migrate_resource(
+    resource: &str,
+    version_constraint: Option<&str>,
+    target: TargetLookup<'_>,
+    report: &mut Diagnostics,
+) -> Option<Usage> {
+    let scheme = resource.split_once(':').map(|(scheme, _)| scheme);
+
+    match scheme {
+        Some("pkg") => {
+            // Parsed only to refuse a resource that is not a
+            // `pkg:sysand` PURL; the pair it carries is normalized, and
+            // the manifest takes the target's spelling instead.
+            let Ok(Some(_)) = parse_sysand_purl(resource) else {
+                report.push(Diagnostic::error(format!(
+                    "usage `{resource}` is not a `pkg:sysand` package URL; `model.toml` \
+                     declares index usages by publisher and name"
+                )));
+                return None;
+            };
+            {
+                let Some(raw) = version_constraint else {
+                    // Resolved at migration time and pinned to
+                    // `^<version>`, `<version>` being the version that
+                    // resolution found.
+                    return match target(resource) {
+                        Ok(usage) => Some(usage),
+                        Err(reason) => {
+                            report.push(Diagnostic::error(reason));
+                            None
+                        }
+                    };
+                };
+                let constraint = match VersionReq::parse(raw) {
+                    Ok(constraint) => constraint,
+                    Err(error) => {
+                        report.push(Diagnostic::error(format!(
+                            "usage `{resource}` has version constraint `{raw}`, which is not a \
+                             valid requirement: {error}"
+                        )));
+                        return None;
+                    }
+                };
+                // A `model.toml` never holds a normalized identity, so the
+                // pair comes from the target, as the unconstrained arm's
+                // already does. Only the constraint is the json project's.
+                match target(resource) {
+                    Ok(Usage::Index {
+                        publisher,
+                        name,
+                        version_constraint: _,
+                    }) => Some(Usage::Index {
+                        publisher,
+                        name,
+                        version_constraint: constraint,
+                    }),
+                    // A `pkg:sysand` resource can only be an index usage.
+                    Ok(other) => {
+                        report.push(Diagnostic::error(format!(
+                            "usage `{resource}` resolved to `{other}`, which is not an index \
+                             usage"
+                        )));
+                        None
+                    }
+                    Err(reason) => {
+                        report.push(Diagnostic::error(reason));
+                        None
+                    }
+                }
+            }
+        }
+        // Translated into a kpar/source path; the publisher and name
+        // come from the target, and a target without a publisher is an
+        // error.
+        Some("file") => match target(resource) {
+            Ok(usage) => Some(usage),
+            Err(reason) => {
+                report.push(Diagnostic::error(reason));
+                None
+            }
+        },
+        // Used as-is for a URL; a `versionConstraint` is discarded with a
+        // warning. The lookup is handed only the resource string, so the
+        // warning is issued here.
+        Some("http" | "https") => {
+            if let Some(constraint) = version_constraint {
+                // A standard-library IRI is the one URL whose meaning is
+                // known here, so the constraint is refused rather than
+                // dropped: the IRI names one release.
+                if crate::model::is_omg_stdlib_iri(resource) {
+                    report.push(Diagnostic::error(format!(
+                        "usage `{resource}` carries `version` `{constraint}`, which a `kpar-url` \
+                         usage does not take; the IRI names one release, so remove the \
+                         constraint and migrate again"
+                    )));
+                    return None;
+                }
+                report.push(Diagnostic::warning(format!(
+                    "usage `{resource}` has version constraint `{constraint}`, which is not \
+                     migrated: a `kpar-url` usage carries no version constraint"
+                )));
+            }
+            // The publisher and name come from the fetched target.
+            match target(resource) {
+                Ok(usage) => Some(usage),
+                Err(reason) => {
+                    report.push(Diagnostic::error(reason));
+                    None
+                }
+            }
+        }
+        Some("ssh" | "git" | "git+http" | "git+https" | "git+ssh" | "git+file") => {
+            report.push(Diagnostic::error(format!(
+                "usage `{resource}` is a git repository, which cannot be declared in a \
+                 `model.toml` of manifest version 1"
+            )));
+            None
+        }
+        _ => {
+            report.push(Diagnostic::error(format!(
+                "usage `{resource}` has no scheme `sysand migrate` understands"
+            )));
+            None
+        }
+    }
+}
+
+/// A usage's local path, in the one form a `model.toml` admits.
+///
+/// [`parse_relative_unix_path`], not `normalize_relative`: a `dir` usage
+/// of `../dep` is the ordinary shape of a dependency beside the project,
+/// and normalization refuses a path that leaves its root. What it admits
+/// is then written normalized: a json `./dep/` becomes `dep`.
+fn local_path(
+    raw: &str,
+    kind: RelativePathKind,
+    report: &mut Diagnostics,
+) -> Option<Utf8UnixPathBuf> {
+    match parse_relative_unix_path(raw, kind) {
+        Ok(_) => {
+            let normalized = normalize_local_path(raw);
+            if normalized.is_none() {
+                report.push(Diagnostic::error(format!(
+                    "usage path `{raw}` names the project itself, which cannot use itself"
+                )));
+            }
+            normalized
+        }
+        Err(error) => {
+            report.push(Diagnostic::error(format!(
+                "usage path `{raw}` is not usable in a `model.toml`: {error}"
+            )));
+            None
+        }
+    }
+}
+
+/// Convert a relative path into the form a `model.toml` `dir` or `kpar-path`
+/// takes: `.` components and empty ones are dropped, and a `..` cancels the
+/// component before it unless that is a `..` too. `None` when nothing is
+/// left: the directory the path is relative to.
+///
+/// Expects a path with no backslash and no NUL, and not absolute; this
+/// only rearranges components.
+fn normalize_local_path(raw: &str) -> Option<Utf8UnixPathBuf> {
+    let parts = resolve_dot_components(raw);
+    (!parts.is_empty()).then(|| Utf8UnixPathBuf::from(parts.join("/")))
+}
+
+fn parse_or_report<T, E: std::fmt::Display>(
+    parsed: Result<T, E>,
+    key: &str,
+    report: &mut Diagnostics,
+) -> Option<T> {
+    match parsed {
+        Ok(value) => Some(value),
+        Err(error) => {
+            report.push(Diagnostic::error(format!("`{key}`: {error}")));
+            None
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "./migrate_tests.rs"]
+mod tests;
+
+/// Whether the project's directory has uncommitted work.
+///
+/// `migrate` deletes the json manifests, so the user should have a way
+/// back.
+#[cfg(feature = "networking")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum VcsState {
+    Clean,
+    /// The paths that differ, relative to the repository's work tree.
+    Dirty(Vec<String>),
+    NoRepository,
+}
+
+#[cfg(feature = "networking")]
+#[derive(Debug, thiserror::Error)]
+pub enum VcsError {
+    #[error("failed to open the git repository at `{path}`")]
+    Open {
+        path: camino::Utf8PathBuf,
+        #[source]
+        source: Box<gix::Error>,
+    },
+    #[error("failed to read the status of the git repository at `{path}`")]
+    Status {
+        path: camino::Utf8PathBuf,
+        #[source]
+        source: Box<gix::Error>,
+    },
+    #[error("the git repository at `{0}` has no work tree")]
+    NoWorkTree(camino::Utf8PathBuf),
+    #[error("the work tree of the git repository at `{0}` is not valid UTF-8")]
+    NonUtf8WorkTree(camino::Utf8PathBuf),
+    #[error("failed to resolve the project's location in the git repository")]
+    Canonicalize(#[source] Box<crate::project::utils::FsIoError>),
+}
+
+/// The state of the work tree *at `root`*.
+#[cfg(feature = "networking")]
+pub fn check_vcs(root: &camino::Utf8Path) -> Result<VcsState, VcsError> {
+    use gix::{
+        bstr::{BString, ByteSlice as _},
+        dir::entry::Status as DirStatus,
+        status::{
+            Item, UntrackedFiles, index_worktree::Item as IndexWorktreeItem,
+            plumbing::index_as_worktree::EntryStatus,
+        },
+    };
+
+    // `discover`, not `open`: a project in a subdirectory of a
+    // repository is inside its work tree.
+    let repo = match gix::discover(root) {
+        Ok(repo) => repo,
+        Err(error) => {
+            // Only the no-repository variants mean "there is no repository
+            // here"; treating other errors the same would let `--allow-no-vcs`
+            // hide a broken one. gix reports one error type, with the cause
+            // inside it.
+            if matches!(
+                error.downcast_any_ref::<gix::discover::upwards::Error>(),
+                Some(
+                    gix::discover::upwards::Error::NoGitRepository { path: _ }
+                        | gix::discover::upwards::Error::NoGitRepositoryWithinCeiling {
+                            path: _,
+                            ceiling_height: _
+                        }
+                        | gix::discover::upwards::Error::NoGitRepositoryWithinFs {
+                            path: _,
+                            limit: _
+                        }
+                )
+            ) {
+                return Ok(VcsState::NoRepository);
+            }
+            return Err(VcsError::Open {
+                path: root.to_owned(),
+                source: Box::new(error),
+            });
+        }
+    };
+
+    let fail = |source: gix::Error| VcsError::Status {
+        path: root.to_owned(),
+        source: Box::new(source),
+    };
+
+    // Scope the walk to the project. Without a pathspec the status
+    // covers the whole work tree, so a monorepo with one unrelated
+    // modified file would refuse every migration in it.
+    let workdir = repo
+        .workdir()
+        .ok_or_else(|| VcsError::NoWorkTree(root.to_owned()))?;
+    let workdir = camino::Utf8Path::from_path(workdir)
+        .ok_or_else(|| VcsError::NonUtf8WorkTree(root.to_owned()))?;
+    let absolute =
+        crate::project::utils::wrapfs::canonicalize(root).map_err(VcsError::Canonicalize)?;
+    let workdir =
+        crate::project::utils::wrapfs::canonicalize(workdir).map_err(VcsError::Canonicalize)?;
+    let pathspec: Vec<BString> = match absolute.strip_prefix(&workdir) {
+        Ok(relative) if !relative.as_str().is_empty() => vec![BString::from(relative.as_str())],
+        // The project *is* the work tree root: no filter needed.
+        _ => Vec::new(),
+    };
+
+    let status = repo
+        .status(gix::progress::Discard)
+        .map_err(fail)?
+        // Explicit, because `Repository::status` otherwise takes
+        // `status.showUntrackedFiles` from the user's configuration, so
+        // a `no` there would silently stop untracked files counting.
+        // `Files` so the report names files.
+        .untracked_files(UntrackedFiles::Files)
+        .into_iter(pathspec)
+        .map_err(fail)?;
+
+    let mut dirty = Vec::new();
+    for item in status {
+        let item = item.map_err(fail)?;
+        let counts = match &item {
+            // Staged.
+            Item::TreeIndex(_) => true,
+            Item::IndexWorktree(IndexWorktreeItem::Modification {
+                status,
+                entry: _,
+                entry_index: _,
+                rela_path: _,
+            }) => {
+                // `NeedsUpdate` is a stat-cache refresh hint and
+                // `IntentToAdd` is documented as no change; counting
+                // either gives a machine-dependent false `Dirty`.
+                matches!(
+                    status,
+                    EntryStatus::Change(_)
+                        | EntryStatus::Conflict {
+                            summary: _,
+                            entries: _
+                        }
+                )
+            }
+            Item::IndexWorktree(IndexWorktreeItem::DirectoryContents {
+                entry,
+                collapsed_directory_status: _,
+            }) => entry.status == DirStatus::Untracked,
+            Item::IndexWorktree(IndexWorktreeItem::Rewrite {
+                source: _,
+                dirwalk_entry: _,
+                dirwalk_entry_collapsed_directory_status: _,
+                dirwalk_entry_id: _,
+                diff: _,
+                copy: _,
+            }) => true,
+        };
+        if counts {
+            dirty.push(item.location().to_str_lossy().into_owned());
+        }
+    }
+
+    if dirty.is_empty() {
+        Ok(VcsState::Clean)
+    } else {
+        Ok(VcsState::Dirty(dirty))
+    }
+}

@@ -10,11 +10,11 @@ use typed_path::Utf8UnixPath;
 
 use crate::{
     auth::HTTPAuthentication,
+    cancel::CancellationToken,
     config::OverrideSource,
     context::ProjectContext,
     env::memory::MemoryStorageEnvironment,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
         AsSyncProjectTokio, ProjectRead, ProjectReadAsync as _,
         editable::EditableProject,
@@ -47,8 +47,6 @@ pub enum AnyProject<Policy: HTTPAuthentication> {
 
 #[derive(Error, Debug)]
 pub enum TryFromSourceError {
-    #[error("unsupported source\n{0}")]
-    UnsupportedSource(String),
     #[error(transparent)]
     LocalKpar(Box<FsIoError>),
     #[error(transparent)]
@@ -59,6 +57,10 @@ pub enum TryFromSourceError {
     UrlParse(String, #[source] url::ParseError),
     #[error(transparent)]
     RemoteGit(GixDownloadedError),
+    /// An `[override]` naming a project under a workspace root that is
+    /// in neither `members` nor `exclude`.
+    #[error(transparent)]
+    Workspace(#[from] crate::workspace::model_toml::DiscoverError),
 }
 
 // TODO: Find a better solution going from source to project.
@@ -72,10 +74,12 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
     ) -> Result<Self, TryFromSourceError> {
         match source {
             OverrideSource::Editable { editable } => {
-                let project = LocalSrcProject::new_access(
+                // An `[override]` may name a workspace member, whose manifest
+                // resolves only against its table; this reads it as a member.
+                let project = crate::workspace::model_toml::project_at_path(
                     project_root.as_ref().join(editable.as_str()),
                     Some(editable.to_string().into()),
-                );
+                )?;
                 Ok(Self::Editable(EditableProject::<LocalSrcProject>::new(
                     editable.as_str().into(),
                     project,
@@ -89,11 +93,11 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
                 )))
             }
             OverrideSource::LocalSrc { src_path } => {
+                // Read as a member, as for `Editable`.
                 let project_path = project_root.as_ref().join(src_path.as_str());
-                Ok(Self::LocalSrc(LocalSrcProject::new_access(
-                    project_path,
-                    Some(src_path),
-                )))
+                Ok(Self::LocalSrc(
+                    crate::workspace::model_toml::project_at_path(project_path, Some(src_path))?,
+                ))
             }
             // TODO: use expected size
             OverrideSource::RemoteKpar { remote_kpar } => Ok(Self::RemoteKpar(
@@ -104,7 +108,7 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
                     None,
                 )
                 .map_err(TryFromSourceError::RemoteKpar)?
-                .to_tokio_sync(runtime),
+                .to_tokio_sync(runtime, CancellationToken::new()),
             )),
             OverrideSource::RemoteSrc { remote_src } => Ok(Self::RemoteSrc(
                 ReqwestSrcProjectAsync::<Policy> {
@@ -114,7 +118,7 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
                     auth_policy,
                     expected_checksum: None,
                 }
-                .to_tokio_sync(runtime),
+                .to_tokio_sync(runtime, CancellationToken::new()),
             )),
             OverrideSource::RemoteGit { remote_git } => Ok(Self::RemoteGit(
                 GixDownloadedProject::new(remote_git).map_err(TryFromSourceError::RemoteGit)?,

@@ -14,7 +14,7 @@ use super::{
 };
 
 // The tests only care about whether a fix was offered (`suggestion.is_some()`),
-// not the exact wording, so that the messages can be edited freely.
+// not the exact wording.
 
 const SOME_IRI: &str = "https://example.test/some-package";
 

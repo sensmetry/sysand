@@ -1,24 +1,26 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use crate::manifest::diagnostics::{KeyLocation, Report, Severity};
+use toml::Spanned;
+use toml::de::DeTable;
+
+use crate::manifest::diagnostics::{Diagnostics, KeyLocation, Severity};
 use crate::manifest::reader::TableReader;
-use crate::manifest::spans::Positions;
 use crate::manifest::spans::Source;
 
 /// Parse a test document the way a reader does: once, keeping both the
 /// values and where they came from.
-fn parse(text: &'static str) -> (toml::Table, Positions<'static>) {
-    Source::new("model.toml", text)
-        .read()
-        .expect("the test document parses")
+fn parse(text: &'static str) -> (Spanned<DeTable<'static>>, Source<'static>) {
+    let source = Source::new("model.toml", text);
+    let table = source.read().expect("the test document parses");
+    (table, source)
 }
 
-fn top<'a>(table: &'a toml::Table, positions: &'a Positions<'a>) -> TableReader<'a> {
-    TableReader::new(table, Vec::new(), KeyLocation::TopLevel, positions)
+fn top<'a>(table: &'a Spanned<DeTable<'a>>, source: &'a Source<'a>) -> TableReader<'a> {
+    TableReader::new(table.get_ref(), None, KeyLocation::TopLevel, source)
 }
 
-fn texts(report: &Report) -> Vec<&str> {
+fn texts(report: &Diagnostics) -> Vec<&str> {
     report
         .diagnostics()
         .iter()
@@ -26,7 +28,7 @@ fn texts(report: &Report) -> Vec<&str> {
         .collect()
 }
 
-fn places(report: &Report) -> Vec<(usize, usize)> {
+fn places(report: &Diagnostics) -> Vec<(usize, usize)> {
     report
         .diagnostics()
         .iter()
@@ -38,27 +40,35 @@ fn places(report: &Report) -> Vec<(usize, usize)> {
 }
 
 /// The one conversion the whole module rests on: a parsed document
-/// becomes plain values Sysand can judge, and the spans survive it.
-/// Every TOML type arrives as itself, a datetime included -- which is
-/// what lets a wrong-typed key say what it found instead of failing to
-/// deserialize.
+/// keeps every value Sysand judges, each with where it came from. Every
+/// TOML type arrives as itself, a datetime included.
 #[test]
-fn a_document_becomes_a_table_and_an_index() {
+fn a_document_keeps_its_values_and_their_spans() {
     const TEXT: &str = "\
-manifest-version = 1
+manifest-version = \"1.0\"
+count = 3
 when = 2026-01-02
 
 [workspace]
 members = [\"a\"]
 ";
-    let (table, positions) = parse(TEXT);
-    assert_eq!(table["manifest-version"].as_integer(), Some(1));
-    assert_eq!(table["when"].type_str(), "datetime");
-    assert_eq!(table["workspace"]["members"][0].as_str(), Some("a"));
-    let position = positions
-        .at(&["workspace", "members", "0"])
-        .expect("indexed");
-    assert_eq!((position.line, position.column), (5, 12));
+    let (table, source) = parse(TEXT);
+    let mut report = Diagnostics::new();
+    let reader = top(&table, &source);
+    assert_eq!(reader.string("manifest-version", &mut report), Some("1.0"));
+    assert_eq!(
+        reader.get("count").map(|value| value.get_ref().type_str()),
+        Some("integer")
+    );
+    assert_eq!(
+        reader.get("when").map(|value| value.get_ref().type_str()),
+        Some("datetime")
+    );
+    let workspace = reader.table("workspace", &mut report).expect("a table");
+    assert_eq!(workspace.strings("members", &mut report), Some(vec!["a"]));
+    assert!(report.is_empty());
+    let position = workspace.at_element("members", 0).expect("positioned");
+    assert_eq!((position.line, position.column), (6, 12));
 }
 
 /// A file that is not TOML at all is the one failure that stops a read
@@ -83,10 +93,10 @@ fn a_syntax_error_is_one_positioned_diagnostic() {
 #[test]
 fn a_string_key_comes_back_as_written() {
     const TEXT: &str = "publisher = \"Acme Corp\"\n";
-    let (table, positions) = parse(TEXT);
-    let mut report = Report::new();
+    let (table, source) = parse(TEXT);
+    let mut report = Diagnostics::new();
     assert_eq!(
-        top(&table, &positions).string("publisher", &mut report),
+        top(&table, &source).string("publisher", &mut report),
         Some("Acme Corp")
     );
     assert!(report.is_empty());
@@ -97,9 +107,9 @@ fn a_string_key_comes_back_as_written() {
 #[test]
 fn a_missing_key_is_not_a_diagnostic() {
     const TEXT: &str = "publisher = \"acme\"\n";
-    let (table, positions) = parse(TEXT);
-    let mut report = Report::new();
-    let reader = top(&table, &positions);
+    let (table, source) = parse(TEXT);
+    let mut report = Diagnostics::new();
+    let reader = top(&table, &source);
     assert!(reader.string("absent", &mut report).is_none());
     assert!(reader.strings("absent", &mut report).is_none());
     assert!(reader.table("absent", &mut report).is_none());
@@ -112,10 +122,10 @@ fn a_missing_key_is_not_a_diagnostic() {
 #[test]
 fn a_wrong_typed_key_is_one_positioned_diagnostic() {
     const TEXT: &str = "publisher = 1\n";
-    let (table, positions) = parse(TEXT);
-    let mut report = Report::new();
+    let (table, source) = parse(TEXT);
+    let mut report = Diagnostics::new();
     assert!(
-        top(&table, &positions)
+        top(&table, &source)
             .string("publisher", &mut report)
             .is_none()
     );
@@ -126,45 +136,15 @@ fn a_wrong_typed_key_is_one_positioned_diagnostic() {
     assert_eq!(places(&report), [(1, 1)]);
 }
 
-/// `manifest-version` is the one integer a `model.toml` carries.
-#[test]
-fn an_integer_key_comes_back_as_written() {
-    const TEXT: &str = "manifest-version = 1\n";
-    let (table, positions) = parse(TEXT);
-    let mut report = Report::new();
-    assert_eq!(
-        top(&table, &positions).integer("manifest-version", &mut report),
-        Some(1)
-    );
-    assert!(report.is_empty());
-}
-
-#[test]
-fn a_key_that_is_not_an_integer_is_one_diagnostic() {
-    const TEXT: &str = "manifest-version = \"1\"\n";
-    let (table, positions) = parse(TEXT);
-    let mut report = Report::new();
-    assert!(
-        top(&table, &positions)
-            .integer("manifest-version", &mut report)
-            .is_none()
-    );
-    assert_eq!(
-        texts(&report),
-        ["`manifest-version` in the top level must be an integer, but it is a string"]
-    );
-    assert_eq!(places(&report), [(1, 1)]);
-}
-
 /// One bad element does not cost the reader the rest of the array, and
 /// each is reported where it is.
 #[test]
 fn every_bad_element_of_an_array_is_reported() {
     const TEXT: &str = "topics = [\"a\", 2, \"c\", false]\n";
-    let (table, positions) = parse(TEXT);
-    let mut report = Report::new();
+    let (table, source) = parse(TEXT);
+    let mut report = Diagnostics::new();
     assert!(
-        top(&table, &positions)
+        top(&table, &source)
             .strings("topics", &mut report)
             .is_none()
     );
@@ -180,10 +160,10 @@ fn every_bad_element_of_an_array_is_reported() {
 #[test]
 fn a_key_that_is_not_an_array_is_one_diagnostic() {
     const TEXT: &str = "topics = \"a\"\n";
-    let (table, positions) = parse(TEXT);
-    let mut report = Report::new();
+    let (table, source) = parse(TEXT);
+    let mut report = Diagnostics::new();
     assert!(
-        top(&table, &positions)
+        top(&table, &source)
             .strings("topics", &mut report)
             .is_none()
     );
@@ -202,9 +182,9 @@ name = \"a\"
 [[inline-usages]]
 name = \"b\"
 ";
-    let (table, positions) = parse(TEXT);
-    let mut report = Report::new();
-    let entries = top(&table, &positions).tables("inline-usages", &mut report);
+    let (table, source) = parse(TEXT);
+    let mut report = Diagnostics::new();
+    let entries = top(&table, &source).tables("inline-usages", &mut report);
     assert!(report.is_empty());
     let names: Vec<Option<&str>> = entries
         .iter()
@@ -220,9 +200,9 @@ name = \"b\"
 #[test]
 fn an_array_element_that_is_not_a_table_is_one_diagnostic() {
     const TEXT: &str = "inline-usages = [{ name = \"a\" }, \"b\"]\n";
-    let (table, positions) = parse(TEXT);
-    let mut report = Report::new();
-    let entries = top(&table, &positions).tables("inline-usages", &mut report);
+    let (table, source) = parse(TEXT);
+    let mut report = Diagnostics::new();
+    let entries = top(&table, &source).tables("inline-usages", &mut report);
     assert_eq!(entries.len(), 1);
     assert_eq!(
         texts(&report),
@@ -241,9 +221,9 @@ publisher = \"old\"
 [group.current]
 publisher = \"new\"
 ";
-    let (table, positions) = parse(TEXT);
-    let mut report = Report::new();
-    let groups = top(&table, &positions).named_tables("group", &mut report);
+    let (table, source) = parse(TEXT);
+    let mut report = Diagnostics::new();
+    let groups = top(&table, &source).named_tables("group", &mut report);
     assert!(report.is_empty());
     let names: Vec<&str> = groups.iter().map(|(name, _)| *name).collect();
     assert_eq!(names, ["legacy", "current"]);
@@ -256,9 +236,9 @@ publisher = \"new\"
 #[test]
 fn a_named_table_that_is_not_a_table_is_one_diagnostic() {
     const TEXT: &str = "group = { legacy = 3 }\n";
-    let (table, positions) = parse(TEXT);
-    let mut report = Report::new();
-    let groups = top(&table, &positions).named_tables("group", &mut report);
+    let (table, source) = parse(TEXT);
+    let mut report = Diagnostics::new();
+    let groups = top(&table, &source).named_tables("group", &mut report);
     assert!(groups.is_empty());
     assert_eq!(
         texts(&report),
@@ -275,8 +255,8 @@ publisher = \"acme\"
 colour = \"red\"
 shape = \"round\"
 ";
-    let (table, positions) = parse(TEXT);
-    let warnings = top(&table, &positions).unknown_keys(&["publisher"], None);
+    let (table, source) = parse(TEXT);
+    let warnings = top(&table, &source).unknown_keys(&["publisher"], None);
     let messages: Vec<&str> = warnings
         .iter()
         .map(|warning| warning.message.as_str())
@@ -299,16 +279,15 @@ shape = \"round\"
     assert_eq!(places, [(2, 1), (3, 1)]);
 }
 
-/// workspaces.md puts inheritance in one direction only. A marker where
-/// a plain value belongs is a mistake worth naming, rather than a table
-/// where a string was expected.
+/// Inheritance goes in one direction only: a marker where a plain value
+/// belongs is an error.
 #[test]
 fn a_marker_where_a_value_belongs_says_so() {
     const TEXT: &str = "publisher = { workspace = true }\n";
-    let (table, positions) = parse(TEXT);
-    let mut report = Report::new();
+    let (table, source) = parse(TEXT);
+    let mut report = Diagnostics::new();
     assert!(
-        top(&table, &positions)
+        top(&table, &source)
             .string("publisher", &mut report)
             .is_none()
     );
@@ -321,16 +300,14 @@ fn a_marker_where_a_value_belongs_says_so() {
     );
 }
 
-/// `urls.workspace = true` is the whole-table marker form. Without the
-/// same check on a table-valued key it would come back as an unknown key
-/// inside `urls` -- a warning, leaving the read to succeed with no urls
-/// at all.
+/// `urls.workspace = true` is the whole-table marker form; a table-valued
+/// key must not report it as an unknown key inside `urls`.
 #[test]
 fn a_table_valued_key_refuses_a_marker_too() {
     const TEXT: &str = "urls.workspace = true\n";
-    let (table, positions) = parse(TEXT);
-    let mut report = Report::new();
-    assert!(top(&table, &positions).table("urls", &mut report).is_none());
+    let (table, source) = parse(TEXT);
+    let mut report = Diagnostics::new();
+    assert!(top(&table, &source).table("urls", &mut report).is_none());
     assert_eq!(
         texts(&report),
         [
@@ -347,9 +324,9 @@ fn a_table_reader_names_its_table() {
 [workspace.group.legacy]
 publisher = 1
 ";
-    let (table, positions) = parse(TEXT);
-    let mut report = Report::new();
-    let reader = top(&table, &positions)
+    let (table, source) = parse(TEXT);
+    let mut report = Diagnostics::new();
+    let reader = top(&table, &source)
         .table("workspace", &mut report)
         .expect("a table")
         .table("group", &mut report)

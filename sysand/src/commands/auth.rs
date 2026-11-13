@@ -62,8 +62,8 @@ pub enum DefaultIndexError {
 /// the consulted stage yields more than one distinct index, the target is
 /// ambiguous and an explicit URL is required.
 ///
-/// The variable is read here rather than through clap, as the `auth`
-/// commands have no `--default-index` option.
+/// The variable is read directly: the `auth` commands have no
+/// `--default-index` option.
 pub fn resolve_default_index(config: &Config) -> Result<IndexKey, DefaultIndexError> {
     let env_candidates: Vec<IndexKey> = std::env::var(crate::env_vars::SYSAND_DEFAULT_INDEX)
         .ok()
@@ -83,6 +83,8 @@ pub fn resolve_default_index(config: &Config) -> Result<IndexKey, DefaultIndexEr
         config
             .default_index_locations()
             .into_iter()
+            // A filesystem index takes no credentials
+            .filter_map(|source| source.as_remote().cloned())
             .map(IndexKey::from)
             .collect()
     } else {
@@ -99,7 +101,11 @@ pub fn resolve_default_index(config: &Config) -> Result<IndexKey, DefaultIndexEr
     }
     match candidates.pop() {
         Some(key) => Ok(key),
-        None => Ok(default_index_location().into()),
+        None => Ok(default_index_location()
+            .as_remote()
+            .cloned()
+            .expect("BUG: the built-in default index is an HTTP(S) index")
+            .into()),
     }
 }
 
@@ -161,9 +167,8 @@ fn render_login_notice(notice: AuthLoginNotice, index_key: &str) {
             );
             if schemes_include_basic(&challenge_schemes) {
                 let stem = cred_env_var_stem(index_key);
-                // Keep this basic-auth routing hint consistent with the
-                // refusal-path variant in core/src/commands/auth.rs
-                // (validation_rejected_message).
+                // Keep consistent with the basic-auth hint core gives when
+                // a login is refused.
                 log::warn!(
                     "this index uses username/password (HTTP basic) authentication;\n\
                          configure `SYSAND_CRED_{stem}_BASIC_USER` /\n\
@@ -229,8 +234,7 @@ pub fn command_auth_login(
             globs,
             validated,
         }) => {
-            // The claim is scoped to the surfaces that accepted; never a
-            // bare "validated".
+            // The claim is scoped to the surfaces that accepted.
             let claim = if validated.is_empty() {
                 "stored, not validated".to_owned()
             } else {
@@ -250,9 +254,9 @@ pub fn command_auth_login(
             Ok(())
         }
         Ok(AuthLoginOutcome::BackendUnavailable { key, globs, reason }) => {
-            // No-keyring host: print the exact
-            // `SYSAND_CRED_*` lines to set instead. The secret is never
-            // echoed: stdout here typically lands in CI job logs.
+            // No-keyring host: print the `SYSAND_CRED_*` lines to set instead.
+            // The secret is never echoed: stdout here typically lands in CI
+            // job logs.
             println!(
                 "No OS keyring backend is available ({reason}), so the credential\n\
                  was not stored."
@@ -291,8 +295,7 @@ pub fn command_auth_login(
 }
 
 /// Remediation message for the platform credential-store cap on
-/// `auth login` (Windows ~2.5 KB). Naming the `sysand auth` commands
-/// belongs in the CLI, not core. Lists already-expired logins as drop
+/// `auth login` (Windows ~2.5 KB). Lists already-expired logins as drop
 /// candidates; with no stored credentials there is nothing to remove.
 fn blob_full_message(stored: &[(&str, Option<Timestamp>)], now: Timestamp) -> String {
     let expired: Vec<&str> = stored
@@ -323,7 +326,7 @@ fn blob_full_message(stored: &[(&str, Option<Timestamp>)], now: Timestamp) -> St
 /// Read the login secret: from stdin when `--token-stdin` was given
 /// (trimming exactly one trailing newline), else from a hidden terminal
 /// prompt. Fails fast when stdin is not a terminal and `--token-stdin`
-/// was not given, instead of hanging or reading a pipe as a secret.
+/// was not given.
 fn read_token(key: &str, token_stdin: bool) -> Result<String> {
     let token = if token_stdin {
         let mut raw = String::new();
@@ -392,7 +395,9 @@ pub fn command_auth_logout(index_url: Option<IndexKey>, config: &Config) -> Resu
     // default cannot be targeted silently.
     let header = sysand_core::style::get_style_config().header;
     // Print to ignore log levels
-    println!("{header}{:>12}{header:#} from index `{key}`", "Logging out");
+    crate::output::text(|| {
+        println!("{header}{:>12}{header:#} from index `{key}`", "Logging out");
+    });
 
     let mut store = open_cli_credential_store().context("could not open the credential store")?;
     match do_auth_logout(&mut store, &key) {
@@ -695,8 +700,7 @@ pub fn command_auth_whoami(
         .publish_bearer_auth_map()
         .context("could not compile `SYSAND_CRED_*` URL patterns")?;
     // One store read serves both the discovery fetch and credential
-    // selection (at most one keychain touch per command); this is
-    // important to minimize, as each read may trigger a user prompt
+    // selection: each read may trigger a user prompt.
     let store = open_cli_credential_store().context("could not open the credential store")?;
     let records = match store.list() {
         Ok(records) => records,

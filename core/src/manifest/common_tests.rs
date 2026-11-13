@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use serde::{Deserialize, Serialize};
-use typed_path::Utf8UnixPathBuf;
+use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
 use crate::manifest::common::{
-    InheritFrom, InheritMarker, Maintainer, Sources, SourcesError, StdlibStem, is_valid_group_name,
-    normalized_identity,
+    InheritFrom, InheritMarker, Maintainer, PathError, PathKey, PathProblem, Sources, SourcesError,
+    StdlibStem, admitted_source, is_valid_group_name, normalized_identity, path_problem, root_path,
 };
-use crate::model::{IndexName, IndexPublisher};
+use crate::model::{IndexName, IndexPublisher, KnownMetamodel};
 
 fn sources(entries: &[&str]) -> Result<Sources, SourcesError> {
     Sources::new(
@@ -23,8 +22,8 @@ fn sources_error(entries: &[&str]) -> SourcesError {
     sources(entries).expect_err("entries should be rejected")
 }
 
-/// model-toml.md "Main project metadata" gives the accepted syntax as
-/// regexes; publishers do not admit `.` as a separator, names do.
+/// The accepted syntax is given as regexes; publishers do not admit `.`
+/// as a separator, names do.
 #[test]
 fn identifier_syntax_follows_the_documented_regexes() {
     for ok in ["acme", "Acme Corp", "a-b", "ab1"] {
@@ -63,8 +62,8 @@ fn identifier_error_names_the_rule() {
     );
 }
 
-/// model-toml.md "Normalization": projects are resolved by their
-/// normalized identity, which is also what the lockfile records.
+/// Projects are resolved by their normalized identity, which is also what
+/// the lockfile records.
 #[test]
 fn normalized_identity_is_a_pkg_sysand_purl() {
     let publisher = IndexPublisher::parse("Acme Corp").expect("a valid publisher");
@@ -78,8 +77,8 @@ fn normalized_identity_is_a_pkg_sysand_purl() {
     );
 }
 
-/// model-toml.md "Standard library": "A usage is a standard-library usage
-/// iff its publisher normalizes to `omg`".
+/// A publisher is the standard-library publisher iff it normalizes to
+/// `omg`.
 #[test]
 fn stdlib_publisher_is_recognized_after_normalization() {
     for publisher in ["omg", "OMG", "Omg"] {
@@ -97,24 +96,33 @@ fn stdlib_publisher_is_recognized_after_normalization() {
     );
 }
 
-/// model-toml.md maintainer rule: each entry is a string of the form
-/// `name <email>`, both parts mandatory.
+/// Each maintainer entry is a string of the form `name <email>`, both
+/// parts mandatory.
 #[test]
 fn maintainer_string_must_match_name_email_format() {
-    #[derive(Debug, Deserialize)]
-    struct Wrapper {
-        #[expect(dead_code)]
-        maintainers: Vec<Maintainer>,
-    }
-
-    let error = toml_edit::de::from_str::<Wrapper>("maintainers = [\"no email here\"]\n")
-        .expect_err("not a maintainer");
+    let error = Maintainer::parse("no email here").expect_err("not a maintainer");
     assert!(
         error.to_string().contains("name <email>"),
         "unexpected error: {error}"
     );
 
-    for bad in ["<a@b.c>", "A B <>", "A B", "A B <a@b.c> trailing"] {
+    for bad in [
+        "<a@b.c>",
+        "A B <>",
+        "A B",
+        "A B <a@b.c> trailing",
+        "A <x> trailing <y>",
+        "A <<b>>",
+        "A < b >",
+        "A <b c>",
+        "A> <b>",
+        "A<b>",
+        " <b>",
+        "A   <b>",
+        " A <b>",
+        "A\t <b>",
+        "A <b>",
+    ] {
         assert!(Maintainer::parse(bad).is_err(), "{bad} is not a maintainer");
     }
 
@@ -124,10 +132,21 @@ fn maintainer_string_must_match_name_email_format() {
     assert_eq!(maintainer.to_string(), "A B <a@b.c>");
 }
 
-/// model-toml.md "Standard library": the `stdlib` value is "the last
-/// segment of the IRI at which the library's KPAR is published",
-/// validated as a single path segment so it cannot carry `/` or `..` into
-/// an IRI.
+/// A maintainer displays as the text it was parsed from, so the
+/// `.project.json` `maintainer` array keeps its spelling.
+#[test]
+fn maintainer_keeps_its_spelling() {
+    for raw in ["A <b@c>", "A B <a@b.c>"] {
+        let maintainer = Maintainer::parse(raw).expect("a maintainer");
+        assert_eq!(maintainer.to_string(), raw);
+    }
+    let maintainer = Maintainer::parse("A <b@c>").expect("a maintainer");
+    assert_eq!(maintainer.name, "A");
+    assert_eq!(maintainer.email, "b@c");
+}
+
+/// The `stdlib` value is the last segment of the IRI at which the
+/// library's KPAR is published, validated as a single path segment.
 #[test]
 fn stdlib_key_is_a_path_segment() {
     for ok in ["Kernel-Libraries", "Systems-Library", "a1"] {
@@ -157,8 +176,8 @@ fn inherit_from_names_its_group() {
     assert_eq!(InheritFrom::DefaultGroup.to_string(), "the default group");
 }
 
-/// workspaces.md: there is no "inherit nothing" marker; a key that is not
-/// inherited carries its own value.
+/// There is no "inherit nothing" marker; a key that is not inherited
+/// carries its own value.
 #[test]
 fn workspace_false_is_not_a_marker() {
     let error = InheritFrom::try_from(InheritMarker::Flag(false)).expect_err("not a marker");
@@ -176,8 +195,7 @@ fn workspace_false_is_not_a_marker() {
     );
 }
 
-/// workspaces.md "Explicit inheritance": "`<group-name>` is a bare TOML
-/// key: letters, digits, `-` and `_`."
+/// A `<group-name>` is a bare TOML key: letters, digits, `-` and `_`.
 #[test]
 fn group_names_are_bare_toml_keys() {
     for ok in ["a_b-1", "legacy", "A1"] {
@@ -191,23 +209,42 @@ fn group_names_are_bare_toml_keys() {
     }
 }
 
-/// model-toml.md `sources`: entries are relative, `/`-separated, and are
-/// stored normalized, which is what the KPAR maps are keyed by.
+/// Entries are taken exactly as written: the manifest admits only the one
+/// form Sysand itself writes.
 #[test]
-fn sources_entries_are_normalized_and_stay_inside_the_project_root() {
+fn sources_entries_are_taken_exactly_as_written() {
     for (entries, expected) in [
         (&["/abs/main.sysml"][..], "is absolute"),
-        (&["../outside.sysml"], "escapes the project root"),
-        (&["src/../../outside.sysml"], "escapes the project root"),
-        (&["."], "is the project root, not a source file"),
+        // Nothing is resolved, so a `..` is a form error and no entry can
+        // leave the project root.
+        (
+            &["../outside.sysml"],
+            "is not in the form a `sources` entry takes",
+        ),
+        (
+            &["src/../../outside.sysml"],
+            "is not in the form a `sources` entry takes",
+        ),
+        (
+            &["./main.sysml"],
+            "is not in the form a `sources` entry takes",
+        ),
+        (
+            &["src/./main.sysml"],
+            "is not in the form a `sources` entry takes",
+        ),
+        (
+            &["src//main.sysml"],
+            "is not in the form a `sources` entry takes",
+        ),
+        (&["."], "is not in the form a `sources` entry takes"),
+        (&[".."], "is not in the form a `sources` entry takes"),
+        (&[""], "is not in the form a `sources` entry takes"),
         (&["src/"], "names a directory"),
         (
             &["src/main.sysml", "src/main.sysml"],
             "is listed more than once",
         ),
-        // Two spellings of one file are one file, and therefore a duplicate.
-        (&["./main.sysml", "main.sysml"], "name the same file"),
-        (&["src//main.sysml", "src/main.sysml"], "name the same file"),
     ] {
         let error = sources_error(entries);
         assert!(
@@ -216,20 +253,24 @@ fn sources_entries_are_normalized_and_stay_inside_the_project_root() {
         );
     }
 
-    let stored = sources(&["./main.sysml", "src/../parts.kerml", "lib//util.kerml"])
-        .expect("all three are inside the project root");
+    let stored =
+        sources(&["main.sysml", "src/parts.kerml", "lib/util.kerml"]).expect("the strict form");
     assert_eq!(
         stored.as_slice(),
         [
             Utf8UnixPathBuf::from("main.sysml"),
-            Utf8UnixPathBuf::from("parts.kerml"),
+            Utf8UnixPathBuf::from("src/parts.kerml"),
             Utf8UnixPathBuf::from("lib/util.kerml"),
         ]
     );
+
+    // Equality is exact, so two spellings of one file on a
+    // case-insensitive filesystem are two entries.
+    sources(&["a.sysml", "A.sysml"]).expect("equality is exact");
 }
 
 /// A manifest is read the same way on every platform, so a Windows path
-/// is not a source path (see `utils::normalize_relative`).
+/// is not a source path. The drive letter makes `C:/main.sysml` absolute.
 #[test]
 fn sources_rejects_windows_paths() {
     assert!(
@@ -244,8 +285,8 @@ fn sources_rejects_windows_paths() {
     );
 }
 
-/// model-toml.md `sources`: "Every entry names a KerML (`.kerml`) or SysML
-/// (`.sysml`) file, the extension compared case-insensitively".
+/// Every entry names a KerML (`.kerml`) or SysML (`.sysml`) file, the
+/// extension compared case-insensitively.
 #[test]
 fn sources_entries_must_be_model_files() {
     for ok in &["a.sysml", "A.SYSML", "b.KerML", "src/c.kerml"] {
@@ -259,23 +300,138 @@ fn sources_entries_must_be_model_files() {
     }
     assert_eq!(
         sources_error(&["readme.md"]).to_string(),
-        "`sources` entry `readme.md` is not a KerML (`.kerml`) or SysML (`.sysml`) file; \
-         `sources` lists model files only"
+        "`sources` entry `readme.md` is not a KerML (`.kerml`) or SysML (`.sysml`) file"
     );
 }
 
+/// The half of the language rule the metamodel decides, which
+/// `Sources` cannot answer because the value may be inherited.
 #[test]
-fn sources_serializes_the_normalized_form() {
-    #[derive(Debug, Serialize)]
-    struct Wrapper {
-        sources: Sources,
-    }
+fn a_source_the_metamodel_does_not_admit_is_refused() {
+    let kerml =
+        KnownMetamodel::recognize("https://www.omg.org/spec/KerML/20250201").expect("a kind");
+    let sysml =
+        KnownMetamodel::recognize("https://www.omg.org/spec/SysML/20250201").expect("a kind");
 
-    let wrapper = Wrapper {
-        sources: sources(&["./a.sysml", "src/../b.kerml"]).expect("valid sources"),
-    };
+    let entry = Utf8UnixPath::new("a.sysml");
+    let error = admitted_source(PathKey::Sources, entry, &kerml)
+        .expect_err("a SysML file in a KerML project");
     assert_eq!(
-        toml_edit::ser::to_string(&wrapper).expect("serializes"),
-        "sources = [\"a.sysml\", \"b.kerml\"]\n"
+        error.message,
+        "`sources` entry `a.sysml` is a SysML file, which the metamodel \
+         `https://www.omg.org/spec/KerML/20250201` does not admit;\n\
+         a KerML project lists `.kerml` files, a SysML project `.sysml` and `.kerml` files"
+    );
+    let error =
+        admitted_source(PathKey::Root, entry, &kerml).expect_err("a SysML root in a KerML project");
+    assert!(
+        error
+            .message
+            .starts_with("`root` `a.sysml` is a SysML file"),
+        "{}",
+        error.message
+    );
+    admitted_source(PathKey::Sources, entry, &sysml).expect("a SysML file in a SysML project");
+    admitted_source(PathKey::Sources, Utf8UnixPath::new("a.kerml"), &kerml)
+        .expect("KerML in KerML");
+    admitted_source(PathKey::Sources, Utf8UnixPath::new("a.kerml"), &sysml)
+        .expect("KerML in SysML");
+
+    // Not a model file at all: `PathProblem::NotModelFile`'s, and no
+    // metamodel to name.
+    admitted_source(PathKey::Sources, Utf8UnixPath::new("notes.txt"), &kerml)
+        .expect("no language to judge");
+}
+
+/// The two `sources` form errors, each on its whole text. A trailing
+/// slash is not a malformed spelling but a directory, and it gets the
+/// message that says so.
+#[test]
+fn the_two_sources_form_errors_read_in_full() {
+    let malformed = sources_error(&["a//b.sysml"]);
+    assert_eq!(
+        malformed.to_string(),
+        "`sources` entry `a//b.sysml` is not in the form a `sources` entry takes: relative, \
+         `/`-separated,\nwith no `.` or `..` component and no repeated or leading slash"
+    );
+
+    let directory = sources_error(&["src/"]);
+    assert_eq!(
+        directory.to_string(),
+        "`sources` entry `src/` names a directory; it must name a single model file \
+         (directories and globs are not admitted)"
+    );
+}
+
+/// When a path breaks several rules, the first of: absolute, a NUL or
+/// backslash, a trailing slash, the component rules.
+#[test]
+fn the_first_broken_rule_is_reported() {
+    for (path, problem) in [
+        ("/src/", PathProblem::Absolute),
+        ("src\\/", PathProblem::Backslash),
+        ("../src/", PathProblem::Directory),
+        ("", PathProblem::NotStrict),
+        ("a//b/../c.txt", PathProblem::NotStrict),
+    ] {
+        assert_eq!(path_problem(path), Some(problem), "{path}");
+    }
+}
+
+/// `root` is held to a `sources` entry's syntax, and there is one rule
+/// set. Every problem the shared check finds reads the same for both
+/// keys, apart from the key it names.
+#[test]
+fn sources_and_root_share_their_checks() {
+    for (path, problem, sources_text) in [
+        (
+            "/abs.sysml",
+            PathProblem::Absolute,
+            "`sources` entry `/abs.sysml` is absolute; paths are relative to the project root",
+        ),
+        (
+            "a\\b.sysml",
+            PathProblem::Backslash,
+            "`sources` entry `a\\b.sysml` contains a backslash `\\`;\npaths are `/`-separated, so \
+             that a manifest reads the same way\non every operating system",
+        ),
+        (
+            "a\0.sysml",
+            PathProblem::Null,
+            "`sources` entry `a\0.sysml` contains a NULL character",
+        ),
+        (
+            "../up.sysml",
+            PathProblem::NotStrict,
+            "`sources` entry `../up.sysml` is not in the form a `sources` entry takes: \
+             relative, `/`-separated,\nwith no `.` or `..` component and no repeated or \
+             leading slash",
+        ),
+        (
+            "src/",
+            PathProblem::Directory,
+            "`sources` entry `src/` names a directory; it must name a single model file \
+             (directories and globs are not admitted)",
+        ),
+        (
+            "notes.txt",
+            PathProblem::NotModelFile,
+            "`sources` entry `notes.txt` is not a KerML (`.kerml`) or SysML (`.sysml`) file",
+        ),
+    ] {
+        assert_eq!(path_problem(path), Some(problem), "{path}");
+        assert_eq!(sources_error(&[path]).to_string(), sources_text, "{path}");
+        let root = root_path(path).expect_err(path);
+        assert_eq!(root, PathError::new(PathKey::Root, problem, path), "{path}");
+        assert_eq!(
+            root.to_string(),
+            sources_text.replacen("`sources` entry", "`root`", 1),
+            "{path}"
+        );
+    }
+    assert_eq!(path_problem("src/a.sysml"), None);
+    assert_eq!(
+        root_path("src/a.sysml").map(|p| p.as_str().to_owned()),
+        Ok("src/a.sysml".to_owned())
     );
 }

@@ -1,52 +1,57 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use toml::Spanned;
+use toml::de::DeTable;
+
 use crate::manifest::common::InheritFrom;
-use crate::manifest::diagnostics::{Report, Severity};
-use crate::manifest::spans::Positions;
+use crate::manifest::diagnostics::{Diagnostics, KeyLocation, Severity};
+use crate::manifest::reader::TableReader;
 use crate::manifest::spans::Source;
-use crate::manifest::usage::{
-    MemberUsage, Usage, UsageRaw, UsageSite, check_duplicates, normalize_local_path,
-};
+use crate::manifest::usage::{MemberUsage, Usage, UsageRaw, UsageSite, check_duplicates};
 use crate::model::{IndexName, IndexPublisher};
 
 /// The reading flow of a `model.toml`, minus the `[project]` and
-/// `[workspace]` tables: parse once, harvest the spans, read the entries
-/// out of the values.
-fn read(text: &str) -> (Vec<UsageRaw>, Positions<'_>) {
-    let (table, positions) = Source::new("model.toml", text)
-        .read()
-        .expect("the test document parses");
-    let raws = entries(&table, "inline-usages");
-    (raws, positions)
+/// `[workspace]` tables: parse once, read the entries out of the values.
+fn read(text: &str) -> Vec<UsageRaw> {
+    let source = Source::new("model.toml", text);
+    let table = source.read().expect("the test document parses");
+    entries(&top(&table, &source), "inline-usages")
+        .iter()
+        .map(|entry| UsageRaw::from_table(entry.raw()))
+        .collect()
 }
 
-/// The `[[inline-usages]]` of a parsed document, wherever they sit.
-fn entries(table: &toml::Table, key: &str) -> Vec<UsageRaw> {
-    table
-        .get(key)
-        .and_then(toml::Value::as_array)
-        .map_or_default(|array| {
-            array
-                .iter()
-                .filter_map(toml::Value::as_table)
-                .map(UsageRaw::from_table)
-                .collect()
-        })
+fn top<'a>(table: &'a Spanned<DeTable<'a>>, source: &'a Source<'a>) -> TableReader<'a> {
+    TableReader::new(table.get_ref(), None, KeyLocation::TopLevel, source)
 }
 
-fn site(index: usize) -> UsageSite<'static> {
+/// The `[[inline-usages]]` of a parsed table, wherever it sits.
+fn entries<'a>(table: &TableReader<'a>, key: &str) -> Vec<TableReader<'a>> {
+    let mut report = Diagnostics::new();
+    let entries = table.tables(key, &mut report);
+    assert!(report.is_empty(), "the test entries are tables");
+    entries
+}
+
+fn site<'a>(index: usize, entry: &'a TableReader<'a>) -> UsageSite<'a> {
     UsageSite {
         array: "inline-usages",
         index,
+        entry,
     }
 }
 
-fn members(text: &str) -> Vec<Result<MemberUsage, Report>> {
-    let (raws, positions) = read(text);
-    raws.into_iter()
+fn members(text: &str) -> Vec<Result<MemberUsage, Diagnostics>> {
+    let source = Source::new("model.toml", text);
+    let table = source.read().expect("the test document parses");
+    let entries = entries(&top(&table, &source), "inline-usages");
+    entries
+        .iter()
         .enumerate()
-        .map(|(index, raw)| raw.validate_member(&site(index), &positions))
+        .map(|(index, entry)| {
+            UsageRaw::from_table(entry.raw()).validate_member(&site(index, entry))
+        })
         .collect()
 }
 
@@ -62,14 +67,29 @@ fn member(body: &str) -> MemberUsage {
         .expect("the entry validates")
 }
 
-fn rejected(body: &str) -> Report {
+/// One entry that validates, as the declared usage it is.
+fn accepted(body: &str) -> Usage {
+    match member(body) {
+        MemberUsage::Declared(usage) => usage,
+        other @ MemberUsage::Inherited {
+            publisher: _,
+            name: _,
+            from: _,
+            at: _,
+        } => {
+            panic!("expected a declared usage, got `{other:?}`")
+        }
+    }
+}
+
+fn rejected(body: &str) -> Diagnostics {
     members(&one(body))
         .pop()
         .expect("one entry")
         .expect_err("the entry is rejected")
 }
 
-fn texts(report: &Report) -> Vec<String> {
+fn texts(report: &Diagnostics) -> Vec<String> {
     report
         .diagnostics()
         .iter()
@@ -77,7 +97,7 @@ fn texts(report: &Report) -> Vec<String> {
         .collect()
 }
 
-fn places(report: &Report) -> Vec<(usize, usize)> {
+fn places(report: &Diagnostics) -> Vec<(usize, usize)> {
     report
         .diagnostics()
         .iter()
@@ -99,18 +119,17 @@ fn name(raw: &str) -> IndexName {
 // ----------------------------------------------------------------------
 // The raw shape.
 
-/// model-toml.md "Usages" fixes the key set; `git`/`rev`/`tag`/`branch`
-/// are recognized so that declaring one can be refused as the
-/// postponement it is, rather than as an unknown key.
+/// `git`/`rev`/`tag`/`branch` are recognized so that declaring one can be
+/// refused as the postponement it is.
 #[test]
 fn a_usage_entry_deserializes_every_recognized_key() {
-    let (raws, _) = read(&one(concat!(
+    let raws = read(&one(concat!(
         "publisher = \"acme\"\n",
         "name = \"lib\"\n",
         "version = \"^1.2\"\n",
         "dir = \"../lib\"\n",
         "kpar-path = \"../lib.kpar\"\n",
-        "url = \"https://example.com/lib.kpar\"\n",
+        "kpar-url = \"https://example.com/lib.kpar\"\n",
         "git = \"https://example.com/lib.git\"\n",
         "rev = \"abc123\"\n",
         "tag = \"v1\"\n",
@@ -132,12 +151,11 @@ fn a_usage_entry_deserializes_every_recognized_key() {
     assert!(raw.unknown.is_empty());
 }
 
-/// model-toml.md "Reading and validating": parsing never fails on
-/// content, so an unknown key is collected and a value of the wrong
-/// shape is carried to validation rather than stopping the read.
+/// Parsing never fails on content, so an unknown key is collected and a value of the wrong
+/// shape is carried to validation.
 #[test]
 fn unaccepted_keys_are_collected_not_dropped() {
-    let (raws, _) = read(&one(concat!(
+    let raws = read(&one(concat!(
         "publisher = \"a !b\"\n",
         "name = \"lib\"\n",
         "colour = \"red\"\n",
@@ -149,8 +167,7 @@ fn unaccepted_keys_are_collected_not_dropped() {
 }
 
 /// A value of the wrong TOML *type* is a diagnostic like any other, so
-/// it accumulates with what else the entry gets wrong rather than
-/// stopping the read of the rest of the file.
+/// it accumulates with what else the entry gets wrong.
 #[test]
 fn a_toml_type_error_accumulates_like_every_other() {
     let report = rejected("name = 3\npublisher = \"a !b\"\n");
@@ -170,12 +187,12 @@ fn a_usage_raw_round_trips_through_toml() {
         "publisher = \"acme\"\nname = \"lib\"\nversion = \"^1.2\"\n",
         "publisher = \"acme\"\nname = \"lib\"\ndir = \"../lib\"\n",
         "publisher = \"acme\"\nname = \"lib\"\nkpar-path = \"../lib.kpar\"\n",
-        "publisher = \"acme\"\nname = \"lib\"\nurl = \"https://example.com/l.kpar\"\n",
+        "publisher = \"acme\"\nname = \"lib\"\nkpar-url = \"https://example.com/l.kpar\"\n",
         "publisher = \"acme\"\nname = \"lib\"\nworkspace = \"legacy\"\n",
     ] {
-        let (raws, _) = read(&one(body));
+        let raws = read(&one(body));
         let written = toml_edit::ser::to_string(&raws[0]).expect("serializes");
-        let (again, _) = read(&one(&written));
+        let again = read(&one(&written));
         assert_eq!(raws[0], again[0], "round trip of {body:?}");
     }
 }
@@ -183,8 +200,7 @@ fn a_usage_raw_round_trips_through_toml() {
 // ----------------------------------------------------------------------
 // Values and kind detection.
 
-/// model-toml.md "Usages": "an index usage is the entry that carries
-/// none" of the kind keys.
+/// An index usage is the entry that carries none of the kind keys.
 #[test]
 fn a_usage_without_a_kind_key_is_an_index_usage() {
     assert_eq!(
@@ -236,22 +252,44 @@ fn an_invalid_version_requirement_is_reported() {
 }
 
 #[test]
-fn an_invalid_url_is_reported() {
-    let report = rejected("publisher = \"acme\"\nname = \"lib\"\nurl = \"not an iri\"\n");
+fn an_invalid_kpar_url_is_reported() {
+    let report = rejected("publisher = \"acme\"\nname = \"lib\"\nkpar-url = \"not an iri\"\n");
     assert_eq!(
         texts(&report),
-        ["usage `acme/lib` sets `url = \"not an iri\"`, which is not a valid IRI"]
+        ["usage `acme/lib` sets `kpar-url = \"not an iri\"`, which is not a valid IRI"]
     );
     assert_eq!(places(&report), [(4, 1)]);
 }
 
-/// model-toml.md gives a version requirement only to the index kind;
-/// "remote-kpar: url, publisher, name -- ... version constraint not
-/// supported".
-/// model-toml.md "Usages": a local path is taken exactly as written, so
-/// only the normal form is admitted -- `..` may lead, since such a path
-/// may leave the directory it is relative to, and an absolute path keeps
-/// its root.
+/// A `kpar-url` takes an `http` or `https` URL; a local archive is a
+/// `kpar-path`.
+#[test]
+fn a_non_http_kpar_url_is_rejected() {
+    for url in ["file:///tmp/lib.kpar", "ftp://example.com/lib.kpar"] {
+        let report = rejected(&format!(
+            "publisher = \"acme\"\nname = \"lib\"\nkpar-url = \"{url}\"\n"
+        ));
+        assert_eq!(
+            texts(&report),
+            [format!(
+                "usage `acme/lib` sets `kpar-url = \"{url}\"`, which is not an `http` or \
+                 `https` URL"
+            )]
+        );
+        assert_eq!(places(&report), [(4, 1)]);
+    }
+    for url in [
+        "http://example.com/lib.kpar",
+        "HTTPS://example.com/lib.kpar",
+    ] {
+        accepted(&format!(
+            "publisher = \"acme\"\nname = \"lib\"\nkpar-url = \"{url}\"\n"
+        ));
+    }
+}
+
+/// A local path is taken exactly as written, so only the normal form is
+/// admitted: `..` may lead, and an absolute path keeps its root.
 #[test]
 fn a_local_path_in_normal_form_is_accepted() {
     for path in [
@@ -262,11 +300,9 @@ fn a_local_path_in_normal_form_is_accepted() {
         "../../libs/lib",
         "/opt/libs/lib",
     ] {
-        let MemberUsage::Declared(usage) = member(&format!(
+        let usage = accepted(&format!(
             "publisher = \"acme\"\nname = \"lib\"\ndir = \"{path}\"\n"
-        )) else {
-            panic!("`{path}` is a declared usage");
-        };
+        ));
         assert_eq!(
             usage.local_path().map(|p| p.as_str()),
             Some(path),
@@ -277,122 +313,226 @@ fn a_local_path_in_normal_form_is_accepted() {
 
 #[test]
 fn a_local_path_not_in_normal_form_is_refused() {
-    for (key, path) in [
-        ("dir", ""),
-        ("dir", "."),
-        ("dir", "./lib"),
-        ("dir", "lib/"),
-        ("dir", "libs//lib"),
-        ("dir", "libs/./lib"),
-        ("dir", "libs/../lib"),
-        ("dir", "../libs/../lib"),
-        ("dir", "/opt/../lib"),
-        ("dir", "libs\\\\lib"),
-        ("kpar-path", "./lib.kpar"),
+    const DOUBLE: &str = "contains two consecutive\ndirectory separators `/`, which is forbidden";
+    const CURRENT: &str = "contains a forbidden relative component `.`";
+    const PARENT: &str = "contains a `..` component that is not one of the leading components";
+    for (key, path, reason) in [
+        ("dir", "", DOUBLE),
+        ("dir", ".", CURRENT),
+        ("dir", "./lib", CURRENT),
+        (
+            "dir",
+            "lib/",
+            "ends with a separator `/`, which is forbidden",
+        ),
+        ("dir", "libs//lib", DOUBLE),
+        ("dir", "libs/./lib", CURRENT),
+        ("dir", "libs/../lib", PARENT),
+        ("dir", "../libs/../lib", PARENT),
+        ("dir", "/opt/../lib", PARENT),
+        ("dir", "libs\\\\lib", "contains a backslash"),
+        ("kpar-path", "./lib.kpar", CURRENT),
     ] {
         let report = rejected(&format!(
             "publisher = \"acme\"\nname = \"lib\"\n{key} = \"{path}\"\n"
         ));
         let written = path.replace("\\\\", "\\");
-        assert_eq!(
-            texts(&report),
-            [format!(
-                "usage `acme/lib` sets `{key} = \"{written}\"`, which is not in the form a local \
-                 path takes:\n`/`-separated, with `..` only as leading components, no `.` \
-                 component, no repeated or trailing slash and no backslash"
-            )],
-            "`{path}`"
+        let [text] = texts(&report).try_into().expect("one diagnostic");
+        let prefix = format!(
+            "usage `acme/lib` sets `{key} = \"{written}\"`, which is not a valid local \
+             path:\npath `{written}` "
+        );
+        assert!(
+            text.strip_prefix(&prefix)
+                .is_some_and(|rest| rest.starts_with(reason)),
+            "`{path}`: {text}"
         );
         assert_eq!(places(&report), [(4, 1)], "`{path}`");
     }
 }
 
-/// What a command writes when it converts a path it was given.
-#[test]
-fn a_local_path_is_normalized_into_the_form_a_manifest_admits() {
-    for (raw, normal) in [
-        ("lib", Some("lib")),
-        ("./lib/", Some("lib")),
-        ("libs//lib", Some("libs/lib")),
-        ("libs/./x/../lib", Some("libs/lib")),
-        ("../lib", Some("../lib")),
-        ("./../../lib", Some("../../lib")),
-        ("../a/../../lib", Some("../../lib")),
-        ("lib/..", None),
-        (".", None),
-    ] {
-        assert_eq!(
-            normalize_local_path(raw).as_ref().map(|p| p.as_str()),
-            normal,
-            "`{raw}`"
-        );
-    }
-}
-
+/// Only the index kind takes a version requirement. The `kpar-url` text
+/// differs from the other kinds': it says an IRI names one release.
 #[test]
 fn only_index_usages_take_a_version_constraint() {
-    for kind in [
-        "dir = \"../lib\"",
-        "kpar-path = \"../lib.kpar\"",
-        "url = \"https://example.com/lib.kpar\"",
+    for (kind, rendered) in [
+        ("dir = \"../lib\"", "a `dir` usage does not take"),
+        (
+            "kpar-path = \"../lib.kpar\"",
+            "a `kpar-path` usage does not take",
+        ),
+        (
+            "kpar-url = \"https://example.com/lib.kpar\"",
+            "a `kpar-url` usage does not take; the IRI names one release",
+        ),
     ] {
         let report = rejected(&format!(
             "publisher = \"acme\"\nname = \"lib\"\nversion = \"^1\"\n{kind}\n"
         ));
         assert_eq!(
             texts(&report),
-            ["usage `acme/lib` sets `version`, which only an index usage takes"],
+            [format!(
+                "usage `acme/lib` carries `version`, which {rendered}"
+            )],
             "for {kind}"
         );
         assert_eq!(places(&report), [(4, 1)], "for {kind}");
     }
 }
 
-/// model-toml.md: "index: publisher, name, version constraint". An entry
-/// with no kind key is an index usage, so a missing `version` is a
-/// missing constraint rather than a missing kind.
+/// An index usage takes a publisher, a name and a version constraint. An
+/// entry with no kind key is an index usage, so a missing `version` is a
+/// missing constraint.
 #[test]
 fn an_index_usage_requires_a_version() {
     let report = rejected("publisher = \"acme\"\nname = \"lib\"\n");
     assert_eq!(
         texts(&report),
         [
-            "usage `acme/lib` names no `dir`, `kpar-path` or `url`, so it is an index usage; \
+            "usage `acme/lib` names no `dir`, `kpar-path` or `kpar-url`, so it is an index usage; \
              an index usage requires a `version` constraint"
         ]
     );
     assert_eq!(places(&report), [(1, 1)]);
 }
 
-/// model-toml.md: of the kind keys, "at most one may be
-/// present".
+/// At most one of the kind keys may be present.
 #[test]
 fn a_usage_carrying_two_kind_keys_is_rejected() {
     for kinds in [
-        "dir = \"../lib\"\nurl = \"https://example.com/l.kpar\"",
+        "dir = \"../lib\"\nkpar-url = \"https://example.com/l.kpar\"",
         "dir = \"../lib\"\nkpar-path = \"../lib.kpar\"",
-        "dir = \"../lib\"\nkpar-path = \"../lib.kpar\"\nurl = \"https://example.com/l.kpar\"",
+        "dir = \"../lib\"\nkpar-path = \"../lib.kpar\"\nkpar-url = \"https://example.com/l.kpar\"",
     ] {
         let report = rejected(&format!("publisher = \"acme\"\nname = \"lib\"\n{kinds}\n"));
         assert_eq!(
             texts(&report),
-            ["usage `acme/lib` carries more than one of `dir`, `kpar-path`, `url`"],
+            ["usage `acme/lib` carries more than one of `dir`, `kpar-path`, `kpar-url`"],
             "for {kinds}"
         );
         assert_eq!(places(&report), [(1, 1)], "for {kinds}");
     }
 }
 
-/// model-toml.md: "Every usage carries `publisher` and
-/// `name`: that pair is the identity a usage is resolved by".
+/// Every usage carries a publisher except a standard-library usage,
+/// which is the one entry that may omit `publisher`.
 #[test]
 fn every_usage_names_its_publisher() {
     let report = rejected("name = \"lib\"\nversion = \"^1\"\n");
     assert_eq!(
         texts(&report),
-        ["usage `lib` has no `publisher`; every usage names its publisher"]
+        [
+            "usage `lib` has no `publisher`; only a standard-library usage, whose \
+             `kpar-url` is an OMG standard-library IRI, may omit it"
+        ]
     );
     assert_eq!(places(&report), [(1, 1)]);
+}
+
+/// The exemption is the IRI's, not the kind's: a `kpar-url` anywhere
+/// else still names its publisher.
+#[test]
+fn a_publisher_less_kpar_url_elsewhere_is_refused() {
+    let report = rejected("name = \"lib\"\nkpar-url = \"https://example.com/lib.kpar\"\n");
+    assert_eq!(
+        texts(&report),
+        [
+            "usage `lib` has no `publisher`; only a standard-library usage, whose \
+             `kpar-url` is an OMG standard-library IRI, may omit it"
+        ]
+    );
+}
+
+/// And it is the `kpar-url` kind's alone: a `dir` usage at no IRI at all
+/// cannot claim it.
+#[test]
+fn a_publisher_less_dir_usage_is_refused() {
+    let report = rejected("name = \"lib\"\ndir = \"../lib\"\n");
+    assert_eq!(
+        texts(&report),
+        [
+            "usage `lib` has no `publisher`; only a standard-library usage, whose \
+             `kpar-url` is an OMG standard-library IRI, may omit it"
+        ]
+    );
+}
+
+/// Such a usage declares no `publisher`, and for the dependency graph
+/// and the lockfile has the identity `(omg, <name>)`.
+#[test]
+fn a_publisher_less_kpar_url_at_an_omg_iri_is_accepted() {
+    let usage = accepted(
+        "name = \"Semantic-Library\"\n\
+         kpar-url = \"https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar\"\n",
+    );
+    assert!(usage.publisher().is_none(), "{usage:?}");
+    assert_eq!(usage.identity().publisher, "omg");
+    assert_eq!(usage.identity().name, "semantic-library");
+    // Such a usage is spelled by its name alone.
+    assert_eq!(usage.to_string(), "Semantic-Library");
+}
+
+/// The IRI *permits* an absent publisher; it does not override a present
+/// one. An author who writes `OMG` gets `OMG`.
+#[test]
+fn a_declared_publisher_is_kept_at_an_omg_iri() {
+    let usage = accepted(
+        "publisher = \"OMG\"\nname = \"Semantic-Library\"\n\
+         kpar-url = \"https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar\"\n",
+    );
+    assert_eq!(usage.publisher().expect("a publisher").as_str(), "OMG");
+    assert_eq!(usage.to_string(), "OMG/Semantic-Library");
+}
+
+/// The version-constraint rule, on the entry that runs into it: a
+/// standard-library usage is a `kpar-url`, and a `kpar-url` takes no
+/// version constraint. The usage is labelled by its name alone.
+#[test]
+fn an_omg_iri_with_a_version_is_refused() {
+    let report = rejected(
+        "name = \"Semantic-Library\"\nversion = \"^1\"\n\
+         kpar-url = \"https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar\"\n",
+    );
+    assert_eq!(
+        texts(&report),
+        [
+            "usage `Semantic-Library` carries `version`, which a `kpar-url` usage does not take; \
+             the IRI names one release"
+        ]
+    );
+}
+
+/// The shape decides whether an entry may omit its publisher.
+#[test]
+fn the_omg_stdlib_iri_shape() {
+    use crate::model::is_omg_stdlib_iri;
+    for accepted in [
+        "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar",
+        "https://www.omg.org/spec/SysML/20250201/Quantities-and-Units-Domain-Library.kpar",
+        "https://www.omg.org/spec/KerML/19700101/a.kpar",
+    ] {
+        assert!(is_omg_stdlib_iri(accepted), "{accepted}");
+    }
+    for refused in [
+        // Not `https`, not that host, and not the metamodel family: a
+        // `sysand.com` IRI names a metamodel, never a library.
+        "http://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar",
+        "https://example.com/spec/KerML/20250201/Semantic-Library.kpar",
+        "https://sysand.com/spec/KerML/20250201/Semantic-Library.kpar",
+        // Not a standard library at all: the metamodel IRI itself.
+        "https://www.omg.org/spec/KerML/20250201",
+        // The date is eight digits, no more and no less.
+        "https://www.omg.org/spec/KerML/2025/Semantic-Library.kpar",
+        "https://www.omg.org/spec/KerML/202502011/Semantic-Library.kpar",
+        // One non-empty stem, ending in `.kpar`, and nothing after it.
+        "https://www.omg.org/spec/KerML/20250201/.kpar",
+        "https://www.omg.org/spec/KerML/20250201/Semantic-Library.zip",
+        "https://www.omg.org/spec/KerML/20250201/nested/Semantic-Library.kpar",
+        "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar?v=1",
+        "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar#frag",
+    ] {
+        assert!(!is_omg_stdlib_iri(refused), "{refused}");
+    }
 }
 
 /// With no name there is nothing to call the entry, so
@@ -415,9 +555,8 @@ fn a_usage_without_a_name_reports_a_missing_key() {
     );
 }
 
-/// model-toml.md names `git` a kind key and marks it "Postponed to after
-/// v1: not declarable in v1", which is what the reader says -- the same
-/// thing `sysand migrate` says about a git resource.
+/// `git` is a reserved kind key that is not declarable, which is what the
+/// reader says.
 #[test]
 fn git_usage_is_not_declarable() {
     let report = rejected(concat!(
@@ -435,8 +574,7 @@ fn git_usage_is_not_declarable() {
     assert_eq!(places(&report), [(4, 1)]);
 
     // The ref keys belong to the same postponed kind, not to the unknown
-    // ones: naming them as unknown would tell the reader they will never
-    // exist.
+    // ones.
     let refs = rejected(concat!(
         "publisher = \"acme\"\n",
         "name = \"lib\"\n",
@@ -453,10 +591,7 @@ fn git_usage_is_not_declarable() {
     );
 }
 
-/// workspaces.md "Unknown keys": "The one exception is a usage entry: an
-/// unknown key inside an `[[inline-usages]]` ... entry is an error",
-/// because a reader "cannot tell a kind key it does not know from any
-/// other unknown key".
+/// An unknown key inside an `[[inline-usages]]` entry is an error.
 #[test]
 fn unknown_keys_in_a_usage_are_errors_not_warnings() {
     let report = rejected(concat!(
@@ -470,9 +605,9 @@ fn unknown_keys_in_a_usage_are_errors_not_warnings() {
         texts(&report),
         [
             "unknown key `colour` in usage `acme/lib`; a usage entry accepts only `publisher`, \
-             `name`, `version`, `dir`, `kpar-path`, `url`, `workspace`",
+             `name`, `version`, `dir`, `kpar-path`, `kpar-url`, `workspace`",
             "unknown key `shape` in usage `acme/lib`; a usage entry accepts only `publisher`, \
-             `name`, `version`, `dir`, `kpar-path`, `url`, `workspace`",
+             `name`, `version`, `dir`, `kpar-path`, `kpar-url`, `workspace`",
         ]
     );
     assert_eq!(places(&report), [(5, 1), (6, 1)]);
@@ -484,17 +619,17 @@ fn unknown_keys_in_a_usage_are_errors_not_warnings() {
     );
 }
 
-/// model-toml.md "Reading and validating": Sysand's validation "reports
-/// every problem it finds in one report".
+/// Validation reports every problem it finds in one report.
 #[test]
 fn a_usage_reports_every_problem_at_once() {
     let report = rejected("name = \"lib\"\nversion = \"^1\"\ncolour = \"red\"\n");
     assert_eq!(
         texts(&report),
         [
-            "usage `lib` has no `publisher`; every usage names its publisher",
-            "unknown key `colour` in usage `<none>/lib`; a usage entry accepts only \
-             `publisher`, `name`, `version`, `dir`, `kpar-path`, `url`, `workspace`",
+            "usage `lib` has no `publisher`; only a standard-library usage, whose \
+             `kpar-url` is an OMG standard-library IRI, may omit it",
+            "unknown key `colour` in usage `lib`; a usage entry accepts only \
+             `publisher`, `name`, `version`, `dir`, `kpar-path`, `kpar-url`, `workspace`",
         ]
     );
 }
@@ -528,15 +663,13 @@ fn a_member_entry_without_a_marker_is_declared() {
     ));
 }
 
-/// workspaces.md "Common usages": "an entry that gives only the identity
-/// plus a `workspace` marker takes the matching group entry whole.
-/// `workspace = true` selects the default group, `workspace =
-/// "group-name"` a named one".
+/// An entry that gives only the identity plus a `workspace` marker takes
+/// the matching group entry whole. `workspace = true` selects the default
+/// group, `workspace = "group-name"` a named one.
 #[test]
 fn a_workspace_marker_makes_an_entry_an_opt_in() {
-    // `at` is asserted on its own by
-    // `an_opt_in_records_where_its_marker_is`, so the identity and the
-    // group are what these two compare.
+    // `at` is asserted on its own elsewhere; the identity and the group
+    // are what these two compare.
     assert!(matches!(
         member("publisher = \"acme\"\nname = \"lib\"\nworkspace = true\n"),
         MemberUsage::Inherited {
@@ -544,7 +677,7 @@ fn a_workspace_marker_makes_an_entry_an_opt_in() {
             name: n,
             from: InheritFrom::DefaultGroup,
             at: _
-        } if p == publisher("acme") && n == name("lib")
+        } if p == Some(publisher("acme")) && n == name("lib")
     ));
     assert!(matches!(
         member("publisher = \"acme\"\nname = \"lib\"\nworkspace = \"legacy\"\n"),
@@ -553,13 +686,13 @@ fn a_workspace_marker_makes_an_entry_an_opt_in() {
             name: n,
             from: InheritFrom::Group(group),
             at: _
-        } if p == publisher("acme") && n == name("lib") && group == "legacy"
+        } if p == Some(publisher("acme")) && n == name("lib") && group == "legacy"
     ));
 }
 
 /// The opt-in's marker carries its own position, so that "the group has
 /// no entry with that publisher and name" can point at the `workspace`
-/// key long after the file's text is gone.
+/// key.
 #[test]
 fn an_opt_in_records_where_its_marker_is() {
     let MemberUsage::Inherited {
@@ -572,13 +705,12 @@ fn an_opt_in_records_where_its_marker_is() {
         panic!("an opt-in");
     };
     let position = at.expect("positioned");
-    assert_eq!(position.file, "model.toml");
     // Line 1 is `[[inline-usages]]`, so the marker is the fourth line.
     assert_eq!((position.line, position.column), (4, 1));
 }
 
-/// workspaces.md: "The group entry is used as-is; the member cannot
-/// change any of its fields."
+/// The group entry is used as-is; the member cannot change any of its
+/// fields.
 #[test]
 fn an_opt_in_may_set_only_its_identity() {
     let report = rejected(concat!(
@@ -630,18 +762,19 @@ fn a_marker_naming_an_impossible_group_is_rejected() {
 fn a_group_entry_cannot_carry_a_marker() {
     let text =
         "[[workspace.inline-usages]]\npublisher = \"acme\"\nname = \"lib\"\nworkspace = true\n";
-    let (table, positions) = Source::new("model.toml", text).read().expect("parses");
-    let group = table["workspace"].as_table().expect("a table");
-    let raws = entries(group, "inline-usages");
-    let report = raws[0]
-        .clone()
-        .validate_declared(
-            &UsageSite {
-                array: "workspace.inline-usages",
-                index: 0,
-            },
-            &positions,
-        )
+    let source = Source::new("model.toml", text);
+    let table = source.read().expect("parses");
+    let mut report = Diagnostics::new();
+    let group = top(&table, &source)
+        .table("workspace", &mut report)
+        .expect("a table");
+    let entries = entries(&group, "inline-usages");
+    let report = UsageRaw::from_table(entries[0].raw())
+        .validate_declared(&UsageSite {
+            array: "workspace.inline-usages",
+            index: 0,
+            entry: &entries[0],
+        })
         .expect_err("rejected");
     assert_eq!(
         texts(&report),
@@ -656,24 +789,26 @@ fn a_group_entry_cannot_carry_a_marker() {
 // Duplicates.
 
 fn duplicates(text: &str) -> Vec<crate::manifest::diagnostics::Diagnostic> {
-    let (raws, positions) = read(text);
-    let entries: Vec<(UsageSite<'_>, MemberUsage)> = raws
-        .into_iter()
+    let source = Source::new("model.toml", text);
+    let table = source.read().expect("the test document parses");
+    let tables = entries(&top(&table, &source), "inline-usages");
+    let entries: Vec<(UsageSite<'_>, MemberUsage)> = tables
+        .iter()
         .enumerate()
-        .filter_map(|(index, raw)| {
-            let site = site(index);
-            raw.validate_member(&site, &positions)
+        .filter_map(|(index, entry)| {
+            let site = site(index, entry);
+            UsageRaw::from_table(entry.raw())
+                .validate_member(&site)
                 .ok()
                 .map(|usage| (site, usage))
         })
         .collect();
-    check_duplicates(&entries, &positions)
+    check_duplicates(&entries)
 }
 
-/// model-toml.md "Normalization": "two entries whose identities normalize
-/// to the same value are the same project declared twice and are
-/// rejected, whether or not the two entries agree on kind or
-/// constraint".
+/// Two entries whose identities normalize to the same value are the same
+/// project declared twice and are rejected, whether or not the two
+/// entries agree on kind or constraint.
 #[test]
 fn usages_that_normalize_to_the_same_identity_are_duplicates() {
     let found = duplicates(concat!(
@@ -761,7 +896,7 @@ fn every_usage_kind_round_trips_through_its_raw_form() {
         "publisher = \"acme\"\nname = \"lib\"\nversion = \"^1.2\"\n",
         "publisher = \"acme\"\nname = \"lib\"\ndir = \"../lib\"\n",
         "publisher = \"acme\"\nname = \"lib\"\nkpar-path = \"../lib.kpar\"\n",
-        "publisher = \"acme\"\nname = \"lib\"\nurl = \"https://example.com/l.kpar\"\n",
+        "publisher = \"acme\"\nname = \"lib\"\nkpar-url = \"https://example.com/l.kpar\"\n",
     ] {
         let MemberUsage::Declared(usage) = member(body) else {
             panic!("{body:?} declares a usage");
@@ -802,13 +937,13 @@ fn an_opt_in_round_trips_as_a_marker() {
 
 #[test]
 fn a_usage_entry_reads_from_a_table() {
-    let (raws, _) = read(&one(concat!(
+    let raws = read(&one(concat!(
         "publisher = \"acme\"\n",
         "name = \"lib\"\n",
         "version = \"^1\"\n",
         "dir = \"../lib\"\n",
         "kpar-path = \"../lib.kpar\"\n",
-        "url = \"https://example.com/l.kpar\"\n",
+        "kpar-url = \"https://example.com/l.kpar\"\n",
         "git = \"https://example.com/l.git\"\n",
         "rev = \"abc\"\n",
         "tag = \"v1\"\n",
@@ -836,9 +971,8 @@ fn a_usage_entry_reads_from_a_table() {
 }
 
 /// A key whose value has the wrong type leaves nothing behind to read,
-/// so the entry has no shape: asking it for a kind would invent one.
-/// Here `dir` is gone, and without this rule the entry would *also* be
-/// reported as an index usage that is missing its `version`.
+/// so the entry has no shape. Here `dir` is gone, and the entry must not
+/// *also* be reported as an index usage that is missing its `version`.
 #[test]
 fn a_wrong_typed_usage_key_does_not_make_up_a_kind() {
     let report = rejected("publisher = \"acme\"\nname = \"lib\"\ndir = 3\n");
@@ -868,5 +1002,61 @@ fn a_wrong_typed_name_is_not_also_a_missing_name() {
     assert_eq!(
         texts(&report),
         ["`name` in usage `acme/<none>` must be a string, but it is an integer"]
+    );
+}
+
+/// `url` is not an alias of `kpar-url`: a usage that writes it gets an
+/// unknown-key error listing the keys that do exist.
+#[test]
+fn a_url_key_is_unknown() {
+    let report =
+        rejected("publisher = \"acme\"\nname = \"lib\"\nurl = \"https://example.com/lib.kpar\"\n");
+    assert!(
+        texts(&report).iter().any(|text| {
+            text.starts_with("unknown key `url` in usage `acme/lib`")
+                && text.contains("`kpar-path`, `kpar-url`, `workspace`")
+        }),
+        "unexpected report: {report:?}"
+    );
+}
+
+// ------------------- the standard-library opt-in
+
+/// A standard-library group entry carries no publisher; an opt-in to such
+/// an entry likewise gives only `name` and the marker.
+#[test]
+fn a_publisher_less_opt_in_is_accepted() {
+    let member = member("name = \"Kernel Semantic Library\"\nworkspace = true\n");
+    let MemberUsage::Inherited {
+        publisher,
+        name,
+        from: _,
+        at: _,
+    } = &member
+    else {
+        panic!("expected an opt-in, got `{member:?}`")
+    };
+    assert!(publisher.is_none(), "{member:?}");
+    assert_eq!(name.as_str(), "Kernel Semantic Library");
+    // The same `(omg, <name>)` a declared standard-library usage has, so
+    // the two collide in one array.
+    assert_eq!(member.identity().publisher, "omg");
+    assert_eq!(member.identity().name, "kernel-semantic-library");
+}
+
+/// "gives only `name` and the marker" is *fewer* keys, not more: an
+/// opt-in still takes no kind key of its own.
+#[test]
+fn a_publisher_less_opt_in_is_still_bare() {
+    let report = rejected(
+        "name = \"Kernel Semantic Library\"\nworkspace = true\n\
+         kpar-url = \"https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar\"\n",
+    );
+    assert_eq!(
+        texts(&report),
+        [
+            "usage `Kernel Semantic Library` inherits from the default group, so it \
+          may set only `publisher`, `name` and `workspace`"
+        ]
     );
 }

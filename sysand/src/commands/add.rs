@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{assert_matches, collections::HashMap, path::Path, sync::Arc};
+use std::{assert_matches, sync::Arc};
+use sysand_core::paths::relativize_path;
 
 use anyhow::{Result, anyhow, bail};
 use camino::{Utf8Path, Utf8PathBuf};
@@ -11,25 +12,21 @@ use semver::VersionReq;
 use sysand_core::{
     add::{IndexSpellingError, IndexUsageToAdd, do_add, index_usage_to_add, spell_index_usage},
     auth::HTTPAuthentication,
-    commands::{
-        lock::{LockOutcome, do_lock_local_editable, do_lock_local_editable_respelling},
-        sync::SyncOutcome,
-    },
+    commands::{remove::do_remove, sync::SyncOutcome},
     config::{
         Config, ConfigProject, OverrideSource,
         local_fs::{CONFIG_FILE, add_project_source_to_config},
     },
-    context::ProjectContext,
+    context::{EditError, ProjectContext},
     lock::{Lock, Lockfile},
     model::{
         IndexName, IndexPublisher, InterchangeProjectUsage, InterchangeProjectUsageRaw,
-        ProjectName, ProjectPublisher,
+        ProjectName, ProjectPublisher, UsageRef,
     },
     project::{
-        ProjectMut as _, ProjectRead as _,
+        ProjectDefinition, ProjectMut as _, ProjectRead as _,
         local_kpar::{KparInnerPath, LocalKParProject},
-        local_src::LocalSrcProject,
-        utils::{Identifier, relativize_path, wrapfs},
+        utils::{Identifier, wrapfs},
     },
     resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead as _, standard::standard_resolver},
     utils::{ProvidedProjects, format_err},
@@ -39,21 +36,20 @@ use crate::{
     CliError,
     cli::{AddProjectLocatorArgs, ProjectSourceOptions, ResolutionOptions},
     commands::{
-        lock::{CliResolver, create_resolver},
-        sync::command_sync,
+        lock::{CliResolver, create_resolver, lock_scope},
+        sync::sync_context,
     },
-    default_index_location, iri_or_path_to_iri,
+    iri_or_path_to_iri,
     style::{GOOD, USAGE},
 };
 
-/// Returns whether `.project.json` changed: `false` when the usage was
+/// Returns whether the manifest changed: `false` when the usage was
 /// already present as given (or without a constraint, which keeps the
-/// existing one). Locks and syncs either way, unless `no_lock`/`no_sync`
+/// existing one). Locks and syncs either way, unless `no_lock`/`no_sync`.
 // TODO: Collect common arguments
 #[expect(clippy::fn_params_excessive_bools)]
 pub fn command_add<Policy: HTTPAuthentication>(
     locator: AddProjectLocatorArgs,
-    // iri: Iri<String>,
     version_constraint: Option<VersionReq>,
     no_lock: bool,
     no_sync: bool,
@@ -63,16 +59,18 @@ pub fn command_add<Policy: HTTPAuthentication>(
     mut config: Config,
     config_file: Option<Utf8PathBuf>,
     no_config: bool,
-    ctx: ProjectContext,
+    mut ctx: ProjectContext,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
 ) -> Result<bool> {
-    let mut current_project = ctx
-        .current_project
-        .clone()
+    let project_root = ctx
+        .project_root()
         .ok_or(CliError::MissingProjectCurrentDir)?;
 
+    // The source override of a resource usage, recorded only once the
+    // usage is in the manifest (see `record_override`)
+    let mut pending_override = None;
     let usage = match locator {
         AddProjectLocatorArgs {
             identifier: Some((publisher, name)),
@@ -83,7 +81,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
         } => {
             // Source overrides are only for resource usages
             assert_no_overrides(&source_overrides);
-            let Some(info) = current_project.get_info()? else {
+            let Some(current) = ctx.current_definition() else {
                 bail!(CliError::MissingProjectCurrentDir);
             };
             let index_usage = |publisher, name, version_constraint: &VersionReq| {
@@ -95,7 +93,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
             };
             // Refused, already present or settled by what is declared, before
             // anything is resolved or looked up
-            match index_usage_to_add::<!>(&info.usage, publisher, name, version_constraint)? {
+            match index_usage_to_add::<!>(&current.usages(), publisher, name, version_constraint)? {
                 IndexUsageToAdd::AlreadyPresent => UsageToAdd::AlreadyPresent,
                 IndexUsageToAdd::Ready(usage) => UsageToAdd::Ready(usage),
                 IndexUsageToAdd::New {
@@ -170,16 +168,19 @@ pub fn command_add<Policy: HTTPAuthentication>(
             assert_no_overrides(&source_overrides);
             assert_eq!(version_constraint, None);
             let abs_path = wrapfs::canonicalize(dir)?;
-            let relative = relativize_path(&abs_path, current_project.root_path())?;
-            let project = LocalSrcProject::new_access(abs_path, None);
-            let info = project
-                .get_info()?
+            let relative = relativize_path(&abs_path, &project_root)?;
+            let project = sysand_core::workspace::model_toml::project_at_path(abs_path, None)?;
+            let definition = project
+                .get_project()?
                 .ok_or_else(|| CliError::MissingProject(project.root_path().to_string()))?;
-            let publisher = info.publisher.ok_or_else(|| {
+            let publisher = definition.publisher().ok_or_else(|| {
                 CliError::MissingPublisherForUsage(project.root_path().to_string())
             })?;
-            let (publisher, name) =
-                parse_project_spelling(publisher, info.name, project.root_path().as_str())?;
+            let (publisher, name) = parse_project_spelling(
+                publisher.to_owned(),
+                definition.name().to_owned(),
+                project.root_path().as_str(),
+            )?;
             let usage = InterchangeProjectUsage::Directory {
                 dir: relative,
                 publisher,
@@ -197,16 +198,19 @@ pub fn command_add<Policy: HTTPAuthentication>(
             assert_no_overrides(&source_overrides);
             assert_eq!(version_constraint, None);
             let abs_path = wrapfs::canonicalize(kpar_path)?;
-            let relative = relativize_path(&abs_path, current_project.root_path())?;
+            let relative = relativize_path(&abs_path, &project_root)?;
             let project = LocalKParProject::new_access(abs_path.clone(), KparInnerPath::Root, None);
-            let info = project
-                .get_info()?
+            let definition = project
+                .get_project()?
                 .ok_or_else(|| CliError::MissingProject(abs_path.to_string()))?;
-            let publisher = info
-                .publisher
+            let publisher = definition
+                .publisher()
                 .ok_or_else(|| CliError::MissingPublisherForUsage(abs_path.to_string()))?;
-            let (publisher, name) =
-                parse_project_spelling(publisher, info.name, abs_path.as_str())?;
+            let (publisher, name) = parse_project_spelling(
+                publisher.to_owned(),
+                definition.name().to_owned(),
+                abs_path.as_str(),
+            )?;
             let usage = InterchangeProjectUsage::KparPath {
                 kpar_path: relative,
                 publisher,
@@ -221,20 +225,16 @@ pub fn command_add<Policy: HTTPAuthentication>(
             iri,
             iri_path,
         } => {
+            // A resource usage has no `model.toml` form
+            if matches!(ctx.current_definition(), Some(ProjectDefinition::Toml(_))) {
+                bail!(
+                    "`--iri` and `--iri-path` add a resource usage, which a `model.toml` project\n\
+                     cannot declare: name the dependency as `<publisher>/<name>`, or use\n\
+                     `--dir` or `--kpar-path`"
+                );
+            }
             let iri = iri_or_path_to_iri(iri, iri_path)?;
-            process_overrides(
-                &resolution_opts,
-                source_overrides,
-                &mut config,
-                config_file,
-                no_config,
-                &ctx,
-                &client,
-                &runtime,
-                &auth_policy,
-                &current_project,
-                &iri,
-            )?;
+            pending_override = Some((source_overrides, iri.clone()));
             let usage = InterchangeProjectUsage::Resource {
                 resource: iri,
                 version_constraint,
@@ -244,92 +244,99 @@ pub fn command_add<Policy: HTTPAuthentication>(
         _ => unreachable!(),
     };
 
+    // Taken before the manifest changes, so a change that does not hold
+    // together with the rest of the workspace can be put back.
+    let backup = manifest_backup(&ctx)?;
+
     if no_lock {
-        return match usage {
-            UsageToAdd::Ready(usage) => Ok(do_add(&mut current_project, &usage)?),
-            UsageToAdd::AlreadyPresent => Ok(false),
+        let added = match usage {
+            UsageToAdd::Ready(usage) => add_usage(&mut ctx, &usage, &backup)?,
+            UsageToAdd::AlreadyPresent => false,
             UsageToAdd::PendingIndex(_) => {
                 unreachable!("without locking, an index usage is settled from the environment")
             }
         };
+        record_override(
+            pending_override,
+            &resolution_opts,
+            &mut config,
+            config_file,
+            no_config,
+            &ctx,
+            &client,
+            &runtime,
+            &auth_policy,
+            &project_root,
+        )?;
+        return Ok(added);
     }
 
-    let info_path = current_project.info_path();
-    let info_backup = wrapfs::read_to_string(&info_path)?;
+    let provided_iris = resolution_opts.provided_iris(ProvidedProjects::default());
+    if let UsageToAdd::Ready(InterchangeProjectUsageRaw::Resource {
+        resource,
+        version_constraint: _,
+    }) = &usage
+        && provided_iris.contains_key(resource.as_str())
+    {
+        log::info!(
+            "{GOOD}note{GOOD:#}: SysMLv2/KerML standard libraries will not be installed during sync"
+        );
+        // Can't skip either locking or syncing, since lockfile needs to add the usage,
+        // and std version being added may affect version resolution of other packages
+        // in the dependency graph (e.g. older versions used older std, newer use some
+        // newer version)
+    }
 
-    let provided_iris = if resolution_opts.include_std {
-        HashMap::default()
-    } else {
-        let sysml_std = crate::known_std_libs();
-        if let UsageToAdd::Ready(InterchangeProjectUsageRaw::Resource {
-            resource,
-            version_constraint: _,
-        }) = &usage
-            && sysml_std.contains_key(resource.as_str())
-        {
-            log::info!(
-                "{GOOD}note{GOOD:#}: SysMLv2/KerML standard libraries will not be installed during sync"
-            );
-            // Can't skip either locking or syncing, since lockfile needs to add the usage,
-            // and std version being added may affect version resolution of other packages
-            // in the dependency graph (e.g. older versions used older std, newer use some
-            // newer version)
-        }
-        sysml_std
-    };
-
-    let resolver = create_resolver(
-        resolution_opts,
-        &config,
-        current_project.root_path(),
-        &ctx,
-        provided_iris.clone(),
-        client.clone(),
-        runtime.clone(),
-        auth_policy.clone(),
-    )?;
     // Even when nothing is added, lock and sync, since the environment may
     // be missing or stale
     let (added, pending) = match usage {
-        UsageToAdd::Ready(usage) => (do_add(&mut current_project, &usage)?, None),
+        UsageToAdd::Ready(usage) => (add_usage(&mut ctx, &usage, &backup)?, None),
         UsageToAdd::AlreadyPresent => (false, None),
         // Added as given, and settled once locked
         UsageToAdd::PendingIndex(pending) => {
             let placeholder = pending.placeholder();
             (
-                do_add(&mut current_project, &placeholder)?,
+                add_usage(&mut ctx, &placeholder, &backup)?,
                 Some((placeholder, pending)),
             )
         }
     };
+    // Recorded once the usage is in the manifest, and before the
+    // resolver is built, which reads the configuration it goes into
+    let resolver = record_override(
+        pending_override,
+        &resolution_opts,
+        &mut config,
+        config_file,
+        no_config,
+        &ctx,
+        &client,
+        &runtime,
+        &auth_policy,
+        &project_root,
+    )
+    .and_then(|()| {
+        create_resolver(
+            resolution_opts,
+            &config,
+            &ctx,
+            provided_iris.clone(),
+            client.clone(),
+            runtime.clone(),
+            auth_policy.clone(),
+        )
+    });
 
-    let alias_iris = if let Some(w) = &ctx.current_workspace {
-        w.projects()
-            .iter()
-            .find(|p| Path::new(&p.path) == current_project.root_path())
-            .map(|p| p.iris.clone())
-    } else {
-        None
-    };
-
-    let project_root = current_project.root_path().to_owned();
-    let locked = (|| {
+    let locked = resolver.and_then(|resolver| {
         let respelled = pending
             .as_ref()
             .and_then(|(_, pending)| pending.respelled());
-        let lock = lock_project(
-            resolver,
-            &project_root,
-            alias_iris,
-            &provided_iris,
-            &ctx,
-            respelled.as_ref(),
-        )?;
+        let lock = lock_scope(resolver, &provided_iris, &ctx, respelled.as_ref())?;
         if let Some((placeholder, pending)) = pending {
-            settle_from_lock(&mut current_project, &lock, &placeholder, pending)?;
+            settle_from_lock(&mut ctx, &lock, &placeholder, pending)?;
         }
         Ok::<_, anyhow::Error>(lock)
-    })();
+    });
     let result = locked.and_then(|lock| {
         write_lock_and_sync(
             lock,
@@ -338,16 +345,15 @@ pub fn command_add<Policy: HTTPAuthentication>(
             client,
             runtime,
             auth_policy,
-            &project_root,
             &provided_iris,
-            ctx,
+            &mut ctx,
         )
     });
     match result {
         Ok(()) => Ok(added),
         Err(e) => {
-            // Restore old info
-            wrapfs::write(&info_path, info_backup)?;
+            // Roll back the manifest edit.
+            backup.restore(&mut ctx)?;
             Err(e)
         }
     }
@@ -361,6 +367,84 @@ enum UsageToAdd {
     AlreadyPresent,
 }
 
+/// The manifest a rollback has to put back.
+struct ManifestBackup {
+    path: Utf8PathBuf,
+    text: String,
+}
+
+impl ManifestBackup {
+    /// Write the manifest back through `ctx`, so its snapshot follows.
+    fn restore(&self, ctx: &mut ProjectContext) -> Result<()> {
+        ctx.edit_project(|_| wrapfs::write(&self.path, &self.text))?;
+        Ok(())
+    }
+}
+
+/// The manifest a rollback has to put back.
+///
+/// The file is the one the project's format names: restoring a
+/// `.project.json` into a `model.toml` project would leave both, which
+/// cannot be read.
+fn manifest_backup(ctx: &ProjectContext) -> Result<ManifestBackup> {
+    let path = crate::manifest_path(ctx).ok_or(CliError::MissingProjectCurrentDir)?;
+    let text = wrapfs::read_to_string(&path)?;
+    Ok(ManifestBackup { path, text })
+}
+
+/// Add `usage` to the current project. A change that the context's checks
+/// refuse once written is put back with `backup`.
+fn add_usage(
+    ctx: &mut ProjectContext,
+    usage: &InterchangeProjectUsageRaw,
+    backup: &ManifestBackup,
+) -> Result<bool> {
+    match ctx.edit_project(|project| do_add(project, usage)) {
+        Ok(added) => Ok(added),
+        Err(EditError::Reload(error)) => {
+            backup.restore(ctx)?;
+            Err(EditError::<!>::Reload(error).into())
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Record the source override `pending` carries, if any, in the
+/// configuration file.
+///
+/// Called once the usage is in the manifest, so a refused `add` leaves no
+/// `[[project]]` entry behind.
+#[expect(clippy::too_many_arguments)]
+fn record_override<Policy: HTTPAuthentication>(
+    pending: Option<(Box<ProjectSourceOptions>, Iri<String>)>,
+    resolution_opts: &ResolutionOptions,
+    config: &mut Config,
+    config_file: Option<Utf8PathBuf>,
+    no_config: bool,
+    ctx: &ProjectContext,
+    client: &reqwest_middleware::ClientWithMiddleware,
+    runtime: &Arc<tokio::runtime::Runtime>,
+    auth_policy: &Arc<Policy>,
+    project_root: &Utf8Path,
+) -> Result<()> {
+    let Some((source_overrides, iri)) = pending else {
+        return Ok(());
+    };
+    process_overrides(
+        resolution_opts,
+        source_overrides,
+        config,
+        config_file,
+        no_config,
+        ctx,
+        client,
+        runtime,
+        auth_policy,
+        project_root,
+        &iri,
+    )
+}
+
 fn process_overrides<Policy: HTTPAuthentication>(
     resolution_opts: &ResolutionOptions,
     source_overrides: Box<ProjectSourceOptions>,
@@ -371,21 +455,22 @@ fn process_overrides<Policy: HTTPAuthentication>(
     client: &reqwest_middleware::ClientWithMiddleware,
     runtime: &Arc<tokio::runtime::Runtime>,
     auth_policy: &Arc<Policy>,
-    current_project: &LocalSrcProject,
+    project_root: &Utf8Path,
     iri: &Iri<String>,
 ) -> Result<(), anyhow::Error> {
     #[expect(clippy::manual_map)] // For readability and compactness
     let source = if let Some(path) = source_overrides.from_path {
         let metadata = wrapfs::metadata(&path)?;
+        // A local directory is used in place, as a `dir` usage is locked.
         if metadata.is_dir() {
-            Some(OverrideSource::LocalSrc {
-                src_path: get_relative(path, current_project.root_path(), &ctx.current_directory)?
+            Some(OverrideSource::Editable {
+                editable: get_relative(path, project_root, &ctx.current_directory)?
                     .as_str()
                     .into(),
             })
         } else if metadata.is_file() {
             Some(OverrideSource::LocalKpar {
-                kpar_path: get_relative(path, current_project.root_path(), &ctx.current_directory)?
+                kpar_path: get_relative(path, project_root, &ctx.current_directory)?
                     .as_str()
                     .into(),
             })
@@ -393,18 +478,7 @@ fn process_overrides<Policy: HTTPAuthentication>(
             bail!("path `{path}` is neither a directory nor a file");
         }
     } else if let Some(url) = source_overrides.from_url {
-        let ResolutionOptions {
-            index,
-            default_index,
-            no_index,
-            include_std: _,
-        } = resolution_opts.clone();
-
-        let index_urls = if no_index {
-            None
-        } else {
-            Some(config.index_urls(index, vec![default_index_location()], default_index))
-        };
+        let index_urls = resolution_opts.index_urls(config);
         let std_resolver = standard_resolver(
             // TODO: why not use env here?
             None,
@@ -412,6 +486,7 @@ fn process_overrides<Policy: HTTPAuthentication>(
             index_urls,
             runtime.clone(),
             auth_policy.clone(),
+            ctx.cancellation.clone(),
         )?;
         let resolve = ResolutionInfo::iri(url);
         let outcome = std_resolver.resolve_read(&resolve)?;
@@ -446,33 +521,21 @@ fn process_overrides<Policy: HTTPAuthentication>(
         source
     } else if let Some(editable) = source_overrides.as_editable {
         Some(OverrideSource::Editable {
-            editable: get_relative(
-                editable,
-                current_project.root_path(),
-                &ctx.current_directory,
-            )?
-            .as_str()
-            .into(),
+            editable: get_relative(editable, project_root, &ctx.current_directory)?
+                .as_str()
+                .into(),
         })
     } else if let Some(src_path) = source_overrides.as_local_src {
         Some(OverrideSource::LocalSrc {
-            src_path: get_relative(
-                src_path,
-                current_project.root_path(),
-                &ctx.current_directory,
-            )?
-            .as_str()
-            .into(),
+            src_path: get_relative(src_path, project_root, &ctx.current_directory)?
+                .as_str()
+                .into(),
         })
     } else if let Some(kpar_path) = source_overrides.as_local_kpar {
         Some(OverrideSource::LocalKpar {
-            kpar_path: get_relative(
-                kpar_path,
-                current_project.root_path(),
-                &ctx.current_directory,
-            )?
-            .as_str()
-            .into(),
+            kpar_path: get_relative(kpar_path, project_root, &ctx.current_directory)?
+                .as_str()
+                .into(),
         })
     } else if let Some(remote_src) = source_overrides.as_remote_src {
         Some(OverrideSource::RemoteSrc { remote_src })
@@ -485,8 +548,8 @@ fn process_overrides<Policy: HTTPAuthentication>(
         None
     };
     let _: () = if let Some(source) = source {
-        let config_path = config_file
-            .or_else(|| (!no_config).then(|| current_project.root_path().join(CONFIG_FILE)));
+        let config_path =
+            config_file.or_else(|| (!no_config).then(|| ctx.config_root.join(CONFIG_FILE)));
 
         if let Some(path) = config_path {
             add_project_source_to_config(&path, iri.borrow(), &source)?;
@@ -550,13 +613,12 @@ impl PendingIndexUsage {
     }
 }
 
-/// Replace `placeholder`, the usage `pending` added as given, in `project`:
-/// spelled as the project it locked to when it was normalized, and
-/// constrained to `^` the locked version when it had no constraint, as
-/// `cargo add` does. Nothing has to be resolved for it beforehand, since an
-/// index usage resolves by identifier, whatever its spelling.
+/// Replace `placeholder`, the usage `pending` added as given, in the
+/// current project: spelled as the project it locked to when it was
+/// normalized, and constrained to `^` the locked version when it had no
+/// constraint, as `cargo add` does.
 fn settle_from_lock(
-    project: &mut LocalSrcProject,
+    ctx: &mut ProjectContext,
     lock: &Lock,
     placeholder: &InterchangeProjectUsageRaw,
     pending: PendingIndexUsage,
@@ -610,118 +672,84 @@ fn settle_from_lock(
     if settled == *placeholder {
         return Ok(());
     }
-    let mut info = project
-        .get_info()?
-        .ok_or(CliError::MissingProjectCurrentDir)?;
+    // A `model.toml` entry goes through the manifest editor: the
+    // placeholder out by its identity, the settled usage in.
+    if matches!(ctx.current_definition(), Some(ProjectDefinition::Toml(_))) {
+        let InterchangeProjectUsageRaw::Index {
+            publisher,
+            name,
+            version_constraint: _,
+        } = placeholder
+        else {
+            unreachable!("the placeholder is the index usage added above");
+        };
+        // An index spelling is always a valid project spelling
+        let publisher = ProjectPublisher::parse(publisher.clone()).map_err(|(_, e)| anyhow!(e))?;
+        let name = ProjectName::parse(name.clone()).map_err(|(_, e)| anyhow!(e))?;
+        ctx.edit_project(|project| do_remove(project, UsageRef::Typed(&publisher, &name)))?;
+        ctx.edit_project(|project| do_add(project, &settled))?;
+        return Ok(());
+    }
+    let Some(ProjectDefinition::Json { mut info, meta: _ }) = ctx.current_definition().cloned()
+    else {
+        bail!(CliError::MissingProjectCurrentDir);
+    };
     // FIXME: write once, after spelling is known
     for usage in &mut info.usage {
         if usage == placeholder {
             *usage = settled.clone();
         }
     }
-    project.put_info(&info, true)?;
+    ctx.edit_project(|project| project.put_info(&info, true))?;
     Ok(())
 }
 
-/// Lock the project at `project_root` with `resolver` (see
-/// [`create_resolver`]), without writing the lockfile. The spelling of its
-/// typed usage of `respelled` is not checked, see
-/// [`do_lock_local_editable_respelling`]
-fn lock_project<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
-    resolver: CliResolver<Policy>,
-    project_root: P,
-    project_identifiers: Option<Vec<Iri<String>>>,
-    provided_iris: &ProvidedProjects,
-    ctx: &ProjectContext,
-    respelled: Option<&Identifier>,
-) -> Result<Lock> {
-    // FIXME: use project path relative to and under the workspace root.
-    let LockOutcome {
-        lock,
-        dependencies: _,
-    } = match respelled {
-        None => do_lock_local_editable(
-            ".",
-            &project_root,
-            project_identifiers,
-            provided_iris,
-            resolver,
-            ctx,
-        )?,
-        Some(respelled) => do_lock_local_editable_respelling(
-            ".",
-            &project_root,
-            project_identifiers,
-            provided_iris,
-            resolver,
-            ctx,
-            respelled,
-        )?,
-    };
-    Ok(lock.canonicalize())
-}
-
-/// Write `lock` as the lockfile of the project at `project_root`, and sync
-/// unless `no_sync`
+/// Write `lock` as the lockfile at `ctx`'s state root, and sync unless
+/// `no_sync`
 #[expect(clippy::too_many_arguments)]
-fn write_lock_and_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
+fn write_lock_and_sync<Policy: HTTPAuthentication>(
     lock: Lock,
     no_sync: bool,
     no_prune: bool,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
-    project_root: P,
     provided_iris: &ProvidedProjects,
-    ctx: ProjectContext,
+    ctx: &mut ProjectContext,
 ) -> Result<(), anyhow::Error> {
-    let lockfile = Lockfile::new(&project_root, lock);
+    let lockfile = Lockfile::new(ctx.state_root(), lock);
     lockfile.write()?;
     if !no_sync {
-        let mut env = crate::get_or_create_env(
-            ctx.env,
-            ctx.current_workspace.as_ref(),
-            ctx.current_project.as_ref(),
-            ctx.current_directory,
-        )?;
-        command_sync(
+        sync_context(
             lockfile.lock(),
-            project_root,
-            &mut env,
+            ctx,
+            false,
+            false,
+            no_prune,
             client,
             provided_iris,
             runtime,
             auth_policy,
-            ctx.current_workspace.as_ref(),
-            no_prune,
             &mut SyncOutcome::default(),
         )?;
     }
     Ok(())
 }
 
-/// Lock with `resolver` (see [`create_resolver`]), and sync unless `no_sync`
+/// Lock `ctx`'s scope with `resolver` (see [`create_resolver`]), and sync
+/// unless `no_sync`
 #[expect(clippy::too_many_arguments)]
-pub fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
+pub fn resolve_deps<Policy: HTTPAuthentication>(
     no_sync: bool,
     no_prune: bool,
     resolver: CliResolver<Policy>,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
-    project_root: P,
-    project_identifiers: Option<Vec<Iri<String>>>,
     provided_iris: ProvidedProjects,
-    ctx: ProjectContext,
+    mut ctx: ProjectContext,
 ) -> Result<(), anyhow::Error> {
-    let lock = lock_project(
-        resolver,
-        &project_root,
-        project_identifiers,
-        &provided_iris,
-        &ctx,
-        None,
-    )?;
+    let lock = lock_scope(resolver, &provided_iris, &ctx, None)?;
     write_lock_and_sync(
         lock,
         no_sync,
@@ -729,9 +757,8 @@ pub fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         client,
         runtime,
         auth_policy,
-        project_root,
         &provided_iris,
-        ctx,
+        &mut ctx,
     )
 }
 

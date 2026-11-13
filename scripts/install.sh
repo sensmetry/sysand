@@ -2,7 +2,6 @@
 
 # Sysand installer for Linux and macOS.
 #
-# This script is intentionally direct so it can be inspected before running.
 # It downloads a release archive, extracts the sysand binary, installs it
 # atomically into $HOME/.local/bin (replacing any existing installation), and
 # ensures that directory is on PATH.
@@ -237,7 +236,7 @@ install_binary() {
 }
 
 # Append the install directory to the profile of the user's login shell so
-# future sessions find sysand. Best effort: warns instead of failing.
+# future sessions find sysand. Best effort: warns on failure.
 persist_path() {
   shell_name="${SHELL:-}"
   shell_name="${shell_name##*/}"

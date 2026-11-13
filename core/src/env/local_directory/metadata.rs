@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+use crate::paths::{
+    RelativePathKind, RelativeUnixPathError, parse_local_path, parse_relative_unix_path,
+};
 use std::{fmt::Display, str::FromStr};
 
 use camino::{Utf8Path, Utf8PathBuf};
@@ -9,11 +12,11 @@ use pyo3::IntoPyObject;
 use serde::Deserialize;
 use thiserror::Error;
 use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, Value, value};
-use typed_path::{Utf8UnixComponent, Utf8UnixPathBuf};
+use typed_path::Utf8UnixPathBuf;
 
 use crate::{
     env::ProjectChecksum,
-    migrate::{self, IdentifiedEntry, Migration},
+    format_migrate::{self, IdentifiedEntry, Migration},
     project::{
         ProjectRead as _,
         local_src::{LocalSrcError, LocalSrcProject},
@@ -32,7 +35,9 @@ pub const CURRENT_METADATA_VERSION: &str = "0.2";
 const MIGRATIONS: &[Migration<EnvProject>] = &[Migration {
     from: "0.1",
     to: "0.2",
-    migrate: |projects| migrate::rederive_identifiers(projects, migrate::is_derived_unnormalized),
+    migrate: |projects| {
+        format_migrate::rederive_identifiers(projects, format_migrate::is_derived_unnormalized)
+    },
 }];
 
 #[derive(Debug, Deserialize, Clone)]
@@ -66,12 +71,12 @@ pub enum ParseError {
         current = CURRENT_METADATA_VERSION
     )]
     NewerVersion(String),
-    #[error(
-        "non-editable project has path `{0}` that contains references to parent or current directory"
-    )]
-    NonNormalizedProjectPath(Utf8UnixPathBuf),
-    #[error("non-editable project has path `{0}` that is absolute")]
-    AbsoluteProjectPath(Utf8UnixPathBuf),
+    #[error("project has invalid path `{path}`")]
+    InvalidProjectPath {
+        path: Utf8UnixPathBuf,
+        #[source]
+        source: RelativeUnixPathError,
+    },
 }
 
 impl Display for EnvMetadata {
@@ -92,7 +97,7 @@ impl FromStr for EnvMetadata {
         // missing or non-string version is left to the deserialization below.
         if let Some(toml::Value::String(version)) = table.get("version")
             && version != CURRENT_METADATA_VERSION
-            && !migrate::is_migratable(MIGRATIONS, version)
+            && !format_migrate::is_migratable(MIGRATIONS, version)
         {
             return Err(
                 if is_newer_format_version(version, CURRENT_METADATA_VERSION) {
@@ -103,7 +108,7 @@ impl FromStr for EnvMetadata {
             );
         }
         let mut metadata: Self = table.try_into()?;
-        migrate::migrate(
+        format_migrate::migrate(
             MIGRATIONS,
             CURRENT_METADATA_VERSION,
             "env metadata",
@@ -113,20 +118,26 @@ impl FromStr for EnvMetadata {
         CURRENT_METADATA_VERSION.clone_into(&mut metadata.version);
 
         for project in &metadata.projects {
-            // Non-editable projects must not leave env directory
-            if !project.editable {
-                for c in project.path.components() {
-                    match c {
-                        Utf8UnixComponent::Normal(_) => (),
-                        Utf8UnixComponent::RootDir => {
-                            return Err(ParseError::AbsoluteProjectPath(project.path.clone()));
-                        }
-                        Utf8UnixComponent::CurDir | Utf8UnixComponent::ParentDir => {
-                            return Err(ParseError::NonNormalizedProjectPath(project.path.clone()));
-                        }
-                    }
+            let path = project.path.as_str();
+            let checked = if project.editable {
+                // `.` is the directory the environment sits in
+                if path == "." {
+                    Ok(())
+                } else {
+                    parse_local_path(path).map(|_| ())
                 }
-            }
+            } else if path == "." {
+                // `.` is the env directory itself, which is no project
+                Err(RelativeUnixPathError::ContainsCurrent {
+                    path: path.to_owned(),
+                })
+            } else {
+                parse_relative_unix_path(path, RelativePathKind::SubDirectory).map(|_| ())
+            };
+            checked.map_err(|source| ParseError::InvalidProjectPath {
+                path: project.path.clone(),
+                source,
+            })?;
         }
 
         Ok(metadata)
@@ -252,20 +263,20 @@ impl EnvMetadata {
         workspace: bool,
         checksum: Option<ProjectChecksum>,
     ) -> Result<(), AddProjectError> {
-        let info = project
-            .get_info()?
+        let definition = project
+            .get_project()?
             .ok_or_else(|| AddProjectError::MissingInfo(project.root_path().to_owned()))?;
         let project = EnvProject {
-            publisher: info.publisher,
-            name: info.name,
-            version: info.version,
+            publisher: definition.publisher().map(ToOwned::to_owned),
+            name: definition.name().to_owned(),
+            version: definition.version(),
             path: project
                 .nominal_path()
                 .expect("BUG: no nominal path for project")
                 .to_owned(),
             identifiers,
-            usages: info
-                .usage
+            usages: definition
+                .usages()
                 .iter()
                 .map(|u| Identifier::from_interchange_usage_unchecked(u).into_string())
                 .collect(),
@@ -307,8 +318,8 @@ pub struct EnvProject {
     /// track the interdependence of project in the environment.
     #[serde(default)]
     pub usages: Vec<String>,
-    /// Indicator of whether the project is fully installed in
-    /// the environment or located elsewhere.
+    /// Whether the project is located outside the environment instead of
+    /// being installed in it.
     #[serde(default)]
     pub editable: bool,
     /// Indicator of whether the project is part of a workspace.
@@ -369,8 +380,8 @@ impl IdentifiedEntry for EnvProject {
 
 impl EnvProject {
     /// The canonical project checksum of the source this was installed from,
-    /// when that is the form that was recorded. A `kpar_cksum` digests the
-    /// archive rather than the project, so it is not one.
+    /// when that is the form that was recorded (a `kpar_cksum` digests the
+    /// archive, so it is not one).
     pub fn src_checksum(&self) -> Option<&str> {
         match &self.checksum {
             Some(EnvProjectChecksum::Project { src_cksum }) => Some(src_cksum),

@@ -5,14 +5,14 @@ use fluent_uri::Iri;
 use url::Url;
 
 use crate::config::{Config, ConfigProject, Index, OverrideSource};
-use crate::index_location::IndexLocation;
+use crate::index_location::{IndexLocation, IndexSource};
 
 fn iri(iri: &str) -> Iri<String> {
     Iri::parse(iri).unwrap().into()
 }
 
-fn loc(url: &str) -> IndexLocation {
-    IndexLocation::parse(url).unwrap()
+fn loc(url: &str) -> IndexSource {
+    IndexSource::parse(url).unwrap()
 }
 
 #[test]
@@ -34,7 +34,6 @@ fn merge() {
                 src_path: "./path/to project".into(),
             }],
         }],
-        // auth: None,
     };
     defaults.merge(config.clone());
 
@@ -56,9 +55,15 @@ fn index_urls_without_default() {
     assert_eq!(
         index_urls,
         vec![
-            IndexLocation::Root(Url::parse("http://www.extra-index.com").unwrap()),
-            IndexLocation::Root(Url::parse("http://www.index.com").unwrap()),
-            IndexLocation::Root(Url::parse("http://www.default.com").unwrap()),
+            IndexSource::Remote(IndexLocation::Root(
+                Url::parse("http://www.extra-index.com").unwrap()
+            )),
+            IndexSource::Remote(IndexLocation::Root(
+                Url::parse("http://www.index.com").unwrap()
+            )),
+            IndexSource::Remote(IndexLocation::Root(
+                Url::parse("http://www.default.com").unwrap()
+            )),
         ]
     );
 }
@@ -84,9 +89,15 @@ fn index_urls_with_default() {
     assert_eq!(
         index_urls,
         vec![
-            IndexLocation::Root(Url::parse("http://www.extra-index.com").unwrap()),
-            IndexLocation::Root(Url::parse("http://www.index.com").unwrap()),
-            IndexLocation::Root(Url::parse("http://www.config-default.com").unwrap()),
+            IndexSource::Remote(IndexLocation::Root(
+                Url::parse("http://www.extra-index.com").unwrap()
+            )),
+            IndexSource::Remote(IndexLocation::Root(
+                Url::parse("http://www.index.com").unwrap()
+            )),
+            IndexSource::Remote(IndexLocation::Root(
+                Url::parse("http://www.config-default.com").unwrap()
+            )),
         ]
     );
 }
@@ -112,18 +123,22 @@ fn index_urls_with_override() {
     assert_eq!(
         index_urls,
         vec![
-            IndexLocation::Root(Url::parse("http://www.extra-index.com").unwrap()),
-            IndexLocation::Root(Url::parse("http://www.index.com").unwrap()),
-            IndexLocation::Root(Url::parse("http://www.new-default.com").unwrap()),
+            IndexSource::Remote(IndexLocation::Root(
+                Url::parse("http://www.extra-index.com").unwrap()
+            )),
+            IndexSource::Remote(IndexLocation::Root(
+                Url::parse("http://www.index.com").unwrap()
+            )),
+            IndexSource::Remote(IndexLocation::Root(
+                Url::parse("http://www.new-default.com").unwrap()
+            )),
         ]
     );
 }
 
 #[test]
 fn index_urls_accepts_templates_everywhere() {
-    // URL templates are valid wherever an index URL can be configured:
-    // `--index` values, `sysand.toml` `[[index]]` entries, and default
-    // overrides all funnel through the same parser.
+    // URL templates are valid wherever an index URL can be configured.
     let config = Config {
         indexes: vec![Index::new_url(loc(
             "https://gitlab.com/api/v4/projects/123/repository/files/{path}/raw?ref=main",
@@ -150,7 +165,7 @@ fn index_urls_accepts_templates_everywhere() {
     assert!(
         index_urls
             .iter()
-            .all(|l| matches!(l, IndexLocation::Template(_)))
+            .all(|l| matches!(l, IndexSource::Remote(IndexLocation::Template(_))))
     );
 }
 
@@ -212,9 +227,9 @@ fn default_index_locations_returns_only_defaults() {
 
     assert_eq!(
         config.default_index_locations(),
-        vec![IndexLocation::Root(
+        vec![IndexSource::Remote(IndexLocation::Root(
             Url::parse("http://www.config-default.com").unwrap()
-        )]
+        ))]
     );
 }
 

@@ -12,8 +12,7 @@ use crate::{
     context::ProjectContext,
     env::utils::ErrorBound,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{CanonicalizationError, ProjectRead},
+    project::{CanonicalizationError, ProjectDefinition, ProjectFormat, ProjectRead},
     resolve::{ResolutionInfo, ResolveRead},
 };
 
@@ -108,15 +107,7 @@ impl<HigherProject: ProjectRead, LowerProject: ProjectRead> ProjectRead
 {
     type Error = PriorityError<HigherProject::Error, LowerProject::Error>;
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         match self {
             Self::HigherProject(project) => project.get_project().map_err(PriorityError::Higher),
             Self::LowerProject(project) => project.get_project().map_err(PriorityError::Lower),
@@ -144,6 +135,16 @@ impl<HigherProject: ProjectRead, LowerProject: ProjectRead> ProjectRead
         }
     }
 
+    /// Forwarded, not defaulted: this type wraps another project, and
+    /// the default would claim json for a `model.toml` project it holds,
+    /// so its usages would be treated as json-declared.
+    fn format(&self) -> Result<ProjectFormat, Self::Error> {
+        match self {
+            Self::HigherProject(project) => project.format().map_err(PriorityError::Higher),
+            Self::LowerProject(project) => project.format().map_err(PriorityError::Lower),
+        }
+    }
+
     fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         match self {
             Self::HigherProject(project) => project.sources(ctx).map_err(PriorityError::Higher),
@@ -155,20 +156,6 @@ impl<HigherProject: ProjectRead, LowerProject: ProjectRead> ProjectRead
         match self {
             Self::HigherProject(project) => project.source_may_offer_multiple_versions(),
             Self::LowerProject(project) => project.source_may_offer_multiple_versions(),
-        }
-    }
-
-    fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
-        match self {
-            Self::HigherProject(project) => project.get_info().map_err(PriorityError::Higher),
-            Self::LowerProject(project) => project.get_info().map_err(PriorityError::Lower),
-        }
-    }
-
-    fn get_meta(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
-        match self {
-            Self::HigherProject(project) => project.get_meta().map_err(PriorityError::Higher),
-            Self::LowerProject(project) => project.get_meta().map_err(PriorityError::Lower),
         }
     }
 
@@ -224,6 +211,20 @@ impl<HigherProject: ProjectRead, LowerProject: ProjectRead> ProjectRead
 }
 
 impl<Higher: ResolveRead, Lower: ResolveRead> ResolveRead for PriorityResolver<Higher, Lower> {
+    /// Both halves: either may be the one that reads local paths, and a
+    /// resolver that does not care has a default that ignores it.
+    #[cfg(feature = "filesystem")]
+    fn within_workspace(
+        self,
+        root: camino::Utf8PathBuf,
+        table: std::sync::Arc<crate::manifest::workspace_table::WorkspaceTable>,
+    ) -> Self {
+        Self {
+            higher: self.higher.within_workspace(root.clone(), table.clone()),
+            lower: self.lower.within_workspace(root, table),
+        }
+    }
+
     type Error = PriorityError<Higher::Error, Lower::Error>;
 
     type ProjectStorage = PriorityProject<Higher::ProjectStorage, Lower::ProjectStorage>;

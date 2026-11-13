@@ -10,10 +10,10 @@ use typed_path::Utf8UnixPathBuf;
 
 use crate::{
     env::ReadEnvironment,
+    manifest::project::UnlistedFiles,
     model::{InterchangeProjectUsage, InterchangeProjectValidationError},
-    project::{ProjectRead, utils::Identifier},
+    project::{ProjectDefinition, ProjectRead, memory::InMemoryProject, utils::Identifier},
     resolve::{
-        ResolveRead, UsageOrigin,
         env::EnvResolver,
         memory::{AcceptAll, MemoryResolver},
         priority::{PriorityProject, PriorityResolver},
@@ -25,7 +25,7 @@ use crate::{
 #[cfg(feature = "filesystem")]
 use crate::{
     env::local_directory::{LocalDirectoryEnvironment, LocalReadError},
-    model::UsageRef,
+    model::{InterchangeProjectUsageRaw, UsageRef},
     project::local_src::{LocalSrcError, LocalSrcProject, PathError},
 };
 #[cfg(feature = "filesystem")]
@@ -80,6 +80,8 @@ pub enum SourcesError<ProjectError> {
         name: &'static str,
         source: InterchangeProjectValidationError,
     },
+    #[error(transparent)]
+    Unlisted(UnlistedFiles),
 }
 
 /// Enumerates source files in a project (as relative Unix-paths under the project root).
@@ -89,8 +91,28 @@ pub fn do_sources_project_no_deps<Pr: ProjectRead>(
     project: &Pr,
     include_index: bool,
 ) -> Result<Vec<Utf8UnixPathBuf>, SourcesError<Pr::Error>> {
-    let Some(meta) = project.get_meta().map_err(SourcesError::Project)? else {
-        return Ok(vec![]);
+    match project.get_project().map_err(SourcesError::Project)? {
+        None => Ok(vec![]),
+        Some(definition) => do_sources_definition(&definition, include_index),
+    }
+}
+
+/// [`do_sources_project_no_deps`] for a project whose manifest is already
+/// read as `definition`.
+pub fn do_sources_definition<ProjectError>(
+    definition: &ProjectDefinition,
+    include_index: bool,
+) -> Result<Vec<Utf8UnixPathBuf>, SourcesError<ProjectError>> {
+    let meta = match definition {
+        ProjectDefinition::Toml(project) => {
+            return Ok(project
+                .sources()
+                .map_err(SourcesError::Unlisted)?
+                .iter()
+                .cloned()
+                .collect());
+        }
+        ProjectDefinition::Json { info: _, meta } => meta,
     };
 
     Ok(meta
@@ -116,6 +138,8 @@ pub enum LocalSourcesError {
     },
     #[error(transparent)]
     Path(#[from] PathError),
+    #[error(transparent)]
+    Unlisted(UnlistedFiles),
 }
 
 #[cfg(feature = "filesystem")]
@@ -124,6 +148,7 @@ impl From<SourcesError<LocalSrcError>> for LocalSourcesError {
         match value {
             SourcesError::Project(error) => Self::Project(error),
             SourcesError::Validation { name, source } => Self::Validation { name, source },
+            SourcesError::Unlisted(error) => Self::Unlisted(error),
         }
     }
 }
@@ -137,14 +162,28 @@ pub fn do_sources_local_src_project_no_deps(
     include_index: bool,
 ) -> Result<Vec<Utf8PathBuf>, LocalSourcesError> {
     let unix_sources = do_sources_project_no_deps(project, include_index)?;
-
-    let sources: Result<Vec<_>, _> = unix_sources
-        .iter()
-        .map(|path| project.get_source_path(path))
-        .collect();
-
-    Ok(sources?)
+    real_source_paths(project, &unix_sources)
 }
+
+#[cfg(feature = "filesystem")]
+/// [`do_sources_local_src_project_no_deps`] for a project whose manifest is
+/// already read as `definition`.
+pub fn do_sources_local_src_definition(
+    project: &LocalSrcProject,
+    definition: &ProjectDefinition,
+    include_index: bool,
+) -> Result<Vec<Utf8PathBuf>, LocalSourcesError> {
+    let unix_sources = do_sources_definition::<LocalSrcError>(definition, include_index)?;
+    real_source_paths(project, &unix_sources)
+}
+
+/// The resolver the dependency enumeration solves with: the provided
+/// projects first, then the environment.
+pub type EnvSolverResolver<Env> =
+    PriorityResolver<MemoryResolver<AcceptAll, InMemoryProject>, EnvResolver<Env>>;
+
+/// The error of resolving dependencies in an environment.
+pub type EnvSolverError<Env> = SolverError<EnvSolverResolver<Env>>;
 
 /// Transitively resolves a list of usages (typically the usages of some project)
 /// in an environment and enumerates the resolved projects together with their IRIs.
@@ -155,10 +194,8 @@ fn solve_dependencies<Env: ReadEnvironment + Debug + 'static>(
     requested: Vec<InterchangeProjectUsage>,
     env: Env,
     provided_usages: &ProvidedProjects,
-) -> Result<
-    Vec<(Identifier, <Env as ReadEnvironment>::InterchangeProjectRead)>,
-    SolverError<impl ResolveRead + Debug + use<Env>>,
-> {
+) -> Result<Vec<(Identifier, <Env as ReadEnvironment>::InterchangeProjectRead)>, EnvSolverError<Env>>
+{
     let resolver = PriorityResolver::new(
         MemoryResolver {
             iri_predicate: AcceptAll {},
@@ -168,16 +205,6 @@ fn solve_dependencies<Env: ReadEnvironment + Debug + 'static>(
     );
 
     // `base_path` does not matter here, since the resolver only looks in env
-    // TODO: the caller knows the format of the project these usages came
-    // from, but `find_project_dependencies` is public and reached from the
-    // bindings, so the origin is not threaded through it yet. A toml
-    // project's own usages therefore resolve as json here, which decides
-    // only whether a publisher-less target is an `IdentityMismatch::NoPublisher`
-    // or an ordinary `IdentityMismatch::Publisher`.
-    let requested = requested
-        .into_iter()
-        .map(|u| (u, UsageOrigin::Json))
-        .collect();
     let mut resolved = crate::solve::pubgrub::solve(requested, None, resolver)?;
 
     Ok(resolved
@@ -198,10 +225,7 @@ pub fn find_project_dependencies<Env: ReadEnvironment + Debug + 'static>(
     requested: Vec<InterchangeProjectUsage>,
     env: Env,
     provided_usages: &ProvidedProjects,
-) -> Result<
-    Vec<<Env as ReadEnvironment>::InterchangeProjectRead>,
-    SolverError<impl ResolveRead + Debug + use<Env>>,
-> {
+) -> Result<Vec<<Env as ReadEnvironment>::InterchangeProjectRead>, EnvSolverError<Env>> {
     Ok(solve_dependencies(requested, env, provided_usages)?
         .into_iter()
         .map(|(_, project)| project)
@@ -218,10 +242,7 @@ pub fn resolve_dependencies<Env: ReadEnvironment + Debug + 'static>(
     requested: Vec<InterchangeProjectUsage>,
     env: Env,
     dependencies: Dependencies,
-) -> Result<
-    Vec<<Env as ReadEnvironment>::InterchangeProjectRead>,
-    SolverError<impl ResolveRead + Debug + use<Env>>,
-> {
+) -> Result<Vec<<Env as ReadEnvironment>::InterchangeProjectRead>, EnvSolverError<Env>> {
     // No need to resolve dependencies if they are not gonna be used
     if dependencies == Dependencies::None {
         return Ok(Vec::new());
@@ -278,7 +299,7 @@ pub enum SourcesEnvError {
     #[error("failed to resolve dependencies of project `{project}`")]
     Dependencies {
         project: Box<str>,
-        source: Box<dyn std::error::Error + Send + Sync>,
+        source: Box<EnvSolverError<LocalDirectoryEnvironment>>,
     },
 }
 
@@ -289,8 +310,8 @@ pub enum SourcesEnvError {
 ///
 /// The project is looked up by the identifier it is installed under: the
 /// IRI, or the identifier derived from publisher and name (see
-/// [`Identifier::from_pub_name`]), so any spelling that gives the same
-/// identifier finds it
+/// [`Identifier::from_project`]), so any spelling that gives the same
+/// identifier finds it.
 #[cfg(feature = "filesystem")]
 pub fn do_sources_env(
     env: LocalDirectoryEnvironment,
@@ -301,59 +322,68 @@ pub fn do_sources_env(
 ) -> Result<Vec<Utf8PathBuf>, SourcesEnvError> {
     let identifier = match project {
         UsageRef::Resource(iri) => Identifier::from_iri(&iri),
-        // FIXME: a spelling only finds the project if it gets the same kind of
-        // identifier as the spelling the project was installed under (see
-        // `Identifier::from_project`). E.g. a directory usage of
-        // `ACME Inc./Foo` is installed as `urn:sysand:acme-inc/foo`, so
-        // `acme-inc/foo`, although its normalized form, looks up
+        // FIXME: a spelling only finds the project if it gets the same kind
+        // of identifier as the spelling the project was installed under. E.g.
+        // a directory usage of `ACME Inc./Foo` is installed as
+        // `urn:sysand:acme-inc/foo`, so `acme-inc/foo` looks up
         // `pkg:sysand/acme-inc/foo` and does not find it
-        UsageRef::Typed(publisher, name) => Identifier::from_pub_name(publisher, name),
+        UsageRef::Typed(publisher, name) => Identifier::from_project(publisher, name),
     };
     let mut candidates = env.candidate_projects(&identifier)?.into_iter();
 
-    let installed = match version {
-        // No version constraints, so choose the first candidate
-        None => candidates.next(),
+    // The manifest a version constraint had to read, kept.
+    let found = match version {
+        None => candidates.next().map(|candidate| (candidate, None)),
         Some(vr) => loop {
             let Some(candidate) = candidates.next() else {
                 break None;
             };
             // Projects with non-semver versions cannot match the constraint
-            if let Some(info) = candidate.get_info()? {
-                match Version::parse(&info.version) {
-                    Ok(v) if vr.matches(&v) => break Some(candidate),
+            if let Some(definition) = candidate.get_project()? {
+                match Version::parse(&definition.version()) {
+                    Ok(v) if vr.matches(&v) => break Some((candidate, Some(definition))),
                     Ok(_) => {}
                     Err(e) => log::debug!(
                         "ignoring env project `{}` because it has invalid semver version:\n{e}",
-                        info.name
+                        definition.name()
                     ),
                 }
             }
         },
     };
-    let Some(installed) = installed else {
+    let Some((installed, definition)) = found else {
         return Err(SourcesEnvError::NotFound {
             project: project.to_string().into(),
             version: version.cloned(),
         });
     };
+    let definition = match definition {
+        Some(definition) => definition,
+        None => installed
+            .get_project()?
+            .ok_or_else(|| SourcesEnvError::MissingInfo(project.to_string().into()))?,
+    };
 
     let mut result = vec![];
     if !no_own {
-        result.extend(do_sources_local_src_project_no_deps(&installed, true)?);
+        result.extend(do_sources_local_src_definition(
+            &installed,
+            &definition,
+            true,
+        )?);
     }
 
     if dependencies != Dependencies::None {
-        let Some(info) = installed.get_info()? else {
-            return Err(SourcesEnvError::MissingInfo(project.to_string().into()));
-        };
-        let info = info
-            .validate()
+        let usages = definition
+            .usages()
+            .iter()
+            .map(InterchangeProjectUsageRaw::validate)
+            .collect::<Result<Vec<_>, _>>()
             .map_err(|source| SourcesEnvError::InvalidMetadata {
                 project: project.to_string().into(),
                 source,
             })?;
-        let deps = resolve_dependencies(info.usage, env, dependencies).map_err(|e| {
+        let deps = resolve_dependencies(usages, env, dependencies).map_err(|e| {
             SourcesEnvError::Dependencies {
                 project: project.to_string().into(),
                 source: Box::new(e),
@@ -389,4 +419,17 @@ pub fn do_sources_env_parse(
         no_own,
         dependencies,
     )
+}
+
+#[cfg(feature = "filesystem")]
+fn real_source_paths(
+    project: &LocalSrcProject,
+    unix_sources: &[Utf8UnixPathBuf],
+) -> Result<Vec<Utf8PathBuf>, LocalSourcesError> {
+    let sources: Result<Vec<_>, _> = unix_sources
+        .iter()
+        .map(|path| project.get_source_path(path))
+        .collect();
+
+    Ok(sources?)
 }

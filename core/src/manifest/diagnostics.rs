@@ -4,12 +4,17 @@
 //! What reading a manifest can report: the collected diagnostics a
 //! validation produces, and the warnings that do not stop it.
 //!
-//! Validation collects rather than fails fast, so that one read of a
-//! malformed manifest names every problem it has. A validating function
-//! returns `Result<Validated<T>, Report>`: the `Report` on the error side
-//! lists every problem found, including the warnings, and the
+//! Validation collects problems: one read of a malformed manifest names
+//! every problem it has. A validating function returns
+//! `Result<Validated<T>, Diagnostics>`: the `Diagnostics` on the error
+//! side lists every problem found, including the warnings, and the
 //! `Validated<T>` on the success side carries the value together with the
-//! warnings, which the frontend decides how to show.
+//! warnings.
+//!
+//! Neither names a file: what is read is one file, and whoever read it
+//! knows which. A [`Report`] is the diagnostics together with the name of
+//! that file, made by [`Diagnostics::in_file`], so a report is about
+//! exactly one file.
 
 use std::fmt::Display;
 use std::ops::Range;
@@ -17,7 +22,7 @@ use std::ops::Range;
 use serde::de::{IgnoredAny, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::model::MetamodelFamily;
+use crate::model::{KnownMetamodel, MetamodelFamily};
 
 /// Whether a diagnostic stops the operation that produced it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -35,16 +40,14 @@ impl Display for Severity {
     }
 }
 
-/// Where in which file a diagnostic was produced.
+/// Where in its file a diagnostic was produced. Which file is the
+/// [`Report`]'s.
 ///
-/// The line and the column are resolved when the position is built, by
-/// the [`crate::manifest::spans::Source`] whose text the span measures;
-/// the byte span a TOML document reports is kept alongside them for a
-/// renderer that wants to underline the offending key. `serde_json` reports a line and a
-/// column and no offset, hence [`Position::at`].
+/// The byte span a TOML document reports is kept alongside the line and
+/// column for a renderer that wants to underline the offending key.
+/// `serde_json` reports no offset, hence [`Position::at`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Position {
-    pub file: String,
     /// 1-based.
     pub line: usize,
     /// 1-based, counted in characters.
@@ -55,19 +58,12 @@ pub struct Position {
 
 impl Position {
     /// A position reported as a line and a column, as `serde_json` does.
-    pub fn at(file: impl Into<String>, line: usize, column: usize) -> Self {
+    pub fn at(line: usize, column: usize) -> Self {
         Self {
-            file: file.into(),
             line,
             column,
             span: None,
         }
-    }
-}
-
-impl Display for Position {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{}:{}", self.file, self.line, self.column)
     }
 }
 
@@ -107,8 +103,7 @@ impl Diagnostic {
     ///
     /// A diagnostic about a key that is *missing* has no key to point at,
     /// and a manifest that was not read from text has no positions at
-    /// all; both leave the diagnostic where it is rather than inventing
-    /// somewhere for it to be.
+    /// all; both leave the diagnostic without a position.
     #[must_use]
     pub fn at_opt(self, position: Option<Position>) -> Self {
         match position {
@@ -118,24 +113,26 @@ impl Diagnostic {
     }
 }
 
-impl Display for Diagnostic {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.position {
-            Some(position) => write!(f, "{position}: {}", self.message),
-            None => f.write_str(&self.message),
+impl Diagnostic {
+    /// The diagnostic as one line about `file`: `file:line:column:
+    /// message`, or `` `file`: message `` when it has no position.
+    pub fn in_file<'a>(&'a self, file: &'a str) -> impl Display + 'a {
+        InFile {
+            file,
+            diagnostic: self,
+            unpositioned: Unpositioned::Named,
         }
     }
 }
 
 /// Every diagnostic one read produced, in the order they were found.
 ///
-/// A report holds errors and warnings together so that they can be shown
-/// in the order of the file; [`Report::into_result`] is what decides
-/// whether the read failed.
+/// Errors and warnings are held together; [`Diagnostics::into_result`]
+/// decides whether the read failed.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Report(Vec<Diagnostic>);
+pub struct Diagnostics(Vec<Diagnostic>);
 
-impl Report {
+impl Diagnostics {
     pub fn new() -> Self {
         Self(Vec::new())
     }
@@ -170,7 +167,7 @@ impl Report {
             .filter(|diagnostic| diagnostic.severity == Severity::Warning)
     }
 
-    /// The diagnostics, for a caller that folds one report into another.
+    /// The diagnostics, consuming the report.
     pub fn into_diagnostics(self) -> Vec<Diagnostic> {
         self.0
     }
@@ -181,15 +178,13 @@ impl Report {
 
     /// Put the diagnostics in the order the file reads.
     ///
-    /// Validation finds problems in the order its checks run - field
-    /// order for the keys a table knows, then the ones it does not - which
-    /// is not the order the reader works through the file in. Sorting once at the
-    /// end of a read is what makes a report with several problems
-    /// something that can be fixed from top to bottom.
+    /// Validation finds problems in the order its checks run; sorting lets
+    /// a report be fixed from top to bottom.
     ///
     /// The sort is stable, so two diagnostics about the same key keep the
-    /// order the checks found them in, and a diagnostic with no position
-    /// sorts after every diagnostic that has one.
+    /// order the checks found them in. A diagnostic with a line and column
+    /// but no span sorts after those with one, and a diagnostic with no
+    /// position sorts last.
     pub fn sort_by_position(&mut self) {
         self.0.sort_by_key(|diagnostic| {
             diagnostic
@@ -202,6 +197,29 @@ impl Report {
                     }
                 })
         });
+    }
+
+    /// These diagnostics, as found in `file`.
+    pub fn in_file(self, file: impl Into<Box<str>>) -> Report {
+        Report {
+            file: file.into(),
+            diagnostics: self.0,
+        }
+    }
+
+    /// Take in the result of a nested read: its warnings when it
+    /// succeeded, with its value, or its errors when it failed.
+    pub fn merge<T>(&mut self, result: Result<Validated<T>, Self>) -> Option<T> {
+        match result {
+            Ok(Validated { value, warnings }) => {
+                self.0.extend(warnings);
+                Some(value)
+            }
+            Err(problems) => {
+                self.0.extend(problems.0);
+                None
+            }
+        }
     }
 
     /// The end of every validating function: `value` is only produced if
@@ -217,19 +235,64 @@ impl Report {
     }
 }
 
-impl FromIterator<Diagnostic> for Report {
+impl From<Diagnostic> for Diagnostics {
+    fn from(diagnostic: Diagnostic) -> Self {
+        Self(vec![diagnostic])
+    }
+}
+
+impl FromIterator<Diagnostic> for Diagnostics {
     fn from_iter<I: IntoIterator<Item = Diagnostic>>(iter: I) -> Self {
         Self(iter.into_iter().collect())
     }
 }
 
+/// The diagnostics of one file, under the name its messages call it by.
+///
+/// Made only by [`Diagnostics::in_file`]: a report is about exactly one
+/// file, so a position in it needs no file of its own.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Report {
+    file: Box<str>,
+    diagnostics: Vec<Diagnostic>,
+}
+
+impl Report {
+    pub fn file(&self) -> &str {
+        &self.file
+    }
+
+    pub fn diagnostics(&self) -> &[Diagnostic] {
+        &self.diagnostics
+    }
+
+    pub fn errors(&self) -> impl Iterator<Item = &Diagnostic> {
+        self.diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.severity == Severity::Error)
+    }
+
+    pub fn warnings(&self) -> impl Iterator<Item = &Diagnostic> {
+        self.diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.severity == Severity::Warning)
+    }
+}
+
+/// One diagnostic per line. A message without a position is about the
+/// file as a whole, which is named above the report where it is shown.
 impl Display for Report {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for (index, diagnostic) in self.0.iter().enumerate() {
+        for (index, diagnostic) in self.diagnostics.iter().enumerate() {
             if index > 0 {
                 f.write_str("\n")?;
             }
-            write!(f, "{diagnostic}")?;
+            let line = InFile {
+                file: &self.file,
+                diagnostic,
+                unpositioned: Unpositioned::Bare,
+            };
+            write!(f, "{line}")?;
         }
         Ok(())
     }
@@ -264,18 +327,31 @@ impl<T> Validated<T> {
     }
 }
 
-/// workspaces.md "Unknown keys": unknown keys are allowed for future
-/// compatibility, "but generate a warning upon read. This holds for
-/// `model.toml` as a whole, `[project]` and `[workspace]` alike, and for
-/// the `urls` tables." Serde's default is to drop unrecognized keys
-/// silently, which cannot produce that warning, and `deny_unknown_fields`
-/// would turn it into an error -- so a table that has to warn keeps a
+/// The value of a read with each of its warnings logged against `file`,
+/// or its errors as a report on `file`.
+pub fn take_logged<T>(
+    validated: Result<Validated<T>, Diagnostics>,
+    file: &str,
+) -> Result<T, Report> {
+    match validated {
+        Ok(validated) => {
+            for warning in &validated.warnings {
+                log::warn!("{}", warning.in_file(file));
+            }
+            Ok(validated.value)
+        }
+        Err(report) => Err(report.in_file(file)),
+    }
+}
+
+/// Unknown keys are allowed for future compatibility, but generate a
+/// warning upon read: in `model.toml` as a whole, `[project]`,
+/// `[workspace]` and the `urls` tables alike. A table that warns keeps a
 /// flattened `UnknownKeys` that remembers the names it did not recognize,
 /// in the order it read them.
 ///
-/// Only the keys are kept: the values have no home in the type map, and
-/// nothing writes them back out (serializing an `UnknownKeys` emits an
-/// empty table, so a flattened one contributes no keys).
+/// Only the keys are kept: the values are dropped, and serializing an
+/// `UnknownKeys` emits an empty table.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct UnknownKeys(Vec<String>);
 
@@ -300,8 +376,7 @@ impl UnknownKeys {
         self.warnings_with_metamodel(location, None)
     }
 
-    /// The same, with the metamodel the "this may be because" suffix
-    /// names: an unrecognized metamodel may be why the key is not known.
+    /// The same, with the metamodel the "this may be because" suffix names.
     pub fn warnings_with_metamodel(
         &self,
         location: &KeyLocation,
@@ -377,9 +452,6 @@ impl Display for KeyLocation {
 
 /// A key the manifest must carry is not there, and an
 /// unrecognized metamodel may be the reason.
-///
-/// Both manifest formats report a missing key through this function, so
-/// that the two cannot drift apart.
 pub fn missing_key(key: &str, location: &KeyLocation, metamodel: Option<&str>) -> Diagnostic {
     let mut message = format!("missing key `{key}` in {location}");
     if let Some(url) = metamodel {
@@ -391,32 +463,29 @@ pub fn missing_key(key: &str, location: &KeyLocation, metamodel: Option<&str>) -
 /// What reading a manifest can report without failing.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ReadWarning {
-    /// workspaces.md "Unknown keys". `unrecognized_metamodel` is set when
-    /// the project declares a metamodel outside both families
-    /// (model-toml.md "Metamodel", rule (a)): the key may then belong to
-    /// an unsupported schema, and the warning says so.
+    /// `unrecognized_metamodel` is set when the project declares a
+    /// metamodel outside both families: the key may then belong to an
+    /// unsupported schema, and the warning says so.
     UnknownKey {
         location: KeyLocation,
         key: String,
         unrecognized_metamodel: Option<String>,
     },
-    /// model-toml.md "Metamodel": "a key that belongs to another
-    /// metamodel's schema (`root` in an OMG-metamodel project) is a
-    /// warning naming the metamodel that supports it".
+    /// A key that belongs to another metamodel's schema (`root` in an
+    /// OMG-metamodel project) is a warning naming the metamodel that
+    /// supports it.
     ForeignSchemaKey {
         location: KeyLocation,
         key: String,
         supported_by: MetamodelFamily,
     },
-    /// model-toml.md "Metamodel": "Any other value is a warning, not an
-    /// error."
+    /// A metamodel outside the recognized values is a warning.
     UnknownMetamodel {
         location: KeyLocation,
         value: String,
     },
-    /// workspaces.md "Source overrides": "A `sysand.toml` anywhere else
-    /// under the workspace is ignored as a whole ... with a warning on any
-    /// operation touching the overrides."
+    /// A `sysand.toml` anywhere else under the workspace is ignored as a
+    /// whole, with a warning on any operation touching the overrides.
     IgnoredSourceOverrides { path: String },
 }
 
@@ -460,11 +529,24 @@ impl Display for ReadWarning {
                 "`{key}` in {location} is only supported by the {supported_by} metamodel \
                  and is ignored here"
             ),
-            Self::UnknownMetamodel { location, value } => write!(
-                f,
-                "{location} declares metamodel `{value}`, which this version of Sysand does \
-                 not recognize"
-            ),
+            Self::UnknownMetamodel { location, value } => {
+                write!(
+                    f,
+                    "{location} declares metamodel `{value}`,\n\
+                     {SP:>8} which this version of Sysand does not recognize",
+                    SP = ' '
+                )?;
+                if in_family_host(value) {
+                    write!(
+                        f,
+                        ";\n\
+                         {SP:>8} Sysand recognizes {list}",
+                        SP = ' ',
+                        list = KnownMetamodel::RECOGNIZED
+                    )?;
+                }
+                Ok(())
+            }
             Self::IgnoredSourceOverrides { path } => write!(
                 f,
                 "`{path}` is not at the workspace root, so it is ignored as a whole \
@@ -474,16 +556,65 @@ impl Display for ReadWarning {
     }
 }
 
-/// model-toml.md "Metamodel", rule (a): a manifest that declares a
-/// metamodel outside both recognized families is validated against the OMG
-/// schema, and every schema complaint says that the metamodel may be the
-/// reason. One function, so that every message naming such a metamodel
-/// reads the same.
+/// The suffix of a schema complaint about a project that declares a
+/// metamodel outside both recognized families: the metamodel may be the
+/// reason.
 pub fn unsupported_metamodel_suffix(metamodel: &str) -> String {
     format!(
         "; this may be because the project uses a metamodel this version of Sysand does not \
          support: `{metamodel}`"
     )
+}
+
+/// Whether `value` is on the host of a recognized metamodel family, where
+/// an unrecognized value is most likely a misspelled recognized one. The
+/// scheme, letter case and a `www.` prefix are ignored.
+fn in_family_host(value: &str) -> bool {
+    let Some((_scheme, rest)) = value.split_once("://") else {
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let host = match authority.split_at_checked(4) {
+        Some((www, host)) if www.eq_ignore_ascii_case("www.") => host,
+        _ => authority,
+    };
+    [MetamodelFamily::Omg, MetamodelFamily::Syside]
+        .into_iter()
+        .any(|family| family.host().eq_ignore_ascii_case(host))
+}
+
+/// How [`InFile`] writes a diagnostic that has no position.
+#[derive(Clone, Copy)]
+enum Unpositioned {
+    /// Prefixed by the file: the line stands alone.
+    Named,
+    /// The message alone: the file is named above it.
+    Bare,
+}
+
+struct InFile<'a> {
+    file: &'a str,
+    diagnostic: &'a Diagnostic,
+    unpositioned: Unpositioned,
+}
+
+impl Display for InFile<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self {
+            file,
+            diagnostic,
+            unpositioned,
+        } = self;
+        match (&diagnostic.position, unpositioned) {
+            (Some(at), _) => write!(
+                f,
+                "{file}:{}:{}: {}",
+                at.line, at.column, diagnostic.message
+            ),
+            (None, Unpositioned::Named) => write!(f, "`{file}`: {}", diagnostic.message),
+            (None, Unpositioned::Bare) => f.write_str(&diagnostic.message),
+        }
+    }
 }
 
 #[cfg(test)]

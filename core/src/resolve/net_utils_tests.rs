@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use std::assert_matches;
 use std::{
     net::TcpListener,
     sync::{
@@ -15,10 +16,8 @@ use super::{
     install_default_crypto_provider, jittered, parse_retry_after, retry_after, retry_reason,
 };
 
-/// The reason [`install_default_crypto_provider`] exists. `reqwest` is taken
-/// with `rustls-no-provider`, so it has no compiled-in provider to fall back
-/// on and `build()` fails outright unless something installed one -- and
-/// `create_reqwest_client` is used by callers that know nothing about rustls.
+/// `reqwest` has no compiled-in provider, so `build()` fails unless
+/// [`install_default_crypto_provider`] ran.
 #[test]
 fn create_reqwest_client_needs_no_provider_from_the_caller() {
     assert!(
@@ -28,10 +27,8 @@ fn create_reqwest_client_needs_no_provider_from_the_caller() {
     );
 }
 
-/// Installing must stay idempotent. `install_default` returns `Err` once a
-/// provider is set, and discarding that error is what lets an application
-/// install its own provider first and keep it -- so a second call must be
-/// harmless rather than a panic or an override.
+/// A second call is harmless, and an application's own provider installed
+/// first is kept.
 #[test]
 fn install_default_crypto_provider_is_idempotent() {
     install_default_crypto_provider();
@@ -83,10 +80,7 @@ fn stalled_server_times_out_after_retries() {
     let started = Instant::now();
     let err = send(&client, reqwest::Method::GET, &format!("http://{addr}/")).unwrap_err();
 
-    assert!(
-        matches!(&err, reqwest_middleware::Error::Reqwest(e) if e.is_timeout()),
-        "expected a timeout, got {err:?}"
-    );
+    assert_matches!(&err, reqwest_middleware::Error::Reqwest(e) if e.is_timeout(), "expected a timeout, got {err:?}");
     assert_eq!(accepted.load(Ordering::SeqCst), 3);
     assert!(started.elapsed() < Duration::from_secs(5));
 }
@@ -144,10 +138,7 @@ fn tls_failure_is_not_retried() {
     let client = create_reqwest_client_with(options(Duration::from_secs(5), 0)).unwrap();
     let result = send(&client, reqwest::Method::GET, &url);
 
-    assert!(
-        matches!(&result, Err(reqwest_middleware::Error::Reqwest(e)) if e.is_connect()),
-        "expected a connection error, got {result:?}"
-    );
+    assert_matches!(&result, Err(reqwest_middleware::Error::Reqwest(e)) if e.is_connect(), "expected a connection error, got {result:?}");
     assert_eq!(retry_reason(&result), None);
 }
 

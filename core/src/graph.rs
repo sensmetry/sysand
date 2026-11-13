@@ -2,9 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 //! The checks that are about a *relation between two projects* rather
-//! than about one project's manifest, and the graph they run over. A check
-//! over a pair of projects belongs to no single loader, so it lives here,
-//! apart from whatever builds the graph.
+//! than about one project's manifest, and the graph they run over.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::{Debug, Display};
@@ -18,10 +16,8 @@ use crate::model::{Metamodel, MetamodelFamily, MetamodelRelease};
 /// its dependencies.
 ///
 /// Nodes keep the order they were added in, which is the only tie-break
-/// this module applies: a caller that wants ties broken in `members`
-/// order adds them in that order, and a caller whose source is a hash map
-/// adds them in a sorted order of its own, or its messages would differ
-/// between runs.
+/// this module applies, so a caller must add nodes in a deterministic
+/// order.
 #[derive(Clone, Debug, Default)]
 pub struct DependencyGraph<N> {
     nodes: Vec<N>,
@@ -55,9 +51,7 @@ impl<N: Clone + Debug + Display + Eq + Hash> DependencyGraph<N> {
     /// Returns `false`, having changed nothing, if either endpoint is not
     /// a node of this graph: a project's usages routinely name projects
     /// outside it (a workspace member depending on something that is not a
-    /// member), and such a usage is not an edge of this graph. Adding the
-    /// endpoint instead would put a project into an order it has no
-    /// business being in.
+    /// member), and such a usage is not an edge of this graph.
     pub fn add_edge(&mut self, dependent: &N, dependency: &N) -> bool {
         let (Some(from), Some(to)) = (self.index.get(dependent), self.index.get(dependency)) else {
             return false;
@@ -72,19 +66,6 @@ impl<N: Clone + Debug + Display + Eq + Hash> DependencyGraph<N> {
 
     pub fn nodes(&self) -> &[N] {
         &self.nodes
-    }
-
-    /// Every edge as a `(dependent, dependency)` pair, in the order the
-    /// edges were added.
-    pub fn edges(&self) -> impl Iterator<Item = (&N, &N)> {
-        self.edges
-            .iter()
-            .enumerate()
-            .flat_map(move |(from, targets)| {
-                targets
-                    .iter()
-                    .map(move |to| (&self.nodes[from], &self.nodes[*to]))
-            })
     }
 
     /// Every cycle in the graph, as its strongly connected component.
@@ -195,10 +176,9 @@ impl<N: Clone + Debug + Display + Eq + Hash> DependencyGraph<N> {
 
     /// A cycle through `start`, as a path that begins and ends there.
     ///
-    /// Breadth-first, so it is the shortest cycle through `start` — not
-    /// necessarily the shortest cycle in the component, and deliberately
-    /// so: `start` is chosen by the caller to be a project the reader
-    /// needs to see.
+    /// Breadth-first, so it is the shortest cycle through `start`, not
+    /// necessarily the shortest in the component: the caller picks `start`
+    /// as a project the reader needs to see.
     fn cycle(&self, component: &[usize], start: usize) -> DependencyCycle<N> {
         let in_component: HashSet<usize> = component.iter().copied().collect();
         let mut previous: HashMap<usize, usize> = HashMap::new();
@@ -260,8 +240,7 @@ pub struct DependencyCycle<N: Display> {
     pub path: Vec<N>,
 }
 
-/// model-toml.md "Metamodel", direction rule: "an OMG-metamodel project
-/// must not depend on a Syside-metamodel project. This is an error".
+/// An OMG-metamodel project depends on a Syside-metamodel project.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 #[error(
     "`{dependent}` uses {} and cannot depend on `{dependency}`, which uses {}; only \
@@ -276,8 +255,8 @@ pub struct MetamodelDirectionError<N> {
     pub dependency_metamodel: Option<Metamodel>,
 }
 
-/// model-toml.md "Metamodel", release rule: "a `<date>` that differs
-/// between a project and one of its dependencies is a warning".
+/// A project and one of its dependencies target different metamodel
+/// release dates.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 #[error(
     "`{dependent}` targets metamodel release `{dependent_date}` but its dependency \
@@ -293,9 +272,9 @@ pub struct MetamodelReleaseMismatch<N> {
 /// Both metamodel rules for one edge of a dependency graph. Only the date
 /// is compared, across families and specification kinds.
 ///
-/// model-toml.md: a project without a `metamodel` "is treated as OMG with
-/// an unknown date: the direction rule applies, the release warning does
-/// not". An unrecognized value has no date to compare either.
+/// A project without a `metamodel` is treated as OMG with an unknown date:
+/// the direction rule applies, the release check does not. An unrecognized
+/// value has no date to compare either.
 pub fn check_metamodel_pair<N: Clone + Debug + Display>(
     dependent: (&N, Option<&Metamodel>),
     dependency: (&N, Option<&Metamodel>),

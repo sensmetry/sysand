@@ -16,7 +16,7 @@ use sysand_core::{
         InterchangeProjectMetadataRaw, InterchangeProjectUsageRaw,
     },
 };
-use sysand_core::{project::local_src::LocalSrcError, utils::format_err};
+use sysand_core::{project::local_src::LocalSrcError, symbols::SymbolsError, utils::format_err};
 
 pub(crate) const STRING: FieldSignature = jni_sig!(java.lang.String);
 pub(crate) const BOOLEAN: FieldSignature = jni_sig!(java.lang.Boolean);
@@ -32,6 +32,10 @@ pub(crate) const INTERCHANGE_PROJECT_USAGE_DIRECTORY_CLASS_CONSTRUCTOR: MethodSi
 pub(crate) const INTERCHANGE_PROJECT_USAGE_KPAR_PATH_CLASS: FieldSignature =
     jni_sig!(com.sensmetry.sysand.model.InterchangeProjectUsageKparPath);
 pub(crate) const INTERCHANGE_PROJECT_USAGE_KPAR_PATH_CLASS_CONSTRUCTOR: MethodSignature =
+    jni_sig!((java.lang.String, java.lang.String, java.lang.String));
+pub(crate) const INTERCHANGE_PROJECT_USAGE_REMOTE_KPAR_CLASS: FieldSignature =
+    jni_sig!(com.sensmetry.sysand.model.InterchangeProjectUsageRemoteKpar);
+pub(crate) const INTERCHANGE_PROJECT_USAGE_REMOTE_KPAR_CLASS_CONSTRUCTOR: MethodSignature =
     jni_sig!((java.lang.String, java.lang.String, java.lang.String));
 pub(crate) const INTERCHANGE_PROJECT_USAGE_INDEX_CLASS: FieldSignature =
     jni_sig!(com.sensmetry.sysand.model.InterchangeProjectUsageIndex);
@@ -52,7 +56,9 @@ pub(crate) const INTERCHANGE_PROJECT_METADATA_CLASS_CONSTRUCTOR: MethodSignature
     java.lang.String,
     java.lang.Boolean,
     java.lang.Boolean,
-    java.util.LinkedHashMap
+    java.util.LinkedHashMap,
+    java.lang.String,
+    java.lang.String[]
 ));
 pub(crate) const INTERCHANGE_PROJECT_CLASS: FieldSignature =
     jni_sig!(com.sensmetry.sysand.model.InterchangeProject);
@@ -291,6 +297,20 @@ fn get_usage_array_field<'local>(
                 publisher,
                 name,
             });
+        } else if try_instance_of(
+            env,
+            &elem,
+            &INTERCHANGE_PROJECT_USAGE_REMOTE_KPAR_CLASS,
+            &label,
+        )? {
+            let kpar_url = get_string_field(env, &elem, jni_str!("kparUrl"))?;
+            let publisher = get_nullable_string_field(env, &elem, jni_str!("publisher"))?;
+            let name = get_string_field(env, &elem, jni_str!("name"))?;
+            result.push(InterchangeProjectUsageRaw::RemoteKpar {
+                kpar_url,
+                publisher,
+                name,
+            });
         } else if try_instance_of(env, &elem, &INTERCHANGE_PROJECT_USAGE_INDEX_CLASS, &label)? {
             let publisher = get_string_field(env, &elem, jni_str!("publisher"))?;
             let name = get_string_field(env, &elem, jni_str!("name"))?;
@@ -339,7 +359,20 @@ pub(crate) fn java_metadata_to_raw<'local>(
     meta: &JObject<'local>,
 ) -> Option<InterchangeProjectMetadataRaw> {
     let index_obj = get_field_object(env, meta, jni_str!("index"), LINKED_HASH_MAP)?;
-    let index = java_map_to_index_map(env, index_obj)?;
+    // Null for the Syside shape.
+    let index = if index_obj.is_null() {
+        None
+    } else {
+        Some(java_map_to_index_map(env, index_obj)?)
+    };
+    let root = get_nullable_string_field(env, meta, jni_str!("root"))?;
+    let exports_obj =
+        get_field_object(env, meta, jni_str!("exports"), jni_sig!(java.lang.String[]))?;
+    let exports = if exports_obj.is_null() {
+        None
+    } else {
+        Some(get_string_array_field(env, meta, jni_str!("exports"))?)
+    };
     let created = get_string_field(env, meta, jni_str!("created"))?;
     let metamodel = get_nullable_string_field(env, meta, jni_str!("metamodel"))?;
     let includes_derived = get_nullable_boolean_field(env, meta, jni_str!("includesDerived"))?;
@@ -360,7 +393,7 @@ pub(crate) fn java_metadata_to_raw<'local>(
         {
             // `iter.next` and `entry.key`/`entry.value` each create a new local
             // reference per call; wrap them so they're released at the end of
-            // each iteration instead of accumulating for the whole map.
+            // each iteration.
             let entry = entry.auto();
             let key = unwrap_throw!(
                 env,
@@ -401,6 +434,8 @@ pub(crate) fn java_metadata_to_raw<'local>(
     };
     Some(InterchangeProjectMetadataRaw {
         index,
+        root,
+        exports,
         created,
         metamodel,
         includes_derived,
@@ -478,7 +513,7 @@ impl<T: ToJObject> ToJObject for Option<T> {
             Some(v) => v.to_jobject(env),
             // `None` specifically indicates that exception was thrown
             // because of a failure. In general, having `Option<T>::None`
-            // is not a failure, so return `null` instead
+            // is not a failure, so return `null`
             None => Some(JObject::null()),
         }
     }
@@ -490,7 +525,7 @@ impl<T: ToJString> ToJString for Option<T> {
             Some(v) => v.to_jstring(env),
             // `None` specifically indicates that exception was thrown
             // because of a failure. In general, having `Option<T>::None`
-            // is not a failure, so return `null` instead
+            // is not a failure, so return `null`
             None => Some(JString::null()),
         }
     }
@@ -654,6 +689,28 @@ impl ToJObject for InterchangeProjectUsageRaw {
                     "Failed to create InterchangeProjectUsageKparPath"
                 )
             }
+            Self::RemoteKpar {
+                kpar_url,
+                publisher,
+                name,
+            } => {
+                let kpar_url = kpar_url.to_jstring(env)?;
+                let publisher = publisher.to_jstring(env)?;
+                let name = name.to_jstring(env)?;
+                unwrap_throw!(
+                    env,
+                    env.new_object(
+                        INTERCHANGE_PROJECT_USAGE_REMOTE_KPAR_CLASS.sig(),
+                        INTERCHANGE_PROJECT_USAGE_REMOTE_KPAR_CLASS_CONSTRUCTOR,
+                        &[
+                            JValue::from(&kpar_url),
+                            JValue::from(&publisher),
+                            JValue::from(&name),
+                        ],
+                    ),
+                    "Failed to create InterchangeProjectUsageRemoteKpar"
+                )
+            }
             Self::Index {
                 publisher,
                 name,
@@ -754,6 +811,11 @@ impl ToJObject for InterchangeProjectMetadataRaw {
         let includes_derived = self.includes_derived.to_jobject(env)?;
         let includes_implied = self.includes_implied.to_jobject(env)?;
         let checksum = self.checksum.to_jobject(env)?;
+        let root = self.root.to_jstring(env)?;
+        let exports = match &self.exports {
+            Some(exports) => exports.to_jstring_array(env)?.into(),
+            None => JObject::null(),
+        };
         let obj = unwrap_throw!(
             env,
             env.new_object(
@@ -766,6 +828,8 @@ impl ToJObject for InterchangeProjectMetadataRaw {
                     JValue::from(&includes_derived),
                     JValue::from(&includes_implied),
                     JValue::from(&checksum),
+                    JValue::from(&root),
+                    JValue::from(&exports),
                 ],
             ),
             "Failed to create InterchangeProjectMetadata"
@@ -793,7 +857,7 @@ pub(crate) fn java_map_to_index_map<'local>(
     ) {
         // `iter.next` and `entry.key`/`entry.value` each create a new local
         // reference per call; wrap them so they're released at the end of
-        // each iteration instead of accumulating for the whole map.
+        // each iteration.
         let entry = entry.auto();
         let key = unwrap_throw!(env, entry.key(env), "Failed to get key of `index` entry");
         let value = unwrap_throw!(
@@ -864,13 +928,13 @@ pub(crate) fn handle_build_error(env: &mut Env<'_>, error: &KParBuildError<Local
                 format!("Validation error: {e}"),
             );
         }
-        KParBuildError::Extract(_) => {
+        KParBuildError::Symbols(SymbolsError::Extract(..)) => {
             env.throw_exception(
                 ExceptionKind::SysandException,
                 format!("Extract error: {e}"),
             );
         }
-        KParBuildError::UnknownFormat(_) => {
+        KParBuildError::Symbols(SymbolsError::UnknownFormat(_)) => {
             env.throw_exception(
                 ExceptionKind::SysandException,
                 format!("Unknown format error: {e}"),
@@ -882,8 +946,26 @@ pub(crate) fn handle_build_error(env: &mut Env<'_>, error: &KParBuildError<Local
                 "Missing project information",
             );
         }
-        KParBuildError::MissingMeta => {
-            env.throw_exception(ExceptionKind::SysandException, "Missing project metadata");
+        KParBuildError::InheritedLocalUsage { usage: _, path: _ }
+        | KParBuildError::Unlisted(_)
+        | KParBuildError::KeepIndexOnRoot
+        | KParBuildError::TomlTargetMissing { usage: _, path: _ }
+        | KParBuildError::TomlTargetVersion {
+            usage: _,
+            path: _,
+            version: _,
+        }
+        | KParBuildError::TomlTargetSpelling {
+            usage: _,
+            path: _,
+            declared: _,
+        }
+        | KParBuildError::TomlTargetRead {
+            usage: _,
+            path: _,
+            source: _,
+        } => {
+            env.throw_exception(ExceptionKind::SysandException, e);
         }
         KParBuildError::MissingInfoMeta => {
             env.throw_exception(
@@ -897,24 +979,7 @@ pub(crate) fn handle_build_error(env: &mut Env<'_>, error: &KParBuildError<Local
                 format!("Zip write error: {e}"),
             );
         }
-        KParBuildError::Serialize(..) => {
-            env.throw_exception(
-                ExceptionKind::SysandException,
-                format!("Project serialization error: {e}"),
-            );
-        }
-        KParBuildError::WorkspaceRead(_) => {
-            env.throw_exception(
-                ExceptionKind::SysandException,
-                format!("Workspace read error: {e}"),
-            );
-        }
-        KParBuildError::PathUsage(_)
-        | KParBuildError::WorkspaceMetamodelConflict {
-            workspace_metamodel: _,
-            project_metamodel: _,
-            project_path: _,
-        } => {
+        KParBuildError::PathUsage(_) => {
             env.throw_exception(ExceptionKind::SysandException, e);
         }
         KParBuildError::MissingIndexSymbol(_, _) => {

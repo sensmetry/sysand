@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+use crate::paths::{RelativizePathError, join_lexical};
 use std::{
     debug_assert_matches, fs,
     io::{ErrorKind, Write as _},
     vec,
 };
 
-use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
+use camino::{Utf8Path, Utf8PathBuf};
 use fluent_uri::Iri;
 use thiserror::Error;
 use typed_path::Utf8UnixPathBuf;
@@ -29,11 +30,10 @@ use crate::{
         ProjectRead as _,
         local_src::{LocalSrcError, LocalSrcProject, PathError},
         utils::{
-            FsIoError, Identifier, ProjectDeserializationError, ProjectSerializationError,
-            RelativizePathError, wrapfs,
+            FsIoError, Identifier, ProjectDeserializationError, ProjectSerializationError, wrapfs,
         },
     },
-    workspace::Workspace,
+    workspace_lock::ExclusiveLock,
 };
 
 pub mod metadata;
@@ -49,6 +49,9 @@ pub struct LocalDirectoryEnvironment {
     /// Path of the env, including `.sysand` part. Must be canonical
     root_dir: Utf8PathBuf,
     metadata: EnvMetadata,
+    /// The advisory lock the writer holds, handed in by [`Self::hold`];
+    /// `None` for a reader, or for an embedder that did not take one.
+    lock: Option<ExclusiveLock>,
 }
 
 pub const METADATA_PATH: &str = "env.toml";
@@ -62,7 +65,11 @@ impl LocalDirectoryEnvironment {
         Self::warn_if_old_sysand_env_present(&root_dir);
 
         let metadata = load_env_metadata(root_dir.join(METADATA_PATH))?;
-        Ok(Self { root_dir, metadata })
+        Ok(Self {
+            root_dir,
+            metadata,
+            lock: None,
+        })
     }
 
     /// `root_dir` can be any cwd-relative/absolute path. `env.toml` must not exist
@@ -77,7 +84,11 @@ impl LocalDirectoryEnvironment {
         file.write_all(metadata.to_string().as_bytes())
             .map_err(|e| FsIoError::WriteFile(path, e))?;
 
-        Ok(Self { root_dir, metadata })
+        Ok(Self {
+            root_dir,
+            metadata,
+            lock: None,
+        })
     }
 
     /// Try reading the environment metadata. If it does not exist,
@@ -94,7 +105,11 @@ impl LocalDirectoryEnvironment {
                 let metadata = parse_env_metadata(meta_path, s)?;
 
                 let root_dir = wrapfs::canonicalize(root_dir)?;
-                Ok(Some(Self { root_dir, metadata }))
+                Ok(Some(Self {
+                    root_dir,
+                    metadata,
+                    lock: None,
+                }))
             }
             Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
             Err(e) => Err(EnvMetadataError::Io(
@@ -111,8 +126,12 @@ impl LocalDirectoryEnvironment {
     /// non-installed projects are removed first.
     /// To install a project in the environment, use `put_project()`.
     /// Call is idempotent. Does not update metadata file
-    pub fn merge_lock(&mut self, lock: &Lock, ws: Option<&Workspace>) {
-        self.metadata.projects.retain(Self::is_installed);
+    ///
+    /// An editable project at one of `workspace_members` (see
+    /// [`crate::context::ProjectContext::workspace_members`]) is marked as a
+    /// workspace project.
+    pub fn merge_lock(&mut self, lock: &Lock, workspace_members: &[Utf8UnixPathBuf]) {
+        self.metadata.projects.retain(Self::holds_copy);
         for project in &lock.projects {
             // Projects that are installed in the environment are ignored, so only
             // editable (and workspace, which are a subset of editable) projects have to be added
@@ -122,9 +141,6 @@ impl LocalDirectoryEnvironment {
                     .iter()
                     .map(|usage| usage.to_string())
                     .collect();
-
-                let workspace_member =
-                    ws.is_some_and(|w| w.projects().iter().any(|p| p.path.as_str() == editable));
 
                 self.metadata.projects.push(EnvProject {
                     publisher: project.publisher.clone(),
@@ -138,7 +154,7 @@ impl LocalDirectoryEnvironment {
                         .collect(),
                     usages,
                     editable: true,
-                    workspace: workspace_member,
+                    workspace: workspace_members.contains(editable),
                     checksum: None,
                 });
             }
@@ -159,6 +175,60 @@ impl LocalDirectoryEnvironment {
 
     pub fn projects(&self) -> &[EnvProject] {
         &self.metadata.projects
+    }
+
+    /// Hand the environment the workspace lock its writer holds, so its
+    /// writes run under it.
+    ///
+    /// Fails when the lock is on a different root from the one this
+    /// environment is in.
+    pub fn hold(&mut self, lock: ExclusiveLock) -> Result<(), ForeignLockError> {
+        if lock.root() != self.parent_dir() {
+            return Err(ForeignLockError {
+                lock_root: lock.root().to_owned(),
+                env: self.root_dir.clone(),
+            });
+        }
+        self.lock = Some(lock);
+        Ok(())
+    }
+
+    /// Note a write that runs without an exclusive workspace lock; an
+    /// embedder may serialize writers its own way.
+    fn note_unlocked_write(&self, what: &str) {
+        if self.lock.is_none() {
+            log::debug!(
+                "{what} on `{}` without an exclusive workspace lock",
+                self.root_dir
+            );
+        }
+    }
+
+    /// Directories directly under `lib/` that no recorded project owns,
+    /// relative to the environment root, sorted.
+    /// Editable and workspace entries live outside `lib/` and are not
+    /// consulted.
+    pub fn unrecorded_paths(&self) -> Result<Vec<Utf8UnixPathBuf>, Box<FsIoError>> {
+        let lib_dir = self.root_dir.join(PROJECT_PATH_PREFIX);
+        if !wrapfs::is_dir(&lib_dir)? {
+            return Ok(vec![]);
+        }
+        let mut unrecorded = Vec::new();
+        for entry in wrapfs::read_dir(&lib_dir)? {
+            let entry = entry.map_err(|e| Box::new(FsIoError::ReadDir(lib_dir.clone(), e)))?;
+            let relative =
+                Utf8UnixPathBuf::from(format!("{PROJECT_PATH_PREFIX}{}", entry.file_name()));
+            if !self
+                .metadata
+                .projects
+                .iter()
+                .any(|project| project.path == relative)
+            {
+                unrecorded.push(relative);
+            }
+        }
+        unrecorded.sort();
+        Ok(unrecorded)
     }
 
     /// Parent directory of the env, i.e. the directory in which `.sysand` resides.
@@ -186,37 +256,23 @@ impl LocalDirectoryEnvironment {
 
     // TODO: an environment holds every installed version of a project, and
     // `EnvResolver` hands all of them to the solver, so resolving through one
-    // *is* a version choice and ought to default a version constraint the way
-    // an index does. What comes back here is a plain `LocalSrcProject`, which
-    // answers `source_may_offer_multiple_versions()` with `false` because a
-    // path names one project -- the type cannot tell its two roles apart. So a
-    // `pkg:sysand` usage met only by the environment currently admits a
-    // prerelease where the index would not. The fix is for the environment to
-    // say so when it constructs the project, rather than the project inferring
-    // it from its own shape.
+    // is a version choice and ought to default a version constraint the way
+    // an index does. A plain `LocalSrcProject` answers
+    // `source_may_offer_multiple_versions()` with `false`, because a path
+    // names one project, so a `pkg:sysand` usage met only by the environment
+    // admits a prerelease where the index would not. The environment should
+    // say so when it constructs the project.
     fn get_project_storage(&self, project: &EnvProject) -> LocalSrcProject {
         let relative = project.path.as_str();
         if project.editable {
-            // let absolute = self.parent_dir().join(relative);
-            // We will assume that the relative path was constructed by us
+            // Assume that the relative path was constructed by us
             // by diffing canonical paths of the project and env parent (i.e. workspace root)
             // Otherwise canonicalization would be needed here to remove possible
             // (internal) `../` of editable projects, which can reside anywhere.
             // In principle thus it should be enough to strip however many `../` are
             // at the start of `relative` from `parent`, and then join (stripped) relative
             // to (stripped) parent.
-            let mut absolute = self.parent_dir().to_path_buf();
-            for c in Utf8Path::new(relative).components() {
-                match c {
-                    Utf8Component::ParentDir => {
-                        absolute.pop();
-                    }
-                    Utf8Component::Normal(c) => absolute.push(c),
-                    Utf8Component::CurDir | Utf8Component::Prefix(_) | Utf8Component::RootDir => {
-                        unreachable!()
-                    }
-                }
-            }
+            let absolute = join_lexical(self.parent_dir(), Utf8Path::new(relative));
             // Editable projects must not have checksums
             debug_assert_matches!(project.checksum, None);
             LocalSrcProject::new_access(absolute, Some(relative.into()))
@@ -234,9 +290,21 @@ impl LocalDirectoryEnvironment {
         }
     }
 
-    /// Determine whether `p` is installed in the environment. This is currently false
-    /// only for editable projects.
-    fn is_installed(p: &EnvProject) -> bool {
+    /// Whether `p` is installed in the environment, i.e. lives under `lib/`.
+    /// The refusal to remove `project`, if it is not a copy the env holds.
+    fn not_installed(identifier: &str, project: &EnvProject) -> Option<LocalWriteError> {
+        (project.editable || project.workspace).then(|| LocalWriteError::RemoveNotInstalled {
+            identifier: identifier.into(),
+            version: project.version.as_str().into(),
+            kind: if project.workspace {
+                "a workspace"
+            } else {
+                "an editable"
+            },
+        })
+    }
+
+    fn holds_copy(p: &EnvProject) -> bool {
         p.path.starts_with(PROJECT_PATH_PREFIX)
     }
 
@@ -249,7 +317,7 @@ impl LocalDirectoryEnvironment {
             .metadata
             .projects
             .iter()
-            .any(|p| Self::is_installed(p) && p.path.file_name().unwrap() == candidate)
+            .any(|p| Self::holds_copy(p) && p.path.file_name().unwrap() == candidate)
         {
             candidate = path_iter.next_candidate();
         }
@@ -276,15 +344,15 @@ impl LocalDirectoryEnvironment {
             }
         }
     }
+}
 
-    // /// Determine absolute path of `project`
-    // fn absolute_project_path(&self, project: &EnvProject) -> Utf8PathBuf {
-    //     if project.editable {
-    //         self.parent_dir().join(project.path.as_str())
-    //     } else {
-    //         self.root_dir.join(project.path.as_str())
-    //     }
-    // }
+/// A lock handed to [`LocalDirectoryEnvironment::hold`] guards another
+/// directory, so writes under it would not be serialized.
+#[derive(Error, Debug)]
+#[error("the workspace lock on `{lock_root}` does not guard the environment at `{env}`")]
+pub struct ForeignLockError {
+    pub lock_root: Utf8PathBuf,
+    pub env: Utf8PathBuf,
 }
 
 #[derive(Error, Debug)]
@@ -414,10 +482,22 @@ pub enum LocalWriteError {
     MissingInfoMeta,
     #[error("project `{0}` not found in env")]
     ProjectNotFound(String),
+    /// The entry points at a project used in place; the lockfile, not
+    /// the environment, decides whether it is there.
+    #[error(
+        "project `{identifier}` {version} is {kind} project, which is not installed in the env\n\
+        {SP:>8} and cannot be removed from it",
+        SP = ' '
+    )]
+    RemoveNotInstalled {
+        identifier: Box<str>,
+        version: Box<str>,
+        /// "an editable" or "a workspace"
+        kind: &'static str,
+    },
     /// A directory whose manifests do not say what kind of project it
     /// is, or that is a `model.toml` project and so cannot be written
-    /// as a json one. Passed through rather than re-spelled: these are
-    /// about the *format*, and an env writer adds nothing to them.
+    /// as a json one.
     #[error(transparent)]
     Format(LocalSrcError),
 }
@@ -447,14 +527,8 @@ impl From<LocalSrcError> for LocalWriteError {
             LocalSrcError::Serialize(error) => Self::Serialize(error),
             LocalSrcError::ImpossibleRelativePath(err) => Self::ImpossibleRelativePath(err),
             LocalSrcError::MissingMeta => Self::MissingMeta,
-            // Flattened rather than re-spelled: the message names
-            // which manifests are missing, which an env writer cannot
-            // improve on.
-            error @ LocalSrcError::MissingInfoMeta { missing: _ } => Self::Format(error),
-            error @ (LocalSrcError::AmbiguousFormat { dir: _, json: _ }
-            | LocalSrcError::Symbols(_)
-            | LocalSrcError::JsonWriteToTomlProject { dir: _, file: _ }
-            | LocalSrcError::TomlWriteToJsonProject { dir: _ }) => Self::Format(error),
+            error @ (LocalSrcError::MissingInfoMeta { missing: _ }
+            | LocalSrcError::Format { dir: _, problem: _ }) => Self::Format(error),
         }
     }
 }
@@ -480,6 +554,7 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
     {
         let identifier = uri.as_ref();
         let version = version.as_ref();
+        self.note_unlocked_write("put_project");
 
         let project_temp = camino_tempfile::tempdir()
             .map_err(|e| LocalWriteError::from(FsIoError::MkTempDir(e)))?;
@@ -487,8 +562,7 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
             LocalSrcProject::new_access(project_temp.path().to_path_buf(), None);
 
         if let Some(existing) = self.metadata.find_project_version_mut(identifier, version) {
-            // Editable and workspace projects are not managed by the env, so
-            // they cannot be replaced by an installed copy
+            // Editable and workspace projects are not managed by the env
             if existing.editable || existing.workspace {
                 return Err(PutProjectError::Write(
                     LocalWriteError::OverwriteNotInstalled {
@@ -503,7 +577,7 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
                 ));
             }
 
-            // Create a temp clone and change it to avoid modifying env in case of errors
+            // Write into a temp dir first so a failure leaves the env untouched
             write_project(&mut tentative_project).map_err(PutProjectError::Callback)?;
             // Project is not editable, so this is always correct
             let absolute_path = self.root_dir.join(existing.path.as_str());
@@ -511,17 +585,17 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
                 .map_err(LocalWriteError::from)?;
             tentative_project.set_path(absolute_path);
 
-            let info = match tentative_project.get_info() {
-                Ok(Some(info)) => info,
+            let definition = match tentative_project.get_project() {
+                Ok(Some(definition)) => definition,
                 Ok(None) => return Err(PutProjectError::Write(LocalWriteError::MissingInfoMeta)),
                 Err(e) => return Err(PutProjectError::Write(LocalWriteError::from(e))),
             };
 
-            existing.publisher = info.publisher;
-            existing.name = info.name;
-            existing.version = info.version;
-            existing.usages = info
-                .usage
+            existing.publisher = definition.publisher().map(ToOwned::to_owned);
+            existing.name = definition.name().to_owned();
+            existing.version = definition.version();
+            existing.usages = definition
+                .usages()
                 .into_iter()
                 .map(|u| Identifier::from_interchange_usage_unchecked(&u).into_string())
                 .collect();
@@ -529,8 +603,6 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
         } else {
             // TODO: try writing to the target directly (we manage it exclusively) and on failure revert.
             write_project(&mut tentative_project).map_err(PutProjectError::Callback)?;
-
-            // Project write was successful
 
             // TODO: take iri as arg
             let iri = Iri::parse(identifier)
@@ -542,7 +614,6 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
             self.ensure_lib_dir_exists()
                 .map_err(LocalWriteError::from)?;
 
-            // Move existing stuff out of the way
             // TODO: Handle catastrophic errors differently
             try_move_files(&[(project_temp.path(), &absolute_project_path)])
                 .map_err(LocalWriteError::from)?;
@@ -571,21 +642,20 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
     ) -> Result<(), Self::WriteError> {
         let identifier = uri.as_ref();
         let version = version.as_ref();
+        self.note_unlocked_write("del_project_version");
         if let Some((idx, project)) = self.metadata.find_project_version_idx(identifier, version) {
-            // Doesn't make sense to remove workspace projects
-            assert!(!project.workspace);
-            // Editable projects are not owned by the env
-            if !project.editable {
-                // TODO: maybe surface IO errors?
-                let project_dir = self.root_dir.join(project.path.as_str());
-                log::debug!(
-                    "removing project `{identifier}` ({version}) from env at `{}`",
-                    self.root_dir
-                );
-                clean_dir(&project_dir);
-                if let Err(e) = fs::remove_dir(&project_dir) {
-                    log::warn!("failed to remove empty dir `{project_dir}`: {e}");
-                }
+            if let Some(error) = Self::not_installed(identifier, project) {
+                return Err(error);
+            }
+            // TODO: maybe surface IO errors?
+            let project_dir = self.root_dir.join(project.path.as_str());
+            log::debug!(
+                "removing project `{identifier}` ({version}) from env at `{}`",
+                self.root_dir
+            );
+            clean_dir(&project_dir);
+            if let Err(e) = fs::remove_dir(&project_dir) {
+                log::warn!("failed to remove empty dir `{project_dir}`: {e}");
             }
             self.metadata.projects.swap_remove(idx);
             self.write()?;
@@ -596,7 +666,19 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
         Ok(())
     }
 
+    fn is_installed<S: AsRef<str>, T: AsRef<str>>(
+        &self,
+        uri: S,
+        version: T,
+    ) -> Result<bool, Self::WriteError> {
+        Ok(self
+            .metadata
+            .find_project_version_idx(uri.as_ref(), version.as_ref())
+            .is_some_and(|(_, project)| Self::holds_copy(project)))
+    }
+
     fn del_uri<S: AsRef<str>>(&mut self, uri: S) -> Result<(), Self::WriteError> {
+        self.note_unlocked_write("del_uri");
         let mut project_versions = self
             .metadata
             .find_project_versions_idxs(uri.as_ref())
@@ -604,23 +686,25 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
         if project_versions.peek().is_none() {
             return Err(LocalWriteError::ProjectNotFound(uri.as_ref().to_owned()));
         }
+        let project_versions: Vec<_> = project_versions.collect();
+        for (_, p) in &project_versions {
+            if let Some(error) = Self::not_installed(uri.as_ref(), p) {
+                return Err(error);
+            }
+        }
         let mut indices_to_remove = Vec::new();
         for (idx, p) in project_versions {
-            // Doesn't make sense to remove workspace projects
-            assert!(!p.workspace);
-            if !p.editable {
-                // TODO: maybe surface IO errors?
-                let project_dir = self.root_dir.join(p.path.as_str());
-                log::debug!(
-                    "removing project `{}` ({}) from env at `{}`",
-                    uri.as_ref(),
-                    p.version,
-                    self.root_dir
-                );
-                clean_dir(&project_dir);
-                if let Err(e) = fs::remove_dir(&project_dir) {
-                    log::warn!("failed to remove empty dir `{project_dir}`: {e}");
-                }
+            // TODO: maybe surface IO errors?
+            let project_dir = self.root_dir.join(p.path.as_str());
+            log::debug!(
+                "removing project `{}` ({}) from env at `{}`",
+                uri.as_ref(),
+                p.version,
+                self.root_dir
+            );
+            clean_dir(&project_dir);
+            if let Err(e) = fs::remove_dir(&project_dir) {
+                log::warn!("failed to remove empty dir `{project_dir}`: {e}");
             }
             indices_to_remove.push(idx);
         }

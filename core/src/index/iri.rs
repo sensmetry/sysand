@@ -5,7 +5,7 @@ use thiserror::Error;
 
 use crate::{
     iri_normalize::{IriNormalizeError, canonicalize_iri},
-    purl::{PKG_SYSAND_PREFIX, SysandPurlError, parse_sysand_purl},
+    purl::{SysandPurlError, parse_sysand_purl, sysand_purl},
     utils::sha256_lowercase_hex,
 };
 
@@ -26,8 +26,7 @@ pub enum ParseIriError {
 }
 
 /// Parse an IRI to later construct the index path segments that locate its project directory.
-/// The detailed wire mapping is specified in `design/index-protocol.md`;
-/// this function keeps malformed `pkg:sysand/...` IRIs out of the generic
+/// This function keeps malformed `pkg:sysand/...` IRIs out of the generic
 /// `_iri/<hash>/` bucket so user typos fail loudly.
 pub(crate) fn parse_iri(iri: &str) -> Result<ParsedIri, ParseIriError> {
     match parse_sysand_purl(iri) {
@@ -63,8 +62,7 @@ pub(crate) enum ParsedIri {
 impl ParsedIri {
     /// The two path segments identifying the project directory:
     /// `[publisher, name]` for a sysand PURL, or `[_iri, <sha256hex>]` for
-    /// any other IRI. Kept as separate segments (rather than a joined
-    /// path) so callers can encode each independently.
+    /// any other IRI. Separate segments, so callers can encode each.
     pub(crate) fn get_path_segments(&self) -> [String; 2] {
         match self {
             Self::Sysand { publisher, name } => [publisher.clone(), name.clone()],
@@ -81,9 +79,7 @@ impl ParsedIri {
 
     pub(crate) fn get_iri(&self) -> String {
         match self {
-            Self::Sysand { publisher, name } => {
-                format!("{PKG_SYSAND_PREFIX}{publisher}/{name}")
-            }
+            Self::Sysand { publisher, name } => sysand_purl(publisher, name),
             Self::Other { normalized_iri } => normalized_iri.clone(),
         }
     }

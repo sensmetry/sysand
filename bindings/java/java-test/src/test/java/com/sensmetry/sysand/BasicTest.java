@@ -9,31 +9,55 @@ import com.sensmetry.sysand.model.CompressionMethod;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import java.util.regex.Pattern;
 import java.nio.file.Files;
 
 public class BasicTest {
+
+    /** The metamodel these projects declare: `init` takes one, it does not choose one. */
+    private static final String SYSML = "https://www.omg.org/spec/SysML/20250201";
+
+    /**
+     * A json project, written by hand.
+     *
+     * <p>{@code Sysand.init} writes a {@code model.toml}; the tests that
+     * call this exercise {@code setIndex}, {@code setProjectMetadata} and
+     * {@code buildProject} on the json form.
+     */
+    private static void writeJsonProject(java.nio.file.Path dir, String publisher, String name,
+            String version, String license) throws java.io.IOException {
+        String licenseKey = license == null ? "" : ",\n  \"license\": \"" + license + "\"";
+        Files.write(dir.resolve(".project.json"),
+                ("{\n  \"name\": \"" + name + "\",\n  \"publisher\": \"" + publisher
+                        + "\",\n  \"version\": \"" + version + "\"" + licenseKey + "\n}\n").getBytes());
+        Files.write(dir.resolve(".meta.json"),
+                ("{\n  \"index\": {},\n  \"created\": \"1970-01-01T00:00:00Z\",\n  \"metamodel\": \""
+                        + SYSML + "\"\n}\n").getBytes());
+    }
+
 
     @Test
     public void testBasicInit() {
         try {
             java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-init");
-            com.sensmetry.sysand.Sysand.init("test", "a", "1.0.0", null, tempDir);
+            com.sensmetry.sysand.Sysand.init("test", "acme", "1.0.0", null, SYSML, tempDir);
 
-            assertTrue(Files.exists(tempDir.resolve(".project.json")), "Project file should exist");
-            assertTrue(Files.exists(tempDir.resolve(".meta.json")), "Metadata file should exist");
+            // `init` writes a `model.toml`; the two json documents are
+            // what a build produces and what a json project has.
+            assertTrue(Files.exists(tempDir.resolve("model.toml")), "Manifest should exist");
+            assertFalse(Files.exists(tempDir.resolve(".project.json")), "No json manifest");
 
             // java.nio.file.Files.readString is available in Java 11+
-            // String projectJson = java.nio.file.Files.readString(tempDir.resolve(".project.json"));
-            String projectJson = new String(Files.readAllBytes(tempDir.resolve(".project.json")));
-            assertEquals("{\n  \"name\": \"test\",\n  \"publisher\": \"a\",\n  \"version\": \"1.0.0\"\n}\n", projectJson);
-
-            // String metaJson = Files.readString(tempDir.resolve(".meta.json"));
-            String metaJson = new String(Files.readAllBytes(tempDir.resolve(".meta.json")));
-            Pattern regex = Pattern.compile(
-                    "\\{\\s*\"index\":\\s*\\{\\},\\s*\"created\":\\s*\"\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z\"\\s*\\}\n",
-                    Pattern.DOTALL);
-            assertTrue(regex.matcher(metaJson).matches(), "Metadata file content should match expected pattern");
+            String manifest = new String(Files.readAllBytes(tempDir.resolve("model.toml")));
+            assertEquals(
+                    "manifest-version = \"1.0\"\n"
+                            + "\n"
+                            + "[project]\n"
+                            + "publisher = \"acme\"\n"
+                            + "name = \"test\"\n"
+                            + "version = \"1.0.0\"\n"
+                            + "sources = []\n"
+                            + "metamodel = \"" + SYSML + "\"\n",
+                    manifest);
         } catch (java.io.IOException e) {
             fail("Failed during temporary directory operations or Sysand.init: " + e.getMessage());
         } catch (com.sensmetry.sysand.exceptions.SysandException e) {
@@ -45,14 +69,14 @@ public class BasicTest {
     public void testInitWithNullNameThrowsNullPointerException() throws Exception {
         java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-init-null-name");
         assertThrows(NullPointerException.class,
-                () -> com.sensmetry.sysand.Sysand.init(null, "a", "1.0.0", null, tempDir));
+                () -> com.sensmetry.sysand.Sysand.init(null, "acme", "1.0.0", null, SYSML, tempDir));
     }
 
     @Test
     public void testInitWithInvalidVersionThrowsInvalidSemanticVersion() throws Exception {
         java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-init-bad-version");
         assertThrows(com.sensmetry.sysand.exceptions.InvalidSemanticVersion.class,
-                () -> com.sensmetry.sysand.Sysand.init("test", "a", "not-a-version", null, tempDir));
+                () -> com.sensmetry.sysand.Sysand.init("test", "acme", "not-a-version", null, SYSML, tempDir));
     }
 
     @Test
@@ -63,7 +87,6 @@ public class BasicTest {
             com.sensmetry.sysand.Sysand.env(envPath);
 
             assertTrue(Files.exists(envPath.resolve("env.toml")), "Entries file should exist");
-            // String entries = java.nio.file.Files.readString(envPath.resolve("env.toml"));
             String entries = new String(Files.readAllBytes(envPath.resolve("env.toml")));
             assertEquals("# This file is automatically generated by Sysand and is not intended to be edited manually.\n\nversion = \"0.2\"\n", entries);
         } catch (java.io.IOException e) {
@@ -77,8 +100,8 @@ public class BasicTest {
         assertNotNull(project);
         assertNotNull(project.info);
         assertNotNull(project.metadata);
-        assertEquals(project.info.getName(), "test_basic_info");
-        assertEquals(project.info.getPublisher(), "a");
+        assertEquals(project.info.getName(), "test-basic-info");
+        assertEquals(project.info.getPublisher(), "acme");
         assertEquals(project.info.getDescription(), null);
         assertEquals(project.info.getVersion(), "1.2.3");
         assertEquals(project.info.getLicense(), "MIT");
@@ -88,38 +111,34 @@ public class BasicTest {
         assertEquals(project.info.getUsage().length, 0);
 
         assertEquals(project.metadata.getIndex(), new java.util.HashMap<String, String>());
-        assertNotNull(project.metadata.getCreated());
-        assertTrue(project.metadata.getCreated().matches("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z"));
-        assertEquals(project.metadata.getMetamodel(), null);
+        assertEquals("1970-01-01T00:00:00Z", project.metadata.getCreated());
+        assertEquals(project.metadata.getMetamodel(), SYSML);
         assertEquals(project.metadata.getIncludesDerived(), null);
         assertEquals(project.metadata.getIncludesImplied(), null);
         assertEquals(project.metadata.getChecksum(), null);
     }
 
     @Test
-    public void testBasicInfo() {
-        try {
-            java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-info");
-            com.sensmetry.sysand.Sysand.init("test_basic_info", "a", "1.2.3", "MIT", tempDir);
+    public void testInfoRefusesAModelTomlProject() throws Exception {
+        java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-info-toml");
+        com.sensmetry.sysand.Sysand.init("test-info-toml", "acme", "1.2.3", "MIT", SYSML, tempDir);
 
-            com.sensmetry.sysand.model.InterchangeProject project = com.sensmetry.sysand.Sysand.infoPath(tempDir);
-            assertExpectedProject(project);
+        com.sensmetry.sysand.exceptions.SysandException pathError = assertThrows(
+                com.sensmetry.sysand.exceptions.SysandException.class,
+                () -> com.sensmetry.sysand.Sysand.infoPath(tempDir));
+        assertTrue(pathError.getMessage().contains("is a `model.toml` project"), pathError.getMessage());
 
-            java.net.URI fileUri = tempDir.toUri();
-            com.sensmetry.sysand.model.InterchangeProject project2 = com.sensmetry.sysand.Sysand.info(fileUri);
-            assertExpectedProject(project2);
-        } catch (java.io.IOException e) {
-            fail("Failed during temporary directory operations or Sysand.info: " + e.getMessage());
-        } catch (com.sensmetry.sysand.exceptions.SysandException e) {
-            fail("Failed during temporary directory operations or Sysand.info: " + e.getMessage());
-        }
+        com.sensmetry.sysand.exceptions.SysandException uriError = assertThrows(
+                com.sensmetry.sysand.exceptions.SysandException.class,
+                () -> com.sensmetry.sysand.Sysand.info(tempDir.toUri()));
+        assertTrue(uriError.getMessage().contains("is a `model.toml` project"), uriError.getMessage());
     }
 
     @Test
     public void testProjectBuild() {
         try {
             java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-build");
-            com.sensmetry.sysand.Sysand.init("test_basic_info", "a", "1.2.3", "MIT", tempDir);
+            writeJsonProject(tempDir, "acme", "test-basic-info", "1.2.3", "MIT");
 
             com.sensmetry.sysand.model.InterchangeProject project = com.sensmetry.sysand.Sysand.infoPath(tempDir);
             assertExpectedProject(project);
@@ -145,7 +164,7 @@ public class BasicTest {
     public void testSetProjectIndex() {
         try {
             java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-update-index");
-            com.sensmetry.sysand.Sysand.init("test_index", "a", "1.0.0", null, tempDir);
+            writeJsonProject(tempDir, "acme", "test-index", "1.0.0", null);
 
             java.util.LinkedHashMap<String, String> index = new java.util.LinkedHashMap<>();
             index.put("Foo", "src/Foo.sysml");
@@ -176,17 +195,73 @@ public class BasicTest {
         }
     }
 
-    private void writeWorkspaceJson(java.nio.file.Path workspaceDir, String... projectNames) throws java.io.IOException {
+    /**
+     * A {@code model.toml} workspace root: a workspace is a
+     * {@code model.toml} with a {@code [workspace]} table, and every
+     * member must be one too.
+     */
+    private void writeWorkspaceToml(java.nio.file.Path workspaceDir, String... projectNames) throws java.io.IOException {
         StringBuilder sb = new StringBuilder();
-        sb.append("{\n  \"projects\": [\n");
+        sb.append("manifest-version = \"1.0\"\n\n[workspace]\nmembers = [");
         for (int i = 0; i < projectNames.length; i++) {
-            sb.append("    {\"path\": \"").append(projectNames[i])
-              .append("\", \"iris\": [\"urn:test:").append(projectNames[i]).append("\"]}");
-            if (i < projectNames.length - 1) sb.append(",");
-            sb.append("\n");
+            sb.append("\"").append(projectNames[i]).append("\"");
+            if (i < projectNames.length - 1) sb.append(", ");
         }
-        sb.append("  ]\n}\n");
-        Files.write(workspaceDir.resolve(".workspace.json"), sb.toString().getBytes());
+        sb.append("]\n");
+        Files.write(workspaceDir.resolve("model.toml"), sb.toString().getBytes());
+    }
+
+    /** A {@code model.toml} project, which is what a member must be. */
+    private void writeTomlProject(java.nio.file.Path dir, String publisher, String name, String version)
+            throws java.io.IOException {
+        String manifest = "manifest-version = \"1.0\"\n\n[project]\npublisher = \"" + publisher
+                + "\"\nname = \"" + name + "\"\nversion = \"" + version + "\"\nsources = []\n"
+                + "metamodel = \"" + SYSML + "\"\n";
+        Files.write(dir.resolve("model.toml"), manifest.getBytes());
+    }
+
+    /** A member that inherits its {@code metamodel} from the workspace. */
+    private void writeInheritingMember(java.nio.file.Path dir, String publisher, String name, String version)
+            throws java.io.IOException {
+        String manifest = "manifest-version = \"1.0\"\n\n[project]\npublisher = \"" + publisher
+                + "\"\nname = \"" + name + "\"\nversion = \"" + version + "\"\nsources = []\n"
+                + "metamodel.workspace = \"sysml\"\n";
+        Files.write(dir.resolve("model.toml"), manifest.getBytes());
+    }
+
+    /**
+     * A member's manifest resolves only against its workspace's table.
+     * {@code infoPath} and {@code buildProject} read a project at the path
+     * they are given, and must give a member that table: read without it,
+     * a member carrying {@code metamodel.workspace} comes back as "not a
+     * member of any workspace", about a project the root lists.
+     */
+    @Test
+    public void testReadsAMemberThatInheritsItsMetamodel() {
+        try {
+            java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-inherit");
+            java.nio.file.Path member = tempDir.resolve("app");
+            Files.createDirectories(member);
+
+            Files.write(
+                    tempDir.resolve("model.toml"),
+                    ("manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"app\"]\n\n"
+                            + "[workspace.group.sysml]\nmetamodel = \"" + SYSML + "\"\n").getBytes());
+            writeInheritingMember(member, "acme", "member", "1.0.0");
+
+            // The refusal names the project, so the member's manifest resolved.
+            com.sensmetry.sysand.exceptions.SysandException refusal = assertThrows(
+                    com.sensmetry.sysand.exceptions.SysandException.class,
+                    () -> com.sensmetry.sysand.Sysand.infoPath(member));
+            assertTrue(refusal.getMessage().contains("`member` is a `model.toml` project"),
+                    refusal.getMessage());
+
+            java.nio.file.Path kpar = tempDir.resolve("member.kpar");
+            com.sensmetry.sysand.Sysand.buildProject(kpar, member, CompressionMethod.DEFLATED);
+            assertTrue(Files.exists(kpar), "a member builds from its own path");
+        } catch (Exception e) {
+            fail("reading an inheriting member should not fail: " + e);
+        }
     }
 
     @Test
@@ -199,11 +274,11 @@ public class BasicTest {
             java.nio.file.Path projB = tempDir.resolve("projB");
             Files.createDirectories(projA);
             Files.createDirectories(projB);
-            com.sensmetry.sysand.Sysand.init("projA", "a", "1.0.0", null, projA);
-            com.sensmetry.sysand.Sysand.init("projB", "a", "1.0.0", null, projB);
+            writeTomlProject(projA, "acme", "projA", "1.0.0");
+            writeTomlProject(projB, "acme", "projB", "1.0.0");
 
-            // Write .workspace.json
-            writeWorkspaceJson(tempDir, "projA", "projB");
+            // Write the workspace root
+            writeWorkspaceToml(tempDir, "projA", "projB");
 
             // Get project paths via API
             String[] paths = com.sensmetry.sysand.Sysand.workspaceProjectPaths(tempDir);
@@ -222,24 +297,26 @@ public class BasicTest {
         }
     }
 
+    /**
+     * {@code setProjectIndex} writes {@code .meta.json}, so it applies to
+     * json projects only, and a workspace member cannot be one. So the
+     * index writes are tested here, on plain project directories, and
+     * {@code workspaceProjectPaths} is tested above.
+     */
     @Test
-    public void testSetWorkspaceProjectIndexes() {
+    public void testSetProjectIndexes() {
         try {
-            java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-workspace-index");
+            java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-project-index");
 
             // Create two project directories and init them
             java.nio.file.Path projA = tempDir.resolve("projA");
             java.nio.file.Path projB = tempDir.resolve("projB");
             Files.createDirectories(projA);
             Files.createDirectories(projB);
-            com.sensmetry.sysand.Sysand.init("projA", "a", "1.0.0", null, projA);
-            com.sensmetry.sysand.Sysand.init("projB", "a", "1.0.0", null, projB);
+            writeJsonProject(projA, "acme", "projA", "1.0.0", null);
+            writeJsonProject(projB, "acme", "projB", "1.0.0", null);
 
-            // Write .workspace.json
-            writeWorkspaceJson(tempDir, "projA", "projB");
-
-            // Get project paths and update each with distinct indexes
-            String[] paths = com.sensmetry.sysand.Sysand.workspaceProjectPaths(tempDir);
+            String[] paths = new String[] { projA.toString(), projB.toString() };
             assertEquals(2, paths.length);
 
             java.util.LinkedHashMap<String, String> indexA = new java.util.LinkedHashMap<>();

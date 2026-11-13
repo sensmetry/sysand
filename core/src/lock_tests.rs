@@ -120,10 +120,7 @@ sources = [{{ index_kpar = "https://example.org/project.kpar", kpar_size = 0, kp
 #[test]
 fn check_missing_lock_version() {
     let document = DocumentMut::from_str("").unwrap();
-    let Err(err) = check_lock_version(&document) else {
-        panic!()
-    };
-    let VersionError::Missing = err else { panic!() };
+    assert_matches!(check_lock_version(&document), Err(VersionError::Missing));
 }
 
 fn to_toml_matches_expected<D: Display>(projects: Vec<Project>, toml: D) {
@@ -142,6 +139,7 @@ fn minimal_to_toml() {
             name: "a".to_owned(),
             publisher: None,
             version: "0.0.1".to_owned(),
+            metamodel: None,
             exports: vec![],
             identifiers: vec![],
             usages: vec![],
@@ -163,6 +161,7 @@ fn many_projects_to_toml() {
                 name: "One".to_owned(),
                 publisher: Some("Pub 1".to_owned()),
                 version: "0.0.1".to_owned(),
+                metamodel: None,
                 exports: vec![],
                 identifiers: vec![],
                 usages: vec![],
@@ -172,6 +171,7 @@ fn many_projects_to_toml() {
                 name: "Two".to_owned(),
                 publisher: None,
                 version: "0.0.2".to_owned(),
+                metamodel: None,
                 exports: vec![],
                 identifiers: vec![],
                 usages: vec![],
@@ -181,6 +181,7 @@ fn many_projects_to_toml() {
                 name: "Three".to_owned(),
                 publisher: Some("Pub 3".to_owned()),
                 version: "0.0.3".to_owned(),
+                metamodel: None,
                 exports: vec![],
                 identifiers: vec![],
                 usages: vec![],
@@ -212,6 +213,7 @@ fn one_export_to_toml() {
             name: "One Package".to_owned(),
             publisher: None,
             version: "0.1.1".to_owned(),
+            metamodel: None,
             exports: vec!["PackageName".to_owned()],
             identifiers: vec![],
             usages: vec![],
@@ -235,6 +237,7 @@ fn many_exports_to_toml() {
             name: "Three Packages".to_owned(),
             publisher: None,
             version: "0.1.3".to_owned(),
+            metamodel: None,
             exports: vec![
                 "Package1".to_owned(),
                 "Package2".to_owned(),
@@ -264,6 +267,7 @@ fn one_iri_to_toml() {
             name: "One IRI".to_owned(),
             publisher: None,
             version: "0.2.1".to_owned(),
+            metamodel: None,
             exports: vec![],
             identifiers: vec!["urn:kpar:example".to_owned()],
             usages: vec![],
@@ -287,6 +291,7 @@ fn many_identifiers_to_toml() {
             name: "Three IRI:s".to_owned(),
             publisher: None,
             version: "0.2.3".to_owned(),
+            metamodel: None,
             exports: vec![],
             identifiers: vec![
                 "urn:kpar:example".to_owned(),
@@ -316,6 +321,7 @@ fn one_source_to_toml() {
             name: "One source".to_owned(),
             publisher: None,
             version: "0.4.1".to_owned(),
+            metamodel: None,
             exports: vec![],
             identifiers: vec![],
             usages: vec![],
@@ -341,6 +347,7 @@ fn many_sources_to_toml() {
             name: "Seven sources".to_owned(),
             publisher: None,
             version: "0.4.7".to_owned(),
+            metamodel: None,
             exports: vec![],
             identifiers: vec![],
             usages: vec![],
@@ -405,6 +412,7 @@ fn one_usage_to_toml() {
             name: "One usage".to_owned(),
             publisher: None,
             version: "0.5.1".to_owned(),
+            metamodel: None,
             exports: vec![],
             identifiers: vec![],
             usages: vec![Usage::from_str_unchecked("urn:kpar:usage")],
@@ -428,6 +436,7 @@ fn many_usage_to_toml() {
             name: "Three usages".to_owned(),
             publisher: None,
             version: "0.5.3".to_owned(),
+            metamodel: None,
             exports: vec![],
             identifiers: vec![],
             usages: vec![
@@ -522,6 +531,7 @@ fn make_project<N: AsRef<str>, S: AsRef<str>>(
         name: name.as_ref().into(),
         publisher,
         version: version.as_ref().to_owned(),
+        metamodel: None,
         exports: exports.iter().map(|s| String::from(*s)).collect(),
         identifiers: identifiers.iter().map(|s| String::from(*s)).collect(),
         usages: usages.to_vec(),
@@ -728,7 +738,7 @@ fn validate_unsatisfied_usage() {
 
 #[test]
 fn validate_checksum_invalid_digest_all_source_types() {
-    // 64 chars but contains 'X' — right length, wrong character.
+    // 64 chars but contains 'X': right length, wrong character.
     const INVALID: &str = "dA8747a6f27A32f10Ba393113bCE29fX88181037a71f093f90e0ad5829D2b780";
 
     let cases: Vec<(&str, Source)> = vec![
@@ -779,6 +789,7 @@ fn validate_checksum_invalid_digest_all_source_types() {
                 name: "a".into(),
                 publisher: None,
                 version: "0.0.1".to_owned(),
+                metamodel: None,
                 exports: vec![],
                 identifiers: vec![],
                 usages: vec![],
@@ -806,6 +817,7 @@ fn validate_kpar_digest_rejects_uppercase() {
             name: "Indexed".to_owned(),
             publisher: None,
             version: "0.0.1".to_owned(),
+            metamodel: None,
             exports: vec![],
             identifiers: vec!["urn:kpar:indexed".to_owned()],
             usages: vec![],
@@ -871,11 +883,8 @@ fn sort_exports() {
     assert_eq!(projects, vec![project2]);
 }
 
-// `identifiers` must not be sorted by `Lock::sort()`
-// (unlike `exports`, `usages` and `sources`, which are). Other projects'
-// `usages` entries are assumed to reference a project's *first*
-// identifier (see `validate_usages` and `remove_usage`), so
-// reordering `identifiers` would desync that reference
+// `Lock::sort()` must not reorder `identifiers`: other projects' `usages`
+// refer to a project's first identifier.
 #[test]
 fn sort_does_not_reorder_identifiers() {
     let project = make_project("a", None, "0.0.1", &[], &["urn:kpar:b", "urn:kpar:a"], &[]);
@@ -891,7 +900,6 @@ fn sort_does_not_reorder_identifiers() {
     assert_eq!(projects, vec![project]);
 }
 
-// End-to-end test for the same invariant as `sort_does_not_reorder_identifiers`
 #[test]
 fn canonicalize_preserves_first_identifier_used_by_usage() {
     let dep = make_project(
@@ -1047,6 +1055,7 @@ fn canonicalize_checksums() {
             name: "a".into(),
             publisher: None,
             version: "0.0.1".to_owned(),
+            metamodel: None,
             exports: vec![],
             identifiers: vec!["urn:kpar:a".to_owned()],
             usages: vec![],
@@ -1140,8 +1149,7 @@ fn canonicalize_checksums() {
     };
     assert_eq!(kpar_digest, LOWER);
 
-    // Editable and RemoteGit carry no checksum; their presence here confirms
-    // canonicalize_checksums does not panic on them.
+    // Editable and RemoteGit carry no checksum.
     assert_matches!(&project.sources[5], Source::Editable { editable: _ });
     assert_matches!(&project.sources[6], Source::RemoteGit { remote_git: _ });
 }
@@ -1189,6 +1197,7 @@ fn lock_project_with_urn_sysand_identifier_to_toml() {
             name: "my-lib".to_owned(),
             publisher: Some("ab".to_owned()),
             version: "1.0.0".to_owned(),
+            metamodel: None,
             exports: vec![],
             identifiers: vec!["urn:sysand:ab/my-lib".to_owned()],
             usages: vec![],
@@ -1359,6 +1368,7 @@ fn project_with_sources(sources: Vec<Source>) -> Project {
         publisher: None,
         name: "p".to_owned(),
         version: "1.0.0".to_owned(),
+        metamodel: None,
         exports: vec![],
         identifiers: vec![],
         usages: vec![],
@@ -1366,14 +1376,12 @@ fn project_with_sources(sources: Vec<Source>) -> Project {
     }
 }
 
-/// A root project (the project being operated on directly), as produced by
-/// `do_lock_local_editable(".", ...)` for an ordinary, non-workspace project.
+/// A root project, as the lock entry of an ordinary non-workspace project.
 fn root_project(publisher: Option<&str>, name: &str, usages: &[&str]) -> Project {
     workspace_root_project(publisher, name, ".", usages)
 }
 
-/// A root project living at a workspace-relative subpath, as a workspace
-/// member's own lock entry would be represented.
+/// A root project at a workspace-relative subpath.
 fn workspace_root_project(
     publisher: Option<&str>,
     name: &str,
@@ -1384,6 +1392,7 @@ fn workspace_root_project(
         publisher: publisher.map(str::to_owned),
         name: name.to_owned(),
         version: "1.0.0".to_owned(),
+        metamodel: None,
         exports: vec![],
         identifiers: vec![],
         usages: usages
@@ -1402,6 +1411,7 @@ fn dep_project(name: &str, identifier: &str, usages: &[&str]) -> Project {
         publisher: None,
         name: name.to_owned(),
         version: "1.0.0".to_owned(),
+        metamodel: None,
         exports: vec![],
         identifiers: vec![identifier.to_owned()],
         usages: usages
@@ -1420,31 +1430,38 @@ fn project_names(lock: &Lock) -> Vec<String> {
     names
 }
 
-#[test]
-fn is_root_true_for_dot_editable() {
-    // The nominal path used for the current project's own lock entry
-    // (see `EditableProject`/`do_lock_local_editable(".", ...)`).
-    let project = project_with_sources(vec![Source::Editable {
-        editable: Utf8UnixPathBuf::from("."),
-    }]);
-    assert!(Lock::is_root(&project));
+/// The roots of a lockfile made outside a workspace.
+fn single_root() -> Vec<Utf8UnixPathBuf> {
+    vec![Utf8UnixPathBuf::from(".")]
+}
+
+fn editable(path: &str) -> Source {
+    Source::Editable {
+        editable: Utf8UnixPathBuf::from(path),
+    }
 }
 
 #[test]
-fn is_root_true_for_subpath_editable() {
-    // The nominal path used for a workspace member's lock entry.
-    let project = project_with_sources(vec![Source::Editable {
-        editable: Utf8UnixPathBuf::from("packages/foo"),
-    }]);
-    assert!(Lock::is_root(&project));
+fn is_root_true_for_a_listed_editable() {
+    let roots = [
+        Utf8UnixPathBuf::from("."),
+        Utf8UnixPathBuf::from("packages/foo"),
+    ];
+    assert!(Lock::is_root(
+        &project_with_sources(vec![editable(".")]),
+        &roots
+    ));
+    assert!(Lock::is_root(
+        &project_with_sources(vec![editable("packages/foo")]),
+        &roots
+    ));
 }
 
+/// An editable dependency under the lockfile's directory is not a root.
 #[test]
-fn is_root_false_for_parent_relative_editable() {
-    let project = project_with_sources(vec![Source::Editable {
-        editable: Utf8UnixPathBuf::from(".."),
-    }]);
-    assert!(!Lock::is_root(&project));
+fn is_root_false_for_an_unlisted_editable() {
+    let project = project_with_sources(vec![editable("vendor/dep")]);
+    assert!(!Lock::is_root(&project, &single_root()));
 }
 
 #[test]
@@ -1452,26 +1469,44 @@ fn is_root_false_for_non_editable_source() {
     let project = project_with_sources(vec![Source::RemoteGit {
         remote_git: iri("https://example.com/foo.git"),
     }]);
-    assert!(!Lock::is_root(&project));
+    assert!(!Lock::is_root(&project, &single_root()));
 }
 
 #[test]
 fn is_root_false_for_multiple_sources() {
     let project = project_with_sources(vec![
-        Source::Editable {
-            editable: Utf8UnixPathBuf::from("."),
-        },
+        editable("."),
         Source::RemoteGit {
             remote_git: iri("https://example.com/foo.git"),
         },
     ]);
-    assert!(!Lock::is_root(&project));
+    assert!(!Lock::is_root(&project, &single_root()));
 }
 
 #[test]
 fn is_root_false_for_no_sources() {
     let project = project_with_sources(vec![]);
-    assert!(!Lock::is_root(&project));
+    assert!(!Lock::is_root(&project, &single_root()));
+}
+
+/// A `dir` dependency inside the project is locked as editable, and is
+/// pruned like any other dependency.
+#[test]
+fn remove_usage_prunes_an_editable_dependency_inside_the_project() {
+    let mut dep = dep_project("dep", "urn:dep", &[]);
+    dep.sources = vec![editable("dep")];
+    let mut lock = Lock {
+        lock_version: CURRENT_LOCK_VERSION.to_owned(),
+        projects: vec![root_project(Some("me"), "root", &["urn:dep"]), dep],
+    };
+
+    let RemoveUsageOutcome::Removed { pruned } =
+        lock.remove_usage(&single_root(), Some("me"), "root", "urn:dep")
+    else {
+        panic!("usage should be removed");
+    };
+    assert_eq!(pruned.len(), 1);
+    assert_eq!(project_names(&lock), vec!["root".to_owned()]);
 }
 
 #[test]
@@ -1485,7 +1520,7 @@ fn remove_usage_prunes_unreachable_dependency() {
     };
 
     let RemoveUsageOutcome::Removed { pruned: removed } =
-        lock.remove_usage(Some("me"), "root", "urn:dep")
+        lock.remove_usage(&single_root(), Some("me"), "root", "urn:dep")
     else {
         panic!("usage should be removed");
     };
@@ -1506,7 +1541,7 @@ fn remove_usage_reports_root_not_found() {
         ],
     };
 
-    let outcome = lock.remove_usage(Some("someone-else"), "root", "urn:dep");
+    let outcome = lock.remove_usage(&single_root(), Some("someone-else"), "root", "urn:dep");
 
     assert_eq!(outcome, RemoveUsageOutcome::RootNotFound);
     assert_eq!(
@@ -1526,7 +1561,7 @@ fn remove_usage_reports_usage_not_present() {
         ],
     };
 
-    let outcome = lock.remove_usage(Some("me"), "root", "urn:other");
+    let outcome = lock.remove_usage(&single_root(), Some("me"), "root", "urn:other");
 
     assert_eq!(outcome, RemoveUsageOutcome::UsageNotFound);
     assert_eq!(
@@ -1549,9 +1584,12 @@ fn remove_usage_keeps_dependency_needed_by_sibling_root() {
         ],
     };
 
-    let RemoveUsageOutcome::Removed { pruned: removed } =
-        lock.remove_usage(Some("me"), "app", "urn:shared")
-    else {
+    let RemoveUsageOutcome::Removed { pruned: removed } = lock.remove_usage(
+        &[Utf8UnixPathBuf::from("app"), Utf8UnixPathBuf::from("lib")],
+        Some("me"),
+        "app",
+        "urn:shared",
+    ) else {
         panic!("usage should be removed");
     };
 
@@ -1578,7 +1616,7 @@ fn remove_usage_prunes_transitive_chain() {
     };
 
     let RemoveUsageOutcome::Removed { pruned: removed } =
-        lock.remove_usage(Some("me"), "root", "urn:b")
+        lock.remove_usage(&single_root(), Some("me"), "root", "urn:b")
     else {
         panic!("usage should be removed");
     };
@@ -1606,7 +1644,7 @@ fn remove_usage_keeps_sibling_usage_and_its_own_subtree() {
     };
 
     let RemoveUsageOutcome::Removed { pruned: removed } =
-        lock.remove_usage(Some("me"), "root", "urn:b")
+        lock.remove_usage(&single_root(), Some("me"), "root", "urn:b")
     else {
         panic!("usage should be removed");
     };
@@ -1641,6 +1679,7 @@ fn lockfile_write_then_read_roundtrips() {
             publisher: None,
             name: "Root".to_owned(),
             version: "1.0.0".to_owned(),
+            metamodel: None,
             exports: vec![],
             identifiers: vec![],
             usages: vec![],
@@ -1682,10 +1721,7 @@ fn lockfile_parse_error_includes_path() {
     };
     assert_eq!(err_path, &path);
     assert_eq!(v, "0.4");
-    assert!(matches!(
-        Lockfile::read(dir.path()),
-        Err(LockfileError::Parse(..))
-    ));
+    assert_matches!(Lockfile::read(dir.path()), Err(LockfileError::Parse(..)));
 }
 
 #[test]
@@ -1828,4 +1864,115 @@ fn current_lockfile_is_not_migrated() {
         lock.projects[0].identifiers,
         ["urn:sysand:ACME%20Inc./App".to_owned()]
     );
+}
+
+// ------------------- the metamodel edge checks
+
+/// A `metamodel` is written when the project has one, and the key sits
+/// after `version`.
+#[test]
+fn a_metamodel_is_written_after_the_version() {
+    to_toml_matches_expected(
+        vec![Project {
+            name: "a".to_owned(),
+            publisher: None,
+            version: "0.0.1".to_owned(),
+            metamodel: Some("https://www.omg.org/spec/SysML/20250201".to_owned()),
+            exports: vec![],
+            identifiers: vec![],
+            usages: vec![],
+            sources: vec![],
+        }],
+        "\n[[project]]\nname = \"a\"\nversion = \"0.0.1\"\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    );
+}
+
+/// A project without one writes no `metamodel` key at all.
+#[test]
+fn no_metamodel_writes_no_key() {
+    to_toml_matches_expected(
+        vec![Project {
+            name: "a".to_owned(),
+            publisher: None,
+            version: "0.0.1".to_owned(),
+            metamodel: None,
+            exports: vec![],
+            identifiers: vec![],
+            usages: vec![],
+            sources: vec![],
+        }],
+        "\n[[project]]\nname = \"a\"\nversion = \"0.0.1\"\n",
+    );
+}
+
+fn edge_pair(dependent_metamodel: &str, dependency_metamodel: &str) -> String {
+    format!(
+        "{LOCKFILE_PREFIX}lock_version = \"{CURRENT_LOCK_VERSION}\"\n\
+         \n[[project]]\npublisher = \"acme\"\nname = \"app\"\nversion = \"1.0.0\"\n\
+         metamodel = \"{dependent_metamodel}\"\nidentifiers = [\"urn:app\"]\n\
+         usages = [\"urn:lib\"]\n\
+         \n[[project]]\npublisher = \"acme\"\nname = \"lib\"\nversion = \"1.0.0\"\n\
+         metamodel = \"{dependency_metamodel}\"\nidentifiers = [\"urn:lib\"]\n"
+    )
+}
+
+/// Over a lockfile: an OMG project may not depend on a Syside one.
+#[test]
+fn validate_rejects_a_metamodel_direction_error() {
+    let text = edge_pair(
+        "https://www.omg.org/spec/SysML/20250201",
+        "https://www.sysand.com/spec/SysML/20250201",
+    );
+    let error = Lock::parse(&text).expect_err("an OMG project using a Syside one");
+    let rendered = error.to_string();
+    assert!(rendered.contains("`acme/app`"), "{rendered}");
+    assert!(rendered.contains("`acme/lib`"), "{rendered}");
+    assert!(
+        rendered.contains("only Syside-metamodel projects may depend on Syside-metamodel projects"),
+        "{rendered}"
+    );
+}
+
+/// The same edge the other way round is fine.
+#[test]
+fn validate_accepts_a_syside_project_using_an_omg_one() {
+    let text = edge_pair(
+        "https://www.sysand.com/spec/SysML/20250201",
+        "https://www.omg.org/spec/SysML/20250201",
+    );
+    Lock::parse(&text).expect("a Syside project may use an OMG one");
+}
+
+/// A release mismatch is a warning: differing release dates validate,
+/// and the edge check returns the mismatch for the caller to report.
+#[test]
+fn a_release_mismatch_validates_and_is_returned() {
+    let text = edge_pair(
+        "https://www.omg.org/spec/SysML/20250201",
+        "https://www.omg.org/spec/SysML/20230201",
+    );
+    let lock = Lock::parse(&text).expect("a release mismatch is a warning, not an error");
+    let mismatches = lock.check_metamodel_edges().expect("no direction error");
+    assert_eq!(mismatches.len(), 1);
+    assert_eq!(
+        mismatches[0].to_string(),
+        "`acme/app` targets metamodel release `20250201` but its dependency `acme/lib` \
+         targets `20230201`"
+    );
+}
+
+/// The standard libraries are mutually dependent, so a lockfile
+/// containing them must parse. The cycle check does not run here, since
+/// a lockfile entry cannot say it carries `stdlib`.
+#[test]
+fn validate_accepts_a_cycle() {
+    let text = format!(
+        "{LOCKFILE_PREFIX}lock_version = \"{CURRENT_LOCK_VERSION}\"\n\
+         \n[[project]]\nname = \"a\"\nversion = \"1.0.0\"\n\
+         identifiers = [\"urn:a\"]\nusages = [\"urn:b\"]\n\
+         \n[[project]]\nname = \"b\"\nversion = \"1.0.0\"\n\
+         identifiers = [\"urn:b\"]\nusages = [\"urn:a\"]\n"
+    );
+    Lock::parse(&text).expect("a cycle is not rejected in a lockfile yet");
 }

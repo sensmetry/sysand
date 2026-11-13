@@ -28,8 +28,8 @@ PACKAGE = Path(__file__).parents[1] / "python" / "sysand"
 # Loaded with an explicit `ExtensionFileLoader`: the compiled file is
 # `_sysand_core.abi3.so` (`.pyd` on Windows), and suffix inference over
 # `.abi3.so` is not something to rely on. Replacing `sys.modules[__name__]`
-# rather than re-exporting, so that the underscore names the tree needs
-# (`_run_cli`, `_register_errors`) come across too.
+# carries the underscore names the tree needs (`_run_cli`,
+# `_register_errors`) across too.
 _SHIM = """\
 import importlib.util
 import os
@@ -64,10 +64,15 @@ import vendor.project as project
 
 # A call that reaches the extension and succeeds.
 project.init(
-    name="relocated", publisher="a", version="1.0.0", project_dir=sys.argv[1]
+    name="relocated",
+    publisher="acme",
+    version="1.0.0",
+    project_dir=sys.argv[1],
+    metamodel="https://www.omg.org/spec/SysML/20250201",
+    kind=project.ProjectKind.MODEL_TOML,
 )
 assert (
-    pathlib.Path(sys.argv[1]) / ".project.json"
+    pathlib.Path(sys.argv[1]) / "model.toml"
 ).is_file(), "init did not write the project"
 
 # A call that fails, to pin the error classes to *this* copy of the tree.

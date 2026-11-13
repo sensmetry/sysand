@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{error::Error, io::Write as _};
+use std::error::Error;
 
 use assert_cmd::prelude::*;
 use camino::Utf8PathBuf;
@@ -31,34 +31,30 @@ fn mock_index_config_absent(server: &mut mockito::Server, expected_count: usize)
 
 #[test]
 fn info_basic_in_cwd() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, out_init) = cli_init_project_basic("a", "info_basic", "1.2.3")?;
-    out_init
-        .assert()
-        .success()
-        .stdout(predicate::str::is_empty());
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "info-basic", "1.2.3", None)?;
 
     let out = run_sysand_in(&cwd, ["info"], None)?;
 
     out.assert()
         .success()
-        .stdout(predicate::str::contains("Name: info_basic"))
+        .stdout(predicate::str::contains("Name: info-basic"))
         .stdout(predicate::str::contains("Version: 1.2.3"));
 
     Ok(())
 }
 
 #[test]
+/// Json fixture: the setup uses `sysand add` or an `info` write verb.
 fn info_prints_all_usage_types() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, out_init) =
-        cli_init_project_basic("pub1", "info_all_usage_types", "1.2.3")?;
-    out_init.assert().success();
+    let (_temp_dir, cwd) =
+        cli_init_json_project(None, "pub1", "info-all-usage-types", "1.2.3", None)?;
 
     // One usage of each shape: legacy `resource` (with and without a version
     // constraint), `dir`, and `kpar_path`.
     std::fs::write(
         cwd.join(".project.json"),
         r#"{
-  "name": "info_all_usage_types",
+  "name": "info-all-usage-types",
   "version": "1.2.3",
   "usage": [
     {
@@ -103,12 +99,8 @@ fn info_prints_all_usage_types() -> Result<(), Box<dyn Error>> {
 }
 
 fn info_basic(use_iri: bool) -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, out_init) =
-        cli_init_project(Some("info_basic"), "a", None, Some("1.2.3"), None)?;
-    out_init
-        .assert()
-        .success()
-        .stdout(predicate::str::is_empty());
+    let (_temp_dir, cwd) =
+        cli_init_json_project(Some("info-basic"), "acme", "info-basic", "1.2.3", None)?;
 
     if !use_iri {
         // FIXME: Relative file IRIs are currently not supported because
@@ -125,9 +117,9 @@ fn info_basic(use_iri: bool) -> Result<(), Box<dyn Error>> {
         let out_relative = {
             let mut args = vec!["info"];
             if use_iri {
-                args.extend(["--iri", "file://info_basic"]);
+                args.extend(["--iri", "file://info-basic"]);
             } else {
-                args.extend(["--dir", "info_basic"]);
+                args.extend(["--dir", "info-basic"]);
             }
             run_sysand_in(&cwd, args, None)?
         };
@@ -135,11 +127,11 @@ fn info_basic(use_iri: bool) -> Result<(), Box<dyn Error>> {
         out_relative
             .assert()
             .success()
-            .stdout(predicate::str::contains("Name: info_basic"))
+            .stdout(predicate::str::contains("Name: info-basic"))
             .stdout(predicate::str::contains("Version: 1.2.3"));
     }
 
-    let project_path: Utf8PathBuf = cwd.join("info_basic");
+    let project_path: Utf8PathBuf = cwd.join("info-basic");
     let out_absolute = {
         let mut args = vec!["info"];
         #[expect(clippy::branches_sharing_code, reason = "does not compile otherwise")]
@@ -156,7 +148,7 @@ fn info_basic(use_iri: bool) -> Result<(), Box<dyn Error>> {
     out_absolute
         .assert()
         .success()
-        .stdout(predicate::str::contains("Name: info_basic"))
+        .stdout(predicate::str::contains("Name: info-basic"))
         .stdout(predicate::str::contains("Version: 1.2.3"));
 
     Ok(())
@@ -176,7 +168,13 @@ fn info_basic_iri_explicit() -> Result<(), Box<dyn Error>> {
 /// IRI or a path
 #[test]
 fn info_positional_is_identifier() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, _) = cli_init_project(Some("info_positional"), "acme", None, None, None)?;
+    let (_temp_dir, cwd) = cli_init_json_project(
+        Some("info-positional"),
+        "acme",
+        "info-positional",
+        "0.0.1",
+        None,
+    )?;
 
     run_sysand_in(&cwd, ["info", "acme/some-project", "--no-index"], None)?
         .assert()
@@ -195,7 +193,7 @@ fn info_positional_is_identifier() -> Result<(), Box<dyn Error>> {
     for invalid_identifier in [
         "name",
         "urn:kpar:test",
-        "info_positional",
+        "info-positional",
         "c:/foo",
         "a/b/c",
     ] {
@@ -216,8 +214,9 @@ fn info_positional_is_identifier() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn info_dir_and_kpar_path_are_not_interchangeable() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, _) = cli_init_project(Some("info_kinds"), "acme", None, None, None)?;
-    let project = cwd.join("info_kinds");
+    let (_temp_dir, cwd) =
+        cli_init_json_project(Some("info-kinds"), "acme", "info-kinds", "0.0.1", None)?;
+    let project = cwd.join("info-kinds");
     let file = project.join(".project.json");
 
     run_sysand_in(&cwd, ["info", "--kpar-path", project.as_str()], None)?
@@ -231,6 +230,22 @@ fn info_dir_and_kpar_path_are_not_interchangeable() -> Result<(), Box<dyn Error>
         .failure()
         .stderr(predicate::str::contains("is not a directory"))
         .stderr(predicate::str::contains("use `--kpar-path`"));
+
+    Ok(())
+}
+
+/// `info --dir` on a directory with no project and no workspace around it
+/// says so, rather than suggesting `--dir`.
+#[test]
+fn info_dir_outside_a_project_says_it_is_not_inside_one() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    std::fs::create_dir(cwd.join("empty"))?;
+
+    run_sysand_in(&cwd, ["info", "--dir", "empty"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("is not inside a project"))
+        .stderr(predicate::str::contains("did you mean to use `--dir`").not());
 
     Ok(())
 }
@@ -321,7 +336,7 @@ fn info_basic_http_url_irrelevant_auth() -> Result<(), Box<dyn Error>> {
     let kpar_download_try = server
         .mock("GET", "/")
         .with_status(404)
-        // See the matching comment in `info_basic_http_url_noauth`.
+        // As in the first HTTP test above.
         .expect(1)
         .create();
 
@@ -397,18 +412,11 @@ fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
         .expect(1)
         .create();
 
-    // let kpar_range_probe = server
-    //     .mock("HEAD", "/")
-    //     .match_header("authorization", Matcher::Missing)
-    //     .with_status(404)
-    //     .expect(1)
-    //     .create();
-
     let kpar_download_try = server
         .mock("GET", "/")
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
-        // See the matching comment in `info_basic_http_url_noauth`.
+        // As in the first HTTP test above.
         .expect(1)
         .create();
 
@@ -528,7 +536,6 @@ fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
     meta_mock_head.assert();
     meta_mock_head_auth.assert();
 
-    // kpar_range_probe.assert();
     kpar_download_try.assert();
     kpar_download_try_auth.assert();
 
@@ -552,18 +559,11 @@ fn info_bearer_http_url_auth() -> Result<(), Box<dyn Error>> {
         .expect(1)
         .create();
 
-    // let kpar_range_probe = server
-    //     .mock("HEAD", "/")
-    //     .match_header("authorization", Matcher::Missing)
-    //     .with_status(404)
-    //     .expect(1)
-    //     .create();
-
     let kpar_download_try = server
         .mock("GET", "/")
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
-        // See the matching comment in `info_basic_http_url_noauth`.
+        // As in the first HTTP test above.
         .expect(1)
         .create();
 
@@ -682,7 +682,6 @@ fn info_bearer_http_url_auth() -> Result<(), Box<dyn Error>> {
     meta_mock_head.assert();
     meta_mock_head_auth.assert();
 
-    // kpar_range_probe.assert();
     kpar_download_try.assert();
     kpar_download_try_auth.assert();
 
@@ -695,80 +694,24 @@ fn info_bearer_http_url_auth() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-// #[test]
-// fn info_non_ranged_http_kpar() -> Result<(), Box<dyn std::error::Error>> {
-//     let buf = {
-//         let mut cursor = std::io::Cursor::new(vec![]);
-//         let mut zip = zip::ZipWriter::new(&mut cursor);
-
-//         let options = zip::write::SimpleFileOptions::default()
-//             .compression_method(zip::CompressionMethod::Stored)
-//             .unix_permissions(0o755);
-
-//         zip.start_file("some_root_dir/.project.json", options)?;
-//         zip.write_all(br#"{"name":"info_non_ranged_http_kpar","version":"1.2.3"}"#)?;
-//         zip.start_file("some_root_dir/.meta.json", options)?;
-//         zip.write_all(br#"{"index":{},"created":"123"}"#)?;
-//         zip.start_file("some_root_dir/test.sysml", options)?;
-//         zip.write_all(br#"package Test;"#)?;
-
-//         zip.finish().unwrap();
-
-//         cursor.flush()?;
-//         cursor.into_inner()
-//     };
-
-//     let mut server = mockito::Server::new();
-
-//     let kpar_probe = server
-//         .mock("HEAD", "/info_non_ranged_http_kpar.kpar")
-//         .with_status(200)
-//         .with_header("content-type", "application/zip")
-//         .with_body(&buf)
-//         .create();
-
-//     let get_kpar = server
-//         .mock("GET", "/info_non_ranged_http_kpar.kpar")
-//         .with_status(200)
-//         .with_header("content-type", "application/zip")
-//         .with_body(&buf)
-//         .create();
-
-//     let url = format!("{}/info_non_ranged_http_kpar.kpar", server.url());
-
-//     let (_, _, out) = run_sysand(["info", "--iri", &url], None)?;
-
-//     out.assert()
-//         .success()
-//         .stdout(predicate::str::contains("Name: info_non_ranged_http_kpar"))
-//         .stdout(predicate::str::contains("Version: 1.2.3"));
-
-//     kpar_probe.assert();
-//     get_kpar.assert();
-
-//     Ok(())
-// }
-
 #[test]
 fn info_basic_local_kpar() -> Result<(), Box<dyn Error>> {
     let cwd = Utf8TempDir::new()?;
     let zip_path = wrapfs::canonicalize(cwd.path())?.join("test.kpar");
 
-    {
-        let file = std::fs::File::create(&zip_path).unwrap();
-        let mut zip = zip::ZipWriter::new(file);
-
-        let options = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Stored)
-            .unix_permissions(0o755);
-
-        zip.start_file("some_root_dir/.project.json", options)?;
-        zip.write_all(br#"{"name":"info_basic_local_kpar","version":"1.2.3"}"#)?;
-        zip.start_file("some_root_dir/.meta.json", options)?;
-        zip.write_all(br#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)?;
-
-        zip.finish().unwrap();
-    }
+    std::fs::write(
+        &zip_path,
+        kpar_bytes(&[
+            (
+                "some_root_dir/.project.json",
+                br#"{"name":"info_basic_local_kpar","version":"1.2.3"}"#,
+            ),
+            (
+                "some_root_dir/.meta.json",
+                br#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#,
+            ),
+        ]),
+    )?;
 
     let (_, _, out) = run_sysand(["info", "--kpar-path", zip_path.as_str()], None)?;
     out.assert()
@@ -827,8 +770,7 @@ fn project_json_with_publisher_for(publisher: &str, name: &str, version: &str) -
 const TEST_META_JSON_BODY: &str = r#"{"index":{},"created":"2026-01-01T00:00:00.000000000Z"}"#;
 
 /// Build a `versions.json` body advertising a single entry. The kpar digest is a
-/// placeholder because `sysand info` reads the
-/// per-version JSON directly and never downloads the archive.
+/// placeholder; `sysand info` never downloads the archive.
 fn versions_json_for(version: &str) -> String {
     versions_json_body(&[versions_json_entry_body(
         version,
@@ -898,7 +840,7 @@ fn info_basic_index_url() -> Result<(), Box<dyn Error>> {
     meta_json_mock.assert();
     kpar_mock.assert();
 
-    // Catch-all for any _iri/<hash>/versions.json we didn't explicitly mock —
+    // Catch-all for any _iri/<hash>/versions.json we didn't explicitly mock:
     // return 404 so the resolver treats the IRI as absent from this index.
     let missing_versions_mock = server
         .mock(
@@ -1099,18 +1041,9 @@ fn info_index_identifier_takes_the_highest_version_including_a_prerelease()
 /// environment, without any index
 #[test]
 fn info_identifier_from_local_env() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project(Some("main"), "acme", None, None, None)?;
-    out.assert().success();
-    cli_init_project_in(
-        &cwd,
-        Some("dep"),
-        "Acme Labs",
-        Some("My Dep"),
-        Some("1.2.0"),
-        None,
-    )?
-    .assert()
-    .success();
+    let (_temp_dir, cwd) = cli_init_json_project(Some("main"), "acme", "main", "0.0.1", None)?;
+    std::fs::create_dir_all(cwd.join("dep"))?;
+    write_json_project(&cwd.join("dep"), "Acme Labs", "My Dep", "1.2.0", None)?;
     let main = cwd.join("main");
     run_sysand_in(&main, ["add", "--dir", "../dep", "--no-index"], None)?
         .assert()
@@ -1334,8 +1267,8 @@ fn info_multi_index_url_auth() -> Result<(), Box<dyn Error>> {
         .expect(1)
         .create();
 
-    // Unauthenticated 404 lets the auth policy retry with credentials —
-    // matches the same retry-on-404 pattern as the versions.json pair above.
+    // Unauthenticated 404 lets the auth policy retry with credentials,
+    // as with the versions.json pair above.
     let project_json_mock_404 = server
         .mock("GET", format!("{iri_dir}/1.2.3/.project.json").as_str())
         .match_header("authorization", Matcher::Missing)
@@ -1658,9 +1591,9 @@ fn info_multi_index_url_config() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn info_get_and_edit_fields() -> Result<(), Box<dyn Error>> {
-    let (_tmp, cwd, out) = cli_init_project(Some("info_fields"), "a", None, Some("1.2.3"), None)?;
-    out.assert().success();
-    let project_path = &cwd.join("info_fields");
+    let (_tmp, cwd) =
+        cli_init_json_project(Some("info-fields"), "acme", "info-fields", "1.2.3", None)?;
+    let project_path = &cwd.join("info-fields");
 
     let get = |field: &str| -> Result<String, Box<dyn Error>> {
         let out = run_sysand_in(project_path, ["info", "--get", field], None)?;
@@ -1678,11 +1611,11 @@ fn info_get_and_edit_fields() -> Result<(), Box<dyn Error>> {
         Ok(())
     };
 
-    assert_eq!(get("name")?, "info_fields\n");
+    assert_eq!(get("name")?, "info-fields\n");
     edit(&["--name", "info_fields_alt"])?;
     assert_eq!(get("name")?, "info_fields_alt\n");
 
-    assert_eq!(get("publisher")?, "a\n");
+    assert_eq!(get("publisher")?, "acme\n");
     edit(&["--publisher", "a_alt"])?;
     assert_eq!(get("publisher")?, "a_alt\n");
 
@@ -1768,10 +1701,14 @@ fn info_get_and_edit_fields() -> Result<(), Box<dyn Error>> {
     assert_eq!(get("topic")?, "t\n");
     assert_eq!(get("includes-implied")?, "true\n");
 
-    // Fields that are not edited directly
-    for field in ["usage", "index", "checksum", "metamodel"] {
+    // Fields that are not edited directly; the fixture declares a metamodel
+    for field in ["usage", "index", "checksum"] {
         assert_eq!(get(field)?, "", "field: {field}");
     }
+    assert_eq!(
+        get("metamodel")?,
+        "https://www.omg.org/spec/SysML/20250201\n"
+    );
     assert_ne!(get("created")?, "");
     for flag in ["--usage", "--index", "--created", "--checksum"] {
         run_sysand_in(project_path, ["edit", flag, "x"], None)?
@@ -1794,19 +1731,19 @@ fn info_get_and_edit_fields() -> Result<(), Box<dyn Error>> {
 /// `sysand edit --dir` edits the project in the given directory
 #[test]
 fn edit_dir() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project(Some("edit_dir"), "a", None, None, None)?;
-    out.assert().success();
+    let (_temp_dir, cwd) =
+        cli_init_json_project(Some("edit-dir"), "acme", "edit-dir", "0.0.1", None)?;
 
     run_sysand_in(
         &cwd,
-        ["edit", "--dir", "edit_dir", "--version", "2.0.0"],
+        ["edit", "--dir", "edit-dir", "--version", "2.0.0"],
         None,
     )?
     .assert()
     .success();
     run_sysand_in(
         &cwd,
-        ["info", "--dir", "edit_dir", "--get", "version"],
+        ["info", "--dir", "edit-dir", "--get", "version"],
         None,
     )?
     .assert()
@@ -1818,7 +1755,7 @@ fn edit_dir() -> Result<(), Box<dyn Error>> {
         [
             "edit",
             "--dir",
-            "edit_dir/.project.json",
+            "edit-dir/.project.json",
             "--version",
             "3.0.0",
         ],
@@ -1833,16 +1770,15 @@ fn edit_dir() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn edit_metamodel() -> Result<(), Box<dyn Error>> {
-    let (_tmp, cwd, out) = cli_init_project(
-        Some("info_custom_metamodel"),
-        "a",
-        None,
-        Some("1.2.3"),
+    let (_tmp, cwd) = cli_init_json_project(
+        Some("info-custom-metamodel"),
+        "acme",
+        "info-custom-metamodel",
+        "1.2.3",
         None,
     )?;
-    out.assert().success();
 
-    let project_path = &cwd.join("info_custom_metamodel");
+    let project_path = &cwd.join("info-custom-metamodel");
 
     let get_metamodel = |expected: Option<String>| -> Result<String, Box<dyn Error>> {
         let out = run_sysand_in(project_path, ["info", "--get", "metamodel"], None)?;
@@ -1902,18 +1838,37 @@ fn edit_metamodel() -> Result<(), Box<dyn Error>> {
     )?;
     // Custom release
     try_set(
-        &["--metamodel", "sysml", "--metamodel-release-custom", "123"],
-        Ok("https://www.omg.org/spec/SysML/123"),
+        &[
+            "--metamodel",
+            "sysml",
+            "--metamodel-release-custom",
+            "20260301",
+        ],
+        Ok("https://www.omg.org/spec/SysML/20260301"),
     )?;
     try_set(
-        &["--metamodel", "kerml", "--metamodel-release-custom", "456"],
-        Ok("https://www.omg.org/spec/KerML/456"),
+        &[
+            "--metamodel",
+            "kerml",
+            "--metamodel-release-custom",
+            "20231299",
+        ],
+        Ok("https://www.omg.org/spec/KerML/20231299"),
     )?;
     // Invalid custom release
-    try_set(
-        &["--metamodel", "kerml", "--metamodel-release-custom", "abc"],
-        Err("invalid value 'abc' for '--metamodel-release-custom"),
-    )?;
+    for release in ["abc", "123", "2025020", "20251301", "19990101"] {
+        try_set(
+            &[
+                "--metamodel",
+                "kerml",
+                "--metamodel-release-custom",
+                release,
+            ],
+            Err(&format!(
+                "invalid value '{release}' for '--metamodel-release-custom"
+            )),
+        )?;
+    }
     // Custom metamodel
     try_set(&["--custom-metamodel", "mm1"], Ok("mm1"))?;
     // Release without a metamodel
@@ -1934,7 +1889,7 @@ fn edit_metamodel() -> Result<(), Box<dyn Error>> {
             "--metamodel-release",
             "20250201",
             "--metamodel-release-custom",
-            "123",
+            "20260301",
         ],
         Err(
             "the argument '--metamodel-release <YYYYMMXX>' cannot be used with '--metamodel-release-custom",
@@ -1945,7 +1900,7 @@ fn edit_metamodel() -> Result<(), Box<dyn Error>> {
             "--custom-metamodel",
             "abc123",
             "--metamodel-release-custom",
-            "123",
+            "20260301",
         ],
         Err(
             "the argument '--custom-metamodel <METAMODEL>' cannot be used with '--metamodel-release-custom <YYYYMMXX>'",
@@ -1966,7 +1921,7 @@ fn edit_metamodel() -> Result<(), Box<dyn Error>> {
     run_sysand_in(project_path, ["edit", "--clear-metamodel"], None)?
         .assert()
         .success();
-    // An unset field prints nothing, not even an empty line
+    // An unset field prints nothing at all
     get_metamodel(Some(String::new()))?;
 
     Ok(())
@@ -1976,8 +1931,7 @@ fn edit_metamodel() -> Result<(), Box<dyn Error>> {
 /// leave `.project.json` unchanged
 #[test]
 fn edit_rejects_invalid_name_and_publisher() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "info_set_invalid", "1.2.3")?;
-    out.assert().success();
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "info-set-invalid", "1.2.3", None)?;
     let original = std::fs::read_to_string(cwd.join(".project.json"))?;
 
     for (field, value_name, value, msg) in [
@@ -2027,8 +1981,7 @@ fn edit_rejects_invalid_name_and_publisher() -> Result<(), Box<dyn Error>> {
 /// spaces
 #[test]
 fn edit_accepts_spaces_in_name_and_publisher() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "info_set_spaces", "1.2.3")?;
-    out.assert().success();
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "info-set-spaces", "1.2.3", None)?;
 
     run_sysand_in(
         &cwd,
@@ -2057,14 +2010,12 @@ fn edit_accepts_spaces_in_name_and_publisher() -> Result<(), Box<dyn Error>> {
 #[test]
 fn info_reads_a_model_toml_project() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    wrapfs::write(
-        cwd.join("model.toml"),
-        "manifest-version = 1\n\n\
-         [project]\n\
-         publisher = \"acme\"\n\
-         name = \"widgets\"\n\
-         version = \"1.2.3\"\n\
-         sources = []\n",
+    write_toml_project(
+        &cwd,
+        "widgets",
+        "1.2.3",
+        "sources = []\n\
+            metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
     )?;
 
     let out = run_sysand_in(&cwd, ["info"], None)?;
@@ -2080,21 +2031,19 @@ fn info_reads_a_model_toml_project() -> Result<(), Box<dyn Error>> {
 /// Write a bare `model.toml` project into a fresh directory.
 fn toml_project_cwd() -> Result<(Utf8TempDir, Utf8PathBuf), Box<dyn Error>> {
     let (temp_dir, cwd) = new_temp_cwd()?;
-    wrapfs::write(
-        cwd.join("model.toml"),
-        "manifest-version = 1\n\n\
-         [project]\n\
-         publisher = \"acme\"\n\
-         name = \"widgets\"\n\
-         version = \"1.2.3\"\n\
-         sources = []\n",
+    write_toml_project(
+        &cwd,
+        "widgets",
+        "1.2.3",
+        "sources = []\n\
+            metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
     )?;
     Ok((temp_dir, cwd))
 }
 
-/// model-toml.md "Editing the manifest": the verbs on the fields a build
-/// computes error on a toml project. Unlike every other key, this is not
-/// a "not yet": a `model.toml` has no room for these.
+/// The verbs on the fields a build computes error on a toml project. A
+/// `model.toml` has no room for these, so unlike every other key the
+/// refusal is permanent.
 #[test]
 fn edit_includes_derived_is_refused_on_a_toml_project() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd) = toml_project_cwd()?;
@@ -2123,8 +2072,7 @@ fn edit_clear_includes_implied_is_refused_on_a_toml_project() -> Result<(), Box<
     Ok(())
 }
 
-/// model-toml.md: "`info index get` may compute the map on the fly". It
-/// does, through the KPAR view.
+/// `info index get` computes the map on the fly, through the KPAR view.
 #[test]
 fn info_index_get_works_on_a_toml_project() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd) = toml_project_cwd()?;
@@ -2137,18 +2085,638 @@ fn info_index_get_works_on_a_toml_project() -> Result<(), Box<dyn Error>> {
 }
 
 /// The other side of the distinction: `metamodel` is a real `[project]`
-/// key, so writing it is refused as *not yet supported*, not as
-/// impossible. Pinned so that the refusal above cannot swallow it.
+/// key, so it is written rather than refused.
 #[test]
-fn edit_metamodel_on_a_toml_project_is_not_yet_supported() -> Result<(), Box<dyn Error>> {
+fn edit_sets_and_clears_metamodel_on_a_toml_project() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd) = toml_project_cwd()?;
 
-    let out = run_sysand_in(&cwd, ["edit", "--metamodel", "sysml"], None)?;
-
-    out.assert().failure().stderr(
-        predicate::str::contains("is a `model.toml` project")
-            .and(predicate::str::contains("computed when the KPAR is built").not()),
+    run_sysand_in(&cwd, ["edit", "--metamodel", "sysml"], None)?
+        .assert()
+        .success();
+    // The shorthand expands to the canonical IRI before it reaches the
+    // manifest, as it does for a json project.
+    assert!(
+        std::fs::read_to_string(cwd.join("model.toml"))?
+            .contains("metamodel = \"https://www.omg.org/spec/SysML/")
     );
 
+    // But it cannot be *cleared*: every project declares a metamodel,
+    // so clearing it would write a file Sysand refuses to read.
+    run_sysand_in(&cwd, ["edit", "--clear-metamodel"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "`metamodel` cannot be cleared from a `model.toml` project",
+        ));
+    assert!(std::fs::read_to_string(cwd.join("model.toml"))?.contains("metamodel"));
+
+    Ok(())
+}
+
+/// The other half of the same rule: `--custom-metamodel` can spell
+/// anything, and a `model.toml` holds one of four values.
+#[test]
+fn edit_refuses_an_unrecognized_metamodel_on_a_toml_project() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = toml_project_cwd()?;
+    let before = std::fs::read_to_string(cwd.join("model.toml"))?;
+
+    run_sysand_in(
+        &cwd,
+        ["edit", "--custom-metamodel", "urn:example:metamodel"],
+        None,
+    )?
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains(
+        "`--metamodel` is not a metamodel Sysand recognizes",
+    ));
+    assert_eq!(std::fs::read_to_string(cwd.join("model.toml"))?, before);
+
+    run_sysand_in(
+        &cwd,
+        [
+            "edit",
+            "--metamodel",
+            "sysml",
+            "--metamodel-release-custom",
+            "123",
+        ],
+        None,
+    )?
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains(
+        "invalid value '123' for '--metamodel-release-custom",
+    ));
+    assert_eq!(std::fs::read_to_string(cwd.join("model.toml"))?, before);
+
+    Ok(())
+}
+
+/// The compatibility fixture: a json pair written by hand, read through
+/// the CLI to prove Sysand accepts it as a project.
+#[test]
+fn a_hand_written_json_project_is_read() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    write_hand_written_json_project(&cwd, "acme", "widgets", "1.2.3")?;
+
+    let out = run_sysand_in(&cwd, ["info"], None)?;
+
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains("widgets"))
+        .stdout(predicate::str::contains("acme"))
+        .stdout(predicate::str::contains("1.2.3"));
+
+    Ok(())
+}
+
+/// A json project written into a directory that already exists.
+#[test]
+fn a_json_project_can_be_written_into_an_existing_directory() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    let nested = cwd.join("member");
+    std::fs::create_dir_all(&nested)?;
+
+    write_json_project(&nested, "acme", "widgets", "1.2.3", None)?;
+
+    let out = run_sysand_in(&nested, ["info"], None)?;
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains("widgets"));
+    Ok(())
+}
+
+/// The verbs are named after `.project.json`'s fields, and three of
+/// them are spelled differently in a manifest. Writing the json
+/// spelling is silent (an unknown key is a warning and the value reads
+/// back as absent), so this asserts the text *and* that reading it back
+/// says nothing.
+#[test]
+fn edit_writes_the_manifest_spelling_of_each_key() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = toml_project_cwd()?;
+
+    run_sysand_in(
+        &cwd,
+        ["edit", "--add-maintainer", "Ada <ada@example.com>"],
+        None,
+    )?
+    .assert()
+    .success();
+    run_sysand_in(&cwd, ["edit", "--add-topic", "widgets"], None)?
+        .assert()
+        .success();
+    run_sysand_in(&cwd, ["edit", "--website", "https://example.com"], None)?
+        .assert()
+        .success();
+
+    let manifest = std::fs::read_to_string(cwd.join("model.toml"))?;
+    assert!(manifest.contains("maintainers = ["), "manifest: {manifest}");
+    assert!(manifest.contains("topics = ["), "manifest: {manifest}");
+    assert!(manifest.contains("[project.urls]"), "manifest: {manifest}");
+    assert!(manifest.contains("website = \"https://example.com\""));
+
+    // The json spellings would have been unknown keys: a warning, and
+    // a value that reads back as absent.
+    let out = run_sysand_in(&cwd, ["info", "--get", "maintainer"], None)?;
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains("Ada <ada@example.com>"))
+        .stderr(predicate::str::contains("unknown key").not());
+
+    Ok(())
+}
+
+/// A manifest validates more than the json documents do. Each of these is
+/// accepted by a `.project.json` and would make a `model.toml` unreadable.
+#[test]
+fn edit_refuses_values_a_manifest_cannot_hold() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = toml_project_cwd()?;
+
+    for (args, expected) in [
+        (vec!["edit", "--version", "2023-12"], "2023-12"),
+        (vec!["edit", "--license", "notspdx"], "SPDX"),
+        (
+            vec!["edit", "--name", "my_project"],
+            "name must be 3-50 ASCII alphanumeric chars",
+        ),
+        (
+            vec!["edit", "--publisher", "ab"],
+            "publisher must be 3-50 ASCII alphanumeric chars",
+        ),
+        (vec!["edit", "--add-maintainer", "Ada"], "maintainer"),
+    ] {
+        run_sysand_in(&cwd, args.clone(), None)?
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(expected));
+    }
+
+    Ok(())
+}
+
+/// A list key keeps its shape and its comments through `--add` and
+/// `--remove`, which is the property the whole editor exists for.
+#[test]
+fn edit_add_and_remove_keep_the_list_formatting() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = toml_project_cwd()?;
+    let manifest = std::fs::read_to_string(cwd.join("model.toml"))?.replace(
+        "sources = []",
+        "sources = []\n# who to blame\nmaintainers = [\n    \"Ada <ada@example.com>\",\n]",
+    );
+    std::fs::write(cwd.join("model.toml"), &manifest)?;
+
+    run_sysand_in(
+        &cwd,
+        ["edit", "--add-maintainer", "Bob <bob@example.com>"],
+        None,
+    )?
+    .assert()
+    .success();
+
+    let after = std::fs::read_to_string(cwd.join("model.toml"))?;
+    assert!(after.contains("# who to blame"), "manifest: {after}");
+    assert!(
+        after.contains("    \"Bob <bob@example.com>\",\n"),
+        "manifest: {after}"
+    );
+
+    run_sysand_in(
+        &cwd,
+        ["edit", "--remove-maintainer", "Ada <ada@example.com>"],
+        None,
+    )?
+    .assert()
+    .success();
+    let after = std::fs::read_to_string(cwd.join("model.toml"))?;
+    assert!(!after.contains("Ada"), "manifest: {after}");
+    assert!(after.contains("# who to blame"), "manifest: {after}");
+
+    Ok(())
+}
+
+/// The value rules apply to a project given by path too. This is a json
+/// project: the rule is not about `model.toml`.
+#[test]
+fn edit_dir_validates_a_version_too() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "widgets", "1.2.3", None)?;
+
+    run_sysand(
+        ["edit", "--dir", cwd.as_str(), "--version", "2023-12"],
+        None,
+    )?
+    .2
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains("2023-12"));
+    assert!(std::fs::read_to_string(cwd.join(".project.json"))?.contains("1.2.3"));
+
+    Ok(())
+}
+
+/// A hand-commented `model.toml` survives `edit` of a scalar field with
+/// comments and key order intact.
+#[test]
+fn edit_keeps_the_comments_and_key_order() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, _) =
+        cli_init_toml_project(None, "acme", Some("widgets"), Some("1.0.0"), None)?;
+    let path = cwd.join("model.toml");
+    let commented = wrapfs::read_to_string(&path)?
+        .replace("[project]", "# who ships it\n[project]")
+        .replace("sources = []", "sources = []  # the files\n");
+    wrapfs::write(&path, &commented)?;
+
+    let key_names = |text: &str| -> Vec<String> {
+        text.lines()
+            .filter_map(|line| {
+                let line = line.trim();
+                (!line.starts_with('#') && line.contains(" = "))
+                    .then(|| line.split(" = ").next().unwrap_or_default().to_owned())
+            })
+            .collect()
+    };
+    let before = key_names(&commented);
+
+    run_sysand_in(&cwd, ["edit", "--description", "A widget."], None)?
+        .assert()
+        .success();
+
+    let after = wrapfs::read_to_string(&path)?;
+    assert!(
+        after.contains("# who ships it") && after.contains("# the files"),
+        "`edit` keeps comments:\n{after}"
+    );
+    assert!(
+        after.contains("A widget."),
+        "the value is written:\n{after}"
+    );
+    // `description` is new, so it may appear; every key that was there
+    // must still be there, in the order it was written.
+    let after_keys = key_names(&after);
+    let kept: Vec<String> = after_keys
+        .iter()
+        .filter(|k| before.contains(k))
+        .cloned()
+        .collect();
+    assert_eq!(before, kept, "`edit` must not reorder the keys");
+    Ok(())
+}
+
+/// `info --dir` on a member that inherits its `metamodel`.
+///
+/// A project read at a path the command was *given* is read with the
+/// workspace table, so a member is not refused as "not a member of any
+/// workspace".
+#[test]
+fn info_at_a_member_path_reads_the_inherited_metamodel() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    write_workspace_root(
+        &cwd,
+        &["app"],
+        "\n[workspace.group.sysml]\n\
+            metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    )?;
+    wrapfs::create_dir_all(cwd.join("app"))?;
+    write_toml_project(
+        cwd.join("app"),
+        "member",
+        "1.0.0",
+        "sources = []\nmetamodel.workspace = \"sysml\"\n",
+    )?;
+
+    run_sysand_in(&cwd, ["info", "--dir", cwd.join("app").as_str()], None)?
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("member"));
+    Ok(())
+}
+
+const SYSIDE_SYSML: &str = "https://www.sysand.com/spec/SysML/20250201";
+
+/// `init` with a Syside metamodel writes a project the same binary reads.
+#[test]
+fn init_with_a_syside_metamodel_writes_a_readable_project() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    run_sysand_in(
+        &cwd,
+        [
+            "init",
+            "--publisher",
+            "acme",
+            "--name",
+            "widgets",
+            "--version",
+            "1.0.0",
+            "--metamodel",
+            SYSIDE_SYSML,
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+
+    run_sysand_in(&cwd, ["info"], None)?
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("warning").not());
+    Ok(())
+}
+
+/// From outside: a hand-written Syside `model.toml` reads with no
+/// warning.
+#[test]
+fn a_syside_project_reads_with_no_warning_from_the_cli() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    write_toml_project(
+        &cwd,
+        "widgets",
+        "1.0.0",
+        &format!("metamodel = \"{SYSIDE_SYSML}\"\nroot = \"main.sysml\"\n"),
+    )?;
+    std::fs::write(cwd.join("main.sysml"), "package Widgets;\n")?;
+
+    run_sysand_in(&cwd, ["info"], None)?
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("warning").not())
+        .stdout(predicate::str::contains("widgets"));
+    Ok(())
+}
+
+/// `info index` on a project whose `.meta.json` has the Syside shape prints
+/// no symbols, as there is no `index`, and says why on stderr.
+#[cfg(feature = "syside-kpar")]
+#[test]
+fn info_index_get_on_a_root_shaped_project_prints_nothing_and_warns() -> Result<(), Box<dyn Error>>
+{
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    std::fs::write(
+        cwd.join(".project.json"),
+        r#"{"name": "widgets", "publisher": "acme", "version": "1.0.0", "usage": []}"#,
+    )?;
+    std::fs::write(
+        cwd.join(".meta.json"),
+        format!(
+            r#"{{"root": "main.sysml", "exports": ["Widgets"], "created": "2026-01-01T00:00:00Z",
+                "metamodel": "{SYSIDE_SYSML}",
+                "checksum": {{"main.sysml": {{"value": "{}", "algorithm": "SHA256"}}}}}}"#,
+            "0".repeat(64)
+        ),
+    )?;
+    std::fs::write(cwd.join("main.sysml"), "package Widgets;\n")?;
+
+    run_sysand_in(&cwd, ["info", "--get", "index"], None)?
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty().or(predicate::str::is_match(r"^\s*$")?))
+        .stderr(predicate::str::contains(
+            "the project has no `index`; a Syside KPAR carries `root` and `exports`",
+        ));
+    Ok(())
+}
+
+/// A Syside `model.toml` project with two sources and a root, for the
+/// `root`, `exports` and metamodel-switch tests.
+fn syside_toml_project_cwd() -> Result<(Utf8TempDir, Utf8PathBuf), Box<dyn Error>> {
+    let (temp_dir, cwd) = new_temp_cwd()?;
+    write_toml_project(
+        &cwd,
+        "widgets",
+        "1.0.0",
+        &format!("metamodel = \"{SYSIDE_SYSML}\"\nroot = \"main.sysml\"\n"),
+    )?;
+    wrapfs::write(cwd.join("main.sysml"), "package Main;\n")?;
+    wrapfs::write(cwd.join("lib.sysml"), "package Lib;\n")?;
+    Ok((temp_dir, cwd))
+}
+
+/// `root` is author-written, so `info --get root` reads it and
+/// `edit --root`/`--clear-root` set and clear it on a `model.toml`
+/// project.
+#[test]
+fn info_root_gets_sets_and_clears_on_a_toml_project() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = syside_toml_project_cwd()?;
+
+    run_sysand_in(&cwd, ["info", "--get", "root"], None)?
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("main.sysml"));
+    run_sysand_in(&cwd, ["edit", "--root", "lib.sysml"], None)?
+        .assert()
+        .success();
+    assert!(std::fs::read_to_string(cwd.join("model.toml"))?.contains("root = \"lib.sysml\""));
+    run_sysand_in(&cwd, ["info", "--get", "root"], None)?
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("lib.sysml"));
+    // A Syside project requires `root`, so clearing it alone would leave a
+    // manifest that does not read; it is refused and the file is kept.
+    let before = std::fs::read_to_string(cwd.join("model.toml"))?;
+    run_sysand_in(&cwd, ["edit", "--clear-root"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("missing key `root`"));
+    assert_eq!(std::fs::read_to_string(cwd.join("model.toml"))?, before);
+    Ok(())
+}
+
+/// `edit --root` refuses a value every later read would refuse, and
+/// leaves the manifest as it was.
+#[test]
+fn edit_root_refuses_an_invalid_path() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = syside_toml_project_cwd()?;
+    let before = std::fs::read_to_string(cwd.join("model.toml"))?;
+    for (root, problem) in [
+        ("/abs/main.sysml", "is absolute"),
+        (
+            "../main.sysml",
+            "is not in the form a `sources` entry takes",
+        ),
+        ("dir/", "names a directory"),
+        ("a\\b.sysml", "contains a backslash"),
+        (
+            "main.txt",
+            "is not a KerML (`.kerml`) or SysML (`.sysml`) file",
+        ),
+    ] {
+        run_sysand_in(&cwd, ["edit", "--root", root], None)?
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(problem));
+    }
+    assert_eq!(std::fs::read_to_string(cwd.join("model.toml"))?, before);
+    Ok(())
+}
+
+/// On a json project `root` lives in `.meta.json`, and `edit` edits it
+/// as it edits `metamodel`.
+#[cfg(feature = "syside-kpar")]
+#[test]
+fn info_root_gets_and_sets_on_a_json_project() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    std::fs::write(
+        cwd.join(".project.json"),
+        r#"{"name": "widgets", "publisher": "acme", "version": "1.0.0", "usage": []}"#,
+    )?;
+    std::fs::write(
+        cwd.join(".meta.json"),
+        format!(
+            r#"{{"root": "main.sysml", "exports": ["Main"], "created": "2026-01-01T00:00:00Z", "metamodel": "{SYSIDE_SYSML}"}}"#
+        ),
+    )?;
+    run_sysand_in(&cwd, ["info", "--get", "root"], None)?
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("main.sysml"));
+    run_sysand_in(&cwd, ["edit", "--root", "other.sysml"], None)?
+        .assert()
+        .success();
+    assert!(std::fs::read_to_string(cwd.join(".meta.json"))?.contains("\"root\": \"other.sysml\""));
+    Ok(())
+}
+
+/// The exports of a Syside `model.toml` project are the symbols of the
+/// files its `root` reaches, which cannot be found yet, so `info --get
+/// exports` is refused.
+#[test]
+fn info_exports_is_refused_on_a_syside_toml_project() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = syside_toml_project_cwd()?;
+    run_sysand_in(&cwd, ["info", "--get", "exports"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "`acme/widgets` is a Syside-metamodel project, whose files are reached from its \
+             `root` `main.sysml`; finding them is not supported yet",
+        ));
+    Ok(())
+}
+
+/// A Syside json project lists its `exports` array.
+#[cfg(feature = "syside-kpar")]
+#[test]
+fn info_exports_lists_a_syside_projects_exports() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    write_syside_json_project(
+        &cwd,
+        "widgets",
+        "1.0.0",
+        serde_json::json!([]),
+        &["Lib", "Main"],
+        &[
+            ("main.sysml", b"package Main;\n"),
+            ("lib.sysml", b"package Lib;\n"),
+        ],
+    )?;
+    run_sysand_in(&cwd, ["info", "--get", "exports"], None)?
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Lib"))
+        .stdout(predicate::str::contains("Main"))
+        .stderr(predicate::str::contains("warning").not());
+    Ok(())
+}
+
+#[test]
+fn info_exports_on_an_omg_project_prints_nothing_and_warns() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = toml_project_cwd()?;
+    run_sysand_in(&cwd, ["info", "--get", "exports"], None)?
+        .assert()
+        .success()
+        .stdout(predicate::str::is_match(r"^\s*$")?)
+        .stderr(predicate::str::contains(
+            "the project has no `exports`; an OMG KPAR carries `index`",
+        ));
+    Ok(())
+}
+
+/// A Syside project names `root` and lists no `sources`: a switch to a
+/// Syside metamodel needs `root`, removes an empty `sources`, and is
+/// refused while `sources` lists files.
+#[test]
+fn switching_to_a_syside_metamodel_needs_root() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = toml_project_cwd()?;
+    let before = std::fs::read_to_string(cwd.join("model.toml"))?;
+    run_sysand_in(
+        &cwd,
+        ["edit", "--custom-metamodel", SYSIDE_SYSML],
+        None,
+    )?
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains(format!(
+        "changing the metamodel to `{SYSIDE_SYSML}` requires `root`; `model.toml` does not have it"
+    )));
+    assert_eq!(before, std::fs::read_to_string(cwd.join("model.toml"))?);
+
+    wrapfs::write(cwd.join("main.sysml"), "package Main;\n")?;
+    run_sysand_in(&cwd, ["include", "main.sysml"], None)?
+        .assert()
+        .success();
+    let listed = std::fs::read_to_string(cwd.join("model.toml"))?;
+    run_sysand_in(
+        &cwd,
+        [
+            "edit",
+            "--root",
+            "main.sysml",
+            "--custom-metamodel",
+            SYSIDE_SYSML,
+        ],
+        None,
+    )?
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains(
+        "`sources` lists 1 file(s), and a Syside project lists none",
+    ));
+    assert_eq!(listed, std::fs::read_to_string(cwd.join("model.toml"))?);
+
+    run_sysand_in(&cwd, ["exclude", "main.sysml"], None)?
+        .assert()
+        .success();
+    run_sysand_in(
+        &cwd,
+        [
+            "edit",
+            "--root",
+            "main.sysml",
+            "--custom-metamodel",
+            SYSIDE_SYSML,
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+    let manifest = std::fs::read_to_string(cwd.join("model.toml"))?;
+    assert!(!manifest.contains("sources"), "{manifest}");
+    run_sysand_in(&cwd, ["info"], None)?
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("warning").not());
+    Ok(())
+}
+
+/// An OMG project lists `sources`, so a switch from a Syside metamodel
+/// writes `sources = []`; the `root` left behind is a foreign key, and
+/// the switch warns about it.
+#[test]
+fn switching_to_an_omg_metamodel_leaves_root_behind_with_a_warning() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = syside_toml_project_cwd()?;
+    run_sysand_in(&cwd, ["edit", "--metamodel", "sysml"], None)?
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "`root` is only supported by the Syside metamodel and will be ignored under",
+        ))
+        .stderr(predicate::str::contains(
+            "`sysand edit --clear-root` removes it",
+        ));
+    let manifest = std::fs::read_to_string(cwd.join("model.toml"))?;
+    assert!(
+        manifest.contains("https://www.omg.org/spec/SysML/"),
+        "{manifest}"
+    );
+    assert!(manifest.contains("sources = []"), "{manifest}");
+    assert!(manifest.contains("root = \"main.sysml\""), "{manifest}");
     Ok(())
 }

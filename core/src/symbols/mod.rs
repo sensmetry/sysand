@@ -3,9 +3,8 @@
 
 //! Module for extracting symbols from KerML or SysML v2 files.
 //!
-//! The main function is `top_level`, which returns top level symbols for a
-//! given file. We need to know the top level symbols to correctly populate
-//! field `index` of `.meta.json` files.
+//! [`top_level_symbols`] returns the top level symbols of a file, which
+//! populate the `index` field of `.meta.json` files.
 
 mod lex;
 
@@ -23,6 +22,16 @@ use crate::symbols::lex::LexingError;
 pub enum Language {
     SysML,
     KerML,
+}
+
+impl std::fmt::Display for Language {
+    /// How a diagnostic names the language (the spelling `SpecKind` uses).
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::SysML => "SysML",
+            Self::KerML => "KerML",
+        })
+    }
 }
 
 impl Language {
@@ -476,8 +485,6 @@ fn collect_symbols(
 }
 
 /// A lexer that extracts top-level symbols from a SysML file.
-///
-/// It is used for handling `index` field of `.meta.json` files.
 pub fn top_level_sysml<S: AsRef<str>>(source: S) -> Result<Vec<String>, ExtractError> {
     let source = source.as_ref();
     let all = lex_source(source)?;
@@ -590,16 +597,10 @@ pub fn top_level_kerml<S: AsRef<str>>(source: S) -> Result<Vec<String>, ExtractE
 }
 
 /// Why [`top_level_symbols`] could not index a file.
-///
-/// Narrower than the error of any one command, so that a caller which
-/// only extracts symbols -- the KPAR view of a `model.toml` project, for
-/// one -- does not have to name a project-read or IO failure it cannot
-/// produce. `commands::include::IncludeError` carries the same two texts
-/// and converts from this.
 #[derive(Debug, Error)]
 pub enum SymbolsError {
-    #[error("failed to extract symbol names from `{0}`: {1}")]
-    Extract(Box<str>, ExtractError),
+    #[error("failed to extract symbol names from `{0}`")]
+    Extract(Box<str>, #[source] ExtractError),
     #[error(
         "unknown file format of `{0}`, only SysML v2 (.sysml) and KerML (.kerml) files are supported"
     )]

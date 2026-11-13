@@ -10,9 +10,9 @@ use crate::{
     auth::HTTPAuthentication,
     context::ProjectContext,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsage},
+    model::InterchangeProjectUsage,
     project::{
-        CanonicalizationError, ProjectReadAsync,
+        CanonicalizationError, ProjectDefinition, ProjectReadAsync,
         reqwest_kpar_download::ReqwestRemoteKparDownloadedProject,
         reqwest_src::ReqwestSrcProjectAsync,
     },
@@ -28,13 +28,11 @@ pub struct HTTPResolverAsync<Policy> {
     pub client: reqwest_middleware::ClientWithMiddleware,
     pub lax: bool,
     pub auth_policy: Arc<Policy>,
-    //pub prefer_ranged: bool,
 }
 
 #[derive(Debug)]
 pub enum HTTPProjectAsync<Policy> {
     HTTPSrcProject(ReqwestSrcProjectAsync<Policy>),
-    // HTTPKParProjectRanged(ReqwestKparRangedProject),
     HTTPKParProjectDownloaded(Box<ReqwestRemoteKparDownloadedProject<Policy>>),
 }
 
@@ -42,15 +40,12 @@ pub enum HTTPProjectAsync<Policy> {
 pub enum HTTPProjectError<Policy: HTTPAuthentication> {
     #[error(transparent)]
     SrcProject(<ReqwestSrcProjectAsync<Policy> as ProjectReadAsync>::Error),
-    // #[error(transparent)]
-    // KParRanged(<ReqwestKparRangedProject as ProjectRead>::Error),
     #[error(transparent)]
     KparDownloaded(<ReqwestRemoteKparDownloadedProject<Policy> as ProjectReadAsync>::Error),
 }
 
 pub enum HTTPProjectAsyncReader<'a, Policy: HTTPAuthentication> {
     SrcProjectReader(<ReqwestSrcProjectAsync<Policy> as ProjectReadAsync>::SourceReader<'a>),
-    //KParRangedReader(<ReqwestKparRangedProject as ProjectRead>::SourceReader<'a>),
     KparDownloadedReader(
         <ReqwestRemoteKparDownloadedProject<Policy> as ProjectReadAsync>::SourceReader<'a>,
     ),
@@ -64,7 +59,6 @@ impl<Policy: HTTPAuthentication> AsyncRead for HTTPProjectAsyncReader<'_, Policy
     ) -> std::task::Poll<io::Result<usize>> {
         match self.get_mut() {
             HTTPProjectAsyncReader::SrcProjectReader(proj) => Pin::new(proj).poll_read(cx, buf),
-            //HTTPProjectAsyncReader::KParRangedReader(proj) => todo!(),
             HTTPProjectAsyncReader::KparDownloadedReader(proj) => Pin::new(proj).poll_read(cx, buf),
         }
     }
@@ -73,23 +67,12 @@ impl<Policy: HTTPAuthentication> AsyncRead for HTTPProjectAsyncReader<'_, Policy
 impl<Policy: HTTPAuthentication> ProjectReadAsync for HTTPProjectAsync<Policy> {
     type Error = HTTPProjectError<Policy>;
 
-    async fn get_project_async(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    async fn get_project_async(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         match self {
             Self::HTTPSrcProject(proj) => proj
                 .get_project_async()
                 .await
                 .map_err(HTTPProjectError::SrcProject),
-            // HTTPProjectAsync::HTTPKParProjectRanged(proj) => proj
-            //     .get_project()
-            //     .map_err(HTTPProjectError::KParRanged),
             Self::HTTPKParProjectDownloaded(proj) => proj
                 .get_project_async()
                 .await
@@ -111,10 +94,6 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for HTTPProjectAsync<Policy> {
                 Ok(v) => Ok(HTTPProjectAsyncReader::SrcProjectReader(v)),
                 Err(e) => Err(HTTPProjectError::SrcProject(e)),
             },
-            // HTTPProjectAsync::HTTPKParProjectRanged(proj) => proj
-            //     .read_source_async(path)
-            //     .map_err(HTTPProjectError::KParRanged)
-            //     .map(HTTPProjectReader::SrcProjectReader),
             Self::HTTPKParProjectDownloaded(proj) => match proj.read_source_async(path).await {
                 Ok(v) => Ok(HTTPProjectAsyncReader::KparDownloadedReader(v)),
                 Err(e) => Err(HTTPProjectError::KparDownloaded(e)),
@@ -125,7 +104,6 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for HTTPProjectAsync<Policy> {
     async fn is_definitely_invalid_async(&self) -> bool {
         match self {
             Self::HTTPSrcProject(proj) => proj.is_definitely_invalid_async().await,
-            //HTTPProjectAsync::HTTPKParProjectRanged(proj) => proj.is_definitely_invalid(),
             Self::HTTPKParProjectDownloaded(proj) => proj.is_definitely_invalid_async().await,
         }
     }
@@ -136,7 +114,6 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for HTTPProjectAsync<Policy> {
                 .sources_async(ctx)
                 .await
                 .map_err(HTTPProjectError::SrcProject),
-            //HTTPProjectAsync::HTTPKParProjectRanged(proj) => proj.sources(),
             Self::HTTPKParProjectDownloaded(proj) => proj
                 .sources_async(ctx)
                 .await
@@ -148,32 +125,6 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for HTTPProjectAsync<Policy> {
         match self {
             Self::HTTPSrcProject(proj) => proj.source_may_offer_multiple_versions(),
             Self::HTTPKParProjectDownloaded(proj) => proj.source_may_offer_multiple_versions(),
-        }
-    }
-
-    async fn get_info_async(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
-        match self {
-            Self::HTTPSrcProject(proj) => proj
-                .get_info_async()
-                .await
-                .map_err(HTTPProjectError::SrcProject),
-            Self::HTTPKParProjectDownloaded(proj) => proj
-                .get_info_async()
-                .await
-                .map_err(HTTPProjectError::KparDownloaded),
-        }
-    }
-
-    async fn get_meta_async(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
-        match self {
-            Self::HTTPSrcProject(proj) => proj
-                .get_meta_async()
-                .await
-                .map_err(HTTPProjectError::SrcProject),
-            Self::HTTPKParProjectDownloaded(proj) => proj
-                .get_meta_async()
-                .await
-                .map_err(HTTPProjectError::KparDownloaded),
         }
     }
 
@@ -251,7 +202,6 @@ pub struct HTTPProjects<Policy> {
     // See the comments in `try_resolve_as_src`.
     lax: bool,
     auth_policy: Arc<Policy>,
-    //prefer_ranged: bool,
 }
 
 impl<Policy: HTTPAuthentication> HTTPProjects<Policy> {
@@ -259,7 +209,7 @@ impl<Policy: HTTPAuthentication> HTTPProjects<Policy> {
         // TODO: Decide a policy for KPar vs Src urls
         let url = if self.url.path() == "" || !self.url.path().ends_with('/') {
             self.url.clone()
-        // If the resolver is set to be lax, try forcing the terminal slash
+        // If the resolver is set to be lax, try dropping the terminal slash
         } else if self.lax {
             let mut lax_url = self.url.clone();
             let lax_path = lax_url.path().to_owned();
@@ -273,12 +223,6 @@ impl<Policy: HTTPAuthentication> HTTPProjects<Policy> {
         } else {
             return None;
         };
-
-        // if self.prefer_ranged {
-        //     if let Ok(proj) = ReqwestKparRangedProject::new_guess_root(&url) {
-        //         return Some(HTTPProjectAsync::HTTPKParProjectRanged(proj));
-        //     }
-        // }
 
         Some(HTTPProjectAsync::HTTPKParProjectDownloaded(Box::new(
             ReqwestRemoteKparDownloadedProject::new_guess_root(
@@ -298,7 +242,7 @@ impl<Policy: HTTPAuthentication> HTTPProjects<Policy> {
         // while resolving `bar` relative to `http://www.example.com/foo/` gives `http://www.example.com/foo/bar`
         if self.url.path() == "" || self.url.path().ends_with('/') {
             Some(HTTPProjectAsync::HTTPSrcProject(ReqwestSrcProjectAsync {
-                client: self.client.clone(), // Already internally an Rc
+                client: self.client.clone(),
                 url: self.url.clone(),
                 auth_policy,
                 expected_checksum: None,
@@ -311,7 +255,7 @@ impl<Policy: HTTPAuthentication> HTTPProjects<Policy> {
             lax_url.set_path(&lax_path);
 
             Some(HTTPProjectAsync::HTTPSrcProject(ReqwestSrcProjectAsync {
-                client: self.client.clone(), // Already internally an Rc
+                client: self.client.clone(),
                 url: lax_url,
                 auth_policy,
                 expected_checksum: None,
@@ -348,11 +292,6 @@ impl<Policy: HTTPAuthentication> Iterator for HTTPProjects<Policy> {
 
 /// Tries treat IRIs as HTTP URLs, pointing either to source files stored remotely
 /// or a KPAR archive stored remotely.
-///
-/// If `prefer_ranged` is true, it attempts to poke the remote server to see if it
-/// appears to support HTTP Range requests. If successful, it uses `HTTPKparProjectRanged`
-/// instead of `HTTPKparProjectDownloaded`. In case of *any* failure, or if `prefer_ranged`
-/// is false, `HTTPKparProjectDownloaded` is used instead.
 impl<Policy: HTTPAuthentication> ResolveReadAsync for HTTPResolverAsync<Policy> {
     type Error = !;
 
@@ -364,40 +303,42 @@ impl<Policy: HTTPAuthentication> ResolveReadAsync for HTTPResolverAsync<Policy> 
         &self,
         resolve: &ResolutionInfo,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
-        // Try to resolve as a HTTP src project.
-        let outcome = match resolve.usage() {
+        // A resource usage tries a src project, then a KPAR; a remote KPAR
+        // usage only a KPAR.
+        let (iri, kpar_only) = match resolve.usage() {
             InterchangeProjectUsage::Resource {
-                resource: iri,
+                resource,
                 version_constraint: _,
-            } => {
-                if iri.scheme() == SCHEME_HTTP || iri.scheme() == SCHEME_HTTPS {
-                    match reqwest::Url::parse(iri.as_str()) {
-                        Ok(url) => {
-                            ResolutionOutcome::Resolved(futures::stream::iter(HTTPProjects {
-                                client: self.client.clone(),
-                                url,
-                                src_done: false,
-                                kpar_done: false,
-                                lax: self.lax,
-                                auth_policy: self.auth_policy.clone(),
-                                // prefer_ranged: self.prefer_ranged,
-                            }))
-                        }
-                        Err(e) => ResolutionOutcome::Unresolvable {
-                            reason: format!("invalid http(s) URL: {e}"),
-                        },
-                    }
-                } else {
-                    ResolutionOutcome::UnsupportedUsageType {
-                        reason: String::from("not an http(s) URL"),
-                    }
-                }
+            } => (resource, false),
+            InterchangeProjectUsage::RemoteKpar {
+                kpar_url,
+                publisher: _,
+                name: _,
+            } => (kpar_url, true),
+            _ => {
+                return Ok(ResolutionOutcome::UnsupportedUsageType {
+                    reason: String::from("not a url/resource usage"),
+                });
             }
-            _ => ResolutionOutcome::UnsupportedUsageType {
-                reason: String::from("not a url/resource usage"),
-            },
         };
-        Ok(outcome)
+        if iri.scheme() != SCHEME_HTTP && iri.scheme() != SCHEME_HTTPS {
+            return Ok(ResolutionOutcome::UnsupportedUsageType {
+                reason: String::from("not an http(s) URL"),
+            });
+        }
+        Ok(match reqwest::Url::parse(iri.as_str()) {
+            Ok(url) => ResolutionOutcome::Resolved(futures::stream::iter(HTTPProjects {
+                client: self.client.clone(),
+                url,
+                src_done: kpar_only,
+                kpar_done: false,
+                lax: self.lax,
+                auth_policy: self.auth_policy.clone(),
+            })),
+            Err(e) => ResolutionOutcome::Unresolvable {
+                reason: format!("invalid http(s) URL: {e}"),
+            },
+        })
     }
 }
 

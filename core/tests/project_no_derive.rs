@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+use std::assert_matches;
 use std::io::Read;
 
 use thiserror::Error;
@@ -8,7 +9,10 @@ use thiserror::Error;
 use sysand_core::{
     context::ProjectContext,
     lock::Source,
-    project::{ProjectChecksum, ProjectMut, ProjectRead, memory::InMemoryProject},
+    model::InterchangeProjectUsageRaw,
+    project::{
+        ProjectChecksum, ProjectDefinition, ProjectMut, ProjectRead, memory::InMemoryProject,
+    },
 };
 
 pub enum GenericProject<A, B>
@@ -31,7 +35,7 @@ where
 // reason the default exists. The cost is that
 // `Variant3`, an `InMemoryProject` that *can* store a manifest, refuses
 // one through this wrapper; `a_hand_written_project_refuses_a_manifest`
-// pins exactly that, so the divergence is visible rather than latent.
+// pins exactly that.
 
 #[derive(Debug, Error)]
 pub enum GenericProjectError<Variant1, Variant2, Variant3> {
@@ -72,15 +76,7 @@ where
         <InMemoryProject as ProjectRead>::Error,
     >;
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<sysand_core::model::InterchangeProjectInfoRaw>,
-            Option<sysand_core::model::InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         match self {
             Self::Variant1(project) => project.get_project().map_err(GenericProjectError::Variant1),
             Self::Variant2(project) => project.get_project().map_err(GenericProjectError::Variant2),
@@ -130,6 +126,22 @@ where
             Self::Variant1(project) => project.source_may_offer_multiple_versions(),
             Self::Variant2(project) => project.source_may_offer_multiple_versions(),
             Self::Variant3(project) => project.source_may_offer_multiple_versions(),
+        }
+    }
+
+    fn version(&self) -> Result<Option<String>, Self::Error> {
+        match self {
+            Self::Variant1(project) => project.version().map_err(GenericProjectError::Variant1),
+            Self::Variant2(project) => project.version().map_err(GenericProjectError::Variant2),
+            Self::Variant3(project) => project.version().map_err(GenericProjectError::Variant3),
+        }
+    }
+
+    fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
+        match self {
+            Self::Variant1(project) => project.usage().map_err(GenericProjectError::Variant1),
+            Self::Variant2(project) => project.usage().map_err(GenericProjectError::Variant2),
+            Self::Variant3(project) => project.usage().map_err(GenericProjectError::Variant3),
         }
     }
 
@@ -232,7 +244,7 @@ fn a_hand_written_project_refuses_a_manifest() {
     use sysand_core::project::ManifestWriteError;
 
     let document: DocumentMut =
-        "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n"
+        "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n"
             .parse()
             .expect("a valid manifest document");
 
@@ -243,8 +255,8 @@ fn a_hand_written_project_refuses_a_manifest() {
     let mut project: GenericProject<InMemoryProject, InMemoryProject> =
         GenericProject::Variant3(Box::new(InMemoryProject::new()));
 
-    assert!(matches!(
+    assert_matches!(
         project.put_manifest_document(&document, false),
         Err(ManifestWriteError::Unsupported)
-    ));
+    );
 }

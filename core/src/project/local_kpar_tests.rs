@@ -36,7 +36,11 @@ fn basic_kpar_archive() -> Result<(), Box<dyn std::error::Error>> {
 
     let project = super::LocalKParProject::new_access(zip_path, KparInnerPath::Guess, None);
 
-    let (Some(info), Some(meta)) = project.get_project()? else {
+    let (Some(info), Some(meta)) = project
+        .get_project()?
+        .and_then(crate::project::ProjectDefinition::into_json)
+        .unzip()
+    else {
         panic!();
     };
 
@@ -79,7 +83,11 @@ fn nested_kpar_archive() -> Result<(), Box<dyn std::error::Error>> {
 
     let project = super::LocalKParProject::new_access(zip_path, KparInnerPath::Guess, None);
 
-    let (Some(info), Some(meta)) = project.get_project()? else {
+    let (Some(info), Some(meta)) = project
+        .get_project()?
+        .and_then(crate::project::ProjectDefinition::into_json)
+        .unzip()
+    else {
         panic!();
     };
 
@@ -163,8 +171,7 @@ fn kpar(
 const INFO: &str = r#"{"name":"widgets","version":"1.2.3"}"#;
 const META: &str = r#"{"index":{},"created":"1970-01-01T00:00:00Z"}"#;
 
-/// model-toml.md "Mixed manifests": "if toml config present in a KPAR,
-/// error out". Checked on every way in, since all three read the archive
+/// A KPAR holding a `model.toml` is an error. Checked on every way in, since all three read the archive
 /// separately.
 #[test]
 fn a_kpar_with_a_model_toml_beside_the_pair_is_refused() -> Result<(), Box<dyn std::error::Error>> {
@@ -175,7 +182,7 @@ fn a_kpar_with_a_model_toml_beside_the_pair_is_refused() -> Result<(), Box<dyn s
         &[
             (".project.json", INFO),
             (".meta.json", META),
-            ("model.toml", "manifest-version = 1\n"),
+            ("model.toml", "manifest-version = \"1.0\"\n"),
         ],
     )?;
 
@@ -191,11 +198,7 @@ fn a_kpar_with_a_model_toml_beside_the_pair_is_refused() -> Result<(), Box<dyn s
         )
     );
     assert_matches!(
-        project.get_info().expect_err("a toml manifest"),
-        super::LocalKParError::TomlInKpar { archive: _ }
-    );
-    assert_matches!(
-        project.get_meta().expect_err("a toml manifest"),
+        project.version().expect_err("a toml manifest"),
         super::LocalKParError::TomlInKpar { archive: _ }
     );
 
@@ -203,14 +206,13 @@ fn a_kpar_with_a_model_toml_beside_the_pair_is_refused() -> Result<(), Box<dyn s
 }
 
 /// An archive with no `.project.json` but a `model.toml` is refused as
-/// a toml archive rather than with "`.project.json` not found", which
-/// says nothing about an archive that plainly carries a manifest.
+/// a toml archive.
 #[test]
 fn a_kpar_with_only_a_model_toml_is_refused_by_the_guess() -> Result<(), Box<dyn std::error::Error>>
 {
     let cwd = tempdir()?;
     let zip_path = cwd.path().join("test.kpar");
-    kpar(&zip_path, &[("model.toml", "manifest-version = 1\n")])?;
+    kpar(&zip_path, &[("model.toml", "manifest-version = \"1.0\"\n")])?;
 
     let project = super::LocalKParProject::new_access(zip_path, KparInnerPath::Guess, None);
     assert_matches!(
@@ -230,14 +232,17 @@ fn a_kpar_with_a_model_toml_among_its_sources_is_read() -> Result<(), Box<dyn st
     kpar(
         &zip_path,
         &[
-            ("examples/model.toml", "manifest-version = 1\n"),
+            ("examples/model.toml", "manifest-version = \"1.0\"\n"),
             (".project.json", INFO),
             (".meta.json", META),
         ],
     )?;
 
     let project = super::LocalKParProject::new_access(zip_path, KparInnerPath::Guess, None);
-    let (info, _) = project.get_project()?;
+    let (info, _) = project
+        .get_project()?
+        .and_then(crate::project::ProjectDefinition::into_json)
+        .unzip();
     assert_eq!(info.expect("`.project.json`").name, "widgets");
 
     Ok(())

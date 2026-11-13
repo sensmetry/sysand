@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use crate::paths::RelativizePathError;
 use std::num::NonZero;
 
 use camino::Utf8PathBuf;
@@ -9,13 +10,13 @@ use gix::{prepare_clone, remote::fetch::Shallow};
 use thiserror::Error;
 
 use crate::{
+    cancel::CancellationToken,
     context::ProjectContext,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
-        ProjectRead,
+        ProjectDefinition, ProjectRead,
         local_src::{LocalSrcError, LocalSrcProject, PathError},
-        utils::{FileWithLifetime, RelativizePathError, ToPathBuf as _},
+        utils::{FileWithLifetime, ToPathBuf as _},
     },
 };
 
@@ -26,12 +27,22 @@ pub struct GixDownloadedProject {
     pub url: gix::Url,
     tmp_dir: camino_tempfile::Utf8TempDir,
     inner: LocalSrcProject,
+    /// Observed by the clone through [`crate::cancel::GitInterrupt`].
+    token: CancellationToken,
 }
 
 #[derive(Error, Debug)]
 pub enum GixDownloadedError {
+    // TODO: support `model.toml` projects from git.
+    /// `model.toml` projects are used only in place, as editable projects.
+    #[error("`{0}` is a `model.toml` project, which cannot be used from git yet")]
+    TomlProject(String),
     #[error("git clone from `{0}` failed")]
     Clone(String, #[source] Box<gix::Error>),
+    /// The clone was cancelled, before it began or while gix was
+    /// fetching or checking out.
+    #[error(transparent)]
+    Cancelled(crate::cancel::Cancelled),
     #[error("failed to parse git URL `{0}`")]
     UrlParse(Box<str>, #[source] Box<gix::Error>),
     #[error(transparent)]
@@ -53,8 +64,6 @@ pub enum GixDownloadedError {
     ImpossibleRelativePath(#[from] RelativizePathError),
     #[error("project is missing metadata file `.meta.json`")]
     MissingMeta,
-    #[error("project is missing `.project.json` and/or `.meta.json` files")]
-    MissingInfoMeta,
     #[error("{0}")]
     Other(String),
 }
@@ -77,11 +86,8 @@ impl From<LocalSrcError> for GixDownloadedError {
             LocalSrcError::Serialize(error) => Self::Serialize(error),
             LocalSrcError::ImpossibleRelativePath(err) => Self::ImpossibleRelativePath(err),
             LocalSrcError::MissingMeta => Self::MissingMeta,
-            error @ LocalSrcError::MissingInfoMeta { missing: _ } => Self::Other(error.to_string()),
-            error @ (LocalSrcError::AmbiguousFormat { dir: _, json: _ }
-            | LocalSrcError::Symbols(_)
-            | LocalSrcError::JsonWriteToTomlProject { dir: _, file: _ }
-            | LocalSrcError::TomlWriteToJsonProject { dir: _ }) => Self::Other(error.to_string()),
+            error @ (LocalSrcError::MissingInfoMeta { missing: _ }
+            | LocalSrcError::Format { dir: _, problem: _ }) => Self::Other(error.to_string()),
         }
     }
 }
@@ -97,16 +103,33 @@ impl GixDownloadedProject {
                 .map_err(|e| GixDownloadedError::UrlParse(url.as_ref().into(), Box::new(e)))?,
             inner: LocalSrcProject::new_access(wrapfs::canonicalize(tmp_dir.path())?, None),
             tmp_dir,
+            token: CancellationToken::new(),
         })
+    }
+
+    /// Observe `token` during the clone.
+    #[must_use]
+    pub fn with_cancellation(mut self, token: CancellationToken) -> Self {
+        self.token = token;
+        self
     }
 
     fn ensure_downloaded(&self) -> Result<(), GixDownloadedError> {
         if !self.tmp_dir.path().join(".git").is_dir() {
-            // `gix-transport` builds a `reqwest` client of its own, on a
-            // spawned thread, so this path needs the process-wide rustls
-            // provider even though it never touches `create_reqwest_client`.
-            // Without it an https clone fails inside that thread, surfacing
-            // as an opaque transport error rather than a TLS one.
+            // gix's interrupt flag is process-global; the guard serializes
+            // clones and makes the flag this clone's.
+            let interrupt = crate::cancel::GitInterrupt::begin(&self.token)
+                .map_err(GixDownloadedError::Cancelled)?;
+            let cancelled = |error: GixDownloadedError| {
+                if interrupt.is_cancelled() {
+                    GixDownloadedError::Cancelled(crate::cancel::Cancelled)
+                } else {
+                    error
+                }
+            };
+            // `gix-transport` builds its own `reqwest` client on a spawned
+            // thread, which needs the process-wide rustls provider. Without
+            // it an https clone fails with an opaque transport error.
             crate::resolve::net_utils::install_default_crypto_provider();
 
             let prepared_clone = prepare_clone(self.url.clone(), self.tmp_dir.path())
@@ -115,11 +138,16 @@ impl GixDownloadedProject {
             let (mut prepare_checkout, _) = prepared_clone
                 .with_shallow(Shallow::DepthAtRemote(NonZero::new(1).unwrap()))
                 .fetch_then_checkout(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)
-                .map_err(|e| GixDownloadedError::Fetch(self.url.to_string(), Box::new(e)))?;
+                .map_err(|e| {
+                    cancelled(GixDownloadedError::Fetch(self.url.to_string(), Box::new(e)))
+                })?;
             let (_repo, _) = prepare_checkout
                 .main_worktree(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)
                 .map_err(|e| {
-                    GixDownloadedError::Checkout(self.tmp_dir.to_path_buf(), Box::new(e))
+                    cancelled(GixDownloadedError::Checkout(
+                        self.tmp_dir.to_path_buf(),
+                        Box::new(e),
+                    ))
                 })?;
         }
 
@@ -130,18 +158,15 @@ impl GixDownloadedProject {
 impl ProjectRead for GixDownloadedProject {
     type Error = GixDownloadedError;
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         self.ensure_downloaded()?;
 
-        Ok(self.inner.get_project()?)
+        match self.inner.get_project()? {
+            Some(ProjectDefinition::Toml(_)) => {
+                Err(GixDownloadedError::TomlProject(self.url.to_string()))
+            }
+            definition => Ok(definition),
+        }
     }
 
     type SourceReader<'a>
@@ -160,8 +185,7 @@ impl ProjectRead for GixDownloadedProject {
 
     fn sources(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         Ok(vec![Source::RemoteGit {
-            // Panic here should be impossible, as the URL should have
-            // been created from IRI
+            // Cannot panic: the URL was created from an IRI
             remote_git: Iri::parse(self.url.to_string()).unwrap(),
         }])
     }
@@ -187,4 +211,4 @@ impl ProjectRead for GixDownloadedProject {
 
 #[cfg(test)]
 #[path = "./gix_git_download_tests.rs"]
-mod tests;
+pub(crate) mod tests;

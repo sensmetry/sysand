@@ -6,13 +6,16 @@ use std::assert_matches;
 use fluent_uri::Iri;
 use indexmap::IndexMap;
 
+use crate::symbols::Language;
+
 use crate::{
+    manifest::diagnostics::{Diagnostics, Validated},
     model::{
         InterchangeProjectInfoPartial, InterchangeProjectInfoRaw,
         InterchangeProjectMetadataPartial, InterchangeProjectMetadataRaw,
         InterchangeProjectValidationError, KERML_SPEC_PREFIX, KnownMetamodel, Metamodel,
         MetamodelFamily, MetamodelParseError, MetamodelRelease, PROJECT_FIELD_MAX_LEN, ProjectName,
-        ProjectPublisher, SYSML_SPEC_PREFIX, SpecKind,
+        ProjectPublisher, SYSML_SPEC_PREFIX, SpecKind, project_hash_hex,
     },
     utils::lowercase_hex,
 };
@@ -43,7 +46,9 @@ fn json_hash_agrees_with_shell() {
     };
 
     let meta = InterchangeProjectMetadataRaw {
-        index: IndexMap::new(),
+        index: Some(IndexMap::new()),
+        root: None,
+        exports: None,
         created: "0000-00-00T00:00:00.123456789Z".to_owned(),
         metamodel: None,
         includes_derived: None,
@@ -274,7 +279,7 @@ fn project_field_max_len() {
     let max = "a".repeat(PROJECT_FIELD_MAX_LEN);
     ProjectPublisher::parse(max.clone()).unwrap();
     ProjectName::parse(max).unwrap();
-    // Limit is in bytes, not chars (U+0105 is 2 bytes)
+    // Limit is in bytes (U+0105 is 2 bytes)
     for too_long in [
         "a".repeat(PROJECT_FIELD_MAX_LEN + 1),
         "\u{105}".repeat(PROJECT_FIELD_MAX_LEN / 2 + 1),
@@ -293,6 +298,8 @@ fn project_field_max_len() {
 }
 
 mod index_usage {
+    use std::assert_matches;
+
     use crate::{
         model::{
             InterchangeProjectUsage, InterchangeProjectUsageRaw, InterchangeProjectValidationError,
@@ -372,7 +379,7 @@ mod index_usage {
                 version_constraint: semver::VersionReq::parse("^1.2").unwrap(),
             }
         );
-        assert!(matches!(
+        assert_matches!(
             index("A", "My Lib", "^1").validate(),
             Err(
                 InterchangeProjectValidationError::InvalidIndexUsagePublisher {
@@ -380,15 +387,15 @@ mod index_usage {
                     name: _
                 }
             )
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             index("Acme", "my..lib", "^1").validate(),
             Err(InterchangeProjectValidationError::InvalidIndexUsageName {
                 publisher: _,
                 name: _
             })
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             index("Acme", "My Lib", "not a constraint").validate(),
             Err(
                 InterchangeProjectValidationError::InvalidIndexUsageVersionConstraint {
@@ -398,7 +405,7 @@ mod index_usage {
                     source: _
                 }
             )
-        ));
+        );
     }
 
     #[test]
@@ -428,6 +435,106 @@ mod index_usage {
                 resource: "pkg:sysand/acme-labs/my.lib".to_owned(),
                 version_constraint: None,
             })
+        );
+    }
+}
+
+mod kpar_url_usage {
+    use std::assert_matches;
+
+    use crate::{
+        model::{InterchangeProjectUsageRaw, InterchangeProjectValidationError},
+        project::utils::Identifier,
+    };
+
+    const STDLIB: &str = "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar";
+
+    fn parse(json: &str) -> Result<InterchangeProjectUsageRaw, serde_json::Error> {
+        serde_json::from_str(json)
+    }
+
+    fn kpar_url(url: &str, publisher: Option<&str>, name: &str) -> InterchangeProjectUsageRaw {
+        InterchangeProjectUsageRaw::RemoteKpar {
+            kpar_url: url.to_owned(),
+            publisher: publisher.map(str::to_owned),
+            name: name.to_owned(),
+        }
+    }
+
+    #[test]
+    fn parses_and_round_trips() {
+        for (json, usage) in [
+            (
+                r#"{"kparUrl":"https://example.com/lib.kpar","publisher":"Acme","name":"Lib"}"#,
+                kpar_url("https://example.com/lib.kpar", Some("Acme"), "Lib"),
+            ),
+            (
+                &format!(r#"{{"kparUrl":"{STDLIB}","name":"Kernel Semantic Library"}}"#),
+                kpar_url(STDLIB, None, "Kernel Semantic Library"),
+            ),
+        ] {
+            assert_eq!(parse(json).unwrap(), usage);
+            assert_eq!(serde_json::to_string(&usage).unwrap(), json);
+        }
+    }
+
+    #[test]
+    fn rejects_extra_keys() {
+        for key in ["versionConstraint", "dir", "anything"] {
+            let json =
+                format!(r#"{{"kparUrl":"https://example.com/lib.kpar","name":"Lib","{key}":"x"}}"#);
+            assert!(parse(&json).is_err(), "{json} parsed");
+        }
+    }
+
+    #[test]
+    fn only_a_stdlib_iri_may_omit_the_publisher() {
+        kpar_url(STDLIB, None, "Kernel Semantic Library")
+            .validate()
+            .unwrap();
+        kpar_url("https://example.com/lib.kpar", Some("Acme"), "Lib")
+            .validate()
+            .unwrap();
+        assert_matches!(
+            kpar_url("https://example.com/lib.kpar", None, "Lib").validate(),
+            Err(
+                InterchangeProjectValidationError::RemoteKparUsageNoPublisher {
+                    kpar_url: _,
+                    name: _
+                }
+            )
+        );
+    }
+
+    #[test]
+    fn only_an_http_url_is_accepted() {
+        assert_matches!(
+            kpar_url("file:///tmp/lib.kpar", Some("Acme"), "Lib").validate(),
+            Err(InterchangeProjectValidationError::RemoteKparUsageNotHttp(_))
+        );
+        kpar_url("http://example.com/lib.kpar", Some("Acme"), "Lib")
+            .validate()
+            .unwrap();
+    }
+
+    #[test]
+    fn is_identified_by_its_url() {
+        let usage = kpar_url("https://example.com/lib.kpar", Some("Acme"), "Lib");
+        assert_eq!(
+            Identifier::from(&usage.validate().unwrap()).as_str(),
+            "https://example.com/lib.kpar"
+        );
+    }
+
+    #[test]
+    fn a_stdlib_usage_has_no_typed_publisher_name() {
+        assert_eq!(
+            kpar_url(STDLIB, None, "Kernel Semantic Library").typed_publisher_name(),
+            None
+        );
+        assert_eq!(
+            kpar_url("https://example.com/lib.kpar", Some("Acme"), "Lib").typed_publisher_name(),
+            Some(("Acme", "Lib"))
         );
     }
 }
@@ -619,15 +726,24 @@ fn project_publisher_and_name_must_be_valid_once_normalized() {
 /// and otherwise as a project does
 #[test]
 fn typed_spellings_normalize_as_index_or_project() {
-    use super::{normalize_typed_name, normalize_typed_publisher};
+    use super::{IdentifierKind, normalize_typed};
 
-    assert_eq!(normalize_typed_publisher("Acme Labs"), "acme-labs");
-    assert_eq!(normalize_typed_name("My.Lib v2"), "my.lib-v2");
+    assert_eq!(
+        normalize_typed("Acme Labs", IdentifierKind::Publisher),
+        "acme-labs"
+    );
+    assert_eq!(
+        normalize_typed("My.Lib v2", IdentifierKind::Name),
+        "my.lib-v2"
+    );
     // Not valid in an index: normalized as a project
-    assert_eq!(normalize_typed_publisher("Foo & Bar"), "foo-bar");
-    assert_eq!(normalize_typed_name("My_Lib"), "my-lib");
+    assert_eq!(
+        normalize_typed("Foo & Bar", IdentifierKind::Publisher),
+        "foo-bar"
+    );
+    assert_eq!(normalize_typed("My_Lib", IdentifierKind::Name), "my-lib");
     // Not even a valid project field: kept as it is
-    assert_eq!(normalize_typed_publisher("a/b"), "a/b");
+    assert_eq!(normalize_typed("a/b", IdentifierKind::Publisher), "a/b");
 }
 
 /// A validated directory or KPAR usage holds a project publisher and name,
@@ -659,28 +775,24 @@ fn directory_and_kpar_usages_validate_their_spelling() {
     assert_eq!((publisher.as_str(), name.as_str()), ("Foo & Bar", "My_Lib"));
 
     for usage in [dir("a/b", "lib"), kpar("a/b", "lib")] {
-        assert!(
-            matches!(
-                usage.validate(),
-                Err(InterchangeProjectValidationError::InvalidUsagePublisher {
-                    publisher: _,
-                    name: _,
-                    source: _
-                })
-            ),
+        assert_matches!(
+            usage.validate(),
+            Err(InterchangeProjectValidationError::InvalidUsagePublisher {
+                publisher: _,
+                name: _,
+                source: _
+            }),
             "{usage:?}"
         );
     }
     for usage in [dir("acme", ""), kpar("acme", "")] {
-        assert!(
-            matches!(
-                usage.validate(),
-                Err(InterchangeProjectValidationError::InvalidUsageName {
-                    publisher: _,
-                    name: _,
-                    source: _
-                })
-            ),
+        assert_matches!(
+            usage.validate(),
+            Err(InterchangeProjectValidationError::InvalidUsageName {
+                publisher: _,
+                name: _,
+                source: _
+            }),
             "{usage:?}"
         );
     }
@@ -718,8 +830,9 @@ fn a_dependency_declared_twice_is_refused() {
             usage,
         };
         let error = info.validate().expect_err("a duplicate usage");
-        assert!(
-            matches!(&error, InterchangeProjectValidationError::DuplicateUsage(_)),
+        assert_matches!(
+            &error,
+            InterchangeProjectValidationError::DuplicateUsage(_),
             "{error}"
         );
         assert!(
@@ -743,10 +856,7 @@ fn urn_sysand_resource_usage_is_rejected() {
             version_constraint: None,
         };
         let err = usage.validate().unwrap_err();
-        assert!(
-            matches!(&err, InterchangeProjectValidationError::UrnSysandUsage(r) if r == resource),
-            "{err:?}"
-        );
+        assert_matches!(&err, InterchangeProjectValidationError::UrnSysandUsage(r) if r == resource, "{err:?}");
     }
 
     // Only the `urn:sysand` namespace is internal
@@ -773,6 +883,12 @@ fn metamodel_family_prefixes_and_names() {
         MetamodelFamily::Syside.prefix(),
         "https://www.sysand.com/spec/"
     );
+    for family in [MetamodelFamily::Omg, MetamodelFamily::Syside] {
+        assert_eq!(
+            family.prefix(),
+            format!("https://www.{}/spec/", family.host())
+        );
+    }
     assert_eq!(MetamodelFamily::Omg.to_string(), "OMG");
     assert_eq!(MetamodelFamily::Syside.to_string(), "Syside");
 }
@@ -782,8 +898,8 @@ const OMG_KERML: &str = "https://www.omg.org/spec/KerML/20250201";
 const SYSIDE_SYSML: &str = "https://www.sysand.com/spec/SysML/20250201";
 const SYSIDE_KERML: &str = "https://www.sysand.com/spec/KerML/20250201";
 
-/// model-toml.md "Metamodel": a recognized value is
-/// `<family prefix><spec-kind>/<date>`, in either of the two families.
+/// A recognized value is `<family prefix><spec-kind>/<date>`, in either of
+/// the two families.
 #[test]
 fn metamodel_parses_both_families() {
     for (value, family, spec) in [
@@ -803,9 +919,7 @@ fn metamodel_parses_both_families() {
     }
 }
 
-/// The value is rebuilt from the parts when a standard-library usage IRI
-/// is composed from the target's metamodel, so it has to be the value that
-/// was read.
+/// `Display` gives back exactly the value a metamodel was parsed from.
 #[test]
 fn metamodel_round_trips_through_display() {
     for value in [
@@ -873,9 +987,8 @@ fn metamodel_rejects_a_malformed_release() {
     }
 }
 
-/// model-toml.md "Metamodel": "A project without a `metamodel` is treated
-/// as an OMG-metamodel project"; an unrecognized value is validated
-/// against the OMG schema (rule (a)).
+/// A project without a `metamodel` is treated as an OMG-metamodel project;
+/// an unrecognized value is validated against the OMG schema.
 #[test]
 fn metamodel_schema_family_of_a_project() {
     assert_eq!(Metamodel::schema_family(None), MetamodelFamily::Omg);
@@ -897,7 +1010,9 @@ fn metamodel_schema_family_of_a_project() {
 #[test]
 fn validate_parses_the_metamodel() {
     let raw = |value: &str| InterchangeProjectMetadataRaw {
-        index: IndexMap::new(),
+        index: Some(IndexMap::new()),
+        root: None,
+        exports: None,
         created: "2026-01-01T00:00:00Z".to_owned(),
         metamodel: Some(value.to_owned()),
         includes_derived: None,
@@ -1050,7 +1165,7 @@ fn partial_info_reports_every_missing_key_together() {
         .expect_err("an empty document is not a project");
 
     assert_eq!(
-        report.to_string(),
+        report.in_file(".project.json").to_string(),
         "missing key `name` in `.project.json`\n\
          missing key `version` in `.project.json`"
     );
@@ -1063,14 +1178,13 @@ fn partial_meta_reports_every_missing_key_together() {
         .expect_err("an empty document is not metadata");
 
     assert_eq!(
-        report.to_string(),
+        report.in_file(".meta.json").to_string(),
         "missing key `index` in `.meta.json`\n\
          missing key `created` in `.meta.json`"
     );
 }
 
-/// The missing-key suffix: the reason may be a metamodel whose schema
-/// this version does not know.
+/// The missing-key suffix names an unrecognized metamodel.
 #[test]
 fn missing_key_names_an_unrecognized_metamodel() {
     let unrecognized = meta_partial(r#"{"metamodel": "https://example.com/x"}"#)
@@ -1078,23 +1192,24 @@ fn missing_key_names_an_unrecognized_metamodel() {
         .expect_err("no index, no created");
     assert!(
         unrecognized
+            .clone()
+            .in_file(".meta.json")
             .to_string()
             .contains("this may be because the project uses a metamodel"),
-        "unexpected report: {unrecognized}"
+        "unexpected report: {unrecognized:?}"
     );
 
     let recognized = meta_partial(r#"{"metamodel": "https://www.omg.org/spec/SysML/20250201"}"#)
         .validate(".meta.json", None)
         .expect_err("no index, no created");
     assert_eq!(
-        recognized.to_string(),
+        recognized.in_file(".meta.json").to_string(),
         "missing key `index` in `.meta.json`\n\
          missing key `created` in `.meta.json`"
     );
 }
 
-/// workspaces.md "Unknown keys", for the json manifests too: a key this
-/// version does not know is a warning, not a silent omission.
+/// A key this version does not know is a warning, for the json manifests too.
 #[test]
 fn partial_collects_unknown_keys_as_warnings() {
     let validated = info_partial(r#"{"name": "n", "version": "1.0.0", "shiny": 1}"#)
@@ -1124,7 +1239,7 @@ fn partial_still_fails_on_a_wrong_type() {
     assert_eq!(error.line(), 2);
 }
 
-/// A null list is an empty list, not a type error.
+/// A null list is an empty list.
 #[test]
 fn a_null_list_is_an_empty_list() {
     let validated = info_partial(r#"{"name": "n", "version": "1.0.0", "usage": null}"#)
@@ -1133,4 +1248,400 @@ fn a_null_list_is_an_empty_list() {
 
     assert_eq!(validated.value.usage, []);
     assert_eq!(validated.value.maintainer, [] as [String; 0]);
+}
+
+// ------------------------------------------------- what a metamodel admits
+
+/// A `KerML` project admits `.kerml` files only, and a `SysML` project
+/// admits `.sysml` and `.kerml`, SysML being layered on KerML.
+#[test]
+fn a_kerml_metamodel_admits_kerml_only() {
+    for value in [
+        "https://www.omg.org/spec/KerML/20250201",
+        "https://www.sysand.com/spec/KerML/20250201",
+    ] {
+        let kind = KnownMetamodel::recognize(value).expect("recognized");
+        assert!(kind.spec.admits(Language::KerML), "{value}");
+        assert!(!kind.spec.admits(Language::SysML), "{value}");
+    }
+}
+
+#[test]
+fn a_sysml_metamodel_admits_both() {
+    for value in [
+        "https://www.omg.org/spec/SysML/20250201",
+        "https://www.sysand.com/spec/SysML/20250201",
+    ] {
+        let kind = KnownMetamodel::recognize(value).expect("recognized");
+        assert!(kind.spec.admits(Language::KerML), "{value}");
+        assert!(kind.spec.admits(Language::SysML), "{value}");
+    }
+}
+
+/// Both families answer this the same way, the Syside metamodels
+/// mirroring the OMG spec kind they extend.
+#[test]
+fn the_two_families_admit_the_same_languages() {
+    for spec in ["KerML", "SysML"] {
+        let omg = KnownMetamodel::recognize(&format!("https://www.omg.org/spec/{spec}/20250201"))
+            .expect("recognized");
+        let syside =
+            KnownMetamodel::recognize(&format!("https://www.sysand.com/spec/{spec}/20991231"))
+                .expect("recognized");
+        for language in [Language::KerML, Language::SysML] {
+            assert_eq!(
+                omg.spec.admits(language),
+                syside.spec.admits(language),
+                "{spec}"
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------
+// The two shapes of `.meta.json`.
+
+const SYSIDE_SYSML_URL: &str = "https://www.sysand.com/spec/SysML/20250201";
+
+const SYSIDE_META: &str = r#"{
+    "root": "main.sysml",
+    "exports": ["Main", "Helper"],
+    "created": "2026-01-01T00:00:00Z",
+    "metamodel": "https://www.sysand.com/spec/SysML/20250201",
+    "checksum": {"main.sysml": {"value": "0000000000000000000000000000000000000000000000000000000000000000", "algorithm": "SHA256"}}
+}"#;
+
+const INDEX_IGNORED: &str = "`index` in `.meta.json` is not used by the Syside metamodel and is ignored; \
+                     a Syside KPAR carries `root` and `exports`";
+const ROOT_MISSING: &str = "missing key `root` in `.meta.json`; the Syside metamodel requires it";
+const EXPORTS_MISSING: &str =
+    "missing key `exports` in `.meta.json`; the Syside metamodel requires it";
+
+fn meta_texts(report: &Diagnostics) -> Vec<&str> {
+    report
+        .diagnostics()
+        .iter()
+        .map(|diagnostic| diagnostic.message.as_str())
+        .collect()
+}
+
+/// A `.meta.json` read with the Syside shape accepted, as a build with the
+/// `syside-kpar` feature reads it.
+fn syside_meta(json: &str) -> Result<Validated<InterchangeProjectMetadataRaw>, Diagnostics> {
+    meta_partial(json).validate_with(".meta.json", None, true)
+}
+
+/// Without the `syside-kpar` feature the Syside shape is refused, however
+/// well-formed: its format is not final. The shape is still judged, so a
+/// malformed document gets its own errors beside the refusal.
+#[test]
+fn a_syside_meta_json_is_refused_unless_accepted() {
+    const REFUSED: &str = "`.meta.json` declares the Syside metamodel \
+                           `https://www.sysand.com/spec/SysML/20250201`, whose `.meta.json` \
+                           format is not final;\nSyside json projects and KPARs are not \
+                           accepted yet";
+    let report = meta_partial(SYSIDE_META)
+        .validate_with(".meta.json", None, false)
+        .expect_err("refused");
+    assert_eq!(meta_texts(&report), [REFUSED]);
+
+    let report = meta_partial(
+        r#"{"exports": [], "created": "2026-01-01T00:00:00Z",
+            "metamodel": "https://www.sysand.com/spec/SysML/20250201"}"#,
+    )
+    .validate_with(".meta.json", None, false)
+    .expect_err("refused");
+    assert_eq!(meta_texts(&report), [REFUSED, ROOT_MISSING]);
+
+    // An OMG document is untouched.
+    meta_partial(COMPLETE_META)
+        .validate_with(".meta.json", None, false)
+        .expect("an OMG document validates");
+}
+
+/// The Syside shape reads, types, and round-trips: `root` and `exports`
+/// carried, no `index`.
+#[test]
+fn a_syside_meta_json_reads_with_no_warning() {
+    let validated = syside_meta(SYSIDE_META).expect("a Syside document validates");
+    assert!(validated.warnings.is_empty(), "{:?}", validated.warnings);
+    let raw = validated.value;
+    assert_eq!(raw.index, None);
+    assert_eq!(raw.root.as_deref(), Some("main.sysml"));
+    assert_eq!(
+        raw.exports,
+        Some(vec!["Main".to_owned(), "Helper".to_owned()])
+    );
+
+    let typed = raw.validate().expect("the typed form");
+    assert_eq!(
+        typed.root.as_ref().map(|root| root.as_str()),
+        Some("main.sysml")
+    );
+    assert_eq!(typed.index, None);
+    let back: InterchangeProjectMetadataRaw = typed.into();
+    assert_eq!(back, raw);
+}
+
+#[test]
+fn an_omg_meta_json_reads_as_before() {
+    let validated = syside_meta(COMPLETE_META).expect("an OMG document validates");
+    assert_eq!(
+        validated.warnings,
+        [] as [crate::manifest::diagnostics::Diagnostic; 0]
+    );
+    assert!(validated.value.root.is_none());
+    assert!(validated.value.exports.is_none());
+    assert_eq!(validated.value.index.as_ref().map(IndexMap::len), Some(1));
+}
+
+/// Under a Syside metamodel the missing key is `root` and the message
+/// names the family; under any other, `index` is missing with the plain
+/// missing-key text.
+#[test]
+fn a_syside_meta_json_without_root_is_missing_the_key() {
+    let report = syside_meta(&format!(
+        r#"{{"exports": ["Main"], "created": "2026-01-01T00:00:00Z", "metamodel": "{SYSIDE_SYSML_URL}"}}"#
+    ))
+    .expect_err("no root");
+    assert_eq!(meta_texts(&report), [ROOT_MISSING]);
+
+    let report = syside_meta(r#"{"created": "2026-01-01T00:00:00Z"}"#).expect_err("no index");
+    assert_eq!(meta_texts(&report), ["missing key `index` in `.meta.json`"]);
+}
+
+/// `exports` is the Syside shape's second key.
+#[test]
+fn a_syside_meta_json_without_exports_is_missing_the_key() {
+    let report = syside_meta(&format!(
+        r#"{{"root": "main.sysml", "created": "2026-01-01T00:00:00Z", "metamodel": "{SYSIDE_SYSML_URL}"}}"#
+    ))
+    .expect_err("no exports");
+    assert_eq!(meta_texts(&report), [EXPORTS_MISSING]);
+}
+
+/// An `index` beside `root` and `exports` is a warning and is dropped; an
+/// `index` *instead of* them does not stand in for them, so the document
+/// gets the warning and both errors.
+#[test]
+fn an_index_in_a_syside_meta_json_is_warned_about_and_dropped() {
+    let validated = syside_meta(&format!(
+        r#"{{"index": {{"Main": "main.sysml"}}, "root": "main.sysml", "exports": ["Main"],
+            "created": "2026-01-01T00:00:00Z", "metamodel": "{SYSIDE_SYSML_URL}"}}"#
+    ))
+    .expect("the document validates with a warning");
+    assert_eq!(
+        validated
+            .warnings
+            .iter()
+            .map(|w| w.message.as_str())
+            .collect::<Vec<_>>(),
+        [INDEX_IGNORED]
+    );
+    assert_eq!(validated.value.index, None);
+
+    // The OMG shape under a Syside metamodel: an `index`, nothing else.
+    let report = syside_meta(&format!(
+        r#"{{"index": {{"Main": "main.sysml"}}, "created": "2026-01-01T00:00:00Z",
+            "metamodel": "{SYSIDE_SYSML_URL}"}}"#
+    ))
+    .expect_err("index does not stand in for root and exports");
+    assert_eq!(
+        meta_texts(&report),
+        [INDEX_IGNORED, ROOT_MISSING, EXPORTS_MISSING]
+    );
+}
+
+#[test]
+fn an_empty_index_in_a_syside_document_is_warned_about_too() {
+    let validated = syside_meta(&format!(
+        r#"{{"index": {{}}, "root": "main.sysml", "exports": [],
+            "created": "2026-01-01T00:00:00Z", "metamodel": "{SYSIDE_SYSML_URL}"}}"#
+    ))
+    .expect("validates with a warning");
+    assert_eq!(validated.warnings.len(), 1);
+    assert_eq!(validated.value.index, None);
+}
+
+/// The json side of the foreign-key rule: `root` or `exports` under an
+/// OMG or absent metamodel is a warning naming the key, and the value is
+/// dropped.
+#[test]
+fn root_or_exports_in_an_omg_meta_json_is_a_warning() {
+    for (extra, expected) in [
+        (
+            r#""root": "main.sysml","#,
+            vec![
+                "`root` in `.meta.json` is only supported by the Syside metamodel and is ignored here",
+            ],
+        ),
+        (
+            r#""exports": ["Main"],"#,
+            vec![
+                "`exports` in `.meta.json` is only supported by the Syside metamodel and is ignored here",
+            ],
+        ),
+        (
+            r#""root": "main.sysml", "exports": ["Main"],"#,
+            vec![
+                "`root` in `.meta.json` is only supported by the Syside metamodel and is ignored here",
+                "`exports` in `.meta.json` is only supported by the Syside metamodel and is ignored here",
+            ],
+        ),
+    ] {
+        for metamodel in [
+            r#""metamodel": "https://www.omg.org/spec/SysML/20250201","#,
+            "",
+        ] {
+            let validated = syside_meta(&format!(
+                r#"{{"index": {{}}, {extra} {metamodel} "created": "2026-01-01T00:00:00Z"}}"#
+            ))
+            .unwrap_or_else(|report| panic!("{extra} {metamodel}: {report:?}"));
+            assert_eq!(
+                validated
+                    .warnings
+                    .iter()
+                    .map(|w| w.message.as_str())
+                    .collect::<Vec<_>>(),
+                expected,
+                "{extra} {metamodel}"
+            );
+            assert!(validated.value.root.is_none() && validated.value.exports.is_none());
+            assert_eq!(validated.value.index, Some(IndexMap::new()));
+        }
+    }
+}
+
+/// On the json side too, `root` is held to the checks a `sources` entry
+/// is held to, and a `root` that fails them is not also
+/// reported missing.
+#[test]
+fn a_syside_meta_json_root_is_held_to_the_sources_entry_checks() {
+    let report = syside_meta(&format!(
+        r#"{{"root": "../up.sysml", "exports": [], "created": "2026-01-01T00:00:00Z",
+            "metamodel": "{SYSIDE_SYSML_URL}"}}"#
+    ))
+    .expect_err("an escaping root");
+    assert_eq!(
+        meta_texts(&report),
+        [
+            "`root` `../up.sysml` is not in the form a `sources` entry takes: relative, \
+             `/`-separated,\nwith no `.` or `..` component and no repeated or leading slash"
+        ]
+    );
+}
+
+/// An unrecognized metamodel selects the OMG shape:
+/// `index` is required with the suffix naming the value, and `root` is a
+/// foreign key.
+#[test]
+fn an_unrecognized_metamodel_reads_as_the_omg_shape() {
+    let report = syside_meta(
+        r#"{"root": "main.sysml", "created": "2026-01-01T00:00:00Z", "metamodel": "https://example.com/x"}"#,
+    )
+    .expect_err("no index");
+    let texts = meta_texts(&report);
+    assert_eq!(texts.len(), 2, "{texts:?}");
+    assert!(texts[0].starts_with("missing key `index` in `.meta.json`; this may be because"));
+    assert!(texts[0].contains("`https://example.com/x`"));
+    assert_eq!(
+        texts[1],
+        "`root` in `.meta.json` is only supported by the Syside metamodel and is ignored here"
+    );
+}
+
+/// The caller's metamodel, when it gives one, decides the family.
+#[test]
+fn the_callers_metamodel_overrides_the_documents() {
+    let validated =
+        meta_partial(r#"{"root": "main.sysml", "exports": [], "created": "2026-01-01T00:00:00Z"}"#)
+            .validate_with(".meta.json", Some(SYSIDE_SYSML_URL), true)
+            .expect("the caller says Syside");
+    assert_eq!(
+        validated.warnings,
+        [] as [crate::manifest::diagnostics::Diagnostic; 0]
+    );
+    assert_eq!(validated.value.root.as_deref(), Some("main.sysml"));
+}
+
+/// An OMG document keeps its meaning and its bytes. `"index": {}` is
+/// `Some(empty)`, never `None`; it serializes to the bytes it was read
+/// from; and the project hash is computed over those bytes.
+#[test]
+fn an_omg_document_with_an_empty_index_round_trips_and_hashes_the_same() {
+    let meta_text = r#"{"index":{},"created":"2026-01-01T00:00:00Z"}"#;
+    let raw = syside_meta(meta_text).expect("validates").value;
+    assert_eq!(raw.index, Some(IndexMap::new()));
+    assert_eq!(serde_json::to_string(&raw).expect("serializes"), meta_text);
+
+    let info_text = r#"{"name":"widgets","version":"1.0.0"}"#;
+    let info: InterchangeProjectInfoRaw = serde_json::from_str(info_text).expect("info");
+    assert_eq!(
+        project_hash_hex(&info, &raw),
+        lowercase_hex(super::project_hash_str(
+            serde_json::to_string(&info).expect("info"),
+            meta_text
+        ))
+    );
+}
+
+/// Neither shape serializes the other shape's keys.
+#[test]
+fn both_shapes_serialize_without_the_other_shapes_keys() {
+    let syside = syside_meta(SYSIDE_META).expect("validates").value;
+    let text = serde_json::to_string_pretty(&syside).expect("serializes");
+    assert!(!text.contains("\"index\""), "{text}");
+    assert!(text.contains("\"root\": \"main.sysml\""), "{text}");
+    assert!(text.contains("\"exports\""), "{text}");
+
+    let omg = syside_meta(COMPLETE_META).expect("validates").value;
+    let text = serde_json::to_string_pretty(&omg).expect("serializes");
+    assert!(
+        !text.contains("\"root\"") && !text.contains("\"exports\""),
+        "{text}"
+    );
+}
+
+/// The one question a consumer asks of either shape.
+#[test]
+fn exported_symbols_reads_whichever_shape_the_document_has() {
+    let syside = syside_meta(SYSIDE_META).expect("validates").value;
+    assert_eq!(
+        syside.exported_symbols().collect::<Vec<_>>(),
+        ["Main", "Helper"]
+    );
+    let omg = syside_meta(COMPLETE_META).expect("validates").value;
+    assert_eq!(omg.exported_symbols().collect::<Vec<_>>(), ["P"]);
+}
+
+#[test]
+fn source_paths_of_a_syside_document_include_its_root() {
+    let syside = syside_meta(SYSIDE_META).expect("validates").value;
+    let paths = syside.source_paths(true);
+    assert!(paths.contains("main.sysml"));
+    assert_eq!(paths.len(), 1);
+}
+
+/// A Syside project's source list is the `checksum` keys that are model
+/// files. Since `checksum` covers the whole archive, the readme and the license are keys too,
+/// and a consumer that took every key would lex `README.md`.
+#[test]
+fn source_paths_of_a_root_shaped_document_are_its_model_files() {
+    let raw = syside_meta(
+        r#"{"root": "main.sysml", "exports": ["Main"], "created": "2026-01-01T00:00:00Z",
+            "metamodel": "https://www.sysand.com/spec/SysML/20250201",
+            "checksum": {
+                "main.sysml": {"value": "0000000000000000000000000000000000000000000000000000000000000000", "algorithm": "SHA256"},
+                "README.md": {"value": "0000000000000000000000000000000000000000000000000000000000000000", "algorithm": "SHA256"},
+                "LICENSES/MIT.txt": {"value": "0000000000000000000000000000000000000000000000000000000000000000", "algorithm": "SHA256"}}}"#,
+    )
+    .expect("validates")
+    .value;
+    let mut paths: Vec<String> = raw.source_paths(true).into_iter().collect();
+    paths.sort();
+    assert_eq!(paths, ["main.sysml"]);
+
+    // An OMG document's keys are all sources.
+    let omg = syside_meta(COMPLETE_META).expect("validates").value;
+    assert_eq!(omg.source_paths(true).len(), 1);
 }

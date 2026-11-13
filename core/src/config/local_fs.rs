@@ -82,6 +82,16 @@ pub enum ConfigProjectSourceError {
     TomlEdit(Utf8PathBuf, #[source] toml_edit::TomlError),
     #[error("{0}")]
     InvalidProjects(String),
+    #[error(transparent)]
+    Invalid(#[from] ConfigReadError),
+}
+
+/// Refuse configuration text that [`read_config`] would refuse.
+fn validate_config_text(path: &Utf8Path, text: &str) -> Result<(), ConfigProjectSourceError> {
+    match toml::from_str::<Config>(text) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(ConfigReadError::Toml(path.into(), e).into()),
+    }
 }
 
 pub fn add_project_source_to_config<P: AsRef<Utf8Path>>(
@@ -105,6 +115,7 @@ pub fn add_project_source_to_config<P: AsRef<Utf8Path>>(
         }
         Err(err) => return Err(ConfigProjectSourceError::Io(err)),
     };
+    validate_config_text(config_path, &contents)?;
     let mut config = DocumentMut::from_str(&contents)
         .map_err(|err| ConfigProjectSourceError::TomlEdit(config_path.to_owned(), err))?;
     let projects = config
@@ -145,7 +156,9 @@ pub fn add_project_source_to_config<P: AsRef<Utf8Path>>(
         config_path,
     );
 
-    wrapfs::write(config_path, config.to_string())?;
+    let edited = config.to_string();
+    validate_config_text(config_path, &edited)?;
+    wrapfs::write(config_path, edited)?;
 
     Ok(())
 }
@@ -166,6 +179,7 @@ pub fn remove_project_source_from_config<P: AsRef<Utf8Path>>(
         }
         Err(err) => return Err(ConfigProjectSourceError::Io(err)),
     };
+    validate_config_text(config_path, &contents)?;
     let mut config = DocumentMut::from_str(&contents)
         .map_err(|err| ConfigProjectSourceError::TomlEdit(config_path.to_owned(), err))?;
     let Some(projects) = config
@@ -197,6 +211,7 @@ pub fn remove_project_source_from_config<P: AsRef<Utf8Path>>(
 
         projects.remove(index);
         let contents = config.to_string();
+        validate_config_text(config_path, &contents)?;
 
         if contents.is_empty() {
             let removing = "Removing";

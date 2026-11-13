@@ -3,9 +3,11 @@
 
 use std::{
     collections::{HashMap, hash_map::Entry},
+    fmt,
     num::NonZeroU64,
 };
 
+use camino::Utf8PathBuf;
 #[cfg(feature = "python")]
 use pyo3::IntoPyObject;
 use thiserror::Error;
@@ -39,6 +41,13 @@ pub enum SyncError<
     ProjectMismatch(Box<ProjectMismatchError>),
     #[error("project with identifiers {0:?} has no known sources in lockfile")]
     MissingSource(Box<[String]>),
+    /// An entry with no sources whose identifiers are OMG standard-library
+    /// IRIs pins a release Sysand does not know about. Any other entry
+    /// with no sources is [`Self::MissingSource`].
+    #[error(
+        "the lockfile pins standard library `{name}` at `{version}`, which this Sysand does not know about"
+    )]
+    UnknownStdLib { name: String, version: String },
     #[error("no IRI given for project with src_path = `{0}` in lockfile")]
     MissingIriSrcPath(Box<str>),
     #[error("no IRI given for project with remote_src = `{0}` in lockfile")]
@@ -127,11 +136,136 @@ pub struct SyncedProject {
     pub version: String,
 }
 
+/// Why an installed project does not match the lockfile.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MismatchKind {
+    /// The files on disk do not hash to what the lockfile (or, for an
+    /// archive, its manifest) records. `file` names
+    /// the first offending file when the digest is per file.
+    Checksum { file: Option<Utf8UnixPathBuf> },
+    /// `env.toml` records the project but its directory or manifest is
+    /// gone.
+    MissingFromDisk,
+    /// The lockfile has the project, `env.toml` does not.
+    NotRecorded,
+}
+
+impl MismatchKind {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Checksum { file: _ } => "checksum",
+            Self::MissingFromDisk => "missing",
+            Self::NotRecorded => "not-recorded",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Mismatch {
+    pub iri: String,
+    pub version: String,
+    pub kind: MismatchKind,
+}
+
+impl fmt::Display for Mismatch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self { iri, version, kind } = self;
+        match kind {
+            MismatchKind::Checksum { file: None } => {
+                write!(
+                    f,
+                    "installed project `{iri}` does not match the lockfile checksum"
+                )
+            }
+            MismatchKind::Checksum { file: Some(file) } => write!(
+                f,
+                "installed project `{iri}` does not match the lockfile checksum;\n\
+                {SP:>8} `{file}` differs from what its `.meta.json` records",
+                SP = ' '
+            ),
+            MismatchKind::MissingFromDisk => {
+                write!(f, "`env.toml` records `{iri}`, which is not installed")
+            }
+            MismatchKind::NotRecorded => {
+                write!(
+                    f,
+                    "`{iri}` {version} is in `sysand-lock.toml` but not installed"
+                )
+            }
+        }
+    }
+}
+
+/// How a manifest and the lockfile disagree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StaleKind {
+    /// The usage's constraint does not accept the locked version.
+    Constraint { constraint: String, locked: String },
+    /// The manifest has a usage the lockfile does not record.
+    Added,
+    /// The lockfile records a usage the manifest does not have.
+    Removed,
+    /// The manifest's project has no lockfile entry at all.
+    ManifestMissing,
+}
+
+impl StaleKind {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Constraint {
+                constraint: _,
+                locked: _,
+            } => "constraint",
+            Self::Added => "added",
+            Self::Removed => "removed",
+            Self::ManifestMissing => "manifest-missing",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StaleUsage {
+    pub manifest: Utf8PathBuf,
+    /// The usage identifier; the project's own for `ManifestMissing`.
+    pub usage: String,
+    pub kind: StaleKind,
+}
+
+impl fmt::Display for StaleUsage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            manifest,
+            usage,
+            kind,
+        } = self;
+        write!(f, "the lockfile does not match the manifests: ")?;
+        match kind {
+            StaleKind::Constraint { constraint, locked } => write!(
+                f,
+                "`{usage}` is `{constraint}` in `{manifest}` and `{locked}` in `sysand-lock.toml`"
+            )?,
+            StaleKind::Added => {
+                write!(
+                    f,
+                    "`{usage}` is in `{manifest}` and not in `sysand-lock.toml`"
+                )?;
+            }
+            StaleKind::Removed => write!(
+                f,
+                "`{usage}` is in `sysand-lock.toml` and no longer in `{manifest}`"
+            )?,
+            StaleKind::ManifestMissing => {
+                write!(f, "`{manifest}` (`{usage}`) is not in `sysand-lock.toml`")?;
+            }
+        }
+        Ok(())
+    }
+}
+
 /// What a sync did and, on failure, what it had done so far.
 ///
-/// Filled in progressively, so a caller that passes `&mut outcome` and gets
-/// an `Err` back holds exactly what was installed and pruned before the
-/// failure.
+/// Filled in progressively, so a `&mut outcome` passed in holds exactly
+/// what was installed and pruned before a failure.
 ///
 /// With the `python` feature it converts into a dict with these field names,
 /// each a list of `SyncedProject` dicts.
@@ -143,12 +277,112 @@ pub struct SyncOutcome {
     /// Lockfile entries that were already installed and verified, or
     /// editable; provided projects are not recorded.
     pub kept: Vec<SyncedProject>,
+    /// `--verify`: lockfile entries whose installation was read back
+    /// from disk and matches. Empty for a plain
+    /// sync, which trusts `env.toml`.
+    pub verified: Vec<SyncedProject>,
+    /// `--verify`: entries that do not match.
+    pub mismatched: Vec<Mismatch>,
+    /// `--verify`: directories under `lib/` that `env.toml` does not
+    /// record, relative to the environment root.
+    #[cfg_attr(feature = "python", pyo3(into_py_with = unix_paths_to_py))]
+    pub unrecorded: Vec<Utf8UnixPathBuf>,
+    /// `--repair`: entries reinstalled because they mismatched or were
+    /// missing.
+    pub repaired: Vec<SyncedProject>,
+    /// `--verify`: manifest usages the lockfile does not reflect; never
+    /// repaired.
+    pub stale: Vec<StaleUsage>,
 }
 
 impl SyncOutcome {
     /// Whether anything on disk changed.
     pub fn wrote(&self) -> bool {
-        !self.installed.is_empty() || !self.pruned.is_empty()
+        !self.installed.is_empty() || !self.pruned.is_empty() || !self.repaired.is_empty()
+    }
+
+    /// Whether verification found nothing wrong.
+    pub fn is_clean(&self) -> bool {
+        self.problems() == 0
+    }
+
+    /// The number of verification findings.
+    pub fn problems(&self) -> usize {
+        self.mismatched.len() + self.unrecorded.len() + self.stale.len()
+    }
+
+    /// The text of a directory under `lib/` that `env.toml` does not record.
+    pub fn unrecorded_message(path: &Utf8UnixPathBuf) -> String {
+        format!("`{path}` is installed but not recorded in `env.toml`")
+    }
+
+    /// Every verification finding's text, in report order.
+    pub fn findings(&self) -> Vec<String> {
+        self.mismatched
+            .iter()
+            .map(ToString::to_string)
+            .chain(self.unrecorded.iter().map(Self::unrecorded_message))
+            .chain(self.stale.iter().map(ToString::to_string))
+            .collect()
+    }
+}
+
+#[cfg(feature = "python")]
+// The `Cow<'_, Vec<_>>` signature is dictated by `into_py_with`.
+#[expect(clippy::owned_cow)]
+fn unix_paths_to_py<'py>(
+    paths: std::borrow::Cow<'_, Vec<Utf8UnixPathBuf>>,
+    py: pyo3::Python<'py>,
+) -> pyo3::PyResult<pyo3::Bound<'py, pyo3::PyAny>> {
+    use pyo3::IntoPyObjectExt as _;
+    paths
+        .iter()
+        .map(|path| path.as_str().to_owned())
+        .collect::<Vec<_>>()
+        .into_bound_py_any(py)
+}
+
+#[cfg(feature = "python")]
+impl<'py> pyo3::IntoPyObject<'py> for Mismatch {
+    type Target = pyo3::types::PyDict;
+    type Output = pyo3::Bound<'py, Self::Target>;
+    type Error = pyo3::PyErr;
+
+    /// `{iri, version, kind, file, message}`: the text under `message`,
+    /// the kind as its name.
+    fn into_pyobject(self, py: pyo3::Python<'py>) -> Result<Self::Output, Self::Error> {
+        use pyo3::types::PyDictMethods as _;
+        let dict = pyo3::types::PyDict::new(py);
+        dict.set_item("message", self.to_string())?;
+        dict.set_item("iri", &self.iri)?;
+        dict.set_item("version", &self.version)?;
+        dict.set_item("kind", self.kind.name())?;
+        dict.set_item(
+            "file",
+            match &self.kind {
+                MismatchKind::Checksum { file: Some(file) } => Some(file.as_str()),
+                _ => None,
+            },
+        )?;
+        Ok(dict)
+    }
+}
+
+#[cfg(feature = "python")]
+impl<'py> pyo3::IntoPyObject<'py> for StaleUsage {
+    type Target = pyo3::types::PyDict;
+    type Output = pyo3::Bound<'py, Self::Target>;
+    type Error = pyo3::PyErr;
+
+    /// `{manifest, usage, kind, message}`: the text under `message`.
+    fn into_pyobject(self, py: pyo3::Python<'py>) -> Result<Self::Output, Self::Error> {
+        use pyo3::types::PyDictMethods as _;
+        let dict = pyo3::types::PyDict::new(py);
+        dict.set_item("message", self.to_string())?;
+        dict.set_item("manifest", self.manifest.as_str())?;
+        dict.set_item("usage", &self.usage)?;
+        dict.set_item("kind", self.kind.name())?;
+        Ok(dict)
     }
 }
 
@@ -156,6 +390,9 @@ impl SyncOutcome {
 // TODO: Use AnyProject::try_from_source to avoid having so many arguments
 pub fn do_sync<
     Environment,
+    CreateEditableStorage,
+    EditableStorage,
+    EditableError: ErrorBound,
     CreateSrcPathStorage,
     SrcPathStorage,
     CreateRemoteSrcStorage,
@@ -173,6 +410,7 @@ pub fn do_sync<
 >(
     lockfile: &Lock,
     env: &mut Environment,
+    editable_storage: Option<CreateEditableStorage>,
     src_path_storage: Option<CreateSrcPathStorage>,
     remote_src_storage: Option<CreateRemoteSrcStorage>,
     kpar_path_storage: Option<CreateKParPathStorage>,
@@ -185,6 +423,8 @@ pub fn do_sync<
 ) -> Result<(), SyncError<UrlParseError, GitError, Environment>>
 where
     Environment: ReadEnvironment + WriteEnvironment,
+    CreateEditableStorage: Fn(Utf8UnixPathBuf) -> Result<EditableStorage, EditableError>,
+    EditableStorage: ProjectRead,
     CreateSrcPathStorage: Fn(Utf8UnixPathBuf, String) -> SrcPathStorage,
     SrcPathStorage: ProjectRead,
     CreateRemoteSrcStorage: Fn(String, String) -> Result<RemoteSrcStorage, UrlParseError>,
@@ -245,6 +485,16 @@ where
         }
 
         if project.sources.is_empty() {
+            if project
+                .identifiers
+                .iter()
+                .any(|iri| crate::model::is_omg_stdlib_iri(iri.as_str()))
+            {
+                return Err(SyncError::UnknownStdLib {
+                    name: project.name.clone(),
+                    version: project.version.clone(),
+                });
+            }
             return Err(SyncError::MissingSource(
                 project.identifiers.as_slice().into(),
             ));
@@ -270,7 +520,20 @@ where
         for source in &project.sources {
             match source {
                 Source::Editable { editable } => {
-                    // Nothing to install for editable
+                    // Nothing to install, but the project at the path must
+                    // still be the one the lockfile records.
+                    if let Some(editable_storage) = editable_storage.as_ref() {
+                        let storage = editable_storage(editable.clone())
+                            .map_err(|e| SyncError::ProjectRead(format_err(e)))?;
+                        let label = main_uri.map_or(project.name.as_str(), |iri| iri.as_str());
+                        check_against_lock(
+                            label,
+                            project,
+                            ("editable", editable.as_str()),
+                            &storage,
+                            true,
+                        )?;
+                    }
                     log::debug!("skipping installation of editable project from `{editable}`");
                     outcome.kept.extend(synced(project));
                     continue 'main_loop;
@@ -481,15 +744,21 @@ where
         for p_id in env.uris().map_err(SyncError::EnvRead)? {
             let p_id = p_id.map_err(SyncError::EnvRead)?;
             // TODO: more efficient interface to get uri+version+checksum
+            // Only copies the env installed are pruned; an entry that points
+            // at a project used in place is rebuilt from the lockfile.
+            let mut installed = Vec::new();
+            for v in env.versions(&p_id).map_err(SyncError::EnvRead)? {
+                let v = v.map_err(SyncError::EnvRead)?;
+                if env.is_installed(&p_id, &v).map_err(SyncError::EnvWrite)? {
+                    installed.push(v);
+                }
+            }
             if let Some(versions) = lock_projects.get(&p_id.as_str()) {
                 // TODO: make sure checksums match; current env trait does not expose them
-                let mut versions_to_remove = Vec::new();
-                for v in env.versions(&p_id).map_err(SyncError::EnvRead)? {
-                    let env_v = v.map_err(SyncError::EnvRead)?;
-                    if !versions.contains(&env_v.as_str()) {
-                        versions_to_remove.push(env_v);
-                    }
-                }
+                let versions_to_remove: Vec<String> = installed
+                    .into_iter()
+                    .filter(|v| !versions.contains(&v.as_str()))
+                    .collect();
                 for v in versions_to_remove {
                     log::debug!(
                         "deleting project `{p_id}` version {v} from env: not present in lock"
@@ -502,19 +771,16 @@ where
                     });
                     updated = true;
                 }
-            } else {
+            } else if !installed.is_empty() {
                 log::debug!("deleting project `{p_id}` from env: not present in lock");
-                let mut removed = Vec::new();
-                for v in env.versions(&p_id).map_err(SyncError::EnvRead)? {
-                    removed.push(v.map_err(SyncError::EnvRead)?);
-                }
-                env.del_uri(&p_id).map_err(SyncError::EnvWrite)?;
-                outcome
-                    .pruned
-                    .extend(removed.into_iter().map(|version| SyncedProject {
+                for version in installed {
+                    env.del_project_version(&p_id, &version)
+                        .map_err(SyncError::EnvWrite)?;
+                    outcome.pruned.push(SyncedProject {
                         iri: p_id.clone(),
                         version,
-                    }));
+                    });
+                }
                 updated = true;
             }
         }
@@ -537,8 +803,8 @@ fn check_against_lock<U: ErrorBound, G: ErrorBound, E: ReadEnvironment + WriteEn
     storage: &impl ProjectRead,
     check_version: bool,
 ) -> Result<(), SyncError<U, G, E>> {
-    let info = storage
-        .get_info()
+    let definition = storage
+        .get_project()
         .map_err(|e| SyncError::ProjectRead(format_err(e)))?
         .ok_or_else(|| {
             SyncError::ProjectRead(format!(
@@ -555,18 +821,19 @@ fn check_against_lock<U: ErrorBound, G: ErrorBound, E: ReadEnvironment + WriteEn
             actual: actual.to_owned(),
         }))
     };
-    if info.publisher != project.publisher {
+    if definition.publisher() != project.publisher.as_deref() {
         return Err(mismatch(
             "publisher",
             project.publisher.as_deref().unwrap_or("<none>"),
-            info.publisher.as_deref().unwrap_or("<none>"),
+            definition.publisher().unwrap_or("<none>"),
         ));
     }
-    if info.name != project.name {
-        return Err(mismatch("name", &project.name, &info.name));
+    if definition.name() != project.name {
+        return Err(mismatch("name", &project.name, definition.name()));
     }
-    if check_version && info.version != project.version {
-        return Err(mismatch("version", &project.version, &info.version));
+    let version = definition.version();
+    if check_version && version != project.version {
+        return Err(mismatch("version", &project.version, &version));
     }
     Ok(())
 }

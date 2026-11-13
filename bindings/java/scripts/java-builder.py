@@ -305,7 +305,6 @@ def deploy() -> None:
         "-DskipTests=true",
         "-DskipITs=true",
         "-Dmaven.compiler.skip=true",
-        # "-Dinvoker.skip=true",
         "deploy",
     ]
     print("Deploying the Java library to a Maven repository...")
@@ -343,8 +342,16 @@ def test(version: str, release_jar_version: bool) -> None:
         raise FileNotFoundError(f"JAR file not found: {jar_path}")
     else:
         print("Installing the Java library...")
+        # `-DpomFile`: the jar carries no `META-INF/maven` descriptor, so
+        # `install-file` has nowhere to read the coordinates from unless
+        # it is handed the pom.
         execute(
-            [mvn_executable(), "install:install-file", f"-Dfile={jar_path}"],
+            [
+                mvn_executable(),
+                "install:install-file",
+                f"-Dfile={jar_path}",
+                "-DpomFile=pom.xml",
+            ],
             cwd=BUILD_DIR,
         )
 

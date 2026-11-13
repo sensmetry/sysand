@@ -60,7 +60,9 @@ fn env_manual_install() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let meta = InterchangeProjectMetadata {
-        index,
+        index: Some(index),
+        root: None,
+        exports: None,
         created: jiff::Timestamp::new(1, 2).unwrap(),
         metamodel: None,
         includes_derived: None,
@@ -107,7 +109,7 @@ fn env_manual_install() -> Result<(), Box<dyn std::error::Error>> {
 
     let resolved_project = do_info(&iri, &resolver)?;
 
-    assert_eq!(resolved_project, (info, meta));
+    assert_eq!(resolved_project.into_json(), Some((info, meta)));
 
     Ok(())
 }

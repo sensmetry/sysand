@@ -1,0 +1,5 @@
+# Fixture sources and manifests carry per-file SHA256s in committed
+# metadata and goldens; a checkout that converted their line endings
+# would be red on Windows and green everywhere else.
+* text=auto eol=lf
+*.kpar binary

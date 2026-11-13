@@ -3,6 +3,10 @@
 [registry]
 global-min-publish-age = "7 days"
 
+[alias]
+docs = "doc --workspace --no-deps --all-features"
+lint = "clippy --workspace --all-targets --all-features -- --deny warnings"
+
 # Cargo configuration for the sysand workspace.
 #
 # Config reference: https://doc.rust-lang.org/cargo/reference/config.html

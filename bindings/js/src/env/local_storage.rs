@@ -19,7 +19,6 @@ use crate::{
 pub struct LocalBrowserStorageEnvironment {
     pub root_path: Utf8UnixPathBuf,
     pub vfs: LocalStorageVFS,
-    //pub crypto: Crypto,
 }
 
 pub fn empty_environment_local_storage<S: AsRef<str>, P: AsRef<Utf8UnixPath>>(
@@ -219,5 +218,14 @@ impl WriteEnvironment for LocalBrowserStorageEnvironment {
 
     fn del_uri<S: AsRef<str>>(&mut self, uri: S) -> Result<(), Self::WriteError> {
         Ok(self.vfs.delete(self.versions_path(&uri))?)
+    }
+
+    /// Every project here is a copy.
+    fn is_installed<S: AsRef<str>, T: AsRef<str>>(
+        &self,
+        uri: S,
+        version: T,
+    ) -> Result<bool, Self::WriteError> {
+        self.has_version(uri, version)
     }
 }

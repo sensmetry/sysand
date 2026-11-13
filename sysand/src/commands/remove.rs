@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
-use anyhow::Result;
-use camino::{Utf8Path, Utf8PathBuf};
+use anyhow::{Result, bail};
+use camino::Utf8PathBuf;
 
 use fluent_uri::Iri;
 use reqwest_middleware::ClientWithMiddleware;
@@ -18,14 +18,15 @@ use sysand_core::{
     context::ProjectContext,
     lock::{Lockfile, RemoveUsageOutcome},
     model::{InterchangeProjectUsageRaw, UsageRef},
-    project::{ProjectRead as _, utils::Identifier},
+    project::{ProjectDefinition, utils::Identifier},
     remove::do_remove,
+    utils::ProvidedProjects,
 };
 
 use crate::{
     CliError,
     cli::{RemoveProjectLocatorArgs, ResolutionOptions},
-    commands::{add::resolve_deps, lock::create_resolver, sync::command_sync},
+    commands::{add::resolve_deps, lock::create_resolver, sync::sync_context},
     iri_or_path_to_iri,
 };
 
@@ -51,26 +52,25 @@ pub fn command_remove<Policy: HTTPAuthentication>(
     } = locator;
     let resolved_iri;
     let usage = if let Some((publisher, name)) = &identifier {
-        UsageRef::Typed(publisher.as_str(), name.as_str())
+        UsageRef::Typed(publisher, name)
     } else {
         resolved_iri = iri_or_path_to_iri(iri, iri_path)?;
         UsageRef::Resource(resolved_iri.borrow())
     };
 
-    let current_project = ctx
-        .current_project
-        .as_mut()
-        .ok_or(CliError::MissingProjectCurrentDir)?;
-    let project_root = current_project.root_path().to_owned();
+    if identifier.is_none() && matches!(ctx.current_definition(), Some(ProjectDefinition::Toml(_)))
+    {
+        bail!(
+            "`--iri` and `--iri-path` name a resource usage, which a `model.toml` project\n\
+             cannot declare: name the dependency as `<publisher>/<name>`"
+        );
+    }
     let config_path =
-        config_file.or_else(|| (!no_config).then(|| current_project.root_path().join(CONFIG_FILE)));
+        config_file.or_else(|| (!no_config).then(|| ctx.config_root.join(CONFIG_FILE)));
 
-    // `.project.json` is not backed up here, since the failure to lock
-    // or sync cannot logically be caused by the remove command itself
-    // (unlike `add`), the failure must be pre-existing or transient
-    // (i.e. lock/sync would have also failed even without the `remove`).
-    // Therefore lock/sync failures should not revert the removal
-    let removed = do_remove(current_project, usage)?;
+    // No rollback on lock/sync failure (unlike `add`): such a failure is
+    // not caused by the removal.
+    let removed = ctx.edit_project(|project| do_remove(project, usage))?;
     print_removed(&removed);
 
     // Identifiers must be derived from the removed usages, not from `usage`,
@@ -90,7 +90,6 @@ pub fn command_remove<Policy: HTTPAuthentication>(
             client,
             runtime,
             auth_policy,
-            project_root,
             &removed_identifiers,
         )?;
     }
@@ -99,12 +98,17 @@ pub fn command_remove<Policy: HTTPAuthentication>(
     // TODO: this is not always correct, as config file overrides also
     // affect transitive dependencies
     // Typed usages are not removed from config, as we don't properly support
-    // aliases for PURL projects
+    // aliases for index projects
     if let Some(path) = config_path {
         for usage in &removed {
             if let InterchangeProjectUsageRaw::Resource {
                 resource,
                 version_constraint: _,
+            }
+            | InterchangeProjectUsageRaw::RemoteKpar {
+                kpar_url: resource,
+                publisher: _,
+                name: _,
             } = usage
                 && let Ok(iri) = Iri::parse(resource.as_str())
             {
@@ -117,7 +121,7 @@ pub fn command_remove<Policy: HTTPAuthentication>(
 }
 
 fn lock_sync<Policy: HTTPAuthentication>(
-    ctx: ProjectContext,
+    mut ctx: ProjectContext,
     config: Config,
     no_sync: bool,
     no_prune: bool,
@@ -125,38 +129,26 @@ fn lock_sync<Policy: HTTPAuthentication>(
     client: ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
-    project_root: Utf8PathBuf,
     removed_usages: &[Identifier],
 ) -> Result<(), anyhow::Error> {
-    let provided_iris = if resolution_opts.include_std {
-        HashMap::default()
-    } else {
-        crate::known_std_libs()
-    };
-    let current_project = ctx.current_project.as_ref().unwrap();
-
-    let alias_iris = if let Some(w) = &ctx.current_workspace {
-        w.projects()
-            .iter()
-            .find(|p| Utf8Path::new(&p.path) == current_project.root_path())
-            .map(|p| p.iris.clone())
-    } else {
-        None
-    };
-
-    if let Some(mut lockfile) =
-        Lockfile::try_read(&project_root).map_err(CliError::InvalidLockfile)?
-    {
-        let info = current_project
-            .get_info()?
+    let provided_iris = resolution_opts.provided_iris(ProvidedProjects::default());
+    // In a workspace the lockfile is the shared one at the root, and so
+    // is the directory its `src_path`s are relative to.
+    let lock_root = ctx.state_root();
+    if let Some(mut lockfile) = Lockfile::try_read(&lock_root)? {
+        let definition = ctx
+            .current_definition()
             .ok_or(CliError::MissingProjectCurrentDir)?;
+        let roots = ctx.lock_roots();
         let mut modified = false;
         let mut root_found = true;
         for id in removed_usages {
-            match lockfile
-                .lock_mut()
-                .remove_usage(info.publisher.as_deref(), &info.name, id)
-            {
+            match lockfile.lock_mut().remove_usage(
+                &roots,
+                definition.publisher(),
+                definition.name(),
+                id,
+            ) {
                 RemoveUsageOutcome::RootNotFound => {
                     root_found = false;
                     break;
@@ -192,27 +184,20 @@ fn lock_sync<Policy: HTTPAuthentication>(
                 and recreating it with `sysand lock`"
             );
         } else if modified {
-            // Lock should not be canonicalized, as the goal is to make
-            // minimal necessary modifications to give a smaller diff
+            // Keep the lock as is: minimal modifications give a smaller diff
             lockfile.write()?;
         }
         if !no_sync {
-            let mut env = crate::get_or_create_env(
-                ctx.env,
-                ctx.current_workspace.as_ref(),
-                ctx.current_project.as_ref(),
-                ctx.current_directory,
-            )?;
-            command_sync(
+            sync_context(
                 lockfile.lock(),
-                project_root,
-                &mut env,
+                &mut ctx,
+                false,
+                false,
+                no_prune,
                 client,
                 &provided_iris,
                 runtime,
                 auth_policy,
-                ctx.current_workspace.as_ref(),
-                no_prune,
                 &mut SyncOutcome::default(),
             )?;
         }
@@ -220,7 +205,6 @@ fn lock_sync<Policy: HTTPAuthentication>(
         let resolver = create_resolver(
             resolution_opts,
             &config,
-            &project_root,
             &ctx,
             provided_iris.clone(),
             client.clone(),
@@ -234,8 +218,6 @@ fn lock_sync<Policy: HTTPAuthentication>(
             client,
             runtime,
             auth_policy,
-            project_root,
-            alias_iris,
             provided_iris,
             ctx,
         )?;
@@ -273,6 +255,18 @@ fn print_removed(usages: &[InterchangeProjectUsageRaw]) {
             } => {
                 log::info!("{header}{removed:>12}{header:#} `{publisher}/{name}` (path `{path}`)");
             }
+            InterchangeProjectUsageRaw::RemoteKpar {
+                kpar_url,
+                publisher,
+                name,
+            } => match publisher {
+                Some(publisher) => log::info!(
+                    "{header}{removed:>12}{header:#} `{publisher}/{name}` (KPAR URL `{kpar_url}`)"
+                ),
+                None => {
+                    log::info!("{header}{removed:>12}{header:#} `{name}` (KPAR URL `{kpar_url}`)")
+                }
+            },
             InterchangeProjectUsageRaw::Index {
                 publisher,
                 name,

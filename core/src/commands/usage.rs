@@ -12,11 +12,15 @@
 use thiserror::Error;
 
 use crate::{
+    manifest::{
+        common::{NormalizedIdentity, normalized_identity},
+        edit::{self, EditError},
+    },
     model::{IndexName, IndexPublisher, InterchangeProjectUsageRaw},
     project::utils::Identifier,
 };
 
-/// Outcome of a constraint edit, so callers can report precisely.
+/// Outcome of a constraint edit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConstraintChange {
     /// The usage was present and its constraint now differs. `old` is
@@ -50,7 +54,7 @@ pub enum SetConstraintError {
         kind: &'static str,
     },
     /// The identifier names an index usage, which is named by its publisher
-    /// and name instead
+    /// and name
     #[error(
         "`{identifier}` is declared as the index usage `{publisher}/{name}`;\n\
         name it by its publisher and name"
@@ -67,6 +71,39 @@ pub enum SetConstraintError {
     /// The project is declared as a resource usage, which is named by its IRI
     #[error("`{identifier}` is declared as a resource usage, not as an index usage")]
     NotAnIndexUsage { identifier: String },
+    /// The editor's text: a `model.toml` `dir`, `kpar-path`, `kpar-url`,
+    /// `git` or opt-in entry has no constraint to set.
+    #[error(transparent)]
+    TomlUsageHasNoConstraint(EditError),
+    /// A `model.toml` usage is addressed by identity, and an IRI that is
+    /// not a `pkg:sysand` PURL names none.
+    #[error("`{0}` is not a `pkg:sysand` PURL; a `model.toml` usage is named `publisher/name`")]
+    NotAnIdentity(String),
+    /// A `pkg:sysand` PURL that does not parse, e.g. one whose parts are
+    /// not normalized
+    #[error("`{iri}` is not a valid `pkg:sysand` PURL")]
+    MalformedPurl {
+        iri: String,
+        #[source]
+        source: crate::purl::SysandPurlError,
+    },
+}
+
+/// The error of [`do_set_usage_constraint_local`] and
+/// [`do_set_index_usage_constraint_local`], on either manifest format.
+#[cfg(feature = "filesystem")]
+#[derive(Debug, Error)]
+pub enum SetConstraintLocalError {
+    #[error(transparent)]
+    Project(crate::project::local_src::LocalSrcError),
+    #[error(transparent)]
+    Edit(SetConstraintError),
+    #[error(transparent)]
+    Manifest(#[from] crate::project::ManifestError<crate::project::local_src::LocalSrcError>),
+    #[error(transparent)]
+    ManifestWrite(
+        #[from] crate::project::ManifestWriteError<crate::project::local_src::LocalSrcError>,
+    ),
 }
 
 const USAGE_KEY: &str = "usage";
@@ -76,21 +113,22 @@ const VERSION_CONSTRAINT_KEY: &str = "versionConstraint";
 /// The kind of a usage that a lookup matched.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum MatchedKind {
-    /// A `Resource` usage.
     Resource,
     /// An index usage whose [`Identifier`] is the looked-up one. It is the
     /// same project, but named by publisher and name.
-    Index { publisher: String, name: String },
+    Index {
+        publisher: String,
+        name: String,
+    },
     /// A path usage (`Directory`, `KparPath`) whose [`Identifier`] is the
     /// looked-up one. It is the same project, but cannot hold a constraint.
     Typed(&'static str),
 }
 
-/// Find a usage identified by `identifier`. Matches by `Identifier` and considers all usage types.
+/// Matches `usage` against `identifier`, for all usage types.
 /// Returns `None` if `usage` fails to parse.
 fn match_usage(usage: &serde_json::Value, identifier: &str) -> Option<MatchedKind> {
-    // Cheap path first: a `Resource` usage is identified by its `resource`
-    // string verbatim, and no deserialization is needed to compare it.
+    // A `Resource` usage is identified by its `resource` string verbatim.
     if let serde_json::Value::Object(object) = usage
         && let Some(resource) = object.get(RESOURCE_KEY).and_then(serde_json::Value::as_str)
     {
@@ -114,18 +152,16 @@ fn match_usage(usage: &serde_json::Value, identifier: &str) -> Option<MatchedKin
 /// Set the `versionConstraint` of the usage naming `resource`, editing `doc`
 /// in place.
 ///
-/// Only the one `versionConstraint` value is touched: every other key, every
-/// unknown key, and the document's key order are preserved verbatim. When a
-/// constraint is added to a usage that had none, the key is appended after
-/// the usage's existing keys.
+/// Only the `versionConstraint` value is touched; every other key and the key
+/// order are preserved. A new constraint is appended after the usage's
+/// existing keys.
 ///
 /// `resource` is taken literally and compared against each usage's
-/// [`Identifier`]. Only a `Resource` usage can carry a constraint, so a
-/// matched typed usage is refused with
+/// [`Identifier`]. A matched typed usage is refused with
 /// [`SetConstraintError::UsageCannotHoldConstraint`].
 ///
 /// The constraint is validated as a semver requirement, and a resource
-/// declared more than once is refused, before anything is modified.
+/// declared more than once is refused, before `doc` is modified.
 pub fn do_set_usage_constraint(
     doc: &mut serde_json::Value,
     resource: &str,
@@ -324,9 +360,19 @@ pub fn do_set_index_usage_constraint_local(
     publisher: &IndexPublisher,
     name: &IndexName,
     constraint: &str,
-) -> Result<ConstraintChange, crate::project::local_src::EditInfoError<SetConstraintError>> {
+) -> Result<ConstraintChange, SetConstraintLocalError> {
+    use crate::project::ProjectRead as _;
+
+    if project.format().map_err(SetConstraintLocalError::Project)?
+        == crate::project::ProjectFormat::Toml
+    {
+        return edit_toml_manifest(project, |doc| {
+            do_set_index_usage_constraint_toml(doc, publisher, name, constraint)
+        });
+    }
     project
         .edit_info_document(|doc| do_set_index_usage_constraint(doc, publisher, name, constraint))
+        .map_err(local_error)
 }
 
 /// [`do_set_usage_constraint`] on the `.project.json` of a local project,
@@ -336,8 +382,115 @@ pub fn do_set_usage_constraint_local(
     project: &mut crate::project::local_src::LocalSrcProject,
     resource: &str,
     constraint: &str,
-) -> Result<ConstraintChange, crate::project::local_src::EditInfoError<SetConstraintError>> {
-    project.edit_info_document(|doc| do_set_usage_constraint(doc, resource, constraint))
+) -> Result<ConstraintChange, SetConstraintLocalError> {
+    use crate::project::ProjectRead as _;
+
+    // A directory holding both manifests edits `.project.json`.
+    if project.format().map_err(SetConstraintLocalError::Project)?
+        == crate::project::ProjectFormat::Toml
+    {
+        return edit_toml_manifest(project, |doc| {
+            do_set_usage_constraint_toml(doc, resource, constraint)
+        });
+    }
+    project
+        .edit_info_document(|doc| do_set_usage_constraint(doc, resource, constraint))
+        .map_err(local_error)
+}
+
+/// The `model.toml` arm of [`do_set_usage_constraint`].
+///
+/// A `model.toml` usage is addressed by identity, so the resource must
+/// be a `pkg:sysand` PURL (the `publisher/name` form is
+/// [`do_set_index_usage_constraint_toml`]); the entry must be an index
+/// usage, the only kind with a `version`. Comments and other lines are kept.
+pub fn do_set_usage_constraint_toml(
+    doc: &mut toml_edit::DocumentMut,
+    resource: &str,
+    constraint: &str,
+) -> Result<ConstraintChange, SetConstraintError> {
+    let wanted = match NormalizedIdentity::from_purl(resource) {
+        Ok(Some(wanted)) => wanted,
+        Ok(None) => return Err(SetConstraintError::NotAnIdentity(resource.to_owned())),
+        Err(source) => {
+            return Err(SetConstraintError::MalformedPurl {
+                iri: resource.to_owned(),
+                source,
+            });
+        }
+    };
+    set_toml_constraint_str(doc, &wanted, constraint)
+}
+
+/// The `model.toml` arm of [`do_set_index_usage_constraint`]: the entry
+/// with the identity, which must be an index usage, the only kind with
+/// a `version`.
+pub fn do_set_index_usage_constraint_toml(
+    doc: &mut toml_edit::DocumentMut,
+    publisher: &IndexPublisher,
+    name: &IndexName,
+    constraint: &str,
+) -> Result<ConstraintChange, SetConstraintError> {
+    set_toml_constraint_str(doc, &normalized_identity(publisher, name), constraint)
+}
+
+/// Sets the `version` of the `[[inline-usages]]` entry `wanted` names.
+///
+/// An entry with a `dir`, `kpar-path`, `kpar-url`, `git` or opt-in marker
+/// has no constraint to set, and is refused, as is an entry with neither a
+/// source nor a `version`.
+pub(crate) fn set_toml_index_constraint(
+    doc: &mut toml_edit::DocumentMut,
+    wanted: &NormalizedIdentity,
+    requirement: &semver::VersionReq,
+) -> Result<ConstraintChange, EditError> {
+    let old = match edit::usage_constraint(doc, wanted) {
+        None => return Ok(ConstraintChange::NotFound),
+        Some(None) => return Err(EditError::NotAnIndexUsage(wanted.clone())),
+        Some(Some(old)) => old,
+    };
+    let new = requirement.to_string();
+    if old == new {
+        return Ok(ConstraintChange::Unchanged { constraint: new });
+    }
+    edit::set_usage_version(doc, wanted, requirement)?;
+    Ok(ConstraintChange::Replaced {
+        old: Some(old),
+        new,
+    })
+}
+
+fn set_toml_constraint_str(
+    doc: &mut toml_edit::DocumentMut,
+    wanted: &NormalizedIdentity,
+    constraint: &str,
+) -> Result<ConstraintChange, SetConstraintError> {
+    let requirement = semver::VersionReq::parse(constraint)
+        .map_err(|e| SetConstraintError::InvalidConstraint(constraint.to_owned(), e))?;
+    set_toml_index_constraint(doc, wanted, &requirement)
+        .map_err(SetConstraintError::TomlUsageHasNoConstraint)
+}
+
+/// Edits the `model.toml` of `project` in place, writing it back only when
+/// the constraint changed.
+#[cfg(feature = "filesystem")]
+fn edit_toml_manifest(
+    project: &mut crate::project::local_src::LocalSrcProject,
+    edit: impl FnOnce(&mut toml_edit::DocumentMut) -> Result<ConstraintChange, SetConstraintError>,
+) -> Result<ConstraintChange, SetConstraintLocalError> {
+    crate::project::edit_manifest_document(project, |_, document| {
+        edit(document).map_err(SetConstraintLocalError::Edit)
+    })
+}
+
+#[cfg(feature = "filesystem")]
+fn local_error(
+    error: crate::project::local_src::EditInfoError<SetConstraintError>,
+) -> SetConstraintLocalError {
+    match error {
+        crate::project::local_src::EditInfoError::Project(e) => SetConstraintLocalError::Project(e),
+        crate::project::local_src::EditInfoError::Edit(e) => SetConstraintLocalError::Edit(e),
+    }
 }
 
 #[cfg(test)]

@@ -4,7 +4,7 @@
 use wasm_bindgen::prelude::*;
 
 #[cfg(feature = "browser")]
-use sysand_core::{commands::init::do_init_parse, utils::format_err};
+use sysand_core::{commands::init::do_init_toml, utils::format_err};
 
 pub mod env;
 pub mod io;
@@ -40,15 +40,18 @@ pub fn do_init_js_local_storage(
     prefix: &str,
     root_path: &str,
     license: Option<String>,
+    metamodel: String,
 ) -> Result<(), JsValue> {
     use typed_path::Utf8UnixPath;
 
-    do_init_parse(
+    do_init_toml(
         name,
         publisher,
         version,
         license,
-        None,
+        Some(sysand_core::manifest::inherit::MetaProperty::Provided(
+            metamodel,
+        )),
         &mut io::local_storage::ProjectLocalBrowserStorage {
             vfs: local_storage_utils::get_local_browser_storage(prefix)
                 .map_err(|e| JsValue::from_str(&format_err(e)))?,

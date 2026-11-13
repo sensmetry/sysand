@@ -3,8 +3,11 @@
 
 use semver::VersionReq;
 use sysand_core::{
-    env::local_directory::metadata::EnvMetadataError, info::InfoProjectError, lock::LockfileError,
-    model::ProjectFieldError, resolve::file::FileResolverProjectError,
+    env::local_directory::metadata::EnvMetadataError,
+    info::InfoProjectError,
+    lock::LockfileError,
+    model::{IdentifierError, ProjectFieldError},
+    resolve::file::FileResolverProjectError,
 };
 use thiserror::Error;
 
@@ -14,16 +17,17 @@ pub enum CliError {
     InvalidDirectory(String),
     #[error("cannot use the directory name `{0}` as the project name; use `--name` to set it")]
     InvalidDirectoryName(String, #[source] ProjectFieldError),
-    #[error("unable to find project with IRI `{0}`")]
-    NoResolve(String),
+    #[error(
+        "cannot use the directory name `{}` as the project name; use `--name` to set it",
+        .0.value
+    )]
+    InvalidDirectoryIdentifier(#[source] IdentifierError),
     #[error("invalid project with IRI `{iri}`")]
     InvalidProject {
         iri: String,
         #[source]
         source: InfoProjectError<FileResolverProjectError>,
     },
-    #[error("invalid IRI `{0}`")]
-    InvalidIri(String, #[source] fluent_uri::ParseError),
     #[error("unable to find interchange project `{0}`")]
     MissingProject(String),
     #[error("unable to find interchange project `{0}` with version matching {1}")]

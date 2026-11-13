@@ -74,13 +74,8 @@ fn basic_globmap_lookup() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn globmap_matches_template_expanded_urls() -> Result<(), Box<dyn std::error::Error>> {
-    // The credential glob a user configures for a templated index
-    // (`SYSAND_CRED_X=https://gitlab.com/api/v4/projects/123/**`) must
-    // match the expanded request URLs, where the file path sits mid-URL
-    // percent-encoded and a query string follows.
-    // This glob only fits the *expanded* request URL: it matches on the
-    // percent-encoded file path (`admin%2F...`), which does not exist in
-    // the raw template (where the placeholder still reads `{path}`).
+    // The glob must match the expanded request URL (file path percent-encoded
+    // mid-URL, query string after).
     let mut builder = GlobMapBuilder::new();
     builder.add(
         "https://gitlab.com/api/v4/projects/123/repository/files/admin%2F*/raw?ref=main",
@@ -113,11 +108,8 @@ fn globmap_matches_template_expanded_urls() -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
-// select_bearer: the selection semantics shared by the runtime read
-// retry, whoami, and publish. The end-to-end behavior of each consumer is
-// pinned by its own tests; these cover the helper's collapse rules
-// directly, in particular the mixed identical-plus-distinct case only
-// the runtime's try-all path can observe.
+// select_bearer collapse rules, in particular the mixed identical-plus-distinct
+// case only the runtime's try-all path can observe.
 mod select_bearer {
     use crate::auth::{BearerSelection, GlobMap, GlobMapBuilder, select_bearer};
     use std::assert_matches;
@@ -224,9 +216,7 @@ fn publish_bearer_auth_map_keeps_bearer_drops_basic_and_carries_labels()
 // Tests for the lazy credential store layer
 // (`CredentialStoreAuthentication`).
 
-/// A backend that counts its reads, so tests can assert when (and how
-/// often) the credential store is actually read (one backend read per
-/// store `list`).
+/// A backend that counts its reads, one per store `list`.
 #[derive(Debug, Clone)]
 struct CountingBackend {
     inner: InMemoryBlobBackend,
@@ -261,9 +251,8 @@ fn counting_store(
     (LockedBlobStore::new(backend, unique_lock_path()), reads)
 }
 
-/// A backend whose reads always fail, for the degrade-to-no-credentials
-/// paths. `absent` selects `BackendAbsent` over `BackendDenied` (both are
-/// warned about); the request-level behavior must be identical.
+/// A backend whose reads always fail. `absent` selects `BackendAbsent` over
+/// `BackendDenied`; the request-level behavior must be identical.
 #[derive(Debug)]
 struct FailingBackend {
     absent: bool,
@@ -387,11 +376,9 @@ fn versions_mock(
 
 #[test]
 fn lazy_layer_never_reads_store_on_success_server_error_or_rate_limiting() {
-    // 2xx needs no credential, 5xx is not an auth verdict, and 429 is
-    // rate limiting, never a verdict: each response is returned as-is,
-    // with no store read and no forced retry (expect(1) asserts that; a
-    // retry against a host that just throttled us would spend more of the
-    // rate budget).
+    // 2xx needs no credential, 5xx is not an auth verdict, and 429 is rate
+    // limiting: each response is returned as-is with no store read and no retry
+    // (expect(1) asserts that).
     for status in [200, 500, 429] {
         let mut server = mockito::Server::new();
         let mock = versions_mock(&mut server, None, status as usize, 1);
@@ -669,8 +656,7 @@ fn direct_stored_bearer_read_degrades_store_errors_to_an_empty_map() {
     }
 }
 
-// Debug redaction: the hand-written `Debug` impls exist so a secret can
-// never reach logs via an accidental `{:?}`; pin that here.
+// Debug redaction: a secret must never reach logs via `{:?}`.
 
 #[test]
 fn debug_never_renders_secrets() {
@@ -775,11 +761,9 @@ fn stored_bearer_expiry_warning_skips_unexpired_and_unknown_expiry() {
     assert!(!unknown.expiry_warning_emitted());
 }
 
-/// Look the stored bearer for `url` up in the policy's cached map, to
-/// observe the per-record expiry-warned flag after driving requests. Must
-/// go through the request path's cache (not a direct store read, which
-/// would build fresh records with fresh flags); the clone shares the
-/// record's `expiry_warned` flag (it is an `Arc`).
+/// Look the stored bearer for `url` up in the policy's cached map, to observe
+/// the per-record expiry-warned flag. Must go through the request path's cache,
+/// since a direct store read builds fresh records; the clone shares the flag.
 fn stored_bearer_for<Inner, B>(
     runtime: &tokio::runtime::Runtime,
     policy: &CredentialStoreAuthentication<Inner, B>,
@@ -813,7 +797,7 @@ fn lazy_layer_warns_once_for_an_expired_record_that_keeps_failing() {
     let first = get(&runtime, &policy, &url);
     // The hint was emitted (and latched) during the first escalation, so
     // the second identical failure cannot repeat it: `take_expiry_warning`
-    // returns `None` once the flag is set (covered by the unit test above).
+    // returns `None` once the flag is set.
     assert!(stored_bearer_for(&runtime, &policy, &url).expiry_warning_emitted());
     let second = get(&runtime, &policy, &url);
 

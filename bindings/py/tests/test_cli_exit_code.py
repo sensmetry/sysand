@@ -3,12 +3,10 @@
 
 """`_run_cli` returns the exit code, not whether the run succeeded.
 
-The CLI already distinguishes three outcomes — 0, clap's usage code 2, and 1
-for a runtime failure — and a boolean collapsed the last two together.
-
-Note that ``bool`` is a subclass of ``int``: on the old return type
-``_run_cli(...) == 0`` is ``False == 0``, which is ``True``. Only an
-assertion about the *type* tells the two apart.
+The CLI distinguishes three outcomes: 0, clap's usage code 2, and 1 for a
+runtime failure. Note that ``bool`` is a subclass of ``int``, so
+``_run_cli(...) == 0`` would hold for ``False``; only an assertion about
+the *type* tells a boolean result from an exit code.
 """
 
 from __future__ import annotations
@@ -37,14 +35,14 @@ def test_missing_subcommand_is_two(tmp_path: Path) -> None:
 
 
 def test_runtime_failure_is_one(tmp_path: Path) -> None:
-    # No project in the directory, so this fails while running rather than
-    # while parsing — the case a boolean could not tell from a usage error.
+    # No project in the directory, so this fails while running, which a
+    # boolean could not tell from a usage error.
     assert run_cli_in(tmp_path, "lock", "--no-config", "--no-index") == 1
 
 
 def test_module_entry_point_propagates_the_code(tmp_path: Path) -> None:
-    # `python -m sysand` is the user-visible half of this: it used to report
-    # 1 for a usage error where the native binary reports 2.
+    # `python -m sysand` is the user-visible half of this: a usage error
+    # exits with 2, as the native binary does.
     result = subprocess.run(
         [sys.executable, "-m", "sysand", "--not-a-flag"],
         cwd=tmp_path,

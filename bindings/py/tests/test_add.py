@@ -11,9 +11,12 @@ import logging
 from pathlib import Path
 
 import pytest
+from conftest import write_json_project
 from mockindex import MockIndex
 
 import sysand
+
+SYSML = "https://www.omg.org/spec/SysML/20250201"
 
 DEP = "pkg:sysand/acme-labs/my-lib"
 
@@ -29,15 +32,16 @@ def publish_dep(index: MockIndex, version: str = "1.0.0") -> None:
 @pytest.fixture(autouse=True)
 def _log_everything(caplog: pytest.LogCaptureFixture) -> None:
     # `pyo3_log` caches a logger's level on its first use, and these tests are
-    # the first to use some of the loggers that later tests (`test_basic_init`,
-    # `test_cli_logger`) assert records from. Cached at DEBUG, the records
-    # still reach Python, whose own levels filter them as usual.
+    # the first to use some of the loggers that later tests assert records
+    # from. Cached at DEBUG, the records still reach Python, whose own levels
+    # filter them as usual.
     caplog.set_level(logging.DEBUG)
 
 
 def init(tmp_path: Path) -> Path:
     root = tmp_path / "app"
-    sysand.init(project_dir=root, name="app", publisher="acme", version="1.0.0")
+    Path(root).mkdir(parents=True, exist_ok=True)
+    write_json_project(Path(root), "acme", "app", "1.0.0")
     return root
 
 
@@ -91,7 +95,7 @@ def test_add_without_sync_only_locks(tmp_path: Path, mock_index: MockIndex) -> N
     )
 
     assert (root / "sysand-lock.toml").is_file()
-    assert not (root / sysand.env.DEFAULT_ENV_NAME).exists()
+    assert not (root / sysand.env.DEFAULT_ENV_NAME / "env.toml").exists()
 
 
 def test_add_normalized_takes_the_locked_spelling(

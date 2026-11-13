@@ -8,13 +8,16 @@ pub mod commands;
 pub use commands::*;
 
 pub mod model;
+pub mod paths;
 
 #[cfg(feature = "networking")]
 pub mod auth;
+pub mod cancel;
 pub mod config;
 pub mod context;
 pub mod credential_store;
 pub mod env;
+mod format_migrate;
 pub mod graph;
 #[cfg(feature = "filesystem")]
 pub mod index;
@@ -22,53 +25,24 @@ pub mod index_location;
 mod iri_normalize;
 pub mod lock;
 pub mod manifest;
-mod migrate;
 pub mod project;
 pub mod purl;
 pub mod redact;
 pub mod resolve;
 pub mod solve;
 pub mod stdlib;
+pub mod stdlib_compare;
 pub mod style;
 pub mod symbols;
 pub mod utils;
 
 #[cfg(feature = "filesystem")]
 pub mod workspace;
+#[cfg(feature = "filesystem")]
+pub mod workspace_lock;
 
 #[cfg(feature = "filesystem")]
 pub mod discover;
-
-// #[cfg(feature = "python")]
-// use pyo3::prelude::*;
-
-// #[cfg(feature = "js")]
-// use wasm_bindgen::prelude::*;
-
-// // #[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
-// // #[cfg_attr(feature = "python", pyclass(eq, get_all))]
-// // #[cfg_attr(feature = "js", wasm_bindgen())]
-// // pub struct Message {
-// //     #[cfg_attr(feature = "js", wasm_bindgen(skip))]
-// //     pub content: String,
-// // }
-
-// // #[cfg(feature = "js")]
-// // #[wasm_bindgen]
-// // impl Message {
-// //     #[wasm_bindgen(getter)]
-// //     pub fn content(&self) -> String {
-// //         self.content.clone()
-// //     }
-// // }
-
-// // pub fn get_message<S: Into<String>>(s: S) -> Message {
-// //     Message {
-// //         content: format!("Hello, {}!", s.into()).to_string(),
-// //     }
-// // }
-
-// Private tests
 
 #[cfg(test)]
 #[path = "./lib_tests.rs"]

@@ -5,11 +5,14 @@ use std::path::Path;
 
 use assert_cmd::prelude::*;
 use predicates::prelude::*;
-use sysand_core::env::{DEFAULT_ENV_NAME, local_directory::METADATA_PATH};
+use sysand_core::{
+    env::{DEFAULT_ENV_NAME, local_directory::METADATA_PATH},
+    workspace_lock::WorkspaceLock,
+};
 // Only used by the `env install`/`env uninstall` tests commented out below.
 // use camino::Utf8Path;
 // use mockito::Server;
-// use sysand_core::{project::utils::relativize_path, utils::sha256_lowercase_hex};
+// use sysand_core::{paths::relativize_path, utils::sha256_lowercase_hex};
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
 mod common;
@@ -27,9 +30,13 @@ fn env_init_empty_env() -> Result<(), Box<dyn std::error::Error>> {
 
     for entry in std::fs::read_dir(&cwd)? {
         let path = entry?.path();
-        assert!(path.is_dir());
         assert_eq!(path.strip_prefix(&cwd)?, env_path);
     }
+
+    // Inside the environment, the advisory lock `env` held while creating
+    // it: an empty file, kept.
+    let lock_path = WorkspaceLock::path_for(&cwd);
+    assert_eq!(std::fs::metadata(&lock_path)?.len(), 0);
 
     assert_eq!(
         std::fs::File::open(cwd.join(DEFAULT_ENV_NAME).join(METADATA_PATH))?
@@ -68,10 +75,8 @@ fn every_command_refuses_an_environment_a_newer_release_wrote()
     Ok(())
 }
 
-// The `env install`/`env uninstall` subcommands are commented out (see `EnvCommand` in cli.rs).
-// Installing a local-src project on `add` and removing it again on `remove` is already covered
-// by `add_and_remove_as_local_src` and `remove_keeps_lockfile_valid_and_syncs` in
-// `cli_add_remove.rs`, so this test is commented out to match rather than ported to `add`/`remove`.
+// Disabled: the `env install`/`env uninstall` subcommands are commented out in the CLI.
+// `add` and `remove` tests already cover installing a local-src project and removing it again.
 /*
 /// `sysand env install <IRI> --location <LOCATION>` should install the
 /// interchange project at <LOCATION> as <IRI> in local env, `sysand env
@@ -161,7 +166,7 @@ src_cksum = "c83ef78e3b8d52d622dea6db2e7c6c326801500ae1e99f6a54c39a1f473367b3"
 
     entry_names.sort();
 
-    assert_eq!(entry_names, [METADATA_PATH, "lib"]);
+    assert_eq!(entry_names, [LOCK_FILE_NAME, METADATA_PATH, "lib"]);
 
     assert_eq!(
         std::fs::read_to_string(entries[metadata_path_index].path())?,
@@ -172,10 +177,9 @@ src_cksum = "c83ef78e3b8d52d622dea6db2e7c6c326801500ae1e99f6a54c39a1f473367b3"
 }
 */
 
-// The `env uninstall` subcommand is commented out (see `EnvCommand` in cli.rs); it produces an
-// env-level "not found" error that `remove` (which errors at the usage level instead) does not
-// have an equivalent for, so these tests are commented out to match until that functionality is
-// decided on.
+// Disabled: the `env uninstall` subcommand is commented out in the CLI. It produces an
+// env-level "not found" error that `remove` (which errors at the usage level) has no
+// equivalent for, until that functionality is decided on.
 /*
 /// `sysand env uninstall <IRI>` for an IRI that is not installed in the
 /// env should fail with an error, and must not modify `env.toml`
@@ -238,9 +242,8 @@ fn env_uninstall_nonexistent_version() -> Result<(), Box<dyn std::error::Error>>
 }
 */
 
-// The `env install` subcommand is commented out (see `EnvCommand` in cli.rs); installing a
-// project from an HTTP kpar URL is covered through `add` by `add_from_http_kpar` in
-// `cli_add_remove.rs`, so this test is commented out to match.
+// Disabled: the `env install` subcommand is commented out in the CLI. Installing a project
+// from an HTTP kpar URL is covered through `add`.
 /*
 #[test]
 fn env_install_from_http_kpar() -> Result<(), Box<dyn std::error::Error>> {
@@ -324,9 +327,9 @@ kpar_cksum = "1838ad10a9c1fa46c74a92c68212e6fdcf6f6011a94ca5f16e343ea18a8e203b"
 }
 */
 
-// The `env install`/`env uninstall` subcommands are commented out (see `EnvCommand` in cli.rs);
-// `--allow-overwrite` and `--allow-multiple` have no equivalent through `add`/`sync`, so these
-// tests are commented out to match until that functionality is decided on.
+// Disabled: the `env install`/`env uninstall` subcommands are commented out in the CLI.
+// `--allow-overwrite` and `--allow-multiple` have no equivalent through `add`/`sync` until
+// that functionality is decided on.
 /*
 /// `sysand env install <IRI> --location <LOCATION>` should install
 /// the interchange project att <LOCATION> as <IRI> in local env.
@@ -392,14 +395,14 @@ fn env_install_from_local_dir_allow_overwrite() -> Result<(), Box<dyn std::error
 */
 
 #[test]
+/// Json fixture: the setup uses `sysand add`/`include`.
 fn install_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "install_nonexistent", "1.2.3")?;
-
-    out.assert().success();
+    let (_temp_dir, cwd) =
+        cli_init_json_project(None, "acme", "install-nonexistent", "1.2.3", None)?;
 
     let out = run_sysand_in(
         &cwd,
-        ["add", "--iri", "urn:kpar:install_nonexistent", "--no-index"],
+        ["add", "--iri", "urn:kpar:install-nonexistent", "--no-index"],
         None,
     )?;
 
@@ -410,28 +413,29 @@ fn install_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-// The `env install` subcommand is commented out (see `EnvCommand` in cli.rs); `--allow-multiple`
+// Disabled: the `env install` subcommand is commented out in the CLI. `--allow-multiple`
 // has no equivalent through `add`/`sync` (the solver picks a single version to satisfy all
-// usages), so this test is commented out to match until that functionality is decided on.
+// usages) until that functionality is decided on.
 /*
 /// `--allow-multiple` lets a different version of an already-installed project
 /// be installed alongside it; the same version still triggers an error.
 /// `env list` then names each installed version once.
 #[test]
+/// Json fixture: the setup uses `sysand add`/`include`.
 fn env_install_allow_multiple() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, _) = run_sysand(["env"], None)?;
 
     // Build v1 with a .meta.json so checksum_canonical_variant succeeds.
-    let (_temp_v1, cwd_v1, out) = cli_init_project_basic("a", "allow_multiple_lib", "1.0.0")?;
-    out.assert().success();
+    let (_temp_v1, cwd_v1) =
+        cli_init_json_project(None, "acme", "allow-multiple-lib", "1.0.0", None)?;
     std::fs::write(cwd_v1.join("TestLib.sysml"), "package TestLib;")?;
     run_sysand_in(&cwd_v1, ["include", "TestLib.sysml"], None)?
         .assert()
         .success();
 
     // Build v2 with the same IRI but a different version.
-    let (_temp_v2, cwd_v2, out) = cli_init_project_basic("a", "allow_multiple_lib", "2.0.0")?;
-    out.assert().success();
+    let (_temp_v2, cwd_v2) =
+        cli_init_json_project(None, "acme", "allow-multiple-lib", "2.0.0", None)?;
     std::fs::write(cwd_v2.join("TestLib.sysml"), "package TestLib;")?;
     run_sysand_in(&cwd_v2, ["include", "TestLib.sysml"], None)?
         .assert()
@@ -522,31 +526,29 @@ fn env_install_allow_multiple() -> Result<(), Box<dyn std::error::Error>> {
 // TODO: Write helper function to generate an index and add tests for
 // installing from index.
 
-// The `env install` subcommand is commented out (see `EnvCommand` in cli.rs). Ported to `add`,
-// these tests would duplicate existing ones: installing several local-src projects and resolving
-// a source through a config file are covered by `add_prunes_unneeded_dependency_by_default` in
-// `cli_add_remove.rs`, and the pre-release handling of an unconstrained or version-pinned PURL
-// usage (which `add` leaves to the solver, unlike `env install --no-deps`) by the pre-release
-// tests in `core/src/solve/pubgrub_tests.rs`. So they are commented out to match instead.
+// Disabled: the `env install` subcommand is commented out in the CLI. Ported to `add`, these
+// tests would duplicate existing ones: installing several local-src projects and resolving a
+// source through a config file are covered by the `add` tests, and the pre-release handling of
+// an unconstrained or version-pinned PURL usage (which `add` leaves to the solver, unlike
+// `env install --no-deps`) by the solver tests.
 /*
 
 /// Installing multiple projects in sequence via `env install --path` keeps all
 /// entries in `env.toml` and physically installs each project into the env
 /// directory. All installed projects are non-editable and carry a `src_cksum`.
 #[test]
+/// Json fixture: the setup uses `sysand add`/`include`.
 fn env_install_multiple_projects_env_toml() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, _) = run_sysand(["env"], None)?;
 
     // Build two projects with valid .meta.json so checksum_canonical_variant succeeds.
-    let (_tmp_a, cwd_a, out) = cli_init_project_basic("a", "env_multi_proj_a", "1.0.0")?;
-    out.assert().success();
+    let (_tmp_a, cwd_a) = cli_init_json_project(None, "acme", "env-multi-proj-a", "1.0.0", None)?;
     std::fs::write(cwd_a.join("A.sysml"), "package A;")?;
     run_sysand_in(&cwd_a, ["include", "A.sysml"], None)?
         .assert()
         .success();
 
-    let (_tmp_b, cwd_b, out) = cli_init_project_basic("a", "env_multi_proj_b", "2.0.0")?;
-    out.assert().success();
+    let (_tmp_b, cwd_b) = cli_init_json_project(None, "acme", "env-multi-proj-b", "2.0.0", None)?;
     std::fs::write(cwd_b.join("B.sysml"), "package B;")?;
     run_sysand_in(&cwd_b, ["include", "B.sysml"], None)?
         .assert()
@@ -630,11 +632,12 @@ fn env_install_multiple_projects_env_toml() -> Result<(), Box<dyn std::error::Er
 /// still be on disk and registered in `env.toml` once the command returns.
 #[test]
 fn env_install_via_config_override_survives() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("t", "env_install_survives_app", "1.0.0")?;
+    let (_temp_dir, cwd, out) =
+        cli_init_toml_project_basic("tango", "env-install-survives-app", "1.0.0")?;
     out.assert().success();
 
     let (_tmp_dep, cwd_dep, out) =
-        cli_init_project_basic("a", "env_install_survives_dep", "1.0.0")?;
+        cli_init_toml_project_basic("acme", "env-install-survives-dep", "1.0.0")?;
     let relative_cwd_dep = relativize_path(&cwd_dep, &cwd).unwrap();
     out.assert().success();
 
@@ -955,15 +958,14 @@ fn env_install_no_deps_purl_named_prerelease_is_installed() -> Result<(), Box<dy
 /// and an IRI only via `--iri`
 #[test]
 fn env_sources_by_identifier_or_iri() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project(Some("main"), "acme", None, None, None)?;
-    out.assert().success();
+    let (_temp_dir, cwd) = cli_init_json_project(Some("main"), "acme", "main", "0.0.1", None)?;
     let main = cwd.join("main");
     // `Foo & Bar` normalizes to `foo-&-bar`, which is not valid in a
     // `pkg:sysand` PURL, so the env records it under a `urn:sysand` identifier
     for (dir, publisher, file) in [("dep", "Acme Labs", "A"), ("dep2", "Foo & Bar", "B")] {
-        cli_init_project_in(&cwd, Some(dir), publisher, Some("My Dep"), None, None)?
-            .assert()
-            .success();
+        std::fs::create_dir_all(cwd.join(dir))?;
+        // By hand: `init` refuses a publisher such as `Foo & Bar`.
+        write_hand_written_json_project(&cwd.join(dir), publisher, "My Dep", "0.0.1")?;
         std::fs::write(
             cwd.join(dir).join(format!("{file}.sysml")),
             format!("package {file};"),

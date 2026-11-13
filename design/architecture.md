@@ -61,17 +61,26 @@ library in particular is only a proof-of-concept that is not yet usable.
 Sysand works with [SysML v2] and [KerML] Interchange Projects, as defined in the KerML spec section 10.3, and also introduces a few concepts of its own.
 
 ```
-Workspace (.workspace.json)
- └─ lists projects with their paths and IRIs
- └─ optionally specifies a metamodel (SysML/KerML)
+Workspace (model.toml, [workspace] table)
+ └─ lists member projects by path
+ └─ carries metadata members may inherit (version, license, metamodel, ...)
+ └─ [workspace.group.<name>] holds a second set a member may inherit
+    instead, by writing `<key>.workspace = "<group>"` rather than `= true`
 
 Environment (storage backend)
  └─ stores projects indexed by IRI and version
  └─ implementations: local directory, remote index, git, in-memory
 
 Project (Interchange Project)
- └─ .project.json  — name, version, publisher, usages (dependencies), etc.
- └─ .meta.json     — source file index, checksums, timestamps
+ └─ model.toml     — name, version, publisher, metamodel, sources,
+ │                   usages; what `sysand init` writes and every
+ │                   command reads. `metamodel` is required, and is one
+ │                   of four values (OMG or Syside, KerML or SysML)
+ └─ .project.json  — the json pair: read too, and what a built KPAR
+ └─ .meta.json       carries, in one of two shapes: `index` for an OMG
+ │                   project, `root` + `exports` for a Syside one
+ │                   (design/syside-metamodel.md). `sysand migrate`
+ │                   converts either shape to a `model.toml`
  └─ source files   — the actual SysML/KerML model files
 
 Lock file (sysand-lock.toml)
@@ -112,9 +121,11 @@ environment can handle allocation and cleanup), `del_project_version`, and
 `del_uri`.
 
 Notable implementations include `LocalDirectoryEnvironment` (filesystem),
-`MemoryStorageEnvironment<Project>` (in-memory), and
+`MemoryStorageEnvironment<Project>` (in-memory),
 `IndexEnvironmentAsync<Policy>` (remote sysand index; see
-"Index environment" below).
+"Index environment" below) and `LocalIndexEnvironment` (the same index
+read from a directory, in either of the two shapes
+`index-protocol.md` §16 names).
 
 ### Async variants
 
@@ -140,9 +151,9 @@ type aliases of a shared generic base struct (suffixed with `G` for "Generic"):
     └── From<Validated> ─── back to Raw
 ```
 
-This pattern appears in `InterchangeProjectUsageG`, `InterchangeProjectInfoG`,
-`InterchangeProjectMetadataG`, `WorkspaceInfoG`, `WorkspaceMetaG`, and
-`WorkspaceProjectInfoG`.
+This pattern appears in `InterchangeProjectUsageG`, `InterchangeProjectInfoG`
+and `InterchangeProjectMetadataG`. A workspace has no such pair: it is a
+`model.toml` table, read through `manifest::workspace_table`.
 
 **Trait boundaries mostly use Raw types.** For example, `ProjectRead::get_project()` returns
 `InterchangeProjectInfoRaw`, not the validated form. This is a deliberate
@@ -230,19 +241,49 @@ system:
 
 ## Sysand specific files
 
-### `.workspace.json`
+### `model.toml` with a `[project]` table
 
-Defines a workspace. Lists the projects the user is working on and optionally
-specifies a default metamodel for projects' `.meta.json` files:
+Defines a project: its identity, the source files it contains, and the
+projects it uses. This is what `sysand init` writes, and a project has
+either this or the json pair — never both.
 
-```json
-{
-  "projects": [{ "path": "my-project", "iris": ["urn:example:my-project"] }],
-  "meta": {
-    "metamodel": "https://www.omg.org/spec/SysML/20250201"
-  }
-}
+```toml
+manifest-version = "1.0"
+
+[project]
+publisher = "acme"
+name = "widgets"
+version = "1.2.3"
+metamodel = "https://www.omg.org/spec/SysML/20250201"
+sources = ["widgets.sysml"]
+
+[[inline-usages]]
+publisher = "acme"
+name = "dep"
+dir = "../dep"
 ```
+
+A member of a workspace may inherit a key from it by writing
+`<key>.workspace = true`, or `<key>.workspace = "<group>"` for a named
+group. `sysand migrate` converts a `.project.json`/`.meta.json` pair --
+of either shape -- into this form.
+
+### `model.toml` with a `[workspace]` table
+
+Defines a workspace: the member projects the user is working on together, and
+the metadata a member may inherit with `<key>.workspace = true`. A file holds
+either a `[project]` table or a `[workspace]` table, never both.
+
+```toml
+manifest-version = "1.0"
+
+[workspace]
+members = ["my-project", "libs/other"]
+metamodel = "https://www.omg.org/spec/SysML/20250201"
+```
+
+A workspace has one lockfile and one `.sysand` environment, both at its root.
+Every member must itself be a `model.toml` project.
 
 ### `sysand.toml`
 
@@ -262,11 +303,18 @@ Captures a project's resolved usages and their dependencies.
 
 The `sysand lock` command regenerates this file, recording each project's name,
 version, exported symbols, dependency usages, and sources (local paths, index
-URLs, git repos, etc.). Integrity metadata lives on each resolved source:
-source-directory entries carry `checksum`, while KPAR entries carry
-`kpar_size` and `kpar_digest`. The `sysand sync` command reads
-`sysand-lock.toml` to populate `.sysand`, and will run `lock` first if the file
-does not yet exist.
+URLs, git repos, etc.), plus the `metamodel` it declares — an optional field
+within lock version 0.5, so a lockfile without it still reads. Integrity
+metadata lives on each resolved source: source-directory entries carry
+`checksum`, while KPAR entries carry `kpar_size` and `kpar_digest`. The `sysand
+sync` command reads `sysand-lock.toml` to populate `.sysand`, and will run
+`lock` first if the file does not yet exist.
+
+A workspace has exactly one lockfile, in the workspace root, covering every
+member; a lockfile inside a member is an error. Locking also runs two checks
+over the solved graph that are errors wherever they appear: a dependency cycle,
+unless every project on it carries the `stdlib` key, and a project on an OMG
+metamodel depending on one on a Syside metamodel.
 
 ### Local environment (`.sysand`)
 
@@ -277,6 +325,7 @@ The local environment looks like this:
 
 ```text
 .sysand
+ ├──.lock
  ├──env.toml
  └──lib
     ├──package_ID1_version
@@ -285,6 +334,9 @@ The local environment looks like this:
 ```
 
 `env.toml` contains an array of projects. Each project contains these fields:
+
+Where a field below says "taken from `.project.json`", a `model.toml` project
+supplies it from the manifest instead — the two are read through one view.
 
 - `publisher`. Taken from `.project.json`
 - `name`. Taken from `.project.json`
@@ -311,6 +363,97 @@ Each `package_ID` is derived from the project's canonical identifier, and
 `package_ID` and `version` is constructed from their corresponding values, see
 `sysand_core::env::iri_normalize::iri_to_filename_part()` and
 `sysand_core::env::iri_normalize::normalize_version()`, respectively.
+
+### Structured output
+
+`sysand/src/output.rs` is `--format json`: one JSON document on stdout
+per run, pretty-printed, camelCase, carrying the envelope
+`schemaVersion` (1), `complete`, `skipped` and `escapeHatch` -- the
+partiality fields, on every document so that no reader has to know
+which can be partial.
+Document commands fill the payload at their print sites (`info` its two
+manifests, `info <get>` the `values` per member, `sources` a sorted
+list, `env list`, `print-root`, `versions`, `lock` the lockfile's
+projects, `sync` its `SyncOutcome` plus `verify`); any other command
+prints a result document (`command`, `changed`: the paths it writes by
+kind, computed at dispatch -- `clone`, `migrate` and `publish` decide
+inside themselves and report none); a failing run prints a failure
+document (`complete: false`, `error: {kind, message}`; `kind` is
+`cancelled`, `lock-held`, `verify` or `error`) and keeps its exit code.
+`auth` refuses the flag except `logout`. The
+state is per run, reset at the start, because the embedded CLI runs
+many times in one process; text-mode printing goes through
+`output::text` where a document replaces it.
+
+### Cancellation
+
+`cancel.rs` re-exports `tokio_util::sync::CancellationToken` and defines
+`Cancellable<E>`: the outcome of every _bridge_ -- the five adapters
+that run async code synchronously (`AsSyncProjectTokio`,
+`AsSyncReaderTokio`, `AsSyncEnvironmentTokio`, `AsSyncResolveTokio`,
+`SyncStreamIter`) -- so a cancelled token is observed at the next
+`block_on` and the operation returns `Cancelled`. Each adapter holds a
+`cancel::Bridge` (the runtime and the token) and hands a clone of it to
+every adapter it returns; `to_tokio_sync(runtime, token)` builds one.
+The adapters are `#[non_exhaustive]`, which ends construction by struct
+literal outside the crate. The solver observes
+the token between candidates through pubgrub's `should_cancel`
+(`SolverError::kind() == "cancelled"`). A git clone observes it through
+`GitInterrupt`: gix's `IS_INTERRUPTED` flag is process-global, so one
+clone runs at a time per process under a mutex, and a watcher thread
+raises the flag for the clone that owns it; gix polls the flag only in
+its pack and checkout loops, so a stalled handshake is not observably
+cancellable. Whatever synchronous step is in flight -- an extraction, a
+lockfile write, a `put_project` move -- completes atomically first;
+none of those crosses a bridge. The ad-hoc `block_on`s in
+`commands::publish` (one upload, received whole or not at all) and
+`commands::auth` (short probes) are not cancellable.
+
+The CLI creates one token per run (`ProjectContext::cancellation`,
+handed to `standard_resolver` and `command_sync`) and, when it owns the
+process, a thread with its own small runtime that cancels the token on
+the first Ctrl-C and exits with 130 on the second; a cancelled run
+prints "cancelled" and exits 130. The bindings hand out never-cancelled
+tokens. `AsSyncReaderTokio::read` returns an `io::Error` of kind
+`Other`, not `Interrupted`, which std readers would retry forever.
+
+### The advisory lock
+
+`workspace_lock.rs` (`WorkspaceLock`, `LockMode::{Shared, Exclusive}`,
+`LOCK_FILE_NAME = ".lock"`, inside `.sysand/`) is the cross-process lock
+`workspaces.md` "The advisory lock" describes, over
+`std::fs::File::try_lock`/`try_lock_shared`; no crate. The CLI acquires
+it once at the top of a mutating command (`lock_mode` in `sysand/src/lib.rs`
+decides which, and `sync --verify` takes it shared only when a
+lockfile exists to read; without one `sync` resolves first and writes),
+stores it in `ProjectContext::workspace_lock`, and hands it to every
+`LocalDirectoryEnvironment` it writes through `hold`; a write through
+an environment that holds no exclusive lock is logged at debug, not
+refused, so an embedder may serialize its writers its own way.
+`LockError::Held` is the text `workspaces.md` gives; `--lock-wait` polls
+every 100 ms until its deadline. The Python binding takes the lock
+inside `project_context` for `lock` (when writing), `sync` and
+`env.env`, fail-fast, raising `LockHeldError`.
+
+### Verifying an environment
+
+`do_sync` trusts `env.toml`: a lockfile entry whose recorded checksum
+matches the lockfile's is kept without a file under `lib/` being read.
+`commands/verify.rs` (`do_verify`, behind `sysand sync --verify`) reads
+the installation back: the canonical project digest from the manifests
+on disk for a source-installed entry, and every file `.meta.json`'s
+`checksum` names hashed against its recorded value (which is what an
+archive's digest transitively covers; a json project whose author wrote
+no `checksum` map has only its manifests verified, and an
+archive-installed entry's manifests edited in place under `lib/` are
+not detected). It also lists `lib/` directories `env.toml` does not
+record, and compares each manifest's usages with the lockfile's entry
+for that project (identifiers and version constraints). The findings
+travel in `SyncOutcome` (`verified`, `mismatched`, `unrecorded`,
+`repaired`, `stale`); their texts name no command, the CLI appends the
+hints. `sysand sync --repair` removes what mismatches and what is
+unrecorded, runs a plain sync, and verifies again; a stale lockfile is
+reported, never re-solved.
 
 ### Index environment
 
@@ -341,3 +484,14 @@ Sysand-core specifics that aren't part of the protocol:
   populates source-level `kpar_size` and `kpar_digest` directly from
   `versions.json`, so lockfile writing records archive metadata without a HEAD
   round-trip.
+- `LocalIndexEnvironment` (`env/local_index.rs`) reads the same index
+  from a directory, structured or as a bare folder of archives, with
+  blocking `std::fs` calls inside the async trait methods; its
+  per-version leaf is a `LocalKParProject` whose `sources` is
+  `Source::LocalKpar` relative to the workspace root. `ReadEnvironmentAsync`
+  is not dyn-compatible, so `AnyIndexEnvironment<Policy>`
+  (`env/any_index.rs`) dispatches between the two transports by enum,
+  and `standard_index_resolver` builds one arm per configured
+  `IndexSource` (`index_location.rs`: an HTTP(S) `IndexLocation` or a
+  filesystem path). The environment builds with the `filesystem`
+  feature alone; the resolver and the CLI still require `networking`.

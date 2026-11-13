@@ -146,9 +146,8 @@ impl ForceBearerAuth {
         Self(token.as_ref().into())
     }
 
-    /// The raw token, for the `auth whoami` probe. Crate-private so the
-    /// secret stays out of the public API; gated like `commands::auth`,
-    /// its only consumer.
+    /// The raw token. Crate-private so the secret stays out of the public
+    /// API.
     #[cfg(all(feature = "filesystem", feature = "networking"))]
     pub(crate) fn token(&self) -> &str {
         &self.0
@@ -357,8 +356,6 @@ impl<T> GlobMap<T> {
 }
 
 /// What credential selection found in one source's bearer map for a URL.
-/// Shared by the runtime read retry, whoami, and publish so the collapse
-/// and ambiguity semantics are written once.
 #[derive(Debug)]
 pub(crate) enum BearerSelection<'a, T> {
     /// No matching pattern: the caller falls through to its next source.
@@ -372,8 +369,7 @@ pub(crate) enum BearerSelection<'a, T> {
     /// `deduped` the distinct-token entries in map order (what try-all
     /// consumers walk); it always holds at least two entries.
     Ambiguous {
-        // Read only by whoami and publish; without `filesystem` those
-        // consumers are compiled out and only `deduped` is used.
+        // Unused without `filesystem`, which compiles out the readers.
         #[allow(
             dead_code,
             clippy::allow_attributes,
@@ -387,9 +383,8 @@ pub(crate) enum BearerSelection<'a, T> {
 /// Select the bearer credential(s) for `url` from one source's map.
 ///
 /// Several matching patterns are a real ambiguity only between *distinct*
-/// tokens (`token` extracts them to compare). Handling stays with the
-/// caller: publish and whoami refuse ambiguity, the runtime read path
-/// tries each candidate.
+/// tokens (`token` extracts them to compare). What to do about ambiguity
+/// is left to the caller.
 pub(crate) fn select_bearer<'a, T>(
     map: &'a GlobMap<T>,
     url: &str,
@@ -423,7 +418,7 @@ pub(crate) fn select_bearer<'a, T>(
 /// ambiguous options are tried, in order, until a non-4xx response is generated. If no
 /// option produces a non-4xx response, the *first* response is returned.
 ///
-/// Note that redirects work differently (due to reqwest internal defaults):
+/// Redirects work differently (due to reqwest internal defaults):
 /// - if `restricted` is used for a URL, it is also used for the redirect target if
 ///   the target is on the same host
 /// - `unrestricted` is not tried for redirect target URL.
@@ -740,13 +735,11 @@ impl StoredBearerAuth {
 /// ([`LockedBlobStore`]) on demand.
 ///
 /// `inner` (the eager `SYSAND_CRED_*` env policy) runs first; only a 4xx
-/// triggers a store read (cached, at most once per process). Not a stock
-/// [`SequenceAuthentication`]: with no matching record the inner response
-/// is returned with no extra request, whereas a sequence's lower arm would
-/// re-issue on every ordinary 404, doubling round-trips for logged-in
-/// users. A matching record gets a *forced* [`ForceBearerAuth`] retry (v1
-/// stores bearer only). Any 4xx escalates (GitLab-style hosts answer 404
-/// on bad auth) except 429: rate limiting is not an auth verdict.
+/// triggers a store read (cached, at most once per process). With no
+/// matching record the inner response is returned with no extra request. A
+/// matching record gets a *forced* [`ForceBearerAuth`] retry (stores hold
+/// bearer credentials only). Any 4xx escalates (GitLab-style hosts answer
+/// 404 on bad auth) except 429: rate limiting is not an auth verdict.
 ///
 /// The store lookup uses the initial request URL; as with
 /// [`RestrictAuthentication`], redirect targets are not re-checked.
@@ -805,10 +798,7 @@ where
     }
 
     /// A policy over an already-read snapshot of the store's records: the
-    /// cache is seeded from `records` and no store is ever touched. For
-    /// hosts that read the store once and share the snapshot between this
-    /// policy and their own credential selection (`auth whoami`'s
-    /// single-read guarantee).
+    /// cache is seeded from `records` and no store is ever touched.
     pub fn preloaded(inner: Inner, records: &[CredentialRecord]) -> Self {
         Self {
             inner,
@@ -817,8 +807,7 @@ where
         }
     }
 
-    /// The eager env-credential policy this layer wraps. Publish extracts
-    /// its bearer map from here without touching the store.
+    /// The eager env-credential policy this layer wraps.
     pub fn env_policy(&self) -> &Inner {
         &self.inner
     }
@@ -847,10 +836,9 @@ where
             .await
     }
 
-    /// One direct store read for callers outside the async runtime
-    /// (publish's credential selection). Bypasses the request path's
-    /// cache; errors degrade to an empty map under
-    /// [`read_stored_bearer_map`]'s warning semantics.
+    /// One direct store read for callers outside the async runtime.
+    /// Bypasses the request path's cache; errors degrade to an empty map
+    /// under [`read_stored_bearer_map`]'s warning semantics.
     pub fn read_stored_bearer_map_direct(&self) -> GlobMap<StoredBearerAuth> {
         match &self.store {
             None => GlobMap::default(),
@@ -861,14 +849,11 @@ where
 
 /// Read all stored records and build the URL-glob to bearer map.
 ///
-/// Store errors degrade to "no stored credentials" rather than aborting:
-/// the request may still succeed via env credentials or anonymously, and
-/// hard failure is reserved for the `auth` commands.
-/// `BackendAbsent` is debug-only
-/// (the designed env-fallback state on keyring-less hosts; `auth status`
-/// and `auth login` still report it loudly), while every other variant
-/// warns: a keyring exists and something is wrong, so staying quiet would
-/// silently downgrade a logged-in user to unauthenticated requests.
+/// Store errors degrade to "no stored credentials": the request may still
+/// succeed via env credentials or anonymously, and hard failure is reserved
+/// for the `auth` commands. `BackendAbsent` is logged at debug level only
+/// (the designed env-fallback state on keyring-less hosts), while every
+/// other variant warns: a keyring exists and something is wrong.
 fn read_stored_bearer_map<B: BlobBackend>(store: &LockedBlobStore<B>) -> GlobMap<StoredBearerAuth> {
     let records = match store.list() {
         Ok(records) => records,
@@ -891,15 +876,13 @@ fn read_stored_bearer_map<B: BlobBackend>(store: &LockedBlobStore<B>) -> GlobMap
     stored_bearer_map_from_records(&records)
 }
 
-/// Build the URL-glob to bearer map from credential records. Also the
-/// stored-source map for whoami's credential selection, which reads the
-/// records once and shares the snapshot with its discovery policy.
+/// Build the URL-glob to bearer map from credential records.
 pub(crate) fn stored_bearer_map_from_records(
     records: &[CredentialRecord],
 ) -> GlobMap<StoredBearerAuth> {
     let mut builder = GlobMapBuilder::new();
     for record in records {
-        // Exhaustive on purpose: adding a scheme must revisit this map.
+        // Exhaustive: adding a scheme must revisit this map.
         match record.scheme {
             CredentialScheme::Bearer => {}
         }
@@ -912,7 +895,7 @@ pub(crate) fn stored_bearer_map_from_records(
         );
         for glob in &record.globs {
             // Validate each glob individually so one invalid pattern skips
-            // only itself, not every stored credential.
+            // only itself.
             if let Err(err) = GlobBuilder::new(glob).literal_separator(true).build() {
                 log::warn!(
                     "ignoring invalid stored credential URL pattern `{glob}` for `{}`:\n{err}",

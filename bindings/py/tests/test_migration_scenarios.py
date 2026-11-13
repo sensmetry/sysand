@@ -126,7 +126,7 @@ def test_add_when_missing(make_baseline: MakeBaseline) -> None:
     )
     manifest = json.loads(baseline.manifest.read_text())
     assert manifest["usage"] == [usage(LIBRARY, TARGET_CONSTRAINT)]
-    # A second add merges into the existing usage rather than adding one.
+    # A second add merges into the existing usage.
     assert (
         sysand.add(
             project_dir=baseline.root,
@@ -142,14 +142,16 @@ def test_add_when_missing(make_baseline: MakeBaseline) -> None:
 def test_workspace_detection(baseline: Baseline) -> None:
     # A tool that must not edit a project inside a workspace checks
     # `discover` first: the project root is found, the workspace root only
-    # once a `.workspace.json` appears above the project.
+    # once a `[workspace]` table appears above the project.
     discovery = sysand.discover(path=baseline.root)
     assert discovery["workspace_root"] is None
     assert discovery["project_root"] is not None
     assert os.path.samefile(discovery["project_root"], baseline.root)
 
     workspace = baseline.root.parent
-    (workspace / ".workspace.json").write_text('{"projects": []}\n')
+    (workspace / "model.toml").write_text(
+        f'manifest-version = "1.0"\n\n[workspace]\nmembers = ["{baseline.root.name}"]\n'
+    )
     discovery = sysand.discover(path=baseline.root)
     assert discovery["workspace_root"] is not None
     assert os.path.samefile(discovery["workspace_root"], workspace)
@@ -183,7 +185,7 @@ def test_dependent_excludes_new_version(
     make_baseline: MakeBaseline, mock_index: MockIndex
 ) -> None:
     # `"0.10.1"` is caret: `>=0.10.1, <0.11.0`. The baseline resolves; the
-    # migration cannot, and the failure names the dependent as the reason.
+    # migration cannot, and the failure names the dependent.
     mock_index.publish(DEPENDENT, "1.0.0", usage=[usage(LIBRARY, "0.10.1")])
     baseline = make_baseline(extra_usages=[usage(DEPENDENT, "1.0.0")])
     mock_index.publish(LIBRARY, "0.11.0")
@@ -369,7 +371,7 @@ def test_authenticated_index(
     index.publish(LIBRARY, "0.11.0")
     index.require_bearer("s3cret")
     res = resolution(index)
-    # Globs do not cross `/` (`core/src/auth.rs`); `**` matches every path.
+    # Globs do not cross `/`; `**` matches every path.
     url_glob = index.url + "**"
 
     with pytest.raises(sysand.AuthError):
@@ -383,7 +385,7 @@ def test_authenticated_index(
     listing = sysand.versions(iri=LIBRARY, resolution=res, auth=bearer)
     assert listing["versions"] == ["0.11.0", "0.10.3"]
 
-    # The CLI's own resolution, env vars only (`sysand/src/cred_env.rs`).
+    # The CLI's own resolution, env vars only.
     monkeypatch.setenv("SYSAND_CRED_TEST", url_glob)
     monkeypatch.setenv("SYSAND_CRED_TEST_BEARER_TOKEN", "s3cret")
     from_env = sysand.AuthPolicy.from_env(keyring=False)

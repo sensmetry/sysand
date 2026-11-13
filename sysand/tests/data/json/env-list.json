@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "complete": true,
+  "skipped": [],
+  "escapeHatch": null,
+  "projects": [{ "iri": "urn:dep", "version": "1.0.0" }]
+}

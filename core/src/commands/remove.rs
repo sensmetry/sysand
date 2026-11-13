@@ -5,7 +5,7 @@ use thiserror::Error;
 
 use crate::{
     model::{InterchangeProjectUsageRaw, InterchangeProjectValidationError, UsageRef},
-    project::{ProjectMut, utils::Identifier},
+    project::{ProjectDefinition, ProjectFormat, ProjectMut, ProjectRead as _, utils::Identifier},
 };
 
 #[derive(Error, Debug)]
@@ -17,9 +17,7 @@ pub enum RemoveError<ProjectError> {
     #[error("could not find usage for `{0}`")]
     UsageNotFound(Box<str>),
     /// No `Resource` usage of the IRI exists, but a typed usage of the *same
-    /// project* does. Reserved as an error rather than reported as "not
-    /// found", which would be untrue, so that removing by identifier can
-    /// later be relaxed into removing the typed usage instead.
+    /// project* does.
     #[error(
         "`{identifier}` is declared as {kind} usage, not as a resource usage;\n\
         remove it with `{remove_with}`"
@@ -38,6 +36,63 @@ pub enum RemoveError<ProjectError> {
     MissingInfo,
 }
 
+impl<ProjectError> From<crate::project::ManifestError<ProjectError>> for RemoveError<ProjectError> {
+    fn from(error: crate::project::ManifestError<ProjectError>) -> Self {
+        match error {
+            crate::project::ManifestError::Project(e) => Self::Project(e),
+            crate::project::ManifestError::NoTomlManifest => Self::MissingInfo,
+        }
+    }
+}
+
+impl<ProjectError> From<crate::project::ManifestWriteError<ProjectError>>
+    for RemoveError<ProjectError>
+{
+    fn from(error: crate::project::ManifestWriteError<ProjectError>) -> Self {
+        match error {
+            crate::project::ManifestWriteError::Project(e) => Self::Project(e),
+            crate::project::ManifestWriteError::Unsupported => Self::MissingInfo,
+        }
+    }
+}
+
+/// `remove` on a `model.toml` project.
+///
+/// A manifest entry is matched by its normalized identity whatever its kind,
+/// so the typed usage `acme/lib` removes a `dir` entry. A usage that is not a
+/// `pkg:sysand` PURL or a `publisher/name` pair is never found.
+fn remove_toml<P: ProjectMut>(
+    project: &mut P,
+    usage: &UsageRef<'_>,
+) -> Result<Vec<InterchangeProjectUsageRaw>, RemoveError<P::Error>> {
+    use crate::manifest::{
+        common::{NormalizedIdentity, normalized_identity},
+        edit,
+    };
+    use crate::model::{IndexName, IndexPublisher};
+
+    let not_found = || RemoveError::UsageNotFound(usage.to_string().into_boxed_str());
+    let identity = match usage {
+        UsageRef::Typed(publisher, name) => {
+            let publisher = IndexPublisher::parse(publisher.as_str())
+                .map_err(|_not_an_identity| not_found())?;
+            let name = IndexName::parse(name.as_str()).map_err(|_not_an_identity| not_found())?;
+            normalized_identity(&publisher, &name)
+        }
+        UsageRef::Resource(iri) => match NormalizedIdentity::from_purl(iri.as_str()) {
+            Ok(Some(identity)) => identity,
+            Ok(None) | Err(_) => return Err(not_found()),
+        },
+    };
+
+    crate::project::edit_manifest_document(project, |_, document| {
+        edit::remove_usage(document, &identity).map_err(|_not_declared| not_found())
+    })?;
+
+    // A manifest entry has no `.project.json` shape to hand back.
+    Ok(vec![])
+}
+
 /// Remove the usages matching `usage` according to [`UsageRef::matches`]
 pub fn do_remove<P: ProjectMut>(
     project: &mut P,
@@ -47,7 +102,14 @@ pub fn do_remove<P: ProjectMut>(
     let header = crate::style::get_style_config().header;
     log::info!("{header}{removing:>12}{header:#} `{usage}` from usages");
 
-    let Some(mut info) = project.get_info().map_err(RemoveError::Project)? else {
+    // `Both` falls through to the json arm, which refuses it as ambiguous.
+    if project.format().map_err(RemoveError::Project)? == ProjectFormat::Toml {
+        return remove_toml(project, &usage);
+    }
+
+    let Some(ProjectDefinition::Json { mut info, meta: _ }) =
+        project.get_project().map_err(RemoveError::Project)?
+    else {
         return Err(RemoveError::MissingInfo);
     };
     let popped = info.pop_usage(&usage);
@@ -61,8 +123,7 @@ pub fn do_remove<P: ProjectMut>(
 
     match usage {
         // The same project may be declared as a typed usage, which has the
-        // same `Identifier` but is not a resource usage. Saying "not found"
-        // there would be false.
+        // same `Identifier` but is not a resource usage.
         UsageRef::Resource(iri) => {
             if let Some(usage) = info.usage.iter().find(|usage| {
                 usage.is_typed()
@@ -76,16 +137,15 @@ pub fn do_remove<P: ProjectMut>(
                 });
             }
         }
-        // The same project may be declared as a typed usage, but with
-        // different spelling
+        // The same project may be declared as a typed usage with a
+        // different spelling.
         // FIXME: a respelling is only found when it gets the same kind of
-        // identifier as the declared spelling (see
-        // `Identifier::from_project`). E.g. with `ACME Inc./Foo` declared
+        // identifier as the declared spelling. E.g. with `ACME Inc./Foo` declared
         // (`urn:sysand:acme-inc/foo`), `Acme Inc./FOO` is reported as spelled
         // differently, but `ACME Inc/Foo` (`pkg:sysand/acme-inc/foo`) only as
         // not found
         UsageRef::Typed(publisher, name) => {
-            let identifier = Identifier::from_pub_name(publisher, name);
+            let identifier = Identifier::from_project(publisher, name);
             if let Some(
                 InterchangeProjectUsageRaw::Directory {
                     publisher: p,
@@ -131,6 +191,11 @@ fn remove_command(usage: &InterchangeProjectUsageRaw) -> String {
         InterchangeProjectUsageRaw::Resource {
             resource,
             version_constraint: _,
+        }
+        | InterchangeProjectUsageRaw::RemoteKpar {
+            kpar_url: resource,
+            publisher: _,
+            name: _,
         } => {
             format!("sysand remove {}", quoted(resource))
         }

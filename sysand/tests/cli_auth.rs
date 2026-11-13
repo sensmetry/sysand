@@ -6,10 +6,9 @@
 //! These tests pin the CLI-level contracts: end-to-end flows (login
 //! stores, status lists, logout removes), exit codes per failure class,
 //! and secret-safety (secrets never appear in any output). Exact output
-//! formatting is deliberately not pinned, apart from one compact golden
+//! formatting is not pinned, apart from one compact golden
 //! canary for `auth status`. Tests that touch the credential store run
-//! against the debug-only seam (`SYSAND_TEST_CREDENTIAL_STORE`,
-//! sysand/src/credential_store.rs): a file-backed blob store, or a
+//! against the debug-only seam (`SYSAND_TEST_CREDENTIAL_STORE`): a file-backed blob store, or a
 //! simulated-absent backend, so no test can ever touch a real OS keyring.
 
 use std::fs;
@@ -94,7 +93,7 @@ fn bare_auth_logout_with_multiple_env_defaults_asks_for_an_explicit_url() -> Tes
     let (_temp_dir, _cwd, out) = run_sysand_with(
         ["auth", "logout"],
         None,
-        &default_index_env("https://a.example,https://b.example"),
+        &default_index_env("https://acme.example,https://bravo.example"),
     )?;
     out.assert()
         .failure()
@@ -162,7 +161,7 @@ fn auth_status_errors_on_a_label_less_env_credential() -> TestResult {
     // credential-using command, with the identical message.
     let (_store_dir, store_path) = seam_store()?;
     let mut env = seam_env(&store_path);
-    env.insert("SYSAND_CRED".to_owned(), "https://a.org".to_owned());
+    env.insert("SYSAND_CRED".to_owned(), "https://acme.org".to_owned());
 
     let (_temp_dir, _cwd, out) = run_sysand_with(["auth", "status"], None, &env)?;
     out.assert().failure().stderr(predicate::str::contains(
@@ -518,7 +517,7 @@ fn auth_status_shows_identity_learned_by_a_validating_login() -> TestResult {
         .stdout(predicate::str::contains("subject: user alice"))
         .stdout(predicate::str::contains("token prefix: sysand_u_1a2b3c4d"))
         .stdout(predicate::str::contains("expires in"))
-        // A pre-B12 blob has no `validated` field: shown as the
+        // A blob from an older sysand has no `validated` field: shown as the
         // security-relevant "not validated", never a silent default.
         .stdout(predicate::str::contains("not validated"))
         .stdout(predicate::str::contains("sekrit-status-tok").not());

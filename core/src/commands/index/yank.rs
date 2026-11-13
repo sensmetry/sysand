@@ -49,8 +49,7 @@ pub enum IndexYankError {
 
 pub fn do_index_yank<R: AsRef<Utf8Path>, I: AsRef<str>, V: AsRef<str>>(
     iri: I,
-    // It's String and not semver::Version because it's good to allow yanking a non-semantic
-    // version
+    // A String, so a non-semantic version can be yanked
     version: V,
     index_root: R,
 ) -> Result<(), IndexYankError> {
@@ -59,7 +58,6 @@ pub fn do_index_yank<R: AsRef<Utf8Path>, I: AsRef<str>, V: AsRef<str>>(
         return Err(IndexYankError::IndexRootNotFound(index_root.into()));
     }
     let index_path = index_root.join(INDEX_FILE_NAME);
-    // This is here for better error reporting
     let (_, index_value) =
         open_json_file::<IndexJson>(&index_path, false).map_err(|e| match e {
             JsonFileError::FileDoesNotExist(e) => IndexYankError::NotAnIndex {
@@ -83,14 +81,13 @@ pub fn do_index_yank<R: AsRef<Utf8Path>, I: AsRef<str>, V: AsRef<str>>(
     let yanking = "Yanking";
     let header = crate::style::get_style_config().header;
 
-    // Specifically don't report any errors if the version is not a valid semver,
-    // since if the project with invalid semver got in there somehow, it should
-    // be possible to yank
+    // The version is not required to be valid semver, so that an entry with
+    // an invalid version can still be yanked.
     let version = version.as_ref();
     log::info!("{header}{yanking:>12}{header:#} {iri} version {version}");
 
     let mut yanked: usize = 0;
-    // This instead .iter_mut() to appease the borrow checker
+    // Indexed to appease the borrow checker
     for i in 0..versions_value.versions.len() {
         let version_entry = &mut versions_value.versions[i];
         if version_entry.version == version {

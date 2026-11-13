@@ -8,9 +8,10 @@ use std::{
 
 use sysand_core::{
     manifest::edit::DocumentMut,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsageRaw},
     project::{
-        CanonicalizationError, ProjectChecksum, ProjectMut, ProjectRead, memory::InMemoryProject,
+        CanonicalizationError, ProjectChecksum, ProjectDefinition, ProjectMut, ProjectRead,
+        memory::InMemoryProject,
     },
 };
 
@@ -68,7 +69,9 @@ fn macro_get_project() {
         usage: vec![],
     };
     let meta = InterchangeProjectMetadataRaw {
-        index: indexmap::IndexMap::new(),
+        index: Some(indexmap::IndexMap::new()),
+        root: None,
+        exports: None,
         created: "0000-00-00T00:00:00.123456789Z".to_owned(),
         metamodel: None,
         includes_derived: None,
@@ -84,7 +87,13 @@ fn macro_get_project() {
         source_may_offer_multiple_versions: false,
     });
 
-    assert_eq!(test_double.get_project().unwrap(), (Some(info), Some(meta)));
+    assert_eq!(
+        test_double
+            .get_project()
+            .unwrap()
+            .and_then(ProjectDefinition::into_json),
+        Some((info, meta))
+    );
 }
 
 #[test]
@@ -136,17 +145,20 @@ fn macro_put_info() {
     };
     let mut project = OneVariantProjectMut::Variant(InMemoryProject::new());
 
-    assert!(project.get_info().unwrap().is_none());
+    assert!(project.get_project().unwrap().is_none());
 
     project.put_info(&info, false).unwrap();
 
-    assert_eq!(project.get_info().unwrap().unwrap(), info);
+    let OneVariantProjectMut::Variant(inner) = &project;
+    assert_eq!(inner.info.as_ref(), Some(&info));
 }
 
 #[test]
 fn macro_put_meta() {
     let meta = InterchangeProjectMetadataRaw {
-        index: indexmap::IndexMap::new(),
+        index: Some(indexmap::IndexMap::new()),
+        root: None,
+        exports: None,
         created: "0000-00-00T00:00:00.123456789Z".to_owned(),
         metamodel: None,
         includes_derived: None,
@@ -155,11 +167,12 @@ fn macro_put_meta() {
     };
     let mut project = OneVariantProjectMut::Variant(InMemoryProject::new());
 
-    assert!(project.get_meta().unwrap().is_none());
+    assert!(project.get_project().unwrap().is_none());
 
     project.put_meta(&meta, false).unwrap();
 
-    assert_eq!(project.get_meta().unwrap().unwrap(), meta);
+    let OneVariantProjectMut::Variant(inner) = &project;
+    assert_eq!(inner.meta.as_ref(), Some(&meta));
 }
 
 #[test]
@@ -210,21 +223,18 @@ struct FixedDigestProject {
 impl ProjectRead for FixedDigestProject {
     type Error = !;
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
-        // Intentionally return None/None: the test asserts the derived
-        // enum returns the *prefetched* digest directly; if the enum
-        // falls through to the trait default it would call `get_info`
-        // and `canonical_meta` here, see None, and return Ok(None) —
-        // which would fail the assertion below.
-        Ok((None, None))
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
+        // No manifest: the derived enum must return the *prefetched* digest
+        // directly rather than fall through to the trait default.
+        Ok(None)
+    }
+
+    fn version(&self) -> Result<Option<String>, Self::Error> {
+        Ok(None)
+    }
+
+    fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
+        Ok(None)
     }
 
     type SourceReader<'a>
@@ -294,11 +304,10 @@ fn macro_generic_mut() {
 
 #[test]
 fn a_derived_project_forwards_a_manifest_write() {
-    // A generated `ProjectMut` enum, so that the write forwarding is
-    // exercised.
+    // A generated `ProjectMut` enum.
     let mut project = OneVariantProjectMut::Variant(InMemoryProject::new());
     let document: DocumentMut =
-        "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n"
+        "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n"
             .parse()
             .expect("a valid manifest document");
 
@@ -310,4 +319,21 @@ fn a_derived_project_forwards_a_manifest_write() {
         project.format().expect("a format"),
         sysand_core::project::ProjectFormat::Toml
     );
+}
+
+#[test]
+fn a_derived_project_forwards_the_manifest_document() {
+    let mut inner = InMemoryProject::new();
+    let document: DocumentMut =
+        "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n"
+            .parse()
+            .expect("a valid manifest document");
+    inner
+        .put_manifest_document(&document, false)
+        .expect("stores a manifest");
+
+    let project = OneVariantProjectMut::Variant(inner);
+    project
+        .manifest_document()
+        .expect("the variant hands back its manifest");
 }

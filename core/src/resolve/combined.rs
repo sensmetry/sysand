@@ -10,20 +10,19 @@ use typed_path::Utf8UnixPath;
 use crate::{
     context::ProjectContext,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{ProjectRead, cached::CachedProject},
+    project::{ProjectFormat, ProjectRead, cached::CachedProject},
     resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead, null::NullResolver},
     utils::format_err,
 };
 
 /// Implements "standard" resolution logic given a set of individual resolvers.
-/// Use sysand::resolve::null::NullResolver to skip any of the steps.
+/// Use [`NullResolver`] to skip any of the steps.
 /// The logic is as follows:
-/// 1. Do not resolve any further if file_resolver is successful, or rejected the usage
-///    (i.e. it is a path). NotFound allows fallthrough to other resolvers mainly to
-///    accommodate environment resolver, which may resolve the usage by its identifier only
-///    (no other resolvers should resolve such a usage, environment is special here).
-///    Otherwise go to step 2.
+/// 1. Do not resolve any further if file_resolver resolves the usage, or refuses it as
+///    unresolvable. An unsupported usage type or NotFound falls through to the other
+///    resolvers; NotFound does so mainly to accommodate environment resolver, which may
+///    resolve the usage by its identifier only (no other resolvers should resolve such a
+///    usage, environment is special here). Otherwise go to step 2.
 /// 2. If remote_resolver produces any results, discard any that do not point to a valid
 ///    project (i.e. do not produce both a info and meta). If at least one project is found
 ///    proceed to step 4. (skipping 3.)
@@ -41,7 +40,7 @@ use crate::{
 /// - remote_resolver is prioritised, but may be ignored if it does not resolve valid projects
 ///   (typically due to using non-resolving URLs to reference a resource)
 /// - index_resolver wraps a sysand index server and is what will typically be
-///   hit when using non-resolvable IRIs (see `design/index-protocol.md`)
+///   hit by index usages and non-resolvable IRIs
 /// - local_resolver serves to provide a cache, but may contain "dangling" cached projects
 ///
 /// Each resolver is optional, and can be skipped by passing `None`. `NO_RESOLVER` is a typed `None`
@@ -56,8 +55,7 @@ pub struct CombinedResolver<FileResolver, LocalResolver, RemoteResolver, IndexRe
     /// A resolver for whatever is considered remote URLs, would typically resolves
     /// http(s) and git-URLs, as well as, possibly, FTP, rsync, scp, ...
     pub remote_resolver: Option<RemoteResolver>,
-    /// A resolver for a sysand index server. Resolves `pkg:sysand/…`
-    /// IRIs, and also opaque IRIs such as `urn:kpar:`.
+    /// A resolver for a sysand index server.
     pub index_resolver: Option<IndexResolver>,
 }
 
@@ -213,11 +211,11 @@ impl<
 {
     /// The locally cached copy of `project`, if one is waiting to be matched.
     ///
-    /// Matching needs the candidate's canonical checksum, which for a
-    /// remote or index candidate means fetching its `.project.json` and
-    /// `.meta.json`. With nothing left to match there is nothing to gain
-    /// from that, so the probe is skipped — a version listing over an index
-    /// then costs one `versions.json` request, not two more per version.
+    /// Matching needs the candidate's canonical checksum, which for a remote
+    /// or index candidate means fetching its `.project.json` and
+    /// `.meta.json`, so the probe is skipped when nothing is left to match.
+    /// This keeps a version listing over an index to one `versions.json`
+    /// request.
     fn take_cached_local<P: ProjectRead>(
         &mut self,
         project: &P,
@@ -247,6 +245,19 @@ impl<
     IndexResolver: ResolveRead,
 > ResolveRead for CombinedResolver<FileResolver, LocalResolver, RemoteResolver, IndexResolver>
 {
+    /// Only the file resolver reads local paths, so only it is told.
+    #[cfg(feature = "filesystem")]
+    fn within_workspace(
+        mut self,
+        root: camino::Utf8PathBuf,
+        table: std::sync::Arc<crate::manifest::workspace_table::WorkspaceTable>,
+    ) -> Self {
+        self.file_resolver = self
+            .file_resolver
+            .map(|resolver| resolver.within_workspace(root, table));
+        self
+    }
+
     type Error = CombinedResolverError<
         FileResolver::Error,
         LocalResolver::Error,
@@ -271,8 +282,7 @@ impl<
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         let mut at_least_one_supports = false;
 
-        // If the file resolver does not outright reject the IRI type,
-        // use it.
+        // The file resolver goes first.
         // TODO: autodetect git (and possibly other VCSs), and use appropriate (e.g. git) resolver for them.
         if let Some(file_resolver) = &self.file_resolver {
             match file_resolver
@@ -320,13 +330,20 @@ impl<
                                     format_err(err)
                                 );
                             }
+                            // A `model.toml` project has no project hash to
+                            // match by.
+                            Ok(project) if matches!(project.format(), Ok(ProjectFormat::Toml)) => {
+                                log::debug!(
+                                    "local resolver skipping `model.toml` project for {resolve}: it has no project hash"
+                                );
+                            }
                             Ok(project) => match project.checksum_canonical_hex() {
                                 Ok(Some(checksum)) => {
                                     locals.insert(checksum, project);
                                 }
                                 Ok(None) => {
                                     log::debug!(
-                                        "local resolver rejected project {resolve}: no `.project.json` or `.meta.json`",
+                                        "local resolver rejected project {resolve}: no manifest",
                                     );
                                 }
                                 Err(err) => {
@@ -392,7 +409,7 @@ impl<
                                 }
 
                                 match project.get_project() {
-                                    Ok((Some(_), Some(_))) => {
+                                    Ok(Some(_)) => {
                                         // Found at least one nominally valid project
                                         return Ok(ResolutionOutcome::Resolved(CombinedIterator {
                                             state: CombinedIteratorState::ResolvedRemote(
@@ -401,9 +418,9 @@ impl<
                                             locals,
                                         }));
                                     }
-                                    Ok(_) => {
+                                    Ok(None) => {
                                         log::debug!(
-                                            "remote resolver skipping project for {resolve} due to missing info/meta"
+                                            "remote resolver skipping project for {resolve} due to missing manifest"
                                         );
                                         remote_projects.next();
                                     }

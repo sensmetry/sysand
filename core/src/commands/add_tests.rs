@@ -4,7 +4,7 @@
 use crate::{
     add::{AddError, do_add},
     model::{InterchangeProjectInfoRaw, InterchangeProjectUsageRaw},
-    project::memory::InMemoryProject,
+    project::{ProjectMut as _, memory::InMemoryProject},
     utils::format_err,
 };
 use std::assert_matches;
@@ -29,6 +29,9 @@ fn project() -> InMemoryProject {
             usage: vec![],
             website: None,
         }),
+        meta: Some(crate::model::InterchangeProjectMetadataRaw::minimal(
+            "1970-01-01T00:00:00Z".to_owned(),
+        )),
         ..InMemoryProject::default()
     }
 }
@@ -57,6 +60,14 @@ fn kpar(kpar_path: &str, publisher: &str, name: &str) -> InterchangeProjectUsage
     }
 }
 
+fn remote_kpar(kpar_url: &str, publisher: &str, name: &str) -> InterchangeProjectUsageRaw {
+    InterchangeProjectUsageRaw::RemoteKpar {
+        kpar_url: kpar_url.to_owned(),
+        publisher: Some(publisher.to_owned()),
+        name: name.to_owned(),
+    }
+}
+
 fn project_with_usage(usage: InterchangeProjectUsageRaw) -> InMemoryProject {
     let mut project = project();
     project.info.as_mut().unwrap().usage = vec![usage];
@@ -78,7 +89,6 @@ fn add_refuses_a_resource_that_duplicates_a_directory_usage() {
         message.contains("already declared as a directory usage"),
         "{message}"
     );
-    // The duplicate was not appended.
     assert_eq!(project.info.unwrap().usage.len(), 1);
 }
 
@@ -156,8 +166,7 @@ fn add_writes_an_index_usage_as_spelled() {
     );
 }
 
-/// A different constraint replaces the existing one, as `cargo add` does,
-/// so a `*` is never combined with another comparator
+/// A different constraint replaces the existing one, as `cargo add` does.
 #[test]
 fn add_replaces_the_constraint_of_a_usage_spelled_the_same() {
     let mut project = project_with_usage(index("Acme Labs", "My Lib", "^1"));
@@ -277,6 +286,76 @@ fn add_respells_a_path_usage_from_the_same_path() {
     );
 }
 
+/// A located usage already declared as given is left alone
+#[test]
+fn add_ignores_a_located_usage_already_present() {
+    for usage in [
+        directory("lib", "Acme Labs", "My Lib"),
+        kpar("lib.kpar", "Acme Labs", "My Lib"),
+        remote_kpar("https://example.com/lib.kpar", "Acme Labs", "My Lib"),
+    ] {
+        let mut project = project_with_usage(usage.clone());
+
+        assert!(!do_add(&mut project, &usage).unwrap());
+        assert_eq!(project.info.unwrap().usage, [usage]);
+    }
+}
+
+/// A KPAR URL usage of the same project moves to the new URL
+#[test]
+fn add_moves_a_remote_kpar_usage_to_a_new_url() {
+    let mut project = project_with_usage(remote_kpar(
+        "https://example.com/old.kpar",
+        "Acme Labs",
+        "My Lib",
+    ));
+
+    assert!(
+        do_add(
+            &mut project,
+            &remote_kpar("https://example.com/new.kpar", "Acme Labs", "My Lib"),
+        )
+        .unwrap()
+    );
+
+    assert_eq!(
+        project.info.unwrap().usage,
+        [remote_kpar(
+            "https://example.com/new.kpar",
+            "Acme Labs",
+            "My Lib"
+        )]
+    );
+}
+
+/// From the same URL, the project was renamed, so the usage takes the new
+/// spelling
+#[test]
+fn add_respells_a_remote_kpar_usage_from_the_same_url() {
+    let mut project = project_with_usage(remote_kpar(
+        "https://example.com/lib.kpar",
+        "Acme Labs",
+        "My Lib",
+    ));
+
+    assert!(
+        do_add(
+            &mut project,
+            &remote_kpar("https://example.com/lib.kpar", "acme labs", "my lib"),
+        )
+        .unwrap()
+    );
+
+    assert_eq!(
+        project.info.unwrap().usage,
+        [remote_kpar(
+            "https://example.com/lib.kpar",
+            "acme labs",
+            "my lib"
+        )]
+    );
+}
+
 mod spell_index_usage {
     use std::{assert_matches, collections::HashMap};
 
@@ -300,6 +379,9 @@ mod spell_index_usage {
                 usage: vec![],
                 website: None,
             }),
+            meta: Some(crate::model::InterchangeProjectMetadataRaw::minimal(
+                "1970-01-01T00:00:00Z".to_owned(),
+            )),
             ..InMemoryProject::default()
         }
     }
@@ -337,6 +419,28 @@ mod spell_index_usage {
             spell_index_usage(Some(&env), &crate::model::IndexPublisher::parse("Acme Labs".to_owned()).unwrap(), &crate::model::IndexName::parse("My Lib".to_owned()).unwrap(), false),
             Err(IndexSpellingError::Misspelled { spelling, usage: _, version: _ }) if spelling == "ACME Labs/My Lib"
         );
+    }
+
+    /// A project installed under the usage's identifier that declares another
+    /// identity is refused, whether or not the usage is normalized
+    #[test]
+    fn refuses_a_project_that_declares_another_identity() {
+        let env = env(vec![("1.0.0", installed("Globex", "1.0.0"))]);
+        for (publisher, name, normalized) in [
+            ("acme-labs", "my-lib", true),
+            ("ACME Labs", "My Lib", false),
+        ] {
+            assert_matches!(
+                spell_index_usage(
+                    Some(&env),
+                    &crate::model::IndexPublisher::parse(publisher.to_owned()).unwrap(),
+                    &crate::model::IndexName::parse(name.to_owned()).unwrap(),
+                    normalized
+                ),
+                Err(IndexSpellingError::OtherProject { spelling, usage: _, version: _ })
+                    if spelling == "Globex/My Lib"
+            );
+        }
     }
 
     #[test]
@@ -486,3 +590,173 @@ mod index_usage_to_add {
         );
     }
 }
+
+// --- `model.toml` projects --------------------------------------------
+
+const TOML_MANIFEST: &str = "manifest-version = \"1.0\"\n\n\
+                             [project]\n\
+                             publisher = \"acme\"\n\
+                             name = \"app\"\n\
+                             version = \"1.0.0\"\n\
+                             sources = []\n\
+                             # the things we depend on\n\
+                             [[inline-usages]]\n\
+                             publisher = \"acme\"\n\
+                             name = \"lib\"\n\
+                             version = \"^1\"\n";
+
+fn toml_project() -> InMemoryProject {
+    let mut project = InMemoryProject::default();
+    project
+        .put_manifest_document(&TOML_MANIFEST.parse().expect("a manifest"), false)
+        .expect("stores a manifest");
+    project
+}
+
+fn index_usage(project: &str, constraint: &str) -> InterchangeProjectUsageRaw {
+    InterchangeProjectUsageRaw::Index {
+        publisher: "acme".to_owned(),
+        name: project.to_owned(),
+        version_constraint: constraint.to_owned(),
+    }
+}
+
+#[test]
+fn adding_an_index_usage_appends_an_entry() {
+    let mut project = toml_project();
+
+    assert!(do_add(&mut project, &index_usage("other", "^2")).expect("a new usage"));
+
+    let manifest = project.model_toml.clone().expect("a manifest");
+    assert!(manifest.contains("name = \"other\""));
+    assert!(manifest.contains("version = \"^2\""));
+    // The comment that introduces the array is still there.
+    assert!(manifest.contains("# the things we depend on"));
+}
+
+#[test]
+fn adding_a_duplicate_is_not_an_error() {
+    // `false` means the usage was already there and nothing was written.
+    let mut project = toml_project();
+
+    assert!(!do_add(&mut project, &index_usage("lib", "^1")).expect("already present"));
+}
+
+#[test]
+fn adding_a_different_constraint_sets_it() {
+    let mut project = toml_project();
+
+    assert!(do_add(&mut project, &index_usage("lib", "^2")).expect("the constraint changes"));
+
+    let manifest = project.model_toml.clone().expect("a manifest");
+    assert!(manifest.contains("version = \"^2\""));
+    assert!(!manifest.contains("version = \"^1\""));
+}
+
+#[test]
+fn adding_a_resource_usage_is_refused() {
+    let mut project = toml_project();
+
+    for resource in ["urn:kpar:something", "pkg:sysand/acme/other"] {
+        let error = do_add(
+            &mut project,
+            &InterchangeProjectUsageRaw::Resource {
+                resource: resource.to_owned(),
+                version_constraint: Some("^1".to_owned()),
+            },
+        )
+        .expect_err("no manifest form");
+        assert!(
+            error
+                .to_string()
+                .contains("cannot declare a resource usage")
+        );
+    }
+}
+
+#[test]
+fn adding_a_directory_usage_appends_a_dir_entry() {
+    let mut project = toml_project();
+
+    assert!(
+        do_add(
+            &mut project,
+            &InterchangeProjectUsageRaw::Directory {
+                dir: "../other".to_owned(),
+                publisher: "acme".to_owned(),
+                name: "other".to_owned(),
+            }
+        )
+        .expect("a dir usage")
+    );
+
+    assert!(
+        project
+            .model_toml
+            .as_deref()
+            .expect("a manifest")
+            .contains("dir = \"../other\"")
+    );
+}
+
+#[test]
+fn removing_a_usage_takes_its_entry() {
+    let mut project = toml_project();
+
+    crate::commands::remove::do_remove(
+        &mut project,
+        crate::model::UsageRef::Resource(fluent_uri::Iri::parse("pkg:sysand/acme/lib").unwrap()),
+    )
+    .expect("a declared usage");
+
+    assert!(
+        !project
+            .model_toml
+            .as_deref()
+            .expect("a manifest")
+            .contains("name = \"lib\"")
+    );
+}
+
+#[test]
+fn removing_a_dir_entry_by_identity() {
+    // The json arm needs `experimental remove` for a typed usage; a
+    // manifest entry is matched by its identity whatever kind it is.
+    let mut project = toml_project();
+    do_add(
+        &mut project,
+        &InterchangeProjectUsageRaw::Directory {
+            dir: "../other".to_owned(),
+            publisher: "acme".to_owned(),
+            name: "other".to_owned(),
+        },
+    )
+    .expect("a dir usage");
+
+    crate::commands::remove::do_remove(
+        &mut project,
+        crate::model::UsageRef::Resource(fluent_uri::Iri::parse("pkg:sysand/acme/other").unwrap()),
+    )
+    .expect("a dir entry is removed by identity");
+
+    assert!(
+        !project
+            .model_toml
+            .as_deref()
+            .expect("a manifest")
+            .contains("../other")
+    );
+}
+
+#[test]
+fn removing_an_iri_that_is_not_a_purl_is_refused() {
+    let mut project = toml_project();
+
+    crate::commands::remove::do_remove(
+        &mut project,
+        crate::model::UsageRef::Resource(fluent_uri::Iri::parse("urn:kpar:something").unwrap()),
+    )
+    .expect_err("not a project name");
+}
+
+// ---------------------------- the spelling an index usage is written with

@@ -38,7 +38,9 @@ fn minimal_project<S: AsRef<str>, T: AsRef<str>>(name: S, version: T) -> InMemor
             usage: vec![],
         }),
         meta: Some(InterchangeProjectMetadataRaw {
-            index: IndexMap::new(),
+            index: Some(IndexMap::new()),
+            root: None,
+            exports: None,
             created: "1970-01-01T00:00:00.000000000Z".to_owned(),
             metamodel: None,
             includes_derived: None,
@@ -109,9 +111,9 @@ fn prefer_file_resolver_when_successful() {
         index_resolver: single_project_any_resolver(&example_uri, project_b),
     };
 
-    let (info, _) = do_info(&example_uri, &resolver).unwrap();
+    let info = do_info(&example_uri, &resolver).unwrap();
 
-    assert_eq!(info.name, "a");
+    assert_eq!(info.name(), "a");
 }
 
 // TODO: decide and document the resolution policy, in this case: when should
@@ -122,9 +124,6 @@ fn prefer_file_resolver_when_successful() {
 // FileResolver will get the wrong absolute path (due to current env read design,
 // base_path will be the env-internal project path, not the original
 // source of it), and return NotFound, which will abort the resolution.
-// See lock_directory_usage_env_installed_dependency and
-// directory_usage_missing_path_falls_back_to_env_resolver
-// which conflict with this test
 //
 // #[test]
 // fn prefer_file_resolver_even_when_unresolved() {
@@ -147,7 +146,6 @@ fn prefer_file_resolver_when_successful() {
 fn skip_file_resolver_if_unsupported_iri() {
     let example_uri = iri("http://example.com");
 
-    //let project_a = minimal_project("a", "1.2.3");
     let project_b = minimal_project("b", "3.2.1");
 
     let resolver = CombinedResolver {
@@ -157,9 +155,9 @@ fn skip_file_resolver_if_unsupported_iri() {
         index_resolver: single_project_any_resolver(&example_uri, project_b),
     };
 
-    let (info, _) = do_info(&example_uri, &resolver).unwrap();
+    let info = do_info(&example_uri, &resolver).unwrap();
 
-    assert_eq!(info.name, "b");
+    assert_eq!(info.name(), "b");
 }
 
 #[test]
@@ -176,9 +174,9 @@ fn prefer_remote_over_index_if_valid_cached() {
         index_resolver: single_project_any_resolver(&example_uri, project_b),
     };
 
-    let (info, _) = do_info(&example_uri, &resolver).unwrap();
+    let info = do_info(&example_uri, &resolver).unwrap();
 
-    assert_eq!(info.name, "a");
+    assert_eq!(info.name(), "a");
 }
 
 #[test]
@@ -196,9 +194,9 @@ fn prefer_remote_over_index_if_valid_uncached() {
         index_resolver: single_project_any_resolver(&example_uri, project_c),
     };
 
-    let (info, _) = do_info(&example_uri, &resolver).unwrap();
+    let info = do_info(&example_uri, &resolver).unwrap();
 
-    assert_eq!(info.name, "b");
+    assert_eq!(info.name(), "b");
 }
 
 #[test]
@@ -215,9 +213,9 @@ fn skip_remote_if_unsupported_uncached() {
         index_resolver: single_project_any_resolver(&example_uri, project_a),
     };
 
-    let (info, _) = do_info(&example_uri, &resolver).unwrap();
+    let info = do_info(&example_uri, &resolver).unwrap();
 
-    assert_eq!(info.name, "b");
+    assert_eq!(info.name(), "b");
 }
 
 #[test]
@@ -233,9 +231,9 @@ fn skip_remote_if_unsupported_cached() {
         index_resolver: single_project_any_resolver(&example_uri, project_a),
     };
 
-    let (info, _) = do_info(&example_uri, &resolver).unwrap();
+    let info = do_info(&example_uri, &resolver).unwrap();
 
-    assert_eq!(info.name, "a");
+    assert_eq!(info.name(), "a");
 }
 
 #[test]
@@ -251,9 +249,9 @@ fn skip_remote_if_unresolved_cached() {
         index_resolver: single_project_any_resolver(&example_uri, project_a),
     };
 
-    let (info, _) = do_info(&example_uri, &resolver).unwrap();
+    let info = do_info(&example_uri, &resolver).unwrap();
 
-    assert_eq!(info.name, "a");
+    assert_eq!(info.name(), "a");
 }
 
 fn resolve<R: ResolveRead>(
@@ -311,20 +309,16 @@ fn skip_non_semantic_versions() {
         index_resolver: empty_any_resolver(),
     };
 
-    let (info, _) = do_info(&example_uri, &resolver).unwrap();
+    let info = do_info(&example_uri, &resolver).unwrap();
 
-    assert_eq!(info.name, "a");
+    assert_eq!(info.name(), "a");
 }
 
-/// A dependency obtained from an environment (or an index/kpar copy) may
-/// declare a `Directory` usage whose relative path only exists in its
-/// original source tree. When the file resolver cannot find that path on
-/// disk, resolution must fall through to the remaining resolvers, which
-/// resolve the usage by the identifier derived from its publisher/name —
-/// the behaviour established by
-/// `solve::pubgrub_tests::directory_usage_env_transitive`. A typed usage
-/// that hard-fails here would abort the whole solve even though the project
-/// is installed in the environment.
+/// A dependency from an environment (or an index/kpar copy) may declare a
+/// `Directory` usage whose relative path only exists in its original source
+/// tree. When the file resolver cannot find that path, resolution must fall
+/// through to the remaining resolvers, which resolve the usage by its
+/// publisher/name identifier.
 #[cfg(feature = "filesystem")]
 #[test]
 fn directory_usage_missing_path_falls_back_to_env_resolver() {
@@ -343,9 +337,7 @@ fn directory_usage_missing_path_falls_back_to_env_resolver() {
     )]);
 
     let resolver = CombinedResolver {
-        file_resolver: Some(FileResolver {
-            sandbox_roots: None,
-        }),
+        file_resolver: Some(FileResolver::default()),
         local_resolver: Some(EnvResolver { env }),
         remote_resolver: NO_RESOLVER,
         index_resolver: NO_RESOLVER,
@@ -375,9 +367,9 @@ fn directory_usage_missing_path_falls_back_to_env_resolver() {
 
     let projects: Vec<_> = projects.into_iter().collect::<Result<Vec<_>, _>>().unwrap();
     assert_eq!(projects.len(), 1);
-    let info = projects[0].get_info().unwrap().unwrap();
-    assert_eq!(info.name, "widget");
-    assert_eq!(info.version, "1.0.0");
+    let info = projects[0].get_project().unwrap().unwrap();
+    assert_eq!(info.name(), "widget");
+    assert_eq!(info.version(), "1.0.0");
 }
 
 #[test]
@@ -410,15 +402,7 @@ struct CountingProject {
 impl ProjectRead for CountingProject {
     type Error = <InMemoryProject as ProjectRead>::Error;
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    fn get_project(&self) -> Result<Option<crate::project::ProjectDefinition>, Self::Error> {
         self.reads.set(self.reads.get() + 1);
         self.inner.get_project()
     }
@@ -441,6 +425,16 @@ impl ProjectRead for CountingProject {
 
     fn source_may_offer_multiple_versions(&self) -> bool {
         self.inner.source_may_offer_multiple_versions()
+    }
+
+    fn version(&self) -> Result<Option<String>, Self::Error> {
+        self.reads.set(self.reads.get() + 1);
+        self.inner.version()
+    }
+
+    fn usage(&self) -> Result<Option<Vec<crate::model::InterchangeProjectUsageRaw>>, Self::Error> {
+        self.reads.set(self.reads.get() + 1);
+        self.inner.usage()
     }
 
     fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
@@ -521,11 +515,10 @@ fn index_candidates_are_probed_when_a_local_copy_may_match() {
         panic!("expected the IRI to resolve");
     };
     assert_eq!(candidates.count(), 1);
-    // One checksum probe: `checksum_canonical_hex` reads the info and the
-    // metadata separately, and each goes through `get_project`.
+    // One checksum probe, which reads the project once.
     assert_eq!(
         reads.get(),
-        2,
+        1,
         "the one candidate must be probed exactly once to match the waiting local copy"
     );
 }

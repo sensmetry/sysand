@@ -31,7 +31,9 @@ fn project(version: &str) -> InMemoryProject {
             usage: vec![],
         }),
         meta: Some(InterchangeProjectMetadataRaw {
-            index: IndexMap::new(),
+            index: Some(IndexMap::new()),
+            root: None,
+            exports: None,
             created: "2026-01-01T00:00:00Z".to_owned(),
             metamodel: None,
             includes_derived: None,
@@ -98,13 +100,15 @@ fn candidates_without_a_version_are_skipped() {
     assert_eq!(listing.ignored, [] as [std::string::String; 0]);
 }
 
+/// When no candidate declares a version, the error says so for each.
 #[test]
-fn nothing_usable_is_no_semantic_versions_found() {
+fn nothing_usable_is_no_readable_project() {
     let resolver = resolver(vec![InMemoryProject::default()]);
 
     assert_matches!(
         do_versions(&iri(), &resolver).unwrap_err(),
-        InfoError::NoSemanticVersionsFound(found) if found.is_empty()
+        InfoError::NoReadableProject { usage: _, reasons }
+            if reasons == ["a project was found that declares no version"]
     );
 }
 

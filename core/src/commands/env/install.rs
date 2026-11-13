@@ -17,8 +17,8 @@ use crate::{
 #[cfg(feature = "filesystem")]
 use crate::{
     project::{
+        ProjectDefinition,
         local_kpar::{KparInnerPath, LocalKParProject},
-        local_src::LocalSrcProject,
         utils::{FsIoError, Identifier, wrapfs},
     },
     resolve::file::{FileResolverProject, FileResolverProjectError},
@@ -179,8 +179,16 @@ pub enum EnvInstallPathError<InstallError> {
     MissingInfo(Utf8PathBuf),
     #[error(transparent)]
     ProjectRead(#[from] FileResolverProjectError),
+    /// `location` lies under a workspace root without being a member,
+    /// or its workspace cannot be read.
+    #[error(transparent)]
+    Workspace(crate::workspace::model_toml::DiscoverError),
     #[error(transparent)]
     Installation(InstallError),
+    // TODO: install `model.toml` projects, rewriting path usages as a build does.
+    /// `model.toml` projects are used only in place, as editable projects.
+    #[error("`{0}` is a `model.toml` project, which cannot be copied yet")]
+    TomlProject(Utf8PathBuf),
 }
 
 /// Same as [`do_env_install_project`], but installs the project at `location`
@@ -201,13 +209,21 @@ pub fn do_env_install_path<E: WriteEnvironment + ReadEnvironment>(
             None,
         ))
     } else if metadata.is_dir() {
-        FileResolverProject::LocalSrcProject(LocalSrcProject::new_access(location, None))
+        // A member that inherits keys cannot be read without its workspace
+        FileResolverProject::LocalSrcProject(
+            crate::workspace::model_toml::project_at_path(location.to_owned(), None)
+                .map_err(EnvInstallPathError::Workspace)?,
+        )
     } else {
         return Err(EnvInstallPathError::NotFound(location.to_owned()));
     };
 
-    let Some(version) = project.version()? else {
-        return Err(EnvInstallPathError::MissingInfo(location.to_owned()));
+    let version = match project.get_project()? {
+        Some(ProjectDefinition::Toml(_)) => {
+            return Err(EnvInstallPathError::TomlProject(location.to_owned()));
+        }
+        Some(definition) => definition.version(),
+        None => return Err(EnvInstallPathError::MissingInfo(location.to_owned())),
     };
     let checksum = project.checksum_canonical_variant()?;
     do_env_install_project(

@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     ffi::OsString,
     iter,
     sync::{Arc, LazyLock},
@@ -20,24 +20,24 @@ use sysand_core::{
         HTTPAuthentication, StandardHTTPAuthentication, StandardHTTPAuthenticationBuilder,
         StandardLazyHTTPAuthentication,
     },
-    commands::sync::SyncOutcome,
+    cancel::CancellationToken,
+    commands::{lock::DEFAULT_LOCKFILE_NAME, sync::SyncOutcome},
     config::{
         Config,
-        local_fs::{get_config, load_configs, read_config},
+        local_fs::{CONFIG_FILE, get_config, load_configs, read_config},
     },
     context::ProjectContext,
-    discover::{discover_project, discover_workspace},
     env::{
         DEFAULT_ENV_NAME,
         local_directory::{LocalDirectoryEnvironment, metadata::EnvMetadataError},
     },
     index::RemoveTarget,
-    index_location::IndexLocation,
+    index_location::IndexSource,
     lock::Lockfile,
+    manifest::diagnostics::ReadWarning,
     model::InterchangeProjectUsage,
     project::{
         any::{AnyProject, OverrideProject},
-        local_src::LocalSrcProject,
         reference::ProjectReference,
         utils::{Identifier, wrapfs},
     },
@@ -46,12 +46,14 @@ use sysand_core::{
         net_utils::{HttpOptions, create_reqwest_client_with},
     },
     stdlib::known_std_libs,
-    workspace::Workspace,
+    utils::ProvidedProjects,
+    workspace::model_toml::Selector,
+    workspace_lock::{ExclusiveLock, LockMode},
 };
 use url::Url;
 
 use crate::{
-    cli::{Args, AuthCommand, Command, EnvCommand, IndexCommand, Metamodel},
+    cli::{Args, AuthCommand, Command, EnvCommand, IndexCommand},
     commands::{
         add::command_add,
         auth::{command_auth_login, command_auth_logout, command_auth_status, command_auth_whoami},
@@ -62,24 +64,28 @@ use crate::{
         exclude::command_exclude,
         include::command_include,
         index::{command_index_add, command_index_init, command_index_remove, command_index_yank},
-        info::{LocalProjectKind, command_info_field, command_info_field_path, command_info_path},
-        init::command_init,
+        info::command_info_path,
+        init::{command_init, parse_metamodel},
         lock::command_lock,
         print_root::command_print_root,
         publish::command_publish,
         remove::command_remove,
-        sources::{command_sources_env, command_sources_project},
-        sync::command_sync,
+        sources::{command_sources_env, command_sources_project, command_sources_workspace},
+        sync::{VerifyStatus, lock_for_sync, sync_context},
     },
+    context::{
+        ContextOptions, Discovered, NotADirectory, NotInProject, Start, config_root_of,
+        context_needs, discover_context,
+    },
+    output::RunReport,
 };
 
 const DEFAULT_INDEX_URL: &str = "https://sysand.com";
 
 /// [`DEFAULT_INDEX_URL`], parsed once
-pub fn default_index_location() -> IndexLocation {
-    static LOCATION: LazyLock<IndexLocation> = LazyLock::new(|| {
-        IndexLocation::parse(DEFAULT_INDEX_URL)
-            .expect("BUG: DEFAULT_INDEX_URL is a valid index URL")
+pub fn default_index_location() -> IndexSource {
+    static LOCATION: LazyLock<IndexSource> = LazyLock::new(|| {
+        IndexSource::parse(DEFAULT_INDEX_URL).expect("BUG: DEFAULT_INDEX_URL is a valid index URL")
     });
     LOCATION.clone()
 }
@@ -91,10 +97,12 @@ pub type CliAuthPolicy = StandardLazyHTTPAuthentication<credential_store::CliBlo
 
 pub mod cli;
 pub mod commands;
+pub mod context;
 pub(crate) mod cred_env;
 pub mod credential_store;
 pub mod env_vars;
 pub mod logger;
+pub mod output;
 pub mod style;
 
 mod error;
@@ -124,20 +132,18 @@ pub enum ProcessOwnership {
     #[default]
     Owned,
     /// A host owns the process and may have installed a logger before the
-    /// first command ran — for the Python bindings, the `pyo3-log` bridge
-    /// every API entry point installs. That is the embedder's arrangement
-    /// rather than an accident, so it is not reported; the level
-    /// `--verbose`/`--quiet` select still applies to the host's logger, and
-    /// only the formatting and the `RUST_LOG` filters are lost. Sysand panic
-    /// hook is not installed.
+    /// first command ran (for example a log bridge installed by the Python
+    /// bindings). That is the embedder's arrangement, so it is not
+    /// reported; the level `--verbose`/`--quiet` select still applies to the
+    /// host's logger, and only the formatting and the `RUST_LOG` filters are
+    /// lost. The crash hook is not installed.
     Embedded,
 }
 
 /// Run the CLI and return the exit code the process should report.
 ///
-/// A number rather than a [`std::process::ExitCode`], which can be returned
-/// from `main` but not inspected: the Python binding has to pass the code on
-/// to a caller of its own. `main.rs` is what wraps it.
+/// Returned as a number, as a [`std::process::ExitCode`] cannot be
+/// inspected.
 ///
 /// For the process's own binary. An embedder wants [`lib_main_with`].
 pub fn lib_main<I, T>(args: I) -> u8
@@ -177,14 +183,12 @@ where
 /// which are only given as clap macro attributes.
 ///
 /// For an embedder with a command line of its own, which parses into
-/// [`cli::GlobalOptions`] and [`cli::Command`] itself rather than handing
-/// Sysand an argument list. Everything after parsing is as in
+/// [`cli::GlobalOptions`] and [`cli::Command`] itself. Everything after parsing is as in
 /// [`lib_main_with`]: the error, if any, is printed to standard error and the
-/// code is 1; otherwise it is 0.
+/// code is 1 (130 if the run was cancelled); otherwise it is 0.
 ///
 /// Unlike [`lib_main_with`], it installs no crash hook, whatever `ownership`
-/// says: a caller that parses its own command line runs Rust code of its own,
-/// and its panics are its own to report.
+/// says.
 ///
 /// Hints beneath an error spell this command line `sysand`; an embedder whose
 /// users type something else wants [`run_parsed_as`].
@@ -208,10 +212,31 @@ pub fn run_parsed_as(
     command: cli::Command,
     ownership: ProcessOwnership,
 ) -> u8 {
-    let Err(err) = run_cli_with(global_opts, command, ownership) else {
-        return 0;
+    // One token per run, cancelled by Ctrl-C when this process is ours
+    // to receive it. An embedder that runs the CLI in its process gets
+    // no signal hook (the hook is never unregistered) and cancels
+    // nothing this way.
+    let cancellation = CancellationToken::new();
+    if matches!(ownership, ProcessOwnership::Owned) {
+        install_ctrl_c(cancellation.clone());
+    }
+    output::begin(global_opts.format);
+    let err = match run_cli_with(global_opts, command, ownership, cancellation.clone()) {
+        Ok(report) => {
+            output::finish_ok(&report);
+            return 0;
+        }
+        Err(err) => err,
     };
     let style = style::ERROR;
+    if cancellation.is_cancelled() {
+        // Whatever error the cancelled step surfaced, the run was
+        // cancelled; 130 is the conventional exit code.
+        output::finish_err("cancelled", "cancelled");
+        eprintln!("{style}error{style:#}: cancelled");
+        return 130;
+    }
+    output::finish_err(&failure_kind(&err), &format!("{err:#}"));
     eprintln!("{style}error{style:#}: {err}");
     let mut causes = err.chain();
     // The first cause is the error itself which is printed already
@@ -219,10 +244,7 @@ pub fn run_parsed_as(
     for cause in causes {
         eprintln!("{style}  caused by:{style:#} {cause}");
     }
-    if let Some(hint) = err
-        .downcast_ref::<CliError>()
-        .and_then(|e| hints::for_error(e, program))
-    {
+    if let Some(hint) = hints::for_error(&err, program) {
         let hint_style = style::NOTE;
         eprintln!("\n{hint_style}hint{hint_style:#}: {hint}");
     }
@@ -252,14 +274,14 @@ fn claim_process(ownership: ProcessOwnership) {
 /// Render, as a string, the long help clap would print for the command
 /// `args` names, invoked as `prog`.
 ///
-/// `prog` is the program name to spell in usage lines, passed separately
-/// rather than as `args[0]`, because callers hold the two apart: an external
-/// command is handed the arguments after its own name.
+/// `prog` is the program name to spell in usage lines. `args` does not
+/// include it, as an external command is handed the arguments after its
+/// own name.
 ///
-/// `args` may name a subcommand path (`["env", "install"]`), and the help
+/// `args` may name a subcommand path (`["env", "list"]`), and the help
 /// returned is that subcommand's. When the arguments are not a valid command
 /// line the result is clap's own error text, complete with its usage hint,
-/// rather than an empty string — the same thing a user would have seen.
+/// as a user would have seen.
 ///
 /// The text is unstyled. The caller prints it through a writer we know
 /// nothing about, so emitting ANSI escapes here would put them into pipes
@@ -288,9 +310,9 @@ where
     match rendered(argv) {
         Ok(help) => help,
         // The appended `--help` was consumed as a value rather than acted
-        // on — `new` takes `trailing_var_arg`, and anything after `--` is
-        // positional too. Ask again through clap's `help` subcommand, which
-        // takes a path of subcommand names and no flags to swallow.
+        // on (anything after `--`, or after a trailing positional, is
+        // positional too). Ask again through clap's `help` subcommand,
+        // which takes subcommand names and no flags to swallow.
         Err(matches) => {
             let mut argv = vec![OsString::from(prog), OsString::from("help")];
             let mut current = &matches;
@@ -317,7 +339,6 @@ fn install_panic_hook() {
     //       also set backtrace style once it's stable, but take
     //       into account the current level
     let default_hook = panic::take_hook();
-    // panic::set_backtrace_style(panic::BacktraceStyle::Short);
     panic::set_hook(Box::new(move |panic_info| {
         std::eprintln!(
             "\n\n\
@@ -366,7 +387,7 @@ pub fn env_auth_policy() -> Result<StandardHTTPAuthentication> {
 /// happens until a request actually needs a stored credential. An
 /// unavailable store is a warning, not an error. With
 /// `use_credential_store == false` the store is never opened and only
-/// `SYSAND_CRED_*` credentials are used — a policy that can never prompt.
+/// `SYSAND_CRED_*` credentials are used, a policy that can never prompt.
 pub fn standard_auth_policy(use_credential_store: bool) -> Result<CliAuthPolicy> {
     let env_auth_policy = env_auth_policy()?;
     if !use_credential_store {
@@ -430,21 +451,101 @@ fn http_options_from(lookup: impl Fn(&str) -> Option<OsString>) -> Result<HttpOp
     })
 }
 
+/// The manifest a project's writing commands touch.
+pub(crate) fn manifest_path(ctx: &ProjectContext) -> Option<Utf8PathBuf> {
+    let project = ctx.current_project()?;
+    Some(match ctx.current_definition() {
+        Some(sysand_core::project::ProjectDefinition::Toml(_)) => project
+            .root_path()
+            .join(sysand_core::manifest::MODEL_TOML_FILE),
+        _ => project.info_path(),
+    })
+}
+
+/// The failure document's `kind`: what a reader such as a retry loop
+/// needs to tell apart. Anything else is `error`.
+fn failure_kind(err: &anyhow::Error) -> String {
+    if err.chain().any(|cause| {
+        matches!(
+            cause.downcast_ref::<sysand_core::workspace_lock::LockError>(),
+            Some(sysand_core::workspace_lock::LockError::Held { root: _ })
+        )
+    }) {
+        return "lock-held".to_owned();
+    }
+    if err
+        .chain()
+        .any(|cause| cause.downcast_ref::<VerifyFailed>().is_some())
+    {
+        return "verify".to_owned();
+    }
+    "error".to_owned()
+}
+
+/// `sync --verify` found problems: a typed failure so the JSON kind is
+/// `verify` and the text is the one message.
+#[derive(Debug, thiserror::Error)]
+#[error("`.sysand` does not match `sysand-lock.toml`{after}: {count} problem(s){remain}",
+    after = .repaired.map_or_else(String::new, |n| format!(" after repairing {n} project(s)")),
+    remain = if .repaired.is_some() { " remain" } else { "" })]
+pub struct VerifyFailed {
+    pub count: usize,
+    /// How many projects `--repair` reinstalled; `None` for `--verify`.
+    pub repaired: Option<usize>,
+}
+
+/// Cancel `token` on the first Ctrl-C and exit with 130 on the second.
+///
+/// On its own thread with its own small runtime: the command's runtime is
+/// current-thread and polls only inside `block_on`, so a handler spawned
+/// there would sleep through every synchronous step (an extraction, a
+/// clone) and could never offer the second, immediate exit.
+#[expect(
+    clippy::exit,
+    reason = "the second Ctrl-C is the user's demand to stop now, whatever step is in flight"
+)]
+fn install_ctrl_c(token: CancellationToken) {
+    let spawned = std::thread::Builder::new()
+        .name("sysand-ctrl-c".to_owned())
+        .spawn(move || {
+            let Ok(runtime) = sysand_core::cancel::current_thread_runtime() else {
+                return;
+            };
+            runtime.block_on(async move {
+                if tokio::signal::ctrl_c().await.is_err() {
+                    return;
+                }
+                eprintln!(
+                    "cancelling; the step in flight finishes first (press again to exit now)"
+                );
+                token.cancel();
+                if tokio::signal::ctrl_c().await.is_ok() {
+                    std::process::exit(130);
+                }
+            });
+        });
+    if let Err(err) = spawned {
+        log::debug!("no Ctrl-C handler: {err}");
+    }
+}
+
 fn run_cli_with(
     global_opts: cli::GlobalOptions,
     command: cli::Command,
     ownership: ProcessOwnership,
-) -> Result<()> {
+    cancellation: CancellationToken,
+) -> Result<RunReport> {
     sysand_core::style::set_style_config(crate::style::CONFIG);
 
-    let cwd = wrapfs::current_dir()?;
+    // Discovery needs it canonical.
+    let cwd = wrapfs::canonicalize(wrapfs::current_dir()?)?;
     let log_level = get_log_level(global_opts.verbose, global_opts.quiet);
     if logger::init(log_level).is_err() {
         // Someone else owns the one global logger. The level still reaches it
-        // — `set_max_level` is not the logger's to keep — so `--verbose` and
-        // `--quiet` work either way, and what is actually lost is this
-        // crate's formatting and the `RUST_LOG` filters `logger::init`
-        // parses. Set the level first, so the note below can pass it.
+        // (`set_max_level` is not the logger's to keep), so `--verbose` and
+        // `--quiet` work either way; what is lost is this crate's formatting
+        // and the `RUST_LOG` filters. Set the level first, so the note below
+        // can pass it.
         log::set_max_level(log_level);
         match ownership {
             ProcessOwnership::Owned => {
@@ -466,37 +567,95 @@ fn run_cli_with(
     }
     log::debug!("sysand v{}", env!("CARGO_PKG_VERSION"));
 
-    let current_project = discover_project(&cwd)?;
-    let current_workspace = discover_workspace(&cwd)?;
-    let env = match (&current_workspace, &current_project) {
-        // TODO: does it make sense to support env unassociated with a project
-        // when index and env are different?
-        (None, None) => get_env(&cwd),
-        (None, Some(pr)) => get_env(pr.root_path()),
-        (Some(w), _) => get_env(w.root_path()),
-    }
-    .map_err(CliError::InvalidEnvironment)?;
-    let ctx = ProjectContext {
-        env,
-        current_workspace,
-        current_project,
-        current_directory: cwd,
+    let traits = command_traits(&command);
+    // The commands that act in the current project or workspace read it in
+    // full, once; the rest need only the working directory.
+    let (ctx, selected, project_root, scope) = match context_needs(&command) {
+        Some(needs) => {
+            let start = match needs.start {
+                Start::Cwd => cwd.clone(),
+                Start::Dir(dir) => {
+                    if !wrapfs::metadata(dir)?.is_dir() {
+                        let error = NotADirectory {
+                            dir: dir.to_owned(),
+                        };
+                        let usage = style::USAGE;
+                        return Err(match &command {
+                            Command::Info {
+                                locator,
+                                selector: _,
+                                get: _,
+                                resolution_opts: _,
+                            } if locator.dir.is_some() => {
+                                anyhow::anyhow!(
+                                    "{error}\n\
+                                    {usage}hint:{usage:#} to use a KPAR, use `--kpar-path`"
+                                )
+                            }
+                            _ => error.into(),
+                        });
+                    }
+                    wrapfs::canonicalize(dir)?
+                }
+                Start::NewDir(dir) => {
+                    wrapfs::create_dir_all(dir)?;
+                    wrapfs::canonicalize(dir)?
+                }
+            };
+            let Discovered {
+                ctx,
+                selected,
+                project_root,
+                scope,
+            } = discover_context(
+                start,
+                ContextOptions {
+                    consults_workspace: needs.consults_workspace,
+                    selector: needs.selector,
+                    needs_a_member: needs.needs_a_member,
+                    needs_a_project: needs.needs_a_project,
+                    lock_wait: global_opts.lock_wait.map(Duration::from_secs),
+                    cancellation: cancellation.clone(),
+                },
+                |lock_root| traits.lock_mode(lock_root),
+            )?;
+            (Some(ctx), selected, project_root, scope)
+        }
+        None => (None, None, None, None),
     };
-    let project_root = ctx
-        .current_project
+    let (lock_root, config_root, config_start) = match &ctx {
+        Some(ctx) => (
+            ctx.state_root(),
+            ctx.config_root.clone(),
+            ctx.current_directory.clone(),
+        ),
+        None => (cwd.clone(), config_root_of(&cwd)?, cwd.clone()),
+    };
+    let model_workspace_root = ctx
         .as_ref()
-        .map(|p| p.root_path().to_owned());
+        .and_then(|ctx| ctx.model_workspace_root().map(Utf8Path::to_owned));
 
     let auto_config = if global_opts.no_config {
         Config::default()
     } else {
-        #[expect(clippy::or_fun_call, reason = "cheap")]
-        load_configs(project_root.as_deref().unwrap_or(Utf8Path::new(".")))?
+        // A `sysand.toml` under the workspace but not at its root is
+        // ignored with a warning, which `--no-config` silences.
+        if traits.reads_configuration {
+            for stray in stray_configs(&config_start, &config_root)? {
+                log::warn!(
+                    "{}",
+                    ReadWarning::IgnoredSourceOverrides {
+                        path: stray.to_string()
+                    }
+                );
+            }
+        }
+        load_configs(&config_root)?
     };
 
     let mut config = match &global_opts.config_file {
         // `add` creates the file to write the source to.
-        Some(config_file) if matches!(&command, Command::Add { source_opts, locator: _, version_constraint: _, sync: _, resolution_opts: _ } if source_opts.is_given()) => {
+        Some(config_file) if matches!(&command, Command::Add { selector: _, source_opts, locator: _, version_constraint: _, sync: _, resolution_opts: _ } if source_opts.is_given()) => {
             get_config(config_file)?
         }
         Some(config_file) => read_config(config_file)?,
@@ -506,32 +665,41 @@ fn run_cli_with(
     config.merge(auto_config);
 
     let http_options = http_options_from_env()?;
-    let client = create_reqwest_client_with(http_options)?;
+    // Built only by the commands that reach the network.
+    let client = || create_reqwest_client_with(http_options);
 
-    let runtime = Arc::new(
-        tokio::runtime::Builder::new_current_thread()
-            .enable_io()
-            .enable_time()
-            .build()
-            .unwrap(),
-    );
+    let runtime = Arc::new(sysand_core::cancel::current_thread_runtime().unwrap());
 
     let _runtime_keep_alive = runtime.clone();
 
-    // The `auth` commands manage credentials rather than use them, so
-    // they dispatch before the eager env-policy build below. `status`
-    // applies the same strict `SYSAND_CRED_*` validation on its own;
-    // malformed auth-related variables (`SYSAND_CRED_*`) must not break
-    // `login`, `logout`, or `whoami`. Other variables, such as
-    // `SYSAND_HTTP_*`, are validated above for every command. `login`
-    // still gets the shared client and runtime: core handles its
-    // discovery fetch itself (an unauthenticated baseline with a
-    // forced-bearer retry carrying the just-entered secret), so no
-    // ambient auth policy is needed.
+    // The `auth` commands manage credentials rather than use them, so they
+    // dispatch before the eager env-policy build below. `status` applies
+    // the strict `SYSAND_CRED_*` validation on its own; `login`, `logout`,
+    // and `whoami` must keep working even when those variables are
+    // malformed; other variables, such as `SYSAND_HTTP_*`, are validated
+    // above for every command. `login` gets the shared client and runtime
+    // but no ambient auth policy, as core handles its discovery fetch
+    // itself.
     let command = match command {
         Command::Auth { command } => {
+            // `login` prompts, and `status` and `whoami` have no
+            // document (their text form is the only output they have);
+            // the others report a result.
+            if output::is_json() && !matches!(command, AuthCommand::Logout { index_url: _ }) {
+                let name = match command {
+                    AuthCommand::Login {
+                        index_url: _,
+                        token_stdin: _,
+                    } => "auth login",
+                    AuthCommand::Whoami { index_url: _ } => "auth whoami",
+                    _ => "auth status",
+                };
+                bail!("{}", output::not_supported(name));
+            }
             return match command {
-                AuthCommand::Status => command_auth_status(&config),
+                AuthCommand::Status => {
+                    command_auth_status(&config).map(|()| RunReport::new("auth status"))
+                }
                 AuthCommand::Login {
                     index_url,
                     token_stdin,
@@ -539,14 +707,18 @@ fn run_cli_with(
                     index_url,
                     token_stdin,
                     &config,
-                    &client,
+                    &client()?,
                     &http_options,
                     runtime,
-                ),
+                )
+                .map(|()| RunReport::new("auth login")),
                 AuthCommand::Whoami { index_url } => {
-                    command_auth_whoami(index_url, &config, &client, &http_options, &runtime)
+                    command_auth_whoami(index_url, &config, &client()?, &http_options, &runtime)
+                        .map(|()| RunReport::new("auth whoami"))
                 }
-                AuthCommand::Logout { index_url } => command_auth_logout(index_url, &config),
+                AuthCommand::Logout { index_url } => {
+                    command_auth_logout(index_url, &config).map(|()| RunReport::new("auth logout"))
+                }
             };
         }
         command => command,
@@ -554,33 +726,46 @@ fn run_cli_with(
 
     let auth_policy = Arc::new(standard_auth_policy(true)?);
 
-    match command {
+    // What a mutating command reports having changed, by kind, computed
+    // before the arguments move into the arms.
+    let report = traits.report(
+        &lock_root,
+        project_root.as_deref(),
+        ctx.as_ref().and_then(manifest_path),
+        &cwd,
+    );
+
+    let outcome: Result<()> = match command {
         Command::Init {
             path,
             name,
             publisher,
             version,
             license,
+            kind,
             metamodel,
             metamodel_release,
-        } => command_init(
-            name,
-            publisher,
-            version,
-            license,
-            metamodel.map(|kind| Metamodel(kind, metamodel_release)),
-            path,
-            ctx,
-        ),
-        Command::New { args: _ } => bail!("use `init` instead of `new`"),
+        } => {
+            let metamodel = metamodel
+                .map(|metamodel| parse_metamodel(&metamodel, metamodel_release))
+                .transpose()?;
+            command_init(
+                name,
+                publisher,
+                version,
+                license,
+                kind.into(),
+                metamodel,
+                path,
+                required(ctx),
+            )
+        }
         Command::Env { command } => match command {
             None => {
-                let env_dir = {
-                    let mut p = project_root.unwrap_or(ctx.current_directory);
-                    p.push(DEFAULT_ENV_NAME);
-                    p
-                };
-                command_env(env_dir)?;
+                // The workspace root first, so a member's `sysand env`
+                // does not create a second environment beside the
+                // workspace's single `.sysand`.
+                command_env(lock_root.join(DEFAULT_ENV_NAME))?;
 
                 Ok(())
             }
@@ -628,7 +813,7 @@ fn run_cli_with(
             //         Ok(())
             //     }
             // }
-            Some(EnvCommand::List) => command_env_list(ctx.env),
+            Some(EnvCommand::List) => command_env_list(required(ctx).env),
             Some(EnvCommand::Sources {
                 locator,
                 version_constraint,
@@ -638,12 +823,11 @@ fn run_cli_with(
                 version_constraint,
                 sources_opts.no_own,
                 sources_opts.deps,
-                ctx.env,
+                required(ctx).env,
             ),
         },
         Command::Index { command } => {
-            let root =
-                |index_root: Option<Utf8PathBuf>| index_root.unwrap_or(ctx.current_directory);
+            let root = |index_root: Option<Utf8PathBuf>| index_root.unwrap_or(cwd);
             match command {
                 IndexCommand::Init { index_root } => command_index_init(root(index_root))?,
                 IndexCommand::Add {
@@ -672,73 +856,104 @@ fn run_cli_with(
             Ok(())
         }
         Command::Lock { resolution_opts } => {
-            if let Some(project_root) = project_root {
-                command_lock(
-                    ".",
-                    resolution_opts,
-                    &config,
-                    project_root,
-                    client,
-                    runtime,
-                    auth_policy,
-                    &ctx,
-                )
-                .map(|_| ())
-            } else {
-                bail!(
-                    "not inside a project - neither current nor any of the parent directories contain a SysML v2 or KerML project"
-                )
-            }
+            // One lockfile for the whole workspace, at its root, from
+            // anywhere under it.
+            let lock = command_lock(
+                resolution_opts,
+                &config,
+                client()?,
+                runtime,
+                auth_policy,
+                &required(ctx),
+            )?;
+            output::lock_document(&lock, &lock_root.join(DEFAULT_LOCKFILE_NAME));
+            Ok(())
         }
         Command::Sync {
             resolution_opts,
             no_prune,
+            verify,
+            repair,
         } => {
-            let provided_iris = if resolution_opts.include_std {
-                HashMap::default()
-            } else {
-                known_std_libs()
-            };
-
-            let project_root = project_root.unwrap_or_else(|| ctx.current_directory.clone());
-            let lock = match Lockfile::try_read(&project_root).map_err(CliError::InvalidLockfile)? {
-                Some(lockfile) => lockfile.into_lock(),
-                None => command_lock(
-                    ".",
-                    resolution_opts,
-                    &config,
-                    &project_root,
-                    client.clone(),
-                    runtime.clone(),
-                    auth_policy.clone(),
-                    &ctx,
-                )?,
-            };
-            let mut local_environment = get_or_create_env(
-                ctx.env,
-                ctx.current_workspace.as_ref(),
-                ctx.current_project.as_ref(),
-                &ctx.current_directory,
+            let mut ctx = required(ctx);
+            let client = client()?;
+            let provided_iris = resolution_opts.provided_iris(ProvidedProjects::default());
+            // The lockfile is read, or written, before the environment is
+            // created, so a failure to lock leaves no environment behind.
+            let (lockfile, fresh) = lock_for_sync(
+                resolution_opts,
+                &config,
+                ProvidedProjects::default(),
+                client.clone(),
+                runtime.clone(),
+                auth_policy.clone(),
+                &ctx,
             )?;
-            command_sync(
-                &lock,
-                project_root,
-                &mut local_environment,
+            if fresh {
+                lockfile.write()?;
+            }
+            let mut outcome = SyncOutcome::default();
+            let status = sync_context(
+                lockfile.lock(),
+                &mut ctx,
+                verify,
+                repair,
+                no_prune,
                 client,
                 &provided_iris,
                 runtime,
                 auth_policy,
-                ctx.current_workspace.as_ref(),
-                no_prune,
-                &mut SyncOutcome::default(),
+                &mut outcome,
             )?;
-            Ok(())
+            let Some(status) = status else {
+                output::sync_document(&outcome);
+                return Ok(report);
+            };
+            output::document(
+                "verify",
+                match status {
+                    VerifyStatus::Clean {
+                        verified,
+                        repaired: _,
+                    } => {
+                        serde_json::json!({ "clean": true, "problems": 0, "verified": verified })
+                    }
+                    VerifyStatus::Problems { count, repaired: _ } => {
+                        serde_json::json!({ "clean": false, "problems": count, "verified": outcome.verified.len() })
+                    }
+                },
+            );
+            output::sync_document(&outcome);
+            return match status {
+                VerifyStatus::Clean {
+                    verified: _,
+                    repaired: _,
+                } => Ok(report),
+                VerifyStatus::Problems { count, repaired } => Err(VerifyFailed {
+                    count,
+                    repaired: repair.then_some(repaired),
+                }
+                .into()),
+            };
         }
         Command::Auth { command: _ } => {
             unreachable!("`auth` is dispatched before the auth policy is built")
         }
-        Command::PrintRoot => command_print_root(ctx.current_directory),
+        // `print-root` prints the workspace root, or the member's with
+        // `--member`.
+        Command::PrintRoot { selector: _ } => match &selected {
+            Some(dir) => {
+                output::document("root", dir.as_str());
+                output::text(|| println!("{dir}"));
+                Ok(())
+            }
+            None => command_print_root(
+                project_root.as_deref(),
+                scope.as_ref().map(|(root, start)| (root.as_path(), start)),
+            ),
+        },
         Command::Info {
+            selector,
             locator,
             get,
             // no_normalise,
@@ -746,44 +961,25 @@ fn run_cli_with(
         } => {
             enum Location {
                 WorkDir,
-                Resolve(ResolutionInfo),
-                Path(Utf8PathBuf, LocalProjectKind),
+                Resolve(Box<ResolutionInfo>),
+                KparPath(Utf8PathBuf),
             }
 
-            let cli::ResolutionOptions {
-                index,
-                default_index,
-                no_index,
-                include_std,
-                // `info` does not solve
-            } = resolution_opts;
-            let index_urls = if no_index {
-                None
-            } else {
-                Some(config.index_urls(index, vec![default_index_location()], default_index))
-            };
-            let excluded_usages: HashSet<_> = if include_std {
+            let index_urls = resolution_opts.index_urls(&config);
+            let excluded_usages: HashSet<_> = if resolution_opts.include_std {
                 HashSet::default()
             } else {
                 known_std_libs().into_keys().collect()
             };
 
-            let project_root = project_root.as_ref().unwrap_or(&ctx.current_directory);
-            let overrides = get_overrides(
-                &config,
-                project_root,
-                &client,
-                runtime.clone(),
-                auth_policy.clone(),
-            )?;
-
+            let names_dir = locator.dir.is_some();
             let location = match locator {
                 cli::InfoProjectLocatorArgs {
                     identifier: Some((publisher, name)),
                     dir: None,
                     kpar_path: None,
                     iri: None,
-                } => Location::Resolve(ResolutionInfo::new(
+                } => Location::Resolve(Box::new(ResolutionInfo::new(
                     InterchangeProjectUsage::Index {
                         publisher,
                         name,
@@ -791,25 +987,25 @@ fn run_cli_with(
                         version_constraint: semver::VersionReq::STAR,
                     },
                     None,
-                )),
+                ))),
                 cli::InfoProjectLocatorArgs {
                     identifier: None,
-                    dir: Some(dir),
+                    dir: Some(_),
                     kpar_path: None,
                     iri: None,
-                } => Location::Path(dir, LocalProjectKind::Dir),
+                } => Location::WorkDir,
                 cli::InfoProjectLocatorArgs {
                     identifier: None,
                     dir: None,
                     kpar_path: Some(kpar_path),
                     iri: None,
-                } => Location::Path(kpar_path, LocalProjectKind::Kpar),
+                } => Location::KparPath(kpar_path),
                 cli::InfoProjectLocatorArgs {
                     identifier: None,
                     dir: None,
                     kpar_path: None,
                     iri: Some(iri),
-                } => Location::Resolve(ResolutionInfo::iri(iri)),
+                } => Location::Resolve(Box::new(ResolutionInfo::iri(iri))),
                 cli::InfoProjectLocatorArgs {
                     identifier: None,
                     dir: None,
@@ -819,68 +1015,80 @@ fn run_cli_with(
                 _ => unreachable!(),
             };
 
+            // `--dir`/`--kpar-path`/`--iri` name their own target, so a
+            // workspace selector alongside one is a contradiction.
+            if (names_dir || !matches!(location, Location::WorkDir))
+                && selector.selector() != Selector::Current
+            {
+                bail!(
+                    "`--workspace` and `--member` select a member of the current workspace, \
+                     which `--dir`, `--kpar-path` and `--iri` already answer; pass one or the other"
+                );
+            }
+
             match (location, get) {
                 (Location::WorkDir, get) => {
-                    let Some(current_project) = ctx.current_project else {
-                        bail!(
-                            "run outside of an active project, did you mean to use `--dir`, `--kpar-path` or `--iri`?"
-                        )
-                    };
-                    match get {
-                        Some(field) => command_info_field(&current_project, field),
-                        None => command_info_path(
-                            current_project.root_path(),
-                            LocalProjectKind::Dir,
+                    let ctx = required(ctx);
+                    if let Some(current_project) = ctx.current_project() {
+                        crate::commands::info::command_info_current(
+                            &ctx,
+                            current_project,
+                            get,
                             &excluded_usages,
-                        ),
+                        )
+                    } else {
+                        // All members, from the root or a non-member
+                        // directory under it.
+                        let Some(workspace) = ctx.workspace() else {
+                            if names_dir {
+                                bail!(NotInProject {
+                                    dir: ctx.current_directory
+                                });
+                            }
+                            bail!(
+                                "run outside of an active project, did you mean to use `--dir`, `--kpar-path` or `--iri`?"
+                            )
+                        };
+                        crate::commands::info::command_info_workspace(
+                            workspace,
+                            get,
+                            &excluded_usages,
+                        )
                     }
                 }
-                (Location::Resolve(resolve), None) => crate::commands::info::command_info_resolve(
-                    resolve,
-                    true, // !no_normalise,
-                    client,
-                    index_urls,
-                    &excluded_usages,
-                    overrides,
-                    runtime,
-                    auth_policy,
-                    ctx,
-                ),
-                (Location::Resolve(resolve), Some(field)) => {
-                    crate::commands::info::command_info_field_resolve(
-                        resolve,
-                        field,
+                (Location::Resolve(resolve), get) => {
+                    let client = client()?;
+                    // A relative override path is relative to the file it is
+                    // written in, which in a workspace is the root's.
+                    let overrides = get_overrides(
+                        &config,
+                        &config_root,
+                        &client,
+                        runtime.clone(),
+                        auth_policy.clone(),
+                    )?;
+                    crate::commands::info::command_info_resolve(
+                        *resolve,
+                        get,
                         client,
                         index_urls,
+                        &excluded_usages,
                         overrides,
                         runtime,
                         auth_policy,
-                        ctx,
+                        required(ctx),
                     )
                 }
-                (Location::Path(path, kind), None) => {
-                    command_info_path(&path, kind, &excluded_usages)
-                }
-                (Location::Path(path, kind), Some(field)) => {
-                    command_info_field_path(&path, kind, field)
-                }
+                (Location::KparPath(path), get) => command_info_path(&path, get, &excluded_usages),
             }
         }
-        Command::Edit { dir, edits } => {
-            let project = match dir {
-                Some(dir) => {
-                    if !wrapfs::metadata(&dir)?.is_dir() {
-                        bail!("`{dir}` is not a directory");
-                    }
-                    LocalSrcProject::new_access(dir, None)
-                }
-                None => ctx
-                    .current_project
-                    .ok_or(CliError::MissingProjectCurrentDir)?,
-            };
-            command_edit(project, *edits)
-        }
+        Command::Edit {
+            dir: _,
+            edits,
+            selector: _,
+        } => command_edit(&mut required(ctx), *edits),
         Command::Add {
+            selector: _,
             locator,
             version_constraint,
             resolution_opts,
@@ -897,19 +1105,20 @@ fn run_cli_with(
             config,
             global_opts.config_file,
             global_opts.no_config,
-            ctx,
-            client,
+            required(ctx),
+            client()?,
             runtime,
             auth_policy,
         )
         .map(|_added| ()),
         Command::Remove {
+            selector: _,
             locator,
             sync,
             resolution_opts,
         } => command_remove(
             locator,
-            ctx,
+            required(ctx),
             config,
             global_opts.config_file,
             global_opts.no_config,
@@ -917,32 +1126,48 @@ fn run_cli_with(
             sync.no_sync,
             sync.no_prune,
             resolution_opts,
-            client,
+            client()?,
             runtime,
             auth_policy,
         ),
         Command::Include {
+            selector: _,
             paths,
             compute_checksum: add_checksum,
             no_index_symbols,
-        } => command_include(paths, add_checksum, !no_index_symbols, ctx),
-        Command::Exclude { paths } => command_exclude(paths, ctx),
+        } => command_include(paths, add_checksum, !no_index_symbols, required(ctx)),
+        Command::Exclude { selector: _, paths } => command_exclude(paths, required(ctx)),
         Command::Build {
+            selector: _,
             path,
             compression,
             allow_path_usage,
             keep_index,
         } => {
-            if let Some(current_project) = ctx.current_project {
-                // Even if we are in a workspace, the project takes precedence.
+            // `build` validates the lockfile of its scope when one exists;
+            // parsing it is the validation. Without a lockfile `build`
+            // proceeds, as it resolves no usages.
+            //
+            // A member
+            // never holds its own lockfile, so the workspace root wins.
+            let ctx = required(ctx);
+            if let Some(root) = ctx.sources_root()
+                && let Some(lockfile) = Lockfile::try_read(&root)?
+            {
+                lockfile.lock().warn_release_mismatches();
+            }
+            if let Some(current_project) = ctx.current_project() {
+                // Even in a workspace, the project takes precedence; the
+                // workspace root still decides where the archive goes, as
+                // a workspace has one `output/`.
                 let path = if let Some(path) = path {
                     path
                 } else {
-                    let path = sysand_core::build::default_kpar_path(
-                        &current_project,
-                        ctx.current_workspace.as_ref(),
+                    let path = sysand_core::build::default_kpar_path_of(
+                        crate::commands::build::current_definition_for_build(&ctx)?,
+                        model_workspace_root.as_deref(),
                         current_project.root_path(),
-                    )?;
+                    );
                     if let Some(output_dir) = path.parent()
                         && !wrapfs::is_dir(output_dir)?
                     {
@@ -953,32 +1178,70 @@ fn run_cli_with(
                 command_build_for_project(
                     path,
                     compression.into(),
-                    current_project,
+                    &ctx,
                     !keep_index,
                     allow_path_usage,
                 )
             } else {
-                // If the workspace is also missing, report an error about
-                // missing project because that is what the user is more likely
-                // to be looking for.
-                let current_workspace = ctx
-                    .current_workspace
-                    .ok_or(CliError::MissingProjectCurrentDir)?;
+                let root = model_workspace_root
+                    .expect("BUG: `build` needs a project, and its context has none");
+                let workspace = ctx.workspace().expect("a workspace root means a workspace");
                 let output_dir =
-                    path.unwrap_or_else(|| current_workspace.root_path().join("output"));
+                    path.unwrap_or_else(|| root.join(sysand_core::build::DEFAULT_OUTPUT_NAME));
+
+                // A member has no `output` of its own. Refuse before the
+                // directory is created.
+                let absolute = if output_dir.is_absolute() {
+                    output_dir.clone()
+                } else {
+                    ctx.current_directory.join(&output_dir)
+                };
+                if let Some(member) = workspace
+                    .members()
+                    .iter()
+                    .find(|member| absolute.starts_with(&member.dir))
+                {
+                    bail!(
+                        "`{output_dir}` is inside the member `{}`; a workspace has one build \
+                         output directory, at `{root}`",
+                        member.path.raw
+                    );
+                }
+
                 if !wrapfs::is_dir(&output_dir)? {
                     wrapfs::create_dir(&output_dir)?;
                 }
                 command_build_for_workspace(
                     output_dir,
                     compression.into(),
-                    current_workspace,
+                    workspace,
                     !keep_index,
                     allow_path_usage,
                 )
             }
         }
+        Command::Migrate {
+            path,
+            publisher,
+            metamodel,
+            allow_dirty,
+            allow_no_vcs,
+            resolution_opts,
+        } => crate::commands::migrate::command_migrate(
+            path,
+            publisher,
+            metamodel,
+            allow_dirty,
+            allow_no_vcs,
+            resolution_opts,
+            &config,
+            &required(ctx),
+            client()?,
+            runtime,
+            auth_policy,
+        ),
         Command::Publish {
+            selector: _,
             path,
             index,
             trusted_publishing,
@@ -986,13 +1249,38 @@ fn run_cli_with(
             path,
             index,
             trusted_publishing,
-            &ctx,
+            &required(ctx),
             auth_policy,
-            client,
+            client()?,
             runtime,
         ),
-        Command::Sources { sources_opts } => {
-            command_sources_project(sources_opts.no_own, sources_opts.deps, ctx)
+        Command::Versions {
+            iri,
+            resolution_opts,
+        } => {
+            let index_urls = resolution_opts.index_urls(&config);
+            crate::commands::versions::command_versions(
+                iri,
+                client()?,
+                index_urls,
+                runtime,
+                auth_policy,
+                required(ctx),
+            )
+        }
+        Command::Sources {
+            selector: _,
+            sources_opts,
+        } => {
+            let ctx = required(ctx);
+            match (ctx.current_project(), ctx.workspace()) {
+                // All members from the root or from a non-member directory
+                // under it: a workspace, and no member the directory implies.
+                (None, Some(_)) => {
+                    command_sources_workspace(sources_opts.no_own, sources_opts.deps, ctx)
+                }
+                _ => command_sources_project(sources_opts.no_own, sources_opts.deps, ctx),
+            }
         }
         Command::Clone {
             locator,
@@ -1004,18 +1292,20 @@ fn run_cli_with(
             locator,
             version_constraint,
             target,
-            ctx,
+            cancellation,
             no_deps,
             resolution_opts,
             &config,
-            client,
+            client()?,
             runtime,
             auth_policy,
         ),
         Command::Experimental {} => {
             bail!("No experimental commands are available");
         }
-    }
+    };
+    outcome?;
+    Ok(report)
 }
 
 pub fn iri_or_path_to_iri(
@@ -1041,22 +1331,295 @@ pub fn get_env(
     LocalDirectoryEnvironment::try_read(root.as_ref().join(DEFAULT_ENV_NAME))
 }
 
-/// Unpack `env`, or create an empty environment otherwise
-pub fn get_or_create_env(
-    env: Option<LocalDirectoryEnvironment>,
-    workspace: Option<&Workspace>,
-    project: Option<&LocalSrcProject>,
-    cwd: impl AsRef<Utf8Path>,
-) -> Result<LocalDirectoryEnvironment> {
-    if let Some(env) = env {
+/// The context of a command that has one.
+fn required(ctx: Option<ProjectContext>) -> ProjectContext {
+    ctx.expect("BUG: the command needs a context, and `context_needs` gave it none")
+}
+
+/// Take `ctx`'s environment, or create an empty one at its state root,
+/// holding `ctx`'s lock when it is exclusive.
+pub fn get_or_create_env(ctx: &mut ProjectContext) -> Result<LocalDirectoryEnvironment> {
+    if let Some(env) = ctx.env.take() {
         return Ok(env);
     }
-    let base_path = match (workspace, project) {
-        (None, None) => cwd.as_ref(),
-        (None, Some(pr)) => pr.root_path(),
-        (Some(w), _) => w.root_path(),
-    };
-    command_env(base_path.join(DEFAULT_ENV_NAME))
+    let mut env = command_env(ctx.state_root().join(DEFAULT_ENV_NAME))?;
+    if let Some(lock) = ctx.workspace_lock.clone().and_then(ExclusiveLock::new) {
+        env.hold(lock)?;
+    }
+    Ok(env)
+}
+
+/// What the dispatcher needs to know of a command before it runs it.
+struct CommandTraits {
+    /// The command's name in its result document.
+    name: &'static str,
+    /// What its result document records as changed.
+    changes: Changes,
+    /// The advisory lock it takes at its state root.
+    lock: LockNeed,
+    /// Whether it touches the overrides or the indexes, and so warns about
+    /// a `sysand.toml` elsewhere under the workspace, which is ignored as a
+    /// whole, its `[[index]]` configuration included.
+    reads_configuration: bool,
+}
+
+/// The paths a command's result document records as changed.
+enum Changes {
+    /// None, or what the command reports itself.
+    Nothing,
+    /// The current project's manifest.
+    Manifest,
+    /// The manifest, the lockfile and the environment.
+    ManifestLockfileEnv,
+    Lockfile,
+    Env,
+    /// The build `output/` at the state root.
+    Output,
+    /// A directory the command names, relative to the working directory,
+    /// or the working directory itself.
+    Dir(Option<Utf8PathBuf>),
+}
+
+/// Which advisory lock a command takes: exclusive for the commands that
+/// write `sysand-lock.toml` or `.sysand`, shared for `sync --verify`
+/// (which must not read a torn state), none for commands that write only
+/// a manifest or read. `clone` populates a directory that must be empty
+/// or absent and takes none.
+enum LockNeed {
+    None,
+    Exclusive,
+    Sync { verify: bool, repair: bool },
+}
+
+impl CommandTraits {
+    fn new(name: &'static str, changes: Changes) -> Self {
+        Self {
+            name,
+            changes,
+            lock: LockNeed::None,
+            reads_configuration: false,
+        }
+    }
+
+    fn locking(self, lock: LockNeed) -> Self {
+        Self { lock, ..self }
+    }
+
+    fn reading_configuration(self) -> Self {
+        Self {
+            reads_configuration: true,
+            ..self
+        }
+    }
+
+    fn lock_mode(&self, lock_root: &Utf8Path) -> Option<LockMode> {
+        match self.lock {
+            LockNeed::None => None,
+            LockNeed::Exclusive => Some(LockMode::Exclusive),
+            LockNeed::Sync { verify, repair } => Some(sync_lock_mode(verify, repair, lock_root)),
+        }
+    }
+
+    /// The result document of a mutating command: its name and the paths
+    /// it writes, by kind. A command that fills a document of its own
+    /// overrides this with it.
+    fn report(
+        &self,
+        lock_root: &Utf8Path,
+        project_root: Option<&Utf8Path>,
+        manifest: Option<Utf8PathBuf>,
+        cwd: &Utf8Path,
+    ) -> RunReport {
+        let report = RunReport::new(self.name);
+        let manifest = manifest.or_else(|| project_root.map(Utf8Path::to_path_buf));
+        match &self.changes {
+            Changes::Nothing => report,
+            Changes::Manifest => report.changed_all(manifest),
+            Changes::ManifestLockfileEnv => report
+                .changed_all(manifest)
+                .changed(lock_root.join(DEFAULT_LOCKFILE_NAME))
+                .changed(lock_root.join(DEFAULT_ENV_NAME)),
+            Changes::Lockfile => report.changed(lock_root.join(DEFAULT_LOCKFILE_NAME)),
+            Changes::Env => report.changed(lock_root.join(DEFAULT_ENV_NAME)),
+            Changes::Output => {
+                report.changed(lock_root.join(sysand_core::commands::build::DEFAULT_OUTPUT_NAME))
+            }
+            Changes::Dir(dir) => report.changed(
+                dir.as_ref()
+                    .map_or_else(|| cwd.to_path_buf(), |dir| cwd.join(dir)),
+            ),
+        }
+    }
+}
+
+fn command_traits(command: &cli::Command) -> CommandTraits {
+    use CommandTraits as T;
+    match command {
+        cli::Command::Init {
+            path,
+            name: _,
+            publisher: _,
+            version: _,
+            license: _,
+            kind: _,
+            metamodel: _,
+            metamodel_release: _,
+        } => T::new("init", Changes::Dir(path.clone())),
+        cli::Command::Add {
+            selector: _,
+            locator: _,
+            version_constraint: _,
+            sync: _,
+            resolution_opts: _,
+            source_opts: _,
+        } => T::new("add", Changes::ManifestLockfileEnv)
+            .locking(LockNeed::Exclusive)
+            .reading_configuration(),
+        cli::Command::Remove {
+            selector: _,
+            locator: _,
+            sync: _,
+            resolution_opts: _,
+        } => T::new("remove", Changes::ManifestLockfileEnv)
+            .locking(LockNeed::Exclusive)
+            .reading_configuration(),
+        cli::Command::Include {
+            selector: _,
+            paths: _,
+            compute_checksum: _,
+            no_index_symbols: _,
+        } => T::new("include", Changes::Manifest),
+        cli::Command::Exclude {
+            selector: _,
+            paths: _,
+        } => T::new("exclude", Changes::Manifest),
+        // `migrate`, `clone` and `publish` decide what they write inside
+        // themselves (a deleted json pair, an installed dependency set,
+        // the archives found); the report names the command only.
+        //
+        // `migrate` resolves `http(s)` and `pkg:sysand` usages through an
+        // index, and a one-time conversion should not be quiet about
+        // ignored configuration.
+        cli::Command::Migrate {
+            path: _,
+            publisher: _,
+            metamodel: _,
+            allow_dirty: _,
+            allow_no_vcs: _,
+            resolution_opts: _,
+        } => T::new("migrate", Changes::Nothing).reading_configuration(),
+        // `info` reads (a `--get` fills the `values` document), and counts
+        // as reading the configuration only when it resolves: under
+        // `--iri` or a `<publisher>/<name>` identifier, which is looked up
+        // in the indexes.
+        cli::Command::Info {
+            selector: _,
+            locator,
+            get: _,
+            resolution_opts: _,
+        } => {
+            let info = T::new("info", Changes::Nothing);
+            if locator.iri.is_some() || locator.identifier.is_some() {
+                info.reading_configuration()
+            } else {
+                info
+            }
+        }
+        cli::Command::Edit {
+            dir: _,
+            selector: _,
+            edits: _,
+        } => T::new("edit", Changes::Manifest),
+        cli::Command::Build {
+            selector: _,
+            path: _,
+            compression: _,
+            allow_path_usage: _,
+            keep_index: _,
+        } => T::new("build", Changes::Output),
+        // `publish` is passed no `Config` at all and warns anyway.
+        cli::Command::Publish {
+            selector: _,
+            path: _,
+            index: _,
+            trusted_publishing: _,
+        } => T::new("publish", Changes::Nothing).reading_configuration(),
+        cli::Command::Lock { resolution_opts: _ } => T::new("lock", Changes::Lockfile)
+            .locking(LockNeed::Exclusive)
+            .reading_configuration(),
+        cli::Command::Sync {
+            resolution_opts: _,
+            no_prune: _,
+            verify,
+            repair,
+        } => T::new("sync", Changes::Env)
+            .locking(LockNeed::Sync {
+                verify: *verify,
+                repair: *repair,
+            })
+            .reading_configuration(),
+        // A bare `env` creates the environment; the subcommands read it
+        cli::Command::Env { command } => match command {
+            None => T::new("env", Changes::Env).locking(LockNeed::Exclusive),
+            Some(cli::EnvCommand::List) => T::new("env list", Changes::Nothing),
+            Some(cli::EnvCommand::Sources {
+                locator: _,
+                version_constraint: _,
+                sources_opts: _,
+            }) => T::new("env sources", Changes::Nothing),
+        }
+        .reading_configuration(),
+        cli::Command::Index { command } => {
+            let (name, root) = match command {
+                cli::IndexCommand::Init { index_root } => ("index init", index_root),
+                cli::IndexCommand::Add {
+                    index_root,
+                    iri: _,
+                    kpar_path: _,
+                } => ("index add", index_root),
+                cli::IndexCommand::Yank {
+                    index_root,
+                    iri: _,
+                    version: _,
+                } => ("index yank", index_root),
+                cli::IndexCommand::Remove {
+                    index_root,
+                    iri: _,
+                    target: _,
+                } => ("index remove", index_root),
+            };
+            T::new(name, Changes::Dir(root.clone()))
+        }
+        cli::Command::Clone {
+            locator: _,
+            target: _,
+            version_constraint: _,
+            no_deps: _,
+            resolution_opts: _,
+        } => T::new("clone", Changes::Nothing).reading_configuration(),
+        cli::Command::Sources {
+            selector: _,
+            sources_opts: _,
+        } => T::new("sources", Changes::Nothing),
+        cli::Command::PrintRoot { selector: _ } => T::new("print-root", Changes::Nothing),
+        cli::Command::Versions {
+            iri: _,
+            resolution_opts: _,
+        } => T::new("versions", Changes::Nothing).reading_configuration(),
+        cli::Command::Auth { command: _ } => T::new("auth", Changes::Nothing),
+        cli::Command::Experimental {} => T::new("experimental", Changes::Nothing),
+    }
+}
+
+/// The advisory lock `sync` takes at `lock_root`: shared for a verification
+/// that has a lockfile to read, exclusive otherwise, as `sync` with no
+/// lockfile locks first (writes).
+pub fn sync_lock_mode(verify: bool, repair: bool, lock_root: &Utf8Path) -> LockMode {
+    if verify && !repair && lock_root.join(DEFAULT_LOCKFILE_NAME).is_file() {
+        LockMode::Shared
+    } else {
+        LockMode::Exclusive
+    }
 }
 
 fn get_log_level(verbose: bool, quiet: bool) -> log::LevelFilter {
@@ -1069,6 +1632,28 @@ fn get_log_level(verbose: bool, quiet: bool) -> log::LevelFilter {
 }
 
 pub type Overrides<Policy> = Vec<(Identifier, Vec<OverrideProject<Policy>>)>;
+
+/// Every `sysand.toml` between `cwd` and the workspace root, which is
+/// none when `root` is not a workspace root above `cwd`.
+///
+/// Upward only, and stopping below the root: the root's own file is the
+/// one being used.
+fn stray_configs(cwd: &Utf8Path, root: &Utf8Path) -> Result<Vec<Utf8PathBuf>> {
+    let mut strays = Vec::new();
+    let mut current = Some(cwd);
+    while let Some(dir) = current {
+        if dir == root {
+            return Ok(strays);
+        }
+        let candidate = dir.join(CONFIG_FILE);
+        if wrapfs::is_file(&candidate)? {
+            strays.push(candidate);
+        }
+        current = dir.parent();
+    }
+    // `root` is not an ancestor of `cwd`: no workspace above, nothing ignored.
+    Ok(Vec::new())
+}
 
 pub fn get_overrides<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     config: &Config,
@@ -1090,10 +1675,7 @@ pub fn get_overrides<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
                     runtime.clone(),
                 )?));
             }
-            overrides.push((
-                Identifier::from_iri(&Iri::parse(identifier.as_str())?),
-                projects,
-            ));
+            overrides.push((Identifier::from_iri_owned(identifier.clone()), projects));
         }
     }
     Ok(overrides)

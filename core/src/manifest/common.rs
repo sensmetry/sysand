@@ -5,32 +5,45 @@
 //! `model.toml`: identifiers, maintainers, inheritance markers, the
 //! `stdlib` key and `sources`.
 
+use crate::paths::{RelativePathKind, RelativeUnixPathError, parse_relative_unix_path};
 use std::collections::BTreeSet;
 use std::fmt::Display;
 
 use fluent_uri::Iri;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::Serialize;
 use thiserror::Error;
-use typed_path::Utf8UnixPathBuf;
+use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
-use crate::model::{IndexName, IndexPublisher};
-use crate::purl::PKG_SYSAND_PREFIX;
+use crate::manifest::diagnostics::Diagnostic;
+use crate::model::{IndexName, IndexPublisher, KnownMetamodel};
+use crate::purl::{SysandPurlError, parse_sysand_purl, sysand_purl};
 use crate::symbols::Language;
-use crate::utils::{NormalizeRelativeError, normalize_relative};
+
+/// The publisher a standard-library usage is resolved under.
+///
+/// Such a usage declares no `publisher`, and for the dependency graph
+/// and the lockfile has the identity `(omg, <name>)`.
+pub static OMG_PUBLISHER: std::sync::LazyLock<IndexPublisher> =
+    std::sync::LazyLock::new(|| IndexPublisher::parse("omg").expect("`omg` is a valid publisher"));
 
 impl IndexPublisher {
-    /// model-toml.md "Standard library": "A usage is a standard-library
-    /// usage iff its publisher normalizes to `omg`".
+    /// Whether this publisher normalizes to `omg`.
+    ///
+    /// Only the `stdlib` key is checked this way. A usage is a
+    /// standard-library usage by its `kpar-url`, and an index usage
+    /// published by `omg` is an ordinary usage.
     pub fn is_stdlib_publisher(&self) -> bool {
         self.normalized() == "omg"
     }
 }
 
-/// The normalized identity a project is resolved by (model-toml.md
-/// "Normalization"), and the pair the lockfile records as
-/// `pkg:sysand/<publisher>/<name>`.
+/// The normalized identity a project is resolved by, and the pair the
+/// lockfile records as `pkg:sysand/<publisher>/<name>`.
 ///
-/// Unlike a json project's identity, this one always has a publisher.
+/// A `model.toml` usage that declares no publisher is a standard-library
+/// usage, whose identity is `(omg, <name>)`, so this pair always has a
+/// publisher; a publisher-less json *target* is an error when a toml
+/// usage resolves to it.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct NormalizedIdentity {
     pub publisher: String,
@@ -38,8 +51,17 @@ pub struct NormalizedIdentity {
 }
 
 impl NormalizedIdentity {
+    /// The identity a `pkg:sysand` PURL names: `Ok(None)` for an IRI that
+    /// is not one, an error for a malformed one.
+    pub fn from_purl(iri: &str) -> Result<Option<Self>, SysandPurlError> {
+        Ok(parse_sysand_purl(iri)?.map(|(publisher, name)| Self {
+            publisher: publisher.to_owned(),
+            name: name.to_owned(),
+        }))
+    }
+
     pub fn lock_identifier(&self) -> String {
-        format!("{PKG_SYSAND_PREFIX}{}/{}", self.publisher, self.name)
+        sysand_purl(&self.publisher, &self.name)
     }
 }
 
@@ -56,11 +78,9 @@ pub fn normalized_identity(publisher: &IndexPublisher, name: &IndexName) -> Norm
     }
 }
 
-/// model-toml.md "Standard library": the value of the `stdlib` key, "the
-/// last segment of the IRI at which the library's KPAR is published ...
-/// validated as a single path segment (`[A-Za-z0-9][A-Za-z0-9-]*`) so it
-/// cannot carry `/` or `..` into an IRI". Not inheritable, hence a plain
-/// value.
+/// The value of the `stdlib` key: the last segment of the IRI at which
+/// the library's KPAR is published, validated as a single path segment
+/// (`[A-Za-z0-9][A-Za-z0-9-]*`). Not inheritable, hence a plain value.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct StdlibStem(String);
 
@@ -92,28 +112,14 @@ impl Display for StdlibStem {
     }
 }
 
-impl Serialize for StdlibStem {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        self.0.serialize(serializer)
-    }
-}
-
-impl<'de> Deserialize<'de> for StdlibStem {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let raw = String::deserialize(deserializer)?;
-        Self::parse(raw).map_err(serde::de::Error::custom)
-    }
-}
-
-/// model-toml.md only recognizes a single maintainer shape ("array of
-/// strings, each of the form `name <email>`; both parts are mandatory"),
-/// so this is a plain struct. Each entry stays a string rather than a
-/// `{name, email}` table so that the round-trip to a KPAR's
-/// `.project.json` `maintainer` array is the identity.
+/// A maintainer is a string of the form `name <email>`; both parts are
+/// mandatory. Each entry is a string and displays as the text it was
+/// parsed from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Maintainer {
     pub name: String,
     pub email: String,
+    raw: String,
 }
 
 /// The only way a maintainer string can fail: it is not `name <email>`
@@ -125,60 +131,76 @@ pub struct MaintainerError {
 }
 
 impl Maintainer {
-    /// Both parts are mandatory, so a bare name, a bare `<email>`, or
-    /// malformed text like `some <some-email> strings` is not a
-    /// maintainer at all.
+    /// Both parts are mandatory. The name has no surrounding whitespace and is
+    /// followed by a single space, the email is a single word with an `@`,
+    /// and the string has exactly one `<` and one `>`, which ends it.
     pub fn parse(raw: &str) -> Result<Self, MaintainerError> {
-        let trimmed = raw.trim();
-        if let (Some(open), Some(close)) = (trimmed.find('<'), trimmed.rfind('>'))
-            && open < close
-            && close == trimmed.len() - 1
+        if let Some((before, rest)) = raw.split_once('<')
+            && before.len() >= 2
+            && let Some(name) = before.strip_suffix(' ')
+            && name.trim() == name
+            && let Some(email) = rest.strip_suffix('>')
+            && !name.contains('>')
+            && email.contains('@')
+            && !email.contains(['<', '>'])
+            && !email.contains(char::is_whitespace)
         {
-            let name = trimmed[..open].trim();
-            let email = &trimmed[open + 1..close];
-            if !name.is_empty() && !email.is_empty() {
-                return Ok(Self {
-                    name: name.to_owned(),
-                    email: email.to_owned(),
-                });
-            }
+            return Ok(Self {
+                name: name.to_owned(),
+                email: email.to_owned(),
+                raw: raw.to_owned(),
+            });
         }
         Err(MaintainerError {
-            raw: trimmed.to_owned(),
+            raw: raw.to_owned(),
         })
     }
 }
 
 impl Display for Maintainer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} <{}>", self.name, self.email)
+        f.write_str(&self.raw)
     }
 }
 
-impl Serialize for Maintainer {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        self.to_string().serialize(serializer)
-    }
-}
+/// The keys `urls` admits.
+pub const URL_KEYS: [&str; 3] = ["website", "documentation", "repository"];
 
-impl<'de> Deserialize<'de> for Maintainer {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let s = String::deserialize(deserializer)?;
-        Self::parse(&s).map_err(serde::de::Error::custom)
-    }
+/// The `urls` table, one optional `T` per key of [`URL_KEYS`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UrlsG<T> {
+    pub website: Option<T>,
+    pub documentation: Option<T>,
+    pub repository: Option<T>,
 }
 
 /// The three URLs as concrete values, with no marker left to follow.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct ResolvedUrls {
-    pub website: Option<Iri<String>>,
-    pub documentation: Option<Iri<String>>,
-    pub repository: Option<Iri<String>>,
+pub type ResolvedUrls = UrlsG<Iri<String>>;
+
+impl<T> Default for UrlsG<T> {
+    fn default() -> Self {
+        Self {
+            website: None,
+            documentation: None,
+            repository: None,
+        }
+    }
 }
 
-/// workspaces.md "Explicit inheritance": which group a `<key>.workspace`
-/// marker points at. `workspace = true` selects the implicit default group
-/// (keys written directly in `[workspace]`), `workspace = "group-name"` a
+impl<T> UrlsG<T> {
+    /// Each key with its value, in [`URL_KEYS`] order.
+    pub fn entries(&self) -> impl Iterator<Item = (&'static str, Option<&T>)> {
+        URL_KEYS.into_iter().zip([
+            self.website.as_ref(),
+            self.documentation.as_ref(),
+            self.repository.as_ref(),
+        ])
+    }
+}
+
+/// Which group a `<key>.workspace` marker points at. `workspace = true`
+/// selects the implicit default group (keys written directly in
+/// `[workspace]`), `workspace = "group-name"` a
 /// `[workspace.group.<group-name>]` table.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InheritFrom {
@@ -195,9 +217,7 @@ impl Display for InheritFrom {
     }
 }
 
-/// The literal value of a `workspace` marker, before it is checked. Kept
-/// separate from [`InheritFrom`] so that a value that is not a marker,
-/// `workspace = false` or an invalid group name, can be explained.
+/// The literal value of a `workspace` marker, before it is checked.
 /// Serialized untagged, as the bare `true` or `"group"` a file spells.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(untagged)]
@@ -206,9 +226,7 @@ pub enum InheritMarker {
     Group(String),
 }
 
-/// workspaces.md "Explicit inheritance": "`<group-name>` is a bare TOML
-/// key: letters, digits, `-` and `_`." A marker naming anything else could
-/// never find a `[workspace.group.<group-name>]` table.
+/// A `<group-name>` is a bare TOML key: letters, digits, `-` and `_`.
 pub fn is_valid_group_name(name: &str) -> bool {
     !name.is_empty()
         && name
@@ -254,114 +272,184 @@ impl TryFrom<InheritMarker> for InheritFrom {
     }
 }
 
-/// Why an entry of `sources` is not one (model-toml.md `sources`).
+/// Why an entry of `sources` is not one.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum SourcesError {
-    /// "Entries are relative": an absolute entry has no place in a KPAR.
-    #[error("`sources` entry `{0}` is absolute; entries are relative to the project root")]
-    NotRelative(String),
-    /// A manifest reads the same way on every platform.
-    #[error(
-        "`sources` entry `{0}` contains a backslash `\\`;\n\
-        entries are `/`-separated, so that a manifest reads the same way\n\
-        on every operating system"
-    )]
-    ContainsBackslash(String),
-    #[error("`sources` entry `{0}` contains a NULL character")]
-    ContainsNull(String),
-    /// "An entry that escapes the project root once resolved ... is an
-    /// error, so that every listed file has a place in a KPAR."
-    #[error("`sources` entry `{0}` escapes the project root, so it has no place in a KPAR")]
-    EscapesRoot(String),
-    /// The entry resolves to the project root itself, so it names no file.
-    #[error("`sources` entry `{0}` is the project root, not a source file")]
-    IsRoot(String),
-    /// "an entry with a trailing `/` names a directory and is an error;
-    /// directories and globs are postponed to after v1".
-    #[error(
-        "`sources` entry `{0}` names a directory; every entry names a single file \
-         (directories and globs are postponed to after v1)"
-    )]
-    IsDirectory(String),
-    /// "Two entries that normalize to the same file are a duplicate and
-    /// rejected." Both spellings are reported, since they may differ.
-    #[error("{}", duplicate_message(first, second))]
-    Duplicate { first: String, second: String },
-    /// "Every entry names a KerML (`.kerml`) or SysML (`.sysml`) file, the
-    /// extension compared case-insensitively ...; any other entry is an
-    /// error. Files of other kinds are not listed in `sources`".
-    #[error(
-        "`sources` entry `{0}` is not a KerML (`.kerml`) or SysML (`.sysml`) file; \
-         `sources` lists model files only"
-    )]
-    NotModelFile(String),
+    #[error(transparent)]
+    Path(PathError),
+    /// Two equal entries (compared as written) are a duplicate.
+    #[error("`sources` entry `{0}` is listed more than once")]
+    Duplicate(String),
 }
 
-/// model-toml.md `sources`: "array of paths to the project's source files,
-/// relative to the project root (the directory containing `model.toml`).
-/// Always required for the OMG metamodel: there is no implicit default set
-/// of source files, so a project that has none is written as
-/// `sources = []`."
+/// An array of paths to the project's source files, relative to the
+/// project root (the directory containing `model.toml`). There is no
+/// implicit default set of source files, so a project that has none is
+/// written as `sources = []`.
 ///
-/// Entries are stored *normalized*: "The normalized form is what the
-/// manifest is taken to say: it is what the `checksum` and `index` maps of
-/// a built KPAR are keyed by, and what every command that writes `sources`
-/// writes."
+/// Entries are stored **as written**: that form is what the `checksum`
+/// and `index` maps of a built KPAR are keyed by.
 ///
-/// `sources` "is per-project only: it cannot appear in `[workspace]` and
-/// cannot be inherited by a member ..., since the file layout of one
-/// project says nothing about another's". Refusing an attempted
-/// `sources.workspace = true` with that explanation belongs to whoever
-/// reads the table -- [`crate::manifest::project`] for `[project]`,
-/// [`crate::manifest::workspace_table`] for a group -- since only a
-/// reader knows where the key was written.
+/// `sources` is per-project only: it cannot appear in `[workspace]` and
+/// cannot be inherited, since it describes one project's file layout.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Sources(Vec<Utf8UnixPathBuf>);
 
-impl Sources {
-    /// Normalizes every entry and checks it against the rules of
-    /// [`SourcesError`]. Whether the files exist "is checked only for
-    /// build/publish, as with the license file, so reading a manifest
-    /// never touches them".
-    pub fn new(paths: Vec<Utf8UnixPathBuf>) -> Result<Self, SourcesError> {
-        let mut normalized: Vec<(Utf8UnixPathBuf, String)> = Vec::with_capacity(paths.len());
-        let mut seen = BTreeSet::new();
-        for path in &paths {
-            let raw = path.as_str();
-            if raw.ends_with('/') {
-                return Err(SourcesError::IsDirectory(raw.to_owned()));
-            }
-            let path = normalize_relative(raw).map_err(|e| match e {
-                NormalizeRelativeError::Absolute { path: _ } => {
-                    SourcesError::NotRelative(raw.to_owned())
-                }
-                NormalizeRelativeError::ContainsBackslash { path: _ } => {
-                    SourcesError::ContainsBackslash(raw.to_owned())
-                }
-                NormalizeRelativeError::ContainsNull { path: _ } => {
-                    SourcesError::ContainsNull(raw.to_owned())
-                }
-                NormalizeRelativeError::EscapesRoot { path: _ } => {
-                    SourcesError::EscapesRoot(raw.to_owned())
-                }
-                NormalizeRelativeError::IsRoot { path: _ } => SourcesError::IsRoot(raw.to_owned()),
-            })?;
-            if !seen.insert(path.clone()) {
-                let first = normalized
-                    .iter()
-                    .find(|(seen, _)| *seen == path)
-                    .map_or_default(|(_, first)| first.clone());
-                return Err(SourcesError::Duplicate {
-                    first,
-                    second: raw.to_owned(),
-                });
-            }
-            if Language::guess_from_path(&path).is_none() {
-                return Err(SourcesError::NotModelFile(raw.to_owned()));
-            }
-            normalized.push((path, raw.to_owned()));
+/// What is wrong with one path that should name a model file relative to
+/// the project root: the checks a `sources` entry and a Syside project's
+/// `root` share.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PathProblem {
+    /// Ends in `/`.
+    Directory,
+    /// Contains `\`.
+    Backslash,
+    /// Contains a NUL.
+    Null,
+    /// Absolute on either family of operating system.
+    Absolute,
+    /// Empty, or carrying a `.` or `..` component, or a repeated or
+    /// leading slash.
+    NotStrict,
+    /// Neither `.kerml` nor `.sysml`.
+    NotModelFile,
+}
+
+/// The first shared check the path fails, or `None` if it passes all of them.
+pub fn path_problem(raw: &str) -> Option<PathProblem> {
+    if let Err(error) = parse_relative_unix_path(raw, RelativePathKind::SubFile) {
+        return Some(PathProblem::from(&error));
+    }
+    if Language::guess_from_path(Utf8UnixPath::new(raw)).is_none() {
+        return Some(PathProblem::NotModelFile);
+    }
+    None
+}
+
+impl From<&RelativeUnixPathError> for PathProblem {
+    fn from(error: &RelativeUnixPathError) -> Self {
+        match error {
+            RelativeUnixPathError::Absolute { path: _ } => Self::Absolute,
+            RelativeUnixPathError::ContainsBackslash { path: _ } => Self::Backslash,
+            RelativeUnixPathError::ContainsNull { path: _ } => Self::Null,
+            RelativeUnixPathError::DirectoryPath { path: _ }
+            | RelativeUnixPathError::TrailingSlash { path: _ } => Self::Directory,
+            RelativeUnixPathError::ContainsDoubleSlash { path: _ }
+            | RelativeUnixPathError::ContainsCurrent { path: _ }
+            | RelativeUnixPathError::ContainsParent { path: _ }
+            | RelativeUnixPathError::ContainsNonLeadingParent { path: _ } => Self::NotStrict,
         }
-        Ok(Self(normalized.into_iter().map(|(path, _)| path).collect()))
+    }
+}
+
+impl Display for PathProblem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Directory => {
+                "names a directory; it must name a single model file \
+                 (directories and globs are not admitted)"
+            }
+            Self::Backslash => {
+                "contains a backslash `\\`;\n\
+                 paths are `/`-separated, so that a manifest reads the same way\n\
+                 on every operating system"
+            }
+            Self::Null => "contains a NULL character",
+            Self::Absolute => "is absolute; paths are relative to the project root",
+            Self::NotStrict => {
+                "is not in the form a `sources` entry takes: relative, `/`-separated,\n\
+                 with no `.` or `..` component and no repeated or leading slash"
+            }
+            Self::NotModelFile => "is not a KerML (`.kerml`) or SysML (`.sysml`) file",
+        })
+    }
+}
+
+/// The manifest key a [`PathError`] is about.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PathKey {
+    Sources,
+    Root,
+}
+
+impl Display for PathKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Sources => "`sources` entry",
+            Self::Root => "`root`",
+        })
+    }
+}
+
+/// A `sources` entry or a `root` that breaks one of the [`PathProblem`]
+/// rules.
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
+#[error("{key} `{path}` {problem}")]
+pub struct PathError {
+    pub key: PathKey,
+    pub path: String,
+    pub problem: PathProblem,
+}
+
+impl PathError {
+    pub fn new(key: PathKey, problem: PathProblem, path: &str) -> Self {
+        Self {
+            key,
+            path: path.to_owned(),
+            problem,
+        }
+    }
+}
+
+impl SourcesError {
+    pub(crate) fn path(problem: PathProblem, raw: &str) -> Self {
+        Self::Path(PathError::new(PathKey::Sources, problem, raw))
+    }
+}
+
+/// A Syside project's `root`, checked as a `sources` entry is and kept
+/// **as written**. Whether it is one of the `sources` entries is the
+/// resolver's question, since only a resolved project knows its family.
+pub fn root_path(raw: &str) -> Result<Utf8UnixPathBuf, PathError> {
+    match path_problem(raw) {
+        Some(problem) => Err(PathError::new(PathKey::Root, problem, raw)),
+        None => Ok(Utf8UnixPathBuf::from(raw)),
+    }
+}
+
+impl Sources {
+    /// Checks every entry against the rules of [`SourcesError`] and
+    /// keeps it **as written**. Nothing is resolved (a `..` is an error)
+    /// and the files are not touched.
+    pub fn new(paths: Vec<Utf8UnixPathBuf>) -> Result<Self, SourcesError> {
+        Self::check(paths).map_err(|mut problems| problems.swap_remove(0).1)
+    }
+
+    /// [`Self::new`], refusing with every entry that breaks a rule, with
+    /// its index, in list order; there is at least one. An entry is a
+    /// [`SourcesError::Duplicate`] when it repeats an earlier valid one, so
+    /// each repeat is reported where it is written; one that is also
+    /// invalid is reported as that.
+    pub fn check(paths: Vec<Utf8UnixPathBuf>) -> Result<Self, Vec<(usize, SourcesError)>> {
+        let mut seen = BTreeSet::new();
+        let problems: Vec<_> = paths
+            .iter()
+            .enumerate()
+            .filter_map(|(index, path)| {
+                let raw = path.as_str();
+                let error = match path_problem(raw) {
+                    Some(problem) => SourcesError::path(problem, raw),
+                    None if !seen.insert(raw) => SourcesError::Duplicate(raw.to_owned()),
+                    None => return None,
+                };
+                Some((index, error))
+            })
+            .collect();
+        if problems.is_empty() {
+            Ok(Self(paths))
+        } else {
+            Err(problems)
+        }
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &Utf8UnixPathBuf> {
@@ -377,18 +465,31 @@ impl Sources {
     }
 }
 
-impl Serialize for Sources {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.collect_seq(self.0.iter().map(|path| path.as_str()))
+/// The half of the language rule the metamodel decides.
+///
+/// The spec kind bounds which language a `sources` entry or a `root` may
+/// name. A file the metamodel does not admit is an error naming it, its
+/// key and the metamodel; the fix is the metamodel that admits it, or a
+/// second project for the other language.
+///
+/// `Ok(())` for a path that is not a model file at all: that is
+/// [`PathProblem::NotModelFile`]'s, and it needs no metamodel.
+pub fn admitted_source(
+    key: PathKey,
+    path: &Utf8UnixPath,
+    metamodel: &KnownMetamodel,
+) -> Result<(), Diagnostic> {
+    let Some(language) = Language::guess_from_path(path) else {
+        return Ok(());
+    };
+    if metamodel.spec.admits(language) {
+        return Ok(());
     }
-}
-
-fn duplicate_message(first: &str, second: &str) -> String {
-    if first == second {
-        format!("`sources` entry `{first}` is listed more than once")
-    } else {
-        format!("`sources` entries `{first}` and `{second}` name the same file")
-    }
+    Err(Diagnostic::error(format!(
+        "{key} `{path}` is a {language} file, which the metamodel `{metamodel}` does not \
+         admit;\na KerML project lists `.kerml` files, a SysML project `.sysml` and `.kerml` \
+         files"
+    )))
 }
 
 #[cfg(test)]

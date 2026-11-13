@@ -115,7 +115,9 @@ version = \"0.2\"
             index.insert("Pkg".to_owned(), String::from("Pkg.sysml"));
 
             let meta = InterchangeProjectMetadataRaw {
-                index,
+                index: Some(index),
+                root: None,
+                exports: None,
                 created: format_created_now(),
                 metamodel: None,
                 includes_derived: None,
@@ -203,7 +205,9 @@ version = \"0.2\"
             let mut index = IndexMap::new();
             index.insert("Other".to_owned(), String::from("Other.sysml"));
             let meta = InterchangeProjectMetadataRaw {
-                index,
+                index: Some(index),
+                root: None,
+                exports: None,
                 created: format_created_now(),
                 metamodel: None,
                 includes_derived: None,
@@ -312,7 +316,9 @@ version = \"0.2\"
         index.insert("SomePackage".to_owned(), String::from("SomePackage.sysml"));
 
         let meta = InterchangeProjectMetadataRaw {
-            index,
+            index: Some(index),
+            root: None,
+            exports: None,
             created: format_created_now(),
             metamodel: None,
             includes_derived: None,
@@ -335,7 +341,10 @@ version = \"0.2\"
         })?;
 
         let target_project = directory_environment.get_project(iri.as_str(), "1.2.3")?;
-        let (read_info, read_meta) = target_project.get_project()?;
+        let (read_info, read_meta) = target_project
+            .get_project()?
+            .and_then(sysand_core::project::ProjectDefinition::into_json)
+            .unzip();
 
         assert_eq!(read_info, Some(info.clone()));
         assert_eq!(read_meta, Some(meta.clone()));
@@ -376,7 +385,7 @@ version = \"0.2\"
 
         let resolved_project = do_info(&iri, &resolver)?;
 
-        assert_eq!(resolved_project, (info, meta));
+        assert_eq!(resolved_project.into_json(), Some((info, meta)));
 
         Ok(())
     }

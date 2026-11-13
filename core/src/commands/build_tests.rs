@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use std::assert_matches;
+
 use camino_tempfile::tempdir;
 
-use super::{license_file_stems, read_optional_project_file};
-use crate::project::utils::FsIoError;
+use super::{
+    KParBuildError, KparCompressionMethod, do_build_kpar, license_file_stems,
+    read_optional_project_file,
+};
+use crate::{manifest::MODEL_TOML_FILE, project::utils::FsIoError};
 
 #[test]
 fn returns_none_when_project_root_is_none() {
@@ -90,12 +95,1196 @@ fn license_stems_license_ref() {
 
 #[test]
 fn license_stems_or_later_strips_plus() {
-    // `MIT+` shares its license file with `MIT` per REUSE conventions —
-    // the `+` does not appear in the bundled filename.
+    // `MIT+` shares its license file with `MIT` per REUSE conventions,
+    // so the `+` does not appear in the bundled filename.
     assert_eq!(stems("MIT+"), vec!["MIT".to_owned()]);
 }
 
 #[test]
 fn license_stems_deduplicates() {
     assert_eq!(stems("MIT AND MIT"), vec!["MIT".to_owned()]);
+}
+
+// ------------------------------- building a `model.toml` project
+
+use crate::model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw};
+use crate::project::local_src::LocalSrcProject;
+
+/// A `model.toml` project on disk, with `body` appended to the
+/// `[project]` table, and one source file.
+fn toml_project(body: &str) -> Result<camino_tempfile::Utf8TempDir, Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    std::fs::write(
+        dir.path().join("model.toml"),
+        format!(
+            "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
+             version = \"1.0.0\"\nsources = [\"a.sysml\"]\n{metamodel}{body}",
+            metamodel = if body.contains("metamodel") {
+                ""
+            } else {
+                "metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n"
+            }
+        ),
+    )?;
+    std::fs::write(dir.path().join("a.sysml"), b"package A;\n")?;
+    Ok(dir)
+}
+
+/// Build it, and read the pair back out of the archive.
+fn built(
+    dir: &camino_tempfile::Utf8TempDir,
+    allow_path_usage: bool,
+) -> Result<
+    (InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw),
+    KParBuildError<crate::project::local_src::LocalSrcError>,
+> {
+    let project = LocalSrcProject::new_access(dir.path(), None);
+    let path = dir.path().join("out.kpar");
+    let kpar = do_build_kpar(
+        &project,
+        &path,
+        KparCompressionMethod::default(),
+        true,
+        allow_path_usage,
+    )?;
+    Ok(crate::project::ProjectRead::get_project(&kpar)
+        .expect("the pair reads")
+        .and_then(crate::project::ProjectDefinition::into_json)
+        .expect("the pair"))
+}
+
+#[test]
+fn a_toml_project_builds() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = toml_project("")?;
+    let (info, _) = built(&dir, false)?;
+    assert_eq!(info.name, "widgets");
+    assert_eq!(info.version, "1.0.0");
+    Ok(())
+}
+
+/// `created` is the time of the build, so two builds of identical
+/// sources are not byte-identical.
+#[test]
+fn a_toml_build_records_the_build_time() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = toml_project("")?;
+    let before = jiff::Timestamp::now() - jiff::SignedDuration::from_secs(1);
+    let (_, meta) = built(&dir, false)?;
+    let created: jiff::Timestamp = meta.created.parse()?;
+    assert!(
+        created >= before,
+        "`created` is {created}, not the build time"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_toml_index_usage_becomes_a_typed_index_usage() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = toml_project(
+        "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\nversion = \"^1.2\"\n",
+    )?;
+    let (info, _) = built(&dir, false)?;
+    assert_eq!(info.usage.len(), 1);
+    assert_eq!(
+        index_usage(&info.usage[0]),
+        ("acme".to_owned(), "dep".to_owned(), "^1.2".to_owned())
+    );
+    Ok(())
+}
+
+#[test]
+fn a_toml_kpar_url_usage_is_kept() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = toml_project(
+        "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\n\
+         kpar-url = \"https://example.com/dep.kpar\"\n",
+    )?;
+    let (info, _) = built(&dir, false)?;
+    assert!(
+        format!("{:?}", info.usage[0]).contains("https://example.com/dep.kpar"),
+        "{:?}",
+        info.usage[0]
+    );
+    Ok(())
+}
+
+/// With the flag, local usages are emitted as the typed usages
+/// `Directory` (source path) and `KparPath` (kpar path), which preserve
+/// the path as written, as the view already produces them, so no target is
+/// read.
+#[test]
+fn a_local_usage_builds_under_allow_path_usage() -> Result<(), Box<dyn std::error::Error>> {
+    // The target does not exist, and is named *inside* the fixture, so
+    // this also pins that the flag skips the read entirely.
+    let dir = toml_project(
+        "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"no-such-dep\"\n",
+    )?;
+    let (info, _) = built(&dir, true)?;
+    let rendered = format!("{:?}", info.usage[0]);
+    assert!(rendered.contains("Directory"), "{rendered}");
+    assert!(rendered.contains("no-such-dep"), "{rendered}");
+    Ok(())
+}
+
+/// The standard library is declared as a publisher-less `kpar-url`, and
+/// a build never resolves usages, so it reaches the KPAR view as a typed
+/// remote KPAR usage with no publisher.
+#[test]
+fn a_stdlib_kpar_url_usage_reaches_the_kpar_view_unchanged()
+-> Result<(), Box<dyn std::error::Error>> {
+    let iri = "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar";
+    let dir = toml_project(&format!(
+        "\n[[inline-usages]]\nname = \"Kernel Semantic Library\"\nkpar-url = \"{iri}\"\n"
+    ))?;
+    let (info, _) = built(&dir, false)?;
+    assert_eq!(kpar_url(&info.usage[0]), (iri.to_owned(), None));
+    Ok(())
+}
+
+/// The flag is about path usages; a `kpar-url` usage is copied either
+/// way.
+#[test]
+fn a_stdlib_kpar_url_usage_is_copied_under_the_flag_too() -> Result<(), Box<dyn std::error::Error>>
+{
+    let iri = "https://www.omg.org/spec/SysML/20250201/Quantities-and-Units-Domain-Library.kpar";
+    let dir = toml_project(&format!(
+        "\n[[inline-usages]]\nname = \"SysML Quantities and Units Library\"\n\
+         kpar-url = \"{iri}\"\n"
+    ))?;
+    let (info, _) = built(&dir, true)?;
+    assert_eq!(kpar_url(&info.usage[0]), (iri.to_owned(), None));
+    Ok(())
+}
+
+/// Only an `omg` publisher takes the standard-library path.
+#[test]
+fn a_non_omg_index_usage_is_untouched() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = toml_project(
+        "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\nversion = \"^1\"\n",
+    )?;
+    let (info, _) = built(&dir, false)?;
+    assert_eq!(
+        index_usage(&info.usage[0]),
+        ("acme".to_owned(), "dep".to_owned(), "^1".to_owned())
+    );
+    Ok(())
+}
+
+/// The gate: a json project with a typed local usage builds under
+/// `--allow-path-usage`, and the toml refusals must not reach it.
+#[test]
+fn a_json_project_with_a_typed_local_usage_builds_under_the_flag()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    std::fs::write(
+        dir.path().join(".project.json"),
+        br#"{"name": "widgets", "publisher": "acme", "version": "1.0.0",
+             "usage": [{"dir": "../dep", "publisher": "acme", "name": "dep"}]}"#,
+    )?;
+    std::fs::write(
+        dir.path().join(".meta.json"),
+        br#"{"created": "2001-02-03T04:05:06Z", "index": {}, "checksum": {}}"#,
+    )?;
+    built(&dir, true)?;
+    Ok(())
+}
+
+/// Through `do_build_workspace_kpars`: a `model.toml` member built from
+/// a workspace root records the build time too.
+#[test]
+fn a_workspace_of_toml_members_records_the_build_time() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    std::fs::write(
+        dir.path().join(MODEL_TOML_FILE),
+        "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"app\"]\n",
+    )?;
+    std::fs::create_dir_all(dir.path().join("app"))?;
+    std::fs::write(
+        dir.path().join("app/model.toml"),
+        "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"alpha\"\n\
+         version = \"1.0.0\"\nsources = [\"a.sysml\"]\nmetamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    )?;
+    std::fs::write(dir.path().join("app/a.sysml"), b"package A;\n")?;
+
+    let workspace = load_workspace(&dir);
+    let out = dir.path().join("output");
+    std::fs::create_dir_all(&out)?;
+    let before = jiff::Timestamp::now() - jiff::SignedDuration::from_secs(1);
+    let built = super::do_build_workspace_kpars(
+        &workspace,
+        &out,
+        KparCompressionMethod::default(),
+        true,
+        false,
+    )?;
+    let (_, meta) =
+        crate::project::ProjectRead::get_project(built.first().expect("one member was built"))
+            .expect("the pair reads")
+            .and_then(crate::project::ProjectDefinition::into_json)
+            .expect("the pair");
+    let created: jiff::Timestamp = meta.created.parse()?;
+    assert!(
+        created >= before,
+        "`created` is {created}, not the build time"
+    );
+    Ok(())
+}
+
+/// A project carrying `stdlib` is built without a publisher, so a locally
+/// built standard-library KPAR matches the published one.
+///
+/// `stdlib` is accepted only for a publisher normalizing to `omg` under a
+/// known OMG metamodel, so the fixture needs a real metamodel URL.
+#[test]
+fn a_stdlib_project_omits_its_publisher() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    std::fs::write(
+        dir.path().join("model.toml"),
+        "manifest-version = \"1.0\"\n\n[project]\npublisher = \"omg\"\nname = \"kerml\"\n\
+         version = \"1.0.0\"\nsources = [\"a.kerml\"]\nstdlib = \"KerML\"\n\
+         metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n",
+    )?;
+    std::fs::write(dir.path().join("a.kerml"), b"package A;\n")?;
+
+    let (info, _) = built(&dir, false)?;
+    assert_eq!(
+        info.publisher, None,
+        "a stdlib archive carries no publisher"
+    );
+    assert_eq!(info.name, "kerml");
+    Ok(())
+}
+
+#[test]
+fn a_non_stdlib_project_keeps_its_publisher() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = toml_project("")?;
+    let (info, _) = built(&dir, false)?;
+    assert_eq!(info.publisher.as_deref(), Some("acme"));
+    Ok(())
+}
+
+// ------------------------------------ a local usage becomes an index usage
+
+/// A json project at `at`, inside the fixture.
+fn json_target(dir: &camino_tempfile::Utf8TempDir, at: &str, version: &str) {
+    json_target_named(dir, at, "acme", "dep", version);
+}
+
+/// A json target that declares a pair of its own, for the tests about
+/// which spelling a usage has to carry.
+fn json_target_named(
+    dir: &camino_tempfile::Utf8TempDir,
+    at: &str,
+    publisher: &str,
+    name: &str,
+    version: &str,
+) {
+    let path = dir.path().join(at);
+    std::fs::create_dir_all(&path).expect("the target directory");
+    std::fs::write(
+        path.join(".project.json"),
+        format!(
+            r#"{{"name": "{name}", "publisher": "{publisher}", "version": "{version}", "usage": []}}"#
+        ),
+    )
+    .expect("a target manifest");
+    std::fs::write(
+        path.join(".meta.json"),
+        br#"{"created": "2001-02-03T04:05:06Z", "index": {}, "checksum": {}}"#,
+    )
+    .expect("a target metadata");
+}
+
+/// A `model.toml` project at `at`, with `body` appended to `[project]`
+/// and its one source file written: a target whose `sources` named a
+/// missing file would fail the dependent's build if the version were read
+/// through `get_info`.
+fn toml_target(dir: &camino_tempfile::Utf8TempDir, at: &str, version: &str, body: &str) {
+    let path = dir.path().join(at);
+    std::fs::create_dir_all(&path).expect("the target directory");
+    std::fs::write(
+        path.join("model.toml"),
+        format!(
+            "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"dep\"\n\
+             version = \"{version}\"\nsources = [\"b.sysml\"]\n{metamodel}{body}",
+            metamodel = if body.contains("metamodel") {
+                ""
+            } else {
+                "metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n"
+            }
+        ),
+    )
+    .expect("a target manifest");
+    std::fs::write(path.join("b.sysml"), b"package B;\n").expect("a target source");
+}
+
+/// A `model.toml` standard-library project at `at`: publisher `omg`, a
+/// `stdlib` stem and an inline OMG metamodel.
+///
+/// Inline and not `metamodel.workspace`: the target is read standalone,
+/// with no workspace to inherit a metamodel from.
+fn stdlib_target(dir: &camino_tempfile::Utf8TempDir, at: &str) {
+    let path = dir.path().join(at);
+    std::fs::create_dir_all(&path).expect("the target directory");
+    std::fs::write(
+        path.join("model.toml"),
+        "manifest-version = \"1.0\"\n\n[project]\npublisher = \"omg\"\nname = \"dep\"\n\
+         version = \"1.0.0\"\nsources = [\"b.kerml\"]\nstdlib = \"Semantic-Library\"\n\
+         metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n",
+    )
+    .expect("a target manifest");
+    std::fs::write(path.join("b.kerml"), b"package B;\n").expect("a target source");
+}
+
+const DIR_USAGE: &str =
+    "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"dep\"\n";
+
+fn resource(raw: &crate::model::InterchangeProjectUsageRaw) -> (String, Option<String>) {
+    match raw {
+        crate::model::InterchangeProjectUsageRaw::Resource {
+            resource,
+            version_constraint,
+        } => (resource.clone(), version_constraint.clone()),
+        other => panic!("expected a resource usage, got `{other:?}`"),
+    }
+}
+
+/// A typed remote KPAR usage: the URL and publisher.
+fn kpar_url(raw: &crate::model::InterchangeProjectUsageRaw) -> (String, Option<String>) {
+    match raw {
+        crate::model::InterchangeProjectUsageRaw::RemoteKpar {
+            kpar_url,
+            publisher,
+            name: _,
+        } => (kpar_url.clone(), publisher.clone()),
+        other => panic!("expected a remote KPAR usage, got `{other:?}`"),
+    }
+}
+
+/// A typed index usage: publisher, name and constraint.
+fn index_usage(usage: &crate::model::InterchangeProjectUsageRaw) -> (String, String, String) {
+    match usage {
+        crate::model::InterchangeProjectUsageRaw::Index {
+            publisher,
+            name,
+            version_constraint,
+        } => (publisher.clone(), name.clone(), version_constraint.clone()),
+        other => panic!("expected an index usage, got `{other:?}`"),
+    }
+}
+
+#[test]
+fn a_dir_usage_becomes_a_caret_index_usage() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = toml_project(DIR_USAGE)?;
+    json_target(&dir, "dep", "1.2.3");
+    let (info, _) = built(&dir, false)?;
+    assert_eq!(
+        index_usage(&info.usage[0]),
+        ("acme".to_owned(), "dep".to_owned(), "^1.2.3".to_owned())
+    );
+    Ok(())
+}
+
+#[test]
+fn a_dir_usage_reads_a_toml_target() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = toml_project(DIR_USAGE)?;
+    toml_target(&dir, "dep", "4.5.6", "");
+    let (info, _) = built(&dir, false)?;
+    assert_eq!(index_usage(&info.usage[0]).2, "^4.5.6");
+    Ok(())
+}
+
+/// The index usage a local usage becomes carries the publisher and name
+/// as the manifest spells them, which the target has to declare.
+#[test]
+fn a_dir_usage_keeps_the_manifest_spelling() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = toml_project(
+        "\n[[inline-usages]]\npublisher = \"Acme Labs\"\nname = \"Wid Gets\"\ndir = \"dep\"\n",
+    )?;
+    json_target_named(&dir, "dep", "Acme Labs", "Wid Gets", "1.0.0");
+    let (info, _) = built(&dir, false)?;
+    let (publisher, name, _) = index_usage(&info.usage[0]);
+    assert_eq!(
+        (publisher.as_str(), name.as_str()),
+        ("Acme Labs", "Wid Gets")
+    );
+    Ok(())
+}
+
+/// A build reads its targets itself, and a usage saying `ACME`/`Wid Gets` is not
+/// satisfied by a target declaring `acme`/`dep`.
+#[test]
+fn a_target_that_declares_another_project_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = toml_project(
+        "\n[[inline-usages]]\npublisher = \"ACME\"\nname = \"Wid Gets\"\ndir = \"dep\"\n",
+    )?;
+    json_target(&dir, "dep", "1.0.0");
+    let error = built(&dir, false).expect_err("the target declares `acme`/`dep`");
+    let text = error.to_string();
+    assert_matches!(
+        error,
+        KParBuildError::TomlTargetSpelling {
+            usage: _,
+            path: _,
+            declared: _
+        },
+        "{text}"
+    );
+    assert!(text.contains("which declares `acme/dep`"), "{text}");
+    Ok(())
+}
+
+#[test]
+fn a_missing_target_defines_no_project() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = toml_project(DIR_USAGE)?;
+    let error = built(&dir, false).expect_err("there is no `dep`");
+    assert_matches!(
+        error,
+        KParBuildError::TomlTargetMissing { usage: _, path: _ }
+    );
+    let text = error.to_string();
+    assert!(text.contains("acme/dep"), "{text}");
+    assert!(text.contains("defines no project"), "{text}");
+    Ok(())
+}
+
+#[test]
+fn an_empty_target_defines_no_project() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = toml_project(DIR_USAGE)?;
+    std::fs::create_dir_all(dir.path().join("dep"))?;
+    let error = built(&dir, false).expect_err("`dep` holds no manifest");
+    assert_matches!(
+        error,
+        KParBuildError::TomlTargetMissing { usage: _, path: _ }
+    );
+    Ok(())
+}
+
+/// A target whose version is not semver, refused with a hint. Reachable
+/// only for a json target.
+#[test]
+fn a_non_semver_target_is_refused_with_a_hint() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = toml_project(DIR_USAGE)?;
+    json_target(&dir, "dep", "2025-02-01");
+    let error = built(&dir, false).expect_err("`2025-02-01` is not semver");
+    assert_matches!(
+        error,
+        KParBuildError::TomlTargetVersion {
+            usage: _,
+            path: _,
+            version: _
+        }
+    );
+    let text = error.to_string();
+    assert!(text.contains("2025-02-01"), "{text}");
+    assert!(text.contains("--allow-path-usage"), "{text}");
+    Ok(())
+}
+
+/// A target that is there and does not read is neither
+/// `TomlTargetVersion` nor `TomlTargetMissing`, and cannot travel in
+/// `ProjectRead`, which carries the error type of the project being
+/// *built*.
+#[test]
+fn a_target_that_does_not_read_is_its_own_error() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = toml_project(DIR_USAGE)?;
+    json_target(&dir, "dep", "1.0.0");
+    toml_target(&dir, "dep", "1.0.0", "");
+    let error = built(&dir, false).expect_err("`dep` holds both manifests");
+    assert_matches!(
+        error,
+        KParBuildError::TomlTargetRead {
+            usage: _,
+            path: _,
+            source: _
+        }
+    );
+    Ok(())
+}
+
+/// A usage whose target carries `stdlib` is written as `resource =
+/// "<target's metamodel>/<target's stdlib>.kpar"`, with its version
+/// constraint.
+#[test]
+fn a_local_stdlib_target_becomes_an_omg_iri() -> Result<(), Box<dyn std::error::Error>> {
+    let dir =
+        toml_project("\n[[inline-usages]]\npublisher = \"omg\"\nname = \"dep\"\ndir = \"dep\"\n")?;
+    stdlib_target(&dir, "dep");
+
+    let (info, _) = built(&dir, false)?;
+    assert_eq!(
+        resource(&info.usage[0]),
+        (
+            "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar".to_owned(),
+            // Only the usage's form changes, so the constraint is the
+            // same `^<version>` a local target gets.
+            Some("^1.0.0".to_owned())
+        )
+    );
+    Ok(())
+}
+
+/// Under `--allow-path-usage` a local usage stays a typed path usage,
+/// stdlib target or not.
+#[test]
+fn a_local_stdlib_target_still_stays_typed_under_the_flag() -> Result<(), Box<dyn std::error::Error>>
+{
+    let dir =
+        toml_project("\n[[inline-usages]]\npublisher = \"omg\"\nname = \"dep\"\ndir = \"dep\"\n")?;
+    stdlib_target(&dir, "dep");
+
+    let (info, _) = built(&dir, true)?;
+    assert!(format!("{:?}", info.usage[0]).contains("Directory"));
+    Ok(())
+}
+
+/// The typed list and the raw list are the same usages in the same
+/// order, so the rewrite may patch positionally.
+#[test]
+fn the_typed_and_raw_usage_lists_correspond() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = toml_project(
+        "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"idx\"\nversion = \"^2\"\n\
+         \n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"dep\"\n\
+         \n[[inline-usages]]\npublisher = \"acme\"\nname = \"rem\"\nkpar-url = \"https://example.com/r.kpar\"\n",
+    )?;
+    json_target(&dir, "dep", "1.2.3");
+    let (info, _) = built(&dir, false)?;
+    assert_eq!(info.usage.len(), 3);
+    // The index usage keeps its own constraint: only the local one is
+    // rewritten, and it is rewritten in its own slot.
+    assert_eq!(
+        index_usage(&info.usage[0]),
+        ("acme".to_owned(), "idx".to_owned(), "^2".to_owned())
+    );
+    assert_eq!(
+        index_usage(&info.usage[1]),
+        ("acme".to_owned(), "dep".to_owned(), "^1.2.3".to_owned())
+    );
+    assert_eq!(
+        kpar_url(&info.usage[2]),
+        (
+            "https://example.com/r.kpar".to_owned(),
+            Some("acme".to_owned())
+        )
+    );
+    Ok(())
+}
+
+/// A `kpar-path` target is a *file*, and its version comes from the
+/// archive's own `.project.json`.
+///
+/// The target here is built from a **stdlib** project, so this also
+/// pins that the stdlib `resource` form cannot be produced from an
+/// archive: a KPAR carries no `model.toml` (one at its root is
+/// `TomlInKpar`), so a publisher-less standard-library archive still
+/// gets an index usage.
+#[test]
+fn a_kpar_path_usage_becomes_a_caret_index_usage() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = toml_project(
+        "\n[[inline-usages]]\npublisher = \"omg\"\nname = \"dep\"\nkpar-path = \"dep.kpar\"\n",
+    )?;
+    // Build the target archive first.
+    let target_dir = tempdir()?;
+    std::fs::write(
+        target_dir.path().join("model.toml"),
+        "manifest-version = \"1.0\"\n\n[project]\npublisher = \"omg\"\nname = \"dep\"\n\
+         version = \"7.8.9\"\nsources = [\"a.kerml\"]\nstdlib = \"Semantic-Library\"\n\
+         metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n",
+    )?;
+    std::fs::write(target_dir.path().join("a.kerml"), b"package A;\n")?;
+    let target = LocalSrcProject::new_access(target_dir.path(), None);
+    do_build_kpar(
+        &target,
+        dir.path().join("dep.kpar"),
+        KparCompressionMethod::default(),
+        true,
+        false,
+    )?;
+
+    let (info, _) = built(&dir, false)?;
+    assert_eq!(
+        index_usage(&info.usage[0]),
+        ("omg".to_owned(), "dep".to_owned(), "^7.8.9".to_owned())
+    );
+    Ok(())
+}
+
+/// A `kpar-path` entry naming a directory, and a `dir` entry naming a
+/// file, both define no project. Neither may surface as an IO error:
+/// joining `model.toml` onto a file gives `ENOTDIR`, not `NotFound`.
+#[test]
+fn a_target_of_the_wrong_kind_defines_no_project() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = toml_project(
+        "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\nkpar-path = \"dep\"\n",
+    )?;
+    std::fs::create_dir_all(dir.path().join("dep"))?;
+    let error = built(&dir, false).expect_err("a directory is not an archive");
+    assert_matches!(
+        error,
+        KParBuildError::TomlTargetMissing { usage: _, path: _ },
+        "{error}"
+    );
+
+    let other = toml_project(DIR_USAGE)?;
+    std::fs::write(other.path().join("dep"), b"not a directory\n")?;
+    let error = built(&other, false).expect_err("a file is not a project directory");
+    assert_matches!(
+        error,
+        KParBuildError::TomlTargetMissing { usage: _, path: _ },
+        "{error}"
+    );
+    Ok(())
+}
+
+// -------------------------------------- members build in `members` order
+
+/// A valid project name for a usage of `dep`. The build runs with
+/// `--allow-path-usage`, so no target is read and the name only has to
+/// satisfy the manifest's own rules, which a name of fewer than three
+/// characters does not.
+fn usage_name(dep: &str) -> String {
+    let last: String = dep
+        .rsplit('/')
+        .next()
+        .unwrap_or(dep)
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .collect();
+    if last.len() < 3 {
+        "selfdep".to_owned()
+    } else {
+        last
+    }
+}
+
+fn workspace_root(dir: &camino_tempfile::Utf8TempDir, members: &[&str]) {
+    let entries: Vec<String> = members.iter().map(|m| format!("\"{m}\"")).collect();
+    std::fs::write(
+        dir.path().join(MODEL_TOML_FILE),
+        format!(
+            "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [{}]\n",
+            entries.join(", ")
+        ),
+    )
+    .expect("a workspace file");
+}
+
+/// Loads the workspace with `MemberChecks::SkipStrayState`.
+fn load_workspace(dir: &camino_tempfile::Utf8TempDir) -> crate::workspace::model_toml::Workspace {
+    crate::workspace::model_toml::Workspace::load_with(
+        dir.path(),
+        crate::workspace::model_toml::MemberChecks::All,
+    )
+    .expect("the workspace loads")
+}
+
+/// A `model.toml` member. `stdlib` needs publisher `omg` and an OMG
+/// metamodel, which `ProjectManifest::resolve` enforces.
+fn toml_member(dir: &camino_tempfile::Utf8TempDir, at: &str, deps: &[&str], stdlib: bool) {
+    let path = dir.path().join(at);
+    std::fs::create_dir_all(&path).expect("the member directory");
+    let head = if stdlib {
+        format!(
+            "manifest-version = \"1.0\"\n\n[project]\npublisher = \"omg\"\nname = \"{at}\"\n\
+             version = \"1.0.0\"\nsources = [\"m.kerml\"]\nstdlib = \"Semantic-Library\"\n\
+             metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n"
+        )
+    } else {
+        format!(
+            "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"{at}\"\n\
+             version = \"1.0.0\"\nsources = [\"m.kerml\"]\nmetamodel = \"https://www.omg.org/spec/KerML/20250201\"\n"
+        )
+    };
+    let mut manifest = head;
+    for d in deps {
+        let name = usage_name(d);
+        manifest.push_str("\n[[inline-usages]]\npublisher = \"acme\"\nname = \"");
+        manifest.push_str(&name);
+        manifest.push_str("\"\ndir = \"");
+        manifest.push_str(d);
+        manifest.push_str("\"\n");
+    }
+    std::fs::write(path.join("model.toml"), manifest).expect("a member manifest");
+    std::fs::write(path.join("m.kerml"), b"package M;\n").expect("a member source");
+}
+
+/// The refusal to load the workspace in `dir`.
+///
+/// A cycle among members is refused when the workspace is *read*, so a
+/// `Workspace` carrying one cannot be constructed; these tests assert the
+/// refusal where it happens.
+fn load_workspace_err(dir: &camino_tempfile::Utf8TempDir) -> String {
+    crate::workspace::model_toml::Workspace::load_with(
+        dir.path(),
+        crate::workspace::model_toml::MemberChecks::All,
+    )
+    .expect_err("the workspace is refused")
+    .to_string()
+}
+
+/// The names of the archives, in the order they were built, of a
+/// workspace in which every member builds.
+fn build_workspace(dir: &camino_tempfile::Utf8TempDir) -> Vec<String> {
+    names(
+        &build_workspace_result(dir)
+            .unwrap_or_else(|failure| panic!("{failure}: {:?}", failure.failed)),
+    )
+}
+
+fn build_workspace_result(
+    dir: &camino_tempfile::Utf8TempDir,
+) -> Result<Vec<super::LocalKParProjectRaw>, super::WorkspaceBuildFailure> {
+    let workspace = load_workspace(dir);
+    let out = dir.path().join("output");
+    std::fs::create_dir_all(&out).expect("the output directory");
+    super::do_build_workspace_kpars(
+        &workspace,
+        &out,
+        KparCompressionMethod::default(),
+        true,
+        true,
+    )
+}
+
+/// Every member is built, in `members` order, whatever their `dir`
+/// usages of each other.
+#[test]
+fn members_build_in_members_order() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    workspace_root(&dir, &["gamma", "beta", "alpha"]);
+    toml_member(&dir, "alpha", &[], false);
+    toml_member(&dir, "beta", &["../alpha"], false);
+    toml_member(&dir, "gamma", &["../beta"], false);
+    assert_eq!(build_workspace(&dir), vec!["gamma", "beta", "alpha"]);
+    Ok(())
+}
+
+/// With no edges, `members` order is the answer.
+#[test]
+fn independent_members_keep_their_declared_order() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    workspace_root(&dir, &["gamma", "beta", "alpha"]);
+    for at in ["alpha", "beta", "gamma"] {
+        toml_member(&dir, at, &[], false);
+    }
+    assert_eq!(build_workspace(&dir), vec!["gamma", "beta", "alpha"]);
+    Ok(())
+}
+
+/// A project's usages routinely name projects outside it: such a usage
+/// is not an edge, and the outsider is not built.
+#[test]
+fn a_usage_of_a_non_member_is_not_an_edge() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    workspace_root(&dir, &["gamma", "beta"]);
+    toml_member(&dir, "outside", &[], false);
+    toml_member(&dir, "beta", &["../outside"], false);
+    toml_member(&dir, "gamma", &[], false);
+    assert_eq!(build_workspace(&dir), vec!["gamma", "beta"]);
+    Ok(())
+}
+
+#[test]
+fn a_cycle_between_members_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    workspace_root(&dir, &["alpha", "beta"]);
+    toml_member(&dir, "alpha", &["../beta"], false);
+    toml_member(&dir, "beta", &["../alpha"], false);
+    let text = load_workspace_err(&dir);
+    assert!(text.contains("dependency cycle"), "{text}");
+    assert!(text.contains("alpha"), "{text}");
+    assert!(text.contains("beta"), "{text}");
+    // Named as the workspace names them, not as absolute paths.
+    assert!(!text.contains(dir.path().as_str()), "{text}");
+    Ok(())
+}
+
+#[test]
+fn a_member_that_depends_on_itself_is_a_cycle() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    workspace_root(&dir, &["alpha"]);
+    toml_member(&dir, "alpha", &["../alpha"], false);
+    let text = load_workspace_err(&dir);
+    assert!(text.contains("dependency cycle"), "{text}");
+    Ok(())
+}
+
+/// A cycle on which every project carries the `stdlib` key is allowed,
+/// and is built in `members` order.
+#[test]
+fn a_cycle_of_stdlib_members_is_allowed() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    workspace_root(&dir, &["beta", "alpha"]);
+    toml_member(&dir, "alpha", &["../beta"], true);
+    toml_member(&dir, "beta", &["../alpha"], true);
+    assert_eq!(build_workspace(&dir), vec!["beta", "alpha"]);
+    Ok(())
+}
+
+#[test]
+fn a_cycle_with_one_non_stdlib_member_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    workspace_root(&dir, &["alpha", "beta"]);
+    toml_member(&dir, "alpha", &["../beta"], true);
+    toml_member(&dir, "beta", &["../alpha"], false);
+    let text = load_workspace_err(&dir);
+    assert!(text.contains("dependency cycle"), "{text}");
+    assert!(text.contains("beta"), "{text}");
+    Ok(())
+}
+
+// ------------------------------ a failed member does not stop the others
+
+/// A member that loads and cannot be built: its manifest is valid, so
+/// the workspace loads, and the source it lists is not there.
+///
+/// Not an empty directory: `load_member` refuses one ("defines no
+/// project"), which fails the whole load and makes the per-member
+/// reporting these tests exercise unreachable.
+fn broken_member(dir: &camino_tempfile::Utf8TempDir, at: &str) {
+    let path = dir.path().join(at);
+    std::fs::create_dir_all(&path).expect("the member directory");
+    std::fs::write(
+        path.join(MODEL_TOML_FILE),
+        format!(
+            "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"{at}\"\n\
+             version = \"1.0.0\"\nsources = [\"missing.kerml\"]\nmetamodel = \"https://www.omg.org/spec/KerML/20250201\"\n"
+        ),
+    )
+    .expect("a member manifest");
+}
+
+/// The project names of `archives`.
+fn names(archives: &[super::LocalKParProjectRaw]) -> Vec<String> {
+    archives
+        .iter()
+        .map(|p| {
+            crate::project::ProjectRead::get_project(p)
+                .ok()
+                .flatten()
+                .map_or_default(|definition| definition.name().to_owned())
+        })
+        .collect()
+}
+
+/// The failure of a workspace build that is expected to fail.
+fn build_workspace_failure(dir: &camino_tempfile::Utf8TempDir) -> super::WorkspaceBuildFailure {
+    build_workspace_result(dir).expect_err("a member fails")
+}
+
+fn failed_members(failure: &super::WorkspaceBuildFailure) -> Vec<&str> {
+    failure
+        .failed
+        .iter()
+        .map(|failed| failed.member.as_str())
+        .collect()
+}
+
+#[test]
+fn a_failed_member_does_not_stop_an_independent_one() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    workspace_root(&dir, &["alpha", "beta"]);
+    broken_member(&dir, "alpha");
+    toml_member(&dir, "beta", &[], false);
+
+    let failure = build_workspace_failure(&dir);
+    assert_eq!(failed_members(&failure), ["alpha"]);
+    assert_eq!(names(&failure.built), ["beta"]);
+    assert_eq!(
+        failure.to_string(),
+        "1 of 2 workspace members failed to build"
+    );
+    Ok(())
+}
+
+/// A build never reads another member's archive, so a member whose
+/// dependency failed builds all the same.
+#[test]
+fn a_failed_member_does_not_stop_its_dependents() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    workspace_root(&dir, &["beta", "alpha"]);
+    broken_member(&dir, "alpha");
+    toml_member(&dir, "beta", &["../alpha"], false);
+
+    let failure = build_workspace_failure(&dir);
+    assert_eq!(failed_members(&failure), ["alpha"]);
+    assert_eq!(names(&failure.built), ["beta"]);
+    Ok(())
+}
+
+#[test]
+fn a_workspace_that_builds_reports_every_member_built() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    workspace_root(&dir, &["gamma", "beta", "alpha"]);
+    toml_member(&dir, "alpha", &[], false);
+    toml_member(&dir, "beta", &["../alpha"], false);
+    toml_member(&dir, "gamma", &["../beta"], false);
+
+    assert_eq!(build_workspace(&dir).len(), 3);
+    Ok(())
+}
+
+/// A member whose source file is missing fails with its own name.
+#[test]
+fn a_member_that_cannot_be_read_fails_as_itself() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    workspace_root(&dir, &["alpha"]);
+    broken_member(&dir, "alpha");
+
+    let failure = build_workspace_failure(&dir);
+    let [failed] = failure.failed.as_slice() else {
+        panic!("one failure: {:?}", failure.failed);
+    };
+    assert_eq!(failed.member, "alpha");
+    assert_matches!(
+        *failed.error,
+        KParBuildError::ProjectRead(_),
+        "{}",
+        failed.error
+    );
+    Ok(())
+}
+
+// --------------------------------------------------- the publish order
+
+#[test]
+fn publish_order_is_the_dependency_order() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    workspace_root(&dir, &["gamma", "beta", "alpha"]);
+    toml_member(&dir, "alpha", &[], false);
+    toml_member(&dir, "beta", &["../alpha"], false);
+    toml_member(&dir, "gamma", &["../beta"], false);
+
+    let workspace = load_workspace(&dir);
+    let order = super::workspace_publish_order(&workspace);
+
+    let root = crate::project::utils::wrapfs::canonicalize(dir.path())?;
+    assert_eq!(
+        order,
+        vec![
+            ("alpha".into(), root.join("output/alpha-1.0.0.kpar")),
+            ("beta".into(), root.join("output/beta-1.0.0.kpar")),
+            ("gamma".into(), root.join("output/gamma-1.0.0.kpar")),
+        ],
+        "the full archive path matters: a member-directory `output/` is also under the root"
+    );
+    Ok(())
+}
+
+#[test]
+fn publish_order_refuses_a_cycle() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    workspace_root(&dir, &["alpha", "beta"]);
+    toml_member(&dir, "alpha", &["../beta"], false);
+    toml_member(&dir, "beta", &["../alpha"], false);
+
+    // A cycle is refused when the workspace is read, before a publish
+    // order can be asked of it.
+    let text = load_workspace_err(&dir);
+    assert!(text.contains("dependency cycle"), "{text}");
+    Ok(())
+}
+
+/// Mapping members to archives reads their manifests, not their sources:
+/// a member with a missing source fails when it is built.
+#[test]
+fn publish_order_reads_no_member_source() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    workspace_root(&dir, &["alpha", "beta"]);
+    broken_member(&dir, "alpha");
+    toml_member(&dir, "beta", &[], false);
+
+    let workspace = load_workspace(&dir);
+    let order = super::workspace_publish_order(&workspace);
+    assert_eq!(order.len(), 2);
+    Ok(())
+}
+
+/// A member that inherits a key can be the *target* of another member's
+/// `dir` usage.
+///
+/// `local_target_usage` must open the target with the workspace table:
+/// opened without one, a marker on the target is unresolvable and the
+/// usage fails with "not a member of any workspace", although it is one.
+#[test]
+fn a_member_that_inherits_can_be_a_usage_target() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    workspace_root(&dir, &["app", "dep"]);
+    std::fs::write(
+        dir.path().join(MODEL_TOML_FILE),
+        "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [\"app\", \"dep\"]\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    )?;
+    for (at, extra) in [
+        ("dep", ""),
+        (
+            "app",
+            "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"../dep\"\n",
+        ),
+    ] {
+        let path = dir.path().join(at);
+        std::fs::create_dir_all(&path)?;
+        std::fs::write(
+            path.join(MODEL_TOML_FILE),
+            format!(
+                "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"{at}\"\n\
+                 version = \"1.0.0\"\nmetamodel.workspace = true\n\
+                 sources = [\"m.kerml\"]\n{extra}"
+            ),
+        )?;
+        std::fs::write(path.join("m.kerml"), b"package M;\n")?;
+    }
+
+    // `allow_path_usage: false`, as `sysand build` passes it: with it
+    // true, a local usage stays typed and the target is never read at all.
+    let workspace = load_workspace(&dir);
+    let out = dir.path().join("output");
+    std::fs::create_dir_all(&out)?;
+    if let Err(failure) = super::do_build_workspace_kpars(
+        &workspace,
+        &out,
+        KparCompressionMethod::default(),
+        true,
+        false,
+    ) {
+        panic!("an inheriting target is readable: {:?}", failure.failed);
+    }
+    Ok(())
+}
+
+/// A Syside project with the conventional files, ready to build.
+/// The extracted form of a Syside archive: a json project whose
+/// `.meta.json` carries `root` and `exports`, and whose `checksum`
+/// covers the readme and the license file as well as the model files.
+#[cfg(feature = "syside-kpar")]
+fn syside_json_project_with_extras()
+-> Result<camino_tempfile::Utf8TempDir, Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    let files: [(&str, &[u8]); 4] = [
+        ("a.sysml", b"package A;\n"),
+        ("b.sysml", b"package B;\n"),
+        ("README.md", b"# widgets\n"),
+        ("LICENSES/MIT.txt", b"MIT\n"),
+    ];
+    std::fs::create_dir_all(dir.path().join("LICENSES"))?;
+    let mut checksum = serde_json::Map::new();
+    for (path, contents) in files {
+        std::fs::write(dir.path().join(path), contents)?;
+        checksum.insert(
+            path.to_owned(),
+            serde_json::json!({
+                "value": crate::utils::sha256_lowercase_hex(contents),
+                "algorithm": "SHA256",
+            }),
+        );
+    }
+    std::fs::write(
+        dir.path().join(".project.json"),
+        serde_json::json!({
+            "name": "widgets",
+            "publisher": "acme",
+            "version": "1.0.0",
+            "license": "MIT",
+            "usage": [],
+        })
+        .to_string(),
+    )?;
+    std::fs::write(
+        dir.path().join(".meta.json"),
+        serde_json::json!({
+            "root": "a.sysml",
+            "exports": ["A", "B"],
+            "created": "2026-01-01T00:00:00.000000000Z",
+            "metamodel": "https://www.sysand.com/spec/SysML/20250201",
+            "checksum": checksum,
+        })
+        .to_string(),
+    )?;
+    Ok(dir)
+}
+
+/// A Syside `model.toml` names `root` alone, and the files it reaches
+/// cannot be found yet, so the build is refused before anything is
+/// written.
+#[test]
+fn a_syside_toml_project_is_not_built() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    std::fs::write(
+        dir.path().join("model.toml"),
+        "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
+         version = \"1.0.0\"\nmetamodel = \"https://www.sysand.com/spec/SysML/20250201\"\n\
+         root = \"a.sysml\"\n",
+    )?;
+    std::fs::write(dir.path().join("a.sysml"), b"package A;\n")?;
+    let error = built(&dir, false).expect_err("a Syside `model.toml` is not built");
+    assert_matches!(error, KParBuildError::Unlisted(_));
+    assert_eq!(
+        error.to_string(),
+        "`acme/widgets` is a Syside-metamodel project, whose files are reached from its `root` \
+         `a.sysml`; finding them is not supported yet"
+    );
+    assert!(!dir.path().join("out.kpar").exists());
+    Ok(())
+}
+
+#[cfg(feature = "syside-kpar")]
+fn archive_names(path: &camino::Utf8Path) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let mut zip = zip::ZipArchive::new(std::fs::File::open(path)?)?;
+    let mut names: Vec<String> = (0..zip.len())
+        .map(|i| {
+            let f = zip.by_index(i)?;
+            f.name().map(std::borrow::Cow::into_owned)
+        })
+        .collect::<Result<_, _>>()?;
+    names.sort();
+    Ok(names)
+}
+
+/// The extracted form of a Syside archive is a json project that builds
+/// the Syside shape, and its archive builds again. With `checksum`
+/// covering the readme and the license file, the build must not lex
+/// them as sources or package them twice; and `sysand sources` on the
+/// extracted form lists the model files only.
+#[cfg(feature = "syside-kpar")]
+#[test]
+fn the_extracted_form_of_a_syside_kpar_builds_again() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = syside_json_project_with_extras()?;
+    let (_, meta) = built(&dir, false)?;
+    let first = dir.path().join("out.kpar");
+    let mut keys: Vec<&String> = meta.checksum.as_ref().expect("checksum").keys().collect();
+    keys.sort();
+    assert_eq!(
+        keys,
+        ["LICENSES/MIT.txt", "README.md", "a.sysml", "b.sysml"]
+    );
+
+    let extracted = tempdir()?;
+    zip::ZipArchive::new(std::fs::File::open(&first)?)?.extract(extracted.path())?;
+    let json = LocalSrcProject::new_access(extracted.path(), None);
+    let sources = crate::commands::sources::do_sources_project_no_deps(&json, true)?;
+    let mut sources: Vec<String> = sources.into_iter().map(|p| p.as_str().to_owned()).collect();
+    sources.sort();
+    assert_eq!(sources, ["a.sysml", "b.sysml"]);
+
+    let second = extracted.path().join("again.kpar");
+    do_build_kpar(
+        &json,
+        &second,
+        KparCompressionMethod::default(),
+        true,
+        false,
+    )?;
+    assert_eq!(archive_names(&second)?, archive_names(&first)?);
+    let again = crate::project::local_kpar::LocalKParProjectRaw::new_guess_root(&second)?;
+    let (_, again_meta) = crate::project::ProjectRead::get_project(&again)?
+        .and_then(crate::project::ProjectDefinition::into_json)
+        .expect("the pair");
+    assert_eq!(again_meta.root, meta.root);
+    assert_eq!(again_meta.exports, meta.exports);
+    assert_eq!(
+        again_meta
+            .checksum
+            .map(|c| c.into_keys().collect::<std::collections::BTreeSet<_>>()),
+        meta.checksum
+            .map(|c| c.into_keys().collect::<std::collections::BTreeSet<_>>())
+    );
+    Ok(())
 }

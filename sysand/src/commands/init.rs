@@ -1,17 +1,28 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use crate::{CliError, cli::Metamodel, commands::info::log_license_files_note};
-use anyhow::Result;
+use crate::{
+    CliError,
+    cli::{MetamodelKindCli, MetamodelVersionCli},
+    commands::info::log_license_files_note,
+};
+use anyhow::{Result, bail};
 use camino::{Utf8Path, Utf8PathBuf};
+use clap::ValueEnum as _;
 use semver::Version;
+use sysand_core::paths::relativize_path;
 use sysand_core::{
     context::ProjectContext,
-    discover::{discover_project, discover_workspace},
-    model::{ProjectName, ProjectPublisher},
+    init::{InitError, ProjectKind, do_init_json},
+    manifest::{
+        MODEL_TOML_FILE,
+        common::InheritFrom,
+        edit::{push_member, validated},
+        inherit::{Inherited, MetaProperty},
+        workspace_table::Region,
+    },
+    model::{IdentifierKind, KnownMetamodel, ProjectName, ProjectPublisher},
     project::{local_src::LocalSrcProject, utils::wrapfs},
-    utils::{RelativePathKind, parse_relative_unix_path},
-    workspace::Workspace,
 };
 
 const DEFAULT_VERSION: &str = "0.0.1";
@@ -21,38 +32,198 @@ pub fn command_init(
     publisher: ProjectPublisher,
     version: Option<Version>,
     license: Option<spdx::Expression>,
-    metamodel: Option<Metamodel>,
+    kind: ProjectKind,
+    metamodel: Option<KnownMetamodel>,
     path: Option<Utf8PathBuf>,
     ctx: ProjectContext,
 ) -> Result<()> {
-    let target = match path {
-        Some(p) => {
-            wrapfs::create_dir_all(&p)?;
-            p
-        }
-        None => Utf8PathBuf::from("."),
+    let target = path.unwrap_or_else(|| Utf8PathBuf::from("."));
+    if let Some(existing_project) = ctx.current_project() {
+        warn_found_project(existing_project);
+    }
+    // Before `do_init_toml`: a refusal should be about the workspace, not a file
+    // collision the workspace explains.
+    let member = workspace_member(&target, &ctx)?;
+    // The metamodel is mandatory and must be known before anything is
+    // written, unless the project is created inside a workspace whose
+    // default group defines one. A `.meta.json` cannot hold the marker
+    // that inherits it.
+    let metamodel = match kind {
+        ProjectKind::ModelToml => metamodel_for(metamodel, member.as_ref())?,
+        ProjectKind::ProjectJson => match metamodel {
+            Some(metamodel) => MetaProperty::Provided(metamodel.to_string()),
+            None => bail!(
+                "`--metamodel <url>` is required for `--kind project-json`: a project\n\
+                {SP:>8} declares its metamodel, and a `.meta.json` cannot inherit it.\n\
+                {SP:>8} It is one of {list}",
+                SP = ' ',
+                list = KnownMetamodel::RECOGNIZED,
+            ),
+        },
     };
-    warn_parent_project_workspace(&target, &ctx)?;
 
     let version = version.unwrap_or_else(|| Version::parse(DEFAULT_VERSION).unwrap());
+    // Whether the name was chosen or inherited decides whether there is
+    // anything to suggest when it turns out to be unusable.
+    let named = name.is_some();
     let name = match name {
         Some(n) => n,
         None => default_name_from_path(&target)?,
     };
 
-    let metamodel = metamodel.map(sysand_core::model::Metamodel::from);
     let has_license = license.is_some();
-    sysand_core::init::do_init(
-        name,
-        publisher,
-        version,
-        license,
-        metamodel,
-        &mut LocalSrcProject::new_access(target, None),
-    )?;
+    let inherited_kind = member
+        .as_ref()
+        .and_then(|member| member.group_metamodel.clone());
+    let mut storage = LocalSrcProject::new_access(target, None);
+    let (name, publisher, version, license) = (
+        name.into_string(),
+        publisher.into_string(),
+        version.to_string(),
+        license.map(|l| l.to_string()),
+    );
+    match kind {
+        ProjectKind::ModelToml => sysand_core::init::do_init_toml_ext(
+            name,
+            publisher,
+            version,
+            license,
+            Some(metamodel),
+            inherited_kind,
+            &mut storage,
+        ),
+        ProjectKind::ProjectJson => {
+            do_init_json(name, publisher, version, license, metamodel, &mut storage)
+        }
+    }
+    .map_err(|error| match error {
+        // The name came from the directory, so the fix is not where the
+        // message points. A publisher never comes from a directory.
+        InitError::Identifier(identifier) if !named && identifier.kind == IdentifierKind::Name => {
+            CliError::InvalidDirectoryIdentifier(identifier).into()
+        }
+        error => anyhow::Error::new(error),
+    })?;
     if has_license {
         log_license_files_note();
     }
+
+    // After, so a project that could not be written leaves no `members`
+    // entry pointing at nothing.
+    if let Some(member) = member {
+        append_member(&member.root, &member.path)?;
+    }
+    Ok(())
+}
+
+/// The metamodel `--metamodel` names: `sysml` or `kerml` the OMG
+/// metamodel of `release`, anything else one of the recognized IRIs.
+pub fn parse_metamodel(value: &str, release: MetamodelVersionCli) -> Result<KnownMetamodel> {
+    match MetamodelKindCli::from_str(value, false) {
+        Ok(kind) => Ok(KnownMetamodel::omg(kind.into(), release.into())),
+        Err(_) => crate::commands::check_metamodel(value),
+    }
+}
+
+/// The metamodel `init` writes: the argument, or else the default
+/// group's, which is the one case where none given is not an error. A
+/// given argument wins over the workspace.
+fn metamodel_for(
+    metamodel: Option<KnownMetamodel>,
+    member: Option<&Member>,
+) -> Result<MetaProperty<String>> {
+    if let Some(metamodel) = metamodel {
+        return Ok(MetaProperty::Provided(metamodel.to_string()));
+    }
+    // Only the default group, and only for a project that is becoming a
+    // member.
+    if member.is_some_and(|member| member.group_metamodel.is_some()) {
+        return Ok(MetaProperty::Inherited(Inherited {
+            from: InheritFrom::DefaultGroup,
+            at: None,
+        }));
+    }
+    bail!(
+        "`--metamodel <url>` is required: a project declares its metamodel,\n\
+        {SP:>8} and it cannot be guessed. It is one of {list}\n\
+        {SP:>8} (inside a workspace whose default group declares `metamodel`,\n\
+        {SP:>8} the argument may be omitted and the project inherits it)",
+        SP = ' ',
+        list = KnownMetamodel::RECOGNIZED,
+    )
+}
+
+/// What `init` learns about the workspace it is creating a project in:
+/// where to append the member, and whether the default group declares a
+/// `metamodel` the new project can inherit.
+struct Member {
+    root: Utf8PathBuf,
+    path: String,
+    /// The default group's `metamodel` value, when it declares one: what
+    /// a marker will resolve to, and what decides the layout `init`
+    /// writes.
+    group_metamodel: Option<KnownMetamodel>,
+}
+
+/// `init` in a workspace creates the project and appends it to
+/// `members`. `Ok(Some(..))` is the root to append to and the path to
+/// write; `Ok(None)` is every case where nothing is appended: no
+/// workspace, or an excluded directory.
+fn workspace_member(target: &Utf8Path, ctx: &ProjectContext) -> Result<Option<Member>> {
+    let Some(workspace) = ctx.workspace() else {
+        return Ok(None);
+    };
+    let (root, table) = (workspace.root(), workspace.table());
+    // `relativize_path` asserts absolute, dot-free paths, and `target`
+    // is a raw command-line argument.
+    let target = wrapfs::canonicalize(target)?;
+
+    // `do_init_toml` would refuse this anyway as the root holds a `model.toml`;
+    // this gives the reason.
+    if target == root {
+        bail!(
+            "the workspace root must not contain a project;\n\
+            {SP:>8} create it in a subdirectory",
+            SP = ' '
+        );
+    }
+
+    let relative = relativize_path(&target, root)?;
+    match table.region(&relative) {
+        Region::Member(_, entry) if relative == entry.path => bail!(
+            "`{relative}` is already member `{}`;\n\
+            {SP:>8} a member directory holds one project",
+            entry.raw,
+            SP = ' '
+        ),
+        Region::Member(_, entry) => bail!(
+            "`{relative}` lies inside member `{}`;\n\
+            {SP:>8} nested members are not supported",
+            entry.raw,
+            SP = ' '
+        ),
+        // Anything under an excluded directory is outside the workspace:
+        // a standalone project, which `members` must not list.
+        Region::Excluded(_) => Ok(None),
+        Region::Unlisted => Ok(Some(Member {
+            group_metamodel: table.default_group.metamodel.clone(),
+            root: root.to_owned(),
+            path: relative.to_string(),
+        })),
+    }
+}
+
+/// Add `path` to the root's `members`, leaving the rest of the file,
+/// comments included, alone.
+fn append_member(root: &Utf8Path, path: &str) -> Result<()> {
+    let file = root.join(MODEL_TOML_FILE);
+    let text = wrapfs::read_to_string(&file)?;
+    let mut document = validated(file.as_str(), &text)?;
+    push_member(&mut document, path)?;
+    let edited = document.to_string();
+    validated(file.as_str(), &edited)?;
+    wrapfs::write(&file, edited)?;
+    log::info!("added `{path}` to the workspace at `{root}`");
     Ok(())
 }
 
@@ -67,42 +238,11 @@ fn default_name_from_path<P: AsRef<Utf8Path>>(path: P) -> Result<ProjectName> {
         .map_err(|(dir_name, e)| CliError::InvalidDirectoryName(dir_name, e))?)
 }
 
-pub fn warn_parent_project_workspace(target: &Utf8Path, ctx: &ProjectContext) -> Result<()> {
-    if parse_relative_unix_path(target.as_str(), RelativePathKind::SubDirectory).is_ok() {
-        // Target is a subdirectory of cwd
-        if let Some(existing_project) = &ctx.current_project {
-            warn_parent_project(existing_project);
-        }
-        if let Some(existing_workspace) = &ctx.current_workspace {
-            warn_parent_workspace(existing_workspace);
-        }
-    } else {
-        // Target may be out of cwd, so cwd-derived ctx is irrelevant
-        if let Some(existing_project) = discover_project(target)? {
-            warn_parent_project(&existing_project);
-        }
-        if let Some(existing_workspace) = discover_workspace(target)? {
-            warn_parent_workspace(&existing_workspace);
-        }
-    }
-    Ok(())
-}
-
-fn warn_parent_project(existing_project: &LocalSrcProject) {
+fn warn_found_project(existing_project: &LocalSrcProject) {
     log::warn!(
         "found an existing project in one of target path's parent\n\
         {:>8} directories `{}`",
         ' ',
         existing_project.root_path()
-    );
-}
-
-fn warn_parent_workspace(existing_workspace: &Workspace) {
-    log::warn!(
-        "found an existing workspace in one of target path's parent\n\
-        {:>8} directories `{}`;\n\
-        you may want to add this project to the workspace",
-        ' ',
-        existing_workspace.root_path()
     );
 }
