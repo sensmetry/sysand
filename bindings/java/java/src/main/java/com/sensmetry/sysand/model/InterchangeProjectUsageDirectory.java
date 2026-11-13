@@ -39,4 +39,3 @@ public class InterchangeProjectUsageDirectory implements InterchangeProjectUsage
         this.name = name;
     }
 }
-

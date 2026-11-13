@@ -17,9 +17,55 @@
 #        https://github.com/renovatebot/renovate/pull/42254
 #
 fail_fast: true
-# Hook-level `env` needs 0.2.27
-minimum_prek_version: "0.2.27"
+# The `priorities` aliases need 0.4.11
+minimum_prek_version: "0.4.11"
+
+# Hook scheduling.
+#
+# prek runs hooks sequentially unless they share an explicit `priority`, and
+# hooks with equal priority run concurrently. Hooks without a priority run
+# first.
+#
+# The split is by write behaviour:
+#
+#   no priority         Hooks that may rewrite files, these must run
+#                       sequentially.
+#   priority: readonly  Hooks that only read. Run concurrently, after
+#                       the writers.
+#
+# When adding a hook, leave `priority` unset unless it never writes to the
+# working tree. Set `PREK_NO_CONCURRENCY=1` to force sequential runs when
+# debugging.
+priorities:
+  readonly: 100
+
 repos:
+  # Sanity checks on the repository itself
+  - repo: builtin
+    hooks:
+      - id: no-commit-to-branch
+        priority: readonly
+      - id: check-case-conflict
+        priority: readonly
+      - id: check-merge-conflict
+        priority: readonly
+      - id: check-symlinks
+        priority: readonly
+      - id: destroyed-symlinks
+        priority: readonly
+      - id: check-vcs-permalinks
+        priority: readonly
+      - id: check-executables-have-shebangs
+        priority: readonly
+      - id: check-shebang-scripts-are-executable
+        priority: readonly
+      # Writers.
+      # stdlib_assets/ comes from upstream and .vscode/ is managed by VS Code.
+      - id: trailing-whitespace
+        exclude: ^(core/src/stdlib_assets/|\.vscode/)
+      - id: end-of-file-fixer
+        exclude: ^(core/src/stdlib_assets/|\.vscode/)
+
   # Autoformat: markdown, yaml, json, js
   - repo: https://github.com/rbubley/mirrors-prettier
     rev: v3.9.10
@@ -119,6 +165,7 @@ repos:
               bindings/py/python/|
               bindings/java/scripts/
           )
+        priority: readonly
 
   # Lint: javascript
   - repo: https://github.com/pre-commit/mirrors-eslint
@@ -130,6 +177,7 @@ repos:
         language: node
         files: ^bindings/js/
         types: [javascript]
+        priority: readonly
         additional_dependencies:
           - eslint@^10.14.0
           - "@eslint/js@^10.0.1"
@@ -159,9 +207,11 @@ repos:
           - shellcheck-py==0.11.0.1
         types: [yaml]
         files: ^\.github/workflows/
+        priority: readonly
 
   # Lint: shell scripts. Config in .shellcheckrc
   - repo: https://github.com/shellcheck-py/shellcheck-py
     rev: v0.11.0.1-1
     hooks:
       - id: shellcheck
+        priority: readonly
