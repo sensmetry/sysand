@@ -672,11 +672,6 @@ impl Identifier {
         self.0
     }
 
-    /// Construct `Identifier` from a String, assuming it's a valid IRI
-    pub fn from_iri_unchecked(iri: String) -> Self {
-        Self(iri)
-    }
-
     /// Construct `Identifier` from `&str`, assuming it's a valid IRI
     pub fn from_iri_unchecked_str(iri: &str) -> Self {
         Self(iri.to_owned())

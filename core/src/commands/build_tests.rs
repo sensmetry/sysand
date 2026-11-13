@@ -934,9 +934,7 @@ fn a_cycle_with_one_non_stdlib_member_is_refused() -> Result<(), Box<dyn std::er
 // ------------------------------ a failed member does not stop the others
 
 /// A member that loads and cannot be built: its manifest is valid, so
-/// the workspace loads, and the source it lists is not there, so
-/// `default_kpar_file_name`, which reads the project, is where it fails,
-/// before the build proper.
+/// the workspace loads, and the source it lists is not there.
 ///
 /// Not an empty directory: `load_member` refuses one ("defines no
 /// project"), which fails the whole load and makes the per-member

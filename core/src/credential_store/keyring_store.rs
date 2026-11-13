@@ -201,18 +201,6 @@ pub struct LockedBlobStore<B> {
     lock_poll_interval: Duration,
 }
 
-/// The OS-keyring-backed credential store.
-#[cfg(feature = "keyring")]
-pub type KeyringCredentialStore = LockedBlobStore<OsKeyringBackend>;
-
-#[cfg(feature = "keyring")]
-impl KeyringCredentialStore {
-    /// The OS keyring store with the default per-user lock path.
-    pub fn open_default() -> Result<Self, CredentialStoreError> {
-        Ok(Self::new(OsKeyringBackend, default_lock_path()?))
-    }
-}
-
 impl<B: BlobBackend> LockedBlobStore<B> {
     pub fn new(backend: B, lock_path: Utf8PathBuf) -> Self {
         Self {

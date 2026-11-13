@@ -84,7 +84,6 @@ pub fn command_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
             | IndexAddError::IoWithCleanupSuccess { source: _ }
             | IndexAddError::MissingInfo(_)
             | IndexAddError::ProjectRemoved { iri: _ }
-            | IndexAddError::MissingMeta(_)
             | IndexAddError::ProjectDigest(_)
             | IndexAddError::ProjectRead(_)
             | IndexAddError::DuplicateVersion {

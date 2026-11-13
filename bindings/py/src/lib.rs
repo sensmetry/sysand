@@ -1146,7 +1146,6 @@ fn do_build_py(
                     path: _,
                     source: _,
                 }
-                | KParBuildError::Serialize(..)
                 | KParBuildError::MissingIndexSymbol(_, _)
                 | KParBuildError::Unlisted(_)
                 | KParBuildError::KeepIndexOnRoot => PyValueError::new_err(e),

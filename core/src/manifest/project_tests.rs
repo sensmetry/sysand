@@ -872,7 +872,6 @@ fn inline_usages_are_read_from_the_top_level() {
             at: _
         }
     );
-    assert!(read.inherits());
 }
 
 /// Within any one array, two entries of the same identity are rejected as
@@ -1352,15 +1351,6 @@ fn an_inherited_metamodel_settles_the_sources_check() {
         [SOURCES_IN_SYSIDE],
         "unexpected report: {report:?}"
     );
-}
-
-/// A marker-free non-member reads as an ordinary standalone project, so
-/// it must be possible to ask before resolving.
-#[test]
-fn inherits_answers_before_resolving() {
-    assert!(!manifest(RESOLVABLE).inherits());
-    assert!(manifest(&format!("{RESOLVABLE}urls.workspace = true\n")).inherits());
-    assert!(manifest(&format!("{RESOLVABLE}urls.website.workspace = true\n")).inherits());
 }
 
 /// A `project` key that is written but is not a table has one thing

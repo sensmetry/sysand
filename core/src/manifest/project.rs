@@ -428,38 +428,6 @@ impl ProjectManifest {
         }
     }
 
-    /// Whether anything in this manifest is inherited.
-    ///
-    /// A project carrying a marker cannot be read outside a workspace.
-    pub fn inherits(&self) -> bool {
-        let project = &self.project;
-        project.publisher.inherited().is_some()
-            || project.version.inherited().is_some()
-            || marked(project.license.as_ref())
-            || marked(project.topics.as_ref())
-            || marked(project.metamodel.as_ref())
-            || marked(project.maintainers.as_ref())
-            || project.urls.as_ref().is_some_and(|urls| match urls {
-                MetaProperty::Inherited(_) => true,
-                MetaProperty::Provided(urls) => {
-                    marked(urls.website.as_ref())
-                        || marked(urls.documentation.as_ref())
-                        || marked(urls.repository.as_ref())
-                }
-            })
-            || self.inline_usages.iter().any(|usage| {
-                matches!(
-                    usage,
-                    MemberUsage::Inherited {
-                        publisher: _,
-                        name: _,
-                        from: _,
-                        at: _
-                    }
-                )
-            })
-    }
-
     /// Follow every marker, then run the validation that needs the effective
     /// metamodel.
     ///
@@ -705,11 +673,6 @@ impl ProjectManifest {
             _ => Err(report),
         }
     }
-}
-
-/// Whether an optional key carries a marker.
-fn marked<T>(property: Option<&MetaProperty<T>>) -> bool {
-    property.is_some_and(|property| property.inherited().is_some())
 }
 
 fn collect<T>(result: Result<T, Diagnostic>, report: &mut Diagnostics) -> Option<T> {

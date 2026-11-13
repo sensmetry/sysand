@@ -353,15 +353,6 @@ impl LocalKParProjectRaw {
         })
     }
 
-    pub fn new_temporary() -> Result<Self, Box<FsIoError>> {
-        let tmp_dir = tempdir().map_err(FsIoError::MkTempDir)?;
-        Ok(Self {
-            archive_path: tmp_dir.path().join("project.kpar"),
-            tmp_dir,
-            root: None,
-        })
-    }
-
     pub fn new_tempdir<P: AsRef<Utf8Path>>(
         tmp_dir: Utf8TempDir,
         path: P,

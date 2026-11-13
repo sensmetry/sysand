@@ -337,12 +337,6 @@ pub fn join_lexical(base: &Utf8Path, relative: &Utf8Path) -> Utf8PathBuf {
     joined
 }
 
-/// Whether `path` is an in-place subdirectory: relative, with no `.` or `..`
-/// component.
-pub fn is_relative_subdirectory(path: &str) -> bool {
-    parse_relative_unix_path(path, RelativePathKind::SubDirectory).is_ok()
-}
-
 #[derive(Debug, Error, Clone)]
 pub enum RelativizePathError {
     #[error("unable to relativize path `{path}` with respect to `{root}`")]

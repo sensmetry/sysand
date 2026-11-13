@@ -64,8 +64,6 @@ pub enum IndexAddError {
     },
     #[error("{INFO_FILE_NAME} file is missing from KPAR `{0}`")]
     MissingInfo(Utf8PathBuf),
-    #[error("{META_FILE_NAME} file is missing from the KPAR `{0}`")]
-    MissingMeta(Utf8PathBuf),
     #[error("failed to compute project digest")]
     ProjectDigest(#[from] CanonicalizationError<LocalKParError>),
     #[error(transparent)]

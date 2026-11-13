@@ -979,12 +979,6 @@ pub(crate) fn handle_build_error(env: &mut Env<'_>, error: &KParBuildError<Local
                 format!("Zip write error: {e}"),
             );
         }
-        KParBuildError::Serialize(..) => {
-            env.throw_exception(
-                ExceptionKind::SysandException,
-                format!("Project serialization error: {e}"),
-            );
-        }
         KParBuildError::PathUsage(_) => {
             env.throw_exception(ExceptionKind::SysandException, e);
         }

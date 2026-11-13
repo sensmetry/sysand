@@ -382,14 +382,6 @@ impl IndexLocation {
             Self::Template(template) => template.expand(segments),
         }
     }
-
-    /// The plain base URL, if this location is not a template.
-    pub fn as_root(&self) -> Option<&url::Url> {
-        match self {
-            Self::Root(url) => Some(url),
-            Self::Template(_) => None,
-        }
-    }
 }
 
 impl fmt::Display for IndexLocation {

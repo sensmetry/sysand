@@ -17,7 +17,6 @@ use indexmap::IndexMap;
 
 use crate::{
     context::ProjectContext,
-    env::utils::{CloneError, clone_project},
     lock::Source,
     manifest::{MODEL_TOML_FILE, ParsedModelToml, kpar_view, project::ResolvedProject},
     model::{
@@ -214,25 +213,6 @@ impl LocalSrcProject {
             final_path.push(component);
         }
         Ok(final_path)
-    }
-
-    pub fn temporary_from_project<Pr: ProjectRead>(
-        project: &Pr,
-    ) -> Result<
-        (
-            camino_tempfile::Utf8TempDir,
-            Self,
-            InterchangeProjectInfoRaw,
-            InterchangeProjectMetadataRaw,
-        ),
-        CloneError<Pr::Error, LocalSrcError>,
-    > {
-        let tmp = camino_tempfile::tempdir().map_err(FsIoError::MkTempDir)?;
-        let mut tmp_project = Self::new_access(wrapfs::canonicalize(tmp.path())?, None);
-
-        let (info, meta) = clone_project(project, &mut tmp_project, true)?;
-
-        Ok((tmp, tmp_project, info, meta))
     }
 
     pub fn set_index(&mut self, new_index: IndexMap<String, String>) -> Result<(), LocalSrcError> {

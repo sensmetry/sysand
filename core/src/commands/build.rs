@@ -212,8 +212,6 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
     MissingInfo,
     #[error(transparent)]
     Zip(#[from] ZipArchiveError),
-    #[error("project serialization error: {0}")]
-    Serialize(&'static str, #[source] serde_json::Error),
     #[error(
         "project includes a path usage `{0}`,\n\
         which is unlikely to be available on other computers at the same path"
@@ -253,21 +251,6 @@ impl<ProjectReadError: ErrorBound> From<ProjectOrIOError<ProjectReadError>>
 /// one, at its root; a standalone project has its own.
 pub const DEFAULT_OUTPUT_NAME: &str = "output";
 
-/// `workspace_root` is the root of the workspace the project is a member of,
-/// if it is one. A workspace has one `output/`, at its root, so a member's
-/// archive goes there wherever the build was run from.
-pub fn default_kpar_path<Pr: ProjectRead>(
-    project: &Pr,
-    workspace_root: Option<&Utf8Path>,
-    project_path: &Utf8Path,
-) -> Result<Utf8PathBuf, KParBuildError<Pr::Error>> {
-    Ok(output_path_in(
-        workspace_root,
-        project_path,
-        &default_kpar_file_name(project)?,
-    ))
-}
-
 fn output_path_in(
     workspace_root: Option<&Utf8Path>,
     project_path: &Utf8Path,
@@ -280,22 +263,17 @@ fn output_path_in(
     path
 }
 
-/// [`default_kpar_path`] for a manifest already read.
+/// Where a build writes a project's archive when it is not told otherwise.
+///
+/// `workspace_root` is the root of the workspace the project is a member of,
+/// if it is one. A workspace has one `output/`, at its root, so a member's
+/// archive goes there wherever the build was run from.
 pub fn default_kpar_path_of(
     definition: &ProjectDefinition,
     workspace_root: Option<&Utf8Path>,
     project_path: &Utf8Path,
 ) -> Utf8PathBuf {
     output_path_in(workspace_root, project_path, &kpar_file_name_of(definition))
-}
-
-pub fn default_kpar_file_name<Pr: ProjectRead>(
-    project: &Pr,
-) -> Result<String, KParBuildError<Pr::Error>> {
-    let Some(definition) = project.get_project().map_err(KParBuildError::ProjectRead)? else {
-        return Err(KParBuildError::MissingInfo);
-    };
-    Ok(kpar_file_name_of(&definition))
 }
 
 fn kpar_file_name_of(definition: &ProjectDefinition) -> String {
