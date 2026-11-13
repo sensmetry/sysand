@@ -3,7 +3,7 @@
 
 package com.sensmetry.sysand.model;
 
-// TODO(Java 17+): use sealed classes and interfaces 
+// TODO(Java 17+): use sealed classes and interfaces
 // This is meant to be a sealed interface and Sysand only supports
 // usage classes from this package.
 public interface InterchangeProjectUsage {}
